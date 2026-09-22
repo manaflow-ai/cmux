@@ -53,12 +53,12 @@ jobs:
         uses: ./.github/actions/cache-restore
         with:
           backend: ${{ vars.CI_CACHE_BACKEND }}
-          path: .ci-source-packages
+          path: ${{ runner.temp }}/cmux-source-packages
           key: spm-${{ steps.package-key.outputs.hash }}
           restore-keys: spm-
 
       - name: Sanitize Swift package cache
-        run: python3 scripts/ci/sanitize-xcode-source-packages-cache.py .ci-source-packages
+        run: python3 scripts/ci/sanitize-xcode-source-packages-cache.py "$RUNNER_TEMP/cmux-source-packages"
 
       - name: Compute compilation cache fingerprint
         id: cas-key
@@ -83,7 +83,7 @@ jobs:
           python3 "$RUNNER_TEMP/benchmark.py" build \
             --workspace "$GITHUB_WORKSPACE" \
             --derived "$RUNNER_TEMP/cmux-derived-data-compile-admission" \
-            --source-packages "$GITHUB_WORKSPACE/.ci-source-packages" \
+            --source-packages "$RUNNER_TEMP/cmux-source-packages" \
             --cas "$RUNNER_TEMP/cmux-compile-admission-cas" \
             --label seed-A \
             --source-metrics "$RUNNER_TEMP/seed-source.json" \
@@ -196,9 +196,6 @@ jobs:
           - restored-synthetic-merge
           - relocated-workspace
           - relocated-dd
-    env:
-      CMUX_CANARY_WORKSPACE: ${{ matrix.arm == 'relocated-workspace' && format('{0}/cmux-relocated-workspace', runner.temp) || github.workspace }}
-      CMUX_CANARY_DERIVED: ${{ matrix.arm == 'relocated-dd' && format('{0}/cmux-derived-data-relocated', runner.temp) || format('{0}/cmux-derived-data-compile-admission', runner.temp) }}
     steps:
       - name: Checkout benchmark harness
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -212,6 +209,25 @@ jobs:
 
       - name: Select Xcode
         run: ./scripts/select-ci-xcode.sh
+
+      - name: Resolve benchmark paths
+        env:
+          ARM: ${{ matrix.arm }}
+        run: |
+          if [ "$ARM" = "relocated-workspace" ]; then
+            workspace="$RUNNER_TEMP/cmux-relocated-workspace"
+          else
+            workspace="$GITHUB_WORKSPACE"
+          fi
+          if [ "$ARM" = "relocated-dd" ]; then
+            derived="$RUNNER_TEMP/cmux-derived-data-relocated"
+          else
+            derived="$RUNNER_TEMP/cmux-derived-data-compile-admission"
+          fi
+          {
+            echo "CMUX_CANARY_WORKSPACE=$workspace"
+            echo "CMUX_CANARY_DERIVED=$derived"
+          } >> "$GITHUB_ENV"
 
       - name: Start worktree download timer
         if: matrix.arm == 'restored-generation' || matrix.arm == 'restored-synthetic-merge' || matrix.arm == 'relocated-workspace' || matrix.arm == 'relocated-dd'
@@ -316,12 +332,12 @@ jobs:
         uses: ./.github/actions/cache-restore
         with:
           backend: ${{ vars.CI_CACHE_BACKEND }}
-          path: ${{ env.CMUX_CANARY_WORKSPACE }}/.ci-source-packages
+          path: ${{ runner.temp }}/cmux-source-packages
           key: spm-${{ steps.package-key.outputs.hash }}
           restore-keys: spm-
 
       - name: Sanitize Swift package cache
-        run: python3 "$CMUX_CANARY_WORKSPACE/scripts/ci/sanitize-xcode-source-packages-cache.py" "$CMUX_CANARY_WORKSPACE/.ci-source-packages"
+        run: python3 "$CMUX_CANARY_WORKSPACE/scripts/ci/sanitize-xcode-source-packages-cache.py" "$RUNNER_TEMP/cmux-source-packages"
 
       - name: Compute compilation cache fingerprint
         id: cas-key
@@ -348,7 +364,7 @@ jobs:
           python3 "$RUNNER_TEMP/benchmark.py" build \
             --workspace "$CMUX_CANARY_WORKSPACE" \
             --derived "$CMUX_CANARY_DERIVED" \
-            --source-packages "$CMUX_CANARY_WORKSPACE/.ci-source-packages" \
+            --source-packages "$RUNNER_TEMP/cmux-source-packages" \
             --cas "$RUNNER_TEMP/cmux-compile-admission-cas" \
             --label "${{ matrix.arm }}" \
             --source-metrics "$RUNNER_TEMP/source.json" \
