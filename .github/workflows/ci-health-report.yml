@@ -1,0 +1,72 @@
+name: CI health report
+
+# Where CI time went, on a schedule, so waste stops being something somebody
+# has to go and discover by querying the Actions API by hand.
+#
+# scripts/ci/ci_health_report.py holds the whole report: runner minutes by
+# workflow, job and runner label split by conclusion; queue wait (created ->
+# started) percentiles per runner label; the wasteful patterns worth acting on;
+# and the same headline numbers for the previous window so a regression shows
+# up as a change. docs/ci/health-report.md says what each number means and
+# which threshold should make somebody do something.
+#
+# This workflow only reads. Cancelling wasted demand belongs to
+# .github/workflows/ci-queue-janitor.yml, which is why the token here has
+# `actions: read` and no write scope on runs.
+#
+# Output is the step summary always. When the repository variable
+# CI_HEALTH_REPORT_ISSUE names a tracking issue whose title starts with
+# "[CI Health]", the report also refreshes one marker-delimited comment on that
+# issue in place. No issue is ever opened automatically: create the tracking
+# issue by hand and point the variable at it.
+on:
+  schedule:
+    - cron: "37 2,8,14,20 * * *"
+  workflow_dispatch:
+    inputs:
+      window_hours:
+        description: "Hours to report on (the previous window of the same length is the baseline)"
+        required: false
+        default: "6"
+        type: string
+      skip_issue:
+        description: "Render to the step summary only, leaving the tracking issue untouched"
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  actions: read
+  issues: write
+  contents: read
+
+# The report refreshes one comment in place, so two runs must not read the same
+# comment and then overwrite each other.
+concurrency:
+  group: ci-health-report
+  cancel-in-progress: false
+
+jobs:
+  report:
+    name: Report CI health
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 15
+    steps:
+      - name: Check out trusted report code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Measure the window and refresh the report
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          WINDOW_HOURS: ${{ inputs.window_hours || '6' }}
+          MAX_RUN_PAGES: ${{ vars.CI_HEALTH_MAX_RUN_PAGES }}
+          MAX_JOB_LISTINGS: ${{ vars.CI_HEALTH_MAX_JOB_LISTINGS }}
+          JOBS_PER_WORKFLOW: ${{ vars.CI_HEALTH_JOBS_PER_WORKFLOW }}
+          # An empty value means "step summary only". `a && b || c` returns c
+          # whenever b is falsy, so the skip has to be written as the negative:
+          # only a dispatch that did not ask to skip passes the issue through.
+          CI_HEALTH_REPORT_ISSUE: ${{ (inputs.skip_issue != true) && vars.CI_HEALTH_REPORT_ISSUE || '' }}
+        run: python3 scripts/ci/ci_health_report.py
