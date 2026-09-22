@@ -319,6 +319,7 @@ def check_review_ledger_contract(cli_path: str) -> list[str]:
         )
         if init.returncode != 0:
             return [f"cmux review fixture: git init failed: {init.stderr!r}"]
+        canonical_repository = str(repository.resolve())
 
         review_id = "aaaaaaaa-bbbbbbbb-" + ("c" * 64)
         receipt_dir = repository / ".git" / "cmux" / "reviews"
@@ -447,7 +448,7 @@ def check_review_ledger_contract(cli_path: str) -> list[str]:
                 "list",
                 ["review", "list", "--repo", str(repository), "--json"],
                 lambda payload: (
-                    payload["repo_root"] == str(repository)
+                    payload["repo_root"] == canonical_repository
                     and payload["reviews"][0]["id"] == offset_review_id
                     and payload["reviews"][0]["verified"] == 1
                 ),
