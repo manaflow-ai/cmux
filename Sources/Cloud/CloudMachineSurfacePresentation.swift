@@ -28,7 +28,7 @@ struct CloudMachineSurfacePresentation {
         case .asleep:
             text = String(localized: "cloudTree.displays.asleep", defaultValue: "Displays unavailable while the machine sleeps")
             style = .dimmed
-        case .unavailable:
+        case .unavailable, .offline:
             text = String(localized: "cloudTree.displays.unavailable", defaultValue: "Display discovery unavailable. Refresh to retry.")
             style = .dimmed
         case .connected, .notApplicable:

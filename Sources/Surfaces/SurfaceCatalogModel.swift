@@ -7,27 +7,38 @@ import Foundation
 // "is this terminal open somewhere?" has one answer and closing a pane never destroys a
 // remote resource. Pure values here; the owner is `SurfaceCatalog`.
 
-/// Where a resource lives. `.local` is this Mac; `.cloud` is a cmux Cloud machine id.
+/// Where a resource lives. `.local` is this Mac; `.cloud` is a cmux Cloud machine id;
+/// `.device` is another Mac signed into the same account (one tagged app instance).
 enum SurfaceMachineID: Hashable, Codable, Sendable, CustomStringConvertible {
     case local
     case cloud(String)
+    case device(SurfaceDeviceInstanceID)
 
     var description: String {
         switch self {
         case .local: return "local"
         case .cloud(let id): return id
+        case .device(let instance): return instance.wireValue
         }
     }
 
-    /// Wire form: `"local"` or the machine id.
+    /// Wire form: `"local"`, the cloud machine id, or `device:<uuid>@<tag>`.
     var rawValue: String { description }
 
     init(rawValue: String) {
-        self = rawValue == "local" ? .local : .cloud(rawValue)
+        if rawValue == "local" {
+            self = .local
+        } else if let instance = SurfaceDeviceInstanceID(wireValue: rawValue) {
+            self = .device(instance)
+        } else {
+            self = .cloud(rawValue)
+        }
     }
 
     var isLocal: Bool { if case .local = self { return true } else { return false } }
     var cloudMachineID: String? { if case .cloud(let id) = self { return id } else { return nil } }
+    var deviceInstance: SurfaceDeviceInstanceID? { if case .device(let instance) = self { return instance } else { return nil } }
+    var isDevice: Bool { deviceInstance != nil }
 }
 
 enum SurfaceResourceKind: String, Codable, Sendable, CaseIterable {
@@ -1590,6 +1601,30 @@ struct SurfaceRemoteWorkspace: Hashable, Codable, Sendable {
     var name: String
     var index: Int
     var focused: Bool
+    /// The workspace's presented working directory, when the provider reports one.
+    var detail: String? = nil
+    /// The remote sidebar's unread badge count, when the provider reports one.
+    var unreadCount: Int? = nil
+    /// Whether the workspace is pinned on its machine, when the provider reports it.
+    var isPinned: Bool? = nil
+
+    init(
+        id: String,
+        name: String,
+        index: Int,
+        focused: Bool,
+        detail: String? = nil,
+        unreadCount: Int? = nil,
+        isPinned: Bool? = nil
+    ) {
+        self.id = id
+        self.name = name
+        self.index = index
+        self.focused = focused
+        self.detail = detail
+        self.unreadCount = unreadCount
+        self.isPinned = isPinned
+    }
 }
 
 /// One view of a remote resource: a tab in one of the daemon's workspaces. A resource
@@ -1718,6 +1753,9 @@ enum SurfaceLinkState: String, Codable, Sendable {
     case asleep
     case unavailable
     case error
+    /// Another Mac that the presence service reports offline (app quit, asleep, or
+    /// unreachable); its last known tree stays listed until it comes back.
+    case offline
     /// The local Mac needs no link.
     case notApplicable = "n/a"
 }
