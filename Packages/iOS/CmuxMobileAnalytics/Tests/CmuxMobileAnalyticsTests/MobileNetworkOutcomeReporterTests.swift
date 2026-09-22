@@ -8,7 +8,8 @@ private struct NetworkOutcomeTestConsent: AnalyticsConsentProviding {
 }
 
 @Suite struct MobileNetworkOutcomeReporterTests {
-    @Test func taskModelFailureEmitsAxiomDiagnostic() async {
+    @Test(arguments: [nil, 0, 3] as [Int?])
+    func taskModelFailureEmitsAxiomDiagnostic(modelCount: Int?) async {
         let uploader = RecordingAnalyticsUploader()
         let emitter = AnalyticsEmitter(
             uploader: uploader,
@@ -23,7 +24,7 @@ private struct NetworkOutcomeTestConsent: AnalyticsConsentProviding {
             ms: 850,
             a: DiagnosticAppEventKind.taskModelListLoadFailed.rawValue,
             b: DiagnosticFailureKind.hostUnreachable.rawValue,
-            c: 0
+            c: modelCount
         ))
         await reporter.flush()
 
@@ -32,6 +33,7 @@ private struct NetworkOutcomeTestConsent: AnalyticsConsentProviding {
         #expect(event?.properties["operation"] == .string("model_list"))
         #expect(event?.properties["outcome"] == .string("failure"))
         #expect(event?.properties["duration_ms"] == .int(850))
+        #expect(event?.properties["model_count"] == .int(modelCount ?? 0))
         #expect(event?.properties["failure"] == .string("hostUnreachable"))
     }
 
