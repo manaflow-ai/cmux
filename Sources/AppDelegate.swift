@@ -36,6 +36,8 @@ import CmuxSidebar
 import CmuxGit
 import os
 
+// Incremental-generation canary: comment-only app-target edit.
+
 private nonisolated let sudoApprovalLogger = Logger(
     subsystem: "com.cmuxterm.app",
     category: "SudoApproval"
