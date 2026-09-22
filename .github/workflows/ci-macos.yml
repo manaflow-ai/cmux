@@ -2080,6 +2080,8 @@ jobs:
             : >"$TEST_OUTPUT"
             local output_path
             shopt -s nullglob
+            # The unquoted expansion is the glob this line exists to perform.
+            # shellcheck disable=SC2206
             local output_paths=("$RUNNER_TEMP"/cmux-unit-output-*-of-${LOGICAL_SHARD_TOTAL}-run-*.txt)
             shopt -u nullglob
             for output_path in "${output_paths[@]}"; do
@@ -2373,7 +2375,7 @@ jobs:
     outputs:
       release_archs: ${{ steps.release-archs.outputs.archs }}
     # Build the release helper with SDK 15, then run package tests with SDK 26.
-    runs-on: ${{ vars.MACOS_RUNNER_DUAL_XCODE || 'blacksmith-6vcpu-macos-15' }}
+    runs-on: ${{ github.event_name == 'pull_request' && (vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15') || vars.MACOS_RUNNER_DUAL_XCODE || 'blacksmith-6vcpu-macos-15' }}
     timeout-minutes: 40
     env:
       CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_15 }}

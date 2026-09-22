@@ -3322,10 +3322,13 @@ def test_guard_python_setup_is_scoped_to_owning_groups() -> None:
     prepare_block = block[
         prepare:block.index("      - name: Validate Blacksmith Testbox broker trust boundary", prepare)
     ]
+    # release-notary joined when test_release_homebrew_gate.py was wired there:
+    # it imports yaml, and that was the one group running Python guards without
+    # the venv.
     assert (
         "if: ${{ matrix.group == 'ci' || matrix.group == 'app-host-execution' || "
         "matrix.group == 'app-host-process' || matrix.group == 'app-host-cache' || "
-        "matrix.group == 'release-tooling' }}"
+        "matrix.group == 'release-notary' || matrix.group == 'release-tooling' }}"
     ) in prepare_block
     assert "python3 -m venv" in prepare_block
     assert "packages=(PyYAML==6.0.3)" in prepare_block

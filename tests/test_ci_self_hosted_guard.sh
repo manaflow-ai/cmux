@@ -264,7 +264,7 @@ check_release_helper_artifact_from_package_lane() {
     /^  swift-package-tests:/ { in_job=1; next }
     in_job && /^  [^[:space:]#][^:]*:[[:space:]]*(#.*)?$/ { in_job=0 }
 
-    in_job && /runs-on:[[:space:]]*\$\{\{ vars\.MACOS_RUNNER_DUAL_XCODE \|\| '\''blacksmith-6vcpu-macos-15'\'' \}\}/ { saw_dual_runner=1 }
+    in_job && /runs-on:[[:space:]]*\$\{\{ github\.event_name == '\''pull_request'\'' && \(vars\.MACOS_RUNNER_PR \|\| '\''blacksmith-6vcpu-macos-15'\''\) \|\| vars\.MACOS_RUNNER_DUAL_XCODE \|\| '\''blacksmith-6vcpu-macos-15'\'' \}\}/ { saw_dual_runner=1 }
     in_job && /timeout-minutes:[[:space:]]*40/ { saw_timeout=1 }
     in_job && /CMUX_CI_HELPER_XCODE_APP:/ { saw_helper_xcode_env=1 }
     in_job && /- name: Select helper Xcode/ { saw_helper_select=1; next }
@@ -1408,8 +1408,14 @@ check_persistent_compile_router() {
   fi
 
   observer_step="$(printf '%s\n' "$admission_block" | awk '
-    /^      - name: Observe persistent Mac compile candidate$/ { in_step=1; print; next }
-    in_step && /^      - name:/ { exit }
+    !finished && /^      - name: Observe persistent Mac compile candidate$/ { in_step=1; print; next }
+    in_step && /^      - name:/ {
+      # Keep consuming the block after the step ends. Exiting awk early can
+      # SIGPIPE the upstream printf while pipefail is active.
+      in_step=0
+      finished=1
+      next
+    }
     in_step { print }
   ')"
   if [ -z "$observer_step" ]; then
