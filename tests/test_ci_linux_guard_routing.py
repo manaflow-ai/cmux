@@ -126,6 +126,41 @@ class LinuxGuardRoutingTests(unittest.TestCase):
             "ghosttykit_release": "true",
         })
 
+    def test_persistent_mac_control_plane_runs_only_its_own_guard_lane(self):
+        expected = {
+            name: "true" if name == "linux_guard_tests" else "false" for name in JOBS
+        }
+        for path in (
+            "scripts/ci/persistent_mac_route.py",
+            "tests/test_ci_persistent_mac_compile.py",
+            "tests/test_ci_self_hosted_guard.sh",
+        ):
+            with self.subTest(path=path):
+                self.assertEqual(route([path]), expected)
+
+    def test_macos_admission_helpers_run_only_workflow_guard_contracts(self):
+        expected = {
+            name: "true" if name == "linux_guard_tests" else "false" for name in JOBS
+        }
+        for path in (
+            "scripts/ci/build_input_fingerprint.py",
+            "scripts/ci/find_admitted_build.py",
+            "scripts/ci/app_host_test_products.py",
+            "scripts/ci/compile-app-host-test-product.sh",
+            "scripts/ci/product_input_identity.py",
+            "scripts/ci/restore-app-host-test-product.sh",
+            "scripts/ci/reuse_app_host_products.py",
+            "scripts/ci/sanitize-xcode-source-packages-cache.py",
+        ):
+            with self.subTest(path=path):
+                self.assertEqual(route([path]), expected)
+
+    def test_unknown_ci_helper_still_runs_every_guard(self):
+        self.assertEqual(
+            route(["scripts/ci/future_unknown_helper.py"]),
+            dict.fromkeys(JOBS, "true"),
+        )
+
     def test_web_edit_skips_native_history_cli_and_binary_download(self):
         outputs = route(["web/app/page.tsx"])
         self.assertEqual(outputs, {

@@ -1,6 +1,6 @@
 import CmuxMobilePairedMac
 public import CmuxMobileShellModel
-import Foundation
+public import Foundation
 
 @MainActor
 extension MobileShellComposite {

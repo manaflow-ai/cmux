@@ -453,7 +453,7 @@ actor CloudTunnelCoordinator: CloudPrivateNetworkGate {
             // retained continuation still needs explicit release on every exit.
             defer { linkBroadcast.remove(linkSubscriptionID) }
             let snapshotRevision = linkStatusRevision
-            _ = await controller.currentStatus()
+            let snapshotStatus = await controller.currentStatus()
             // Read the status again after the first await. If the extension
             // reported a disconnect while that snapshot was suspended, the
             // second read observes the newer NetworkExtension state even if
@@ -461,6 +461,13 @@ actor CloudTunnelCoordinator: CloudPrivateNetworkGate {
             // observer does run, the revision check remains authoritative.
             let confirmed = await controller.currentStatus()
             let settledStatus = linkStatusRevision == snapshotRevision ? confirmed : linkStatus
+            if (snapshotStatus == .connecting || snapshotStatus == .reasserting),
+               (settledStatus == .disconnected || settledStatus == .invalid) {
+                throw CloudTunnelError.startFailed(String(
+                    localized: "cloudTunnel.error.linkDropped",
+                    defaultValue: "macOS reported the VPN as disconnected before it came up."
+                ))
+            }
             linkStatus = settledStatus
             switch settledStatus {
             case .connected:

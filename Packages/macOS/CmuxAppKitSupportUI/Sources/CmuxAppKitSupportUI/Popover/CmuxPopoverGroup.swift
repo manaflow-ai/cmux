@@ -59,6 +59,7 @@ public final class CmuxPopoverGroup {
             contains: contains,
             containsPointer: containsPointer,
             close: { [weak popover] in
+                // Finish each child's close before its parent tears down its window.
                 popover?.animates = false
                 popover?.close()
             }

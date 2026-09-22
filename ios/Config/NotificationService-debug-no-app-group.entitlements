@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!-- See cmux-debug-no-app-group.entitlements. The extension must omit the
+         same App Group claim as its host when ASC API-key provisioning cannot
+         grant that association for a fresh tagged bundle ID. -->
+    <key>keychain-access-groups</key>
+    <array>
+        <string>$(AppIdentifierPrefix)$(CMUX_HOST_BUNDLE_IDENTIFIER)</string>
+    </array>
+</dict>
+</plist>

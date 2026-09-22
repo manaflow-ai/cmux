@@ -148,7 +148,7 @@ if ! awk '
   exit 1
 fi
 
-CI_WORKFLOW_FILE="$ROOT_DIR/.github/workflows/ci.yml"
+CI_WORKFLOW_FILE="$ROOT_DIR/.github/workflows/ci-macos.yml"
 # A cache saved from a pull request is readable only by that pull request, and
 # each save pushes the main seeds out of a size-capped store. Pull request
 # Release builds read the cache warmed from main and never write one.
