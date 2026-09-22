@@ -333,6 +333,9 @@ func TestTmuxCorpusNewSessionAndNewWindowCommandsDispatchShellText(t *testing.T)
 // respawn-pane" and Claude Code fell back to headless for the session.
 func TestTmuxCorpusRespawnPaneDispatchesSurfaceRespawn(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
+	// The respawn dispatch reads both from the ambient environment; pin them for every subtest.
+	t.Setenv("CMUX_CLAUDE_TEAMS_SANDBOXED", "")
+	t.Setenv(claudeTeamsRespawnEnvironmentKey, "")
 
 	const paneTarget = "%33333333-3333-4333-8333-333333333333"
 	const wantSurface = "44444444-4444-4444-8444-444444444444"
@@ -504,6 +507,53 @@ func TestTmuxCorpusRespawnPaneDispatchesSurfaceRespawn(t *testing.T) {
 		}
 		if got := params["tmux_start_command"]; got != "claude --resume" {
 			t.Errorf("tmux_start_command = %q (must stay raw for persistence)", got)
+		}
+	})
+
+	t.Run("claude-teams respawn transport prepends the launcher PATH", func(t *testing.T) {
+		t.Setenv(claudeTeamsRespawnEnvironmentKey, encodeClaudeTeamsRespawnEnvironment(
+			[]string{"PATH=/opt/homebrew/bin:/usr/bin:/bin"},
+		))
+		recorder := startTmuxCorpusRPCRecorder(t)
+		rc := &rpcContext{socketPath: recorder.socketPath}
+
+		err := dispatchTmuxCommand(rc, "respawn-pane", []string{
+			"-k", "-t", paneTarget, "claude --agent-id teammate-1",
+		})
+		if err != nil {
+			t.Fatalf("respawn-pane: %v", err)
+		}
+		requests := recorder.requestsFor("surface.respawn")
+		if len(requests) != 1 {
+			t.Fatalf("surface.respawn requests = %d, want 1", len(requests))
+		}
+		params := requests[0].Params
+		want := `/bin/sh -c 'export PATH='"'"'/opt/homebrew/bin:/usr/bin:/bin'"'"'; claude --agent-id teammate-1'`
+		if got := params["command"]; got != want {
+			t.Errorf("command = %q, want %q", got, want)
+		}
+		if got := params["tmux_start_command"]; got != "claude --agent-id teammate-1" {
+			t.Errorf("tmux_start_command = %q (must stay raw for persistence)", got)
+		}
+	})
+
+	t.Run("claude-teams respawn ignores an unreadable transport value", func(t *testing.T) {
+		t.Setenv(claudeTeamsRespawnEnvironmentKey, "!!!not-base64!!!")
+		recorder := startTmuxCorpusRPCRecorder(t)
+		rc := &rpcContext{socketPath: recorder.socketPath}
+
+		err := dispatchTmuxCommand(rc, "respawn-pane", []string{
+			"-k", "-t", paneTarget, "claude --agent-id teammate-1",
+		})
+		if err != nil {
+			t.Fatalf("respawn-pane: %v", err)
+		}
+		requests := recorder.requestsFor("surface.respawn")
+		if len(requests) != 1 {
+			t.Fatalf("surface.respawn requests = %d, want 1", len(requests))
+		}
+		if got := requests[0].Params["command"]; got != `/bin/sh -c 'claude --agent-id teammate-1'` {
+			t.Errorf("command = %q, want no exports", got)
 		}
 	})
 
