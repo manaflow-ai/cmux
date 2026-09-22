@@ -9,6 +9,7 @@ import os
 from pathlib import Path
 import re
 import shutil
+import platform
 import subprocess
 import sys
 import time
@@ -422,6 +423,10 @@ def build(workspace: Path, derived: Path, source_packages: Path, cas: Path, labe
         "build_wall_seconds": round(wall, 6),
         "xcode": output("xcodebuild", "-version"),
         "sdk": output("xcrun", "--sdk", "macosx", "--show-sdk-version"),
+        "sdk_build": output("xcrun", "--sdk", "macosx", "--show-sdk-build-version"),
+        "developer_dir": os.environ.get("DEVELOPER_DIR", ""),
+        "host_macos": output("sw_vers", "-productVersion"),
+        "architecture": platform.machine(),
         **parsed,
     }
     if source_metrics and source_metrics.is_file():
