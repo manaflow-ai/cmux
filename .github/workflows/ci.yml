@@ -38,7 +38,10 @@ env:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  # A label-only rerun can escalate the same head to full-ci. Let the current
+  # compile finish and publish its app-host product so the queued run can reuse
+  # it instead of throwing away a long compile and starting from zero.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' && github.event.action != 'labeled' && github.event.action != 'unlabeled' }}
 
 jobs:
   changes:

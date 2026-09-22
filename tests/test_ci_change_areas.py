@@ -889,6 +889,15 @@ def test_ci_router_runs_on_every_pr_and_merge_group() -> None:
     assert "  pull_request:\n    types: [opened, synchronize, reopened, labeled, unlabeled]\n  merge_group:" in workflow
     assert "    paths:" not in workflow
 
+
+def test_ci_label_only_reruns_preserve_inflight_compile() -> None:
+    workflow = CI_WORKFLOW.read_text(encoding="utf-8")
+    expected = (
+        "cancel-in-progress: ${{ github.event_name == 'pull_request' "
+        "&& github.event.action != 'labeled' && github.event.action != 'unlabeled' }}"
+    )
+    assert expected in workflow
+
     fallback = CI_STATUS_FALLBACK_WORKFLOW.read_text(encoding="utf-8")
     assert "  workflow_dispatch: {}" in fallback
     assert "  pull_request:" not in fallback
