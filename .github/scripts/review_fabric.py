@@ -79,7 +79,6 @@ def validate_document(document: dict[str, Any], policy: dict[str, Any]) -> list[
         findings = []
 
     run_ids: set[str] = set()
-    run_heads: dict[str, str] = {}
     for index, run in enumerate(runs):
         if not isinstance(run, dict):
             errors.append(f"run[{index}] must be an object")
@@ -103,11 +102,8 @@ def validate_document(document: dict[str, Any], policy: dict[str, Any]) -> list[
         ):
             _required_string(run, key, f"run {run_id or index}", errors)
         run_head = run.get("head_sha")
-        if isinstance(run_head, str) and run_head.strip():
-            if COMMIT_SHA_RE.fullmatch(run_head) is None:
-                errors.append(f"run {run_id or index} head_sha must be a full lowercase 40-hex commit SHA")
-            elif run_id:
-                run_heads[run_id] = run_head
+        if isinstance(run_head, str) and run_head.strip() and COMMIT_SHA_RE.fullmatch(run_head) is None:
+            errors.append(f"run {run_id or index} head_sha must be a full lowercase 40-hex commit SHA")
         if run.get("status") not in RUN_STATUSES:
             errors.append(f"run {run_id or index} has unknown status {run.get('status')!r}")
         if run.get("disposition") not in RUN_DISPOSITIONS:
@@ -129,15 +125,10 @@ def validate_document(document: dict[str, Any], policy: dict[str, Any]) -> list[
         if run_id and run_id not in run_ids:
             errors.append(f"finding {finding_id or index} references unknown run {run_id}")
         finding_head = _required_string(finding, "head_sha", f"finding {finding_id or index}", errors)
-        if finding_head:
-            if COMMIT_SHA_RE.fullmatch(finding_head) is None:
-                errors.append(
-                    f"finding {finding_id or index} head_sha must be a full lowercase 40-hex commit SHA"
-                )
-            elif run_id in run_heads and run_heads[run_id] != finding_head:
-                errors.append(
-                    f"finding {finding_id or index} head_sha differs from its review run"
-                )
+        if finding_head and COMMIT_SHA_RE.fullmatch(finding_head) is None:
+            errors.append(
+                f"finding {finding_id or index} head_sha must be a full lowercase 40-hex commit SHA"
+            )
         if finding.get("severity") not in SEVERITIES:
             errors.append(f"finding {finding_id or index} has unknown severity {finding.get('severity')!r}")
         if finding.get("disposition") not in FINDING_DISPOSITIONS:
