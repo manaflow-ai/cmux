@@ -2227,6 +2227,10 @@ jobs:
             CMUX_BASH_NEW_BIN="$BASH_NEW_BIN" \
             python3 tests/test_issue_11257_prompt_command_export.py
 
+      - name: Run open-wrapper shell regressions
+        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_CLI_REGRESSION_SHARD) }}
+        run: python3 scripts/ci/run_python_test_lane.py --lane macos-shell
+
       - name: Run CLI no-socket regressions
         if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_CLI_REGRESSION_SHARD) }}
         run: |
@@ -2243,54 +2247,8 @@ jobs:
             exit 1
           fi
 
-          CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_vm_transfer_progress.py
-          CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_vm_resize.py
-          CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_vm_open_device_target.py
-          CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_cloud_hostname.py
-          CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_layout_focus_contract.py
-          CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_right_sidebar_aliases.py
-          CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_socket_operation_deadline.py
-          CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_simulator_contract.py
-          CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_browser_profile_cli.py
-          python3 tests/test_stress_cli_socket_api.py
-          CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_omo_openagent_plugin_migration.py
-          CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_socket_autodiscovery.py
-          python3 tests/test_codex_wrapper_resume_hooks.py
-          python3 tests/test_codex_autoresume_chain.py
-          python3 tests/test_claude_wrapper_hooks.py
-          python3 tests/test_codex_wrapper_computer_use_mcp.py
-          python3 tests/test_cmux_cua_mcp_smoke.py
-          python3 tests/test_cmux_cua_build_cache_safety.py
-          python3 tests/test_cmux_cua_helper_identity.py
-          python3 tests/test_hermes_wrapper_hooks.py
-          python3 tests/test_claude_wrapper_mutual_shim_loop.py
-          python3 tests/test_claude_wrapper_shim_root_survives_tmpdir_change.py
-          python3 tests/test_claude_wrapper_user_binary_resolution.py
-          python3 tests/test_claude_teams_test_utils.py
-          CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_codex_teams_informational.py
-          CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_claude_teams_fallback_path.py
-          CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_claude_teams_env.py
-          CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_claude_teams_existing_shim.py
-          CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_claude_teams_main_vertical.py
-          CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_claude_teams_moved_surface.py
-          CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_claude_teams_tmux_sequence.py
-          CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_tmux_compat_targeted_read_budget.py
-          CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_claude_teams_trust_optin.py
-          CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_omo_fallback_path.py
-          CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_omx_fallback_path.py
-          CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_omc_fallback_path.py
-          CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_issue_8743_path_directory_shadowing.py
-          python3 tests/test_issue_2448_shell_claude_wrapper_dispatch.py
-          python3 tests/test_issue_8093_ghostty_ssh_binary_path.py
-          python3 tests/test_issue_6714_zsh_shim_noclobber.py
-          python3 tests/test_issue_9356_bash_shim_noclobber.py
-          python3 tests/test_issue_13343_claude_integration_toggle.py
-          python3 tests/test_issue_8953_zsh_prompt_wrap_guard.py
-          python3 tests/test_nushell_shim_path_refront.py
-          python3 tests/test_nushell_resume_command_dialect.py
-          python3 tests/test_nushell_integration_hooks.py
-          python3 tests/test_shell_git_branch_stale_cwd.py
-          python3 tests/test_shell_git_config_remote_url_parsing.py
+          CMUX_CLI_BIN="$CLI_BIN" python3 scripts/ci/run_python_test_lane.py --lane macos-cli-no-socket
+
           if ! command -v fish >/dev/null 2>&1; then
             HOMEBREW_NO_AUTO_UPDATE=1 brew install fish
           fi
@@ -2298,17 +2256,8 @@ jobs:
             echo "fish is required for the issue #9075 shell socket regression" >&2
             exit 1
           }
-          python3 tests/test_issue_9075_shell_socket_reports.py
-          CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_claude_hook_stop_last_assistant.py
-          CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_claude_hook_clear_running_status.py
-          CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_claude_hook_push_notification.py
-          CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_pi_extension_install.py
-          CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_pi_extension_dispatch.py
-          CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_pi_compacted_feed.py
-          CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_codex_permission_prompt_notification.py
-          CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_omp_extension_install.py
-          CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_omp_subagent_lifecycle.py
-          CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_campfire_extension_install.py
+          python3 scripts/ci/run_python_test_lane.py --lane macos-shell-fish
+          CMUX_CLI_BIN="$CLI_BIN" python3 scripts/ci/run_python_test_lane.py --lane macos-cli-no-socket-post-fish
 
       - name: Collect app-host failure diagnostics
         if: ${{ failure() || cancelled() }}

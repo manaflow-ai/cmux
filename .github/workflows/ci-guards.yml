@@ -124,6 +124,19 @@ jobs:
         if: ${{ matrix.group == 'preflight' }}
         run: git ls-files 'tests/*.py' 'tests_v2/*.py' 'scripts/*.py' | xargs python3 -m py_compile
 
+      - name: Validate Python test execution registry
+        if: ${{ matrix.group == 'preflight' }}
+        env:
+          CMUX_TEST_REGISTRY_BASE_SHA: ${{ github.event.pull_request.base.sha || '' }}
+        run: |
+          set -euo pipefail
+          args=()
+          if [[ -n "$CMUX_TEST_REGISTRY_BASE_SHA" ]]; then
+            git fetch --no-tags --depth=1 origin "$CMUX_TEST_REGISTRY_BASE_SHA"
+            args=(--base-sha "$CMUX_TEST_REGISTRY_BASE_SHA")
+          fi
+          python3 scripts/ci/validate_test_execution_registry.py "${args[@]}"
+
       - name: Validate dev-fleet warm-slot lifecycle
         if: ${{ matrix.group == 'preflight' }}
         run: |
@@ -252,7 +265,9 @@ jobs:
 
       - name: Validate nightly prune Python compatibility
         if: ${{ matrix.group == 'release-tooling' }}
-        run: PYTHON_BIN=python3.9 bash ./tests/test_ci_nightly_prune_python_compat.sh
+        run: |
+          PYTHON_BIN=python3.9 bash ./tests/test_ci_nightly_prune_python_compat.sh
+          python3 tests/test_prune_nightly_release_assets.py
 
       - name: Validate activation benchmark scrollback sizing
         if: ${{ matrix.group == 'ci' }}

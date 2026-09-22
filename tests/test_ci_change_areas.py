@@ -69,6 +69,22 @@ web_subareas = importlib.util.module_from_spec(web_subareas_spec)
 sys.modules[web_subareas_spec.name] = web_subareas
 web_subareas_spec.loader.exec_module(web_subareas)
 
+TEST_EXECUTION_VALIDATOR = ROOT / "scripts" / "ci" / "validate_test_execution_registry.py"
+validator_spec = importlib.util.spec_from_file_location("validate_test_execution_registry", TEST_EXECUTION_VALIDATOR)
+assert validator_spec and validator_spec.loader
+test_execution_validator = importlib.util.module_from_spec(validator_spec)
+sys.modules[validator_spec.name] = test_execution_validator
+validator_spec.loader.exec_module(test_execution_validator)
+
+
+def test_execution_registry_lane_discovery_ignores_yaml_comments() -> None:
+    workflow = """
+# scripts/ci/run_python_test_lane.py --lane full-line-comment
+run: echo ok # scripts/ci/run_python_test_lane.py --lane inline-comment
+run: scripts/ci/run_python_test_lane.py --lane live-lane # trailing comment
+"""
+    assert test_execution_validator.runner_lanes_from_workflow_text(workflow) == {"live-lane"}
+
 
 def assert_areas(
     paths: list[str],
