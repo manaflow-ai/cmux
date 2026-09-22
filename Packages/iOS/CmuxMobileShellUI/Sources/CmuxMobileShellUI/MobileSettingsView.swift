@@ -57,6 +57,11 @@ struct MobileSettingsView: View {
 
     @Environment(\.dismiss) private var dismiss
     @State private var showingShortcuts = false
+    /// Keeps the picker responsive while Stack Auth persists the selection.
+    /// The coordinator remains the confirmed scope authority; this value is
+    /// cleared when that request finishes or fails.
+    @State private var pendingTeamID: String?
+    @State private var pendingTeamRequestID: UUID?
     /// Mirrors ``MobilePushCoordinator/isEnabled`` so the toggle's label/icon
     /// update after the async enable/disable. The coordinator exposes
     /// `isEnabled` as a non-observable `UserDefaults` read, so reading it
@@ -907,10 +912,22 @@ struct MobileSettingsView: View {
     /// through the shared coordinator action (persisted; observed by the root for the lazy re-scope).
     private var teamSelection: Binding<String?> {
         Binding(
-            get: { authManager.resolvedTeamID },
+            get: { pendingTeamID ?? authManager.resolvedTeamID },
             set: { newValue in
-                if let newValue, newValue != authManager.selectedTeamID {
-                    Task { try? await authManager.selectTeam(id: newValue) }
+                guard let newValue,
+                      newValue != (pendingTeamID ?? authManager.resolvedTeamID) else { return }
+                let requestID = UUID()
+                pendingTeamID = newValue
+                pendingTeamRequestID = requestID
+                Task { @MainActor in
+                    do {
+                        try await authManager.selectTeam(id: newValue)
+                    } catch {
+                        guard pendingTeamRequestID == requestID else { return }
+                    }
+                    guard pendingTeamRequestID == requestID else { return }
+                    pendingTeamID = nil
+                    pendingTeamRequestID = nil
                 }
             }
         )
