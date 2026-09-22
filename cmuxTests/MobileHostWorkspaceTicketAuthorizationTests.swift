@@ -364,8 +364,19 @@ struct MobileHostWorkspaceTicketAuthorizationTests {
     }
 
     #if DEBUG
-    @Test func attachTicketWithoutListenerPreservesNoRoutesError() async {
+    @Test func attachTicketWithoutPublishedRoutesPreservesNoRoutesError() async {
         let service = MobileHostService.shared
+        let previousRoutes = MobileHostPublicStatusCache.snapshot()
+        let previousDeviceID = MobileHostPublicStatusCache.currentV2DeviceID()
+        defer {
+            MobileHostPublicStatusCache.removeAll()
+            MobileHostPublicStatusCache.updateV2DeviceID(previousDeviceID)
+            MobileHostPublicStatusCache.update(routes: previousRoutes.filter { $0.kind != .iroh })
+            if let route = previousRoutes.first(where: { $0.kind == .iroh }),
+               case let .peer(identity, pathHints) = route.endpoint {
+                MobileHostPublicStatusCache.update(irohIdentity: identity, pathHints: pathHints)
+            }
+        }
         MobileHostPublicStatusCache.removeAll()
 
         await #expect(throws: MobileAttachTicketStoreError.noRoutes) {

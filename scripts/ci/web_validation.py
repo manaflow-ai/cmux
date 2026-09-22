@@ -13,21 +13,9 @@ from detect_ci_change_areas import classify_files
 
 
 def requires_web(paths: list[str]) -> bool:
-    return classify_files(paths).web or any(
-        path
-        in {
-            ".vercelignore",
-            "vercel.json",
-            "bunfig.toml",
-            ".npmrc",
-            "tests/test_web_validation.py",
-            # The CI router treats other workflow files as neutral, so this
-            # gate names its own.
-            ".github/workflows/web-validation.yml",
-        }
-        or path.startswith(("config/", "workers/"))
-        for path in paths
-    )
+    # Both required workflows must agree: CI owns tests for PRs/merge groups,
+    # while this workflow owns the production build and standalone validation.
+    return classify_files(paths).web
 
 
 def merge_parent(head: str) -> str:
@@ -64,7 +52,7 @@ def required_for_event(event: str, base: str, head: str) -> bool:
     return not paths or requires_web(paths)
 
 
-def failures(needs: dict) -> dict[str, str]:
+def failures(needs: dict, event: str = "") -> dict[str, str]:
     changes = needs.get("changes", {})
     required = changes.get("outputs", {}).get("required")
     if changes.get("result") != "success" or required not in {"true", "false"}:
@@ -73,7 +61,11 @@ def failures(needs: dict) -> dict[str, str]:
     return {
         job: needs.get(job, {}).get("result", "missing")
         for job in sorted((set(needs) - {"changes"}) | {"build", "tests", "database"})
-        if needs.get(job, {}).get("result") not in allowed
+        if needs.get(job, {}).get("result") not in (
+            allowed | {"skipped"}
+            if event in {"pull_request", "merge_group"} and job in {"build", "tests", "database"}
+            else allowed
+        )
     }
 
 
@@ -90,7 +82,7 @@ def main() -> int:
         print(value)
         return 0
     if sys.argv[1:] == ["check"]:
-        bad = failures(json.loads(os.environ["WEB_VALIDATION_NEEDS"]))
+        bad = failures(json.loads(os.environ["WEB_VALIDATION_NEEDS"]), os.environ.get("GITHUB_EVENT_NAME", ""))
         for name, result in bad.items():
             print(f"{name}: {result}", file=sys.stderr)
         return int(bool(bad))

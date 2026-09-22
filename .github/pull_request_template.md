@@ -1,3 +1,5 @@
+<!-- Writing guidance: ../STYLE.md. Lead with the concrete problem and resulting behavior; keep supporting detail proportional to the change. -->
+
 ## Summary
 
 - What changed?
@@ -19,7 +21,7 @@ For UI or behavior changes, include a short demo video (GitHub upload, Loom, or 
 ```text
 @codex review
 @coderabbitai review
-@greptile-apps review
+@greptileai review
 @cubic-dev-ai review
 ```
 

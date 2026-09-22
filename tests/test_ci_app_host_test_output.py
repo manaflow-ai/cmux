@@ -27,14 +27,55 @@ SPEC.loader.exec_module(MODULE)
 
 
 class AppHostTestOutputTests(unittest.TestCase):
-    def test_all_expected_failures_are_tolerated(self) -> None:
+    def test_ordinary_assertion_failures_are_not_tolerated(self) -> None:
         passed, message = MODULE.classify(
             "Executed 4 tests, with 1 failure (0 unexpected)\n"
             "Executed 8 tests, with 2 failures (0 unexpected)\n"
         )
 
+        self.assertFalse(passed)
+        self.assertIn("XCTest failure", message)
+
+    def test_earlier_assertion_failure_is_not_hidden_by_a_later_clean_summary(self) -> None:
+        passed, _ = MODULE.classify(
+            "Executed 4 tests, with 1 failure (0 unexpected)\n"
+            "Executed 8 tests, with 0 failures (0 unexpected)\n"
+        )
+
+        self.assertFalse(passed)
+
+    def test_swift_testing_failure_is_not_hidden_by_zero_xctest_failures(self) -> None:
+        passed, message = MODULE.classify(
+            "Executed 0 tests, with 0 failures (0 unexpected)\n"
+            "◇ Test run started.\n"
+            "✘ Test run with 5 tests in 1 suite failed after 0.2 seconds with 2 issues.\n"
+        )
+
+        self.assertFalse(passed)
+        self.assertIn("Swift Testing", message)
+
+    def test_passing_swift_testing_run_is_supported(self) -> None:
+        passed, _ = MODULE.classify(
+            "Executed 0 tests, with 0 failures (0 unexpected)\n"
+            "◇ Test run started.\n"
+            "✔ Test run with 5 tests in 1 suite passed after 0.2 seconds.\n"
+        )
+
         self.assertTrue(passed)
-        self.assertIn("2 XCTest summary", message)
+
+    def test_an_unfinished_swift_testing_run_is_not_tolerated(self) -> None:
+        passed, _ = MODULE.classify(
+            "Executed 8 tests, with 0 failures (0 unexpected)\n"
+            "◇ Test run started.\n"
+            "◇ Test waitingForCallback() started.\n"
+        )
+
+        self.assertFalse(passed)
+
+    def test_zero_executed_tests_is_not_a_passing_run(self) -> None:
+        passed, _ = MODULE.classify("Executed 0 tests, with 0 failures (0 unexpected)\n")
+
+        self.assertFalse(passed)
 
     def test_unexpected_failure_in_earlier_summary_is_not_masked(self) -> None:
         passed, message = MODULE.classify(
@@ -71,6 +112,45 @@ class AppHostTestOutputTests(unittest.TestCase):
                 passed, message = MODULE.classify(output)
                 self.assertFalse(passed)
                 self.assertIn("incomplete app-host test run", message)
+
+    def test_wrapper_retry_is_safe_before_test_execution(self) -> None:
+        safe, message = MODULE.retry_safe(
+            "The test runner timed out while preparing to run tests.\n"
+            "Failed to establish communication with the test runner.\n"
+        )
+
+        self.assertTrue(safe)
+        self.assertIn("pre-test", message)
+
+    def test_wrapper_retry_is_blocked_after_xctest_started(self) -> None:
+        safe, message = MODULE.retry_safe(
+            "Test Suite 'Selected tests' started at 2026-09-21 00:00:00.\n"
+            "Test Case '-[cmuxTests.ExampleTests testExample]' started.\n"
+            "XCTAssertTrue failed\n"
+            "Failed to establish communication with the test runner.\n"
+        )
+
+        self.assertFalse(safe)
+        self.assertIn("test execution evidence", message)
+
+    def test_wrapper_retry_is_blocked_after_zero_test_summary(self) -> None:
+        safe, _ = MODULE.retry_safe(
+            "Executed 0 tests, with 0 failures (0 unexpected)\n"
+            "Failed to establish communication with the test runner.\n"
+        )
+
+        self.assertFalse(safe)
+
+    def test_wrapper_retry_is_blocked_after_swift_testing_started(self) -> None:
+        for marker in ("◇", "▶"):
+            with self.subTest(marker=marker):
+                safe, _ = MODULE.retry_safe(
+                    f"{marker} Test run started.\n"
+                    f"{marker} Test waitingForCallback() started.\n"
+                    "Failed to establish communication with the test runner.\n"
+                )
+
+                self.assertFalse(safe)
 
     def test_timeout_words_in_successful_test_names_or_app_logs_are_not_failures(self) -> None:
         passed, _ = MODULE.classify(

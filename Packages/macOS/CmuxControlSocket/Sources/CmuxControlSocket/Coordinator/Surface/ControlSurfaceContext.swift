@@ -392,7 +392,9 @@ public protocol ControlSurfaceContext: AnyObject {
         workspaceID: UUID,
         requestedSurfaceID: UUID?,
         terminalLifecycleID: UUID?,
-        stateRawValue: String
+        stateRawValue: String,
+        remoteRelayOwnerWorkspaceID: UUID?,
+        remoteRelayConnectionID: UUID?
     ) -> ControlSurfaceReportShellStateResolution
 
     /// Returns the app-bundle-localized v2 error for a malformed terminal
