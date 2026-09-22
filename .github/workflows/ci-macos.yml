@@ -915,6 +915,16 @@ jobs:
       # teardown while native UI processes drain. Allow that quiet period
       # within the job's 75-minute cap instead of restarting a healthy batch.
       CMUX_XCODEBUILD_NONINTERACTIVE_IDLE_TIMEOUT_SECONDS: "1200"
+      # A crashed app host is relaunched by xcodebuild, which resumes the run
+      # and can crash again indefinitely, so neither the idle timeout above nor
+      # the 75-minute job cap ends a crash loop early. A healthy shard restarts
+      # zero times and the wall-clock budget above allows one, so aborting on
+      # the third restart leaves that headroom untouched while bounding the
+      # loop. Wall clock cannot make this call: the measured 7.55-minute median
+      # of the step and the 40-plus-minute crash-looping shards are not
+      # separable by a duration threshold with any safe margin.
+      # https://github.com/manaflow-ai/cmux/issues/13707
+      CMUX_XCODEBUILD_NONINTERACTIVE_RESTART_BUDGET: "2"
       # XCTest app-host crashes can leave xcodebuild waiting in Swift's crash
       # backtracer until the job timeout. Keep crash handling non-interactive
       # and cheap so xcodebuild can restart/finish the suite.
