@@ -6,12 +6,14 @@ from __future__ import annotations
 import argparse
 import json
 import os
-from pathlib import Path
+from pathlib import Path, PurePosixPath
+import posixpath
 import re
 import shutil
 import platform
 import subprocess
 import sys
+import tarfile
 import time
 
 
@@ -38,6 +40,71 @@ def wipe(path: Path) -> None:
             shutil.rmtree(child)
         else:
             child.unlink()
+
+
+def _archive_member_path(raw: str) -> PurePosixPath:
+    path = PurePosixPath(raw)
+    if path.is_absolute():
+        raise SystemExit(f"archive contains absolute path: {raw}")
+    parts = [part for part in path.parts if part not in ("", ".")]
+    if any(part == ".." for part in parts):
+        raise SystemExit(f"archive contains traversal path: {raw}")
+    return PurePosixPath(*parts)
+
+
+def _resolved_symlink_target(name: PurePosixPath, raw_target: str) -> PurePosixPath:
+    target = PurePosixPath(raw_target)
+    if target.is_absolute():
+        raise SystemExit(f"archive symlink is absolute: {name} -> {raw_target}")
+    combined = name.parent.joinpath(target)
+    stack: list[str] = []
+    for part in combined.parts:
+        if part in ("", "."):
+            continue
+        if part == "..":
+            if not stack:
+                raise SystemExit(f"archive symlink escapes staging: {name} -> {raw_target}")
+            stack.pop()
+        else:
+            stack.append(part)
+    return PurePosixPath(*stack)
+
+
+def validate_tar_archive(
+    archive: Path,
+    *,
+    max_members: int = 1_000_000,
+    max_regular_bytes: int = 40 * 1024 * 1024 * 1024,
+) -> dict[str, int]:
+    members: list[tuple[tarfile.TarInfo, PurePosixPath]] = []
+    symlinks: set[PurePosixPath] = set()
+    regular_bytes = 0
+    with tarfile.open(archive, "r:gz") as stream:
+        for index, member in enumerate(stream):
+            if index >= max_members:
+                raise SystemExit(f"archive exceeds member ceiling: {max_members}")
+            name = _archive_member_path(member.name)
+            if member.islnk():
+                raise SystemExit(f"archive hardlink rejected: {member.name}")
+            if member.isdev() or member.isfifo():
+                raise SystemExit(f"archive special file rejected: {member.name}")
+            if member.issym():
+                _resolved_symlink_target(name, member.linkname)
+                symlinks.add(name)
+            elif member.isfile():
+                regular_bytes += member.size
+                if regular_bytes > max_regular_bytes:
+                    raise SystemExit(f"archive exceeds byte ceiling: {max_regular_bytes}")
+            elif not member.isdir():
+                raise SystemExit(f"archive entry type rejected: {member.name}")
+            members.append((member, name))
+
+    for member, name in members:
+        parents = list(name.parents)
+        if any(parent in symlinks for parent in parents if str(parent) != "."):
+            raise SystemExit(f"archive entry traverses symlink parent: {member.name}")
+
+    return {"member_count": len(members), "regular_bytes": regular_bytes}
 
 
 def fetch_pair(workspace: Path, base: str, target: str) -> None:
@@ -120,6 +187,7 @@ def source_restored(
 ) -> None:
     wipe(workspace)
     started = time.monotonic()
+    archive_stats = validate_tar_archive(archive, max_regular_bytes=8 * 1024 * 1024 * 1024)
     run(["tar", "-xzf", archive, "-C", workspace])
     extract_seconds = time.monotonic() - started
     rebind_started = time.monotonic()
@@ -163,6 +231,8 @@ def source_restored(
         "target": resolved_target,
         "workspace": str(workspace.resolve()),
         "worktree_extract_seconds": round(extract_seconds, 6),
+        "worktree_archive_member_count": archive_stats["member_count"],
+        "worktree_archive_regular_bytes": archive_stats["regular_bytes"],
         "git_rebind_seconds": round(rebind_seconds, 6),
         "candidate_transition_seconds": round(candidate_transition_seconds, 6),
         "source_transition_seconds": round(extract_seconds + rebind_seconds + candidate_transition_seconds, 6),
@@ -328,12 +398,15 @@ def archive_generation(workspace: Path, derived: Path, outdir: Path, metrics: Pa
 def extract_derived(archive: Path, derived: Path, metrics: Path) -> None:
     wipe(derived)
     started = time.monotonic()
+    archive_stats = validate_tar_archive(archive)
     run(["tar", "-xzf", archive, "-C", derived])
     seconds = time.monotonic() - started
     payload = {
         "derived_data": str(derived.resolve()),
         "derived_data_extract_seconds": round(seconds, 6),
         "archive_bytes": archive.stat().st_size,
+        "archive_member_count": archive_stats["member_count"],
+        "archive_regular_bytes": archive_stats["regular_bytes"],
     }
     metrics.write_text(json.dumps(payload, sort_keys=True, indent=2) + "\n")
     print("CMUX_CANARY_DD_RESTORE=" + json.dumps(payload, sort_keys=True), flush=True)
