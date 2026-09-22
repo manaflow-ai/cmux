@@ -1184,7 +1184,7 @@ function NavigationSelect({
     ? (
         typeof selected?.message === "string" && selected.message.trim() !== ""
           ? selected.message
-          : String(selected?.value ?? fallbackValue || ariaLabel)
+          : (String(selected?.value ?? fallbackValue).trim() || ariaLabel)
       )
     : ariaLabel;
   return (
