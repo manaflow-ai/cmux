@@ -562,8 +562,8 @@ jobs:
           # using the same certificate and API key as the host profile. The
           # helper also installs an optional pre-provisioned extension secret,
           # then falls back to the active profile in ASC.
-          if [ "$IOS_BETA_PROFILE_TYPE" = "internal" ]; then
-            EXTENSION_ENV="$RUNNER_TEMP/cmux-internal-extension.env"
+          if [ "$IOS_BETA_PROFILE_TYPE" = "internal" ] || [ -n "${IOS_BETA_EXTENSION_PROVISIONING_PROFILE_BASE64:-}" ]; then
+            EXTENSION_ENV="$RUNNER_TEMP/cmux-${IOS_BETA_PROFILE_TYPE}-extension.env"
             : > "$EXTENSION_ENV"
             IOS_APPSTORE_TEAM_ID=7WLXT3NR37 \
             IOS_APPSTORE_BUNDLE_IDENTIFIER="$IOS_BETA_BUNDLE_ID" \
@@ -579,7 +579,10 @@ jobs:
               exit 1
             fi
             echo "IOS_BETA_EXTENSION_PROVISIONING_PROFILE_NAME=$EXTENSION_PROFILE_NAME" >> "$GITHUB_ENV"
-            echo "Installed internal notification extension profile: $EXTENSION_PROFILE_NAME"
+            echo "Installed $IOS_BETA_PROFILE_TYPE notification extension profile: $EXTENSION_PROFILE_NAME"
+          else
+            echo "Missing IOS_BETA_EXTENSION_PROVISIONING_PROFILE_BASE64 for $IOS_BETA_PROFILE_TYPE notification extension" >&2
+            exit 1
           fi
 
       - name: Use DEMO-badged app icon
