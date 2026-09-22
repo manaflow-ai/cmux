@@ -263,6 +263,8 @@ describe("dashboard team scope", () => {
 
       resolvers[0]!(new Response(null, { status: 500 }));
       await expect(first).rejects.toThrow("Could not switch dashboard team");
+      await Promise.resolve();
+      expect(resolvers).toHaveLength(2);
       expect(queryData.get(queryKey(["dashboard-team-catalog", "user-1"]))).toMatchObject({
         selectedTeamId: "team-4",
       });
@@ -271,6 +273,94 @@ describe("dashboard team scope", () => {
 
       resolvers[1]!(new Response(null, { status: 204 }));
       await second;
+      expect(routerReplace).toHaveBeenLastCalledWith("/dashboard/coderouter");
+      expect(routerRefresh).toHaveBeenCalledTimes(1);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  test("two overlapping failures restore the last confirmed team", async () => {
+    const originalFetch = globalThis.fetch;
+    const extendedCatalog: Catalog = {
+      ...twoTeams,
+      teams: [
+        ...twoTeams.teams,
+        {
+          id: "team-4",
+          name: "Other",
+          personal: false,
+          permissions: { use: true, manageAccounts: false },
+        },
+      ],
+    };
+    catalog = extendedCatalog;
+    queryData.set(queryKey(["dashboard-team-catalog", "user-1"]), extendedCatalog);
+    const resolvers: Array<(response: Response) => void> = [];
+    globalThis.fetch = (() => new Promise<Response>((resolve) => {
+      resolvers.push(resolve);
+    })) as typeof fetch;
+    try {
+      const scope = renderReadyScope();
+      const first = scope.switchTeam(extendedCatalog.teams[0]!);
+      const second = scope.switchTeam(extendedCatalog.teams[3]!);
+
+      expect(queryData.get(queryKey(["dashboard-team-catalog", "user-1"]))).toMatchObject({
+        selectedTeamId: "team-4",
+      });
+      expect(legacyCookieScope).toBe("team-4");
+      expect(resolvers).toHaveLength(1);
+
+      resolvers[0]!(new Response(null, { status: 500 }));
+      await expect(first).rejects.toThrow("Could not switch dashboard team");
+      await Promise.resolve();
+      expect(resolvers).toHaveLength(2);
+      expect(queryData.get(queryKey(["dashboard-team-catalog", "user-1"]))).toMatchObject({
+        selectedTeamId: "team-4",
+      });
+
+      resolvers[1]!(new Response(null, { status: 500 }));
+      await expect(second).rejects.toThrow("Could not switch dashboard team");
+
+      expect(queryData.get(queryKey(["dashboard-team-catalog", "user-1"]))).toMatchObject({
+        selectedTeamId: "team-2",
+      });
+      expect(legacyCookieScope).toBe("team-2");
+      expect(routerReplace).toHaveBeenLastCalledWith("/dashboard/coderouter");
+      expect(routerRefresh).not.toHaveBeenCalled();
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  test("a rapid switch back to the confirmed team supersedes the pending optimistic team", async () => {
+    const originalFetch = globalThis.fetch;
+    const resolvers: Array<(response: Response) => void> = [];
+    globalThis.fetch = (() => new Promise<Response>((resolve) => {
+      resolvers.push(resolve);
+    })) as typeof fetch;
+    try {
+      const scope = renderReadyScope();
+      const away = scope.switchTeam(twoTeams.teams[0]!);
+      const back = scope.switchTeam(twoTeams.teams[1]!);
+
+      expect(queryData.get(queryKey(["dashboard-team-catalog", "user-1"]))).toMatchObject({
+        selectedTeamId: "team-2",
+      });
+      expect(legacyCookieScope).toBe("team-2");
+
+      resolvers[0]!(new Response(null, { status: 204 }));
+      await away;
+      await Promise.resolve();
+      expect(resolvers).toHaveLength(2);
+
+      resolvers[1]!(new Response(null, { status: 204 }));
+      await back;
+
+      expect(queryData.get(queryKey(["dashboard-team-catalog", "user-1"]))).toMatchObject({
+        selectedTeamId: "team-2",
+      });
+      expect(legacyCookieScope).toBe("team-2");
       expect(routerReplace).toHaveBeenLastCalledWith("/dashboard/coderouter");
       expect(routerRefresh).toHaveBeenCalledTimes(1);
     } finally {
