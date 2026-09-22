@@ -44,9 +44,11 @@ its own per-head request marker. When none exists it posts exactly one
 suppress a repeat, so a PR author cannot forge the request state. The opt-in
 marker controls enforcement, not whether automated review is requested.
 
-The workflow listens to both `pull_request_review` and PR `issue_comment`
-updates, so either a new review object or an updated Greptile summary reevaluates
-the gate automatically.
+The workflow listens to `pull_request_review`, `pull_request_review_comment`,
+and PR `issue_comment` updates. Only Greptile-authored issue comments run the
+gate; status-comment edits from other providers are skipped. Unrelated
+issue-comment providers also use separate concurrency keys, so their comment
+updates cannot cancel an active PR/review evaluation.
 
 Repositories can replace the required coverage subset with
 `AGENT_REQUIRED_REVIEW_COVERAGE_BOTS`. The older
