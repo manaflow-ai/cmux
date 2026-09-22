@@ -73,10 +73,10 @@ class LinuxGuardRoutingTests(unittest.TestCase):
         )
         self.assertIn("blacksmith-4vcpu-ubuntu-2404", changes)
         self.assertIn("Detect cloud-machine package changes", changes)
-        self.assertIn(
-            "grep -q '^Packages/macOS/CmuxCloudMachines/'",
-            changes,
-        )
+        self.assertIn("/pulls/{pr_number}/files?per_page=100&page={page}", changes)
+        self.assertIn('startswith("Packages/macOS/CmuxCloudMachines/")', changes)
+        self.assertNotIn("actions/checkout", changes)
+        self.assertIn("pull-requests: read", workflow)
         self.assertIn("needs: [changes, resolve-ref]", lifecycle)
         self.assertIn(
             "if: ${{ needs.changes.outputs.should_run == 'true' }}",
