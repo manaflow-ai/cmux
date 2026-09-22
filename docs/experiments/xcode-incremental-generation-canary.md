@@ -199,6 +199,51 @@ has a green Linux regression test for the fixed wrapper/parser path and uploads
 the raw cmux build log for recomputation.
 
 
+### Corrected production-CAS canary run 35676212414
+
+The corrected canary exports the same R2 public endpoint used by compile admission.
+The seed's compilation CAS restored by prefix in 26.296 seconds from
+`xcode-compilation-test-macOS-ARM64-c4728a44cf18adc521070ca61d009904-9e4b77c...`.
+The action's `cache-hit=false` means only that the exact key missed; the
+matched-prefix restore succeeded and the compiler log confirms reuse.
+
+Producer A:
+
+- build wall: 964.005 seconds;
+- SwiftCompile source-file log lines: 10,307;
+- Xcode SwiftCompile timing: 3,152.710 aggregate task-seconds across 3,138 tasks;
+- SwiftEmitModule timing: 30.222 aggregate task-seconds across 91 tasks;
+- compiler-CAS hits/misses: 832 / 2,876;
+- target `cmux` CAS hits/misses: 45 / 2,641;
+- full DerivedData disk: 7,460,159,488 bytes;
+- retained incremental subset disk: 7,222,398,976 bytes;
+- retained DD archive: 2,017,450,863 bytes;
+- worktree archive: 160,254,248 bytes;
+- total generation archive: 2,177,705,111 bytes;
+- DD + worktree compression: 59.444 seconds;
+- DD + worktree artifact upload: 13.254 seconds;
+- producer publication overhead from compression + upload: 72.698 seconds.
+
+Matched cold-fresh B:
+
+- build wall: 998.314 seconds;
+- SwiftCompile source-file log lines: 10,307;
+- Xcode SwiftCompile timing: 3,185.522 aggregate task-seconds across 3,138 tasks;
+- SwiftEmitModule timing: 30.055 aggregate task-seconds across 91 tasks;
+- compiler-CAS hits/misses: 832 / 2,876;
+- target `cmux` CAS hits/misses: 45 / 2,641.
+
+These rows establish the corrected cold baseline and confirm that compiler CAS
+behavior is comparable across A/B. They do not yet establish incremental reuse;
+that decision comes from the restored-generation and normalized-mtime arms.
+
+The earlier run also exposed material artifact-transfer variance for the 2.088 GB
+DD archive: 29.6, 35.8, 120.6, 141.3, and 1,463.2 seconds across five downloads.
+The 1,463-second tail is a real observed transfer result and would erase any
+incremental-build win on that attempt. Keep raw transfer rows in the acceptance
+decision instead of comparing build wall alone.
+
+
 ## Synthetic seed rebind feasibility
 
 A local Git fixture tested a case where the real seed commit object was absent
