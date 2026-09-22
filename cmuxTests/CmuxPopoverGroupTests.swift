@@ -1,10 +1,49 @@
 import AppKit
+import SwiftUI
 import Testing
 @testable import CmuxAppKitSupportUI
 
 @MainActor
 @Suite
 struct CmuxPopoverGroupTests {
+    @Test func animatedRootRegistersBeforeItsOpeningTransitionFinishes() {
+        let group = CmuxPopoverGroup()
+        let window = NSWindow(
+            contentRect: CGRect(x: 0, y: 0, width: 360, height: 240),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        let accountAnchor = NSView(frame: CGRect(x: 24, y: 160, width: 40, height: 24))
+        let helpAnchor = NSView(frame: CGRect(x: 84, y: 160, width: 40, height: 24))
+        window.contentView?.addSubview(accountAnchor)
+        window.contentView?.addSubview(helpAnchor)
+        window.orderFrontRegardless()
+        defer { window.close() }
+
+        var accountPresented = true
+        let accountCoordinator = ArrowlessPopoverAnchor<EmptyView>.Coordinator(
+            isPresented: Binding(get: { accountPresented }, set: { accountPresented = $0 }),
+            presentationAnimation: .automatic,
+            group: group
+        )
+        accountCoordinator.anchorView = accountAnchor
+        accountCoordinator.updateRootView(AnyView(EmptyView()))
+        accountCoordinator.present(preferredEdge: .maxY, detachedGap: 4)
+
+        let helpCoordinator = ArrowlessPopoverAnchor<EmptyView>.Coordinator(
+            isPresented: .constant(true),
+            presentationAnimation: .enabled,
+            group: group
+        )
+        helpCoordinator.anchorView = helpAnchor
+        helpCoordinator.updateRootView(AnyView(EmptyView()))
+        helpCoordinator.present(preferredEdge: .maxY, detachedGap: 4)
+
+        #expect(!accountPresented)
+        group.dismissAll()
+    }
+
     @Test func groupedPickerCanOptIntoNativeOpeningAnimation() {
         #expect(
             CmuxPopoverPresentationAnimation.enabled.animates(
