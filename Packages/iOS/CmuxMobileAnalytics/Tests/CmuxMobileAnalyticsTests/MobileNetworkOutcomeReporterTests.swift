@@ -8,6 +8,35 @@ private struct NetworkOutcomeTestConsent: AnalyticsConsentProviding {
 }
 
 @Suite struct MobileNetworkOutcomeReporterTests {
+    @Test func taskModelRetryEmitsAttemptDelayAndPermanentStopReason() async {
+        let uploader = RecordingAnalyticsUploader()
+        let emitter = AnalyticsEmitter(
+            uploader: uploader,
+            consent: NetworkOutcomeTestConsent(isTelemetryEnabled: true),
+            anonymousID: "local-install"
+        )
+        let reporter = MobileNetworkOutcomeReporter(emitter: emitter)
+        reporter.ingest(DiagnosticEvent(
+            .appFeatureAction, ms: 15_000,
+            a: DiagnosticAppEventKind.taskModelListRetryScheduled.rawValue,
+            b: DiagnosticFailureKind.timedOut.rawValue, c: 8
+        ))
+        reporter.ingest(DiagnosticEvent(
+            .appFeatureAction,
+            a: DiagnosticAppEventKind.taskModelListRetryStopped.rawValue,
+            b: DiagnosticFailureKind.authorizationFailed.rawValue,
+            c: DiagnosticTaskModelRetryStopReason.authorizationRequired.rawValue
+        ))
+        await reporter.flush()
+        let events = await uploader.uploadedEvents
+        #expect(events.count == 2)
+        #expect(events.first?.properties["phase"] == .string("retry_scheduled"))
+        #expect(events.first?.properties["attempt"] == .int(8))
+        #expect(events.first?.properties["retry_delay_ms"] == .int(15_000))
+        #expect(events.last?.properties["phase"] == .string("retry_stopped"))
+        #expect(events.last?.properties["stop_reason"] == .string("authorizationRequired"))
+    }
+
     @Test(arguments: [nil, 0, 3] as [Int?])
     func taskModelFailureEmitsAxiomDiagnostic(modelCount: Int?) async {
         let uploader = RecordingAnalyticsUploader()
