@@ -14,6 +14,7 @@ import yaml
 
 from test_ci_change_areas import (
     linux_preflight_needs,
+    module,
     run_guard_status,
     run_linux_preflight,
     run_tests_gate,
@@ -59,6 +60,14 @@ def route(paths, event="pull_request", macos="false"):
 
 
 class LinuxGuardRoutingTests(unittest.TestCase):
+    def test_ios_shell_ui_test_only_change_skips_macos(self):
+        actual = module.classify_files([
+            "Packages/iOS/CmuxMobileShellUI/Tests/CmuxMobileShellUITests/WorkspaceListScrollUpdateTests.swift"
+        ])
+        self.assertFalse(actual.macos)
+        self.assertFalse(actual.web)
+        self.assertFalse(actual.release_build)
+
     def test_candidate_router_cannot_disable_its_own_guards(self):
         script = workflow_job_step_script("changes", "Route Linux guard suites")
         for changed in (
