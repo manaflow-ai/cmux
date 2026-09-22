@@ -110,6 +110,9 @@ jobs:
           sparse-checkout-cone-mode: false
 
       - name: Batch official uploads by commit count and age
+        # See the INTERNAL lane: bound the history deepen the same way the upload
+        # job already bounds this script.
+        timeout-minutes: 5
         # Batching only delays uploads; a failure here must fall back to the
         # decide job's answer instead of stopping scheduled uploads.
         continue-on-error: true

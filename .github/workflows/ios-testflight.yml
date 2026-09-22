@@ -451,6 +451,10 @@ jobs:
           sparse-checkout-cone-mode: false
 
       - name: Batch INTERNAL uploads by iOS commit count and age
+        # fetch-testflight-notes-history.sh deepens history in a loop; the upload
+        # job bounds the same script at 5 minutes. Without a bound here a
+        # pathological deepen would hold a runner for the job's 360-minute budget.
+        timeout-minutes: 5
         # Batching only delays uploads; a failure here must fall back to the
         # decide job's answer instead of stopping scheduled uploads.
         continue-on-error: true
