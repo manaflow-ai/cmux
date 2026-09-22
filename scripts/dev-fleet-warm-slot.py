@@ -28,6 +28,8 @@ from typing import Any, Iterator, Sequence
 
 SCHEMA = 1
 TERM_GRACE_SECONDS = 10.0
+EVENT_LOG_MAX_BYTES = 16 * 1024 * 1024
+EVENT_LOG_MAX_RECORD_BYTES = 256 * 1024
 IDENTIFIER_CHARS = frozenset(
     "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._:@+-"
 )
@@ -292,6 +294,7 @@ class Layout:
         self.preempt_fifo = machine / "warmer-preempt.fifo"
         self.checkout_locks = machine / "checkout-locks"
         self.events = machine / "events.jsonl"
+        self.events_archive = machine / "events.jsonl.1"
         self.events_lock = machine / "events.lock"
         self.cleanup_lock = machine / "cold-cleanup.lock"
         self.retired_cold_tasks = self.cache / "retired-cold-tasks"
@@ -502,14 +505,63 @@ def warm_slot_lock(layout: Layout, checkout: Path) -> Iterator[None]:
             yield
 
 
-def event(layout: Layout, kind: str, **fields: Any) -> None:
-    row = {"schema_version": SCHEMA, "event": kind, "at": now_iso(), "slot_id": layout.slot_id, **fields}
-    with locked(layout.events_lock):
-        layout.events.parent.mkdir(parents=True, exist_ok=True)
-        with layout.events.open("a", encoding="utf-8") as stream:
-            stream.write(json.dumps(row, sort_keys=True) + "\n")
-            stream.flush()
-            os.fsync(stream.fileno())
+def event(layout: Layout, kind: str, **fields: Any) -> bool:
+    """Append bounded advisory telemetry without affecting execution authority."""
+    row = {
+        "schema_version": SCHEMA,
+        "event": kind,
+        "at": now_iso(),
+        "slot_id": layout.slot_id,
+        **fields,
+    }
+    encoded = (
+        json.dumps(row, sort_keys=True, separators=(",", ":")) + "\n"
+    ).encode("utf-8")
+    if len(encoded) > EVENT_LOG_MAX_RECORD_BYTES:
+        encoded = (
+            json.dumps(
+                {
+                    "schema_version": SCHEMA,
+                    "event": "telemetry_record_dropped",
+                    "at": now_iso(),
+                    "slot_id": layout.slot_id,
+                    "original_event": kind,
+                    "encoded_bytes": len(encoded),
+                },
+                sort_keys=True,
+                separators=(",", ":"),
+            )
+            + "\n"
+        ).encode("utf-8")
+
+    try:
+        with locked(layout.events_lock):
+            layout.events.parent.mkdir(parents=True, exist_ok=True)
+            try:
+                current_bytes = layout.events.stat().st_size
+            except FileNotFoundError:
+                current_bytes = 0
+
+            if current_bytes and current_bytes + len(encoded) > EVENT_LOG_MAX_BYTES:
+                layout.events_archive.unlink(missing_ok=True)
+                os.replace(layout.events, layout.events_archive)
+                current_bytes = 0
+
+            needs_separator = False
+            if current_bytes:
+                with layout.events.open("rb") as reader:
+                    reader.seek(-1, os.SEEK_END)
+                    needs_separator = reader.read(1) != b"\n"
+
+            with layout.events.open("ab", buffering=0) as stream:
+                if needs_separator:
+                    stream.write(b"\n")
+                stream.write(encoded)
+        return True
+    except OSError:
+        # events.jsonl is advisory. lease/inflight/recovery journals remain the
+        # durable ownership contract and must not inherit telemetry failures.
+        return False
 
 
 def live_foreground(layout: Layout, prune: bool = True) -> list[dict[str, Any]]:
