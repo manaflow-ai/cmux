@@ -72,6 +72,7 @@ CI_MACOS_TEST_PRODUCT_INPUTS = frozenset({
     "scripts/ci/app_host_test_products.py",
     "scripts/ci/compile-app-host-test-product.sh",
     "scripts/ci/product_input_identity.py",
+    "scripts/ci/peer_product_source.py",
     "scripts/ci/restore-app-host-test-product.sh",
     "scripts/ci/reuse_app_host_products.py",
     "scripts/ci/sanitize-xcode-source-packages-cache.py",
@@ -292,6 +293,11 @@ def is_agent_session_web_change(path: str) -> bool:
 
 def is_macos_neutral(path: str) -> bool:
     if path in CI_CONTROL_PLANE_ONLY:
+        return True
+    # CmuxMobileShellUI is an iOS-only package and its Tests target is exercised
+    # by test-ios.yml, not by the macOS Swift-package lane. Test-only edits here
+    # cannot affect desktop product bytes or macOS package tests.
+    if path.startswith("Packages/iOS/CmuxMobileShellUI/Tests/"):
         return True
     # `cmux-tui/` is the standalone cmux-tui Rust project, gated by its own
     # workflow. Packages/iOS stays macOS-relevant because the desktop app

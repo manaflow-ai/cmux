@@ -1513,6 +1513,7 @@ jobs:
             --name-prefix "${CHANNEL_DMG_PREFIX}-" \
             --keep-builds 100 \
             --max-assets 950 \
+            --best-effort \
             --execute
 
       - name: Publish nightly release assets

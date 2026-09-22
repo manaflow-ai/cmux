@@ -274,6 +274,7 @@ def test_macos_test_product_ci_helpers_run_admission_without_web_or_release() ->
         "scripts/ci/app_host_test_products.py",
         "scripts/ci/compile-app-host-test-product.sh",
         "scripts/ci/product_input_identity.py",
+        "scripts/ci/peer_product_source.py",
         "scripts/ci/restore-app-host-test-product.sh",
         "scripts/ci/reuse_app_host_products.py",
         "scripts/ci/sanitize-xcode-source-packages-cache.py",
@@ -1051,11 +1052,11 @@ def test_workflow_routes_when_main_moved_past_the_event_base() -> None:
     assert outputs == ["macos=false", "web=true", "agent_session_web=false", "release_build=false"]
 
 
-def test_workflow_empty_diff_runs_all_areas() -> None:
+def test_workflow_empty_diff_skips_product_areas() -> None:
     result, outputs = run_detect_step_for_paths([])
 
-    assert "PR diff is empty; running all CI areas." in result.stdout
-    assert outputs == ["macos=true", "web=true", "agent_session_web=true", "release_build=true"]
+    assert "PR diff is empty; skipping product-area CI." in result.stdout
+    assert outputs == ["macos=false", "web=false", "agent_session_web=false", "release_build=false"]
 
 
 def test_router_changes_run_everything() -> None:
@@ -1250,6 +1251,17 @@ def test_required_tests_status_waits_for_platform_workflows() -> None:
     assert 'macos_route not in {"true", "false"}' in block
     assert 'macos_result != "success"' in block
     assert 'web_result not in {"success", "skipped"}' in block
+
+
+
+def test_web_workflow_pins_every_bun_setup_version() -> None:
+    workflow = WEB_WORKFLOW.read_text(encoding="utf-8")
+    action = "uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6"
+    blocks = workflow.split(action)
+    assert len(blocks) > 1
+    for suffix in blocks[1:]:
+        setup_tail = suffix.split("\n      - name: ", 1)[0]
+        assert '          bun-version: "1.3.14"' in setup_tail
 
 
 def test_web_typecheck_retries_native_tsgo_abort() -> None:
@@ -1939,6 +1951,10 @@ def test_guard_workflow_call_preserves_routes_and_static_gate() -> None:
     for route in GUARD_ROUTE_JOBS:
         assert f"      {route}: ${{{{ needs.changes.outputs.{route} }}}}" in block
         assert f"needs.changes.outputs.{route} != 'false'" in block
+    assert (
+        "      linux_guard_test_groups: "
+        "${{ needs.changes.outputs.linux_guard_test_groups }}"
+    ) in block
 
 
 def test_app_host_failures_preserve_attempt_and_crash_diagnostics() -> None:
@@ -2220,6 +2236,63 @@ def test_compiled_product_cache_is_opt_in_on_persistent_macos_lanes() -> None:
         assert "CMUX_NODE_PRODUCT_CACHE_ROOT: ${{ vars.CMUX_NODE_PRODUCT_CACHE_ROOT }}" in block
         assert "CMUX_NODE_PRODUCT_CACHE_MAX_BYTES: ${{ vars.CMUX_NODE_PRODUCT_CACHE_MAX_BYTES }}" in block
         assert "CMUX_NODE_PRODUCT_CACHE_WAIT_SECONDS: ${{ vars.CMUX_NODE_PRODUCT_CACHE_WAIT_SECONDS }}" in block
+        assert "CMUX_ARTIFACT_PEER_URLS: ${{ vars.CMUX_ARTIFACT_PEER_URLS }}" in block
+        assert "CMUX_ARTIFACT_PEER_TOKEN_FILE: ${{ vars.CMUX_ARTIFACT_PEER_TOKEN_FILE }}" in block
+
+
+def test_product_restore_receipt_binds_immutable_product_identity() -> None:
+    required_env = (
+        "ARTIFACT_ID: ${{ needs.macos-compile-admission.outputs.artifact_id }}",
+        "ARTIFACT_PROVIDER_DIGEST: ${{ needs.macos-compile-admission.outputs.artifact_digest }}",
+        "EXPECTED_SHA256: ${{ needs.macos-compile-admission.outputs.sha256 }}",
+        "CMUX_PRODUCT_CONTRACT: ${{ needs.macos-compile-admission.outputs.product_contract }}",
+        "CMUX_PRODUCT_SOURCE_REVISION: ${{ needs.macos-compile-admission.outputs.source_revision }}",
+        "CMUX_PRODUCT_PRODUCER_RUN_ID: ${{ needs.macos-compile-admission.outputs.producer_run_id }}",
+        "CMUX_PRODUCT_PRODUCER_RUN_ATTEMPT: ${{ needs.macos-compile-admission.outputs.producer_run_attempt }}",
+    )
+    for job_name in ("app-host-unit-tests", "tests-build-and-lag"):
+        block = workflow_job_block(job_name, MACOS_WORKFLOW)
+        restore = block[block.index("      - name: Restore compiled app-host test product"):]
+        restore = restore[:restore.index("\n      - name:", 1)]
+        for binding in required_env:
+            assert binding in restore, (job_name, binding)
+
+    script = (ROOT / "scripts/ci/restore-app-host-test-product.sh").read_text(encoding="utf-8")
+    for field in (
+        '"repository": os.environ["GITHUB_REPOSITORY"]',
+        '"artifact_id": int(os.environ["ARTIFACT_ID"])',
+        '"provider_digest": os.environ["ARTIFACT_PROVIDER_DIGEST"]',
+        '"archive_sha256": os.environ["EXPECTED_SHA256"]',
+        '"product_contract": os.environ["CMUX_PRODUCT_CONTRACT"]',
+        '"source_revision": os.environ["CMUX_PRODUCT_SOURCE_REVISION"]',
+        '"producer_run_id": int(os.environ["CMUX_PRODUCT_PRODUCER_RUN_ID"])',
+        '"producer_run_attempt": int(os.environ["CMUX_PRODUCT_PRODUCER_RUN_ATTEMPT"])',
+    ):
+        assert field in script
+
+
+def test_compiled_product_source_order_is_local_peer_r2_github() -> None:
+    for job_name in ("app-host-unit-tests", "tests-build-and-lag"):
+        block = workflow_job_block(job_name, MACOS_WORKFLOW)
+        assert block.index("Try node-local compiled product cache") < block.index("Try trusted fleet peer artifact source")
+        assert block.index("Try trusted fleet peer artifact source") < block.index("Try shared R2 artifact transport")
+        assert block.index("Try shared R2 artifact transport") < block.index("Download compiled app-host test product")
+
+
+def test_r2_transport_is_an_explicit_optional_remote_broker() -> None:
+    expected_condition = (
+        "if: steps.node-products.outputs.hit != 'true' && "
+        "steps.peer-products.outputs.hit != 'true' && "
+        "vars.CI_ARTIFACT_R2_URL != ''"
+    )
+    for job_name in ("app-host-unit-tests", "tests-build-and-lag"):
+        block = workflow_job_block(job_name, MACOS_WORKFLOW)
+        start = block.index("      - name: Try shared R2 artifact transport")
+        step = block[start:]
+        next_step = step.index("\n      - name:", 1)
+        r2_step = step[:next_step]
+        assert expected_condition in r2_step, job_name
+        assert "CI_ARTIFACT_R2_URL: ${{ vars.CI_ARTIFACT_R2_URL }}" in r2_step
 
 
 def test_macos_jobs_use_lane_specific_xcode_pin_vars() -> None:
@@ -2523,6 +2596,46 @@ def test_perf_activation_workflow_keeps_required_status_while_gating_benchmark()
     assert "if: ${{ always() }}" in sentinel
     assert 'macos == "true" and benchmark["result"] != "success"' in sentinel
     assert 'benchmark["result"] not in {"success", "skipped"}' in sentinel
+
+
+def test_guard_bun_setup_runs_only_for_owned_groups() -> None:
+    block = workflow_job_block("workflow-guard-tests", GUARD_WORKFLOW)
+    setup = block.index("      - name: Set up Bun for guard tests")
+    next_step = block.index("      - name: Validate Claude launch environment policy behavior", setup)
+    setup_block = block[setup:next_step]
+    assert "if: ${{ matrix.group == 'preflight' || matrix.group == 'release-ios' }}" in setup_block
+    assert block.count("setup-bun@") == 1
+
+
+def test_guard_python_setup_is_scoped_to_owning_groups() -> None:
+    block = workflow_job_block("workflow-guard-tests", GUARD_WORKFLOW)
+    setup = block.index("      - name: Set up Python 3.9 for nightly prune compatibility")
+    prepare = block.index("      - name: Prepare workflow guard Python dependencies", setup)
+    setup_block = block[setup:prepare]
+    assert "if: ${{ matrix.group == 'release-tooling' }}" in setup_block
+    prepare_block = block[
+        prepare:block.index("      - name: Validate Blacksmith Testbox broker trust boundary", prepare)
+    ]
+    assert (
+        "if: ${{ matrix.group == 'ci' || matrix.group == 'app-host-execution' || "
+        "matrix.group == 'app-host-process' || matrix.group == 'app-host-cache' || "
+        "matrix.group == 'release-tooling' }}"
+    ) in prepare_block
+    assert "python3 -m venv" in prepare_block
+    assert "packages=(PyYAML==6.0.3)" in prepare_block
+    assert 'if [[ "${{ matrix.group }}" == "release-tooling" ]]; then' in prepare_block
+    assert "packages+=(bashlex==0.18)" in prepare_block
+    assert '"${packages[@]}"' in prepare_block
+    assert block.count("actions/setup-python@") == 1
+
+
+def test_pipe_safe_capture_guard_runs_once_in_app_host_execution_group() -> None:
+    block = workflow_job_block("workflow-guard-tests", GUARD_WORKFLOW)
+    start = block.index("      - name: Validate pipe-safe CI capture")
+    end = block.index("      - name: Validate focused test launcher", start)
+    step = block[start:end]
+    assert "if: ${{ matrix.group == 'app-host-execution' }}" in step
+    assert block.count("Validate pipe-safe CI capture") == 1
 
 
 if __name__ == "__main__":
