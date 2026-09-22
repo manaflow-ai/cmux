@@ -133,7 +133,7 @@ extension V2ControlService {
             let directory = V2Directory(
                 devices: devices, inboundPeers: inboundPeers, issuedAt: first.issuedAt, nextCursor: nil,
                 permissionExpiresAt: first.permissionExpiresAt, relayURLs: first.relayURLs,
-                revision: first.revision, teamID: first.teamID
+                revision: first.revision, rules: first.rules, teamID: first.teamID
             )
             cache.directory = directory
             failure = nil
