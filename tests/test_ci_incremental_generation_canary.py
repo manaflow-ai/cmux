@@ -320,7 +320,7 @@ class IncrementalGenerationCanaryTests(unittest.TestCase):
             tracked_resource = repo / "Resources/ghostty/themes/example"
             tracked_resource.parent.mkdir(parents=True)
             tracked_resource.write_text("theme\\n")
-            (repo / ".gitignore").write_text("ignored.bin\\n")
+            (repo / ".gitignore").write_text("ignored.bin\n")
             git(repo, "add", ".")
             git(repo, "commit", "-qm", "seed")
             ignored = repo / "ignored.bin"
