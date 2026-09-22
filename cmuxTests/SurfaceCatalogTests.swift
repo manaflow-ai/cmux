@@ -169,19 +169,39 @@ struct SurfaceCatalogTests {
     @MainActor
     private final class MaterializeGate {
         private(set) var entered = false
-        private var enteredContinuation: CheckedContinuation<Void, Never>?
+        private var callerEnded = false
+        private var enteredContinuation: CheckedContinuation<Bool, Never>?
         private var releaseContinuations: [CheckedContinuation<Void, Never>] = []
 
-        func waitUntilEntered() async {
-            if entered { return }
-            await withCheckedContinuation { continuation in
-                enteredContinuation = continuation
+        /// Returns true once the provider enters `materialize`, or false when `caller`
+        /// finishes first because it threw before reaching the provider. Without the
+        /// second signal that setup failure parks the test until the suite time limit,
+        /// and every time-limit hit relaunches the whole app host.
+        func waitUntilEntered<Success: Sendable>(orEndOf caller: Task<Success, any Error>) async -> Bool {
+            if entered { return true }
+            Task { @MainActor [weak self] in
+                _ = await caller.result
+                self?.finishCaller()
             }
+            return await withCheckedContinuation { continuation in
+                if entered || callerEnded {
+                    continuation.resume(returning: entered)
+                } else {
+                    enteredContinuation = continuation
+                }
+            }
+        }
+
+        private func finishCaller() {
+            callerEnded = true
+            guard !entered, let continuation = enteredContinuation else { return }
+            enteredContinuation = nil
+            continuation.resume(returning: false)
         }
 
         func block() async {
             entered = true
-            enteredContinuation?.resume()
+            enteredContinuation?.resume(returning: true)
             enteredContinuation = nil
             await withCheckedContinuation { continuation in
                 releaseContinuations.append(continuation)
@@ -571,7 +591,7 @@ struct SurfaceCatalogTests {
         let destination = SurfaceDestination.workspace(id: live.id(), placement: .split)
 
         let first = Task { try await catalog.project(term.id, into: destination) }
-        await gate.waitUntilEntered()
+        try #require(await gate.waitUntilEntered(orEndOf: first), "the project call ended before reaching the provider")
 
         let (secondStarted, secondStartedContinuation) = AsyncStream<Void>.makeStream(
             bufferingPolicy: .bufferingNewest(1)
@@ -604,7 +624,7 @@ struct SurfaceCatalogTests {
         let destination = SurfaceDestination.workspace(id: live.id(), placement: .split)
 
         let project = Task { try await catalog.project(term.id, into: destination) }
-        await gate.waitUntilEntered()
+        try #require(await gate.waitUntilEntered(orEndOf: project), "the project call ended before reaching the provider")
         let adopted = SurfaceProjection(resource: term.id, workspaceID: UUID(), panelID: UUID())
         catalog.record(adopted)
         gate.release()
@@ -634,7 +654,7 @@ struct SurfaceCatalogTests {
         catalog.replaceResources([term], on: .cloud("vivid-newt"))
 
         let project = Task { try await catalog.project(term.id, into: .workspace(id: live.id(), placement: .split)) }
-        await gate.waitUntilEntered()
+        try #require(await gate.waitUntilEntered(orEndOf: project), "the project call ended before reaching the provider")
 
         let (cancellationResult, cancellationResultContinuation) = AsyncStream<Bool>.makeStream(
             bufferingPolicy: .bufferingNewest(1)
@@ -675,7 +695,7 @@ struct SurfaceCatalogTests {
             try await catalog.project(term.id, into: .workspace(id: live.id(), placement: .split))
         }
         project = task
-        await gate.waitUntilEntered()
+        try #require(await gate.waitUntilEntered(orEndOf: task), "the project call ended before reaching the provider")
         provider.onMaterialize = { project?.cancel() }
         gate.release()
 
@@ -701,7 +721,7 @@ struct SurfaceCatalogTests {
         let project = Task { @MainActor in
             try await catalog.project(term.id, into: .workspace(id: live.id(), placement: .split))
         }
-        await gate.waitUntilEntered()
+        try #require(await gate.waitUntilEntered(orEndOf: project), "the project call ended before reaching the provider")
         gate.release()
 
         await #expect(throws: SurfaceCatalogError.unknownResource(term.id)) {
@@ -726,7 +746,7 @@ struct SurfaceCatalogTests {
             try await catalog.project(term.id, into: .workspace(id: live.id(), placement: .split))
         }
         project = task
-        await gate.waitUntilEntered()
+        try #require(await gate.waitUntilEntered(orEndOf: task), "the project call ended before reaching the provider")
         provider.onMaterialize = { project?.cancel() }
         gate.release()
 
@@ -769,7 +789,7 @@ struct SurfaceCatalogTests {
         catalog.replaceResources([term], on: .cloud("vivid-newt"))
 
         let first = Task { try await catalog.project(term.id, into: .workspace(id: live.id(), placement: .split)) }
-        await gate.waitUntilEntered()
+        try #require(await gate.waitUntilEntered(orEndOf: first), "the project call ended before reaching the provider")
         first.cancel()
         await #expect(throws: CancellationError.self) {
             try await first.value
@@ -815,7 +835,7 @@ struct SurfaceCatalogTests {
         catalog.replaceResources([term], on: .cloud("vivid-newt"))
 
         let project = Task { try await catalog.project(term.id, into: .workspace(id: live.id(), placement: .split)) }
-        await gate.waitUntilEntered()
+        try #require(await gate.waitUntilEntered(orEndOf: project), "the project call ended before reaching the provider")
         catalog.unregister(machine: .cloud("vivid-newt"))
         gate.release()
 
@@ -837,7 +857,7 @@ struct SurfaceCatalogTests {
         let oldProject = Task {
             try await catalog.project(term.id, into: .workspace(id: live.id(), placement: .split))
         }
-        await gate.waitUntilEntered()
+        try #require(await gate.waitUntilEntered(orEndOf: oldProject), "the project call ended before reaching the provider")
 
         let replacementProvider = FakeProvider(machine: .cloud("vivid-newt"))
         catalog.register(replacementProvider)
@@ -867,7 +887,7 @@ struct SurfaceCatalogTests {
         let oldProject = Task {
             try await catalog.project(term.id, into: .workspace(id: live.id(), placement: .split))
         }
-        await gate.waitUntilEntered()
+        try #require(await gate.waitUntilEntered(orEndOf: oldProject), "the project call ended before reaching the provider")
         oldProject.cancel()
         await #expect(throws: CancellationError.self) {
             try await oldProject.value
@@ -895,7 +915,7 @@ struct SurfaceCatalogTests {
         let stuckProject = Task {
             try await catalog.project(stuckTerm.id, into: .workspace(id: live.id(), placement: .split))
         }
-        await gate.waitUntilEntered()
+        try #require(await gate.waitUntilEntered(orEndOf: stuckProject), "the project call ended before reaching the provider")
         stuckProject.cancel()
         await #expect(throws: CancellationError.self) {
             try await stuckProject.value
@@ -924,7 +944,7 @@ struct SurfaceCatalogTests {
         let oldProject = Task {
             try await catalog.project(term.id, into: .workspace(id: live.id(), placement: .split))
         }
-        await gate.waitUntilEntered()
+        try #require(await gate.waitUntilEntered(orEndOf: oldProject), "the project call ended before reaching the provider")
         oldProject.cancel()
         await #expect(throws: CancellationError.self) {
             try await oldProject.value
@@ -965,7 +985,7 @@ struct SurfaceCatalogTests {
         let oldProject = Task {
             try await catalog.project(term.id, into: .workspace(id: live.id(), placement: .split))
         }
-        await oldGate.waitUntilEntered()
+        try #require(await oldGate.waitUntilEntered(orEndOf: oldProject), "the project call ended before reaching the provider")
         oldProject.cancel()
         await #expect(throws: CancellationError.self) {
             try await oldProject.value
@@ -996,7 +1016,7 @@ struct SurfaceCatalogTests {
         catalog.replaceResources([term], on: .cloud("vivid-newt"))
 
         let oldProject = Task { try await catalog.project(term.id, into: .workspace(id: live.id(), placement: .split)) }
-        await gate.waitUntilEntered()
+        try #require(await gate.waitUntilEntered(orEndOf: oldProject), "the project call ended before reaching the provider")
         catalog.unregister(machine: .cloud("vivid-newt"))
         await #expect(throws: SurfaceCatalogError.unknownResource(term.id)) {
             try await oldProject.value

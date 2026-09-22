@@ -50,7 +50,7 @@ struct CloudDisplayCatalogTests {
         }
         await service.refresh()
         let operation = Task { try await service.create() }
-        _ = await started.result
+        try #require(await Self.guestExecStarted(started, before: operation))
         service.stop()
         response.resolve(true)
         do { _ = try await operation.value; Issue.record("Retired creation succeeded") } catch {}
@@ -97,23 +97,21 @@ struct CloudDisplayCatalogTests {
     }
 
     @Test("Cancelling display creation cancels the guest exec")
-    func cancelledCreationCancelsGuestExec() async {
+    func cancelledCreationCancelsGuestExec() async throws {
         let started = CloudLinkFirstValue<Bool>()
         let cancelled = CloudLinkFirstValue<Bool>()
+        // Never resolved: the exec stays in flight until its task is cancelled.
+        let reply = CloudLinkFirstValue<Bool>()
         let service = CloudDisplayCoordinator { command, _ in
             if !Self.isCreate(command) { return .init(exitCode: 0, stdout: initial, stderr: "") }
             started.resolve(true)
-            do {
-                try await Task.sleep(for: .seconds(60))
-            } catch {
-                cancelled.resolve(true)
-                throw error
-            }
-            return .init(exitCode: 0, stdout: created, stderr: "")
+            _ = await reply.result
+            cancelled.resolve(Task.isCancelled)
+            throw CancellationError()
         }
         await service.refresh()
         let operation = Task { try await service.create() }
-        _ = await started.result
+        try #require(await Self.guestExecStarted(started, before: operation))
         operation.cancel()
         #expect(await cancelled.result == true)
         do { _ = try await operation.value } catch {}
@@ -245,6 +243,22 @@ struct CloudDisplayCatalogTests {
         )
         #expect(displayPorts() == ["display:1": 6901, "display:2": 6902], "a delta touching display 2 keeps its target")
         #expect(catalog.resources[second.id]?.url?.contains(":6902/") == true)
+    }
+
+    /// Waits until the fake guest exec starts creating, or answers false when
+    /// `operation` finishes first. `create()` can fail before it reaches the
+    /// exec (a fake that no longer recognizes the create command, for example),
+    /// and awaiting `started` alone then parks the test until the suite time
+    /// limit, which relaunches the whole app host.
+    private static func guestExecStarted(
+        _ started: CloudLinkFirstValue<Bool>,
+        before operation: Task<CloudGuestDisplaySnapshot, any Error>
+    ) async -> Bool {
+        Task {
+            _ = await operation.result
+            started.resolve(false)
+        }
+        return await started.result == true
     }
 
     /// Every guest command first runs `list` as a readiness probe (#13196,
