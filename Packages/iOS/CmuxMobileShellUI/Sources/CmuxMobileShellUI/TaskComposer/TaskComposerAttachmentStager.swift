@@ -136,7 +136,7 @@ struct TaskComposerAttachmentStager: Sendable {
 /// common images and movies before falling back to the generic `.item` form for
 /// Live Photos and future library media.
 struct ImportedPhotoLibraryFile: Transferable, Sendable {
-    enum Kind: Sendable {
+    enum Kind: Equatable, Sendable {
         case image
         case file
     }
@@ -185,6 +185,86 @@ enum PhotoLibraryTransferError: Error {
     case timedOut
 }
 
+private final class PhotoLibraryTransferRace: @unchecked Sendable {
+    private let lock = NSLock()
+    private var continuation: CheckedContinuation<ImportedPhotoLibraryFile?, Error>?
+    private var transferTask: Task<Void, Never>?
+    private var timeoutTask: Task<Void, Never>?
+    private var didFinish = false
+
+    func start(
+        item: PhotosPickerItem,
+        timeout: Duration,
+        continuation: CheckedContinuation<ImportedPhotoLibraryFile?, Error>
+    ) {
+        lock.lock()
+        if didFinish {
+            lock.unlock()
+            continuation.resume(throwing: CancellationError())
+            return
+        }
+        self.continuation = continuation
+        lock.unlock()
+
+        let transferTask = Task { [self] in
+            do {
+                try Task.checkCancellation()
+                let imported = try await item.loadTransferable(
+                    type: ImportedPhotoLibraryFile.self
+                )
+                finish(.success(imported))
+            } catch {
+                finish(.failure(error))
+            }
+        }
+        let timeoutTask = Task { [self] in
+            do {
+                try await Task.sleep(for: timeout)
+                finish(.failure(PhotoLibraryTransferError.timedOut))
+            } catch {
+                // The transfer won or the parent task was cancelled.
+            }
+        }
+
+        lock.lock()
+        if didFinish {
+            lock.unlock()
+            transferTask.cancel()
+            timeoutTask.cancel()
+        } else {
+            self.transferTask = transferTask
+            self.timeoutTask = timeoutTask
+            lock.unlock()
+        }
+    }
+
+    func cancel() {
+        finish(.failure(CancellationError()))
+    }
+
+    private func finish(
+        _ result: Result<ImportedPhotoLibraryFile?, Error>
+    ) {
+        lock.lock()
+        guard !didFinish else {
+            lock.unlock()
+            return
+        }
+        didFinish = true
+        let continuation = self.continuation
+        self.continuation = nil
+        let transferTask = self.transferTask
+        self.transferTask = nil
+        let timeoutTask = self.timeoutTask
+        self.timeoutTask = nil
+        lock.unlock()
+
+        transferTask?.cancel()
+        timeoutTask?.cancel()
+        continuation?.resume(with: result)
+    }
+}
+
 /// Loads a Photos library asset with a bounded wait. iCloud-backed assets can
 /// otherwise leave a composer staging task waiting indefinitely when the
 /// network transfer stalls.
@@ -192,19 +272,17 @@ func loadImportedPhotoLibraryFile(
     _ item: PhotosPickerItem,
     timeout: Duration = .seconds(60)
 ) async throws -> ImportedPhotoLibraryFile? {
-    try await withThrowingTaskGroup(of: ImportedPhotoLibraryFile?.self) { group in
-        group.addTask {
-            try Task.checkCancellation()
-            return try await item.loadTransferable(
-                type: ImportedPhotoLibraryFile.self
+    let race = PhotoLibraryTransferRace()
+    return try await withTaskCancellationHandler(operation: {
+        try await withCheckedThrowingContinuation { continuation in
+            race.start(
+                item: item,
+                timeout: timeout,
+                continuation: continuation
             )
         }
-        group.addTask {
-            try await Task.sleep(for: timeout)
-            throw PhotoLibraryTransferError.timedOut
-        }
-        defer { group.cancelAll() }
-        return try await group.next()!
-    }
+    }, onCancel: {
+        race.cancel()
+    })
 }
 #endif
