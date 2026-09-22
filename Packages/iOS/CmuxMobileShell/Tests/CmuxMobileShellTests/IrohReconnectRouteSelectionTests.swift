@@ -174,17 +174,25 @@ extension ReconnectRouteSelectionTests {
         )
         await store.loadPairedMacs()
         for mac in store.pairedMacs {
-            Issue.record(
-                "PROBE mac=\(mac.macDeviceID) tag=\(String(describing: mac.instanceTag)) "
-                + "method=\(String(describing: mac.connectionMethodRawValue)) "
-                + "routes=\(mac.routes.map(\.kind)) "
-                + "grants=\(String(describing: mac.legacyTailscaleRoutes)) "
-                + "ordered=\(store.orderedReconnectRoutes(for: mac, supportedKinds: [.iroh, .tailscale]).map(\.kind))"
+            let tag: String = String(describing: mac.instanceTag)
+            let method: String = String(describing: mac.connectionMethodRawValue)
+            let kinds: String = String(describing: mac.routes.map(\.kind))
+            let grants: String = String(describing: mac.legacyTailscaleRoutes)
+            let ordered: [CmxAttachRoute] = store.orderedReconnectRoutes(
+                for: mac,
+                supportedKinds: [.iroh, .tailscale]
             )
+            let orderedKinds: String = String(describing: ordered.map(\.kind))
+            Issue.record("PROBE mac tag=" + tag + " method=" + method)
+            Issue.record("PROBE routes=" + kinds + " grants=" + grants)
+            Issue.record("PROBE ordered=" + orderedKinds)
         }
 
         #expect(await store.reconnectActiveMacIfAvailable(stackUserID: "user-1"))
-        Issue.record("PROBE error=\(String(describing: store.connectionError)) state=\(String(describing: store.connectionState)) status=\(String(describing: store.macConnectionStatus))")
+        let err: String = String(describing: store.connectionError)
+        let st: String = String(describing: store.connectionState)
+        let status: String = String(describing: store.macConnectionStatus)
+        Issue.record("PROBE error=" + err + " state=" + st + " status=" + status)
         #expect(store.connectionState == .connected)
         #expect(factory.attemptedKinds() == [.tailscale])
         #expect(
