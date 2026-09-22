@@ -216,13 +216,7 @@ final class MobilePairingModel {
         let status = await host.ensureListeningAndReady()
         guard generation == refreshGeneration else { return }
         guard status.isRunning else {
-            // Show localized copy, not the raw NWListener error string.
-            state = .failed(
-                String(
-                    localized: "mobile.pairing.error.listenerOffline",
-                    defaultValue: "Could not start the pairing listener on this Mac."
-                )
-            )
+            state = .failed(Self.preparationFailureMessage(detail: status.lastErrorDescription))
             return
         }
         guard generation == refreshGeneration else { return }
@@ -303,9 +297,13 @@ final class MobilePairingModel {
         _ status: MobileHostServiceStatus,
         baselineConnectionCount: Int
     ) -> State {
-        guard status.isRunning else { return .failed(preparationFailureMessage) }
+        guard status.isRunning else {
+            return .failed(preparationFailureMessage(detail: status.lastErrorDescription))
+        }
         guard status.isPairingReady else {
-            return status.lastErrorDescription?.isEmpty == false ? .failed(preparationFailureMessage) : .preparing
+            return status.lastErrorDescription?.isEmpty == false
+                ? .failed(preparationFailureMessage(detail: status.lastErrorDescription))
+                : .preparing
         }
         let ready = State.ready(Ready(
             attachURL: "", tailscaleLines: [], manualEntry: nil,
@@ -321,7 +319,14 @@ final class MobilePairingModel {
         if next != state { state = next }
     }
 
-    private static var preparationFailureMessage: String {
+    private static func preparationFailureMessage(detail: String? = nil) -> String {
+        if let detail, !detail.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return String(
+                localized: "mobile.pairing.error.preparationFailedWithDetails",
+                defaultValue: "Pairing could not finish.\n\n%@",
+                comment: "The placeholder contains a safe transport diagnosis."
+            ).replacingOccurrences(of: "%@", with: detail)
+        }
         String(localized: "mobile.pairing.error.preparationFailed",
                defaultValue: "Pairing could not finish. Check your connection and try again.")
     }
@@ -343,7 +348,7 @@ final class MobilePairingModel {
             guard !Task.isCancelled, let self, self.refreshGeneration == generation,
                   self.state == .preparing else { return }
             self.preparationTimeoutTask = nil
-            self.state = .failed(Self.preparationFailureMessage)
+            self.state = .failed(Self.preparationFailureMessage())
         }
     }
 

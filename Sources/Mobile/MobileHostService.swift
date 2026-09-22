@@ -231,9 +231,17 @@ struct MobileHostServiceStatus {
     let routes: [CmxAttachRoute]
     let activeConnectionCount: Int
     let lastErrorDescription: String?
+    /// Iroh readiness and socket details are independent from the TCP route.
+    var irohPort: Int?
+    var irohLocalSocketAddresses: [String] = []
     var pendingPortChange: Bool = false
     var localSocketAddresses: [String] = []
     var isPairingReady = false
+    /// The independent TCP listener used by legacy Tailscale clients.
+    var tailscaleIsRunning = false
+    var tailscalePort: Int?
+    var tailscaleFailureDescription: String?
+    var tailscaleRoutes: [CmxAttachRoute] = []
 
     var payload: [String: Any] {
         let now = Date()
@@ -245,7 +253,11 @@ struct MobileHostServiceStatus {
             "pending_port_change": pendingPortChange,
             "routes": routes.mobileHostJSONObjects(for: .authenticated, at: now),
             "active_connection_count": activeConnectionCount,
-            "last_error": lastErrorDescription ?? NSNull()
+            "last_error": lastErrorDescription ?? NSNull(),
+            "iroh_port": irohPort ?? NSNull(),
+            "tailscale_is_running": tailscaleIsRunning,
+            "tailscale_port": tailscalePort ?? NSNull(),
+            "tailscale_error": tailscaleFailureDescription ?? NSNull()
         ]
     }
 }
@@ -416,6 +428,14 @@ final class MobileHostService {
     }
 
     private let callbackQueue = DispatchQueue(label: "dev.cmux.mobile.host-listener")
+    /// TCP compatibility listener for legacy Tailscale clients. Iroh owns its
+    /// own UDP endpoint and never shares this socket or its lifecycle.
+    private var tailscaleListener: NWListener?
+    private var tailscaleIsRunning = false
+    private var tailscalePort: Int?
+    private var tailscaleFailureDescription: String?
+    private var tailscaleRoutes: [CmxAttachRoute] = []
+    private let tailscaleRouteResolver = MobileRouteResolver()
     private let ticketStore = MobileAttachTicketStore()
     private var clientIDsByConnectionID: [UUID: Set<String>] = [:]
     private var pathMonitor: MobileHostNetworkPathMonitor?
@@ -701,11 +721,10 @@ final class MobileHostService {
         return iOSPairingEnabled || MobileRemoteControlPolicy.allowsIncomingAccess(defaults: defaults)
     }
 
-    /// User-default key for the preferred iOS pairing listener port.
+    /// User-default key for the legacy Tailscale TCP pairing listener port.
     nonisolated static let portDefaultsKey = SettingCatalog().mobile.iOSPairingPort.userDefaultsKey
 
-    /// Preferred UDP port for the next IROH listener start. A busy port falls
-    /// back to an available port, which the runtime reports separately.
+    /// Configured TCP port for the legacy Tailscale compatibility listener.
     nonisolated static func configuredPort(defaults: UserDefaults = .standard) -> Int {
         let fallback = SettingCatalog().mobile.iOSPairingPort.defaultValue
         guard let raw = defaults.object(forKey: portDefaultsKey) as? Int else {
@@ -720,8 +739,7 @@ final class MobileHostService {
         guard (1...65535).contains(port) else { return .invalid }
         defaults.set(port, forKey: Self.portDefaultsKey)
         NotificationCenter.default.post(name: .mobileHostStatusDidChange, object: nil)
-        let state = pairingRuntime.listenerState
-        if pairingRuntime.isNetworkingAllowed, state.isRunning, state.boundPort == port {
+        if pairingRuntime.isNetworkingAllowed, tailscaleIsRunning, tailscalePort == port {
             return .applied(port)
         }
         return .savedForLater
@@ -732,6 +750,7 @@ final class MobileHostService {
     }
 
     func stop() {
+        stopTailscaleListener()
         let runtime = pairingRuntime
         runtime.prepareForStop()
         Task { @MainActor in await runtime.stopHost() }
@@ -813,16 +832,25 @@ final class MobileHostService {
         let state = runtime.isNetworkingAllowed ? runtime.listenerState : MobileHostListenerState()
         let desiredPort = Self.configuredPort(defaults: defaults)
         return MobileHostServiceStatus(
-            isRunning: state.isRunning,
-            port: state.boundPort,
+            isRunning: state.isRunning || tailscaleIsRunning,
+            port: tailscalePort,
             configuredPort: desiredPort,
-            usesEphemeralFallback: state.usesEphemeralFallback,
+            usesEphemeralFallback: false,
             routes: state.isRunning ? routes : [],
             activeConnectionCount: MobileHostConnectionRegistry.shared.count,
             lastErrorDescription: state.failureDescription,
-            pendingPortChange: state.isRunning && state.preferredPort != desiredPort,
-            localSocketAddresses: state.localSocketAddresses,
-            isPairingReady: state.isRunning && state.hasAuthenticatedRegistration
+            irohPort: state.boundPort,
+            irohLocalSocketAddresses: state.localSocketAddresses,
+            pendingPortChange: tailscaleIsRunning && tailscalePort != desiredPort,
+            localSocketAddresses: tailscaleRoutes.compactMap { route in
+                guard case let .hostPort(host, port) = route.endpoint else { return nil }
+                return host.contains(":") ? "[\(host)]:\(port)" : "\(host):\(port)"
+            },
+            isPairingReady: state.isRunning && state.hasAuthenticatedRegistration,
+            tailscaleIsRunning: tailscaleIsRunning,
+            tailscalePort: tailscalePort,
+            tailscaleFailureDescription: tailscaleFailureDescription,
+            tailscaleRoutes: tailscaleRoutes
         )
     }
 
@@ -833,12 +861,110 @@ final class MobileHostService {
         if !runtime.isNetworkingAllowed { runtime.prepareForStop() }
         Task { @MainActor in await runtime.applyManagedNetworkingPolicy() }
         if runtime.isNetworkingAllowed {
+            startTailscaleListenerIfNeeded()
             startNetworkPathMonitorIfNeeded()
         } else {
+            stopTailscaleListener()
             stopNetworkPathMonitor()
             for connection in MobileHostConnectionRegistry.shared.removeAll() {
                 Task { await connection.close(reason: "iOS pairing disabled") }
             }
+        }
+    }
+
+    /// Starts the legacy TCP compatibility listener independently of Iroh.
+    /// Iroh uses its own UDP endpoint and may use an ephemeral port; this port
+    /// is reserved only for clients that explicitly select the Tailscale route.
+    private func startTailscaleListenerIfNeeded() {
+        guard tailscaleListener == nil else { return }
+        let configuredPort = Self.configuredPort(defaults: defaults)
+        guard let port = NWEndpoint.Port(rawValue: UInt16(configuredPort)) else {
+            tailscaleFailureDescription = String(
+                localized: "mobile.pairing.error.invalidPort",
+                defaultValue: "The Tailscale pairing port is invalid. Choose a port from 1 to 65535."
+            )
+            NotificationCenter.default.post(name: .mobileHostStatusDidChange, object: nil)
+            return
+        }
+        do {
+            let listener = try NWListener(using: .tcp, on: port)
+            listener.stateUpdateHandler = { [weak self] state in
+                Task { @MainActor in self?.handleTailscaleListenerState(state) }
+            }
+            listener.newConnectionHandler = { [weak self] connection in
+                Task { @MainActor in self?.acceptTailscaleConnection(connection) }
+            }
+            tailscaleListener = listener
+            tailscaleFailureDescription = nil
+            listener.start(queue: callbackQueue)
+        } catch {
+            tailscaleFailureDescription = String(
+                localized: "mobile.pairing.error.tailscaleListener",
+                defaultValue: "Could not start the Tailscale pairing listener on port %@: %@",
+                comment: "The placeholders are the configured TCP port and a safe OS diagnostic."
+            ).replacingOccurrences(of: "%@", with: String(configuredPort))
+                .replacingOccurrences(of: "%@", with: String(describing: error))
+            NotificationCenter.default.post(name: .mobileHostStatusDidChange, object: nil)
+        }
+    }
+
+    private func handleTailscaleListenerState(_ state: NWListener.State) {
+        switch state {
+        case .ready:
+            tailscaleIsRunning = true
+            tailscalePort = tailscaleListener?.port.map { Int($0.rawValue) }
+            tailscaleFailureDescription = nil
+            let routes = tailscalePort.map { tailscaleRouteResolver.routes(port: $0).routes } ?? []
+            tailscaleRoutes = routes
+            MobileHostPublicStatusCache.update(routes: routes)
+        case .failed(let error):
+            tailscaleIsRunning = false
+            tailscalePort = nil
+            tailscaleFailureDescription = String(
+                localized: "mobile.pairing.error.tailscaleListener",
+                defaultValue: "Could not start the Tailscale pairing listener on port %@: %@",
+                comment: "The placeholders are the configured TCP port and a safe OS diagnostic."
+            ).replacingOccurrences(of: "%@", with: String(Self.configuredPort(defaults: defaults)))
+                .replacingOccurrences(of: "%@", with: String(describing: error))
+            MobileHostPublicStatusCache.update(routes: [])
+            tailscaleRoutes = []
+        case .cancelled:
+            tailscaleIsRunning = false
+            tailscalePort = nil
+            tailscaleRoutes = []
+            MobileHostPublicStatusCache.update(routes: [])
+        default:
+            tailscaleIsRunning = false
+        }
+        NotificationCenter.default.post(name: .mobileHostStatusDidChange, object: nil)
+    }
+
+    private func stopTailscaleListener() {
+        tailscaleListener?.cancel()
+        tailscaleListener = nil
+        tailscaleIsRunning = false
+        tailscalePort = nil
+        tailscaleFailureDescription = nil
+        tailscaleRoutes = []
+        MobileHostPublicStatusCache.update(routes: [])
+        NotificationCenter.default.post(name: .mobileHostStatusDidChange, object: nil)
+    }
+
+    private func acceptTailscaleConnection(_ connection: NWConnection) {
+        guard tailscaleIsRunning else {
+            connection.cancel()
+            return
+        }
+        let transport = CmxNetworkByteTransport(acceptedConnection: connection)
+        Task {
+            _ = await Self.acceptTransport(
+                transport,
+                authorization: .stackBearer,
+                hostDeviceID: MobileHostIdentity.deviceID(),
+                isCurrent: { [weak self] in
+                    await MainActor.run { self?.tailscaleIsRunning == true }
+                }
+            )
         }
     }
 
@@ -1328,8 +1454,17 @@ final class MobileHostService {
     }
 
     private func handleNetworkPathChange() {
+        refreshTailscaleRoutes()
         let runtime = pairingRuntime
         Task { @MainActor in await runtime.foreground() }
+    }
+
+    private func refreshTailscaleRoutes() {
+        guard tailscaleIsRunning, let port = tailscalePort else { return }
+        tailscaleRouteResolver.invalidateResolvedTailscaleHostCache()
+        tailscaleRoutes = tailscaleRouteResolver.routes(port: port).routes
+        MobileHostPublicStatusCache.update(routes: tailscaleRoutes)
+        NotificationCenter.default.post(name: .mobileHostStatusDidChange, object: nil)
     }
 }
 
