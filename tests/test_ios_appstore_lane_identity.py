@@ -124,10 +124,18 @@ def write_plist(path, value):
 APPSTORE_PROFILE = plistlib.loads({_plist_bytes(_profile_plist())!r})
 BETA_PROFILE = plistlib.loads({_plist_bytes(_profile_plist(BETA_BUNDLE_ID, "cmux Beta Distribution Test", "00000000-0000-0000-0000-000000000002"))!r})
 EXTENSION_PROFILE = plistlib.loads({_plist_bytes(_profile_plist(APPSTORE_EXTENSION_BUNDLE_ID, APPSTORE_EXTENSION_PROFILE_NAME, "00000000-0000-0000-0000-000000000003"))!r})
+BETA_EXTENSION_PROFILE = plistlib.loads({_plist_bytes(_profile_plist(BETA_BUNDLE_ID + ".NotificationService", "cmux Beta Notification Service Distribution", "00000000-0000-0000-0000-000000000004"))!r})
 FIXTURE_CERTIFICATE = {ssl.DER_cert_to_PEM_cert(FIXTURE_CERTIFICATE_DER)!r}
 
 def profile_for_bundle(bundle_id):
-    source = BETA_PROFILE if bundle_id == BETA_BUNDLE_ID else APPSTORE_PROFILE
+    if bundle_id == BETA_BUNDLE_ID:
+        source = BETA_PROFILE
+    elif bundle_id == BETA_BUNDLE_ID + ".NotificationService":
+        source = BETA_EXTENSION_PROFILE
+    elif bundle_id == APPSTORE_EXTENSION_BUNDLE_ID:
+        source = EXTENSION_PROFILE
+    else:
+        source = APPSTORE_PROFILE
     if os.environ.get("CMUX_FAKE_PROFILE_MISSING_TIME_SENSITIVE") != "1":
         return source
     profile = dict(source)
@@ -427,6 +435,15 @@ if "-exportArchive" in args:
                 "CFBundlePackageType": "FMWK",
             }},
         )
+    if os.environ.get("CMUX_FAKE_INCLUDE_NOTIFICATION_EXTENSION") == "1":
+        extension = app / "PlugIns" / "NotificationService.appex"
+        write_plist(
+            extension / "Info.plist",
+            {{"CFBundleIdentifier": BETA_BUNDLE_ID + ".NotificationService"}},
+        )
+        (extension / "embedded.mobileprovision").write_text(
+            "beta extension profile", encoding="utf-8"
+        )
     profile_marker = "beta profile" if bundle_id == BETA_BUNDLE_ID else "fake profile"
     (app / "embedded.mobileprovision").write_text(profile_marker, encoding="utf-8")
     # upload-testflight.sh refuses IPAs without Symbols/*.symbols.
@@ -493,6 +510,8 @@ if len(args) >= 2 and args[0] == "cms" and args[1] == "-D":
                 profile = LEGACY_PROFILE
             elif b"beta profile" in body:
                 profile = profile_for_bundle(BETA_BUNDLE_ID)
+            elif b"beta extension profile" in body:
+                profile = BETA_EXTENSION_PROFILE
             elif b"extension profile" in body:
                 profile = EXTENSION_PROFILE
     sys.stdout.buffer.write(plist_bytes(profile))
@@ -766,6 +785,7 @@ def test_upload_beta_lane_uses_beta_marketing_version(tmp: Path, fakebin: Path) 
     env = _base_env(tmp, fakebin)
     env["CMUX_IOS_UPLOAD_DIR"] = str(tmp / "upload")
     env["CMUX_BUILD_NUMBER_OUT_FILE"] = str(tmp / "build-number.txt")
+    env["CMUX_FAKE_INCLUDE_NOTIFICATION_EXTENSION"] = "1"
     result = _run(
         [
             "bash",
@@ -832,6 +852,9 @@ def test_upload_beta_lane_uses_beta_marketing_version(tmp: Path, fakebin: Path) 
     ipa_path = Path(ipa_line.removeprefix("IPA_PATH="))
     with zipfile.ZipFile(ipa_path) as zf:
         info = plistlib.loads(zf.read("Payload/cmux.app/Info.plist"))
+        extension_info = plistlib.loads(
+            zf.read("Payload/cmux.app/PlugIns/NotificationService.appex/Info.plist")
+        )
     _check(
         info.get("CFBundleIdentifier") == BETA_BUNDLE_ID,
         "final signed beta IPA Info.plist is dev.cmux.app.beta",
@@ -843,6 +866,10 @@ def test_upload_beta_lane_uses_beta_marketing_version(tmp: Path, fakebin: Path) 
     _check(
         info.get("CFBundleShortVersionString") == BETA_MARKETING_VERSION,
         "final signed beta IPA keeps the beta marketing version",
+    )
+    _check(
+        extension_info.get("CFBundleIdentifier") == BETA_BUNDLE_ID + ".NotificationService",
+        "final signed beta IPA carries the notification extension bundle",
     )
     for key, expected in PRODUCTION_RUNTIME_ORIGINS.items():
         _check(

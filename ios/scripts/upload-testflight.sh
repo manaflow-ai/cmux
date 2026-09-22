@@ -63,6 +63,23 @@ verify_ipa_aps_environment_production() {
     rm -rf "$workdir"
     return 1
   fi
+  while IFS= read -r -d '' extension_app; do
+    extension_ent="$workdir/$(basename "$extension_app").entitlements.plist"
+    if ! codesign --verify --strict --verbose=2 "$extension_app" >&2 ||
+      ! codesign -d --entitlements :- --xml "$extension_app" > "$extension_ent" 2>/dev/null; then
+      echo "error: signed notification extension failed code-signature verification: $extension_app" >&2
+      rm -rf "$workdir"
+      return 1
+    fi
+    extension_app_id="$("$PLISTBUDDY" -c 'Print :application-identifier' "$extension_ent" 2>/dev/null || true)"
+    extension_team_id="$("$PLISTBUDDY" -c 'Print :com.apple.developer.team-identifier' "$extension_ent" 2>/dev/null || true)"
+    if [[ -z "$extension_app_id" || "$extension_team_id" != "$DEVELOPMENT_TEAM" ]]; then
+      echo "error: signed notification extension has incomplete entitlements (application-identifier='${extension_app_id:-<absent>}', team='${extension_team_id:-<absent>}'): $extension_app" >&2
+      plutil -p "$extension_ent" >&2 || true
+      rm -rf "$workdir"
+      return 1
+    fi
+  done < <(find "$app/PlugIns" -maxdepth 1 -type d -name '*.appex' -print0 2>/dev/null)
   rm -rf "$workdir"
   return 0
 }
@@ -1069,11 +1086,15 @@ else
   plutil -insert signingCertificate -string "Apple Distribution" "$EXPORT_OPTIONS"
   "$PLISTBUDDY" -c "Add :provisioningProfiles dict" "$EXPORT_OPTIONS"
   "$PLISTBUDDY" -c "Add :provisioningProfiles:$PRODUCT_BUNDLE_IDENTIFIER string $PROVISIONING_PROFILE_NAME" "$EXPORT_OPTIONS"
-  if [[ "$LANE" == "appstore" ]]; then
+  if [[ "$LANE" == "appstore" || "$LANE" == "beta" ]]; then
     EXTENSION_BUNDLE_IDENTIFIER="${PRODUCT_BUNDLE_IDENTIFIER}.NotificationService"
-    EXTENSION_PROFILE_NAME="${IOS_APPSTORE_EXTENSION_PROVISIONING_PROFILE_NAME:-}"
+    if [[ "$LANE" == "appstore" ]]; then
+      EXTENSION_PROFILE_NAME="${IOS_APPSTORE_EXTENSION_PROVISIONING_PROFILE_NAME:-}"
+    else
+      EXTENSION_PROFILE_NAME="${IOS_BETA_EXTENSION_PROVISIONING_PROFILE_NAME:-}"
+    fi
     if [[ -z "$EXTENSION_PROFILE_NAME" ]]; then
-      echo "error: manual App Store export needs IOS_APPSTORE_EXTENSION_PROVISIONING_PROFILE_NAME for $EXTENSION_BUNDLE_IDENTIFIER" >&2
+      echo "error: manual beta/App Store export needs a provisioning profile name for $EXTENSION_BUNDLE_IDENTIFIER" >&2
       exit 1
     fi
     "$PLISTBUDDY" -c "Add :provisioningProfiles:$EXTENSION_BUNDLE_IDENTIFIER string $EXTENSION_PROFILE_NAME" "$EXPORT_OPTIONS"
@@ -1129,10 +1150,10 @@ fi
 #
 # This runs on the MANUAL signing path only: it re-signs with the named
 # distribution cert from the local keychain ("Apple Distribution: Manaflow,
-# Inc."), which is present for local/fleet-archive beta cuts. The cmux iOS app is
-# a single self-contained bundle (no Frameworks/, no PlugIns/, GhosttyKit is
-# static), so only the top-level .app is signed; there is no nested code to
-# re-sign. Two alternatives were ruled out: an ad-hoc archive (CODE_SIGN_IDENTITY
+# Inc."), which is present for local/fleet-archive beta cuts. The app's static
+# frameworks are stripped, while each embedded NotificationService.appex is
+# signed separately with its own profile before the top-level app is sealed.
+# Two alternatives were ruled out: an ad-hoc archive (CODE_SIGN_IDENTITY
 # "-") is rejected by the iOS SDK for an entitled app, and signing on the shared
 # fleet would put distribution material on shared Macs.
 if [[ "$SIGNING" == "manual" ]]; then
@@ -1298,6 +1319,64 @@ PY
     "$PLISTBUDDY" -c "Set :CMUXKeychainAccessGroup $DEVELOPMENT_TEAM.$PRODUCT_BUNDLE_IDENTIFIER" \
       "$RESIGN_APP/Info.plist"
     echo "Patched CMUXKeychainAccessGroup -> $DEVELOPMENT_TEAM.$PRODUCT_BUNDLE_IDENTIFIER"
+  fi
+
+  # NotificationService.appex is a separately signed code bundle. The export
+  # profile mapping above makes Xcode embed its profile, but the manual beta
+  # path still has to sign the extension after exporting the unsigned archive.
+  # Signing only the container app leaves the extension with no entitlements,
+  # which App Store Connect rejects as error 90166.
+  if [[ -d "$RESIGN_APP/PlugIns" ]]; then
+    while IFS= read -r -d '' extension_app; do
+      extension_id="$("$PLISTBUDDY" -c 'Print :CFBundleIdentifier' "$extension_app/Info.plist" 2>/dev/null || true)"
+      if [[ -z "$extension_id" ]]; then
+        echo "error: notification extension is missing CFBundleIdentifier: $extension_app" >&2
+        exit 1
+      fi
+      extension_profile="$extension_app/embedded.mobileprovision"
+      if [[ ! -f "$extension_profile" ]]; then
+        echo "error: extension $extension_id has no embedded provisioning profile; refusing to upload unsigned extension code" >&2
+        exit 1
+      fi
+
+      extension_profile_plist="$RESIGN_DIR/${extension_id}.profile.plist"
+      extension_profile_entitlements="$RESIGN_DIR/${extension_id}.profile-entitlements.plist"
+      extension_entitlements="$RESIGN_DIR/${extension_id}.entitlements.plist"
+      security cms -D -i "$extension_profile" > "$extension_profile_plist" || {
+        echo "error: could not decode extension provisioning profile for $extension_id" >&2
+        exit 1
+      }
+      plutil -extract Entitlements xml1 -o "$extension_profile_entitlements" "$extension_profile_plist"
+      if codesign -d --entitlements :- --xml "$extension_app" > "$extension_entitlements" 2>/dev/null; then
+        "$PLISTBUDDY" -c "Merge $extension_profile_entitlements" "$extension_entitlements" >/dev/null || true
+      else
+        cp "$extension_profile_entitlements" "$extension_entitlements"
+      fi
+      if [[ -f "$IOS_DIR/Config/NotificationService.entitlements" ]]; then
+        "$PLISTBUDDY" -c "Merge $IOS_DIR/Config/NotificationService.entitlements" "$extension_entitlements" >/dev/null || true
+      fi
+      python3 - "$extension_entitlements" "$extension_profile_entitlements" "$DEVELOPMENT_TEAM.$extension_id" <<'PY'
+import plistlib
+import sys
+
+merged_path, profile_path, exact_group = sys.argv[1:]
+with open(merged_path, "rb") as handle:
+    merged = plistlib.load(handle)
+with open(profile_path, "rb") as handle:
+    profile = plistlib.load(handle)
+for key in list(merged):
+    if key not in profile:
+        del merged[key]
+if "keychain-access-groups" in profile:
+    merged["keychain-access-groups"] = [exact_group]
+with open(merged_path, "wb") as handle:
+    plistlib.dump(merged, handle)
+PY
+      plutil -lint "$extension_entitlements" >/dev/null
+      codesign --force --sign "$RESIGN_IDENTITY" --entitlements "$extension_entitlements" --timestamp "$extension_app"
+      codesign --verify --strict --verbose=2 "$extension_app"
+      echo "re-signed nested extension $extension_id with its embedded profile entitlements"
+    done < <(find "$RESIGN_APP/PlugIns" -maxdepth 1 -type d -name '*.appex' -print0)
   fi
 
   codesign --force --sign "$RESIGN_IDENTITY" --entitlements "$MERGED_ENTITLEMENTS" --timestamp "$RESIGN_APP"

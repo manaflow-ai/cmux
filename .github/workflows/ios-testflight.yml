@@ -426,6 +426,23 @@ jobs:
           # a local-path binaryTarget, so it must exist before package resolve.
           ./scripts/ensure-ghosttykit.sh
 
+      - name: Install asc CLI
+        run: |
+          set -euo pipefail
+          BREW_BIN="$(command -v brew || true)"
+          if [ -z "$BREW_BIN" ] && [ -x /opt/homebrew/bin/brew ]; then
+            BREW_BIN=/opt/homebrew/bin/brew
+          fi
+          if [ -z "$BREW_BIN" ] && [ -x /usr/local/bin/brew ]; then
+            BREW_BIN=/usr/local/bin/brew
+          fi
+          if [ -z "$BREW_BIN" ]; then
+            echo "Homebrew is required to install asc CLI" >&2
+            exit 1
+          fi
+          "$BREW_BIN" list asc >/dev/null 2>&1 || "$BREW_BIN" install asc
+          echo "$(dirname "$BREW_BIN")" >> "$GITHUB_PATH"
+
       - name: Materialize App Store Connect API key
         env:
           ASC_API_KEY_P8_BASE64: ${{ secrets.ASC_API_KEY_P8_BASE64 }}
@@ -538,6 +555,31 @@ jobs:
           cp "$TMP_PROFILE" "$HOME/Library/MobileDevice/Provisioning Profiles/$PROFILE_UUID.mobileprovision"
           echo "IOS_BETA_PROVISIONING_PROFILE_NAME=$PROFILE_NAME" >> "$GITHUB_ENV"
           echo "Installed $IOS_BETA_PROFILE_TYPE provisioning profile: $PROFILE_NAME ($PROFILE_UUID)"
+
+          # The notification service is a nested executable and needs its own
+          # App Store profile. Resolve or create it through App Store Connect
+          # using the same certificate and API key as the host profile. The
+          # helper also installs an optional pre-provisioned extension secret,
+          # then falls back to the active profile in ASC.
+          if [ "$IOS_BETA_PROFILE_TYPE" = "internal" ]; then
+            EXTENSION_ENV="$RUNNER_TEMP/cmux-internal-extension.env"
+            : > "$EXTENSION_ENV"
+            IOS_APPSTORE_TEAM_ID=7WLXT3NR37 \
+            IOS_APPSTORE_BUNDLE_IDENTIFIER="$IOS_BETA_BUNDLE_ID" \
+            IOS_APPSTORE_EXTENSION_BUNDLE_IDENTIFIER="$IOS_BETA_BUNDLE_ID.NotificationService" \
+            IOS_APPSTORE_PROVISIONING_PROFILE_BASE64="$PROFILE_BASE64" \
+            IOS_APPSTORE_EXTENSION_PROVISIONING_PROFILE_BASE64="${IOS_BETA_EXTENSION_PROVISIONING_PROFILE_BASE64:-}" \
+            IOS_APPSTORE_KEYCHAIN_NAME=ios-testflight.keychain \
+            GITHUB_ENV="$EXTENSION_ENV" \
+              ./.github/scripts/install-app-store-provisioning-profile.sh
+            EXTENSION_PROFILE_NAME="$(sed -n 's/^IOS_APPSTORE_EXTENSION_PROVISIONING_PROFILE_NAME=//p' "$EXTENSION_ENV")"
+            if [ -z "$EXTENSION_PROFILE_NAME" ]; then
+              echo "Internal notification extension profile resolver returned no profile name" >&2
+              exit 1
+            fi
+            echo "IOS_BETA_EXTENSION_PROVISIONING_PROFILE_NAME=$EXTENSION_PROFILE_NAME" >> "$GITHUB_ENV"
+            echo "Installed internal notification extension profile: $EXTENSION_PROFILE_NAME"
+          fi
 
       - name: Use DEMO-badged app icon
         if: needs.decide.outputs.variant == 'demo'
