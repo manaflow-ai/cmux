@@ -49,6 +49,16 @@ def _groups_for_path(path):
     return groups_for_path(path)
 
 
+def _groups_running(workflow, test_path):
+    """Which guard groups run `test_path` directly, per ci-guards.yml itself."""
+    guard_dir = str(ROOT / "scripts/ci")
+    if guard_dir not in sys.path:
+        sys.path.insert(0, guard_dir)
+    from workflow_guard_groups import direct_path_owners
+
+    return direct_path_owners(workflow).get(test_path, frozenset())
+
+
 def run(
     run_id,
     session_id,
@@ -364,6 +374,16 @@ class ReviewFabricTests(unittest.TestCase):
         # `run:` lines, so grepping the router for the path text says nothing
         # about whether the path is routed. Ask the router instead.
         routes = _guard_router()
+        # Which group runs this suite is read out of ci-guards.yml rather than
+        # named here. Moving the step to another group, and moving its
+        # PATH_OWNERS entries with it, leaves routing correct end to end, so it
+        # must not fail this test; dropping the step entirely still must.
+        contract_groups = _groups_running(workflow, "tests/test_review_fabric.py")
+        self.assertTrue(
+            contract_groups,
+            "no group-conditioned step in ci-guards.yml runs "
+            "tests/test_review_fabric.py",
+        )
         for path in (
             ".github/review-fabric-policy.json",
             ".github/review-fabric.md",
@@ -387,11 +407,10 @@ class ReviewFabricTests(unittest.TestCase):
                 self.assertIsNotNone(
                     owners, f"{path} has no guard-group owner; routing fell open"
                 )
-                self.assertIn(
-                    "preflight",
-                    owners,
-                    f"editing {path} must select the preflight guard group, "
-                    "which is where tests/test_review_fabric.py runs",
+                self.assertTrue(
+                    contract_groups & set(owners),
+                    f"editing {path} selects {sorted(owners)}, none of which "
+                    f"runs tests/test_review_fabric.py ({sorted(contract_groups)})",
                 )
 
 
