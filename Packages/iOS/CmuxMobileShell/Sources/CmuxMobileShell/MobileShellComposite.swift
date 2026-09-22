@@ -1957,13 +1957,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // Seed the per-Mac source of truth from the injected workspaces (preview /
         // tests) so the derived list stays consistent; mirror it into the derived
         // cache directly since `didSet` does not fire during init.
-        self.workspacesByMac = workspaces.isEmpty
-            ? [:]
-            : [.anonymousForeground: MacWorkspaceState(
-                macDeviceID: Self.foregroundAnonymousKey,
-                workspaces: workspaces,
-                status: connectionState == .connected ? .connected : .unavailable,
-                workspaceSnapshotIsAuthoritative: connectionState == .connected)]
+        self.workspacesByMac = [.anonymousForeground: MacWorkspaceState(
+            macDeviceID: Self.foregroundAnonymousKey,
+            workspaces: workspaces,
+            status: connectionState == .connected ? .connected : .unavailable,
+            workspaceSnapshotIsAuthoritative: connectionState == .connected)]
         self.workspaces = workspaces
         self.terminalInputText = ""
         self.connectionError = nil
