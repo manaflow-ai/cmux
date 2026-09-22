@@ -1053,9 +1053,6 @@ public final class MobilePushCoordinator {
     /// Dismiss the one-shot alert presented for a terminal that no longer
     /// exists on its owning Mac.
     public func dismissTabUnavailableAlert() {
-        if tabUnavailableAlert?.kind == .connectionUnavailable {
-            clearPendingDeeplink()
-        }
         tabUnavailableAlert = nil
     }
 
@@ -1299,7 +1296,7 @@ public final class MobilePushCoordinator {
                   self.pendingDeeplink?.id == pendingID else { return }
             self.pendingDeeplinkRecheckTask = nil
             self.pendingDeeplinkTimedOutID = pendingID
-            self.presentConnectionUnavailableAlert()
+            self.recordConnectionUnavailable()
         }
     }
 
@@ -1380,9 +1377,7 @@ public final class MobilePushCoordinator {
         analytics.capture("ios_push_deeplink_failed", ["reason": .string("tab_unavailable")])
     }
 
-    private func presentConnectionUnavailableAlert() {
-        guard tabUnavailableAlert == nil else { return }
-        tabUnavailableAlert = TabUnavailableAlert(kind: .connectionUnavailable)
+    private func recordConnectionUnavailable() {
         diagnosticLog?.recordAppEvent(.pushDeeplinkFailed, failure: .timedOut)
         analytics.capture("ios_push_deeplink_failed", ["reason": .string("connection_unavailable")])
     }

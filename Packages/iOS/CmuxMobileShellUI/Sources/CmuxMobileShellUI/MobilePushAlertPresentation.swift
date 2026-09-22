@@ -30,29 +30,6 @@ struct MobilePushAlertPresentationModifier: ViewModifier {
                             coordinator.dismissTabUnavailableAlert()
                         }
                     )
-                case .connectionUnavailable:
-                    Alert(
-                        title: Text(L10n.string(
-                            "mobile.push.connectionUnavailable.title",
-                            defaultValue: "Connection unavailable"
-                        )),
-                        message: Text(L10n.string(
-                            "mobile.push.connectionUnavailable.message",
-                            defaultValue: "We’ll keep this notification ready until your Mac reconnects."
-                        )),
-                        primaryButton: .default(Text(L10n.string(
-                            "mobile.push.connectionUnavailable.retry",
-                            defaultValue: "Try again"
-                        ))) {
-                            coordinator.retryPendingDeeplink()
-                        },
-                        secondaryButton: .cancel(Text(L10n.string(
-                            "mobile.push.connectionUnavailable.cancel",
-                            defaultValue: "Cancel"
-                        ))) {
-                            coordinator.dismissTabUnavailableAlert()
-                        }
-                    )
                 }
             }
     }
