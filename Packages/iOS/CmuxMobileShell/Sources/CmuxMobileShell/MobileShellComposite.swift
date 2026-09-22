@@ -14776,7 +14776,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         return streamToken
     }
 
-    private func unregisterTerminalOutput(surfaceID: String, streamToken: UUID) {
+    private func unregisterTerminalOutput(
+        surfaceID: String,
+        streamToken: UUID,
+        releaseViewport: Bool
+    ) {
         guard terminalOutputStreamTokensBySurfaceID[surfaceID] == streamToken else { return }
         terminalLatencyObserver.surfaceClosed(surfaceID: surfaceID)
         terminalLaneOutputReadySurfaceIDs.remove(surfaceID)
@@ -14833,15 +14837,20 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             .terminalUnmounted,
             correlationID: surfaceID
         )
-        // Tell the Mac this device is no longer viewing the surface so it can unpin and clear its border.
-        clearTerminalViewport(surfaceID: surfaceID)
+        if releaseViewport {
+            // Legacy/unowned consumers use stream lifetime as presentation
+            // lifetime. Owner-aware UI consumers keep the sticky viewport lease
+            // across transient UIKit window detach; their coordinator releases
+            // it explicitly when presentation ownership ends.
+            clearTerminalViewport(surfaceID: surfaceID)
+        }
     }
 
     /// The output byte stream for a terminal surface.
     ///
     /// Obtaining the stream arms a cold-attach replay so the surface catches up
-    /// to current state; ending iteration (or cancelling the consuming task)
-    /// unregisters the surface and clears its viewport pin on the Mac.
+    /// to current state. This legacy/unowned form also uses stream lifetime as
+    /// viewport lifetime, so ending iteration releases the Mac viewport pin.
     /// - Parameter surfaceID: The terminal surface identifier.
     /// - Returns: An `AsyncStream` of output byte chunks.
     public func terminalOutputStream(
@@ -14851,6 +14860,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     }
 
     /// The owner-aware output stream for a terminal surface.
+    ///
+    /// A non-nil owner decouples renderer-stream lifetime from viewport lease
+    /// lifetime. SwiftUI can temporarily remove a view from its window and
+    /// replace the output stream without sending clear→apply to the Mac; the
+    /// presentation owner later calls `clearTerminalViewport` explicitly.
     ///
     /// - Parameter surfaceID: The terminal surface identifier.
     /// - Parameter ownerID: Optional identity for the mounted UI consumer.
@@ -14869,7 +14883,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 Task { @MainActor in
                     self?.unregisterTerminalOutput(
                         surfaceID: surfaceID,
-                        streamToken: streamToken
+                        streamToken: streamToken,
+                        releaseViewport: ownerID == nil
                     )
                 }
             }
