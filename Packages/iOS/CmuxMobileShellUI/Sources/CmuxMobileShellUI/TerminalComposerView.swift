@@ -853,9 +853,7 @@ struct TerminalComposerView: View {
                 // before we choose its staging path.
                 let imported: ImportedPhotoLibraryFile
                 do {
-                    guard let loaded = try await item.loadTransferable(
-                        type: ImportedPhotoLibraryFile.self
-                    ) else {
+                    guard let loaded = try await loadImportedPhotoLibraryFile(item) else {
                         store.recordAppEvent(
                             .attachmentPreparationFailed,
                             correlationID: terminalID,
@@ -870,6 +868,9 @@ struct TerminalComposerView: View {
                         correlationID: terminalID,
                         failure: DiagnosticFailureKind.classify(error)
                     )
+                    if !Task.isCancelled {
+                        attachmentAlertMessage = Self.attachmentUnreadableMessage
+                    }
                     continue
                 }
                 if Task.isCancelled {

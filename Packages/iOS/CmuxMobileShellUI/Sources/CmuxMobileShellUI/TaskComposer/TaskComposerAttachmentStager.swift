@@ -2,6 +2,7 @@
 import CmuxMobileShellModel
 import CoreTransferable
 import Foundation
+import PhotosUI
 import UniformTypeIdentifiers
 
 /// Copies picked files into app-owned temporary storage for one composer session.
@@ -177,6 +178,33 @@ struct ImportedPhotoLibraryFile: Transferable, Sendable {
             originalFileName: received.file.lastPathComponent,
             kind: kind
         )
+    }
+}
+
+enum PhotoLibraryTransferError: Error {
+    case timedOut
+}
+
+/// Loads a Photos library asset with a bounded wait. iCloud-backed assets can
+/// otherwise leave a composer staging task waiting indefinitely when the
+/// network transfer stalls.
+func loadImportedPhotoLibraryFile(
+    _ item: PhotosPickerItem,
+    timeout: Duration = .seconds(60)
+) async throws -> ImportedPhotoLibraryFile? {
+    try await withThrowingTaskGroup(of: ImportedPhotoLibraryFile?.self) { group in
+        group.addTask {
+            try Task.checkCancellation()
+            return try await item.loadTransferable(
+                type: ImportedPhotoLibraryFile.self
+            )
+        }
+        group.addTask {
+            try await Task.sleep(for: timeout)
+            throw PhotoLibraryTransferError.timedOut
+        }
+        defer { group.cancelAll() }
+        return try await group.next()!
     }
 }
 #endif
