@@ -21,7 +21,7 @@ For UI or behavior changes, include a short demo video (GitHub upload, Loom, or 
 ```text
 @codex review
 @coderabbitai review
-@greptileai review
+@greptile-apps review
 @cubic-dev-ai review
 ```
 
