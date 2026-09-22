@@ -37,15 +37,6 @@ public typealias CMUXMobileShellStore = MobileShellComposite
 public final class MobileShellComposite: MobileTerminalOutputSinking {
     public let macListAuthState: MobileMacListAuthState
 
-    /// Bound the peer fleet to five live sessions: one initial focus plus four
-    /// warm peers. After the first focus handoff, the focused peer may also keep
-    /// its control capability without consuming another transport session.
-    static let maximumLiveMacConnectionCount = 5
-    static let maximumWarmControlConnectionCount =
-        maximumLiveMacConnectionCount - 1
-    static let maximumSecondaryReconciliationConcurrency =
-        maximumWarmControlConnectionCount
-
     static let maxTerminalReplayFailureRetries = 2
     static let maxTerminalReplayBarrierFollowUps = 1
 
@@ -4234,11 +4225,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// pairing only on a successful connect.
     ///
     /// A different Mac is authenticated while the current foreground client
-    /// remains live. After a successful handoff, the previous client becomes a
-    /// warm control connection when the bounded pool has capacity. If capacity
-    /// or an unsafe terminal handoff requires retirement, a failed switch can
-    /// reconnect the previously-active Mac. A no-op when already connected to
-    /// that Mac.
+    /// remains live. After a successful handoff, the previous client remains a
+    /// control connection when its transport supports the handoff. An unsafe
+    /// terminal handoff can still require retirement. A no-op when already
+    /// connected to that Mac.
     /// - Parameters:
     ///   - macDeviceID: The stored physical Mac to switch to.
     ///   - instanceTag: Exact saved app instance to switch to, or `nil` to
@@ -4309,8 +4299,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         liveForegroundRestoreBaseline: MobilePairedMac?
     ) async -> Bool {
         defer { finishMacSwitchAttempt(switchAttemptID) }
-        // A switch may retire the current focus when the warm pool is full or
-        // terminal handoff cannot complete. Publish the live rollback target
+        // A switch may retire the current focus when terminal handoff cannot
+        // complete. Publish the live rollback target
         // before entering that fast path so cancellation can restore it from
         // every post-handoff await.
         if let liveForegroundRestoreBaseline {
@@ -5908,7 +5898,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             visibleMacIDs.map(cmxCanonicalDeviceID)
         )
         let canonicalForegroundMacID = foregroundMacDeviceID.map(cmxCanonicalDeviceID)
-        var retiredControlSlot = false
         if onlyMacDeviceIDs == nil {
             // A full store load is authoritative even when an offline Mac no
             // longer has a control subscription. Reconcile every retained
@@ -5962,7 +5951,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 && !wanted.contains(ownerKey)
                 && subscription.client !== remoteClient
                 && !subscription.isTransitioningToFocus {
-            retiredControlSlot = true
             let canonicalMacID = ownerKey.canonicalMacDeviceID
             let physicalAliasCanonicalIDs =
                 storedPairedMacAliasCanonicalIDsByCanonicalID[ownerKey.pairingID]
@@ -5999,9 +5987,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 }
             }
         }
-        // Reconcile the bounded warm pool concurrently. Keep the task-group
-        // width explicit here as a second resource boundary if target
-        // selection changes later.
+        // Reconcile every visible Computer concurrently. Hidden Computers are
+        // filtered before this point, so visibility is the user's session control.
         let reconciliationMacs = macs.filter {
             wanted.contains(MacPairingKey($0))
         }
@@ -6009,12 +5996,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             of: SecondaryMacReconciliationResult.self,
             returning: [SecondaryMacReconciliationResult].self
         ) { group in
-            var pending = reconciliationMacs.makeIterator()
-            var results: [SecondaryMacReconciliationResult] = []
-            results.reserveCapacity(reconciliationMacs.count)
-
-            for _ in 0 ..< Self.maximumSecondaryReconciliationConcurrency {
-                guard let mac = pending.next() else { break }
+            for mac in reconciliationMacs {
                 group.addTask { [weak self] in
                     guard let self else {
                         return SecondaryMacReconciliationResult(
@@ -6030,23 +6012,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     )
                 }
             }
+            var results: [SecondaryMacReconciliationResult] = []
+            results.reserveCapacity(reconciliationMacs.count)
             while let result = await group.next() {
                 results.append(result)
-                guard let mac = pending.next() else { continue }
-                group.addTask { [weak self] in
-                    guard let self else {
-                        return SecondaryMacReconciliationResult(
-                            macDeviceID: mac.macDeviceID,
-                            establishmentOutcome: .superseded
-                        )
-                    }
-                    return await self.reconcileSecondaryMac(
-                        mac,
-                        scope: scope,
-                        authorityValidation: authorityValidation,
-                        allowsNewConnections: allowsNewConnections
-                    )
-                }
             }
             return results
         }
@@ -6057,12 +6026,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 outcome,
                 macDeviceID: result.macDeviceID
             )
-        }
-        if onlyMacDeviceIDs != nil, retiredControlSlot {
-            // Only an actual owner retirement widens an incremental edge into
-            // a full pass, so a newly free bounded slot gets its next-best
-            // online Mac without repeated global work for duplicate edges.
-            scheduleSecondaryAggregation()
         }
         if !allowsNewConnections {
             // A shared cooldown suppresses dialing, not ownership of the work.
@@ -6545,7 +6508,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     < cmxCanonicalDeviceID(rhs.macDeviceID)
             }
             return (lhs.instanceTag ?? "") < (rhs.instanceTag ?? "")
-        }.prefix(Self.maximumWarmControlConnectionCount))
+        })
     }
 
     private func isSecondaryMacOnlineInCurrentPresence(
@@ -6554,8 +6517,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     ) -> Bool {
         guard presence != nil else { return true }
         // Presence is snapshot-first. Before that snapshot absence is unknown,
-        // so keep candidates under the fixed pool cap. Afterward the snapshot
-        // is authoritative and an absent logical Mac is offline.
+        // so retain every visible candidate. Afterward the snapshot is
+        // authoritative and an absent logical Mac is offline.
         guard presenceMap.hasReceivedSnapshot else { return true }
         return presenceSummary(
             for: macDeviceID,
@@ -6728,8 +6691,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
               !secondaryMacConflictsWithForegroundOwnership(mac),
               secondaryMacSubscriptions[pairingKey] == nil,
               secondaryMacDrainReservation(onDeviceOf: pairingKey) == nil,
-              macConnectionRegistry.sessionCount
-                  < Self.maximumLiveMacConnectionCount,
               await isSecondaryMacStillVisible(
                   macID,
                   instanceTag: mac.instanceTag,
@@ -6834,11 +6795,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         )
         guard !secondaryMacConflictsWithForegroundOwnership(currentMac),
               secondaryMacDrainReservation(onDeviceOf: ownerKey) == nil,
-              macConnectionRegistry.insertControlIfAbsent(
-                  subscription,
-                  maximumControlCount:
-                      Self.maximumWarmControlConnectionCount
-              ) else {
+              macConnectionRegistry.insertControlIfAbsent(subscription) else {
             await disconnectSecondaryClientAndDrain(client)
             return .superseded
         }
@@ -10559,10 +10516,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                         let retainPreviousAsControl =
                             terminalStopped && !resolvesToSameMac
                                 ? await canRetainFocusedConnectionInControlPool(
-                                    previousFocusedConnection,
-                                    vacatingControlOwnerKey:
-                                        displacedControlReservations
-                                            .first?.ownerKey
+                                    previousFocusedConnection
                                 )
                                 : false
                         guard isConnectCurrent() else {
@@ -11308,8 +11262,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     ) -> Bool {
         macConnectionRegistry.transitionToControl(
             subscription,
-            replacing: connection,
-            maximumControlCount: Self.maximumWarmControlConnectionCount
+            replacing: connection
         )
     }
 
@@ -11333,14 +11286,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         macConnectionRegistry.ownsClient(of: connection)
     }
 
-    /// A demoted foreground can enter the warm pool while the bounded live
-    /// session pool has room. The aggregation preference controls workspace
-    /// fan-out, not whether a successfully authenticated switched-away client
-    /// can remain warm. Account scope, hidden state, and presence still decide
-    /// whether that client is eligible to remain admitted.
+    /// A demoted foreground can remain a live control connection. The
+    /// aggregation preference controls workspace fan-out, while account scope,
+    /// hidden state, and presence decide whether the client remains eligible.
     func canRetainFocusedConnectionInControlPool(
-        _ connection: MacConnection,
-        vacatingControlOwnerKey: MacPairingKey? = nil
+        _ connection: MacConnection
     ) async -> Bool {
         guard let pairedMacStore,
               let scope = await currentScopeSnapshot(),
@@ -11363,14 +11313,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
               ) else {
             return false
         }
-        let alreadyHasControl = secondaryMacSubscriptions[
-            connection.ownerKey
-        ]?.client === connection.client
-        guard alreadyHasControl || hasWarmControlCapacity(
-            vacatingControlOwnerKey: vacatingControlOwnerKey
-        ) else {
-            return false
-        }
+        // Every visible, authorized Computer may retain a live control
+        // session. Hiding a Computer is the user's explicit way to stop that
+        // session, so no implicit session cap belongs here.
         // Some injected/legacy compositions have no live-presence service.
         // Their current scoped pairing is the only available eligibility
         // authority. Production compositions with presence remain online-only.
@@ -11380,18 +11325,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             for: stored.macDeviceID,
             instanceTag: stored.instanceTag
         )?.online == true
-    }
-
-    private func hasWarmControlCapacity(
-        vacatingControlOwnerKey: MacPairingKey?
-    ) -> Bool {
-        let vacatesControlSlot = vacatingControlOwnerKey.map { targetKey in
-            secondaryMacSubscriptions.keys.contains(targetKey)
-        } ?? false
-        return warmControlPoolHasCapacity(
-            currentControlCount: secondaryMacSubscriptions.count,
-            vacatesControlSlot: vacatesControlSlot
-        )
     }
 
     @discardableResult

@@ -4,10 +4,6 @@ import Foundation
 
 @MainActor
 extension MobileShellComposite {
-    /// Limits one automatic launch pass so stale live registrations cannot make
-    /// the restoring state scale with an account's full development fleet.
-    static let maximumAutomaticIrohCandidateCount = 4
-
     /// Loads first-pair candidates from the current authenticated broker view.
     ///
     /// These transient rows are never written here. ``connectStoredMac`` still
@@ -82,9 +78,6 @@ extension MobileShellComposite {
                 teamID: scope.teamID,
                 instanceTag: mac.instanceTag
             ))
-            if candidates.count == Self.maximumAutomaticIrohCandidateCount {
-                break
-            }
         }
         return candidates
     }
@@ -97,9 +90,7 @@ extension MobileShellComposite {
         excluding storedMacs: [MobilePairedMac]
     ) async {
         guard connectionState == .connected,
-              remoteClient != nil,
-              liveMacConnections.count < Self.maximumLiveMacConnectionCount
-        else { return }
+              remoteClient != nil else { return }
 
         var excludedPairingIDs = Set(storedMacs.map(\.id))
         excludedPairingIDs.formUnion(
@@ -119,28 +110,19 @@ extension MobileShellComposite {
               connectionState == .connected,
               remoteClient != nil else { return }
 
-        // Admit discovered peers concurrently: each candidate is an
-        // independent Mac, so one slow or unreachable peer must not delay the
-        // others. The initial group width is the live-capacity headroom at
-        // admission time; each dial re-checks capacity, scope, and foreground
-        // health before it starts, and establishment re-checks the cap at
-        // commit, so concurrent winners stay inside
-        // `maximumLiveMacConnectionCount`.
-        let admissionWidth = Self.maximumLiveMacConnectionCount
-            - liveMacConnections.count
+        // Admit every discovered candidate concurrently. Each candidate is
+        // independent, and hidden Computers are filtered before discovery.
         MobileDebugLog.anchormux(
-            "CMUX_CONNECT zero_touch_admission_start candidates=\(candidates.count) width=\(max(0, admissionWidth))"
+            "CMUX_CONNECT zero_touch_admission_start candidates=\(candidates.count)"
         )
         let admissionResults = await withTaskGroup(
             of: SecondaryMacReconciliationResult.self,
             returning: [SecondaryMacReconciliationResult].self
         ) { group in
-            var pending = candidates.makeIterator()
             var results: [SecondaryMacReconciliationResult] = []
             results.reserveCapacity(candidates.count)
 
-            for _ in 0 ..< max(0, admissionWidth) {
-                guard let candidate = pending.next() else { break }
+            for candidate in candidates {
                 group.addTask { [weak self] in
                     guard let self else {
                         return SecondaryMacReconciliationResult(
@@ -156,19 +138,6 @@ extension MobileShellComposite {
             }
             while let result = await group.next() {
                 results.append(result)
-                guard let candidate = pending.next() else { continue }
-                group.addTask { [weak self] in
-                    guard let self else {
-                        return SecondaryMacReconciliationResult(
-                            macDeviceID: candidate.macDeviceID,
-                            establishmentOutcome: nil
-                        )
-                    }
-                    return await self.admitDiscoveredSecondaryIrohMac(
-                        candidate,
-                        scope: scope
-                    )
-                }
             }
             return results
         }
@@ -200,17 +169,12 @@ extension MobileShellComposite {
         }
     }
 
-    /// One bounded zero-touch admission dial. Re-checks live capacity, scope,
-    /// and foreground health immediately before dialing so a concurrent winner
-    /// (foreground attach, warm-pool dial, or another admission) stops a
-    /// queued candidate instead of oversubscribing the pool. A `nil` outcome
-    /// means the dial never started.
+    /// Admit one zero-touch candidate after checking scope and foreground health.
     private func admitDiscoveredSecondaryIrohMac(
         _ candidate: MobilePairedMac,
         scope: MobileShellScopeSnapshot
     ) async -> SecondaryMacReconciliationResult {
-        guard liveMacConnections.count < Self.maximumLiveMacConnectionCount,
-              await isScopeCurrent(scope),
+        guard await isScopeCurrent(scope),
               connectionState == .connected,
               remoteClient != nil else {
             MobileDebugLog.anchormux(

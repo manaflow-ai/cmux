@@ -1067,7 +1067,7 @@ extension MobileShellComposite {
     /// This is the device tree's tap-to-open for a tag that is not the currently
     /// connected one: it routes through the same ``connectManualHost`` path as
     /// the multi-Mac switcher. The current client remains live while the target
-    /// authenticates and enters the bounded warm pool after a successful
+    /// authenticates and enters the live control session set after a successful
     /// handoff. The device becomes the active paired Mac after success, then the
     /// paired-Mac list refreshes. A no-op when the instance advertises no
     /// reachable route. Failure surfaces through ``connectionError`` like any
