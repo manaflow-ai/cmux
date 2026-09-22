@@ -209,6 +209,32 @@ class IncrementalGenerationCanaryTests(unittest.TestCase):
             self.assertTrue(payload["unchanged_mtime_preserved"])
             self.assertTrue(payload["edited_mtime_changed"])
 
+    def test_missing_tracked_seed_files_are_repaired_without_touching_existing_sources(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            repo = Path(directory) / "repo"
+            repo.mkdir()
+            git(repo, "init", "-q")
+            git(repo, "config", "user.name", "Canary Test")
+            git(repo, "config", "user.email", "canary@example.invalid")
+            (repo / "Sources").mkdir()
+            source = repo / "Sources/AppDelegate.swift"
+            resource = repo / "Resources/ghostty/themes/example"
+            resource.parent.mkdir(parents=True)
+            source.write_text("let source = 1\n")
+            resource.write_text("theme\n")
+            git(repo, "add", ".")
+            git(repo, "commit", "-qm", "seed")
+
+            source_mtime = 1_600_000_000_000_000_123
+            os.utime(source, ns=(source_mtime, source_mtime))
+            resource.unlink()
+
+            repaired = bench.restore_missing_tracked_files(repo)
+            self.assertEqual(repaired, ["Resources/ghostty/themes/example"])
+            self.assertEqual(source.stat().st_mtime_ns, source_mtime)
+            self.assertEqual(resource.read_text(), "theme\n")
+            self.assertEqual(git(repo, "status", "--porcelain", "--untracked-files=all"), "")
+
     def test_old_archive_submodule_worktrees_are_removed_before_rehydrate(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             repo = Path(directory) / "repo"
