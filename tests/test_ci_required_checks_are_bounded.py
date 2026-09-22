@@ -114,7 +114,7 @@ def main() -> int:
 
     print(
         f"{len(REQUIRED_CONTEXTS)} required checks are bounded; "
-        "pull_request workflows cancel superseded runs"
+        "every pull_request workflow has a concurrency group"
     )
     return 0
 
