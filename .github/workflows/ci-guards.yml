@@ -145,6 +145,10 @@ jobs:
           fi
           python3 scripts/ci/validate_test_execution_registry.py "${args[@]}"
 
+      - name: Validate Python test execution registry blast radius
+        if: ${{ matrix.group == 'preflight' }}
+        run: python3 tests/test_ci_test_execution_registry.py
+
       - name: Validate dev-fleet warm-slot lifecycle
         if: ${{ matrix.group == 'preflight' }}
         run: |

@@ -411,6 +411,10 @@ path = "tests/test_ci_source_lint_guard_structure.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_test_execution_registry.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_testbox_broker_guard.py"
 lane = "linux-guard"
 
