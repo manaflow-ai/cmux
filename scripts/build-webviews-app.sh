@@ -59,6 +59,32 @@ if [ "${1:-}" = "--check" ]; then
     cat "$diff_output" >&2
     rm -f "$diff_output"
     if [ "$diff_status" -eq 1 ]; then
+      if [ "${GITHUB_ACTIONS:-}" = "true" ]; then
+        python3 - "$OUT_DIR" "$tmp_dir" <<'PY'
+import base64
+import filecmp
+from pathlib import Path
+import sys
+
+current = Path(sys.argv[1])
+candidate = Path(sys.argv[2])
+for path in sorted(p for p in candidate.rglob("*") if p.is_file()):
+    rel = path.relative_to(candidate)
+    existing = current / rel
+    if existing.is_file() and filecmp.cmp(existing, path, shallow=False):
+        continue
+    # Keep logs bounded; generated application chunks are comfortably below
+    # this ceiling, while giant shared vendor chunks are irrelevant here.
+    if path.stat().st_size > 2 * 1024 * 1024:
+        print(f"CMUX_GENERATED_CANDIDATE_SKIPPED {rel} bytes={path.stat().st_size}")
+        continue
+    encoded = base64.b64encode(path.read_bytes()).decode("ascii")
+    print(f"CMUX_GENERATED_CANDIDATE_BEGIN {rel}")
+    for offset in range(0, len(encoded), 16000):
+        print(encoded[offset:offset + 16000])
+    print(f"CMUX_GENERATED_CANDIDATE_END {rel}")
+PY
+      fi
       echo "webviews app assets are stale; run ./scripts/build-webviews-app.sh" >&2
       exit 1
     fi
