@@ -43,7 +43,7 @@ permissions:
 # A called workflow does not inherit the caller's workflow-level env, so the
 # R2 cache URL must be declared here or every R2 restore reports a miss.
 env:
-  CI_CACHE_R2_PUBLIC_URL: ${{ vars.CI_CACHE_R2_PUBLIC_URL }}
+  CI_CACHE_R2_PUBLIC_URL: ${{ vars.CI_CACHE_R2_PUBLIC_URL || 'https://ci-cache.cmux.com' }}
 
 jobs:
   macos-compile-admission:
@@ -420,7 +420,7 @@ jobs:
         if: steps.reuse-products.outputs.hit != 'true' && steps.persistent-restore.outputs.hit != 'true'
         uses: ./.github/actions/cache-restore
         with:
-          backend: ${{ inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND }}
+          backend: ${{ inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND || 'r2' }}
           path: .ci-source-packages
           key: spm-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
           restore-keys: spm-
@@ -456,7 +456,7 @@ jobs:
         if: steps.reuse-products.outputs.hit != 'true' && steps.persistent-restore.outputs.hit != 'true'
         uses: ./.github/actions/cache-restore
         with:
-          backend: ${{ inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND }}
+          backend: ${{ inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND || 'r2' }}
           path: ${{ env.CMUX_COMPILE_ADMISSION_CAS }}
           key: xcode-compilation-test-${{ runner.os }}-${{ runner.arch }}-${{ steps.compilation-cache-key.outputs.fingerprint }}-${{ github.event.pull_request.base.sha || github.sha }}
           restore-keys: |
@@ -905,7 +905,7 @@ jobs:
       CMUX_APP_HOST_CLI_REGRESSION_SHARD: "4"
       CMUX_APP_HOST_FOCUSED_REGRESSION_B_SHARD: "5"
       CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD: "6"
-      CMUX_APP_HOST_RESERVED_WALL_SECONDS: "1=474 4=235 5=245 6=284"
+      CMUX_APP_HOST_RESERVED_WALL_SECONDS: "1=474 4=235 5=320 6=284"
       # Four-way packing now exceeds the app-host's memory budget as the suite
       # grows: a shard can crash around 1,000 UI tests and poison the remaining
       # selectors. Six-way packing keeps each broad shard near 13 minutes of
@@ -1009,7 +1009,7 @@ jobs:
       - name: Cache Swift packages
         uses: ./.github/actions/cache-restore
         with:
-          backend: ${{ inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND }}
+          backend: ${{ inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND || 'r2' }}
           path: .ci-source-packages
           key: spm-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
           restore-keys: spm-
@@ -1773,6 +1773,32 @@ jobs:
             CMUX_SKIP_ZIG_BUILD=1 \
             -only-testing:cmuxTests/KeyboardShortcutSettingsFileStoreNoOpPersistenceTests \
             test-without-building
+
+      - name: Run issue 8373 sidebar convergence regression
+        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_B_SHARD) }}
+        timeout-minutes: 5
+        run: |
+          # The broad app-host suite tolerates Swift Testing assertion failures.
+          # Keep #8373's real NSHostingView/LazyVStack workload non-tolerant and
+          # require its bounded identity/snapshot/memory evidence line.
+          set -euo pipefail
+          test_log="$RUNNER_TEMP/cmux-issue-8373-sidebar.txt"
+          bash scripts/ci/run-and-capture.sh "$test_log" \
+            scripts/ci/run-in-console-session.sh \
+            env CMUX_TAG=issue-8373-sidebar \
+            scripts/ci/run-app-host-xcodebuild.sh \
+            -xctestrun "$CMUX_APP_HOST_XCTESTRUN" \
+            -destination "platform=macOS" \
+            -parallel-testing-enabled NO \
+            CMUX_SKIP_ZIG_BUILD=1 \
+            -test-timeouts-enabled YES \
+            -default-test-execution-time-allowance 180 \
+            -maximum-test-execution-time-allowance 180 \
+            -only-testing:cmuxTests/SidebarIssue8373StressTests \
+            test-without-building
+          scripts/ci/require_selected_test_execution.sh \
+            "$test_log" cmuxTests/SidebarIssue8373StressTests
+          grep -F "ISSUE_8373_STRESS " "$test_log"
 
       - name: Run sidebar workspace-switch layout regression
         if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_B_SHARD) }}
@@ -3237,7 +3263,7 @@ jobs:
       - name: Cache Xcode compilation results
         uses: ./.github/actions/cache-restore
         with:
-          backend: ${{ inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND }}
+          backend: ${{ inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND || 'r2' }}
           path: build-universal/CompilationCache.noindex
           key: xcode-compilation-release-${{ runner.os }}-${{ runner.arch }}-${{ steps.compilation-cache-key.outputs.toolchain }}-${{ github.event.pull_request.base.sha || github.sha }}
           restore-keys: |
@@ -3246,7 +3272,7 @@ jobs:
       - name: Cache Swift packages
         uses: ./.github/actions/cache-restore
         with:
-          backend: ${{ inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND }}
+          backend: ${{ inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND || 'r2' }}
           path: .spm-cache
           key: spm-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
           restore-keys: spm-
