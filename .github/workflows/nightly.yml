@@ -405,7 +405,9 @@ jobs:
     if: github.event_name == 'schedule' && github.event.schedule == '17 */6 * * *' || github.event_name == 'workflow_dispatch' && inputs.seed_only
     # Match the admission job's runner and Xcode. The cache key carries the
     # toolchain and the build paths, so a mismatch is a miss, not a wrong hit.
-    runs-on: ${{ vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15' }}
+    # Pull requests are what restore this seed, so track the runner the
+    # admission job picks for `pull_request`, not the merge-queue one.
+    runs-on: ${{ vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15' }}
     timeout-minutes: 75
     env:
       CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_15 }}
