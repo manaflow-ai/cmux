@@ -8,6 +8,9 @@ ROOT = Path(__file__).parents[1]
 SCRIPT = ROOT / ".github/scripts/review_fabric.py"
 POLICY = ROOT / ".github/review-fabric-policy.json"
 
+sys.path.insert(0, str(ROOT / "scripts" / "ci"))
+import workflow_guard_groups  # noqa: E402
+
 spec = importlib.util.spec_from_file_location("review_fabric", SCRIPT)
 review_fabric = importlib.util.module_from_spec(spec)
 sys.modules[spec.name] = review_fabric
@@ -329,15 +332,30 @@ class ReviewFabricTests(unittest.TestCase):
 
     def test_ci_executes_review_fabric_contracts(self):
         workflow = (ROOT / ".github/workflows/ci-guards.yml").read_text(encoding="utf-8")
-        detector = (ROOT / "scripts/ci/detect_linux_guard_changes.py").read_text(encoding="utf-8")
         self.assertIn("python3 tests/test_review_fabric.py", workflow)
+
+        owners = workflow_guard_groups.direct_path_owners(workflow)
+        contract_groups = owners.get("tests/test_review_fabric.py")
+        self.assertTrue(
+            contract_groups,
+            "no group-conditioned step in ci-guards.yml runs tests/test_review_fabric.py",
+        )
+
+        # Ask the router where an edit actually lands rather than grepping for
+        # the paths in whichever module happens to declare them today.
         for path in (
             ".github/review-fabric-policy.json",
             ".github/review-fabric.md",
             ".github/scripts/review_fabric.py",
             "tests/test_review_fabric.py",
         ):
-            self.assertIn(f'"{path}"', detector)
+            routed = workflow_guard_groups.groups_for_path(path)
+            self.assertIsNotNone(routed, f"{path} routes to no guard group")
+            self.assertTrue(
+                contract_groups & set(routed),
+                f"{path} does not route the group that runs the review fabric "
+                f"contracts: routed={sorted(routed)} contracts={sorted(contract_groups)}",
+            )
 
 
 if __name__ == "__main__":
