@@ -227,6 +227,12 @@ jobs:
         if: ${{ matrix.group == 'release-tooling' }}
         run: ./tests/test_ci_release_build_archs.sh
 
+      - name: Validate exact Release product reuse
+        if: ${{ matrix.group == 'release-tooling' }}
+        run: |
+          python3 tests/test_reuse_release_product.py
+          python3 tests/test_ci_release_product_reuse.py
+
       - name: Validate the R2 cache store script
         if: ${{ matrix.group == 'ci' }}
         run: bash tests/test_ci_r2_cache.sh
