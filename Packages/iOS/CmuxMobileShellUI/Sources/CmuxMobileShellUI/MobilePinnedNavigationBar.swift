@@ -32,7 +32,7 @@ extension View {
     @ViewBuilder
     func mobilePinnedNavigationBar() -> some View {
         #if canImport(UIKit)
-        #if compiler(>=6.4)
+        #if compiler(>=6.5)
         if #available(iOS 27.0, *) {
             background(PinnedNavigationBarApplier())
                 .toolbarMinimizeBehavior(.never, for: .navigationBar)
