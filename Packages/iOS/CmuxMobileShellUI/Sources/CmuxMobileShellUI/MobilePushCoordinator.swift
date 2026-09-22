@@ -118,6 +118,7 @@ public final class MobilePushCoordinator {
     /// here and re-applied from ``bind(store:)`` and ``workspacesDidChange()``
     /// until the target exists or the request expires.
     private struct PendingDeeplink {
+        let id: UUID
         let workspaceId: String?
         let surfaceId: String?
         let macDeviceId: String?
@@ -127,6 +128,7 @@ public final class MobilePushCoordinator {
     }
 
     @ObservationIgnored private var pendingDeeplink: PendingDeeplink?
+    @ObservationIgnored private var pendingDeeplinkExpiryTask: Task<Void, Never>?
     /// Set when a tapped terminal is proven unavailable after the connection
     /// is ready. It remains observable so a cold-launch tap can present the
     /// alert after the root mounts.
@@ -1043,7 +1045,9 @@ public final class MobilePushCoordinator {
     ) {
         diagnosticLog?.recordAppEvent(.pushTapped)
         tabUnavailableAlert = nil
+        pendingDeeplinkExpiryTask?.cancel()
         pendingDeeplink = PendingDeeplink(
+            id: UUID(),
             workspaceId: workspaceId,
             surfaceId: surfaceId,
             macDeviceId: macDeviceId,
@@ -1051,6 +1055,7 @@ public final class MobilePushCoordinator {
             retargetsToLiveSurfaceOwner: retargetsToLiveSurfaceOwner,
             createdAt: now()
         )
+        schedulePendingDeeplinkExpiry()
         diagnosticLog?.recordAppEvent(.pushDeeplinkParked)
         applyPendingDeeplinkIfReady()
     }
@@ -1125,7 +1130,7 @@ public final class MobilePushCoordinator {
             // not consume the tap or turn a recoverable outage into a false
             // "tab unavailable" alert.
             guard now().timeIntervalSince(pending.createdAt) < Self.pendingDeeplinkLifetime else {
-                pendingDeeplink = nil
+                clearPendingDeeplink()
                 diagnosticLog?.recordAppEvent(.pushDeeplinkExpired, failure: .timedOut)
                 analytics.capture("ios_push_deeplink_failed", ["reason": .string("expired")])
                 presentTabUnavailableAlert()
@@ -1134,7 +1139,7 @@ public final class MobilePushCoordinator {
             return
         }
         guard now().timeIntervalSince(pending.createdAt) < Self.pendingDeeplinkLifetime else {
-            pendingDeeplink = nil
+            clearPendingDeeplink()
             diagnosticLog?.recordAppEvent(
                 .pushDeeplinkExpired,
                 failure: .timedOut
@@ -1144,7 +1149,7 @@ public final class MobilePushCoordinator {
             return
         }
         guard pending.retargetsToLiveSurfaceOwner || pending.workspaceId != nil else {
-            pendingDeeplink = nil
+            clearPendingDeeplink()
             diagnosticLog?.recordAppEvent(
                 .pushDeeplinkFailed,
                 failure: .protocolViolation
@@ -1169,7 +1174,7 @@ public final class MobilePushCoordinator {
                 // recovery the retained list is only a cache, so keep waiting
                 // for the fresh snapshot before surfacing the alert.
                 guard store.workspaceListIsAuthoritative else { return }
-                pendingDeeplink = nil
+                clearPendingDeeplink()
                 presentTabUnavailableAlert()
                 return
             }
@@ -1181,13 +1186,13 @@ public final class MobilePushCoordinator {
                 instanceTag: pending.macInstanceTag
             ) else {
                 guard store.workspaceListIsAuthoritative else { return }
-                pendingDeeplink = nil
+                clearPendingDeeplink()
                 presentTabUnavailableAlert()
                 return
             }
             workspaceTarget = owner
         } else {
-            pendingDeeplink = nil
+            clearPendingDeeplink()
             diagnosticLog?.recordAppEvent(
                 .pushDeeplinkFailed,
                 failure: .protocolViolation
@@ -1228,14 +1233,14 @@ public final class MobilePushCoordinator {
                 // confined tap cannot follow it, and retaining the request
                 // would replay navigation to the authorized workspace on every
                 // topology update.
-                pendingDeeplink = nil
+                clearPendingDeeplink()
                 presentTabUnavailableAlert()
                 return
             }
             // The owning Mac is connected and its snapshot proves the tab is
             // gone. Leave the current UI where it is and explain why the tap
             // could not open anything.
-            pendingDeeplink = nil
+            clearPendingDeeplink()
             presentTabUnavailableAlert()
             return
         }
@@ -1248,7 +1253,7 @@ public final class MobilePushCoordinator {
         if let surfaceId = pending.surfaceId {
             store.selectTerminal(MobileTerminalPreview.ID(rawValue: surfaceId))
         }
-        pendingDeeplink = nil
+        clearPendingDeeplink()
         diagnosticLog?.recordAppEvent(.pushDeeplinkResolved)
         analytics.capture("ios_push_deeplink_resolved", [
             "resolved_workspace": .bool(pending.workspaceId != nil),
@@ -1256,8 +1261,32 @@ public final class MobilePushCoordinator {
         ])
     }
 
+    private func clearPendingDeeplink() {
+        pendingDeeplink = nil
+        pendingDeeplinkExpiryTask?.cancel()
+        pendingDeeplinkExpiryTask = nil
+    }
+
+    private func schedulePendingDeeplinkExpiry() {
+        pendingDeeplinkExpiryTask?.cancel()
+        guard let pendingID = pendingDeeplink?.id else { return }
+        pendingDeeplinkExpiryTask = Task { @MainActor [weak self] in
+            do {
+                try await ContinuousClock().sleep(
+                    for: .seconds(Int64(Self.pendingDeeplinkLifetime))
+                )
+            } catch {
+                return
+            }
+            guard let self,
+                  self.pendingDeeplink?.id == pendingID else { return }
+            self.applyPendingDeeplinkIfReady()
+        }
+    }
+
     private func isWorkspaceConnectionReady(_ workspace: MobileWorkspacePreview?) -> Bool {
         guard let workspace else { return false }
+        guard store?.connectionState == .connected else { return false }
         return (workspace.macConnectionStatus ?? (store?.connectionState == .connected ? .connected : .unavailable)) == .connected
     }
 
