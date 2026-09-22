@@ -743,6 +743,7 @@
 		32E508E45F3E7B0832FB99EA /* CloudDiagnosticsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E6B0EDC90EFCD3A415400895 /* CloudDiagnosticsView.swift */; };
 		5910F6B0C9704B8DB8607318 /* CloudDirectoryLifecycleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9EFB28A7B5DF48ED8EF9CFB6 /* CloudDirectoryLifecycleTests.swift */; };
 		F3FAB983EE90414CAA90F970 /* CloudDirectoryTestFixture.swift in Sources */ = {isa = PBXBuildFile; fileRef = FFC7BA3C7C834D20B3173D36 /* CloudDirectoryTestFixture.swift */; };
+		DB326399C791DD70E9D6997A /* LiveWorkspaceFixture.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7B507A66B0F521925687F2ED /* LiveWorkspaceFixture.swift */; };
 		33E9D640ED2646A38673776D /* CloudDisplayCatalogTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6B7DF8AE123341DEBA066731 /* CloudDisplayCatalogTests.swift */; };
 		AE0DE65C11FB4EE491A1C031 /* CloudDisplayCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2F99243AE43E429485F65C00 /* CloudDisplayCoordinator.swift */; };
 		C10D0A200000000000000001 /* CloudDomainsCLIIntegrationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C10D0A200000000000000002 /* CloudDomainsCLIIntegrationTests.swift */; };
@@ -4981,6 +4982,7 @@
 		E6B0EDC90EFCD3A415400895 /* CloudDiagnosticsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudDiagnosticsView.swift"; sourceTree = "<group>"; };
 		9EFB28A7B5DF48ED8EF9CFB6 /* CloudDirectoryLifecycleTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudDirectoryLifecycleTests.swift; sourceTree = "<group>"; };
 		FFC7BA3C7C834D20B3173D36 /* CloudDirectoryTestFixture.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudDirectoryTestFixture.swift; sourceTree = "<group>"; };
+		7B507A66B0F521925687F2ED /* LiveWorkspaceFixture.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LiveWorkspaceFixture.swift; sourceTree = "<group>"; };
 		6B7DF8AE123341DEBA066731 /* CloudDisplayCatalogTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudDisplayCatalogTests.swift"; sourceTree = "<group>"; };
 		2F99243AE43E429485F65C00 /* CloudDisplayCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudDisplayCoordinator.swift"; sourceTree = "<group>"; };
 		C10D0A200000000000000002 /* CloudDomainsCLIIntegrationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudDomainsCLIIntegrationTests.swift; sourceTree = "<group>"; };
@@ -12027,6 +12029,7 @@
 				F3E5958FB85E4B97957D4F73 /* CloudSidebarSurfaceRegressionTests.swift */,
 				9EFB28A7B5DF48ED8EF9CFB6 /* CloudDirectoryLifecycleTests.swift */,
 				FFC7BA3C7C834D20B3173D36 /* CloudDirectoryTestFixture.swift */,
+				7B507A66B0F521925687F2ED /* LiveWorkspaceFixture.swift */,
 				64C68B378B6071B213B4AA57 /* LocalSurfaceProviderTests.swift */,
 				BC427A4C642EBC36E600FA7F /* CmuxTuiSurfaceProviderTests.swift */,
 				F8FED5F6485C390988555CDA /* CloudFileDeliveryTests.swift */,
@@ -16391,6 +16394,7 @@
 				9A1261600000000000000006 /* CloudDesktopWebSocketTests.swift in Sources */,
 				5910F6B0C9704B8DB8607318 /* CloudDirectoryLifecycleTests.swift in Sources */,
 				F3FAB983EE90414CAA90F970 /* CloudDirectoryTestFixture.swift in Sources */,
+				DB326399C791DD70E9D6997A /* LiveWorkspaceFixture.swift in Sources */,
 				33E9D640ED2646A38673776D /* CloudDisplayCatalogTests.swift in Sources */,
 				C10D0A200000000000000001 /* CloudDomainsCLIIntegrationTests.swift in Sources */,
 				674394DB769239AFBC7BCC09 /* CloudEnvDeliveryTests.swift in Sources */,

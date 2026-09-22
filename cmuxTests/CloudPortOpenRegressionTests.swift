@@ -380,14 +380,16 @@ struct CloudPortOpenRegressionTests {
 
     @Test("Sidebar and repeated opens use the machine-owned local workspace and one catalog identity")
     func rowOpenUsesSharedCatalogPath() async throws {
-        let catalog = SurfaceCatalog()
+        let live = LiveWorkspaceFixture()
+        defer { live.tearDown() }
+        let catalog = SurfaceCatalog(live: live)
         let provider = FakeProvider(machine: machine, supportsPortPreviews: true)
         catalog.register(provider)
         let port = discoveredPort(8000, in: workspace)
         catalog.replaceResources([terminal(), port], on: machine, info: machineInfo(workspaces: [workspace]))
 
-        let ownerWorkspaceID = UUID()
-        let unrelatedWorkspaceID = UUID()
+        let ownerWorkspaceID = live.id()
+        let unrelatedWorkspaceID = live.id()
         _ = try await catalog.project(
             terminal().id,
             into: .workspace(id: ownerWorkspaceID, placement: .split),
@@ -464,7 +466,10 @@ struct CloudPortOpenRegressionTests {
 
     @Test("Unsupported providers fail before a synthetic row or browser pane is created")
     func unsupportedProviderFailsClosed() async {
-        let catalog = SurfaceCatalog()
+        let live = LiveWorkspaceFixture()
+        defer { live.tearDown() }
+        let catalog = SurfaceCatalog(live: live)
+        let destination = live.id()
         let provider = FakeProvider(machine: machine, supportsPortPreviews: false)
         catalog.register(provider)
 
@@ -474,7 +479,7 @@ struct CloudPortOpenRegressionTests {
             try await catalog.openCloudPort(
                 machine: machine,
                 port: 8000,
-                into: .workspace(id: UUID(), placement: .split),
+                into: .workspace(id: destination, placement: .split),
                 focus: false,
                 reuseExisting: false
             )

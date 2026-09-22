@@ -41,8 +41,8 @@ struct CloudPlacementCoordinatorTests {
     }
 
     /// A catalog whose local workspace `bound` mirrors `ws_api`; every other local workspace is a viewer.
-    private static func harness(bound: UUID) -> (SurfaceCatalog, CloudPlacementTestProvider) {
-        let catalog = SurfaceCatalog(cloudPlacementCoordinator: CloudPlacementCoordinator(binding: { id in
+    private static func harness(bound: UUID, live: LiveWorkspaceFixture? = nil) -> (SurfaceCatalog, CloudPlacementTestProvider) {
+        let catalog = SurfaceCatalog(cloudWorkspaceRenameService: live?.renameService ?? CloudWorkspaceRenameService(), cloudPlacementCoordinator: CloudPlacementCoordinator(binding: { id in
             id == bound ? WorkspaceCloudVMBinding(vmID: "vivid-newt", isBase: false, remoteWorkspaceID: "ws_api") : nil
         }, workspaceExists: { _, remoteID in remoteID == "ws_api" ? true : nil }))
         let provider = CloudPlacementTestProvider(machine: machine)
@@ -394,8 +394,10 @@ struct CloudPlacementCoordinatorTests {
     }
 
     @Test func openingIntoABoundWorkspaceUsesTheSharedPlacementPath() async throws {
-        let bound = UUID()
-        let (catalog, provider) = Self.harness(bound: bound)
+        let live = LiveWorkspaceFixture()
+        defer { live.tearDown() }
+        let bound = live.id()
+        let (catalog, provider) = Self.harness(bound: bound, live: live)
         let term = Self.terminal("term_1", views: [SurfaceRemoteView(tabID: "tab_1", workspace: Self.main)])
         catalog.replaceResources([term], on: Self.machine)
         _ = try await catalog.project(term.id, into: .tab(workspaceID: bound, paneID: UUID().uuidString, index: nil), focus: false, reuseExisting: false)
