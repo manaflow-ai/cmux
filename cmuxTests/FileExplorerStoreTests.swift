@@ -1557,8 +1557,8 @@ struct ProcessSSHFileExplorerListingTests {
 
     @Test
     func testLegacyListingExecutesAndParsesEntriesWithoutDates() throws {
-        // The `ls -F` fallback used when the dated script reports missing tools:
-        // directories keep their type, `-F` suffixes are stripped from files,
+        // The `ls -p` fallback used when the dated script reports missing tools:
+        // directories keep their type, executables and symlinks are plain files,
         // dotfiles stay hidden unless requested, and no entry carries a date.
         let root = try makeListingFixtureDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
@@ -1599,6 +1599,42 @@ struct ProcessSSHFileExplorerListingTests {
 
         let all = try list(showHidden: true)
         #expect(all.map(\.name).sorted() == [".hidden", "a.txt", "link", "run.sh", "src"])
+    }
+
+    @Test
+    func testLegacyListingPreservesNamesEndingInTypeIndicatorCharacters() throws {
+        // `ls -F` would suffix executables/symlinks with `*`/`@`/`=`/`|`, and a
+        // parser that strips those would also truncate real names ending in
+        // them. With `-p` only directories get a marker, so these survive.
+        let root = try makeListingFixtureDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let names = ["star*", "at@", "eq=", "pipe|", "exec*"]
+        for name in names {
+            try "x".write(to: root.appendingPathComponent(name), atomically: true, encoding: .utf8)
+        }
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: root.appendingPathComponent("exec*").path)
+        try FileManager.default.createDirectory(at: root.appendingPathComponent("dir@"), withIntermediateDirectories: true)
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/sh")
+        process.arguments = ["-c", ProcessSSHFileExplorerTransport.legacyListingCommand(path: root.path, showHidden: false)]
+        let stdout = Pipe()
+        process.standardOutput = stdout
+        process.standardError = FileHandle.nullDevice
+        try process.run()
+        let data = stdout.fileHandleForReading.readDataToEndOfFile()
+        process.waitUntilExit()
+        #expect(process.terminationStatus == 0)
+
+        let entries = ProcessSSHFileExplorerTransport.parseLegacyListing(
+            String(decoding: data, as: UTF8.self),
+            path: root.path,
+            showHidden: false
+        )
+        #expect(entries.map(\.name).sorted() == (names + ["dir@"]).sorted())
+        #expect(entries.first { $0.name == "dir@" }?.isDirectory == true)
+        #expect(entries.filter { $0.name != "dir@" }.allSatisfy { !$0.isDirectory })
+        #expect(entries.first { $0.name == "exec*" }?.path == root.path + "/exec*")
     }
 
     // MARK: Parsing of the tab-separated stat output
