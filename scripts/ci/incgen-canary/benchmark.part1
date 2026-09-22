@@ -1,0 +1,189 @@
+#!/usr/bin/env python3
+"""Disposable macOS canary for checkout+DerivedData Xcode incremental generations."""
+from __future__ import annotations
+
+import argparse
+import hashlib
+import json
+import os
+from pathlib import Path
+import re
+import shutil
+import subprocess
+import sys
+import tempfile
+import time
+
+SCHEMA = 3
+APP_EDIT = Path("Sources/Mobile/MobileTerminalByteTee.swift")
+PACKAGE_EDIT = Path("Packages/Shared/CmuxIrxTransport/Sources/CmuxIrxTransport/IrxEndpoint.swift")
+BASE_MOVE_EDIT = Path("Sources/AppDelegate.swift")
+SAMPLE_PATHS = [APP_EDIT, PACKAGE_EDIT, BASE_MOVE_EDIT]
+GIT_ENV = {
+    "GIT_AUTHOR_NAME": "cmux incremental canary",
+    "GIT_AUTHOR_EMAIL": "canary@cmux.invalid",
+    "GIT_COMMITTER_NAME": "cmux incremental canary",
+    "GIT_COMMITTER_EMAIL": "canary@cmux.invalid",
+    "GIT_AUTHOR_DATE": "2026-09-22T04:00:00Z",
+    "GIT_COMMITTER_DATE": "2026-09-22T04:00:00Z",
+}
+
+
+def run(argv, *, cwd=None, env=None, capture=False, check=True):
+    print("+", " ".join(map(str, argv)), flush=True)
+    merged = os.environ.copy()
+    if env:
+        merged.update(env)
+    return subprocess.run(
+        [str(x) for x in argv], cwd=cwd, env=merged, text=True,
+        check=check, capture_output=capture,
+    )
+
+
+def output(*argv, cwd=None, env=None) -> str:
+    return run(argv, cwd=cwd, env=env, capture=True).stdout.strip()
+
+
+def write_json(path: Path, payload: dict) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload, sort_keys=True, indent=2) + "\n")
+
+
+def wipe(path: Path) -> None:
+    if path.exists():
+        for child in path.iterdir():
+            if child.is_dir() and not child.is_symlink():
+                shutil.rmtree(child)
+            else:
+                child.unlink()
+    else:
+        path.mkdir(parents=True)
+
+
+def sha256_file(path: Path) -> str:
+    h = hashlib.sha256()
+    with path.open("rb") as f:
+        for chunk in iter(lambda: f.read(1024 * 1024), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def du_bytes(path: Path) -> int:
+    if not path.exists():
+        return 0
+    return int(output("du", "-sk", str(path)).split()[0]) * 1024
+
+
+def git_status(workspace: Path) -> str:
+    return output("git", "status", "--porcelain", "--untracked-files=all", cwd=workspace)
+
+
+def package_hash(workspace: Path) -> str:
+    p = workspace / "cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved"
+    return sha256_file(p)
+
+
+def submodule_status(workspace: Path) -> list[str]:
+    text = output("git", "submodule", "status", "--recursive", cwd=workspace)
+    return [line for line in text.splitlines() if line.strip()]
+
+
+def source_snapshot(workspace: Path) -> dict:
+    return {
+        "head": output("git", "rev-parse", "HEAD", cwd=workspace),
+        "tree": output("git", "rev-parse", "HEAD^{tree}", cwd=workspace),
+        "status": git_status(workspace),
+        "package_resolved_sha256": package_hash(workspace),
+        "submodules": submodule_status(workspace),
+        "workspace": str(workspace.resolve()),
+    }
+
+
+def sample_stats(workspace: Path) -> dict[str, dict[str, int]]:
+    result = {}
+    for rel in SAMPLE_PATHS:
+        p = workspace / rel
+        st = p.stat()
+        result[str(rel)] = {
+            "mtime_ns": st.st_mtime_ns,
+            "device": st.st_dev,
+            "inode": st.st_ino,
+            "size": st.st_size,
+        }
+    return result
+
+
+def checkout_base(workspace: Path, repo_url: str, base: str) -> None:
+    run(["git", "remote", "set-url", "origin", repo_url], cwd=workspace)
+    run(["git", "fetch", "--no-tags", "--force", "--depth=32", "origin", base], cwd=workspace)
+    run(["git", "reset", "--hard", base], cwd=workspace)
+    run(["git", "clean", "-ffd"], cwd=workspace)
+    run(["git", "submodule", "sync", "--recursive"], cwd=workspace)
+    run(["git", "submodule", "update", "--init", "--recursive", "--checkout"], cwd=workspace)
+    if git_status(workspace):
+        raise SystemExit("base checkout is dirty")
+
+
+def append_canary(path: Path, marker: str) -> None:
+    text = path.read_text()
+    line = f"// {marker}\n"
+    if line not in text:
+        if not text.endswith("\n"):
+            text += "\n"
+        path.write_text(text + line)
+
+
+def commit_edit(worktree: Path, rel: Path, marker: str, message: str) -> str:
+    append_canary(worktree / rel, marker)
+    run(["git", "add", str(rel)], cwd=worktree)
+    run(["git", "commit", "-m", message], cwd=worktree, env=GIT_ENV)
+    return output("git", "rev-parse", "HEAD", cwd=worktree)
+
+
+def add_worktree(repo: Path, root: Path, name: str, base: str) -> Path:
+    path = root / name
+    if path.exists():
+        shutil.rmtree(path)
+    run(["git", "worktree", "add", "--detach", str(path), base], cwd=repo)
+    return path
+
+
+def remove_worktrees(repo: Path, paths: list[Path]) -> None:
+    for p in paths:
+        run(["git", "worktree", "remove", "--force", str(p)], cwd=repo, check=False)
+    run(["git", "worktree", "prune"], cwd=repo, check=False)
+
+
+def create_scenario_commit(workspace: Path, base: str, scenario: str) -> dict:
+    root = Path(os.environ.get("RUNNER_TEMP", tempfile.gettempdir())) / f"cmux-incgen-scenario-{os.getpid()}"
+    root.mkdir(parents=True, exist_ok=True)
+    used: list[Path] = []
+    try:
+        if scenario == "app-edit":
+            wt = add_worktree(workspace, root, "head", base); used.append(wt)
+            head = commit_edit(wt, APP_EDIT, "cmux incgen app edit", "canary: one-file app edit")
+            return {"scenario": scenario, "base": base, "head": head, "target": head}
+        if scenario == "package-edit":
+            wt = add_worktree(workspace, root, "head", base); used.append(wt)
+            head = commit_edit(wt, PACKAGE_EDIT, "cmux incgen package edit", "canary: package-only edit")
+            return {"scenario": scenario, "base": base, "head": head, "target": head}
+        if scenario == "synthetic-pr-merge":
+            head_wt = add_worktree(workspace, root, "head", base); used.append(head_wt)
+            head = commit_edit(head_wt, APP_EDIT, "cmux incgen synthetic PR edit", "canary: synthetic PR head")
+            merge_wt = add_worktree(workspace, root, "merge", base); used.append(merge_wt)
+            run(["git", "merge", "--no-ff", head, "-m", "canary: synthetic PR merge"], cwd=merge_wt, env=GIT_ENV)
+            target = output("git", "rev-parse", "HEAD", cwd=merge_wt)
+            return {"scenario": scenario, "base": base, "head": head, "target": target}
+        if scenario == "base-move":
+            head_wt = add_worktree(workspace, root, "head", base); used.append(head_wt)
+            head = commit_edit(head_wt, APP_EDIT, "cmux incgen base-move PR edit", "canary: PR head before base move")
+            base_wt = add_worktree(workspace, root, "base", base); used.append(base_wt)
+            moved_base = commit_edit(base_wt, BASE_MOVE_EDIT, "cmux incgen base branch moved", "canary: base branch movement")
+            merge_wt = add_worktree(workspace, root, "merge", moved_base); used.append(merge_wt)
+            run(["git", "merge", "--no-ff", head, "-m", "canary: PR merge after base movement"], cwd=merge_wt, env=GIT_ENV)
+            target = output("git", "rev-parse", "HEAD", cwd=merge_wt)
+            return {"scenario": scenario, "base": base, "head": head, "moved_base": moved_base, "target": target}
+        raise SystemExit(f"unknown scenario: {scenario}")
+    finally:
+        remove_worktrees(workspace, used)
+        shutil.rmtree(root, ignore_errors=True)
