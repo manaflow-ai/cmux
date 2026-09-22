@@ -5,7 +5,7 @@ on:
     paths:
       - ".github/workflows/zz-mobile-terminal-package-boundary-benchmark.yml"
       - "Sources/Mobile/MobileTerminalByteTee.swift"
-      - "Packages/macOS/CmuxTerminal/**"
+      - "Packages/Shared/CMUXMobileCore/**"
 
 permissions:
   contents: read
@@ -35,7 +35,13 @@ jobs:
       - name: Provision GhosttyKit
         run: ./scripts/download-prebuilt-ghosttykit.sh
 
-      - name: Benchmark current app-target edit
+      - name: Run focused package tests
+        run: |
+          swift test \
+            --package-path Packages/Shared/CMUXMobileCore \
+            --filter MobileTerminalStreamStateStoreTests
+
+      - name: Benchmark extracted package edit
         shell: bash
         run: |
           set -euo pipefail
@@ -73,33 +79,49 @@ jobs:
             > benchmark-artifact/warm-direct.log 2>&1
 
           printf '\n// cmux incremental package-boundary benchmark edit\n' \
-            >> Sources/Mobile/MobileTerminalByteTee.swift
+            >> Packages/Shared/CMUXMobileCore/Sources/CMUXMobileCore/MobileTerminalStreamStateStore.swift
 
           start_ns="$(python3 -c 'import time; print(time.monotonic_ns())')"
           set +e
           scripts/ci/xcodebuild_noninteractive.py xcodebuild "${xcode_args[@]}" 2>&1 \
             | python3 -u -c 'import sys,time; s=time.monotonic(); [(sys.stdout.write(f"{time.monotonic()-s:.6f}\t{line}"), sys.stdout.flush()) for line in sys.stdin]' \
-            | tee benchmark-artifact/before.log
+            | tee benchmark-artifact/after.log
           status=${PIPESTATUS[0]}
           set -e
           end_ns="$(python3 -c 'import time; print(time.monotonic_ns())')"
-          git checkout -- Sources/Mobile/MobileTerminalByteTee.swift
+          git checkout -- Packages/Shared/CMUXMobileCore/Sources/CMUXMobileCore/MobileTerminalStreamStateStore.swift
           [ "$status" -eq 0 ] || exit "$status"
 
           total_seconds="$(python3 -c 'import sys; print((int(sys.argv[2])-int(sys.argv[1]))/1e9)' "$start_ns" "$end_ns")"
-          swift_compile_count="$(grep -c $'\tSwiftCompile normal ' benchmark-artifact/before.log || true)"
-          swift_emit_count="$(grep -c $'\tSwiftEmitModule normal ' benchmark-artifact/before.log || true)"
+          swift_compile_count="$(grep -c $'\tSwiftCompile normal ' benchmark-artifact/after.log || true)"
+          swift_emit_count="$(grep -c $'\tSwiftEmitModule normal ' benchmark-artifact/after.log || true)"
+          planning_seconds="$(python3 - <<'PY'
+from pathlib import Path
+for line in Path("benchmark-artifact/after.log").read_text(errors="replace").splitlines():
+    stamp, _, rest = line.partition("\t")
+    if rest.startswith(("SwiftCompile normal ", "SwiftEmitModule normal ")):
+        print(stamp)
+        break
+else:
+    print("")
+PY
+)"
+          grep -F 'SwiftEmitModule' benchmark-artifact/after.log \
+            > benchmark-artifact/after-emit-module-lines.txt || true
+          grep -F 'Build Timing Summary' -A 80 benchmark-artifact/after.log \
+            > benchmark-artifact/after-timing-summary.txt || true
           {
             echo "total_seconds=$total_seconds"
             echo "swift_compile_count=$swift_compile_count"
             echo "swift_emit_count=$swift_emit_count"
-          } | tee benchmark-artifact/before-metrics.txt
+            echo "planning_to_first_swift_seconds=$planning_seconds"
+          } | tee benchmark-artifact/after-metrics.txt
 
       - name: Upload benchmark
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: mobile-terminal-package-boundary-before
+          name: mobile-terminal-package-boundary-after
           path: benchmark-artifact/
           retention-days: 3
           if-no-files-found: error

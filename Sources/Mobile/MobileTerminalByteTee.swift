@@ -1,3 +1,4 @@
+import CMUXMobileCore
 import CmuxFoundation
 import CmuxTerminal
 import Foundation
@@ -40,28 +41,13 @@ final class MobileTerminalByteTee {
     // reference off the ghostty output thread is safe.
     nonisolated static let shared = MobileTerminalByteTee()
 
-    private struct SurfaceState {
-        /// Monotonic byte-stream sequence. Each emitted chunk advances by
-        /// chunk length so the iPhone can detect drops.
-        var seq: UInt64 = 0
-        /// Tail-trimmed ring (~256 KB) for replay on cold attach.
-        var replayBuffer: Data = Data()
-        /// Unique lifetime of this surface's render revision sequence.
-        var renderEpoch = UUID().uuidString
-        /// Producer capture order, independent of byte sequence. Geometry-only
-        /// captures advance this even when `seq` is unchanged.
-        var renderRevision: UInt64 = 0
-        /// Opaque marker of the latest accepted input, not proof of output causality.
-        var inputSequence: UInt64?
-    }
+    private let stateStore = MobileTerminalStreamStateStore()
 
-    private var statesBySurfaceID: [UUID: SurfaceState] = [:]
     private var laneContinuationsBySurfaceID: [
         UUID: [UUID: AsyncStream<OutputChunk>.Continuation]
     ] = [:]
     nonisolated private let laneSubscriberCount = OSAllocatedUnfairLock(initialState: 0)
     nonisolated private let laneDemand = AtomicBooleanGate(false)
-    private let replayBudget: Int = 256 * 1024
     /// Serial queue so fan-out preserves byte order even though the
     /// upstream callback runs off the main thread.
     private let publishQueue = DispatchQueue(
@@ -109,21 +95,21 @@ final class MobileTerminalByteTee {
     /// to a `mobile.terminal.replay` RPC on cold attach. Returns the
     /// current sequence so the iPhone can chain subsequent live events.
     func replayState(surfaceID: UUID) -> (seq: UInt64, data: Data)? {
-        guard let state = statesBySurfaceID[surfaceID] else { return nil }
-        return (state.seq, state.replayBuffer)
+        stateStore.replayState(surfaceID: surfaceID)
     }
 
     func currentSequence(surfaceID: UUID) -> UInt64? {
-        statesBySurfaceID[surfaceID]?.seq
+        stateStore.currentSequence(surfaceID: surfaceID)
     }
 
     /// Echoes the client's opaque marker only after terminal input is accepted.
     /// A legacy input clears the watermark instead of inventing a correlation.
     func recordAcceptedInput(surfaceID: UUID, sequence: UInt64?, result: TerminalSurface.InputSendResult) {
-        guard result.accepted else { return }
-        var state = statesBySurfaceID[surfaceID] ?? SurfaceState()
-        state.inputSequence = sequence
-        statesBySurfaceID[surfaceID] = state
+        stateStore.recordAcceptedInput(
+            surfaceID: surfaceID,
+            sequence: sequence,
+            accepted: result.accepted
+        )
     }
 
     /// Runs one mobile input operation and records its accepted marker in the
@@ -141,7 +127,7 @@ final class MobileTerminalByteTee {
     }
 
     func currentInputSequence(surfaceID: UUID) -> UInt64? {
-        statesBySurfaceID[surfaceID]?.inputSequence
+        stateStore.currentInputSequence(surfaceID: surfaceID)
     }
 
     /// Returns the producer identity that orders every render-grid capture.
@@ -149,20 +135,12 @@ final class MobileTerminalByteTee {
     /// The state is installed even before the first capture so a viewport RPC
     /// can return a floor in the same epoch that the subsequent replay uses.
     func currentRenderCaptureIdentity(surfaceID: UUID) -> (epoch: String, revision: UInt64) {
-        let state = statesBySurfaceID[surfaceID] ?? SurfaceState()
-        statesBySurfaceID[surfaceID] = state
-        return (epoch: state.renderEpoch, revision: state.renderRevision)
+        stateStore.currentRenderCaptureIdentity(surfaceID: surfaceID)
     }
 
     /// Claims the next epoch-aware render-grid capture identity for one surface.
     func nextRenderCaptureIdentity(surfaceID: UUID) -> (epoch: String, revision: UInt64) {
-        var state = statesBySurfaceID[surfaceID] ?? SurfaceState()
-        state.renderRevision &+= 1
-        if state.renderRevision == 0 {
-            state.renderRevision = 1
-        }
-        statesBySurfaceID[surfaceID] = state
-        return (epoch: state.renderEpoch, revision: state.renderRevision)
+        stateStore.nextRenderCaptureIdentity(surfaceID: surfaceID)
     }
 
     /// Opens a bounded raw-output subscription for one authenticated Iroh
@@ -184,7 +162,7 @@ final class MobileTerminalByteTee {
 
     /// Drop replay history for a surface (e.g. when the surface closes).
     func dropSurface(surfaceID: UUID) {
-        statesBySurfaceID.removeValue(forKey: surfaceID)
+        stateStore.removeSurface(surfaceID: surfaceID)
         let continuations = laneContinuationsBySurfaceID.removeValue(forKey: surfaceID)
             .map { Array($0.values) } ?? []
         if !continuations.isEmpty {
@@ -200,18 +178,12 @@ final class MobileTerminalByteTee {
     }
 
     private func publishFromMain(surfaceID: UUID, data: Data) {
-        var state = statesBySurfaceID[surfaceID] ?? SurfaceState()
-        let chunkSeq = state.seq
-        state.seq &+= UInt64(data.count)
-        state.replayBuffer.append(data)
-        if state.replayBuffer.count > replayBudget {
-            state.replayBuffer.removeFirst(state.replayBuffer.count - replayBudget)
-        }
-        statesBySurfaceID[surfaceID] = state
+        let appendResult = stateStore.append(surfaceID: surfaceID, data: data)
+        let chunkSeq = appendResult.chunkSequence
         #if DEBUG
         HostLatencyTrace.stamp(
             "host.tee",
-            "s=\(surfaceID.uuidString.prefix(8).lowercased()) seq=\(state.seq) bytes=\(data.count)"
+            "s=\(surfaceID.uuidString.prefix(8).lowercased()) seq=\(appendResult.currentSequence) bytes=\(data.count)"
         )
         #endif
         MobileTerminalRenderObserver.shared.noteTerminalBytes(surfaceID: surfaceID)
