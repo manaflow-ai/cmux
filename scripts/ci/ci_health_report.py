@@ -66,12 +66,16 @@ API = "https://api.github.com"
 UTC = dt.timezone.utc
 
 DEFAULT_WINDOW_HOURS = 6
-DEFAULT_MAX_RUN_PAGES = 12
+DEFAULT_MAX_RUN_PAGES = 10
 DEFAULT_MAX_JOB_LISTINGS = 120
 DEFAULT_JOBS_PER_WORKFLOW = 3
+DEFAULT_WINDOW_SLICES = 4
 MAX_JOB_PAGES = 2
 MAX_COMMENT_PAGES = 5
 RUNS_PER_PAGE = 100
+# One `created:` query never returns more than this, whatever the page cap
+# says, so a window busier than this has to be asked for in slices.
+RUNS_PER_QUERY_CAP = 1000
 
 # Thresholds that turn a number into an action. docs/ci/health-report.md says
 # what each one means and what to do when it trips.
@@ -133,6 +137,29 @@ def windows(now: dt.datetime, hours: int) -> tuple[Window, Window]:
     span = dt.timedelta(hours=hours)
     current = Window(now - span, now)
     return current, Window(now - 2 * span, now - span)
+
+
+def slice_windows(window: Window, count: int) -> list[Window]:
+    """Split a window into equal slices, newest first.
+
+    A single `created:` query returns at most RUNS_PER_QUERY_CAP runs however
+    many pages you ask for, so on a repo creating thousands of runs a day one
+    query silently reports only the newest hour or two of a six-hour window.
+    Asking slice by slice is what makes the window the report claims the window
+    it actually measured.
+    """
+    count = max(1, count)
+    step = (window.end - window.start) / count
+    return [Window(window.end - step * (index + 1), window.end - step * index) for index in range(count)]
+
+
+@dataclasses.dataclass(frozen=True)
+class SliceResult:
+    """One slice's runs, and whether the API had more it would not give."""
+
+    window: Window
+    runs: list[dict[str, Any]]
+    capped: bool
 
 
 def bucket_of(conclusion: str | None) -> str:
@@ -556,11 +583,11 @@ class WindowMetrics:
 
 
 def covered_hours(runs: Sequence[Mapping[str, Any]], window: Window) -> tuple[float, bool]:
-    """How much of the window the fetched runs actually cover.
+    """How much of one window the fetched runs actually cover.
 
-    The runs endpoint returns newest first, so a page cap truncates the *old*
-    end of the window. Reporting the covered span (and saying the numbers are
-    rates over it) is honest where reporting the window would not be.
+    The runs endpoint returns newest first, so a cap truncates the *old* end of
+    the span. Reporting the covered part (and saying the counts are rates over
+    it) is honest where reporting the whole window would not be.
     """
     created = [parse_time(run.get("created_at")) for run in runs]
     stamps = [moment for moment in created if moment is not None]
@@ -572,6 +599,25 @@ def covered_hours(runs: Sequence[Mapping[str, Any]], window: Window) -> tuple[fl
     return max(0.0, (window.end - oldest).total_seconds() / 3600.0), True
 
 
+def slice_coverage(results: Sequence[SliceResult]) -> tuple[float, bool]:
+    """Covered hours across slices, and whether any slice lost its old end.
+
+    A capped slice truncates in the middle of the window rather than at its
+    edge, so coverage is the sum of what each slice reached, not the distance
+    back to the oldest run anybody happened to see.
+    """
+    total = 0.0
+    truncated = False
+    for result in results:
+        if result.capped:
+            hours, _ = covered_hours(result.runs, result.window)
+            total += hours
+            truncated = True
+        else:
+            total += result.window.hours
+    return total, truncated
+
+
 def build_metrics(
     *,
     window: Window,
@@ -579,8 +625,12 @@ def build_metrics(
     rows: Sequence[JobRow],
     sampled_runs: int,
     partial: Sequence[str],
+    slices: Sequence[SliceResult] | None = None,
 ) -> WindowMetrics:
-    hours, truncated = covered_hours(runs, window)
+    if slices is None:
+        hours, truncated = covered_hours(runs, window)
+    else:
+        hours, truncated = slice_coverage(slices)
     queue = queue_wait_stats(rows)
     return WindowMetrics(
         window=window,
@@ -772,8 +822,8 @@ def render_report(
     coverage = (
         f"{current.runs_fetched} runs fetched"
         + (
-            f" (page cap reached: only the most recent {current.covered_hours:.1f}h of the "
-            f"{current.window.hours:.0f}h window is covered, so run counts below are rates over that span)"
+            f" (truncated: {current.covered_hours:.1f}h of the {current.window.hours:.0f}h window "
+            "is covered, so run counts below are rates over that span)"
             if current.truncated
             else f" covering the whole {current.window.hours:.0f}h window"
         )
@@ -1002,9 +1052,11 @@ class GitHub:
         except urllib.error.URLError as error:
             raise RuntimeError(f"{method} {path.split('?')[0]} failed ({error.reason})") from error
 
-    def runs_in_window(self, window: Window, max_pages: int) -> tuple[list[dict[str, Any]], list[str]]:
+    def runs_in_slice(self, window: Window, max_pages: int) -> tuple[SliceResult, list[str]]:
+        """One slice's runs, plus whether the API stopped short of the slice."""
         runs: dict[int, dict[str, Any]] = {}
         partial: list[str] = []
+        capped = False
         for page in range(1, max_pages + 1):
             query = urllib.parse.urlencode(
                 {"created": window.query(), "per_page": RUNS_PER_PAGE, "page": page}
@@ -1012,16 +1064,41 @@ class GitHub:
             try:
                 payload = self.request("GET", f"/repos/{self.repo}/actions/runs?{query}")
             except (RateLimited, RuntimeError) as error:
-                partial.append(f"run listing stopped after page {page - 1}: {error}")
+                partial.append(f"run listing for {window.label()} stopped after page {page - 1}: {error}")
+                capped = True
                 break
             batch = payload.get("workflow_runs") or []
             for run in batch:
                 runs[run["id"]] = run
             if len(batch) < RUNS_PER_PAGE:
                 break
+            if len(runs) >= RUNS_PER_QUERY_CAP:
+                # The API will not paginate past this however many pages we ask
+                # for, so the rest of this slice is unreachable, not absent.
+                capped = True
+                partial.append(
+                    f"{window.label()} hit the {RUNS_PER_QUERY_CAP}-run API cap; "
+                    "raise CI_HEALTH_WINDOW_SLICES to see the rest"
+                )
+                break
         else:
-            partial.append(f"run listing hit the {max_pages}-page cap")
-        return list(runs.values()), partial
+            capped = True
+            partial.append(f"{window.label()} hit the {max_pages}-page cap")
+        return SliceResult(window=window, runs=list(runs.values()), capped=capped), partial
+
+    def runs_in_window(
+        self, window: Window, max_pages: int, slices: int
+    ) -> tuple[list[dict[str, Any]], list[SliceResult], list[str]]:
+        results: list[SliceResult] = []
+        partial: list[str] = []
+        merged: dict[int, dict[str, Any]] = {}
+        for piece in slice_windows(window, slices):
+            result, reasons = self.runs_in_slice(piece, max_pages)
+            results.append(result)
+            partial.extend(reasons)
+            for run in result.runs:
+                merged[run["id"]] = run
+        return list(merged.values()), results, partial
 
     def jobs(self, run_id: int) -> list[dict[str, Any]]:
         jobs: list[dict[str, Any]] = []
@@ -1064,9 +1141,10 @@ def collect_window(
     max_run_pages: int,
     max_job_listings: int,
     jobs_per_workflow: int,
+    window_slices: int,
     linux_only: frozenset[str],
 ) -> WindowMetrics:
-    runs, partial = github.runs_in_window(window, max_run_pages)
+    runs, slices, partial = github.runs_in_window(window, max_run_pages, window_slices)
     runs.sort(key=lambda run: str(run.get("created_at") or ""), reverse=True)
     chosen = choose_job_runs(
         runs,
@@ -1084,7 +1162,9 @@ def collect_window(
             break
         sampled += 1
         rows.extend(job_rows(run, jobs, repo))
-    return build_metrics(window=window, runs=runs, rows=rows, sampled_runs=sampled, partial=partial)
+    return build_metrics(
+        window=window, runs=runs, rows=rows, sampled_runs=sampled, partial=partial, slices=slices
+    )
 
 
 def publish_to_issue(github: GitHub, number: int, generated: str) -> str:
@@ -1119,6 +1199,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--max-run-pages", type=int, default=None)
     parser.add_argument("--max-job-listings", type=int, default=None)
     parser.add_argument("--jobs-per-workflow", type=int, default=None)
+    parser.add_argument("--window-slices", type=int, default=None)
     parser.add_argument("--issue", default=os.environ.get("CI_HEALTH_REPORT_ISSUE", ""))
     parser.add_argument("--no-issue", action="store_true", help="render only; never touch the issue")
     parser.add_argument(
@@ -1142,14 +1223,15 @@ def main(argv: Sequence[str] | None = None) -> int:
         max_run_pages = args.max_run_pages if args.max_run_pages is not None else env_int("MAX_RUN_PAGES", DEFAULT_MAX_RUN_PAGES)
         max_job_listings = args.max_job_listings if args.max_job_listings is not None else env_int("MAX_JOB_LISTINGS", DEFAULT_MAX_JOB_LISTINGS)
         jobs_per_workflow = args.jobs_per_workflow if args.jobs_per_workflow is not None else env_int("JOBS_PER_WORKFLOW", DEFAULT_JOBS_PER_WORKFLOW)
+        window_slices = args.window_slices if args.window_slices is not None else env_int("WINDOW_SLICES", DEFAULT_WINDOW_SLICES)
     except ValueError:
         print("ci-health-report: window and cap settings must be integers", file=sys.stderr)
         return 2
     if window_hours < 1 or not 1 <= max_run_pages <= 100 or not 0 <= max_job_listings <= 400:
         print("ci-health-report: window must be >= 1h, run pages 1..100, job listings 0..400", file=sys.stderr)
         return 2
-    if jobs_per_workflow < 1:
-        print("ci-health-report: jobs per workflow must be >= 1", file=sys.stderr)
+    if jobs_per_workflow < 1 or not 1 <= window_slices <= 48:
+        print("ci-health-report: jobs per workflow must be >= 1 and window slices 1..48", file=sys.stderr)
         return 2
 
     github = GitHub(token, args.repo)
@@ -1159,13 +1241,15 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     current = collect_window(
         github, current_window, repo=args.repo, max_run_pages=max_run_pages,
-        max_job_listings=max_job_listings, jobs_per_workflow=jobs_per_workflow, linux_only=linux_only,
+        max_job_listings=max_job_listings, jobs_per_workflow=jobs_per_workflow,
+        window_slices=window_slices, linux_only=linux_only,
     )
     # The previous window only has to carry the headline comparison, so it gets
     # a smaller share of the call budget.
     previous = collect_window(
         github, previous_window, repo=args.repo, max_run_pages=max_run_pages,
-        max_job_listings=max(5, max_job_listings // 3), jobs_per_workflow=1, linux_only=linux_only,
+        max_job_listings=max(5, max_job_listings // 3), jobs_per_workflow=1,
+        window_slices=window_slices, linux_only=linux_only,
     )
 
     report = render_report(current, previous, repo=args.repo, now=now, api_calls=github.calls)

@@ -65,6 +65,7 @@ jobs:
           MAX_RUN_PAGES: ${{ vars.CI_HEALTH_MAX_RUN_PAGES }}
           MAX_JOB_LISTINGS: ${{ vars.CI_HEALTH_MAX_JOB_LISTINGS }}
           JOBS_PER_WORKFLOW: ${{ vars.CI_HEALTH_JOBS_PER_WORKFLOW }}
+          WINDOW_SLICES: ${{ vars.CI_HEALTH_WINDOW_SLICES }}
           # An empty value means "step summary only". `a && b || c` returns c
           # whenever b is falsy, so the skip has to be written as the negative:
           # only a dispatch that did not ask to skip passes the issue through.

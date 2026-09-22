@@ -316,6 +316,64 @@ class WindowMetricTests(unittest.TestCase):
         self.assertIn("..", CURRENT_WINDOW.query())
 
 
+class SliceTests(unittest.TestCase):
+    """A `created:` query caps at 1000 runs, so a busy window must be asked for in pieces."""
+
+    def test_slices_are_contiguous_newest_first_and_cover_the_window(self):
+        pieces = report.slice_windows(CURRENT_WINDOW, 4)
+        self.assertEqual(len(pieces), 4)
+        self.assertEqual(pieces[0].end, CURRENT_WINDOW.end)
+        self.assertEqual(pieces[-1].start, CURRENT_WINDOW.start)
+        for newer, older in zip(pieces, pieces[1:]):
+            self.assertEqual(newer.start, older.end)
+        self.assertAlmostEqual(sum(piece.hours for piece in pieces), CURRENT_WINDOW.hours)
+
+    def test_one_slice_is_the_whole_window(self):
+        self.assertEqual(report.slice_windows(CURRENT_WINDOW, 1), [CURRENT_WINDOW])
+        self.assertEqual(report.slice_windows(CURRENT_WINDOW, 0), [CURRENT_WINDOW])
+
+    def test_complete_slices_cover_the_whole_window(self):
+        pieces = report.slice_windows(CURRENT_WINDOW, 3)
+        results = [report.SliceResult(window=piece, runs=[], capped=False) for piece in pieces]
+        hours, truncated = report.slice_coverage(results)
+        self.assertAlmostEqual(hours, CURRENT_WINDOW.hours)
+        self.assertFalse(truncated)
+
+    def test_a_capped_slice_only_counts_back_to_its_oldest_run(self):
+        pieces = report.slice_windows(CURRENT_WINDOW, 2)
+        newest, oldest = pieces
+        # The newer slice stopped at 17:00, an hour into its three-hour span.
+        capped_runs = [{"created_at": "2026-09-22T17:00:00Z"}]
+        results = [
+            report.SliceResult(window=newest, runs=capped_runs, capped=True),
+            report.SliceResult(window=oldest, runs=[], capped=False),
+        ]
+        hours, truncated = report.slice_coverage(results)
+        self.assertTrue(truncated)
+        self.assertAlmostEqual(hours, 1.0 + oldest.hours)
+
+    def test_metrics_take_truncation_from_the_slices_not_the_oldest_run(self):
+        fixture = load("window.json")
+        pieces = report.slice_windows(CURRENT_WINDOW, 2)
+        newer = [run for run in fixture["runs"] if run["created_at"] >= "2026-09-22T16:00:00Z"]
+        metrics = report.build_metrics(
+            window=CURRENT_WINDOW,
+            runs=fixture["runs"],
+            rows=rows_from(fixture),
+            sampled_runs=1,
+            partial=(),
+            slices=[
+                # The newer slice hit the cap at 16:00 and never reached 15:00.
+                report.SliceResult(window=pieces[0], runs=newer, capped=True),
+                report.SliceResult(window=pieces[1], runs=[], capped=False),
+            ],
+        )
+        # The oldest fetched run reaches the window start, so the pre-slicing
+        # check would have called this fully covered.
+        self.assertTrue(metrics.truncated)
+        self.assertLess(metrics.covered_hours, CURRENT_WINDOW.hours)
+
+
 class RenderTests(unittest.TestCase):
     def setUp(self) -> None:
         self.current = metrics_from(load("window.json"), CURRENT_WINDOW)
