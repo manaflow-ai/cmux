@@ -40,9 +40,17 @@ def run_wrapper(
     local_files: list[str] | None = None,
     python_bin: str | None = None,
     bash_bin: str = "/bin/bash",
-    extra_env: dict[str, str] | None = None,
+    extra_env: dict[str, str | None] | None = None,
+    locale_capture: dict[str, list[str]] | None = None,
 ) -> tuple[list[str], list[str], int, str]:
-    """Run Resources/bin/open with faked system_open/cmux/defaults and return its dispatch."""
+    """Run Resources/bin/open with faked system_open/cmux/defaults and return its dispatch.
+
+    If `locale_capture` is given, it is populated (before the temp dir is
+    cleaned up) with the LC_ALL each fake child process observed, under the
+    keys "open" and "cmux" -- used to verify the wrapper restores the
+    caller's original locale for dispatch instead of leaking its own
+    internal `LC_ALL=C` (see test_child_processes_observe_original_locale).
+    """
     with tempfile.TemporaryDirectory(prefix="cmux-open-wrapper-test-") as td:
         tmp = Path(td)
         wrapper = tmp / "open"
@@ -51,6 +59,8 @@ def run_wrapper(
 
         open_log = tmp / "open.log"
         cmux_log = tmp / "cmux.log"
+        open_locale_log = tmp / "open-locale.log"
+        cmux_locale_log = tmp / "cmux-locale.log"
         system_open = tmp / "system-open"
         defaults = tmp / "defaults"
         cmux = tmp / "cmux"
@@ -60,6 +70,7 @@ def run_wrapper(
             """#!/usr/bin/env bash
 set -euo pipefail
 printf '%s\\n' "$*" >> "$FAKE_OPEN_LOG"
+printf '%s\\n' "${LC_ALL-<unset>}" >> "$FAKE_OPEN_LOCALE_LOG"
 """,
         )
 
@@ -119,6 +130,7 @@ esac
             """#!/usr/bin/env bash
 set -euo pipefail
 printf '%s\\n' "$*" >> "$FAKE_CMUX_LOG"
+printf '%s\\n' "${LC_ALL-<unset>}" >> "$FAKE_CMUX_LOCALE_LOG"
 url=""
 for arg in "$@"; do
   url="$arg"
@@ -148,6 +160,8 @@ exit 0
         env["CMUX_OPEN_WRAPPER_DEFAULTS"] = str(defaults)
         env["FAKE_OPEN_LOG"] = str(open_log)
         env["FAKE_CMUX_LOG"] = str(cmux_log)
+        env["FAKE_OPEN_LOCALE_LOG"] = str(open_locale_log)
+        env["FAKE_CMUX_LOCALE_LOG"] = str(cmux_locale_log)
         if python_bin is None:
             env.pop("CMUX_OPEN_WRAPPER_PYTHON3", None)
         else:
@@ -184,7 +198,11 @@ exit 0
             env.pop("FAKE_CMUX_FAIL_URLS", None)
 
         if extra_env:
-            env.update(extra_env)
+            for key, value in extra_env.items():
+                if value is None:
+                    env.pop(key, None)
+                else:
+                    env[key] = value
 
         result = subprocess.run(
             [bash_bin, str(wrapper), *args],
@@ -194,6 +212,10 @@ exit 0
             text=True,
             check=False,
         )
+
+        if locale_capture is not None:
+            locale_capture["open"] = read_log(open_locale_log)
+            locale_capture["cmux"] = read_log(cmux_locale_log)
 
         return read_log(open_log), read_log(cmux_log), result.returncode, result.stderr.strip()
 
@@ -921,6 +943,88 @@ def test_wrapper_forces_c_locale_before_arg_processing(failures: list[str]) -> N
     )
 
 
+def test_system_open_observes_original_locale(failures: list[str]) -> None:
+    """system_open must restore the caller's locale, not leak LC_ALL=C.
+
+    `export LC_ALL=C` forces byte-wise matching for this script's own bash
+    pattern matching (see test_wrapper_forces_c_locale_before_arg_processing),
+    but /usr/bin/open should still see whatever locale the caller actually
+    had -- forcing C for it too would be an unintended side effect on real
+    locale-sensitive behavior in the system `open` command.
+    """
+    filename = "readme.txt"
+
+    # Case 1: caller had a real, non-C locale set.
+    locale_capture: dict[str, list[str]] = {}
+    run_wrapper(
+        args=[filename],
+        intercept_setting="1",
+        whitelist="",
+        local_files=[filename],
+        locale_capture=locale_capture,
+        extra_env={"LC_ALL": "ja_JP.UTF-8"},
+    )
+    expect(
+        locale_capture.get("open") == ["ja_JP.UTF-8"],
+        "system_open should observe the caller's original LC_ALL "
+        f"('ja_JP.UTF-8'), not the wrapper's internal C locale, got {locale_capture.get('open')!r}",
+        failures,
+    )
+
+    # Case 2: caller had no LC_ALL set at all -- system_open must not inherit
+    # the wrapper's forced C either; it should see LC_ALL unset too.
+    locale_capture_unset: dict[str, list[str]] = {}
+    run_wrapper(
+        args=[filename],
+        intercept_setting="1",
+        whitelist="",
+        local_files=[filename],
+        locale_capture=locale_capture_unset,
+        extra_env={"LC_ALL": None},
+    )
+    expect(
+        locale_capture_unset.get("open") == ["<unset>"],
+        "system_open should observe LC_ALL as unset when the caller never "
+        f"set it, got {locale_capture_unset.get('open')!r}",
+        failures,
+    )
+
+
+def test_cmux_cli_observes_original_locale(failures: list[str]) -> None:
+    """The cmux CLI invocation must also restore the caller's original locale."""
+    url = "https://example.com"
+
+    locale_capture: dict[str, list[str]] = {}
+    run_wrapper(
+        args=[url],
+        intercept_setting="1",
+        whitelist="*.example.com",
+        locale_capture=locale_capture,
+        extra_env={"LC_ALL": "de_DE.UTF-8"},
+    )
+    expect(
+        locale_capture.get("cmux") == ["de_DE.UTF-8"],
+        "the cmux CLI should observe the caller's original LC_ALL "
+        f"('de_DE.UTF-8'), not the wrapper's internal C locale, got {locale_capture.get('cmux')!r}",
+        failures,
+    )
+
+    locale_capture_unset: dict[str, list[str]] = {}
+    run_wrapper(
+        args=[url],
+        intercept_setting="1",
+        whitelist="*.example.com",
+        locale_capture=locale_capture_unset,
+        extra_env={"LC_ALL": None},
+    )
+    expect(
+        locale_capture_unset.get("cmux") == ["<unset>"],
+        "the cmux CLI should observe LC_ALL as unset when the caller never "
+        f"set it, got {locale_capture_unset.get('cmux')!r}",
+        failures,
+    )
+
+
 def test_unicode_whitelist_matches_punycode_url(failures: list[str]) -> None:
     url = "https://xn--bcher-kva.example/path"
     open_log, cmux_log, code, stderr = run_wrapper(
@@ -974,6 +1078,8 @@ def main() -> int:
     test_top_level_statement_line_heuristics(failures)
     test_pattern_removal_regex_detects_positional_parameters(failures)
     test_wrapper_forces_c_locale_before_arg_processing(failures)
+    test_system_open_observes_original_locale(failures)
+    test_cmux_cli_observes_original_locale(failures)
     test_unicode_whitelist_matches_punycode_url(failures)
     test_punycode_whitelist_matches_unicode_url(failures)
 
