@@ -1351,12 +1351,12 @@ def test_automatic_lane_stays_on_cmux_internal_identity() -> None:
     )
     assert "ASSIGN_BUNDLE_ID: ${{ needs.upload.outputs.bundle_id }}" in assignment
     assert assignment.count("needs: [decide, upload]") == 1
-    assert (
-        "if: github.ref == 'refs/heads/main' "
-        "&& needs.upload.result == 'success' "
-        "&& needs.upload.outputs.assign_internal_group == '1'"
-        in assignment
-    )
+    # The parts of the gate this test owns: automatic uploads assign only from
+    # main, and only for the internal-group variant. That it keys on the upload
+    # *step*'s outcome rather than the upload job's result is
+    # tests/test_ios_testflight_assignment_after_upload.py's concern.
+    assert "github.ref == 'refs/heads/main'" in assignment
+    assert "needs.upload.outputs.assign_internal_group == '1'" in assignment
 
 
 if __name__ == "__main__":

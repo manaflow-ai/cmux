@@ -35,6 +35,7 @@ WORKFLOW_TEST_INPUTS = {
     ".github/workflows/web-complexity.yml",
     ".github/workflows/web-complexity-trusted.yml",
     "tests/test_web_complexity_trusted_workflow.py",
+    "tests/test_prune_nightly_release_assets.py",
     "scripts/ci/build_input_fingerprint.py",
     "scripts/ci/find_admitted_build.py",
     "scripts/ci/app_host_test_products.py",
