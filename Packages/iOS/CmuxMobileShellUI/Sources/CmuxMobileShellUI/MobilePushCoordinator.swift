@@ -65,25 +65,6 @@ private actor MobilePushSingleFlight<Value: Sendable> {
 @MainActor
 @Observable
 public final class MobilePushCoordinator {
-    /// A notification tap resolved after its owning Mac was reachable, but the
-    /// terminal surface was no longer present in the authoritative snapshot.
-    /// The root renders the user-facing alert while the coordinator owns the
-    /// one-shot navigation state.
-    public struct TabUnavailableAlert: Identifiable, Equatable, Sendable {
-        public enum Kind: Equatable, Sendable {
-            case tabUnavailable
-            case connectionUnavailable
-        }
-
-        public let id: UUID
-        public let kind: Kind
-
-        public init(id: UUID = UUID(), kind: Kind = .tabUnavailable) {
-            self.id = id
-            self.kind = kind
-        }
-    }
-
     private let registration: any PushRegistering
     private let analytics: any AnalyticsEmitting
     private let diagnosticLog: DiagnosticLog?

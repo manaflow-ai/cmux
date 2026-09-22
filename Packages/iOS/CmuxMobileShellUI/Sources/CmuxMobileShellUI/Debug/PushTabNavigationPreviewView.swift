@@ -57,10 +57,12 @@ public struct PushTabNavigationPreviewView: View {
         }
     }
 
+    /// Creates the deterministic push-navigation preview fixture.
     public init() {
-        _store = State(initialValue: Self.makeStore(connectionState: .disconnected))
+        _store = State(initialValue: makePushTabNavigationPreviewStore(connectionState: .disconnected))
     }
 
+    /// Renders the production shell and the fixture controls.
     public var body: some View {
         ZStack(alignment: .top) {
             WorkspaceShellView(
@@ -190,7 +192,7 @@ public struct PushTabNavigationPreviewView: View {
     }
 
     private func connectMac() {
-        store.replaceForegroundWorkspaceState(Self.connectedWorkspaces)
+        store.replaceForegroundWorkspaceState(connectedWorkspaces)
         store.connectPreviewHost()
         coordinator.workspacesDidChange()
         actionDescription = L10n.string(
@@ -200,7 +202,7 @@ public struct PushTabNavigationPreviewView: View {
     }
 
     private func removeTargetTab() {
-        store.replaceForegroundWorkspaceState(Self.connectedWorkspaces.map { workspace in
+        store.replaceForegroundWorkspaceState(connectedWorkspaces.map { workspace in
             guard workspace.id == Self.docsWorkspaceID else { return workspace }
             var copy = workspace
             copy.terminals = []
@@ -238,20 +240,26 @@ public struct PushTabNavigationPreviewView: View {
         )
     }
 
-    private static var connectedWorkspaces: [MobileWorkspacePreview] {
-        [homeWorkspace, docsWorkspace]
+    private var connectedWorkspaces: [MobileWorkspacePreview] {
+        [Self.homeWorkspace, Self.docsWorkspace]
     }
+}
 
-    private static func makeStore(
-        connectionState: MobileConnectionState
-    ) -> CMUXMobileShellStore {
-        CMUXMobileShellStore(
-            isSignedIn: true,
-            connectionState: connectionState,
-            pairingCode: "preview",
-            workspaces: [homeWorkspace]
-        )
-    }
+private func makePushTabNavigationPreviewStore(
+    connectionState: MobileConnectionState
+) -> CMUXMobileShellStore {
+    CMUXMobileShellStore(
+        isSignedIn: true,
+        connectionState: connectionState,
+        pairingCode: "preview",
+        workspaces: [
+            MobileWorkspacePreview(
+                id: "workspace-home",
+                name: "Home",
+                terminals: []
+            )
+        ]
+    )
 }
 
 private extension View {
