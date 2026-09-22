@@ -42,13 +42,19 @@ class IncrementalGenerationCanaryTests(unittest.TestCase):
                 "SwiftCompile normal arm64 /tmp/B.swift (in target 'cmux' from project 'cmux')\n"
                 "Cache miss\n"
                 "Build Timing Summary\n"
-                "SwiftCompile | 4.25 seconds\n"
-                "SwiftEmitModule | 1.75 seconds\n"
+                "SwiftCompile (4 tasks) | 4.25 seconds\n"
+                "SwiftEmitModule (1 task) | 1.75 seconds\n"
             )
             parsed = bench.parse_build_log(log)
-            self.assertEqual(parsed["swift_compile_count"], 2)
+            self.assertEqual(parsed["swift_compile_log_lines"], 2)
+            self.assertEqual(parsed["swift_compile_source_file_lines"], 2)
+            self.assertEqual(parsed["swift_compile_source_file_lines_by_target"], {"cmux": 2})
+            self.assertEqual(parsed["swift_compile_task_count"], 4)
+            self.assertEqual(parsed["emit_module_task_count"], 1)
             self.assertEqual(parsed["cas_hit_mentions"], 1)
             self.assertEqual(parsed["cas_miss_mentions"], 1)
+            self.assertEqual(parsed["cas_hit_mentions_by_target"], {"cmux": 1})
+            self.assertEqual(parsed["cas_miss_mentions_by_target"], {"cmux": 1})
             self.assertEqual(parsed["swift_compile_timing_seconds"], 4.25)
             self.assertEqual(parsed["emit_module_seconds"], 1.75)
 
