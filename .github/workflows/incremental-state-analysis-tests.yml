@@ -1,0 +1,22 @@
+name: Incremental generation analysis tests
+
+on:
+  push:
+    branches:
+      - exp/incremental-state-analysis-20260921
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - name: Validate benchmark harness
+        run: |
+          python3 -m py_compile scripts/ci/benchmark-incremental-generation.py tests/test_ci_incremental_generation_canary.py
+          python3 tests/test_ci_incremental_generation_canary.py
