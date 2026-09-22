@@ -209,6 +209,25 @@ class IncrementalGenerationCanaryTests(unittest.TestCase):
             self.assertTrue(payload["unchanged_mtime_preserved"])
             self.assertTrue(payload["edited_mtime_changed"])
 
+    def test_old_archive_submodule_worktrees_are_removed_before_rehydrate(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            repo = Path(directory) / "repo"
+            repo.mkdir()
+            (repo / ".gitmodules").write_text(
+                '[submodule "dep"]\n\tpath = vendor/dep\n\turl = https://example.invalid/dep.git\n'
+            )
+            dep = repo / "vendor/dep"
+            dep.mkdir(parents=True)
+            (dep / "stale").write_text("old archive bytes\n")
+            self.assertEqual(bench.configured_submodule_paths(repo), ["vendor/dep"])
+            self.assertEqual(bench.remove_restored_submodule_worktrees(repo), ["vendor/dep"])
+            self.assertFalse(dep.exists())
+
+            (repo / ".gitmodules").write_text(
+                '[submodule "bad"]\n\tpath = ../escape\n\turl = https://example.invalid/bad.git\n'
+            )
+            with self.assertRaises(SystemExit):
+                bench.configured_submodule_paths(repo)
     def test_archive_validator_rejects_traversal_and_escaping_symlink(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
