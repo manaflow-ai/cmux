@@ -173,6 +173,16 @@ public final class ComputerUseRuntimeService {
         cachedStatus.isKnown
     }
 
+    /// Whether this enabled runtime is waiting for onboarding completion.
+    public var onboardingRequiresCompletion: Bool {
+        switch permissionPhase {
+        case .onboardingRequired, .onboarding:
+            true
+        case .disabled, .ready:
+            false
+        }
+    }
+
     /// Seeds the host gate from the capture verification persisted by the last
     /// completed onboarding run. This is called before the enabled setting is
     /// reconciled, so starting the helper can publish the correct first value.

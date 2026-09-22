@@ -105,6 +105,9 @@ jobs:
               core.setOutput('last_uploaded_sha', '');
               core.setOutput('variant', variant);
             };
+            // The last main run listing the ordering check read, reused below
+            // to find a failed build of the same iOS inputs.
+            let recentMainRuns = [];
             if (context.ref === 'refs/heads/main') {
               const currentRunId = Number(context.runId);
               const maxWaits = 300;
@@ -118,6 +121,7 @@ jobs:
                     branch: 'main',
                     per_page: 100,
                   });
+                  recentMainRuns = runs.data.workflow_runs || [];
                   const earlierActiveRuns = runs.data.workflow_runs.filter(
                     (run) =>
                       Number(run.id) < currentRunId &&
@@ -221,6 +225,7 @@ jobs:
             // is necessarily a normal immediate beta cut and SHOULD count as the
             // last canonical upload.
             let lastUploadedSha = null;
+            let lastUploadedRunId = 0;
             let uploadHistoryKnown = true;
             try {
               const perPage = 100;
@@ -262,6 +267,7 @@ jobs:
                       id: artifact.id,
                       createdAt,
                       headSha: run.head_sha,
+                      runId: Number(run.id),
                     };
                   }
                 }
@@ -278,6 +284,7 @@ jobs:
                 considerArtifacts(response.data.artifacts || []);
               }
               lastUploadedSha = latestArtifact?.headSha || null;
+              lastUploadedRunId = latestArtifact?.runId || 0;
             } catch {
               uploadHistoryKnown = false;
               core.warning('could not resolve last uploaded sha; skipping scheduled upload');
@@ -337,6 +344,62 @@ jobs:
                   }
                 } catch (e) {
                   core.warning(`could not compare against last upload: ${e.message}`);
+                }
+              }
+            }
+
+            // While main does not build for iOS, every poll would archive the
+            // same broken inputs again on macOS. Skip an internal poll when the
+            // newest upload attempt since the last successful upload failed
+            // and no iOS-relevant path changed since that attempt's commit.
+            // Any lookup error fails open and builds.
+            if (shouldBuild && isInternalPoll) {
+              const failedRun = recentMainRuns
+                .filter(
+                  (run) =>
+                    Number(run.id) < Number(context.runId) &&
+                    Number(run.id) > lastUploadedRunId &&
+                    run.status === 'completed' &&
+                    run.conclusion === 'failure' &&
+                    run.head_sha
+                )
+                .sort((a, b) => Number(b.id) - Number(a.id))[0];
+              if (failedRun) {
+                try {
+                  const jobs = await github.rest.actions.listJobsForWorkflowRun({
+                    owner,
+                    repo,
+                    run_id: failedRun.id,
+                    per_page: 100,
+                  });
+                  const uploadFailed = jobs.data.jobs.some(
+                    (job) =>
+                      job.name === 'Upload to TestFlight' &&
+                      job.conclusion === 'failure'
+                  );
+                  let sameInputs = false;
+                  if (uploadFailed && failedRun.head_sha === context.sha) {
+                    sameInputs = true;
+                  } else if (uploadFailed) {
+                    const compare = await github.rest.repos.compareCommits({
+                      owner,
+                      repo,
+                      base: failedRun.head_sha,
+                      head: context.sha,
+                    });
+                    const files = compare.data.files || [];
+                    sameInputs =
+                      files.length < 300 &&
+                      !files.some((file) => touchesIOS(file.filename));
+                  }
+                  if (sameInputs) {
+                    shouldBuild = false;
+                    reason =
+                      `upload run ${failedRun.id} failed at ${failedRun.head_sha} ` +
+                      'and no iOS-relevant path changed since';
+                  }
+                } catch (e) {
+                  core.warning(`could not check the last failed upload: ${e.message}`);
                 }
               }
             }

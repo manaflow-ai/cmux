@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Exercise the Linux route CLI and the real required-status gate."""
 
+import ast
 import json
 import os
-import re
 import subprocess
 import sys
 import tempfile
@@ -27,7 +27,10 @@ from test_ci_change_areas import (
 ROOT = Path(__file__).resolve().parents[1]
 HELPER = ROOT / "scripts/ci/detect_linux_guard_changes.py"
 sys.path.insert(0, str(ROOT / "scripts" / "ci"))
-from workflow_guard_groups import GROUPS, PATH_OWNERS, STEP_OWNERS
+import workflow_guard_groups
+from workflow_guard_groups import (
+    GROUPS, GUARD_WORKFLOW, direct_path_owners, groups_for_path, guard_steps, step_owners,
+)
 JOBS = {
     "linux_guard_tests": "workflow-guard-tests",
     "linux_guard_history": "workflow-guard-history",
@@ -60,6 +63,29 @@ def route(paths, event="pull_request", macos="false"):
 
 
 class LinuxGuardRoutingTests(unittest.TestCase):
+    def test_guard_ownership_manifest_has_no_duplicate_literal_keys(self):
+        source = (ROOT / "scripts/ci/workflow_guard_groups.py").read_text(encoding="utf-8")
+        tree = ast.parse(source)
+        assignments = {
+            node.targets[0].id: node.value
+            for node in tree.body
+            if isinstance(node, ast.Assign)
+            and len(node.targets) == 1
+            and isinstance(node.targets[0], ast.Name)
+            and node.targets[0].id == "PATH_OWNERS"
+        }
+        self.assertEqual(set(assignments), {"PATH_OWNERS"})
+
+        for name, value in assignments.items():
+            self.assertIsInstance(value, ast.Dict, name)
+            keys = []
+            for key in value.keys:
+                self.assertIsInstance(key, ast.Constant, (name, ast.dump(key)))
+                self.assertIsInstance(key.value, str, (name, ast.dump(key)))
+                keys.append(key.value)
+            duplicates = sorted({key for key in keys if keys.count(key) > 1})
+            self.assertEqual(duplicates, [], (name, duplicates))
+
     def test_cloud_machine_workflow_skips_macos_for_control_plane_only_prs(self):
         workflow_path = ROOT / ".github/workflows/cloud-machine-tests.yml"
         workflow = workflow_path.read_text(encoding="utf-8")
@@ -93,14 +119,23 @@ class LinuxGuardRoutingTests(unittest.TestCase):
         self.assertFalse(actual.web)
         self.assertFalse(actual.release_build)
 
+    def test_ios_shell_test_only_change_skips_macos(self):
+        actual = module.classify_files([
+            "Packages/iOS/CmuxMobileShell/Tests/CmuxMobileShellTests/TerminalOutputDeliveryQueueTests.swift"
+        ])
+        self.assertFalse(actual.macos)
+        self.assertFalse(actual.web)
+        self.assertFalse(actual.release_build)
+
     def test_candidate_router_cannot_disable_its_own_guards(self):
         script = workflow_job_step_script("changes", "Route Linux guard suites")
-        for changed in (
-            "scripts/ci/detect_linux_guard_changes.py",
-            "scripts/ci/workflow_guard_groups.py",
-            ".github/workflows/ci.yml",
-            ".github/workflows/ci-guards.yml",
-        ):
+        cases = {
+            "scripts/ci/detect_linux_guard_changes.py": ("ci",),
+            "scripts/ci/workflow_guard_groups.py": ("ci",),
+            ".github/workflows/ci.yml": ("ci",),
+            ".github/workflows/ci-guards.yml": GROUPS,
+        }
+        for changed, expected_groups in cases.items():
             with self.subTest(changed=changed), tempfile.TemporaryDirectory() as temp:
                 root = Path(temp)
                 changed_file = root / "changed.txt"
@@ -118,8 +153,14 @@ class LinuxGuardRoutingTests(unittest.TestCase):
                 self.assertEqual(result.returncode, 0, result.stderr)
                 routed = dict(line.split("=", 1) for line in output.read_text().splitlines())
                 groups = tuple(json.loads(routed.pop("linux_guard_test_groups")))
-                self.assertEqual(routed, dict.fromkeys(JOBS, "true"))
-                self.assertEqual(groups, GROUPS)
+                self.assertEqual(routed, {
+                    "linux_guard_tests": "true",
+                    "linux_guard_history": "false",
+                    "linux_guard_cli": "false",
+                    "linux_guard_source": "false",
+                    "ghosttykit_release": "false",
+                })
+                self.assertEqual(groups, expected_groups)
 
     def test_testflight_change_routes_only_observing_test_groups(self):
         outputs, groups = route_decision([
@@ -146,43 +187,73 @@ class LinuxGuardRoutingTests(unittest.TestCase):
                 _, groups = route_decision([changed])
                 self.assertEqual(groups, GROUPS)
 
-    def test_guard_step_ownership_manifest_matches_workflow(self):
-        workflow = yaml.safe_load(
-            (ROOT / ".github/workflows/ci-guards.yml").read_text(encoding="utf-8")
-        )
-        job = workflow["jobs"]["workflow-guard-tests"]
+    def test_guard_step_scanner_matches_yaml(self):
+        # The router reads ci-guards.yml without PyYAML. Hold its scanner to the
+        # real parser on the real workflow, field by field.
+        text = GUARD_WORKFLOW.read_text(encoding="utf-8")
+        job = yaml.safe_load(text)["jobs"]["workflow-guard-tests"]
         self.assertEqual(
             job["strategy"]["matrix"]["group"],
             "${{ fromJSON(inputs.linux_guard_test_groups) }}",
         )
+        scanned = guard_steps(text)
+        self.assertEqual(len(scanned), len(job["steps"]))
+        for scanned_step, parsed_step in zip(scanned, job["steps"]):
+            for key in ("name", "if", "run", "working-directory"):
+                expected = parsed_step.get(key)
+                if expected is not None:
+                    expected = str(expected).rstrip("\n")
+                self.assertEqual(scanned_step.get(key), expected, (parsed_step.get("name"), key))
 
-        actual = {}
-        direct_path = re.compile(
-            r"(?:\./)?((?:tests(?:_v2)?|scripts|ios/tests)/[A-Za-z0-9_./-]+)"
+    def test_every_guard_step_names_a_known_group(self):
+        owners = step_owners(GUARD_WORKFLOW.read_text(encoding="utf-8"))
+        self.assertGreater(len(owners), 50)
+        unknown = {name: group for name, group in owners.items() if group not in GROUPS}
+        self.assertEqual(
+            unknown, {},
+            "these ci-guards.yml steps use a matrix.group that is not in GROUPS in "
+            "scripts/ci/workflow_guard_groups.py; add the group there or fix the step's `if:`",
         )
-        for step in job["steps"]:
-            condition = step.get("if", "")
-            match = re.fullmatch(r"\$\{\{ matrix\.group == '([^']+)' \}\}", condition)
-            if match is None:
-                continue
-            name = step["name"]
-            group = match.group(1)
-            self.assertNotIn(name, actual)
-            actual[name] = group
 
-            paths = set(direct_path.findall(step.get("run", "")))
-            if (
-                step.get("working-directory") == "agent-chat"
-                and "test/claude-environment.test.ts" in step.get("run", "")
-            ):
-                paths.add("agent-chat/test/claude-environment.test.ts")
-            if name == "Initialize Ghostty for Zig version guard":
-                paths.add("ghostty")
-            for path in paths:
-                self.assertIn(path, PATH_OWNERS, (name, path))
-                self.assertIn(group, PATH_OWNERS[path], (name, path, group))
+    def test_step_ownership_is_derived_from_the_workflow(self):
+        # #13535 added a guard step while #13585 added a hand-kept copy of the
+        # step list; each passed alone and main went red once both landed.
+        # Ownership now comes from the workflow, so a new step needs no
+        # second edit to route correctly.
+        text = GUARD_WORKFLOW.read_text(encoding="utf-8")
+        self.assertEqual(
+            direct_path_owners(text)["tests/test_build_graph_health.py"],
+            frozenset({"preflight"}),
+        )
+        new_step = (
+            "      - name: Validate a brand-new guard\n"
+            "        if: ${{ matrix.group == 'release-ios' }}\n"
+            "        run: |\n"
+            "          set -euo pipefail\n"
+            "          python3 tests/test_brand_new_guard.py --strict\n"
+            "\n"
+        )
+        marker = "      - name: Validate macOS runner guards\n"
+        self.assertIn(marker, text)
+        extended = text.replace(marker, new_step + marker, 1)
+        self.assertEqual(
+            direct_path_owners(extended)["tests/test_brand_new_guard.py"],
+            frozenset({"release-ios"}),
+        )
+        self.assertEqual(step_owners(extended)["Validate a brand-new guard"], "release-ios")
 
-        self.assertEqual(actual, STEP_OWNERS)
+    def test_unreadable_guard_workflow_fails_open(self):
+        original = workflow_guard_groups.GUARD_WORKFLOW
+        with tempfile.TemporaryDirectory() as temp:
+            broken = Path(temp) / "ci-guards.yml"
+            broken.write_text("jobs:\n  something-else:\n    steps: []\n", encoding="utf-8")
+            workflow_guard_groups.GUARD_WORKFLOW = broken
+            workflow_guard_groups._workflow_path_owners.cache_clear()
+            try:
+                self.assertEqual(groups_for_path("tests/test_build_graph_health.py"), GROUPS)
+            finally:
+                workflow_guard_groups.GUARD_WORKFLOW = original
+                workflow_guard_groups._workflow_path_owners.cache_clear()
 
     def test_linux_preflight_skips_when_macos_route_is_false(self):
         block = workflow_job_block("linux-preflight")
@@ -218,6 +289,34 @@ class LinuxGuardRoutingTests(unittest.TestCase):
                     results={"guards": "skipped", "ghosttykit-release-check": "skipped"},
                 ))
                 self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_reusable_workflow_policy_edits_skip_unrelated_guard_jobs(self):
+        outputs, groups = route_decision([".github/workflows/ci-macos.yml"], macos="true")
+        self.assertEqual(outputs, {
+            "linux_guard_tests": "true",
+            "linux_guard_history": "false",
+            "linux_guard_cli": "false",
+            "linux_guard_source": "false",
+            "ghosttykit_release": "true",
+        })
+        self.assertEqual(groups, GROUPS)
+
+        outputs, groups = route_decision(
+            [
+                ".github/workflows/web-complexity.yml",
+                ".github/workflows/web-complexity-trusted.yml",
+                "tests/test_web_complexity_trusted_workflow.py",
+            ],
+            macos="false",
+        )
+        self.assertEqual(outputs, {
+            "linux_guard_tests": "true",
+            "linux_guard_history": "false",
+            "linux_guard_cli": "false",
+            "linux_guard_source": "false",
+            "ghosttykit_release": "false",
+        })
+        self.assertEqual(groups, ("preflight", "ci", "quality-determinism"))
 
     def test_native_edit_keeps_source_contracts_without_history_or_cli_guards(self):
         outputs = route(["Sources/Settings.swift", "CLAUDE.md"], macos="true")

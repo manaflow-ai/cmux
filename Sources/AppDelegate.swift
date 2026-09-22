@@ -2558,9 +2558,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
         self.newMachineSheetPresenter = newMachineSheetPresenter
         self.computerUseRuntimeService = computerUseRuntimeService
-        (settingsRuntime.hostActions as? HostSettingsActions)?.setRunComputerUseOnboardingAction { [weak self] startingPoint in
-            self?.computerUseUXCoordinator.presentOnboardingFromSettings(startingAt: startingPoint)
-        }
         let cloudUploader = CloudTelemetryUploader(
             auth: auth.coordinator, baseURL: CloudTelemetryUploader.telemetryBaseURL, client: .current()
         )
@@ -10519,6 +10516,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let controller = MainWindowController(window: window)
         controller.onFrameRestorationCheckpoint = { [weak self] restoredWindow in self?.fitRestoredMainWindowFramesIfNeeded(windows: [restoredWindow]) }
         controller.onGeometryChanged = { [weak self] changedWindow in self?.handleMainWindowGeometryChange(changedWindow) }
+        controller.shouldRetireZoomIntentForProgrammaticResize = { [weak self] _ in
+            guard let self else { return false }
+            // Capture suppression remains armed until a later persistence write.
+            // Once both signatures have reconciled, ordinary active-app placement
+            // owns the frame again even while that persistence firewall is armed.
+            let displayReconcilePending =
+                self.isScreenChangeCaptureSuppressed
+                && (
+                    self.screenChangeCaptureSuppressionSignature == nil
+                    || self.didObserveUnknownVisibleFrameFitTopology
+                )
+            return NSApp.isActive
+                && !self.isTerminatingApp
+                && !self.isApplyingSessionRestore
+                && !displayReconcilePending
+        }
         controller.onClose = { [weak self, weak controller] closingWindow in
             guard let self, let controller else { return }
             guard let exactOwner = self.mainWindowOwnerIdentity(forExactWindow: closingWindow),
