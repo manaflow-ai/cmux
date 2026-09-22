@@ -62,14 +62,6 @@ class ManualWorkflowRefResolutionTests(unittest.TestCase):
                     self.assertIn(resolved_ref, block)
                 self.assertNotIn("ref: ${{ inputs.ref || github.ref }}", workflow)
 
-    def test_cloud_machine_workflow_is_intentionally_outside_this_batch(self) -> None:
-        # Editing cloud-machine-tests.yml self-triggers its macOS PR job. Keep
-        # this migration off that paid lane until its own routing is fixed.
-        workflow = (ROOT / ".github/workflows/cloud-machine-tests.yml").read_text(
-            encoding="utf-8"
-        )
-        self.assertIn("ref: ${{ inputs.ref || github.ref }}", workflow)
-
 
 if __name__ == "__main__":
     unittest.main()
