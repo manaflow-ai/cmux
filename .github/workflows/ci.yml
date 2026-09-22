@@ -538,7 +538,8 @@ jobs:
       - ghosttykit-release-check
       - web
     # This job exists only to admit macOS work after the cheap layer passes.
-    # If the change router explicitly says macOS is irrelevant, skip it too.
+    # This replaces the old unconditional `if: ${{ always() }}`: if the change
+    # router explicitly says macOS is irrelevant, skip the runner allocation.
     # Missing/invalid route output fails open by running the preflight.
     if: ${{ always() && needs.changes.outputs.macos != 'false' }}
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
