@@ -34,6 +34,7 @@ Example layout:
       foreground/
       checkout-locks/
       events.jsonl
+      events.jsonl.1
       slots/<slot>/
         slot.lock
         lease.json
@@ -56,6 +57,7 @@ The contract is:
 - Dirty/unavailable/recovery-required source returns cold_fallback_required so the controller can use its existing clean exact-SHA lane.
 - A successful task build that consumed the shared warm lineage marks it warm_ready=false. The slot must be warmed back to main before it can advertise another task base.
 - Reservations expire after a bounded lease interval. An abandoned task can release its exact lease explicitly; mismatched task/lease IDs fail closed.
+- `events.jsonl` is advisory telemetry only. Execution/recovery authority lives in the atomic lease, inflight, slot, and recovery journals. The event log keeps one 16 MiB archive at `events.jsonl.1`, repairs a crash-truncated tail before appending the next record, and does not issue an `fsync` for every event. Losing or deleting telemetry cannot authorize, duplicate, or settle work.
 - Recursive cache-size measurement is diagnostic work, not part of ordinary foreground execution. Normal `warm` and `task-run` calls do not walk the cache tree before/after native work. The physical benchmark passes `--measure-disk` explicitly when it needs cache-growth evidence, so large DerivedData trees cannot make routine telemetry a foreground latency tax.
 - A cold fallback owns one opaque cold-task generation. Once its native process group is proven settled, the foreground path only atomically renames that reconstructible generation into `retired-cold-tasks`; it never recursively deletes DerivedData while returning the task result. The next background warmer pass reclaims at most one retired generation before warming and aborts reclamation when foreground demand signals the existing preemption FIFO. `cleanup --max-generations N` exposes the same bounded reaper for explicit maintenance. Crash recovery can retire only the exact cold generation recorded in the durable native launch journal.
 
@@ -173,14 +175,16 @@ report.json records:
 - cache disk growth and final state size;
 - cold fallback, fallback-required, quarantine, and recovery counts.
 
-For a longer worker trial, events.jsonl is append-only. Summarize it with:
+For a longer worker trial, the bounded event journal can be summarized with:
 
     python3 scripts/benchmark-dev-fleet-warm-slots.py report \
       --events "$CMUX_FLEET_MACHINE_STATE/events.jsonl"
 
+The reporter reads `events.jsonl.1` before the current file when the archive exists and ignores an incomplete crash-tail line.
+
 ## Trial policy and kill criteria
 
-Start with one worker/profile for 24 hours after the repo-side policy is deployed. The current controller background-duty allowance is a ceiling, not a target. Real task demand always wins.
+Start with one worker/profile and use ordinary developer/fleet work as the feedback loop. There is no fixed soak duration. The current controller background-duty allowance is a ceiling, not a target. Real task demand always wins.
 
 Keep or broaden the warmer only when current worker measurements show frequent exact/near hits, a large first-build improvement, and negligible foreground delay. Narrow the warmed profiles or cadence when useful hits are sparse. Drop background warming when it consumes meaningful machine time or disk while most tasks still receive cold state, or when preemption adds material real-work delay.
 
