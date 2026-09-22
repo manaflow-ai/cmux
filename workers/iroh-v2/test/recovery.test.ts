@@ -18,20 +18,17 @@ test("the owning Mac can recover a forgotten registration with fresh Stack auth"
   const rawPublic = await crypto.subtle.exportKey("raw", keyPair.publicKey);
   const endpointID = Array.from(new Uint8Array(rawPublic), byte => byte.toString(16).padStart(2, "0")).join("");
   const descriptor = {
-    identity: { ...authority, deviceId: "mac", appNamespace: "cmux", buildTag: "test" },
+    identity: { environment: authority.environment, projectId: authority.projectId, teamId: authority.teamId, userId: authority.userId, deviceId: "mac", appNamespace: "cmux", buildTag: "test" },
     endpointId: endpointID,
     identityGeneration: 1,
     metadata: { platform: "mac" as const, displayName: "Mac", appVersion: "1", pairingEnabled: true, capabilities: [], relayURLs: [] },
   };
   let device: DeviceRecord = { descriptor, deviceRecordId: endpointID, revision: 2, revoked: true };
-  let pendingChallenge: { challengeId: string; nonce: string; payloadHash: string; expiresAt: number } | undefined;
   const store = {
     getDevice: () => device,
     getDeviceByRecordId: () => device,
     consumeDeviceProof: () => { throw new Error("revoked devices must use recovery enrollment"); },
-    issueChallenge: (_identity: unknown, value: { challengeId: string; nonceHash: string; payloadHash: string; expiresAt: number }) => {
-      pendingChallenge = { challengeId: value.challengeId, nonce: "recovery-nonce", payloadHash: value.payloadHash, expiresAt: value.expiresAt };
-    },
+    issueChallenge: () => {},
     findRegistrationReceipt: () => null,
     validateRegistrationChallenge: () => {},
     commitRegistration: (input: { descriptor: typeof descriptor }) => {
@@ -65,25 +62,23 @@ test("the owning Mac can recover a forgotten registration with fresh Stack auth"
     ...plainSetup,
     proof: { requestId: requestID, nonce, issuedAt, signature: encodeBase64URL(new Uint8Array(signed)) },
   };
+  await expect(broker.open(setup, authority, now + 3600, false)).rejects.toMatchObject({ code: "device_revoked" });
   const opened = await broker.open(setup, authority, now + 3600, true);
   expect(opened.response.schemaId).toBe("session.ready.v1");
   expect("device" in opened.response).toBe(false);
   expect("challenge" in opened.response).toBe(true);
-  expect(pendingChallenge).toBeDefined();
-
-  const challenge = pendingChallenge!;
+  const challenge = (opened.response as Extract<typeof opened.response, { schemaId: "session.ready.v1" }>).challenge!;
   const enrollmentBytes = new TextEncoder().encode(challengeSigningInput(descriptor, challenge.challengeId, challenge.nonce));
   const enrollmentSignature = await crypto.subtle.sign("Ed25519", keyPair.privateKey, enrollmentBytes);
-  const registered = await broker.execute(opened.session!, {
+  const registerRequest = {
     schemaId: "device.register.v1",
     requestId: "recover-register",
     device: descriptor,
     challengeId: challenge.challengeId,
     nonce: challenge.nonce,
     signature: encodeBase64URL(new Uint8Array(enrollmentSignature)),
-  });
+  };
+  const registered = await broker.execute(opened.session!, registerRequest);
   expect(registered.response.schemaId).toBe("device.registered.v1");
   expect(device.revoked).toBe(false);
-
-  await expect(broker.open(setup, authority, now + 3600, false)).rejects.toMatchObject({ code: "device_revoked" });
 });
