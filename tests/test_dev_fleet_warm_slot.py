@@ -626,6 +626,67 @@ class WarmSlotTest(unittest.TestCase):
         self.assertEqual(result["status"], "preempted")
         self.assertTrue(retired.exists())
 
+    def test_event_log_rotates_without_per_event_fsync(self):
+        layout = warm_slot.Layout(self.state, "slot")
+        with (
+            mock.patch.object(warm_slot, "EVENT_LOG_MAX_BYTES", 320),
+            mock.patch.object(warm_slot.os, "fsync") as fsync,
+        ):
+            self.assertTrue(warm_slot.event(layout, "first", payload="x" * 140))
+            self.assertTrue(warm_slot.event(layout, "second", payload="y" * 140))
+
+        fsync.assert_not_called()
+        self.assertTrue(layout.events_archive.exists())
+        archived = [
+            json.loads(line)
+            for line in layout.events_archive.read_text().splitlines()
+            if line.strip()
+        ]
+        current = [
+            json.loads(line)
+            for line in layout.events.read_text().splitlines()
+            if line.strip()
+        ]
+        self.assertEqual([row["event"] for row in archived], ["first"])
+        self.assertEqual([row["event"] for row in current], ["second"])
+
+    def test_event_append_recovers_after_partial_crash_tail(self):
+        layout = warm_slot.Layout(self.state, "slot")
+        layout.events.parent.mkdir(parents=True, exist_ok=True)
+        layout.events.write_bytes(b'{"event":"partial"')
+        self.assertTrue(warm_slot.event(layout, "after-crash", value=1))
+
+        lines = layout.events.read_text().splitlines()
+        self.assertGreaterEqual(len(lines), 2)
+        with self.assertRaises(json.JSONDecodeError):
+            json.loads(lines[0])
+        self.assertEqual(json.loads(lines[-1])["event"], "after-crash")
+
+    def test_oversized_event_is_replaced_by_bounded_marker(self):
+        layout = warm_slot.Layout(self.state, "slot")
+        with mock.patch.object(warm_slot, "EVENT_LOG_MAX_RECORD_BYTES", 180):
+            self.assertTrue(warm_slot.event(layout, "huge", payload="x" * 1000))
+
+        rows = [
+            json.loads(line)
+            for line in layout.events.read_text().splitlines()
+            if line.strip()
+        ]
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["event"], "telemetry_record_dropped")
+        self.assertEqual(rows[0]["original_event"], "huge")
+        self.assertGreater(rows[0]["encoded_bytes"], 180)
+
+    def test_event_rotation_failure_does_not_fail_execution_path(self):
+        layout = warm_slot.Layout(self.state, "slot")
+        layout.events.parent.mkdir(parents=True, exist_ok=True)
+        layout.events.write_bytes(b"x" * 300)
+        with (
+            mock.patch.object(warm_slot, "EVENT_LOG_MAX_BYTES", 320),
+            mock.patch.object(warm_slot.os, "replace", side_effect=OSError("disk")),
+        ):
+            self.assertFalse(warm_slot.event(layout, "rotation-fails", payload="z" * 140))
+
     def test_same_checkout_serializes_different_slots(self):
         slow = native_command(seconds=1.5)
         first = subprocess.Popen(
