@@ -935,7 +935,13 @@ jobs:
       - name: Restore compiled app-host test product
         id: restore-products
         env:
+          ARTIFACT_ID: ${{ needs.macos-compile-admission.outputs.artifact_id }}
+          ARTIFACT_PROVIDER_DIGEST: ${{ needs.macos-compile-admission.outputs.artifact_digest }}
           EXPECTED_SHA256: ${{ needs.macos-compile-admission.outputs.sha256 }}
+          CMUX_PRODUCT_CONTRACT: ${{ needs.macos-compile-admission.outputs.product_contract }}
+          CMUX_PRODUCT_SOURCE_REVISION: ${{ needs.macos-compile-admission.outputs.source_revision }}
+          CMUX_PRODUCT_PRODUCER_RUN_ID: ${{ needs.macos-compile-admission.outputs.producer_run_id }}
+          CMUX_PRODUCT_PRODUCER_RUN_ATTEMPT: ${{ needs.macos-compile-admission.outputs.producer_run_attempt }}
           CMUX_NODE_PRODUCT_CACHE_HIT: ${{ steps.node-products.outputs.hit }}
           CMUX_NODE_PRODUCT_CACHE_LOOKUP_SECONDS: ${{ steps.node-products.outputs.lookup_seconds }}
           CMUX_PEER_PRODUCT_HIT: ${{ steps.peer-products.outputs.hit }}
@@ -2695,7 +2701,13 @@ jobs:
       - name: Restore compiled app-host test product
         id: restore-products
         env:
+          ARTIFACT_ID: ${{ needs.macos-compile-admission.outputs.artifact_id }}
+          ARTIFACT_PROVIDER_DIGEST: ${{ needs.macos-compile-admission.outputs.artifact_digest }}
           EXPECTED_SHA256: ${{ needs.macos-compile-admission.outputs.sha256 }}
+          CMUX_PRODUCT_CONTRACT: ${{ needs.macos-compile-admission.outputs.product_contract }}
+          CMUX_PRODUCT_SOURCE_REVISION: ${{ needs.macos-compile-admission.outputs.source_revision }}
+          CMUX_PRODUCT_PRODUCER_RUN_ID: ${{ needs.macos-compile-admission.outputs.producer_run_id }}
+          CMUX_PRODUCT_PRODUCER_RUN_ATTEMPT: ${{ needs.macos-compile-admission.outputs.producer_run_attempt }}
           CMUX_NODE_PRODUCT_CACHE_HIT: ${{ steps.node-products.outputs.hit }}
           CMUX_NODE_PRODUCT_CACHE_LOOKUP_SECONDS: ${{ steps.node-products.outputs.lookup_seconds }}
           CMUX_PEER_PRODUCT_HIT: ${{ steps.peer-products.outputs.hit }}
