@@ -923,7 +923,7 @@ final class FileExplorerContainerView: NSView {
         }
     }
     private var presentation: FileExplorerPanelPresentation
-    private let coordinator: FileExplorerPanelView.Coordinator
+    let coordinator: FileExplorerPanelView.Coordinator
     private var fontMagnificationObserver: GlobalFontMagnificationChangeObserver?
     private lazy var pendingPreviewDrag = FilePreviewNativeDragPendingOwnership { [weak self] tokenID in
         self?.previewWriterDidDeallocate(tokenID: tokenID)
