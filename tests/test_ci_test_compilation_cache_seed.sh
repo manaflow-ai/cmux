@@ -94,6 +94,38 @@ if ! awk '
 fi
 echo "PASS: the seeder rolls the cache forward by main revision and bounds what it saves"
 
+# The seed must come from one clean build. The seeder used to restore its own
+# last seed by prefix, so each run stacked another build's objects onto the
+# CAS; Xcode keeps the primary generation and the upstream it faults from, and
+# that pair crossed the 5 GiB save bound on 2026-09-22 after climbing 3.5 -> 5.0
+# GiB in eight runs. Past the bound nothing is saved, so the next run restores
+# the same older entry and lands past it again and the seed freezes for good.
+# A cold build covers all of main anyway, and it measured smaller (3.5 GiB) and
+# faster (18 min, against 19-25 warm) than a stacked one.
+if awk '
+  /^      - name: / { step = $0 }
+  step ~ /Restore test compilation cache/ && /^[[:space:]]+restore-keys:/ { found = 1 }
+  END { exit !found }
+' <<<"$SEEDER"; then
+  echo "FAIL: refresh-test-compilation-cache must not restore an earlier seed by prefix:"
+  echo "      stacking builds onto one CAS grows it past the save bound, and then the seed freezes."
+  exit 1
+fi
+echo "PASS: the seeder seeds from one clean build"
+
+# Admission is the opposite case and must keep its fallback: its exact key
+# names a base revision no seeder run built, so the prefix is the only way a
+# pull request ever finds the seed.
+if ! awk '
+  /^      - name: / { step = $0 }
+  step ~ /Restore test compilation cache/ && /^[[:space:]]+restore-keys:/ { found = 1 }
+  END { exit !found }
+' <<<"$ADMISSION"; then
+  echo "FAIL: macos-compile-admission must restore the seed by prefix, or it can never find one"
+  exit 1
+fi
+echo "PASS: pull requests find the seed by prefix"
+
 if ! grep -Eq "if: github\.event_name == 'schedule'" <<<"$SEEDER"; then
   echo "FAIL: refresh-test-compilation-cache must stay on the cache-warming schedule so it does not take a macOS slot per merge"
   exit 1
