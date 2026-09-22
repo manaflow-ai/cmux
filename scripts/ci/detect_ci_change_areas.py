@@ -361,6 +361,12 @@ def _pbx_list_ids(body: str, field: str, *, required: bool = False) -> list[str]
     if not matches:
         if required:
             raise ValueError(f"missing pbx list {field}")
+        if re.search(
+            rf"(?:^|;)\s*{re.escape(field)}\s*=",
+            body,
+            flags=re.MULTILINE,
+        ):
+            raise ValueError(f"unreadable pbx list {field}")
         return []
     identifiers: list[str] = []
     for entry in matches[0].split(","):
@@ -576,13 +582,6 @@ def load_macos_ios_package_closure() -> Optional[frozenset[str]]:
         return None
 
 
-def _ios_package_directory(path: str) -> Optional[str]:
-    parts = path.split("/")
-    if len(parts) < 4 or parts[:2] != ["Packages", "iOS"]:
-        return None
-    return "/".join(parts[:3])
-
-
 def is_macos_neutral(
     path: str,
     macos_ios_packages: Optional[frozenset[str]],
@@ -602,11 +601,13 @@ def is_macos_neutral(
     if path.rsplit("/", 1)[-1] in {"CLAUDE.md", "AGENTS.md"}:
         return True
 
-    ios_package = _ios_package_directory(path)
     if (
-        ios_package is not None
+        path.startswith("Packages/iOS/")
         and macos_ios_packages is not None
-        and ios_package not in macos_ios_packages
+        and not any(
+            path == package or path.startswith(f"{package}/")
+            for package in macos_ios_packages
+        )
     ):
         return True
 
