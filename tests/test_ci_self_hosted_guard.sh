@@ -1534,7 +1534,11 @@ check_ios_only_tests_stay_under_ios() {
     rel="${file#"$ROOT_DIR/"}"
     [ "$rel" = "$legacy_rel" ] && continue
     misplaced="${misplaced}${misplaced:+$'\n'}$rel"
-  done < <(find "$ROOT_DIR/scripts/lib" -maxdepth 1 -type f -name 'ios-*.test.mjs' -print 2>/dev/null || true)
+  done < <(
+    find "$ROOT_DIR/scripts/lib" -type f \
+      \( -name 'ios-*.test.mjs' -o -name 'iphone-*.test.mjs' -o -name 'ipad-*.test.mjs' -o -path '*/ios/*.test.mjs' \) \
+      -print 2>/dev/null || true
+  )
 
   if [ -n "$misplaced" ]; then
     echo "FAIL: iOS-only Node tests under scripts/lib trigger macOS compile admission; move them under ios/tests/"
