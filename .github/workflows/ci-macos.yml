@@ -9,6 +9,10 @@ on:
       full_suite:
         required: true
         type: string
+      product_artifacts:
+        required: false
+        default: "layered"
+        type: string
       compile_admitted:
         required: true
         type: string
@@ -54,6 +58,8 @@ jobs:
     outputs:
       artifact_id: ${{ steps.upload-products.outputs.artifact-id }}
       artifact_digest: ${{ steps.upload-products.outputs.artifact-digest }}
+      layer_index_artifact_id: ${{ steps.upload-layer-index.outputs.artifact-id }}
+      layer_index_digest: ${{ steps.upload-layer-index.outputs.artifact-digest }}
       sha256: ${{ steps.package-products.outputs.sha256 }}
       product_contract: ${{ steps.product-key.outputs.key }}
       source_revision: ${{ github.sha }}
@@ -575,6 +581,116 @@ jobs:
           retention-days: 3
           compression-level: 0
 
+      - name: Package app-host product layers
+        id: package-layers
+        if: ${{ steps.upload-products.outcome == 'success' && inputs.full_suite == 'true' && inputs.product_artifacts == 'layered' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          normalized="$(mktemp -d "$RUNNER_TEMP/cmux-layer-normalized.XXXXXX")"
+          trap 'rm -rf "$normalized"' EXIT
+          tar -xzf "$RUNNER_TEMP/app-host-products.tar.gz" -C "$normalized"
+          python3 scripts/ci/app_host_layer_transport.py identity "$normalized/identity.json"
+          python3 scripts/ci/app_host_layered_products.py pack             "$normalized" "$RUNNER_TEMP/app-host-layers"             --identity "$normalized/identity.json"
+
+      - name: Upload app-host app-cli layer
+        id: upload-layer-app-cli
+        if: steps.package-layers.outcome == 'success'
+        continue-on-error: true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: app-host-layer-app-cli-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/app-host-layers/app-cli.aar
+          if-no-files-found: error
+          retention-days: 3
+          compression-level: 0
+
+      - name: Upload app-host runtime layer
+        id: upload-layer-runtime
+        if: steps.package-layers.outcome == 'success'
+        continue-on-error: true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: app-host-layer-runtime-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/app-host-layers/runtime.aar
+          if-no-files-found: error
+          retention-days: 3
+          compression-level: 0
+
+      - name: Upload app-host tests layer
+        id: upload-layer-tests
+        if: steps.package-layers.outcome == 'success'
+        continue-on-error: true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: app-host-layer-tests-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/app-host-layers/tests.aar
+          if-no-files-found: error
+          retention-days: 3
+          compression-level: 0
+
+      - name: Upload app-host diagnostics layer
+        id: upload-layer-diagnostics
+        if: steps.package-layers.outcome == 'success'
+        continue-on-error: true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: app-host-layer-diagnostics-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/app-host-layers/diagnostics.aar
+          if-no-files-found: error
+          retention-days: 3
+          compression-level: 0
+
+      - name: Pin app-host layer provider identities
+        id: pin-layer-index
+        if: ${{ steps.upload-layer-app-cli.outcome == 'success' && steps.upload-layer-runtime.outcome == 'success' && steps.upload-layer-tests.outcome == 'success' && steps.upload-layer-diagnostics.outcome == 'success' }}
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CMUX_RUN_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          APP_CLI_ID: ${{ steps.upload-layer-app-cli.outputs.artifact-id }}
+          APP_CLI_DIGEST: ${{ steps.upload-layer-app-cli.outputs.artifact-digest }}
+          RUNTIME_ID: ${{ steps.upload-layer-runtime.outputs.artifact-id }}
+          RUNTIME_DIGEST: ${{ steps.upload-layer-runtime.outputs.artifact-digest }}
+          TESTS_ID: ${{ steps.upload-layer-tests.outputs.artifact-id }}
+          TESTS_DIGEST: ${{ steps.upload-layer-tests.outputs.artifact-digest }}
+          DIAGNOSTICS_ID: ${{ steps.upload-layer-diagnostics.outputs.artifact-id }}
+          DIAGNOSTICS_DIGEST: ${{ steps.upload-layer-diagnostics.outputs.artifact-digest }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          rows = []
+          for name in ("app-cli", "runtime", "tests", "diagnostics"):
+              key = name.replace("-", "_").upper()
+              rows.append({
+                  "name": name,
+                  "artifact_id": os.environ[key + "_ID"],
+                  "artifact_digest": os.environ[key + "_DIGEST"],
+              })
+          (Path(os.environ["RUNNER_TEMP"]) / "app-host-layer-receipts.json").write_text(
+              json.dumps(rows)
+          )
+          PY
+          python3 scripts/ci/app_host_layer_transport.py publish-index             "$RUNNER_TEMP/app-host-layers"             --receipts "$RUNNER_TEMP/app-host-layer-receipts.json"
+
+      - name: Upload pinned app-host layer index
+        id: upload-layer-index
+        if: steps.pin-layer-index.outcome == 'success'
+        continue-on-error: true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: app-host-layer-index-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/app-host-layers/app-host-layer-index.json
+            ${{ runner.temp }}/app-host-layers/app-host-layers.json
+          if-no-files-found: error
+          retention-days: 3
+          compression-level: 0
+
       - name: Record compile admission metrics
         id: admission-metrics
         if: always() && !cancelled()
@@ -914,11 +1030,24 @@ jobs:
           CMUX_PRODUCT_PRODUCER_RUN_ATTEMPT: ${{ needs.macos-compile-admission.outputs.producer_run_attempt }}
         run: python3 scripts/ci/peer_product_source.py fetch "$RUNNER_TEMP/app-host-products"
 
+      - name: Restore selective app-host product layers
+        id: restore-layers
+        if: steps.node-products.outputs.hit != 'true' && steps.peer-products.outputs.hit != 'true' && needs.macos-compile-admission.outputs.layer_index_artifact_id != ''
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CMUX_RUN_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          CMUX_APP_HOST_LAYER_PROFILE: app-host-tests
+          LAYER_INDEX_ID: ${{ needs.macos-compile-admission.outputs.layer_index_artifact_id }}
+          LAYER_INDEX_DIGEST: ${{ needs.macos-compile-admission.outputs.layer_index_digest }}
+        run: |
+          python3 scripts/ci/app_host_layer_transport.py restore             "${CMUX_DERIVED_DATA_PATH}-layers"             --index-id "$LAYER_INDEX_ID"             --index-digest "$LAYER_INDEX_DIGEST"
+
       # R2 is an optional remote broker. With no configured endpoint, a peer
       # miss falls straight through to the canonical GitHub artifact.
       - name: Try shared R2 artifact transport
         id: r2-products
-        if: steps.node-products.outputs.hit != 'true' && steps.peer-products.outputs.hit != 'true' && vars.CI_ARTIFACT_R2_URL != ''
+        if: steps.node-products.outputs.hit != 'true' && steps.peer-products.outputs.hit != 'true' && steps.restore-layers.outputs.hit != 'true' && vars.CI_ARTIFACT_R2_URL != ''
         continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
@@ -928,7 +1057,7 @@ jobs:
         run: python3 scripts/ci/restore-r2-artifact.py
 
       - name: Download compiled app-host test product
-        if: steps.node-products.outputs.hit != 'true' && steps.peer-products.outputs.hit != 'true' && steps.r2-products.outputs.hit != 'true'
+        if: steps.node-products.outputs.hit != 'true' && steps.peer-products.outputs.hit != 'true' && steps.restore-layers.outputs.hit != 'true' && steps.r2-products.outputs.hit != 'true'
         uses: ./.github/actions/download-test-product
         with:
           artifact-id: ${{ needs.macos-compile-admission.outputs.artifact_id }}
@@ -944,6 +1073,7 @@ jobs:
           CMUX_PRODUCT_SOURCE_REVISION: ${{ needs.macos-compile-admission.outputs.source_revision }}
           CMUX_PRODUCT_PRODUCER_RUN_ID: ${{ needs.macos-compile-admission.outputs.producer_run_id }}
           CMUX_PRODUCT_PRODUCER_RUN_ATTEMPT: ${{ needs.macos-compile-admission.outputs.producer_run_attempt }}
+          CMUX_LAYER_RESTORED: ${{ steps.restore-layers.outputs.hit }}
           CMUX_NODE_PRODUCT_CACHE_HIT: ${{ steps.node-products.outputs.hit }}
           CMUX_NODE_PRODUCT_CACHE_LOOKUP_SECONDS: ${{ steps.node-products.outputs.lookup_seconds }}
           CMUX_PEER_PRODUCT_HIT: ${{ steps.peer-products.outputs.hit }}
@@ -968,7 +1098,7 @@ jobs:
           CMUX_NODE_PRODUCT_CACHE_TOKEN: ${{ steps.node-products.outputs.token }}
           CMUX_NODE_PRODUCT_CACHE_LEASE: ${{ steps.node-products.outputs.lease }}
           CMUX_NODE_PRODUCT_SOURCE_CLASS: ${{ steps.peer-products.outputs.hit == 'true' && 'peer' || (steps.r2-products.outputs.hit == 'true' && 'r2' || 'github') }}
-          CMUX_PRODUCT_RESTORE_SUCCEEDED: ${{ steps.restore-products.outcome == 'success' }}
+          CMUX_PRODUCT_RESTORE_SUCCEEDED: ${{ steps.restore-products.outcome == 'success' && steps.restore-layers.outputs.hit != 'true' }}
         run: python3 scripts/ci/node_product_cache.py finalize "$RUNNER_TEMP/app-host-products/app-host-products.tar.gz"
 
       - name: Prepare isolated app-host home
@@ -2681,11 +2811,24 @@ jobs:
           CMUX_PRODUCT_PRODUCER_RUN_ATTEMPT: ${{ needs.macos-compile-admission.outputs.producer_run_attempt }}
         run: python3 scripts/ci/peer_product_source.py fetch "$RUNNER_TEMP/app-host-products"
 
+      - name: Restore selective app-host product layers
+        id: restore-layers
+        if: steps.node-products.outputs.hit != 'true' && steps.peer-products.outputs.hit != 'true' && needs.macos-compile-admission.outputs.layer_index_artifact_id != ''
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CMUX_RUN_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          CMUX_APP_HOST_LAYER_PROFILE: app-host-tests
+          LAYER_INDEX_ID: ${{ needs.macos-compile-admission.outputs.layer_index_artifact_id }}
+          LAYER_INDEX_DIGEST: ${{ needs.macos-compile-admission.outputs.layer_index_digest }}
+        run: |
+          python3 scripts/ci/app_host_layer_transport.py restore             "${CMUX_DERIVED_DATA_PATH}-layers"             --index-id "$LAYER_INDEX_ID"             --index-digest "$LAYER_INDEX_DIGEST"
+
       # R2 is an optional remote broker. With no configured endpoint, a peer
       # miss falls straight through to the canonical GitHub artifact.
       - name: Try shared R2 artifact transport
         id: r2-products
-        if: steps.node-products.outputs.hit != 'true' && steps.peer-products.outputs.hit != 'true' && vars.CI_ARTIFACT_R2_URL != ''
+        if: steps.node-products.outputs.hit != 'true' && steps.peer-products.outputs.hit != 'true' && steps.restore-layers.outputs.hit != 'true' && vars.CI_ARTIFACT_R2_URL != ''
         continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
@@ -2695,7 +2838,7 @@ jobs:
         run: python3 scripts/ci/restore-r2-artifact.py
 
       - name: Download compiled app-host test product
-        if: steps.node-products.outputs.hit != 'true' && steps.peer-products.outputs.hit != 'true' && steps.r2-products.outputs.hit != 'true'
+        if: steps.node-products.outputs.hit != 'true' && steps.peer-products.outputs.hit != 'true' && steps.restore-layers.outputs.hit != 'true' && steps.r2-products.outputs.hit != 'true'
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
           artifact-ids: ${{ needs.macos-compile-admission.outputs.artifact_id }}
@@ -2712,6 +2855,7 @@ jobs:
           CMUX_PRODUCT_SOURCE_REVISION: ${{ needs.macos-compile-admission.outputs.source_revision }}
           CMUX_PRODUCT_PRODUCER_RUN_ID: ${{ needs.macos-compile-admission.outputs.producer_run_id }}
           CMUX_PRODUCT_PRODUCER_RUN_ATTEMPT: ${{ needs.macos-compile-admission.outputs.producer_run_attempt }}
+          CMUX_LAYER_RESTORED: ${{ steps.restore-layers.outputs.hit }}
           CMUX_NODE_PRODUCT_CACHE_HIT: ${{ steps.node-products.outputs.hit }}
           CMUX_NODE_PRODUCT_CACHE_LOOKUP_SECONDS: ${{ steps.node-products.outputs.lookup_seconds }}
           CMUX_PEER_PRODUCT_HIT: ${{ steps.peer-products.outputs.hit }}
@@ -2736,7 +2880,7 @@ jobs:
           CMUX_NODE_PRODUCT_CACHE_TOKEN: ${{ steps.node-products.outputs.token }}
           CMUX_NODE_PRODUCT_CACHE_LEASE: ${{ steps.node-products.outputs.lease }}
           CMUX_NODE_PRODUCT_SOURCE_CLASS: ${{ steps.peer-products.outputs.hit == 'true' && 'peer' || (steps.r2-products.outputs.hit == 'true' && 'r2' || 'github') }}
-          CMUX_PRODUCT_RESTORE_SUCCEEDED: ${{ steps.restore-products.outcome == 'success' }}
+          CMUX_PRODUCT_RESTORE_SUCCEEDED: ${{ steps.restore-products.outcome == 'success' && steps.restore-layers.outputs.hit != 'true' }}
         run: python3 scripts/ci/node_product_cache.py finalize "$RUNNER_TEMP/app-host-products/app-host-products.tar.gz"
 
       - name: Run display UI regressions
