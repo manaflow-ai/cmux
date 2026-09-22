@@ -36,6 +36,21 @@ def runner_lanes_from_workflow_text(text: str) -> set[str]:
     return lanes
 
 
+def all_workflow_text() -> str:
+    """Every workflow's text, for asking whether a path is executed anywhere.
+
+    A Linux guard does not have to live in ci-guards.yml to be live. The
+    always-on lanes run guards too -- testbox-broker-guard.yml deliberately has
+    no path filter, and ci-artifact-transport.yml owns its own -- so checking
+    ci-guards.yml alone rejects a test that demonstrably executes on every
+    pull request.
+    """
+    return "\n".join(
+        workflow.read_text(encoding="utf-8")
+        for workflow in sorted(WORKFLOWS.glob("*.y*ml"))
+    )
+
+
 def runner_lanes() -> set[str]:
     lanes: set[str] = set()
     for workflow in sorted(WORKFLOWS.glob("*.y*ml")):
@@ -112,14 +127,14 @@ def main(argv: list[str]) -> int:
         errors.append(f"{path}: registry entry points to a missing test")
 
     live_runner_lanes = runner_lanes()
-    guard_text = CI_GUARDS.read_text(encoding="utf-8")
+    guard_text = all_workflow_text()
     for path, entry in sorted(by_path.items()):
         lane = entry.get("lane")
         if lane in INVENTORY_LANES:
             continue
         if lane == "linux-guard":
             if path not in guard_text:
-                errors.append(f"{path}: linux-guard lane is not referenced by ci-guards.yml")
+                errors.append(f"{path}: linux-guard lane is not run by any workflow")
         elif lane not in live_runner_lanes:
             errors.append(f"{path}: lane {lane!r} has no workflow invocation")
 

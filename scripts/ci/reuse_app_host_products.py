@@ -158,6 +158,45 @@ def pull_request_numbers(run):
             if isinstance(item, dict) and isinstance(item.get("number"), int)}
 
 
+def commit_parents(revision):
+    """Read one commit object's parent revisions from the local checkout.
+
+    `git rev-parse <revision>^2` cannot answer this. The compile admission job
+    checks out at the default fetch depth of one, and a shallow repository
+    grafts its boundary commits as parentless, so every revision walk reports
+    no parents at all. The commit object itself is transferred intact and still
+    names each parent.
+    """
+    header = read("git", "cat-file", "commit", revision).split("\n\n", 1)[0]
+    return [line.split(" ", 1)[1] for line in header.splitlines()
+            if line.startswith("parent ")]
+
+
+def attested_checkout(run, current_revision):
+    """Bind the local checkout to the revision GitHub attests for this run.
+
+    A pull request run checks out `github.sha`, the ephemeral merge of the pull
+    request head into the base, so its checkout is never the run's `head_sha`.
+    That merge commit names the attested head as its second parent, which is
+    what makes the local tree the tested form of that head rather than an
+    unrelated revision. Every other event checks out the attested commit, and
+    those keep requiring it exactly.
+
+    The tree itself is still not taken on trust: `load_consumer` goes on to
+    require the local product-input fingerprint to equal the one recomputed
+    from GitHub's copy of `head_sha`, so a checkout that carries different
+    compiled-product inputs than the attested head cannot adopt its products.
+    """
+    if current_revision == run.get("head_sha"):
+        return True
+    if run.get("event") != "pull_request":
+        return False
+    if not re.fullmatch(r"[0-9a-f]{6,40}", str(current_revision)):
+        return False
+    parents = commit_parents(current_revision)
+    return len(parents) == 2 and parents[1] == run["head_sha"]
+
+
 def trusted_ci_run(run, repository):
     """Require the repository CI workflow and an in-repository event source."""
     head_repository = run.get("head_repository")
@@ -222,7 +261,7 @@ def load_consumer(api, value, current_run, current_attempt, current_revision, re
         if not isinstance(head, str) or not re.fullmatch(r"[0-9a-f]{6,40}", head):
             record_reason(reasons, "consumer_revision_invalid")
             return None
-        if head != current_revision:
+        if not attested_checkout(run, current_revision):
             record_reason(reasons, "consumer_revision_mismatch")
             return None
         if github_product_identity(api, head) != value["product_inputs"]:

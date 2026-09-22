@@ -431,6 +431,13 @@ jobs:
       final_build_number: ${{ steps.upload.outputs.final_build_number }}
       bundle_id: ${{ steps.distribution.outputs.bundle_id }}
       assign_internal_group: ${{ steps.distribution.outputs.assign_internal_group }}
+      # Whether Apple accepted the build, as distinct from whether this job
+      # finished. Four steps run after the upload -- summary, build metadata,
+      # the dSYM artifact, the Sentry dSYM push -- and a failure in any of them
+      # reddens the job for something the IPA is already past. The two dSYM
+      # steps below gate on this same `steps.upload.outcome`; exporting it lets
+      # assign-internal-group do likewise instead of reading the job result.
+      uploaded: ${{ steps.upload.outcome }}
     env:
       ASC_API_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
       ASC_API_ISSUER_ID: ${{ secrets.ASC_API_ISSUER_ID }}
@@ -832,7 +839,12 @@ jobs:
   assign-internal-group:
     name: Assign build to internal TestFlight group
     needs: [decide, upload]
-    if: github.ref == 'refs/heads/main' && needs.upload.result == 'success' && needs.upload.outputs.assign_internal_group == '1'
+    # Gated on the upload step's outcome, not the upload job's result: once
+    # the IPA reached TestFlight it must reach its testers, even if a later
+    # step in that job failed. `!cancelled()` is required because a failed
+    # `needs` otherwise skips this job before the condition is read; a
+    # cancelled run still cancels assignment.
+    if: ${{ !cancelled() && github.ref == 'refs/heads/main' && needs.upload.outputs.uploaded == 'success' && needs.upload.outputs.assign_internal_group == '1' }}
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 40
     env:

@@ -77,6 +77,15 @@ fi
 if [ -n "${TEST_RUNNER_BUN_INSTALL:-}" ]; then
   app_host_test_runner_environment+=("TEST_RUNNER_BUN_INSTALL=$TEST_RUNNER_BUN_INSTALL")
 fi
+# Focused opt-in suites (renderer memory regression, benchmarks) are gated on a
+# plain variable the driver receives. Xcode does not inherit it, so a caller that
+# exports the plain name would silently run nothing. Carry those through.
+for cmux_opt_in_gate in CMUX_RENDERER_MEMORY_REGRESSION; do
+  cmux_opt_in_value="${!cmux_opt_in_gate:-}"
+  if [ -n "$cmux_opt_in_value" ]; then
+    app_host_test_runner_environment+=("TEST_RUNNER_${cmux_opt_in_gate}=$cmux_opt_in_value")
+  fi
+done
 app_host_home=""
 app_host_key=""
 app_host_receipt_dir=""
