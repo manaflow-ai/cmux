@@ -44,6 +44,12 @@ jobs:
             --target "$CANARY_BASE" \
             --metrics "$RUNNER_TEMP/seed-source.json"
 
+      - name: Normalize generation A source mtimes
+        run: |
+          python3 "$RUNNER_TEMP/benchmark.py" normalize-mtimes \
+            --workspace "$GITHUB_WORKSPACE" \
+            --metrics "$RUNNER_TEMP/seed-mtime-normalization.json"
+
       - name: Compute Swift package cache key
         id: package-key
         run: |
@@ -174,6 +180,7 @@ jobs:
           name: incremental-canary-seed-metrics
           path: |
             ${{ runner.temp }}/seed-source.json
+            ${{ runner.temp }}/seed-mtime-normalization.json
             ${{ runner.temp }}/seed-build.json
             ${{ runner.temp }}/archive.json
             ${{ runner.temp }}/worktree-upload.json
@@ -193,6 +200,7 @@ jobs:
         arm:
           - cold-fresh
           - fresh-restored-dd
+          - fresh-normalized-restored-dd
           - restored-generation
           - restored-synthetic-merge
           - relocated-workspace
@@ -279,13 +287,20 @@ jobs:
           PY
 
       - name: Fresh checkout transition to generation B
-        if: matrix.arm == 'cold-fresh' || matrix.arm == 'fresh-restored-dd'
+        if: matrix.arm == 'cold-fresh' || matrix.arm == 'fresh-restored-dd' || matrix.arm == 'fresh-normalized-restored-dd'
         run: |
           python3 "$RUNNER_TEMP/benchmark.py" source-fresh \
             --workspace "$GITHUB_WORKSPACE" \
             --base "$CANARY_BASE" \
             --target "$CANARY_TARGET" \
             --metrics "$RUNNER_TEMP/source.json"
+
+      - name: Normalize fresh B mtimes from Git blob IDs
+        if: matrix.arm == 'fresh-normalized-restored-dd'
+        run: |
+          python3 "$RUNNER_TEMP/benchmark.py" normalize-mtimes \
+            --workspace "$GITHUB_WORKSPACE" \
+            --metrics "$RUNNER_TEMP/mtime-normalization.json"
 
       - name: Restore worktree generation A and advance to B
         if: matrix.arm == 'restored-generation' || matrix.arm == 'relocated-workspace' || matrix.arm == 'relocated-dd'
@@ -392,6 +407,7 @@ jobs:
           }
           for key, name in [
               ("source", "source.json"),
+              ("mtime_normalization", "mtime-normalization.json"),
               ("derived_restore", "dd-restore.json"),
               ("build", "build.json"),
               ("worktree_download", "worktree-download.json"),
@@ -410,6 +426,7 @@ jobs:
           name: incremental-canary-metrics-${{ matrix.arm }}
           path: |
             ${{ runner.temp }}/source.json
+            ${{ runner.temp }}/mtime-normalization.json
             ${{ runner.temp }}/dd-restore.json
             ${{ runner.temp }}/build.json
             ${{ runner.temp }}/worktree-download.json
