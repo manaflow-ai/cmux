@@ -977,8 +977,10 @@ struct GhosttySurfaceRepresentable: UIViewControllerRepresentable {
             }
         }
 
-        private func stopMountedTasks() {
-            let releasesViewport = outputTask != nil || viewportReportScheduler != nil
+        private func stopMountedTasks(forceReleaseViewport: Bool = false) {
+            let releasesViewport = forceReleaseViewport
+                || outputTask != nil
+                || viewportReportScheduler != nil
             let ownerID = outputConsumerOwnerID
             outputConsumerOwnerID = nil
             outputTaskGeneration &+= 1
@@ -1048,7 +1050,7 @@ struct GhosttySurfaceRepresentable: UIViewControllerRepresentable {
 
         func detach() {
             outputConsumerRecoveryAlertPending = false
-            stopMountedTasks()
+            stopMountedTasks(forceReleaseViewport: true)
             surfaceView = nil
             themeApplicationScheduler.cancel()
             artifactCountTask?.cancel()
@@ -1073,6 +1075,35 @@ struct GhosttySurfaceRepresentable: UIViewControllerRepresentable {
                 outputConsumerRecoveryAlertPending = false
                 stopMountedTasks()
             }
+        }
+
+        func ghosttySurfaceViewDidBecomeActive(_ surfaceView: GhosttySurfaceView) {
+            guard self.surfaceView === surfaceView,
+                  terminalPresentationIsActive,
+                  surfaceView.window != nil else { return }
+
+            let ownsCurrentStream = outputConsumerOwnerID.map {
+                store?.isTerminalOutputConsumerOwner(
+                    surfaceID: surfaceID,
+                    ownerID: $0
+                )
+            } ?? false
+            guard outputTask == nil || !ownsCurrentStream else { return }
+
+            // Backgrounding can cancel the AsyncStream task without UIKit
+            // detaching the surface. Clear the old viewport owner before
+            // registering a replacement so an alternate-screen grant from
+            // before suspension cannot letterbox the foreground surface.
+            MobileDebugLog.anchormux(
+                "terminal.output.foreground_reconcile surface=\(surfaceID) "
+                    + "task=\(outputTask != nil) owner=\(ownsCurrentStream)"
+            )
+            stopMountedTasks(forceReleaseViewport: true)
+            startMountedTasks(
+                surfaceView: surfaceView,
+                resetRestartFailure: true
+            )
+            attemptPendingOutputConsumerRecoveryPresentation()
         }
 
         /// Whether a theme-carrying chunk must be abandoned (reset plus

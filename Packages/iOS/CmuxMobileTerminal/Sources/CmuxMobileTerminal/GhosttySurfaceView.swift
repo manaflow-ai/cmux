@@ -1088,6 +1088,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         // The guide reflects the current keyboard even if this surface missed a
         // notification while inactive; force a layout read before the next render.
         setNeedsLayout()
+        delegate?.ghosttySurfaceViewDidBecomeActive(self)
     }
 
     @objc private func handleAppWillEnterForeground() {
@@ -5108,6 +5109,10 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
 
     /// Result of an off-main geometry pass, handed back to the main actor.
     private struct GeometryResult: Sendable {
+        /// The viewport snapshot used to size libghostty for this pass. The
+        /// render layer must use this same snapshot so a keyboard or rotation
+        /// update cannot move the layer a second time before the pass settles.
+        let viewportSnapshot: TerminalViewportSnapshot
         let cellPixelSize: CGSize
         let naturalSize: TerminalGridSize
         /// Pinned render size in points when letterboxed to an effective
@@ -5271,6 +5276,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
                 pixelHeight: Int(measured.height_px)
             )
             let result = GeometryResult(
+                viewportSnapshot: snapshot,
                 cellPixelSize: cell,
                 naturalSize: natural,
                 pinnedSize: pinnedSize,
@@ -5327,7 +5333,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         )
         let measuredRenderRect = result.pinnedSize.map { CGRect(origin: .zero, size: $0) }
             ?? CGRect(origin: .zero, size: naturalRenderSize)
-        let snapshot = viewportSnapshot()
+        let snapshot = result.viewportSnapshot
         layoutBottomDock(using: snapshot)
         let renderRect = snapshot.renderRect(forRenderSize: measuredRenderRect.size)
         lastRenderRect = renderRect
@@ -5353,6 +5359,13 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             renderRect: renderRect,
             isLetterboxed: snapshot.isLetterboxed(renderSize: renderRect.size)
         )
+        // UIKit may have delivered another layout pass while libghostty was
+        // measuring off-main. Keep this pass internally consistent, then let
+        // the display link apply the newer snapshot as one follow-up pass.
+        if viewportSnapshot() != snapshot {
+            needsGeometrySync = true
+            needsDraw = true
+        }
         needsDraw = true
         // Keep drawing for several frames so a frame lands at the final settled
         // layer size after CoreAnimation commits the bounds change. libghostty
