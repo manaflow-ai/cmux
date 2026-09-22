@@ -47,7 +47,7 @@ struct CodexTurnCompletionOwnershipTests {
         let result = runProcess(
             harness,
             subcommand: "session-start",
-            input: #"{"session_id":"#(harness.sessionId)","cwd":"#(project.path)","hook_event_name":"SessionStart"}"#,
+            input: #"{"session_id":"\#(harness.sessionId)","cwd":"\#(project.path)","hook_event_name":"SessionStart"}"#,
             environment: environment,
             currentDirectoryURL: project,
             timeout: 10
