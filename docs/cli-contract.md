@@ -90,6 +90,7 @@ Environment:
 | `capabilities` | Print server capabilities as JSON. |
 | `events` | Stream reconnectable cmux events as newline-delimited JSON. |
 | `automation` | Manage config-backed event rules: `list`, `show <id>`, dry-run `test <id> --event <json>`, `enable`, `disable`, `logs`, and `reload`. Rules live in `~/.cmuxterm/automations.json`; actions are dispatched by the running app. |
+| `glaeda` | Emit one caller-neutral `glaeda-external-execution-request/v1` and validate/correlate one bounded Glaeda receipt. `request` and `observe` are local data operations and do not require a running cmux socket. They carry exact Git source plus caller correlation only; CMUX workspace/UI and provider placement stay outside the request. |
 | `sessions [list]` | List saved agent session records without requiring a running cmux socket. Filters: `--agent <name>`, `--session <id>`, `--workspace <id>`, `--surface <id>`, `--cwd <text>`. Overrides: `--state-dir <path>`, `--codex-home <path>`. Text output defaults to 100 results; `--limit <n>` takes a positive integer and `--all` removes the limit. Supports `--json`. |
 | `auth` | Manage auth status, login, logout, and the selected team through the app. |
 | `coderouter`, `cr` | `cmux coderouter <status|machines|claude>` manages the team's coderouter model plane through the app (sign-in state, per-machine usage, the team's Claude upstream accounts). Every other `cmux coderouter ...` verb and all of `cmux cr ...` exec the CodeRouter CLI unchanged with the `CMUX_*`/`CMUXD_*` environment stripped: `coderouter` or `cr` on PATH first, then the official installer's `~/.coderouter/bin/coderouter` (`$CODEROUTER_INSTALL/bin` when set), never with a network call. When neither exists and stdin and stderr are terminals, cmux shows the documented installer `curl -fsSL https://cmux.com/coderouter/install.sh | sh`, says what it does (checksum-verified binary into `~/.coderouter/bin`, PATH line in the shell profile), asks once (`Install CodeRouter now? [y/N]`), and after `y` fetches the script, runs it with `sh`, and execs the new install with the original arguments. Any other outcome (non-interactive, declined, download or installer failure) prints that install command on stderr and exits 127. |
@@ -192,6 +193,43 @@ Environment:
 | `ssh-pty-attach` | Internal helper used by SSH terminal startup scripts to bridge a local terminal surface to a remote PTY session. |
 | `ssh-session-end` | Internal helper that clears remote SSH session state. |
 | `__tmux-compat` | Internal tmux compatibility dispatcher. |
+
+
+## Glaeda execution exchange and current-work ownership
+
+`cmux glaeda` is an execution exchange seam, not another CMUX work database. A
+complete transport-independent flow can look like this:
+
+```sh
+cmux glaeda request \
+  --request-ref cmux:exec:42 \
+  --work-ref cmux:work:42 \
+  --repository owner/repo \
+  --commit <commit> \
+  --tree <tree> > request.json
+
+# Carry request.json through the selected transport and receive result.json.
+
+cmux glaeda observe \
+  --request request.json \
+  --receipt result.json > observation.json
+
+cmux current --json
+```
+
+The observation is bounded correlation/evidence: request identity, the caller's
+`work_ref`, terminal state, and receipt digests. The caller that already owns
+the CMUX work item uses `work_ref` to associate that evidence with its existing
+work lifecycle. `observe` does not create a workspace, work item, scheduler
+record, or placement decision, and `cmux current` does not ingest
+`observation.json`.
+
+`cmux current --json` and **Find Work** continue to read the same bounded,
+read-only projection of work already owned by CMUX, as described in
+[Current work](current-work.md). When an existing owner records its normal
+lifecycle change, that ordinary CMUX projection reflects it. The execution
+transport, machine placement, physical attempt, and recovery truth remain with
+their existing owners rather than being duplicated into a second CMUX ledger.
 
 ## Surface Selection Contract
 
@@ -625,7 +663,7 @@ Config subcommands:
 
 | Command | Contract |
 | --- | --- |
-| `config doctor [--path <file>]`, `config check`, `config validate` | Validate JSONC syntax for config files. When `--path` is absent, default discovery checks the primary config, project-level `.cmux/cmux.json` or `cmux.json`, and legacy config files. `--path <file>` may be repeated to validate multiple explicit files. Exits 0 on success and 1 on any error. Supports `--json`. Works without a socket. |
+| `config doctor [--path <file>]`, `config check`, `config validate` | Validate JSONC syntax and semantic cmux.json constraints (recognized paths, value types, enums, bounds, nested values, and project/global scope). When `--path` is absent, default discovery checks the primary config, project-level `.cmux/cmux.json` or `cmux.json`, and legacy config files. `--path <file>` may be repeated; `--scope global\|project` overrides scope inference for explicit files. Exits 0 on success and 1 on any error. Supports `--json`. Works without a socket. |
 | `config path`, `config paths` | Print cmux.json paths, docs URL, schema URL, backup reminder, and reload command without a socket. |
 | `config docs`, `config documentation` | Print the same output as `docs settings` without a socket. |
 | `config reload` | Ask the running cmux app to reload configuration. Requires a socket. |
@@ -640,7 +678,10 @@ Config subcommands:
 `config doctor --json` outputs an object with `ok`, `error_count`,
 `findings`, `reload_command`, `docs_url`, and `schema_url`. Each finding includes
 `label`, `display_path`, `path`, `status`, `ok`, `keys`, and, when available,
-`message` and `bytes`.
+`message` and `bytes`. A finding that fails semantic validation also includes
+`issues`, an array of objects with a `path` string (a JSON path into the file
+such as `$.app.appearance`) and a localized `message` string. `issues` is absent
+when there are none.
 
 Events command:
 
@@ -762,6 +803,7 @@ the expected text without connecting to a cmux socket.
 - `cmux ping --help` -> `Usage: cmux ping`
 - `cmux capabilities --help` -> `Usage: cmux capabilities`
 - `cmux events --help` -> `Usage: cmux events [options]`
+- `cmux glaeda --help` -> `Usage: cmux glaeda <request|observe> [options]`
 - `cmux auth --help` -> `Usage: cmux auth <status|login|logout|team>`
 - `cmux vm --help` -> `Usage: cmux vm <base|new|ls|domains|tree|self|status|stats|resize|rename|pause|resume|snapshot|fork|restore|rm|run|route|agent|dev|prompt|exec|push|pull|wait|shell|tui|desktop|open|workspace|terminal|tab|layout|env|ports|tools|handoff|promote-template|attach|ssh|ssh-info> [args...]`
 - `cmux cloud --help` -> `Usage: cmux cloud <base|new|ls|domains|tree|self|status|stats|resize|rename|pause|resume|snapshot|fork|restore|rm|run|route|agent|dev|prompt|exec|push|pull|wait|shell|tui|desktop|open|workspace|terminal|tab|layout|env|ports|tools|handoff|promote-template|attach|ssh|ssh-info> [args...]`

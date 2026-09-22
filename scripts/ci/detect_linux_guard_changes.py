@@ -25,6 +25,19 @@ HISTORY_INPUTS = {
 # Exact inputs of the Cloud skill coverage check in workflow-guard-tests.
 # New tests and skill files retain the conservative fallback until mapped.
 WORKFLOW_TEST_INPUTS = {
+    "scripts/ci/build_input_fingerprint.py",
+    "scripts/ci/find_admitted_build.py",
+    "scripts/ci/app_host_test_products.py",
+    "scripts/ci/compile-app-host-test-product.sh",
+    "scripts/ci/product_input_identity.py",
+    "scripts/ci/restore-app-host-test-product.sh",
+    "scripts/ci/reuse_app_host_products.py",
+    "scripts/ci/sanitize-xcode-source-packages-cache.py",
+    "scripts/ci/persistent_mac_route.py",
+    "scripts/ci/swift_incremental_diagnostics.py",
+    "tests/test_ci_persistent_mac_compile.py",
+    "tests/test_swift_incremental_diagnostics.py",
+    "tests/test_ci_self_hosted_guard.sh",
     "tests/test_cloud_vm_skill_coverage.py",
     "skills/cmux-cloud-vm/SKILL.md",
     "skills/cmux-cloud-vm/references/commands.md",
