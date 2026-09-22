@@ -179,11 +179,14 @@ jobs:
         run: |
           set -euo pipefail
           python3 -m venv "$RUNNER_TEMP/workflow-guard-venv"
+          packages=(PyYAML==6.0.3)
+          if [[ "${{ matrix.group }}" == "release" ]]; then
+            packages+=(bashlex==0.18)
+          fi
           "$RUNNER_TEMP/workflow-guard-venv/bin/python" -m pip install \
             --disable-pip-version-check \
             --no-input \
-            PyYAML==6.0.3 \
-            bashlex==0.18
+            "${packages[@]}"
           echo "$RUNNER_TEMP/workflow-guard-venv/bin" >> "$GITHUB_PATH"
 
       - name: Validate Blacksmith Testbox broker trust boundary
