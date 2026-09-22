@@ -79,7 +79,6 @@ jobs:
       # This lane publishes the raw cmux-tui, cmux-relay, and chatmux-relay
       # binaries. The Cloudflare Worker is a separate deployment artifact and
       # its npm audit must not block these commit-addressed files.
-      build_cloudflare_relay: false
       # The Rust machine relay has no Windows PTY backend yet. Keep Windows on
       # the Node rollback lane until a tested backend exists; do not publish a
       # misleading Rust machine package or manifest entry.
