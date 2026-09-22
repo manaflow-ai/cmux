@@ -5953,6 +5953,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             return GhosttyApp.terminalPasteboard.hasString(for: GHOSTTY_CLIPBOARD_STANDARD)
         case #selector(splitHorizontally(_:)), #selector(splitVertically(_:)):
             return canSplitCurrentSurface()
+        case #selector(beginPaneSwapSelection(_:)):
+            return PaneSwapSelectionController.canBegin(from: terminalSurface)
         case #selector(copyWorkspaceAndSurfaceIdentifiers(_:)):
             return terminalSurface != nil
         default:
@@ -8696,6 +8698,17 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             systemSymbolName: "rectangle.righthalf.inset.filled",
             accessibilityDescription: nil
         )
+
+        let swapPaneItem = menu.addItem(
+            withTitle: CmuxPaneSwapStrings.swapWithSession,
+            action: #selector(beginPaneSwapSelection(_:)),
+            keyEquivalent: ""
+        )
+        swapPaneItem.target = self
+        swapPaneItem.image = NSImage(
+            systemSymbolName: "arrow.left.arrow.right",
+            accessibilityDescription: nil
+        )
         appendCurrentSurfaceContextMenuItems(to: menu)
         let resetTerminalItem = menu.addItem(
             withTitle: String(localized: "terminalContextMenu.resetTerminal", defaultValue: "Reset Terminal"),
@@ -8751,6 +8764,12 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     @objc private func splitVertically(_ sender: Any?) {
         _ = splitCurrentSurface(direction: .right)
+    }
+
+    @objc private func beginPaneSwapSelection(_ sender: Any?) {
+        if !PaneSwapSelectionController.begin(from: terminalSurface, in: window) {
+            NSSound.beep()
+        }
     }
 
     @discardableResult
