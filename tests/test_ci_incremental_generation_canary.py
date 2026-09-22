@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import importlib.util
+import io
 import json
 import os
 from pathlib import Path
@@ -186,6 +187,27 @@ class IncrementalGenerationCanaryTests(unittest.TestCase):
             self.assertTrue(payload["unchanged_mtime_preserved"])
             self.assertTrue(payload["edited_mtime_changed"])
 
+    def test_archive_validator_rejects_traversal_and_escaping_symlink(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+
+            traversal = root / "traversal.tar.gz"
+            with tarfile.open(traversal, "w:gz") as archive:
+                data = b"escape"
+                member = tarfile.TarInfo("../escape")
+                member.size = len(data)
+                archive.addfile(member, io.BytesIO(data))
+            with self.assertRaises(SystemExit):
+                bench.validate_tar_archive(traversal)
+
+            escaping = root / "escaping.tar.gz"
+            with tarfile.open(escaping, "w:gz") as archive:
+                member = tarfile.TarInfo("link")
+                member.type = tarfile.SYMTYPE
+                member.linkname = "../../outside"
+                archive.addfile(member)
+            with self.assertRaises(SystemExit):
+                bench.validate_tar_archive(escaping)
     def test_archive_keeps_only_bounded_derived_data_set(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
