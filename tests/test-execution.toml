@@ -771,6 +771,10 @@ path = "tests/test_ios_screenshot_capture_guard.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ios_testflight_build_inputs.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ios_testflight_archive_log.py"
 lane = "linux-guard"
 

@@ -479,6 +479,10 @@ jobs:
         if: ${{ matrix.group == 'release-ios' }}
         run: python3 tests/test_ios_testflight_archive_log.py
 
+      - name: Validate the TestFlight job fetches only what it uses
+        if: ${{ matrix.group == 'release-ios' }}
+        run: python3 tests/test_ios_testflight_build_inputs.py
+
       - name: Validate tagged iOS device entitlement fallback
         if: ${{ matrix.group == 'release-ios' }}
         run: node --test ios/tests/tagged-device-entitlements.test.mjs
