@@ -360,8 +360,9 @@ def build(workspace: Path, derived: Path, source_packages: Path, cas: Path, labe
     ], cwd=workspace, env=env)
     resolve_seconds = time.monotonic() - resolve_started
 
-    _, build_env = make_xcodebuild_wrapper(Path(os.environ.get("RUNNER_TEMP", "/tmp")))
+    wrapper, build_env = make_xcodebuild_wrapper(Path(os.environ.get("RUNNER_TEMP", "/tmp")))
     build_env.update(env)
+    build_env["PATH"] = str(wrapper.parent) + os.pathsep + env.get("PATH", "")
     aggregate = derived / "canary-build-aggregate.log"
     started = time.monotonic()
     run([
