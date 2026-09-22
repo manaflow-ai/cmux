@@ -48,6 +48,12 @@ The workflow listens to both `pull_request_review` and PR `issue_comment`
 updates, so either a new review object or an updated Greptile summary reevaluates
 the gate automatically.
 
+Every trigger executes the checker from `github.workflow_sha`, the exact trusted
+commit that defines the workflow. Stacked PR base branches supply review data
+only; they never supply executable gate code. Head-change triggers use a
+separate concurrency lane from review/comment rechecks, so provider comment
+churn cannot cancel the run responsible for requesting current-head review.
+
 Repositories can replace the required coverage subset with
 `AGENT_REQUIRED_REVIEW_COVERAGE_BOTS`. The older
 `REQUIRE_BOT_REVIEW_COVERAGE=1` switch remains as a compatibility mode that
@@ -55,6 +61,6 @@ requires every configured `AGENT_REVIEW_BOTS` provider when no explicit
 coverage subset is set. An unavailable provider never counts as a current-head
 review.
 
-For an audit-friendly read, run the trusted base-branch checker with
+For an audit-friendly read, run the trusted workflow-commit checker with
 `--json`; it emits `cmux.agent-pr-review/v1` with the PR/head, configured bots
 and actors, coverage states, capture completeness, and obligation dispositions.
