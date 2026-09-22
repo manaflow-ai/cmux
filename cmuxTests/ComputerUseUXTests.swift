@@ -284,11 +284,11 @@ struct ComputerUseUXTests {
         ] = []
         let actions = HostSettingsActions(
             configFileURL: root.appendingPathComponent("cmux.json"),
-            computerUseRuntimeService: runtime
+            computerUseRuntimeService: runtime,
+            runComputerUseOnboardingAction: { startingPoint in
+                presentations.append(startingPoint)
+            }
         )
-        actions.setRunComputerUseOnboardingAction { startingPoint in
-            presentations.append(startingPoint)
-        }
 
         await actions.refreshComputerUsePermissions()
 
