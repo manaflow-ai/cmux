@@ -611,6 +611,32 @@ fn application_protocols(header: &str, authentication: &str) -> String {
         .join(", ")
 }
 
+pub(super) fn parse_connect_authority(authority: &str) -> anyhow::Result<(String, u16)> {
+    let (host, port) = if let Some(rest) = authority.strip_prefix('[') {
+        let end = rest.find(']').ok_or_else(|| anyhow!("invalid CONNECT authority"))?;
+        let host = &rest[..end];
+        let port =
+            rest[end + 1..].strip_prefix(':').ok_or_else(|| anyhow!("CONNECT port is required"))?;
+        (host, port)
+    } else {
+        authority.rsplit_once(':').ok_or_else(|| anyhow!("CONNECT port is required"))?
+    };
+    let host = normalize_proxy_host(host)?;
+    let port = port.parse::<u16>().map_err(|_| anyhow!("invalid CONNECT port"))?;
+    Ok((host, port))
+}
+
+fn constant_time_equal(left: &[u8], right: &[u8]) -> bool {
+    let mut difference = left.len() ^ right.len();
+    let length = left.len().max(right.len());
+    for index in 0..length {
+        let left_byte = left.get(index).copied().unwrap_or(0);
+        let right_byte = right.get(index).copied().unwrap_or(0);
+        difference |= usize::from(left_byte ^ right_byte);
+    }
+    difference == 0
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -641,30 +667,4 @@ mod tests {
         assert_eq!(remainder, large_frame);
         assert!(split_http_headers(b"HTTP/1.1 101\r\n".to_vec()).is_err());
     }
-}
-
-pub(super) fn parse_connect_authority(authority: &str) -> anyhow::Result<(String, u16)> {
-    let (host, port) = if let Some(rest) = authority.strip_prefix('[') {
-        let end = rest.find(']').ok_or_else(|| anyhow!("invalid CONNECT authority"))?;
-        let host = &rest[..end];
-        let port =
-            rest[end + 1..].strip_prefix(':').ok_or_else(|| anyhow!("CONNECT port is required"))?;
-        (host, port)
-    } else {
-        authority.rsplit_once(':').ok_or_else(|| anyhow!("CONNECT port is required"))?
-    };
-    let host = normalize_proxy_host(host)?;
-    let port = port.parse::<u16>().map_err(|_| anyhow!("invalid CONNECT port"))?;
-    Ok((host, port))
-}
-
-fn constant_time_equal(left: &[u8], right: &[u8]) -> bool {
-    let mut difference = left.len() ^ right.len();
-    let length = left.len().max(right.len());
-    for index in 0..length {
-        let left_byte = left.get(index).copied().unwrap_or(0);
-        let right_byte = right.get(index).copied().unwrap_or(0);
-        difference |= usize::from(left_byte ^ right_byte);
-    }
-    difference == 0
 }

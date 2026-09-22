@@ -1,6 +1,6 @@
 import CmuxMobilePairedMac
 public import CmuxMobileShellModel
-import Foundation
+public import Foundation
 
 @MainActor
 extension MobileShellComposite {
@@ -155,6 +155,13 @@ extension MobileShellComposite {
             ?? foregroundMacDeviceID.map {
                 (macDeviceID: $0, instanceTag: activeMacInstanceTag)
             }
+    }
+
+    /// Whether a workspace-list Retry action currently owns recovery. The UI
+    /// uses this to render the shared Reconnecting status under the picker
+    /// while the row button stays visually stable.
+    public var isRecoveringWorkspaceList: Bool {
+        workspaceListRecoveryActive
     }
 
     /// Reserves the recovery token used by the empty-state Retry action.

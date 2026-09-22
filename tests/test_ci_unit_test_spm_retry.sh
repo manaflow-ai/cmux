@@ -8,10 +8,13 @@ from pathlib import Path
 import subprocess
 import tempfile
 import unittest
-lines = Path('.github/workflows/ci.yml').read_text().splitlines()
-start = lines.index('      - name: Resolve Swift packages')
-run_start = lines.index('        run: |', start) + 1
-end = next(i for i in range(run_start, len(lines))
+lines = Path('.github/workflows/ci-macos.yml').read_text().splitlines()
+job_start = lines.index('  app-host-unit-tests:')
+job_end = next(i for i in range(job_start + 1, len(lines))
+               if lines[i].startswith('  ') and not lines[i].startswith('    ') and lines[i].strip())
+start = lines.index('      - name: Resolve Swift packages', job_start, job_end)
+run_start = lines.index('        run: |', start, job_end) + 1
+end = next(i for i in range(run_start, job_end)
            if lines[i].startswith('      - name: '))
 script = '\n'.join(line[10:] for line in lines[run_start:end])
 script = script.replace('${{ matrix.shard }}', '1')

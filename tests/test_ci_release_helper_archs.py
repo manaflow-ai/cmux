@@ -11,7 +11,7 @@ import unittest
 import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
-WORKFLOW = yaml.safe_load((ROOT / '.github/workflows/ci.yml').read_text())
+WORKFLOW = yaml.safe_load((ROOT / '.github/workflows/ci-macos.yml').read_text())
 
 
 def expression(text, context):

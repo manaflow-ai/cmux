@@ -46,6 +46,16 @@ class TransportTests(unittest.TestCase):
     def restore(self, broker="https://broker.example", repository="manaflow-ai/cmux"):
         return transport.restore(broker, "123", "456", repository, self.destination, self.metadata, self.download)
 
+    def test_worker_toolchain_only_runs_for_worker_owned_changes(self):
+        workflow = (ROOT / ".github/workflows/ci-artifact-transport.yml").read_text()
+        self.assertIn("Detect Worker changes", workflow)
+        self.assertIn("workers/ci-artifacts", workflow)
+        self.assertGreaterEqual(
+            workflow.count("if: steps.worker.outputs.run == 'true'"),
+            3,
+        )
+        self.assertIn("fetch-depth: 2", workflow)
+
     def test_disabled_does_no_network_work(self):
         self.assertFalse(self.restore(""))
         self.assertEqual(self.calls, [])

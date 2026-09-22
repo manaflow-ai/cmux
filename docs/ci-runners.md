@@ -26,7 +26,7 @@ paid Warp overflow. `tests/test_ci_self_hosted_guard.sh` enforces that.
 ## Persistent compile-admission pilot
 
 `macos-compile-admission` has one narrow owned-Mac producer path for trusted,
-same-repository organization-member pull requests. The required
+same-repository maintainer pull requests. The required
 `macOS compile admission` job remains on the ordinary paid macOS runner and
 remains the check, log, validation, and artifact-publication owner. It may
 consume a compile product from `.github/workflows/persistent-macos-compile.yml`
@@ -34,11 +34,16 @@ after revalidating the Git revision/tree, Xcode, SDK, architecture,
 `Package.resolved`, submodules, Glaeda lineage evidence, warning budget, and
 early CLI probes. Any dispatch, queue, execution, download, or validation miss
 falls through to the existing hosted compile in that same required job.
-The PR workflow never receives Actions write authority: `changes` publishes a
-small exact-source request artifact, the default-branch
-`persistent-macos-router.yml` workflow validates it against the live PR and
-owns producer dispatch/cancellation, and the PR-side route job observes producer
-state with read-only Actions permission.
+The required hosted macOS job is allocated without waiting for the persistent
+producer. It restores any exact reusable product first, then observes the
+producer with read-only Actions permission before deciding whether to consume
+the persistent artifact or compile hosted. That observation is nonblocking:
+the producer is consumed only when its compile is already complete at the
+decision point; an absent, queued, or running producer falls through to hosted
+compilation immediately. The PR workflow never receives
+Actions write authority: `changes` publishes a small exact-source request
+artifact, and the default-branch `persistent-macos-router.yml` workflow
+validates it against the live PR and owns producer dispatch/cancellation.
 
 The producer is `workflow_dispatch`-only and requires the
 `cmux-persistent-compile` runner group plus the dedicated
@@ -59,7 +64,7 @@ Rollout is reversible through two repository variables:
   `CI_PERSISTENT_MAC_COMPILE_COHORT=13198,feature/name`: only matching trusted
   PR numbers or head branches;
 - `CI_PERSISTENT_MAC_COMPILE=all`: every trusted same-repository
-  organization-member PR.
+  maintainer PR (`OWNER`, `MEMBER`, or `COLLABORATOR`).
 
 Queue and execution ceilings may be set with
 `CI_PERSISTENT_MAC_QUEUE_SECONDS` and
@@ -184,6 +189,19 @@ fall back to a free runner. Bare paid-provider labels (`blacksmith-*`, `warp-*`,
 The fleet-label guard allows Tart labels only as exact manual canary choices.
 Required jobs continue to reference repository variables, so cutover and
 break-glass remain configuration changes instead of workflow edits.
+
+## CMUX-owned machine enrollment
+
+Persistent CMUX hardware can be enrolled for repository-owned semantic workloads without becoming a direct required-CI runner. See [fleet-enrollment.md](fleet-enrollment.md).
+
+The first reviewed role bindings are:
+
+- `cmux_macos_native_build -> cmux.macos.dev-check@1`
+- `cmux_linux_ci -> cmux.ci.guard@1`
+
+CMUX owns those workload profiles and their pass/fail semantics through `scripts/ci/cmux_workload_profile.py`. Glaeda owns the machine enrollment record, candidate eligibility, local admission, and acceptance receipt that binds the exact canonical `cmux-workload-result/v1` bytes.
+
+Enrollment does not register a GitHub runner or change repository runner variables. Required CI continues to use the policy above until a separately reviewed CI routing change promotes a fleet role.
 
 ## Direct physical-host runner boundary
 
