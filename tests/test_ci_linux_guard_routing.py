@@ -1,12 +1,16 @@
 #!/usr/bin/env python3
 """Exercise the Linux route CLI and the real required-status gate."""
 
+import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+
+import yaml
 
 from test_ci_change_areas import (
     linux_preflight_needs,
@@ -21,6 +25,8 @@ from test_ci_change_areas import (
 
 ROOT = Path(__file__).resolve().parents[1]
 HELPER = ROOT / "scripts/ci/detect_linux_guard_changes.py"
+sys.path.insert(0, str(ROOT / "scripts" / "ci"))
+from workflow_guard_groups import GROUPS, PATH_OWNERS, STEP_OWNERS
 JOBS = {
     "linux_guard_tests": "workflow-guard-tests",
     "linux_guard_history": "workflow-guard-history",
@@ -33,7 +39,7 @@ REUSABLE_GUARDS = {
 }
 
 
-def route(paths, event="pull_request", macos="false"):
+def route_decision(paths, event="pull_request", macos="false"):
     with tempfile.TemporaryDirectory(prefix="cmux-linux-routes-") as temp:
         path = Path(temp) / "changed.txt"
         if paths is not None:
@@ -43,13 +49,24 @@ def route(paths, event="pull_request", macos="false"):
              "--macos", macos, "--files-from", str(path)],
             capture_output=True, text=True, check=True,
         )
-    return dict(line.split("=", 1) for line in result.stdout.splitlines())
+    outputs = dict(line.split("=", 1) for line in result.stdout.splitlines())
+    groups = tuple(json.loads(outputs.pop("linux_guard_test_groups")))
+    return outputs, groups
+
+
+def route(paths, event="pull_request", macos="false"):
+    return route_decision(paths, event=event, macos=macos)[0]
 
 
 class LinuxGuardRoutingTests(unittest.TestCase):
     def test_candidate_router_cannot_disable_its_own_guards(self):
         script = workflow_job_step_script("changes", "Route Linux guard suites")
-        for changed in ("scripts/ci/detect_linux_guard_changes.py", ".github/workflows/ci.yml"):
+        for changed in (
+            "scripts/ci/detect_linux_guard_changes.py",
+            "scripts/ci/workflow_guard_groups.py",
+            ".github/workflows/ci.yml",
+            ".github/workflows/ci-guards.yml",
+        ):
             with self.subTest(changed=changed), tempfile.TemporaryDirectory() as temp:
                 root = Path(temp)
                 changed_file = root / "changed.txt"
@@ -65,8 +82,73 @@ class LinuxGuardRoutingTests(unittest.TestCase):
                          "EVENT_NAME": "pull_request", "MACOS": "false"},
                 )
                 self.assertEqual(result.returncode, 0, result.stderr)
-                self.assertEqual(dict(line.split("=", 1) for line in output.read_text().splitlines()),
-                                 dict.fromkeys(JOBS, "true"))
+                routed = dict(line.split("=", 1) for line in output.read_text().splitlines())
+                groups = tuple(json.loads(routed.pop("linux_guard_test_groups")))
+                self.assertEqual(routed, dict.fromkeys(JOBS, "true"))
+                self.assertEqual(groups, GROUPS)
+
+    def test_testflight_change_routes_only_observing_test_groups(self):
+        outputs, groups = route_decision([
+            ".github/workflows/ios-testflight.yml",
+            "ios/scripts/upload-testflight.sh",
+            "tests/test_ios_appstore_lane_identity.py",
+        ])
+        # Preserve the outer fail-open routes for workflow edits while trimming
+        # only the expensive workflow-guard-tests matrix.
+        self.assertEqual(outputs, dict.fromkeys(JOBS, "true"))
+        self.assertEqual(
+            groups,
+            ("preflight", "ci", "release-ios", "quality-determinism"),
+        )
+
+    def test_unknown_and_policy_inputs_fail_open_to_every_test_group(self):
+        for changed in (
+            "new-area/input",
+            ".github/workflows/ci-guards.yml",
+            "scripts/ci/workflow_guard_groups.py",
+            "tests/test_ci_release_guard_structure.py",
+        ):
+            with self.subTest(changed=changed):
+                _, groups = route_decision([changed])
+                self.assertEqual(groups, GROUPS)
+
+    def test_guard_step_ownership_manifest_matches_workflow(self):
+        workflow = yaml.safe_load(
+            (ROOT / ".github/workflows/ci-guards.yml").read_text(encoding="utf-8")
+        )
+        job = workflow["jobs"]["workflow-guard-tests"]
+        self.assertEqual(
+            job["strategy"]["matrix"]["group"],
+            "${{ fromJSON(inputs.linux_guard_test_groups) }}",
+        )
+
+        actual = {}
+        direct_path = re.compile(
+            r"(?:\./)?((?:tests(?:_v2)?|scripts|ios/tests)/[A-Za-z0-9_./-]+)"
+        )
+        for step in job["steps"]:
+            condition = step.get("if", "")
+            match = re.fullmatch(r"\$\{\{ matrix\.group == '([^']+)' \}\}", condition)
+            if match is None:
+                continue
+            name = step["name"]
+            group = match.group(1)
+            self.assertNotIn(name, actual)
+            actual[name] = group
+
+            paths = set(direct_path.findall(step.get("run", "")))
+            if (
+                step.get("working-directory") == "agent-chat"
+                and "test/claude-environment.test.ts" in step.get("run", "")
+            ):
+                paths.add("agent-chat/test/claude-environment.test.ts")
+            if name == "Initialize Ghostty for Zig version guard":
+                paths.add("ghostty")
+            for path in paths:
+                self.assertIn(path, PATH_OWNERS, (name, path))
+                self.assertIn(group, PATH_OWNERS[path], (name, path, group))
+
+        self.assertEqual(actual, STEP_OWNERS)
 
     def test_linux_preflight_skips_when_macos_route_is_false(self):
         block = workflow_job_block("linux-preflight")
@@ -176,6 +258,7 @@ class LinuxGuardRoutingTests(unittest.TestCase):
             "scripts/ci/app_host_test_products.py",
             "scripts/ci/compile-app-host-test-product.sh",
             "scripts/ci/product_input_identity.py",
+            "scripts/ci/peer_product_source.py",
             "scripts/ci/restore-app-host-test-product.sh",
             "scripts/ci/reuse_app_host_products.py",
             "scripts/ci/sanitize-xcode-source-packages-cache.py",

@@ -29,6 +29,7 @@ from typing import Any, Iterator, Sequence
 SCHEMA = 1
 TERM_GRACE_SECONDS = 10.0
 CLEANUP_TERM_GRACE_SECONDS = 1.0
+EVENT_JOURNAL_MAX_BYTES = 16 * 1024 * 1024
 IDENTIFIER_CHARS = frozenset(
     "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._:@+-"
 )
@@ -293,6 +294,7 @@ class Layout:
         self.preempt_fifo = machine / "warmer-preempt.fifo"
         self.checkout_locks = machine / "checkout-locks"
         self.events = machine / "events.jsonl"
+        self.events_archive = machine / "events.jsonl.1"
         self.events_lock = machine / "events.lock"
         self.cleanup_lock = machine / "cold-cleanup.lock"
         self.retired_cold_tasks = self.cache / "retired-cold-tasks"
@@ -574,14 +576,59 @@ def warm_slot_lock(layout: Layout, checkout: Path) -> Iterator[None]:
             yield
 
 
+def _trim_partial_event_tail(fd: int, size: int) -> int:
+    """Discard one crash-torn JSONL tail before appending new telemetry."""
+    if size <= 0 or os.pread(fd, 1, size - 1) == b"\n":
+        return max(size, 0)
+    offset = size
+    while offset > 0:
+        start = max(0, offset - 65536)
+        chunk = os.pread(fd, offset - start, start)
+        newline = chunk.rfind(b"\n")
+        if newline >= 0:
+            complete = start + newline + 1
+            os.ftruncate(fd, complete)
+            return complete
+        offset = start
+    os.ftruncate(fd, 0)
+    return 0
+
+
+def _append_event_line(layout: Layout, payload: bytes) -> None:
+    """Append advisory telemetry without a foreground durability barrier."""
+    if len(payload) > EVENT_JOURNAL_MAX_BYTES:
+        raise OSError("event journal row exceeds retention limit")
+    flags = os.O_RDWR | os.O_CREAT | os.O_APPEND
+    fd = os.open(layout.events, flags, 0o600)
+    try:
+        size = _trim_partial_event_tail(fd, os.lseek(fd, 0, os.SEEK_END))
+        if size and size + len(payload) > EVENT_JOURNAL_MAX_BYTES:
+            os.close(fd)
+            fd = -1
+            os.replace(layout.events, layout.events_archive)
+            fd = os.open(layout.events, flags, 0o600)
+
+        view = memoryview(payload)
+        while view:
+            written = os.write(fd, view)
+            if written <= 0:
+                raise OSError("event journal write made no progress")
+            view = view[written:]
+    finally:
+        if fd >= 0:
+            os.close(fd)
+
+
 def event(layout: Layout, kind: str, **fields: Any) -> None:
+    """Best-effort observational telemetry; lease/inflight state owns recovery."""
     row = {"schema_version": SCHEMA, "event": kind, "at": now_iso(), "slot_id": layout.slot_id, **fields}
-    with locked(layout.events_lock):
-        layout.events.parent.mkdir(parents=True, exist_ok=True)
-        with layout.events.open("a", encoding="utf-8") as stream:
-            stream.write(json.dumps(row, sort_keys=True) + "\n")
-            stream.flush()
-            os.fsync(stream.fileno())
+    payload = (json.dumps(row, sort_keys=True) + "\n").encode("utf-8")
+    try:
+        with locked(layout.events_lock):
+            layout.events.parent.mkdir(parents=True, exist_ok=True)
+            _append_event_line(layout, payload)
+    except OSError as error:
+        print(f"warning: warm-slot telemetry event dropped: {error}", file=sys.stderr)
 
 
 def live_foreground(layout: Layout, prune: bool = True) -> list[dict[str, Any]]:

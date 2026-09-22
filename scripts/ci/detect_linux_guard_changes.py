@@ -4,7 +4,10 @@
 from __future__ import annotations
 
 import argparse
+import json
 from pathlib import Path
+
+from workflow_guard_groups import GROUPS, groups_for_path
 
 
 ROUTES = (
@@ -30,6 +33,7 @@ WORKFLOW_TEST_INPUTS = {
     "scripts/ci/app_host_test_products.py",
     "scripts/ci/compile-app-host-test-product.sh",
     "scripts/ci/product_input_identity.py",
+    "scripts/ci/peer_product_source.py",
     "scripts/ci/restore-app-host-test-product.sh",
     "scripts/ci/reuse_app_host_products.py",
     "scripts/ci/sanitize-xcode-source-packages-cache.py",
@@ -100,6 +104,30 @@ def classify(paths: list[str], *, event: str, macos: str) -> dict[str, bool]:
     return routes
 
 
+def classify_test_groups(paths: list[str], *, event: str, macos: str) -> tuple[str, ...]:
+    """Select only workflow-guard-tests groups that can observe this diff."""
+    if event != "pull_request" or macos not in {"true", "false"} or not paths:
+        return GROUPS
+
+    selected: set[str] = set()
+    for path in paths:
+        if not path or path.startswith("/") or ".." in path.split("/"):
+            return GROUPS
+        if plain_documentation(path):
+            continue
+        owners = groups_for_path(path)
+        if owners is None:
+            return GROUPS
+        selected.update(owners)
+
+    # linux_guard_tests skips documentation-only diffs. Keep a valid non-empty
+    # matrix value available anyway so malformed callers cannot create an empty
+    # matrix-expansion failure.
+    if not selected:
+        return GROUPS
+    return tuple(group for group in GROUPS if group in selected)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--event-name", required=True)
@@ -110,8 +138,11 @@ def main() -> None:
         paths = args.files_from.read_text(encoding="utf-8").splitlines()
     except (OSError, UnicodeError):
         paths = []
-    for name, enabled in classify(paths, event=args.event_name, macos=args.macos).items():
+    routes = classify(paths, event=args.event_name, macos=args.macos)
+    for name, enabled in routes.items():
         print(f"{name}={'true' if enabled else 'false'}")
+    groups = classify_test_groups(paths, event=args.event_name, macos=args.macos)
+    print(f"linux_guard_test_groups={json.dumps(groups, separators=(',', ':'))}")
 
 
 if __name__ == "__main__":
