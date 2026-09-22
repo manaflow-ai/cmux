@@ -142,8 +142,9 @@ class CategoryTests(unittest.TestCase):
         run = make_run(event="push", branch="exp/x")
         self.assertIsNone(self.classify(run, jobs=[{"status": "queued", "labels": [LINUX], "name": "lint"}]))
 
-    def test_draft(self):
-        self.assertEqual(self.classify(make_run(), make_pr(draft=True))[0], "draft")
+    def test_current_draft_pr_is_kept(self):
+        # Drafts can be active integration branches; being a draft is not waste.
+        self.assertIsNone(self.classify(make_run(), make_pr(draft=True)))
 
     def dropped_label_pr(self, **overrides):
         # full-ci added 60m ago (before the run), removed 5m ago.
@@ -182,9 +183,9 @@ class CategoryTests(unittest.TestCase):
         run = make_run(age=30, path=".github/workflows/terminal-hang-diagnostics.yml", name="Terminal hang")
         self.assertIsNone(self.classify(run, self.dropped_label_pr(), newer=True))
 
-    def test_label_dropped_on_a_draft_is_reported_as_label_dropped(self):
-        verdict = self.classify(make_run(age=30), self.dropped_label_pr(draft=True), newer=True)
-        self.assertEqual(verdict[0], "label-dropped")
+    def test_stale_draft_is_still_stale(self):
+        verdict = self.classify(make_run(), make_pr(draft=True, state="CLOSED"))
+        self.assertEqual(verdict[0], "stale-pr")
 
 
 class ResolvePullRequestTests(unittest.TestCase):
@@ -221,25 +222,33 @@ class PlanTests(unittest.TestCase):
 
     def test_priority_order_and_stop_when_projected_under_threshold(self):
         main_run, main_jobs = busy_main_push(queued=6)
-        draft_run = make_run(branch="draft-branch", age=200)
-        stale_run = make_run(branch="closed-branch", age=10)
+        draft_run = make_run(branch="draft-branch", age=300)
+        merged_run = make_run(branch="merged-branch", age=200)
+        closed_run = make_run(branch="closed-branch", age=10)
         exp_run = make_run(event="push", branch="exp/incremental-b", age=5)
-        runs = [main_run, draft_run, stale_run, exp_run]
+        runs = [main_run, draft_run, closed_run, merged_run, exp_run]
         jobs = {
             main_run["id"]: main_jobs,
-            draft_run["id"]: mac_jobs(queued=2),
-            stale_run["id"]: mac_jobs(queued=1),
+            draft_run["id"]: mac_jobs(queued=4),
+            merged_run["id"]: mac_jobs(queued=1),
+            closed_run["id"]: mac_jobs(queued=1),
             exp_run["id"]: mac_jobs(queued=1, running=1),
         }
-        prs = {"draft-branch": [make_pr(1, draft=True)], "closed-branch": [make_pr(2, state="CLOSED")]}
+        prs = {
+            "draft-branch": [make_pr(1, draft=True)],
+            "merged-branch": [make_pr(2, state="MERGED")],
+            "closed-branch": [make_pr(3, state="CLOSED")],
+        }
         result = plan(runs, jobs, prs, threshold=6)
-        self.assertEqual(result.queued_macos_jobs, 10)
-        self.assertEqual([d.candidate.category for d in result.decisions], ["experiment", "stale-pr", "draft"])
-        # 10 queued: experiment frees 2 -> 8, stale frees 1 -> 7, draft frees 2 -> 5.
+        self.assertEqual(result.queued_macos_jobs, 13)
+        # The open draft is never planned, even with the queue far over threshold.
+        self.assertEqual([d.candidate.run["id"] for d in result.decisions],
+                         [exp_run["id"], merged_run["id"], closed_run["id"]])
         self.assertEqual([d.action for d in result.decisions], ["cancel", "cancel", "cancel"])
 
-        result = plan(runs, jobs, prs, threshold=8)
-        self.assertEqual([d.action for d in result.decisions], ["cancel", "skip", "skip"])
+        # 13 queued: experiment frees 2 -> 11, merged frees 1 -> 10; stop at 10.
+        result = plan(runs, jobs, prs, threshold=10)
+        self.assertEqual([d.action for d in result.decisions], ["cancel", "cancel", "skip"])
 
     def test_cancel_cap(self):
         main_run, main_jobs = busy_main_push(queued=30)
@@ -301,7 +310,7 @@ class GraphQLTests(unittest.TestCase):
         query, variables = janitor.graphql_query("manaflow-ai", "cmux", ["a", "exp/b"])
         self.assertIn("b0: pullRequests(headRefName: $b0", query)
         self.assertIn("b1: pullRequests(headRefName: $b1", query)
-        self.assertIn("isDraft", query)
+        self.assertNotIn("isDraft", query)
         self.assertIn("LABELED_EVENT", query)
         self.assertEqual(variables, {"owner": "manaflow-ai", "name": "cmux", "b0": "a", "b1": "exp/b"})
         response = {"data": {"repository": {"b0": {"nodes": [make_pr(1)]}, "b1": {"nodes": []}}}}

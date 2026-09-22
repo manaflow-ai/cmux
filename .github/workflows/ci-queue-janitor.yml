@@ -3,8 +3,9 @@ name: CI queue janitor
 # Pull request macOS jobs share one small runner pool. When more than
 # CI_JANITOR_QUEUE_THRESHOLD macOS jobs are queued, cancel the runs whose
 # results nobody will use: exp/* experiment pushes, runs for closed, merged or
-# superseded pull request heads, full-suite runs whose PR dropped `full-ci`
-# once a replacement run is waiting, and draft pull requests, in that order.
+# superseded pull request heads, and full-suite runs whose PR dropped
+# `full-ci` once a replacement run is waiting, in that order. Draft pull
+# requests are never cancelled for being drafts.
 # Main pushes, merge groups, main schedules/dispatches, release/tag, nightly
 # and TestFlight/App Store runs are never candidates. scripts/ci/queue_janitor.py
 # holds the policy; every decision is written to the step summary.

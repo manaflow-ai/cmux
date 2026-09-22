@@ -13,8 +13,11 @@ this priority order:
   c. full-suite CI runs whose PR no longer carries the ``full-ci`` label, once
      a newer CI run for that PR is already waiting to replace them and the old
      run's compile admission is not mid-flight (ci.yml deliberately lets that
-     compile finish so the queued run can reuse its product);
-  d. draft pull requests.
+     compile finish so the queued run can reuse its product).
+
+Draft pull requests are deliberately not a category: a draft can be an active
+integration branch other work depends on, and ci.yml has no ready_for_review
+trigger to replace a cancelled ci-status.
 
 It stops as soon as the projected queue is back under the threshold, or when
 it reaches the per-sweep cancel cap. Main pushes, merge groups, scheduled and
@@ -65,7 +68,7 @@ FULL_SUITE_LABEL = "full-ci"
 COMPILE_ONLY_POLICY = "compile-only"
 COMPILE_ADMISSION_JOB = re.compile(r"(^|/ )macOS compile admission$")
 
-CATEGORY_ORDER = ("experiment", "stale-pr", "label-dropped", "draft")
+CATEGORY_ORDER = ("experiment", "stale-pr", "label-dropped")
 
 PROTECTED_EVENTS = frozenset({"merge_group", "release", "create", "delete", "deployment", "deployment_status"})
 MAIN_ONLY_EVENTS = frozenset({"schedule", "workflow_dispatch", "repository_dispatch"})
@@ -303,9 +306,6 @@ def classify(
         created = parse_time(run.get("created_at"))
         if created and had_label_at(pr, FULL_SUITE_LABEL, created) is True:
             return "label-dropped", f"full suite, but PR #{number} no longer has `{FULL_SUITE_LABEL}`"
-
-    if pr.get("isDraft") is True:
-        return "draft", f"PR #{number} is a draft"
     return None
 
 
@@ -417,7 +417,7 @@ def branches_to_resolve(
 
 
 PR_FIELDS = """
-        number state isDraft headRefOid url
+        number state headRefOid url
         headRepositoryOwner { login }
         labels(first: 50) { nodes { name } }
         timelineItems(last: 50, itemTypes: [LABELED_EVENT, UNLABELED_EVENT]) {
