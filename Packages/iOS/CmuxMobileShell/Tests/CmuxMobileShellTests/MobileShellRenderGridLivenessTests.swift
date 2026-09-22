@@ -548,6 +548,47 @@ import Testing
     collector.unmount()
 }
 
+/// A heartbeat-capable host must prove delivery through the event stream. A
+/// successful control-plane probe only proves that the host still has a
+/// registration; it cannot prove that this phone's event reader is consuming
+/// frames. When the heartbeat stops, the event listener is restarted in place.
+@MainActor
+@Test func watchdogRestartsHeartbeatCapableStreamWhenDeliveryStops() async throws {
+    let clock = TestClock()
+    let router = LivenessHostRouter()
+    await router.setCapabilities([
+        "events.v1",
+        "terminal.bytes.v1",
+        "terminal.render_grid.v1",
+        "terminal.replay.v1",
+        "terminal.events.heartbeat.v1",
+    ])
+    let box = TransportBox()
+    let store = try await makeConnectedStore(router: router, box: box, clock: clock)
+
+    #expect(await router.waitForCount(of: "mobile.events.subscribe", atLeast: 1))
+    let topics = await router.topics(for: "mobile.events.subscribe").last ?? []
+    #expect(topics.contains("terminal.events.heartbeat"))
+
+    let transport = try #require(box.get())
+    await transport.deliver(try terminalEventHeartbeatFrame())
+
+    // Let the event reader go silent while the host's registration remains
+    // present. The scripted probe answers `subscribed: true`, which is the
+    // half-dead-reader case this test protects.
+    clock.advance(by: 10)
+    store.debugRunRenderGridLivenessCheckForTesting()
+    #expect(await router.waitForCount(of: "mobile.events.probe", atLeast: 1))
+
+    let restarted = try await pollUntil {
+        await router.count(of: "mobile.events.subscribe") >= 2
+    }
+    #expect(
+        restarted,
+        "heartbeat-capable hosts must restart an event reader whose delivery heartbeat stopped"
+    )
+}
+
 /// One timed-out liveness probe is ambiguous during Iroh path migration or a
 /// short Mac stall. The original stream must remain installed until a second
 /// independent probe confirms failure; a successful follow-up clears the
