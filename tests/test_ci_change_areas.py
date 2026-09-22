@@ -1993,6 +1993,15 @@ def test_linux_preflight_allows_skipped_guard_call_when_all_guard_routes_are_fal
     assert result.returncode == 0, result.stderr
 
 
+def test_guard_bun_setup_runs_only_for_groups_that_execute_bun() -> None:
+    block = workflow_job_block("workflow-guard-tests", GUARD_WORKFLOW)
+    setup = block.index("      - name: Set up Bun for guard tests")
+    next_step = block.index("      - name: Validate Claude launch environment policy behavior", setup)
+    setup_block = block[setup:next_step]
+    assert "if: ${{ matrix.group == 'preflight' || matrix.group == 'release' }}" in setup_block
+    assert block.count("setup-bun@") == 1
+
+
 def test_history_guard_uses_shallow_synthetic_merge_parent() -> None:
     block = workflow_job_block("workflow-guard-history", GUARD_WORKFLOW)
     assert "github.event_name == 'workflow_dispatch' && '0' || '2'" in block
