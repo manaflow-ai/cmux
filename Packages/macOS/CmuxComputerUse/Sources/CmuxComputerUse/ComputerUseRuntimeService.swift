@@ -173,6 +173,16 @@ public final class ComputerUseRuntimeService {
         cachedStatus.isKnown
     }
 
+    /// Whether this enabled runtime is waiting for onboarding completion.
+    public var onboardingRequiresCompletion: Bool {
+        switch permissionPhase {
+        case .onboardingRequired, .onboarding:
+            true
+        case .disabled, .ready:
+            false
+        }
+    }
+
     /// Seeds the host gate from the capture verification persisted by the last
     /// completed onboarding run. This is called before the enabled setting is
     /// reconciled, so starting the helper can publish the correct first value.
@@ -1844,12 +1854,50 @@ public final class ComputerUseRuntimeService {
             try? fileManager.removeItem(at: temporary)
             defer { try? fileManager.removeItem(at: temporary) }
             try fileManager.copyItem(at: nested, to: temporary)
+            // Homebrew casks quarantine the whole app tree. This nested helper
+            // is copied out and launched as its own application, so carrying
+            // that quarantine onto the standalone copy makes Gatekeeper ask
+            // for approval again after every cmux update. Release only the
+            // copied helper; release builds independently notarize and staple it.
+            try releaseCopiedHelperFromQuarantine(
+                at: temporary,
+                fileManager: fileManager
+            )
             guard !Task.isCancelled else { return nil }
             try? fileManager.removeItem(at: destination)
             try fileManager.moveItem(at: temporary, to: destination)
             return destination
         } catch {
             return nil
+        }
+    }
+
+    nonisolated static func releaseCopiedHelperFromQuarantine(
+        at url: URL,
+        fileManager: FileManager = .default
+    ) throws {
+        guard !Task.isCancelled else { throw CancellationError() }
+        let values = try url.resourceValues(
+            forKeys: [.isDirectoryKey, .isSymbolicLinkKey]
+        )
+        guard values.isSymbolicLink != true else { return }
+
+        var quarantineValues = URLResourceValues()
+        quarantineValues.quarantineProperties = nil
+        var mutableURL = url
+        try mutableURL.setResourceValues(quarantineValues)
+
+        guard values.isDirectory == true else { return }
+        let children = try fileManager.contentsOfDirectory(
+            at: url,
+            includingPropertiesForKeys: [.isDirectoryKey, .isSymbolicLinkKey],
+            options: []
+        )
+        for child in children {
+            try releaseCopiedHelperFromQuarantine(
+                at: child,
+                fileManager: fileManager
+            )
         }
     }
 

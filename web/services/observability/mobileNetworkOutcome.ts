@@ -29,12 +29,25 @@ const failures = new Set([
   "localStateUnavailable", "unknown",
 ]);
 const transports = new Set(["unknown", "iroh", "tailscale", "websocket", "debugLoopback"]);
+const eventCodes = new Set([
+  "pairOk", "pairFail", "pairUnreachable",
+  "transportDialConnected", "transportDialFailed", "transportDialCancelled",
+  "hostAuthenticated", "hostAuthenticationFailed", "rpcReady", "rpcFailed",
+  "recoverySucceeded", "recoveryFailed", "endpointActive", "endpointFailed",
+  "relayPolicyRefreshSucceeded", "relayPolicyRefreshFailed",
+  "discoverySucceeded", "discoveryFailed",
+]);
+const cancellationReasons = new Set([
+  "unknown", "requestCancelled", "requestTimedOut", "sessionTeardown", "sessionDeinitialized",
+]);
 
 const allowedPropertyKeys = new Set([
   "phase", "outcome", "duration_ms", "runtime_role", "user_usable",
   "failure", "transport", "platform", "client_channel", "app_version", "build_number",
   "bundle_identifier", "os_version", "device_model",
   "population", "attempt_id", "terminal_ready",
+  "event_code", "event_code_raw", "event_surface", "event_a", "event_b", "event_c",
+  "cancellation_reason",
   "window_ms", "input_count", "output_count", "presented_count",
   "correlated_output_count", "dropped_count", "output_bytes", "max_queue_depth",
   "input_to_output_p50_ms", "input_to_output_p95_ms", "input_to_output_p99_ms",
@@ -57,6 +70,14 @@ export type MobileNetworkOutcome = {
   readonly terminalReady?: boolean;
   readonly failure?: string;
   readonly transport?: string;
+  /** Stable diagnostic vocabulary and bounded payload slots from the client. */
+  readonly eventCode?: string;
+  readonly eventCodeRaw?: number;
+  readonly eventSurface?: number;
+  readonly eventA?: number;
+  readonly eventB?: number;
+  readonly eventC?: number;
+  readonly cancellationReason?: string;
   readonly platform?: "ios";
   readonly clientChannel?: "dev" | "nightly" | "production" | "unknown";
   readonly appVersion?: string;
@@ -223,7 +244,7 @@ export function parseMobileObservabilityEvent(candidate: unknown): MobileObserva
     ?? parseMobileTerminalLatencyAnomaly(candidate);
 }
 
-type CoreObservation = Pick<MobileNetworkOutcome, "phase" | "outcome" | "durationMs" | "userUsable" | "failure" | "transport" | "population" | "attemptId" | "terminalReady">;
+type CoreObservation = Pick<MobileNetworkOutcome, "phase" | "outcome" | "durationMs" | "userUsable" | "failure" | "transport" | "population" | "attemptId" | "terminalReady" | "eventCode" | "eventCodeRaw" | "eventSurface" | "eventA" | "eventB" | "eventC" | "cancellationReason">;
 type Metadata = Pick<MobileNetworkOutcome, "platform" | "clientChannel" | "appVersion" | "buildNumber" | "bundleIdentifier" | "osVersion" | "deviceModel" | "traceId" | "operation" | "terminalPhase">;
 
 function validTimestamp(value: unknown): value is string {
@@ -245,7 +266,9 @@ function parseCore(properties: Record<string, unknown>): CoreObservation | null 
   const failure = optionalSetValue(properties.failure, failures);
   const transport = optionalSetValue(properties.transport, transports);
   const initialFields = parseInitialConnectionFields(properties);
-  if (durationMs === null || failure === false || transport === false || initialFields === null) return null;
+  const diagnosticFields = parseDiagnosticFields(properties);
+  if (durationMs === null || failure === false || transport === false || initialFields === null
+    || diagnosticFields === null) return null;
   return {
     phase: properties.phase,
     outcome: properties.outcome as CoreObservation["outcome"],
@@ -254,6 +277,29 @@ function parseCore(properties: Record<string, unknown>): CoreObservation | null 
     ...(typeof failure === "string" ? { failure } : {}),
     ...(typeof transport === "string" ? { transport } : {}),
     ...initialFields,
+    ...diagnosticFields,
+  };
+}
+
+function parseDiagnosticFields(
+  properties: Record<string, unknown>,
+): Pick<CoreObservation, "eventCode" | "eventCodeRaw" | "eventSurface" | "eventA" | "eventB" | "eventC" | "cancellationReason"> | null {
+  const eventCode = optionalSetValue(properties.event_code, eventCodes);
+  const eventCodeRaw = optionalDiagnosticInteger(properties.event_code_raw, 0xffff);
+  const eventSurface = optionalDiagnosticInteger(properties.event_surface);
+  const eventA = optionalDiagnosticInteger(properties.event_a);
+  const eventB = optionalDiagnosticInteger(properties.event_b);
+  const eventC = optionalDiagnosticInteger(properties.event_c);
+  const cancellationReason = optionalSetValue(properties.cancellation_reason, cancellationReasons);
+  if ([eventCode, eventCodeRaw, eventSurface, eventA, eventB, eventC, cancellationReason].includes(false)) return null;
+  return {
+    ...(typeof eventCode === "string" ? { eventCode } : {}),
+    ...(typeof eventCodeRaw === "number" ? { eventCodeRaw } : {}),
+    ...(typeof eventSurface === "number" ? { eventSurface } : {}),
+    ...(typeof eventA === "number" ? { eventA } : {}),
+    ...(typeof eventB === "number" ? { eventB } : {}),
+    ...(typeof eventC === "number" ? { eventC } : {}),
+    ...(typeof cancellationReason === "string" ? { cancellationReason } : {}),
   };
 }
 
@@ -335,6 +381,13 @@ export async function emitMobileNetworkOutcomes(
       "cmux.mobile.occurred_at": observation.timestamp,
       "cmux.mobile.failure": observation.failure,
       "cmux.mobile.transport": observation.transport,
+      "cmux.mobile.event_code": observation.eventCode,
+      "cmux.mobile.event_code_raw": observation.eventCodeRaw,
+      "cmux.mobile.event_surface": observation.eventSurface,
+      "cmux.mobile.event_a": observation.eventA,
+      "cmux.mobile.event_b": observation.eventB,
+      "cmux.mobile.event_c": observation.eventC,
+      "cmux.mobile.cancellation_reason": observation.cancellationReason,
       "cmux.mobile.platform": observation.platform,
       "cmux.client.channel": observation.clientChannel,
       "cmux.mobile.app_version": observation.appVersion,
@@ -444,6 +497,12 @@ function unsignedInteger(value: unknown): number | null {
 function optionalSetValue(value: unknown, allowed: ReadonlySet<string>): string | undefined | false {
   if (value === undefined) return undefined;
   return typeof value === "string" && allowed.has(value) ? value : false;
+}
+
+function optionalDiagnosticInteger(value: unknown, maximum = 0xffff_ffff): number | undefined | false {
+  if (value === undefined) return undefined;
+  const parsed = unsignedInteger(value);
+  return parsed === null || parsed > maximum ? false : parsed;
 }
 
 function optionalExact<T extends string>(value: unknown, expected: T): T | undefined | false {

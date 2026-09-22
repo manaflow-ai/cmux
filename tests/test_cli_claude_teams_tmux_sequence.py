@@ -22,6 +22,7 @@ INITIAL_SURFACE_ID = "44444444-4444-4444-8444-444444444444"
 INITIAL_TAB_ID = "55555555-5555-4555-8555-555555555555"
 NEW_PANE_ID = "66666666-6666-4666-8666-666666666666"
 NEW_SURFACE_ID = "77777777-7777-4777-8777-777777777777"
+EMPTY_DOCK_PANE_ID = "88888888-8888-4888-8888-888888888888"
 
 
 def make_executable(path: Path, content: str) -> None:
@@ -58,7 +59,15 @@ class FakeCmuxState:
                 "ref": "pane:1",
                 "index": 7,
                 "surface_ids": [INITIAL_SURFACE_ID],
-            }
+            },
+            {
+                # Reproduce #9917: a persisted global Dock pane can legitimately
+                # exist with zero surfaces and must stay out of tmux list-panes.
+                "id": EMPTY_DOCK_PANE_ID,
+                "ref": "pane:99",
+                "index": 99,
+                "surface_ids": [],
+            },
         ]
         self.surfaces = [
             {
@@ -124,6 +133,11 @@ class FakeCmuxState:
                             "id": pane["id"],
                             "ref": pane["ref"],
                             "index": pane["index"],
+                            "surface_count": len(pane["surface_ids"]),
+                            "surface_ids": list(pane["surface_ids"]),
+                            "selected_surface_id": (
+                                pane["surface_ids"][0] if pane["surface_ids"] else None
+                            ),
                         }
                         for pane in self.panes
                     ]
