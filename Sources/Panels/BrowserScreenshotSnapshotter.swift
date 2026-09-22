@@ -87,7 +87,7 @@ enum BrowserScreenshotWebViewSnapshotter {
     /// Upper bound on the per-tile scroll settle wait. A web view that is not
     /// on screen never receives animation frames, so this timer — not the two
     /// requested frames — decides how long each stitched tile waits.
-    static let defaultScrollSettleTimeout: TimeInterval = 0.25
+    nonisolated static let defaultScrollSettleTimeout: TimeInterval = 0.25
 
     static func captureFullPage(
         from webView: WKWebView,
