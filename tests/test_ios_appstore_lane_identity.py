@@ -559,6 +559,7 @@ def _base_env(tmp: Path, fakebin: Path) -> dict[str, str]:
     # profile (#12935); the lane refuses to export without the name.
     env["IOS_APPSTORE_EXTENSION_PROVISIONING_PROFILE_NAME"] = APPSTORE_EXTENSION_PROFILE_NAME
     env["IOS_APPSTORE_EXTENSION_PROVISIONING_PROFILE_BASE64"] = base64.b64encode(b"extension profile").decode()
+    env["IOS_BETA_EXTENSION_PROVISIONING_PROFILE_NAME"] = "cmux Beta Notification Service Distribution"
     # Profile expiry is validated against this fixed instant, not the real clock.
     env["IOS_APPSTORE_PROFILE_VALIDATION_TIME"] = PROFILE_VALIDATION_TIME
     env["PLISTBUDDY"] = str(fakebin / "PlistBuddy")
@@ -820,6 +821,11 @@ def test_upload_beta_lane_uses_beta_marketing_version(tmp: Path, fakebin: Path) 
     _check(
         profiles.get(BETA_BUNDLE_ID) == "cmux Beta Distribution",
         "export options map the beta profile to dev.cmux.app.beta",
+    )
+    _check(
+        profiles.get(f"{BETA_BUNDLE_ID}.NotificationService")
+        == env["IOS_BETA_EXTENSION_PROVISIONING_PROFILE_NAME"],
+        "export options map the beta notification extension to its own profile",
     )
 
     ipa_line = next(line for line in result.stdout.splitlines() if line.startswith("IPA_PATH="))
