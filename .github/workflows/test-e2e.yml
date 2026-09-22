@@ -589,7 +589,7 @@ jobs:
             esac
             suite="${entry#*/}"
             suite="${suite%%/*}"
-            if ! grep -Eq "(Test Suite '$suite')|(Suite \"$suite\")|(^[^A-Za-z0-9_]*Suite $suite[ .])" \
+            if ! grep -Eq "(Test Suite '${suite}')|(Suite \"${suite}\")|(^[^A-Za-z0-9_]*Suite ${suite}[ .])" \
               /tmp/xcodebuild-e2e.log; then
               missing_suites="${missing_suites:+$missing_suites, }$entry"
             fi
