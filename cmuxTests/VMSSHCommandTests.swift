@@ -104,7 +104,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         }
         XCTAssertEqual(
             requests.compactMap { $0["method"] as? String },
-            ["vm.ssh_info", "workspace.create", "workspace.remote.configure", "workspace.select"]
+            ["vm.ssh_info", "workspace.create", "workspace.rename", "workspace.remote.configure", "workspace.select"]
         )
 
         let createRequest = try XCTUnwrap(

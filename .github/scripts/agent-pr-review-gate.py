@@ -7,6 +7,8 @@ import json
 import os
 import re
 import sys
+import urllib.error
+import urllib.parse
 import urllib.request
 from dataclasses import dataclass
 from typing import Any
@@ -15,6 +17,9 @@ OPT_IN_MARKER = "<!-- agent-pr-review-required -->"
 DEFAULT_REVIEW_BOTS = ("coderabbitai", "greptile-apps")
 INFO_PREFIXES = ("review limit reached", "review in progress")
 UNAVAILABLE_PREFIXES = INFO_PREFIXES + ("bugbot is paused",)
+GREPTILE_SUMMARY_MARKER = "<!-- greptile_summary -->"
+GREPTILE_REQUEST_MARKER = "<!-- cmux-greptile-review-request:{head} -->"
+GREPTILE_TRIGGER = "@greptile review"
 
 
 def parse_time(value: str | None) -> dt.datetime:
@@ -90,6 +95,111 @@ def canonical_bot(name: str, bots: tuple[str, ...]) -> str | None:
     return None
 
 
+def configured_coverage_bots(required_bots: tuple[str, ...]) -> tuple[str, ...]:
+    """Return the configured providers whose review must match the current head."""
+    configured = tuple(
+        bot.strip().lower()
+        for bot in os.environ.get("REQUIRED_REVIEW_COVERAGE_BOTS", "").split(",")
+        if bot.strip()
+    )
+    if configured:
+        unknown = [bot for bot in configured if bot not in required_bots]
+        if unknown:
+            raise RuntimeError(
+                "required review coverage bot is absent from REVIEW_BOTS: "
+                + ", ".join(unknown)
+            )
+        return configured
+    if os.environ.get("REQUIRE_BOT_REVIEW_COVERAGE") == "1":
+        return required_bots
+    return ()
+
+
+def greptile_summary_head(pr: dict[str, Any]) -> str | None:
+    """Return the head SHA named by Greptile's newest review summary."""
+    candidates = []
+    for comment in (pr.get("comments") or {}).get("nodes") or []:
+        if canonical_bot(login(comment.get("author")), ("greptile-apps",)) != "greptile-apps":
+            continue
+        body = str(comment.get("body") or "")
+        if GREPTILE_SUMMARY_MARKER not in body:
+            continue
+        match = re.search(
+            r"last reviewed commit:.*?/commit/([0-9a-f]{40})",
+            body,
+            flags=re.IGNORECASE | re.DOTALL,
+        )
+        if match:
+            candidates.append((parse_time(comment.get("updatedAt") or comment.get("createdAt")), match.group(1)))
+    return max(candidates)[1] if candidates else None
+
+
+def bot_reviewed_current_head(pr: dict[str, Any], bot: str, bots: tuple[str, ...]) -> bool:
+    """Whether a provider has review evidence tied to the exact PR head."""
+    head = str(pr.get("headRefOid") or "")
+    if bot == "greptile-apps" and greptile_summary_head(pr) == head:
+        return True
+    return any(
+        canonical_bot(login(review.get("author")), bots) == bot
+        and (review.get("commit") or {}).get("oid") == head
+        and review.get("state") in {"COMMENTED", "APPROVED", "CHANGES_REQUESTED"}
+        for review in (pr.get("reviews") or {}).get("nodes") or []
+    )
+
+
+def greptile_check_running(head: str) -> bool:
+    """Whether Greptile already has a nonterminal check run on this commit."""
+    data = github_rest("GET", f"commits/{head}/check-runs") or {}
+    for check in data.get("check_runs") or []:
+        identity = " ".join(
+            str(value or "")
+            for value in (
+                check.get("name"),
+                (check.get("app") or {}).get("slug"),
+                (check.get("app") or {}).get("name"),
+            )
+        ).lower()
+        if "greptile" in identity and str(check.get("status") or "") != "completed":
+            return True
+    return False
+
+
+def request_greptile_review(pr: dict[str, Any]) -> str:
+    """Post at most one trusted Greptile review request for each opted-in PR head."""
+    if OPT_IN_MARKER not in str(pr.get("body") or ""):
+        return "not-opted-in"
+
+    head = str(pr.get("headRefOid") or "")
+    number = int(pr.get("number") or 0)
+    if not head or not number:
+        raise RuntimeError("pull request number and head SHA are required")
+    if bot_reviewed_current_head(pr, "greptile-apps", DEFAULT_REVIEW_BOTS):
+        return "already-reviewed"
+
+    marker = GREPTILE_REQUEST_MARKER.format(head=head)
+    for comment in (pr.get("comments") or {}).get("nodes") or []:
+        if (
+            login(comment.get("author")) in {"github-actions", "github-actions[bot]"}
+            and marker in str(comment.get("body") or "")
+        ):
+            return "already-requested"
+
+    try:
+        if greptile_check_running(head):
+            return "already-running"
+    except Exception:
+        # Provider check visibility is advisory. The per-head trusted marker
+        # below still prevents duplicate requests on workflow retries.
+        pass
+
+    github_rest(
+        "POST",
+        f"issues/{number}/comments",
+        {"body": f"{marker}\n{GREPTILE_TRIGGER}"},
+    )
+    return "requested"
+
+
 def review_ledger(
     pr: dict[str, Any],
     bots: tuple[str, ...],
@@ -155,6 +265,65 @@ def obligations(pr: dict[str, Any], bots: tuple[str, ...], reply_actors: tuple[s
     return [item for item in review_ledger(pr, bots, actors) if item.active]
 
 
+def attention_needed(items: list[Obligation]) -> bool:
+    """Whether a PR has an actionable bot finding awaiting an author reply."""
+    return any(item.active and not item.replied for item in items)
+
+
+def github_rest(method: str, path: str, payload: dict[str, Any] | None = None) -> Any:
+    repository = os.environ.get("GITHUB_REPOSITORY", "")
+    if "/" not in repository:
+        raise RuntimeError("GITHUB_REPOSITORY is required")
+    data = json.dumps(payload).encode() if payload is not None else None
+    request = urllib.request.Request(
+        f"https://api.github.com/repos/{repository}/{path.lstrip('/')}",
+        data=data,
+        method=method,
+        headers={
+            "Authorization": f"Bearer {os.environ['GH_TOKEN']}",
+            "Accept": "application/vnd.github+json",
+            "Content-Type": "application/json",
+        },
+    )
+    with urllib.request.urlopen(request, timeout=30) as response:
+        body = response.read()
+    return json.loads(body) if body else None
+
+
+def sync_attention_label(pr: dict[str, Any], items: list[Obligation], label_name: str) -> str:
+    """Synchronize the triage label without changing review-gate semantics."""
+    number = int(pr.get("number") or 0)
+    if not number:
+        raise RuntimeError("pull request number is required")
+    encoded = urllib.parse.quote(label_name, safe="")
+    try:
+        github_rest("GET", f"labels/{encoded}")
+    except urllib.error.HTTPError as error:
+        if error.code != 404:
+            raise
+        try:
+            github_rest("POST", "labels", {
+                "name": label_name,
+                "color": "D1242F",
+                "description": "Actionable automated review finding needs an author reply",
+            })
+        except urllib.error.HTTPError as create_error:
+            # Another event can race us to create the repository label.
+            if create_error.code != 422:
+                raise
+
+    if attention_needed(items):
+        github_rest("POST", f"issues/{number}/labels", {"labels": [label_name]})
+        return "present"
+
+    try:
+        github_rest("DELETE", f"issues/{number}/labels/{encoded}")
+    except urllib.error.HTTPError as error:
+        if error.code != 404:
+            raise
+    return "absent"
+
+
 def evaluate(
     pr: dict[str, Any],
     *,
@@ -164,17 +333,11 @@ def evaluate(
     if OPT_IN_MARKER not in str(pr.get("body") or ""):
         return True, ["PR is not opted into the agent review gate"], []
     head = str(pr.get("headRefOid") or "")
-    reviews = (pr.get("reviews") or {}).get("nodes") or []
-    current_reviews = {
-        bot
-        for r in reviews
-        if (r.get("commit") or {}).get("oid") == head
-        and r.get("state") in {"COMMENTED", "APPROVED", "CHANGES_REQUESTED"}
-        for bot in [canonical_bot(login(r.get("author")), required_bots)]
-        if bot is not None
-    }
-    require_coverage = os.environ.get("REQUIRE_BOT_REVIEW_COVERAGE") == "1"
-    missing = [bot for bot in required_bots if bot not in current_reviews] if require_coverage else []
+    coverage_bots = configured_coverage_bots(required_bots)
+    missing = [
+        bot for bot in coverage_bots
+        if not bot_reviewed_current_head(pr, bot, required_bots)
+    ]
     actors = reply_actors or configured_reply_actors(pr)
     ledger = review_ledger(pr, required_bots, actors)
     items = [item for item in ledger if item.active]
@@ -202,7 +365,7 @@ def fetch_pr() -> dict[str, Any]:
     event_path = os.environ.get("GITHUB_EVENT_PATH")
     event = json.load(open(event_path, encoding="utf-8")) if event_path else {}
     payload = event.get("pull_request") or {}
-    number = payload.get("number") or event.get("number")
+    number = payload.get("number") or event.get("number") or (event.get("issue") or {}).get("number")
     repository = os.environ.get("GITHUB_REPOSITORY", "").split("/", 1)
     if len(repository) != 2 or not number:
         raise RuntimeError("GITHUB_REPOSITORY and pull_request.number are required")
@@ -218,23 +381,36 @@ def fetch_pr() -> dict[str, Any]:
             raise RuntimeError("GitHub review data request failed")
         return payload["data"]
 
-    variables = {"owner": repository[0], "repo": repository[1], "number": int(number), "reviewsAfter": None, "threadsAfter": None}
-    base_query = """query($owner:String!, $repo:String!, $number:Int!, $reviewsAfter:String, $threadsAfter:String) {
+    variables = {
+        "owner": repository[0],
+        "repo": repository[1],
+        "number": int(number),
+        "reviewsAfter": None,
+        "threadsAfter": None,
+        "commentsAfter": None,
+    }
+    base_query = """query($owner:String!, $repo:String!, $number:Int!, $reviewsAfter:String, $threadsAfter:String, $commentsAfter:String) {
       repository(owner:$owner,name:$repo) { pullRequest(number:$number) {
         number body headRefOid author { login }
         reviews(first:100, after:$reviewsAfter) { nodes { author { login } state submittedAt commit { oid } } pageInfo { hasNextPage endCursor } }
         reviewThreads(first:100, after:$threadsAfter) { nodes { id isResolved isOutdated path line comments(first:100) { nodes { author { login } body createdAt } pageInfo { hasNextPage endCursor } } } pageInfo { hasNextPage endCursor } }
+        comments(first:100, after:$commentsAfter) { nodes { author { login } body createdAt updatedAt } pageInfo { hasNextPage endCursor } }
       } }
     }"""
     first = graphql(base_query, variables)["repository"]["pullRequest"]
     reviews = list(first["reviews"]["nodes"])
     threads = list(first["reviewThreads"]["nodes"])
-    for connection in ("reviews", "reviewThreads"):
+    issue_comments = list(first["comments"]["nodes"])
+    connections = {
+        "reviews": (reviews, "reviewsAfter"),
+        "reviewThreads": (threads, "threadsAfter"),
+        "comments": (issue_comments, "commentsAfter"),
+    }
+    for connection, (target, cursor_key) in connections.items():
         page = first[connection]["pageInfo"]
         while page["hasNextPage"]:
-            variables["reviewsAfter" if connection == "reviews" else "threadsAfter"] = page["endCursor"]
+            variables[cursor_key] = page["endCursor"]
             next_pr = graphql(base_query, variables)["repository"]["pullRequest"]
-            target = reviews if connection == "reviews" else threads
             target.extend(next_pr[connection]["nodes"])
             page = next_pr[connection]["pageInfo"]
     # Paginate comments independently; the nested connection shares the thread
@@ -243,31 +419,26 @@ def fetch_pr() -> dict[str, Any]:
       comments(first:100, after:$after) { nodes { author { login } body createdAt } pageInfo { hasNextPage endCursor } }
     } } }"""
     for thread in threads:
-        comments = thread["comments"]["nodes"]
+        thread_comments = thread["comments"]["nodes"]
         page = thread["comments"]["pageInfo"]
         while page["hasNextPage"]:
             result = graphql(comment_query, {"id": thread["id"], "after": page["endCursor"]})["node"]["comments"]
-            comments.extend(result["nodes"])
+            thread_comments.extend(result["nodes"])
             page = result["pageInfo"]
-        thread["comments"]["nodes"] = comments
+        thread["comments"]["nodes"] = thread_comments
     first["reviews"]["nodes"] = reviews
     first["reviewThreads"]["nodes"] = threads
+    first["comments"]["nodes"] = issue_comments
     first["captureComplete"] = True
     return first
 
 
 def ledger_report(pr: dict[str, Any], bots: tuple[str, ...], actors: tuple[str, ...]) -> dict[str, Any]:
     items = review_ledger(pr, bots, actors)
-    reviews = (pr.get("reviews") or {}).get("nodes") or []
     head = str(pr.get("headRefOid") or "")
     coverage = []
     for bot in bots:
-        reviewed = any(
-            canonical_bot(login(review.get("author")), bots) == bot
-            and (review.get("commit") or {}).get("oid") == head
-            and review.get("state") in {"COMMENTED", "APPROVED", "CHANGES_REQUESTED"}
-            for review in reviews
-        )
+        reviewed = bot_reviewed_current_head(pr, bot, bots)
         unavailable = any(item.bot == bot and item.kind == "unavailable" for item in items)
         coverage.append({"bot": bot, "status": "reviewed" if reviewed else "unavailable" if unavailable else "pending"})
     return {
@@ -277,6 +448,7 @@ def ledger_report(pr: dict[str, Any], bots: tuple[str, ...], actors: tuple[str, 
         "capture_complete": pr.get("captureComplete", True),
         "configured_review_bots": list(bots),
         "configured_reply_actors": list(actors),
+        "required_review_coverage_bots": list(configured_coverage_bots(bots)),
         "coverage": coverage,
         "obligations": [
             {
@@ -307,7 +479,23 @@ def main() -> int:
             if bot.strip()
         )
         actors = configured_reply_actors(pr)
+        if "--request-greptile" in sys.argv[1:]:
+            state = request_greptile_review(pr)
+            print(f"agent-pr-review-greptile: {state}")
+            return 0
+
+        triage_items = obligations(pr, bots, actors)
         passed, reasons, items = evaluate(pr, required_bots=bots, reply_actors=actors)
+        if "--sync-label" in sys.argv[1:]:
+            label_name = os.environ.get("REVIEW_ATTENTION_LABEL", "review: needs-attention").strip()
+            if label_name:
+                try:
+                    label_state = sync_attention_label(pr, triage_items, label_name)
+                    print(f"agent-pr-review-label: {label_name} {label_state}")
+                except Exception:
+                    # Labeling is a triage aid. A transient write failure must not
+                    # change the review gate's merge decision.
+                    print("agent-pr-review-label: WARNING: unable to synchronize label", file=sys.stderr)
         if "--json" in sys.argv[1:]:
             print(json.dumps(ledger_report(pr, bots, actors), indent=2, sort_keys=True))
             return 0 if passed else 1

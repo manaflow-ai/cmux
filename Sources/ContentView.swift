@@ -3476,7 +3476,7 @@ struct ContentView: View {
             }
         })
 
-        view = AnyView(view.ignoresSafeArea().overlay(WindowContentOverlayBrowserHost().allowsHitTesting(false)))
+        view = AnyView(view.ignoresSafeArea().overlay(WindowContentOverlayBrowserHost()))
         view = AnyView(view.sheet(isPresented: $isFeedbackComposerPresented) {
             SidebarFeedbackComposerSheet()
         })
@@ -12426,12 +12426,13 @@ struct VerticalTabsSidebar: View, Equatable {
                 tabManager.closeWorkspaceWithConfirmation(workspace)
             },
             createWorkspaceAtEnd: {
-                if tabManager.selectedTab?.isRemoteTmuxMirror == true {
-                    _ = AppDelegate.shared?.performNewWorkspaceAction(
-                        tabManager: tabManager,
-                        debugSource: "sidebar.emptyArea.remoteTmux"
+                if let appDelegate = AppDelegate.shared {
+                    appDelegate.createWorkspaceAtEndFromSidebar(
+                        windowId: windowId,
+                        tabManager: tabManager
                     )
                 } else {
+                    // Previews and transitional windows have no app owner yet.
                     tabManager.addWorkspaceIfActive(placementOverride: .end)
                 }
                 if let selectedId = tabManager.selectedTabId {

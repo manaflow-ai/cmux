@@ -18,7 +18,7 @@ CI_LOGICAL_SHARD_TOTAL = CI_PHYSICAL_SHARD_TOTAL * CI_LOGICAL_BATCHES_PER_WORKER
 
 def production_shard_constants() -> tuple[int, int]:
     """Read the production matrix constants so this test exercises its topology."""
-    workflow = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+    workflow = (ROOT / ".github" / "workflows" / "ci-macos.yml").read_text(encoding="utf-8")
     values: dict[str, int] = {}
     for line in workflow.splitlines():
         stripped = line.strip()
@@ -372,10 +372,10 @@ def focused_steps_in_ci_workflow() -> tuple[set[str], set[str], dict[str, str]]:
     """Return suites strict steps run in full, suites run in part, and the job env."""
     import re
 
-    workflow = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+    workflow = (ROOT / ".github" / "workflows" / "ci-macos.yml").read_text(encoding="utf-8")
     match = re.search(r"(?ms)^  app-host-unit-tests:\n(.*?)(?=^  [A-Za-z0-9_-]+:\n)", workflow)
     if match is None:
-        raise SystemExit("FAIL: app-host-unit-tests job missing from ci.yml")
+        raise SystemExit("FAIL: app-host-unit-tests job missing from ci-macos.yml")
     job = match.group(1)
     whole: set[str] = set()
     partial: set[str] = set()
@@ -410,9 +410,9 @@ def check_focused_gates_run_once() -> int:
     whole, partial, env = focused_steps_in_ci_workflow()
     excluded = {selector.split("/", 1)[1] for selector in helper.FOCUSED_GATE_SELECTORS}
     if excluded != whole - partial:
-        print("FAIL: the batch must leave out exactly the suites a strict ci.yml step runs in full")
-        print(f"  strict in ci.yml but still in the batch: {sorted(whole - partial - excluded)}")
-        print(f"  left out of the batch but not strict in ci.yml: {sorted(excluded - (whole - partial))}")
+        print("FAIL: the batch must leave out exactly the suites a strict ci-macos.yml step runs in full")
+        print(f"  strict in ci-macos.yml but still in the batch: {sorted(whole - partial - excluded)}")
+        print(f"  left out of the batch but not strict in ci-macos.yml: {sorted(excluded - (whole - partial))}")
         return 1
 
     sources = "\n".join(
@@ -423,7 +423,7 @@ def check_focused_gates_run_once() -> int:
         if not re.search(rf"(?m)^\s*(?:@\w+(?:\([^)]*\))?\s+)*(?:final\s+)?(?:class|struct|enum|actor)\s+{name}\b", sources)
     )
     if undeclared:
-        print(f"FAIL: ci.yml strict steps name suites cmuxTests does not declare: {undeclared}")
+        print(f"FAIL: ci-macos.yml strict steps name suites cmuxTests does not declare: {undeclared}")
         return 1
 
     groups = {

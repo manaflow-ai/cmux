@@ -2776,6 +2776,26 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         )
     }
 
+    func testIgnoresForegroundNonInteractiveSSHHelperForTTY() {
+        let session = TerminalSSHSessionDetector.detectForTesting(
+            ttyName: "/dev/ttys004",
+            processes: [
+                .init(pid: 2144, pgid: 1967, tpgid: 1967, tty: "ttys004", executableName: "herdr"),
+                .init(pid: 2145, pgid: 1967, tpgid: 1967, tty: "ttys004", executableName: "ssh"),
+            ],
+            argumentsByPID: [
+                2145: [
+                    "ssh",
+                    "-T",
+                    "helper.example.com",
+                    "remote-command",
+                ],
+            ]
+        )
+
+        XCTAssertNil(session)
+    }
+
     func testDetectsForegroundSSHSessionWithShortControlPathFlag() {
         let session = TerminalSSHSessionDetector.detectForTesting(
             ttyName: "/dev/ttys004",
