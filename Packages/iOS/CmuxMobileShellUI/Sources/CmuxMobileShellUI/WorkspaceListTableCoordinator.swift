@@ -236,6 +236,7 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
         let structureChanged = appliedItems != next.items
         var changed: [WorkspaceListTableItem] = []
         var nativeActionReloadIDs: Set<String> = []
+        var changedRowHeightIDs: Set<String> = []
         var changedRowHeightsStable = true
         if let previous {
             // This map already mirrors previousConfiguration. Reuse it instead
@@ -256,10 +257,11 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
                     ) {
                         nativeActionReloadIDs.insert(item.id)
                     }
-                    if !structureChanged, changedRowHeightsStable,
+                    if changedRowHeightsStable,
                        heightCacheKey(for: oldItem, tableView: tableView, configuration: previous)
                            != heightCacheKey(for: item, tableView: tableView, configuration: next) {
                         changedRowHeightsStable = false
+                        changedRowHeightIDs.insert(item.id)
                     }
                 }
             }
@@ -334,8 +336,31 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
         }
 
         if structureChanged {
+            let viewportAnchor = dataSource.captureViewportAnchor(in: tableView)
             dataSource.replaceItems(next.items, in: tableView)
             appliedItems = next.items
+            let rowsRequiringReload = changed.filter {
+                changedRowHeightIDs.contains($0.id) || nativeActionReloadIDs.contains($0.id)
+            }
+            let changedIndexPaths = rowsRequiringReload.compactMap {
+                dataSource.indexPath(for: $0)
+            }
+            if !changedIndexPaths.isEmpty {
+                tableView.reloadRows(at: changedIndexPaths, with: .none)
+            }
+            let rowsRequiringInPlaceUpdate = changed.filter {
+                !changedRowHeightIDs.contains($0.id)
+                    && !nativeActionReloadIDs.contains($0.id)
+            }
+            for item in rowsRequiringInPlaceUpdate {
+                guard
+                    let indexPath = dataSource.indexPath(for: item),
+                    let cell = tableView.cellForRow(at: indexPath)
+                else { continue }
+                configure(cell, for: item)
+            }
+            tableView.layoutIfNeeded()
+            dataSource.restoreViewportAnchor(viewportAnchor, in: tableView)
             #if DEBUG
             recordPayloadApplyRoute(.tableReload)
             #endif
@@ -1615,6 +1640,11 @@ private final class WorkspaceListTableDataSource: NSObject, UITableViewDataSourc
     /// would turn one update into O(changedRows * totalRows) work.
     private var rowIndexByID: [String: Int] = [:]
 
+    struct ViewportAnchor {
+        let itemID: String
+        let distanceFromContentOffset: CGFloat
+    }
+
     init(tableView: UITableView, cellProvider: @escaping CellProvider) {
         self.cellProvider = cellProvider
         super.init()
@@ -1651,9 +1681,65 @@ private final class WorkspaceListTableDataSource: NSObject, UITableViewDataSourc
     }
 
     func replaceItems(_ items: [WorkspaceListTableItem], in tableView: UITableView) {
+        let oldIDs = self.items.map(\.id)
+        let newIDs = items.map(\.id)
+        let changes = newIDs.difference(from: oldIDs)
+
         self.items = items
         rebuildRowIndex()
-        tableView.reloadData()
+
+        guard !changes.isEmpty else { return }
+        UIView.performWithoutAnimation {
+            tableView.performBatchUpdates {
+                // Treat moves as a delete followed by an insert. This keeps
+                // every operation in the old/new index space supplied by
+                // CollectionDifference while preserving the visible anchor
+                // below. UIKit still reuses cells for unchanged identifiers.
+                for change in changes.removals.reversed() {
+                    guard case .remove(let offset, _, _) = change else { continue }
+                    tableView.deleteRows(
+                        at: [IndexPath(row: offset, section: 0)],
+                        with: .none
+                    )
+                }
+                for change in changes.insertions {
+                    guard case .insert(let offset, _, _) = change else { continue }
+                    tableView.insertRows(
+                        at: [IndexPath(row: offset, section: 0)],
+                        with: .none
+                    )
+                }
+            }
+        }
+    }
+
+    func captureViewportAnchor(in tableView: UITableView) -> ViewportAnchor? {
+        for indexPath in (tableView.indexPathsForVisibleRows ?? []).sorted() {
+            guard items.indices.contains(indexPath.row) else { continue }
+            let rect = tableView.rectForRow(at: indexPath)
+            return ViewportAnchor(
+                itemID: items[indexPath.row].id,
+                distanceFromContentOffset: rect.minY - tableView.contentOffset.y
+            )
+        }
+        return nil
+    }
+
+    func restoreViewportAnchor(
+        _ anchor: ViewportAnchor?,
+        in tableView: UITableView
+    ) {
+        guard
+            let anchor,
+            let row = rowIndexByID[anchor.itemID],
+            tableView.numberOfRows(inSection: 0) > row
+        else { return }
+        let rect = tableView.rectForRow(at: IndexPath(row: row, section: 0))
+        var contentOffset = tableView.contentOffset
+        contentOffset.y = rect.minY - anchor.distanceFromContentOffset
+        if abs(contentOffset.y - tableView.contentOffset.y) > 0.5 {
+            tableView.setContentOffset(contentOffset, animated: false)
+        }
     }
 
     func moveItem(
