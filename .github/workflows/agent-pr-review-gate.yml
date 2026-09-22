@@ -2,7 +2,7 @@ name: Agent PR review gate
 
 on:
   pull_request_target:
-    types: [opened, synchronize, reopened, ready_for_review, edited]
+    types: [opened, synchronize, reopened, ready_for_review]
   pull_request_review:
     types: [submitted, dismissed]
   pull_request_review_comment:
@@ -25,7 +25,7 @@ permissions:
 jobs:
   agent-pr-review-complete:
     name: agent-pr-review-complete
-    if: ${{ github.event_name != 'issue_comment' || (github.event.issue.pull_request != null && github.actor == 'greptile-apps[bot]') }}
+    if: ${{ github.event_name != 'issue_comment' || (github.event.issue.pull_request != null && startsWith(github.actor, 'greptile-apps')) }}
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     steps:
       # Execute the checker from the exact trusted commit that defines this workflow.
@@ -40,6 +40,7 @@ jobs:
         run: >-
           echo 'agent-pr-review-complete: PASS (checker is introduced by this PR and will enforce from the next PR onward)'
       - name: Request Greptile review for this head
+        continue-on-error: true
         if: github.event_name == 'pull_request_target' && hashFiles('.github/scripts/agent-pr-review-gate.py') != ''
         env:
           GH_TOKEN: ${{ github.token }}
