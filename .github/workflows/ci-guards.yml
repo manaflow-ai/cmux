@@ -467,6 +467,10 @@ jobs:
         if: ${{ matrix.group == 'release-ios' }}
         run: python3 tests/test_ios_testflight_assignment_after_upload.py
 
+      - name: Validate the TestFlight archive log is kept on failure
+        if: ${{ matrix.group == 'release-ios' }}
+        run: python3 tests/test_ios_testflight_archive_log.py
+
       - name: Validate tagged iOS device entitlement fallback
         if: ${{ matrix.group == 'release-ios' }}
         run: node --test ios/tests/tagged-device-entitlements.test.mjs
