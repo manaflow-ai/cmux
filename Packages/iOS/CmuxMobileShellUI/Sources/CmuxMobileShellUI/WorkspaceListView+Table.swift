@@ -93,8 +93,9 @@ extension WorkspaceListView {
         let isRetryOwnerCurrentOnDisappear: (() -> Bool)? = store.map { store in
             {
                 let currentTarget = store.workspaceListRecoveryTarget
-                return currentTarget?.macDeviceID == emptyStateMacDeviceID
-                    && currentTarget?.instanceTag == emptyStateMacInstanceTag
+                return store.isRecoveringWorkspaceList
+                    || (currentTarget?.macDeviceID == emptyStateMacDeviceID
+                        && currentTarget?.instanceTag == emptyStateMacInstanceTag)
             }
         }
         let shouldCancelRefreshOnDisappear: (() -> Bool)? = store.map { store in
