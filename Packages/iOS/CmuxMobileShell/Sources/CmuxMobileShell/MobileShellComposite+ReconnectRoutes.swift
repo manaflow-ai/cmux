@@ -200,11 +200,9 @@ extension MobileShellComposite {
         return .pairingRequired
     }
 
-    /// Readiness of the Tailscale connection method wherever it is selected:
-    /// as the app default or as any stored Computer's per-pairing choice.
+    /// Readiness of Tailscale when selected by a stored Computer.
     public var tailscaleSetupStatus: MobileTailscaleSetupStatus {
-        guard connectionMethodStore?.method == .tailscale
-            || pairedMacs.contains(where: { connectionMethod(for: $0) == .tailscale })
+        guard pairedMacs.contains(where: { connectionMethod(for: $0) == .tailscale })
         else {
             return .notSelected
         }

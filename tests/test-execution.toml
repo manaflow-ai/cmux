@@ -551,15 +551,19 @@ path = "tests/test_write_sidebar_extension_point.py"
 lane = "linux-guard"
 
 [[test]]
-path = "tests/test_agent_pr_review_gate.py"
-lane = "legacy"
-
-[[test]]
 path = "tests/test_amp_extension_install.py"
 lane = "legacy"
 
 [[test]]
 path = "tests/test_amp_wrapper_hooks.py"
+lane = "legacy"
+
+[[test]]
+path = "tests/test_app_host_layer_transport.py"
+lane = "legacy"
+
+[[test]]
+path = "tests/test_app_host_layered_products.py"
 lane = "legacy"
 
 [[test]]

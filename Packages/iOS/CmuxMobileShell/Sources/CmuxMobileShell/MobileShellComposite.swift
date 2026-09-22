@@ -37,15 +37,6 @@ public typealias CMUXMobileShellStore = MobileShellComposite
 public final class MobileShellComposite: MobileTerminalOutputSinking {
     public let macListAuthState: MobileMacListAuthState
 
-    /// Bound the peer fleet to five live sessions: one initial focus plus four
-    /// warm peers. After the first focus handoff, the focused peer may also keep
-    /// its control capability without consuming another transport session.
-    static let maximumLiveMacConnectionCount = 5
-    static let maximumWarmControlConnectionCount =
-        maximumLiveMacConnectionCount - 1
-    static let maximumSecondaryReconciliationConcurrency =
-        maximumWarmControlConnectionCount
-
     static let maxTerminalReplayFailureRetries = 2
     static let maxTerminalReplayBarrierFollowUps = 1
 
@@ -1062,7 +1053,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// dropped at runtime. `nil` exists only for DEBUG previews, the
     /// hide-computers verifier, and unit-test fixtures, which have no user
     /// preference and behave like the default automatic method.
-    let connectionMethodStore: MobileConnectionMethodStore?
     /// Single compatibility authority shared by registry, persistence, and live connections.
     let buildCompatibilityPolicy: MobileMacBuildCompatibilityPolicy?
     /// Minimum Mac app versions this iOS version accepts on the release
@@ -1511,7 +1501,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         [MacPairingKey: SecondaryMacSubscription] = [:]
     /// Scope-bound index backing targeted presence reconciliation. Route writes
     /// refresh this cache before enqueueing their presence edge, so one Mac's
-    /// heartbeat can inspect that Mac plus the bounded live pool without
+    /// heartbeat can inspect that Mac plus the live sessions without
     /// reloading and sorting every paired row on the main actor.
     @ObservationIgnored
     private var storedPairedMacsByCanonicalDeviceID:
@@ -1850,7 +1840,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         pairingCode: String = "",
         workspaces: [MobileWorkspacePreview] = [],
         pairedMacStore: (any MobilePairedMacStoring)? = nil,
-        connectionMethodStore: MobileConnectionMethodStore? = nil,
         buildCompatibilityPolicy: MobileMacBuildCompatibilityPolicy? = nil,
         pairedMacRestoreBoundary: PairedMacRestoreBoundary? = nil,
         deviceRegistry: (any DeviceRegistryRefreshing)? = nil,
@@ -1914,7 +1903,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         self.simulatorStreamStalenessClock = simulatorStreamStalenessClock
         self.storedMacReconnectRestoringDeadlineSeconds = storedMacReconnectRestoringDeadlineSeconds
         self.pairedMacStore = pairedMacStore
-        self.connectionMethodStore = connectionMethodStore
         self.buildCompatibilityPolicy = buildCompatibilityPolicy
         self.macInstanceTagAuthority = MobileMacInstanceTagAuthority()
         self.pairedMacRestoreBoundary = pairedMacRestoreBoundary
@@ -2079,7 +2067,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         browserStreamEvents?.configureBrowserStreamRestart { [weak self] panelID in
             await self?.forceRestartMobileBrowserStream(panelID: panelID)
         }
-        startObservingConnectionMethodChanges()
         selectedTerminalID = nil
         selectedMacSurfaceID = nil
         syncSelectedTerminalForWorkspace()
@@ -2094,7 +2081,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         directoryObservationTask = nil
         presenceTask?.cancel()
         networkPathObservationTask?.cancel()
-        connectionMethodObservationTask?.cancel()
         terminalEventListenerTask?.cancel()
         terminalSubscriptionStartTask?.cancel()
         renderGridLivenessTimer?.cancel()
@@ -2618,7 +2604,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
     var networkPathObservationStarted = false
     var networkPathObservationTask: Task<Void, Never>?
-    var connectionMethodObservationTask: Task<Void, Never>?
     let connectionRecoveryOwner = MobileConnectionRecoveryOwner()
     var lastReconnectStackUserID: String?
     /// Whether the scene is in the active phase. Set by
@@ -3337,9 +3322,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         if hasKnownStoredMac {
             setHasKnownPairedMac(true, generation: generation)
         }
-        let tailscaleOnly = connectionMethodStore?.method == .tailscale
-        let irohReconnectIsBlocked = tailscaleOnly
-            || automaticIrohReconnectIsBlocked(accountID: scope.userID)
+        let irohReconnectIsBlocked = automaticIrohReconnectIsBlocked(accountID: scope.userID)
         // Capture one coherent post-request view of the registry and paired-Mac
         // store. The store read happens after the registry await, so an
         // authenticated Presence write that lands during the request wins. The
@@ -3462,7 +3445,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // saved candidate failed. This keeps a healthy saved Mac from sitting
         // behind an unrelated account-wide discovery request.
         var zeroTouchCandidates: [MobilePairedMac] = []
-        if connectionState != .connected, !tailscaleOnly,
+        if connectionState != .connected,
            !strictTailscaleFailure,
            !automaticIrohReconnectIsBlocked(accountID: scope.userID) {
             zeroTouchCandidates = await discoverZeroTouchIrohCandidates(
@@ -3665,8 +3648,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
     /// Return only rows that can affect one targeted pool decision: the
     /// requested physical Macs, current control owners, and current foreground
-    /// owner. That bounded context still detects endpoint aliases and a full
-    /// pool, without an account-wide scan or sort.
+    /// owner. That context detects endpoint aliases without reloading every
+    /// paired row.
     private func targetedStoredPairedMacs(
         requestedCanonicalIDs: Set<String>,
         scope: MobileShellScopeSnapshot
@@ -4243,11 +4226,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// pairing only on a successful connect.
     ///
     /// A different Mac is authenticated while the current foreground client
-    /// remains live. After a successful handoff, the previous client becomes a
-    /// warm control connection when the bounded pool has capacity. If capacity
-    /// or an unsafe terminal handoff requires retirement, a failed switch can
-    /// reconnect the previously-active Mac. A no-op when already connected to
-    /// that Mac.
+    /// remains live. After a successful handoff, the previous client remains a
+    /// control connection when its transport supports the handoff. An unsafe
+    /// terminal handoff can still require retirement. A no-op when already
+    /// connected to that Mac.
     /// - Parameters:
     ///   - macDeviceID: The stored physical Mac to switch to.
     ///   - instanceTag: Exact saved app instance to switch to, or `nil` to
@@ -4318,8 +4300,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         liveForegroundRestoreBaseline: MobilePairedMac?
     ) async -> Bool {
         defer { finishMacSwitchAttempt(switchAttemptID) }
-        // A switch may retire the current focus when the warm pool is full or
-        // terminal handoff cannot complete. Publish the live rollback target
+        // A switch may retire the current focus when terminal handoff cannot
+        // complete. Publish the live rollback target
         // before entering that fast path so cancellation can restore it from
         // every post-handoff await.
         if let liveForegroundRestoreBaseline {
@@ -4526,7 +4508,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 } == true
         } else if macSwitchRestoreBaseline != nil || previousForegroundMac != nil, !hasActiveMacConnection {
             // The switch did not connect after the previous session was retired
-            // for capacity or handoff safety. Reconnect the still-active Mac so
+            // for handoff safety. Reconnect the still-active Mac so
             // the user is not left stranded on a failed switch.
             // Keep the attempt alive through the restore so a rapid follow-up
             // picker selection can either cancel this rollback while preserving
@@ -5917,7 +5899,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             visibleMacIDs.map(cmxCanonicalDeviceID)
         )
         let canonicalForegroundMacID = foregroundMacDeviceID.map(cmxCanonicalDeviceID)
-        var retiredControlSlot = false
         if onlyMacDeviceIDs == nil {
             // A full store load is authoritative even when an offline Mac no
             // longer has a control subscription. Reconcile every retained
@@ -5971,7 +5952,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 && !wanted.contains(ownerKey)
                 && subscription.client !== remoteClient
                 && !subscription.isTransitioningToFocus {
-            retiredControlSlot = true
             let canonicalMacID = ownerKey.canonicalMacDeviceID
             let physicalAliasCanonicalIDs =
                 storedPairedMacAliasCanonicalIDsByCanonicalID[ownerKey.pairingID]
@@ -6008,9 +5988,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 }
             }
         }
-        // Reconcile the bounded warm pool concurrently. Keep the task-group
-        // width explicit here as a second resource boundary if target
-        // selection changes later.
+        // Reconcile every visible Computer concurrently. Hidden Computers are
+        // filtered before this point, so visibility is the user's session control.
         let reconciliationMacs = macs.filter {
             wanted.contains(MacPairingKey($0))
         }
@@ -6018,12 +5997,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             of: SecondaryMacReconciliationResult.self,
             returning: [SecondaryMacReconciliationResult].self
         ) { group in
-            var pending = reconciliationMacs.makeIterator()
-            var results: [SecondaryMacReconciliationResult] = []
-            results.reserveCapacity(reconciliationMacs.count)
-
-            for _ in 0 ..< Self.maximumSecondaryReconciliationConcurrency {
-                guard let mac = pending.next() else { break }
+            for mac in reconciliationMacs {
                 group.addTask { [weak self] in
                     guard let self else {
                         return SecondaryMacReconciliationResult(
@@ -6039,23 +6013,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     )
                 }
             }
+            var results: [SecondaryMacReconciliationResult] = []
+            results.reserveCapacity(reconciliationMacs.count)
             while let result = await group.next() {
                 results.append(result)
-                guard let mac = pending.next() else { continue }
-                group.addTask { [weak self] in
-                    guard let self else {
-                        return SecondaryMacReconciliationResult(
-                            macDeviceID: mac.macDeviceID,
-                            establishmentOutcome: .superseded
-                        )
-                    }
-                    return await self.reconcileSecondaryMac(
-                        mac,
-                        scope: scope,
-                        authorityValidation: authorityValidation,
-                        allowsNewConnections: allowsNewConnections
-                    )
-                }
             }
             return results
         }
@@ -6066,12 +6027,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 outcome,
                 macDeviceID: result.macDeviceID
             )
-        }
-        if onlyMacDeviceIDs != nil, retiredControlSlot {
-            // Only an actual owner retirement widens an incremental edge into
-            // a full pass, so a newly free bounded slot gets its next-best
-            // online Mac without repeated global work for duplicate edges.
-            scheduleSecondaryAggregation()
         }
         if !allowsNewConnections {
             // A shared cooldown suppresses dialing, not ownership of the work.
@@ -6292,33 +6247,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             from: visibleLoadedMacs
         )
         guard let requestedCanonicalIDs else { return candidates }
-        // Keep targeted online/route changes scoped to that Mac. An offline
-        // edge may retire a requested owner, in which case this pass admits
-        // exactly the same number of replacement candidates and no more.
-        let existingControlIDs = Set(
-            secondaryMacSubscriptions.keys.map(\.canonicalMacDeviceID)
-        )
-        let candidateIDs = Set(candidates.map {
-            cmxCanonicalDeviceID($0.macDeviceID)
-        })
-        let requestedCandidates = candidates.filter {
+        // Keep targeted online/route changes scoped to the requested Macs.
+        return candidates.filter {
             requestedCanonicalIDs.contains(cmxCanonicalDeviceID($0.macDeviceID))
         }
-        let retiredRequestedOwnerCount = existingControlIDs.filter {
-            requestedCanonicalIDs.contains($0) && !candidateIDs.contains($0)
-        }.count
-        guard retiredRequestedOwnerCount > 0 else {
-            return requestedCandidates
-        }
-        let requestedCandidateIDs = Set(requestedCandidates.map {
-            cmxCanonicalDeviceID($0.macDeviceID)
-        })
-        let replacements = candidates.lazy.filter { candidate in
-            let candidateID = cmxCanonicalDeviceID(candidate.macDeviceID)
-            return !existingControlIDs.contains(candidateID)
-                && !requestedCandidateIDs.contains(candidateID)
-        }.prefix(retiredRequestedOwnerCount)
-        return requestedCandidates + replacements
     }
 
     /// Foreground recovery owns its stored target before the reconnect task
@@ -6554,7 +6486,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     < cmxCanonicalDeviceID(rhs.macDeviceID)
             }
             return (lhs.instanceTag ?? "") < (rhs.instanceTag ?? "")
-        }.prefix(Self.maximumWarmControlConnectionCount))
+        })
     }
 
     private func isSecondaryMacOnlineInCurrentPresence(
@@ -6563,8 +6495,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     ) -> Bool {
         guard presence != nil else { return true }
         // Presence is snapshot-first. Before that snapshot absence is unknown,
-        // so keep candidates under the fixed pool cap. Afterward the snapshot
-        // is authoritative and an absent logical Mac is offline.
+        // so retain every visible candidate. Afterward the snapshot is
+        // authoritative and an absent logical Mac is offline.
         guard presenceMap.hasReceivedSnapshot else { return true }
         return presenceSummary(
             for: macDeviceID,
@@ -6737,8 +6669,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
               !secondaryMacConflictsWithForegroundOwnership(mac),
               secondaryMacSubscriptions[pairingKey] == nil,
               secondaryMacDrainReservation(onDeviceOf: pairingKey) == nil,
-              macConnectionRegistry.sessionCount
-                  < Self.maximumLiveMacConnectionCount,
               await isSecondaryMacStillVisible(
                   macID,
                   instanceTag: mac.instanceTag,
@@ -6843,11 +6773,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         )
         guard !secondaryMacConflictsWithForegroundOwnership(currentMac),
               secondaryMacDrainReservation(onDeviceOf: ownerKey) == nil,
-              macConnectionRegistry.insertControlIfAbsent(
-                  subscription,
-                  maximumControlCount:
-                      Self.maximumWarmControlConnectionCount
-              ) else {
+              macConnectionRegistry.insertControlIfAbsent(subscription) else {
             await disconnectSecondaryClientAndDrain(client)
             return .superseded
         }
@@ -9979,6 +9905,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         legacyTailscaleRoutes: [CmxAttachRoute] = [],
         userTailscalePairingAuthorizations: [CmxUserTailscalePairingAuthorization] = [],
         directOnlyDialCandidates: [CmxIrohDirectDialCandidate]? = nil,
+        resolvedConnectionMethod: MobileConnectionMethod? = nil,
         pairedMacDeviceID: String? = nil,
         instanceTagExpectation: MobileMacInstanceTagExpectation = .adopt,
         ifStillCurrent: (() -> Bool)? = nil
@@ -10026,12 +9953,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // candidates, because its selected route must remain Tailscale.
         // Stored reconnect callers already resolved Direct and supplied its
         // allowlist. Avoid rescanning every saved pairing in that hot path.
-        let resolvedMethod: MobileConnectionMethod? = directOnlyDialCandidates == nil
-            ? connectionMethod(
+        let resolvedMethod = resolvedConnectionMethod
+            ?? connectionMethod(
                 forMacDeviceID: requestedMacDeviceID ?? ticket.macDeviceID,
                 instanceTag: instanceTagExpectation.expectedTag
             )
-            : nil
         // User-entered Tailscale authorization is scoped to the exact fresh
         // pairing route it came from. It must not disable Direct's Iroh
         // allowlist merely because another route is authorized in the same
@@ -10058,6 +9984,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             legacyTailscaleRoutes: legacyTailscaleRoutes,
             userTailscalePairingAuthorizations: userTailscalePairingAuthorizations,
             directOnly: directOnlyDialCandidates != nil,
+            resolvedConnectionMethod: resolvedMethod,
             pairedMacDeviceID: requestedMacDeviceID,
             instanceTag: instanceTagExpectation.expectedTag
         )
@@ -10586,10 +10513,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                         let retainPreviousAsControl =
                             terminalStopped && !resolvesToSameMac
                                 ? await canRetainFocusedConnectionInControlPool(
-                                    previousFocusedConnection,
-                                    vacatingControlOwnerKey:
-                                        displacedControlReservations
-                                            .first?.ownerKey
+                                    previousFocusedConnection
                                 )
                                 : false
                         guard isConnectCurrent() else {
@@ -10831,6 +10755,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         legacyTailscaleRoutes: [CmxAttachRoute] = [],
         userTailscalePairingAuthorizations: [CmxUserTailscalePairingAuthorization] = [],
         directOnly: Bool = false,
+        resolvedConnectionMethod: MobileConnectionMethod? = nil,
         pairedMacDeviceID: String? = nil,
         instanceTag: String? = nil
     ) -> [CmxAttachRoute] {
@@ -10849,7 +10774,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
         // An explicit QR/manual entry is itself the authorization event.  Keep
         // the dial on the exact numeric Tailscale destination it named even
-        // when the app-wide method is Automatic, Iroh, or Tailscale Only.
+        // when the stored pairing method is Automatic or Tailscale Only.
         // `directOnly` is reserved for an already-paired Direct connection and
         // must remain the stronger, Iroh-only constraint.
         if !directOnly, !userTailscalePairingAuthorizations.isEmpty {
@@ -10870,11 +10795,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // The explicit Tailscale method is strict: only authorized Tailscale
         // destinations may be dialed, and an unavailable route leaves the app
         // disconnected instead of silently switching to Iroh. The method is
-        // the dialed Computer's own choice, falling back to the app default.
+        // the dialed Computer's own choice, defaulting to automatic.
         // Resolve it with the caller's pairing identity when one is known:
         // sibling builds share a device id but choose methods independently,
         // so a bare device lookup could apply the wrong build's method.
-        let ticketMethod = connectionMethod(
+        let ticketMethod = resolvedConnectionMethod ?? connectionMethod(
             forMacDeviceID: pairedMacDeviceID ?? ticket.macDeviceID,
             instanceTag: instanceTag
         )
@@ -11335,8 +11260,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     ) -> Bool {
         macConnectionRegistry.transitionToControl(
             subscription,
-            replacing: connection,
-            maximumControlCount: Self.maximumWarmControlConnectionCount
+            replacing: connection
         )
     }
 
@@ -11360,14 +11284,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         macConnectionRegistry.ownsClient(of: connection)
     }
 
-    /// A demoted foreground can enter the warm pool while the bounded live
-    /// session pool has room. The aggregation preference controls workspace
-    /// fan-out, not whether a successfully authenticated switched-away client
-    /// can remain warm. Account scope, hidden state, and presence still decide
-    /// whether that client is eligible to remain admitted.
+    /// A demoted foreground can remain a live control connection. The
+    /// aggregation preference controls workspace fan-out, while account scope,
+    /// hidden state, and presence decide whether the client remains eligible.
     func canRetainFocusedConnectionInControlPool(
-        _ connection: MacConnection,
-        vacatingControlOwnerKey: MacPairingKey? = nil
+        _ connection: MacConnection
     ) async -> Bool {
         guard let pairedMacStore,
               let scope = await currentScopeSnapshot(),
@@ -11390,14 +11311,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
               ) else {
             return false
         }
-        let alreadyHasControl = secondaryMacSubscriptions[
-            connection.ownerKey
-        ]?.client === connection.client
-        guard alreadyHasControl || hasWarmControlCapacity(
-            vacatingControlOwnerKey: vacatingControlOwnerKey
-        ) else {
-            return false
-        }
+        // Every visible, authorized Computer may retain a live control
+        // session. Hiding a Computer is the user's explicit way to stop that
+        // session, so no implicit session cap belongs here.
         // Some injected/legacy compositions have no live-presence service.
         // Their current scoped pairing is the only available eligibility
         // authority. Production compositions with presence remain online-only.
@@ -11407,18 +11323,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             for: stored.macDeviceID,
             instanceTag: stored.instanceTag
         )?.online == true
-    }
-
-    private func hasWarmControlCapacity(
-        vacatingControlOwnerKey: MacPairingKey?
-    ) -> Bool {
-        let vacatesControlSlot = vacatingControlOwnerKey.map { targetKey in
-            secondaryMacSubscriptions.keys.contains(targetKey)
-        } ?? false
-        return warmControlPoolHasCapacity(
-            currentControlCount: secondaryMacSubscriptions.count,
-            vacatesControlSlot: vacatesControlSlot
-        )
     }
 
     @discardableResult

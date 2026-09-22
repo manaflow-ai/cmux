@@ -9,6 +9,7 @@ import re
 import subprocess
 import sys
 from dataclasses import dataclass
+from functools import lru_cache
 from pathlib import Path
 from typing import Iterable, Optional
 
@@ -18,17 +19,19 @@ class ChangeAreas:
     macos: bool
     web: bool
     agent_session_web: bool
+    cli: bool
     release_build: bool
 
     @classmethod
     def all(cls) -> ChangeAreas:
-        return cls(macos=True, web=True, agent_session_web=True, release_build=True)
+        return cls(macos=True, web=True, agent_session_web=True, cli=True, release_build=True)
 
     def as_output_lines(self) -> list[str]:
         return [
             f"macos={bool_output(self.macos)}",
             f"web={bool_output(self.web)}",
             f"agent_session_web={bool_output(self.agent_session_web)}",
+            f"cli={bool_output(self.cli)}",
             f"release_build={bool_output(self.release_build)}",
         ]
 
@@ -48,6 +51,21 @@ CI_WORKFLOW_PATH = ".github/workflows/ci.yml"
 GUARD_WORKFLOW_PATH = ".github/workflows/ci-guards.yml"
 WEB_WORKFLOW_PATH = ".github/workflows/ci-web.yml"
 MACOS_WORKFLOW_PATH = ".github/workflows/ci-macos.yml"
+CLI_WORKFLOW_PATH = ".github/workflows/cli-pipe-regressions.yml"
+MACOS_XCODE_PROJECT_PATH = "cmux.xcodeproj/project.pbxproj"
+MACOS_PRODUCT_TARGET = "cmux"
+
+_LOCAL_PATH_DEPENDENCY_RE = re.compile(
+    r'\.package\(\s*(?:name:\s*"[^"]*"\s*,\s*)?path:\s*"([^"]+)"'
+)
+_LOCAL_PATH_DECLARATION_RE = re.compile(r"\.package\([^)]*\bpath\s*:", re.DOTALL)
+_PACKAGE_PRODUCT_RE = re.compile(
+    r'\.(?:library|executable|plugin)\s*\(\s*name:\s*"([^"]+)"',
+    re.DOTALL,
+)
+_PBX_OBJECT_RE = re.compile(
+    r"(?m)^[ \t]*([A-Za-z0-9]+)\s+/\*[^*]*\*/\s*=\s*\{([\s\S]*?)\};[ \t]*$"
+)
 
 
 def is_other_workflow_config(path: str) -> bool:
@@ -237,7 +255,47 @@ def is_guard_only_test(path: str, references: Optional[tuple[frozenset[str], fro
     return not any(path.startswith(reference) for reference in macos)
 
 
+SHARED_WEB_WORKFLOW_EXACT = frozenset({
+    "scripts/benchmark-diff-viewer.sh",
+    "scripts/build-diff-sidecar.sh",
+    "scripts/generate-diff-sidecar-types.sh",
+    "scripts/install-rust-ci.sh",
+    "scripts/run-diff-sidecar-cargo.sh",
+    "Sources/Panels/CmuxDiffViewerURLSchemeHandler.swift",
+    "Sources/Panels/DiffSidecarBridge.swift",
+})
+
+SHARED_WEB_WORKFLOW_PREFIXES = (
+    "Native/DiffSidecar/",
+    "Packages/macOS/CmuxBrowser/Sources/CmuxBrowser/DiffViewer/",
+)
+
+
+def is_cli_change(path: str) -> bool:
+    if path.startswith((
+        "CLI/",
+        "cmux.xcodeproj/",
+        "Packages/macOS/CmuxFoundation/",
+    )):
+        return True
+    return path in {
+        "tests/test_cli_broken_pipe_writes.py",
+        "tests/test_cli_socket_operation_deadline.py",
+        "tests/test_cli_config_doctor.py",
+        "tests/test_cli_glaeda_execution.py",
+        "tests/fixtures/glaeda-external-request.json",
+        "tests/fixtures/glaeda-external-result.json",
+        "scripts/generate-cmux-config-schema.py",
+        "web/data/cmux.schema.json",
+        CLI_WORKFLOW_PATH,
+    }
+
 def is_web_change(path: str) -> bool:
+    # The diff-sidecar validation lives in ci-web.yml even for native-only
+    # inputs. Mark those inputs web-routed explicitly so ordinary macOS changes
+    # do not need to wake the reusable web workflow.
+    if path in SHARED_WEB_WORKFLOW_EXACT or path.startswith(SHARED_WEB_WORKFLOW_PREFIXES):
+        return True
     if path.startswith(
         (
             "web/",
@@ -288,21 +346,321 @@ def is_agent_session_web_change(path: str) -> bool:
     }
 
 
-def is_macos_neutral(path: str) -> bool:
+def _pbx_section(project: str, name: str) -> str:
+    begin = f"/* Begin {name} section */"
+    end = f"/* End {name} section */"
+    if project.count(begin) != 1 or project.count(end) != 1:
+        raise ValueError(f"expected one {name} section")
+    start = project.index(begin) + len(begin)
+    finish = project.index(end, start)
+    return project[start:finish]
+
+
+def _pbx_objects(section: str) -> dict[str, str]:
+    objects: dict[str, str] = {}
+    for match in _PBX_OBJECT_RE.finditer(section):
+        identifier, body = match.groups()
+        if identifier in objects:
+            raise ValueError(f"duplicate pbx object {identifier}")
+        objects[identifier] = body
+    if not objects:
+        raise ValueError("pbx section contained no readable objects")
+    return objects
+
+
+def _pbx_field(body: str, field: str, *, required: bool = True) -> Optional[str]:
+    matches = re.findall(
+        rf"(?:^|;)\s*{re.escape(field)}\s*=\s*([^;]+);",
+        body,
+        flags=re.MULTILINE,
+    )
+    if len(matches) > 1:
+        raise ValueError(f"duplicate pbx field {field}")
+    if not matches:
+        if required:
+            raise ValueError(f"missing pbx field {field}")
+        return None
+    value = matches[0].strip()
+    if len(value) >= 2 and value[0] == value[-1] == '"':
+        value = value[1:-1]
+    return value
+
+
+def _pbx_reference_id(value: str) -> str:
+    match = re.fullmatch(r"([A-Za-z0-9]+)(?:\s+/\*[^*]*\*/)?", value.strip())
+    if match is None:
+        raise ValueError(f"unreadable pbx reference {value!r}")
+    return match.group(1)
+
+
+def _pbx_list_ids(body: str, field: str, *, required: bool = False) -> list[str]:
+    matches = re.findall(
+        rf"(?:^|;)\s*{re.escape(field)}\s*=\s*\(([\s\S]*?)\);",
+        body,
+        flags=re.MULTILINE,
+    )
+    if len(matches) > 1:
+        raise ValueError(f"duplicate pbx list {field}")
+    if not matches:
+        if required:
+            raise ValueError(f"missing pbx list {field}")
+        if re.search(
+            rf"(?:^|;)\s*{re.escape(field)}\s*=",
+            body,
+            flags=re.MULTILINE,
+        ):
+            raise ValueError(f"unreadable pbx list {field}")
+        return []
+    identifiers: list[str] = []
+    for entry in matches[0].split(","):
+        if not entry.strip():
+            continue
+        identifiers.append(_pbx_reference_id(entry))
+    return identifiers
+
+
+def _gitlink(root: Path, directory: str) -> bool:
+    try:
+        output = subprocess.check_output(
+            ["git", "-C", str(root), "ls-files", "--stage", "--", directory],
+            text=True,
+            stderr=subprocess.DEVNULL,
+        )
+    except (OSError, subprocess.CalledProcessError):
+        return False
+    for line in output.splitlines():
+        metadata, separator, indexed_path = line.partition("\t")
+        if separator and indexed_path == directory and metadata.split()[0] == "160000":
+            return True
+    return False
+
+
+def _repository_relative_directory(root: Path, directory: str, label: str) -> str:
+    repository = root.resolve()
+    resolved = (root / directory).resolve()
+    try:
+        relative = resolved.relative_to(repository)
+    except ValueError as error:
+        raise ValueError(f"{label} escapes repository: {directory}") from error
+    if not relative.parts:
+        raise ValueError(f"{label} cannot be the repository root")
+    return relative.as_posix()
+
+
+def _package_manifest(root: Path, directory: str) -> Optional[str]:
+    manifest = root / directory / "Package.swift"
+    try:
+        return manifest.read_text(encoding="utf-8")
+    except OSError:
+        if _gitlink(root, directory):
+            # Gitlinks are external package inputs. The routing checkout does not
+            # initialize them, and a Packages/iOS change cannot modify their tree.
+            return None
+        raise ValueError(f"missing package manifest: {directory}/Package.swift")
+
+
+def _local_path_dependencies(root: Path, directory: str, manifest: str) -> set[str]:
+    declarations = _LOCAL_PATH_DECLARATION_RE.findall(manifest)
+    relative_paths = _LOCAL_PATH_DEPENDENCY_RE.findall(manifest)
+    if len(declarations) != len(relative_paths):
+        raise ValueError(f"could not parse every local dependency in {directory}/Package.swift")
+
+    repository = root.resolve()
+    dependencies: set[str] = set()
+    for relative in relative_paths:
+        resolved = (root / directory / relative).resolve()
+        try:
+            dependency = resolved.relative_to(repository).as_posix()
+        except ValueError as error:
+            raise ValueError(
+                f"local dependency escapes repository: {directory} -> {relative}"
+            ) from error
+        dependencies.add(dependency)
+    return dependencies
+
+
+def _reachable_macos_target_products(project: str) -> list[str]:
+    native_targets = _pbx_objects(_pbx_section(project, "PBXNativeTarget"))
+    roots = [
+        identifier
+        for identifier, body in native_targets.items()
+        if _pbx_field(body, "name") == MACOS_PRODUCT_TARGET
+    ]
+    if len(roots) != 1:
+        raise ValueError(f"expected one {MACOS_PRODUCT_TARGET} native target")
+
+    target_dependencies: dict[str, str] = {}
+    dependency_ids = {
+        dependency
+        for body in native_targets.values()
+        for dependency in _pbx_list_ids(body, "dependencies")
+    }
+    if dependency_ids:
+        dependency_objects = _pbx_objects(_pbx_section(project, "PBXTargetDependency"))
+        for identifier in dependency_ids:
+            body = dependency_objects.get(identifier)
+            if body is None:
+                raise ValueError(f"missing target dependency {identifier}")
+            target = _pbx_reference_id(_pbx_field(body, "target"))
+            if target not in native_targets:
+                raise ValueError(f"target dependency {identifier} has no local native target")
+            target_dependencies[identifier] = target
+
+    products: list[str] = []
+    visited: set[str] = set()
+    pending = roots[:]
+    while pending:
+        target = pending.pop()
+        if target in visited:
+            continue
+        visited.add(target)
+        body = native_targets[target]
+        products.extend(_pbx_list_ids(body, "packageProductDependencies"))
+        for dependency in _pbx_list_ids(body, "dependencies"):
+            target = target_dependencies.get(dependency)
+            if target is None:
+                raise ValueError(f"unresolved target dependency {dependency}")
+            pending.append(target)
+    if not products:
+        raise ValueError(f"{MACOS_PRODUCT_TARGET} target reaches no package products")
+    return products
+
+
+def macos_ios_package_closure(root: Path) -> frozenset[str]:
+    """Return Packages/iOS package directories reachable by the macOS product.
+
+    Xcode's cmux target (plus native targets it depends on) supplies the local
+    Swift-package roots. Package.swift path dependencies supply every transitive
+    edge. Anything the lightweight parsers cannot prove is rejected so the
+    caller can keep conservative macOS routing.
+    """
+    project_path = root / MACOS_XCODE_PROJECT_PATH
+    project = project_path.read_text(encoding="utf-8")
+
+    local_references = _pbx_objects(_pbx_section(project, "XCLocalSwiftPackageReference"))
+    local_paths = {
+        identifier: _repository_relative_directory(
+            root,
+            _pbx_field(body, "relativePath"),
+            "Xcode local package path",
+        )
+        for identifier, body in local_references.items()
+    }
+    product_dependencies = _pbx_objects(
+        _pbx_section(project, "XCSwiftPackageProductDependency")
+    )
+
+    explicit_roots: set[str] = set()
+    unowned_products: set[str] = set()
+    for identifier in _reachable_macos_target_products(project):
+        body = product_dependencies.get(identifier)
+        if body is None:
+            raise ValueError(f"missing package product dependency {identifier}")
+        product_name = _pbx_field(body, "productName")
+        package_reference = _pbx_field(body, "package", required=False)
+        if package_reference is None:
+            unowned_products.add(product_name)
+            continue
+        package_path = local_paths.get(_pbx_reference_id(package_reference))
+        if package_path is None:
+            # The product belongs to an XCRemoteSwiftPackageReference.
+            continue
+        explicit_roots.add(package_path)
+
+    manifests: dict[str, Optional[str]] = {}
+
+    # Some hand-maintained Xcode product entries omit their package reference.
+    # Resolve those from the manifests of Xcode's local package references.
+    # Zero or multiple owners means the graph is ambiguous and must fail open.
+    local_package_paths = set(local_paths.values())
+    for product_name in unowned_products:
+        owners: list[str] = []
+        for directory in local_package_paths:
+            if directory not in manifests:
+                manifests[directory] = _package_manifest(root, directory)
+            manifest = manifests[directory]
+            if manifest is not None and product_name in _PACKAGE_PRODUCT_RE.findall(manifest):
+                owners.append(directory)
+        if len(owners) != 1:
+            raise ValueError(
+                f"could not uniquely resolve package product {product_name!r}: {owners}"
+            )
+        explicit_roots.add(owners[0])
+
+    if not explicit_roots:
+        raise ValueError("macOS target has no readable local package roots")
+
+    visited: set[str] = set()
+    pending = list(explicit_roots)
+    while pending:
+        directory = pending.pop()
+        if directory in visited:
+            continue
+        visited.add(directory)
+        if directory not in manifests:
+            manifests[directory] = _package_manifest(root, directory)
+        manifest = manifests[directory]
+        if manifest is None:
+            continue
+        for dependency in _local_path_dependencies(root, directory, manifest):
+            if dependency not in visited:
+                pending.append(dependency)
+
+    return frozenset(
+        directory for directory in visited if directory.startswith("Packages/iOS/")
+    )
+
+
+@lru_cache(maxsize=1)
+def load_macos_ios_package_closure() -> Optional[frozenset[str]]:
+    root = Path(__file__).resolve().parents[2]
+    try:
+        return macos_ios_package_closure(root)
+    except Exception as error:
+        print(
+            "Could not derive macOS local-package dependency closure; "
+            f"keeping Packages/iOS macOS-relevant: {error}",
+            file=sys.stderr,
+        )
+        return None
+
+
+def is_macos_neutral(
+    path: str,
+    macos_ios_packages: Optional[frozenset[str]],
+) -> bool:
     if path in CI_CONTROL_PLANE_ONLY:
         return True
-    # CmuxMobileShellUI and CmuxMobileShell are iOS-only packages whose Tests
-    # targets are exercised by test-ios.yml, not by the macOS Swift-package
-    # lane. Test-only edits here cannot affect desktop product bytes or macOS
-    # package tests.
+    # CLI/ is a standalone Xcode tool target with a dedicated required lane.
+    # App/shared source remains routed through app-host macOS CI.
+    if path.startswith("CLI/"):
+        return True
+    # Keep current-main's guaranteed iOS-only test carveouts even if the
+    # package graph cannot be parsed and the broader router fails open.
     if path.startswith((
         "Packages/iOS/CmuxMobileShellUI/Tests/",
         "Packages/iOS/CmuxMobileShell/Tests/",
     )):
         return True
+    # Agent instructions at any depth, and skill documentation. The app bundles
+    # skills/cmux-cua as a folder resource, and skill scripts and manifests are
+    # executable inputs, so only Markdown outside that folder is neutral.
+    if path.rsplit("/", 1)[-1] in {"CLAUDE.md", "AGENTS.md"}:
+        return True
+
+    if (
+        path.startswith("Packages/iOS/")
+        and macos_ios_packages is not None
+        and not any(
+            path == package or path.startswith(f"{package}/")
+            for package in macos_ios_packages
+        )
+    ):
+        return True
+
     # `cmux-tui/` is the standalone cmux-tui Rust project, gated by its own
-    # workflow. Packages/iOS stays macOS-relevant because the desktop app
-    # links CmuxMobileRPC, CmuxMobileTransport, and their package dependencies.
+    # workflow. Packages/iOS is decided above from the desktop package graph;
+    # an unknown graph deliberately falls through as macOS-relevant.
     if path.startswith(
         (
             "docs/",
@@ -317,15 +675,13 @@ def is_macos_neutral(path: str) -> bool:
         return True
     if path == "README.md" or (path.startswith("README.") and path.endswith(".md")):
         return True
-    # Agent instructions at any depth, and skill documentation. The app bundles
-    # skills/cmux-cua as a folder resource, and skill scripts and manifests are
-    # executable inputs, so only Markdown outside that folder is neutral.
-    if path.rsplit("/", 1)[-1] in {"CLAUDE.md", "AGENTS.md"}:
-        return True
     return path.startswith("skills/") and path.endswith(".md") and not path.startswith("skills/cmux-cua/")
 
 
-def is_macos_change(path: str) -> bool:
+def is_macos_change(
+    path: str,
+    macos_ios_packages: Optional[frozenset[str]],
+) -> bool:
     if path.startswith("webviews/src/agent-session/"):
         return True
     if path == "docs/cli-contract.md":
@@ -334,7 +690,7 @@ def is_macos_change(path: str) -> bool:
         return True
     if path.startswith(("Resources/agent-session-react/", "Resources/agent-session-solid/")):
         return True
-    return not is_macos_neutral(path)
+    return not is_macos_neutral(path, macos_ios_packages)
 
 
 _PACKAGE_TESTS_RE = re.compile(r"Packages/[^/]+/[^/]+/Tests/")
@@ -346,23 +702,41 @@ def is_test_only_source(path: str) -> bool:
     return path.startswith(("cmuxTests/", "cmuxUITests/")) or bool(_PACKAGE_TESTS_RE.match(path))
 
 
+RELEASE_BUILD_NEUTRAL_INPUTS = frozenset({
+    # Runtime script contents are copied into the app bundle; changing them does
+    # not exercise Swift/Release compilation. Their focused regression suite is
+    # the useful signal, so avoid paying for a universal app build.
+    "Resources/bin/open",
+    "tests/test_open_wrapper.py",
+})
+
+
+def is_release_build_neutral(path: str) -> bool:
+    return is_test_only_source(path) or path in RELEASE_BUILD_NEUTRAL_INPUTS
+
+
 def classify_files(paths: Iterable[str], *, ci_workflow_linux_only: bool = False) -> ChangeAreas:
     macos = False
     web = False
     agent_session_web = False
+    cli = False
     release_build = False
     test_references = load_macos_job_test_references()
+    macos_ios_packages = load_macos_ios_package_closure()
 
     for raw_path in paths:
         path = normalize_path(raw_path)
         if not path:
             continue
+        if is_cli_change(path):
+            cli = True
         if path == CI_WORKFLOW_PATH and ci_workflow_linux_only:
             continue
         if forces_all_areas(path):
             macos = True
             web = True
             agent_session_web = True
+            cli = True
             release_build = True
             continue
         if path in CI_MACOS_ADMISSION_CONTROL_INPUTS:
@@ -396,15 +770,16 @@ def classify_files(paths: Iterable[str], *, ci_workflow_linux_only: bool = False
             continue
         if is_agent_session_web_change(path):
             agent_session_web = True
-        if is_macos_change(path):
+        if is_macos_change(path, macos_ios_packages):
             macos = True
-            if not is_test_only_source(path):
+            if not is_release_build_neutral(path):
                 release_build = True
 
     return ChangeAreas(
         macos=macos,
         web=web,
         agent_session_web=agent_session_web,
+        cli=cli,
         release_build=release_build,
     )
 

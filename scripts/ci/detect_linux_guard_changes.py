@@ -28,6 +28,13 @@ HISTORY_INPUTS = {
 # Exact inputs of the Cloud skill coverage check in workflow-guard-tests.
 # New tests and skill files retain the conservative fallback until mapped.
 WORKFLOW_TEST_INPUTS = {
+    # Reusable workflow/control changes are exercised by workflow-guard-tests;
+    # they do not need the unrelated history, CLI, or source-lint jobs.
+    ".github/workflows/ci-macos.yml",
+    ".github/workflows/ci-web.yml",
+    ".github/workflows/web-complexity.yml",
+    ".github/workflows/web-complexity-trusted.yml",
+    "tests/test_web_complexity_trusted_workflow.py",
     "tests/test_prune_nightly_release_assets.py",
     "scripts/ci/build_input_fingerprint.py",
     "scripts/ci/find_admitted_build.py",
