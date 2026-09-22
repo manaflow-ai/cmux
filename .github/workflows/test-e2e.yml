@@ -129,7 +129,7 @@ jobs:
           # "cmuxTests/AlphaTests," would otherwise pass as a single selector
           # instead of failing the empty-entry check.
           case "$raw_filter" in
-            ,*|*,|*, )
+            ,*|*,)
               echo "::error::test_filter '$raw_filter' has a leading or trailing comma"
               exit 1
               ;;
