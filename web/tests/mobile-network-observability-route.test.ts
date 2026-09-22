@@ -63,6 +63,12 @@ describe("iOS mobile network observability route", () => {
         failure: "timedOut",
         transport: "iroh",
         client_channel: "nightly",
+        event_code: "transportDialFailed",
+        event_code_raw: 27,
+        event_surface: 8,
+        event_a: 1,
+        event_b: 2,
+        event_c: 7,
       }),
     ]));
 
@@ -77,6 +83,12 @@ describe("iOS mobile network observability route", () => {
       failure: "timedOut",
       transport: "iroh",
       clientChannel: "nightly",
+      eventCode: "transportDialFailed",
+      eventCodeRaw: 27,
+      eventSurface: 8,
+      eventA: 1,
+      eventB: 2,
+      eventC: 7,
     });
     expect(flushTimeouts).toEqual([1_000]);
   });
@@ -160,6 +172,24 @@ describe("iOS mobile network observability route", () => {
   test("rejects unknown properties instead of accepting user content", async () => {
     const response = await POST(outcomeRequest([
       outcome({ phase: "rpc_ready", outcome: "success", duration_ms: 10, message: "secret" }),
+    ]));
+
+    expect(response.status).toBe(400);
+    expect(emitted).toHaveLength(0);
+  });
+
+  test("rejects unbounded diagnostic payload slots", async () => {
+    const response = await POST(outcomeRequest([
+      outcome({ phase: "transport_dial", outcome: "failure", duration_ms: 10, event_a: -1 }),
+    ]));
+
+    expect(response.status).toBe(400);
+    expect(emitted).toHaveLength(0);
+  });
+
+  test("rejects unknown diagnostic event vocabulary", async () => {
+    const response = await POST(outcomeRequest([
+      outcome({ phase: "transport_dial", outcome: "failure", duration_ms: 10, event_code: "user_supplied" }),
     ]));
 
     expect(response.status).toBe(400);

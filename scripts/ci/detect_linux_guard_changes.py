@@ -4,7 +4,10 @@
 from __future__ import annotations
 
 import argparse
+import json
 from pathlib import Path
+
+from workflow_guard_groups import GROUPS, groups_for_path
 
 
 ROUTES = (
@@ -25,17 +28,33 @@ HISTORY_INPUTS = {
 # Exact inputs of the Cloud skill coverage check in workflow-guard-tests.
 # New tests and skill files retain the conservative fallback until mapped.
 WORKFLOW_TEST_INPUTS = {
+    # Reusable workflow/control changes are exercised by workflow-guard-tests;
+    # they do not need the unrelated history, CLI, or source-lint jobs.
+    ".github/workflows/ci-macos.yml",
+    ".github/workflows/ci-web.yml",
+    ".github/workflows/web-complexity.yml",
+    ".github/workflows/web-complexity-trusted.yml",
+    "tests/test_web_complexity_trusted_workflow.py",
     "scripts/ci/build_input_fingerprint.py",
     "scripts/ci/find_admitted_build.py",
     "scripts/ci/app_host_test_products.py",
     "scripts/ci/compile-app-host-test-product.sh",
     "scripts/ci/product_input_identity.py",
+    "scripts/ci/peer_product_source.py",
     "scripts/ci/restore-app-host-test-product.sh",
     "scripts/ci/reuse_app_host_products.py",
     "scripts/ci/sanitize-xcode-source-packages-cache.py",
     "scripts/ci/persistent_mac_route.py",
+    "scripts/ci/build_graph_health.py",
+    "tests/test_build_graph_health.py",
+    "scripts/ci/swift_incremental_diagnostics.py",
     "tests/test_ci_persistent_mac_compile.py",
+    "tests/test_swift_incremental_diagnostics.py",
     "tests/test_ci_self_hosted_guard.sh",
+    ".github/review-fabric-policy.json",
+    ".github/review-fabric.md",
+    ".github/scripts/review_fabric.py",
+    "tests/test_review_fabric.py",
     "tests/test_cloud_vm_skill_coverage.py",
     "skills/cmux-cloud-vm/SKILL.md",
     "skills/cmux-cloud-vm/references/commands.md",
@@ -92,6 +111,30 @@ def classify(paths: list[str], *, event: str, macos: str) -> dict[str, bool]:
     return routes
 
 
+def classify_test_groups(paths: list[str], *, event: str, macos: str) -> tuple[str, ...]:
+    """Select only workflow-guard-tests groups that can observe this diff."""
+    if event != "pull_request" or macos not in {"true", "false"} or not paths:
+        return GROUPS
+
+    selected: set[str] = set()
+    for path in paths:
+        if not path or path.startswith("/") or ".." in path.split("/"):
+            return GROUPS
+        if plain_documentation(path):
+            continue
+        owners = groups_for_path(path)
+        if owners is None:
+            return GROUPS
+        selected.update(owners)
+
+    # linux_guard_tests skips documentation-only diffs. Keep a valid non-empty
+    # matrix value available anyway so malformed callers cannot create an empty
+    # matrix-expansion failure.
+    if not selected:
+        return GROUPS
+    return tuple(group for group in GROUPS if group in selected)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--event-name", required=True)
@@ -102,8 +145,11 @@ def main() -> None:
         paths = args.files_from.read_text(encoding="utf-8").splitlines()
     except (OSError, UnicodeError):
         paths = []
-    for name, enabled in classify(paths, event=args.event_name, macos=args.macos).items():
+    routes = classify(paths, event=args.event_name, macos=args.macos)
+    for name, enabled in routes.items():
         print(f"{name}={'true' if enabled else 'false'}")
+    groups = classify_test_groups(paths, event=args.event_name, macos=args.macos)
+    print(f"linux_guard_test_groups={json.dumps(groups, separators=(',', ':'))}")
 
 
 if __name__ == "__main__":

@@ -58,15 +58,36 @@ jobs:
       product_contract: ${{ steps.product-key.outputs.key }}
       source_revision: ${{ github.sha }}
       producer_run_id: ${{ github.run_id }}
+      producer_run_attempt: ${{ github.run_attempt }}
     env:
       CMUX_NODE_PRODUCT_CACHE_ROOT: ${{ vars.CMUX_NODE_PRODUCT_CACHE_ROOT }}
       CMUX_NODE_PRODUCT_CACHE_MAX_BYTES: ${{ vars.CMUX_NODE_PRODUCT_CACHE_MAX_BYTES }}
       CMUX_NODE_PRODUCT_CACHE_WAIT_SECONDS: ${{ vars.CMUX_NODE_PRODUCT_CACHE_WAIT_SECONDS }}
+      CMUX_ARTIFACT_PEER_URLS: ${{ vars.CMUX_ARTIFACT_PEER_URLS }}
+      CMUX_ARTIFACT_PEER_TOKEN_FILE: ${{ vars.CMUX_ARTIFACT_PEER_TOKEN_FILE }}
       CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_15 }}
       CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
       CMUX_SKIP_ZIG_BUILD: "1"
       CMUX_PRODUCT_RUNNER: ${{ vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15' }}
     steps:
+      - name: Reject stale pull request rerun
+        if: ${{ github.event_name == 'pull_request' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          RUN_ID: ${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          run_head="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID" --jq '.head_sha' 2>/dev/null || true)"
+          current_head="$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER" --jq '.head.sha' 2>/dev/null || true)"
+          if [ -z "$run_head" ] || [ -z "$current_head" ]; then
+            echo "Could not resolve run/PR head identity; continuing with normal CI."
+            exit 0
+          fi
+          if [ "$current_head" != "$run_head" ]; then
+            echo "Refusing stale PR run: run head $run_head; current head $current_head." >&2
+            exit 1
+          fi
       - name: Start compile admission timers
         run: |
           now="$(python3 -c 'import time; print(time.monotonic())')"
@@ -434,16 +455,48 @@ jobs:
         id: hosted-compile
         if: steps.reuse-products.outputs.hit != 'true' && steps.persistent-restore.outputs.hit != 'true'
         run: |
-          set -euo pipefail
+          set -uo pipefail
           started="$(python3 -c 'import time; print(time.monotonic())')"
           scripts/ci/compile-app-host-test-product.sh build \
             "$CMUX_COMPILE_ADMISSION_DERIVED_DATA" \
             "$PWD/.ci-source-packages" \
             "$CMUX_COMPILE_ADMISSION_CAS" \
             "$RUNNER_TEMP/cmux-compile-admission.txt"
+          status=$?
           finished="$(python3 -c 'import time; print(time.monotonic())')"
           seconds="$(python3 -c 'import sys; print(round(float(sys.argv[2])-float(sys.argv[1]), 6))' "$started" "$finished")"
           echo "seconds=$seconds" >> "$GITHUB_OUTPUT"
+          exit "$status"
+
+      - name: Generate Xcode build metrics receipt
+        id: build-metrics
+        if: always() && !cancelled() && steps.hosted-compile.outcome != 'skipped'
+        continue-on-error: true
+        env:
+          HOSTED_COMPILE_SECONDS: ${{ steps.hosted-compile.outputs.seconds }}
+          HOSTED_COMPILE_OUTCOME: ${{ steps.hosted-compile.outcome }}
+        run: |
+          set -euo pipefail
+          args=(
+            "$CMUX_COMPILE_ADMISSION_DERIVED_DATA"
+            --output "$RUNNER_TEMP/xcode-build-metrics.json"
+            --compile-outcome "$HOSTED_COMPILE_OUTCOME"
+            --summary "$GITHUB_STEP_SUMMARY"
+          )
+          if [ -n "$HOSTED_COMPILE_SECONDS" ]; then
+            args+=(--compile-seconds "$HOSTED_COMPILE_SECONDS")
+          fi
+          python3 scripts/ci/build_metrics.py "${args[@]}"
+
+      - name: Upload Xcode build metrics receipt
+        if: always() && !cancelled() && steps.build-metrics.outcome == 'success'
+        continue-on-error: true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: xcode-build-metrics-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/xcode-build-metrics.json
+          retention-days: 14
+          if-no-files-found: ignore
 
       - name: Validate Swift warning budget
         id: warning-validation
@@ -680,6 +733,7 @@ jobs:
           CMUX_PRODUCT_CONTRACT: ${{ steps.product-key.outputs.key }}
           CMUX_PRODUCT_SOURCE_REVISION: ${{ github.sha }}
           CMUX_PRODUCT_PRODUCER_RUN_ID: ${{ github.run_id }}
+          CMUX_PRODUCT_PRODUCER_RUN_ATTEMPT: ${{ github.run_attempt }}
         run: python3 scripts/ci/node_product_cache.py seed "$RUNNER_TEMP/app-host-products.tar.gz"
 
   app-host-unit-tests:
@@ -712,6 +766,8 @@ jobs:
       CMUX_NODE_PRODUCT_CACHE_ROOT: ${{ vars.CMUX_NODE_PRODUCT_CACHE_ROOT }}
       CMUX_NODE_PRODUCT_CACHE_MAX_BYTES: ${{ vars.CMUX_NODE_PRODUCT_CACHE_MAX_BYTES }}
       CMUX_NODE_PRODUCT_CACHE_WAIT_SECONDS: ${{ vars.CMUX_NODE_PRODUCT_CACHE_WAIT_SECONDS }}
+      CMUX_ARTIFACT_PEER_URLS: ${{ vars.CMUX_ARTIFACT_PEER_URLS }}
+      CMUX_ARTIFACT_PEER_TOKEN_FILE: ${{ vars.CMUX_ARTIFACT_PEER_TOKEN_FILE }}
       # This independent job-level marker makes every app-host wrapper fail
       # closed if a setup step or environment handoff loses either redirect.
       CMUX_CI_APP_HOST_ISOLATION_REQUIRED: "1"
@@ -858,12 +914,29 @@ jobs:
           CMUX_PRODUCT_CONTRACT: ${{ needs.macos-compile-admission.outputs.product_contract }}
           CMUX_PRODUCT_SOURCE_REVISION: ${{ needs.macos-compile-admission.outputs.source_revision }}
           CMUX_PRODUCT_PRODUCER_RUN_ID: ${{ needs.macos-compile-admission.outputs.producer_run_id }}
-          CMUX_NODE_PRODUCT_CACHE_FALLBACK_SOURCE: ${{ vars.CI_ARTIFACT_R2_URL != '' && 'r2' || 'github' }}
+          CMUX_PRODUCT_PRODUCER_RUN_ATTEMPT: ${{ needs.macos-compile-admission.outputs.producer_run_attempt }}
+          CMUX_NODE_PRODUCT_CACHE_FALLBACK_SOURCE: ${{ vars.CMUX_ARTIFACT_PEER_URLS != '' && 'peer' || (vars.CI_ARTIFACT_R2_URL != '' && 'r2' || 'github') }}
         run: python3 scripts/ci/node_product_cache.py acquire "$RUNNER_TEMP/app-host-products"
 
+      - name: Try trusted fleet peer artifact source
+        id: peer-products
+        if: steps.node-products.outputs.hit != 'true'
+        continue-on-error: true
+        env:
+          ARTIFACT_ID: ${{ needs.macos-compile-admission.outputs.artifact_id }}
+          ARTIFACT_PROVIDER_DIGEST: ${{ needs.macos-compile-admission.outputs.artifact_digest }}
+          EXPECTED_SHA256: ${{ needs.macos-compile-admission.outputs.sha256 }}
+          CMUX_PRODUCT_CONTRACT: ${{ needs.macos-compile-admission.outputs.product_contract }}
+          CMUX_PRODUCT_SOURCE_REVISION: ${{ needs.macos-compile-admission.outputs.source_revision }}
+          CMUX_PRODUCT_PRODUCER_RUN_ID: ${{ needs.macos-compile-admission.outputs.producer_run_id }}
+          CMUX_PRODUCT_PRODUCER_RUN_ATTEMPT: ${{ needs.macos-compile-admission.outputs.producer_run_attempt }}
+        run: python3 scripts/ci/peer_product_source.py fetch "$RUNNER_TEMP/app-host-products"
+
+      # R2 is an optional remote broker. With no configured endpoint, a peer
+      # miss falls straight through to the canonical GitHub artifact.
       - name: Try shared R2 artifact transport
         id: r2-products
-        if: steps.node-products.outputs.hit != 'true'
+        if: steps.node-products.outputs.hit != 'true' && steps.peer-products.outputs.hit != 'true' && vars.CI_ARTIFACT_R2_URL != ''
         continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
@@ -873,7 +946,7 @@ jobs:
         run: python3 scripts/ci/restore-r2-artifact.py
 
       - name: Download compiled app-host test product
-        if: steps.node-products.outputs.hit != 'true' && steps.r2-products.outputs.hit != 'true'
+        if: steps.node-products.outputs.hit != 'true' && steps.peer-products.outputs.hit != 'true' && steps.r2-products.outputs.hit != 'true'
         uses: ./.github/actions/download-test-product
         with:
           artifact-id: ${{ needs.macos-compile-admission.outputs.artifact_id }}
@@ -882,9 +955,20 @@ jobs:
       - name: Restore compiled app-host test product
         id: restore-products
         env:
+          ARTIFACT_ID: ${{ needs.macos-compile-admission.outputs.artifact_id }}
+          ARTIFACT_PROVIDER_DIGEST: ${{ needs.macos-compile-admission.outputs.artifact_digest }}
           EXPECTED_SHA256: ${{ needs.macos-compile-admission.outputs.sha256 }}
+          CMUX_PRODUCT_CONTRACT: ${{ needs.macos-compile-admission.outputs.product_contract }}
+          CMUX_PRODUCT_SOURCE_REVISION: ${{ needs.macos-compile-admission.outputs.source_revision }}
+          CMUX_PRODUCT_PRODUCER_RUN_ID: ${{ needs.macos-compile-admission.outputs.producer_run_id }}
+          CMUX_PRODUCT_PRODUCER_RUN_ATTEMPT: ${{ needs.macos-compile-admission.outputs.producer_run_attempt }}
           CMUX_NODE_PRODUCT_CACHE_HIT: ${{ steps.node-products.outputs.hit }}
           CMUX_NODE_PRODUCT_CACHE_LOOKUP_SECONDS: ${{ steps.node-products.outputs.lookup_seconds }}
+          CMUX_PEER_PRODUCT_HIT: ${{ steps.peer-products.outputs.hit }}
+          CMUX_PEER_PRODUCT_LOOKUP_SECONDS: ${{ steps.peer-products.outputs.lookup_seconds }}
+          CMUX_PEER_PRODUCT_TRANSFER_SECONDS: ${{ steps.peer-products.outputs.transfer_seconds }}
+          CMUX_PEER_PRODUCT_BYTES: ${{ steps.peer-products.outputs.bytes_transferred }}
+          CMUX_R2_PRODUCT_HIT: ${{ steps.r2-products.outputs.hit }}
         run: scripts/ci/restore-app-host-test-product.sh
 
       - name: Finalize node-local compiled product cache
@@ -898,9 +982,10 @@ jobs:
           CMUX_PRODUCT_CONTRACT: ${{ needs.macos-compile-admission.outputs.product_contract }}
           CMUX_PRODUCT_SOURCE_REVISION: ${{ needs.macos-compile-admission.outputs.source_revision }}
           CMUX_PRODUCT_PRODUCER_RUN_ID: ${{ needs.macos-compile-admission.outputs.producer_run_id }}
+          CMUX_PRODUCT_PRODUCER_RUN_ATTEMPT: ${{ needs.macos-compile-admission.outputs.producer_run_attempt }}
           CMUX_NODE_PRODUCT_CACHE_TOKEN: ${{ steps.node-products.outputs.token }}
           CMUX_NODE_PRODUCT_CACHE_LEASE: ${{ steps.node-products.outputs.lease }}
-          CMUX_NODE_PRODUCT_SOURCE_CLASS: ${{ steps.r2-products.outputs.hit == 'true' && 'r2' || 'github' }}
+          CMUX_NODE_PRODUCT_SOURCE_CLASS: ${{ steps.peer-products.outputs.hit == 'true' && 'peer' || (steps.r2-products.outputs.hit == 'true' && 'r2' || 'github') }}
           CMUX_PRODUCT_RESTORE_SUCCEEDED: ${{ steps.restore-products.outcome == 'success' }}
         run: python3 scripts/ci/node_product_cache.py finalize "$RUNNER_TEMP/app-host-products/app-host-products.tar.gz"
 
@@ -2012,6 +2097,7 @@ jobs:
           python3 tests/test_issue_8093_ghostty_ssh_binary_path.py
           python3 tests/test_issue_6714_zsh_shim_noclobber.py
           python3 tests/test_issue_9356_bash_shim_noclobber.py
+          python3 tests/test_issue_13343_claude_integration_toggle.py
           python3 tests/test_issue_8953_zsh_prompt_wrap_guard.py
           python3 tests/test_nushell_shim_path_refront.py
           python3 tests/test_nushell_resume_command_dialect.py
@@ -2526,6 +2612,8 @@ jobs:
       CMUX_NODE_PRODUCT_CACHE_ROOT: ${{ vars.CMUX_NODE_PRODUCT_CACHE_ROOT }}
       CMUX_NODE_PRODUCT_CACHE_MAX_BYTES: ${{ vars.CMUX_NODE_PRODUCT_CACHE_MAX_BYTES }}
       CMUX_NODE_PRODUCT_CACHE_WAIT_SECONDS: ${{ vars.CMUX_NODE_PRODUCT_CACHE_WAIT_SECONDS }}
+      CMUX_ARTIFACT_PEER_URLS: ${{ vars.CMUX_ARTIFACT_PEER_URLS }}
+      CMUX_ARTIFACT_PEER_TOKEN_FILE: ${{ vars.CMUX_ARTIFACT_PEER_TOKEN_FILE }}
       CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_15 }}
       CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
     steps:
@@ -2594,12 +2682,29 @@ jobs:
           CMUX_PRODUCT_CONTRACT: ${{ needs.macos-compile-admission.outputs.product_contract }}
           CMUX_PRODUCT_SOURCE_REVISION: ${{ needs.macos-compile-admission.outputs.source_revision }}
           CMUX_PRODUCT_PRODUCER_RUN_ID: ${{ needs.macos-compile-admission.outputs.producer_run_id }}
-          CMUX_NODE_PRODUCT_CACHE_FALLBACK_SOURCE: ${{ vars.CI_ARTIFACT_R2_URL != '' && 'r2' || 'github' }}
+          CMUX_PRODUCT_PRODUCER_RUN_ATTEMPT: ${{ needs.macos-compile-admission.outputs.producer_run_attempt }}
+          CMUX_NODE_PRODUCT_CACHE_FALLBACK_SOURCE: ${{ vars.CMUX_ARTIFACT_PEER_URLS != '' && 'peer' || (vars.CI_ARTIFACT_R2_URL != '' && 'r2' || 'github') }}
         run: python3 scripts/ci/node_product_cache.py acquire "$RUNNER_TEMP/app-host-products"
 
+      - name: Try trusted fleet peer artifact source
+        id: peer-products
+        if: steps.node-products.outputs.hit != 'true'
+        continue-on-error: true
+        env:
+          ARTIFACT_ID: ${{ needs.macos-compile-admission.outputs.artifact_id }}
+          ARTIFACT_PROVIDER_DIGEST: ${{ needs.macos-compile-admission.outputs.artifact_digest }}
+          EXPECTED_SHA256: ${{ needs.macos-compile-admission.outputs.sha256 }}
+          CMUX_PRODUCT_CONTRACT: ${{ needs.macos-compile-admission.outputs.product_contract }}
+          CMUX_PRODUCT_SOURCE_REVISION: ${{ needs.macos-compile-admission.outputs.source_revision }}
+          CMUX_PRODUCT_PRODUCER_RUN_ID: ${{ needs.macos-compile-admission.outputs.producer_run_id }}
+          CMUX_PRODUCT_PRODUCER_RUN_ATTEMPT: ${{ needs.macos-compile-admission.outputs.producer_run_attempt }}
+        run: python3 scripts/ci/peer_product_source.py fetch "$RUNNER_TEMP/app-host-products"
+
+      # R2 is an optional remote broker. With no configured endpoint, a peer
+      # miss falls straight through to the canonical GitHub artifact.
       - name: Try shared R2 artifact transport
         id: r2-products
-        if: steps.node-products.outputs.hit != 'true'
+        if: steps.node-products.outputs.hit != 'true' && steps.peer-products.outputs.hit != 'true' && vars.CI_ARTIFACT_R2_URL != ''
         continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
@@ -2609,7 +2714,7 @@ jobs:
         run: python3 scripts/ci/restore-r2-artifact.py
 
       - name: Download compiled app-host test product
-        if: steps.node-products.outputs.hit != 'true' && steps.r2-products.outputs.hit != 'true'
+        if: steps.node-products.outputs.hit != 'true' && steps.peer-products.outputs.hit != 'true' && steps.r2-products.outputs.hit != 'true'
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
           artifact-ids: ${{ needs.macos-compile-admission.outputs.artifact_id }}
@@ -2619,9 +2724,20 @@ jobs:
       - name: Restore compiled app-host test product
         id: restore-products
         env:
+          ARTIFACT_ID: ${{ needs.macos-compile-admission.outputs.artifact_id }}
+          ARTIFACT_PROVIDER_DIGEST: ${{ needs.macos-compile-admission.outputs.artifact_digest }}
           EXPECTED_SHA256: ${{ needs.macos-compile-admission.outputs.sha256 }}
+          CMUX_PRODUCT_CONTRACT: ${{ needs.macos-compile-admission.outputs.product_contract }}
+          CMUX_PRODUCT_SOURCE_REVISION: ${{ needs.macos-compile-admission.outputs.source_revision }}
+          CMUX_PRODUCT_PRODUCER_RUN_ID: ${{ needs.macos-compile-admission.outputs.producer_run_id }}
+          CMUX_PRODUCT_PRODUCER_RUN_ATTEMPT: ${{ needs.macos-compile-admission.outputs.producer_run_attempt }}
           CMUX_NODE_PRODUCT_CACHE_HIT: ${{ steps.node-products.outputs.hit }}
           CMUX_NODE_PRODUCT_CACHE_LOOKUP_SECONDS: ${{ steps.node-products.outputs.lookup_seconds }}
+          CMUX_PEER_PRODUCT_HIT: ${{ steps.peer-products.outputs.hit }}
+          CMUX_PEER_PRODUCT_LOOKUP_SECONDS: ${{ steps.peer-products.outputs.lookup_seconds }}
+          CMUX_PEER_PRODUCT_TRANSFER_SECONDS: ${{ steps.peer-products.outputs.transfer_seconds }}
+          CMUX_PEER_PRODUCT_BYTES: ${{ steps.peer-products.outputs.bytes_transferred }}
+          CMUX_R2_PRODUCT_HIT: ${{ steps.r2-products.outputs.hit }}
         run: scripts/ci/restore-app-host-test-product.sh
 
       - name: Finalize node-local compiled product cache
@@ -2635,9 +2751,10 @@ jobs:
           CMUX_PRODUCT_CONTRACT: ${{ needs.macos-compile-admission.outputs.product_contract }}
           CMUX_PRODUCT_SOURCE_REVISION: ${{ needs.macos-compile-admission.outputs.source_revision }}
           CMUX_PRODUCT_PRODUCER_RUN_ID: ${{ needs.macos-compile-admission.outputs.producer_run_id }}
+          CMUX_PRODUCT_PRODUCER_RUN_ATTEMPT: ${{ needs.macos-compile-admission.outputs.producer_run_attempt }}
           CMUX_NODE_PRODUCT_CACHE_TOKEN: ${{ steps.node-products.outputs.token }}
           CMUX_NODE_PRODUCT_CACHE_LEASE: ${{ steps.node-products.outputs.lease }}
-          CMUX_NODE_PRODUCT_SOURCE_CLASS: ${{ steps.r2-products.outputs.hit == 'true' && 'r2' || 'github' }}
+          CMUX_NODE_PRODUCT_SOURCE_CLASS: ${{ steps.peer-products.outputs.hit == 'true' && 'peer' || (steps.r2-products.outputs.hit == 'true' && 'r2' || 'github') }}
           CMUX_PRODUCT_RESTORE_SUCCEEDED: ${{ steps.restore-products.outcome == 'success' }}
         run: python3 scripts/ci/node_product_cache.py finalize "$RUNNER_TEMP/app-host-products/app-host-products.tar.gz"
 
@@ -2811,14 +2928,85 @@ jobs:
           scripts/ci/virtual-display-lock.sh release || true
           rm -f "${VDISPLAY_HELPER_PATH:-}" "${VDISPLAY_READY:-}" "${VDISPLAY_ID_PATH:-}" "${VDISPLAY_LOG:-}"
 
+  release-admission:
+    needs:
+      - swift-package-tests
+      - macos-compile-admission
+    if: ${{ !cancelled() && needs.swift-package-tests.result == 'success' && needs.macos-compile-admission.result == 'success' && inputs.release_build == 'true' && inputs.full_suite == 'true' }}
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 20
+    steps:
+      - name: Wait for routed Linux preflight
+        env:
+          API_URL: ${{ github.api_url }}
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          RUN_ID: ${{ github.run_id }}
+          TARGET_JOB: "linux-preflight"
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          import sys
+          import time
+          import urllib.error
+          import urllib.request
+
+          api_url = os.environ["API_URL"].rstrip("/")
+          token = os.environ["GH_TOKEN"]
+          repository = os.environ["REPOSITORY"]
+          run_id = os.environ["RUN_ID"]
+          target_job = os.environ["TARGET_JOB"]
+          url = f"{api_url}/repos/{repository}/actions/runs/{run_id}/jobs?filter=latest&per_page=100"
+          headers = {
+              "Accept": "application/vnd.github+json",
+              "Authorization": f"Bearer {token}",
+              "User-Agent": "cmux-ci-release-admission",
+              "X-GitHub-Api-Version": "2022-11-28",
+          }
+
+          last_state = "job has not appeared yet"
+          for attempt in range(210):
+              request = urllib.request.Request(url, headers=headers)
+              try:
+                  with urllib.request.urlopen(request, timeout=30) as response:
+                      jobs = json.load(response).get("jobs", [])
+              except (OSError, urllib.error.URLError, json.JSONDecodeError) as exc:
+                  last_state = f"GitHub API error: {exc}"
+              else:
+                  target = next((job for job in jobs if job.get("name") == target_job), None)
+                  if target is None:
+                      last_state = "job has not appeared yet"
+                  else:
+                      status = target.get("status")
+                      conclusion = target.get("conclusion")
+                      last_state = f"status={status} conclusion={conclusion}"
+                      if status == "completed":
+                          if conclusion == "success":
+                              print(f"{target_job} passed; admitting Release build")
+                              sys.exit(0)
+                          print(
+                              f"{target_job} completed with {conclusion}; blocking Release build",
+                              file=sys.stderr,
+                          )
+                          sys.exit(1)
+
+              if attempt % 12 == 0:
+                  print(f"Waiting for {target_job}: {last_state}")
+              time.sleep(5)
+
+          print(f"Timed out waiting for {target_job}: {last_state}", file=sys.stderr)
+          sys.exit(1)
+          PY
+
   release-build:
     needs:
       - swift-package-tests
       - macos-compile-admission
-    # See app-host-unit-tests: explicit direct-needs gate instead of the
-    # implicit success() so skipped routed linux jobs upstream of
-    # linux-preflight do not skip this job transitively.
-    if: ${{ !cancelled() && needs.swift-package-tests.result == 'success' && needs.macos-compile-admission.result == 'success' && inputs.release_build == 'true' && inputs.full_suite == 'true' }}
+      - release-admission
+    # Keep the universal Release compile behind both its macOS prerequisites
+    # and the routed Linux verdict so a red guard never launches the paid runner.
+    if: ${{ !cancelled() && needs.swift-package-tests.result == 'success' && needs.macos-compile-admission.result == 'success' && needs.release-admission.result == 'success' && inputs.release_build == 'true' && inputs.full_suite == 'true' }}
     # Compile the same unsigned universal Release app that nightly builds before
     # signing, notarization, and publishing. This catches DEBUG/Release boundary
     # mistakes before they reach main.
@@ -2996,6 +3184,7 @@ jobs:
       - app-host-unit-tests
       - swift-package-tests
       - tests-build-and-lag
+      - release-admission
       - release-build
     if: ${{ always() }}
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
@@ -3025,6 +3214,7 @@ jobs:
               "app-host-unit-tests": macos and full_suite,
               "swift-package-tests": macos and full_suite,
               "tests-build-and-lag": macos and full_suite,
+              "release-admission": macos and full_suite and inputs["release_build"] == "true",
               "release-build": macos and full_suite and inputs["release_build"] == "true",
           }
           bad = {}

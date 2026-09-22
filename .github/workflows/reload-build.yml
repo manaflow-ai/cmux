@@ -17,7 +17,7 @@ on:
         required: true
         type: string
       ref:
-        description: Source ref to build (branch or SHA). Defaults to the dispatch ref.
+        description: Source ref to build (branch, tag, full SHA, or short SHA). Defaults to the dispatch ref.
         required: false
         default: ""
         type: string
@@ -70,7 +70,13 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  resolve-ref:
+    uses: ./.github/workflows/resolve-dispatch-ref.yml
+    with:
+      ref: ${{ inputs.ref }}
+
   build:
+    needs: resolve-ref
     # Depot is retired for cmux builds. Legacy Depot requests use Blacksmith.
     runs-on: ${{ startsWith(inputs.runner, 'depot-') && 'blacksmith-6vcpu-macos-26' || inputs.runner }}
     timeout-minutes: 60
@@ -87,7 +93,7 @@ jobs:
       - name: Checkout source ref
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          ref: ${{ inputs.ref || github.ref }}
+          ref: ${{ needs.resolve-ref.outputs.sha }}
           submodules: recursive
           persist-credentials: false
 

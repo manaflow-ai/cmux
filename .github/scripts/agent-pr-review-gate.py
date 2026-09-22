@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Read and optionally gate the review obligations for an opted-in agent PR."""
+"""Request automated review and optionally gate review obligations for a PR."""
 from __future__ import annotations
 
 import datetime as dt
@@ -19,7 +19,7 @@ INFO_PREFIXES = ("review limit reached", "review in progress")
 UNAVAILABLE_PREFIXES = INFO_PREFIXES + ("bugbot is paused",)
 GREPTILE_SUMMARY_MARKER = "<!-- greptile_summary -->"
 GREPTILE_REQUEST_MARKER = "<!-- cmux-greptile-review-request:{head} -->"
-GREPTILE_TRIGGER = "@greptile review"
+GREPTILE_TRIGGER = "@greptileai review"
 
 
 def parse_time(value: str | None) -> dt.datetime:
@@ -164,11 +164,75 @@ def greptile_check_running(head: str) -> bool:
     return False
 
 
-def request_greptile_review(pr: dict[str, Any]) -> str:
-    """Post at most one trusted Greptile review request for each opted-in PR head."""
-    if OPT_IN_MARKER not in str(pr.get("body") or ""):
-        return "not-opted-in"
+def github_rest_pages(path: str) -> list[dict[str, Any]]:
+    """Fetch a simple REST collection across all pages."""
+    result: list[dict[str, Any]] = []
+    page = 1
+    while True:
+        separator = "&" if "?" in path else "?"
+        batch = github_rest("GET", f"{path}{separator}per_page=100&page={page}") or []
+        if not isinstance(batch, list):
+            raise RuntimeError("GitHub REST collection response is invalid")
+        result.extend(batch)
+        if len(batch) < 100:
+            return result
+        page += 1
 
+
+def request_pr_from_event() -> dict[str, Any]:
+    """Build the minimal request context directly from pull_request_target."""
+    event_path = os.environ.get("GITHUB_EVENT_PATH")
+    event = json.load(open(event_path, encoding="utf-8")) if event_path else {}
+    payload = event.get("pull_request") or {}
+    number = payload.get("number") or event.get("number")
+    head = str((payload.get("head") or {}).get("sha") or "")
+    if not number or not head:
+        raise RuntimeError("pull_request_target number and head SHA are required")
+    return {
+        "number": int(number),
+        "headRefOid": head,
+        "author": payload.get("user") or {},
+    }
+
+
+def hydrate_request_review_evidence(pr: dict[str, Any]) -> dict[str, Any]:
+    """Load only the REST data needed to dedupe/request Greptile review."""
+    number = int(pr.get("number") or 0)
+    if not number:
+        raise RuntimeError("pull request number is required")
+
+    hydrated = dict(pr)
+    if "comments" not in hydrated:
+        issue_comments = github_rest_pages(f"issues/{number}/comments")
+        hydrated["comments"] = {
+            "nodes": [
+                {
+                    "author": comment.get("user") or {},
+                    "body": comment.get("body") or "",
+                    "createdAt": comment.get("created_at"),
+                    "updatedAt": comment.get("updated_at"),
+                }
+                for comment in issue_comments
+            ]
+        }
+    if "reviews" not in hydrated:
+        reviews = github_rest_pages(f"pulls/{number}/reviews")
+        hydrated["reviews"] = {
+            "nodes": [
+                {
+                    "author": review.get("user") or {},
+                    "state": str(review.get("state") or "").upper(),
+                    "commit": {"oid": review.get("commit_id")},
+                }
+                for review in reviews
+            ]
+        }
+    return hydrated
+
+
+def request_greptile_review(pr: dict[str, Any]) -> str:
+    """Post at most one trusted Greptile review request for each PR head."""
+    pr = hydrate_request_review_evidence(pr)
     head = str(pr.get("headRefOid") or "")
     number = int(pr.get("number") or 0)
     if not head or not number:
@@ -472,6 +536,12 @@ def ledger_report(pr: dict[str, Any], bots: tuple[str, ...], actors: tuple[str, 
 
 def main() -> int:
     try:
+        if "--request-greptile" in sys.argv[1:]:
+            pr = request_pr_from_event()
+            state = request_greptile_review(pr)
+            print(f"agent-pr-review-greptile: {state}")
+            return 0
+
         pr = fetch_pr()
         bots = tuple(
             bot.strip().lower()
@@ -479,11 +549,6 @@ def main() -> int:
             if bot.strip()
         )
         actors = configured_reply_actors(pr)
-        if "--request-greptile" in sys.argv[1:]:
-            state = request_greptile_review(pr)
-            print(f"agent-pr-review-greptile: {state}")
-            return 0
-
         triage_items = obligations(pr, bots, actors)
         passed, reasons, items = evaluate(pr, required_bots=bots, reply_actors=actors)
         if "--sync-label" in sys.argv[1:]:

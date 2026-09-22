@@ -284,6 +284,23 @@ class WorkflowContractTests(unittest.TestCase):
         self.assertIn("actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131", admission)
         self.assertIn("run-id: ${{ steps.persistent-route.outputs.producer_run_id }}", admission)
 
+    def test_stale_pull_request_rerun_is_rejected_before_compile_setup(self):
+        admission = self.macos_ci.split("  macos-compile-admission:", 1)[1].split(
+            "  app-host-unit-tests:", 1
+        )[0]
+        guard_start = admission.index("      - name: Reject stale pull request rerun")
+        guard = admission[guard_start:].split("\n      - name:", 1)[0]
+        self.assertIn("if: ${{ github.event_name == 'pull_request' }}", guard)
+        self.assertIn('gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID"', guard)
+        self.assertIn('gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER"', guard)
+        self.assertIn('current_head" != "$run_head"', guard)
+        self.assertIn("continuing with normal CI", guard)
+        self.assertIn("exit 1", guard)
+        self.assertLess(guard_start, admission.index("      - name: Start compile admission timers"))
+        self.assertLess(guard_start, admission.index("      - name: Clear stale git locks"))
+        self.assertLess(guard_start, admission.index("      - name: Checkout"))
+
+
     def test_admission_total_does_not_double_count_route_observation(self):
         admission = self.macos_ci.split("  macos-compile-admission:", 1)[1].split(
             "  app-host-unit-tests:", 1

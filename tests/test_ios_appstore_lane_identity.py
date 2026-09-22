@@ -124,10 +124,19 @@ def write_plist(path, value):
 APPSTORE_PROFILE = plistlib.loads({_plist_bytes(_profile_plist())!r})
 BETA_PROFILE = plistlib.loads({_plist_bytes(_profile_plist(BETA_BUNDLE_ID, "cmux Beta Distribution Test", "00000000-0000-0000-0000-000000000002"))!r})
 EXTENSION_PROFILE = plistlib.loads({_plist_bytes(_profile_plist(APPSTORE_EXTENSION_BUNDLE_ID, APPSTORE_EXTENSION_PROFILE_NAME, "00000000-0000-0000-0000-000000000003"))!r})
+BETA_EXTENSION_PROFILE = plistlib.loads({_plist_bytes(_profile_plist(BETA_BUNDLE_ID + ".NotificationService", "cmux Beta Notification Service Distribution", "00000000-0000-0000-0000-000000000004"))!r})
+BETA_EXTENSION_PROFILE["Entitlements"]["keychain-access-groups"] = [TEAM_ID + ".*"]
 FIXTURE_CERTIFICATE = {ssl.DER_cert_to_PEM_cert(FIXTURE_CERTIFICATE_DER)!r}
 
 def profile_for_bundle(bundle_id):
-    source = BETA_PROFILE if bundle_id == BETA_BUNDLE_ID else APPSTORE_PROFILE
+    if bundle_id == BETA_BUNDLE_ID:
+        source = BETA_PROFILE
+    elif bundle_id == BETA_BUNDLE_ID + ".NotificationService":
+        source = BETA_EXTENSION_PROFILE
+    elif bundle_id == APPSTORE_EXTENSION_BUNDLE_ID:
+        source = EXTENSION_PROFILE
+    else:
+        source = APPSTORE_PROFILE
     if os.environ.get("CMUX_FAKE_PROFILE_MISSING_TIME_SENSITIVE") != "1":
         return source
     profile = dict(source)
@@ -427,6 +436,15 @@ if "-exportArchive" in args:
                 "CFBundlePackageType": "FMWK",
             }},
         )
+    if os.environ.get("CMUX_FAKE_INCLUDE_NOTIFICATION_EXTENSION") == "1":
+        extension = app / "PlugIns" / "NotificationService.appex"
+        write_plist(
+            extension / "Info.plist",
+            {{"CFBundleIdentifier": BETA_BUNDLE_ID + ".NotificationService"}},
+        )
+        (extension / "embedded.mobileprovision").write_text(
+            "beta extension profile", encoding="utf-8"
+        )
     profile_marker = "beta profile" if bundle_id == BETA_BUNDLE_ID else "fake profile"
     (app / "embedded.mobileprovision").write_text(profile_marker, encoding="utf-8")
     # upload-testflight.sh refuses IPAs without Symbols/*.symbols.
@@ -493,6 +511,8 @@ if len(args) >= 2 and args[0] == "cms" and args[1] == "-D":
                 profile = LEGACY_PROFILE
             elif b"beta profile" in body:
                 profile = profile_for_bundle(BETA_BUNDLE_ID)
+            elif b"beta extension profile" in body:
+                profile = BETA_EXTENSION_PROFILE
             elif b"extension profile" in body:
                 profile = EXTENSION_PROFILE
     sys.stdout.buffer.write(plist_bytes(profile))
@@ -559,6 +579,7 @@ def _base_env(tmp: Path, fakebin: Path) -> dict[str, str]:
     # profile (#12935); the lane refuses to export without the name.
     env["IOS_APPSTORE_EXTENSION_PROVISIONING_PROFILE_NAME"] = APPSTORE_EXTENSION_PROFILE_NAME
     env["IOS_APPSTORE_EXTENSION_PROVISIONING_PROFILE_BASE64"] = base64.b64encode(b"extension profile").decode()
+    env["IOS_BETA_EXTENSION_PROVISIONING_PROFILE_NAME"] = "cmux Beta Notification Service Distribution"
     # Profile expiry is validated against this fixed instant, not the real clock.
     env["IOS_APPSTORE_PROFILE_VALIDATION_TIME"] = PROFILE_VALIDATION_TIME
     env["PLISTBUDDY"] = str(fakebin / "PlistBuddy")
@@ -707,6 +728,7 @@ def _copy_isolated_ios_upload_repo(target: Path) -> Path:
         "ios/scripts/upload-testflight.sh",
         "ios/Config/Shared.xcconfig",
         "ios/Config/cmux-release.entitlements",
+        "ios/Config/NotificationService.entitlements",
         "scripts/lib/verify-ios-release-origins.sh",
     ):
         source = ROOT / relative
@@ -765,6 +787,7 @@ def test_upload_beta_lane_uses_beta_marketing_version(tmp: Path, fakebin: Path) 
     env = _base_env(tmp, fakebin)
     env["CMUX_IOS_UPLOAD_DIR"] = str(tmp / "upload")
     env["CMUX_BUILD_NUMBER_OUT_FILE"] = str(tmp / "build-number.txt")
+    env["CMUX_FAKE_INCLUDE_NOTIFICATION_EXTENSION"] = "1"
     result = _run(
         [
             "bash",
@@ -821,11 +844,19 @@ def test_upload_beta_lane_uses_beta_marketing_version(tmp: Path, fakebin: Path) 
         profiles.get(BETA_BUNDLE_ID) == "cmux Beta Distribution",
         "export options map the beta profile to dev.cmux.app.beta",
     )
+    _check(
+        profiles.get(f"{BETA_BUNDLE_ID}.NotificationService")
+        == env["IOS_BETA_EXTENSION_PROVISIONING_PROFILE_NAME"],
+        "export options map the beta notification extension to its own profile",
+    )
 
     ipa_line = next(line for line in result.stdout.splitlines() if line.startswith("IPA_PATH="))
     ipa_path = Path(ipa_line.removeprefix("IPA_PATH="))
     with zipfile.ZipFile(ipa_path) as zf:
         info = plistlib.loads(zf.read("Payload/cmux.app/Info.plist"))
+        extension_info = plistlib.loads(
+            zf.read("Payload/cmux.app/PlugIns/NotificationService.appex/Info.plist")
+        )
     _check(
         info.get("CFBundleIdentifier") == BETA_BUNDLE_ID,
         "final signed beta IPA Info.plist is dev.cmux.app.beta",
@@ -837,6 +868,10 @@ def test_upload_beta_lane_uses_beta_marketing_version(tmp: Path, fakebin: Path) 
     _check(
         info.get("CFBundleShortVersionString") == BETA_MARKETING_VERSION,
         "final signed beta IPA keeps the beta marketing version",
+    )
+    _check(
+        extension_info.get("CFBundleIdentifier") == BETA_BUNDLE_ID + ".NotificationService",
+        "final signed beta IPA carries the notification extension bundle",
     )
     for key, expected in PRODUCTION_RUNTIME_ORIGINS.items():
         _check(
@@ -1203,6 +1238,23 @@ def test_upload_appstore_lane_uses_production_bundle_id(tmp: Path, fakebin: Path
         )
 
 
+def test_official_testflight_workflow_publishes_changelog_notes() -> None:
+    workflow = (ROOT / ".github" / "workflows" / "ios-appstore-upload.yml").read_text(
+        encoding="utf-8"
+    )
+    upload_step = workflow.split(
+        "      - name: Archive, export, and upload to App Store Connect", 1
+    )[1].split("      - name: Record completed upload before group assignment", 1)[0]
+    _check(
+        "ARGS=(--lane appstore --signing manual)" in upload_step,
+        "official cmux.app TestFlight upload enables the default changelog notes path",
+    )
+    _check(
+        "--skip-notes" not in upload_step,
+        "official cmux.app TestFlight upload does not suppress changelog notes",
+    )
+
+
 def test_upload_appstore_checks_asc_app_bundle_id_before_upload(tmp: Path, fakebin: Path) -> None:
     env = _asc_upload_env(tmp, fakebin)
     env["CMUX_IOS_UPLOAD_DIR"] = str(tmp / "upload")
@@ -1221,6 +1273,14 @@ def test_upload_appstore_checks_asc_app_bundle_id_before_upload(tmp: Path, fakeb
     _check(
         f"configured app record verified: {ASC_APP_ID} bundle id {APPSTORE_BUNDLE_ID}" in result.stdout,
         "upload lane verifies ASC app bundle id before upload",
+    )
+    _check(
+        "setting TestFlight 'internal' What to Test notes" in result.stderr,
+        "official App Store upload attempts to publish the changelog notes",
+    )
+    _check(
+        "lane 'appstore' is not a TestFlight lane" not in result.stderr,
+        "official App Store upload is treated as a TestFlight lane",
     )
 
     asc_calls = [
@@ -1693,6 +1753,7 @@ def main() -> None:
         )
         test_bump_ios_version_accepts_trailing_appstore_lane(tmp / "version-bump-test", fakebin)
         test_upload_appstore_lane_uses_production_bundle_id(tmp / "upload-test", fakebin)
+        test_official_testflight_workflow_publishes_changelog_notes()
         test_upload_appstore_checks_asc_app_bundle_id_before_upload(tmp / "upload-live-test", fakebin)
         test_profile_installer_accepts_production_profile_by_default(tmp / "profile-test", fakebin)
         test_profile_installer_ignores_stale_primary_secret(tmp / "profile-stale-test", fakebin)
