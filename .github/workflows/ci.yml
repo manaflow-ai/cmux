@@ -47,6 +47,8 @@ jobs:
     outputs:
       macos: ${{ steps.detect.outputs.macos }}
       cli: ${{ steps.detect.outputs.cli }}
+      browser: ${{ steps.standalone.outputs.browser }}
+      remote_daemon: ${{ steps.standalone.outputs.remote_daemon }}
       web: ${{ steps.detect.outputs.web }}
       agent_session_web: ${{ steps.detect.outputs.agent_session_web }}
       release_build: ${{ steps.detect.outputs.release_build }}
@@ -288,6 +290,29 @@ jobs:
             --event-name "$EVENT_NAME" \
             --base-sha "$BASE_SHA" \
             --head-sha "$HEAD_SHA"
+
+      - name: Route standalone project workflows
+        id: standalone
+        run: |
+          set -euo pipefail
+          browser=false
+          remote_daemon=false
+          if [ -f /tmp/cmux-ci-changed-files.txt ]; then
+            while IFS= read -r path; do
+              case "$path" in
+                cmux-browser/*|.github/workflows/cmux-browser.yml)
+                  browser=true
+                  ;;
+                daemon/remote/*|scripts/*remote_daemon*|scripts/release_asset_guard*|tests/*remote_daemon*|.github/workflows/remote-daemon.yml|.github/workflows/release.yml|.github/workflows/nightly.yml)
+                  remote_daemon=true
+                  ;;
+              esac
+            done < /tmp/cmux-ci-changed-files.txt
+          fi
+          {
+            echo "browser=$browser"
+            echo "remote_daemon=$remote_daemon"
+          } >> "$GITHUB_OUTPUT"
 
       # Compile admission runs on every routed push. The rest of the macOS suite
       # runs on merge groups and dispatches always, and on pull requests unless
@@ -622,6 +647,16 @@ jobs:
           GHOSTTYKIT_DOWNLOAD_RETRY_DELAY: "1"
         run: ./scripts/download-prebuilt-ghosttykit.sh --verify-only
 
+  browser:
+    needs: [changes, static-preflight]
+    if: ${{ needs.changes.outputs.browser == 'true' }}
+    uses: ./.github/workflows/cmux-browser.yml
+
+  remote-daemon:
+    needs: [changes, static-preflight]
+    if: ${{ needs.changes.outputs.remote_daemon == 'true' }}
+    uses: ./.github/workflows/remote-daemon.yml
+
   cli:
     needs: [changes, static-preflight]
     if: ${{ needs.changes.outputs.cli == 'true' }}
@@ -841,6 +876,8 @@ jobs:
       - static-preflight
       - guards
       - ghosttykit-release-check
+      - browser
+      - remote-daemon
       - cli
       - web
       - linux-preflight
