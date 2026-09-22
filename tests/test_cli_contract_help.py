@@ -473,6 +473,26 @@ def check_review_ledger_contract(cli_path: str) -> list[str]:
                 f"stdout={text_result.stdout!r}\nstderr={text_result.stderr!r}"
             )
 
+        future_receipt = dict(receipt)
+        future_receipt["schema_version"] = 2
+        (receipt_dir / ("future-" + ("d" * 64) + ".json")).write_text(
+            json.dumps(future_receipt),
+            encoding="utf-8",
+        )
+        future_result = run_cli_args(
+            cli_path,
+            ["review", "list", "--repo", str(repository), "--json"],
+            cwd=str(repository),
+        )
+        if (
+            future_result.returncode == 0
+            or "schema_version must be 1" not in future_result.stderr
+        ):
+            failures.append(
+                "cmux review list: future receipt schema should fail closed\n"
+                f"stdout={future_result.stdout!r}\nstderr={future_result.stderr!r}"
+            )
+
     return failures
 
 def check_task_help_contract(cli_path: str) -> list[str]:
