@@ -119,7 +119,7 @@ class AgentPRReviewGateTests(unittest.TestCase):
         self.assertIs(greptile["statusCheck"], True)
 
         template = (root / ".github/pull_request_template.md").read_text(encoding="utf-8")
-        self.assertIn("@greptile review", template)
+        self.assertIn("@greptileai review", template)
         self.assertNotIn("@greptile-apps review", template)
         self.assertIn("agent-pr-review-required", template)
         self.assertIn("requests Greptile automatically", template)
@@ -149,7 +149,7 @@ class AgentPRReviewGateTests(unittest.TestCase):
             (
                 "POST",
                 "issues/42/comments",
-                {"body": f"{marker}\n@greptile review"},
+                {"body": f"{marker}\n@greptileai review"},
             ),
         )
 
@@ -157,13 +157,38 @@ class AgentPRReviewGateTests(unittest.TestCase):
             with self.subTest(actor=actor):
                 pr["comments"]["nodes"] = [{
                     "author": {"login": actor},
-                    "body": f"{marker}\n@greptile review",
+                    "body": f"{marker}\n@greptileai review",
                     "createdAt": "2026-01-01T00:00:00Z",
                     "updatedAt": "2026-01-01T00:00:00Z",
                 }]
                 with mock.patch.object(gate, "github_rest") as rest:
                     self.assertEqual(gate.request_greptile_review(pr), "already-requested")
                     rest.assert_not_called()
+
+    def test_request_greptile_review_does_not_require_gate_opt_in(self):
+        head = "d" * 40
+        pr = make_pr(body="ordinary human PR", head=head)
+        pr["number"] = 42
+        calls = []
+
+        def github_rest(method, path, payload=None):
+            calls.append((method, path, payload))
+            if method == "GET":
+                return {"check_runs": []}
+            return {}
+
+        with mock.patch.object(gate, "github_rest", side_effect=github_rest):
+            self.assertEqual(gate.request_greptile_review(pr), "requested")
+
+        marker = gate.GREPTILE_REQUEST_MARKER.format(head=head)
+        self.assertEqual(
+            calls[-1],
+            (
+                "POST",
+                "issues/42/comments",
+                {"body": f"{marker}\n@greptileai review"},
+            ),
+        )
 
     def test_request_greptile_review_does_not_trust_author_forged_marker(self):
         head = "b" * 40
@@ -172,7 +197,7 @@ class AgentPRReviewGateTests(unittest.TestCase):
             head=head,
             comments=[{
                 "author": {"login": "agent-author"},
-                "body": f"{marker}\n@greptile review",
+                "body": f"{marker}\n@greptileai review",
                 "createdAt": "2026-01-01T00:00:00Z",
                 "updatedAt": "2026-01-01T00:00:00Z",
             }],
@@ -184,7 +209,7 @@ class AgentPRReviewGateTests(unittest.TestCase):
         rest.assert_called_once_with(
             "POST",
             "issues/42/comments",
-            {"body": f"{marker}\n@greptile review"},
+            {"body": f"{marker}\n@greptileai review"},
         )
 
     def test_request_greptile_review_skips_running_or_completed_review(self):
