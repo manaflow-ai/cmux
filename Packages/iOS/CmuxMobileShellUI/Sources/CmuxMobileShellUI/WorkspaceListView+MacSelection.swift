@@ -5,12 +5,34 @@ import CmuxMobileShellModel
 import CmuxMobileSupport
 import SwiftUI
 
-enum WorkspaceMacSelection: Hashable {
+enum WorkspaceMacSelection: Hashable, RawRepresentable {
+    static let storageKey = "cmux.workspaces.macSelection"
+
     case automatic
     case all
     /// A pairing id for saved app instances, or a bare device id for an
     /// unpaired workspace-only computer.
     case machine(String)
+
+    init?(rawValue: String) {
+        switch rawValue {
+        case "automatic": self = .automatic
+        case "all": self = .all
+        default:
+            guard rawValue.hasPrefix("machine:") else { return nil }
+            let id = String(rawValue.dropFirst("machine:".count))
+            guard !id.isEmpty else { return nil }
+            self = .machine(id)
+        }
+    }
+
+    var rawValue: String {
+        switch self {
+        case .automatic: "automatic"
+        case .all: "all"
+        case .machine(let id): "machine:\(id)"
+        }
+    }
 }
 
 extension WorkspaceListView {
