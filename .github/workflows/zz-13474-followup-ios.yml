@@ -1,0 +1,29 @@
+name: 13474 follow-up iOS dispatch
+
+on:
+  push:
+    branches:
+      - fix/13474-viewport-lease-followup
+
+permissions:
+  contents: read
+  actions: write
+
+jobs:
+  dispatch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Dispatch viewport lease ownership test
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TARGET_REF: fix/13474-viewport-lease-followup
+        run: |
+          set -euo pipefail
+          gh workflow run test-ios.yml \
+            --repo manaflow-ai/cmux \
+            --ref "$TARGET_REF" \
+            -f ref="$TARGET_REF" \
+            -f test_filter="CmuxMobileShellUITests/TerminalSurfaceMountOwnershipTests" \
+            -f device_family=iphone \
+            -f runner=auto \
+            -f seed_cache=false
