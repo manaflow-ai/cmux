@@ -7,6 +7,7 @@ import SwiftUI
 /// standard SF Symbol overlay so the action remains recognizable while making
 /// a blocked Mac discoverable before the user opens the Computers sheet.
 struct MobileDevicesToolbarLabel: View {
+    @Environment(MobileMacListAuthState.self) private var listAuthState: MobileMacListAuthState?
     /// Macs whose last authenticated attempt was rejected by the version gate.
     let gateWarningPairingIDs: Set<String>
     /// The physical Macs represented by the Computers sheet opened by this
@@ -15,9 +16,9 @@ struct MobileDevicesToolbarLabel: View {
     let computerPairingIDs: Set<String>
 
     private var showsWarning: Bool {
-        let listAuth = MobileMacListAuthState.shared
+        let listAuth = listAuthState
         let hasOutdatedListAuth = computerPairingIDs.contains { pairingID in
-            listAuth.compatibilityEntry(pairingID: pairingID).isOutdated
+            listAuth?.compatibilityEntry(pairingID: pairingID).isOutdated == true
         }
         return Self.warningVisible(
             hasGateWarning: !gateWarningPairingIDs.isDisjoint(with: computerPairingIDs),

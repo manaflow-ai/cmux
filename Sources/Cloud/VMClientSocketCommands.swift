@@ -231,7 +231,9 @@ extension TerminalController {
             let perMachineHome = Self.socketWorkerBool(params["per_machine_home"]) ?? false
             let memoryMb = Self.socketWorkerInt(params["memory_mb"])
             return v2CloudCall(id: id, method: method, params: params) {
+                let scope = await CmuxTuiSurfaceProviderRegistry.shared.creationScope
                 let vm = try await VMClient.shared.create(image: image, kind: kind, provider: provider, persistentHome: persistentHome, perMachineHome: perMachineHome, memoryMb: memoryMb, displayName: Self.socketWorkerString(params["display_name"]), idempotencyKey: idempotencyKey)
+                await CmuxTuiSurfaceProviderRegistry.shared.recordCreatedMachine(vm, scope: scope)
                 return Self.socketWorkerVMSummaryPayload(vm)
             }
         case "vm.base_open":

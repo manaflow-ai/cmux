@@ -159,10 +159,10 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         // return one immutable snapshot for response shaping on this worker.
         // The async bridge must never be entered inline by a main-thread caller.
         "surface.read_selection",
-        // The surface catalog verbs await main-actor catalog work that can sit on the
-        // network (a cloud provider materializing a pane); like `vm.*` they park the
-        // worker instead of holding the main actor.
+        // Surface verbs park the worker while awaiting catalog or provider work.
         "surface.catalog",
+        // Current-work captures owners once, then reduces/encodes off-main without refresh.
+        "current.list",
         "surface.project",
         "surface.new_terminal",
         // SSH-session attach resolves ownership and reads the remote PTY

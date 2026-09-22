@@ -384,4 +384,5 @@ struct WorkspaceTodoSidebarModelTests {
         #expect(underLimit.visible.count == 7)
         #expect(underLimit.hiddenCount == 0)
     }
+
 }

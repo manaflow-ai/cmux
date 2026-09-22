@@ -27,6 +27,14 @@ General app preferences from Settings > App.
 | `app.warnBeforeClosingTab` | boolean | `true` | Show a confirmation before closing a tab. |
 | `app.renameSelectsExistingName` | boolean | `true` | Select the current name when opening rename flows. |
 | `app.commandPaletteSearchesAllSurfaces` | boolean | `false` | Search every surface in the command palette switcher instead of only the active workspace. |
+| `app.windowTitleTemplate` | string | `""` | Optional NSWindow title template. Blank preserves cmux's existing default title behavior, including the current-directory fallback. Supported placeholders: {windowId}, {windowToken}, {activeWorkspace}, {activeDirectory}, {defaultTitle}, {appName}. |
+| `app.forkConversationDefaultDestination` | `"right"` or `"left"` or `"top"` or `"bottom"` or `"newTab"` or `"newWorkspace"` | `"right"` | Default destination for the tab context menu's primary Fork Conversation action. The submenu still exposes every destination. |
+| `app.paneResizeStepPixels` | integer | `20` | Pixels moved per keypress when using pane-resize shortcuts. |
+| `app.focusHistoryIncludesPanesAndTabs` | boolean | `false` | When true, Back and Forward include focus changes between panes and tabs. When false, they navigate between workspaces only. |
+| `app.globalFontMagnification` | integer | `100` | Scales cmux-owned terminals, tab titles, sidebars, settings, overlays, and app chrome by this percentage. Rendered browser page content is excluded. |
+| `app.confirmQuit` | `"always"` or `"dirty-only"` or `"never"` | `"always"` | Control when cmux asks for confirmation before quitting. DEV builds always quit immediately regardless of this setting. Legacy app.warnBeforeQuit is still accepted as a boolean fallback. |
+| `app.warnBeforeClosingTabXButton` | boolean | `false` | Show a confirmation before closing a tab with the tab close button. |
+| `app.hideTabCloseButton` | boolean | `false` | Hide tab close buttons in the pane tab bar. |
 
 ## terminal
 
@@ -36,6 +44,20 @@ Terminal presentation settings from Settings > Terminal.
 |---|---|---|---|
 | `terminal.showScrollBar` | boolean | `true` | Show the right-edge terminal scroll bar when scrollback is available. cmux automatically suppresses it for alternate-screen style TUI surfaces. |
 | `terminal.autoResumeAgentSessions` | boolean | `true` | Automatically run agent resume commands for restored terminal sessions when cmux reopens after quit. Set false to restore panes while keeping Claude Code, Codex, OpenCode, and other saved agent sessions idle until you resume them manually. |
+| `terminal.adaptiveDefaultTheme` | boolean | `true` | When true (the default), cmux supplies an appearance-adaptive default palette unless a Ghostty theme or terminal colors are configured. Font and other settings are preserved. When false, Ghostty uses its fixed built-in palette. Explicit themes and colors always take precedence, including theme = light:X,dark:Y. |
+| `terminal.scrollSpeed` | number | `1.0` | Multiplier applied to terminal scroll wheel and trackpad deltas. Higher values scroll faster; lower values scroll slower. |
+| `terminal.sessionContentMaxWidth` | boolean or number | `false` | Optional maximum width, in points, for terminal and built-in agent chat content. Set false to use the full pane width. |
+| `terminal.sessionContentAlignment` | `"left"` or `"center"` or `"right"` | `"center"` | Horizontal placement for terminal and built-in agent chat content when sessionContentMaxWidth is enabled. |
+| `terminal.copyOnSelect` | boolean | `false` | When true, copy selected terminal text to the system clipboard when the selection is committed. When false, cmux does not emit a Ghostty copy-on-select override; Ghostty config and defaults control selection-clipboard behavior. |
+| `terminal.showTextBoxOnNewTerminals` | boolean | `false` | Show the beta TextBox input by default for newly created workspaces, terminal tabs, and terminal splits. |
+| `terminal.focusTextBoxOnNewTerminals` | boolean | `false` | Focus the beta TextBox input by default for newly created workspaces, terminal tabs, and terminal splits. Focusing also shows the TextBox. |
+| `terminal.agentHibernation` | object | — | Routine Agent Hibernation settings. cmux kills idle background agent processes to free RAM and CPU, then resumes them with their saved session when their tab is visited. Routine hibernation requires a restorable coding agent whose lifecycle reports idle, an off-screen terminal, a live-terminal count above the configured limit, and unchanged output through the idle and confirmation windows. Independently, during critical memory pressure cmux may hibernate a bounded batch of safe idle background agents even when enabled is false; visible, running, needs-input, recently changed, and unprotectable agents remain excluded. The placeholder Resume button is a manual fallback. |
+| `terminal.rendererRealization` | object | — | Reclaim off-screen terminal GPU renderer memory. cmux releases the Metal renderer (IOSurface) of a terminal that has stayed off-screen and idle while keeping its process and terminal state alive, then rebuilds the renderer instantly when the tab is visited again. Non-destructive and on by default. |
+| `terminal.textBoxMaxLines` | integer | `10` | Maximum number of lines the rich terminal TextBox input can grow to before it scrolls. |
+| `terminal.textBoxDefaultSubmitAction` | string | `"text-entry"` | Default TextBox submit action ID for new terminal sessions. Use text-entry for plain input or one of the configured action IDs. |
+| `terminal.textBoxSubmitActions` | array<object> | `[]` | Configurable TextBox submit actions shown on the submit button, Shift-Tab cycle, and right-click menu. |
+| `terminal.resumeCommands` | array<object> | `[]` | Signed command-prefix approvals for restoring non-agent terminal surfaces. cmux writes this list when you approve a surface resume command. |
+| `terminal.uploadCommands` | array<object> | `[]` | Host-scoped rules that replace the built-in scp for terminal file drops and pastes over SSH. When the ssh destination matches a rule, cmux runs that rule's command once per file instead of scp, and inserts the command's stdout at the cursor (verbatim, with control characters stripped); if the command prints nothing, cmux inserts the shell-escaped remote path it chose instead. Per-file outputs are space-joined. First matching enabled rule wins; no match runs the built-in scp unchanged. A non-zero exit, timeout, or cancel inserts nothing. |
 
 ## notifications
 
@@ -52,6 +74,12 @@ Notification behavior from Settings > Notifications.
 | `notifications.command` | string | `""` | Optional shell command to run alongside notification delivery. |
 | `notifications.hooksMode` | `"append"` or `"replace"` | `"append"` | Controls whether project-local notification hooks append to inherited hooks or replace them. |
 | `notifications.hooks` | array<object> | `[]` | Composable shell hooks that receive notification policy JSON on stdin and return updated policy JSON on stdout. |
+| `notifications.paneFlashColor` | string or null | `null` | Override the pane flash and unread ring color. Null keeps the built-in blue. |
+| `notifications.suppressOnlyFocusedSurface` | boolean | `false` | When enabled, a notification banner is auto-withdrawn only when its surface is the exact focused surface. A banner delivered for a non-focused surface in the currently visible workspace stays up until you focus that surface (or click/dismiss it), instead of being retracted when the workspace becomes visible. Off preserves the legacy workspace-visibility withdraw. |
+| `notifications.agentPermissionPrompt` | boolean | `true` | Notify when an agent (e.g. Claude Code) is blocked waiting for your permission to run a tool. On by default, since this is the alert you must act on to unblock the agent. |
+| `notifications.agentTurnComplete` | `"whenIdle"` or `"always"` or `"never"` | `"whenIdle"` | When to notify that an agent finished a turn. whenIdle (default) suppresses the notification while the agent still has a running background task or a pending scheduled wakeup, so you are pinged once work truly drains. always notifies on every turn end; never disables it. |
+| `notifications.agentIdleReminder` | boolean | `true` | Notify when an agent has been idle waiting for your input (about 60s after a turn ends). Suppressed while background work from the last turn is still pending, so a running build or watcher does not trigger a false waiting alert. |
+| `notifications.soundOverrides` | object | `{}` | Sparse per-agent and per-alert-type notification sound overrides. Missing cells use notifications.sound. |
 
 ## sidebar
 
@@ -73,6 +101,14 @@ Sidebar content and metadata visibility from Settings > Sidebar.
 | `sidebar.showLog` | boolean | `true` | Show recent log snippets. |
 | `sidebar.showProgress` | boolean | `true` | Show progress indicators. |
 | `sidebar.showCustomMetadata` | boolean | `true` | Show custom metadata pills. |
+| `sidebar.wrapWorkspaceTitles` | boolean | `false` | Allow workspace titles in the sidebar to wrap to multiple lines instead of truncating after one line. |
+| `sidebar.beta` | object | — | Experimental sidebar features. |
+| `sidebar.notificationMessageLineLimit` | integer | `12` | Maximum lines shown for the latest notification below each workspace title. |
+| `sidebar.watchGitStatus` | boolean | `true` | Watch repository files for sidebar branch and pull request metadata without polling git. |
+| `sidebar.showAgentActivity` | boolean | `true` | Show the loading spinner on workspaces with running coding agents or active loaders. |
+| `sidebar.loadingSpinnerPosition` | `"leading"` or `"trailing"` | `"leading"` | Which side of the workspace row the loading spinner appears on: leading (left, sharing the unread-badge slot) or trailing (right). |
+| `sidebar.notificationBadgePosition` | `"leading"` or `"trailing"` | `"leading"` | Which side of the workspace row the unread notification badge appears on: leading (left) or trailing (right). |
+| `sidebar.rightMaxWidth` | number | — | Maximum width in points for the right sidebar. When omitted, the built-in dynamic cap applies. |
 
 ## workspaceColors
 
@@ -113,6 +149,13 @@ Socket control and automation settings from Settings > Automation.
 | `automation.geminiIntegration` | boolean | `true` | Enable cmux integration hooks for Gemini. |
 | `automation.portBase` | integer | `9100` | Starting value for workspace CMUX_PORT assignments. |
 | `automation.portRange` | integer | `10` | Number of ports reserved per workspace. |
+| `automation.workspaceAutoNaming` | boolean | `false` | Opt-in AI auto-naming of workspaces and tabs from agent conversation content. When enabled, cmux summarizes supported agent sessions into short titles using each agent's own binary; manual renames always win. |
+| `automation.autoNamingAgent` | string | `"auto"` | Which agent generates auto-names for every session. "auto" (default) names each session with its own agent; any agent slug (claude, codex, grok, opencode, pi, omp, …) overrides naming for all sessions, even other agents' sessions. Undriveable or uninstalled agents fall back to the session's own agent, so naming never breaks. |
+| `automation.ripgrepBinaryPath` | string | `""` | Custom path to the ripgrep (rg) binary used by project search. |
+| `automation.suppressSubagentNotifications` | boolean | `true` | Suppress visible completion notifications and status mutations from nested Codex or Claude child agents while keeping their events in Feed telemetry. |
+| `automation.ampIntegration` | boolean | `true` | Enable cmux integration hooks for Amp. When disabled, the bundled plugin stays inactive without needing to be removed. |
+| `automation.kiroIntegration` | boolean | `true` | Enable cmux integration hooks for Kiro CLI. |
+| `automation.kiroNotificationLevel` | `"minimal"` or `"standard"` or `"verbose"` | `"standard"` | Controls how many Kiro tool events appear in Feed. |
 
 ## browser
 
@@ -131,6 +174,12 @@ Embedded browser settings from Settings > Browser.
 | `browser.insecureHttpHostsAllowedInEmbeddedBrowser` | array<string> | `["localhost", "*.localhost", "127.0.0.1", "::1", "0.0.0.0", "*.localtest.me"]` | HTTP hosts allowed in the embedded browser without a warning prompt. |
 | `browser.showImportHintOnBlankTabs` | boolean | `true` | Show the browser import hint on blank tabs. |
 | `browser.reactGrabVersion` | string | `"0.1.29"` | Pinned react-grab version for the browser toolbar helper. |
+| `browser.customSearchEngineName` | string | `""` | Display name used when defaultSearchEngine is custom. |
+| `browser.customSearchEngineURLTemplate` | string | `"https://www.google.com/search?q={query}"` | Search URL used when defaultSearchEngine is custom. Include {query} or %s for the encoded query. If omitted, cmux appends q= to the URL. |
+| `browser.discardHiddenWebViews` | boolean | `true` | Allow hidden browser tabs to release page memory and restore when shown again. |
+| `browser.hiddenWebViewDiscardDelaySeconds` | number | `300` | Seconds a browser tab must stay hidden before cmux frees its page memory. |
+| `browser.askWhereToSaveDownloads` | boolean | `false` | Show a save panel for browser downloads instead of saving directly to Downloads. |
+| `browser.urlAllowlist` | array<string> | `["localhost", "*.localhost", "127.0.0.1", "::1", "0.0.0.0", "*.localtest.me"]` | Host or URL patterns that restrict embedded-browser navigation. The Settings UI suggests local development origins; saving a list opts into the optional restriction. Remove entries to block them, or leave the user value empty to disable it when no managed policy applies. |
 
 ## shortcuts
 
@@ -139,3 +188,5 @@ Keyboard shortcut settings from Settings > Keyboard Shortcuts.
 | Key | Type | Default | Description |
 |---|---|---|---|
 | `shortcuts.bindings` | object | `{}` | Shortcut overrides keyed by cmux action id. Use a string for a single shortcut, an array for a chord, null, an empty string, none, clear, unbound, or disabled to unbind. |
+| `shortcuts.showModifierHoldHints` | boolean | `true` | Show shortcut-hint chips while holding Cmd or Control. |
+| `shortcuts.when` | object | `{}` | Optional per-action context predicates (VS Code-style `when` clauses), keyed by cmux action id. Each value is a boolean expression over context keys combined with !, &&, \|\|, and parentheses. Boolean keys: sidebarFocus, browserFocus, markdownFocus, filePreviewTextEditorFocus, simulatorFocus, terminalFocus, commandPaletteVisible, terminalFindVisible, workspaceCanvasLayout. Typed keys support comparisons: the string sidebarMode (files, find, sessions, feed, or dock) and the integers paneCount and workspaceCount. Comparison operators are ==, !=, =~ (regex), <, <=, >, >=, and `in [a, b]`; an unknown or absent key reads as false. The boolean literals true and false are also accepted; `key == false` is the same as `!key`. The action's shortcut only fires (and only conflicts with other shortcuts) when the clause holds. Examples: { "selectWorkspaceByNumber": "!sidebarFocus" } selects workspaces with Ctrl+1–9 everywhere except when the right sidebar is focused; { "selectSurfaceByNumber": "sidebarMode == 'find' && paneCount > 1" } scopes a binding to the Find sidebar when the workspace has multiple panes. |
