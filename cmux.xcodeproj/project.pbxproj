@@ -3233,6 +3233,7 @@
 		5B11E5A100000000000000A1 /* SpinnerGalleryDebugWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5B11E5A100000000000000A2 /* SpinnerGalleryDebugWindowController.swift */; };
 		A6AC72060000000000000001 /* SpinnerGalleryRootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6AC72060000000000000002 /* SpinnerGalleryRootView.swift */; };
 		A6AC72070000000000000001 /* SpinnerSpec.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6AC72070000000000000002 /* SpinnerSpec.swift */; };
+		A13387000000000000000011 /* SplitPaneBackgroundUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13387000000000000000012 /* SplitPaneBackgroundUITests.swift */; };
 		BB778780CAC943B89A7D904E /* SSHConfiguredRemoteCommandHostTests+Harness.swift in Sources */ = {isa = PBXBuildFile; fileRef = EDF9EEAA233347858BCF3320 /* SSHConfiguredRemoteCommandHostTests+Harness.swift */; };
 		F6724600A1B2C3D4E5F67246 /* SSHConfiguredRemoteCommandHostTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F6724601A1B2C3D4E5F67246 /* SSHConfiguredRemoteCommandHostTests.swift */; };
 		797800040000000000000001 /* SSHDeepSleepReattachTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 797800040000000000000002 /* SSHDeepSleepReattachTests.swift */; };
@@ -4063,6 +4064,7 @@
 		4CC1722A934F4D8B99FC64C5 /* WorkspaceSidebarProcessTitleObservationModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7AF91981B8F4A2690981D2D /* WorkspaceSidebarProcessTitleObservationModel.swift */; };
 		A1F4B4A6F4F043FCB3288A3D /* WorkspaceSidebarProcessTitleObservationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14D09524E94048DBB6773437 /* WorkspaceSidebarProcessTitleObservationTests.swift */; };
 		F0F0A001A1B2C3D4E5F60718 /* WorkspaceSidebarScrollUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0F0A002A1B2C3D4E5F60718 /* WorkspaceSidebarScrollUITests.swift */; };
+		A13387000000000000000001 /* WorkspaceSplitProvisionalGeometryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13387000000000000000002 /* WorkspaceSplitProvisionalGeometryTests.swift */; };
 		6B524A0CB34FD46A771335AB /* WorkspaceSplitStartupCommandTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71F8ED92A4B55D34BE6A0668 /* WorkspaceSplitStartupCommandTests.swift */; };
 		F6120000A1B2C3D4E5F60718 /* WorkspaceSSHFishShellTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F6120001A1B2C3D4E5F60718 /* WorkspaceSSHFishShellTests.swift */; };
 		FA000000A1B2C3D4E5F60718 /* WorkspaceStressProfileTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA000001A1B2C3D4E5F60718 /* WorkspaceStressProfileTests.swift */; };
@@ -7333,6 +7335,7 @@
 		5B11E5A100000000000000A2 /* SpinnerGalleryDebugWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpinnerGalleryDebugWindowController.swift; sourceTree = "<group>"; };
 		A6AC72060000000000000002 /* SpinnerGalleryRootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpinnerGalleryRootView.swift; sourceTree = "<group>"; };
 		A6AC72070000000000000002 /* SpinnerSpec.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpinnerSpec.swift; sourceTree = "<group>"; };
+		A13387000000000000000012 /* SplitPaneBackgroundUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SplitPaneBackgroundUITests.swift; sourceTree = "<group>"; };
 		EDF9EEAA233347858BCF3320 /* SSHConfiguredRemoteCommandHostTests+Harness.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SSHConfiguredRemoteCommandHostTests+Harness.swift"; sourceTree = "<group>"; };
 		F6724601A1B2C3D4E5F67246 /* SSHConfiguredRemoteCommandHostTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SSHConfiguredRemoteCommandHostTests.swift; sourceTree = "<group>"; };
 		797800040000000000000002 /* SSHDeepSleepReattachTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SSHDeepSleepReattachTests.swift; sourceTree = "<group>"; };
@@ -8152,6 +8155,7 @@
 		D7AF91981B8F4A2690981D2D /* WorkspaceSidebarProcessTitleObservationModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceSidebarProcessTitleObservationModel.swift; sourceTree = "<group>"; };
 		14D09524E94048DBB6773437 /* WorkspaceSidebarProcessTitleObservationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceSidebarProcessTitleObservationTests.swift; sourceTree = "<group>"; };
 		F0F0A002A1B2C3D4E5F60718 /* WorkspaceSidebarScrollUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceSidebarScrollUITests.swift; sourceTree = "<group>"; };
+		A13387000000000000000002 /* WorkspaceSplitProvisionalGeometryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceSplitProvisionalGeometryTests.swift; sourceTree = "<group>"; };
 		71F8ED92A4B55D34BE6A0668 /* WorkspaceSplitStartupCommandTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceSplitStartupCommandTests.swift; sourceTree = "<group>"; };
 		F6120001A1B2C3D4E5F60718 /* WorkspaceSSHFishShellTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceSSHFishShellTests.swift; sourceTree = "<group>"; };
 		FA000001A1B2C3D4E5F60718 /* WorkspaceStressProfileTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceStressProfileTests.swift; sourceTree = "<group>"; };
@@ -8501,6 +8505,7 @@
 				B9000131A1B2C3D4E5F60719 /* SidebarPullRequestInteractivityUITests.swift */,
 				E6FA9085A1B2C3D4E5F60718 /* WorkspaceDescriptionUITests.swift */,
 				D0E0F0B1A1B2C3D4E5F60718 /* BrowserPaneNavigationKeybindUITests.swift */,
+				A13387000000000000000012 /* SplitPaneBackgroundUITests.swift */,
 				CC000001A1B2C3D4E5F60718 /* GotoSplitCycleUITests.swift */,
 				FE00AA11C1B2C3D4E5F60718 /* FocusHistoryShortcutUITests.swift */,
 				D0E0F0B5A1B2C3D4E5F60718 /* FindSelectionShortcutUITests.swift */,
@@ -11747,6 +11752,7 @@
 				A11E5E1E0000000000000012 /* TerminalSelectionAccessibilityIngressGateTests.swift */,
 				570ED364A7E41085FB2D31FE /* MainWindowSelfSizingTests.swift */,
 				C0DE7A9E000000000000C012 /* TerminalWindowPortalCommittedGeometryTests.swift */,
+				A13387000000000000000002 /* WorkspaceSplitProvisionalGeometryTests.swift */,
 				C12681010000000000000002 /* TerminalPortalGeometryFixture.swift */,
 				43DB195131CD53CCCCEEEB79 /* TerminalWindowPortalLifecycleHiddenRefreshTests.swift */,
 				AA11BB22CC33DD44EE55F001 /* TerminalWindowPortalLayoutPassRefreshTests.swift */,
@@ -16038,6 +16044,7 @@
 				C13BE417A8C24EE79F00A102 /* BrowserNativeHoverUITests.swift in Sources */,
 				D0E0F0B2A1B2C3D4E5F60718 /* BrowserOmnibarSuggestionsUITests.swift in Sources */,
 				D0E0F0B0A1B2C3D4E5F60718 /* BrowserPaneNavigationKeybindUITests.swift in Sources */,
+				A13387000000000000000011 /* SplitPaneBackgroundUITests.swift in Sources */,
 				8478A0000000000000000002 /* BrowserRecoveryHTTPServer.swift in Sources */,
 				7B5F1A2E9C0D4B6A8E217304 /* BrowserReliabilityRegressionUITests.swift in Sources */,
 				B9000025A1B2C3D4E5F60719 /* CloseWindowConfirmDialogUITests.swift in Sources */,
@@ -17047,6 +17054,7 @@
 				A91C0D0F0000000000000002 /* TerminalTabIconRegressionTests.swift in Sources */,
 				EC010C01 /* TerminalUploadCommandTests.swift in Sources */,
 				C0DE7A9E000000000000C011 /* TerminalWindowPortalCommittedGeometryTests.swift in Sources */,
+				A13387000000000000000001 /* WorkspaceSplitProvisionalGeometryTests.swift in Sources */,
 				B5EE1F85425A4223B017226C /* TerminalWindowPortalEngineDivergenceTests.swift in Sources */,
 				B4407AD8269F4A63A425406B /* TerminalWindowPortalExternalGeometrySyncTests.swift in Sources */,
 				AA11BB22CC33DD44EE55F002 /* TerminalWindowPortalLayoutPassRefreshTests.swift in Sources */,
