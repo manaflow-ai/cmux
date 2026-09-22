@@ -590,6 +590,26 @@ struct SidebarAppKitRowCellTests {
         #expect(Self.accessibilityLinks(in: textView).isEmpty)
     }
 
+    @Test(arguments: [false, true])
+    func workspaceDescriptionColorOverrideWinsOverRowState(_ isActive: Bool) throws {
+        let defaults = Self.makeDefaults()
+        defaults.set("#A6E3A1", forKey: "sidebarWorkspaceDescriptionColorHex")
+        let settings = SidebarTabItemSettingsSnapshot(defaults: defaults)
+        let description = "next step: finish sidebar polish"
+        let model = Self.makeModel(
+            isActive: isActive,
+            settings: settings,
+            customDescription: description
+        )
+        let cell = Self.configuredCell(model: model)
+        Self.layoutCell(cell, model: model)
+        let textView = try #require(Self.descriptionTextView(in: cell, showing: description))
+        let rendered = try #require(textView.textColor?.usingColorSpace(.sRGB))
+        let expected = try #require(NSColor(hex: "#A6E3A1")?.usingColorSpace(.sRGB))
+
+        #expect(rendered == expected)
+    }
+
     /// Rasterizes the link over the row's own selection background. AppKit used
     /// to paint `.link` runs in `NSColor.linkColor`, which is the same blue as
     /// the sidebar selection fill, so the URL was unreadable on the active row.
