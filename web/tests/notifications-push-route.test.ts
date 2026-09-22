@@ -78,7 +78,8 @@ function pushBody(options: PushBodyOptions = {}): Record<string, unknown> {
     encryptedPayloads: installationIDs.map((installationID, index) => ({
       version: 2,
       installationID,
-      keyID: index === 0 ? DEFAULT_PUSH_KEY_ID : `ios-push-key-${index + 1}`,
+      keyID: options.keyIDs?.[index]
+        ?? (index === 0 ? DEFAULT_PUSH_KEY_ID : `ios-push-key-${index + 1}`),
       senderKeyID: DEFAULT_SENDER_KEY_ID,
       encapsulatedKey: base64Bytes(32, 1),
       ciphertext: Buffer.from(`${ciphertextVariant}:${index}`.padEnd(16, "x")).toString("base64"),
