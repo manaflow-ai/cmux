@@ -1376,7 +1376,7 @@ check_persistent_compile_router() {
     }
     in_permissions {
       # Keep consuming the block after the permissions stanza. Exiting awk
-      # early can SIGPIPE the upstream printf under this script's pipefail.
+      # early can SIGPIPE the upstream printf while pipefail is active.
       in_permissions=0
       finished=1
     }
