@@ -1501,7 +1501,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         [MacPairingKey: SecondaryMacSubscription] = [:]
     /// Scope-bound index backing targeted presence reconciliation. Route writes
     /// refresh this cache before enqueueing their presence edge, so one Mac's
-    /// heartbeat can inspect that Mac plus the bounded live pool without
+    /// heartbeat can inspect that Mac plus the live sessions without
     /// reloading and sorting every paired row on the main actor.
     @ObservationIgnored
     private var storedPairedMacsByCanonicalDeviceID:
@@ -3647,8 +3647,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
     /// Return only rows that can affect one targeted pool decision: the
     /// requested physical Macs, current control owners, and current foreground
-    /// owner. That bounded context still detects endpoint aliases and a full
-    /// pool, without an account-wide scan or sort.
+    /// owner. That context detects endpoint aliases without reloading every
+    /// paired row.
     private func targetedStoredPairedMacs(
         requestedCanonicalIDs: Set<String>,
         scope: MobileShellScopeSnapshot
@@ -6246,33 +6246,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             from: visibleLoadedMacs
         )
         guard let requestedCanonicalIDs else { return candidates }
-        // Keep targeted online/route changes scoped to that Mac. An offline
-        // edge may retire a requested owner, in which case this pass admits
-        // exactly the same number of replacement candidates and no more.
-        let existingControlIDs = Set(
-            secondaryMacSubscriptions.keys.map(\.canonicalMacDeviceID)
-        )
-        let candidateIDs = Set(candidates.map {
-            cmxCanonicalDeviceID($0.macDeviceID)
-        })
-        let requestedCandidates = candidates.filter {
+        // Keep targeted online/route changes scoped to the requested Macs.
+        return candidates.filter {
             requestedCanonicalIDs.contains(cmxCanonicalDeviceID($0.macDeviceID))
         }
-        let retiredRequestedOwnerCount = existingControlIDs.filter {
-            requestedCanonicalIDs.contains($0) && !candidateIDs.contains($0)
-        }.count
-        guard retiredRequestedOwnerCount > 0 else {
-            return requestedCandidates
-        }
-        let requestedCandidateIDs = Set(requestedCandidates.map {
-            cmxCanonicalDeviceID($0.macDeviceID)
-        })
-        let replacements = candidates.lazy.filter { candidate in
-            let candidateID = cmxCanonicalDeviceID(candidate.macDeviceID)
-            return !existingControlIDs.contains(candidateID)
-                && !requestedCandidateIDs.contains(candidateID)
-        }.prefix(retiredRequestedOwnerCount)
-        return requestedCandidates + replacements
     }
 
     /// Foreground recovery owns its stored target before the reconnect task

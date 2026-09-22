@@ -1073,7 +1073,7 @@ extension MobileShellComposite {
     /// reachable route. Failure surfaces through ``connectionError`` like any
     /// other connect.
     ///
-    /// If a full pool or an incomplete terminal handoff retires the previous
+    /// If an incomplete terminal handoff retires the previous
     /// session before the target fails, the previously-active Mac is
     /// reconnected, so a bad target leaves the user where they were.
     /// - Parameters:

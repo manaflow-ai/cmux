@@ -540,26 +540,14 @@ struct IrohZeroTouchDiscoveryTests {
 
     @Test
     func discoveredSecondaryCandidatesDialConcurrently() async throws {
-        let candidates = [
+        let candidates = try Array("12345678").enumerated().map { index, byte in
             try candidate(
-                deviceID: "shared-mac",
-                endpointByte: "a",
+                deviceID: "mac-\(index)",
+                endpointByte: byte,
                 instanceTag: "phand1",
-                routeID: "iroh-phand1"
-            ),
-            try candidate(
-                deviceID: "shared-mac",
-                endpointByte: "b",
-                instanceTag: "phand2",
-                routeID: "iroh-phand2"
-            ),
-            try candidate(
-                deviceID: "shared-mac",
-                endpointByte: "c",
-                instanceTag: "phand3",
-                routeID: "iroh-phand3"
-            ),
-        ]
+                routeID: "iroh-mac-\(index)"
+            )
+        }
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
         try FileManager.default.createDirectory(
@@ -579,14 +567,14 @@ struct IrohZeroTouchDiscoveryTests {
             )
             routers[candidate.routes[0].id] = router
         }
-        let secondRouter = try #require(routers["iroh-phand2"])
-        let thirdRouter = try #require(routers["iroh-phand3"])
-        // Park each discovered peer's dial at its first host-status exchange
-        // until released. The 30s pairing timeout is far beyond the poll
-        // window below, so a parked dial cannot time out and fake an
-        // overlapping second dial.
-        await secondRouter.delayHostStatusRequest(number: 1)
-        await thirdRouter.delayHostStatusRequest(number: 1)
+        let secondaryRouters = try candidates.dropFirst().map {
+            try #require(routers[$0.routes[0].id])
+        }
+        // Hold every background authentication. All seven must start before
+        // any can complete, proving neither discovery nor admission has a cap.
+        for router in secondaryRouters {
+            await router.delayHostStatusRequest(number: 1)
+        }
         let factory = RoutedZeroTouchFactory(routers: routers)
         let defaults = UserDefaults(
             suiteName: "iroh-concurrent-admission-\(UUID().uuidString)"
@@ -601,8 +589,7 @@ struct IrohZeroTouchDiscoveryTests {
             isSignedIn: true,
             pairedMacStore: store,
             buildCompatibilityPolicy: .development(
-                expectedInstanceTag: "phand1",
-                additionalInstanceTags: MobileMacTagAllowlist(tags: ["phand2", "phand3"])
+                expectedInstanceTag: "phand1"
             ),
             personalIrohDiscovery: ScriptedIrohDiscovery(
                 snapshots: [candidates]
@@ -633,22 +620,21 @@ struct IrohZeroTouchDiscoveryTests {
         await shell.loadPairedMacs()
 
         #expect(await shell.reconnectActiveMacIfAvailable(stackUserID: "user-1"))
-        // Serial admission never dials the third peer while the second one's
-        // host-status exchange is held; both dials held at once is the
-        // concurrency proof.
         #expect(
             try await pollUntil {
-                let secondHeld = await secondRouter.heldRequestCount()
-                let thirdHeld = await thirdRouter.heldRequestCount()
-                return secondHeld == 1 && thirdHeld == 1
+                for router in secondaryRouters {
+                    if await router.heldRequestCount() != 1 { return false }
+                }
+                return true
             },
-            "discovered candidates should dial concurrently"
+            "all seven discovered peers must dial before any completes"
         )
-        await secondRouter.releaseAllHeld()
-        await thirdRouter.releaseAllHeld()
+        for router in secondaryRouters {
+            await router.releaseAllHeld()
+        }
         #expect(try await pollUntil {
-            shell.liveMacConnections.count == 3
-                && shell.pairedMacs.count == 3
+            shell.liveMacConnections.count == candidates.count
+                && shell.pairedMacs.count == candidates.count
         })
     }
 

@@ -29,7 +29,7 @@ extension MobileShellComposite {
     /// Loads fresh compatible peers after the foreground session is usable.
     ///
     /// Unlike launch restoration, this path never competes for focus. The
-    /// caller authenticates each transient candidate as a bounded control peer
+    /// caller authenticates each transient candidate as a control peer
     /// before the row is persisted.
     func discoverSecondaryZeroTouchIrohCandidates(
         scope: MobileShellScopeSnapshot,
@@ -111,7 +111,7 @@ extension MobileShellComposite {
               remoteClient != nil else { return }
 
         // Admit every discovered candidate concurrently. Each candidate is
-        // independent, and hidden Computers are filtered before discovery.
+        // independent, and hidden computers are filtered before admission.
         MobileDebugLog.anchormux(
             "CMUX_CONNECT zero_touch_admission_start candidates=\(candidates.count)"
         )
@@ -154,7 +154,7 @@ extension MobileShellComposite {
         )
         guard attemptedCandidate, await isScopeCurrent(scope) else { return }
         // Some authenticated rows can persist even if their first workspace
-        // snapshot fails. Reload once after the bounded pass so every proven
+        // snapshot fails. Reload once after the admission pass so every proven
         // peer appears immediately with its accurate availability state.
         await loadPairedMacs()
         if !transientFailureMacIDs.isEmpty {
