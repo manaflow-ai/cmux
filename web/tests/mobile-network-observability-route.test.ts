@@ -96,6 +96,29 @@ describe("iOS mobile network observability route", () => {
     expect(flushTimeouts).toEqual([1_000]);
   });
 
+  test("accepts task model discovery failures for Axiom root-cause spans", async () => {
+    const response = await POST(outcomeRequest([{
+      event: "ios_task_model_discovery",
+      timestamp: "2026-09-04T12:00:00.000Z",
+      properties: {
+        operation: "model_list",
+        outcome: "failure",
+        duration_ms: 850,
+        model_count: 0,
+        failure: "hostUnreachable",
+        platform: "ios",
+      },
+    }]));
+
+    expect(response.status).toBe(200);
+    expect(emitted[0]?.batch[0]).toMatchObject({
+      outcome: "failure",
+      durationMs: 850,
+      modelCount: 0,
+      failure: "hostUnreachable",
+    });
+  });
+
   test("accepts a terminal latency window with bounded percentile fields", async () => {
     const response = await POST(outcomeRequest([terminalWindow()]));
 
