@@ -4507,7 +4507,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 } == true
         } else if macSwitchRestoreBaseline != nil || previousForegroundMac != nil, !hasActiveMacConnection {
             // The switch did not connect after the previous session was retired
-            // for capacity or handoff safety. Reconnect the still-active Mac so
+            // for handoff safety. Reconnect the still-active Mac so
             // the user is not left stranded on a failed switch.
             // Keep the attempt alive through the restore so a rapid follow-up
             // picker selection can either cancel this rollback while preserving

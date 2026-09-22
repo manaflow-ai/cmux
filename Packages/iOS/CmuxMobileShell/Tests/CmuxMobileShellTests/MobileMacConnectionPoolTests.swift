@@ -114,7 +114,7 @@ import Testing
         #expect(candidates.map(\.macDeviceID) == ["mac-online"])
     }
 
-    @Test func unknownPresenceKeepsCandidatesInsideBoundedPool() throws {
+    @Test func unknownPresenceKeepsVisibleCandidates() throws {
         let shell = MobileShellComposite(
             isSignedIn: false,
             presence: IdlePresence()
@@ -129,6 +129,24 @@ import Testing
         )
 
         #expect(candidates.map(\.macDeviceID) == ["mac-before-snapshot"])
+    }
+
+    @Test func visibleComputersAreAllCandidatesWithoutSessionCap() throws {
+        let store = MobileShellComposite(isSignedIn: false)
+        let pairedMacs = try (0 ..< 8).map {
+            try Self.pairedMac(
+                id: "mac-visible-\($0)",
+                instanceTag: "tag-\($0)"
+            )
+        }
+
+        let candidates = store.secondaryAggregationCandidateMacs(
+            from: pairedMacs
+        )
+
+        #expect(candidates.count == pairedMacs.count)
+        #expect(Set(candidates.map(\.macDeviceID))
+            == Set(pairedMacs.map(\.macDeviceID)))
     }
 
     @Test func authoritativeEmptyPresenceExcludesUnknownMacs() throws {
