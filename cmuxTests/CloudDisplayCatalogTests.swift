@@ -194,6 +194,59 @@ struct CloudDisplayCatalogTests {
         #expect(second.remoteViews == pointer.remoteViews)
     }
 
+    @Test("Guest-created displays survive the next daemon publish and display delta")
+    func createdDisplaysSurviveDaemonPublish() async throws {
+        let machine = SurfaceMachineID.cloud("display-publish")
+        let coordinator = CloudDisplayCoordinator { command, _ in
+            .init(exitCode: 0, stdout: Self.isCreate(command) ? created : initial, stderr: "")
+        }
+        var summary = VMSummary(id: "display-publish", provider: "freestyle", status: "running", image: "cmux-devbox", createdAt: 0, base: nil)
+        summary.kind = .desktop
+        summary.addressIPv4 = "10.0.0.7"
+        let catalog = SurfaceCatalog()
+        let provider = CmuxTuiSurfaceProvider(
+            summary: summary,
+            links: CloudMachineLinkManager(clientURL: nil, hostThemeColors: { nil }),
+            catalog: catalog,
+            displayCoordinator: coordinator
+        )
+        catalog.register(provider)
+        defer { catalog.unregister(machine: machine) }
+        await provider.refreshDisplays()
+        let second = try await provider.createDisplay()
+        #expect(second.id == SurfaceResourceID(machine: machine, kind: .display, key: "display:2"))
+
+        func displayPorts() -> [String: Int?] {
+            Dictionary(uniqueKeysWithValues: catalog.snapshot.resources(on: machine)
+                .filter { $0.kind == .display }
+                .map { ($0.id.key, $0.port) })
+        }
+        #expect(displayPorts() == ["display:1": 6901, "display:2": 6902])
+
+        // A daemon graph carries no display tabs; the guest catalog still owns both screens.
+        let state = try #require(CmuxTuiSnapshotParser.state(fromSnapshot: [
+            "cursor": ["generation": "daemon", "revision": "1"],
+            "workspaces": [["id": "ws_main", "name": "main", "focused": true]],
+            "screens": [["id": "screen", "workspace_id": "ws_main"]],
+            "panes": [["id": "pane", "screen_id": "screen"]],
+            "tabs": [["id": "tab_0", "pane_id": "pane", "content_kind": "terminal", "content_id": "term_0", "focused": true]],
+            "terminals": [["id": "term_0", "title": "bash", "lifecycle": "running"]],
+            "browsers": [], "agents": []
+        ], machine: machine))
+        #expect(provider.installSnapshotIfNewer(state))
+        provider.publish(state, ports: [])
+        #expect(displayPorts() == ["display:1": 6901, "display:2": 6902], "a full publish keeps every guest display")
+
+        provider.publishDelta(
+            state,
+            impact: CloudVMStateDeltaImpact(resourceIDs: [second.id], requiresFullResourceRebuild: false),
+            ports: [],
+            reconcileTitles: false
+        )
+        #expect(displayPorts() == ["display:1": 6901, "display:2": 6902], "a delta touching display 2 keeps its target")
+        #expect(catalog.resources[second.id]?.url?.contains(":6902/") == true)
+    }
+
     /// Every guest command first runs `list` as a readiness probe (#13196,
     /// 178d35e5da), so only the final action line tells a creation apart.
     private static func isCreate(_ command: String) -> Bool {
