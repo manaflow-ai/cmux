@@ -451,8 +451,41 @@ jobs:
   macos:
     needs:
       - changes
-      - linux-preflight
-    if: ${{ !cancelled() && needs.changes.result == 'success' && needs.linux-preflight.result == 'success' && needs.changes.outputs.macos != 'false' }}
+      - static-preflight
+      - guards
+      - ghosttykit-release-check
+      - web
+    # Admit macOS directly from the cheap-layer aggregates. Reusable guard/web
+    # workflows already validate their routed children, so another Linux
+    # rollup adds a runner hop without adding evidence.
+    if: >-
+      ${{
+        !cancelled()
+        && needs.changes.result == 'success'
+        && needs.static-preflight.result == 'success'
+        && needs.changes.outputs.macos != 'false'
+        && needs.web.result == 'success'
+        && (
+          needs.guards.result == 'success'
+          || (
+            needs.changes.outputs.linux_guard_tests == 'false'
+            && needs.changes.outputs.linux_guard_history == 'false'
+            && needs.changes.outputs.linux_guard_cli == 'false'
+            && needs.changes.outputs.linux_guard_source == 'false'
+            && needs.guards.result == 'skipped'
+          )
+        )
+        && (
+          (
+            needs.changes.outputs.ghosttykit_release == 'true'
+            && needs.ghosttykit-release-check.result == 'success'
+          )
+          || (
+            needs.changes.outputs.ghosttykit_release == 'false'
+            && needs.ghosttykit-release-check.result == 'skipped'
+          )
+        )
+      }}
     permissions:
       actions: read
       contents: read
@@ -469,113 +502,6 @@ jobs:
       cache_backend: ${{ inputs.cache_backend }}
       release_archs: ${{ inputs.release_archs }}
 
-  linux-preflight:
-    name: linux-preflight
-    needs:
-      - changes
-      - static-preflight
-      - guards
-      - ghosttykit-release-check
-      - web
-    # This job exists only to admit macOS work after the cheap layer passes.
-    # This replaces the old unconditional `if: ${{ always() }}`: if the change
-    # router explicitly says macOS is irrelevant, skip the runner allocation.
-    # Missing/invalid route output fails open by running the preflight.
-    if: ${{ always() && needs.changes.outputs.macos != 'false' }}
-    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
-    timeout-minutes: 5
-    steps:
-      - name: Check cheap CI layer before macOS runners
-        env:
-          PREFLIGHT_NEEDS: ${{ toJSON(needs) }}
-        run: |
-          python3 - <<'PY'
-          import json
-          import os
-          import sys
-
-          needs = json.loads(os.environ["PREFLIGHT_NEEDS"])
-          required = (
-              "changes",
-              "static-preflight",
-          )
-          allowed_routed = {
-              "ghosttykit-release-check",
-          }
-
-          bad = {}
-          for name in required:
-              result = needs[name]["result"]
-              if result != "success":
-                  bad[name] = result
-
-          outputs = needs["changes"].get("outputs", {})
-          guard_routes = (
-              "linux_guard_tests",
-              "linux_guard_history",
-              "linux_guard_cli",
-              "linux_guard_source",
-          )
-          invalid_guard_routes = {
-              route: outputs.get(route)
-              for route in guard_routes
-              if outputs.get(route) not in {"true", "false"}
-          }
-          for route, value in sorted(invalid_guard_routes.items()):
-              bad[f"guards.{route}"] = f"invalid route {route}={value!r}"
-
-          guard_result = needs["guards"]["result"]
-          if any(outputs.get(route) == "true" for route in guard_routes):
-              if guard_result != "success":
-                  bad["guards"] = f"{guard_result} (one or more guard routes=true)"
-          elif not invalid_guard_routes and guard_result not in {"success", "skipped"}:
-              bad["guards"] = guard_result
-
-          web_routes = ("web", "macos", "agent_session_web")
-          invalid_web_routes = {
-              route: outputs.get(route)
-              for route in web_routes
-              if outputs.get(route) not in {"true", "false"}
-          }
-          for route, value in sorted(invalid_web_routes.items()):
-              bad[f"web.{route}"] = f"invalid route {route}={value!r}"
-
-          web_result = needs["web"]["result"]
-          if any(outputs.get(route) == "true" for route in web_routes):
-              if web_result != "success":
-                  bad["web"] = f"{web_result} (one or more web routes=true)"
-          elif not invalid_web_routes and web_result not in {"success", "skipped"}:
-              bad["web"] = web_result
-
-          routed_outputs = {
-              "ghosttykit-release-check": "ghosttykit_release",
-          }
-          for name in sorted(allowed_routed):
-              result = needs[name]["result"]
-              route = routed_outputs[name]
-              if outputs.get(route) not in {"true", "false"}:
-                  bad[name] = f"invalid route {route}={outputs.get(route)!r}"
-              elif outputs.get(route) == "true":
-                  if result != "success":
-                      bad[name] = f"{result} (route {route}=true)"
-              elif result not in {"success", "skipped"}:
-                  bad[name] = result
-
-          if bad:
-              for name, result in bad.items():
-                  print(f"{name}: {result}", file=sys.stderr)
-              sys.exit(1)
-
-          print(
-              "routes: "
-              f"macos={outputs.get('macos')} "
-              f"web={outputs.get('web')} "
-              f"agent_session_web={outputs.get('agent_session_web')}"
-          )
-          for name, data in sorted(needs.items()):
-              print(f"{name}: {data['result']}")
-          PY
-
   ci-status:
     needs:
       - changes
@@ -583,7 +509,6 @@ jobs:
       - guards
       - ghosttykit-release-check
       - web
-      - linux-preflight
       - macos
     if: ${{ always() }}
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
@@ -663,13 +588,8 @@ jobs:
                   )
 
               macos_route = outputs.get("macos")
-              if macos_route == "true":
-                  if needs["linux-preflight"]["result"] != "success":
-                      bad["linux-preflight"] = (
-                          f"{needs['linux-preflight']['result']} (route macos=true)"
-                      )
-                  if needs["macos"]["result"] != "success":
-                      bad["macos"] = f"{needs['macos']['result']} (route macos=true)"
+              if macos_route == "true" and needs["macos"]["result"] != "success":
+                  bad["macos"] = f"{needs['macos']['result']} (route macos=true)"
 
           if bad:
               for name, result in bad.items():
