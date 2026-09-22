@@ -79,6 +79,24 @@ cmux_ios_tagged_device_app_group_fallback_allowed() {
     && "$allow_provisioning_updates" == "1" ]]
 }
 
+cmux_ios_device_signing_backend() {
+  local key_id="$1"
+  local issuer_id="$2"
+  local key_path="$3"
+
+  if [[ -z "$key_id" && -z "$issuer_id" && -z "$key_path" ]]; then
+    printf '%s' "xcode-account"
+    return 0
+  fi
+  if [[ -n "$key_id" && -n "$issuer_id" && -n "$key_path" ]]; then
+    printf '%s' "asc-api-key"
+    return 0
+  fi
+
+  echo "error: incomplete App Store Connect API credentials for physical-device signing; set all of ASC_API_KEY_ID, ASC_API_ISSUER_ID, and ASC_API_KEY_PATH, or unset all three to use the local Xcode account" >&2
+  return 2
+}
+
 cmux_ios_device_build_failed_for_app_group_entitlement() {
   local log_path="$1"
 
@@ -571,13 +589,22 @@ fi
 
 XCODE_AUTH_ARGS=()
 DEVICE_SIGNING_BACKEND="xcode-account"
-if [[ -n "${ASC_API_KEY_ID:-}" && -n "${ASC_API_ISSUER_ID:-}" && -n "${ASC_API_KEY_PATH:-}" ]]; then
-  DEVICE_SIGNING_BACKEND="asc-api-key"
-  XCODE_AUTH_ARGS=(
-    -authenticationKeyPath "$ASC_API_KEY_PATH"
-    -authenticationKeyID "$ASC_API_KEY_ID"
-    -authenticationKeyIssuerID "$ASC_API_ISSUER_ID"
-  )
+if [[ "$RELOAD_DEVICE" -eq 1 ]]; then
+  if ! DEVICE_SIGNING_BACKEND="$(cmux_ios_device_signing_backend \
+      "${ASC_API_KEY_ID:-}" "${ASC_API_ISSUER_ID:-}" "${ASC_API_KEY_PATH:-}")"; then
+    exit 2
+  fi
+  if [[ "$DEVICE_SIGNING_BACKEND" == "asc-api-key" ]]; then
+    if [[ ! -r "$ASC_API_KEY_PATH" ]]; then
+      echo "error: ASC_API_KEY_PATH is not readable: $ASC_API_KEY_PATH" >&2
+      exit 2
+    fi
+    XCODE_AUTH_ARGS=(
+      -authenticationKeyPath "$ASC_API_KEY_PATH"
+      -authenticationKeyID "$ASC_API_KEY_ID"
+      -authenticationKeyIssuerID "$ASC_API_ISSUER_ID"
+    )
+  fi
 fi
 
 # Tell the mobile-attach QR server (scripts/mobile-attach-qr-server.sh) which

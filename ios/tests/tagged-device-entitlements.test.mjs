@@ -64,6 +64,22 @@ function fallbackAllowed(configuration, signingBackend, allowProvisioningUpdates
   );
 }
 
+function deviceSigningBackend(keyID, issuerID, keyPath) {
+  const helper = extractShellFunction(reload, "cmux_ios_device_signing_backend");
+  return spawnSync(
+    "bash",
+    [
+      "-c",
+      `${helper}; cmux_ios_device_signing_backend "$1" "$2" "$3"`,
+      "ios-signing-backend-test",
+      keyID,
+      issuerID,
+      keyPath,
+    ],
+    { cwd: repoRoot, encoding: "utf8" },
+  );
+}
+
 function detectsAppGroupProfileMismatch(logBody) {
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "cmux-ios-entitlement-log-"));
   const logPath = path.join(tempRoot, "build.log");
@@ -115,6 +131,30 @@ function simulatorBuildBlock() {
   assert.notEqual(end, -1, "missing end of reload_simulator");
   return reload.slice(start, end);
 }
+
+test("physical-device signing rejects partial ASC credentials instead of changing backends", () => {
+  const localAccount = deviceSigningBackend("", "", "");
+  assert.equal(localAccount.status, 0, localAccount.stderr);
+  assert.equal(localAccount.stdout, "xcode-account");
+
+  const apiKey = deviceSigningBackend("KEY123", "issuer-123", "/tmp/AuthKey_KEY123.p8");
+  assert.equal(apiKey.status, 0, apiKey.stderr);
+  assert.equal(apiKey.stdout, "asc-api-key");
+
+  for (const values of [
+    ["KEY123", "", ""],
+    ["", "issuer-123", ""],
+    ["", "", "/tmp/AuthKey_KEY123.p8"],
+    ["KEY123", "issuer-123", ""],
+  ]) {
+    const partial = deviceSigningBackend(...values);
+    assert.notEqual(partial.status, 0);
+    assert.match(partial.stderr, /incomplete App Store Connect API credentials/u);
+  }
+
+  assert.match(reload, /if \[\[ "\$RELOAD_DEVICE" -eq 1 \]\]; then/u);
+  assert.match(reload, /if \[\[ ! -r "\$ASC_API_KEY_PATH" \]\]; then/u);
+});
 
 test("tagged Debug API-key signing can retry without the App Group", () => {
   const allowed = fallbackAllowed("Debug", "asc-api-key", true);
