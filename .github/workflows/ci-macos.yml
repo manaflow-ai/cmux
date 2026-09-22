@@ -1898,6 +1898,8 @@ jobs:
             : >"$TEST_OUTPUT"
             local output_path
             shopt -s nullglob
+            # The unquoted expansion is the glob this line exists to perform.
+            # shellcheck disable=SC2206
             local output_paths=("$RUNNER_TEMP"/cmux-unit-output-*-of-${LOGICAL_SHARD_TOTAL}-run-*.txt)
             shopt -u nullglob
             for output_path in "${output_paths[@]}"; do

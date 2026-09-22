@@ -81,6 +81,9 @@ jobs:
           valid=false
           tree=""
           parent1=""
+          # parent2 is read only so that `extra` lands on a third parent; a
+          # merge with more than two is not a routing source we can trust.
+          # shellcheck disable=SC2034
           read -r commit parent1 parent2 extra <<EOF
           $(git rev-list --parents -n1 HEAD)
           EOF
