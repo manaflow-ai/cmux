@@ -84,8 +84,12 @@ struct ControlCommandCoordinatorSimulatorTests {
 
     @Test("Web Inspector operation deadline starts after Simulator readiness")
     func webInspectorReceiptSeparatesReadinessDeadline() async {
+        // The readiness window is a safety bound, not the thing under test:
+        // `markOperationReady()` wakes the waiter through the condition's
+        // broadcast, so a generous bound keeps the first expectation from
+        // racing 100 task yields against real time on a loaded runner.
         let receipt = ControlSimulatorWebInspectorReceipt(
-            readinessTimeout: 1,
+            readinessTimeout: 60,
             cancellationJoinTimeout: 0
         )
         let cancelled = SimulatorCancellationProbe()
