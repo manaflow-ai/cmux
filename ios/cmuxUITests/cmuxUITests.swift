@@ -11901,6 +11901,8 @@ final class IOSSetupRecoveryUITests: XCTestCase {
         defer { app.terminate() }
         let retry = app.buttons["MobileWorkspaceEmptyRetry"]
         XCTAssertTrue(retry.waitForExistence(timeout: 10))
+        let emptyState = app.descendants(matching: .any)["MobileWorkspaceEmptyState"]
+        XCTAssertTrue(emptyState.exists)
         for attempt in 1...2 {
             retry.tap()
             let finish = app.buttons["MobileWorkspaceListPreviewFinishRefresh"]
@@ -11910,14 +11912,15 @@ final class IOSSetupRecoveryUITests: XCTestCase {
             ]
             XCTAssertTrue(statusLine.waitForExistence(timeout: 5))
             XCTAssertEqual(statusLine.label, "Reconnecting…")
-            XCTAssertFalse(retry.isEnabled)
+            XCTAssertFalse(emptyState.exists)
+            XCTAssertFalse(retry.exists)
             XCTAssertFalse(app.buttons["MobileWorkspaceEmptyRetryCancel"].exists)
             // Emit an empty-list update before the pending refresh completes.
             app.buttons["MobileWorkspaceListPreviewRefresh"].tap()
             XCTAssertTrue(app.descendants(matching: .any)[
                 "MobileWorkspaceListRefreshGeneration-\(attempt * 2 - 1)"
             ].waitForExistence(timeout: 5))
-            XCTAssertFalse(retry.isEnabled)
+            XCTAssertFalse(emptyState.exists)
             XCTAssertTrue(finish.exists)
             capture("retry-\(attempt)-pending-after-list-update", in: app)
             finish.tap()
@@ -11928,6 +11931,7 @@ final class IOSSetupRecoveryUITests: XCTestCase {
             XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(
                 predicate: enabled, object: nil
             )], timeout: 5), .completed)
+            XCTAssertTrue(emptyState.waitForExistence(timeout: 5))
             capture("retry-\(attempt)-completed-after-list-update", in: app)
         }
         record("retry-lifecycle-result", "Retry stayed disabled across an intermediate empty-list update, completed after an explicit fixture signal, and accepted a second retry. No timing delay is used by this fixture.")
