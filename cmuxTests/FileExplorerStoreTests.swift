@@ -1391,10 +1391,11 @@ struct ProcessSSHFileExplorerListingTests {
     func testRemoteListingExecutionMissingDirectoryExitsNonZero() throws {
         let root = try makeListingFixtureDirectory()
         try FileManager.default.removeItem(at: root)
-        // A missing directory must surface as a non-zero exit (→ sshCommandFailed),
-        // never a silently empty listing.
+        // A missing directory must surface as exit 1 (→ sshCommandFailed), never a
+        // silently empty listing, and never the tooling status that triggers the
+        // `ls` fallback.
         let (output, status) = try runRemoteListing(path: root.path, showHidden: false)
-        #expect(status != 0)
+        #expect(status == 1)
         #expect(output.isEmpty)
     }
 
@@ -1492,9 +1493,10 @@ struct ProcessSSHFileExplorerListingTests {
     }
 
     @Test
-    func testRemoteListingExitsNonZeroWhenBase64Unavailable() throws {
+    func testRemoteListingExitsWithUnsupportedToolsStatusWhenBase64Unavailable() throws {
         // With base64 missing from PATH the decode yields an empty script, which
-        // must error rather than run `eval ""` and report an empty listing.
+        // must report the tooling status (→ `ls` fallback) rather than run
+        // `eval ""` and report an empty listing.
         let root = try makeListingFixtureDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
         try "x".write(to: root.appendingPathComponent("a.txt"), atomically: true, encoding: .utf8)
@@ -1512,7 +1514,91 @@ struct ProcessSSHFileExplorerListingTests {
         process.standardError = FileHandle.nullDevice
         try process.run()
         process.waitUntilExit()
-        #expect(process.terminationStatus != 0)
+        #expect(process.terminationStatus == ProcessSSHFileExplorerTransport.remoteListingUnsupportedToolsStatus)
+    }
+
+    @Test
+    func testRemoteListingExitsWithUnsupportedToolsStatusWhenStatUnavailable() throws {
+        // A host with `base64` and `find` but no GNU/BSD `stat` (or one that
+        // supports neither format flag) must report the tooling status so the
+        // transport falls back to `ls`, instead of failing like an unreadable
+        // directory.
+        let root = try makeListingFixtureDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        try "x".write(to: root.appendingPathComponent("a.txt"), atomically: true, encoding: .utf8)
+
+        let bin = root.appendingPathComponent(".bin", isDirectory: true)
+        try FileManager.default.createDirectory(at: bin, withIntermediateDirectories: true)
+        for tool in ["base64", "find"] {
+            let real = ["/usr/bin/\(tool)", "/bin/\(tool)"].first { FileManager.default.isExecutableFile(atPath: $0) }
+            let realPath = try #require(real, "\(tool) is required on the test host")
+            try FileManager.default.createSymbolicLink(
+                atPath: bin.appendingPathComponent(tool).path,
+                withDestinationPath: realPath
+            )
+        }
+
+        let command = ProcessSSHFileExplorerTransport.posixShellBootstrap(
+            script: ProcessSSHFileExplorerTransport.remoteListingScript(path: root.path, showHidden: false)
+        )
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/sh")
+        process.arguments = ["-c", command]
+        process.environment = ["PATH": bin.path]
+        let stdout = Pipe()
+        process.standardOutput = stdout
+        process.standardError = FileHandle.nullDevice
+        try process.run()
+        let data = stdout.fileHandleForReading.readDataToEndOfFile()
+        process.waitUntilExit()
+        #expect(process.terminationStatus == ProcessSSHFileExplorerTransport.remoteListingUnsupportedToolsStatus)
+        #expect(data.isEmpty)
+    }
+
+    @Test
+    func testLegacyListingExecutesAndParsesEntriesWithoutDates() throws {
+        // The `ls -F` fallback used when the dated script reports missing tools:
+        // directories keep their type, `-F` suffixes are stripped from files,
+        // dotfiles stay hidden unless requested, and no entry carries a date.
+        let root = try makeListingFixtureDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root.appendingPathComponent("src"), withIntermediateDirectories: true)
+        try "x".write(to: root.appendingPathComponent("a.txt"), atomically: true, encoding: .utf8)
+        try "#!/bin/sh\n".write(to: root.appendingPathComponent("run.sh"), atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: root.appendingPathComponent("run.sh").path)
+        try "x".write(to: root.appendingPathComponent(".hidden"), atomically: true, encoding: .utf8)
+        try FileManager.default.createSymbolicLink(
+            atPath: root.appendingPathComponent("link").path,
+            withDestinationPath: "a.txt"
+        )
+
+        func list(showHidden: Bool) throws -> [FileExplorerEntry] {
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: "/bin/sh")
+            process.arguments = ["-c", ProcessSSHFileExplorerTransport.legacyListingCommand(path: root.path, showHidden: showHidden)]
+            let stdout = Pipe()
+            process.standardOutput = stdout
+            process.standardError = FileHandle.nullDevice
+            try process.run()
+            let data = stdout.fileHandleForReading.readDataToEndOfFile()
+            process.waitUntilExit()
+            #expect(process.terminationStatus == 0)
+            return ProcessSSHFileExplorerTransport.parseLegacyListing(
+                String(decoding: data, as: UTF8.self),
+                path: root.path,
+                showHidden: showHidden
+            )
+        }
+
+        let visible = try list(showHidden: false)
+        #expect(visible.map(\.name).sorted() == ["a.txt", "link", "run.sh", "src"])
+        #expect(visible.first { $0.name == "src" }?.isDirectory == true)
+        #expect(visible.filter { $0.name != "src" }.allSatisfy { !$0.isDirectory })
+        #expect(visible.allSatisfy { $0.creationDate == nil && $0.modificationDate == nil })
+        #expect(visible.first { $0.name == "a.txt" }?.path == root.path + "/a.txt")
+
+        let all = try list(showHidden: true)
+        #expect(all.map(\.name).sorted() == [".hidden", "a.txt", "link", "run.sh", "src"])
     }
 
     // MARK: Parsing of the tab-separated stat output

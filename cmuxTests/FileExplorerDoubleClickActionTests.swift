@@ -128,9 +128,6 @@ import Testing
 }
 
 @Suite struct FileExplorerSortSettingsTests {
-    private let settingsFileBackupsDefaultsKey = "cmux.settingsFile.backups.v1"
-    private let importedManagedDefaultsKey = "cmux.settingsFile.importedManagedDefaults.v1"
-
     private func makeDefaults() -> UserDefaults {
         let suiteName = "cmux-file-explorer-sort-tests-\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suiteName)!
@@ -149,20 +146,6 @@ import Testing
         try contents.data(using: .utf8)!.write(to: url, options: .atomic)
     }
 
-    private func preservingDefaults(keys: [String], _ body: () throws -> Void) throws {
-        let defaults = UserDefaults.standard
-        let saved = Dictionary(uniqueKeysWithValues: keys.map { ($0, defaults.object(forKey: $0)) })
-        defer {
-            for (key, value) in saved {
-                if let value {
-                    defaults.set(value, forKey: key)
-                } else {
-                    defaults.removeObject(forKey: key)
-                }
-            }
-        }
-        try body()
-    }
 
     @Test func defaultSortIsNameAscending() {
         #expect(FileExplorerSortOptions.defaultValue == FileExplorerSortOptions(key: .name, order: .ascending))
@@ -202,50 +185,41 @@ import Testing
     }
 
     @Test func settingsFileStoreParsesFileExplorerSortOptions() throws {
-        let defaults = UserDefaults.standard
+        // An isolated suite keeps this test independent of `UserDefaults.standard`
+        // and of any other test that touches the sort or settings-file keys.
+        let defaults = makeDefaults()
+        let sortSettings = FileExplorerSortSettings(defaults: defaults, notificationCenter: NotificationCenter())
 
-        try preservingDefaults(keys: [
-            FileExplorerSortSettings.sortKeyKey,
-            FileExplorerSortSettings.sortOrderKey,
-            settingsFileBackupsDefaultsKey,
-            importedManagedDefaultsKey
-        ]) {
-            defaults.removeObject(forKey: FileExplorerSortSettings.sortKeyKey)
-            defaults.removeObject(forKey: FileExplorerSortSettings.sortOrderKey)
-            defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
-            defaults.removeObject(forKey: importedManagedDefaultsKey)
-            let sortSettings = FileExplorerSortSettings(defaults: defaults, notificationCenter: NotificationCenter())
+        #expect(sortSettings.resolvedOptions() == FileExplorerSortOptions.defaultValue)
 
-            #expect(sortSettings.resolvedOptions() == FileExplorerSortOptions.defaultValue)
+        let directoryURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
 
-            let directoryURL = try makeTemporaryDirectory()
-            defer { try? FileManager.default.removeItem(at: directoryURL) }
-
-            let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
-            try writeSettingsFile(
-                """
-                {
-                  "fileExplorer": {
-                    "sortBy": "dateModified",
-                    "sortOrder": "descending"
-                  }
-                }
-                """,
-                to: settingsFileURL
-            )
-
-            let store = KeyboardShortcutSettingsFileStore(
-                primaryPath: settingsFileURL.path,
-                fallbackPath: nil,
-                additionalFallbackPaths: [],
-                startWatching: false
-            )
-
-            withExtendedLifetime(store) {
-                #expect(defaults.string(forKey: FileExplorerSortSettings.sortKeyKey) == "dateModified")
-                #expect(defaults.string(forKey: FileExplorerSortSettings.sortOrderKey) == "descending")
-                #expect(sortSettings.resolvedOptions() == FileExplorerSortOptions(key: .dateModified, order: .descending))
+        let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+        try writeSettingsFile(
+            """
+            {
+              "fileExplorer": {
+                "sortBy": "dateModified",
+                "sortOrder": "descending"
+              }
             }
+            """,
+            to: settingsFileURL
+        )
+
+        let store = KeyboardShortcutSettingsFileStore(
+            primaryPath: settingsFileURL.path,
+            fallbackPath: nil,
+            additionalFallbackPaths: [],
+            userDefaults: defaults,
+            startWatching: false
+        )
+
+        withExtendedLifetime(store) {
+            #expect(defaults.string(forKey: FileExplorerSortSettings.sortKeyKey) == "dateModified")
+            #expect(defaults.string(forKey: FileExplorerSortSettings.sortOrderKey) == "descending")
+            #expect(sortSettings.resolvedOptions() == FileExplorerSortOptions(key: .dateModified, order: .descending))
         }
     }
 }

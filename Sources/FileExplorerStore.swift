@@ -649,8 +649,22 @@ final class ProcessSSHFileExplorerTransport: SSHFileExplorerTransport {
     }
 
     private static func runSSHCommand(connection: SSHFileExplorerConnection, command: String) async throws -> String {
+        let result = try await runSSHCommandResult(connection: connection, command: command)
+        guard result.terminationStatus == 0 else {
+            throw FileExplorerError.sshCommandFailed(result.stderr)
+        }
+        return result.stdout
+    }
+
+    /// Runs `command` and returns its exit status with the captured output, so
+    /// callers can react to specific non-zero statuses. Only transport failures
+    /// (spawn errors, cancellation) throw.
+    private static func runSSHCommandResult(
+        connection: SSHFileExplorerConnection,
+        command: String
+    ) async throws -> SSHCommandResult {
         let commandProcess = SSHCommandProcess(connection: connection, command: command)
-        let result = try await withTaskCancellationHandler {
+        return try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { continuation in
                 DispatchQueue.global(qos: .userInitiated).async {
                     continuation.resume(with: Result { try commandProcess.run() })
@@ -659,11 +673,6 @@ final class ProcessSSHFileExplorerTransport: SSHFileExplorerTransport {
         } onCancel: {
             commandProcess.terminate()
         }
-
-        guard result.terminationStatus == 0 else {
-            throw FileExplorerError.sshCommandFailed(result.stderr)
-        }
-        return result.stdout
     }
 
     private static func sshArguments(connection: SSHFileExplorerConnection, command: String) -> [String] {
@@ -688,11 +697,64 @@ final class ProcessSSHFileExplorerTransport: SSHFileExplorerTransport {
         connection: SSHFileExplorerConnection,
         showHidden: Bool
     ) async throws -> [FileExplorerEntry] {
-        let output = try await runSSHCommand(
+        let result = try await runSSHCommandResult(
             connection: connection,
             command: posixShellBootstrap(script: remoteListingScript(path: path, showHidden: showHidden))
         )
-        return parseRemoteListing(output, path: path, showHidden: showHidden)
+        if result.terminationStatus == 0 {
+            return parseRemoteListing(result.stdout, path: path, showHidden: showHidden)
+        }
+        // Only a missing tool (`base64`, `find`, a usable `stat`) falls back to
+        // the plain `ls` listing without dates. Access failures and dead
+        // connections keep their error so the explorer does not retry against
+        // an unreadable directory or an unreachable host.
+        guard result.terminationStatus == remoteListingUnsupportedToolsStatus else {
+            throw FileExplorerError.sshCommandFailed(result.stderr)
+        }
+        let output = try await runSSHCommand(
+            connection: connection,
+            command: legacyListingCommand(path: path, showHidden: showHidden)
+        )
+        return parseLegacyListing(output, path: path, showHidden: showHidden)
+    }
+
+    /// Exit status ``remoteListingScript(path:showHidden:)`` and
+    /// ``posixShellBootstrap(script:)`` use when the remote host lacks a tool
+    /// the dated listing needs. Distinct from `1` (unreadable or missing
+    /// directory) so ``runSSHListCommand`` can fall back without masking access
+    /// errors.
+    static let remoteListingUnsupportedToolsStatus: Int32 = 3
+
+    /// The pre-timestamp listing: POSIX `ls` with type suffixes. Used only when
+    /// the dated script reports ``remoteListingUnsupportedToolsStatus``.
+    static func legacyListingCommand(path: String, showHidden: Bool) -> String {
+        let lsFlags = showHidden ? "-1paFA" : "-1paF"
+        return "ls \(lsFlags) \(shellSingleQuote(path)) 2>/dev/null"
+    }
+
+    /// Parses ``legacyListingCommand(path:showHidden:)`` output. Entries carry
+    /// no dates, so date sorts place them in the "unknown" group.
+    static func parseLegacyListing(
+        _ output: String,
+        path: String,
+        showHidden: Bool
+    ) -> [FileExplorerEntry] {
+        let normalizedPath = path.hasSuffix("/") ? path : path + "/"
+        return output.split(separator: "\n", omittingEmptySubsequences: true).compactMap { line in
+            let entry = String(line)
+            guard entry != "./" && entry != "../" else { return nil }
+            let isDir = entry.hasSuffix("/")
+            let name = isDir ? String(entry.dropLast()) : entry
+            guard showHidden || !name.hasPrefix(".") else { return nil }
+            // Strip type indicators from -F flag (*, @, =, |) for files
+            let cleanName: String
+            if !isDir, let last = name.last, "*@=|".contains(last) {
+                cleanName = String(name.dropLast())
+            } else {
+                cleanName = name
+            }
+            return FileExplorerEntry(name: cleanName, path: normalizedPath + cleanName, isDirectory: isDir)
+        }
     }
 
     /// POSIX `sh` script that lists `path` for the file explorer.
@@ -727,12 +789,13 @@ final class ProcessSSHFileExplorerTransport: SSHFileExplorerTransport {
         return """
         cd \(escapedPath) 2>/dev/null || exit 1
         [ -r . ] || exit 1
+        command -v find >/dev/null 2>&1 || exit \(remoteListingUnsupportedToolsStatus)
         if stat -c %Y / >/dev/null 2>&1; then
           find . -mindepth 1 -maxdepth 1 \(nameFilter)-exec stat -c '%A\t%Y\t%W\t%n' {} + 2>/dev/null || exit 1
         elif stat -f %m / >/dev/null 2>&1; then
           find . -mindepth 1 -maxdepth 1 \(nameFilter)-exec stat -f '%Sp\t%m\t%B\t%N' {} + 2>/dev/null || exit 1
         else
-          exit 1
+          exit \(remoteListingUnsupportedToolsStatus)
         fi
         exit 0
         """
@@ -748,11 +811,11 @@ final class ProcessSSHFileExplorerTransport: SSHFileExplorerTransport {
     /// login shell. `base64 -d` (GNU/coreutils) falls back to `-D` (BSD/macOS).
     ///
     /// If neither decode works (no/incompatible `base64`), the decoded script is
-    /// empty and the bootstrap exits non-zero rather than running `eval ""` and
-    /// reporting a silently empty directory.
+    /// empty and the bootstrap exits with ``remoteListingUnsupportedToolsStatus``
+    /// rather than running `eval ""` and reporting a silently empty directory.
     static func posixShellBootstrap(script: String) -> String {
         let encoded = Data(script.utf8).base64EncodedString()
-        return "/bin/sh -c 'b=\(encoded); s=$(printf %s \"$b\" | base64 -d 2>/dev/null || printf %s \"$b\" | base64 -D 2>/dev/null); [ -n \"$s\" ] || exit 1; eval \"$s\"'"
+        return "/bin/sh -c 'b=\(encoded); s=$(printf %s \"$b\" | base64 -d 2>/dev/null || printf %s \"$b\" | base64 -D 2>/dev/null); [ -n \"$s\" ] || exit \(remoteListingUnsupportedToolsStatus); eval \"$s\"'"
     }
 
     /// Parses the tab-separated output of ``remoteListingScript(path:showHidden:)``.
