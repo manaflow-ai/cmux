@@ -164,6 +164,7 @@ for expected in \
   cmux-unit \
   cmux-numeric-locale \
   build-for-testing \
+  -showBuildTimingSummary \
   COMPILATION_CACHE_ENABLE_CACHING=YES \
   "COMPILATION_CACHE_CAS_PATH=$TMP_DIR/cas" \
   "$TMP_DIR/derived" \

@@ -132,7 +132,9 @@ class LinuxGuardRoutingTests(unittest.TestCase):
         }
         for path in (
             "scripts/ci/persistent_mac_route.py",
+            "scripts/ci/swift_incremental_diagnostics.py",
             "tests/test_ci_persistent_mac_compile.py",
+            "tests/test_swift_incremental_diagnostics.py",
             "tests/test_ci_self_hosted_guard.sh",
         ):
             with self.subTest(path=path):
