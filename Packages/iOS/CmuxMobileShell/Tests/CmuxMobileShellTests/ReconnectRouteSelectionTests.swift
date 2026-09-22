@@ -85,6 +85,68 @@ import Testing
         await shell.remoteClient?.disconnect()
     }
 
+    @Test func startupReconnectWaitsForPairedMacHydrationBeforeDialing() async throws {
+        let clock = TestClock()
+        let router = LivenessHostRouter()
+        await router.setHostIdentity(
+            deviceID: "test-mac", instanceTag: "default", displayName: "Test Mac"
+        )
+        let box = TransportBox()
+        let factory = KindRecordingTransportFactory(router: router, box: box)
+        let mac = MobilePairedMac(
+            macDeviceID: "test-mac",
+            displayName: "Test Mac",
+            routes: [try iroh()],
+            createdAt: clock.now,
+            lastSeenAt: clock.now,
+            isActive: true,
+            stackUserID: "user-1",
+            instanceTag: "default"
+        )
+        let pairedStore = DelayedTeamPairedMacStore(
+            recordsByTeam: ["": [mac]],
+            blockedTeams: [""]
+        )
+        let shell = MobileShellComposite(
+            runtime: LivenessTestRuntime(
+                transportFactory: factory,
+                now: { clock.now },
+                supportedRouteKinds: [.iroh]
+            ),
+            isSignedIn: true,
+            pairedMacStore: pairedStore,
+            identityProvider: StaticIdentityProvider(userID: "user-1"),
+            reachability: AlwaysOnlineReachability()
+        )
+
+        let reconnect = Task {
+            await shell.reconnectActiveMacIfAvailable(
+                stackUserID: "user-1",
+                hydratePairedMacs: true
+            )
+        }
+        await pairedStore.waitUntilLoadStarted(teamID: nil)
+        #expect(factory.attemptedKinds().isEmpty)
+
+        // The hydration gate and the authoritative reconnect snapshot each read
+        // storage. Keep releasing any read that becomes parked, so this test
+        // does not race the store actor's continuation setup or assume a fixed
+        // number of startup readers.
+        let releaser = Task {
+            for _ in 0 ..< 500 {
+                if await pairedStore.isLoadBlocked(teamID: nil) {
+                    await pairedStore.release(teamID: nil)
+                }
+                await Task.yield()
+            }
+        }
+        #expect(await reconnect.value)
+        releaser.cancel()
+        #expect(shell.pairedMacLoadState == .loaded)
+        #expect(factory.attemptedKinds() == [.iroh])
+        await shell.remoteClient?.disconnect()
+    }
+
     @Test func physicalDevicePrefersRealRouteOverLowerPriorityLoopback() throws {
         let pick = MobileShellComposite.firstReconnectHostPortRoute(
             [try loopback(), try tailscale()],
