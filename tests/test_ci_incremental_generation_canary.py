@@ -58,6 +58,37 @@ class IncrementalGenerationCanaryTests(unittest.TestCase):
             self.assertEqual(parsed["swift_compile_timing_seconds"], 4.25)
             self.assertEqual(parsed["emit_module_seconds"], 1.75)
 
+    def test_blob_normalization_keeps_unchanged_mtime_and_changes_edited_mtime(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            repo = Path(directory) / "repo"
+            repo.mkdir()
+            git(repo, "init", "-q")
+            git(repo, "config", "user.name", "Canary Test")
+            git(repo, "config", "user.email", "canary@example.invalid")
+            (repo / "Sources").mkdir()
+            unchanged = repo / "Sources/AppDelegate.swift"
+            edited = repo / "Sources/MobileTerminalByteTee.swift"
+            unchanged.write_text("let unchanged = 1\n")
+            edited.write_text("let changed = 1\n")
+            git(repo, "add", ".")
+            git(repo, "commit", "-qm", "A")
+            base = git(repo, "rev-parse", "HEAD")
+
+            bench.normalize_tracked_mtimes(repo)
+            unchanged_a = unchanged.stat().st_mtime_ns
+            edited_a = edited.stat().st_mtime_ns
+
+            edited.write_text("let changed = 2\n")
+            git(repo, "add", ".")
+            git(repo, "commit", "-qm", "B")
+            target = git(repo, "rev-parse", "HEAD")
+
+            git(repo, "checkout", "-q", "--detach", base)
+            git(repo, "checkout", "-q", "--detach", target)
+            bench.normalize_tracked_mtimes(repo)
+            self.assertEqual(unchanged.stat().st_mtime_ns, unchanged_a)
+            self.assertNotEqual(edited.stat().st_mtime_ns, edited_a)
+
     def test_restored_worktree_advances_only_changed_source_mtime(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
