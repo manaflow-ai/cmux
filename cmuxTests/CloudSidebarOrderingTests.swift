@@ -197,6 +197,7 @@ final class CloudSidebarOrderingFixture {
                 promptRename: { _, _ in }, resizeDisk: { _, _ in }, promptUpgrade: {}
             ),
             nodeActions: CloudTreeNodeActions.bound(
+                navigationHost: AppDelegate.makeCloudTerminalNavigationHost(),
                 catalog: { catalog }, selectedWorkspaceID: { nil },
                 selectLocalWorkspace: { _ in }, onWillMutate: { _ in },
                 onDidMutate: {}, onFailure: { _ in }, refresh: {}

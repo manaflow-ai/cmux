@@ -1,4 +1,5 @@
 import AppKit
+import CMUXMobileCore
 import Bonsplit
 import CmuxTerminal
 import QuartzCore
@@ -141,8 +142,9 @@ extension GhosttyTerminalView {
         let stagePortalReconciliation: @MainActor (
             HostContainerView,
             TerminalPortalReconciliationReasons,
+            TerminalWorkContext.Transition,
             String
-        ) -> Void = { [weak coordinator, weak hostedView, weak terminalSurface] host, reasons, reason in
+        ) -> Void = { [weak coordinator, weak hostedView, weak terminalSurface] host, reasons, transition, reason in
             guard let coordinator, let hostedView, let terminalSurface else { return }
             Self.stagePortalReconciliation(
                 hostedView: hostedView,
@@ -151,6 +153,7 @@ extension GhosttyTerminalView {
                 terminalSurface: terminalSurface,
                 snapshot: reconciliationSnapshot,
                 reasons: reasons,
+                transition: transition,
                 reason: reason
             )
         }
@@ -161,6 +164,7 @@ extension GhosttyTerminalView {
                 stagePortalReconciliation(
                     host,
                     [.bindingRequired, .flushPendingManualSizeReport],
+                    .unknown,
                     "didMoveToWindow"
                 )
             }
@@ -183,6 +187,7 @@ extension GhosttyTerminalView {
                 stagePortalReconciliation(
                     host,
                     [.bindingRequired, .flushPendingManualSizeReport],
+                    .unknown,
                     "hostVacated"
                 )
             }
@@ -243,6 +248,7 @@ extension GhosttyTerminalView {
                 stagePortalReconciliation(
                     host,
                     bindingRequired ? [.bindingRequired] : [],
+                    .unknown,
                     "geometryChanged"
                 )
             }
@@ -272,10 +278,11 @@ extension GhosttyTerminalView {
                     stagePortalReconciliation(
                         host,
                         [.bindingRequired],
+                        .unknown,
                         "update"
                     )
                 } else if coordinator.lastSynchronizedHostGeometryRevision != host.geometryRevision {
-                    stagePortalReconciliation(host, [], "updateGeometry")
+                    stagePortalReconciliation(host, [], .unknown, "updateGeometry")
                 }
             } else if ownsCurrentPane {
                 // Bind is deferred until host moves into a window. Update the
@@ -291,7 +298,7 @@ extension GhosttyTerminalView {
                     )
                 }
 #endif
-                stagePortalReconciliation(host, [], "updateDetached")
+                stagePortalReconciliation(host, [], .unknown, "updateDetached")
             }
         }
 
@@ -299,7 +306,9 @@ extension GhosttyTerminalView {
         // specific callbacks above only add required work (binding or a pending
         // size report); the scheduler coalesces them into this latest closure.
         if let host = hostContainer {
-            stagePortalReconciliation(host, [], "updateState")
+            let transition: TerminalWorkContext.Transition =
+                !previousDesiredIsVisibleInUI && isVisibleInUI ? .reveal : .unknown
+            stagePortalReconciliation(host, [], transition, "updateState")
         }
     }
 

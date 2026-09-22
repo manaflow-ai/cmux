@@ -39,7 +39,9 @@ public final class MobileNetworkOutcomeReporter: Sendable {
     }
 
     private final class StateStore: @unchecked Sendable {
+        // Carve-out: ordered diagnostic callback delivery; the producer cannot suspend.
         private let queue = DispatchQueue(label: "com.cmux.mobile-network-outcomes")
+        // Carve-out: nonblocking admission bounds synchronous event-tap work before it is queued.
         private let permits = DispatchSemaphore(value: 128)
         private var state = State()
 
@@ -77,6 +79,11 @@ public final class MobileNetworkOutcomeReporter: Sendable {
         let transport: DiagnosticTransportKind?
         let failure: DiagnosticFailureKind?
         let userUsable: Bool
+        /// The originating diagnostic event is retained as fixed vocabulary
+        /// plus its bounded integer slots. This lets Axiom reconstruct the
+        /// exact transport lifecycle edge without exporting error text,
+        /// addresses, peer IDs, or terminal content.
+        let event: DiagnosticEvent
     }
 
     private let emitter: any AnalyticsEmitting
@@ -426,7 +433,8 @@ public final class MobileNetworkOutcomeReporter: Sendable {
             durationMs: durationMs,
             transport: transport,
             failure: failureKind,
-            userUsable: userUsable
+            userUsable: userUsable,
+            event: event
         )
     }
 
@@ -472,6 +480,27 @@ public final class MobileNetworkOutcomeReporter: Sendable {
         }
         if let failure = observation.failure {
             properties["failure"] = .string(presentation.name(failure))
+        }
+        properties["event_code"] = .string(presentation.name(observation.event.code))
+        properties["event_code_raw"] = .int(Int(observation.event.code.rawValue))
+        if let surface = observation.event.surface,
+           Int(surface) >= 0,
+           Int(surface) <= Int(UInt32.max) {
+            properties["event_surface"] = .int(Int(surface))
+        }
+        // Bound diagnostic slots before they leave the client.
+        for (key, slot) in [
+            ("event_a", observation.event.a),
+            ("event_b", observation.event.b),
+            ("event_c", observation.event.c),
+        ] {
+            guard let slot, slot >= 0, slot <= Int(UInt32.max) else { continue }
+            properties[key] = .int(slot)
+        }
+        if observation.event.code == .transportDialCancelled,
+           let rawReason = observation.event.a,
+           let reason = DiagnosticCancellationReason(rawValue: rawReason) {
+            properties["cancellation_reason"] = .string(String(describing: reason))
         }
         return properties
     }

@@ -1,0 +1,521 @@
+#!/usr/bin/env python3
+"""Guest-owned display catalog and supervisor; invoked by the desktop service.
+
+The existing :1 desktop remains owned by start-vnc.sh. Additional records each
+own an X server, session bus, window manager and noVNC listener. The control
+socket is local to this guest and only accessible to its work user.
+"""
+import argparse
+import fcntl
+import http.client
+import json
+import os
+from pathlib import Path
+import re
+import shutil
+import socket
+import socketserver
+import subprocess
+import tempfile
+import threading
+import time
+import uuid
+
+MAX_DISPLAYS = 16
+STARTER = "/usr/local/bin/start-vnc.sh"
+
+
+def descriptor(number, state="running"):
+    return {"id": f"display:{number}", "number": number,
+            "port": 6900 + number, "state": state}
+
+
+def listening(port):
+    try:
+        with socket.create_connection(("127.0.0.1", port), timeout=0.3):
+            return True
+    except OSError:
+        return False
+
+
+def rfb_ready(number):
+    """A bound HTTP port alone does not prove that an X/RFB server exists."""
+    try:
+        with socket.create_connection(("127.0.0.1", 5900 + number), timeout=0.5) as rfb:
+            version = b""
+            while len(version) < 12:
+                part = rfb.recv(12 - len(version))
+                if not part:
+                    return False
+                version += part
+            if not version.startswith(b"RFB "):
+                return False
+    except (OSError, http.client.HTTPException):
+        return False
+    return True
+
+
+def novnc_ready(number):
+    try:
+        connection = http.client.HTTPConnection("127.0.0.1", 6900 + number, timeout=0.5)
+        try:
+            connection.request("HEAD", "/vnc.html")
+            return connection.getresponse().status == 200
+        finally:
+            connection.close()
+    except (OSError, http.client.HTTPException):
+        return False
+
+
+def ready(number):
+    """A bound endpoint alone does not prove that the complete desktop exists."""
+    return rfb_ready(number) and novnc_ready(number)
+
+
+class DisplayCatalog:
+    """Serializes allocation and persists request receipts before starting work."""
+
+    def __init__(self, directory, occupied=None):
+        self.directory = Path(directory)
+        self.directory.mkdir(mode=0o700, parents=True, exist_ok=True)
+        self.path = self.directory / "catalog.json"
+        self.lock = threading.RLock()
+        self.occupied = occupied or (lambda n: Path(f"/tmp/.X11-unix/X{n}").exists()
+                                     or listening(5900 + n) or listening(6900 + n))
+        self.records = []
+        if self.path.exists():
+            data = json.loads(self.path.read_text())
+            if data.get("version") != 1:
+                raise ValueError("unsupported display catalog version")
+            seen_numbers, seen_requests = set(), set()
+            for record in data["displays"]:
+                number, request = record["number"], record["request"]
+                if type(number) is not int or not 2 <= number <= MAX_DISPLAYS:
+                    raise ValueError("invalid display number")
+                if str(uuid.UUID(request)) != request or number in seen_numbers or request in seen_requests:
+                    raise ValueError("invalid display identity")
+                seen_numbers.add(number)
+                seen_requests.add(request)
+                self.records.append({"number": number, "request": request})
+
+    def numbers(self):
+        with self.lock:
+            return sorted(record["number"] for record in self.records)
+
+    def allocate(self, request):
+        if not isinstance(request, str) or str(uuid.UUID(request)) != request:
+            raise ValueError("invalid request identity")
+        with self.lock:
+            for record in self.records:
+                if record["request"] == request:
+                    return record["number"]
+            used = set(self.numbers())
+            number = next((n for n in range(2, MAX_DISPLAYS + 1)
+                           if n not in used and not self.occupied(n)), None)
+            if number is None:
+                raise ValueError("display capacity exhausted")
+            records = self.records + [{"number": number, "request": request}]
+            fd, temporary = tempfile.mkstemp(prefix="catalog-", dir=self.directory)
+            try:
+                with os.fdopen(fd, "w") as output:
+                    json.dump({"version": 1, "displays": records}, output)
+                    output.flush()
+                    os.fsync(output.fileno())
+                os.replace(temporary, self.path)
+            finally:
+                if os.path.exists(temporary):
+                    os.unlink(temporary)
+            self.records = records
+            return number
+
+
+class OwnedProcess:
+    """A handle for a daemon started by dbus-launch rather than by Popen."""
+
+    def __init__(self, pid):
+        self.pid = pid
+
+    def terminate(self):
+        try:
+            os.kill(self.pid, 15)
+        except OSError:
+            pass
+
+    def poll(self):
+        try:
+            os.kill(self.pid, 0)
+            return None
+        except OSError:
+            return 0
+
+
+class NoVNCUnavailable(RuntimeError):
+    """The viewing transport failed while the guest desktop may be healthy."""
+
+
+class DisplayService:
+    def __init__(self, catalog, runtime, starter=STARTER):
+        self.catalog = catalog
+        self.runtime = Path(runtime)
+        self.starter = starter
+        self.lock = threading.Lock()
+        self.jobs = {}
+        self.states = {}
+        self.processes = {}
+        self.named_processes = {}
+        self.websockify_processes = {}
+        self.shutdown = threading.Event()
+
+    def start(self, number):
+        with self.lock:
+            if number in self.jobs:
+                return self.jobs[number]
+            finished = threading.Event()
+            self.jobs[number] = finished
+            self.states[number] = "launching"
+            threading.Thread(target=self.supervise, args=(number, finished), daemon=True).start()
+            return finished
+
+    def terminate(self, number):
+        for process in self.processes.pop(number, []):
+            try:
+                process.terminate()
+            except OSError:
+                pass
+        self.named_processes.pop(number, None)
+        self.terminate_websockify(number)
+        try:
+            (self.runtime / str(number) / "session.json").unlink()
+        except FileNotFoundError:
+            pass
+
+    def terminate_websockify(self, number):
+        process = self.websockify_processes.pop(number, None)
+        if process is None:
+            return
+        try:
+            process.terminate()
+        except OSError:
+            pass
+
+    @staticmethod
+    def scoped_component_path(executable, path, number, runtime):
+        """Give per-display desktop clients names the :1 supervisor cannot match."""
+        source = Path(path)
+        if not source.is_file():
+            return path
+        directory = Path(runtime) / "bin"
+        directory.mkdir(mode=0o700, parents=True, exist_ok=True)
+        target = directory / f"cmux-display-{number}-{source.name}"
+        if not target.exists() or target.stat().st_mtime_ns < source.stat().st_mtime_ns:
+            shutil.copy2(source, target)
+            target.chmod(0o700)
+        return str(target)
+
+    @staticmethod
+    def wait_for_port(port, timeout=20):
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            try:
+                with socket.create_connection(("127.0.0.1", port), timeout=0.5):
+                    return True
+            except OSError:
+                time.sleep(0.1)
+        return False
+
+    @staticmethod
+    def process_alive(process):
+        poll = getattr(process, "poll", None)
+        return poll is None or poll() is None
+
+    def components_alive(self, number):
+        named = self.named_processes.get(number)
+        if named is not None:
+            return bool(named) and all(self.process_alive(process) for process in named.values()) \
+                and ("xvnc" in named or rfb_ready(number))
+        processes = self.processes.get(number, [])
+        return bool(processes) and all(self.process_alive(process) for process in processes)
+
+    def service_ready(self, number):
+        if not ready(number) or not self.components_alive(number):
+            return False
+        websockify = self.websockify_processes.get(number)
+        return websockify is None or self.process_alive(websockify)
+
+    def track_process(self, number, name, process):
+        named = self.named_processes.setdefault(number, {})
+        previous = named.get(name)
+        if previous is not None:
+            self.processes[number] = [
+                item for item in self.processes.get(number, []) if item is not previous
+            ]
+        self.processes.setdefault(number, []).append(process)
+        named[name] = process
+
+    def remove_process(self, number, name):
+        process = self.named_processes.setdefault(number, {}).pop(name, None)
+        if process is None:
+            return
+        self.processes[number] = [item for item in self.processes.get(number, []) if item is not process]
+        try:
+            process.terminate()
+        except OSError:
+            pass
+
+    def recover_processes(self, number, runtime, environment):
+        self.processes[number] = []
+        self.named_processes[number] = {}
+        session = Path(runtime) / "session.json"
+        try:
+            saved = json.loads(session.read_text())
+            dbus_pid = int(saved.get("pid", 0))
+            dbus = OwnedProcess(dbus_pid)
+            if dbus_pid > 1 and self.process_alive(dbus):
+                if saved.get("address"):
+                    environment["DBUS_SESSION_BUS_ADDRESS"] = saved["address"]
+                environment["DBUS_SESSION_BUS_PID"] = str(dbus_pid)
+                self.track_process(number, "dbus", dbus)
+        except (OSError, ValueError, TypeError, json.JSONDecodeError):
+            pass
+        uid = str(os.getuid())
+        for name in ("openbox", "tint2", "vncconfig"):
+            marker = str(Path(runtime) / "bin" / f"cmux-display-{number}-{name}")
+            try:
+                pattern = rf"^{re.escape(marker)}(?:[[:space:]]|$)"
+                output = subprocess.check_output(["pgrep", "-u", uid, "-f", pattern], text=True)
+                pid = int(output.splitlines()[0])
+            except (OSError, ValueError, IndexError, subprocess.CalledProcessError):
+                continue
+            self.track_process(number, name, OwnedProcess(pid))
+        try:
+            output = subprocess.check_output(
+                ["pgrep", "-u", uid, "-f",
+                 rf"^(?:.*\/)?(?:Xvnc|Xtigervnc).*:{number}.*-rfbport\s+{5900 + number}(?:\s|$)"],
+                text=True
+            )
+            pid = int(output.splitlines()[0])
+        except (OSError, ValueError, IndexError, subprocess.CalledProcessError):
+            pid = 0
+        if pid > 1:
+            self.track_process(number, "xvnc", OwnedProcess(pid))
+
+    def start_dbus(self, number, environment, runtime):
+        bus = subprocess.run(["dbus-launch", "--sh-syntax"], env=environment,
+                             stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                             stderr=subprocess.DEVNULL, text=True, timeout=10,
+                             check=True).stdout
+        for line in bus.splitlines():
+            if "=" not in line:
+                continue
+            key, value = line.split("=", 1)
+            environment[key] = value.strip().rstrip(";").strip().strip("'")
+        try:
+            dbus_pid = int(environment.get("DBUS_SESSION_BUS_PID", "0"))
+        except ValueError:
+            dbus_pid = 0
+        if dbus_pid > 1:
+            self.track_process(number, "dbus", OwnedProcess(dbus_pid))
+            (Path(runtime) / "session.json").write_text(json.dumps({
+                "pid": dbus_pid,
+                "address": environment.get("DBUS_SESSION_BUS_ADDRESS", "")
+            }))
+
+    def start_session_components(self, number, environment, runtime):
+        for executable, args in [
+            ("openbox", []), ("tint2", ["-c", "/etc/cmux/tint2rc"]),
+            ("vncconfig", ["-nowin"]),
+        ]:
+            existing = self.named_processes.get(number, {}).get(executable)
+            if existing is not None and self.process_alive(existing):
+                continue
+            path = executable if "/" in executable else shutil.which(executable)
+            if not path:
+                if executable == "vncconfig":
+                    continue
+                raise RuntimeError(f"missing display component: {executable}")
+            path = self.scoped_component_path(executable, path, number, runtime)
+            process = subprocess.Popen([path] + args, env=environment,
+                                       stdin=subprocess.DEVNULL,
+                                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            self.track_process(number, executable, process)
+
+    def start_websockify(self, number, environment, executable):
+        path = executable if "/" in executable else shutil.which(executable)
+        if not path:
+            raise NoVNCUnavailable("missing display component: websockify")
+        self.terminate_websockify(number)
+        rfb_port, novnc_port = 5900 + number, 6900 + number
+        process = subprocess.Popen(
+            [path, "--web", "/usr/share/novnc", "--heartbeat", "30",
+             f"127.0.0.1:{novnc_port}", f"127.0.0.1:{rfb_port}"],
+            env=environment, stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        self.websockify_processes[number] = process
+        if not self.wait_for_port(novnc_port, timeout=10):
+            self.terminate_websockify(number)
+            raise NoVNCUnavailable("noVNC did not become ready")
+
+    def start_components(self, number, environment, runtime):
+        if self.service_ready(number):
+            return
+        rfb_is_ready = rfb_ready(number)
+        vnc = shutil.which("Xvnc") or shutil.which("Xtigervnc")
+        websockify = shutil.which("websockify")
+        if not websockify:
+            raise NoVNCUnavailable("display runtime unavailable")
+        if not rfb_is_ready and not vnc:
+            raise RuntimeError("display runtime unavailable")
+        if rfb_is_ready and number not in self.named_processes:
+            self.recover_processes(number, runtime, environment)
+        if not rfb_is_ready:
+            self.terminate(number)
+            rfb_port = 5900 + number
+            self.processes[number] = []
+            self.named_processes[number] = {}
+            self.track_process(number, "xvnc", subprocess.Popen(
+                [vnc, f":{number}", "-geometry", os.environ.get("CMUX_VNC_GEOMETRY", "1440x900"),
+                 "-depth", "24", "-rfbport", str(rfb_port), "-localhost",
+                 "-SecurityTypes", "None", "-AlwaysShared"],
+                env=environment, stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL))
+            if not self.wait_for_port(rfb_port):
+                raise RuntimeError("Xvnc did not become ready")
+            self.start_dbus(number, environment, runtime)
+            self.start_session_components(number, environment, runtime)
+        elif number in self.named_processes:
+            named = self.named_processes[number]
+            dbus = named.get("dbus")
+            if dbus is None or not self.process_alive(dbus):
+                for name in ("openbox", "tint2", "vncconfig"):
+                    self.remove_process(number, name)
+                self.start_dbus(number, environment, runtime)
+            self.start_session_components(number, environment, runtime)
+        websockify_process = self.websockify_processes.get(number)
+        if (websockify_process is None or not self.process_alive(websockify_process)
+                or not novnc_ready(number)):
+            self.start_websockify(number, environment, websockify)
+        (runtime / "env").write_text(f"export DISPLAY=:{number}\n")
+
+    def supervise(self, number, finished):
+        runtime = self.runtime / str(number)
+        runtime.mkdir(mode=0o700, parents=True, exist_ok=True)
+        environment = dict(os.environ, DISPLAY=f":{number}", CMUX_DESKTOP_RUNTIME_DIR=str(runtime))
+        environment["CHROME_CONFIG_HOME"] = str(runtime / "chrome-config")
+        environment["XDG_CONFIG_HOME"] = str(runtime / "xdg-config")
+        for key in ("NOTIFY_SOCKET", "DBUS_SESSION_BUS_ADDRESS", "DBUS_SESSION_BUS_PID",
+                    "AT_SPI_BUS_ADDRESS", "AT_SPI_BUS"):
+            environment.pop(key, None)
+        while not self.shutdown.is_set():
+            try:
+                # The supervisor is a health check, not a timer-driven restart.
+                # Preserve an active RFB/noVNC session until its owned endpoints fail.
+                if not self.service_ready(number):
+                    self.start_components(number, environment, runtime)
+                state = "running" if self.service_ready(number) else "unavailable"
+            except NoVNCUnavailable:
+                self.terminate_websockify(number)
+                state = "unavailable"
+            except (OSError, RuntimeError, subprocess.SubprocessError):
+                self.terminate(number)
+                state = "unavailable"
+            with self.lock:
+                self.states[number] = state
+            finished.set()
+            self.shutdown.wait(30)
+        self.terminate(number)
+
+    def snapshot(self):
+        primary_state = "running" if ready(1) else "unavailable"
+        with self.lock:
+            return {"version": 1, "canCreate": len(self.jobs) < MAX_DISPLAYS - 1,
+                    "displays": [descriptor(1, primary_state)]
+                    + [descriptor(n, self.states.get(n, "launching")) for n in self.catalog.numbers()]}
+
+    def handle(self, request):
+        if request.get("action") == "list":
+            return self.snapshot()
+        if request.get("action") != "create":
+            raise ValueError("unsupported display action")
+        number = self.catalog.allocate(request.get("request"))
+        self.start(number).wait(55)
+        result = self.snapshot()
+        result["created"] = f"display:{number}"
+        if self.states.get(number) != "running":
+            result["error"] = "display_start_failed"
+        return result
+
+
+def serve(runtime):
+    runtime = Path(runtime)
+    runtime.mkdir(mode=0o700, parents=True, exist_ok=True)
+    with (runtime / "display-control.lock").open("w") as lock:
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            return
+        if not all(shutil.which(name) for name in ("websockify", "openbox", "dbus-launch")):
+            raise ValueError("display runtime unavailable")
+        if not (shutil.which("Xvnc") or shutil.which("Xtigervnc")):
+            raise ValueError("display runtime unavailable")
+        service = DisplayService(DisplayCatalog(Path.home() / ".cmux" / "displays"), runtime / "displays")
+        for number in service.catalog.numbers():
+            service.start(number)
+        path = runtime / "display-control.sock"
+        if path.exists():
+            path.unlink()
+
+        class Handler(socketserver.StreamRequestHandler):
+            def handle(self):
+                self.connection.settimeout(60)
+                try:
+                    raw = self.rfile.readline(4097)
+                    if len(raw) > 4096:
+                        raise ValueError("display request too large")
+                    result = service.handle(json.loads(raw))
+                except (ValueError, KeyError, TypeError, OSError):
+                    result = {"error": "display_request_failed"}
+                try:
+                    self.wfile.write(json.dumps(result).encode() + b"\n")
+                except OSError:
+                    pass  # The persisted receipt remains replayable after disconnect.
+
+        class Server(socketserver.ThreadingUnixStreamServer):
+            daemon_threads = True
+
+        previous_umask = os.umask(0o077)
+        try:
+            with Server(str(path), Handler) as server:
+                os.umask(previous_umask)
+                server.serve_forever()
+        finally:
+            os.umask(previous_umask)
+            service.shutdown.set()
+            path.unlink(missing_ok=True)
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("action", choices=["list", "create", "serve"])
+    parser.add_argument("--request-id")
+    args = parser.parse_args()
+    runtime = os.environ.get("CMUX_DESKTOP_RUNTIME_DIR", "/run/cmux-desktop")
+    if args.action == "serve":
+        serve(runtime)
+        return 0
+    if args.action == "create" and not args.request_id:
+        parser.error("create requires --request-id (retain it when retrying)")
+    try:
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as client:
+            client.settimeout(60)
+            client.connect(str(Path(runtime) / "display-control.sock"))
+            client.sendall(json.dumps({"action": args.action, "request": args.request_id}).encode() + b"\n")
+            with client.makefile("rb") as stream:
+                result = json.loads(stream.readline(65536))
+    except (OSError, ValueError):
+        result = {"error": "display_runtime_unavailable"}
+    print(json.dumps(result))
+    return 1 if "error" in result else 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

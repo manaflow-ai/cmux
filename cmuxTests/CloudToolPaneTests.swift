@@ -11,9 +11,18 @@ import Testing
 @MainActor
 @Suite("Whole Cloud tool panes", .serialized)
 struct CloudToolPaneTests {
+    private func withCloudEnabled<T>(_ body: () throws -> T) rethrows -> T {
+        let flag = CmuxFeatureFlags.cloudMachinesFlag
+        let previous = CmuxFeatureFlags.shared.overrideValue(for: flag)
+        CmuxFeatureFlags.shared.setOverride(true, for: flag)
+        defer { CmuxFeatureFlags.shared.setOverride(previous, for: flag) }
+        return try body()
+    }
+
     @Test("Cloud opens as a tool and reuses its pane without creating remote surfaces")
     func cloudToolCreationAndReuse() async throws {
         try await AppContextSerialGate.withExclusiveAppContext {
+            try withCloudEnabled {
             let fixture = try VaultPaneAppFixture()
             defer { fixture.tearDown() }
             let workspace = fixture.workspace
@@ -36,12 +45,15 @@ struct CloudToolPaneTests {
             restored.restoreSessionSnapshot(fixture.manager.sessionSnapshot(includeScrollback: false))
             #expect(restored.tabs.flatMap { $0.panels.values }.compactMap { $0 as? RightSidebarToolPanel }
                 .contains { $0.mode == .machines })
+            }
         }
     }
 
     @Test("The palette offers the whole Cloud tool alongside Files and Vault")
     func cloudToolPaletteContribution() {
-        let descriptors = ContentView.commandPaletteRightSidebarToolPaneCommandDescriptors()
+        let descriptors = withCloudEnabled {
+            ContentView.commandPaletteRightSidebarToolPaneCommandDescriptors()
+        }
         #expect(descriptors.contains { $0.mode == .machines })
         #expect(descriptors.contains { $0.mode == .files })
         #expect(descriptors.contains { $0.mode == .sessions })

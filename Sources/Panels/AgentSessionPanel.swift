@@ -14,6 +14,11 @@ final class AgentSessionPanel: Panel {
 
     private(set) var currentProviderID: AgentSessionProviderID
     private(set) var displayTitle: String
+    var onRunCommand: ((String) throws -> [String: Any])? {
+        didSet {
+            rendererSession.onRunCommand = onRunCommand
+        }
+    }
     var displayIcon: String? { "sparkles.rectangle.stack" }
     private(set) var isDirty: Bool = false
     var onDisplayStateChanged: ((String, Bool) -> Void)? {

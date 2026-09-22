@@ -61,6 +61,7 @@ final class CloudWorkspaceCreationSidebarFixture {
         provider.beforeRefresh = nil
         provider.beforeMaterialize = nil
         provider.beforeCreate = nil
+        provider.afterCreateWorkspace = nil
         catalog.unregister(machine: provider.machine)
         manager.tabs.forEach { $0.teardownAllPanels() }
         app.unregisterMainWindowContextForTesting(windowId: windowID)

@@ -906,6 +906,8 @@ final class NotificationDockBadgeTests: XCTestCase {
 
         let originalTabManager = appDelegate.tabManager
         let originalNotificationStore = appDelegate.notificationStore
+        let originalAppFocusOverride = AppFocusState.overrideIsFocused
+        AppFocusState.overrideIsFocused = false
         store.replaceNotificationsForTesting([])
         store.configureNotificationDeliveryHandlerForTesting { _, notification in
             delivered = notification
@@ -917,6 +919,7 @@ final class NotificationDockBadgeTests: XCTestCase {
             store.resetNotificationDeliveryHandlerForTesting()
             appDelegate.tabManager = originalTabManager
             appDelegate.notificationStore = originalNotificationStore
+            AppFocusState.overrideIsFocused = originalAppFocusOverride
         }
 
         guard let workspace = manager.selectedWorkspace else {
