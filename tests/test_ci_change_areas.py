@@ -270,6 +270,7 @@ def test_required_ci_owns_standalone_browser_and_remote_daemon_pr_validation() -
     browser_text = BROWSER_WORKFLOW.read_text(encoding="utf-8")
     assert "  workflow_call:" in browser_text
     assert "  pull_request:" not in browser_text
+    assert "group: cmux-browser-${{ github.ref }}" in browser_text
     remote_text = REMOTE_DAEMON_WORKFLOW.read_text(encoding="utf-8")
     assert "  workflow_call:" in remote_text
     assert "  pull_request:" not in remote_text
