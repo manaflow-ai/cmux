@@ -96,10 +96,10 @@ class LayerTransportTests(unittest.TestCase):
         files.update(extras or {})
         return self.api.register(50, files)
 
-    def assemble(self, manifest, destination, identity):
+    def assemble(self, manifest, destination, identity, required_layers=t.NAMES):
         self.restores.append(identity)
         self.assertEqual(identity, self.identity)
-        for name in t.NAMES:
+        for name in required_layers:
             self.assertEqual((manifest.parent / (name + ".aar")).read_bytes(), (self.root / (name + ".aar")).read_bytes())
         self.assertFalse(destination.exists())
         (destination / "Build/Products").mkdir(parents=True)
