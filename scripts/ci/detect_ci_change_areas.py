@@ -218,11 +218,35 @@ def macos_job_test_references(
     return frozenset(macos), frozenset(everywhere)
 
 
-def load_macos_job_test_references() -> Optional[tuple[frozenset[str], frozenset[str]]]:
+# Set by ci.yml when the trusted base router classifies a routing-policy PR:
+# the PR's own checkout, whose workflows may name tests the base has never seen.
+HEAD_TEST_REFERENCE_ROOT_ENV = "CMUX_CI_HEAD_TEST_REFERENCE_ROOT"
+
+
+def load_macos_job_test_references(
+    root: Path = Path("."),
+) -> Optional[tuple[frozenset[str], frozenset[str]]]:
+    """Test references from the workflows under `root`, merged with the PR
+    head's when HEAD_TEST_REFERENCE_ROOT_ENV is set. A path either side names
+    in a macOS job stays macOS-relevant; a head read failure keeps the base."""
+    references = _load_macos_job_test_references(root)
+    head_root = os.environ.get(HEAD_TEST_REFERENCE_ROOT_ENV, "")
+    if references is None or not head_root:
+        return references
+    head_references = _load_macos_job_test_references(Path(head_root))
+    if head_references is None:
+        return references
+    return (
+        references[0] | head_references[0],
+        references[1] | head_references[1],
+    )
+
+
+def _load_macos_job_test_references(root: Path) -> Optional[tuple[frozenset[str], frozenset[str]]]:
     macos: set[str] = set()
     everywhere: set[str] = set()
     try:
-        guard_entrypoint = Path(_CI_GUARD_ENTRYPOINT).read_text(encoding="utf-8")
+        guard_entrypoint = (root / _CI_GUARD_ENTRYPOINT).read_text(encoding="utf-8")
         indirect_guard_references = frozenset(
             _TEST_REFERENCE_RE.findall(guard_entrypoint)
         )
@@ -230,7 +254,7 @@ def load_macos_job_test_references() -> Optional[tuple[frozenset[str], frozenset
             return None
         for workflow_path in (CI_WORKFLOW_PATH, GUARD_WORKFLOW_PATH, WEB_WORKFLOW_PATH, MACOS_WORKFLOW_PATH):
             references = macos_job_test_references(
-                Path(workflow_path).read_text(encoding="utf-8"),
+                (root / workflow_path).read_text(encoding="utf-8"),
                 indirect_guard_references,
             )
             if references is None:
