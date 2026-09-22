@@ -209,6 +209,7 @@ PATH_OWNERS = {
     "tests/test_ci_linux_guard_routing.py": frozenset(("ci",)),
     "tests/test_ci_merge_queue_required_checks.py": frozenset(("ci",)),
     "tests/test_ci_nightly_prune_python_compat.sh": frozenset(("release-tooling",)),
+    "tests/test_prune_nightly_release_assets.py": frozenset(("release-tooling",)),
     "tests/test_ci_nightly_tag_push_auth.sh": frozenset(("release-notary",)),
     "tests/test_ci_nightly_xcode_selection.sh": frozenset(("release-notary",)),
     "tests/test_ci_notification_semantics.py": frozenset(("ci",)),
