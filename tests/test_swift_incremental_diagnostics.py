@@ -52,12 +52,22 @@ class SwiftIncrementalDiagnosticsTests(unittest.TestCase):
 
     def test_reload_diagnostics_are_opt_in_and_use_documented_driver_flags(self):
         reload_source = RELOAD.read_text()
-        self.assertIn("CMUX_SWIFT_INCREMENTAL_DIAGNOSTICS", reload_source)
-        self.assertIn("-driver-show-incremental", reload_source)
-        self.assertIn("-driver-show-job-lifecycle", reload_source)
-        self.assertIn("-driver-time-compilation", reload_source)
-        self.assertIn("-showBuildTimingSummary", reload_source)
-        self.assertIn("swift_incremental_diagnostics.py", reload_source)
+        enabled_guard = 'if [[ "${CMUX_SWIFT_INCREMENTAL_DIAGNOSTICS:-0}" == "1" ]]; then'
+        enabled_block = reload_source.split(enabled_guard, 1)[1].split("\nelse\n", 1)[0]
+        self.assertIn("SWIFT_INCREMENTAL_DIAGNOSTICS_EFFECTIVE=1", enabled_block)
+        self.assertIn("-driver-show-incremental", enabled_block)
+        self.assertIn("-driver-show-job-lifecycle", enabled_block)
+        self.assertIn("-driver-time-compilation", enabled_block)
+        self.assertIn("XCODEBUILD_ARGS+=(-showBuildTimingSummary)", enabled_block)
+
+        parser_guard = 'if [[ "${SWIFT_INCREMENTAL_DIAGNOSTICS_EFFECTIVE:-0}" -eq 1 ]]; then'
+        parser_offset = reload_source.index(parser_guard)
+        parser_block = reload_source[parser_offset:].split("\nfi\n", 1)[0]
+        self.assertIn(
+            'python3 "$SCRIPT_DIR/ci/swift_incremental_diagnostics.py"',
+            parser_block,
+        )
+        self.assertLess(reload_source.index("XCODEBUILD_OUTPUT_VALID=1"), parser_offset)
 
 
 if __name__ == "__main__":
