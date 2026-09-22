@@ -777,7 +777,7 @@ the expected text without connecting to a cmux socket.
 - `cmux help agents` -> `Agents:`
 - `cmux help navigate` -> `Navigate & Arrange:`
 - `cmux help inspect` -> `Inspect:`
-- `cmux help inspect` -> `review <list|show|findings>`
+- `cmux help inspect` -> `review list [--repo <path>] [--json]`
 - `cmux help customize` -> `Customize:`
 - `cmux help automation` -> `Automation:`
 - `cmux help browser` -> `Browser:`
