@@ -6,6 +6,9 @@ on:
       linux_guard_tests:
         required: true
         type: string
+      linux_guard_test_groups:
+        required: true
+        type: string
       linux_guard_history:
         required: true
         type: string
@@ -26,7 +29,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        group: [preflight, ci, app-host-execution, app-host-process, app-host-cache, release-ios, release-notary, release-tooling, quality-sharding, quality-runtime, quality-determinism]
+        group: ${{ fromJSON(inputs.linux_guard_test_groups) }}
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     # This job executes scripts from the pull request. It needs only read
     # access for checkout, never workflow, issue, or repository write access.
