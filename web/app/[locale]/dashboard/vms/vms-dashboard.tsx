@@ -25,9 +25,12 @@ export function VmsDashboard({ userId, userEmail }: Props) {
   const teamId = teamScope.status === "ready" ? teamScope.selected.id : null;
   const [directory, setDirectory] = useState<DashboardDirectory | null>(null);
   const [workspaces, setWorkspaces] = useState<readonly DashboardWorkspace[]>([]);
+  const [workspacesTeamId, setWorkspacesTeamId] = useState<string | null>(null);
   const [vms, setVms] = useState<readonly DashboardVm[]>([]);
+  const [vmsTeamId, setVmsTeamId] = useState<string | null>(null);
   const [maxActiveVms, setMaxActiveVms] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [errorTeamId, setErrorTeamId] = useState<string | null>(null);
   const redirectingToSignInRef = useRef(false);
   const controllerRef = useRef<V2DashboardController | null>(null);
   useEffect(() => {
@@ -41,7 +44,7 @@ export function VmsDashboard({ userId, userEmail }: Props) {
       teamId,
       getStackToken: async () => (await stack.getAuthJson()).accessToken,
       onDirectory: next => { if (!cancelled) setDirectory(next); },
-      onWorkspaces: next => { if (!cancelled) setWorkspaces(next); },
+      onWorkspaces: next => { if (!cancelled) { setWorkspaces(next); setWorkspacesTeamId(teamId); } },
       onVmChanged: next => {
         if (cancelled) return;
         setVms(current => current.map(vm => vm.id === next.vmId
@@ -53,21 +56,18 @@ export function VmsDashboard({ userId, userEmail }: Props) {
         redirectingToSignInRef.current = true;
         void stack.redirectToSignIn({ replace: true });
       },
-      onError: next => { if (!cancelled) setError(next); },
+      onError: next => { if (!cancelled) { setError(next); setErrorTeamId(teamId); } },
     });
     controllerRef.current = controller;
-    setDirectory(null);
-    setWorkspaces([]);
-    setVms([]);
     void fetch(`/api/vm?teamId=${encodeURIComponent(teamId)}`, { credentials: "include", headers: { accept: "application/json" } })
       .then(async response => response.ok ? await response.json() as VmListBody : null)
       .then(body => {
         if (!body || !Array.isArray(body.vms)) return;
         setVms(body.vms.filter(isDashboardVm));
+        setVmsTeamId(teamId);
         setMaxActiveVms(typeof body.limits?.maxActiveVms === "number" ? body.limits.maxActiveVms : null);
       })
       .catch(() => undefined);
-    setError(null);
     void controller.start();
     return () => {
       cancelled = true;
@@ -76,17 +76,22 @@ export function VmsDashboard({ userId, userEmail }: Props) {
     };
   }, [stack, teamId, userId]);
 
-  const workspaceByVmId = useMemo(() => new Map(workspaces.map(value => [value.vmId, value])), [workspaces]);
+  const visibleDirectory = directory?.teamId === teamId ? directory : null;
+  const visibleVms = vmsTeamId === teamId ? vms : [];
+  const workspaceByVmId = useMemo(() => new Map(
+    (workspacesTeamId === teamId ? workspaces : []).map(value => [value.vmId, value]),
+  ), [teamId, workspaces, workspacesTeamId]);
+  const visibleError = errorTeamId === teamId ? error : null;
   // The VM catalog is authoritative. Workspace snapshots can outlive a VM
   // row during cleanup, but native Cloud rendering does not show those stale
   // rows as machines.
-  const vmRows = vms;
+  const vmRows = visibleVms;
   return (
     <div className="space-y-4" data-testid="iroh-dashboard">
       {teamScope.status === "loading" ? <p className="text-muted">{t("loading")}</p> : null}
       {teamScope.status === "unavailable" ? <p role="alert" className="border border-red-500/40 p-3 text-sm">{t("unavailable")}</p> : null}
-      {error ? <p role="alert" className="border border-red-500/40 p-3 text-sm">{error}</p> : null}
-      {!directory && !error ? <p className="text-muted">{t("loading")}</p> : null}
+      {visibleError ? <p role="alert" className="border border-red-500/40 p-3 text-sm">{visibleError}</p> : null}
+      {!visibleDirectory && !visibleError ? <p className="text-muted">{t("loading")}</p> : null}
       <section data-testid="connected-workspaces" className="space-y-1">
         <div className="flex items-center justify-between text-sm text-muted">
           <span>{t("machineCount", { count: vmRows.length, max: maxActiveVms ?? "—" })}</span>
@@ -163,8 +168,4 @@ function TerminalIcon() {
 
 function DisplayIcon() {
   return <svg aria-hidden="true" className="size-3.5 shrink-0 text-muted" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" strokeLinejoin="round"><rect x="1.75" y="2.5" width="12.5" height="8" rx="1.25" /><path d="M5.5 13.5h5M8 10.5v3" /></svg>;
-}
-
-function Fact({ label, value }: { readonly label: string; readonly value: string }) {
-  return <div><dt className="text-muted">{label}</dt><dd className="mt-1">{value}</dd></div>;
 }

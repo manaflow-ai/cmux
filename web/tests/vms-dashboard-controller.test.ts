@@ -162,7 +162,7 @@ describe("VM Dashboard v2 controller", () => {
   });
 
   test("rejects an unapproved worker origin before creating a socket", () => {
-    expect(() => new V2DashboardController({ origin: "https://example.com", environment: "production", projectId: "p", userId: "u", teamId: "t", getStackToken: async () => "s", onDirectory: () => {}, onError: () => {} })).toThrow("approved Cloudflare Worker");
+    expect(() => new V2DashboardController({ origin: "https://example.com", environment: "production", projectId: "p", userId: "u", teamId: "t", getStackToken: async () => "s", onDirectory: () => {}, onError: () => {} })).toThrow("approved device service");
   });
 
   test("accepts the development account's deployed Worker origin", () => {
