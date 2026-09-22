@@ -254,6 +254,7 @@ extension CMUXCLI {
         list-windows
         current-window
         comments list [--repo <path>] [--all] [--json]
+        review <list|show|findings> [<id|latest>] [--repo <path>] [--all] [--json]
         vault sessions [--agent <id>] [--folder <path>] [--limit <n>] [--json]
         vault search <query> [--limit <n>] [--json]
         vault checkpoints --agent <id> --session <id> [--json]
