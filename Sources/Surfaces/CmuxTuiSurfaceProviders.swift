@@ -259,7 +259,8 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
                     machine: machine,
                     scannedPorts: scannedPorts,
                     previousResources: previousResources,
-                    privateAddress: summary.preferredPrivateAddress
+                    privateAddress: summary.preferredPrivateAddress,
+                    displayPortsOwned: hasDesktop
                 )
                 resources = resourcesWithPendingCreations(parsed, state: cloudState)
             } else {
@@ -268,7 +269,8 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
                     machine: machine,
                     scannedPorts: scannedPorts,
                     previousResources: previousResources,
-                    privateAddress: summary.preferredPrivateAddress
+                    privateAddress: summary.preferredPrivateAddress,
+                    displayPortsOwned: hasDesktop
                 ))
                 appendMissingResources(preservedNonPortResources, to: &fallback)
                 resources = resourcesWithPendingCreations(fallback, state: nil)
@@ -310,7 +312,8 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
                 socketPath: connected.socketPath,
                 force: force,
                 generation: generation,
-                privateAddress: privateAddress
+                privateAddress: privateAddress,
+                displayPortsOwned: hasDesktop
             )
             async let snapshotData = link.run(arguments: CloudTuiRequests.snapshotArguments(socketPath: connected.socketPath))
             if let refreshedPorts = await refreshedPorts {
@@ -727,7 +730,8 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             machine: machine,
             scannedPorts: ports,
             previousResources: catalog.authoritativeSnapshot.resources(on: machine),
-            privateAddress: summary.preferredPrivateAddress
+            privateAddress: summary.preferredPrivateAddress,
+            displayPortsOwned: summary.resolvedKind.hasDesktop
         )
     }
 
@@ -1337,10 +1341,14 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         socketPath: String,
         force: Bool,
         generation: UInt64,
-        privateAddress: String?
+        privateAddress: String?,
+        displayPortsOwned: Bool
     ) async -> [Int]? {
         if !force, let cached = portsCache, Date.now.timeIntervalSince(cached.at) < portsTTL {
-            return cached.ports
+            return cached.ports.filter {
+                !CmuxTuiSnapshotParser.internalPorts.contains($0)
+                    && (!displayPortsOwned || !CmuxTuiSnapshotParser.displayPorts.contains($0))
+            }
         }
         guard let arguments = CloudTuiRequests.listeningPortsArguments(socketPath: socketPath),
               let data = try? await link.run(arguments: arguments),
@@ -1349,7 +1357,11 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             return nil
         }
         let result = VMExecResult(exitCode: 0, stdout: stdout, stderr: "")
-        guard let ports = Self.ports(from: result, privateAddress: privateAddress) else { return nil }
+        guard let ports = Self.ports(
+            from: result,
+            privateAddress: privateAddress,
+            displayPortsOwned: displayPortsOwned
+        ) else { return nil }
         guard generation == refreshGeneration else { return nil }
         portsCache = (ports, Date.now)
         return ports

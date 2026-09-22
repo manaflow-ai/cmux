@@ -267,13 +267,20 @@ extension CmuxTuiSurfaceProvider {
     /// Converts one port-probe result into a complete scan. A non-zero exit is
     /// incomplete (the command or transport was unavailable); a successful
     /// header-only listing is authoritative and intentionally returns `[]`.
-    nonisolated static func ports(from result: VMExecResult, privateAddress: String? = nil) -> [Int]? {
+    nonisolated static func ports(
+        from result: VMExecResult,
+        privateAddress: String? = nil,
+        displayPortsOwned: Bool = false
+    ) -> [Int]? {
         guard result.exitCode == 0 else { return nil }
         return CmuxTuiSnapshotParser.reachableListeningPorts(
             fromSocketListing: result.stdout,
             privateAddress: privateAddress
         )
-            .filter { !CmuxTuiSnapshotParser.internalPorts.contains($0) }
+            .filter {
+                !CmuxTuiSnapshotParser.internalPorts.contains($0)
+                    && (!displayPortsOwned || !CmuxTuiSnapshotParser.displayPorts.contains($0))
+            }
     }
 
     /// Reconciles one machine's port scan with its prior catalog values.

@@ -1010,6 +1010,9 @@ import Testing
         LISTEN  0       128     0.0.0.0:3000        0.0.0.0:*
         """
         #expect(CmuxTuiSnapshotParser.listeningPorts(fromSocketListing: ss) == [1337, 3000, 5901])
+        let probe = VMExecResult(exitCode: 0, stdout: ss, stderr: "")
+        #expect(CmuxTuiSurfaceProvider.ports(from: probe, displayPortsOwned: true) == [3000])
+        #expect(CmuxTuiSurfaceProvider.ports(from: probe, displayPortsOwned: false) == [3000, 5901])
         #expect(CmuxTuiSnapshotParser.displayPorts.isSuperset(of: [5901, 5902, 5916, 6901, 6902, 6916]))
         #expect(CmuxTuiSnapshotParser.machineHasDesktop(image: "cmux-xfce-vnc:latest"))
         #expect(!CmuxTuiSnapshotParser.machineHasDesktop(image: "cmuxd-ws:tooling-20260509f"))
