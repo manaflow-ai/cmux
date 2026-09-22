@@ -7,7 +7,7 @@
     <key>CFBundleDisplayName</key>
     <string>cmux Notification Service</string>
     <key>CFBundleIdentifier</key>
-    <string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+    <string>$(CMUX_HOST_BUNDLE_IDENTIFIER).NotificationService</string>
     <key>CFBundleName</key>
     <string>NotificationService</string>
     <key>CFBundleExecutable</key>
