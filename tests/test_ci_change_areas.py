@@ -2211,6 +2211,37 @@ def test_compiled_product_cache_is_opt_in_on_persistent_macos_lanes() -> None:
         assert "CMUX_ARTIFACT_PEER_TOKEN_FILE: ${{ vars.CMUX_ARTIFACT_PEER_TOKEN_FILE }}" in block
 
 
+def test_product_restore_receipt_binds_immutable_product_identity() -> None:
+    required_env = (
+        "ARTIFACT_ID: ${{ needs.macos-compile-admission.outputs.artifact_id }}",
+        "ARTIFACT_PROVIDER_DIGEST: ${{ needs.macos-compile-admission.outputs.artifact_digest }}",
+        "EXPECTED_SHA256: ${{ needs.macos-compile-admission.outputs.sha256 }}",
+        "CMUX_PRODUCT_CONTRACT: ${{ needs.macos-compile-admission.outputs.product_contract }}",
+        "CMUX_PRODUCT_SOURCE_REVISION: ${{ needs.macos-compile-admission.outputs.source_revision }}",
+        "CMUX_PRODUCT_PRODUCER_RUN_ID: ${{ needs.macos-compile-admission.outputs.producer_run_id }}",
+        "CMUX_PRODUCT_PRODUCER_RUN_ATTEMPT: ${{ needs.macos-compile-admission.outputs.producer_run_attempt }}",
+    )
+    for job_name in ("app-host-unit-tests", "tests-build-and-lag"):
+        block = workflow_job_block(job_name, MACOS_WORKFLOW)
+        restore = block[block.index("      - name: Restore compiled app-host test product"):]
+        restore = restore[:restore.index("\n      - name:", 1)]
+        for binding in required_env:
+            assert binding in restore, (job_name, binding)
+
+    script = (ROOT / "scripts/ci/restore-app-host-test-product.sh").read_text(encoding="utf-8")
+    for field in (
+        '"repository": os.environ["GITHUB_REPOSITORY"]',
+        '"artifact_id": int(os.environ["ARTIFACT_ID"])',
+        '"provider_digest": os.environ["ARTIFACT_PROVIDER_DIGEST"]',
+        '"archive_sha256": os.environ["EXPECTED_SHA256"]',
+        '"product_contract": os.environ["CMUX_PRODUCT_CONTRACT"]',
+        '"source_revision": os.environ["CMUX_PRODUCT_SOURCE_REVISION"]',
+        '"producer_run_id": int(os.environ["CMUX_PRODUCT_PRODUCER_RUN_ID"])',
+        '"producer_run_attempt": int(os.environ["CMUX_PRODUCT_PRODUCER_RUN_ATTEMPT"])',
+    ):
+        assert field in script
+
+
 def test_compiled_product_source_order_is_local_peer_r2_github() -> None:
     for job_name in ("app-host-unit-tests", "tests-build-and-lag"):
         block = workflow_job_block(job_name, MACOS_WORKFLOW)
