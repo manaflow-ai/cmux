@@ -1041,24 +1041,35 @@ class WarmSlotTest(unittest.TestCase):
         layout.slot.mkdir(parents=True, exist_ok=True)
         layout.logs.mkdir(parents=True, exist_ok=True)
         read_fd, write_fd = os.pipe()
+        ready = layout.slot / "forced-kill-ready.fifo"
+        os.mkfifo(ready)
         command = [
             sys.executable,
             "-c",
             (
-                "import signal,time;"
+                "import signal,sys,time;"
                 "signal.signal(signal.SIGTERM, lambda *_: None);"
+                "open(sys.argv[1], 'w').close();"
                 "print('SwiftCompile forced-kill', flush=True);"
                 "time.sleep(30)"
             ),
+            str(ready),
         ]
 
         def request_preempt():
-            # The FIFO-style pipe retains the byte until run_native installs its
-            # watcher, so the test does not need to race the launch journal.
-            time.sleep(0.05)
+            # The forced kill only happens when the child outlives TERM_GRACE,
+            # which it only does once it has installed its SIGTERM handler.
+            # Opening the FIFO rendezvous blocks until the child has done so,
+            # where a fixed sleep raced interpreter startup and left the run
+            # dying on the default SIGTERM action instead. The pipe itself
+            # retains the byte until run_native installs its watcher.
+            with open(ready, "r"):
+                pass
             os.write(write_fd, b"1")
 
-        thread = threading.Thread(target=request_preempt)
+        # Daemon so a child that never reaches the rendezvous fails the
+        # assertions instead of wedging the suite on a blocked open().
+        thread = threading.Thread(target=request_preempt, daemon=True)
         thread.start()
         try:
             with (
