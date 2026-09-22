@@ -320,22 +320,6 @@ def restore_remote(api, reference, identity, expected, destination, restore):
                 "elapsed_seconds": round(time.monotonic() - started, 3)}, sort_keys=True))
 
 
-def restore_warning_log(derived):
-    import reuse_app_host_products as reuse
-    products = derived / "Build/Products"
-    receipt = products / reuse.RECEIPT
-    if receipt.is_symlink() or not receipt.is_file() or receipt.stat().st_size > MAX_INDEX:
-        raise ValueError("invalid producer warning receipt")
-    value = json.loads(receipt.read_text())
-    data = reuse.build_log_bytes(products / reuse.BUILD_LOG)
-    if hashlib.sha256(data).hexdigest() != value.get("build_log_sha256"):
-        raise ValueError("producer warning evidence mismatch")
-    destination = derived / reuse.BUILD_LOG
-    if destination.is_symlink() or destination.exists():
-        raise ValueError("consumer warning log already exists")
-    destination.write_bytes(data)
-
-
 def current_identity():
     import app_host_test_products as products
     value = products.identity()
@@ -346,15 +330,12 @@ def current_identity():
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("mode", choices=("identity", "publish-index", "restore", "restore-warning-log"))
+    parser.add_argument("mode", choices=("identity", "publish-index", "restore"))
     parser.add_argument("path", type=Path)
     parser.add_argument("--receipts", type=Path)
     parser.add_argument("--index-id")
     parser.add_argument("--index-digest")
     args = parser.parse_args()
-    if args.mode == "restore-warning-log":
-        restore_warning_log(args.path)
-        return
     identity = current_identity()
     if args.mode == "identity":
         args.path.write_text(json.dumps(identity, sort_keys=True) + "\n")
