@@ -6,6 +6,7 @@ export const MAX_MOBILE_NETWORK_OUTCOME_REQUEST_BYTES = 64 * 1_024;
 export const MAX_MOBILE_NETWORK_OUTCOME_BATCH_EVENTS = 100;
 
 const EVENT_NAME = "ios_connectivity_latency";
+const TASK_MODEL_EVENT_NAME = "ios_task_model_discovery";
 const TERMINAL_WINDOW_EVENT_NAME = "ios_terminal_latency_window";
 const TERMINAL_ANOMALY_EVENT_NAME = "ios_terminal_latency_anomaly";
 const RUNTIME_ROLE = "mobileClient";
@@ -43,6 +44,7 @@ const allowedPropertyKeys = new Set([
   "input_failed_count", "histogram_version", "input_to_output_histogram", "input_to_visible_histogram", "render_histogram",
   "duration_ms", "threshold_ms", "stage",
   "trace_id", "operation", "terminal_phase",
+  "model_count",
 ]);
 
 export type MobileNetworkOutcome = {
@@ -113,7 +115,25 @@ export type MobileTerminalLatencyAnomaly = {
   readonly deviceModel?: string;
 };
 
-export type MobileObservabilityEvent = MobileNetworkOutcome | MobileTerminalLatencyWindow | MobileTerminalLatencyAnomaly;
+export type MobileTaskModelDiscovery = {
+  readonly timestamp: string;
+  readonly outcome: "success" | "failure";
+  readonly durationMs: number;
+  readonly modelCount: number;
+  readonly failure?: string;
+  readonly platform?: "ios";
+  readonly clientChannel?: "dev" | "nightly" | "production" | "unknown";
+  readonly appVersion?: string;
+  readonly buildNumber?: string;
+  readonly bundleIdentifier?: string;
+  readonly osVersion?: string;
+  readonly deviceModel?: string;
+};
+
+export type MobileObservabilityEvent = MobileNetworkOutcome
+  | MobileTerminalLatencyWindow
+  | MobileTerminalLatencyAnomaly
+  | MobileTaskModelDiscovery;
 
 export function parseMobileNetworkOutcome(candidate: unknown): MobileNetworkOutcome | null {
   if (!isRecord(candidate) || candidate.event !== EVENT_NAME || !isRecord(candidate.properties)) return null;
@@ -218,9 +238,38 @@ export function parseMobileTerminalLatencyAnomaly(candidate: unknown): MobileTer
 }
 
 export function parseMobileObservabilityEvent(candidate: unknown): MobileObservabilityEvent | null {
-  return parseMobileNetworkOutcome(candidate)
+  return parseMobileTaskModelDiscovery(candidate)
+    ?? parseMobileNetworkOutcome(candidate)
     ?? parseMobileTerminalLatencyWindow(candidate)
     ?? parseMobileTerminalLatencyAnomaly(candidate);
+}
+
+export function parseMobileTaskModelDiscovery(candidate: unknown): MobileTaskModelDiscovery | null {
+  if (!isRecord(candidate) || candidate.event !== TASK_MODEL_EVENT_NAME || !isRecord(candidate.properties)) return null;
+  if (!validTimestamp(candidate.timestamp) || !validProperties(candidate.properties)) return null;
+  const properties = candidate.properties;
+  if (properties.operation !== "model_list") return null;
+  if (properties.outcome !== "success" && properties.outcome !== "failure") return null;
+  const durationMs = unsignedInteger(properties.duration_ms);
+  const modelCount = unsignedInteger(properties.model_count);
+  const failure = optionalSetValue(properties.failure, failures);
+  const metadata = parseMetadata(properties);
+  if (durationMs === null || modelCount === null || failure === false || !metadata) return null;
+  if (properties.outcome === "failure" && typeof failure !== "string") return null;
+  return {
+    timestamp: candidate.timestamp,
+    outcome: properties.outcome,
+    durationMs,
+    modelCount,
+    ...(typeof failure === "string" ? { failure } : {}),
+    ...(metadata.platform ? { platform: metadata.platform } : {}),
+    ...(metadata.clientChannel ? { clientChannel: metadata.clientChannel } : {}),
+    ...(metadata.appVersion ? { appVersion: metadata.appVersion } : {}),
+    ...(metadata.buildNumber ? { buildNumber: metadata.buildNumber } : {}),
+    ...(metadata.bundleIdentifier ? { bundleIdentifier: metadata.bundleIdentifier } : {}),
+    ...(metadata.osVersion ? { osVersion: metadata.osVersion } : {}),
+    ...(metadata.deviceModel ? { deviceModel: metadata.deviceModel } : {}),
+  };
 }
 
 type CoreObservation = Pick<MobileNetworkOutcome, "phase" | "outcome" | "durationMs" | "userUsable" | "failure" | "transport" | "population" | "attemptId" | "terminalReady">;
@@ -289,7 +338,7 @@ function parseMetadata(properties: Record<string, unknown>): Metadata | null {
   const osVersion = optionalMachineString(properties.os_version);
   const deviceModel = optionalMachineString(properties.device_model, true);
   const traceId = optionalTraceID(properties.trace_id);
-  const operation = optionalSetValue(properties.operation, new Set(["replay", "artifactScan", "artifactList"]));
+  const operation = optionalSetValue(properties.operation, new Set(["replay", "artifactScan", "artifactList", "model_list"]));
   const terminalPhase = optionalSetValue(properties.terminal_phase, new Set([
     "applied", "failed", "discarded",
   ]));
@@ -362,6 +411,38 @@ export async function emitMobileObservabilityEvents(
   batch: readonly MobileObservabilityEvent[],
 ): Promise<void> {
   await Promise.all(batch.map((observation) => {
+    if ("modelCount" in observation) {
+      return withSpan(
+        "cmux-mobile-network",
+        "cmux.mobile.task.model_discovery",
+        {
+          "cmux.subsystem": "mobile-network",
+          "cmux.runtime": "ios",
+          "cmux.user_id": userId,
+          "cmux.mobile.event": "task_model_discovery",
+          "cmux.mobile.outcome": observation.outcome,
+          "cmux.mobile.duration_ms": observation.durationMs,
+          "cmux.mobile.model_count": observation.modelCount,
+          "cmux.mobile.failure": observation.failure,
+          "cmux.mobile.occurred_at": observation.timestamp,
+          "cmux.mobile.platform": observation.platform,
+          "cmux.client.channel": observation.clientChannel,
+          "cmux.mobile.app_version": observation.appVersion,
+          "cmux.mobile.build_number": observation.buildNumber,
+          "cmux.mobile.bundle_identifier": observation.bundleIdentifier,
+          "cmux.mobile.os_version": observation.osVersion,
+          "cmux.mobile.device_model": observation.deviceModel,
+        },
+        (span) => {
+          if (observation.outcome === "failure") {
+            span.setStatus({
+              code: SpanStatusCode.ERROR,
+              message: observation.failure ?? "task_model_discovery:failure",
+            });
+          }
+        },
+      );
+    }
     if ("phase" in observation) {
       return emitMobileNetworkOutcomes(userId, [observation]);
     }
