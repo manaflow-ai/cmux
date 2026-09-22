@@ -60,6 +60,31 @@ def route(paths, event="pull_request", macos="false"):
 
 
 class LinuxGuardRoutingTests(unittest.TestCase):
+    def test_cloud_machine_workflow_skips_macos_for_control_plane_only_prs(self):
+        workflow_path = ROOT / ".github/workflows/cloud-machine-tests.yml"
+        workflow = workflow_path.read_text(encoding="utf-8")
+        changes = workflow_job_block("changes", workflow_path)
+        lifecycle = workflow_job_block("lifecycle", workflow_path)
+
+        self.assertIn("uses: ./.github/workflows/resolve-dispatch-ref.yml", workflow)
+        self.assertIn(
+            "ref: ${{ inputs.ref }}",
+            workflow_job_block("resolve-ref", workflow_path),
+        )
+        self.assertIn("blacksmith-4vcpu-ubuntu-2404", changes)
+        self.assertIn("Detect cloud-machine package changes", changes)
+        self.assertIn("/pulls/{pr_number}/files?per_page=100&page={page}", changes)
+        self.assertIn('startswith("Packages/macOS/CmuxCloudMachines/")', changes)
+        self.assertNotIn("actions/checkout", changes)
+        self.assertIn("pull-requests: read", workflow)
+        self.assertIn("needs: [changes, resolve-ref]", lifecycle)
+        self.assertIn(
+            "if: ${{ needs.changes.outputs.should_run == 'true' }}",
+            lifecycle,
+        )
+        self.assertIn("ref: ${{ needs.resolve-ref.outputs.sha }}", lifecycle)
+        self.assertNotIn("inputs.ref || github.ref", workflow)
+
     def test_ios_shell_ui_test_only_change_skips_macos(self):
         actual = module.classify_files([
             "Packages/iOS/CmuxMobileShellUI/Tests/CmuxMobileShellUITests/WorkspaceListScrollUpdateTests.swift"
