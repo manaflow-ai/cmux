@@ -79,7 +79,6 @@ struct CMUXMobileRootView: View {
     @State private var openURLTaskToken: UUID?
     #if os(iOS)
     @State private var addDeviceSheetDetent: PresentationDetent = .large
-    @State private var tabUnavailableAlert: MobilePushCoordinator.TabUnavailableAlert?
     #endif
     /// The app's one tailnet detector, built at the composition root and
     /// injected through the environment so pairing, the disconnected shell,
@@ -355,53 +354,7 @@ struct CMUXMobileRootView: View {
         .onChange(of: store.connectionState) { _, _ in
             pushCoordinator.workspacesDidChange()
         }
-        .onChange(of: pushCoordinator.tabUnavailableAlert, initial: true) { _, alert in
-            tabUnavailableAlert = alert
-        }
-        .alert(item: $tabUnavailableAlert) { alert in
-            switch alert.kind {
-            case .tabUnavailable:
-                Alert(
-                    title: Text(L10n.string(
-                        "mobile.push.tabUnavailable.title",
-                        defaultValue: "Tab unavailable"
-                    )),
-                    message: Text(L10n.string(
-                        "mobile.push.tabUnavailable.message",
-                        defaultValue: "This tab is no longer available on your Mac."
-                    )),
-                    dismissButton: .default(Text(L10n.string(
-                        "mobile.common.ok",
-                        defaultValue: "OK"
-                    ))) {
-                        pushCoordinator.dismissTabUnavailableAlert()
-                    }
-                )
-            case .connectionUnavailable:
-                Alert(
-                    title: Text(L10n.string(
-                        "mobile.push.connectionUnavailable.title",
-                        defaultValue: "Connection unavailable"
-                    )),
-                    message: Text(L10n.string(
-                        "mobile.push.connectionUnavailable.message",
-                        defaultValue: "We’ll keep this notification ready until your Mac reconnects."
-                    )),
-                    primaryButton: .default(Text(L10n.string(
-                        "mobile.push.connectionUnavailable.retry",
-                        defaultValue: "Try again"
-                    ))) {
-                        pushCoordinator.retryPendingDeeplink()
-                    },
-                    secondaryButton: .cancel(Text(L10n.string(
-                        "mobile.push.connectionUnavailable.cancel",
-                        defaultValue: "Cancel"
-                    ))) {
-                        pushCoordinator.dismissTabUnavailableAlert()
-                    }
-                )
-            }
-        }
+        .mobilePushAlertPresentation(coordinator: pushCoordinator)
         #if DEBUG
         // The UI-test auto-open hook observes the same workspace-arrival
         // signal; `initial: true` covers a list already loaded at mount.
