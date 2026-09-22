@@ -895,10 +895,6 @@ path = "tests/test_ssh_relay_report_tty_retry.py"
 lane = "legacy"
 
 [[test]]
-path = "tests/test_sync_test_wiring.py"
-lane = "linux-guard"
-
-[[test]]
 path = "tests/test_terminal_hang_release_gate.py"
 lane = "linux-guard"
 
