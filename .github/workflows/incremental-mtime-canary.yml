@@ -1,0 +1,139 @@
+name: Deterministic mtime incremental canary
+
+on:
+  push:
+    branches:
+      - incgen-mtime-canary-20260921
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+  statuses: write
+
+concurrency:
+  group: incgen-mtime-canary-20260921
+  cancel-in-progress: true
+
+env:
+  BASE_SHA: e6e057975a84b3fef58e4b6fe2e1c9a5b8a37bb1
+  CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_15 }}
+  CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
+  CMUX_SKIP_ZIG_BUILD: "1"
+  CI_CACHE_R2_PUBLIC_URL: https://ci-cache.cmux.com
+
+jobs:
+  seed:
+    name: Build normalized A seed
+    runs-on: ${{ vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15' }}
+    timeout-minutes: 45
+    outputs:
+      transport_viable: ${{ steps.seed.outputs.transport_viable }}
+      archive_bytes: ${{ steps.seed.outputs.archive_bytes }}
+    steps:
+      - name: Publish canary run locator
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api --method POST "repos/$GITHUB_REPOSITORY/statuses/$GITHUB_SHA" \
+            -f state=pending \
+            -f context="incgen-mtime-run-$GITHUB_RUN_ID" \
+            -f description="focused deterministic-mtime incremental canary" \
+            -f target_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+
+      - name: Checkout canary harness
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          submodules: false
+
+      - name: Select Xcode
+        run: ./scripts/select-ci-xcode.sh
+
+      - name: Install Rust
+        run: ./scripts/install-rust-ci.sh
+
+      - name: Ensure zstd
+        run: command -v zstd >/dev/null || brew install zstd
+
+      - name: Build normalized A and archive DerivedData
+        id: seed
+        env:
+          ARTIFACT_DIR: ${{ runner.temp }}/mtime-canary
+        run: |
+          set -euo pipefail
+          mkdir -p "$ARTIFACT_DIR"
+          bash ./scripts/ci/benchmark-xcode-mtime-normalization.sh \
+            seed "$BASE_SHA" "$GITHUB_SHA" "$ARTIFACT_DIR"
+
+      - name: Upload normalized A seed
+        if: steps.seed.outputs.transport_viable == 'true'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: mtime-seed-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/mtime-canary/derived-A.tar.zst
+            ${{ runner.temp }}/mtime-canary/seed-swift-mtimes.tsv
+          retention-days: 1
+          compression-level: 0
+          if-no-files-found: error
+
+      - name: Upload seed metrics
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: mtime-seed-metrics-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/mtime-canary/results.jsonl
+            ${{ runner.temp }}/mtime-canary/*.log.zst
+          retention-days: 1
+          compression-level: 0
+          if-no-files-found: warn
+
+  consumer:
+    name: Build normalized B from restored A
+    needs: seed
+    if: needs.seed.outputs.transport_viable == 'true'
+    runs-on: ${{ vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15' }}
+    timeout-minutes: 45
+    steps:
+      - name: Checkout canary harness
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          submodules: false
+
+      - name: Select Xcode
+        run: ./scripts/select-ci-xcode.sh
+
+      - name: Install Rust
+        run: ./scripts/install-rust-ci.sh
+
+      - name: Ensure zstd
+        run: command -v zstd >/dev/null || brew install zstd
+
+      - name: Download normalized A seed
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: mtime-seed-${{ github.run_id }}
+          path: ${{ runner.temp }}/mtime-canary
+
+      - name: Build B with deterministic source mtimes
+        env:
+          ARTIFACT_DIR: ${{ runner.temp }}/mtime-canary
+        run: |
+          set -euo pipefail
+          bash ./scripts/ci/benchmark-xcode-mtime-normalization.sh \
+            consumer "$BASE_SHA" "$GITHUB_SHA" "$ARTIFACT_DIR"
+
+      - name: Upload consumer metrics
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: mtime-consumer-metrics-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/mtime-canary/results.jsonl
+            ${{ runner.temp }}/mtime-canary/*.log.zst
+          retention-days: 1
+          compression-level: 0
+          if-no-files-found: warn
