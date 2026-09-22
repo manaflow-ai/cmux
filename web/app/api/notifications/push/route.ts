@@ -196,22 +196,15 @@ async function sendPush(
   const payload = parsePushPayload(body.value);
   if (!payload.ok) return jsonResponse({ error: payload.error }, 400);
   const encryptedPayloads = payload.value.encryptedPayloads ?? [];
-  // An omitted header is account-wide fanout. Each encrypted tuple names its
-  // exact iOS bundle, and APNs delivery selects the matching payload per token.
-  // A present-but-unknown value remains a hard error.
-  const requestedNamespace = request.headers.get("x-cmux-ios-target-namespace");
-  const targetNamespaceResult = resolveTargetNamespace(requestedNamespace);
-  if (!targetNamespaceResult.ok) return jsonResponse({ error: targetNamespaceResult.error }, 400);
-  const targetNamespace = targetNamespaceResult.value;
-  const protocolError = validatePushProtocol(protocol, encryptedPayloads);
-  if (protocolError) return protocolError;
-  const recipientError = validateEncryptedRecipients(
+  const routing = validatePushRouting(
+    request,
     user.id,
     payload.value,
     encryptedPayloads,
-    targetNamespace,
+    protocol,
   );
-  if (recipientError) return recipientError;
+  if (!routing.ok) return routing.response;
+  const targetNamespace = routing.value;
   const correlationId =
     payload.value.correlationId ?? crypto.randomUUID();
   const payloadFingerprint = pushPayloadFingerprint(
@@ -273,8 +266,7 @@ async function sendPush(
         ? { "x-cmux-push-replayed": "true" }
         : {},
     );
-  } catch (error) {
-    if (process.env.CMUX_DB_TEST === "1") console.error("push fanout test error", error);
+  } catch {
     // At this point the request has a safe, validated correlation id. Preserve
     // it for support without returning or recording payload, token, database,
     // or provider details from the unexpected exception.
@@ -285,6 +277,38 @@ async function sendPush(
       correlationId,
     );
   }
+}
+
+function validatePushRouting(
+  request: Request,
+  userID: string,
+  payload: PushPayload,
+  encryptedPayloads: readonly Record<string, unknown>[],
+  protocol: PushProtocol | undefined,
+): { ok: true; value: ReturnType<typeof normalizeApnsBundle> }
+  | { ok: false; response: Response } {
+  // An omitted header is account-wide fanout. Each encrypted tuple names its
+  // exact iOS bundle, and APNs delivery selects the matching payload per token.
+  // A present-but-unknown value remains a hard error.
+  const targetNamespaceResult = resolveTargetNamespace(
+    request.headers.get("x-cmux-ios-target-namespace"),
+  );
+  if (!targetNamespaceResult.ok) {
+    return {
+      ok: false,
+      response: jsonResponse({ error: targetNamespaceResult.error }, 400),
+    };
+  }
+  const protocolError = validatePushProtocol(protocol, encryptedPayloads);
+  if (protocolError) return { ok: false, response: protocolError };
+  const recipientError = validateEncryptedRecipients(
+    userID,
+    payload,
+    encryptedPayloads,
+    targetNamespaceResult.value,
+  );
+  if (recipientError) return { ok: false, response: recipientError };
+  return { ok: true, value: targetNamespaceResult.value };
 }
 
 function resolveTargetNamespace(
