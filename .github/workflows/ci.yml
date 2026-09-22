@@ -212,6 +212,34 @@ jobs:
             # inputs through the base classifier. Unknown scripts/ci inputs stay
             # in the list and therefore fail open.
             if [ "$ci_router_changed" = true ] || [ "$ci_workflow_changed" = true ]; then
+              # ci.yml is stripped below, but its `cli` job is the CLI lane's
+              # call site. An edit to that job, or to the triggers and
+              # permissions before `jobs:` that it inherits, runs the lane.
+              cli_call_site_changed=false
+              if [ "$ci_workflow_changed" = true ]; then
+                if ! git show "$BASE_SHA:.github/workflows/ci.yml" > /tmp/cmux-ci-base-workflow.yml \
+                  || ! python3 - /tmp/cmux-ci-base-workflow.yml .github/workflows/ci.yml <<'PY'
+          import re
+          import sys
+
+          def cli_call_site(path: str) -> tuple[str, str]:
+              text = open(path, encoding="utf-8").read()
+              preamble, marker, body = text.partition("\njobs:\n")
+              if not marker:
+                  raise SystemExit(1)
+              for block in re.split(r"(?m)^  (?=[A-Za-z0-9_-]+:\s*$)", body):
+                  if block.partition(":")[0] == "cli":
+                      return preamble, block
+              return preamble, ""
+
+          raise SystemExit(0 if cli_call_site(sys.argv[1]) == cli_call_site(sys.argv[2]) else 1)
+          PY
+                then
+                  cli_call_site_changed=true
+                  echo "ci.yml's CLI lane call site changed; running the CLI lane."
+                fi
+              fi
+
               product_files=/tmp/cmux-ci-product-files.txt
               : > "$product_files"
               while IFS= read -r path; do
@@ -230,7 +258,7 @@ jobs:
                   echo "macos=false"
                   echo "web=false"
                   echo "agent_session_web=false"
-                  echo "cli=false"
+                  echo "cli=$cli_call_site_changed"
                   echo "release_build=false"
                 } >> "$GITHUB_OUTPUT"
                 exit 0
@@ -271,14 +299,21 @@ jobs:
               fi
 
               echo "CI routing policy changed; classifying product inputs with the trusted base router."
+              trusted_areas=/tmp/cmux-ci-trusted-areas.txt
+              : > "$trusted_areas"
               (
                 cd "$trusted_root"
                 CMUX_CI_HEAD_TEST_REFERENCE_ROOT="${GITHUB_WORKSPACE:-$PWD}" \
                 python3 scripts/ci/detect_ci_change_areas.py \
                   --event-name "$EVENT_NAME" \
                   --files-from "$product_files" \
-                  --github-output "$GITHUB_OUTPUT"
+                  --github-output "$trusted_areas"
               )
+              if [ "$cli_call_site_changed" = true ]; then
+                sed 's/^cli=false$/cli=true/' "$trusted_areas" >> "$GITHUB_OUTPUT"
+              else
+                cat "$trusted_areas" >> "$GITHUB_OUTPUT"
+              fi
               exit 0
             fi
 
