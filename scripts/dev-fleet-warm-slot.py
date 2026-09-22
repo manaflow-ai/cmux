@@ -28,6 +28,7 @@ from typing import Any, Iterator, Sequence
 
 SCHEMA = 1
 TERM_GRACE_SECONDS = 10.0
+CLEANUP_TERM_GRACE_SECONDS = 1.0
 IDENTIFIER_CHARS = frozenset(
     "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._:@+-"
 )
@@ -365,12 +366,68 @@ def retire_cold_task(layout: Layout, generation_id: Any) -> dict[str, Any]:
     return {"status": "retired", "cold_task_generation_id": generation}
 
 
+def _wait_cleanup_process(
+    proc: subprocess.Popen,
+    preempt_fd: int | None,
+) -> bool:
+    """Wait for cleanup completion while allowing foreground work to preempt it."""
+    if preempt_fd is None:
+        proc.wait()
+        return False
+
+    done_read, done_write = os.pipe()
+    waiter_error: list[BaseException] = []
+
+    def wait_for_exit() -> None:
+        try:
+            proc.wait()
+        except BaseException as error:
+            waiter_error.append(error)
+        finally:
+            with contextlib.suppress(OSError):
+                os.write(done_write, b"1")
+            with contextlib.suppress(OSError):
+                os.close(done_write)
+
+    waiter = threading.Thread(
+        target=wait_for_exit,
+        name="cmux-cold-cleanup-waiter",
+        daemon=True,
+    )
+    waiter.start()
+    try:
+        while True:
+            ready, _, _ = select.select([done_read, preempt_fd], [], [])
+            if done_read in ready:
+                with contextlib.suppress(OSError):
+                    os.read(done_read, 1)
+                waiter.join()
+                if waiter_error:
+                    raise waiter_error[0]
+                return False
+            if preempt_fd in ready and consume_preempt(preempt_fd):
+                with contextlib.suppress(ProcessLookupError):
+                    os.killpg(proc.pid, signal.SIGTERM)
+                waiter.join(CLEANUP_TERM_GRACE_SECONDS)
+                if waiter.is_alive():
+                    with contextlib.suppress(ProcessLookupError):
+                        os.killpg(proc.pid, signal.SIGKILL)
+                    waiter.join()
+                if waiter_error:
+                    raise waiter_error[0]
+                return True
+    finally:
+        with contextlib.suppress(OSError):
+            os.close(done_read)
+
+
 def cleanup_retired_cold_tasks(
     layout: Layout,
     *,
     preempt_fd: int | None = None,
     max_generations: int = 1,
 ) -> dict[str, Any]:
+    """Reclaim bounded retired cold-task generations outside foreground locks."""
     if max_generations <= 0 or max_generations > 32:
         return {
             "status": "failed",
@@ -384,16 +441,14 @@ def cleanup_retired_cold_tasks(
         return {"status": "deferred", "reason": "cleanup_already_running", "reclaimed": 0}
 
     reclaimed = 0
+    failures: list[dict[str, str]] = []
+    attempts = 0
     try:
         if not layout.retired_cold_tasks.exists():
             return {"status": "idle", "reclaimed": 0}
 
-        candidates: list[Path] = []
         try:
-            retired_entries = sorted(
-                layout.retired_cold_tasks.iterdir(),
-                key=lambda item: item.name,
-            )
+            retired_entries = layout.retired_cold_tasks.iterdir()
         except OSError:
             event(
                 layout,
@@ -406,87 +461,104 @@ def cleanup_retired_cold_tasks(
                 "reclaimed": 0,
             }
 
-        for path in retired_entries:
-            try:
-                cold_task_generation_id(path.name)
-            except ValueError:
-                continue
-            candidates.append(path)
+        try:
+            for root in retired_entries:
+                if reclaimed >= max_generations or attempts >= 32:
+                    break
+                try:
+                    cold_task_generation_id(root.name)
+                except ValueError:
+                    continue
 
-        for root in candidates[:max_generations]:
-            generation = root.name
-            try:
-                proc = subprocess.Popen(
-                    ["/bin/rm", "-rf", str(root)],
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL,
-                    start_new_session=True,
-                )
-            except OSError:
-                event(
-                    layout,
-                    "cold_task_cleanup_failed",
-                    cold_task_generation_id=generation,
-                    reason="cleanup_launch_failed",
-                )
+                attempts += 1
+                generation = root.name
+                try:
+                    proc = subprocess.Popen(
+                        ["/bin/rm", "-rf", str(root)],
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL,
+                        start_new_session=True,
+                    )
+                except OSError:
+                    failure = {
+                        "cold_task_generation_id": generation,
+                        "reason": "cleanup_launch_failed",
+                    }
+                    failures.append(failure)
+                    event(layout, "cold_task_cleanup_failed", **failure)
+                    continue
+
+                try:
+                    preempted = _wait_cleanup_process(proc, preempt_fd)
+                except (OSError, RuntimeError) as error:
+                    failure = {
+                        "cold_task_generation_id": generation,
+                        "reason": "cleanup_wait_failed",
+                    }
+                    failures.append(failure)
+                    event(
+                        layout,
+                        "cold_task_cleanup_failed",
+                        **failure,
+                        detail=str(error),
+                    )
+                    continue
+
+                if preempted:
+                    event(
+                        layout,
+                        "cold_task_cleanup_preempted",
+                        cold_task_generation_id=generation,
+                    )
+                    result: dict[str, Any] = {
+                        "status": "preempted",
+                        "reclaimed": reclaimed,
+                        "cold_task_generation_id": generation,
+                    }
+                    if failures:
+                        result["failures"] = failures
+                    return result
+
+                if proc.returncode != 0 or root.exists():
+                    failure = {
+                        "cold_task_generation_id": generation,
+                        "reason": "cleanup_failed",
+                    }
+                    failures.append(failure)
+                    event(layout, "cold_task_cleanup_failed", **failure)
+                    continue
+
+                reclaimed += 1
+                event(layout, "cold_task_reclaimed", cold_task_generation_id=generation)
+        except OSError:
+            event(
+                layout,
+                "cold_task_cleanup_failed",
+                reason="retired_namespace_unreadable",
+            )
+            if not failures:
                 return {
                     "status": "failed",
-                    "reason": "cleanup_launch_failed",
+                    "reason": "retired_namespace_unreadable",
                     "reclaimed": reclaimed,
                 }
+            failures.append({"reason": "retired_namespace_unreadable"})
 
-            while proc.poll() is None:
-                if preempt_fd is not None:
-                    ready, _, _ = select.select([preempt_fd], [], [], 0.05)
-                    if ready and consume_preempt(preempt_fd):
-                        try:
-                            os.killpg(proc.pid, signal.SIGTERM)
-                        except ProcessLookupError:
-                            pass
-                        try:
-                            proc.wait(timeout=1.0)
-                        except subprocess.TimeoutExpired:
-                            try:
-                                os.killpg(proc.pid, signal.SIGKILL)
-                            except ProcessLookupError:
-                                pass
-                            proc.wait()
-                        event(
-                            layout,
-                            "cold_task_cleanup_preempted",
-                            cold_task_generation_id=generation,
-                        )
-                        return {
-                            "status": "preempted",
-                            "reclaimed": reclaimed,
-                            "cold_task_generation_id": generation,
-                        }
-                else:
-                    try:
-                        proc.wait(timeout=0.05)
-                    except subprocess.TimeoutExpired:
-                        pass
-
-            if proc.returncode != 0 or root.exists():
-                event(
-                    layout,
-                    "cold_task_cleanup_failed",
-                    cold_task_generation_id=generation,
-                    reason="cleanup_failed",
-                )
-                return {
-                    "status": "failed",
-                    "reason": "cleanup_failed",
-                    "reclaimed": reclaimed,
-                    "cold_task_generation_id": generation,
-                }
-            reclaimed += 1
-            event(layout, "cold_task_reclaimed", cold_task_generation_id=generation)
-
-        return {"status": "reclaimed" if reclaimed else "idle", "reclaimed": reclaimed}
+        result = {
+            "status": "reclaimed" if reclaimed else ("failed" if failures else "idle"),
+            "reclaimed": reclaimed,
+        }
+        if failures:
+            result["failures"] = failures
+            if not reclaimed:
+                result["reason"] = failures[0]["reason"]
+                if "cold_task_generation_id" in failures[0]:
+                    result["cold_task_generation_id"] = failures[0][
+                        "cold_task_generation_id"
+                    ]
+        return result
     finally:
         cleanup_lock.__exit__(None, None, None)
-
 
 def checkout_lock_path(layout: Layout, checkout: Path) -> Path:
     """Return one machine-local lock path for a physical checkout."""
