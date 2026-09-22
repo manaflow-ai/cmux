@@ -108,15 +108,13 @@ class AgentPRReviewGateTests(unittest.TestCase):
         workflow = (root / ".github/workflows/agent-pr-review-gate.yml").read_text(encoding="utf-8")
         self.assertIn("pull_request_review:", workflow)
         self.assertIn("issue_comment:", workflow)
-        self.assertIn("github.event.pull_request.number || github.event.issue.number", workflow)
-        self.assertIn("github.event_name == \'pull_request_target\' && \'head\'", workflow)
-        self.assertIn("startsWith(github.event.comment.user.login, 'greptile-apps')", workflow)
-        self.assertIn("github.event.comment.user.login || 'review'", workflow)
+        self.assertNotIn("concurrency:", workflow)
         self.assertIn(
             "if: ${{ github.event_name != 'issue_comment' || (github.event.issue.pull_request != null && "
-            "startsWith(github.event.comment.user.login, 'greptile-apps')) }}",
+            "startsWith(github.actor, 'greptile-apps')) }}",
             workflow,
         )
+        self.assertNotIn("github.event.comment.user.login", workflow)
         self.assertIn("ref: ${{ github.workflow_sha }}", workflow)
         self.assertNotIn("github.event.pull_request.base.sha", workflow)
         self.assertIn("AGENT_REQUIRED_REVIEW_COVERAGE_BOTS || 'greptile-apps'", workflow)
