@@ -103,6 +103,15 @@ class BenchmarkTest(unittest.TestCase):
         outside.mkdir()
         (retired / ("c" * 32)).symlink_to(outside, target_is_directory=True)
 
+        symlink_cache = state / "symlinked/slots/slot/cache"
+        symlink_cache.mkdir(parents=True)
+        outside_namespace = self.root / "outside-namespace"
+        (outside_namespace / ("d" * 32)).mkdir(parents=True)
+        (symlink_cache / "cold-tasks").symlink_to(
+            outside_namespace,
+            target_is_directory=True,
+        )
+
         self.assertEqual(bench.cold_generation_count(state, "cold-tasks"), 1)
         self.assertEqual(bench.cold_generation_count(state, "retired-cold-tasks"), 1)
 
