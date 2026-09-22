@@ -224,6 +224,33 @@ extension MobileShellComposite {
             #endif
             return
         }
+        // A frame whose revision identity sits at or below the delivered
+        // baseline is superseded state that was in flight when that baseline
+        // landed (typically a replay racing the delta stream over a high-RTT
+        // transport). It is stale, not corruption: drop it before either
+        // chain check can see it. Escalating it to a replay resets the chain
+        // again while the next in-flight frames arrive, a livelock measured
+        // at one full replay per round trip in the field
+        // (https://github.com/manaflow-ai/cmux/issues/13474).
+        if terminalReplayBarrierTokensBySurfaceID[renderGrid.surfaceID] == nil,
+           case .stale = MobileTerminalRenderGridRevisionContinuity.classify(
+               renderGrid,
+               delivered: terminalRenderGridRevisionContinuityBySurfaceID[renderGrid.surfaceID]
+           ) {
+            MobileDebugLog.anchormux(
+                "sync.render_grid_stale_frame_dropped surface=\(renderGrid.surfaceID) " +
+                    "revision=\(renderGrid.renderRevision) epoch=\(renderGrid.renderEpoch.prefix(8)) " +
+                    "seq=\(renderGrid.stateSeq)"
+            )
+            #if DEBUG
+            MobileLatencyTrace.stamp(
+                "gate",
+                "s=\(renderGrid.surfaceID.prefix(8).lowercased()) " +
+                    "seq=\(renderGrid.stateSeq) out=stale_drop"
+            )
+            #endif
+            return
+        }
         // Chain-link screen-anchored deltas to what this device actually
         // delivered: each delta names the history count of the producer frame
         // it was diffed against. If that is not the last delivered frame, a
