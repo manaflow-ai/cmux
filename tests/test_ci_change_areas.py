@@ -519,7 +519,7 @@ def test_macos_test_references_fail_open_without_ci_workflow() -> None:
 
 def test_ci_router_runs_on_every_pr_and_merge_group() -> None:
     workflow = CI_WORKFLOW.read_text(encoding="utf-8")
-    assert "  pull_request:\n  merge_group:" in workflow
+    assert "  pull_request:\n    types: [opened, synchronize, reopened, labeled, unlabeled]\n  merge_group:" in workflow
     assert "    paths:" not in workflow
 
     fallback = CI_STATUS_FALLBACK_WORKFLOW.read_text(encoding="utf-8")
