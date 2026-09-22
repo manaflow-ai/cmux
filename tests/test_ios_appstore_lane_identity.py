@@ -170,11 +170,11 @@ def bundle_id_for_target(path):
     return value or APPSTORE_BUNDLE_ID
 
 def entitlements_for_bundle(bundle_id):
-    if bundle_id == APPSTORE_EXTENSION_BUNDLE_ID:
+    if bundle_id.endswith(".NotificationService"):
         # This is the broken exported artifact: the extension profile is
         # embedded, but the extension signature claims no keychain group.
         return {{
-            "application-identifier": APPSTORE_EXTENSION_APP_ID,
+            "application-identifier": f"{{TEAM_ID}}.{{bundle_id}}",
             "com.apple.developer.team-identifier": TEAM_ID,
             "get-task-allow": False,
         }}
@@ -489,6 +489,7 @@ if "-exportArchive" in args:
         )
     profile_marker = "beta profile" if bundle_id == BETA_BUNDLE_ID else "fake profile"
     (app / "embedded.mobileprovision").write_text(profile_marker, encoding="utf-8")
+    (extension / "embedded.mobileprovision").write_text("extension profile", encoding="utf-8")
     # upload-testflight.sh refuses IPAs without Symbols/*.symbols.
     symbols_root = export_path / "Symbols"
     symbols_root.mkdir(parents=True, exist_ok=True)
@@ -533,6 +534,11 @@ if "--force" in args:
     if "--entitlements" in args and target.is_dir():
         source = Path(args[args.index("--entitlements") + 1])
         shutil.copyfile(source, target / "FakeSignedEntitlements.plist")
+        override_group = os.environ.get("CMUX_FAKE_SIGNED_KEYCHAIN_GROUP")
+        if override_group and target.name.endswith(".app"):
+            entitlements = plistlib.loads((target / "FakeSignedEntitlements.plist").read_bytes())
+            entitlements["keychain-access-groups"] = [override_group]
+            (target / "FakeSignedEntitlements.plist").write_bytes(plist_bytes(entitlements))
     sys.exit(0)
 sys.exit(0)
 """,
@@ -568,7 +574,16 @@ if len(args) >= 2 and args[0] == "cms" and args[1] == "-D":
             elif b"beta extension profile" in body:
                 profile = BETA_EXTENSION_PROFILE
             elif b"extension profile" in body:
-                profile = EXTENSION_PROFILE
+                profile = copy.deepcopy(EXTENSION_PROFILE)
+                try:
+                    extension_info = source.parent / "Info.plist"
+                    extension_bundle_id = plistlib.loads(extension_info.read_bytes()).get(
+                        "CFBundleIdentifier", ""
+                    )
+                    profile["Entitlements"] = dict(profile["Entitlements"])
+                    profile["Entitlements"]["application-identifier"] = f"{{TEAM_ID}}.{{extension_bundle_id}}"
+                except (OSError, plistlib.InvalidFileException):
+                    pass
     sys.stdout.buffer.write(plist_bytes(profile))
     sys.exit(0)
 if args and args[0] == "find-certificate":
@@ -1272,6 +1287,20 @@ def test_upload_appstore_lane_uses_production_bundle_id(tmp: Path, fakebin: Path
     ipa_path = Path(ipa_line.removeprefix("IPA_PATH="))
     with zipfile.ZipFile(ipa_path) as zf:
         info = plistlib.loads(zf.read("Payload/cmux.app/Info.plist"))
+        extension_info = plistlib.loads(
+            zf.read("Payload/cmux.app/PlugIns/NotificationService.appex/Info.plist")
+        )
+        extension_entitlements = (
+            plistlib.loads(
+                zf.read(
+                    "Payload/cmux.app/PlugIns/NotificationService.appex/"
+                    "FakeSignedEntitlements.plist"
+                )
+            )
+            if "Payload/cmux.app/PlugIns/NotificationService.appex/FakeSignedEntitlements.plist"
+            in zf.namelist()
+            else {}
+        )
     _check(info.get("CFBundleIdentifier") == APPSTORE_BUNDLE_ID, "final signed IPA Info.plist is com.cmux.app")
     _check(
         info.get("CMUXKeychainAccessGroup") == APPSTORE_APP_ID,
