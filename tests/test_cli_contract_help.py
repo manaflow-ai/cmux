@@ -302,8 +302,9 @@ def check_review_ledger_contract(cli_path: str) -> list[str]:
             "source": {
                 "base_sha": "1" * 40,
                 "head_sha": "2" * 40,
-                "diff_sha256": "3" * 64,
+                "tree_sha": "3" * 40,
                 "working_tree_dirty": True,
+                "patch_sha256": None,
             },
             "brief": {
                 "intent": "Preserve the review ledger",
@@ -357,8 +358,9 @@ def check_review_ledger_contract(cli_path: str) -> list[str]:
                         "after_source": {
                             "base_sha": "1" * 40,
                             "head_sha": "4" * 40,
-                            "diff_sha256": "5" * 64,
+                            "tree_sha": "5" * 40,
                             "working_tree_dirty": True,
+                            "patch_sha256": None,
                         },
                         "verification": {
                             "result": "passed",
