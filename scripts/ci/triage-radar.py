@@ -24,14 +24,19 @@ STOP_WORDS = {
     "a", "about", "after", "again", "all", "also", "an", "and", "another", "are", "as", "at",
     "be", "because", "before", "but", "by", "can", "cmux", "could", "custom", "does", "for",
     "from", "has", "have", "how", "i", "in", "into", "is", "it", "its", "keeps", "latest",
-    "new", "of", "on", "or", "our", "please", "request", "setting", "should", "still", "support",
-    "that", "the", "their", "this", "to", "under", "use", "using", "version", "when", "with",
+    "new", "of", "on", "or", "our", "please", "request", "rfc", "setting", "should", "still",
+    "support", "that", "the", "their", "this", "to", "under", "use", "using", "version", "when", "with",
     "without", "work", "works",
 }
 
-ANCHOR_TERMS = {
-    "agent", "auth", "browser", "cloud", "connect", "drag", "drop", "input", "ios", "pane",
-    "relay", "remote", "reorder", "session", "sidebar", "ssh", "terminal", "window", "workspace",
+BROAD_CLUSTER_TERMS = {
+    "agent", "app", "browser", "build", "cloud", "ios", "machine", "pane", "relay", "remote",
+    "session", "sidebar", "ssh", "terminal", "window", "workspace",
+}
+
+STRONG_CLUSTER_TERMS = {
+    "auth", "connect", "crash", "drag", "drop", "fail", "freeze", "hang", "index", "input",
+    "reject", "reorder", "route",
 }
 
 NORMALIZE_PREFIXES = {
@@ -163,23 +168,44 @@ def regression_evidence(item: dict[str, Any]) -> tuple[int, list[str]]:
     return score, evidence
 
 
+def cluster_term_weight(token: str) -> float:
+    if token in BROAD_CLUSTER_TERMS:
+        return 0.25
+    if token in STRONG_CLUSTER_TERMS:
+        return 1.5
+    return 1.0
+
+
 def pair_is_clustered(left: set[str], right: set[str]) -> bool:
     shared = left & right
-    if len(shared) >= 3:
-        return True
-    shared_anchors = shared & ANCHOR_TERMS
-    if len(shared_anchors) >= 2:
-        return True
-    union = left | right
-    return len(shared) >= 2 and bool(union) and len(shared) / len(union) >= 0.34
+    if not shared:
+        return False
+    shared_score = sum(cluster_term_weight(token) for token in shared)
+    smaller_score = min(
+        sum(cluster_term_weight(token) for token in left),
+        sum(cluster_term_weight(token) for token in right),
+    )
+    if smaller_score <= 0:
+        return False
+    return shared_score >= 1.5 and shared_score / smaller_score >= 0.20
+
+
+def is_cluster_candidate(item: dict[str, Any]) -> bool:
+    title = str(item.get("title") or "").strip().lower()
+    return not (
+        title.startswith("[rfc]")
+        or title.startswith("rfc:")
+        or title.startswith("[triage radar]")
+    )
 
 
 def build_clusters(issues: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    if len(issues) < 2:
+    candidates = [item for item in issues if is_cluster_candidate(item)]
+    if len(candidates) < 2:
         return []
 
-    tokens = [title_tokens(str(item.get("title") or "")) for item in issues]
-    parent = list(range(len(issues)))
+    tokens = [title_tokens(str(item.get("title") or "")) for item in candidates]
+    parent = list(range(len(candidates)))
 
     def find(index: int) -> int:
         while parent[index] != index:
@@ -193,26 +219,28 @@ def build_clusters(issues: list[dict[str, Any]]) -> list[dict[str, Any]]:
         if left_root != right_root:
             parent[right_root] = left_root
 
-    for left in range(len(issues)):
-        for right in range(left + 1, len(issues)):
+    for left in range(len(candidates)):
+        for right in range(left + 1, len(candidates)):
             if pair_is_clustered(tokens[left], tokens[right]):
                 union(left, right)
 
     groups: dict[int, list[int]] = {}
-    for index in range(len(issues)):
+    for index in range(len(candidates)):
         groups.setdefault(find(index), []).append(index)
 
     clusters: list[dict[str, Any]] = []
     for indexes in groups.values():
         if len(indexes) < 2:
             continue
-        members = [issues[index] for index in indexes]
+        if len(indexes) > 8:
+            continue
+        members = [candidates[index] for index in indexes]
         counts = Counter(token for index in indexes for token in tokens[index])
         shared_terms = [
             token
             for token, count in sorted(
                 counts.items(),
-                key=lambda pair: (pair[0] not in ANCHOR_TERMS, -pair[1], pair[0]),
+                key=lambda pair: (-cluster_term_weight(pair[0]), -pair[1], pair[0]),
             )
             if count >= 2
         ][:4]
