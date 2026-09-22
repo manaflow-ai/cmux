@@ -66,6 +66,7 @@ class LinuxGuardRoutingTests(unittest.TestCase):
         ])
         self.assertFalse(actual.macos)
         self.assertFalse(actual.web)
+        self.assertFalse(actual.release_build)
 
     def test_ios_shell_test_only_change_skips_macos(self):
         actual = module.classify_files([
