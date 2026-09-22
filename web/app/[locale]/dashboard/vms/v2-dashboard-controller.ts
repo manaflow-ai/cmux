@@ -39,6 +39,7 @@ type DashboardOptions = {
   readonly getStackToken: () => Promise<string | null>;
   readonly onDirectory: (directory: DashboardDirectory) => void;
   readonly onWorkspaces?: (workspaces: readonly DashboardWorkspace[]) => void;
+  readonly onVmChanged?: (change: { readonly vmId: string; readonly displayName: string | null; readonly slug: string | null; readonly status: string }) => void;
   readonly onAuthExpired?: () => void;
   readonly onError: (message: string) => void;
 };
@@ -158,6 +159,11 @@ export class V2DashboardController {
         }
         if (frame.schemaId === "workspace.changed.v1" && this.options.onWorkspaces) {
           void this.requestWorkspaces().catch(cause => this.fail(cause));
+        }
+        if (frame.schemaId === "vm.changed.v1" && this.options.onVmChanged
+          && typeof frame.vmId === "string" && (typeof frame.displayName === "string" || frame.displayName === null)
+          && (typeof frame.slug === "string" || frame.slug === null) && typeof frame.status === "string") {
+          this.options.onVmChanged({ vmId: frame.vmId, displayName: frame.displayName, slug: frame.slug, status: frame.status });
         }
       };
       socket.onerror = () => { clearTimeout(timeout); reject(new Error("Dashboard socket failed")); };

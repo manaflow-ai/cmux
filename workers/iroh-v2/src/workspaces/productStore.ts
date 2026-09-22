@@ -11,7 +11,7 @@ export interface WorkspaceState {
 export interface WorkspaceProductStore {
   get(teamId: string, vmId: string): Promise<WorkspaceState | null>;
   list(teamId: string): Promise<ReadonlyArray<{ vmId: string; generation: string; revision: number }>>;
-  put(input: { teamId: string; vmId: string; generation: string; revision: number; snapshot: WorkspaceSnapshot }): Promise<{ state: WorkspaceState; changed: boolean }>;
+  put(input: { teamId: string; vmId: string; generation: string; revision: number; snapshot: WorkspaceSnapshot }, options?: { allowRevisionJump?: boolean }): Promise<{ state: WorkspaceState; changed: boolean }>;
 }
 
 /** Product state lives in cmux-prod through the environment's Hyperdrive binding. */
@@ -45,7 +45,7 @@ export class PostgresWorkspaceProductStore implements WorkspaceProductStore {
     finally { await sql.end({ timeout: 1 }); }
   }
 
-  async put(input: { teamId: string; vmId: string; generation: string; revision: number; snapshot: WorkspaceSnapshot }) {
+  async put(input: { teamId: string; vmId: string; generation: string; revision: number; snapshot: WorkspaceSnapshot }, options?: { allowRevisionJump?: boolean }) {
     const sql = postgres(this.connectionString, { max: 1, prepare: true, fetch_types: false });
     try {
       const state = await sql.begin(async tx => {
@@ -59,7 +59,7 @@ export class PostgresWorkspaceProductStore implements WorkspaceProductStore {
             changed: false,
           };
         }
-        if (row && row.generation === input.generation && input.revision !== Number(row.revision) + 1) {
+        if (row && row.generation === input.generation && !options?.allowRevisionJump && input.revision !== Number(row.revision) + 1) {
           throw new OperationError("resync_required", 409, true);
         }
         await tx`

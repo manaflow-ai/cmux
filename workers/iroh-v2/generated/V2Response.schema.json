@@ -48,6 +48,9 @@
       "$ref": "https://contracts.cmux.invalid/iroh-v2/V2WorkspaceChangedResponse.json"
     },
     {
+      "$ref": "https://contracts.cmux.invalid/iroh-v2/V2VMChangedResponse.json"
+    },
+    {
       "$ref": "https://contracts.cmux.invalid/iroh-v2/V2WorkspaceListResponse.json"
     }
   ]

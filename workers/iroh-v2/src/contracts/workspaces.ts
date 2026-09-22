@@ -22,6 +22,25 @@ export const WorkspaceSnapshotSchema = z.strictObject({
 });
 export type WorkspaceSnapshot = z.infer<typeof WorkspaceSnapshotSchema>;
 
+export const WorkspacePublishRequestSchema = z.strictObject({
+  teamId: identifier,
+  vmId: identifier,
+  generation: identifier,
+  revision,
+  snapshot: WorkspaceSnapshotSchema,
+  source: z.literal("vm"),
+});
+export type WorkspacePublishRequest = z.infer<typeof WorkspacePublishRequestSchema>;
+
+export const VmChangedRequestSchema = z.strictObject({
+  teamId: identifier,
+  vmId: identifier,
+  displayName: z.string().max(512).nullable(),
+  slug: z.string().max(256).nullable(),
+  status: z.string().max(64),
+});
+export type VmChangedRequest = z.infer<typeof VmChangedRequestSchema>;
+
 export const WorkspaceSnapshotRequestSchema = z.strictObject({
   schemaId: z.literal("workspace.snapshot.v1"),
   requestId: identifier,

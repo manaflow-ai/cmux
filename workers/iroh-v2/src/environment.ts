@@ -11,6 +11,7 @@ export type Environment = Cloudflare.Env & {
   DATABASE_URL?: string;
   PLANETSCALE_DATABASE_URL?: string;
   DASHBOARD_ALLOWED_ORIGINS?: string;
+  WORKSPACE_PUBLISHER_SECRET?: string;
   AXIOM_TOKEN?: string; AXIOM_DATASET?: string; AXIOM_INGEST_URL?: string;
   SENTRY_DSN?: string; SENTRY_ENVIRONMENT?: string;
 };

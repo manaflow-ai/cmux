@@ -143,6 +143,24 @@ describe("VM Dashboard v2 controller", () => {
     await controller.stop();
   });
 
+  test("delivers VM metadata changes from the dashboard socket without a refetch", async () => {
+    globalThis.fetch = (async () => Response.json({ schemaId: "dashboard.ready.v1", requestId: "r", ticket: { token: "t.s", expiresAt: 3600, refreshAfter: 3300 } })) as typeof fetch;
+    globalThis.WebSocket = FakeSocket as unknown as typeof WebSocket;
+    const changes: unknown[] = [];
+    const controller = new V2DashboardController({
+      origin: "https://cmux-iroh-v2-development.debussy.workers.dev", environment: "development",
+      projectId: "p", userId: "u", teamId: "t", getStackToken: async () => "s",
+      onDirectory: () => {}, onVmChanged: value => changes.push(value), onError: () => {},
+    });
+    const pending = controller.start();
+    const socket = await FakeSocket.waitForInstance();
+    socket.open();
+    socket.message({ schemaId: "vm.changed.v1", teamId: "t", vmId: "vm-1", displayName: "renamed", slug: "stable-slug", status: "running" });
+    expect(changes).toEqual([{ vmId: "vm-1", displayName: "renamed", slug: "stable-slug", status: "running" }]);
+    await controller.stop();
+    await pending.catch(() => undefined);
+  });
+
   test("rejects an unapproved worker origin before creating a socket", () => {
     expect(() => new V2DashboardController({ origin: "https://example.com", environment: "production", projectId: "p", userId: "u", teamId: "t", getStackToken: async () => "s", onDirectory: () => {}, onError: () => {} })).toThrow("approved Cloudflare Worker");
   });

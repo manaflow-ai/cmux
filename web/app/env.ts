@@ -379,6 +379,11 @@ export const env = createEnv({
     // Server-to-worker authentication for revision publication. Native clients
     // hold only their Stack access token and can never mint invalidations.
     CMUX_CONNECTIVITY_INVALIDATION_SECRET: z.string().min(32).max(512).optional(),
+    CMUX_IROH_V2_ORIGIN: requireVercelNonPreviewValue("CMUX_IROH_V2_ORIGIN", z.string().url()),
+    CMUX_IROH_V2_PUBLISHER_SECRET: requireVercelNonPreviewValue(
+      "CMUX_IROH_V2_PUBLISHER_SECRET",
+      z.string().min(32).max(512),
+    ),
     CMUX_IROH_DEV_ALLOW_INSECURE_LOOPBACK_MINTER: localDevelopmentOptIn(
       "CMUX_IROH_DEV_ALLOW_INSECURE_LOOPBACK_MINTER",
     ),
@@ -521,6 +526,8 @@ export const env = createEnv({
     CMUX_CONNECTIVITY_INVALIDATION_SECRET: trimEnv(
       process.env.CMUX_CONNECTIVITY_INVALIDATION_SECRET,
     ),
+    CMUX_IROH_V2_ORIGIN: trimEnv(process.env.CMUX_IROH_V2_ORIGIN),
+    CMUX_IROH_V2_PUBLISHER_SECRET: trimEnv(process.env.CMUX_IROH_V2_PUBLISHER_SECRET),
     CMUX_IROH_DEV_ALLOW_INSECURE_LOOPBACK_MINTER: trimEnv(
       process.env.CMUX_IROH_DEV_ALLOW_INSECURE_LOOPBACK_MINTER,
     ),

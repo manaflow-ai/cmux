@@ -15,6 +15,8 @@ import { PublicationNotFoundError } from "../../../../services/vm-publications/r
 import { deleteVmPublicationsForVmDeletion } from "../../../../services/vm-publications/vmDeletion";
 import { publicationErrorResponse } from "../publications/routeShared";
 import { vmModelPlaneRevoker } from "../../../../services/vms/modelPlaneGateway";
+import { after } from "next/server";
+import { publishVmChanged } from "../../../../services/iroh/v2Publisher";
 
 
 export async function GET(
@@ -96,6 +98,13 @@ export async function PATCH(
       }), { request });
       if (!run.ok) return run.response;
       const vm = run.value;
+      after(() => publishVmChanged({
+        teamId: account.entitlements.billingTeamId,
+        vmId: vm.providerVmId,
+        displayName: vm.displayName,
+        slug: vm.slug,
+        status: vm.status,
+      }).catch(error => console.warn("VM change publication failed", error)));
       return jsonResponse({
         id: vm.providerVmId,
         displayName: vm.displayName,

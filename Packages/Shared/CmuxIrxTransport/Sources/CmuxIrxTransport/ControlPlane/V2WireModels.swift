@@ -44,6 +44,7 @@
 //   let v2RelayResponse = try? JSONDecoder().decode(V2RelayResponse.self, from: jsonData)
 //   let v2RevokedResponse = try? JSONDecoder().decode(V2RevokedResponse.self, from: jsonData)
 //   let v2TicketResponse = try? JSONDecoder().decode(V2TicketResponse.self, from: jsonData)
+//   let v2VMChangedResponse = try? JSONDecoder().decode(V2VMChangedResponse.self, from: jsonData)
 //   let v2WorkspaceChangedResponse = try? JSONDecoder().decode(V2WorkspaceChangedResponse.self, from: jsonData)
 //   let v2WorkspaceListResponse = try? JSONDecoder().decode(V2WorkspaceListResponse.self, from: jsonData)
 //   let v2WorkspaceSnapshotResponse = try? JSONDecoder().decode(V2WorkspaceSnapshotResponse.self, from: jsonData)
@@ -1499,6 +1500,47 @@ public struct V2TicketResponse: Codable, Equatable, Sendable {
 
 public enum V2TicketResponseSchemaID: String, Codable, Equatable, Sendable {
     case ticketResultV1 = "ticket.result.v1"
+}
+
+//
+// Hashable or Equatable:
+// The compiler will not be able to synthesize the implementation of Hashable or Equatable
+// for types that require the use of JSONAny, nor will the implementation of Hashable be
+// synthesized for types that have collections (such as arrays or dictionaries).
+
+// MARK: - V2VMChangedResponse
+public struct V2VMChangedResponse: Codable, Equatable, Sendable {
+    public let deliveryReceipt: V2DeliveryReceipt?
+    public let displayName: String?
+    public let schemaID: V2VMChangedResponseSchemaID
+    public let slug: String?
+    public let status: String
+    public let teamID: String
+    public let vmID: String
+
+    public enum CodingKeys: String, CodingKey {
+        case deliveryReceipt = "deliveryReceipt"
+        case displayName = "displayName"
+        case schemaID = "schemaId"
+        case slug = "slug"
+        case status = "status"
+        case teamID = "teamId"
+        case vmID = "vmId"
+    }
+
+    public init(deliveryReceipt: V2DeliveryReceipt? = nil, displayName: String? = nil, schemaID: V2VMChangedResponseSchemaID, slug: String? = nil, status: String, teamID: String, vmID: String) {
+        self.deliveryReceipt = deliveryReceipt
+        self.displayName = displayName
+        self.schemaID = schemaID
+        self.slug = slug
+        self.status = status
+        self.teamID = teamID
+        self.vmID = vmID
+    }
+}
+
+public enum V2VMChangedResponseSchemaID: String, Codable, Equatable, Sendable {
+    case vmChangedV1 = "vm.changed.v1"
 }
 
 //

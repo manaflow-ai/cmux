@@ -39,6 +39,7 @@ export interface BrokerResult {
   readonly changed?: { revision: number; revokedDeviceRecordId?: string; permissionUserId?: string };
   readonly close?: boolean;
   readonly workspaceChanged?: { vmId: string; generation: string; revision: number };
+  readonly vmChanged?: { vmId: string; displayName: string | null; slug: string | null; status: string };
 }
 
 /** HTTP and socket adapters use this same authority and storage path. */

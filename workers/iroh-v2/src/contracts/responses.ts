@@ -82,6 +82,10 @@ export const WorkspaceChangedResponseSchema = outgoing({
   schemaId: z.literal("workspace.changed.v1"), teamId: identifier, vmId: identifier,
   generation: identifier, revision,
 });
+export const VMChangedResponseSchema = outgoing({
+  schemaId: z.literal("vm.changed.v1"), teamId: identifier, vmId: identifier,
+  displayName: z.string().max(512).nullable(), slug: z.string().max(256).nullable(), status: z.string().max(64),
+});
 export const WorkspaceListResponseSchema = outgoing({
   schemaId: z.literal("workspace.list.result.v1"), requestId: identifier,
   workspaces: z.array(z.strictObject({ vmId: identifier, generation: identifier, revision })).max(4096),
@@ -92,7 +96,7 @@ export const ResponseSchema = z.discriminatedUnion("schemaId", [
   ChallengeResponseSchema, TicketResponseSchema, RelayResponseSchema, DirectoryResponseSchema,
   ChangedResponseSchema, RevokedResponseSchema, CompletedResponseSchema,
   DashboardReadyResponseSchema, DashboardConnectedResponseSchema, DashboardDirectoryResponseSchema,
-  WorkspaceSnapshotResponseSchema, WorkspaceChangedResponseSchema, WorkspaceListResponseSchema,
+  WorkspaceSnapshotResponseSchema, WorkspaceChangedResponseSchema, VMChangedResponseSchema, WorkspaceListResponseSchema,
 ]);
 export type ControlResponse = z.infer<typeof ResponseSchema>;
 export type ErrorCode = z.infer<typeof ErrorCodeSchema>;

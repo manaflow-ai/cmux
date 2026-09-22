@@ -387,6 +387,18 @@ export interface V2TicketResponse {
 
 export type V2TicketResponseSchemaID = "ticket.result.v1";
 
+export interface V2VMChangedResponse {
+    deliveryReceipt?: V2DeliveryReceipt;
+    displayName:      null | string;
+    schemaId:         V2VMChangedResponseSchemaID;
+    slug:             null | string;
+    status:           string;
+    teamId:           string;
+    vmId:             string;
+}
+
+export type V2VMChangedResponseSchemaID = "vm.changed.v1";
+
 export interface V2WorkspaceChangedResponse {
     deliveryReceipt?: V2DeliveryReceipt;
     generation:       string;
@@ -446,4 +458,4 @@ export interface FluffyWorkspace {
 }
 
 export type V2Request = V2AcknowledgementRequest | V2ChallengeRequest | V2DirectoryRequest | V2GoodbyeRequest | V2MetadataRequest | V2PermissionRequest | V2PreferencesRequest | V2RegisterRequest | V2RelayRequest | V2RevokeRequest | V2TicketRequest | V2WorkspaceGetRequest | V2WorkspaceListRequest | V2WorkspaceSnapshotRequest;
-export type V2Response = V2ChallengeResponse | V2ChangedResponse | V2CompletedResponse | V2DashboardConnectedResponse | V2DashboardDirectoryResponse | V2DashboardReadyResponse | V2DirectoryResponse | V2ErrorResponse | V2ReadyResponse | V2RegisteredResponse | V2RelayResponse | V2RevokedResponse | V2TicketResponse | V2WorkspaceChangedResponse | V2WorkspaceListResponse | V2WorkspaceSnapshotResponse;
+export type V2Response = V2ChallengeResponse | V2ChangedResponse | V2CompletedResponse | V2DashboardConnectedResponse | V2DashboardDirectoryResponse | V2DashboardReadyResponse | V2DirectoryResponse | V2ErrorResponse | V2ReadyResponse | V2RegisteredResponse | V2RelayResponse | V2RevokedResponse | V2TicketResponse | V2VMChangedResponse | V2WorkspaceChangedResponse | V2WorkspaceListResponse | V2WorkspaceSnapshotResponse;
