@@ -257,9 +257,8 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
                     ) {
                         nativeActionReloadIDs.insert(item.id)
                     }
-                    if changedRowHeightsStable,
-                       heightCacheKey(for: oldItem, tableView: tableView, configuration: previous)
-                           != heightCacheKey(for: item, tableView: tableView, configuration: next) {
+                    if heightCacheKey(for: oldItem, tableView: tableView, configuration: previous)
+                        != heightCacheKey(for: item, tableView: tableView, configuration: next) {
                         changedRowHeightsStable = false
                         changedRowHeightIDs.insert(item.id)
                     }
@@ -359,8 +358,10 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
                 else { continue }
                 configure(cell, for: item)
             }
-            tableView.layoutIfNeeded()
-            dataSource.restoreViewportAnchor(viewportAnchor, in: tableView)
+            if let viewportAnchor {
+                tableView.layoutIfNeeded()
+                dataSource.restoreViewportAnchor(viewportAnchor, in: tableView)
+            }
             #if DEBUG
             recordPayloadApplyRoute(.tableReload)
             #endif
