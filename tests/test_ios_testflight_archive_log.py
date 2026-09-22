@@ -56,9 +56,18 @@ def test_failed_archive_keeps_its_log() -> None:
     # Both entry points into the build must be captured, not just the common
     # one: the marketing-version override path is the rarer of the two and so
     # the more expensive to debug without a log.
+    # Join backslash continuations first: cloud-testflight.sh is invoked across
+    # five lines, so the redirect does not sit on the line naming the script.
+    joined: list[str] = []
+    for line in upload.splitlines():
+        if joined and joined[-1].rstrip().endswith("\\"):
+            joined[-1] = joined[-1].rstrip()[:-1] + " " + line.strip()
+        else:
+            joined.append(line)
+
     for script in ("upload-testflight.sh", "cloud-testflight.sh"):
         invocation = [
-            line for line in upload.splitlines() if script in line and "./ios/scripts/" in line
+            line for line in joined if script in line and "./ios/scripts/" in line
         ]
         check(
             bool(invocation) and all("tee" in line for line in invocation),
