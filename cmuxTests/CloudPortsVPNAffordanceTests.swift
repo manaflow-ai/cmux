@@ -12,6 +12,48 @@ import Testing
 @MainActor
 @Suite("Cloud sidebar Ports status controls", .serialized)
 struct CloudPortsVPNAffordanceTests {
+    @Test("A populated live Ports tree keeps visible VPN setup guidance",
+          arguments: [CloudPortDiscoveryState.available, .loopbackOnly])
+    func populatedPortsKeepSetupMessage(state: CloudPortDiscoveryState) throws {
+        let suite = "ports-vpn-populated-\(UUID())"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let machine = SurfaceMachineID.cloud("vpn-guidance-vm")
+        let info = SurfaceMachineInfo(id: machine, name: "Test VM", status: "running", image: nil,
+            hasDesktop: false, memoryMb: nil, diskMb: nil, linkState: .connected, linkError: nil,
+            cpuPercent: nil, memoryUsedMb: nil, diskUsedMb: nil,
+            privateAddress: "10.16.170.174", portDiscoveryState: state)
+        let port = CmuxTuiSnapshotParser.portBrowser(machine: machine, port: 33015,
+            directURL: "http://10.16.170.174:33015")
+        let tree = CloudTreeOutlineView(
+            machines: [MachineSnapshot(id: machine.rawValue, provider: "freestyle", image: "base",
+                isDesktop: false, activity: .ready, createdAt: nil, label: nil)],
+            snapshot: SurfaceCatalogSnapshot(machines: [info], resources: [port], projections: []),
+            localWorkspaces: [], machineActions: machineActions(), nodeActions: nodeActions(),
+            expansionStore: CloudTreeExpansionStore(defaults: defaults))
+        let host = NSHostingView(rootView: tree)
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 260, height: 900),
+            styleMask: [.titled], backing: .buffered, defer: false)
+        window.contentView = host
+        defer { window.contentView = nil }
+        host.layoutSubtreeIfNeeded()
+        let outline = try #require(descendants(of: host).compactMap { $0 as? NSOutlineView }.first)
+        outline.expandItem(nil, expandChildren: true)
+        let group = try #require((0..<outline.numberOfRows).compactMap { outline.item(atRow: $0) as? CloudTreeNode }
+            .first { if case .portsGroup = $0.kind { true } else { false } })
+        #expect(group.children.contains { if case .port(let value, _, _) = $0.kind { value.id == port.id } else { false } })
+        let coordinator = try #require(outline.delegate as? CloudTreeOutlineView.Coordinator)
+        let controls = group.children.compactMap {
+            coordinator.outlineView(outline, viewFor: outline.tableColumns.first, item: $0)
+        }.flatMap { descendants(of: $0) }
+        #expect(controls.compactMap { $0 as? NSButton }.contains {
+            !$0.isHiddenOrHasHiddenAncestor && $0.title.contains("VPN")
+        }, "A help glyph alone does not restore the visible VPN setup action")
+        #expect(controls.compactMap { $0 as? NSTextField }.contains {
+            !$0.isHiddenOrHasHiddenAncestor && $0.stringValue.contains("VPN")
+        }, "VPN guidance must remain visible beside discovered ports")
+    }
+
     @Test("Empty Ports rows expose contextual status and actions",
           arguments: [SurfaceLinkState.connected, .notApplicable, .connecting, .error, .asleep, .unavailable])
     func discoveryRowsStayUnchanged(link: SurfaceLinkState) {
