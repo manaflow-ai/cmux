@@ -433,6 +433,7 @@
       "type": "object",
       "additionalProperties": false,
       "required": [
+        "repository_id",
         "base_sha",
         "head_sha",
         "tree_sha",
@@ -461,6 +462,11 @@
             "null"
           ],
           "pattern": "^[0-9a-f]{64}$"
+        },
+        "repository_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1024
         }
       }
     },
