@@ -763,7 +763,9 @@ public struct WorkspaceListLayoutPreviewView: View {
 
     public var body: some View {
         Group {
-            if UITestConfig.workspaceDetailCreateDelayedTerminalPreviewEnabled {
+            if UITestConfig.workspaceDetailDisconnectedPreviewEnabled {
+                WorkspaceDetailDisconnectedPreviewView()
+            } else if UITestConfig.workspaceDetailCreateDelayedTerminalPreviewEnabled {
                 WorkspaceDetailCreateDelayedTerminalPreviewView()
             } else if UITestConfig.workspaceDetailRefreshingTerminalMenuPreviewEnabled {
                 WorkspaceDetailDelayedTerminalPreviewView()

@@ -9480,6 +9480,68 @@ final class cmuxUITests: XCTestCase {
         // grid arrives with the Mac's viewport echo a round-trip later.
     }
 
+    /// Regression for https://github.com/manaflow-ai/cmux/issues/13470: with the
+    /// keyboard up over a connected terminal, the Mac dropping to unavailable
+    /// blocks input, which resigns the keyboard. On the iOS ≤26 keyboard-guide
+    /// dock seat the guide then rested at the RAW screen bottom instead of the
+    /// bottom safe area, parking the composer bar inside the home-indicator
+    /// band — permanently, because blocked input means no keyboard event ever
+    /// re-seats it. The fixture drives the exact timeline (focus at t+2s, drop
+    /// at t+9s); the assertion pins the dock's own resting bottom edge above
+    /// the physical bottom safe area the surface itself resolved.
+    ///
+    /// The measured quantity is the probe's `keyboardGuideTop` — the dock
+    /// container's constraint-resolved bottom in surface coordinates, which is
+    /// exactly what the floor constraint changes — rather than the composer's
+    /// accessibility frame. It is a layout value, so it lands with the layout
+    /// pass instead of trailing the hide animation, and no settle sleep is
+    /// needed.
+    @MainActor
+    func testDisconnectedDropKeepsComposerAboveBottomSafeArea() async throws {
+        let app = launchApp(mockData: true, environment: [
+            "CMUX_UITEST_WORKSPACE_DETAIL_DISCONNECTED": "1",
+            "CMUX_UITEST_WORKSPACE_DETAIL_DISCONNECTED_SCENARIO": "drop-after-focus",
+            "CMUX_MOBILE_SOAK_OPEN_SELECTED_WORKSPACE": "1",
+        ])
+        XCTAssertTrue(
+            app.descendants(matching: .any)[Composer.field].waitForExistence(timeout: 10),
+            "disconnected fixture must open onto the terminal with the composer band"
+        )
+
+        // The fixture focuses the composer at t+2s; the drop lands at t+9s.
+        // Ride the surface's own keyboard model (notification-driven, reliable
+        // even when the sim renders no keyboard art) through up and back down.
+        waitForDock(in: app, timeout: 15, describe: "fixture keyboard raise") {
+            $0["keyboardUp"] == "1"
+        }
+        // Wait for the SETTLED keyboard-down rest, not merely for the model to
+        // report the keyboard gone. `keyboardUp` flips at the start of the hide
+        // leg, and mid-leg the dock still sits a whole keyboard-height up —
+        // which satisfies the seat invariant spuriously, so a read taken there
+        // would pass even on a build that rests in the band. Requiring the
+        // dock's bottom edge to be near the surface bottom excludes that state
+        // while staying agnostic about which rest (correct or raw) it lands on.
+        let dock = waitForDock(in: app, timeout: 25, describe: "settled keyboard-down dock rest") {
+            guard $0["keyboardUp"] == "0",
+                  let boundsHeight = Double($0["boundsHeight"] ?? ""),
+                  let dockBottom = Double($0["keyboardGuideTop"] ?? "") else { return false }
+            return boundsHeight - dockBottom < 120
+        }
+
+        let bottomSafeArea = Double(dock["bottomSafeArea"] ?? "") ?? 0
+        guard bottomSafeArea > 0 else {
+            throw XCTSkip("device reports no bottom safe area; the raw-bottom rest is indistinguishable from the correct seat")
+        }
+        let boundsHeight = try XCTUnwrap(Double(dock["boundsHeight"] ?? ""), "probe reported no surface bounds height")
+        let dockBottom = try XCTUnwrap(Double(dock["keyboardGuideTop"] ?? ""), "probe reported no dock bottom edge")
+        // The visible dock must leave the whole home-indicator band below it.
+        XCTAssertGreaterThanOrEqual(
+            boundsHeight - dockBottom,
+            bottomSafeArea - 1,
+            "dock rests inside the bottom safe-area band after the disconnect drop (seated at the raw screen bottom). boundsHeight=\(boundsHeight) dockBottom=\(dockBottom) bottomSafeArea=\(bottomSafeArea) dock=\(dock)"
+        )
+    }
+
     /// Repeatedly open and close the composer via the toolbar compose button and assert
     /// the dock stays coherent each cycle. This is the primary "composer jank" repro:
     /// the round-9 reducer reads `fieldFocused` synchronously, but the field's focus is
