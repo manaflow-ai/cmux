@@ -10471,10 +10471,10 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         _ command: String,
         for agentPanel: AgentSessionPanel
     ) throws -> [String: Any] {
-        let terminalPanel: TerminalPanel?
+        let resolvedTerminalPanel: TerminalPanel?
         if let pairedTerminalPanelId = agentSessionPairedTerminalPanelIds[agentPanel.id],
            let existing = terminalPanel(for: pairedTerminalPanelId) {
-            terminalPanel = existing
+            resolvedTerminalPanel = existing
         } else {
             agentSessionPairedTerminalPanelIds.removeValue(forKey: agentPanel.id)
             guard let paneId = paneId(forPanelId: agentPanel.id),
@@ -10487,10 +10487,10 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
                 throw AgentSessionBridgeError.unsupportedTransport("terminal")
             }
             agentSessionPairedTerminalPanelIds[agentPanel.id] = created.id
-            terminalPanel = created
+            resolvedTerminalPanel = created
         }
 
-        guard let terminalPanel,
+        guard let terminalPanel = resolvedTerminalPanel,
               terminalPanel.sendInputResult(command + "\n").accepted else {
             throw AgentSessionBridgeError.unsupportedTransport("terminal")
         }
