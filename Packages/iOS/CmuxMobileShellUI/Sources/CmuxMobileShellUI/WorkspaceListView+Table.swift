@@ -30,7 +30,8 @@ extension WorkspaceListView {
             if groupedItems.isEmpty
                 && trimmedQuery.isEmpty
                 && !activeFilter.isActive
-                && workspaces.isEmpty {
+                && workspaces.isEmpty
+                && connectionChrome.showsWorkspaceEmptyState {
                 items.append(.emptyWorkspaceList)
             } else {
                 items.append(contentsOf: groupedItems.map { item in
@@ -46,7 +47,10 @@ extension WorkspaceListView {
             }
         } else if showsWorkspaceTableFilterEmptyRow {
             items.append(.filterEmpty)
-        } else if trimmedQuery.isEmpty && !activeFilter.isActive && workspaces.isEmpty {
+        } else if trimmedQuery.isEmpty
+            && !activeFilter.isActive
+            && workspaces.isEmpty
+            && connectionChrome.showsWorkspaceEmptyState {
             items.append(.emptyWorkspaceList)
         } else {
             items.append(contentsOf: displayedFlatWorkspaces.map {
