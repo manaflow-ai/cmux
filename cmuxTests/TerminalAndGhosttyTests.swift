@@ -3063,6 +3063,32 @@ final class TerminalNotificationDirectInteractionTests: XCTestCase {
         return window
     }
 
+    /// A live portal-rendering authority for a standalone surface fixture.
+    ///
+    /// `setVisibleInUI` and `setActive` both fold their request through
+    /// `Workspace.portalRenderingEnabled(for:)`, which denies any workspace id
+    /// the app delegate cannot resolve to a *selected* tab. A surface built
+    /// with a made-up `tabId` is therefore never actually made visible or
+    /// active, so it never takes Ghostty focus and never schedules a
+    /// visibility-restore redraw: the fixture silently stops exercising the
+    /// behavior under test. Register a real selected workspace and build the
+    /// surface with its id so the fixture gets the authority the app grants
+    /// the selected tab.
+    ///
+    /// Returns `nil` only when no app delegate is installed, where the
+    /// authority already defaults to allowing the portal.
+    private func makeLivePortalWorkspace() -> (id: UUID, tearDown: @MainActor () -> Void)? {
+        guard let appDelegate = AppDelegate.shared else { return nil }
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        guard let workspace = manager.selectedWorkspace else { return nil }
+        let windowId = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
+        return (workspace.id, {
+            appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
+            appDelegate.forgetRecoverableMainWindowRoute(windowId: windowId)
+            manager.finalizeAllWorkspacesForWindowClose()
+        })
+    }
+
     private func makeMouseEvent(type: NSEvent.EventType, location: NSPoint, window: NSWindow) -> NSEvent {
         guard let event = NSEvent.mouseEvent(
             with: type,
@@ -3348,8 +3374,11 @@ final class TerminalNotificationDirectInteractionTests: XCTestCase {
             return
         }
 
+        let livePortalWorkspace = makeLivePortalWorkspace()
+        defer { livePortalWorkspace?.tearDown() }
+
         let surface = TerminalSurface(
-            tabId: UUID(),
+            tabId: livePortalWorkspace?.id ?? UUID(),
             context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
             configTemplate: nil,
             workingDirectory: nil
@@ -3684,8 +3713,11 @@ final class TerminalNotificationDirectInteractionTests: XCTestCase {
             return
         }
 
+        let livePortalWorkspace = makeLivePortalWorkspace()
+        defer { livePortalWorkspace?.tearDown() }
+
         let surface = TerminalSurface(
-            tabId: UUID(),
+            tabId: livePortalWorkspace?.id ?? UUID(),
             context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
             configTemplate: nil,
             workingDirectory: nil
@@ -3738,8 +3770,11 @@ final class TerminalNotificationDirectInteractionTests: XCTestCase {
             return
         }
 
+        let livePortalWorkspace = makeLivePortalWorkspace()
+        defer { livePortalWorkspace?.tearDown() }
+
         let surface = TerminalSurface(
-            tabId: UUID(),
+            tabId: livePortalWorkspace?.id ?? UUID(),
             context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
             configTemplate: nil,
             workingDirectory: nil
