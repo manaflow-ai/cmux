@@ -175,7 +175,12 @@ public final class ComputerUseRuntimeService {
 
     /// Whether this enabled runtime is waiting for onboarding completion.
     public var onboardingRequiresCompletion: Bool {
-        permissionPhase == .onboardingRequired
+        switch permissionPhase {
+        case .onboardingRequired, .onboarding:
+            true
+        case .disabled, .ready:
+            false
+        }
     }
 
     /// Seeds the host gate from the capture verification persisted by the last
