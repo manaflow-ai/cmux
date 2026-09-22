@@ -961,10 +961,13 @@ class WarmSlotTest(unittest.TestCase):
     def test_event_journal_repairs_partial_tail_before_rotation(self):
         layout = warm_slot.Layout(self.state, "slot")
         layout.events.parent.mkdir(parents=True, exist_ok=True)
-        complete = json.dumps({"event": "kept", "index": 1}, sort_keys=True) + "\n"
+        complete = json.dumps(
+            {"event": "kept", "index": 1, "payload": "x" * 256},
+            sort_keys=True,
+        ) + "\n"
         layout.events.write_bytes(complete.encode() + b'{"event":"partial"')
 
-        with mock.patch.object(warm_slot, "EVENT_JOURNAL_MAX_BYTES", len(complete.encode()) + 1):
+        with mock.patch.object(warm_slot, "EVENT_JOURNAL_MAX_BYTES", len(complete.encode()) + 64):
             warm_slot.event(layout, "after_crash", index=2)
 
         self.assertEqual(layout.events_archive.read_text(), complete)
