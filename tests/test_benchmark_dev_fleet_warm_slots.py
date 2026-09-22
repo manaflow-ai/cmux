@@ -132,7 +132,9 @@ class BenchmarkTest(unittest.TestCase):
             {"event": "cold_task_cleanup_deferred"},
             {"event": "lineage_quarantined"},
         ]
-        path.write_text("\n".join(json.dumps(row) for row in rows) + "\n")
+        archive = path.with_name("events.jsonl.1")
+        archive.write_text(json.dumps(rows[0]) + "\n")
+        path.write_text("\n".join(json.dumps(row) for row in rows[1:]) + "\n{\\\"event\\\":")
         report = bench.summarize_events(path)
         self.assertEqual(report["tasks"], 1)
         self.assertEqual(report["warms"], 1)
