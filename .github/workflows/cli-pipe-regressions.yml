@@ -52,7 +52,7 @@ jobs:
       - name: Restore Swift packages
         uses: ./.github/actions/cache-restore
         with:
-          backend: ${{ vars.CI_CACHE_BACKEND }}
+          backend: ${{ vars.CI_CACHE_BACKEND || 'r2' }}
           path: .spm-cache
           key: spm-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
           restore-keys: spm-

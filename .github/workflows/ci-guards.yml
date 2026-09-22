@@ -61,6 +61,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_workload_profiles.py
 
+      - name: Validate repository variable defaults
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_repo_variable_defaults.py
+
       - name: Validate quality guard structure
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_quality_guard_structure.py
