@@ -18,6 +18,15 @@ from typing import BinaryIO
 SWIFT_CRASH_PROMPT = b"Press space to interact, D to debug, or any other key to quit"
 TIMEOUT_EXIT_CODE = 124
 POST_TEST_FAILED_EXIT_CODE = 125
+RESTART_BUDGET_EXIT_CODE = 123
+# xcodebuild emits this when the XCTest app host exits unexpectedly, then
+# relaunches it and resumes the remaining tests. Resuming is unbounded: a host
+# that crashes on contact keeps the shard running until the job-level timeout.
+# The run is already lost by then, because any restart makes it non-ratchetable
+# (run_is_complete in scripts/ci/app_host_result_accounting.py, added for
+# https://github.com/manaflow-ai/cmux/issues/7471). Same literal as that
+# module's RESTART_MARKER.
+RESTART_MARKER = b"Restarting after unexpected exit, crash, or test timeout"
 SELECTED_TESTS_DONE_RE = re.compile(rb"Test Suite 'Selected tests' (passed|failed) at ")
 # A test bundle that mixes XCTest and Swift Testing runs XCTest first and then
 # starts a Swift Testing run. The XCTest summary is therefore only terminal
@@ -59,6 +68,40 @@ def contains_test_progress(chunk: bytes, pending: bytearray) -> bool:
     if len(pending) > 65536:
         del pending[:-4096]
     return progress
+
+
+def count_restart_markers(chunk: bytes, carry: bytearray) -> int:
+    """Count app-host restarts in `chunk`, counting each marker exactly once.
+
+    `carry` holds the trailing bytes that could still be the head of a marker
+    split across two reads, so a straddling marker is counted on the read that
+    completes it and never again.
+    """
+    carry.extend(chunk)
+    buffered = bytes(carry)
+    count = buffered.count(RESTART_MARKER)
+    if count:
+        buffered = buffered[buffered.rfind(RESTART_MARKER) + len(RESTART_MARKER) :]
+    keep = len(RESTART_MARKER) - 1
+    carry[:] = buffered[-keep:]
+    return count
+
+
+def restart_budget() -> int | None:
+    raw = os.environ.get("CMUX_XCODEBUILD_NONINTERACTIVE_RESTART_BUDGET")
+    if not raw:
+        return None
+    try:
+        budget = int(raw)
+    except ValueError:
+        print(
+            "CMUX_XCODEBUILD_NONINTERACTIVE_RESTART_BUDGET must be an integer",
+            file=sys.stderr,
+        )
+        raise SystemExit(2)
+    if budget < 0:
+        return None
+    return budget
 
 
 def app_host_pids(derived_data_path: str) -> list[int]:
@@ -249,6 +292,9 @@ def main() -> int:
     timeout = idle_timeout_seconds()
     post_test_timeout = post_test_timeout_seconds()
     heartbeat = heartbeat_seconds()
+    restarts_allowed = restart_budget()
+    restarts_observed = 0
+    restart_carry = bytearray()
     started_at = time.monotonic()
     deadline = time.monotonic() + timeout if timeout else None
     heartbeat_deadline = started_at + heartbeat if heartbeat else None
@@ -310,6 +356,7 @@ def main() -> int:
     pending_line = bytearray()
     timed_out = False
     post_test_timed_out = False
+    restart_budget_spent = False
     while True:
         select_timeout = None
         if deadline is not None:
@@ -356,6 +403,11 @@ def main() -> int:
             break
 
         write_child_output(chunk, log_file, stdout_fd)
+        if restarts_allowed is not None:
+            restarts_observed += count_restart_markers(chunk, restart_carry)
+            if restarts_observed > restarts_allowed:
+                restart_budget_spent = True
+                break
         if heartbeat:
             heartbeat_deadline = time.monotonic() + heartbeat
         if timeout and contains_test_progress(chunk, pending_line):
@@ -394,6 +446,25 @@ def main() -> int:
             # noninteractive quit path and let xcodebuild continue reporting.
             os.write(fd, b"q")
             prompt_window = b""
+
+    if restart_budget_spent:
+        assert restarts_allowed is not None
+        message = (
+            "Aborted by the app-host restart budget: xcodebuild restarted the "
+            f"app host {restarts_observed} times (budget {restarts_allowed}) "
+            "after unexpected exits, crashes, or test timeouts. The shard was "
+            "stopped here so a crash loop cannot hold a macOS runner to the "
+            "job timeout; a restarted run is already non-ratchetable, so "
+            "resuming it could not have produced a passing verdict. This "
+            "abort is a CI capacity guard, not a test verdict: the failure to "
+            "investigate is the app-host crash above it."
+        )
+        print(message, file=sys.stderr)
+        if log_file is not None:
+            log_file.write(f"{message}\n".encode())
+            log_file.close()
+        terminate_child(pid)
+        return RESTART_BUDGET_EXIT_CODE
 
     if timed_out:
         assert timeout is not None
