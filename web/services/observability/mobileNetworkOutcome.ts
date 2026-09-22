@@ -44,7 +44,7 @@ const allowedPropertyKeys = new Set([
   "input_failed_count", "histogram_version", "input_to_output_histogram", "input_to_visible_histogram", "render_histogram",
   "duration_ms", "threshold_ms", "stage",
   "trace_id", "operation", "terminal_phase",
-  "model_count",
+  "model_count", "phase", "attempt", "retry_delay_ms", "stop_reason",
 ]);
 
 export type MobileNetworkOutcome = {
@@ -120,6 +120,10 @@ export type MobileTaskModelDiscovery = {
   readonly outcome: "success" | "failure";
   readonly durationMs: number;
   readonly modelCount: number;
+  readonly discoveryPhase?: "retry_scheduled" | "retry_stopped";
+  readonly attempt?: number;
+  readonly retryDelayMs?: number;
+  readonly stopReason?: "unsupported" | "disabled" | "authorizationRequired" | "accountMismatch" | "invalidRequest" | "providerUnavailable" | "cancelled";
   readonly failure?: string;
   readonly platform?: "ios";
   readonly clientChannel?: "dev" | "nightly" | "production" | "unknown";
@@ -245,6 +249,13 @@ export function parseMobileObservabilityEvent(candidate: unknown): MobileObserva
 }
 
 type MobileTaskModelDiscoveryPayload = Pick<MobileTaskModelDiscovery, "outcome" | "durationMs" | "modelCount" | "failure">;
+type MobileTaskModelRetryMetadata = Pick<MobileTaskModelDiscovery, "discoveryPhase" | "attempt" | "retryDelayMs" | "stopReason">;
+
+const taskModelRetryPhases = new Set(["retry_scheduled", "retry_stopped"]);
+const taskModelStopReasons = new Set([
+  "unsupported", "disabled", "authorizationRequired", "accountMismatch",
+  "invalidRequest", "providerUnavailable", "cancelled",
+]);
 
 function parseMobileTaskModelDiscoveryPayload(
   properties: Record<string, unknown>,
@@ -264,15 +275,38 @@ function parseMobileTaskModelDiscoveryPayload(
   };
 }
 
+function parseMobileTaskModelRetryMetadata(
+  properties: Record<string, unknown>,
+): MobileTaskModelRetryMetadata | null {
+  const phase = optionalSetValue(properties.phase, taskModelRetryPhases) as
+    MobileTaskModelDiscovery["discoveryPhase"] | false | undefined;
+  const attempt = unsignedInteger(properties.attempt);
+  const retryDelayMs = unsignedInteger(properties.retry_delay_ms);
+  const stopReason = optionalSetValue(properties.stop_reason, taskModelStopReasons) as
+    MobileTaskModelDiscovery["stopReason"] | false | undefined;
+  if (phase === false || stopReason === false) return null;
+  if (phase === "retry_scheduled" && (attempt === null || retryDelayMs === null)) return null;
+  if (phase === "retry_stopped" && typeof stopReason !== "string") return null;
+  if (phase === undefined && (attempt !== null || retryDelayMs !== null || stopReason !== undefined)) return null;
+  return {
+    ...(typeof phase === "string" ? { discoveryPhase: phase } : {}),
+    ...(attempt !== null ? { attempt } : {}),
+    ...(retryDelayMs !== null ? { retryDelayMs } : {}),
+    ...(typeof stopReason === "string" ? { stopReason } : {}),
+  };
+}
+
 export function parseMobileTaskModelDiscovery(candidate: unknown): MobileTaskModelDiscovery | null {
   if (!isRecord(candidate) || candidate.event !== TASK_MODEL_EVENT_NAME || !isRecord(candidate.properties)) return null;
   if (!validTimestamp(candidate.timestamp) || !validProperties(candidate.properties)) return null;
   const payload = parseMobileTaskModelDiscoveryPayload(candidate.properties);
   const metadata = parseMetadata(candidate.properties);
-  if (!payload || !metadata) return null;
+  const retryMetadata = parseMobileTaskModelRetryMetadata(candidate.properties);
+  if (!payload || !metadata || !retryMetadata) return null;
   return {
     timestamp: candidate.timestamp,
     ...payload,
+    ...retryMetadata,
     ...(metadata.platform ? { platform: metadata.platform } : {}),
     ...(metadata.clientChannel ? { clientChannel: metadata.clientChannel } : {}),
     ...(metadata.appVersion ? { appVersion: metadata.appVersion } : {}),
@@ -434,6 +468,10 @@ export async function emitMobileObservabilityEvents(
           "cmux.mobile.outcome": observation.outcome,
           "cmux.mobile.duration_ms": observation.durationMs,
           "cmux.mobile.model_count": observation.modelCount,
+          "cmux.mobile.discovery_phase": observation.discoveryPhase,
+          "cmux.mobile.attempt": observation.attempt,
+          "cmux.mobile.retry_delay_ms": observation.retryDelayMs,
+          "cmux.mobile.stop_reason": observation.stopReason,
           "cmux.mobile.failure": observation.failure,
           "cmux.mobile.occurred_at": observation.timestamp,
           "cmux.mobile.platform": observation.platform,

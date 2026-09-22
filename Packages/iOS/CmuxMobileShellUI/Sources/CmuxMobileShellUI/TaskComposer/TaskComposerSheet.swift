@@ -8,6 +8,15 @@ import CmuxMobileSupport
 import PhotosUI
 import SwiftUI
 
+private extension Duration {
+    var millisecondsClamped: Int {
+        let components = components
+        let milliseconds = components.seconds * 1_000
+            + components.attoseconds / 1_000_000_000_000_000
+        return Int(min(max(0, milliseconds), Int64(UInt32.max)))
+    }
+}
+
 struct TaskComposerSheet: View {
     @Environment(\.dismiss) var dismiss
     @Environment(\.accessibilityReduceMotion) private var accessibilityReduceMotion
@@ -830,35 +839,59 @@ struct TaskComposerSheet: View {
         displayedModelError = cachedResult.error
         reconcileSelectedEffort()
         modelRefreshTask = Task {
-            // A model probe is optional capability discovery. A transient
-            // transport failure must not strand an open composer on its error
-            // pill, so give the same request owner a few bounded retries while
-            // the connection recovery path settles.
-            for attempt in 0..<3 {
-                await store.refreshTaskModels(
-                    provider: provider,
-                    macDeviceID: macDeviceID,
-                    instanceTag: instanceTag
-                ) { result in
+            var retryAttempt = 0
+            await MobileTaskModelRefreshLoop.run(
+                shouldContinue: {
+                    !Task.isCancelled
+                        && modelRefreshOperationID == operationID
+                        && modelRefreshID == refreshID
+                },
+                refresh: {
+                    let outcome = await store.refreshTaskModels(
+                        provider: provider,
+                        macDeviceID: macDeviceID,
+                        instanceTag: instanceTag
+                    ) { result in
+                        guard !Task.isCancelled,
+                              modelRefreshOperationID == operationID,
+                              modelRefreshID == refreshID else { return }
+                        displayedModels = result.models
+                        displayedDefaultModel = result.defaultModel
+                        displayedModelError = result.error
+                        reconcileSelectedEffort()
+                    }
                     guard !Task.isCancelled,
                           modelRefreshOperationID == operationID,
-                          modelRefreshID == refreshID else { return }
-                    displayedModels = result.models
-                    displayedDefaultModel = result.defaultModel
-                    displayedModelError = result.error
-                    reconcileSelectedEffort()
+                          modelRefreshID == refreshID else {
+                        return .stopped(.cancelled)
+                    }
+                    switch outcome {
+                    case .retry(let failure):
+                        retryAttempt += 1
+                        let delay = MobileTaskModelRefreshLoop.delay(for: retryAttempt - 1)
+                        store.recordAppEvent(
+                            .taskModelListRetryScheduled,
+                            correlationID: macDeviceID,
+                            elapsedMilliseconds: UInt32(delay.millisecondsClamped),
+                            failure: failure,
+                            count: retryAttempt
+                        )
+                    case .stopped(let reason):
+                        store.recordAppEvent(
+                            .taskModelListRetryStopped,
+                            correlationID: macDeviceID,
+                            failure: outcome.diagnosticFailure,
+                            count: reason.rawValue
+                        )
+                    case .succeeded:
+                        break
+                    }
+                    return outcome
+                },
+                sleep: { delay in
+                    try await Task.sleep(for: delay)
                 }
-                guard !Task.isCancelled,
-                      modelRefreshOperationID == operationID,
-                      modelRefreshID == refreshID else { return }
-                guard displayedModelError == .hostUnavailable,
-                      attempt < 2 else { break }
-                do {
-                    try await Task.sleep(for: .milliseconds(500 * (attempt + 1)))
-                } catch {
-                    return
-                }
-            }
+            )
             guard !Task.isCancelled,
                   modelRefreshOperationID == operationID,
                   modelRefreshID == refreshID else { return }

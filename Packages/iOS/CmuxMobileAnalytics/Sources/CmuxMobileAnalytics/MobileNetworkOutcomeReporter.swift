@@ -114,27 +114,55 @@ public final class MobileNetworkOutcomeReporter: Sendable {
         event: DiagnosticEvent
     ) -> [String: AnalyticsValue]? {
         let outcome: String
+        let phase: String?
         switch kind {
         case .taskModelListLoadSucceeded:
             outcome = "success"
+            phase = nil
         case .taskModelListLoadFailed:
             outcome = "failure"
+            phase = nil
+        case .taskModelListRetryScheduled:
+            outcome = "failure"
+            phase = "retry_scheduled"
+        case .taskModelListRetryStopped:
+            outcome = "failure"
+            phase = "retry_stopped"
         default:
             return nil
+        }
+        let modelCount: Int
+        switch kind {
+        case .taskModelListRetryScheduled, .taskModelListRetryStopped:
+            modelCount = 0
+        default:
+            modelCount = event.c ?? 0
         }
         var properties: [String: AnalyticsValue] = [
             "operation": .string("model_list"),
             "outcome": .string(outcome),
             // Transport failures can precede a catalog result. The ingress
             // requires this field even when discovery produced no models.
-            "model_count": .int(event.c ?? 0),
+            "model_count": .int(modelCount),
+            "duration_ms": .int(Int(event.ms ?? 0)),
         ]
-        if let duration = event.ms {
-            properties["duration_ms"] = .int(Int(duration))
+        if let phase {
+            properties["phase"] = .string(phase)
         }
         let failure = DiagnosticEventPresentation().failureKind(of: event)
         if let failure, failure != .none {
             properties["failure"] = .string(DiagnosticEventPresentation().name(failure))
+        }
+        switch kind {
+        case .taskModelListRetryScheduled:
+            properties["attempt"] = .int(event.c ?? 0)
+            properties["retry_delay_ms"] = .int(Int(event.ms ?? 0))
+        case .taskModelListRetryStopped:
+            if let reason = event.c.flatMap(DiagnosticTaskModelRetryStopReason.init(rawValue:)) {
+                properties["stop_reason"] = .string(DiagnosticEventPresentation().name(reason))
+            }
+        default:
+            break
         }
         return properties
     }
