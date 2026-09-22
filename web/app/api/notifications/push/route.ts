@@ -1,4 +1,5 @@
-// Every Mac sender must name one exact iOS target. Missing targets fail closed.
+// New encrypted Mac senders may omit the target to fan out to every registered
+// iOS bundle. The encrypted tuple still names each exact bundle and key.
 
 import crypto from "node:crypto";
 import * as Effect from "effect/Effect";
@@ -83,16 +84,12 @@ function pushPayloadFingerprint(
 function validatePushProtocol(
   protocol: PushProtocol | undefined,
   encryptedPayloads: readonly Record<string, unknown>[],
-  targetNamespace: ReturnType<typeof normalizeApnsBundle>,
 ): Response | null {
   if (protocol === "legacy-v1" && encryptedPayloads.length > 0) {
     return jsonResponse({ error: "encrypted_payload_requires_e2e_endpoint" }, 400);
   }
   if (protocol === "e2e-v1" && encryptedPayloads.length === 0) {
     return jsonResponse({ error: "e2e_endpoint_requires_encrypted_payload" }, 400);
-  }
-  if (encryptedPayloads.length > 0 && !targetNamespace) {
-    return jsonResponse({ error: "missing_target_namespace" }, 400);
   }
   return null;
 }
@@ -104,12 +101,16 @@ function validateEncryptedRecipients(
   targetNamespace: ReturnType<typeof normalizeApnsBundle>,
 ): Response | null {
   if (encryptedPayloads.length === 0) return null;
-  if (!targetNamespace) return jsonResponse({ error: "missing_target_namespace" }, 400);
   const matchesOwner = encryptedPayloads.every((envelope) => {
     const tuple = envelope.tuple;
     if (!tuple || typeof tuple !== "object" || Array.isArray(tuple)) return false;
     const tupleRecord = tuple as Record<string, unknown>;
-    return tupleRecord.accountID === userID && tupleRecord.iosBuildID === targetNamespace.bundleId
+    const tupleBundle = typeof tupleRecord.iosBuildID === "string"
+      ? normalizeApnsBundle(tupleRecord.iosBuildID)
+      : null;
+    return tupleRecord.accountID === userID
+      && tupleBundle != null
+      && (targetNamespace == null || tupleRecord.iosBuildID === targetNamespace.bundleId)
       && tupleRecord.macDeviceID === payload.macDeviceId
       && (tupleRecord.macInstanceTag ?? null) === (payload.macInstanceTag ?? null);
   });
@@ -195,24 +196,15 @@ async function sendPush(
   const payload = parsePushPayload(body.value);
   if (!payload.ok) return jsonResponse({ error: payload.error }, 400);
   const encryptedPayloads = payload.value.encryptedPayloads ?? [];
-  // Macs from before the namespace rollout (0.64.x) never send this header.
-  // They are the `legacy` namespace: deliver to every iOS token the account
-  // registered, each on its own bundle topic, matching pre-namespace reach.
-  // A present-but-unknown value is still a hard error: only old builds are
-  // allowed to omit the routing hint, new builds must send a valid one.
-  const requestedNamespace = request.headers.get("x-cmux-ios-target-namespace");
-  const targetNamespaceResult = resolveTargetNamespace(requestedNamespace, encryptedPayloads.length > 0);
-  if (!targetNamespaceResult.ok) return jsonResponse({ error: targetNamespaceResult.error }, 400);
-  const targetNamespace = targetNamespaceResult.value;
-  const protocolError = validatePushProtocol(protocol, encryptedPayloads, targetNamespace);
-  if (protocolError) return protocolError;
-  const recipientError = validateEncryptedRecipients(
+  const routing = validatePushRouting(
+    request,
     user.id,
     payload.value,
     encryptedPayloads,
-    targetNamespace,
+    protocol,
   );
-  if (recipientError) return recipientError;
+  if (!routing.ok) return routing.response;
+  const targetNamespace = routing.value;
   const correlationId =
     payload.value.correlationId ?? crypto.randomUUID();
   const payloadFingerprint = pushPayloadFingerprint(
@@ -287,12 +279,43 @@ async function sendPush(
   }
 }
 
+function validatePushRouting(
+  request: Request,
+  userID: string,
+  payload: PushPayload,
+  encryptedPayloads: readonly Record<string, unknown>[],
+  protocol: PushProtocol | undefined,
+): { ok: true; value: ReturnType<typeof normalizeApnsBundle> }
+  | { ok: false; response: Response } {
+  // An omitted header is account-wide fanout. Each encrypted tuple names its
+  // exact iOS bundle, and APNs delivery selects the matching payload per token.
+  // A present-but-unknown value remains a hard error.
+  const targetNamespaceResult = resolveTargetNamespace(
+    request.headers.get("x-cmux-ios-target-namespace"),
+  );
+  if (!targetNamespaceResult.ok) {
+    return {
+      ok: false,
+      response: jsonResponse({ error: targetNamespaceResult.error }, 400),
+    };
+  }
+  const protocolError = validatePushProtocol(protocol, encryptedPayloads);
+  if (protocolError) return { ok: false, response: protocolError };
+  const recipientError = validateEncryptedRecipients(
+    userID,
+    payload,
+    encryptedPayloads,
+    targetNamespaceResult.value,
+  );
+  if (recipientError) return { ok: false, response: recipientError };
+  return { ok: true, value: targetNamespaceResult.value };
+}
+
 function resolveTargetNamespace(
   requestedNamespace: string | null,
-  encrypted: boolean,
 ): { ok: true; value: ReturnType<typeof normalizeApnsBundle> } | { ok: false; error: string } {
   if (requestedNamespace === null) {
-    return encrypted ? { ok: false, error: "missing_target_namespace" } : { ok: true, value: null };
+    return { ok: true, value: null };
   }
   const targetNamespace = normalizeApnsBundle(requestedNamespace);
   return targetNamespace

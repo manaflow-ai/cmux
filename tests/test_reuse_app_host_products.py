@@ -279,6 +279,36 @@ class ReuseProducts(TestProductHandoff):
         self.assertTrue(identity.reaches_product("scripts/ci/compile-app-host-test-product.sh"))
         self.assertTrue(identity.reaches_product("cmuxTests/WorkspaceTests.swift"))
 
+    def test_bundled_paste_worker_source_reaches_product(self):
+        """cmux.xcodeproj compiles this into the bundle, so reuse must see it."""
+        identity = reuse.product_inputs
+        # The "Build Plain Text Paste Worker" phase declares main.m as an input
+        # and emits bin/cmux-paste-text-worker into the app-host bundle, which
+        # PlainPastePTYFixture and the paste startup suites execute. The rest of
+        # workers/ is Cloudflare Worker source and stays excluded.
+        self.assertTrue(identity.reaches_product("workers/cmux-paste-text/main.m"))
+        self.assertFalse(identity.reaches_product("workers/presence/src/index.ts"))
+
+        # Assert the named build phase declares it, not merely that the path
+        # appears somewhere in the project file: only the inputPaths entry is
+        # evidence that the worker is compiled into the bundle.
+        project = (Path(__file__).resolve().parents[1] / "cmux.xcodeproj/project.pbxproj").read_text()
+        phase = project.split("name = \"Build Plain Text Paste Worker\"", 1)
+        self.assertEqual(len(phase), 2, "Build Plain Text Paste Worker phase is missing")
+        declaration = phase[0].rsplit("isa = PBXShellScriptBuildPhase", 1)[-1]
+        self.assertIn("$(SRCROOT)/workers/cmux-paste-text/main.m", declaration)
+        self.assertIn("inputPaths", declaration)
+        self.assertIn("cmux-paste-text-worker", phase[1].split("};", 1)[0])
+
+        # A commit that only touches the worker must change the fingerprint.
+        workflow = (Path(__file__).resolve().parents[1] / ".github/workflows/ci-macos.yml").read_text()
+        base = ["100644 blob 1111111111111111111111111111111111111111\tworkers/cmux-paste-text/main.m"]
+        changed = ["100644 blob 2222222222222222222222222222222222222222\tworkers/cmux-paste-text/main.m"]
+        self.assertNotEqual(
+            identity.identity_from_tree_lines(base, workflow),
+            identity.identity_from_tree_lines(changed, workflow),
+        )
+
     def test_github_product_identity_is_recomputed_from_git_objects(self):
         workflow = (Path(__file__).resolve().parents[1] / ".github/workflows/ci-macos.yml").read_text()
         entries = [
@@ -372,6 +402,93 @@ class ReuseProducts(TestProductHandoff):
                         self.api.artifact["digest"] = old
                     else:
                         self.api.artifact["size_in_bytes"] = old
+
+    def pull_request_checkout(self, branch):
+        """Reproduce the checkout a pull request run actually gets.
+
+        `actions/checkout` with no `ref:` fetches `github.sha` at the default
+        depth of one, so the working tree is the ephemeral merge of the pull
+        request head into the base, in a shallow repository. Clone the same way
+        here: a shallow HEAD has no walkable parents, which is the difference
+        between reading the commit object and asking for `HEAD^2`.
+        """
+        root = Path(self.temp.name) / "git"
+        source = root / "source"
+
+        def git(*args, cwd=source):
+            return subprocess.check_output(
+                ["git", "-c", "user.email=ci@cmux.test", "-c", "user.name=cmux ci", *args],
+                cwd=cwd, text=True).strip()
+
+        if not source.exists():
+            source.mkdir(parents=True)
+            git("init", "-q", "-b", "main", ".")
+            git("commit", "-q", "--allow-empty", "-m", "base")
+            self.base_revision = git("rev-parse", "HEAD")
+            git("checkout", "-q", "-b", "head")
+            git("commit", "-q", "--allow-empty", "-m", "pull request head")
+            self.head_revision = git("rev-parse", "HEAD")
+            git("checkout", "-q", "main")
+            git("merge", "-q", "--no-ff", "head", "-m", "merge pull request")
+            # The same two commits merged the other way, leaving the pull
+            # request head in the first-parent position.
+            git("checkout", "-q", "-b", "reversed", "head")
+            git("merge", "-q", "--no-ff", "main", "-m", "merge base")
+        checkout = root / branch
+        git("clone", "-q", "--depth", "1", "--branch", branch, "--no-local",
+            source.as_uri(), str(checkout), cwd=root)
+        self.addCleanup(os.chdir, os.getcwd())
+        os.chdir(checkout)
+        return git("rev-parse", "HEAD", cwd=checkout)
+
+    def test_pull_request_merge_checkout_is_bound_to_the_attested_head(self):
+        """A pull request consumer reuses instead of reporting a mismatch.
+
+        The run's `head_sha` is the pull request head while the checkout is the
+        merge commit, so an exact revision comparison rejects every pull request
+        run before any producer is considered.
+        """
+        revision = self.pull_request_checkout("main")
+        self.api.consumer_run["head_sha"] = self.head_revision
+        self.api.product_identities[self.head_revision] = self.contract["product_inputs"]
+        report = {}
+        self.assertTrue(self.restore_reuse(revision=revision, report=report))
+        self.assertNotIn("consumer_revision_mismatch", report["miss_reasons"])
+        self.assertEqual(report["reason"], "hit")
+
+    def test_checkout_outside_the_attested_head_stays_a_miss(self):
+        """Only a merge of the attested head counts as that head's checkout."""
+        cases = (
+            # A merge commit that does not have the attested head as a parent.
+            ("main", "base_revision"),
+            # The attested head as first parent: the pull request with the base
+            # merged into it, not the pull request merged for testing.
+            ("reversed", "head_revision"),
+            # A non-merge checkout still has to be the attested commit itself.
+            ("head", "base_revision"),
+        )
+        for branch, attribute in cases:
+            with self.subTest(branch=branch):
+                revision = self.pull_request_checkout(branch)
+                attested = getattr(self, attribute)
+                self.api.consumer_run["head_sha"] = attested
+                self.api.product_identities[attested] = self.contract["product_inputs"]
+                report = {}
+                self.assertFalse(self.restore_reuse(revision=revision, report=report))
+                self.assertIn("consumer_revision_mismatch", report["miss_reasons"])
+                self.assertFalse(self.consumer.exists())
+
+    def test_merge_group_checkout_still_requires_an_exact_revision(self):
+        """Merge queue runs check out the attested commit, so nothing relaxes."""
+        revision = self.pull_request_checkout("main")
+        for run in (self.api.run, self.api.consumer_run):
+            run["event"] = "merge_group"
+            run.pop("pull_requests", None)
+        self.api.consumer_run["head_sha"] = self.head_revision
+        self.api.product_identities[self.head_revision] = self.contract["product_inputs"]
+        report = {}
+        self.assertFalse(self.restore_reuse(revision=revision, report=report))
+        self.assertIn("consumer_revision_mismatch", report["miss_reasons"])
 
     def valid_schema2_upstream(self):
         """Build a complete prior-hop provenance record for validation tests."""

@@ -104,6 +104,10 @@ jobs:
         if: ${{ matrix.group == 'preflight' }}
         run: ./tests/test_ci_release_sdk_lane.sh
 
+      - name: Validate build-only reload keeps the tagged app bundle
+        if: ${{ matrix.group == 'preflight' }}
+        run: ./tests/test_reload_build_only_keeps_tagged_app.sh
+
       - name: Validate docs deployment authentication guard
         if: ${{ matrix.group == 'preflight' }}
         run: python3 tests/test_docs_deploy_auth_guard.py
@@ -120,9 +124,34 @@ jobs:
         if: ${{ matrix.group == 'preflight' }}
         run: python3 tests/test_localizable_xcstrings_structure.py
 
+      - name: Validate .xcstrings merge driver
+        if: ${{ matrix.group == 'preflight' }}
+        run: python3 tests/test_merge_xcstrings.py
+
+
+      - name: "Validate Swift Testing #require is not nested"
+        if: ${{ matrix.group == 'preflight' }}
+        run: python3 tests/test_swift_testing_require_not_nested.py
       - name: Validate Python test harness syntax
         if: ${{ matrix.group == 'preflight' }}
         run: git ls-files 'tests/*.py' 'tests_v2/*.py' 'scripts/*.py' | xargs python3 -m py_compile
+
+      - name: Validate Python test execution registry
+        if: ${{ matrix.group == 'preflight' }}
+        env:
+          CMUX_TEST_REGISTRY_BASE_SHA: ${{ github.event.pull_request.base.sha || '' }}
+        run: |
+          set -euo pipefail
+          args=()
+          if [[ -n "$CMUX_TEST_REGISTRY_BASE_SHA" ]]; then
+            git fetch --no-tags --depth=1 origin "$CMUX_TEST_REGISTRY_BASE_SHA"
+            args=(--base-sha "$CMUX_TEST_REGISTRY_BASE_SHA")
+          fi
+          python3 scripts/ci/validate_test_execution_registry.py "${args[@]}"
+
+      - name: Validate Python test execution registry blast radius
+        if: ${{ matrix.group == 'preflight' }}
+        run: python3 tests/test_ci_test_execution_registry.py
 
       - name: Validate dev-fleet warm-slot lifecycle
         if: ${{ matrix.group == 'preflight' }}
@@ -192,7 +221,7 @@ jobs:
           python-version: "3.9"
 
       - name: Prepare workflow guard Python dependencies
-        if: ${{ matrix.group == 'ci' || matrix.group == 'app-host-execution' || matrix.group == 'app-host-process' || matrix.group == 'app-host-cache' || matrix.group == 'release-tooling' }}
+        if: ${{ matrix.group == 'ci' || matrix.group == 'app-host-execution' || matrix.group == 'app-host-process' || matrix.group == 'app-host-cache' || matrix.group == 'release-notary' || matrix.group == 'release-tooling' }}
         run: |
           set -euo pipefail
           python3 -m venv "$RUNNER_TEMP/workflow-guard-venv"
@@ -230,13 +259,41 @@ jobs:
         if: ${{ matrix.group == 'release-tooling' }}
         run: bash tests/test_ghostty_cli_helper_cache.sh
 
+      - name: Validate Ghostty Zig workflow pinning
+        if: ${{ matrix.group == 'release-tooling' }}
+        run: python3 tests/test_check_ghostty_zig_workflows.py
+
+      - name: Validate Release helper architecture handoff
+        if: ${{ matrix.group == 'release-tooling' }}
+        run: python3 tests/test_ci_release_helper_archs.py
+
       - name: Validate stale run cleanup eligibility
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_cleanup_stale_runs.py
 
+      - name: Validate CI queue janitor policy
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_queue_janitor.py
+
       - name: Validate the trusted web complexity workflow
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_web_complexity_trusted_workflow.py
+
+      - name: Validate every workflow guard is wired
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_workflow_guards_are_wired.py
+
+      - name: Validate triage radar scoring
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_triage_radar.py
+
+      - name: Validate cmux-tui focused filter routing
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_tui_focused_filter_guard.py
+
+      - name: Validate the tui publish dispatch budget
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_tui_publish_dispatch_budget.py
 
       - name: Validate pull request caches are read-only
         if: ${{ matrix.group == 'ci' }}
@@ -250,9 +307,15 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: bash tests/test_ci_r2_cache.sh
 
+      - name: Validate the R2 cache census
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_r2_cache_census.py
+
       - name: Validate nightly prune Python compatibility
         if: ${{ matrix.group == 'release-tooling' }}
-        run: PYTHON_BIN=python3.9 bash ./tests/test_ci_nightly_prune_python_compat.sh
+        run: |
+          PYTHON_BIN=python3.9 bash ./tests/test_ci_nightly_prune_python_compat.sh
+          python3 tests/test_prune_nightly_release_assets.py
 
       - name: Validate activation benchmark scrollback sizing
         if: ${{ matrix.group == 'ci' }}
@@ -392,6 +455,22 @@ jobs:
         if: ${{ matrix.group == 'release-ios' }}
         run: python3 tests/test_ios_appstore_lane_identity.py
 
+      - name: Validate TestFlight upload argument expansion
+        if: ${{ matrix.group == 'release-ios' }}
+        run: python3 tests/test_ios_upload_array_expansion.py
+
+      - name: Validate iOS screenshot capture fail-fast
+        if: ${{ matrix.group == 'release-ios' }}
+        run: python3 tests/test_ios_screenshot_capture_guard.py
+
+      - name: Validate TestFlight assignment after a post-upload failure
+        if: ${{ matrix.group == 'release-ios' }}
+        run: python3 tests/test_ios_testflight_assignment_after_upload.py
+
+      - name: Validate the TestFlight archive log is kept on failure
+        if: ${{ matrix.group == 'release-ios' }}
+        run: python3 tests/test_ios_testflight_archive_log.py
+
       - name: Validate tagged iOS device entitlement fallback
         if: ${{ matrix.group == 'release-ios' }}
         run: node --test ios/tests/tagged-device-entitlements.test.mjs
@@ -465,6 +544,14 @@ jobs:
       - name: Validate resumable GitHub release publication
         if: ${{ matrix.group == 'release-notary' }}
         run: python3 tests/test_github_release_publication.py
+
+      - name: Validate the Homebrew cask update gate
+        if: ${{ matrix.group == 'release-notary' }}
+        run: python3 tests/test_release_homebrew_gate.py
+
+      - name: Validate universal GhosttyKit and Release build settings
+        if: ${{ matrix.group == 'release-notary' }}
+        run: ./tests/test_ci_universal_release_settings.sh
 
       - name: Validate universal nightly workflow
         if: ${{ matrix.group == 'release-notary' }}

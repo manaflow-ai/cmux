@@ -44,6 +44,7 @@ GROUPS = (
 # imports, a working-directory, a submodule). Paths a step runs directly are
 # derived from ci-guards.yml by direct_path_owners() and need no entry here.
 PATH_OWNERS = {
+    ".github/workflows/ci-queue-janitor.yml": frozenset(("ci",)),
     ".github/workflows/web-complexity.yml": frozenset(("ci",)),
     ".github/workflows/web-complexity-trusted.yml": frozenset(("ci",)),
     ".github/review-fabric-policy.json": frozenset(("preflight",)),
@@ -60,14 +61,18 @@ PATH_OWNERS = {
     "scripts/ci/find_admitted_build.py": frozenset(("preflight",)),
     "scripts/ci/persistent_mac_route.py": frozenset(("preflight",)),
     "scripts/ci/product_input_identity.py": frozenset(("preflight",)),
+    "scripts/ci/queue_janitor.py": frozenset(("ci",)),
     "scripts/ci/restore-app-host-test-product.sh": frozenset(("preflight",)),
     "scripts/ci/reuse_app_host_products.py": frozenset(("preflight",)),
+    "scripts/ci/run_python_test_lane.py": frozenset(("preflight",)),
     "scripts/ci/sanitize-xcode-source-packages-cache.py": frozenset(("preflight",)),
     "scripts/ci/swift_incremental_diagnostics.py": frozenset(("preflight",)),
+    "scripts/ci/test_execution_registry.py": frozenset(("preflight",)),
     "skills/cmux-cloud-vm/SKILL.md": frozenset(("preflight",)),
     "skills/cmux-cloud-vm/references/agent-workflows.md": frozenset(("preflight",)),
     "skills/cmux-cloud-vm/references/commands.md": frozenset(("preflight",)),
     "skills/cmux-cloud-vm/references/guest.md": frozenset(("preflight",)),
+    "tests/test-execution.toml": frozenset(("preflight",)),
 }
 
 # Changes here can alter which required work runs. They always exercise every

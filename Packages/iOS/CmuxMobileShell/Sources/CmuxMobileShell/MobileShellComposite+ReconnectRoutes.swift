@@ -407,7 +407,9 @@ extension MobileShellComposite {
                     )
                     return
                 }
-                if await self.isScopeCurrent(scope) { await self.loadPairedMacs() }
+                if await self.isScopeCurrent(scope) {
+                    await self.loadPairedMacs(forceRefresh: true)
+                }
             }
         }
         registryRouteRefreshTask = task
