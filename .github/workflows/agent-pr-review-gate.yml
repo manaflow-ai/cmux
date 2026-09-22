@@ -18,7 +18,7 @@ permissions:
   pull-requests: read
 
 concurrency:
-  group: agent-pr-review-gate-${{ github.event.pull_request.number || github.event.issue.number }}
+  group: agent-pr-review-gate-${{ github.event.pull_request.number || github.event.issue.number }}-${{ github.event_name == 'pull_request_target' && 'head' || 'review' }}
   cancel-in-progress: true
 
 jobs:
@@ -27,12 +27,12 @@ jobs:
     if: ${{ github.event_name != 'issue_comment' || github.event.issue.pull_request != null }}
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     steps:
-      # The checker comes from trusted repository history, never the PR head.
-      # issue_comment payloads omit the PR base SHA, so summary-only retriggers
-      # use the repository default branch copy. No PR files are executed.
+      # Execute the checker from the exact trusted commit that defines this workflow.
+      # A stacked PR base branch can be author-controlled, so it never supplies
+      # executable gate code to pull_request_target. No PR files are executed.
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          ref: ${{ github.event.pull_request.base.sha || github.event.repository.default_branch }}
+          ref: ${{ github.workflow_sha }}
           persist-credentials: false
       - name: Bootstrap trusted checker
         if: hashFiles('.github/scripts/agent-pr-review-gate.py') == ''
