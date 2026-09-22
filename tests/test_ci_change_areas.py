@@ -1408,7 +1408,7 @@ def test_build_input_fingerprint_tracks_product_identity_not_ci_orchestration() 
     from build_input_fingerprint import fingerprint
     import product_input_identity as product_inputs
 
-    workflow = CI_WORKFLOW.read_text(encoding="utf-8")
+    workflow = MACOS_WORKFLOW.read_text(encoding="utf-8")
     admission = product_inputs._job_block(
         workflow,
         product_inputs.MACOS_ADMISSION_JOB,
