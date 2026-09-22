@@ -41,6 +41,35 @@ import Testing
     #expect(store.selectedTerminalID == MobileTerminalPreview.ID(rawValue: "terminal-build"))
 }
 
+@Test @MainActor func trustedNotificationTapFollowsMovedSurfaceWhenOriginalWorkspaceRemains() {
+    let coordinator = MobilePushCoordinator(registration: InertPushRegistration())
+    let store = deeplinkTestStore()
+    store.replaceForegroundWorkspaceState([
+        MobileWorkspacePreview(
+            id: "workspace-docs",
+            name: "Docs",
+            terminals: []
+        ),
+        MobileWorkspacePreview(
+            id: "workspace-main",
+            name: "cmux",
+            terminals: [MobileTerminalPreview(id: "terminal-build", name: "Build")]
+        ),
+    ])
+    coordinator.bind(store: store)
+
+    coordinator.handleTap(
+        workspaceId: "workspace-docs",
+        surfaceId: "terminal-build",
+        macDeviceId: nil,
+        retargetsToLiveSurfaceOwner: true
+    )
+
+    #expect(store.selectedWorkspaceID == MobileWorkspacePreview.ID(rawValue: "workspace-main"))
+    #expect(store.selectedTerminalID == MobileTerminalPreview.ID(rawValue: "terminal-build"))
+    #expect(coordinator.tabUnavailableAlert == nil)
+}
+
 @Test @MainActor func trustedNotificationTapFollowsMovedSurfaceWhenOriginalWorkspaceClosed() {
     let coordinator = MobilePushCoordinator(registration: InertPushRegistration())
     let store = deeplinkTestStore()

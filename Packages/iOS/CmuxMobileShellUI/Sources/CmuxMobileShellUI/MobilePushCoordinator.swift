@@ -1160,25 +1160,28 @@ public final class MobilePushCoordinator {
         // surface-only tap the workspace that owns the terminal. Unresolvable
         // means "not loaded yet": stay parked for the next topology change so
         // the tap is never spent on a selection that cannot navigate.
+        let liveSurfaceOwner: MobileWorkspacePreview.ID? = {
+            guard pending.retargetsToLiveSurfaceOwner,
+                  let surfaceId = pending.surfaceId else { return nil }
+            return store.workspaceID(
+                containingSurfaceID: surfaceId,
+                macDeviceID: pending.macDeviceId,
+                instanceTag: pending.macInstanceTag
+            )
+        }()
         var workspaceTarget: MobileWorkspacePreview.ID
-        if let workspaceId = pending.workspaceId {
+        if let liveSurfaceOwner {
+            // A trusted push may name the workspace from before a tab move.
+            // Resolve the terminal's current owner first, even when the old
+            // workspace row is still present in the snapshot.
+            workspaceTarget = liveSurfaceOwner
+        } else if let workspaceId = pending.workspaceId {
             if let resolved = store.workspaceID(
                 matchingRemoteWorkspaceID: workspaceId,
                 macDeviceID: pending.macDeviceId,
                 instanceTag: pending.macInstanceTag
             ) {
                 workspaceTarget = resolved
-            } else if pending.retargetsToLiveSurfaceOwner,
-                      let surfaceId = pending.surfaceId,
-                      let liveOwner = store.workspaceID(
-                          containingSurfaceID: surfaceId,
-                          macDeviceID: pending.macDeviceId,
-                          instanceTag: pending.macInstanceTag
-                      ) {
-                // A trusted push may name the workspace from before a tab
-                // move. Follow the same live owner used by the surface-only
-                // path before declaring the original workspace unavailable.
-                workspaceTarget = liveOwner
             } else {
                 // Once the owning Mac has published an authoritative list, a
                 // missing workspace is a definitive closed-tab result. During
@@ -1209,16 +1212,6 @@ public final class MobilePushCoordinator {
             )
             return
         }
-        if pending.retargetsToLiveSurfaceOwner,
-           let surfaceId = pending.surfaceId,
-           let liveOwner = store.workspaceID(
-               containingSurfaceID: surfaceId,
-               macDeviceID: pending.macDeviceId,
-               instanceTag: pending.macInstanceTag
-           ) {
-            workspaceTarget = liveOwner
-        }
-
         if let surfaceId = pending.surfaceId,
            !store.workspace(workspaceTarget, containsSurfaceID: surfaceId) {
             // A disconnected or reconnecting Mac may still be filling its
@@ -1314,7 +1307,19 @@ public final class MobilePushCoordinator {
         store: CMUXMobileShellStore
     ) -> Bool {
         let resolvedWorkspaceID: MobileWorkspacePreview.ID?
-        if let workspaceId = pending.workspaceId {
+        if pending.retargetsToLiveSurfaceOwner, let surfaceId = pending.surfaceId {
+            resolvedWorkspaceID = store.workspaceID(
+                containingSurfaceID: surfaceId,
+                macDeviceID: pending.macDeviceId,
+                instanceTag: pending.macInstanceTag
+            ) ?? pending.workspaceId.flatMap {
+                store.workspaceID(
+                    matchingRemoteWorkspaceID: $0,
+                    macDeviceID: pending.macDeviceId,
+                    instanceTag: pending.macInstanceTag
+                )
+            }
+        } else if let workspaceId = pending.workspaceId {
             resolvedWorkspaceID = store.workspaceID(
                 matchingRemoteWorkspaceID: workspaceId,
                 macDeviceID: pending.macDeviceId,
