@@ -250,11 +250,36 @@ class WorkflowContractTests(unittest.TestCase):
     def test_dispatch_authority_is_default_branch_only(self):
         self.assertIn("  workflow_run:", self.router)
         self.assertIn("    workflows: [CI]", self.router)
-        self.assertIn("    types: [in_progress]", self.router)
+        # `requested` fires once per CI run. `in_progress` fires again for every
+        # CI job that starts, and each of those notifications created a router
+        # run that the job condition then skipped. Match the whole trigger block,
+        # so `types: [requested, in_progress]` cannot satisfy this.
+        self.assertIn(
+            "on:\n  workflow_run:\n    workflows: [CI]\n    types: [requested]\n",
+            self.router,
+        )
+        self.assertNotIn("in_progress]", self.router)
         self.assertIn("\npermissions: {}\n", self.router)
         self.assertIn("      actions: write", self.router)
         self.assertIn("          ref: main", self.router)
         self.assertIn("persistent-mac-route-request-", self.router)
+        # Attaching at `requested` means the wait starts before CI has a job, so
+        # it has to outlast CI's queue and end on its own when CI finishes
+        # without publishing a request.
+        self.assertIn("deadline=$(( $(date +%s) + 600 ))", self.router)
+        self.assertIn('if [ "$status" = "completed" ]; then', self.router)
+        # The wait and the bounded compile that follows it both have to fit
+        # inside the job, or the router is killed after dispatching an owned Mac.
+        self.assertIn("    timeout-minutes: 25", self.router)
+        # One `requested` notification is the only one: a transient API error
+        # must not end the route.
+        self.assertIn('per_page=100" 2>/dev/null || true)', self.router)
+        # A fork can never satisfy the request envelope, so it must not hold a
+        # runner for the length of the wait.
+        self.assertIn(
+            "github.event.workflow_run.head_repository.full_name == github.repository",
+            self.router,
+        )
         self.assertNotIn("actions: write", self.ci)
         admission = self.macos_ci.split("  macos-compile-admission:", 1)[1].split(
             "  app-host-unit-tests:", 1
