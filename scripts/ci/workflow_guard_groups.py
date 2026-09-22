@@ -11,6 +11,8 @@ from __future__ import annotations
 
 GROUPS = (
     "preflight",
+    "python-syntax",
+    "dev-fleet",
     "ci",
     "app-host-execution",
     "app-host-process",
@@ -48,7 +50,7 @@ STEP_OWNERS = {
     "Validate Localizable.xcstrings catalog structure": "preflight",
     "Validate Pro TestFlight distribution workflow": "release-ios",
     "Validate Python R2 appcast upload guard": "release-tooling",
-    "Validate Python test harness syntax": "preflight",
+    "Validate Python test harness syntax": "python-syntax",
     "Validate Release check architectures": "release-tooling",
     "Validate Sparkle appcast generation without previous archives": "release-notary",
     "Validate Sparkle delta finalization": "release-notary",
@@ -86,7 +88,7 @@ STEP_OWNERS = {
     "Validate control-plane generated types": "preflight",
     "Validate create-dmg version pinning": "release-notary",
     "Validate current GhosttyKit checksum pin": "release-tooling",
-    "Validate dev-fleet warm-slot lifecycle": "preflight",
+    "Validate dev-fleet warm-slot lifecycle": "dev-fleet",
     "Validate docs deployment authentication guard": "preflight",
     "Validate embedded cmux.json schema generation": "preflight",
     "Validate external TestFlight group assignment helper": "release-ios",
@@ -176,7 +178,9 @@ PATH_OWNERS = {
     "tests/test_app_bundle_license_compliance.sh": frozenset(("release-notary",)),
     "tests/test_app_host_test_products.py": frozenset(("ci",)),
     "tests/test_bash_integration_no_done_notifications.py": frozenset(("quality-determinism",)),
-    "tests/test_benchmark_dev_fleet_warm_slots.py": frozenset(("preflight",)),
+    "scripts/benchmark-dev-fleet-warm-slots.py": frozenset(("dev-fleet",)),
+    "scripts/dev-fleet-warm-slot.py": frozenset(("dev-fleet",)),
+    "tests/test_benchmark_dev_fleet_warm_slots.py": frozenset(("dev-fleet",)),
     "tests/test_build_graph_health.py": frozenset(("preflight",)),
     "tests/test_build_app_bundled_resources.sh": frozenset(("quality-runtime",)),
     "tests/test_build_metrics.py": frozenset(("ci",)),
@@ -238,7 +242,7 @@ PATH_OWNERS = {
     "tests/test_cleanup_stale_runs.py": frozenset(("ci",)),
     "tests/test_cloud_vm_skill_coverage.py": frozenset(("preflight",)),
     "tests/test_compress_markdown_viewer_assets.sh": frozenset(("release-notary",)),
-    "tests/test_dev_fleet_warm_slot.py": frozenset(("preflight",)),
+    "tests/test_dev_fleet_warm_slot.py": frozenset(("dev-fleet",)),
     "tests/test_dock_shortcut_routing_guard.py": frozenset(("quality-determinism",)),
     "tests/test_docs_deploy_auth_guard.py": frozenset(("preflight",)),
     "tests/test_fetch_previous_nightly_dmgs.sh": frozenset(("release-notary",)),
@@ -323,7 +327,7 @@ def groups_for_path(path: str) -> tuple[str, ...] | None:
 
     owners = set(PATH_OWNERS.get(path, ()))
     if _python_syntax_scan(path):
-        owners.add("preflight")
+        owners.add("python-syntax")
     if _determinism_scan(path):
         owners.add("quality-determinism")
 
