@@ -70,10 +70,17 @@ public final class MobilePushCoordinator {
     /// The root renders the user-facing alert while the coordinator owns the
     /// one-shot navigation state.
     public struct TabUnavailableAlert: Identifiable, Equatable, Sendable {
-        public let id: UUID
+        public enum Kind: Equatable, Sendable {
+            case tabUnavailable
+            case connectionUnavailable
+        }
 
-        public init(id: UUID = UUID()) {
+        public let id: UUID
+        public let kind: Kind
+
+        public init(id: UUID = UUID(), kind: Kind = .tabUnavailable) {
             self.id = id
+            self.kind = kind
         }
     }
 
@@ -1064,6 +1071,14 @@ public final class MobilePushCoordinator {
         tabUnavailableAlert = nil
     }
 
+    /// Retries a timed-out notification tap after the user has restored the
+    /// Mac connection. The original target remains parked until it resolves.
+    public func retryPendingDeeplink() {
+        tabUnavailableAlert = nil
+        schedulePendingDeeplinkRecheck()
+        applyPendingDeeplinkIfReady()
+    }
+
     /// Parks an inline notification reply and sends it once its exact Mac, workspace, surface, and RPC channel are ready.
     ///
     /// This path never changes the selected Mac, workspace, terminal, or navigation state.
@@ -1261,6 +1276,7 @@ public final class MobilePushCoordinator {
             guard let self,
                   self.pendingDeeplink?.id == pendingID else { return }
             self.pendingDeeplinkRecheckTask = nil
+            self.presentConnectionUnavailableAlert()
             self.applyPendingDeeplinkIfReady()
         }
     }
@@ -1268,7 +1284,13 @@ public final class MobilePushCoordinator {
     private func isWorkspaceConnectionReady(_ workspace: MobileWorkspacePreview?) -> Bool {
         guard let workspace else { return false }
         guard store?.connectionState == .connected else { return false }
-        return (workspace.macConnectionStatus ?? (store?.connectionState == .connected ? .connected : .unavailable)) == .connected
+        if let status = workspace.macConnectionStatus {
+            return status == .connected
+        }
+        // Unstamped rows belong to the anonymous foreground connection used by
+        // legacy hosts and deterministic previews. A Mac-scoped row without a
+        // structured status fails closed instead of borrowing global liveness.
+        return workspace.macDeviceID == nil
     }
 
     private func pendingConnectionIsUsable(
@@ -1304,9 +1326,16 @@ public final class MobilePushCoordinator {
 
     private func presentTabUnavailableAlert() {
         guard tabUnavailableAlert == nil else { return }
-        tabUnavailableAlert = TabUnavailableAlert()
+        tabUnavailableAlert = TabUnavailableAlert(kind: .tabUnavailable)
         diagnosticLog?.recordAppEvent(.pushDeeplinkFailed, failure: .endpointUnavailable)
         analytics.capture("ios_push_deeplink_failed", ["reason": .string("tab_unavailable")])
+    }
+
+    private func presentConnectionUnavailableAlert() {
+        guard tabUnavailableAlert == nil else { return }
+        tabUnavailableAlert = TabUnavailableAlert(kind: .connectionUnavailable)
+        diagnosticLog?.recordAppEvent(.pushDeeplinkFailed, failure: .timedOut)
+        analytics.capture("ios_push_deeplink_failed", ["reason": .string("connection_unavailable")])
     }
 
     /// Applies the parked reply without mutating UI selection; later topology changes retry only unresolved prerequisites.
