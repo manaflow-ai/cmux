@@ -72,6 +72,33 @@ If the changed-source restored-generation arm wins after transfer cost, the smal
 
 If the benchmark loses after transfer, stop at the evidence and investigate smaller state sets or deterministic mtime normalization instead.
 
+If the benchmark clears that gate, the repo integration stays narrow:
+
+- `CI_INCREMENTAL_GENERATION` is unset/off by default; a pilot value and optional
+  cohort list select explicit PRs.
+- Only `pull_request` consumers participate. `merge_group` always takes the
+  clean path.
+- Discovery happens only after exact compiled-product reuse misses and before
+  package readiness/compile. The persistent-Mac product path remains independent.
+- Provenance/artifact handling should reuse or factor the bounded GitHub API,
+  digest, attempt, same-PR pairing, and extraction code already in
+  `reuse_app_host_products.py`.
+- Generation selection differs from compiled-product selection in one important
+  way: source revisions are expected to differ. Recipe/toolchain/path/package
+  identities must match, while the manifest records both exact seed and exact
+  candidate trees.
+- Fork producers are eligible only for the next disposable run of the same PR.
+  Their generation provenance never satisfies cross-run compiled-product reuse.
+- Restore failure, identity mismatch, corrupt archive, unavailable producer, or
+  API failure records a reason, deletes staging, and continues through the
+  current clean hosted compile.
+- A successful compile may publish the next immutable generation with one-day
+  retention. Publication failure does not fail the authoritative compile.
+- Extend the existing compile-admission metrics with generation lookup,
+  download, validation/extraction, source transition, publish seconds/bytes,
+  incremental task counts, emit-module time, and CAS counts.
+
+
 
 ## Measured evidence so far
 
