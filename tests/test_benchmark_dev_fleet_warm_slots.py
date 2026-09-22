@@ -84,6 +84,38 @@ class BenchmarkTest(unittest.TestCase):
         task_argv = run.call_args.args[1]
         self.assertIn("--measure-disk", task_argv)
 
+    def test_event_report_reads_archive_before_current_and_skips_partial_tail(self):
+        path = self.root / "events.jsonl"
+        archive = self.root / "events.jsonl.1"
+        archive.write_text(
+            json.dumps({
+                "event": "warm_finished",
+                "receipt": {"wall_seconds": 2.0, "disk_growth_bytes": 10},
+            })
+            + "\n"
+        )
+        path.write_text(
+            '{"event":"partial"\n'
+            + json.dumps({
+                "event": "task_finished",
+                "receipt": {
+                    "match_class": "near",
+                    "cold_fallback": False,
+                    "wall_seconds": 3.0,
+                    "disk_growth_bytes": 4,
+                },
+            })
+            + "\n"
+        )
+
+        rows = bench.event_rows(path)
+        self.assertEqual([row["event"] for row in rows], ["warm_finished", "task_finished"])
+        report = bench.summarize_events(path)
+        self.assertEqual(report["tasks"], 1)
+        self.assertEqual(report["warms"], 1)
+        self.assertEqual(report["near_tasks"], 1)
+        self.assertEqual(report["disk_growth_bytes"], 14)
+
     def test_event_report_exposes_trial_metrics(self):
         path = self.root / "events.jsonl"
         rows = [
