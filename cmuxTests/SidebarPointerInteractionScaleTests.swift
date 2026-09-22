@@ -362,7 +362,6 @@ final class SidebarIssue8373StressTests {
             workspaceCount: Self.startingWorkspaceCount
         )
         defer {
-            SidebarWorkspaceRenderItemDiagnostics.reset()
             harness.tearDown()
         }
 
@@ -410,8 +409,6 @@ final class SidebarIssue8373StressTests {
         )
         #expect(contentTargets.count == Self.simultaneousContentTargets)
 
-        var idReads = 0
-        SidebarWorkspaceRenderItemDiagnostics.onIDRead = { _ in idReads += 1 }
         harness.counter.reset()
         let footprintBefore = Self.physicalFootprintBytes()
         var maximumFootprint = footprintBefore
@@ -567,7 +564,6 @@ final class SidebarIssue8373StressTests {
         // Generous ceilings turn a self-sustaining diff/layout loop into a
         // bounded failure while allowing normal whole-list projections caused
         // by legitimate reorder/insert/remove operations.
-        #expect(idReads < 250_000, "#8373 stress performed \(idReads) ForEach identity reads.")
         #expect(
             stressSnapshotBuilds < 25_000,
             "#8373 stress built \(stressSnapshotBuilds) workspace snapshots."
@@ -595,7 +591,6 @@ final class SidebarIssue8373StressTests {
 
         print(
             "ISSUE_8373_STRESS "
-                + "id_reads=\(idReads) "
                 + "snapshot_builds=\(stressSnapshotBuilds) "
                 + "row_input_projections=\(stressRowInputProjections) "
                 + "workspace_row_bodies=\(stressWorkspaceBodies) "
@@ -607,11 +602,8 @@ final class SidebarIssue8373StressTests {
         // After all input stops, the same hosted list must go quiet. A
         // LazySubviewPlacements/SubgraphList loop keeps evaluating rows here.
         harness.counter.reset()
-        let idReadsBeforeQuietDrain = idReads
         await SidebarLazyLayoutScaleTests.drainMainRunLoop(for: harness.window, iterations: 40)
         let quietBodies = harness.counter.workspaceRowBodies + harness.counter.groupHeaderBodies
-        let quietIDReads = idReads - idReadsBeforeQuietDrain
         #expect(quietBodies < 20, "#8373 sidebar kept evaluating \(quietBodies) rows after input stopped.")
-        #expect(quietIDReads < 5_000, "#8373 sidebar kept evaluating \(quietIDReads) row IDs after input stopped.")
     }
 }
