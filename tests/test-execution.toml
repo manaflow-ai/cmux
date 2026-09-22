@@ -619,6 +619,10 @@ path = "tests/test_ci_selective_layer_wiring.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_workflow_path_filter_parity.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_ubuntu_apt_https.py"
 lane = "legacy"
 
