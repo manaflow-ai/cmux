@@ -1814,6 +1814,24 @@ def test_macos_workflow_call_starts_after_cheap_static_gate() -> None:
     assert "inputs.source_parent1" in admission
 
 
+def test_macos_admission_waits_for_pull_request_debounce() -> None:
+    debounce = workflow_job_block("macos-debounce")
+    assert "    needs: changes" in debounce
+    assert "github.event_name == 'pull_request'" in debounce
+    assert "needs.changes.outputs.macos != 'false'" in debounce
+    assert "vars.CI_MACOS_ADMISSION_DEBOUNCE_SECONDS || '180'" in debounce
+    assert "macos" not in debounce.split("runs-on:", 1)[1].split("\n", 1)[0]
+    assert '[ "$current" != "$HEAD_SHA" ]' in debounce
+
+    caller = workflow_job_block("macos")
+    assert "      - macos-debounce" in caller
+    assert (
+        "(needs.macos-debounce.result == 'success' || needs.macos-debounce.result == 'skipped')"
+        in caller
+    )
+    assert "      - macos-debounce" in workflow_job_block("ci-status")
+
+
 def run_tests_gate(needs: dict) -> subprocess.CompletedProcess:
     script = workflow_job_step_script("tests", "Check platform workflow routing")
     body = script.split("python3 - <<'PY'\n", 1)[1].rsplit("\nPY", 1)[0]
