@@ -248,23 +248,60 @@ def make_xcodebuild_wrapper(root: Path) -> tuple[Path, dict[str, str]]:
 def parse_build_log(path: Path) -> dict[str, object]:
     text = path.read_text(errors="replace") if path.is_file() else ""
     detail = text.split("Build Timing Summary", 1)[0]
-    swift_compile_lines = len(re.findall(r"(?m)^SwiftCompile\b", detail))
-    cas_hits = len(re.findall(r"(?i)\bcache hit\b", text))
-    cas_misses = len(re.findall(r"(?i)\bcache miss\b", text))
+    raw_compile_lines = 0
+    source_compile_lines = 0
+    source_compile_by_target: dict[str, int] = {}
+    cas_hits = 0
+    cas_misses = 0
+    cas_hits_by_target: dict[str, int] = {}
+    cas_misses_by_target: dict[str, int] = {}
+    last_target = ""
+
+    for line in detail.splitlines():
+        target_match = re.search(r"\\(in target '([^']+)' from project", line)
+        if target_match:
+            last_target = target_match.group(1)
+        if line.startswith("SwiftCompile"):
+            raw_compile_lines += 1
+            if re.search(r"/[^\\s]+\\.swift(?:\\s|$)", line):
+                source_compile_lines += 1
+                if last_target:
+                    source_compile_by_target[last_target] = source_compile_by_target.get(last_target, 0) + 1
+        if re.search(r"(?i)\\bcache hit\\b", line):
+            cas_hits += 1
+            if last_target:
+                cas_hits_by_target[last_target] = cas_hits_by_target.get(last_target, 0) + 1
+        if re.search(r"(?i)\\bcache miss\\b", line):
+            cas_misses += 1
+            if last_target:
+                cas_misses_by_target[last_target] = cas_misses_by_target.get(last_target, 0) + 1
 
     def timing(name: str):
         matches = re.findall(
-            rf"(?mi)^\s*{re.escape(name)}[^\n|]*\|\s*([0-9.]+)\s+seconds?",
+            rf"(?mi)^\\s*{re.escape(name)}[^\\n|]*\\|\\s*([0-9.]+)\\s+seconds?",
             text,
         )
         return round(sum(float(x) for x in matches), 6) if matches else None
 
+    def task_count(name: str):
+        matches = re.findall(
+            rf"(?mi)^\\s*{re.escape(name)}\\s+\\(([0-9]+)\\s+tasks?\\)\\s*\\|",
+            text,
+        )
+        return sum(int(x) for x in matches) if matches else None
+
     return {
-        "swift_compile_count": swift_compile_lines,
+        "swift_compile_log_lines": raw_compile_lines,
+        "swift_compile_source_file_lines": source_compile_lines,
+        "swift_compile_source_file_lines_by_target": source_compile_by_target,
+        "swift_compile_task_count": task_count("SwiftCompile"),
         "swift_compile_timing_seconds": timing("SwiftCompile"),
+        "emit_module_task_count": task_count("SwiftEmitModule"),
         "emit_module_seconds": timing("SwiftEmitModule"),
         "cas_hit_mentions": cas_hits,
         "cas_miss_mentions": cas_misses,
+        "cas_hit_mentions_by_target": cas_hits_by_target,
+        "cas_miss_mentions_by_target": cas_misses_by_target,
     }
 
 
