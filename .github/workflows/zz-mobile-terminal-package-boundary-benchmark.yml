@@ -1,6 +1,9 @@
 name: Mobile terminal package-boundary benchmark
 
 on:
+  push:
+    branches:
+      - "codex/mobile-terminal-state-package-boundary"
   pull_request:
     paths:
       - ".github/workflows/zz-mobile-terminal-package-boundary-benchmark.yml"
@@ -12,7 +15,7 @@ permissions:
 
 jobs:
   benchmark:
-    if: ${{ github.event.pull_request.head.ref == 'codex/mobile-terminal-state-package-boundary' }}
+    if: ${{ github.event_name == 'push' || github.event.pull_request.head.ref == 'codex/mobile-terminal-state-package-boundary' }}
     runs-on: ${{ vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15' }}
     timeout-minutes: 45
     env:
