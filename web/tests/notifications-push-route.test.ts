@@ -40,6 +40,7 @@ type PushBodyOptions = {
   correlationId?: string;
   expirationEpochSeconds?: number;
   targetNamespace?: string;
+  targetNamespaces?: readonly string[];
   macDeviceId?: string;
   macInstanceTag?: string;
   installationIDs?: readonly string[];
@@ -82,7 +83,7 @@ function pushBody(options: PushBodyOptions = {}): Record<string, unknown> {
       ciphertext: Buffer.from(`${ciphertextVariant}:${index}`.padEnd(16, "x")).toString("base64"),
       tuple: {
         accountID: "user-1",
-        iosBuildID: targetNamespace,
+        iosBuildID: options.targetNamespaces?.[index] ?? targetNamespace,
         iosInstallationID: installationID,
         macDeviceID: macDeviceId,
         macInstanceTag,
@@ -507,6 +508,62 @@ describe("notifications push route", () => {
       environment: "production",
     });
     expect(typeof targets[0]?.targetId).toBe("string");
+  });
+
+  dbTest("fans out encrypted pushes across every registered iOS bundle", async () => {
+    if (!sql) throw new Error("test database not initialized");
+    const releaseToken = "c".repeat(64);
+    const internalToken = "d".repeat(64);
+    await sql`
+      truncate device_tokens, notification_send_events restart identity cascade
+    `;
+    await sql`
+      insert into device_tokens (
+        user_id, device_token, platform, bundle_id, environment,
+        installation_id, push_key_id
+      ) values
+        (
+          'user-1', ${releaseToken}, 'ios', 'com.cmux.app', 'production',
+          'release-installation', 'legacy'
+        ),
+        (
+          'user-1', ${internalToken}, 'ios', 'dev.cmux.app.internal', 'production',
+          'internal-installation', 'ios-push-key-2'
+        )
+    `;
+
+    const response = await pushRoute.sendPushWithTransport(
+      new Request("https://cmux.test/api/notifications/push", {
+        method: "POST",
+        headers: {
+          authorization: "Bearer access-token",
+          "x-stack-refresh-token": "refresh-token",
+        },
+        body: JSON.stringify(pushBody({
+          correlationId: "f8f18b05-cf10-46be-8bba-c5ea468efabc",
+          installationIDs: ["release-installation", "internal-installation"],
+          targetNamespaces: ["com.cmux.app", "dev.cmux.app.internal"],
+        })),
+      }),
+      sendApnsNotificationReliably as Parameters<
+        typeof pushRoute.sendPushWithTransport
+      >[1],
+    );
+
+    expect(response.status).toBe(200);
+    const targets = (
+      (sendApnsNotificationReliably as unknown as {
+        mock: { calls: unknown[][] };
+      }).mock.calls[0]?.[1] as Array<{
+        deviceToken: string;
+        bundleId: string;
+      }>
+    );
+    expect(targets).toHaveLength(2);
+    expect(targets.map((target) => target.bundleId).sort()).toEqual([
+      "com.cmux.app",
+      "dev.cmux.app.internal",
+    ]);
   });
 
   test("keeps correlation on unexpected failures after payload parsing", async () => {
