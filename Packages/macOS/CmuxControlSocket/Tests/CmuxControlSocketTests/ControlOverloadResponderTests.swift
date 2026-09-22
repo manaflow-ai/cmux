@@ -64,19 +64,36 @@ private final class RejectedClient {
     }
 }
 
+/// Records every rejection the responder reports and lets a test await the
+/// next one: the callback itself is the completion signal, so no test polls.
 private final class RejectionRecorder: Sendable {
     private let rejections = OSAllocatedUnfairLock(initialState: [ControlOverloadRejection]())
+    private let stream: AsyncStream<ControlOverloadRejection>
+    private let continuation: AsyncStream<ControlOverloadRejection>.Continuation
+
+    init() {
+        (stream, continuation) = AsyncStream<ControlOverloadRejection>.makeStream(
+            bufferingPolicy: .unbounded
+        )
+    }
 
     func record(_ rejection: ControlOverloadRejection) {
         rejections.withLock { $0.append(rejection) }
+        continuation.yield(rejection)
     }
 
     var all: [ControlOverloadRejection] {
         rejections.withLock { $0 }
     }
+
+    /// Suspends until the responder reports the next rejection.
+    func nextRejection() async -> ControlOverloadRejection? {
+        var iterator = stream.makeAsyncIterator()
+        return await iterator.next()
+    }
 }
 
-@Suite("ControlOverloadResponder")
+@Suite("ControlOverloadResponder", .timeLimit(.minutes(1)))
 struct ControlOverloadResponderTests {
     private func makeResponder(
         recorder: RejectionRecorder,
@@ -92,12 +109,6 @@ struct ControlOverloadResponderTests {
             ),
             onRejection: { recorder.record($0) }
         )
-    }
-
-    private func waitForRejections(_ recorder: RejectionRecorder, count: Int) async {
-        for _ in 0..<50_000 where recorder.all.count < count {
-            await Task.yield()
-        }
     }
 
     @Test func answersAV2RequestWithAStructuredOverloadedErrorEchoingItsID() async throws {
@@ -124,10 +135,9 @@ struct ControlOverloadResponderTests {
         #expect(data["reason"] as? String == "pool_saturated")
         #expect(client.peerClosed)
 
-        await waitForRejections(recorder, count: 1)
-        #expect(recorder.all == [
-            ControlOverloadRejection(reason: .poolSaturated, replied: true, activeReplies: 0),
-        ])
+        #expect(await recorder.nextRejection() == ControlOverloadRejection(
+            reason: .poolSaturated, replied: true, activeReplies: 0
+        ))
         #expect(responder.metrics().repliedConnections == 1)
     }
 
@@ -141,8 +151,7 @@ struct ControlOverloadResponderTests {
 
         let reply = client.readUntilEOF()
         #expect(reply == "ERROR: overloaded retry_after_ms=250 reason=pending_expired\n")
-        await waitForRejections(recorder, count: 1)
-        #expect(recorder.all.first?.replied == true)
+        #expect(await recorder.nextRejection()?.replied == true)
     }
 
     @Test func closesASilentClientAfterTheReadDeadlineWithoutReplying() async throws {
@@ -157,10 +166,9 @@ struct ControlOverloadResponderTests {
         let reply = client.readUntilEOF()
         #expect(reply.isEmpty)
         #expect(client.peerClosed)
-        await waitForRejections(recorder, count: 1)
-        #expect(recorder.all == [
-            ControlOverloadRejection(reason: .poolSaturated, replied: false, activeReplies: 0),
-        ])
+        #expect(await recorder.nextRejection() == ControlOverloadRejection(
+            reason: .poolSaturated, replied: false, activeReplies: 0
+        ))
         #expect(responder.metrics().closedWithoutReply == 1)
     }
 

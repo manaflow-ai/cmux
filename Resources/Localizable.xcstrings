@@ -540643,6 +540643,65 @@
         }
       }
     },
+    "socket.authTeam.committedStatusTimedOut": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The team change was applied, but cmux did not report the updated status within 10 seconds. Run `cmux auth status` to confirm."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "チームの変更は適用されましたが、cmux は 10 秒以内に更新後のステータスを報告しませんでした。`cmux auth status` を実行して確認してください。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "团队更改已应用，但 cmux 未能在 10 秒内报告更新后的状态。请运行 `cmux auth status` 确认。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Teamänderung wurde übernommen, aber cmux hat den aktualisierten Status nicht innerhalb von 10 Sekunden gemeldet. Führe `cmux auth status` aus, um es zu prüfen."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le changement d’équipe a été appliqué, mais cmux n’a pas signalé le statut mis à jour dans les 10 secondes. Exécutez `cmux auth status` pour confirmer."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تم تطبيق تغيير الفريق، لكن cmux لم يُبلّغ عن الحالة المحدّثة خلال 10 ثوانٍ. شغّل `cmux auth status` للتأكيد."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El cambio de equipo se aplicó, pero cmux no informó el estado actualizado en 10 segundos. Ejecuta `cmux auth status` para confirmarlo."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "團隊變更已套用，但 cmux 未能在 10 秒內回報更新後的狀態。請執行 `cmux auth status` 確認。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "팀 변경은 적용되었지만 cmux가 10초 안에 업데이트된 상태를 보고하지 않았습니다. `cmux auth status`를 실행해 확인하세요."
+          }
+        }
+      }
+    },
     "socket.authTeam.failed": {
       "extractionState": "manual",
       "localizations": {

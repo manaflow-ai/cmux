@@ -91,15 +91,36 @@ extension TerminalController {
                 message: String(localized: "socket.authTeam.signedOut", defaultValue: "Sign in to manage teams.")
             )
         }
+        // The mutation and the post-mutation status read have separate error
+        // boundaries: once `action` returns, the team change is committed and
+        // must never be reported as a failure the client could retry (a
+        // retried create would make a duplicate team).
         do {
             try await action(flow)
-            return v2Ok(id: id, result: try await v2AuthTeamStatusPayloadAsync())
         } catch {
             authTeamLog.error("team mutation failed: \(String(describing: error), privacy: .private)")
             return v2Error(
                 id: id,
                 code: "team_selection_failed",
                 message: v2AuthTeamUserMessage(error)
+            )
+        }
+        do {
+            return v2Ok(id: id, result: try await v2AuthTeamStatusPayloadAsync())
+        } catch is SocketMainActorHopTimeout {
+            return v2Error(
+                id: id,
+                code: "timeout",
+                message: String(
+                    localized: "socket.authTeam.committedStatusTimedOut",
+                    defaultValue: "The team change was applied, but cmux did not report the updated status within 10 seconds. Run `cmux auth status` to confirm."
+                ),
+                data: [
+                    "retryable": false,
+                    "committed": true,
+                    "deadline_ms": Self.socketMainActorHopDeadlineMilliseconds,
+                    "stage": "main_actor",
+                ]
             )
         }
     }

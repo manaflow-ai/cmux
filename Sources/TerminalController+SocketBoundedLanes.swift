@@ -218,13 +218,28 @@ extension TerminalController {
         )
     }
 
-    /// The legacy-shaped timeout result for the synchronous in-process lane's
-    /// `v2AsyncResultCall` bridges, which cannot tell whether the body ran.
-    nonisolated func socketMainHopTimeoutLegacyResult() -> V2CallResult {
-        .err(
-            code: "timeout",
-            message: Self.socketMainHopTimeoutMessage(retryable: false),
-            data: Self.socketMainHopTimeoutData(retryable: false).mapValues(\.foundationObject)
-        )
+    /// Runs a throwing async body for the synchronous in-process lane's
+    /// `v2AsyncResultCall` bridges and maps its failure precisely: only a
+    /// ``SocketMainActorHopTimeout`` becomes the `timeout` result (with the
+    /// hop's real `retryable`), cancellation is reported as such, and any
+    /// other error keeps its own identity instead of masquerading as a
+    /// main-thread stall.
+    nonisolated func socketLegacyMainHopBridge(
+        _ body: () async throws -> V2CallResult
+    ) async -> V2CallResult {
+        do {
+            return try await body()
+        } catch let timeout as SocketMainActorHopTimeout {
+            return .err(
+                code: "timeout",
+                message: Self.socketMainHopTimeoutMessage(retryable: timeout.retryable),
+                data: Self.socketMainHopTimeoutData(retryable: timeout.retryable)
+                    .mapValues(\.foundationObject)
+            )
+        } catch is CancellationError {
+            return .err(code: "cancelled", message: "Request was cancelled", data: nil)
+        } catch {
+            return .err(code: "request_error", message: "Request failed before returning a result", data: nil)
+        }
     }
 }

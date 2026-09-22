@@ -1685,22 +1685,24 @@ class TerminalController {
             return v2Ok(id: request.id, result: v2CapabilitiesWithBrowserDesignMode(params: request.params))
         case "system.top":
             return v2AsyncResultCall(id: request.id, timeoutSeconds: 30) {
-                guard let response = try? await self.v2SystemTopAsync(ControlRequest(
-                    id: nil, method: "system.top", params: request.params.compactMapValues { JSONValue(foundationObject: $0) }
-                )) else {
-                    return self.socketMainHopTimeoutLegacyResult()
-                }
-                guard let typed = Self.controlCallResult(fromEncodedResponse: response) else {
-                    return .err(code: "internal_error", message: "Invalid system.top payload", data: nil)
-                }
-                switch typed {
-                case .ok(let value): return .ok(value.foundationObject)
-                case .err(let code, let message, let data): return .err(code: code, message: message, data: data?.foundationObject)
+                await self.socketLegacyMainHopBridge {
+                    let response = try await self.v2SystemTopAsync(ControlRequest(
+                        id: nil, method: "system.top", params: request.params.compactMapValues { JSONValue(foundationObject: $0) }
+                    ))
+                    guard let typed = Self.controlCallResult(fromEncodedResponse: response) else {
+                        return .err(code: "internal_error", message: "Invalid system.top payload", data: nil)
+                    }
+                    switch typed {
+                    case .ok(let value): return .ok(value.foundationObject)
+                    case .err(let code, let message, let data): return .err(code: code, message: message, data: data?.foundationObject)
+                    }
                 }
             }
         case "system.memory":
             return v2AsyncResultCall(id: request.id, timeoutSeconds: 30) {
-                (try? await self.v2SystemMemory(params: request.params)) ?? self.socketMainHopTimeoutLegacyResult()
+                await self.socketLegacyMainHopBridge {
+                    try await self.v2SystemMemory(params: request.params)
+                }
             }
         case "vault.sessions":
             return v2AsyncResultCall(id: request.id, timeoutSeconds: 30) {
