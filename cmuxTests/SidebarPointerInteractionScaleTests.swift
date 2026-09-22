@@ -491,8 +491,9 @@ final class SidebarIssue8373StressTests {
             }
 
             if iteration % 3 == 1,
-               let reorderTarget = harness.tabManager.tabs.reversed().first(where: {
-                   $0.groupId == nil && !contentTargets.contains(where: { $0.id == $0.id })
+               let reorderTarget = harness.tabManager.tabs.reversed().first(where: { candidate in
+                   candidate.groupId == nil
+                       && !contentTargets.contains(where: { $0.id == candidate.id })
                }) {
                 _ = harness.tabManager.reorderWorkspace(
                     tabId: reorderTarget.id,
