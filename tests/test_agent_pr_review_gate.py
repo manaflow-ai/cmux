@@ -122,7 +122,7 @@ class AgentPRReviewGateTests(unittest.TestCase):
 
         template = (root / ".github/pull_request_template.md").read_text(encoding="utf-8")
         self.assertIn("@greptileai review", template)
-        self.assertNotIn("@greptileai review", template)
+        self.assertNotIn("@greptile-apps review", template)
         self.assertIn("agent-pr-review-required", template)
         self.assertIn("requests Greptile automatically", template)
 
