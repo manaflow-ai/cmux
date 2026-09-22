@@ -254,67 +254,11 @@ public struct PushTabNavigationPreviewView: View {
     }
 }
 
-private struct PushTabNavigationPresentationModifier: ViewModifier {
-    let coordinator: MobilePushCoordinator
-    @State private var tabUnavailableAlert: MobilePushCoordinator.TabUnavailableAlert?
-
-    func body(content: Content) -> some View {
-        content
-            .onChange(of: coordinator.tabUnavailableAlert, initial: true) { _, alert in
-                tabUnavailableAlert = alert
-            }
-            .alert(item: $tabUnavailableAlert) { alert in
-                switch alert.kind {
-                case .tabUnavailable:
-                    Alert(
-                        title: Text(L10n.string(
-                            "mobile.push.tabUnavailable.title",
-                            defaultValue: "Tab unavailable"
-                        )),
-                        message: Text(L10n.string(
-                            "mobile.push.tabUnavailable.message",
-                            defaultValue: "This tab is no longer available on your Mac."
-                        )),
-                        dismissButton: .default(Text(L10n.string(
-                            "mobile.common.ok",
-                            defaultValue: "OK"
-                        ))) {
-                            coordinator.dismissTabUnavailableAlert()
-                        }
-                    )
-                case .connectionUnavailable:
-                    Alert(
-                        title: Text(L10n.string(
-                            "mobile.push.connectionUnavailable.title",
-                            defaultValue: "Connection unavailable"
-                        )),
-                        message: Text(L10n.string(
-                            "mobile.push.connectionUnavailable.message",
-                            defaultValue: "We’ll keep this notification ready until your Mac reconnects."
-                        )),
-                        primaryButton: .default(Text(L10n.string(
-                            "mobile.push.connectionUnavailable.retry",
-                            defaultValue: "Try again"
-                        ))) {
-                            coordinator.retryPendingDeeplink()
-                        },
-                        secondaryButton: .cancel(Text(L10n.string(
-                            "mobile.push.connectionUnavailable.keepWaiting",
-                            defaultValue: "Keep waiting"
-                        ))) {
-                            coordinator.dismissTabUnavailableAlert()
-                        }
-                    )
-                }
-            }
-    }
-}
-
 private extension View {
     func pushTabNavigationPresentation(
         coordinator: MobilePushCoordinator
     ) -> some View {
-        modifier(PushTabNavigationPresentationModifier(coordinator: coordinator))
+        mobilePushAlertPresentation(coordinator: coordinator)
     }
 }
 #endif
