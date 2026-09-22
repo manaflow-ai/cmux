@@ -8,6 +8,8 @@ on:
       - .github/workflows/ci-macos.yml
       - workers/ci-artifacts/**
       - scripts/ci/restore-r2-artifact.py
+      - scripts/ci/parallel_artifact_download.py
+      - tests/test_ci_parallel_artifact_transport.py
       - scripts/ci/node_product_cache.py
       - scripts/ci/peer_product_source.py
       - scripts/ci/app-host-products-archive.sh
@@ -30,6 +32,8 @@ on:
       - .github/workflows/ci-artifact-transport.yml
       - workers/ci-artifacts/**
       - scripts/ci/restore-r2-artifact.py
+      - scripts/ci/parallel_artifact_download.py
+      - tests/test_ci_parallel_artifact_transport.py
       - scripts/ci/node_product_cache.py
       - scripts/ci/peer_product_source.py
       - scripts/ci/restore-app-host-test-product.sh
@@ -96,6 +100,7 @@ jobs:
           python3 tests/test_app_host_layered_products.py
           bash tests/test_app_host_products_archive.sh
           python3 tests/test_ci_selective_layer_wiring.py
+          python3 tests/test_ci_parallel_artifact_transport.py
       - name: Install local Worker test tools
         if: steps.worker.outputs.run == 'true'
         working-directory: workers/ci-artifacts

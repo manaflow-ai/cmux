@@ -2953,12 +2953,16 @@ def test_product_restore_receipt_binds_immutable_product_identity() -> None:
         assert field in script
 
 
-def test_compiled_product_source_order_is_local_peer_r2_github() -> None:
+def test_compiled_product_source_order_is_local_peer_r2_parallel_github() -> None:
     for job_name in ("app-host-unit-tests", "tests-build-and-lag"):
         block = workflow_job_block(job_name, MACOS_WORKFLOW)
         assert block.index("Try node-local compiled product cache") < block.index("Try trusted fleet peer artifact source")
         assert block.index("Try trusted fleet peer artifact source") < block.index("Try shared R2 artifact transport")
-        assert block.index("Try shared R2 artifact transport") < block.index("Download compiled app-host test product")
+        assert block.index("Try shared R2 artifact transport") < block.index("Try parallel GitHub artifact transport")
+        assert block.index("Try parallel GitHub artifact transport") < block.index("Download compiled app-host test product")
+        download = block[block.index("      - name: Download compiled app-host test product"):]
+        download = download[:download.index("\n      - name:", 1)]
+        assert "steps.parallel-products.outputs.hit != 'true'" in download, job_name
 
 
 def test_r2_transport_is_an_explicit_optional_remote_broker() -> None:
