@@ -783,6 +783,30 @@ class WarmSlotTest(unittest.TestCase):
         self.assertEqual(final_cleanup["reason"], "cleanup_generation_path_confusion")
         self.assertEqual(final_marker.read_text(), "keep")
 
+    def test_descriptor_cleanup_unlinks_symlink_without_touching_target(self):
+        layout = warm_slot.Layout(self.state.resolve(), "fd-cleanup-slot")
+        generation = "6" * 32
+        retired = warm_slot.retired_cold_task_root(layout, generation)
+        retired.mkdir(parents=True)
+        nested = retired / "nested"
+        nested.mkdir()
+        (nested / "fixture.bin").write_bytes(b"x")
+
+        outside = self.root / "fd-cleanup-outside"
+        outside.mkdir()
+        marker = outside / "marker"
+        marker.write_text("keep")
+        (retired / "escape").symlink_to(outside, target_is_directory=True)
+
+        fd = os.open(retired, warm_slot._DIRECTORY_OPEN_FLAGS)
+        try:
+            warm_slot._remove_tree_contents_fd(fd)
+        finally:
+            os.close(fd)
+
+        self.assertEqual(marker.read_text(), "keep")
+        self.assertEqual(list(retired.iterdir()), [])
+
     def test_cleanup_budget_is_bounded_and_unknown_entries_are_preserved(self):
         layout = warm_slot.Layout(self.state, "slot")
         unknown = layout.retired_cold_tasks / "operator-data"
@@ -818,23 +842,23 @@ class WarmSlotTest(unittest.TestCase):
             (root / "fixture.bin").write_bytes(b"x")
 
         class FakeCleanup:
-            def __init__(self, root):
-                self.root = root
+            def __init__(self, generation):
+                self.generation = generation
                 self.pid = 2147483647
                 self.returncode = None
 
             def wait(self, timeout=None):
-                if self.root == removable:
-                    shutil.rmtree(self.root)
+                if self.generation == removable.name:
+                    (removable / "fixture.bin").unlink()
                     self.returncode = 0
                 else:
                     self.returncode = 1
                 return self.returncode
 
-        def launch(args, **_kwargs):
-            return FakeCleanup(Path(args[-1]))
+        def launch(_generation_fd, generation):
+            return FakeCleanup(generation)
 
-        with mock.patch.object(warm_slot.subprocess, "Popen", side_effect=launch):
+        with mock.patch.object(warm_slot, "_launch_cleanup_worker", side_effect=launch):
             result = warm_slot.cleanup_retired_cold_tasks(
                 layout,
                 max_generations=2,
@@ -881,8 +905,8 @@ class WarmSlotTest(unittest.TestCase):
         try:
             os.write(write_fd, b"1")
             with mock.patch.object(
-                warm_slot.subprocess,
-                "Popen",
+                warm_slot,
+                "_launch_cleanup_worker",
                 return_value=fake_cleanup,
             ):
                 with mock.patch.object(
