@@ -102,6 +102,23 @@ struct MobileViewportApplyGovernorTests {
         #expect(governor.request(.cap(columns: 46, rows: 37)) == .apply(.cap(columns: 46, rows: 37)))
     }
 
+    @Test func stagedKindSwitchAsksForRescheduleSoUncapGetsItsOwnWindow() {
+        // A cap change staged on the short window must not fast-track a clear
+        // that lands right behind it: the uncap re-arms the timer so it waits
+        // the uncap window from its own arrival (long enough for a remount's
+        // re-apply to cancel it).
+        var governor = MobileViewportApplyGovernor()
+        _ = governor.request(.cap(columns: 72, rows: 60))
+        #expect(
+            governor.request(.cap(columns: 65, rows: 57))
+                == .stage(.cap(columns: 65, rows: 57), scheduleFlush: true)
+        )
+        #expect(governor.request(.uncapped) == .stage(.uncapped, scheduleFlush: true))
+        #expect(governor.request(.cap(columns: 72, rows: 60)) == .drop)
+        #expect(governor.flush() == nil)
+        #expect(governor.applied == .cap(columns: 72, rows: 60))
+    }
+
     @Test func staleFlushAfterCancelledStageIsInert() {
         var governor = MobileViewportApplyGovernor()
         _ = governor.request(.cap(columns: 72, rows: 60))

@@ -52,17 +52,53 @@ struct MobileViewportApplyGovernor {
     private(set) var staged: Target?
     private(set) var flushScheduled = false
 
-    // NOTE: pre-governor behavior, kept for the red half of the regression
-    // pair: every landed report mutates the surface immediately, which is the
-    // resize storm this type exists to prevent.
     mutating func request(_ target: Target) -> Decision {
-        applied = target
-        return .apply(target)
+        if target == applied {
+            // The flap cancelled out (the remount clear+re-apply shape lands
+            // here). Any staged change is now moot; a pending timer fires as
+            // a no-op.
+            staged = nil
+            return .drop
+        }
+        if case .cap = target, applied == nil || applied == .uncapped {
+            // Cold attach: the replay fence needs the phone's grid applied
+            // before the replay is captured, so the first cap never waits.
+            staged = nil
+            applied = target
+            return .apply(target)
+        }
+        if target == .uncapped, applied == nil {
+            // Nothing was ever capped; there is nothing to restore.
+            staged = nil
+            return .drop
+        }
+        if target == staged {
+            return .drop
+        }
+        // Re-arm the timer when none is pending, and also when the staged
+        // target changes kind: an uncap must always get the uncap window from
+        // its own arrival (a short cap-change window must not fast-track a
+        // clear whose remount re-apply is still in flight).
+        let kindChanged: Bool
+        switch (staged, target) {
+        case (.cap, .uncapped), (.uncapped, .cap):
+            kindChanged = true
+        default:
+            kindChanged = false
+        }
+        let scheduleFlush = !flushScheduled || kindChanged
+        staged = target
+        flushScheduled = true
+        return .stage(target, scheduleFlush: scheduleFlush)
     }
 
     /// Called when the stability-window timer fires. Returns the target the
     /// owner must apply now, or nil when the flap cancelled out.
     mutating func flush() -> Target? {
-        nil
+        flushScheduled = false
+        defer { staged = nil }
+        guard let staged, staged != applied else { return nil }
+        applied = staged
+        return staged
     }
 }
