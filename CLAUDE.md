@@ -153,6 +153,24 @@ Rules that only matter in one part of the tree live next to that code. Read the 
 
 Follow [STYLE.md](STYLE.md) for issues, RFCs, PR descriptions, and progress updates. Lead with the concrete problem and resulting behavior, keep the explanation proportional, and distinguish proposed, implemented, and verified work.
 
+## Parallel sessions
+
+Several agent sessions work this repo at once and cannot see each other. They push through one GitHub account, so `author` and `mergedBy` name the account, never which session acted. Do not infer from them that a particular session opened, merged, or reviewed something, and do not report that to the user as fact.
+
+The failure mode is duplicate work, not merge conflicts. A shared observable — a red `main`, a failing required check — reaches every session at once, and each independently diagnoses it and opens a PR. On 2026-09-22 five PRs landed on one test function, `test_ci_executes_review_fabric_contracts`, in twenty-one minutes: #13785, #13788, #13800, #13801, #13802. Two of them were opened five seconds apart.
+
+Before `gh pr create`:
+
+1. `git fetch upstream` and re-check the defect against current `upstream/main`, not the commit in the report. Main moves several commits an hour, so a reported SHA is usually stale and often already fixed.
+2. `gh search prs --repo manaflow-ai/cmux --state open '<failing test or file>'`. Search the failing symbol, not your own PR title: sessions converge on the symbol and diverge on titles.
+3. Check for a session already on it (Claude Code: `ListAgents`) and message it before you push.
+
+Query `state` before acting on any PR. GitHub keeps serving `mergeable` and `mergeStateStatus` on closed and merged PRs, where they mean nothing; reading `CONFLICTING` off an already-merged PR has twice sent a session to resolve a conflict that did not exist.
+
+If the fix already exists, say so and stop. When a duplicate is already open, close yours in favour of the earlier one and move any genuine improvement to a comment on it — that costs less review attention than a second PR carrying one extra idea.
+
+Overlapping files are not evidence of a duplicate. #13754 and #13797 changed exactly the same two files and fixed different bugs — one made the seeder run on the pool that PR admission restores from, the other stopped it restoring its own last seed — and both merged. Read what each PR asserts, and if they look compatible, merge one into the other locally and run the shared test before proposing that either close.
+
 ## Regression test commits
 
 Two commits, so CI proves the test catches the bug: commit 1 adds the failing test only (CI red), commit 2 adds the fix (CI green). This is visible in the PR Commits tab.
