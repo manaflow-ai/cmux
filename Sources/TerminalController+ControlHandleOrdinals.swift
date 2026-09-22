@@ -69,9 +69,11 @@ final class ControlHandleOrdinalDefaultsStore: @unchecked Sendable {
         var upperBound = reservedUpperBounds[kind] ?? max(migrationFloor, nextOrdinal)
         guard nextOrdinal >= upperBound else { return }
 
-        repeat {
-            upperBound = advancedReservation(from: upperBound)
-        } while nextOrdinal >= upperBound
+        while nextOrdinal >= upperBound {
+            let advanced = advancedReservation(from: upperBound)
+            guard advanced > upperBound else { break }
+            upperBound = advanced
+        }
 
         reservedUpperBounds[kind] = upperBound
         defaults.set(upperBound, forKey: Self.defaultsKey(for: kind))
