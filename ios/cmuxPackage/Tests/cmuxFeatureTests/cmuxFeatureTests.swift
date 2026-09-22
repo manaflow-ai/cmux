@@ -4237,9 +4237,9 @@ struct InertPushRegistration: PushRegistering {
     #expect(store.selectedTerminalID == MobileTerminalPreview.ID(rawValue: "terminal-notes"))
 }
 
-/// A parked tap expires: navigating minutes later would yank the user out of
-/// whatever they moved on to.
-@Test @MainActor func notificationTapExpiresInsteadOfNavigatingLate() async throws {
+/// A parked tap remains recoverable after the deadline while its Mac is still
+/// disconnected. The deadline cannot prove that the tab was deleted.
+@Test @MainActor func notificationTapRemainsRecoverableWhileDisconnected() async throws {
     nonisolated(unsafe) var currentTime = Date(timeIntervalSince1970: 1_000_000)
     let coordinator = MobilePushCoordinator(
         registration: InertPushRegistration(),
@@ -4248,13 +4248,18 @@ struct InertPushRegistration: PushRegistering {
     coordinator.handleTap(workspaceId: "workspace-docs", surfaceId: "terminal-notes")
 
     currentTime = currentTime.addingTimeInterval(121)
-    let store = deeplinkTestStore()
+    let store = deeplinkTestStore(connectionState: .disconnected)
     store.replaceForegroundWorkspaceState(PreviewMobileHost.workspaces)
     coordinator.bind(store: store)
 
     #expect(store.selectedWorkspaceID == nil)
     #expect(store.selectedTerminalID == nil)
-    #expect(coordinator.tabUnavailableAlert != nil)
+    #expect(coordinator.tabUnavailableAlert == nil)
+
+    store.connectionState = .connected
+    coordinator.workspacesDidChange()
+    #expect(store.selectedWorkspaceID == MobileWorkspacePreview.ID(rawValue: "workspace-docs"))
+    #expect(store.selectedTerminalID == MobileTerminalPreview.ID(rawValue: "terminal-notes"))
 }
 
 /// A tap received while its Mac is disconnected must stay parked. Once the

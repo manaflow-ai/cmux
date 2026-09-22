@@ -116,7 +116,8 @@ public final class MobilePushCoordinator {
     /// mounted (no store bound yet), and even once bound the tapped workspace
     /// is not in the store until the Mac attach finishes. The tap is parked
     /// here and re-applied from ``bind(store:)`` and ``workspacesDidChange()``
-    /// until the target exists or the request expires.
+    /// until the target exists. A delayed recheck cannot prove deletion while
+    /// the owning Mac is unavailable, so the request remains recoverable.
     private struct PendingDeeplink {
         let id: UUID
         let workspaceId: String?
@@ -124,19 +125,17 @@ public final class MobilePushCoordinator {
         let macDeviceId: String?
         let macInstanceTag: String?
         let retargetsToLiveSurfaceOwner: Bool
-        let createdAt: Date
     }
 
     @ObservationIgnored private var pendingDeeplink: PendingDeeplink?
-    @ObservationIgnored private var pendingDeeplinkExpiryTask: Task<Void, Never>?
+    @ObservationIgnored private var pendingDeeplinkRecheckTask: Task<Void, Never>?
     /// Set when a tapped terminal is proven unavailable after the connection
     /// is ready. It remains observable so a cold-launch tap can present the
     /// alert after the root mounts.
     public private(set) var tabUnavailableAlert: TabUnavailableAlert?
-    /// Bounded so a tap from long ago cannot yank the user out of whatever
-    /// they navigated to in the meantime, but generous enough to cover cold
-    /// launch plus sign-in plus a slow attach.
-    private static let pendingDeeplinkLifetime: TimeInterval = 120
+    /// Delayed recheck interval for cold launch and slow attach. It is not a
+    /// deletion deadline because an unavailable Mac cannot prove a tab is gone.
+    private static let pendingDeeplinkRecheckDelay: Duration = .seconds(120)
     @ObservationIgnored private let now: () -> Date
     @ObservationIgnored private var pendingReplyState = PendingReplyState()
     @ObservationIgnored private var replySendInFlight = false
@@ -1045,17 +1044,16 @@ public final class MobilePushCoordinator {
     ) {
         diagnosticLog?.recordAppEvent(.pushTapped)
         tabUnavailableAlert = nil
-        pendingDeeplinkExpiryTask?.cancel()
+        pendingDeeplinkRecheckTask?.cancel()
         pendingDeeplink = PendingDeeplink(
             id: UUID(),
             workspaceId: workspaceId,
             surfaceId: surfaceId,
             macDeviceId: macDeviceId,
             macInstanceTag: macInstanceTag,
-            retargetsToLiveSurfaceOwner: retargetsToLiveSurfaceOwner,
-            createdAt: now()
+            retargetsToLiveSurfaceOwner: retargetsToLiveSurfaceOwner
         )
-        schedulePendingDeeplinkExpiry()
+        schedulePendingDeeplinkRecheck()
         diagnosticLog?.recordAppEvent(.pushDeeplinkParked)
         applyPendingDeeplinkIfReady()
     }
@@ -1125,27 +1123,9 @@ public final class MobilePushCoordinator {
     private func applyPendingDeeplinkIfReady() {
         guard let pending = pendingDeeplink else { return }
         guard let store else {
-            // Keep the original bounded cold-launch guard while the scene has
-            // not mounted yet. Once a store exists, an inactive connection must
-            // not consume the tap or turn a recoverable outage into a false
-            // "tab unavailable" alert.
-            guard now().timeIntervalSince(pending.createdAt) < Self.pendingDeeplinkLifetime else {
-                clearPendingDeeplink()
-                diagnosticLog?.recordAppEvent(.pushDeeplinkExpired, failure: .timedOut)
-                analytics.capture("ios_push_deeplink_failed", ["reason": .string("expired")])
-                presentTabUnavailableAlert()
-                return
-            }
-            return
-        }
-        guard now().timeIntervalSince(pending.createdAt) < Self.pendingDeeplinkLifetime else {
-            clearPendingDeeplink()
-            diagnosticLog?.recordAppEvent(
-                .pushDeeplinkExpired,
-                failure: .timedOut
-            )
-            analytics.capture("ios_push_deeplink_failed", ["reason": .string("expired")])
-            presentTabUnavailableAlert()
+            // A cold-launch tap remains parked until the shell mounts. There
+            // is no authoritative Mac snapshot yet, so expiry cannot prove
+            // that the target tab was deleted.
             return
         }
         guard pending.retargetsToLiveSurfaceOwner || pending.workspaceId != nil else {
@@ -1263,23 +1243,24 @@ public final class MobilePushCoordinator {
 
     private func clearPendingDeeplink() {
         pendingDeeplink = nil
-        pendingDeeplinkExpiryTask?.cancel()
-        pendingDeeplinkExpiryTask = nil
+        pendingDeeplinkRecheckTask?.cancel()
+        pendingDeeplinkRecheckTask = nil
     }
 
-    private func schedulePendingDeeplinkExpiry() {
-        pendingDeeplinkExpiryTask?.cancel()
+    private func schedulePendingDeeplinkRecheck() {
+        pendingDeeplinkRecheckTask?.cancel()
         guard let pendingID = pendingDeeplink?.id else { return }
-        pendingDeeplinkExpiryTask = Task { @MainActor [weak self] in
+        pendingDeeplinkRecheckTask = Task { @MainActor [weak self] in
             do {
                 try await ContinuousClock().sleep(
-                    for: .seconds(Int64(Self.pendingDeeplinkLifetime))
+                    for: Self.pendingDeeplinkRecheckDelay
                 )
             } catch {
                 return
             }
             guard let self,
                   self.pendingDeeplink?.id == pendingID else { return }
+            self.pendingDeeplinkRecheckTask = nil
             self.applyPendingDeeplinkIfReady()
         }
     }
