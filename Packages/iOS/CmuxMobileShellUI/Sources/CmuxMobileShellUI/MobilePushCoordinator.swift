@@ -1212,6 +1212,11 @@ public final class MobilePushCoordinator {
             guard isWorkspaceConnectionReady(store.workspaces.first { $0.id == workspaceTarget }) else {
                 return
             }
+            // A connected transport can still expose the previous snapshot
+            // while recovery is completing. Do not turn that stale miss into
+            // a permanent unavailable alert until the workspace list is
+            // authoritative for this connection.
+            guard store.workspaceListIsAuthoritative else { return }
             if !pending.retargetsToLiveSurfaceOwner,
                let liveOwner = store.workspaceID(
                    containingSurfaceID: surfaceId,
@@ -1260,25 +1265,31 @@ public final class MobilePushCoordinator {
         _ pending: PendingDeeplink,
         store: CMUXMobileShellStore
     ) -> Bool {
-        let candidate = store.workspaces.first { workspace in
-            let workspaceMatches = pending.workspaceId.map {
-                workspace.rpcWorkspaceID.rawValue == $0
-            } ?? false
-            let surfaceMatches = pending.surfaceId.map { surfaceID in
-                workspace.terminals.contains { terminal in
-                    terminal.id.rawValue == surfaceID
-                } || workspace.surfaces.contains { surface in
-                    surface.id.rawValue == surfaceID
-                }
-            } ?? false
-            let deviceMatches = pending.macDeviceId == nil
-                || workspace.macDeviceID == pending.macDeviceId
-            return deviceMatches && (workspaceMatches || surfaceMatches)
+        let resolvedWorkspaceID: MobileWorkspacePreview.ID?
+        if let workspaceId = pending.workspaceId {
+            resolvedWorkspaceID = store.workspaceID(
+                matchingRemoteWorkspaceID: workspaceId,
+                macDeviceID: pending.macDeviceId,
+                instanceTag: pending.macInstanceTag
+            )
+        } else if let surfaceId = pending.surfaceId {
+            resolvedWorkspaceID = store.workspaceID(
+                containingSurfaceID: surfaceId,
+                macDeviceID: pending.macDeviceId,
+                instanceTag: pending.macInstanceTag
+            )
+        } else {
+            return false
         }
-        if let status = candidate?.macConnectionStatus {
-            return status == .connected
+        guard let resolvedWorkspaceID else {
+            // An authoritative connected list can prove that the target
+            // workspace is gone, allowing the caller to present its alert.
+            return store.workspaceListIsAuthoritative
         }
-        return store.connectionState == .connected
+        guard let workspace = store.workspaces.first(where: { $0.id == resolvedWorkspaceID }) else {
+            return false
+        }
+        return isWorkspaceConnectionReady(workspace)
     }
 
     private func presentTabUnavailableAlert() {
