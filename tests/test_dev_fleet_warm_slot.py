@@ -5,6 +5,7 @@ import json
 import os
 from pathlib import Path
 import signal
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -592,6 +593,49 @@ class WarmSlotTest(unittest.TestCase):
         self.assertFalse(valid.exists())
         self.assertEqual(marker.read_text(), "keep")
 
+    def test_cleanup_failure_does_not_block_later_generation(self):
+        layout = warm_slot.Layout(self.state, "slot")
+        failed = warm_slot.retired_cold_task_root(layout, "d" * 32)
+        removable = warm_slot.retired_cold_task_root(layout, "e" * 32)
+        for root in (failed, removable):
+            root.mkdir(parents=True)
+            (root / "fixture.bin").write_bytes(b"x")
+
+        class FakeCleanup:
+            def __init__(self, root):
+                self.root = root
+                self.pid = 2147483647
+                self.returncode = None
+
+            def wait(self, timeout=None):
+                if self.root == removable:
+                    shutil.rmtree(self.root)
+                    self.returncode = 0
+                else:
+                    self.returncode = 1
+                return self.returncode
+
+        def launch(args, **_kwargs):
+            return FakeCleanup(Path(args[-1]))
+
+        with mock.patch.object(warm_slot.subprocess, "Popen", side_effect=launch):
+            result = warm_slot.cleanup_retired_cold_tasks(
+                layout,
+                max_generations=2,
+            )
+
+        self.assertEqual(result["status"], "reclaimed")
+        self.assertEqual(result["reclaimed"], 1)
+        self.assertTrue(failed.exists())
+        self.assertFalse(removable.exists())
+        self.assertIn(
+            {
+                "cold_task_generation_id": failed.name,
+                "reason": "cleanup_failed",
+            },
+            result["failures"],
+        )
+
     def test_background_cleanup_yields_to_foreground_signal(self):
         layout = warm_slot.Layout(self.state, "slot")
         generation = "b" * 32
@@ -601,24 +645,40 @@ class WarmSlotTest(unittest.TestCase):
 
         class FakeCleanup:
             pid = 2147483647
-            returncode = None
 
-            def poll(self):
-                return None
+            def __init__(self):
+                self.returncode = None
+                self.finished = threading.Event()
 
             def wait(self, timeout=None):
+                self.finished.wait(timeout)
+                if not self.finished.is_set():
+                    raise subprocess.TimeoutExpired(["/bin/rm"], timeout)
                 self.returncode = -signal.SIGTERM
                 return self.returncode
 
+            def finish(self, _pid, _signal):
+                self.finished.set()
+
+        fake_cleanup = FakeCleanup()
         read_fd, write_fd = os.pipe()
         try:
             os.write(write_fd, b"1")
-            with mock.patch.object(warm_slot.subprocess, "Popen", return_value=FakeCleanup()):
-                result = warm_slot.cleanup_retired_cold_tasks(
-                    layout,
-                    preempt_fd=read_fd,
-                    max_generations=1,
-                )
+            with mock.patch.object(
+                warm_slot.subprocess,
+                "Popen",
+                return_value=fake_cleanup,
+            ):
+                with mock.patch.object(
+                    warm_slot.os,
+                    "killpg",
+                    side_effect=fake_cleanup.finish,
+                ):
+                    result = warm_slot.cleanup_retired_cold_tasks(
+                        layout,
+                        preempt_fd=read_fd,
+                        max_generations=1,
+                    )
         finally:
             os.close(read_fd)
             os.close(write_fd)
