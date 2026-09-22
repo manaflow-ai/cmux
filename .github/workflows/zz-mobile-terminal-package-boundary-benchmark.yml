@@ -98,16 +98,16 @@ jobs:
           swift_compile_count="$(grep -c $'\tSwiftCompile normal ' benchmark-artifact/after.log || true)"
           swift_emit_count="$(grep -c $'\tSwiftEmitModule normal ' benchmark-artifact/after.log || true)"
           planning_seconds="$(python3 - <<'PY'
-from pathlib import Path
-for line in Path("benchmark-artifact/after.log").read_text(errors="replace").splitlines():
-    stamp, _, rest = line.partition("\t")
-    if rest.startswith(("SwiftCompile normal ", "SwiftEmitModule normal ")):
-        print(stamp)
-        break
-else:
-    print("")
-PY
-)"
+          from pathlib import Path
+          for line in Path("benchmark-artifact/after.log").read_text(errors="replace").splitlines():
+              stamp, _, rest = line.partition("\t")
+              if rest.startswith(("SwiftCompile normal ", "SwiftEmitModule normal ")):
+                  print(stamp)
+                  break
+          else:
+              print("")
+          PY
+          )"
           grep -F 'SwiftEmitModule' benchmark-artifact/after.log \
             > benchmark-artifact/after-emit-module-lines.txt || true
           grep -F 'Build Timing Summary' -A 80 benchmark-artifact/after.log \
