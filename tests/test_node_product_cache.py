@@ -550,6 +550,79 @@ class NodeProductCacheTests(unittest.TestCase):
         self.assertGreaterEqual(len(timeouts), 2)
         self.assertGreater(timeouts[0], timeouts[-1])
 
+    def test_peer_transfer_rearms_deadline_before_each_underlying_receive(self):
+        destination = Path(self.temp.name) / "peer-receive-deadline.tar.gz"
+        clock = {"now": 0.0}
+        timeouts = []
+
+        class FakeSocket:
+            def settimeout(self, value):
+                timeouts.append(value)
+
+        class FakeResponse:
+            status = 200
+
+            def __init__(self):
+                self.chunks = [b"a", b"b"]
+
+            def getheader(self, name, default=None):
+                if name == "Content-Length":
+                    return "2"
+                return default
+
+            def read(self, _size=-1):
+                raise AssertionError("buffered response.read must not own the peer deadline")
+
+            def read1(self, _size=-1):
+                clock["now"] += 0.6
+                if self.chunks:
+                    return self.chunks.pop(0)
+                return b""
+
+        class FakeConnection:
+            def __init__(self):
+                self.timeout = 1.0
+                self.sock = FakeSocket()
+                self.response = FakeResponse()
+
+            def request(self, *_args, **_kwargs):
+                return None
+
+            def getresponse(self):
+                return self.response
+
+            def close(self):
+                return None
+
+        connection = FakeConnection()
+        with mock.patch.object(
+            peer.time,
+            "monotonic",
+            side_effect=lambda: clock["now"],
+        ):
+            with mock.patch.object(
+                peer,
+                "_connection",
+                return_value=(connection, "peer.example"),
+            ):
+                with self.assertRaisesRegex(
+                    peer.PeerUnavailable,
+                    "deadline exceeded",
+                ):
+                    peer.transfer_http(
+                        peer.PeerSource("https://peer.example"),
+                        "a" * 64,
+                        "read-token",
+                        destination,
+                        2,
+                        timeout=1.0,
+                    )
+
+        self.assertEqual(destination.read_bytes(), b"ab")
+        self.assertGreaterEqual(len(timeouts), 2)
+        self.assertGreater(timeouts[0], timeouts[-1])
+
+
     def test_peer_server_bounds_client_time_and_active_requests(self):
         server = peer.PeerHTTPServer(
             ("127.0.0.1", 0),
