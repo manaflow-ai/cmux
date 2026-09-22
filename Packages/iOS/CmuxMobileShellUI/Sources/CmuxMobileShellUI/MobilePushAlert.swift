@@ -1,9 +1,8 @@
 #if os(iOS)
 import Foundation
 
-public extension MobilePushCoordinator {
-    /// A user-facing result for a notification tap that could not navigate.
-    struct TabUnavailableAlert: Identifiable, Equatable, Sendable {
+/// A user-facing result for a notification tap that could not navigate.
+public struct MobilePushTabUnavailableAlert: Identifiable, Equatable, Sendable {
         /// The kind of recovery action the alert offers.
         public enum Kind: Equatable, Sendable {
             /// The requested workspace or terminal no longer exists.
@@ -22,6 +21,10 @@ public extension MobilePushCoordinator {
             self.id = id
             self.kind = kind
         }
-    }
+}
+
+public extension MobilePushCoordinator {
+    /// The alert type exposed by the push coordinator.
+    typealias TabUnavailableAlert = MobilePushTabUnavailableAlert
 }
 #endif

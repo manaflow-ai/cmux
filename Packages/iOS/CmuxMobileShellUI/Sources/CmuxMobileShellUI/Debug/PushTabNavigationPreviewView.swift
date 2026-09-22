@@ -25,37 +25,11 @@ public struct PushTabNavigationPreviewView: View {
         "mobile.push.preview.ready",
         defaultValue: "Ready for a notification tap"
     )
-    @State private var targetState: TargetState = .home
+    @State private var targetState: PushTabNavigationPreviewTargetState = .home
 
     private let browserStore = BrowserSurfaceStore()
     private let browserStreamStore = BrowserStreamStore()
     private let simulatorStreamStore = MobileSimulatorStreamStore()
-
-    private enum TargetState: Equatable {
-        case home
-        case connected
-        case missingTab
-        case missingWorkspace
-
-        var targetLabel: String {
-            switch self {
-            case .home:
-                return L10n.string("mobile.push.preview.home", defaultValue: "Home")
-            case .connected:
-                return L10n.string("mobile.push.preview.notes", defaultValue: "Notes")
-            case .missingTab:
-                return L10n.string(
-                    "mobile.push.preview.notesRemoved",
-                    defaultValue: "Notes tab removed"
-                )
-            case .missingWorkspace:
-                return L10n.string(
-                    "mobile.push.preview.docsRemoved",
-                    defaultValue: "Docs workspace removed"
-                )
-            }
-        }
-    }
 
     /// Creates the deterministic push-navigation preview fixture.
     public init() {
