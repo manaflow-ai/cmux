@@ -628,6 +628,7 @@ public final class DiagnosticLog: Sendable {
 }
 
 private final class TerminalTraceRateLimiter: @unchecked Sendable {
+    // Carve-out: the synchronous terminal event tap must admit/drop before queuing diagnostic work.
     private let lock = NSLock()
     private var windowStart: UInt64 = 0
     private var admitted = 0

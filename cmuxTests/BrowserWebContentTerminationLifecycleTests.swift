@@ -49,7 +49,15 @@ struct BrowserWebContentTerminationLifecycleTests {
         navigationDelegate.webViewWebContentProcessDidTerminate(panel.webView)
 
         #expect(panel.hasRecoverableWebContentTermination)
-        #expect(panel.webViewLifecycleTopPayload()["discard_blockers"] as? [String] == ["webcontent_recovery"])
+        // Recovery starts a navigation immediately, so the loading blocker is
+        // expected alongside the required web-content recovery blocker until
+        // that navigation settles.
+        #expect(
+            panel.webViewLifecycleTopPayload()["discard_blockers"] as? [String] == [
+                "webcontent_recovery",
+                "loading",
+            ]
+        )
         #expect(!panel.discardHiddenWebViewForMemory(reason: "test.hidden_timer"))
     }
 

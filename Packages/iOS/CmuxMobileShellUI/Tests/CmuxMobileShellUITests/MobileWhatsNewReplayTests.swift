@@ -39,10 +39,12 @@ import Testing
         defer { defaults.removePersistentDomain(forName: suite) }
         let center = MobileWhatsNewCenter(apiBaseURL: "https://cmux.test", buildType: .beta, defaults: defaults)
         let before = center.unseenPages.map(\.listID)
+        let firstID = try #require(before.first)
+        let lastID = try #require(before.last)
         let replay = try #require(MobileWhatsNewReplay(
             pages: center.archivePages,
-            firstID: try #require(before.first),
-            lastID: try #require(before.last)
+            firstID: firstID,
+            lastID: lastID
         ))
         #expect(!replay.pages.isEmpty)
         #expect(center.unseenPages.map(\.listID) == before)

@@ -5,7 +5,7 @@ on:
   workflow_dispatch:
     inputs:
       ref:
-        description: Branch or SHA to test
+        description: Branch, tag, full SHA, or short SHA to test
         required: false
         default: ""
       test_filter:
@@ -48,11 +48,17 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  resolve-ref:
+    uses: ./.github/workflows/resolve-dispatch-ref.yml
+    with:
+      ref: ${{ inputs.ref }}
+
   e2e:
+    needs: resolve-ref
     runs-on: ${{ (!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15') || inputs.runner }}
     timeout-minutes: ${{ fromJSON(inputs.job_timeout || '20') }}
     env:
-      TEST_REF: ${{ inputs.ref || github.ref }}
+      TEST_REF: ${{ needs.resolve-ref.outputs.sha }}
       CMUX_CI_MAX_MACOS_SDK_MAJOR: "26"
     steps:
       - name: Validate Tart canary identity
@@ -89,7 +95,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          ref: ${{ inputs.ref || github.ref }}
+          ref: ${{ needs.resolve-ref.outputs.sha }}
           submodules: recursive
 
       - name: Capture SHA
@@ -456,11 +462,12 @@ jobs:
           fi
 
           set +e
-          # Stream xcodebuild output into the live job log (and a file for the
-          # summary parsing below). The previous buffered capture lost all
-          # build/test output whenever the job hit its timeout mid-run.
-          "${RUN_XCODEBUILD[@]}" "${XCODEBUILD_CMD[@]}" 2>&1 | tee /tmp/xcodebuild-e2e.log
-          EXIT_CODE=${PIPESTATUS[0]}
+          # Keep the tested command on a regular file descriptor. The capture
+          # helper owns the live log tail, so a detached test descendant cannot
+          # keep this job alive after xcodebuild exits.
+          bash scripts/ci/run-and-capture.sh /tmp/xcodebuild-e2e.log \
+            "${RUN_XCODEBUILD[@]}" "${XCODEBUILD_CMD[@]}"
+          EXIT_CODE=$?
           set -e
           OUTPUT=$(cat /tmp/xcodebuild-e2e.log)
 

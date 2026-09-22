@@ -26,10 +26,13 @@ EXTRA_INPUTS = {
 # toolchain and GhosttyKit revision. A change to any of these selects everything.
 GLOBAL_INPUTS = (
     ".github/workflows/ci.yml",
+    ".github/workflows/ci-macos.yml",
     "scripts/build-ghostty-cli-helper.sh",
+    "scripts/ci/release-build-archs.sh",
     "scripts/ci/run-swift-testing-suites.sh",
     "scripts/ci/run_with_timeout.py",
     "scripts/ci/select_package_tests.py",
+    "scripts/ci/verify-binary-archs.sh",
     "scripts/download-prebuilt-ghosttykit.sh",
     "scripts/install-rust-ci.sh",
     "scripts/install-zig-ci.sh",

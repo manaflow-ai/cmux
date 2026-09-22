@@ -30,7 +30,29 @@ import Testing
             now: { Self.fixedNow },
             supportedRouteKinds: [.iroh, .tailscale]
         )
-        let store = makeStore(runtime: runtime, connectionMethod: method)
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let pairedMacStore = try MobilePairedMacStore(
+            databaseURL: directory.appendingPathComponent("paired-macs.sqlite3")
+        )
+        try await pairedMacStore.upsert(
+            macDeviceID: "test-mac",
+            displayName: "Test Mac",
+            routes: [try tailscaleRoute()],
+            instanceTag: "default",
+            markActive: true,
+            stackUserID: "phone-user",
+            now: Self.fixedNow
+        )
+        try await pairedMacStore.setConnectionMethod(
+            macDeviceID: "test-mac",
+            instanceTag: "default",
+            rawValue: method.rawValue,
+            stackUserID: "phone-user"
+        )
+        let store = makeStore(runtime: runtime, pairedMacStore: pairedMacStore)
         store.pairingCode = currentQRCode()
 
         await store.connectPairingInput()
@@ -66,6 +88,12 @@ import Testing
             stackUserID: "phone-user",
             now: Self.fixedNow
         )
+        try await pairedMacStore.setConnectionMethod(
+            macDeviceID: "test-mac",
+            instanceTag: "default",
+            rawValue: MobileConnectionMethod.direct.rawValue,
+            stackUserID: "phone-user"
+        )
         let runtime = LivenessTestRuntime(
             transportFactory: factory,
             now: { Self.fixedNow },
@@ -73,8 +101,7 @@ import Testing
         )
         let store = makeStore(
             runtime: runtime,
-            pairedMacStore: pairedMacStore,
-            connectionMethod: .direct
+            pairedMacStore: pairedMacStore
         )
         store.pairingCode = currentQRCode()
 
@@ -206,6 +233,12 @@ import Testing
             stackUserID: "phone-user",
             now: Self.fixedNow
         )
+        try await pairedMacStore.setConnectionMethod(
+            macDeviceID: "test-mac",
+            instanceTag: "default",
+            rawValue: MobileConnectionMethod.tailscale.rawValue,
+            stackUserID: "phone-user"
+        )
         #expect(try await pairedMacStore.removeRouteIfAuthorized(
             macDeviceID: "test-mac",
             route: originalRoute,
@@ -222,8 +255,7 @@ import Testing
         )
         let store = makeStore(
             runtime: runtime,
-            pairedMacStore: pairedMacStore,
-            connectionMethod: .tailscale
+            pairedMacStore: pairedMacStore
         )
         store.pairingCode = currentQRCode()
 
@@ -360,22 +392,12 @@ import Testing
 
     private func makeStore(
         runtime: any MobileSyncRuntime,
-        pairedMacStore: (any MobilePairedMacStoring)? = nil,
-        connectionMethod: MobileConnectionMethod? = nil
+        pairedMacStore: (any MobilePairedMacStoring)? = nil
     ) -> MobileShellComposite {
-        let methodStore: MobileConnectionMethodStore? = connectionMethod.map { method in
-            let defaults = UserDefaults(
-                suiteName: "tailscale-pairing-regression-method-\(UUID().uuidString)"
-            )!
-            let store = MobileConnectionMethodStore(defaults: defaults)
-            store.method = method
-            return store
-        }
         return MobileShellComposite(
             runtime: runtime,
             isSignedIn: true,
             pairedMacStore: pairedMacStore,
-            connectionMethodStore: methodStore,
             identityProvider: StaticIdentityProvider(userID: "phone-user"),
             reachability: AlwaysOnlineReachability(),
             pairingHintDefaults: UserDefaults(
