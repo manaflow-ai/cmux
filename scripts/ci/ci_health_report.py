@@ -40,6 +40,7 @@ from __future__ import annotations
 import argparse
 import dataclasses
 import datetime as dt
+import gzip
 import json
 import os
 import sys
@@ -1051,6 +1052,10 @@ class GitHub:
             "Authorization": f"Bearer {token}",
             "X-GitHub-Api-Version": "2022-11-28",
             "User-Agent": "cmux-ci-health-report",
+            # A page of 100 workflow runs is well over a megabyte of JSON, and
+            # this job reads hundreds of pages. Asking for gzip cuts that by
+            # more than an order of magnitude on the wire.
+            "Accept-Encoding": "gzip",
         }
 
     def request(self, method: str, path: str, body: Any | None = None) -> Any:
@@ -1061,8 +1066,10 @@ class GitHub:
             headers["Content-Type"] = "application/json"
         request = urllib.request.Request(API + path, data=data, headers=headers, method=method)
         try:
-            with urllib.request.urlopen(request, timeout=30) as response:
+            with urllib.request.urlopen(request, timeout=60) as response:
                 raw = response.read()
+                if response.headers.get("Content-Encoding") == "gzip":
+                    raw = gzip.decompress(raw)
                 return json.loads(raw) if raw else {}
         except urllib.error.HTTPError as error:
             endpoint = path.split("?")[0]
