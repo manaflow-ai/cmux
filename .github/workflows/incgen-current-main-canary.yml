@@ -31,7 +31,7 @@ jobs:
 
   seed:
     needs: validate
-    runs-on: ${{ vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15' }}
+    runs-on: blacksmith-6vcpu-macos-15
     timeout-minutes: 75
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
@@ -115,7 +115,7 @@ jobs:
 
   benchmark:
     needs: seed
-    runs-on: ${{ vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15' }}
+    runs-on: blacksmith-6vcpu-macos-15
     timeout-minutes: 75
     strategy:
       fail-fast: false
