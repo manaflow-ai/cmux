@@ -150,6 +150,18 @@ extension ReconnectRouteSelectionTests {
             stackUserID: "user-1"
         )
         let pairedStore = try MobilePairedMacStore(databaseURL: databaseURL)
+        // Since #10437 the automatic (Iroh) method never falls back to raw
+        // routes; legacyMacWithoutIrohFailsClosedInsteadOfSendingBearerOverTCP
+        // covers that half. A pre-Iroh pairing continues over Tailscale once
+        // this Computer uses Tailscale Only, and only through the exact route
+        // its migrated grant names.
+        try await pairedStore.setConnectionMethod(
+            macDeviceID: "test-mac",
+            instanceTag: nil,
+            rawValue: MobileConnectionMethod.tailscale.rawValue,
+            stackUserID: "user-1",
+            teamID: nil
+        )
         let store = MobileShellComposite(
             runtime: runtime,
             isSignedIn: true,
