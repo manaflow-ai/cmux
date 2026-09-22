@@ -74,6 +74,25 @@ class BuildGraphHealthTests(unittest.TestCase):
         self.assertLess(args.index("--no-renames"), args.index(commit))
         self.assertLess(args.index(commit), args.index("--"))
 
+    def test_history_commit_count_uses_the_same_commit_anchored_window(self):
+        """Count every first-parent commit, including non-Swift repository work."""
+        commit = "c" * 40
+        with mock.patch.object(health, "git", return_value="12\n") as git:
+            count = health.history_commit_count(
+                30,
+                commit,
+                30 * 24 * 60 * 60,
+            )
+
+        self.assertEqual(count, 12)
+        git.assert_called_once_with(
+            "rev-list",
+            "--first-parent",
+            "--count",
+            "--since=1970-01-01T00:00:00+00:00",
+            commit,
+        )
+
     def test_ref_resolution_returns_commit_and_timestamp(self):
         commit = "b" * 40
         with mock.patch.object(
@@ -111,9 +130,17 @@ class BuildGraphHealthTests(unittest.TestCase):
             "Packages/macOS/CmuxGit/Sources/CmuxGit/Git.swift": 2,
             "CLI/CMUXCLI.swift": 1,
         })
-        data = health.summarize(files, touches, commits=7, days=30, top=10)
+        data = health.summarize(
+            files,
+            touches,
+            source_commits=7,
+            history_commits=11,
+            days=30,
+            top=10,
+        )
 
-        self.assertEqual(data["first_parent_commits"], 7)
+        self.assertEqual(data["first_parent_commits"], 11)
+        self.assertEqual(data["first_parent_source_commits"], 7)
         self.assertEqual(data["current_swift_files"]["by_owner"]["app"], 3)
         self.assertEqual(data["recent_swift_file_touches"]["total"], 11)
         self.assertEqual(data["recent_swift_file_touches"]["app"], 8)
@@ -134,7 +161,14 @@ class BuildGraphHealthTests(unittest.TestCase):
         self.assertEqual(touches["Sources/Mobile/Normal.swift"], 2)
 
     def test_zero_touch_window_is_well_defined(self):
-        data = health.summarize(["Sources/Foo.swift"], Counter(), commits=0, days=30, top=5)
+        data = health.summarize(
+            ["Sources/Foo.swift"],
+            Counter(),
+            source_commits=0,
+            history_commits=3,
+            days=30,
+            top=5,
+        )
         self.assertEqual(data["recent_swift_file_touches"]["total"], 0)
         self.assertEqual(data["recent_swift_file_touches"]["app_share"], 0.0)
 
