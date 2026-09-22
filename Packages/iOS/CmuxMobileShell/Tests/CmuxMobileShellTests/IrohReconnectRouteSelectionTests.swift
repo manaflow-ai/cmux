@@ -173,8 +173,18 @@ extension ReconnectRouteSelectionTests {
             )!
         )
         await store.loadPairedMacs()
+        for mac in store.pairedMacs {
+            Issue.record(
+                "PROBE mac=\(mac.macDeviceID) tag=\(String(describing: mac.instanceTag)) "
+                + "method=\(String(describing: mac.connectionMethodRawValue)) "
+                + "routes=\(mac.routes.map(\.kind)) "
+                + "grants=\(String(describing: mac.legacyTailscaleRoutes)) "
+                + "ordered=\(store.orderedReconnectRoutes(for: mac, supportedKinds: [.iroh, .tailscale]).map(\.kind))"
+            )
+        }
 
         #expect(await store.reconnectActiveMacIfAvailable(stackUserID: "user-1"))
+        Issue.record("PROBE error=\(String(describing: store.connectionError)) state=\(String(describing: store.connectionState)) status=\(String(describing: store.macConnectionStatus))")
         #expect(store.connectionState == .connected)
         #expect(factory.attemptedKinds() == [.tailscale])
         #expect(
