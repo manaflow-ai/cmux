@@ -32,7 +32,7 @@ public struct PushTabNavigationPreviewView: View {
     private let simulatorStreamStore = MobileSimulatorStreamStore()
 
     /// Creates the deterministic push-navigation preview fixture.
-    public init() {
+    @MainActor public init() {
         _store = State(initialValue: makePushTabNavigationPreviewStore(connectionState: .disconnected))
     }
 
@@ -219,7 +219,7 @@ public struct PushTabNavigationPreviewView: View {
     }
 }
 
-private func makePushTabNavigationPreviewStore(
+@MainActor private func makePushTabNavigationPreviewStore(
     connectionState: MobileConnectionState
 ) -> CMUXMobileShellStore {
     CMUXMobileShellStore(
