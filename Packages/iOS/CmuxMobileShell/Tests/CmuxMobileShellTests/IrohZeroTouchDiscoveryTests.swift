@@ -540,26 +540,14 @@ struct IrohZeroTouchDiscoveryTests {
 
     @Test
     func discoveredSecondaryCandidatesDialConcurrently() async throws {
-        let candidates = [
+        let candidates = try Array("12345678").enumerated().map { index, byte in
             try candidate(
-                deviceID: "shared-mac",
-                endpointByte: "a",
+                deviceID: "mac-\(index)",
+                endpointByte: byte,
                 instanceTag: "phand1",
-                routeID: "iroh-phand1"
-            ),
-            try candidate(
-                deviceID: "shared-mac",
-                endpointByte: "b",
-                instanceTag: "phand2",
-                routeID: "iroh-phand2"
-            ),
-            try candidate(
-                deviceID: "shared-mac",
-                endpointByte: "c",
-                instanceTag: "phand3",
-                routeID: "iroh-phand3"
-            ),
-        ]
+                routeID: "iroh-mac-\(index)"
+            )
+        }
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
         try FileManager.default.createDirectory(
@@ -579,14 +567,14 @@ struct IrohZeroTouchDiscoveryTests {
             )
             routers[candidate.routes[0].id] = router
         }
-        let secondRouter = try #require(routers["iroh-phand2"])
-        let thirdRouter = try #require(routers["iroh-phand3"])
-        // Park each discovered peer's dial at its first host-status exchange
-        // until released. The 30s pairing timeout is far beyond the poll
-        // window below, so a parked dial cannot time out and fake an
-        // overlapping second dial.
-        await secondRouter.delayHostStatusRequest(number: 1)
-        await thirdRouter.delayHostStatusRequest(number: 1)
+        let secondaryRouters = try candidates.dropFirst().map {
+            try #require(routers[$0.routes[0].id])
+        }
+        // Hold every background authentication. All seven must start before
+        // any can complete, proving neither discovery nor admission has a cap.
+        for router in secondaryRouters {
+            await router.delayHostStatusRequest(number: 1)
+        }
         let factory = RoutedZeroTouchFactory(routers: routers)
         let defaults = UserDefaults(
             suiteName: "iroh-concurrent-admission-\(UUID().uuidString)"
@@ -601,8 +589,7 @@ struct IrohZeroTouchDiscoveryTests {
             isSignedIn: true,
             pairedMacStore: store,
             buildCompatibilityPolicy: .development(
-                expectedInstanceTag: "phand1",
-                additionalInstanceTags: MobileMacTagAllowlist(tags: ["phand2", "phand3"])
+                expectedInstanceTag: "phand1"
             ),
             personalIrohDiscovery: ScriptedIrohDiscovery(
                 snapshots: [candidates]
@@ -633,22 +620,21 @@ struct IrohZeroTouchDiscoveryTests {
         await shell.loadPairedMacs()
 
         #expect(await shell.reconnectActiveMacIfAvailable(stackUserID: "user-1"))
-        // Serial admission never dials the third peer while the second one's
-        // host-status exchange is held; both dials held at once is the
-        // concurrency proof.
         #expect(
             try await pollUntil {
-                let secondHeld = await secondRouter.heldRequestCount()
-                let thirdHeld = await thirdRouter.heldRequestCount()
-                return secondHeld == 1 && thirdHeld == 1
+                for router in secondaryRouters {
+                    if await router.heldRequestCount() != 1 { return false }
+                }
+                return true
             },
-            "discovered candidates should dial concurrently"
+            "all seven discovered peers must dial before any completes"
         )
-        await secondRouter.releaseAllHeld()
-        await thirdRouter.releaseAllHeld()
+        for router in secondaryRouters {
+            await router.releaseAllHeld()
+        }
         #expect(try await pollUntil {
-            shell.liveMacConnections.count == 3
-                && shell.pairedMacs.count == 3
+            shell.liveMacConnections.count == candidates.count
+                && shell.pairedMacs.count == candidates.count
         })
     }
 
@@ -736,18 +722,39 @@ struct IrohZeroTouchDiscoveryTests {
         #expect(fixture.factory.attemptedRouteIDs() == ["iroh-mac-a", "iroh-mac-a"])
     }
 
-    /// Discovery hands back exclusively Iroh-route candidates, so the strict
-    /// Tailscale connection method must skip the broker lookup entirely: no
-    /// discovery request, no candidates, and therefore no Iroh dial downstream.
-    @Test func tailscaleOnlyMethodSkipsZeroTouchIrohDiscovery() async throws {
+    @Test func legacyGlobalTailscaleDoesNotBlockNewComputerDiscovery() async throws {
         let live = try candidate(deviceID: "mac-a", endpointByte: "a")
         let discovery = ScriptedIrohDiscovery(snapshots: [[live]])
         let fixture = try await makeFixture(
             discovery: discovery,
             reportedDeviceID: "mac-a",
-            connectionMethod: .tailscale
+            legacyGlobalMethod: .tailscale
         )
         defer { fixture.cleanup() }
+        let legacyRoute = try CmxAttachRoute(
+            id: "tailscale-mac-b",
+            kind: .tailscale,
+            endpoint: .hostPort(
+                host: "100.64.0.2",
+                port: CmxMobileDefaults.defaultHostPort
+            ),
+            priority: 10
+        )
+        try await fixture.store.upsert(
+            macDeviceID: "mac-b",
+            displayName: "Legacy Tailscale Mac",
+            routes: [legacyRoute],
+            instanceTag: "stable",
+            markActive: false,
+            stackUserID: "user-1",
+            now: Self.fixedNow
+        )
+        try await fixture.store.setConnectionMethod(
+            macDeviceID: "mac-b",
+            instanceTag: "stable",
+            rawValue: MobileConnectionMethod.tailscale.rawValue,
+            stackUserID: "user-1"
+        )
         let scope = try #require(
             await fixture.shell.currentScopeSnapshot(userID: "user-1")
         )
@@ -762,9 +769,9 @@ struct IrohZeroTouchDiscoveryTests {
             excluding: []
         )
 
-        #expect(secondary.isEmpty)
-        #expect(launch.isEmpty)
-        #expect(discovery.callCount() == 0)
+        #expect(secondary.map(\.macDeviceID) == ["mac-a"])
+        #expect(launch.map(\.macDeviceID) == ["mac-a"])
+        #expect(discovery.callCount() == 2)
         #expect(fixture.factory.attemptedRouteIDs().isEmpty)
     }
 
@@ -785,7 +792,7 @@ struct IrohZeroTouchDiscoveryTests {
         reportedDeviceID: String,
         failingRouteIDs: Set<String> = [],
         rateLimitedRouteIDs: Set<String> = [],
-        connectionMethod: MobileConnectionMethod? = nil
+        legacyGlobalMethod: MobileConnectionMethod? = nil
     ) async throws -> ZeroTouchFixture {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
@@ -804,16 +811,6 @@ struct IrohZeroTouchDiscoveryTests {
             failingRouteIDs: failingRouteIDs,
             rateLimitedRouteIDs: rateLimitedRouteIDs
         )
-        let methodStore = connectionMethod.map { method in
-            let defaults = UserDefaults(
-                suiteName: "iroh-zero-touch-method-\(UUID().uuidString)"
-            )!
-            defaults.set(
-                method.rawValue,
-                forKey: MobileConnectionMethodStore.methodKey
-            )
-            return MobileConnectionMethodStore(defaults: defaults)
-        }
         let shell = MobileShellComposite(
             runtime: LivenessTestRuntime(
                 transportFactory: factory,
@@ -822,13 +819,21 @@ struct IrohZeroTouchDiscoveryTests {
             ),
             isSignedIn: true,
             pairedMacStore: store,
-            connectionMethodStore: methodStore,
             personalIrohDiscovery: discovery,
             identityProvider: StaticIdentityProvider(userID: "user-1"),
             reachability: AlwaysOnlineReachability(),
-            pairingHintDefaults: UserDefaults(
-                suiteName: "iroh-zero-touch-\(UUID().uuidString)"
-            )!
+            pairingHintDefaults: {
+                let defaults = UserDefaults(
+                    suiteName: "iroh-zero-touch-\(UUID().uuidString)"
+                )!
+                if let legacyGlobalMethod {
+                    defaults.set(
+                        legacyGlobalMethod.rawValue,
+                        forKey: MobileConnectionMethodStore.methodKey
+                    )
+                }
+                return defaults
+            }()
         )
         return ZeroTouchFixture(
             shell: shell,

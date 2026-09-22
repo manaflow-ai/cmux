@@ -27,7 +27,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Callable, Iterator
 
-SCHEMA_GENERATION = 1
+SCHEMA_GENERATION = 2
 FORMAT_GENERATION = "app-host-products-tar-gz-v1"
 PROVIDER = "github-actions"
 ARCHIVE_NAME = "app-host-products.tar.gz"
@@ -68,6 +68,7 @@ class Identity:
     product_contract: str
     source_revision: str
     producer_run_id: int
+    producer_run_attempt: int = 1
     schema_generation: int = SCHEMA_GENERATION
     format_generation: str = FORMAT_GENERATION
     provider: str = PROVIDER
@@ -84,6 +85,7 @@ class Identity:
             "product_contract": self.product_contract,
             "source_revision": self.source_revision,
             "producer_run_id": self.producer_run_id,
+            "producer_run_attempt": self.producer_run_attempt,
         }
 
     def key(self) -> str:
@@ -108,6 +110,9 @@ class Identity:
             source_revision=revision,
             producer_run_id=_positive_int(
                 env.get("CMUX_PRODUCT_PRODUCER_RUN_ID", ""), "producer run id"
+            ),
+            producer_run_attempt=_positive_int(
+                env.get("CMUX_PRODUCT_PRODUCER_RUN_ATTEMPT", "1"), "producer run attempt"
             ),
         )
 
@@ -262,7 +267,7 @@ def _metadata_matches(metadata: dict, identity: Identity) -> bool:
         and metadata.get("object_digest") == identity.archive_digest
         and isinstance(metadata.get("size"), int)
         and metadata["size"] > 0
-        and metadata.get("source_class") in {"github", "r2", "producer-local"}
+        and metadata.get("source_class") in {"github", "r2", "peer", "producer-local"}
     )
 
 
@@ -386,6 +391,7 @@ def _stats_update(store: Store, **increments) -> dict:
             "evictions": 0,
             "evicted_bytes": 0,
             "bytes_avoided_github": 0,
+            "bytes_avoided_peer": 0,
             "bytes_avoided_r2": 0,
         }
         for field, amount in increments.items():
@@ -426,6 +432,7 @@ def _snapshot(store: Store, stats: dict | None = None) -> dict:
         "evictions": evictions,
         "eviction_rate": round(evictions / lookups, 4) if lookups else 0.0,
         "bytes_avoided_github": int(stats.get("bytes_avoided_github", 0)),
+        "bytes_avoided_peer": int(stats.get("bytes_avoided_peer", 0)),
         "bytes_avoided_r2": int(stats.get("bytes_avoided_r2", 0)),
     }
 
@@ -537,7 +544,9 @@ def _hit_locked(
     avoided = metadata["size"]
     fallback = os.environ.get("CMUX_NODE_PRODUCT_CACHE_FALLBACK_SOURCE", "").strip()
     increments = {"hits": 1}
-    if fallback == "r2":
+    if fallback == "peer":
+        increments["bytes_avoided_peer"] = avoided
+    elif fallback == "r2":
         increments["bytes_avoided_r2"] = avoided
     elif fallback == "github":
         increments["bytes_avoided_github"] = avoided
@@ -669,6 +678,28 @@ def github_metadata(identity: Identity) -> dict:
         timeout=20,
     )
     return json.loads(raw)
+
+
+def same_run_provider_metadata(identity: Identity) -> dict:
+    """Reconstruct provider metadata only for this exact producing workflow attempt.
+
+    Same-run GitHub workflow outputs establish the accepted producer identity.
+    This keeps a verified peer hit usable during a GitHub API outage without
+    making the peer a new trust root.
+    """
+    if (
+        os.environ.get("GITHUB_REPOSITORY", "").casefold() != identity.repository.casefold()
+        or os.environ.get("GITHUB_RUN_ID", "") != str(identity.producer_run_id)
+        or os.environ.get("GITHUB_RUN_ATTEMPT", "1") != str(identity.producer_run_attempt)
+    ):
+        raise ValueError("peer product producer is not this workflow attempt")
+    return {
+        "id": identity.artifact_id,
+        "expired": False,
+        "digest": "sha256:" + identity.provider_digest,
+        "workflow_run": {"id": identity.producer_run_id},
+        "created_at": None,
+    }
 
 
 def _verify_provider(identity: Identity, metadata: dict) -> str | None:
@@ -824,7 +855,7 @@ def finalize(
 ) -> dict:
     if store is None:
         return {"status": "disabled"}
-    if source_class not in {"github", "r2", "producer-local"}:
+    if source_class not in {"github", "r2", "peer", "producer-local"}:
         source_class = "github"
     key = identity.key()
     if not restore_succeeded:
@@ -1079,15 +1110,19 @@ def main() -> None:
     elif command == "finalize":
         if len(sys.argv) != 3:
             raise SystemExit("usage: node-product-cache.py finalize ARCHIVE")
+        source_class = os.environ.get("CMUX_NODE_PRODUCT_SOURCE_CLASS", "github")
         result = finalize(
             store,
             identity,
             Path(sys.argv[2]),
             token=os.environ.get("CMUX_NODE_PRODUCT_CACHE_TOKEN", ""),
             lease_token=os.environ.get("CMUX_NODE_PRODUCT_CACHE_LEASE", ""),
-            source_class=os.environ.get("CMUX_NODE_PRODUCT_SOURCE_CLASS", "github"),
+            source_class=source_class,
             restore_succeeded=os.environ.get("CMUX_PRODUCT_RESTORE_SUCCEEDED") == "true",
             budget=budget_bytes(),
+            provider_metadata=(
+                same_run_provider_metadata if source_class == "peer" else github_metadata
+            ),
         )
     else:
         if len(sys.argv) != 3:

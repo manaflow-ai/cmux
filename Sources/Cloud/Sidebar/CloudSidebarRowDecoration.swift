@@ -27,11 +27,14 @@ struct CloudSidebarRowDecoration: ViewModifier {
                     .allowsHitTesting(false)
             }
             if isPinned {
-                Image(systemName: "pin.fill")
-                    .cmuxFont(size: 9, weight: .semibold)
-                    .foregroundStyle(.secondary)
-                    .fixedSize()
-                    .accessibilityLabel(String(localized: "taskManager.row.pinned", defaultValue: "Pinned"))
+                CmuxSystemSymbolImage(
+                    magnified: "pin.fill",
+                    pointSize: 9,
+                    weight: .semibold,
+                    tint: Color(nsColor: .secondaryLabelColor)
+                )
+                .fixedSize()
+                .accessibilityLabel(String(localized: "taskManager.row.pinned", defaultValue: "Pinned"))
             }
             content
         }

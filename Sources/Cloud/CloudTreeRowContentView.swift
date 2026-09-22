@@ -53,7 +53,7 @@ struct CloudTreeRowContentView: View {
             EmptyView()
         case .terminalsPool(_, let count):
             groupRow(title: String(localized: "cloudTree.group.terminals", defaultValue: "Terminals"), count: count)
-        case .displaysPool(_, let count):
+        case .displaysPool(_, let count, _):
             groupRow(title: String(localized: "cloudTree.group.displays", defaultValue: "Displays"), count: count)
         case .workspacesGroup:
             groupRow(title: String(localized: "cloudTree.group.workspaces", defaultValue: "Workspaces"))
@@ -101,8 +101,8 @@ struct CloudTreeRowContentView: View {
             )
         case .portsGroup:
             CloudTreeGroupRowContent(title: String(localized: "cloudTree.group.ports", defaultValue: "Ports"), count: nil, style: style)
-        case .resourcesPool(_, let count):
-            CloudTreeGroupRowContent(title: String(localized: "cloudTree.group.resources", defaultValue: "Resources"), count: count, style: style)
+        case .resourcesPool:
+            CloudTreeGroupRowContent(title: String(localized: "cloudTree.group.resources", defaultValue: "Resources"), count: nil, style: style)
         case .resource(_, let row):
             CloudTreeMachineResourceRowContent(row: row, style: style)
         case .port(let resource, let url, _):

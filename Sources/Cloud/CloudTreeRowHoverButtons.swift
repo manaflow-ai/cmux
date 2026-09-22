@@ -74,8 +74,12 @@ struct CloudTreeRowHoverButtons: View {
             plus(String(localized: "cloudTree.menu.newTerminal", defaultValue: "New Terminal")) {
                 nodeActions.newTerminal(machine, nil)
             }
-        case .displaysPool:
-            EmptyView()
+        case .displaysPool(let machine, _, let canCreate):
+            plus(String(localized: "cloudTree.menu.newDisplay", defaultValue: "New Display")) {
+                nodeActions.newDisplay(machine)
+            }
+            .disabled(!canCreate)
+            .help(canCreate ? String(localized: "cloudTree.menu.newDisplay", defaultValue: "New Display") : CloudGuestDisplaySnapshot.unavailableMessage)
         case .workspacesGroup(let machine):
             plus(String(localized: "cloudTree.menu.newWorkspace", defaultValue: "New Workspace")) {
                 nodeActions.newWorkspace(machine)
@@ -105,7 +109,7 @@ struct CloudTreeRowHoverButtons: View {
     /// True when this row kind renders any hover button at all.
     static func hasButtons(for kind: CloudTreeNode.Kind) -> Bool {
         switch kind {
-        case .machine, .localMachine, .terminalsPool, .workspacesGroup, .workspace, .devicesSection, .cloudMachinesSection:
+        case .machine, .localMachine, .terminalsPool, .displaysPool, .workspacesGroup, .workspace, .devicesSection, .cloudMachinesSection:
             return true
         case .pendingMachine:
             return true
