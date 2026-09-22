@@ -87,6 +87,40 @@ struct AgentSessionSocketSurfaceTests {
     }
 
     @Test
+    func testAgentSessionCommandTerminalDoesNotArmDeferredFocusRepair() async throws {
+        let manager = TabManager()
+        let workspace = try #require(manager.selectedWorkspace)
+        let paneId = try #require(workspace.bonsplitController.focusedPaneId)
+        let panel = try #require(
+            workspace.newAgentSessionSurface(
+                inPane: paneId,
+                rendererKind: .react,
+                workingDirectory: "/tmp",
+                focus: true
+            )
+        )
+
+        let result = try #require(panel.onRunCommand?("pwd"))
+        let terminalPanelID = try #require(
+            (result["terminalPanelId"] as? String).flatMap(UUID.init(uuidString:))
+        )
+        let terminalTabID = try #require(workspace.surfaceIdFromPanelId(terminalPanelID))
+
+        #expect(workspace.focusedPanelId == panel.id)
+        #expect(workspace.bonsplitController.selectedTab(inPane: paneId)?.id != terminalTabID)
+
+        // Simulate a later Bonsplit selection after the background terminal was
+        // created. The agent-command path must leave no queued focus repair that
+        // can overwrite this newer selection on subsequent main-queue turns.
+        workspace.bonsplitController.selectTab(terminalTabID)
+        await Task.yield()
+        await Task.yield()
+
+        #expect(workspace.bonsplitController.selectedTab(inPane: paneId)?.id == terminalTabID)
+        #expect(workspace.focusedPanelId == terminalPanelID)
+    }
+
+    @Test
     func testWorkspaceSessionSnapshotPersistsAgentSessionWorkingDirectory() throws {
         let manager = TabManager()
         let workspace = try #require(manager.selectedWorkspace)
