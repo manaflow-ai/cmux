@@ -105,7 +105,10 @@ class AgentPRReviewGateTests(unittest.TestCase):
 
     def test_greptile_auto_review_contract_is_wired_to_the_gate(self):
         root = Path(__file__).parents[1]
-        workflow = (root / ".github/workflows/agent-pr-review-gate.yml").read_text(encoding="utf-8")
+        workflow_path = root / ".github/workflows/agent-pr-review-gate-v2.yml"
+        self.assertTrue(workflow_path.exists())
+        self.assertTrue((root / ".github/workflows/agent-pr-review-gate.yml").exists())
+        workflow = workflow_path.read_text(encoding="utf-8")
         self.assertIn("pull_request_review:", workflow)
         self.assertIn("issue_comment:", workflow)
         self.assertNotIn("concurrency:", workflow)
