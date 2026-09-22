@@ -34,6 +34,8 @@ WORKFLOW_TEST_INPUTS = {
     "scripts/ci/reuse_app_host_products.py",
     "scripts/ci/sanitize-xcode-source-packages-cache.py",
     "scripts/ci/persistent_mac_route.py",
+    "scripts/ci/build_graph_health.py",
+    "tests/test_build_graph_health.py",
     "scripts/ci/swift_incremental_diagnostics.py",
     "tests/test_ci_persistent_mac_compile.py",
     "tests/test_swift_incremental_diagnostics.py",
