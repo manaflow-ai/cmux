@@ -19,9 +19,7 @@ struct TaskComposerAttachmentPickerModifier: ViewModifier {
                 isPresented: $isPhotoPickerPresented,
                 selection: $photoSelection,
                 maxSelectionCount: max(remainingCount, 1),
-                // Explicitly include videos as well as images. Some iOS
-                // versions open an unset filter in the image collection,
-                // hiding videos even though the transfer type accepts them.
+                // Include videos as well as images in the library picker.
                 matching: .any(of: [.images, .videos])
             )
             .fileImporter(
