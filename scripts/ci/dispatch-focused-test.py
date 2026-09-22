@@ -139,10 +139,20 @@ def prior_attempts(commit: str, selector: str) -> list[dict]:
     except json.JSONDecodeError:
         return []
     marker = f" @ {commit} ["
+
+    def ran_selector(title: str) -> bool:
+        # A batched dispatch names several selectors before " on ", so match
+        # membership rather than a prefix. Otherwise batching would silently
+        # bypass this guard for every selector it carried.
+        head, separator, _ = title.partition(" on ")
+        if not separator:
+            return False
+        return selector in [part.strip() for part in head.split(",")]
+
     return [
         run for run in runs
         if isinstance(run, dict)
-        and str(run.get("displayTitle", "")).startswith(f"{selector} on ")
+        and ran_selector(str(run.get("displayTitle", "")))
         and marker in str(run.get("displayTitle", ""))
         and run.get("status") == "completed"
     ]
@@ -255,19 +265,22 @@ def main() -> int:
         raise ValueError("GitHub revision differs from local HEAD; push the intended commit first")
 
     if not args.force:
-        earlier = prior_attempts(commit, args.test_filter)
-        failures = [run for run in earlier if run.get("conclusion") == "failure"]
-        if failures and not any(run.get("conclusion") == "success" for run in earlier):
-            latest = failures[0]
-            raise ValueError(
-                f"{args.test_filter} already failed at {commit} "
-                f"({len(failures)} time(s)); the newest is {latest['url']}. "
-                "A focused run compiles the tree first, so the most common red "
-                "result is a compile error in the branch, not a flaky test -- "
-                "and re-running the same selector at the same commit returns the "
-                "same answer. Read that run, fix the branch, push, and dispatch "
-                "the new commit. Pass --force to dispatch anyway."
-            )
+        # Refuse per entry: one already-red selector makes the whole batch a
+        # reprint of a known failure, and the compile it would pay for is shared.
+        for entry in args.test_filter:
+            earlier = prior_attempts(commit, entry)
+            failures = [run for run in earlier if run.get("conclusion") == "failure"]
+            if failures and not any(run.get("conclusion") == "success" for run in earlier):
+                latest = failures[0]
+                raise ValueError(
+                    f"{entry} already failed at {commit} "
+                    f"({len(failures)} time(s)); the newest is {latest['url']}. "
+                    "A focused run compiles the tree first, so the most common red "
+                    "result is a compile error in the branch, not a flaky test -- "
+                    "and re-running the same selector at the same commit returns the "
+                    "same answer. Read that run, fix the branch, push, and dispatch "
+                    "the new commit. Pass --force to dispatch anyway."
+                )
 
     dispatch_id = uuid.uuid4().hex
     video = not args.no_video and test_target != "cmuxTests"

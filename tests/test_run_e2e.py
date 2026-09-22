@@ -171,6 +171,26 @@ class FocusedLauncherTests(unittest.TestCase):
         self.assertIn("actions/runs/555", result.stderr)
         self.assertFalse((self.root / "dispatch.json").exists(), "must not dispatch")
 
+    def test_batch_is_refused_when_any_entry_already_failed(self):
+        # The batch shares one compile, so a single known-red selector makes
+        # the whole dispatch a reprint of an answer we already have.
+        result = self.launch(
+            "cmuxTests/AlphaTests", "cmuxTests/ExampleTests",
+            LAUNCHER_PRIOR_RUNS=self._prior("failure"),
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("cmuxTests/ExampleTests already failed", result.stderr)
+        self.assertFalse((self.root / "dispatch.json").exists(), "must not dispatch")
+
+    def test_an_earlier_batch_counts_as_a_prior_attempt_for_each_entry(self):
+        # A prior run named several selectors before " on ". Matching only a
+        # title prefix would let batching bypass the guard entirely.
+        prior = self._prior("failure", selector="cmuxTests/AlphaTests,cmuxTests/ExampleTests")
+        result = self.launch("cmuxTests/ExampleTests", LAUNCHER_PRIOR_RUNS=prior)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("already failed", result.stderr)
+        self.assertFalse((self.root / "dispatch.json").exists(), "must not dispatch")
+
     def test_force_dispatches_despite_an_earlier_failure(self):
         result = self.launch(
             "cmuxTests/ExampleTests", "--force",
