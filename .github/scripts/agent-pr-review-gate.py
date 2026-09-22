@@ -19,7 +19,7 @@ INFO_PREFIXES = ("review limit reached", "review in progress")
 UNAVAILABLE_PREFIXES = INFO_PREFIXES + ("bugbot is paused",)
 GREPTILE_SUMMARY_MARKER = "<!-- greptile_summary -->"
 GREPTILE_REQUEST_MARKER = "<!-- cmux-greptile-review-request:{head} -->"
-GREPTILE_TRIGGER = "@greptile-apps review"
+GREPTILE_TRIGGER = "@greptileai review"
 
 
 def parse_time(value: str | None) -> dt.datetime:
