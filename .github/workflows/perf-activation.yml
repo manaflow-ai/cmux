@@ -5,7 +5,7 @@ on:
   workflow_dispatch:
     inputs:
       ref:
-        description: Branch or SHA to test
+        description: Branch, tag, full SHA, or short SHA to test
         required: false
         default: ""
       runner:
@@ -41,6 +41,11 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  resolve-ref:
+    uses: ./.github/workflows/resolve-dispatch-ref.yml
+    with:
+      ref: ${{ inputs.ref }}
+
   activation_changes:
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
@@ -103,7 +108,7 @@ jobs:
             --head-sha "$HEAD_SHA"
 
   activation-session-benchmark:
-    needs: activation_changes
+    needs: [activation_changes, resolve-ref]
     if: ${{ needs.activation_changes.outputs.macos == 'true' }}
     runs-on: ${{ ((!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15') || inputs.runner) }}
     timeout-minutes: 45
@@ -125,7 +130,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
-          ref: ${{ inputs.ref || github.ref }}
+          ref: ${{ needs.resolve-ref.outputs.sha }}
           submodules: recursive
 
       - name: Select Xcode
