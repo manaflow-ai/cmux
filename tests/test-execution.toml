@@ -387,6 +387,10 @@ path = "tests/test_ci_queue_janitor.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_repo_variable_defaults.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_release_guard_structure.py"
 lane = "linux-guard"
 
@@ -408,6 +412,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_source_lint_guard_structure.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_test_execution_registry.py"
 lane = "linux-guard"
 
 [[test]]
@@ -531,6 +539,10 @@ path = "tests/test_run_e2e.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_sync_test_wiring.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_swift_incremental_diagnostics.py"
 lane = "linux-guard"
 
@@ -588,6 +600,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_r2_artifact.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_r2_cache_census.py"
 lane = "linux-guard"
 
 [[test]]
@@ -703,6 +719,10 @@ path = "tests/test_cmux_browser_skill.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_cmux_settings_jsonc.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_cmux_settings_supported_paths.py"
 lane = "linux-guard"
 
@@ -748,6 +768,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ios_screenshot_capture_guard.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ios_testflight_archive_log.py"
 lane = "linux-guard"
 
 [[test]]
@@ -881,6 +905,10 @@ lane = "legacy"
 [[test]]
 path = "tests/test_ssh_relay_report_tty_retry.py"
 lane = "legacy"
+
+[[test]]
+path = "tests/test_swift_testing_require_not_nested.py"
+lane = "linux-guard"
 
 [[test]]
 path = "tests/test_terminal_hang_release_gate.py"

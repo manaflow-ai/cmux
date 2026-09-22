@@ -148,6 +148,10 @@ the generation it used and deletes all but the three most recently used ones,
 logging each removal and recording it in the admission metrics. The generation
 in use is never a candidate; an evicted generation costs only a cold rebuild.
 
+Capacity sizing for that pilot -- how many owned Macs the queue actually
+needs, which lane moves first, and the enrollment/drain/rollback runbook --
+lives in [ci/mac-fleet.md](ci/mac-fleet.md).
+
 Rollout is reversible through two repository variables:
 
 - `CI_PERSISTENT_MAC_COMPILE=off` (or unset): hosted path only;

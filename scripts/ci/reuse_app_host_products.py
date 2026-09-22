@@ -197,6 +197,34 @@ def attested_checkout(run, current_revision):
     return len(parents) == 2 and parents[1] == run["head_sha"]
 
 
+def attested_producer_revision(api, run, revision, product_inputs):
+    """Whether `revision` is the revision GitHub attests this producer built.
+
+    A pull request producer seals `git rev-parse HEAD`, which is the ephemeral
+    merge of the pull request head into the base, while the run's `head_sha` is
+    that head. Requiring them to be equal rejected every pull request producer,
+    and only after its archive had already been downloaded and expanded, so no
+    pull request could ever adopt an earlier run of its own compiled product.
+
+    This mirrors `attested_checkout` on the consumer side and then goes one
+    step further: the sealed revision's own tree is re-fingerprinted from
+    GitHub's immutable Git objects, so the merge that was actually compiled --
+    not just the head it names -- has to carry these product inputs.
+    """
+    head = run.get("head_sha")
+    if revision == head:
+        return True
+    if run.get("event") != "pull_request":
+        return False
+    parents = api.get(f"git/commits/{revision}").get("parents")
+    if not isinstance(parents, list) or len(parents) != 2:
+        return False
+    second = parents[1]
+    if not isinstance(second, dict) or second.get("sha") != head:
+        return False
+    return github_product_identity(api, revision) == product_inputs
+
+
 def trusted_ci_run(run, repository):
     """Require the repository CI workflow and an in-repository event source."""
     head_repository = run.get("head_repository")
@@ -680,12 +708,13 @@ def restore(api, value, derived, current_run, current_identity, current_attempt=
                         or receipt["run_id"] != str(run["id"])
                         or receipt["run_attempt"] != str(run["run_attempt"])):
                     raise ValueError("artifact producer contract mismatch")
-                # Bind the candidate-authored receipt back to the exact GitHub
-                # producer revision already product-fingerprinted above.
+                # Bind the candidate-authored receipt back to a GitHub-attested
+                # producer revision, re-fingerprinting whatever it names.
                 revision = receipt["revision"]
                 if (not isinstance(revision, str)
                         or not re.fullmatch(r"[0-9a-f]{6,40}", revision)
-                        or revision != run["head_sha"]):
+                        or not attested_producer_revision(
+                            api, run, revision, value["product_inputs"])):
                     raise ValueError("producer revision mismatch")
                 original = json.loads((root / products.RECEIPT).read_text())
                 if original["revision"] != receipt["revision"]:

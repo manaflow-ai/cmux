@@ -592,7 +592,13 @@ jobs:
         run: python3 scripts/generate-claude-launch-environment-policy.py --check
 
       - name: Validate pbxproj test-wiring lint
+        # This also executes tests/test_sync_test_wiring.py, which the script
+        # calls; the execution registry reads workflow text to decide whether a
+        # registered test really runs.
         run: ./tests/test_ci_pbxproj_test_wiring.sh
+
+      - name: Validate the test-wiring sync tool
+        run: python3 tests/test_sync_test_wiring.py
 
       - name: Validate workspace SPM package grouping
         run: python3 scripts/check-workspace-package-groups.py --check
