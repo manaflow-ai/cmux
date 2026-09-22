@@ -287,8 +287,16 @@ class ReuseProducts(TestProductHandoff):
         self.assertTrue(identity.reaches_product("workers/cmux-paste-text/main.m"))
         self.assertFalse(identity.reaches_product("workers/presence/src/index.ts"))
 
+        # Assert the named build phase declares it, not merely that the path
+        # appears somewhere in the project file: only the inputPaths entry is
+        # evidence that the worker is compiled into the bundle.
         project = (Path(__file__).resolve().parents[1] / "cmux.xcodeproj/project.pbxproj").read_text()
-        self.assertIn("$(SRCROOT)/workers/cmux-paste-text/main.m", project)
+        phase = project.split("name = \"Build Plain Text Paste Worker\"", 1)
+        self.assertEqual(len(phase), 2, "Build Plain Text Paste Worker phase is missing")
+        declaration = phase[0].rsplit("isa = PBXShellScriptBuildPhase", 1)[-1]
+        self.assertIn("$(SRCROOT)/workers/cmux-paste-text/main.m", declaration)
+        self.assertIn("inputPaths", declaration)
+        self.assertIn("cmux-paste-text-worker", phase[1].split("};", 1)[0])
 
         # A commit that only touches the worker must change the fingerprint.
         workflow = (Path(__file__).resolve().parents[1] / ".github/workflows/ci-macos.yml").read_text()
