@@ -1133,7 +1133,6 @@ public final class MobilePushCoordinator {
             }
             return
         }
-        guard pendingConnectionIsUsable(pending, store: store) else { return }
         guard now().timeIntervalSince(pending.createdAt) < Self.pendingDeeplinkLifetime else {
             pendingDeeplink = nil
             diagnosticLog?.recordAppEvent(
@@ -1152,6 +1151,7 @@ public final class MobilePushCoordinator {
             )
             return
         }
+        guard pendingConnectionIsUsable(pending, store: store) else { return }
 
         // Resolve the workspace to navigate to: the explicit target, or for a
         // surface-only tap the workspace that owns the terminal. Unresolvable
