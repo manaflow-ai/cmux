@@ -3,38 +3,32 @@
 
 from pathlib import Path
 
+import yaml
+
 
 ROOT = Path(__file__).resolve().parents[1]
 GUARD_WORKFLOW = ROOT / ".github" / "workflows" / "ci-guards.yml"
+EXPECTED_GROUPS = [
+    "preflight",
+    "ci",
+    "app-host-execution",
+    "app-host-process",
+    "app-host-cache",
+    "release",
+    "quality-sharding",
+    "quality-runtime",
+    "quality-determinism",
+]
 
 
-def workflow_job_block(job_name: str) -> str:
-    lines = GUARD_WORKFLOW.read_text(encoding="utf-8").splitlines()
-    marker = f"  {job_name}:"
-    for index, line in enumerate(lines):
-        if line != marker:
-            continue
-        body = [line]
-        for following in lines[index + 1 :]:
-            if (
-                following.startswith("  ")
-                and not following.startswith("    ")
-                and following.strip()
-            ):
-                break
-            body.append(following)
-        return "\n".join(body)
-    raise AssertionError(f"{job_name} job not found")
+def workflow_guard_job() -> dict:
+    workflow = yaml.safe_load(GUARD_WORKFLOW.read_text(encoding="utf-8"))
+    return workflow["jobs"]["workflow-guard-tests"]
 
 
 def test_app_host_groups_are_parallel_and_owned() -> None:
-    block = workflow_job_block("workflow-guard-tests")
-
-    assert (
-        "group: [preflight, ci, app-host-execution, app-host-process, "
-        "app-host-cache, release, quality-sharding, quality-runtime, "
-        "quality-determinism]"
-    ) in block
+    job = workflow_guard_job()
+    assert job["strategy"]["matrix"]["group"] == EXPECTED_GROUPS
 
     expected = {
         "Validate unit-test SwiftPM retry guard": "app-host-execution",
@@ -57,14 +51,16 @@ def test_app_host_groups_are_parallel_and_owned() -> None:
         "Validate cmux scheme test configuration": "app-host-cache",
         "Validate selected iOS test execution guard": "app-host-cache",
     }
-    for step, group in expected.items():
-        marker = (
-            f"- name: {step}\n"
-            f"        if: ${{{{ matrix.group == '{group}' }}}}"
+    steps = job["steps"]
+    for name, group in expected.items():
+        matches = [step for step in steps if step.get("name") == name]
+        assert len(matches) == 1, (name, len(matches))
+        assert matches[0].get("if") == f"${{{{ matrix.group == '{group}' }}}}", (
+            name,
+            matches[0].get("if"),
         )
-        assert marker in block, (step, group)
 
-    assert "matrix.group == 'app-host'" not in block
+    assert all(step.get("if") != "${{ matrix.group == 'app-host' }}" for step in steps)
 
 
 if __name__ == "__main__":
