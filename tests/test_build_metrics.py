@@ -101,6 +101,14 @@ class BuildMetricsTests(unittest.TestCase):
         self.assertEqual(next(iter(aggregate["targets"])), "cmux")
         self.assertEqual(aggregate["targets"]["cmux"]["swift_compile_events"], 5)
 
+    def test_ci_wires_advisory_receipt_and_timing_summary(self):
+        compile_script = (ROOT / "scripts/ci/compile-app-host-test-product.sh").read_text()
+        workflow = (ROOT / ".github/workflows/ci-macos.yml").read_text()
+        self.assertIn("-showBuildTimingSummary", compile_script)
+        self.assertIn("python3 scripts/ci/build_metrics.py", workflow)
+        self.assertIn("xcode-build-metrics-${{ github.run_id }}-${{ github.run_attempt }}", workflow)
+        self.assertIn("continue-on-error: true", workflow)
+
     def test_receipt_discovers_logs_and_activity_metadata(self):
         with tempfile.TemporaryDirectory() as directory:
             derived = Path(directory)
