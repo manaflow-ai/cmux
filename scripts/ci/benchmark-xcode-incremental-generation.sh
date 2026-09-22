@@ -433,8 +433,77 @@ consumer() {
   build_all "restored_generation_synthetic_merge" "$worktree" "$derived"
 }
 
+mtime_fresh_only() {
+  record_environment
+  reset_roots
+  restore_support
+  extract_archive "restore_generation_for_mtime_fresh" "$generation_archive" "$root"
+  local reference="$root/worktree-A-reference"
+  mv "$worktree" "$reference"
+  clone_at "$head_sha" "$worktree"
+  prepare_ghostty "$worktree"
+  python3 - "$reference" "$worktree" "$mtime_results" <<'PY'
+import json, os, subprocess, sys
+reference, candidate, out = sys.argv[1:]
+
+def entries(repo):
+    raw = subprocess.check_output(
+        ["git", "-C", repo, "ls-files", "--stage", "-z"]
+    ).split(b"\0")
+    result = {}
+    for record in raw:
+        if not record:
+            continue
+        meta, raw_path = record.split(b"\t", 1)
+        mode, blob, stage = meta.split()
+        if stage != b"0" or mode == b"160000":
+            continue
+        result[os.fsdecode(raw_path)] = (mode, blob)
+    return result
+
+a = entries(reference)
+b = entries(candidate)
+same_blob = preserved = missing = changed = 0
+for rel, identity in b.items():
+    if a.get(rel) != identity:
+        changed += 1
+        continue
+    same_blob += 1
+    src = os.path.join(reference, rel)
+    dst = os.path.join(candidate, rel)
+    try:
+        stat = os.stat(src, follow_symlinks=False)
+        os.utime(
+            dst,
+            ns=(stat.st_atime_ns, stat.st_mtime_ns),
+            follow_symlinks=False,
+        )
+        preserved += 1
+    except FileNotFoundError:
+        missing += 1
+
+payload = {
+    "kind": "mtime_replay",
+    "arm": "fresh_checkout_restored_dd_A_to_B_seed_mtimes",
+    "tracked_candidate_entries": len(b),
+    "same_blob_entries": same_blob,
+    "preserved_mtimes": preserved,
+    "changed_or_added_entries": changed,
+    "missing_reference_files": missing,
+}
+with open(out, "a", encoding="utf-8") as stream:
+    stream.write(json.dumps(payload, sort_keys=True) + "\n")
+print(json.dumps(payload, sort_keys=True))
+PY
+  rm -rf "$reference"
+  compare_seed_manifest "fresh_checkout_restored_dd_A_to_B_seed_mtimes" "$worktree"
+  resolve_packages "$worktree" "$derived"
+  build_all "fresh_checkout_restored_dd_A_to_B_seed_mtimes" "$worktree" "$derived"
+}
+
 case "$mode" in
   seed) seed ;;
   consumer) consumer ;;
-  *) echo "usage: $0 seed|consumer BASE_SHA HEAD_SHA ARTIFACT_DIR" >&2; exit 64 ;;
+  mtime-fresh-only) mtime_fresh_only ;;
+  *) echo "usage: $0 seed|consumer|mtime-fresh-only BASE_SHA HEAD_SHA ARTIFACT_DIR" >&2; exit 64 ;;
 esac
