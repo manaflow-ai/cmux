@@ -264,6 +264,9 @@ jobs:
           # cannot produce a real CG-visible app window.
           CONSOLE_USER="$(stat -f %Su /dev/console 2>/dev/null || true)"
           if [ -n "$CONSOLE_USER" ] && [ "$CONSOLE_USER" != "root" ] && CONSOLE_UID="$(id -u "$CONSOLE_USER" 2>/dev/null)" && sudo -n true 2>/dev/null; then
+            # The redirect deliberately runs as the runner, not through sudo:
+            # perf-results/ is the workspace's and must not become root-owned.
+            # shellcheck disable=SC2024
             sudo -n launchctl asuser "$CONSOLE_UID" sudo -n -u "$CONSOLE_USER" -E \
               env PATH="$PATH" DEVELOPER_DIR="$DEVELOPER_DIR" APP_PATH="$APP_PATH" BUNDLE_ID="$BUNDLE_ID" GITHUB_WORKSPACE="$PWD" \
               bash -c 'cd "$GITHUB_WORKSPACE" && swift scripts/bench-window-visibility.swift "$APP_PATH" "$BUNDLE_ID" 30 --cmd-tab-activation --cg-visibility' \
