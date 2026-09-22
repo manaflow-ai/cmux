@@ -1168,7 +1168,7 @@ public final class MobilePushCoordinator {
                 // missing workspace is a definitive closed-tab result. During
                 // recovery the retained list is only a cache, so keep waiting
                 // for the fresh snapshot before surfacing the alert.
-                guard store.workspaceListIsAuthoritative else { return }
+                guard isWorkspaceListAuthoritative(for: pending, store: store) else { return }
                 clearPendingDeeplink()
                 presentTabUnavailableAlert()
                 return
@@ -1179,7 +1179,7 @@ public final class MobilePushCoordinator {
                 macDeviceID: pending.macDeviceId,
                 instanceTag: pending.macInstanceTag
             ) else {
-                guard store.workspaceListIsAuthoritative else { return }
+                guard isWorkspaceListAuthoritative(for: pending, store: store) else { return }
                 clearPendingDeeplink()
                 presentTabUnavailableAlert()
                 return
@@ -1205,7 +1205,7 @@ public final class MobilePushCoordinator {
             // while recovery is completing. Do not turn that stale miss into
             // a permanent unavailable alert until the workspace list is
             // authoritative for this connection.
-            guard store.workspaceListIsAuthoritative else { return }
+            guard isWorkspaceListAuthoritative(for: pending, store: store) else { return }
             if !pending.retargetsToLiveSurfaceOwner,
                let liveOwner = store.workspaceID(
                    containingSurfaceID: surfaceId,
@@ -1283,6 +1283,31 @@ public final class MobilePushCoordinator {
         return workspace.macDeviceID == nil
     }
 
+    private func isWorkspaceListAuthoritative(
+        for pending: PendingDeeplink,
+        store: CMUXMobileShellStore
+    ) -> Bool {
+        guard store.workspaceListIsAuthoritative else { return false }
+        guard let macDeviceID = pending.macDeviceId, !macDeviceID.isEmpty else {
+            return pending.macInstanceTag?.isEmpty != false
+        }
+        let targetPairing = MacPairingKey(
+            macDeviceID: macDeviceID,
+            instanceTag: pending.macInstanceTag
+        )
+        // A global aggregate can be healthy while the push's Mac is still
+        // offline or absent. Treat absence as authoritative only after at
+        // least one connected row proves that this exact pairing published a
+        // current snapshot.
+        return store.workspaces.contains { workspace in
+            guard let workspaceMacDeviceID = workspace.macDeviceID else { return false }
+            return MacPairingKey(
+                macDeviceID: workspaceMacDeviceID,
+                instanceTag: workspace.macInstanceTag
+            ) == targetPairing && workspace.macConnectionStatus == .connected
+        }
+    }
+
     private func pendingConnectionIsUsable(
         _ pending: PendingDeeplink,
         store: CMUXMobileShellStore
@@ -1318,7 +1343,7 @@ public final class MobilePushCoordinator {
         guard let resolvedWorkspaceID else {
             // An authoritative connected list can prove that the target
             // workspace is gone, allowing the caller to present its alert.
-            return store.workspaceListIsAuthoritative
+            return isWorkspaceListAuthoritative(for: pending, store: store)
         }
         guard let workspace = store.workspaces.first(where: { $0.id == resolvedWorkspaceID }) else {
             return false

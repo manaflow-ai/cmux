@@ -117,3 +117,27 @@ import Testing
     coordinator.workspacesDidChange()
     #expect(store.selectedTerminalID == nil)
 }
+
+@Test @MainActor func deviceScopedNotificationTapWaitsForItsMacSnapshot() {
+    let coordinator = MobilePushCoordinator(registration: InertPushRegistration())
+    let store = deeplinkTestStore()
+    store.replaceForegroundWorkspaceState([
+        MobileWorkspacePreview(
+            id: "workspace-other-mac",
+            macDeviceID: "mac-other",
+            name: "Other Mac",
+            terminals: []
+        )
+    ])
+    coordinator.bind(store: store)
+
+    coordinator.handleTap(
+        workspaceId: "workspace-target",
+        surfaceId: "terminal-target",
+        macDeviceId: "mac-target",
+        retargetsToLiveSurfaceOwner: false
+    )
+
+    #expect(store.selectedWorkspaceID == nil)
+    #expect(coordinator.tabUnavailableAlert == nil)
+}
