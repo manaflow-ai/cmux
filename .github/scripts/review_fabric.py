@@ -206,24 +206,30 @@ def evaluate(document: dict[str, Any], policy: dict[str, Any]) -> dict[str, Any]
         if run.get("status") == "completed"
         and run.get("role") in quorum_roles
         and run.get("disposition") not in blocking_run_dispositions
+        and run.get("disposition") != "unavailable"
     ]
 
-    # One worker/session gets one vote even if it invokes several providers/models.
-    sessions: dict[str, dict[str, Any]] = {}
+    # One worker/session gets one quorum vote even if it invokes several
+    # providers/models. Capability coverage is also session-scoped: a session
+    # that actually ran a frontier reviewer remains frontier-capable regardless
+    # of the order in which its other runs appear in the receipt.
+    session_capabilities: dict[str, set[str]] = {}
     for run in eligible_runs:
         session_id = str(run.get("session_id") or "")
-        if session_id and session_id not in sessions:
-            sessions[session_id] = run
+        capability = str(run.get("capability_class") or "")
+        if session_id:
+            session_capabilities.setdefault(session_id, set()).add(capability)
 
     minimum = int(policy.get("minimum_independent_runs") or 0)
-    if len(sessions) < minimum:
+    if len(session_capabilities) < minimum:
         reasons.append(
-            f"independent review quorum is {len(sessions)}/{minimum} for head {head}"
+            f"independent review quorum is {len(session_capabilities)}/{minimum} for head {head}"
         )
 
     capability_counts = Counter(
-        str(run.get("capability_class") or "")
-        for run in sessions.values()
+        capability
+        for capabilities in session_capabilities.values()
+        for capability in capabilities
     )
     for capability, required in (policy.get("required_capability_classes") or {}).items():
         have = capability_counts.get(capability, 0)
@@ -286,7 +292,7 @@ def evaluate(document: dict[str, Any], policy: dict[str, Any]) -> dict[str, Any]
         "counts": {
             "current_runs": len(current_runs),
             "eligible_runs": len(eligible_runs),
-            "independent_sessions": len(sessions),
+            "independent_sessions": len(session_capabilities),
             "current_findings": len(current_findings),
             "actionable_published_findings": len(active_findings),
         },
