@@ -70,3 +70,27 @@ Exit status is zero only when the policy passes.
 ## Next integration
 
 This is the provider-neutral contract layer. Listener/dispatcher work should create these receipts from exact-head review runs. The existing agent PR obligation ledger can then consume the evaluation instead of treating any named review provider as the source of truth.
+
+
+## GitHub review adapter
+
+`.github/scripts/github_review_receipt.py` converts the existing trusted GitHub review ledger into the same provider-neutral receipt format.
+
+The adapter deliberately stays conservative:
+
+- structured GitHub review submissions become `external` reviewer runs;
+- review commit identities remain exact, so an old review never becomes current-head coverage;
+- Greptile's mutable summary comment may provide an exact reviewed head through the trusted existing parser;
+- active inline findings remain `pending`, `answered_unverified`, `resolved_unverified`, or `resolved_unanswered` according to the existing ledger;
+- provider findings use severity `unknown` unless a later verifier supplies stronger evidence;
+- a current inline thread without a structured review provenance makes capture incomplete instead of fabricating a review run.
+
+External review lanes are useful evidence but cannot satisfy the default fabric policy alone: the repository still requires two independent sessions and at least one frontier-class lane.
+
+The adapter can emit a receipt in a trusted GitHub Actions context with:
+
+```sh
+python3 .github/scripts/github_review_receipt.py > github-review-receipt.json
+```
+
+It reuses the existing agent PR gate's GitHub collector and classification rules; it does not create a second source of truth for review-thread semantics.
