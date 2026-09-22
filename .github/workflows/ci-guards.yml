@@ -267,6 +267,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_cleanup_stale_runs.py
 
+      - name: Validate CI queue janitor policy
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_queue_janitor.py
+
       - name: Validate the trusted web complexity workflow
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_web_complexity_trusted_workflow.py
@@ -298,6 +302,10 @@ jobs:
       - name: Validate the R2 cache store script
         if: ${{ matrix.group == 'ci' }}
         run: bash tests/test_ci_r2_cache.sh
+
+      - name: Validate the R2 cache census
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_r2_cache_census.py
 
       - name: Validate nightly prune Python compatibility
         if: ${{ matrix.group == 'release-tooling' }}
@@ -450,6 +458,10 @@ jobs:
       - name: Validate iOS screenshot capture fail-fast
         if: ${{ matrix.group == 'release-ios' }}
         run: python3 tests/test_ios_screenshot_capture_guard.py
+
+      - name: Validate TestFlight assignment after a post-upload failure
+        if: ${{ matrix.group == 'release-ios' }}
+        run: python3 tests/test_ios_testflight_assignment_after_upload.py
 
       - name: Validate tagged iOS device entitlement fallback
         if: ${{ matrix.group == 'release-ios' }}

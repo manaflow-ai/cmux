@@ -3386,6 +3386,50 @@ def test_reuse_lookups_match_the_job_name_github_actually_reports() -> None:
     )
 
 
+
+def test_trusted_router_reads_new_guard_tests_from_the_pr_head() -> None:
+    # A routing-policy PR is classified by the base router, whose workflows
+    # have never named a guard test the PR adds. Merging the head's references
+    # keeps that test Linux-only; a head macOS job naming it still counts.
+    def write_root(root: Path, guards_block: str, macos_block: str) -> None:
+        (root / "scripts/ci/workloads").mkdir(parents=True)
+        (root / "scripts/ci/workloads/ci-guard.sh").write_text(
+            "python3 tests/test_existing_guard.py\n", encoding="utf-8"
+        )
+        (root / ".github/workflows").mkdir(parents=True)
+        linux = "name: fixture\njobs:\n  guard:\n    runs-on: ubuntu-24.04\n    steps:\n      - run: python3 tests/test_existing_guard.py\n"
+        for name in ("ci.yml", "ci-web.yml"):
+            (root / ".github/workflows" / name).write_text(linux, encoding="utf-8")
+        (root / ".github/workflows/ci-guards.yml").write_text(linux + guards_block, encoding="utf-8")
+        (root / ".github/workflows/ci-macos.yml").write_text(
+            "name: fixture\njobs:\n  mac:\n    runs-on: macos-15\n    steps:\n      - run: echo mac\n" + macos_block,
+            encoding="utf-8",
+        )
+
+    with tempfile.TemporaryDirectory() as base_dir, tempfile.TemporaryDirectory() as head_dir:
+        base, head = Path(base_dir), Path(head_dir)
+        write_root(base, "", "")
+        write_root(head, "      - run: python3 tests/test_new_guard.py\n", "")
+        previous = os.environ.pop(module.HEAD_TEST_REFERENCE_ROOT_ENV, None)
+        try:
+            base_only = module.load_macos_job_test_references(base)
+            assert not module.is_guard_only_test("tests/test_new_guard.py", base_only)
+
+            os.environ[module.HEAD_TEST_REFERENCE_ROOT_ENV] = str(head)
+            merged = module.load_macos_job_test_references(base)
+            assert module.is_guard_only_test("tests/test_new_guard.py", merged)
+
+            shutil.rmtree(head)
+            head.mkdir()
+            write_root(head, "", "      - run: python3 tests/test_new_guard.py\n")
+            macos_named = module.load_macos_job_test_references(base)
+            assert not module.is_guard_only_test("tests/test_new_guard.py", macos_named)
+        finally:
+            os.environ.pop(module.HEAD_TEST_REFERENCE_ROOT_ENV, None)
+            if previous is not None:
+                os.environ[module.HEAD_TEST_REFERENCE_ROOT_ENV] = previous
+
+
 if __name__ == "__main__":
     for name, value in sorted(globals().items()):
         if name.startswith("test_") and callable(value):
