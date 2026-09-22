@@ -531,6 +531,10 @@ path = "tests/test_run_e2e.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_sync_test_wiring.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_swift_incremental_diagnostics.py"
 lane = "linux-guard"
 
@@ -892,10 +896,6 @@ lane = "legacy"
 
 [[test]]
 path = "tests/test_swift_testing_require_not_nested.py"
-lane = "linux-guard"
-
-[[test]]
-path = "tests/test_sync_test_wiring.py"
 lane = "linux-guard"
 
 [[test]]
