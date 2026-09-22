@@ -57,6 +57,14 @@ receives no repository secrets. Glaeda owns DerivedData, SwiftPM,
 module-cache, and Xcode compilation-cache persistence; every run still resolves
 packages and performs exact source/toolchain admission.
 
+Glaeda performs no automatic cache eviction, and each generation under
+`.glaeda/apple-build/cache/<key>/` holds a full cmux DerivedData tree, so a
+toolchain change would otherwise strand a multi-GB directory on the owned Mac
+indefinitely. After a verified compile, `run-persistent-mac-compile.py` stamps
+the generation it used and deletes all but the three most recently used ones,
+logging each removal and recording it in the admission metrics. The generation
+in use is never a candidate; an evicted generation costs only a cold rebuild.
+
 Rollout is reversible through two repository variables:
 
 - `CI_PERSISTENT_MAC_COMPILE=off` (or unset): hosted path only;

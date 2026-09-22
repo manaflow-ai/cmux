@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import importlib.util
 import json
+import os
 from pathlib import Path
 import tempfile
 import unittest
@@ -217,6 +218,128 @@ class StateRetentionTests(unittest.TestCase):
             self.assertEqual(len(remaining), driver.QUARANTINE_RETAINED_STORES)
             self.assertEqual(remaining[0].name, old[-1].name)
             self.assertTrue(unrelated.is_dir())
+
+    @staticmethod
+    def _cache_generation(root: Path, index: int, mtime: int) -> Path:
+        """A fake Glaeda cache generation: a 64-hex key holding a DerivedData tree."""
+        path = root / f"{index:064x}"
+        (path / "derived_data" / "Build" / "Products" / "Debug").mkdir(parents=True)
+        (path / "derived_data" / "cmux-build.log").write_text(str(index))
+        os.utime(path, ns=(mtime, mtime))
+        return path
+
+    def test_cache_pruning_keeps_the_current_and_most_recent_generations(self):
+        with tempfile.TemporaryDirectory() as directory:
+            project = Path(directory)
+            cache = project / ".glaeda" / "apple-build" / "cache"
+            cache.mkdir(parents=True)
+            # index 0 is oldest, index 5 newest; the current run uses the oldest,
+            # which must survive precisely because it is the one in use.
+            generations = [
+                self._cache_generation(cache, index, 1_000_000_000 + index)
+                for index in range(6)
+            ]
+            current = generations[0]
+            # Neither of these is a cache key, so neither may ever be a candidate.
+            stray_file = cache / "README"
+            stray_file.write_text("not a generation")
+            stray_dir = cache / "scratch"
+            stray_dir.mkdir()
+
+            pruned = driver.prune_cache_generations(project, keep_key=current.name)
+
+            survivors = {path.name for path in cache.iterdir()}
+            expected = {
+                current.name,
+                generations[-1].name,
+                generations[-2].name,
+                stray_file.name,
+                stray_dir.name,
+            }
+            self.assertEqual(survivors, expected)
+            self.assertEqual(
+                sorted(pruned),
+                sorted(path.name for path in generations[1:-2]),
+            )
+            self.assertTrue((current / "derived_data" / "cmux-build.log").is_file())
+            self.assertEqual(
+                len(survivors) - 2, driver.CACHE_RETAINED_GENERATIONS
+            )
+
+    def test_cache_pruning_never_evicts_the_generation_in_use(self):
+        """Even as the least recently used generation, the current key survives."""
+        with tempfile.TemporaryDirectory() as directory:
+            project = Path(directory)
+            cache = project / ".glaeda" / "apple-build" / "cache"
+            cache.mkdir(parents=True)
+            generations = [
+                self._cache_generation(cache, index, 1_000_000_000 + index)
+                for index in range(driver.CACHE_RETAINED_GENERATIONS + 2)
+            ]
+            oldest = generations[0]
+
+            driver.prune_cache_generations(project, keep_key=oldest.name)
+
+            self.assertTrue(oldest.is_dir())
+            self.assertTrue((oldest / "derived_data" / "cmux-build.log").is_file())
+
+    def test_cache_pruning_is_a_noop_below_the_retention_bound(self):
+        with tempfile.TemporaryDirectory() as directory:
+            project = Path(directory)
+            cache = project / ".glaeda" / "apple-build" / "cache"
+            cache.mkdir(parents=True)
+            generations = [
+                self._cache_generation(cache, index, 1_000_000_000 + index)
+                for index in range(driver.CACHE_RETAINED_GENERATIONS)
+            ]
+
+            self.assertEqual(
+                driver.prune_cache_generations(project, keep_key=generations[0].name), []
+            )
+            self.assertEqual(
+                {path.name for path in cache.iterdir()},
+                {path.name for path in generations},
+            )
+
+    def test_cache_pruning_tolerates_an_absent_cache_root(self):
+        with tempfile.TemporaryDirectory() as directory:
+            self.assertEqual(driver.prune_cache_generations(Path(directory)), [])
+
+    def test_cache_pruning_unlinks_generation_symlinks_without_following_them(self):
+        with tempfile.TemporaryDirectory() as directory:
+            project = Path(directory)
+            cache = project / ".glaeda" / "apple-build" / "cache"
+            cache.mkdir(parents=True)
+            outside = project / "outside"
+            (outside / "derived_data").mkdir(parents=True)
+            (outside / "derived_data" / "treasure").write_text("keep me")
+            # Oldest entry is a symlink out of the cache root.
+            link = cache / f"{0:064x}"
+            link.symlink_to(outside, target_is_directory=True)
+            os.utime(link, ns=(1_000_000_000, 1_000_000_000), follow_symlinks=False)
+            newer = [
+                self._cache_generation(cache, index, 1_000_000_100 + index)
+                for index in range(1, driver.CACHE_RETAINED_GENERATIONS + 2)
+            ]
+
+            pruned = driver.prune_cache_generations(project, keep_key=newer[-1].name)
+
+            self.assertIn(link.name, pruned)
+            self.assertFalse(link.is_symlink())
+            self.assertTrue((outside / "derived_data" / "treasure").is_file())
+
+    def test_driver_prunes_cache_generations_after_a_verified_compile(self):
+        source = DRIVER.read_text()
+        prune = source.index("    pruned_cache_generations = prune_cache_generations(")
+        self.assertIn("os.utime(resolved_cache)", source[:prune])
+        # Eviction must follow every check that proves the current generation.
+        for guard in (
+            'raise Refusal("Glaeda cache locator escaped the project cache root")',
+            'raise Refusal("Glaeda DerivedData escaped the admitted cache generation")',
+            'raise Refusal("native compile completed without the admission log/products")',
+        ):
+            self.assertLess(source.index(guard), prune)
+        self.assertIn('"pruned_cache_generations": pruned_cache_generations', source)
 
 
 class WorkflowContractTests(unittest.TestCase):
