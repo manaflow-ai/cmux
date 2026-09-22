@@ -48,6 +48,26 @@ class NightlyPruneRateLimitTests(unittest.TestCase):
                 mock.patch.object(MODULE, "load_release", side_effect=error):
             self.assertEqual(MODULE.main(), 0)
 
+    def test_best_effort_delete_ignores_gh_rate_limit(self) -> None:
+        error = subprocess.CalledProcessError(
+            1,
+            ["gh", "api", "-X", "DELETE"],
+            stderr="HTTP 429: API rate limit exceeded",
+        )
+        parsed = args(best_effort=True)
+        parsed.keep_builds = 1
+        parsed.max_assets = 1
+        release = {
+            "assets": [
+                {"id": 1, "name": "cmux-nightly-macos-1.dmg"},
+                {"id": 2, "name": "cmux-nightly-macos-2.dmg"},
+            ]
+        }
+        with mock.patch.object(MODULE, "parse_args", return_value=parsed), \
+                mock.patch.object(MODULE, "load_release", return_value=release), \
+                mock.patch.object(MODULE, "delete_assets", side_effect=error):
+            self.assertEqual(MODULE.main(), 0)
+
     def test_strict_prune_still_fails_on_github_rate_limit(self) -> None:
         error = MODULE.GitHubAPIError(403, '{"message":"API rate limit exceeded"}')
         with mock.patch.object(MODULE, "parse_args", return_value=args(best_effort=False)), \
