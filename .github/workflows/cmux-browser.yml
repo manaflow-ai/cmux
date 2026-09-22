@@ -1,10 +1,7 @@
 name: cmux-browser
 
 on:
-  pull_request:
-    paths:
-      - "cmux-browser/**"
-      - ".github/workflows/cmux-browser.yml"
+  workflow_call:
   push:
     branches: [main]
     paths:
