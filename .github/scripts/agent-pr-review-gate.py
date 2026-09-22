@@ -389,8 +389,8 @@ def fetch_pr() -> dict[str, Any]:
     base_query = """query($owner:String!, $repo:String!, $number:Int!, $reviewsAfter:String, $threadsAfter:String, $commentsAfter:String) {
       repository(owner:$owner,name:$repo) { pullRequest(number:$number) {
         number body headRefOid author { login }
-        reviews(first:100, after:$reviewsAfter) { nodes { author { login } state submittedAt commit { oid } } pageInfo { hasNextPage endCursor } }
-        reviewThreads(first:100, after:$threadsAfter) { nodes { id isResolved isOutdated path line comments(first:100) { nodes { author { login } body createdAt } pageInfo { hasNextPage endCursor } } } pageInfo { hasNextPage endCursor } }
+        reviews(first:100, after:$reviewsAfter) { nodes { id author { login } state submittedAt commit { oid } } pageInfo { hasNextPage endCursor } }
+        reviewThreads(first:100, after:$threadsAfter) { nodes { id isResolved isOutdated path line comments(first:100) { nodes { author { login } body createdAt pullRequestReview { id } } pageInfo { hasNextPage endCursor } } } pageInfo { hasNextPage endCursor } }
         comments(first:100, after:$commentsAfter) { nodes { author { login } body createdAt updatedAt } pageInfo { hasNextPage endCursor } }
       } }
     }"""
@@ -413,7 +413,7 @@ def fetch_pr() -> dict[str, Any]:
     # Paginate comments independently; the nested connection shares the thread
     # cursor in the PR query, so a node query avoids silently dropping comment 101+.
     comment_query = """query($id:ID!, $after:String) { node(id:$id) { ... on PullRequestReviewThread {
-      comments(first:100, after:$after) { nodes { author { login } body createdAt } pageInfo { hasNextPage endCursor } }
+      comments(first:100, after:$after) { nodes { author { login } body createdAt pullRequestReview { id } } pageInfo { hasNextPage endCursor } }
     } } }"""
     for thread in threads:
         thread_comments = thread["comments"]["nodes"]

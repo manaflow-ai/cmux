@@ -115,7 +115,9 @@ jobs:
 
       - name: Test review fabric contracts
         if: ${{ matrix.group == 'preflight' }}
-        run: python3 tests/test_review_fabric.py
+        run: |
+          python3 tests/test_review_fabric.py
+          python3 tests/test_github_review_receipt.py
 
       - name: Test macOS localization catalog tooling
         if: ${{ matrix.group == 'preflight' }}
