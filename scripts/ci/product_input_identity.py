@@ -52,6 +52,7 @@ IGNORED_JOB_LEVEL_KEYS = frozenset({
 # of product identity unless it is explicitly classified as orchestration-only.
 # New/unknown steps therefore invalidate reuse until their role is reviewed.
 NON_PRODUCT_RECIPE_STEPS = frozenset({
+    "Reject stale pull request rerun",
     "Start compile admission timers",
     "Clear stale git locks (self-hosted reused workspace)",
     "Retry checkout after transient network failure",
