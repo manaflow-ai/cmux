@@ -2949,6 +2949,7 @@ def test_r2_transport_is_an_explicit_optional_remote_broker() -> None:
     expected_condition = (
         "if: steps.node-products.outputs.hit != 'true' && "
         "steps.peer-products.outputs.hit != 'true' && "
+        "steps.restore-layers.outputs.hit != 'true' && "
         "vars.CI_ARTIFACT_R2_URL != ''"
     )
     for job_name in ("app-host-unit-tests", "tests-build-and-lag"):
