@@ -61,7 +61,7 @@ export function useDashboardTeamScope(userId: string | null): DashboardTeamScope
 
   const switchTeam = async (team: DashboardCatalogTeam) => {
     if (team.id === selected.id) return;
-    const previousCatalog = queryClient.getQueryData<DashboardTeamCatalog>(queryKey);
+    const previousCatalog = queryClient.getQueryData<DashboardTeamCatalog>(queryKey) ?? data;
     const previousSearch = new URLSearchParams(searchParams.toString());
     const optimisticSearch = new URLSearchParams(previousSearch);
 
