@@ -333,6 +333,10 @@ jobs:
         if: ${{ matrix.group == 'release' }}
         run: python3 tests/test_ios_appstore_lane_identity.py
 
+      - name: Validate tagged iOS device entitlement fallback
+        if: ${{ matrix.group == 'release' }}
+        run: node --test ios/tests/tagged-device-entitlements.test.mjs
+
       - name: Validate cmux scheme test configuration
         if: ${{ matrix.group == 'app-host-cache' }}
         run: ./tests/test_ci_scheme_testaction_debug.sh
