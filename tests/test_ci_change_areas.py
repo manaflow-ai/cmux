@@ -1939,6 +1939,10 @@ def test_guard_workflow_call_preserves_routes_and_static_gate() -> None:
     for route in GUARD_ROUTE_JOBS:
         assert f"      {route}: ${{{{ needs.changes.outputs.{route} }}}}" in block
         assert f"needs.changes.outputs.{route} != 'false'" in block
+    assert (
+        "      linux_guard_test_groups: "
+        "${{ needs.changes.outputs.linux_guard_test_groups }}"
+    ) in block
 
 
 def test_app_host_failures_preserve_attempt_and_crash_diagnostics() -> None:
