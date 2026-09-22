@@ -605,13 +605,13 @@ struct MachinesPanelView: View {
             expansionStore: expansionStore, organizationStore: SurfaceCatalog.shared.sidebarOrganization, organizationState: SurfaceCatalog.shared.sidebarOrganization.state,
             style: CloudTreeStyle.preset(id: cloudTreeStyleID) ?? .defaultStyle,
             onDragStateChange: { [weak viewModel] dragging in viewModel?.setTreeDragging(dragging) },
-            source: treeSource, showsCloudVPNWarning: tunnelStatus.status?.state == .off,
+            source: treeSource,
             devicesSection: CloudTreeDevicesSection(
                 discoveryEnabled: includesDevices,
                 incomingAccessEnabled: devicesModel.preferences?.incomingAccessEnabled ?? false,
                 discoveryManaged: discoveryManaged,
                 incomingAccessManaged: incomingAccessManaged
-            ),
+            ), showsCloudVPNWarning: tunnelStatus.status?.state == .off,
             reveal: devicesModel.revealRequest
         )
         .accessibilityIdentifier("CloudMachinesTree")
