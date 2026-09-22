@@ -16,12 +16,12 @@ import Testing
         macDeviceId: nil,
         retargetsToLiveSurfaceOwner: false
     )
-    let firstNavigationToken = store.deeplinkWorkspaceNavigationRequest?.token
     coordinator.workspacesDidChange()
 
-    #expect(store.selectedWorkspaceID == MobileWorkspacePreview.ID(rawValue: "workspace-docs"))
-    #expect(store.selectedTerminalID?.rawValue != "terminal-build")
-    #expect(store.deeplinkWorkspaceNavigationRequest?.token == firstNavigationToken)
+    #expect(store.selectedWorkspaceID == nil)
+    #expect(store.selectedTerminalID == nil)
+    #expect(store.deeplinkWorkspaceNavigationRequest == nil)
+    #expect(coordinator.tabUnavailableAlert != nil)
 }
 
 @Test @MainActor func trustedNotificationTapStillFollowsSurfaceToLiveWorkspace() {
@@ -55,17 +55,12 @@ import Testing
         macDeviceId: nil,
         retargetsToLiveSurfaceOwner: false
     )
-    let firstNavigationToken = store.deeplinkWorkspaceNavigationRequest?.token
     coordinator.workspacesDidChange()
 
-    #expect(firstNavigationToken != nil)
-    #expect(store.deeplinkWorkspaceNavigationRequest?.token == firstNavigationToken)
-    #expect(store.consumeDeeplinkWorkspaceNavigationRequest()?.rawValue == "workspace-docs")
-    coordinator.workspacesDidChange()
     #expect(store.deeplinkWorkspaceNavigationRequest == nil)
+    #expect(coordinator.tabUnavailableAlert != nil)
 
     store.replaceForegroundWorkspaceState(PreviewMobileHost.workspaces)
     coordinator.workspacesDidChange()
-    #expect(store.selectedTerminalID == MobileTerminalPreview.ID(rawValue: "terminal-notes"))
-    #expect(store.deeplinkWorkspaceNavigationRequest == nil)
+    #expect(store.selectedTerminalID == nil)
 }

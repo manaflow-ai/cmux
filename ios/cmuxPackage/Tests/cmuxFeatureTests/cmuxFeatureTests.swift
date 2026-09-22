@@ -4186,11 +4186,14 @@ struct InertPushRegistration: PushRegistering {
     ) async {}
 }
 
-@MainActor func deeplinkTestStore() -> CMUXMobileShellStore {
+@MainActor func deeplinkTestStore(
+    connectionState: MobileConnectionState = .connected
+) -> CMUXMobileShellStore {
     CMUXMobileShellStore(
         runtime: testRuntime(
             transportFactory: RecordingNeverConnectTransportFactory(dials: TransportDialRecorder())
         ),
+        connectionState: connectionState,
         reachability: OfflineReachability()
     )
 }
@@ -4251,6 +4254,50 @@ struct InertPushRegistration: PushRegistering {
 
     #expect(store.selectedWorkspaceID == nil)
     #expect(store.selectedTerminalID == nil)
+    #expect(coordinator.tabUnavailableAlert != nil)
+}
+
+/// A tap received while its Mac is disconnected must stay parked. Once the
+/// connection recovers, the same tap selects the exact terminal without a
+/// second notification tap.
+@Test @MainActor func notificationTapWaitsForConnectionRecovery() async throws {
+    let coordinator = MobilePushCoordinator(registration: InertPushRegistration())
+    let store = deeplinkTestStore(connectionState: .disconnected)
+    store.replaceForegroundWorkspaceState(PreviewMobileHost.workspaces)
+    coordinator.bind(store: store)
+
+    coordinator.handleTap(workspaceId: "workspace-docs", surfaceId: "terminal-notes")
+
+    #expect(store.selectedWorkspaceID == nil)
+    #expect(store.selectedTerminalID == nil)
+    #expect(coordinator.tabUnavailableAlert == nil)
+
+    store.connectionState = .connected
+    coordinator.workspacesDidChange()
+
+    #expect(store.selectedWorkspaceID == MobileWorkspacePreview.ID(rawValue: "workspace-docs"))
+    #expect(store.selectedTerminalID == MobileTerminalPreview.ID(rawValue: "terminal-notes"))
+}
+
+/// Once a connected workspace snapshot proves the pushed terminal is gone, the
+/// coordinator clears the parked request and exposes a one-shot alert instead
+/// of navigating into a workspace that cannot show the requested tab.
+@Test @MainActor func notificationTapAlertsWhenTabIsUnavailable() async throws {
+    let coordinator = MobilePushCoordinator(registration: InertPushRegistration())
+    let store = deeplinkTestStore()
+    store.replaceForegroundWorkspaceState([
+        MobileWorkspacePreview(id: "workspace-docs", name: "Docs", terminals: [])
+    ])
+    coordinator.bind(store: store)
+
+    coordinator.handleTap(workspaceId: "workspace-docs", surfaceId: "terminal-notes")
+
+    #expect(store.selectedWorkspaceID == nil)
+    #expect(store.selectedTerminalID == nil)
+    #expect(coordinator.tabUnavailableAlert != nil)
+
+    coordinator.dismissTabUnavailableAlert()
+    #expect(coordinator.tabUnavailableAlert == nil)
 }
 
 /// A surface-only tap (no workspaceId in the payload) must wait for the
@@ -4280,7 +4327,7 @@ struct InertPushRegistration: PushRegistering {
 /// pointing the store at a non-existent surface.
 @Test @MainActor func notificationTapKeepsTerminalParkedUntilItsSnapshotArrives() async throws {
     let coordinator = MobilePushCoordinator(registration: InertPushRegistration())
-    let store = deeplinkTestStore()
+    let store = deeplinkTestStore(connectionState: .disconnected)
     coordinator.bind(store: store)
 
     coordinator.handleTap(workspaceId: "workspace-docs", surfaceId: "terminal-notes")
@@ -4289,10 +4336,12 @@ struct InertPushRegistration: PushRegistering {
     ])
     coordinator.workspacesDidChange()
 
-    // Workspace navigation happens now; the absent terminal is not selected.
-    #expect(store.selectedWorkspaceID == MobileWorkspacePreview.ID(rawValue: "workspace-docs"))
+    // The workspace snapshot is incomplete and its connection is down, so the
+    // tap remains parked without selecting a stale workspace or terminal.
+    #expect(store.selectedWorkspaceID == nil)
     #expect(store.selectedTerminalID == nil)
 
+    store.connectionState = .connected
     store.replaceForegroundWorkspaceState(PreviewMobileHost.workspaces)
     coordinator.workspacesDidChange()
 
