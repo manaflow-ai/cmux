@@ -76,13 +76,10 @@ struct CloudSidebarAttentionLayoutTests {
         }
         try #require(!changed.isNull, "The unread indicator must actually render")
         let scale = CGFloat(unread.pixelsWide) / cell.bounds.width
-        // The native cell also owns hover buttons. The display host stops
-        // before those controls, so measure its actual edge inside the cell.
-        let host = try #require(cell.subviews.first { $0 is CloudTreePassthroughHostingView })
-        let content = cell.convert(host.bounds, from: host)
-        #expect(changed.minX / scale >= content.maxX - CloudTreeStyle.compact.rowGrid.trailingPadding,
-                "Only the existing trailing padding may change; icons, pins and titles must stay put")
-        #expect(changed.maxX < CGFloat(unread.pixelsWide), "The dot must not clip at the sidebar edge")
+        _ = try #require(cell.subviews.first { $0 is CloudTreePassthroughHostingView })
+        let leadingSlot = CloudTreeStyle.compact.rowGrid.attentionSlot
+        #expect(changed.minX / scale >= 0 && changed.maxX / scale <= leadingSlot + 1,
+                "Only the leading attention slot may change; icons, pins and titles must stay put")
         #expect(abs(changed.midY - CGFloat(unread.pixelsHigh) / 2) <= scale,
                 "Center the notification on the row, not on the icon's upper corner")
         #expect(changed.width / scale >= 5 && changed.width / scale <= 7

@@ -75,7 +75,7 @@ final class CloudTreeCellView: NSTableCellView {
                     isPinned: node.isPinned,
                     showsAttentionSlot: node.showsAttentionSlot,
                     hasUnreadNotification: node.hasUnreadAttention,
-                    trailingPadding: style.rowGrid.trailingPadding
+                    attentionSlot: style.rowGrid.attentionSlot
                 ))
                 .frame(maxWidth: .infinity, alignment: .leading)
         )

@@ -81,11 +81,13 @@ struct CloudSidebarPinGeometryTests {
         #expect(abs(pinned.maxX - unpinned.maxX) <= 1, "Trailing alignment must not move when pinning")
     }
 
-    @Test("Read rows start at the caret content edge without an invisible attention column",
+    @Test("Read rows reserve the leading attention column without shifting on unread changes",
           arguments: [75, 100, 150, 200])
-    func noEmptyAttentionGutter(percent: Int) throws {
+    func attentionSlotPrecedesContent(percent: Int) throws {
         let bounds = try contentBounds(width: 220, pinned: false, percent: percent)
-        #expect(bounds.minX <= 1, "Hidden unread decoration must not indent the folder or terminal: \(bounds.minX)")
+        let slot = CloudTreeStyle.compact.rowGrid.attentionSlot
+        #expect(bounds.minX >= slot && bounds.minX <= slot + 4,
+                "The unread slot must stay in the leading identity grid: \(bounds.minX)")
     }
 
     @Test("Pin geometry follows the same magnification as row text")
