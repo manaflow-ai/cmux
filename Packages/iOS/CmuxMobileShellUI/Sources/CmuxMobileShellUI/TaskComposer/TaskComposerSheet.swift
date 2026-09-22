@@ -840,7 +840,7 @@ struct TaskComposerSheet: View {
         reconcileSelectedEffort()
         modelRefreshTask = Task {
             var retryAttempt = 0
-            await MobileTaskModelRefreshLoop.run(
+            await MobileTaskModelRefreshLoop().run(
                 shouldContinue: {
                     !Task.isCancelled
                         && modelRefreshOperationID == operationID
@@ -868,7 +868,7 @@ struct TaskComposerSheet: View {
                     switch outcome {
                     case .retry(let failure):
                         retryAttempt += 1
-                        let delay = MobileTaskModelRefreshLoop.delay(for: retryAttempt - 1)
+                        let delay = MobileTaskModelRefreshLoop().delay(for: retryAttempt - 1)
                         store.recordAppEvent(
                             .taskModelListRetryScheduled,
                             correlationID: macDeviceID,
@@ -887,9 +887,6 @@ struct TaskComposerSheet: View {
                         break
                     }
                     return outcome
-                },
-                sleep: { delay in
-                    try await Task.sleep(for: delay)
                 }
             )
             guard !Task.isCancelled,

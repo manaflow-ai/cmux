@@ -163,18 +163,6 @@ public enum DiagnosticFailureKind: Int, Sendable, Codable, CaseIterable {
     }
 }
 
-/// Why task-model discovery stopped retrying. These values are only emitted
-/// when another request would repeat a known permanent failure.
-public enum DiagnosticTaskModelRetryStopReason: Int, Sendable, Codable, CaseIterable {
-    case unsupported = 1
-    case disabled = 2
-    case authorizationRequired = 3
-    case accountMismatch = 4
-    case invalidRequest = 5
-    case providerUnavailable = 6
-    case cancelled = 7
-}
-
 /// Why a pending transport dial was cancelled by its owner.
 ///
 /// This is deliberately separate from ``DiagnosticFailureKind/cancelled``:
@@ -602,7 +590,9 @@ public enum DiagnosticAppEventKind: Int, Sendable, Codable, CaseIterable {
     /// ``DiagnosticFailureKind/attachmentCountLimitReached`` and aggregate
     /// bytes for ``DiagnosticFailureKind/attachmentAggregateSizeLimitReached``.
     case taskAttachmentLimitReached = 270
+    /// A transient task model discovery failure scheduled another attempt.
     case taskModelListRetryScheduled = 271
+    /// Task model discovery stopped because the owner cancelled or reached a permanent failure.
     case taskModelListRetryStopped = 272
 
     // MARK: Agent chat (280-309)

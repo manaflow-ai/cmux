@@ -7,8 +7,74 @@ internal import Foundation
 /// operational stream useful for latency histograms without turning every
 /// retry or state transition into an event. The diagnostic ring remains the
 /// source for Sentry's incident policy and the on-device logs.
+private func taskModelProperties(
+    for kind: DiagnosticAppEventKind,
+    event: DiagnosticEvent
+) -> [String: AnalyticsValue]? {
+    let outcome: String
+    let phase: String?
+    switch kind {
+    case .taskModelListLoadSucceeded:
+        outcome = "success"
+        phase = nil
+    case .taskModelListLoadFailed:
+        outcome = "failure"
+        phase = nil
+    case .taskModelListRetryScheduled:
+        outcome = "failure"
+        phase = "retry_scheduled"
+    case .taskModelListRetryStopped:
+        outcome = "failure"
+        phase = "retry_stopped"
+    default:
+        return nil
+    }
+    let modelCount: Int
+    switch kind {
+    case .taskModelListRetryScheduled, .taskModelListRetryStopped:
+        modelCount = 0
+    default:
+        modelCount = event.c ?? 0
+    }
+    var properties: [String: AnalyticsValue] = [
+        "operation": .string("model_list"),
+        "outcome": .string(outcome),
+        // Transport failures can precede a catalog result. The ingress
+        // requires this field even when discovery produced no models.
+        "model_count": .int(modelCount),
+        "duration_ms": .int(Int(event.ms ?? 0)),
+    ]
+    if let surface = event.surface {
+        // This is the existing process-local correlation handle. It lets
+        // Axiom join one refresh's retries without exporting the Mac ID.
+        properties["correlation_id"] = .int(Int(surface))
+    }
+    if let phase {
+        properties["phase"] = .string(phase)
+    }
+    let failure = DiagnosticEventPresentation().failureKind(of: event)
+    if let failure, failure != .none {
+        properties["failure"] = .string(DiagnosticEventPresentation().name(failure))
+    }
+    switch kind {
+    case .taskModelListRetryScheduled:
+        properties["attempt"] = .int(event.c ?? 0)
+        properties["retry_delay_ms"] = .int(Int(event.ms ?? 0))
+    case .taskModelListRetryStopped:
+        if let reason = event.c.flatMap(DiagnosticTaskModelRetryStopReason.init(rawValue:)) {
+            properties["stop_reason"] = .string(DiagnosticEventPresentation().name(reason))
+        }
+    default:
+        break
+    }
+    return properties
+}
+
+/// Reports bounded connectivity and task model discovery outcomes.
 public final class MobileNetworkOutcomeReporter: Sendable {
+    /// The Axiom event name for connectivity latency diagnostics.
     public static let eventName = "ios_connectivity_latency"
+    /// The Axiom event name for task model discovery diagnostics.
     public static let taskModelEventName = "ios_task_model_discovery"
 
     private enum Phase: String, Hashable, Sendable {
@@ -93,7 +159,7 @@ public final class MobileNetworkOutcomeReporter: Sendable {
     public func ingest(_ event: DiagnosticEvent) {
         if event.code == .appFeatureAction,
            let kind = event.a.flatMap(DiagnosticAppEventKind.init(rawValue:)),
-           let properties = Self.taskModelProperties(for: kind, event: event) {
+           let properties = taskModelProperties(for: kind, event: event) {
             emitter.capture(Self.taskModelEventName, properties)
             return
         }
@@ -107,69 +173,6 @@ public final class MobileNetworkOutcomeReporter: Sendable {
     public func flush() async {
         await state.drain()
         await emitter.flush()
-    }
-
-    private static func taskModelProperties(
-        for kind: DiagnosticAppEventKind,
-        event: DiagnosticEvent
-    ) -> [String: AnalyticsValue]? {
-        let outcome: String
-        let phase: String?
-        switch kind {
-        case .taskModelListLoadSucceeded:
-            outcome = "success"
-            phase = nil
-        case .taskModelListLoadFailed:
-            outcome = "failure"
-            phase = nil
-        case .taskModelListRetryScheduled:
-            outcome = "failure"
-            phase = "retry_scheduled"
-        case .taskModelListRetryStopped:
-            outcome = "failure"
-            phase = "retry_stopped"
-        default:
-            return nil
-        }
-        let modelCount: Int
-        switch kind {
-        case .taskModelListRetryScheduled, .taskModelListRetryStopped:
-            modelCount = 0
-        default:
-            modelCount = event.c ?? 0
-        }
-        var properties: [String: AnalyticsValue] = [
-            "operation": .string("model_list"),
-            "outcome": .string(outcome),
-            // Transport failures can precede a catalog result. The ingress
-            // requires this field even when discovery produced no models.
-            "model_count": .int(modelCount),
-            "duration_ms": .int(Int(event.ms ?? 0)),
-        ]
-        if let surface = event.surface {
-            // This is the existing process-local correlation handle. It lets
-            // Axiom join one refresh's retries without exporting the Mac ID.
-            properties["correlation_id"] = .int(Int(surface))
-        }
-        if let phase {
-            properties["phase"] = .string(phase)
-        }
-        let failure = DiagnosticEventPresentation().failureKind(of: event)
-        if let failure, failure != .none {
-            properties["failure"] = .string(DiagnosticEventPresentation().name(failure))
-        }
-        switch kind {
-        case .taskModelListRetryScheduled:
-            properties["attempt"] = .int(event.c ?? 0)
-            properties["retry_delay_ms"] = .int(Int(event.ms ?? 0))
-        case .taskModelListRetryStopped:
-            if let reason = event.c.flatMap(DiagnosticTaskModelRetryStopReason.init(rawValue:)) {
-                properties["stop_reason"] = .string(DiagnosticEventPresentation().name(reason))
-            }
-        default:
-            break
-        }
-        return properties
     }
 
     /// Builds a terminal latency payload for an event that already carries a

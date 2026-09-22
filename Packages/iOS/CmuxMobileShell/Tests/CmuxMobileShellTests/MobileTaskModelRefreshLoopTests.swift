@@ -10,7 +10,7 @@ import CmuxMobileShellModel
     @Test func retriesBeyondThreeAttemptsWithCappedDelayUntilSuccess() async {
         var requests = 0
         var delays: [Duration] = []
-        await MobileTaskModelRefreshLoop.run(
+        await MobileTaskModelRefreshLoop().run(
             refresh: {
                 requests += 1
                 return requests == 11 ? .succeeded : .retry(.timedOut)
@@ -25,7 +25,7 @@ import CmuxMobileShellModel
     @Test func stopsImmediatelyForExplicitPermanentFailure() async {
         var requests = 0
         var sleeps = 0
-        await MobileTaskModelRefreshLoop.run(
+        await MobileTaskModelRefreshLoop().run(
             refresh: { requests += 1; return .stopped(.unsupported) },
             sleep: { _ in sleeps += 1 }
         )
@@ -36,7 +36,7 @@ import CmuxMobileShellModel
     @Test func dismissalDuringBackoffStopsFurtherFetches() async {
         var isCurrent = true
         var requests = 0
-        await MobileTaskModelRefreshLoop.run(
+        await MobileTaskModelRefreshLoop().run(
             shouldContinue: { isCurrent },
             refresh: { requests += 1; return .retry(.connectionClosed) },
             sleep: { _ in isCurrent = false }
@@ -48,7 +48,7 @@ import CmuxMobileShellModel
         var requests = 0
         let sleeping = AsyncStream<Void>.makeStream()
         let task = Task {
-            await MobileTaskModelRefreshLoop.run(
+            await MobileTaskModelRefreshLoop().run(
                 refresh: { requests += 1; return .retry(.unknown) },
                 sleep: { _ in
                     sleeping.continuation.yield(())

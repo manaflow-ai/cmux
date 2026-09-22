@@ -23,19 +23,21 @@ private actor MobileTaskModelDiscoveryProbe {
     }
 }
 
+private actor FailedThenRecoveredTaskModelProbe {
+    var requests = 0
+
+    func run(_ command: String) -> String? {
+        if command.hasPrefix("command -v") { return "/bin/opencode" }
+        requests += 1
+        guard requests > 1 else { return nil }
+        return "opencode/recovered\n{\"name\":\"Recovered\",\"variants\":{}}"
+    }
+}
+
 @Suite("Mobile task model discovery cache")
 struct MobileTaskModelDiscoveryTests {
     @Test func failedDiscoveryIsNotCachedBeforeTheNextAttempt() async {
-        actor Probe {
-            var requests = 0
-            func run(_ command: String) -> String? {
-                if command.hasPrefix("command -v") { return "/bin/opencode" }
-                requests += 1
-                guard requests > 1 else { return nil }
-                return "opencode/recovered\n{\"name\":\"Recovered\",\"variants\":{}}"
-            }
-        }
-        let probe = Probe()
+        let probe = FailedThenRecoveredTaskModelProbe()
         let discovery = MobileTaskModelDiscovery(strategy: MobileTaskModelProviderStrategy(
             homeDirectory: URL(fileURLWithPath: "/Users/tester"),
             commandRunner: { command, _ in await probe.run(command) },
