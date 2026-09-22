@@ -13,7 +13,7 @@ on:
         default: ""
         type: string
       ref:
-        description: Source ref to test
+        description: Branch, tag, full SHA, or short SHA to test
         required: false
         default: ""
         type: string
@@ -26,13 +26,59 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  resolve-ref:
+    uses: ./.github/workflows/resolve-dispatch-ref.yml
+    with:
+      ref: ${{ inputs.ref }}
+
+  changes:
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 5
+    outputs:
+      should_run: ${{ steps.route.outputs.should_run }}
+    steps:
+      - name: Checkout routing revision
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Detect cloud-machine package changes
+        id: route
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT_NAME" != "pull_request" ]; then
+            echo "should_run=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if ! merge_base="$(git merge-base "$BASE_SHA" "$HEAD_SHA")" \
+            || ! git diff --name-only "$merge_base" "$HEAD_SHA" > "$RUNNER_TEMP/cloud-machine-changed.txt"; then
+            echo "::warning::Could not compute cloud-machine PR diff; running package tests"
+            echo "should_run=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if grep -q '^Packages/macOS/CmuxCloudMachines/' "$RUNNER_TEMP/cloud-machine-changed.txt"; then
+            echo "should_run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "No CmuxCloudMachines package files changed; skipping macOS lifecycle tests."
+            echo "should_run=false" >> "$GITHUB_OUTPUT"
+          fi
+
   lifecycle:
+    needs: [changes, resolve-ref]
+    if: ${{ needs.changes.outputs.should_run == 'true' }}
     runs-on: ${{ inputs.runner || vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15' }}
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          ref: ${{ inputs.ref || github.ref }}
+          ref: ${{ needs.resolve-ref.outputs.sha }}
+          persist-credentials: false
       - name: Select Xcode
         run: ./scripts/select-ci-xcode.sh
       - name: Test the package without launching the app

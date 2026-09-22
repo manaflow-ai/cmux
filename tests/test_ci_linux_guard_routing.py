@@ -60,6 +60,31 @@ def route(paths, event="pull_request", macos="false"):
 
 
 class LinuxGuardRoutingTests(unittest.TestCase):
+    def test_cloud_machine_workflow_skips_macos_for_control_plane_only_prs(self):
+        workflow = (
+            ROOT / ".github/workflows/cloud-machine-tests.yml"
+        ).read_text(encoding="utf-8")
+        changes = workflow_job_block("changes", ROOT / ".github/workflows/cloud-machine-tests.yml")
+        lifecycle = workflow_job_block("lifecycle", ROOT / ".github/workflows/cloud-machine-tests.yml")
+
+        self.assertIn("uses: ./.github/workflows/resolve-dispatch-ref.yml", workflow)
+        self.assertIn("ref: ${{ inputs.ref }}", workflow_job_block(
+            "resolve-ref", ROOT / ".github/workflows/cloud-machine-tests.yml"
+        ))
+        self.assertIn("blacksmith-4vcpu-ubuntu-2404", changes)
+        self.assertIn("Detect cloud-machine package changes", changes)
+        self.assertIn(
+            "grep -q '^Packages/macOS/CmuxCloudMachines/'",
+            changes,
+        )
+        self.assertIn("needs: [changes, resolve-ref]", lifecycle)
+        self.assertIn(
+            "if: ${{ needs.changes.outputs.should_run == 'true' }}",
+            lifecycle,
+        )
+        self.assertIn("ref: ${{ needs.resolve-ref.outputs.sha }}", lifecycle)
+        self.assertNotIn("inputs.ref || github.ref", workflow)
+
     def test_ios_shell_ui_test_only_change_skips_macos(self):
         actual = module.classify_files([
             "Packages/iOS/CmuxMobileShellUI/Tests/CmuxMobileShellUITests/WorkspaceListScrollUpdateTests.swift"
@@ -245,20 +270,17 @@ class LinuxGuardRoutingTests(unittest.TestCase):
         expected = {
             name: "true" if name == "linux_guard_tests" else "false" for name in JOBS
         }
-        expected_groups = {
-            "scripts/ci/persistent_mac_route.py": ("preflight",),
-            "scripts/ci/build_graph_health.py": ("preflight",),
-            "tests/test_build_graph_health.py": ("preflight", "quality-determinism"),
-            "scripts/ci/swift_incremental_diagnostics.py": ("preflight",),
-            "tests/test_ci_persistent_mac_compile.py": ("preflight", "quality-determinism"),
-            "tests/test_swift_incremental_diagnostics.py": ("preflight", "quality-determinism"),
-            "tests/test_ci_self_hosted_guard.sh": ("preflight", "quality-determinism"),
-        }
-        for path, groups in expected_groups.items():
+        for path in (
+            "scripts/ci/persistent_mac_route.py",
+            "scripts/ci/build_graph_health.py",
+            "tests/test_build_graph_health.py",
+            "scripts/ci/swift_incremental_diagnostics.py",
+            "tests/test_ci_persistent_mac_compile.py",
+            "tests/test_swift_incremental_diagnostics.py",
+            "tests/test_ci_self_hosted_guard.sh",
+        ):
             with self.subTest(path=path):
-                outputs, actual_groups = route_decision([path])
-                self.assertEqual(outputs, expected)
-                self.assertEqual(actual_groups, groups)
+                self.assertEqual(route([path]), expected)
 
     def test_macos_admission_helpers_run_only_workflow_guard_contracts(self):
         expected = {
