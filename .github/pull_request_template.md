@@ -35,4 +35,4 @@ For UI or behavior changes, include a short demo video (GitHub upload, Loom, or 
 - [ ] All code review bot comments are resolved
 - [ ] All human review comments are resolved
 
-<!-- Agent-authored/API-created PRs may opt into the current-head bot-thread gate by adding the marker `agent-pr-review-required` to the PR body. GitHub's API does not inject this template; the trusted gate requests Greptile automatically for opted-in heads. -->
+<!-- The trusted workflow requests Greptile automatically for every PR head. Agent-authored/API-created PRs opt into blocking current-head review coverage by adding the marker `agent-pr-review-required` to the PR body; GitHub's API does not inject this template. -->
