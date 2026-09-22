@@ -479,7 +479,7 @@ final class TabManagerChildExitCloseTests: XCTestCase {
         )
     }
 
-    func testDefaultFreestyleCloudSplitRepairsRawSSHStartupCommand() throws {
+    func testDefaultFreestyleCloudSplitRoutesToCloudAndRepairsRawSSHStartupCommand() throws {
         let manager = TabManager()
         guard let workspace = manager.selectedWorkspace,
               let remotePanelId = workspace.focusedPanelId else {
@@ -507,13 +507,29 @@ final class TabManagerChildExitCloseTests: XCTestCase {
             autoConnect: false
         )
 
-        let splitPanel = try XCTUnwrap(
-            workspace.newTerminalSplit(from: remotePanelId, orientation: .horizontal, focus: false)
+        // The workspace's startup command is repaired from the raw `ssh` form to the
+        // default-freestyle `vm-pty-attach` attach for every local terminal it spawns.
+        let repairedCommand = try XCTUnwrap(
+            workspace.effectiveRemoteTerminalStartupCommand(from: workspace.remoteConfiguration)
         )
-        let splitCommand = try XCTUnwrap(splitPanel.surface.debugInitialCommand())
-        XCTAssertTrue(splitCommand.contains("vm-pty-attach"), splitCommand)
-        XCTAssertTrue(splitCommand.contains("--default-freestyle-sshd"), splitCommand)
-        XCTAssertFalse(splitCommand.contains("ssh -p 22"), splitCommand)
+        XCTAssertTrue(repairedCommand.contains("vm-pty-attach"), repairedCommand)
+        XCTAssertTrue(repairedCommand.contains("--default-freestyle-sshd"), repairedCommand)
+        XCTAssertFalse(repairedCommand.contains("ssh -p 22"), repairedCommand)
+
+        // A split from the managed-Cloud SSH pane is Cloud-owned (fa5dc4cc10): it routes
+        // to the machine's provider and fails closed without one, never spawning a local
+        // shell next to the remote pane.
+        XCTAssertEqual(workspace.machineOwningSurface(remotePanelId), .cloud("71smiccrg35sw9pydt8k"))
+        let panelIdsBeforeSplit = Set(workspace.panels.keys)
+        let outcome = workspace.newTerminalSplitOutcome(
+            from: remotePanelId, orientation: .horizontal, focus: false
+        )
+        XCTAssertFalse(outcome.isAccepted)
+        XCTAssertNil(outcome.panel)
+        XCTAssertEqual(Set(workspace.panels.keys), panelIdsBeforeSplit)
+        let failure = try XCTUnwrap(workspace.cloudPaneCreationFailureStore.failure)
+        XCTAssertEqual(failure.machine, .cloud("71smiccrg35sw9pydt8k"))
+        XCTAssertEqual(failure.sourcePanelID, remotePanelId)
     }
 
     func testDefaultFreestyleCloudReconnectRepairsRawSSHStartupCommand() throws {
