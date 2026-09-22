@@ -394,6 +394,71 @@ struct TerminalViewportSpacingTests {
         #expect(await harness.waitForFill(), "after retry echo: top gap \(harness.topGap)pt")
     }
 
+    /// Reproduces #13474's relay feedback loop without timing luck:
+    /// exhaust the timeout retry budget for one natural grid, then inject the
+    /// stale-grid replay reassertion that used to reset that budget. Main would
+    /// emit another report here and could repeat forever; the fixed path stays
+    /// quiet until the phone's actual capacity changes.
+    @Test("stale replay reasserts cannot reopen an exhausted viewport retry budget")
+    func staleReplayReassertsStayBounded() async throws {
+        let harness = try ViewportSpacingHarness()
+        defer { harness.tearDown() }
+
+        let initial = try #require(await harness.waitForReport(after: 0))
+        harness.echo(initial)
+        #expect(await harness.waitForFill())
+
+        let beforeChange = harness.delegate.reports.count
+        harness.view.setComposerBandHeight(
+            ViewportSpacingHarness.tallComposerBand,
+            animated: false
+        )
+        let unanswered = try #require(
+            await harness.waitForReport(after: beforeChange),
+            "natural-grid change never emitted its viewport report"
+        )
+
+        // Model three relay timeout callbacks. Each retry is allowed once and
+        // emits the same natural grid with a new report ID.
+        for _ in 0..<3 {
+            let beforeRetry = harness.delegate.reports.count
+            harness.view.retryViewportReport()
+            let retry = try #require(
+                await harness.waitForReport(after: beforeRetry),
+                "bounded viewport retry did not emit"
+            )
+            #expect(retry.columns == unanswered.columns)
+            #expect(retry.rows == unanswered.rows)
+        }
+
+        // One more timeout retires the unresolved negotiation without sending.
+        let exhaustedCount = harness.delegate.reports.count
+        harness.view.retryViewportReport()
+        await harness.settle(0.3)
+        #expect(harness.delegate.reports.count == exhaustedCount)
+
+        // A stale full-grid replay now asks the view to reassert the same
+        // capacity. Before #13474 this reset viewportReportRetries to zero and
+        // restarted the loop. The exhausted grid now stays silent.
+        harness.view.reassertViewportCapacityReport()
+        await harness.settle(0.8)
+        #expect(
+            harness.delegate.reports.count == exhaustedCount,
+            "stale replay reopened an exhausted viewport retry budget"
+        )
+
+        // A real capacity change owns a fresh budget and must still propagate.
+        harness.view.setComposerBandHeight(
+            ViewportSpacingHarness.tallComposerBand / 2,
+            animated: false
+        )
+        let changed = try #require(
+            await harness.waitForReport(after: exhaustedCount),
+            "legitimate viewport change was suppressed after retry exhaustion"
+        )
+        #expect(changed.rows != unanswered.rows || changed.columns != unanswered.columns)
+    }
+
     /// Mac-constrained rows LETTERBOX (main removed the stretch-to-fill
     /// auto-fit: the rendered font is always the user's explicit choice), and
     /// keyboard toggles change nothing about it: no report, no font change,

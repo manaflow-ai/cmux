@@ -5,9 +5,9 @@ import Testing
 
 @Suite struct CmxRetryAfterPolicyTests {
     @Test func parsesDeltaSecondsAndHTTPDate() throws {
-        #expect(CmxRetryAfterPolicy.seconds(from: "45") == 45)
-        #expect(CmxRetryAfterPolicy.seconds(from: "0") == nil)
-        #expect(CmxRetryAfterPolicy.seconds(from: "invalid") == nil)
+        #expect(CmxRetryAfterPolicy().seconds(from: "45") == 45)
+        #expect(CmxRetryAfterPolicy().seconds(from: "0") == nil)
+        #expect(CmxRetryAfterPolicy().seconds(from: "invalid") == nil)
 
         let now = Date(timeIntervalSince1970: 1_800_000_000)
         let formatter = DateFormatter()
@@ -15,13 +15,13 @@ import Testing
         formatter.timeZone = TimeZone(secondsFromGMT: 0)
         formatter.dateFormat = "EEE',' dd MMM yyyy HH':'mm':'ss 'GMT'"
         let header = formatter.string(from: now.addingTimeInterval(45))
-        #expect(CmxRetryAfterPolicy.seconds(from: header, now: now) == 45)
+        #expect(CmxRetryAfterPolicy().seconds(from: header, now: now) == 45)
     }
 
     @Test func serverDirectiveFloorsLocalBackoff() {
-        #expect(CmxRetryAfterPolicy.delay(localSeconds: 2, retryAfterSeconds: 45) == 45)
-        #expect(CmxRetryAfterPolicy.delay(localSeconds: 60, retryAfterSeconds: 45) == 60)
-        #expect(CmxRetryAfterPolicy.delay(localSeconds: 2, retryAfterSeconds: nil) == 2)
+        #expect(CmxRetryAfterPolicy().delay(localSeconds: 2, retryAfterSeconds: 45) == 45)
+        #expect(CmxRetryAfterPolicy().delay(localSeconds: 60, retryAfterSeconds: 45) == 60)
+        #expect(CmxRetryAfterPolicy().delay(localSeconds: 2, retryAfterSeconds: nil) == 2)
     }
 
     @Test func cooldownExtendsAndNeverShortens() async {
@@ -68,7 +68,7 @@ import Testing
     @Test func oversizedSleepUsesSafeChunksWithoutShorteningTheWait() async throws {
         let firstChunks = AsyncStream<TimeInterval>.makeStream()
         do {
-            try await CmxRetryAfterPolicy.sleep(seconds: 18_446_744_074) { chunk in
+            try await CmxRetryAfterPolicy().sleep(seconds: 18_446_744_074) { chunk in
                 firstChunks.continuation.yield(chunk)
                 throw CancellationError()
             }
@@ -80,7 +80,7 @@ import Testing
 
         let secondChunks = AsyncStream<TimeInterval>.makeStream()
         let time = RetryAfterTestTime()
-        try await CmxRetryAfterPolicy.sleep(seconds: 172_801) { chunk in
+        try await CmxRetryAfterPolicy().sleep(seconds: 172_801) { chunk in
             secondChunks.continuation.yield(chunk)
             time.advance(by: chunk)
         }
