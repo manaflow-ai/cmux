@@ -30,6 +30,7 @@ FINDING_DISPOSITIONS = {
     "blocked_on_human",
 }
 SEVERITIES = {"P0", "P1", "P2", "P3", "info", "unknown"}
+COMMIT_SHA_RE = __import__("re").compile(r"^[0-9a-f]{40}$")
 EVIDENCE_CLASSES = {
     "source-read",
     "model-executed",
@@ -62,8 +63,8 @@ def validate_document(document: dict[str, Any], policy: dict[str, Any]) -> list[
         errors.append(f"policy schema must be {POLICY_SCHEMA}")
 
     head = _required_string(document, "head_sha", "receipt", errors)
-    if head and len(head) != 40:
-        errors.append("receipt head_sha must be a full 40-character commit SHA")
+    if head and COMMIT_SHA_RE.fullmatch(head) is None:
+        errors.append("receipt head_sha must be a full lowercase 40-hex commit SHA")
     if document.get("capture_complete") is not True:
         errors.append("review receipt capture is incomplete")
 
@@ -99,6 +100,9 @@ def validate_document(document: dict[str, Any], policy: dict[str, Any]) -> list[
             "rules_version",
         ):
             _required_string(run, key, f"run {run_id or index}", errors)
+        run_head = run.get("head_sha")
+        if isinstance(run_head, str) and run_head.strip() and COMMIT_SHA_RE.fullmatch(run_head) is None:
+            errors.append(f"run {run_id or index} head_sha must be a full lowercase 40-hex commit SHA")
         if run.get("status") not in RUN_STATUSES:
             errors.append(f"run {run_id or index} has unknown status {run.get('status')!r}")
         if run.get("disposition") not in RUN_DISPOSITIONS:
@@ -120,8 +124,10 @@ def validate_document(document: dict[str, Any], policy: dict[str, Any]) -> list[
         if run_id and run_id not in run_ids:
             errors.append(f"finding {finding_id or index} references unknown run {run_id}")
         finding_head = _required_string(finding, "head_sha", f"finding {finding_id or index}", errors)
-        if finding_head and len(finding_head) != 40:
-            errors.append(f"finding {finding_id or index} head_sha must be a full commit SHA")
+        if finding_head and COMMIT_SHA_RE.fullmatch(finding_head) is None:
+            errors.append(
+                f"finding {finding_id or index} head_sha must be a full lowercase 40-hex commit SHA"
+            )
         if finding.get("severity") not in SEVERITIES:
             errors.append(f"finding {finding_id or index} has unknown severity {finding.get('severity')!r}")
         if finding.get("disposition") not in FINDING_DISPOSITIONS:
