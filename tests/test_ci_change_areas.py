@@ -22,6 +22,8 @@ GUARD_WORKFLOW = ROOT / ".github" / "workflows" / "ci-guards.yml"
 WEB_WORKFLOW = ROOT / ".github" / "workflows" / "ci-web.yml"
 MACOS_WORKFLOW = ROOT / ".github" / "workflows" / "ci-macos.yml"
 WEB_VALIDATION_WORKFLOW = ROOT / ".github" / "workflows" / "web-validation.yml"
+BROWSER_WORKFLOW = ROOT / ".github" / "workflows" / "cmux-browser.yml"
+REMOTE_DAEMON_WORKFLOW = ROOT / ".github" / "workflows" / "remote-daemon.yml"
 GUARD_JOBS = (
     "workflow-guard-tests",
     "workflow-guard-history",
@@ -241,6 +243,37 @@ def test_web_only_runs_web_without_macos() -> None:
 def test_macos_config_stays_macos_relevant() -> None:
     assert_areas(["config/IrohRelayPolicyProduction.xcconfig"], macos=True, web=True)
 
+
+def test_standalone_browser_and_remote_daemon_skip_app_host_macos() -> None:
+    browser_area = module.classify_files(["cmux-browser/src/main.ts"])
+    assert browser_area.macos is False
+    assert browser_area.release_build is False
+
+    daemon_area = module.classify_files(["daemon/remote/cmd/cmuxd-remote/cli.go"])
+    assert daemon_area.macos is False
+    assert daemon_area.release_build is False
+
+
+def test_required_ci_owns_standalone_browser_and_remote_daemon_pr_validation() -> None:
+    changes = workflow_job_block("changes")
+    assert "browser: ${{ steps.standalone.outputs.browser }}" in changes
+    assert "remote_daemon: ${{ steps.standalone.outputs.remote_daemon }}" in changes
+    route = workflow_job_step_script("changes", "Route standalone project workflows")
+    assert "cmux-browser/*|.github/workflows/cmux-browser.yml" in route
+    assert "daemon/remote/*|scripts/*remote_daemon*" in route
+
+    browser_job = workflow_job_block("browser")
+    assert "uses: ./.github/workflows/cmux-browser.yml" in browser_job
+    daemon_job = workflow_job_block("remote-daemon")
+    assert "uses: ./.github/workflows/remote-daemon.yml" in daemon_job
+
+    browser_text = BROWSER_WORKFLOW.read_text(encoding="utf-8")
+    assert "  workflow_call:" in browser_text
+    assert "  pull_request:" not in browser_text
+    remote_text = REMOTE_DAEMON_WORKFLOW.read_text(encoding="utf-8")
+    assert "  workflow_call:" in remote_text
+    assert "  pull_request:" not in remote_text
+    assert "      - name: Reject stale pull request rerun" in remote_text
 
 def test_cmux_tui_only_skips_macos() -> None:
     # cmux-tui is a standalone Rust project with its own `cmux-tui` workflow; its
@@ -1674,6 +1707,8 @@ def test_ci_status_job_accepts_skipped_routed_jobs() -> None:
         "changes",
         "static-preflight",
         "guards",
+        "browser",
+        "remote-daemon",
         "cli",
         "web",
         "linux-preflight",
