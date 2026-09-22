@@ -22,7 +22,7 @@ env:
 jobs:
   restored-generation:
     name: Restored generation A to B
-    runs-on: ${{ vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15' }}
+    runs-on: blacksmith-6vcpu-macos-15
     timeout-minutes: 75
     steps:
       - name: Checkout probe harness
