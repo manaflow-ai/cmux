@@ -4,6 +4,7 @@ set -euo pipefail
 # The canonical Workers are renamed in place so their Durable Object data is
 # retained. These aliases preserve old app builds until they age out.
 cd "$(dirname "$0")/.."
+bun scripts/check-compatibility-aliases.ts
 
 for pair in \
   "cmux-iroh-v2:cmux-v2" \
