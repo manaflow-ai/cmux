@@ -9,12 +9,9 @@ import unittest
 from pathlib import Path
 
 from test_ci_change_areas import (
-    linux_preflight_needs,
+    ci_status_needs,
+    run_ci_status,
     run_guard_status,
-    run_linux_preflight,
-    run_tests_gate,
-    tests_gate_needs,
-    workflow_job_block,
     workflow_job_step_script,
 )
 
@@ -68,24 +65,6 @@ class LinuxGuardRoutingTests(unittest.TestCase):
                 self.assertEqual(dict(line.split("=", 1) for line in output.read_text().splitlines()),
                                  dict.fromkeys(JOBS, "true"))
 
-    def test_linux_preflight_skips_when_macos_route_is_false(self):
-        block = workflow_job_block("linux-preflight")
-        self.assertIn(
-            "if: ${{ always() && needs.changes.outputs.macos != 'false' }}",
-            block,
-        )
-
-        no_macos = tests_gate_needs(macos="false", macos_result="skipped")
-        no_macos["linux-preflight"]["result"] = "skipped"
-        result = run_tests_gate(no_macos)
-        self.assertEqual(result.returncode, 0, result.stderr)
-
-        macos = tests_gate_needs()
-        macos["linux-preflight"]["result"] = "skipped"
-        result = run_tests_gate(macos)
-        self.assertNotEqual(result.returncode, 0)
-        self.assertIn("linux preflight did not pass: skipped", result.stderr)
-
     def test_docs_skip_all_five_guards_and_gate_succeeds(self):
         for path in ("CLAUDE.md", "AGENTS.md", "Packages/macOS/AGENTS.md",
                      "README.md", "README.ja.md", "docs/build.md", "plans/cache.md"):
@@ -97,10 +76,7 @@ class LinuxGuardRoutingTests(unittest.TestCase):
                     results=dict.fromkeys(REUSABLE_GUARDS.values(), "skipped"),
                 )
                 self.assertEqual(guard_result.returncode, 0, guard_result.stderr)
-                result = run_linux_preflight(linux_preflight_needs(
-                    outputs=outputs,
-                    results={"guards": "skipped", "ghosttykit-release-check": "skipped"},
-                ))
+                result = run_ci_status(ci_status_needs(macos="false"))
                 self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_native_edit_keeps_source_contracts_without_history_or_cli_guards(self):
@@ -134,10 +110,13 @@ class LinuxGuardRoutingTests(unittest.TestCase):
                     results=guard_results,
                 )
                 self.assertEqual(guard_result.returncode, 0, guard_result.stderr)
-                result = run_linux_preflight(linux_preflight_needs(
-                    outputs=outputs,
-                    results={"guards": "success", "ghosttykit-release-check": "skipped"},
-                ))
+                result = run_ci_status(
+                    ci_status_needs(
+                        macos="false",
+                        guard_route="true",
+                        results={"guards": "success"},
+                    )
+                )
                 self.assertEqual(result.returncode, 0, result.stderr)
         for unknown in ("tests/test_new_cloud_contract.py",
                         "skills/cmux-cloud-vm/references/new-contract.md",
@@ -241,9 +220,13 @@ class LinuxGuardRoutingTests(unittest.TestCase):
 
         for outcome in ("skipped", "failure", "cancelled"):
             with self.subTest(job="ghosttykit-release-check", outcome=outcome):
-                result = run_linux_preflight(linux_preflight_needs(
-                    results={"ghosttykit-release-check": outcome},
-                ))
+                result = run_ci_status(
+                    ci_status_needs(
+                        macos="false",
+                        ghosttykit_release="true",
+                        results={"ghosttykit-release-check": outcome},
+                    )
+                )
                 self.assertNotEqual(result.returncode, 0)
 
     def test_gate_rejects_bad_or_missing_route_even_if_job_succeeded(self):
@@ -257,12 +240,12 @@ class LinuxGuardRoutingTests(unittest.TestCase):
                 invalid[route_name] = value
                 self.assertNotEqual(run_guard_status(inputs=invalid).returncode, 0)
 
-        needs = linux_preflight_needs()
+        needs = ci_status_needs(macos="false")
         del needs["changes"]["outputs"]["ghosttykit_release"]
-        self.assertNotEqual(run_linux_preflight(needs).returncode, 0)
+        self.assertNotEqual(run_ci_status(needs).returncode, 0)
         for value in ("", "False", "invalid"):
             needs["changes"]["outputs"]["ghosttykit_release"] = value
-            self.assertNotEqual(run_linux_preflight(needs).returncode, 0)
+            self.assertNotEqual(run_ci_status(needs).returncode, 0)
 
 if __name__ == "__main__":
     unittest.main()
