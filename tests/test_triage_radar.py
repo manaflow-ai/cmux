@@ -1,4 +1,3 @@
-import datetime as dt
 import importlib.util
 import pathlib
 import unittest
@@ -40,6 +39,15 @@ class ClusterTests(unittest.TestCase):
         clusters = MODULE.build_clusters(reports)
         self.assertTrue(clusters)
         self.assertEqual({item["number"] for item in clusters[0]["members"]}, {13499, 13505, 13506, 13507, 13508})
+
+    def test_broad_product_area_terms_do_not_chain_unrelated_reports(self):
+        reports = [
+            issue(20, "Cloud workspace welcome guide for daily use"),
+            issue(21, "Cloud workspace first machine ownership"),
+            issue(22, "Cloud workspace sidebar notification layout"),
+            issue(23, "Cloud workspace file browsing"),
+        ]
+        self.assertEqual(MODULE.build_clusters(reports), [])
 
     def test_same_release_does_not_cluster_unrelated_reports(self):
         reports = [
