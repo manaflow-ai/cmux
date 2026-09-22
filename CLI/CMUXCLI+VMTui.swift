@@ -319,7 +319,7 @@ extension CMUXCLI {
         if let capabilities = clientProbe?.capabilities, !capabilities.isEmpty {
             infoParams["client_capabilities"] = capabilities
         }
-        let info = try client.sendV2(method: "vm.cmux_remote_info", params: infoParams, responseTimeout: 16 * 60)
+        let info = try client.sendV2(method: "vm.cmux_remote_info", params: infoParams, responseTimeout: 30)
         guard let route = info["route"] as? String, !route.isEmpty else {
             throw CLIError(message: "vm.cmux_remote_info returned no route")
         }
@@ -581,6 +581,7 @@ extension CMUXCLI {
 extension CMUXCLI {
     /// Where `cmux vm open <target>` points. Grammar:
     ///   <machine>                      the machine's shell (the shared vmOpenShell path)
+    ///                                  (`<machine>` is a cloud id, or `device:<uuid>@<tag>` for another Mac)
     ///   <machine>/<workspace>          a cmux-tui workspace on the machine (`ws_…` id or unique name)
     ///   <machine>/<workspace>/<term>   one terminal in it (`term_…`)
     ///   <machine>/<workspace>/<term>/<tab>  one tab of that terminal (`tab_…`)
@@ -680,10 +681,19 @@ extension CMUXCLI {
         return id
     }
 
+    /// Another Mac is addressed as `device:<uuid>@<tag>` (SurfaceMachineID's
+    /// wire form), so that colon belongs to the machine id.
+    private static let vmOpenDeviceMachinePrefix = "device:"
+
     static func parseVMOpenTarget(_ raw: String) -> VMOpenTarget? {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty, !trimmed.hasPrefix("-") else { return nil }
-        if let colon = trimmed.firstIndex(of: ":") {
+        // The `:desktop` / `:port/<n>` selector starts at the first colon after
+        // the machine id, which for a device address means after its prefix.
+        let selectorSearchStart = trimmed.hasPrefix(vmOpenDeviceMachinePrefix)
+            ? trimmed.index(trimmed.startIndex, offsetBy: vmOpenDeviceMachinePrefix.count)
+            : trimmed.startIndex
+        if let colon = trimmed[selectorSearchStart...].firstIndex(of: ":") {
             let machine = String(trimmed[..<colon])
             let selector = String(trimmed[trimmed.index(after: colon)...])
             guard !machine.isEmpty, !machine.contains("/") else { return nil }
@@ -826,7 +836,7 @@ extension CMUXCLI {
         Usage: cmux vm open <target> [--workspace <id|ref|index>] [--focus <true|false>] [--print]
                cmux vm open <id> <port> [--print]
 
-        Targets (copy them from `cmux vm tree`):
+        \(CMUXDiffViewerLocalization.string("cli.vm.open.deviceTargets", defaultValue: "Targets (from `cmux vm tree`; <machine> is a cloud ID or another Mac's `device:<uuid>@<tag>`):"))
           <machine>                      the machine's shell (same as `cmux vm shell <machine>`)
           <machine>/<workspace>          a cmux-tui workspace on it (`ws_…` id or unique name; ambiguous names fail)
           <machine>/<workspace>/<term>   one terminal (`term_…`) — focuses the pane that
@@ -849,6 +859,7 @@ extension CMUXCLI {
           cmux vm open vivid-newt/main/term_2f9c…/tab_a
           cmux vm open vivid-newt:desktop
           cmux vm open vivid-newt:port/3000 --print
+          cmux vm open device:1f0c…@nightly/main/6C27…   \(CMUXDiffViewerLocalization.string("cli.vm.open.deviceExample", defaultValue: "a terminal on another Mac (from `cmux vm tree`)"))
         """
     }
 

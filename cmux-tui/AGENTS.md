@@ -12,3 +12,10 @@ Use `--filter` during focused development. It accepts one Rust test-name substri
 The script rejects dirty or unpushed work, verifies the exact commit in every hosted job, waits for completion, prints failed logs, and downloads the macOS arm64 binary to `cmux-tui/target/hosted/<commit>/cmux-tui`. Running that downloaded binary on the Mac is allowed.
 
 `rust-toolchain.toml` is the single Rust toolchain source for hosted TUI tests, package builds, and live conformance. Change that file instead of adding a workflow-specific Rust version.
+
+## Blacksmith Testbox
+
+Blacksmith Testbox (remote Linux builds for cmux-tui): warm your own box before any cmux-tui Rust or Zig
+build, and never compile cmux-tui on the Mac. The skill lives in cmuxterm-hq at
+`skills/infra/blacksmith-testbox/SKILL.md`; the workflows, `scripts/blacksmith-*.sh`, and the
+`tests/test_testbox_*` guards stay here. Quickest path: `./scripts/blacksmith-testbox-demo.sh`.

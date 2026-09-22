@@ -422,7 +422,7 @@ extension CMUXCLI {
     }
 
     func prependPathEntries(_ newEntries: [String], to currentPath: String?) -> String {
-        CmuxPathEnvironment.prependingUniqueEntries(newEntries, to: currentPath)
+        CmuxPathEnvironment().prependingUniqueEntries(newEntries, to: currentPath)
     }
 
 }

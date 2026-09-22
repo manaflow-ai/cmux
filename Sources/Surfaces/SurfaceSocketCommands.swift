@@ -343,7 +343,7 @@ extension TerminalController {
             return v2Error(id: id, code: "invalid_params", message: "vm.workspace_new: `reuse` needs a `name` to look for.")
         }
         return v2VmCall(id: id, timeoutSeconds: 240) {
-            let machine = SurfaceMachineID.cloud(vmId)
+            let machine = SurfaceMachineID(rawValue: vmId)
             let catalog = await SurfaceCatalog.shared
             guard let provider = try await Self.surfaceProvider(for: machine, catalog: catalog) else {
                 throw SurfaceCatalogError.noProvider(machine)
@@ -488,7 +488,7 @@ extension TerminalController {
         }
         let destination = localWorkspaceID.map { Self.surfaceDestination(surfaceResolvedParams(destinationParams), workspaceID: $0) }
         return v2VmCall(id: id, timeoutSeconds: 240) {
-            let machine = SurfaceMachineID.cloud(vmId)
+            let machine = SurfaceMachineID(rawValue: vmId)
             let catalog = await SurfaceCatalog.shared
             // Resolve the selector with the same rules as the sidebar, then build
             // one placement-aware group. Never use the first view of a terminal:
@@ -556,7 +556,7 @@ extension TerminalController {
             return v2Error(id: id, code: "invalid_params", message: "vm.workspace_close requires `id` and `workspace_id`.")
         }
         return v2VmCall(id: id, timeoutSeconds: 120) {
-            let machine = SurfaceMachineID.cloud(vmId)
+            let machine = SurfaceMachineID(rawValue: vmId)
             let catalog = await SurfaceCatalog.shared
             guard let provider = try await Self.surfaceProvider(for: machine, catalog: catalog) else {
                 throw SurfaceCatalogError.noProvider(machine)
@@ -575,7 +575,7 @@ extension TerminalController {
             return v2Error(id: id, code: "invalid_params", message: "vm.workspace_delete requires `id` and `workspace_id`.")
         }
         return v2VmCall(id: id, timeoutSeconds: 240) {
-            let machine = SurfaceMachineID.cloud(vmId)
+            let machine = SurfaceMachineID(rawValue: vmId)
             let catalog = await SurfaceCatalog.shared
             guard let provider = try await Self.surfaceProvider(for: machine, catalog: catalog) else {
                 throw SurfaceCatalogError.noProvider(machine)
@@ -602,7 +602,7 @@ extension TerminalController {
             return v2Error(id: id, code: "invalid_params", message: "vm.workspace_rename requires a non-empty `name`.")
         }
         return v2VmCall(id: id, timeoutSeconds: 120) {
-            let machine = SurfaceMachineID.cloud(vmId)
+            let machine = SurfaceMachineID(rawValue: vmId)
             let catalog = await SurfaceCatalog.shared
             try await catalog.renameRemoteWorkspace(on: machine, id: remoteWorkspaceID, name: name)
             return ["machine": machine.rawValue, "remote_workspace_id": remoteWorkspaceID, "name": name, "renamed": true]
@@ -621,7 +621,7 @@ extension TerminalController {
         }
         let name = CloudRemoteRenameName(rawValue: rawName).wireValue
         return v2VmCall(id: id, timeoutSeconds: 120) {
-            let machine = SurfaceMachineID.cloud(vmId)
+            let machine = SurfaceMachineID(rawValue: vmId)
             let catalog = await SurfaceCatalog.shared
             try await catalog.renameTerminal(
                 on: machine,
@@ -648,7 +648,7 @@ extension TerminalController {
         }
         let name = CloudRemoteRenameName(rawValue: rawName).wireValue
         do {
-            let machine = SurfaceMachineID.cloud(vmId)
+            let machine = SurfaceMachineID(rawValue: vmId)
             let catalog = SurfaceCatalog.shared
             try await catalog.renameTerminal(
                 on: machine,
@@ -679,7 +679,7 @@ extension TerminalController {
         }
         let name = CloudRemoteRenameName(rawValue: rawName).wireValue
         return v2VmCall(id: id, timeoutSeconds: 120) {
-            let machine = SurfaceMachineID.cloud(vmId)
+            let machine = SurfaceMachineID(rawValue: vmId)
             let catalog = await SurfaceCatalog.shared
             try await catalog.renameRemoteTab(on: machine, id: tabID, name: name)
             return ["machine": machine.rawValue, "tab_id": tabID, "name": name, "renamed": true]
@@ -699,7 +699,7 @@ extension TerminalController {
         }
         let name = CloudRemoteRenameName(rawValue: rawName).wireValue
         do {
-            let machine = SurfaceMachineID.cloud(vmId)
+            let machine = SurfaceMachineID(rawValue: vmId)
             let catalog = SurfaceCatalog.shared
             try await catalog.renameRemoteTab(on: machine, id: tabID, name: name)
             return v2Ok(id: id, result: [
@@ -737,7 +737,7 @@ extension TerminalController {
             return v2Error(id: id, code: "invalid_params", message: "vm.terminal_close requires `id` and `terminal_id`.")
         }
         return v2VmCall(id: id, timeoutSeconds: 120) {
-            let machine = SurfaceMachineID.cloud(vmId)
+            let machine = SurfaceMachineID(rawValue: vmId)
             let catalog = await SurfaceCatalog.shared
             guard let provider = try await Self.surfaceProvider(for: machine, catalog: catalog) else {
                 throw SurfaceCatalogError.noProvider(machine)
@@ -1135,9 +1135,28 @@ extension TerminalController {
     }
 
     nonisolated static func surfaceMachinePayload(_ info: SurfaceMachineInfo) -> [String: Any] {
-        [
+        var presence: Any = NSNull()
+        if let record = info.presence {
+            presence = [
+                "state": record.state.rawValue,
+                "last_seen_at": record.lastSeenAt.map { $0.timeIntervalSince1970 } ?? NSNull(),
+                "tag": record.tag,
+                "bundle_id": record.bundleID ?? NSNull(),
+                "account_trust": record.accountTrust.rawValue,
+                "build_label": record.buildLabel ?? NSNull(),
+            ] as [String: Any]
+        }
+        let kind: String
+        switch info.id {
+        case .local: kind = "local"
+        case .cloud: kind = "cloud"
+        case .device: kind = "device"
+        }
+        return [
             "id": info.id.rawValue,
             "local": info.id.isLocal,
+            "kind": kind,
+            "presence": presence,
             "name": info.name,
             "status": info.status,
             "image": info.image ?? NSNull(),

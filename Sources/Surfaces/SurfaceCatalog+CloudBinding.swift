@@ -54,6 +54,7 @@ extension SurfaceCatalog {
                 observation: cloudStateObservations[machine] ?? .current
             )
         }
+        reconcileDeviceNames(on: machine)
         if requestProjection {
             requestCloudWorkspaceProjection(localWorkspaceID)
         }

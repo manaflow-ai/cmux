@@ -29,7 +29,7 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
         case recoveryBanner(String)
         case macStatus(String)
         case filterEmpty(MobileWorkspaceListFilter)
-        case emptyWorkspaceList
+        case emptyWorkspaceList(hasRetry: Bool, ownerID: String?, instanceTag: String?)
     }
 
     private struct HeightCacheKey: Hashable {
@@ -104,6 +104,7 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
         to tableView: WorkspaceListUITableView,
         viewController: WorkspaceListTableViewController? = nil
     ) {
+        var configuration = configuration
         tableViewController = viewController
         editedItemID = nil
         deferredNativeActionReloadIDs.removeAll(keepingCapacity: true)
@@ -138,6 +139,9 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
 
         previousConfiguration = nil
         appliedItems = []
+        configuration.emptyStateLayoutChanged = { [weak self, weak tableView] in
+            self?.invalidateEmptyStateLayout(in: tableView)
+        }
         apply(configuration: configuration, in: tableView)
     }
 
@@ -154,6 +158,8 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
     }
 
     func update(configuration next: WorkspaceListTable, in tableView: UITableView) {
+        var next = next
+        next.emptyStateLayoutChanged = configuration.emptyStateLayoutChanged
         guard !isDragSessionActive else {
             // UIKit owns the lifted source cell until its drop animator
             // completes. Reloading or structurally updating the table during
@@ -1123,6 +1129,19 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
         cell.contentConfiguration = hosting
     }
 
+    private func invalidateEmptyStateLayout(in tableView: UITableView?) {
+        guard let tableView,
+              dataSource?.indexPath(where: {
+                  if case .emptyWorkspaceList = $0 { return true }
+                  return false
+              }) != nil else { return }
+        heightCache.removeAll(keepingCapacity: true)
+        UIView.performWithoutAnimation {
+            tableView.beginUpdates()
+            tableView.endUpdates()
+        }
+    }
+
     private func hostedView(for item: WorkspaceListTableItem) -> AnyView {
         switch item {
         case .workspace(let workspaceID, _):
@@ -1268,7 +1287,18 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
                 )
             )
         case .emptyWorkspaceList:
-            return AnyView(MobileWorkspaceListEmptyRow())
+            return AnyView(
+                MobileWorkspaceListEmptyRow(
+                    retry: configuration.refresh,
+                    cancelRetry: configuration.cancelRefresh,
+                    onLayoutChange: configuration.emptyStateLayoutChanged,
+                    shouldCancelRetryOnDisappear: configuration.shouldCancelRefreshOnDisappear,
+                    isRetryOwnerCurrentOnDisappear: configuration.isRetryOwnerCurrentOnDisappear,
+                    beginRetry: configuration.beginRefresh,
+                    cancelRetryAttempt: configuration.cancelRefreshAttempt,
+                    cancelRetryOnDisappear: configuration.cancelRefreshAttemptOnDisappear
+                )
+            )
         }
     }
 
@@ -1330,7 +1360,11 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
         case .filterEmpty:
             kind = .filterEmpty(configuration.filter)
         case .emptyWorkspaceList:
-            kind = .emptyWorkspaceList
+            kind = .emptyWorkspaceList(
+                hasRetry: configuration.refresh != nil,
+                ownerID: configuration.workspaceOwnerID,
+                instanceTag: configuration.workspaceOwnerInstanceTag
+            )
         case .groupFooter:
             // Unreachable while heightForRowAt returns the fixed 16pt slot
             // height before consulting the cache; keyed distinctly anyway so a
@@ -1444,7 +1478,14 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
         case .filterEmpty:
             return previous.filter != next.filter
         case .emptyWorkspaceList:
-            return false
+            // Keep the row alive while its selected Mac emits an intermediate
+            // empty snapshot, so an in-flight retry survives table updates.
+            // The refresh closure is owned by the shell store, so connection
+            // status and error updates do not change the action's target. Only
+            // adding or removing the action changes the row's structure.
+            return previous.workspaceOwnerID != next.workspaceOwnerID
+                || previous.workspaceOwnerInstanceTag != next.workspaceOwnerInstanceTag
+                || (previous.refresh != nil) != (next.refresh != nil)
         }
     }
 

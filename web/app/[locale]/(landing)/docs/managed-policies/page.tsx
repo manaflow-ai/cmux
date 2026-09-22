@@ -157,6 +157,18 @@ export default async function ManagedPoliciesPage({
             <td>{t("remoteKeyDesc")}</td>
           </tr>
           <tr>
+            <td><code>DisableDeviceDiscovery</code></td>
+            <td>{t("booleanType")}</td>
+            <td><code>false</code></td>
+            <td>{t("deviceDiscoveryKeyDesc")}</td>
+          </tr>
+          <tr>
+            <td><code>DisableIncomingDeviceAccess</code></td>
+            <td>{t("booleanType")}</td>
+            <td><code>false</code></td>
+            <td>{t("incomingDeviceAccessKeyDesc")}</td>
+          </tr>
+          <tr>
             <td><code>DisableCloud</code></td>
             <td>{t("booleanType")}</td>
             <td><code>false</code></td>

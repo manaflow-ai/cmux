@@ -17,6 +17,7 @@ struct CLICodexHookPathQuotingRegressionTests {
             "#!/bin/sh",
             "cat >/dev/null",
             "printf '%s\\n' \"$*\" >> \"$CMUX_TEST_HOOK_MARKER\"",
+            "echo '{}'",
         ])
 
         var environment = codexHookTestEnvironment(root: root, codexHome: codexHome)
@@ -56,7 +57,7 @@ struct CLICodexHookPathQuotingRegressionTests {
             )
             #expect(run.stdout == "{}\n")
             #expect(
-                waitForFile(marker, containing: "hooks codex \(event.subcommand)", timeout: 2),
+                waitForFile(marker, containing: "hooks enqueue codex \(event.subcommand)", timeout: 2),
                 "\(event.eventName) script did not reach the bundled cmux command"
             )
         }
