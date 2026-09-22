@@ -472,175 +472,6 @@ jobs:
       cache_backend: ${{ inputs.cache_backend }}
       release_archs: ${{ inputs.release_archs }}
 
-  tests:
-    name: tests
-    needs:
-      - changes
-      - linux-preflight
-      - macos
-      - web
-    if: ${{ always() }}
-    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
-    timeout-minutes: 5
-    steps:
-      - name: Check platform workflow routing
-        env:
-          TESTS_NEEDS: ${{ toJSON(needs) }}
-        run: |
-          python3 - <<'PY'
-          import json
-          import os
-          import sys
-
-          needs = json.loads(os.environ["TESTS_NEEDS"])
-          changes = needs["changes"]
-          if changes["result"] != "success":
-              print(f"changes: {changes['result']}", file=sys.stderr)
-              sys.exit(1)
-          outputs = changes.get("outputs", {})
-          macos_route = outputs.get("macos")
-          if macos_route not in {"true", "false"}:
-              print(f"invalid route macos={macos_route!r}", file=sys.stderr)
-              sys.exit(1)
-          preflight = needs["linux-preflight"]
-          if macos_route == "true":
-              if preflight["result"] != "success":
-                  print(f"linux preflight did not pass: {preflight['result']}", file=sys.stderr)
-                  sys.exit(1)
-          elif preflight["result"] not in {"success", "skipped"}:
-              print(
-                  f"linux preflight had unexpected result: {preflight['result']}",
-                  file=sys.stderr,
-              )
-              sys.exit(1)
-          macos_result = needs["macos"]["result"]
-          if macos_route == "true":
-              if macos_result != "success":
-                  print(f"macOS workflow did not pass: {macos_result}", file=sys.stderr)
-                  sys.exit(1)
-          elif macos_result not in {"success", "skipped"}:
-              print(f"macOS workflow had unexpected result: {macos_result}", file=sys.stderr)
-              sys.exit(1)
-          web_result = needs["web"]["result"]
-          if web_result not in {"success", "skipped"}:
-              print(f"web workflow did not pass: {web_result}", file=sys.stderr)
-              sys.exit(1)
-          print(f"changes.macos={macos_route}")
-          print(f"changes.full_suite={outputs.get('full_suite')}")
-          print(f"linux-preflight={preflight['result']}")
-          print(f"macos={macos_result}")
-          print(f"web={web_result}")
-          PY
-
-  linux-preflight:
-    name: linux-preflight
-    # Retain the Linux verdict in the required final statuses. It no longer
-    # serializes independent macOS work behind the full Linux suite.
-    needs:
-      - changes
-      - static-preflight
-      - guards
-      - ghosttykit-release-check
-      - web
-    # This job exists only to admit macOS work after the cheap layer passes.
-    # This replaces the old unconditional `if: ${{ always() }}`: if the change
-    # router explicitly says macOS is irrelevant, skip the runner allocation.
-    # Missing/invalid route output fails open by running the preflight.
-    if: ${{ always() && needs.changes.outputs.macos != 'false' }}
-    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
-    timeout-minutes: 5
-    steps:
-      - name: Check routed Linux results
-        env:
-          PREFLIGHT_NEEDS: ${{ toJSON(needs) }}
-        run: |
-          python3 - <<'PY'
-          import json
-          import os
-          import sys
-
-          needs = json.loads(os.environ["PREFLIGHT_NEEDS"])
-          required = (
-              "changes",
-              "static-preflight",
-          )
-          allowed_routed = {
-              "ghosttykit-release-check",
-          }
-
-          bad = {}
-          for name in required:
-              result = needs[name]["result"]
-              if result != "success":
-                  bad[name] = result
-
-          outputs = needs["changes"].get("outputs", {})
-          guard_routes = (
-              "linux_guard_tests",
-              "linux_guard_history",
-              "linux_guard_cli",
-              "linux_guard_source",
-          )
-          invalid_guard_routes = {
-              route: outputs.get(route)
-              for route in guard_routes
-              if outputs.get(route) not in {"true", "false"}
-          }
-          for route, value in sorted(invalid_guard_routes.items()):
-              bad[f"guards.{route}"] = f"invalid route {route}={value!r}"
-
-          guard_result = needs["guards"]["result"]
-          if any(outputs.get(route) == "true" for route in guard_routes):
-              if guard_result != "success":
-                  bad["guards"] = f"{guard_result} (one or more guard routes=true)"
-          elif not invalid_guard_routes and guard_result not in {"success", "skipped"}:
-              bad["guards"] = guard_result
-
-          web_routes = ("web", "macos", "agent_session_web")
-          invalid_web_routes = {
-              route: outputs.get(route)
-              for route in web_routes
-              if outputs.get(route) not in {"true", "false"}
-          }
-          for route, value in sorted(invalid_web_routes.items()):
-              bad[f"web.{route}"] = f"invalid route {route}={value!r}"
-
-          web_result = needs["web"]["result"]
-          if any(outputs.get(route) == "true" for route in web_routes):
-              if web_result != "success":
-                  bad["web"] = f"{web_result} (one or more web routes=true)"
-          elif not invalid_web_routes and web_result not in {"success", "skipped"}:
-              bad["web"] = web_result
-
-          routed_outputs = {
-              "ghosttykit-release-check": "ghosttykit_release",
-          }
-          for name in sorted(allowed_routed):
-              result = needs[name]["result"]
-              route = routed_outputs[name]
-              if outputs.get(route) not in {"true", "false"}:
-                  bad[name] = f"invalid route {route}={outputs.get(route)!r}"
-              elif outputs.get(route) == "true":
-                  if result != "success":
-                      bad[name] = f"{result} (route {route}=true)"
-              elif result not in {"success", "skipped"}:
-                  bad[name] = result
-
-          if bad:
-              for name, result in bad.items():
-                  print(f"{name}: {result}", file=sys.stderr)
-              sys.exit(1)
-
-          print(
-              "routes: "
-              f"macos={outputs.get('macos')} "
-              f"web={outputs.get('web')} "
-              f"agent_session_web={outputs.get('agent_session_web')}"
-          )
-          for name, data in sorted(needs.items()):
-              print(f"{name}: {data['result']}")
-          PY
-
   ci-status:
     needs:
       - changes
@@ -648,9 +479,7 @@ jobs:
       - guards
       - ghosttykit-release-check
       - web
-      - linux-preflight
       - macos
-      - tests
     if: ${{ always() }}
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     steps:
@@ -670,6 +499,71 @@ jobs:
               for name, data in sorted(needs.items())
               if data["result"] not in allowed
           }
+
+          for name in ("changes", "static-preflight"):
+              if needs[name]["result"] != "success":
+                  bad[name] = needs[name]["result"]
+
+          changes = needs["changes"]
+          if changes["result"] == "success":
+              outputs = changes.get("outputs", {})
+
+              guard_routes = (
+                  "linux_guard_tests",
+                  "linux_guard_history",
+                  "linux_guard_cli",
+                  "linux_guard_source",
+              )
+              invalid_guard_routes = {
+                  route: outputs.get(route)
+                  for route in guard_routes
+                  if outputs.get(route) not in {"true", "false"}
+              }
+              for route, value in sorted(invalid_guard_routes.items()):
+                  bad[f"guards.{route}"] = f"invalid route {route}={value!r}"
+              if (
+                  not invalid_guard_routes
+                  and any(outputs.get(route) == "true" for route in guard_routes)
+                  and needs["guards"]["result"] != "success"
+              ):
+                  bad["guards"] = (
+                      f"{needs['guards']['result']} (one or more guard routes=true)"
+                  )
+
+              ghosttykit_route = outputs.get("ghosttykit_release")
+              if ghosttykit_route not in {"true", "false"}:
+                  bad["ghosttykit-release-check"] = (
+                      f"invalid route ghosttykit_release={ghosttykit_route!r}"
+                  )
+              elif (
+                  ghosttykit_route == "true"
+                  and needs["ghosttykit-release-check"]["result"] != "success"
+              ):
+                  bad["ghosttykit-release-check"] = (
+                      f"{needs['ghosttykit-release-check']['result']} "
+                      "(route ghosttykit_release=true)"
+                  )
+
+              web_routes = ("web", "macos", "agent_session_web")
+              invalid_web_routes = {
+                  route: outputs.get(route)
+                  for route in web_routes
+                  if outputs.get(route) not in {"true", "false"}
+              }
+              for route, value in sorted(invalid_web_routes.items()):
+                  bad[f"web.{route}"] = f"invalid route {route}={value!r}"
+              if (
+                  not invalid_web_routes
+                  and any(outputs.get(route) == "true" for route in web_routes)
+                  and needs["web"]["result"] != "success"
+              ):
+                  bad["web"] = (
+                      f"{needs['web']['result']} (one or more web routes=true)"
+                  )
+
+              macos_route = outputs.get("macos")
+              if macos_route == "true" and needs["macos"]["result"] != "success":
+                  bad["macos"] = f"{needs['macos']['result']} (route macos=true)"
 
           if bad:
               for name, result in bad.items():
