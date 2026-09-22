@@ -14,22 +14,39 @@ type Catalog = {
 let catalog: Catalog | undefined;
 let pending = false;
 let searchTeam: string | null = null;
+const queryData = new Map<string, unknown>();
+const routerReplace = mock(() => undefined);
+const routerRefresh = mock(() => undefined);
+
+function queryKey(value: readonly unknown[]): string {
+  return JSON.stringify(value);
+}
+
+const queryClient = {
+  getQueryData: (key: readonly unknown[]) => queryData.get(queryKey(key)),
+  setQueryData: (key: readonly unknown[], update: unknown) => {
+    const keyString = queryKey(key);
+    const current = queryData.get(keyString);
+    queryData.set(keyString, typeof update === "function" ? update(current) : update);
+  },
+};
 
 mock.module("@tanstack/react-query", () => ({
   useQuery: () => ({ data: catalog, isPending: pending }),
-  useQueryClient: () => ({ setQueryData: () => undefined }),
+  useQueryClient: () => queryClient,
 }));
 
 mock.module("next/navigation", () => ({
   useSearchParams: () => ({
     get: (name: string) => (name === "team" ? searchTeam : null),
     has: (name: string) => name === "team" && searchTeam !== null,
+    toString: () => searchTeam ? `team=${encodeURIComponent(searchTeam)}` : "",
   }),
 }));
 
 mock.module("@/i18n/navigation", () => ({
   usePathname: () => "/dashboard/coderouter",
-  useRouter: () => ({ replace: () => undefined, refresh: () => undefined }),
+  useRouter: () => ({ replace: routerReplace, refresh: routerRefresh }),
 }));
 
 const { useDashboardTeamScope, parseTeamCatalog, selectedTeam, permittedTeams } = await import(
@@ -76,6 +93,10 @@ describe("dashboard team scope", () => {
     catalog = twoTeams;
     pending = false;
     searchTeam = null;
+    queryData.clear();
+    queryData.set(queryKey(["dashboard-team-catalog", "user-1"]), twoTeams);
+    routerReplace.mockClear();
+    routerRefresh.mockClear();
   });
 
   test("exposes the persisted team as current and only permitted teams", () => {
@@ -160,6 +181,53 @@ describe("dashboard team scope", () => {
       globalThis.fetch = originalFetch;
       timers.mockRestore();
       clear.mockRestore();
+    }
+  });
+
+  test("updates the selected team and dashboard scope before the server responds", async () => {
+    const originalFetch = globalThis.fetch;
+    let resolveFetch: ((response: Response) => void) | undefined;
+    globalThis.fetch = (() => new Promise<Response>((resolve) => {
+      resolveFetch = resolve;
+    })) as typeof fetch;
+    try {
+      const scope = useDashboardTeamScope("user-1");
+      if (scope.status !== "ready") throw new Error("Expected a ready team scope");
+
+      const switching = scope.switchTeam(twoTeams.teams[0]!);
+
+      expect(queryData.get(queryKey(["dashboard-team-catalog", "user-1"]))).toMatchObject({
+        selectedTeamId: "user-1",
+      });
+      expect(routerReplace).toHaveBeenCalledWith("/dashboard/coderouter?team=user-1");
+      expect(routerRefresh).not.toHaveBeenCalled();
+
+      resolveFetch!(new Response(null, { status: 204 }));
+      await switching;
+
+      expect(routerReplace).toHaveBeenLastCalledWith("/dashboard/coderouter");
+      expect(routerRefresh).toHaveBeenCalledTimes(1);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  test("rolls back the optimistic scope when the server rejects the switch", async () => {
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = (async () => new Response(null, { status: 500 })) as typeof fetch;
+    try {
+      const scope = useDashboardTeamScope("user-1");
+      if (scope.status !== "ready") throw new Error("Expected a ready team scope");
+
+      await expect(scope.switchTeam(twoTeams.teams[0]!)).rejects.toThrow("Could not switch dashboard team");
+
+      expect(queryData.get(queryKey(["dashboard-team-catalog", "user-1"]))).toMatchObject({
+        selectedTeamId: "team-2",
+      });
+      expect(routerReplace).toHaveBeenLastCalledWith("/dashboard/coderouter");
+      expect(routerRefresh).not.toHaveBeenCalled();
+    } finally {
+      globalThis.fetch = originalFetch;
     }
   });
 });
