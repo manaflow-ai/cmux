@@ -343,34 +343,48 @@ struct WorkspacePromptSubmitTests {
     }
 
 
-    @Test func testPromptScrollMarkerClickJumpsToCapturedRow() throws {
-        let surfaceView = NotificationRecoveryRecordingSurfaceView(frame: .zero)
-        surfaceView.setAuthoritativeScrollbar(
-            GhosttyScrollbar(total: 100, offset: 80, len: 20),
+    @Test func testPromptScrollMarkerActivationJumpsToCapturedRow() throws {
+        let initialGeometry = NotificationScrollRestoreGeometry(
+            scrollbar: GhosttyScrollbar(total: 100, offset: 80, len: 20),
             rowSpaceRevision: 1
         )
+        let marker = try #require(TerminalPromptScrollMarker(geometry: initialGeometry))
+        let surfaceView = NotificationRecoveryRecordingSurfaceView(frame: .zero)
+        surfaceView.setAuthoritativeScrollbar(
+            initialGeometry.scrollbar,
+            rowSpaceRevision: initialGeometry.rowSpaceRevision
+        )
         let hostedView = GhosttySurfaceScrollView(surfaceView: surfaceView)
+        let promptScrollView = try #require(
+            hostedView.subviews.compactMap { $0 as? GhosttyScrollView }.first
+        )
 
         hostedView.recordPromptScrollMarker()
-
-        #expect(hostedView.promptScrollMarkerRowsForTesting == [80])
-
         surfaceView.setAuthoritativeScrollbar(
             GhosttyScrollbar(total: 180, offset: 160, len: 20),
             rowSpaceRevision: 1
         )
-        #expect(hostedView.activatePromptScrollMarkerForTesting(at: 0))
+
+        #expect(promptScrollView.activatePromptScrollMarker(marker))
         #expect(surfaceView.performedRows == [80])
         #expect(surfaceView.attemptedRowSpaceRevisions == [1])
     }
 
-    @Test func testPromptScrollMarkerClickRejectsRenumberedScrollback() throws {
-        let surfaceView = NotificationRecoveryRecordingSurfaceView(frame: .zero)
-        surfaceView.setAuthoritativeScrollbar(
-            GhosttyScrollbar(total: 100, offset: 80, len: 20),
+    @Test func testPromptScrollMarkerActivationRejectsRenumberedScrollback() throws {
+        let initialGeometry = NotificationScrollRestoreGeometry(
+            scrollbar: GhosttyScrollbar(total: 100, offset: 80, len: 20),
             rowSpaceRevision: 1
         )
+        let marker = try #require(TerminalPromptScrollMarker(geometry: initialGeometry))
+        let surfaceView = NotificationRecoveryRecordingSurfaceView(frame: .zero)
+        surfaceView.setAuthoritativeScrollbar(
+            initialGeometry.scrollbar,
+            rowSpaceRevision: initialGeometry.rowSpaceRevision
+        )
         let hostedView = GhosttySurfaceScrollView(surfaceView: surfaceView)
+        let promptScrollView = try #require(
+            hostedView.subviews.compactMap { $0 as? GhosttyScrollView }.first
+        )
 
         hostedView.recordPromptScrollMarker()
         surfaceView.setAuthoritativeScrollbar(
@@ -378,7 +392,7 @@ struct WorkspacePromptSubmitTests {
             rowSpaceRevision: 2
         )
 
-        #expect(!hostedView.activatePromptScrollMarkerForTesting(at: 0))
+        #expect(!promptScrollView.activatePromptScrollMarker(marker))
         #expect(surfaceView.performedRows.isEmpty)
     }
 
