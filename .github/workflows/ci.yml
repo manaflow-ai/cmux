@@ -171,6 +171,10 @@ jobs:
                 .github/workflows/ci.yml)
                   ci_workflow_changed=true
                   ;;
+                .github/workflows/agent-pr-review-gate.yml|.github/workflows/agent-pr-review-gate-v2.yml|.github/scripts/agent-pr-review-gate.py|scripts/ci/workloads/ci-guard.sh|tests/test_agent_pr_review_gate.py)
+                  ci_router_changed=true
+                  ghosttykit_guard_only=false
+                  ;;
                 scripts/ci/*)
                   # Unknown scripts/ci files fail open before invoking the
                   # PR-controlled Python detector. A new file here could
@@ -204,7 +208,7 @@ jobs:
               : > "$product_files"
               while IFS= read -r path; do
                 case "$path" in
-                  .github/workflows/ci.yml|.github/workflows/ci-guards.yml|scripts/ci/detect_ci_change_areas.py|scripts/ci/detect_linux_guard_changes.py|scripts/ci/workflow_guard_groups.py|tests/test_ci_change_areas.py|tests/test_ci_linux_guard_routing.py|tests/test_ci_guard_workflow_structure.py|tests/test_ci_app_host_guard_structure.py|tests/test_ci_quality_guard_structure.py|tests/test_ci_release_guard_structure.py)
+                  .github/workflows/ci.yml|.github/workflows/ci-guards.yml|.github/workflows/agent-pr-review-gate.yml|.github/workflows/agent-pr-review-gate-v2.yml|.github/scripts/agent-pr-review-gate.py|scripts/ci/detect_ci_change_areas.py|scripts/ci/detect_linux_guard_changes.py|scripts/ci/workflow_guard_groups.py|scripts/ci/workloads/ci-guard.sh|tests/test_ci_change_areas.py|tests/test_ci_linux_guard_routing.py|tests/test_ci_guard_workflow_structure.py|tests/test_ci_app_host_guard_structure.py|tests/test_ci_quality_guard_structure.py|tests/test_ci_release_guard_structure.py|tests/test_agent_pr_review_gate.py)
                     ;;
                   *)
                     printf '%s\n' "$path" >> "$product_files"
@@ -328,7 +332,7 @@ jobs:
                   full_guard_matrix=true
                   other_full_guard_matrix=true
                   ;;
-                .github/workflows/ci.yml|scripts/ci/detect_ci_change_areas.py|scripts/ci/detect_linux_guard_changes.py|scripts/ci/workflow_guard_groups.py|tests/test_ci_change_areas.py|tests/test_ci_linux_guard_routing.py|tests/test_ci_guard_workflow_structure.py|tests/test_ci_app_host_guard_structure.py|tests/test_ci_quality_guard_structure.py|tests/test_ci_release_guard_structure.py)
+                .github/workflows/ci.yml|.github/workflows/agent-pr-review-gate.yml|.github/workflows/agent-pr-review-gate-v2.yml|.github/scripts/agent-pr-review-gate.py|scripts/ci/detect_ci_change_areas.py|scripts/ci/detect_linux_guard_changes.py|scripts/ci/workflow_guard_groups.py|scripts/ci/workloads/ci-guard.sh|tests/test_ci_change_areas.py|tests/test_ci_linux_guard_routing.py|tests/test_ci_guard_workflow_structure.py|tests/test_ci_app_host_guard_structure.py|tests/test_ci_quality_guard_structure.py|tests/test_ci_release_guard_structure.py|tests/test_agent_pr_review_gate.py)
                   routing_policy_changed=true
                   ;;
                 .github/workflows/ci-macos.yml)
