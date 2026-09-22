@@ -15,7 +15,6 @@ permissions:
 
 jobs:
   benchmark:
-    if: ${{ github.event_name == 'push' || github.event.pull_request.head.ref == 'codex/mobile-terminal-state-package-boundary' }}
     runs-on: ${{ vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15' }}
     timeout-minutes: 45
     env:
