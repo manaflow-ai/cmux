@@ -29,6 +29,26 @@ concurrency:
 jobs:
   complexity:
     name: Web complexity
+    # An `edited` event fires when a pull request's title, body or base branch
+    # changes. Of those, only a base change moves the revision this job judges
+    # against; a title or body edit leaves both the base and the head exactly
+    # where they were, so re-running the checker can only reproduce the verdict
+    # it already published for that head. Review bots write their summaries into
+    # the body, which is why most `edited` events on this repository are theirs.
+    #
+    # Skipping is safe for a required check. A job skipped by its own condition
+    # still reports a conclusion, and GitHub counts that as success, so the
+    # check stays present on the pull request. Narrowing the workflow's trigger
+    # list instead would leave the required check missing, which blocks merging.
+    #
+    # `changes.base` is read through its string leaves: an absent property
+    # compares equal to the empty string, while a retarget carries the previous
+    # ref and sha. Stacked pull requests are retargeted with an `edited` event
+    # when their parent merges, and that event still runs the checker.
+    if: >-
+      github.event.action != 'edited'
+      || github.event.changes.base.ref.from != ''
+      || github.event.changes.base.sha.from != ''
     # The job reads untrusted source bytes. Keep it on an ephemeral GitHub
     # hosted runner and never allow a repository variable to select the host.
     runs-on: ubuntu-24.04
