@@ -203,6 +203,22 @@ has a green Linux regression test for the fixed wrapper/parser path and uploads
 the raw cmux build log for recomputation.
 
 
+### Source timestamp and inode semantics
+
+The corrected seed normalizes every tracked source mtime deterministically from
+its Git blob ID before the A build. The first worktree archive prototype exposed
+an important transport detail: the tar round trip rounded nanosecond mtimes
+(`AppDelegate.swift` changed from `1129819009715421064` ns in the seed to
+`1129819009000000000` ns after restore), and the restored file had a new inode.
+
+The restored-generation harness now re-applies the same blob-derived mtime
+function while the index still describes A, before checking out B. Therefore
+unchanged A files recover the exact nanosecond signature Xcode saw during the
+seed build, while Git rewrites B's edited file during the in-place transition.
+The archive still produces new inodes, as any cross-run file materialization
+does. A successful warm result therefore proves inode continuity is unnecessary
+for this path; a failure cannot be blamed on rounded source mtimes.
+
 ### Corrected production-CAS canary run 35676212414
 
 The corrected canary exports the same R2 public endpoint used by compile admission.
