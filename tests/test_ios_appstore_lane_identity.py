@@ -93,6 +93,21 @@ def _profile_plist(
     }
 
 
+def _extension_profile_plist() -> dict[str, object]:
+    profile = _profile_plist(
+        APPSTORE_EXTENSION_BUNDLE_ID,
+        APPSTORE_EXTENSION_PROFILE_NAME,
+        "00000000-0000-0000-0000-000000000003",
+    )
+    entitlements = profile["Entitlements"]
+    assert isinstance(entitlements, dict)
+    # The real App Store extension profile authorizes a wildcard keychain
+    # group. The exported extension still has to claim the host's exact group.
+    entitlements["keychain-access-groups"] = [f"{TEAM_ID}.*", "com.apple.token"]
+    entitlements["com.apple.security.application-groups"] = []
+    return profile
+
+
 def _write_executable(path: Path, body: str) -> None:
     path.write_text(body, encoding="utf-8")
     path.chmod(path.stat().st_mode | stat.S_IXUSR)
@@ -109,6 +124,7 @@ TEAM_ID = {TEAM_ID!r}
 APPSTORE_BUNDLE_ID = {APPSTORE_BUNDLE_ID!r}
 APPSTORE_APP_ID = {APPSTORE_APP_ID!r}
 APPSTORE_EXTENSION_BUNDLE_ID = {APPSTORE_EXTENSION_BUNDLE_ID!r}
+APPSTORE_EXTENSION_APP_ID = TEAM_ID + "." + APPSTORE_EXTENSION_BUNDLE_ID
 APPSTORE_EXTENSION_PROFILE_NAME = {APPSTORE_EXTENSION_PROFILE_NAME!r}
 BETA_BUNDLE_ID = {BETA_BUNDLE_ID!r}
 BETA_APP_ID = {BETA_APP_ID!r}
@@ -123,7 +139,7 @@ def write_plist(path, value):
 
 APPSTORE_PROFILE = plistlib.loads({_plist_bytes(_profile_plist())!r})
 BETA_PROFILE = plistlib.loads({_plist_bytes(_profile_plist(BETA_BUNDLE_ID, "cmux Beta Distribution Test", "00000000-0000-0000-0000-000000000002"))!r})
-EXTENSION_PROFILE = plistlib.loads({_plist_bytes(_profile_plist(APPSTORE_EXTENSION_BUNDLE_ID, APPSTORE_EXTENSION_PROFILE_NAME, "00000000-0000-0000-0000-000000000003"))!r})
+EXTENSION_PROFILE = plistlib.loads({_plist_bytes(_extension_profile_plist())!r})
 BETA_EXTENSION_PROFILE = plistlib.loads({_plist_bytes(_profile_plist(BETA_BUNDLE_ID + ".NotificationService", "cmux Beta Notification Service Distribution", "00000000-0000-0000-0000-000000000004"))!r})
 BETA_EXTENSION_PROFILE["Entitlements"]["keychain-access-groups"] = [TEAM_ID + ".*"]
 FIXTURE_CERTIFICATE = {ssl.DER_cert_to_PEM_cert(FIXTURE_CERTIFICATE_DER)!r}
@@ -154,6 +170,14 @@ def bundle_id_for_target(path):
     return value or APPSTORE_BUNDLE_ID
 
 def entitlements_for_bundle(bundle_id):
+    if bundle_id == APPSTORE_EXTENSION_BUNDLE_ID:
+        # This is the broken exported artifact: the extension profile is
+        # embedded, but the extension signature claims no keychain group.
+        return {{
+            "application-identifier": APPSTORE_EXTENSION_APP_ID,
+            "com.apple.developer.team-identifier": TEAM_ID,
+            "get-task-allow": False,
+        }}
     entitlements = dict(profile_for_bundle(bundle_id)["Entitlements"])
     override_group = os.environ.get("CMUX_FAKE_SIGNED_KEYCHAIN_GROUP")
     if override_group:
@@ -413,6 +437,15 @@ if "archive" in args:
             "CMUXKeychainAccessGroup": bundle_id,
         }},
     )
+    extension = app / "PlugIns" / "NotificationService.appex"
+    write_plist(
+        extension / "Info.plist",
+        {{
+            "CFBundleIdentifier": f"{{bundle_id}}.NotificationService",
+            "CMUXHostBundleIdentifier": bundle_id,
+            "CMUXKeychainAccessGroup": bundle_id,
+        }},
+    )
     # upload-testflight.sh refuses archives without dSYM bundles.
     (archive / "dSYMs" / "cmux.app.dSYM" / "Contents").mkdir(parents=True, exist_ok=True)
     sys.exit(0)
@@ -428,6 +461,15 @@ if "-exportArchive" in args:
     payload_root = export_path / "Payload"
     app = payload_root / "cmux.app"
     write_plist(app / "Info.plist", archived_info)
+    extension = app / "PlugIns" / "NotificationService.appex"
+    write_plist(
+        extension / "Info.plist",
+        {{
+            "CFBundleIdentifier": f"{{bundle_id}}.NotificationService",
+            "CMUXHostBundleIdentifier": bundle_id,
+            "CMUXKeychainAccessGroup": bundle_id,
+        }},
+    )
     if os.environ.get("CMUX_FAKE_EMBED_INVALID_FRAMEWORK_SHELL") == "1":
         write_plist(
             app / "Frameworks" / "Iroh.framework" / "Info.plist",
@@ -468,6 +510,7 @@ sys.exit(0)
         fakebin / "codesign",
         f"""#!/usr/bin/env python3
 import plistlib
+import shutil
 import sys
 {common}
 
@@ -476,9 +519,20 @@ if "--verify" in args:
     sys.exit(0)
 if "-d" in args and "--entitlements" in args:
     bundle_id = bundle_id_for_target(args[-1])
-    sys.stdout.buffer.write(plist_bytes(entitlements_for_bundle(bundle_id)))
+    target = Path(args[-1])
+    marker = target / "FakeSignedEntitlements.plist" if target.is_dir() else None
+    entitlements = (
+        plistlib.loads(marker.read_bytes())
+        if marker is not None and marker.exists()
+        else entitlements_for_bundle(bundle_id)
+    )
+    sys.stdout.buffer.write(plist_bytes(entitlements))
     sys.exit(0)
 if "--force" in args:
+    target = Path(args[-1])
+    if "--entitlements" in args and target.is_dir():
+        source = Path(args[args.index("--entitlements") + 1])
+        shutil.copyfile(source, target / "FakeSignedEntitlements.plist")
     sys.exit(0)
 sys.exit(0)
 """,
@@ -1222,6 +1276,14 @@ def test_upload_appstore_lane_uses_production_bundle_id(tmp: Path, fakebin: Path
     _check(
         info.get("CMUXKeychainAccessGroup") == APPSTORE_APP_ID,
         "final signed App Store IPA Info.plist carries the exact App Store keychain group",
+    )
+    _check(
+        extension_info.get("CMUXKeychainAccessGroup") == APPSTORE_APP_ID,
+        "notification extension Info.plist carries the exact App Store keychain group",
+    )
+    _check(
+        extension_entitlements.get("keychain-access-groups") == [APPSTORE_APP_ID],
+        "notification extension signature carries the exact App Store keychain group",
     )
     _check(
         info.get("CFBundleShortVersionString") == APPSTORE_MARKETING_VERSION,
