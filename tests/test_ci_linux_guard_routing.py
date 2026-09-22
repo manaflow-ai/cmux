@@ -9,7 +9,13 @@ import unittest
 from pathlib import Path
 
 from test_ci_change_areas import (
-    linux_preflight_needs, run_guard_status, run_linux_preflight, workflow_job_step_script,
+    linux_preflight_needs,
+    run_guard_status,
+    run_linux_preflight,
+    run_tests_gate,
+    tests_gate_needs,
+    workflow_job_block,
+    workflow_job_step_script,
 )
 
 
@@ -61,6 +67,24 @@ class LinuxGuardRoutingTests(unittest.TestCase):
                 self.assertEqual(result.returncode, 0, result.stderr)
                 self.assertEqual(dict(line.split("=", 1) for line in output.read_text().splitlines()),
                                  dict.fromkeys(JOBS, "true"))
+
+    def test_linux_preflight_skips_when_macos_route_is_false(self):
+        block = workflow_job_block("linux-preflight")
+        self.assertIn(
+            "if: ${{ always() && needs.changes.outputs.macos != 'false' }}",
+            block,
+        )
+
+        no_macos = tests_gate_needs(macos="false", macos_result="skipped")
+        no_macos["linux-preflight"]["result"] = "skipped"
+        result = run_tests_gate(no_macos)
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+        macos = tests_gate_needs()
+        macos["linux-preflight"]["result"] = "skipped"
+        result = run_tests_gate(macos)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("linux preflight did not pass: skipped", result.stderr)
 
     def test_docs_skip_all_five_guards_and_gate_succeeds(self):
         for path in ("CLAUDE.md", "AGENTS.md", "Packages/macOS/AGENTS.md",

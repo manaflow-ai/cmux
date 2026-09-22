@@ -494,14 +494,21 @@ jobs:
           if changes["result"] != "success":
               print(f"changes: {changes['result']}", file=sys.stderr)
               sys.exit(1)
-          preflight = needs["linux-preflight"]
-          if preflight["result"] != "success":
-              print(f"linux preflight did not pass: {preflight['result']}", file=sys.stderr)
-              sys.exit(1)
           outputs = changes.get("outputs", {})
           macos_route = outputs.get("macos")
           if macos_route not in {"true", "false"}:
               print(f"invalid route macos={macos_route!r}", file=sys.stderr)
+              sys.exit(1)
+          preflight = needs["linux-preflight"]
+          if macos_route == "true":
+              if preflight["result"] != "success":
+                  print(f"linux preflight did not pass: {preflight['result']}", file=sys.stderr)
+                  sys.exit(1)
+          elif preflight["result"] not in {"success", "skipped"}:
+              print(
+                  f"linux preflight had unexpected result: {preflight['result']}",
+                  file=sys.stderr,
+              )
               sys.exit(1)
           macos_result = needs["macos"]["result"]
           if macos_route == "true":
@@ -530,7 +537,11 @@ jobs:
       - guards
       - ghosttykit-release-check
       - web
-    if: ${{ always() }}
+    # This job exists only to admit macOS work after the cheap layer passes.
+    # This replaces the old unconditional `if: ${{ always() }}`: if the change
+    # router explicitly says macOS is irrelevant, skip the runner allocation.
+    # Missing/invalid route output fails open by running the preflight.
+    if: ${{ always() && needs.changes.outputs.macos != 'false' }}
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     steps:
