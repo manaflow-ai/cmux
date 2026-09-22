@@ -172,7 +172,7 @@ extension MobileShellComposite {
             // without refreshing this shell's display cache. Take one scoped
             // store snapshot per batch so every host is matched against current
             // authority without a database scan per instance.
-            await self.loadPairedMacs()
+            await self.loadPairedMacs(forceRefresh: true)
             guard await self.isScopeCurrent(scope) else { return }
             let pairedMacsByPairingID = Dictionary(
                 self.storedPairedMacsIncludingHidden.map {
@@ -200,7 +200,7 @@ extension MobileShellComposite {
             }
             guard await self.isScopeCurrent(scope) else { return }
             if persistedRoutes {
-                await self.loadPairedMacs()
+                await self.loadPairedMacs(forceRefresh: true)
             }
             guard await self.isScopeCurrent(scope) else { return }
             if self.connectionState != .connected {

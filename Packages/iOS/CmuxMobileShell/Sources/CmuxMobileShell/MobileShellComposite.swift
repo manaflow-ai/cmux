@@ -2096,7 +2096,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         workspaceChangesSummaryTrailingTask?.cancel()
         pullToRefreshTask?.cancel()
         foregroundWorkspaceMutationRefreshTask?.cancel()
-        pairedMacLoadTask?.cancel()
+        for task in pairedMacLoadTasks.values {
+            task.cancel()
+        }
         for task in computerVisibilityMutationTasksByID.values {
             task.cancel()
         }
@@ -2988,7 +2990,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 // the Mac picker, and the task composer read the shared
                 // in-memory list. Refresh it before dismissing PairingView so
                 // those surfaces can use the new Mac immediately.
-                await loadPairedMacs()
+                await loadPairedMacs(forceRefresh: true)
                 guard isCurrentPairingAttempt(attemptID) else { return .superseded }
                 recordPairingSucceeded()
                 return .connected
@@ -3599,11 +3601,26 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// Monotonic token so overlapping same-scope loads cannot publish an older
     /// snapshot after a newer refresh has started.
     private var pairedMacLoadGeneration: UInt64 = 0
-    /// One shared hydration operation for the current shell lifetime. Startup
-    /// reconnect, the workspace shell, and the Computers screen may all ask for
-    /// the local pairing snapshot at once; they must await the same read instead
-    /// of treating an in-flight read as an empty cache.
-    @ObservationIgnored private var pairedMacLoadTask: Task<Void, Never>?
+    /// One shared hydration operation per account/team scope. Startup reconnect,
+    /// the workspace shell, and the Computers screen may all ask for the local
+    /// pairing snapshot at once; they must await the same read instead of
+    /// treating an in-flight read as an empty cache. A scope change gets its own
+    /// task, so a suspended read for the previous account cannot satisfy it.
+    private struct PairedMacLoadKey: Hashable, Sendable {
+        let userID: String
+        let teamID: String?
+        let scopeGeneration: Int
+
+        init(_ scope: MobileShellScopeSnapshot) {
+            userID = scope.userID
+            teamID = scope.teamID
+            scopeGeneration = scope.generation
+        }
+    }
+
+    @ObservationIgnored private var pairedMacLoadTasks: [
+        PairedMacLoadKey: Task<Void, Never>
+    ] = [:]
     /// Visible representative id to all stored ids for that logical paired Mac.
     public private(set) var pairedMacAliasIDsByRepresentativeID: [String: [String]] = [:]
     /// Cached device-local hidden ids keyed by signed-in account/team scope.
@@ -4131,18 +4148,34 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// A missing current Stack user id yields no pairings rather than falling
     /// back to the unscoped all-users query, so a shared device never exposes
     /// another user's Macs in the switcher.
-    public func loadPairedMacs() async {
-        if let pairedMacLoadTask {
-            await pairedMacLoadTask.value
+    public func loadPairedMacs(forceRefresh: Bool = false) async {
+        guard let scope = await currentScopeSnapshot() else {
+            await performPairedMacLoad()
             return
+        }
+        let key = PairedMacLoadKey(scope)
+        if !forceRefresh, let loadTask = pairedMacLoadTasks[key] {
+            await loadTask.value
+            return
+        }
+        // A forced refresh represents a store mutation that happened while an
+        // older read was in flight. Wait for that read, then perform the newer
+        // read instead of silently returning its stale snapshot.
+        if forceRefresh, let loadTask = pairedMacLoadTasks[key] {
+            await loadTask.value
+        }
+        while let loadTask = pairedMacLoadTasks[key] {
+            await loadTask.value
         }
         let loadTask = Task { @MainActor [weak self] in
             guard let self else { return }
             await self.performPairedMacLoad()
         }
-        pairedMacLoadTask = loadTask
+        pairedMacLoadTasks[key] = loadTask
         await loadTask.value
-        pairedMacLoadTask = nil
+        if pairedMacLoadTasks[key] != nil {
+            pairedMacLoadTasks[key] = nil
+        }
     }
 
     private func performPairedMacLoad() async {
@@ -4753,7 +4786,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 )
                 guard self.isCurrentForegroundOwner(ownerKey) else { return }
                 if reloadAfterWrite {
-                    await self.loadPairedMacs()
+                    await self.loadPairedMacs(forceRefresh: true)
                 }
             } catch {
                 mobileShellLog.error("paired mac store setActive failed mac=\(macDeviceID, privacy: .private) error=\(String(describing: error), privacy: .public)")
@@ -5182,7 +5215,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 // presentation surfaces read the shared in-memory list. Refresh
                 // it before reporting success so an immediately opened picker or
                 // task composer sees the Mac without a manual Computers refresh.
-                await loadPairedMacs()
+                await loadPairedMacs(forceRefresh: true)
                 guard isCurrentPairingAttempt(attemptID) else { return .superseded }
                 recordPairingSucceeded()
                 MobileDebugLog.shared.append("pairing.attempt.succeeded")
@@ -8203,7 +8236,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 failure: DiagnosticFailureKind.classify(error)
             )
         }
-        await loadPairedMacs()
+        await loadPairedMacs(forceRefresh: true)
         recomputeDerivedWorkspaceState()
     }
 
