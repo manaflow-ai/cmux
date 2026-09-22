@@ -2899,7 +2899,8 @@ import Testing
             isActive: false,
             stackUserID: "user-1",
             teamID: "team-1",
-            instanceTag: "stable"
+            instanceTag: "stable",
+            connectionMethodRawValue: MobileConnectionMethod.tailscale.rawValue
         )
         let router = LivenessHostRouter()
         await router.setHostIdentity(
@@ -2911,13 +2912,6 @@ import Testing
             router: router,
             box: TransportBox()
         )
-        let methodDefaults = UserDefaults(
-            suiteName: "tailscale-only-secondary-\(UUID().uuidString)"
-        )!
-        methodDefaults.set(
-            MobileConnectionMethod.tailscale.rawValue,
-            forKey: MobileConnectionMethodStore.methodKey
-        )
         let fixedNow = Date(timeIntervalSince1970: 1_700_000_000)
         let shell = MobileShellComposite(
             runtime: LivenessTestRuntime(
@@ -2926,9 +2920,6 @@ import Testing
                 supportedRouteKinds: [.iroh, .tailscale]
             ),
             isSignedIn: true,
-            connectionMethodStore: MobileConnectionMethodStore(
-                defaults: methodDefaults
-            )
         )
 
         switch await shell.makeSecondaryClient(for: mac) {
@@ -2963,7 +2954,8 @@ import Testing
             stackUserID: "user-1",
             teamID: "team-1",
             instanceTag: "stable",
-            legacyTailscaleRoutes: [route]
+            legacyTailscaleRoutes: [route],
+            connectionMethodRawValue: MobileConnectionMethod.tailscale.rawValue
         )
         let router = LivenessHostRouter()
         await router.setHostIdentity(
@@ -2975,13 +2967,6 @@ import Testing
             router: router,
             box: TransportBox()
         )
-        let methodDefaults = UserDefaults(
-            suiteName: "tailscale-only-granted-\(UUID().uuidString)"
-        )!
-        methodDefaults.set(
-            MobileConnectionMethod.tailscale.rawValue,
-            forKey: MobileConnectionMethodStore.methodKey
-        )
         let fixedNow = Date(timeIntervalSince1970: 1_700_000_000)
         let shell = MobileShellComposite(
             runtime: LivenessTestRuntime(
@@ -2990,9 +2975,6 @@ import Testing
                 supportedRouteKinds: [.iroh, .tailscale]
             ),
             isSignedIn: true,
-            connectionMethodStore: MobileConnectionMethodStore(
-                defaults: methodDefaults
-            )
         )
 
         switch await shell.makeSecondaryClient(for: mac) {

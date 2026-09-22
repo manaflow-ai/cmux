@@ -741,8 +741,7 @@ struct IrohZeroTouchDiscoveryTests {
         let discovery = ScriptedIrohDiscovery(snapshots: [[live]])
         let fixture = try await makeFixture(
             discovery: discovery,
-            reportedDeviceID: "mac-a",
-            connectionMethod: .tailscale
+            reportedDeviceID: "mac-a"
         )
         defer { fixture.cleanup() }
         let scope = try #require(
@@ -781,8 +780,7 @@ struct IrohZeroTouchDiscoveryTests {
         discovery: any MobileIrohMacDiscovering,
         reportedDeviceID: String,
         failingRouteIDs: Set<String> = [],
-        rateLimitedRouteIDs: Set<String> = [],
-        connectionMethod: MobileConnectionMethod? = nil
+        rateLimitedRouteIDs: Set<String> = []
     ) async throws -> ZeroTouchFixture {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
@@ -801,16 +799,6 @@ struct IrohZeroTouchDiscoveryTests {
             failingRouteIDs: failingRouteIDs,
             rateLimitedRouteIDs: rateLimitedRouteIDs
         )
-        let methodStore = connectionMethod.map { method in
-            let defaults = UserDefaults(
-                suiteName: "iroh-zero-touch-method-\(UUID().uuidString)"
-            )!
-            defaults.set(
-                method.rawValue,
-                forKey: MobileConnectionMethodStore.methodKey
-            )
-            return MobileConnectionMethodStore(defaults: defaults)
-        }
         let shell = MobileShellComposite(
             runtime: LivenessTestRuntime(
                 transportFactory: factory,
@@ -819,7 +807,6 @@ struct IrohZeroTouchDiscoveryTests {
             ),
             isSignedIn: true,
             pairedMacStore: store,
-            connectionMethodStore: methodStore,
             personalIrohDiscovery: discovery,
             identityProvider: StaticIdentityProvider(userID: "user-1"),
             reachability: AlwaysOnlineReachability(),

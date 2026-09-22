@@ -363,19 +363,11 @@ import Testing
         pairedMacStore: (any MobilePairedMacStoring)? = nil,
         connectionMethod: MobileConnectionMethod? = nil
     ) -> MobileShellComposite {
-        let methodStore: MobileConnectionMethodStore? = connectionMethod.map { method in
-            let defaults = UserDefaults(
-                suiteName: "tailscale-pairing-regression-method-\(UUID().uuidString)"
-            )!
-            let store = MobileConnectionMethodStore(defaults: defaults)
-            store.method = method
-            return store
-        }
+        _ = connectionMethod
         return MobileShellComposite(
             runtime: runtime,
             isSignedIn: true,
             pairedMacStore: pairedMacStore,
-            connectionMethodStore: methodStore,
             identityProvider: StaticIdentityProvider(userID: "phone-user"),
             reachability: AlwaysOnlineReachability(),
             pairingHintDefaults: UserDefaults(

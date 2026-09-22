@@ -74,7 +74,6 @@ import Testing
                 transportFactory: factory, now: { clock.now }, supportedRouteKinds: [.iroh]
             ),
             isSignedIn: true, pairedMacStore: pairedStore,
-            connectionMethodStore: MobileConnectionMethodStore(defaults: defaults),
             identityProvider: StaticIdentityProvider(userID: "user-1"),
             reachability: AlwaysOnlineReachability(), pairingHintDefaults: defaults
         )
@@ -697,70 +696,44 @@ import Testing
     }
 
     @Test func tailscaleSetupIsRequiredImmediatelyWhenNoMacIsKnown() {
-        let methodDefaults = UserDefaults(
-            suiteName: "tailscale-setup-method-\(UUID().uuidString)"
-        )!
-        methodDefaults.set(
-            MobileConnectionMethod.tailscale.rawValue,
-            forKey: MobileConnectionMethodStore.methodKey
-        )
         let pairingDefaults = UserDefaults(
             suiteName: "tailscale-setup-pairing-\(UUID().uuidString)"
         )!
         let store = MobileShellComposite(
             isSignedIn: true,
-            connectionMethodStore: MobileConnectionMethodStore(
-                defaults: methodDefaults
-            ),
             pairingHintDefaults: pairingDefaults
         )
 
         #expect(store.pairedMacLoadState == .notLoaded)
         #expect(!store.hasKnownPairedMac)
-        #expect(store.tailscaleSetupStatus == .pairingRequired)
-        #expect(store.tailscalePairingRequired)
+        #expect(store.tailscaleSetupStatus == .notSelected)
+        #expect(!store.tailscalePairingRequired)
     }
 
     @Test func knownMacWaitsForRouteLoadBeforeRequiringTailscaleSetup() {
-        let methodDefaults = UserDefaults(
-            suiteName: "tailscale-load-method-\(UUID().uuidString)"
-        )!
-        methodDefaults.set(
-            MobileConnectionMethod.tailscale.rawValue,
-            forKey: MobileConnectionMethodStore.methodKey
-        )
         let pairingDefaults = UserDefaults(
             suiteName: "tailscale-load-pairing-\(UUID().uuidString)"
         )!
         pairingDefaults.set(true, forKey: "cmux.mobile.hasKnownPairedMac")
         let store = MobileShellComposite(
             isSignedIn: true,
-            connectionMethodStore: MobileConnectionMethodStore(
-                defaults: methodDefaults
-            ),
             pairingHintDefaults: pairingDefaults
         )
 
-        #expect(store.tailscaleSetupStatus == .loadingAuthorization)
+        #expect(store.tailscaleSetupStatus == .notSelected)
         #expect(!store.tailscalePairingRequired)
         store.pairedMacLoadState = .failed
-        #expect(store.tailscaleSetupStatus == .pairingRequired)
-        #expect(store.tailscalePairingRequired)
+        #expect(store.tailscaleSetupStatus == .notSelected)
+        #expect(!store.tailscalePairingRequired)
     }
 
     @Test func projectedTailscaleSetupStatusEvaluatesBeforeMethodSelection() {
-        let methodDefaults = UserDefaults(
-            suiteName: "tailscale-projected-method-\(UUID().uuidString)"
-        )!
         let pairingDefaults = UserDefaults(
             suiteName: "tailscale-projected-pairing-\(UUID().uuidString)"
         )!
         pairingDefaults.set(true, forKey: "cmux.mobile.hasKnownPairedMac")
         let store = MobileShellComposite(
             isSignedIn: true,
-            connectionMethodStore: MobileConnectionMethodStore(
-                defaults: methodDefaults
-            ),
             pairingHintDefaults: pairingDefaults
         )
 
@@ -808,10 +781,6 @@ import Testing
             teamID: nil,
             routes: [tailscale]
         )
-        let methodDefaults = UserDefaults(
-            suiteName: "connection-method-live-switch-\(UUID().uuidString)"
-        )!
-        let methodStore = MobileConnectionMethodStore(defaults: methodDefaults)
         let store = MobileShellComposite(
             runtime: LivenessTestRuntime(
                 transportFactory: factory,
@@ -820,7 +789,6 @@ import Testing
             ),
             isSignedIn: true,
             pairedMacStore: pairedStore,
-            connectionMethodStore: methodStore,
             identityProvider: StaticIdentityProvider(userID: "user-1"),
             reachability: AlwaysOnlineReachability(),
             pairingHintDefaults: UserDefaults(
@@ -891,11 +859,6 @@ import Testing
             teamID: nil,
             routes: [tailscale]
         )
-        let methodStore = MobileConnectionMethodStore(
-            defaults: UserDefaults(
-                suiteName: "connection-method-strict-failure-\(UUID().uuidString)"
-            )!
-        )
         let store = MobileShellComposite(
             runtime: LivenessTestRuntime(
                 transportFactory: factory,
@@ -904,7 +867,6 @@ import Testing
             ),
             isSignedIn: true,
             pairedMacStore: pairedStore,
-            connectionMethodStore: methodStore,
             identityProvider: StaticIdentityProvider(userID: "user-1"),
             reachability: AlwaysOnlineReachability(),
             pairingHintDefaults: UserDefaults(
@@ -1002,11 +964,6 @@ import Testing
             instanceTag: "default",
             displayName: "Other Mac"
         )
-        let methodStore = MobileConnectionMethodStore(
-            defaults: UserDefaults(
-                suiteName: "connection-method-strict-other-mac-\(UUID().uuidString)"
-            )!
-        )
         let store = MobileShellComposite(
             runtime: LivenessTestRuntime(
                 transportFactory: factory,
@@ -1015,7 +972,6 @@ import Testing
             ),
             isSignedIn: true,
             pairedMacStore: pairedStore,
-            connectionMethodStore: methodStore,
             identityProvider: StaticIdentityProvider(userID: "user-1"),
             reachability: AlwaysOnlineReachability(),
             pairingHintDefaults: UserDefaults(

@@ -1062,7 +1062,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// dropped at runtime. `nil` exists only for DEBUG previews, the
     /// hide-computers verifier, and unit-test fixtures, which have no user
     /// preference and behave like the default automatic method.
-    let connectionMethodStore: MobileConnectionMethodStore?
     /// Single compatibility authority shared by registry, persistence, and live connections.
     let buildCompatibilityPolicy: MobileMacBuildCompatibilityPolicy?
     /// Minimum Mac app versions this iOS version accepts on the release
@@ -1850,7 +1849,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         pairingCode: String = "",
         workspaces: [MobileWorkspacePreview] = [],
         pairedMacStore: (any MobilePairedMacStoring)? = nil,
-        connectionMethodStore: MobileConnectionMethodStore? = nil,
         buildCompatibilityPolicy: MobileMacBuildCompatibilityPolicy? = nil,
         pairedMacRestoreBoundary: PairedMacRestoreBoundary? = nil,
         deviceRegistry: (any DeviceRegistryRefreshing)? = nil,
@@ -1914,7 +1912,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         self.simulatorStreamStalenessClock = simulatorStreamStalenessClock
         self.storedMacReconnectRestoringDeadlineSeconds = storedMacReconnectRestoringDeadlineSeconds
         self.pairedMacStore = pairedMacStore
-        self.connectionMethodStore = connectionMethodStore
         self.buildCompatibilityPolicy = buildCompatibilityPolicy
         self.macInstanceTagAuthority = MobileMacInstanceTagAuthority()
         self.pairedMacRestoreBoundary = pairedMacRestoreBoundary
@@ -2078,7 +2075,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         browserStreamEvents?.configureBrowserStreamRestart { [weak self] panelID in
             await self?.forceRestartMobileBrowserStream(panelID: panelID)
         }
-        startObservingConnectionMethodChanges()
         selectedTerminalID = nil
         selectedMacSurfaceID = nil
         syncSelectedTerminalForWorkspace()
@@ -2093,7 +2089,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         directoryObservationTask = nil
         presenceTask?.cancel()
         networkPathObservationTask?.cancel()
-        connectionMethodObservationTask?.cancel()
         terminalEventListenerTask?.cancel()
         terminalSubscriptionStartTask?.cancel()
         renderGridLivenessTimer?.cancel()
@@ -2617,7 +2612,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
     var networkPathObservationStarted = false
     var networkPathObservationTask: Task<Void, Never>?
-    var connectionMethodObservationTask: Task<Void, Never>?
     let connectionRecoveryOwner = MobileConnectionRecoveryOwner()
     var lastReconnectStackUserID: String?
     /// Whether the scene is in the active phase. Set by
@@ -3336,9 +3330,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         if hasKnownStoredMac {
             setHasKnownPairedMac(true, generation: generation)
         }
-        let tailscaleOnly = connectionMethodStore?.method == .tailscale
-        let irohReconnectIsBlocked = tailscaleOnly
-            || automaticIrohReconnectIsBlocked(accountID: scope.userID)
+        let irohReconnectIsBlocked = automaticIrohReconnectIsBlocked(accountID: scope.userID)
         // Capture one coherent post-request view of the registry and paired-Mac
         // store. The store read happens after the registry await, so an
         // authenticated Presence write that lands during the request wins. The
@@ -3461,7 +3453,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // saved candidate failed. This keeps a healthy saved Mac from sitting
         // behind an unrelated account-wide discovery request.
         var zeroTouchCandidates: [MobilePairedMac] = []
-        if connectionState != .connected, !tailscaleOnly,
+        if connectionState != .connected,
            !strictTailscaleFailure,
            !automaticIrohReconnectIsBlocked(accountID: scope.userID) {
             zeroTouchCandidates = await discoverZeroTouchIrohCandidates(
@@ -9959,6 +9951,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         legacyTailscaleRoutes: [CmxAttachRoute] = [],
         userTailscalePairingAuthorizations: [CmxUserTailscalePairingAuthorization] = [],
         directOnlyDialCandidates: [CmxIrohDirectDialCandidate]? = nil,
+        resolvedConnectionMethod: MobileConnectionMethod? = nil,
         pairedMacDeviceID: String? = nil,
         instanceTagExpectation: MobileMacInstanceTagExpectation = .adopt,
         ifStillCurrent: (() -> Bool)? = nil
@@ -10006,12 +9999,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // candidates, because its selected route must remain Tailscale.
         // Stored reconnect callers already resolved Direct and supplied its
         // allowlist. Avoid rescanning every saved pairing in that hot path.
-        let resolvedMethod: MobileConnectionMethod? = directOnlyDialCandidates == nil
-            ? connectionMethod(
+        let resolvedMethod = resolvedConnectionMethod
+            ?? connectionMethod(
                 forMacDeviceID: requestedMacDeviceID ?? ticket.macDeviceID,
                 instanceTag: instanceTagExpectation.expectedTag
             )
-            : nil
         // User-entered Tailscale authorization is scoped to the exact fresh
         // pairing route it came from. It must not disable Direct's Iroh
         // allowlist merely because another route is authorized in the same
@@ -10038,6 +10030,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             legacyTailscaleRoutes: legacyTailscaleRoutes,
             userTailscalePairingAuthorizations: userTailscalePairingAuthorizations,
             directOnly: directOnlyDialCandidates != nil,
+            resolvedConnectionMethod: resolvedMethod,
             pairedMacDeviceID: requestedMacDeviceID,
             instanceTag: instanceTagExpectation.expectedTag
         )
@@ -10811,6 +10804,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         legacyTailscaleRoutes: [CmxAttachRoute] = [],
         userTailscalePairingAuthorizations: [CmxUserTailscalePairingAuthorization] = [],
         directOnly: Bool = false,
+        resolvedConnectionMethod: MobileConnectionMethod? = nil,
         pairedMacDeviceID: String? = nil,
         instanceTag: String? = nil
     ) -> [CmxAttachRoute] {
@@ -10829,7 +10823,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
         // An explicit QR/manual entry is itself the authorization event.  Keep
         // the dial on the exact numeric Tailscale destination it named even
-        // when the app-wide method is Automatic, Iroh, or Tailscale Only.
+        // when the stored pairing method is Automatic or Tailscale Only.
         // `directOnly` is reserved for an already-paired Direct connection and
         // must remain the stronger, Iroh-only constraint.
         if !directOnly, !userTailscalePairingAuthorizations.isEmpty {
@@ -10850,11 +10844,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // The explicit Tailscale method is strict: only authorized Tailscale
         // destinations may be dialed, and an unavailable route leaves the app
         // disconnected instead of silently switching to Iroh. The method is
-        // the dialed Computer's own choice, falling back to the app default.
+        // the dialed Computer's own choice, defaulting to automatic.
         // Resolve it with the caller's pairing identity when one is known:
         // sibling builds share a device id but choose methods independently,
         // so a bare device lookup could apply the wrong build's method.
-        let ticketMethod = connectionMethod(
+        let ticketMethod = resolvedConnectionMethod ?? connectionMethod(
             forMacDeviceID: pairedMacDeviceID ?? ticket.macDeviceID,
             instanceTag: instanceTag
         )

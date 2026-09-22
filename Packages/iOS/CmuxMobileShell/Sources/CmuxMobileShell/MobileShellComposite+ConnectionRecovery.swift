@@ -817,7 +817,7 @@ extension MobileShellComposite {
         // The caller's freshly loaded row is authoritative for the method:
         // during startup restore the published `pairedMacs` list backing the
         // by-ID resolver is not loaded yet and would silently fall back to
-        // the app default, dialing the wrong lane.
+        // automatic, dialing the wrong lane.
         let resolvedMethod = knownPairing.map { connectionMethod(for: $0) }
             ?? connectionMethod(
                 forMacDeviceID: pairedMacDeviceID,
@@ -883,6 +883,7 @@ extension MobileShellComposite {
                     ticket: ticket,
                     legacyTailscaleRoutes: legacyTailscaleRoutes,
                     directOnlyDialCandidates: methodPinnedCandidates,
+                    resolvedConnectionMethod: resolvedMethod,
                     pairedMacDeviceID: pairedMacDeviceID,
                     instanceTagExpectation: instanceTagExpectation,
                     ifStillCurrent: ifStillCurrent
