@@ -1,20 +1,7 @@
 name: CLI pipe regressions
 
 on:
-  pull_request:
-    paths:
-      - 'CLI/**'
-      - 'tests/test_cli_broken_pipe_writes.py'
-      - 'tests/test_cli_socket_operation_deadline.py'
-      - 'tests/test_cli_config_doctor.py'
-      - 'tests/test_cli_glaeda_execution.py'
-      - 'tests/fixtures/glaeda-external-request.json'
-      - 'tests/fixtures/glaeda-external-result.json'
-      - 'scripts/generate-cmux-config-schema.py'
-      - 'web/data/cmux.schema.json'
-      - 'cmux.xcodeproj/**'
-      - 'Packages/macOS/CmuxFoundation/**'
-      - '.github/workflows/cli-pipe-regressions.yml'
+  workflow_call:
   workflow_dispatch:
 
 permissions:
