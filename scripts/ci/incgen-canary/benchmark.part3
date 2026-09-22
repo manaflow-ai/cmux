@@ -1,0 +1,186 @@
+        checks["worktree_archive"] = worktree.is_file() and sha256_file(worktree) == archive.get("worktree_sha256")
+        checks["derived_data_archive"] = dd.is_file() and sha256_file(dd) == archive.get("derived_data_sha256")
+    source = rec.get("source", {})
+    checks["recorded_source_head"] = source.get("head") == base
+    checks["recorded_source_tree"] = isinstance(source.get("tree"), str) and len(source.get("tree")) == 40
+    checks["recorded_package_state"] = isinstance(source.get("package_resolved_sha256"), str) and len(source.get("package_resolved_sha256")) == 64
+    ok = all(checks.values())
+    payload = {"valid": ok, "checks": checks}
+    print("CMUX_CANARY_RECEIPT_VALIDATION=" + json.dumps(payload, sort_keys=True), flush=True)
+    return 0 if ok else 42
+
+
+def make_xcodebuild_wrapper(root: Path) -> Path:
+    real = shutil.which("xcodebuild")
+    if not real:
+        raise SystemExit("xcodebuild unavailable")
+    bindir = root / "xcodebuild-wrapper"
+    bindir.mkdir(parents=True, exist_ok=True)
+    wrapper = bindir / "xcodebuild"
+    wrapper.write_text(
+        "#!/bin/bash\nset -euo pipefail\n"
+        "for arg in \"$@\"; do\n"
+        "  if [ \"$arg\" = build-for-testing ]; then\n"
+        f"    exec {json.dumps(real)} \"$@\" -showBuildTimingSummary\n"
+        "  fi\n"
+        "done\n"
+        f"exec {json.dumps(real)} \"$@\"\n"
+    )
+    wrapper.chmod(0o755)
+    return wrapper
+
+
+def parse_build_log(path: Path) -> dict:
+    text = path.read_text(errors="replace") if path.is_file() else ""
+    detail = text.split("Build Timing Summary", 1)[0]
+    raw_compile = 0
+    source_compile = 0
+    hits = misses = 0
+    last_target = ""
+    by_target: dict[str, int] = {}
+    for line in detail.splitlines():
+        m = re.search(r"\(in target '([^']+)' from project", line)
+        if m:
+            last_target = m.group(1)
+        if line.startswith("SwiftCompile"):
+            raw_compile += 1
+            if re.search(r"/[^\s]+\.swift(?:\s|$)", line):
+                source_compile += 1
+                if last_target:
+                    by_target[last_target] = by_target.get(last_target, 0) + 1
+        if re.search(r"(?i)\bcache hit\b", line):
+            hits += 1
+        if re.search(r"(?i)\bcache miss\b", line):
+            misses += 1
+
+    def timing(name: str):
+        vals = re.findall(rf"(?mi)^\s*{re.escape(name)}[^\n|]*\|\s*([0-9.]+)\s+seconds?", text)
+        return round(sum(map(float, vals)), 6) if vals else None
+
+    def task_count(name: str):
+        vals = re.findall(rf"(?mi)^\s*{re.escape(name)}\s+\(([0-9]+)\s+tasks?\)\s*\|", text)
+        return sum(map(int, vals)) if vals else None
+
+    return {
+        "swift_compile_log_lines": raw_compile,
+        "swift_compile_source_file_lines": source_compile,
+        "swift_compile_source_file_lines_by_target": by_target,
+        "swift_compile_task_count": task_count("SwiftCompile"),
+        "swift_compile_timing_seconds": timing("SwiftCompile"),
+        "emit_module_task_count": task_count("SwiftEmitModule"),
+        "emit_module_seconds": timing("SwiftEmitModule"),
+        "cas_hit_mentions": hits,
+        "cas_miss_mentions": misses,
+    }
+
+
+def build(workspace: Path, derived: Path, source_packages: Path, cas: Path, label: str, source_metrics: Path | None, dd_metrics: Path | None, out: Path) -> None:
+    workspace = workspace.resolve(); derived = derived.resolve(); source_packages = source_packages.resolve(); cas = cas.resolve()
+    derived.mkdir(parents=True, exist_ok=True); source_packages.mkdir(parents=True, exist_ok=True); cas.mkdir(parents=True, exist_ok=True)
+    env = os.environ.copy()
+    env["PATH"] = str(Path.home() / ".cargo/bin") + os.pathsep + env.get("PATH", "")
+    env["CMUX_CI_MODULE_CACHE_PATH"] = str(derived / "ModuleCache.noindex")
+    setup_started = time.monotonic()
+    run([workspace / "scripts/install-rust-ci.sh"], cwd=workspace, env=env)
+    run([workspace / "scripts/download-prebuilt-ghosttykit.sh"], cwd=workspace, env=env)
+    setup_seconds = time.monotonic() - setup_started
+    resolve_started = time.monotonic()
+    run([workspace / "scripts/ci/compile-app-host-test-product.sh", "resolve", derived, source_packages], cwd=workspace, env=env)
+    resolve_seconds = time.monotonic() - resolve_started
+    wrapper = make_xcodebuild_wrapper(Path(os.environ.get("RUNNER_TEMP", "/tmp")))
+    build_env = env.copy(); build_env["PATH"] = str(wrapper.parent) + os.pathsep + env.get("PATH", "")
+    aggregate = derived / "canary-build-aggregate.log"
+    started = time.monotonic()
+    run([workspace / "scripts/ci/compile-app-host-test-product.sh", "build", derived, source_packages, cas, aggregate], cwd=workspace, env=build_env)
+    wall = time.monotonic() - started
+    payload = {
+        "label": label,
+        "workspace": str(workspace),
+        "derived_data": str(derived),
+        "source_packages": str(source_packages),
+        "cas_path": str(cas),
+        "setup_seconds": round(setup_seconds, 6),
+        "package_resolve_seconds": round(resolve_seconds, 6),
+        "build_wall_seconds": round(wall, 6),
+        "xcode": output("xcodebuild", "-version"),
+        "sdk": output("xcrun", "--sdk", "macosx", "--show-sdk-version"),
+        **parse_build_log(derived / "cmux-build.log"),
+        "derived_data_disk_bytes": du_bytes(derived),
+    }
+    if source_metrics and source_metrics.is_file():
+        payload["source"] = json.loads(source_metrics.read_text())
+    if dd_metrics and dd_metrics.is_file():
+        payload["derived_restore"] = json.loads(dd_metrics.read_text())
+    write_json(out, payload)
+    print("CMUX_CANARY_BUILD=" + json.dumps(payload, sort_keys=True), flush=True)
+
+
+def self_test() -> None:
+    with tempfile.TemporaryDirectory() as td:
+        root = Path(td) / "repo"; root.mkdir()
+        run(["git", "init"], cwd=root)
+        run(["git", "config", "user.email", "test@example.com"], cwd=root)
+        run(["git", "config", "user.name", "test"], cwd=root)
+        for rel in SAMPLE_PATHS:
+            p = root / rel; p.parent.mkdir(parents=True, exist_ok=True); p.write_text("let x = 1\n")
+        lock = root / "cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved"
+        lock.parent.mkdir(parents=True, exist_ok=True); lock.write_text("{}\n")
+        run(["git", "add", "."], cwd=root); run(["git", "commit", "-m", "base"], cwd=root)
+        base = output("git", "rev-parse", "HEAD", cwd=root)
+        os.environ["RUNNER_TEMP"] = str(Path(td) / "tmp")
+        Path(os.environ["RUNNER_TEMP"]).mkdir()
+        for scenario in ["app-edit", "package-edit", "synthetic-pr-merge", "base-move"]:
+            run(["git", "checkout", "--detach", base], cwd=root)
+            info = create_scenario_commit(root, base, scenario)
+            assert info["target"]
+        print("CMUX_CANARY_SELF_TEST=ok")
+
+
+def main() -> int:
+    p = argparse.ArgumentParser()
+    sub = p.add_subparsers(dest="command", required=True)
+
+    q = sub.add_parser("self-test")
+
+    q = sub.add_parser("fresh-base")
+    q.add_argument("--workspace", type=Path, required=True); q.add_argument("--repo-url", required=True); q.add_argument("--base", required=True)
+
+    q = sub.add_parser("fresh-scenario")
+    q.add_argument("--workspace", type=Path, required=True); q.add_argument("--repo-url", required=True); q.add_argument("--base", required=True); q.add_argument("--scenario", required=True); q.add_argument("--metrics", type=Path, required=True)
+
+    q = sub.add_parser("transition-scenario")
+    q.add_argument("--workspace", type=Path, required=True); q.add_argument("--base", required=True); q.add_argument("--scenario", required=True); q.add_argument("--metrics", type=Path, required=True); q.add_argument("--mode", default="persistent-warm")
+
+    q = sub.add_parser("restore-scenario")
+    q.add_argument("--workspace", type=Path, required=True); q.add_argument("--archive", type=Path, required=True); q.add_argument("--repo-url", required=True); q.add_argument("--base", required=True); q.add_argument("--scenario", required=True); q.add_argument("--receipt", type=Path); q.add_argument("--metrics", type=Path, required=True)
+
+    q = sub.add_parser("receipt")
+    q.add_argument("--workspace", type=Path, required=True); q.add_argument("--derived", type=Path, required=True); q.add_argument("--base", required=True); q.add_argument("--trust-class", required=True); q.add_argument("--out", type=Path, required=True)
+
+    q = sub.add_parser("validate-receipt")
+    q.add_argument("--receipt", type=Path, required=True); q.add_argument("--workspace", type=Path, required=True); q.add_argument("--derived", type=Path, required=True); q.add_argument("--base", required=True); q.add_argument("--trust-class", required=True); q.add_argument("--generation-dir", type=Path)
+
+    q = sub.add_parser("archive")
+    q.add_argument("--workspace", type=Path, required=True); q.add_argument("--derived", type=Path, required=True); q.add_argument("--outdir", type=Path, required=True); q.add_argument("--receipt", type=Path, required=True); q.add_argument("--metrics", type=Path, required=True)
+
+    q = sub.add_parser("extract-dd")
+    q.add_argument("--archive", type=Path, required=True); q.add_argument("--derived", type=Path, required=True); q.add_argument("--metrics", type=Path, required=True)
+
+    q = sub.add_parser("build")
+    q.add_argument("--workspace", type=Path, required=True); q.add_argument("--derived", type=Path, required=True); q.add_argument("--source-packages", type=Path, required=True); q.add_argument("--cas", type=Path, required=True); q.add_argument("--label", required=True); q.add_argument("--source-metrics", type=Path); q.add_argument("--dd-metrics", type=Path); q.add_argument("--metrics", type=Path, required=True)
+
+    a = p.parse_args()
+    if a.command == "self-test": self_test()
+    elif a.command == "fresh-base": checkout_base(a.workspace, a.repo_url, a.base)
+    elif a.command == "fresh-scenario": source_fresh(a.workspace, a.repo_url, a.base, a.scenario, a.metrics)
+    elif a.command == "transition-scenario": transition_scenario(a.workspace, a.base, a.scenario, a.metrics, a.mode)
+    elif a.command == "restore-scenario": restore_worktree(a.workspace, a.archive, a.repo_url, a.base, a.scenario, a.metrics, a.receipt)
+    elif a.command == "receipt": make_receipt(a.workspace, a.derived, a.base, a.trust_class, a.out)
+    elif a.command == "validate-receipt": return validate_receipt(a.receipt, a.workspace, a.derived, a.base, a.trust_class, a.generation_dir)
+    elif a.command == "archive": archive_generation(a.workspace, a.derived, a.outdir, a.receipt, a.metrics)
+    elif a.command == "extract-dd": extract_derived(a.archive, a.derived, a.metrics)
+    elif a.command == "build": build(a.workspace, a.derived, a.source_packages, a.cas, a.label, a.source_metrics, a.dd_metrics, a.metrics)
+    return 0
+
+if __name__ == "__main__":
+    raise SystemExit(main())
