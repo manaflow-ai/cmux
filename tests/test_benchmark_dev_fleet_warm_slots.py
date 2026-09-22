@@ -112,6 +112,28 @@ class BenchmarkTest(unittest.TestCase):
             target_is_directory=True,
         )
 
+        outside_case = self.root / "outside-case"
+        (outside_case / "slots/slot/cache/cold-tasks" / ("e" * 32)).mkdir(parents=True)
+        (state / "linked-case").symlink_to(outside_case, target_is_directory=True)
+
+        outside_slots = self.root / "outside-slots"
+        (outside_slots / "slot/cache/cold-tasks" / ("f" * 32)).mkdir(parents=True)
+        slots_parent = state / "linked-slots-case"
+        slots_parent.mkdir()
+        (slots_parent / "slots").symlink_to(outside_slots, target_is_directory=True)
+
+        outside_slot = self.root / "outside-slot"
+        (outside_slot / "cache/cold-tasks" / ("1" * 32)).mkdir(parents=True)
+        slot_parent = state / "linked-slot-case/slots"
+        slot_parent.mkdir(parents=True)
+        (slot_parent / "slot").symlink_to(outside_slot, target_is_directory=True)
+
+        outside_cache = self.root / "outside-cache"
+        (outside_cache / "cold-tasks" / ("2" * 32)).mkdir(parents=True)
+        cache_parent = state / "linked-cache-case/slots/slot"
+        cache_parent.mkdir(parents=True)
+        (cache_parent / "cache").symlink_to(outside_cache, target_is_directory=True)
+
         self.assertEqual(bench.cold_generation_count(state, "cold-tasks"), 1)
         self.assertEqual(bench.cold_generation_count(state, "retired-cold-tasks"), 1)
 
