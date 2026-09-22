@@ -81,10 +81,36 @@ jobs:
     name: protocol contract
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 8
+    outputs:
+      sdk_inputs: ${{ steps.sdk-inputs.outputs.changed }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
+          # The pull request merge commit and its base parent.
+          fetch-depth: 2
+
+      # The package, consumer and MSRV lanes read only the bindings, spec/, the
+      # cmux-tui workspace manifests and toolchain pins, and this workflow.
+      # Runtime-crate and release-workflow edits still run this contract job
+      # and the live conformance lane, which builds cmux-tui. Anything that is
+      # not a pull request, or a diff that cannot be read, runs every lane.
+      - name: Detect SDK package inputs
+        id: sdk-inputs
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          set -euo pipefail
+          changed=true
+          if [ "$EVENT_NAME" = "pull_request" ] && git rev-parse -q --verify 'HEAD^2' > /dev/null; then
+            if files="$(git diff --no-renames --name-only 'HEAD^1' HEAD)"; then
+              if ! grep -Eq '^(cmux-tui/[^/]+$|cmux-tui/(bindings|spec|vendor|build-support)/|cmux-tui/crates/[^/]+/Cargo\.toml$|\.github/actions/setup-cmux-tui-rust/|\.github/workflows/cmux-tui-sdks\.yml$)' <<< "$files"; then
+                changed=false
+              fi
+            fi
+          fi
+          echo "SDK package inputs changed: $changed"
+          echo "changed=$changed" >> "$GITHUB_OUTPUT"
 
       - name: Set up Python
         uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6
@@ -155,6 +181,7 @@ jobs:
   packages:
     name: ${{ matrix.language }} package
     needs: contract
+    if: ${{ needs.contract.outputs.sdk_inputs == 'true' }}
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 25
     strategy:
@@ -328,6 +355,7 @@ jobs:
   consumers:
     name: ${{ matrix.language }} consumer
     needs: contract
+    if: ${{ needs.contract.outputs.sdk_inputs == 'true' }}
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 25
     strategy:
@@ -486,6 +514,7 @@ jobs:
   rust-msrv:
     name: Rust SDK MSRV (1.88)
     needs: contract
+    if: ${{ needs.contract.outputs.sdk_inputs == 'true' }}
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 25
     steps:

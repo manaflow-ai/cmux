@@ -7,8 +7,85 @@ internal import Foundation
 /// operational stream useful for latency histograms without turning every
 /// retry or state transition into an event. The diagnostic ring remains the
 /// source for Sentry's incident policy and the on-device logs.
+private func taskModelProperties(
+    for kind: DiagnosticAppEventKind,
+    event: DiagnosticEvent
+) -> [String: AnalyticsValue]? {
+    let outcome: String
+    let phase: String?
+    switch kind {
+    case .taskModelListLoadSucceeded:
+        outcome = "success"
+        phase = nil
+    case .taskModelListLoadFailed:
+        outcome = "failure"
+        phase = nil
+    case .taskModelListRetryScheduled:
+        outcome = "failure"
+        phase = "retry_scheduled"
+    case .taskModelListRetryStopped:
+        outcome = "failure"
+        phase = "retry_stopped"
+    default:
+        return nil
+    }
+    let modelCount: Int
+    switch kind {
+    case .taskModelListRetryScheduled, .taskModelListRetryStopped:
+        modelCount = 0
+    default:
+        modelCount = event.c ?? 0
+    }
+    let requestDurationMilliseconds: Int
+    switch kind {
+    case .taskModelListRetryScheduled:
+        // The event's duration slot carries the backoff for this phase. The
+        // request duration is unavailable here, so keep latency histograms
+        // honest instead of treating the sleep as network work.
+        requestDurationMilliseconds = 0
+    default:
+        requestDurationMilliseconds = Int(event.ms ?? 0)
+    }
+    var properties: [String: AnalyticsValue] = [
+        "operation": .string("model_list"),
+        "outcome": .string(outcome),
+        // Transport failures can precede a catalog result. The ingress
+        // requires this field even when discovery produced no models.
+        "model_count": .int(modelCount),
+        "duration_ms": .int(requestDurationMilliseconds),
+    ]
+    if let surface = event.surface {
+        // This is the existing process-local correlation handle. It lets
+        // Axiom join one refresh's retries without exporting the Mac ID.
+        properties["correlation_id"] = .int(Int(surface))
+    }
+    if let phase {
+        properties["phase"] = .string(phase)
+    }
+    let failure = DiagnosticEventPresentation().failureKind(of: event)
+    if let failure, failure != .none {
+        properties["failure"] = .string(DiagnosticEventPresentation().name(failure))
+    }
+    switch kind {
+    case .taskModelListRetryScheduled:
+        properties["attempt"] = .int(event.c ?? 0)
+        properties["retry_delay_ms"] = .int(Int(event.ms ?? 0))
+    case .taskModelListRetryStopped:
+        if let reason = event.c.flatMap(DiagnosticTaskModelRetryStopReason.init(rawValue:)) {
+            properties["stop_reason"] = .string(DiagnosticEventPresentation().name(reason))
+        }
+    default:
+        break
+    }
+    return properties
+}
+
+/// Reports bounded connectivity and task model discovery outcomes.
 public final class MobileNetworkOutcomeReporter: Sendable {
+    /// The Axiom event name for connectivity latency diagnostics.
     public static let eventName = "ios_connectivity_latency"
+    /// The Axiom event name for task model discovery diagnostics.
+    public static let taskModelEventName = "ios_task_model_discovery"
 
     private enum Phase: String, Hashable, Sendable {
         case endpointStart = "endpoint_start"
@@ -79,6 +156,11 @@ public final class MobileNetworkOutcomeReporter: Sendable {
         let transport: DiagnosticTransportKind?
         let failure: DiagnosticFailureKind?
         let userUsable: Bool
+        /// The originating diagnostic event is retained as fixed vocabulary
+        /// plus its bounded integer slots. This lets Axiom reconstruct the
+        /// exact transport lifecycle edge without exporting error text,
+        /// addresses, peer IDs, or terminal content.
+        let event: DiagnosticEvent
     }
 
     private let emitter: any AnalyticsEmitting
@@ -90,6 +172,12 @@ public final class MobileNetworkOutcomeReporter: Sendable {
 
     /// Queues one diagnostic event without blocking the diagnostic event tap.
     public func ingest(_ event: DiagnosticEvent) {
+        if event.code == .appFeatureAction,
+           let kind = event.a.flatMap(DiagnosticAppEventKind.init(rawValue:)),
+           let properties = taskModelProperties(for: kind, event: event) {
+            emitter.capture(Self.taskModelEventName, properties)
+            return
+        }
         guard Self.mayObserve(event.code) else { return }
         let emitter = self.emitter
         state.enqueue(event) { observation in
@@ -428,7 +516,8 @@ public final class MobileNetworkOutcomeReporter: Sendable {
             durationMs: durationMs,
             transport: transport,
             failure: failureKind,
-            userUsable: userUsable
+            userUsable: userUsable,
+            event: event
         )
     }
 
@@ -474,6 +563,27 @@ public final class MobileNetworkOutcomeReporter: Sendable {
         }
         if let failure = observation.failure {
             properties["failure"] = .string(presentation.name(failure))
+        }
+        properties["event_code"] = .string(presentation.name(observation.event.code))
+        properties["event_code_raw"] = .int(Int(observation.event.code.rawValue))
+        if let surface = observation.event.surface,
+           Int(surface) >= 0,
+           Int(surface) <= Int(UInt32.max) {
+            properties["event_surface"] = .int(Int(surface))
+        }
+        // Bound diagnostic slots before they leave the client.
+        for (key, slot) in [
+            ("event_a", observation.event.a),
+            ("event_b", observation.event.b),
+            ("event_c", observation.event.c),
+        ] {
+            guard let slot, slot >= 0, slot <= Int(UInt32.max) else { continue }
+            properties[key] = .int(slot)
+        }
+        if observation.event.code == .transportDialCancelled,
+           let rawReason = observation.event.a,
+           let reason = DiagnosticCancellationReason(rawValue: rawReason) {
+            properties["cancellation_reason"] = .string(String(describing: reason))
         }
         return properties
     }

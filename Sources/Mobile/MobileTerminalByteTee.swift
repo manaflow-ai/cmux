@@ -40,11 +40,18 @@ final class MobileTerminalByteTee {
     // reference off the ghostty output thread is safe.
     nonisolated static let shared = MobileTerminalByteTee()
 
-    private struct SurfaceState {
+    /// Reference type on purpose: value-typed state read out of the
+    /// dictionary shares its `replayBuffer` storage with the stored copy at
+    /// mutation time, which made every appended PTY chunk pay a full
+    /// copy-on-write memmove of the retained window on the main actor
+    /// (the multi-second mobile typing freezes under agent output floods).
+    /// A main-actor-confined class box mutates in place.
+    final class SurfaceState {
         /// Monotonic byte-stream sequence. Each emitted chunk advances by
         /// chunk length so the iPhone can detect drops.
         var seq: UInt64 = 0
-        /// Tail-trimmed ring (~256 KB) for replay on cold attach.
+        /// Tail of recent output (compacts between `replayBudget` and twice
+        /// that) for replay on cold attach.
         var replayBuffer: Data = Data()
         /// Unique lifetime of this surface's render revision sequence.
         var renderEpoch = UUID().uuidString
@@ -53,6 +60,24 @@ final class MobileTerminalByteTee {
         var renderRevision: UInt64 = 0
         /// Opaque marker of the latest accepted input, not proof of output causality.
         var inputSequence: UInt64?
+    }
+
+    /// Get-or-create the mutable state box for a surface.
+    func state(for surfaceID: UUID) -> SurfaceState {
+        if let existing = statesBySurfaceID[surfaceID] { return existing }
+        let created = SurfaceState()
+        statesBySurfaceID[surfaceID] = created
+        return created
+    }
+
+    /// A freshly allocated copy sharing no storage with `data`, so handing
+    /// it out (or keeping it) never makes later appends to the live buffer
+    /// pay a copy-on-write of the whole window.
+    private static func detachedCopy(of data: Data) -> Data {
+        data.withUnsafeBytes { raw -> Data in
+            guard let base = raw.baseAddress, raw.count > 0 else { return Data() }
+            return Data(bytes: base, count: raw.count)
+        }
     }
 
     private var statesBySurfaceID: [UUID: SurfaceState] = [:]
@@ -110,7 +135,11 @@ final class MobileTerminalByteTee {
     /// current sequence so the iPhone can chain subsequent live events.
     func replayState(surfaceID: UUID) -> (seq: UInt64, data: Data)? {
         guard let state = statesBySurfaceID[surfaceID] else { return nil }
-        return (state.seq, state.replayBuffer)
+        // One bounded copy per cold attach keeps the live buffer's storage
+        // uniquely owned: a shared handout held across a slow replay
+        // transmission would otherwise force a full copy-on-write on every
+        // concurrent append.
+        return (state.seq, Self.detachedCopy(of: state.replayBuffer.suffix(replayBudget)))
     }
 
     func currentSequence(surfaceID: UUID) -> UInt64? {
@@ -121,9 +150,7 @@ final class MobileTerminalByteTee {
     /// A legacy input clears the watermark instead of inventing a correlation.
     func recordAcceptedInput(surfaceID: UUID, sequence: UInt64?, result: TerminalSurface.InputSendResult) {
         guard result.accepted else { return }
-        var state = statesBySurfaceID[surfaceID] ?? SurfaceState()
-        state.inputSequence = sequence
-        statesBySurfaceID[surfaceID] = state
+        state(for: surfaceID).inputSequence = sequence
     }
 
     /// Runs one mobile input operation and records its accepted marker in the
@@ -149,19 +176,17 @@ final class MobileTerminalByteTee {
     /// The state is installed even before the first capture so a viewport RPC
     /// can return a floor in the same epoch that the subsequent replay uses.
     func currentRenderCaptureIdentity(surfaceID: UUID) -> (epoch: String, revision: UInt64) {
-        let state = statesBySurfaceID[surfaceID] ?? SurfaceState()
-        statesBySurfaceID[surfaceID] = state
+        let state = state(for: surfaceID)
         return (epoch: state.renderEpoch, revision: state.renderRevision)
     }
 
     /// Claims the next epoch-aware render-grid capture identity for one surface.
     func nextRenderCaptureIdentity(surfaceID: UUID) -> (epoch: String, revision: UInt64) {
-        var state = statesBySurfaceID[surfaceID] ?? SurfaceState()
+        let state = state(for: surfaceID)
         state.renderRevision &+= 1
         if state.renderRevision == 0 {
             state.renderRevision = 1
         }
-        statesBySurfaceID[surfaceID] = state
         return (epoch: state.renderEpoch, revision: state.renderRevision)
     }
 
@@ -199,15 +224,18 @@ final class MobileTerminalByteTee {
         }
     }
 
-    private func publishFromMain(surfaceID: UUID, data: Data) {
-        var state = statesBySurfaceID[surfaceID] ?? SurfaceState()
+    func publishFromMain(surfaceID: UUID, data: Data) {
+        let state = state(for: surfaceID)
         let chunkSeq = state.seq
         state.seq &+= UInt64(data.count)
         state.replayBuffer.append(data)
-        if state.replayBuffer.count > replayBudget {
-            state.replayBuffer.removeFirst(state.replayBuffer.count - replayBudget)
+        if state.replayBuffer.count > replayBudget * 2 {
+            // Amortized compaction: let the window grow to twice the budget,
+            // then take one detached suffix copy. That is one bounded copy
+            // per ~budget of output instead of a shift per chunk, and the
+            // fresh allocation also drops any sliced representation.
+            state.replayBuffer = Self.detachedCopy(of: state.replayBuffer.suffix(replayBudget))
         }
-        statesBySurfaceID[surfaceID] = state
         #if DEBUG
         HostLatencyTrace.stamp(
             "host.tee",

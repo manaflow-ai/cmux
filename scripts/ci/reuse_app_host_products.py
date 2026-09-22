@@ -1,12 +1,15 @@
 #!/usr/bin/env python3
 """Reuse compiled products, never test outcomes, across trusted CI runs.
 
-A conservative first version: the entire git tree and build environment must
-match. Missing provenance, old artifacts, API errors and corrupt downloads are
-cache misses. The original CMUXCommit embedded in the app is retained.
+Product compatibility is independent of CI orchestration identity. GitHub's
+immutable commit/tree data is re-fingerprinted against the current product-input
+contract before an artifact is trusted; exact producer/consumer revisions stay
+in provenance. Missing provenance, old artifacts, API errors and corrupt
+downloads are cache misses.
 """
 from __future__ import annotations
 
+import base64
 import hashlib
 import gzip
 import json
@@ -23,8 +26,10 @@ import time
 import zipfile
 from datetime import datetime
 from pathlib import Path
+from urllib.parse import urlencode
 
 import app_host_test_products as products
+import product_input_identity as product_inputs
 
 RECEIPT = "cmux-product-reuse.json"
 PREFIX = "app-host-products-v1-"
@@ -35,6 +40,13 @@ MAX_MEMBER_BYTES = 4 * 1024**3
 MAX_EXPANDED_BYTES = 16 * 1024**3
 MAX_TAR_BYTES = 20 * 1024**3
 MAX_MEMBERS = 200_000
+
+# Producers publish one artifact per run attempt, so the exact artifact name is
+# known before any request. Attempts beyond the third are rare enough that a
+# fourth lookup costs more than the compile it would occasionally avoid.
+LOOKUP_ATTEMPTS = 3
+ARTIFACTS_PER_PAGE = 100
+MAX_CANDIDATES = 6
 
 # Producer events permitted for each consumer event. Pull-request consumers are
 # further restricted to the same pull request; merge groups may adopt an exact
@@ -55,7 +67,7 @@ def contract():
         executable = shutil.which(command)
         versions[command] = read(executable, "version" if command in {"go", "zig"} else "--version") if executable else "absent"
     return {
-        "tree": read("git", "rev-parse", "HEAD^{tree}"),
+        "product_inputs": product_inputs.local_identity(),
         "xcode": read("xcodebuild", "-version"),
         "sdk": read("xcrun", "--sdk", "macosx", "--show-sdk-build-version"),
         "os": read("sw_vers", "-buildVersion"),
@@ -73,6 +85,48 @@ def contract():
 
 def key(value):
     return hashlib.sha256(json.dumps(value, sort_keys=True).encode()).hexdigest()
+
+
+def github_product_identity(api, revision):
+    """Recompute one revision's product identity from GitHub-owned Git objects."""
+    cache = getattr(api, "_product_identity_cache", None)
+    if cache is None:
+        cache = {}
+        setattr(api, "_product_identity_cache", cache)
+    if revision in cache:
+        return cache[revision]
+
+    commit = api.get(f"git/commits/{revision}")
+    tree_sha = commit["tree"]["sha"]
+    tree_payload = api.get(f"git/trees/{tree_sha}?recursive=1")
+    if tree_payload.get("truncated"):
+        raise ValueError("GitHub tree is truncated")
+    entries = tree_payload.get("tree")
+    if not isinstance(entries, list):
+        raise ValueError("GitHub tree is unavailable")
+
+    workflow_entry = next(
+        (
+            entry for entry in entries
+            if isinstance(entry, dict)
+            and entry.get("path") == product_inputs.CI_WORKFLOW
+            and entry.get("type") == "blob"
+        ),
+        None,
+    )
+    if workflow_entry is None or not isinstance(workflow_entry.get("sha"), str):
+        raise ValueError("CI workflow blob is unavailable")
+    blob = api.get(f"git/blobs/{workflow_entry['sha']}")
+    if blob.get("encoding") != "base64" or not isinstance(blob.get("content"), str):
+        raise ValueError("CI workflow blob encoding is invalid")
+    workflow = base64.b64decode(blob["content"]).decode("utf-8")
+
+    value = product_inputs.identity_from_tree_lines(
+        product_inputs.github_tree_lines(entries),
+        workflow,
+    )
+    cache[revision] = value
+    return value
 
 
 class GitHub:
@@ -102,6 +156,73 @@ def pull_request_numbers(run):
         return set()
     return {item["number"] for item in pulls
             if isinstance(item, dict) and isinstance(item.get("number"), int)}
+
+
+def commit_parents(revision):
+    """Read one commit object's parent revisions from the local checkout.
+
+    `git rev-parse <revision>^2` cannot answer this. The compile admission job
+    checks out at the default fetch depth of one, and a shallow repository
+    grafts its boundary commits as parentless, so every revision walk reports
+    no parents at all. The commit object itself is transferred intact and still
+    names each parent.
+    """
+    header = read("git", "cat-file", "commit", revision).split("\n\n", 1)[0]
+    return [line.split(" ", 1)[1] for line in header.splitlines()
+            if line.startswith("parent ")]
+
+
+def attested_checkout(run, current_revision):
+    """Bind the local checkout to the revision GitHub attests for this run.
+
+    A pull request run checks out `github.sha`, the ephemeral merge of the pull
+    request head into the base, so its checkout is never the run's `head_sha`.
+    That merge commit names the attested head as its second parent, which is
+    what makes the local tree the tested form of that head rather than an
+    unrelated revision. Every other event checks out the attested commit, and
+    those keep requiring it exactly.
+
+    The tree itself is still not taken on trust: `load_consumer` goes on to
+    require the local product-input fingerprint to equal the one recomputed
+    from GitHub's copy of `head_sha`, so a checkout that carries different
+    compiled-product inputs than the attested head cannot adopt its products.
+    """
+    if current_revision == run.get("head_sha"):
+        return True
+    if run.get("event") != "pull_request":
+        return False
+    if not re.fullmatch(r"[0-9a-f]{6,40}", str(current_revision)):
+        return False
+    parents = commit_parents(current_revision)
+    return len(parents) == 2 and parents[1] == run["head_sha"]
+
+
+def attested_producer_revision(api, run, revision, product_inputs):
+    """Whether `revision` is the revision GitHub attests this producer built.
+
+    A pull request producer seals `git rev-parse HEAD`, which is the ephemeral
+    merge of the pull request head into the base, while the run's `head_sha` is
+    that head. Requiring them to be equal rejected every pull request producer,
+    and only after its archive had already been downloaded and expanded, so no
+    pull request could ever adopt an earlier run of its own compiled product.
+
+    This mirrors `attested_checkout` on the consumer side and then goes one
+    step further: the sealed revision's own tree is re-fingerprinted from
+    GitHub's immutable Git objects, so the merge that was actually compiled --
+    not just the head it names -- has to carry these product inputs.
+    """
+    head = run.get("head_sha")
+    if revision == head:
+        return True
+    if run.get("event") != "pull_request":
+        return False
+    parents = api.get(f"git/commits/{revision}").get("parents")
+    if not isinstance(parents, list) or len(parents) != 2:
+        return False
+    second = parents[1]
+    if not isinstance(second, dict) or second.get("sha") != head:
+        return False
+    return github_product_identity(api, revision) == product_inputs
 
 
 def trusted_ci_run(run, repository):
@@ -154,8 +275,8 @@ def compile_step_seconds(job):
     return None
 
 
-def load_consumer(api, value, current_run, current_attempt, reasons):
-    """Verify the running consumer and its checkout tree against GitHub."""
+def load_consumer(api, value, current_run, current_attempt, current_revision, reasons):
+    """Verify the running consumer and product inputs against GitHub."""
     try:
         run = api.get(f"actions/runs/{current_run}")
         if str(run.get("run_attempt")) != str(current_attempt):
@@ -168,44 +289,66 @@ def load_consumer(api, value, current_run, current_attempt, reasons):
         if not isinstance(head, str) or not re.fullmatch(r"[0-9a-f]{6,40}", head):
             record_reason(reasons, "consumer_revision_invalid")
             return None
-        if api.get(f"git/commits/{head}")["tree"]["sha"] != value["tree"]:
-            record_reason(reasons, "consumer_tree_mismatch")
+        if not attested_checkout(run, current_revision):
+            record_reason(reasons, "consumer_revision_mismatch")
+            return None
+        if github_product_identity(api, head) != value["product_inputs"]:
+            record_reason(reasons, "consumer_product_inputs_mismatch")
             return None
         return run
     except (TypeError, AttributeError, ValueError, KeyError, OSError,
-            subprocess.SubprocessError):
+            UnicodeError, subprocess.SubprocessError):
         record_reason(reasons, "consumer_provenance_unavailable")
         return None
 
 
-def select(api, value, current_run, current_attempt, consumer, reasons):
-    """Inspect at most 300 recent artifacts and six matching producers."""
-    prefix = PREFIX + key(value) + "-"
-    candidates = []
-    for page in range(1, 4):
-        batch = api.get(f"actions/artifacts?per_page=100&page={page}")["artifacts"]
-        if not isinstance(batch, list):
-            raise ValueError("invalid artifact listing")
-        candidates.extend(
-            a for a in batch
-            if isinstance(a, dict)
-            and isinstance(a.get("name"), str)
-            and a["name"].startswith(prefix)
-        )
-        if len(candidates) >= 6 or len(batch) < 100:
-            break
-    if not candidates:
-        record_reason(reasons, "no_matching_contract_artifact")
-    for artifact in candidates[:6]:
+def artifact_name(value, attempt):
+    """Name a producer publishes for one product contract and run attempt."""
+    return f"{PREFIX}{key(value)}-{attempt}"
+
+
+def candidates(api, value, reasons):
+    """List this contract's artifacts by exact name, newest first.
+
+    Scanning recent repository artifacts only reaches back as far as artifact
+    churn allows, which is minutes here, while these artifacts are retained for
+    days. Asking for each attempt's exact name instead reaches every retained
+    artifact for this contract in one bounded request per attempt. A failed or
+    malformed listing is a miss for that attempt alone, never an exception.
+    """
+    found = []
+    for attempt in range(1, LOOKUP_ATTEMPTS + 1):
+        name = artifact_name(value, attempt)
+        query = urlencode({"name": name, "per_page": ARTIFACTS_PER_PAGE})
         try:
-            suffix = artifact["name"][len(prefix):]
+            batch = api.get(f"actions/artifacts?{query}")["artifacts"]
+        except (TypeError, AttributeError, ValueError, KeyError, OSError,
+                UnicodeError, subprocess.SubprocessError):
+            record_reason(reasons, "artifact_listing_unavailable")
+            continue
+        if not isinstance(batch, list):
+            record_reason(reasons, "artifact_listing_invalid")
+            continue
+        # Re-check the name locally: candidate enumeration must not depend on
+        # the server honoring the filter.
+        found.extend((attempt, a) for a in batch
+                     if isinstance(a, dict) and a.get("name") == name)
+    # Prefer the most recent artifacts across attempts, so a rerun's earlier
+    # attempt is considered before older runs of the same contract.
+    found.sort(key=lambda item: str(item[1].get("created_at") or ""), reverse=True)
+    return found[:MAX_CANDIDATES]
+
+
+def select(api, value, current_run, current_attempt, consumer, reasons):
+    """Inspect at most six exact-name artifacts and their producers."""
+    matches = candidates(api, value, reasons)
+    if not matches:
+        record_reason(reasons, "no_matching_contract_artifact")
+    for producer_attempt, artifact in matches:
+        try:
             if artifact.get("expired"):
                 record_reason(reasons, "artifact_expired")
                 continue
-            if not suffix.isdecimal():
-                record_reason(reasons, "artifact_attempt_invalid")
-                continue
-            producer_attempt = int(suffix)
             size = artifact.get("size_in_bytes")
             if not isinstance(size, int) or isinstance(size, bool) or size < 0:
                 record_reason(reasons, "artifact_size_invalid")
@@ -225,22 +368,21 @@ def select(api, value, current_run, current_attempt, consumer, reasons):
             # at the latest attempt and would otherwise make prior rerun artifacts
             # look stale even though their attempt-scoped receipt is still valid.
             run = api.get(f"actions/runs/{run_id}/attempts/{producer_attempt}")
-            if str(run.get("run_attempt")) != suffix:
+            if str(run.get("run_attempt")) != str(producer_attempt):
                 record_reason(reasons, "producer_attempt_mismatch")
                 continue
             if not permitted_pair(run, consumer, api.repository):
                 record_reason(reasons, "producer_consumer_pair_disallowed")
                 continue
-            # GitHub's run head, not a candidate-authored receipt, establishes the
-            # source identity before downloading. The whole tree includes the CI
-            # workflow and every build/packaging script; different producer code
-            # cannot vouch for this checkout.
+            # GitHub's immutable Git objects, not a candidate-authored receipt,
+            # establish product compatibility before download. Admission-only
+            # source changes may differ while compiled-product inputs stay exact.
             head = run.get("head_sha")
             if not isinstance(head, str) or not re.fullmatch(r"[0-9a-f]{6,40}", head):
                 record_reason(reasons, "producer_revision_invalid")
                 continue
-            if api.get(f"git/commits/{head}")["tree"]["sha"] != value["tree"]:
-                record_reason(reasons, "producer_tree_mismatch")
+            if github_product_identity(api, head) != value["product_inputs"]:
+                record_reason(reasons, "producer_product_inputs_mismatch")
                 continue
             jobs = []
             for page in range(1, 4):
@@ -254,8 +396,11 @@ def select(api, value, current_run, current_attempt, consumer, reasons):
                     break
             # The compile job must finish successfully; unrelated producer tests
             # may still be running because no test result is reused here.
+            # A reusable workflow reports "<caller job> / <job name>", so this
+            # is "macos / macOS compile admission" when ci.yml reaches the job
+            # through ci-macos.yml. Match the final segment.
             compile_job = next((job for job in jobs
-                                if job.get("name") == "macOS compile admission"
+                                if str(job.get("name") or "").rsplit(" / ", 1)[-1] == "macOS compile admission"
                                 and job.get("status") == "completed"
                                 and job.get("conclusion") == "success"), None)
             if compile_job is None:
@@ -524,7 +669,14 @@ def restore(api, value, derived, current_run, current_identity, current_attempt=
     """Restore in staging; a miss never leaves partial products in DerivedData."""
     reuse_started = time.monotonic()
     reasons = []
-    consumer = load_consumer(api, value, current_run, current_attempt, reasons)
+    consumer = load_consumer(
+        api,
+        value,
+        current_run,
+        current_attempt,
+        current_identity["revision"],
+        reasons,
+    )
     if consumer is None:
         if report is not None:
             report.update(reason="miss", miss_reasons=",".join(reasons))
@@ -556,14 +708,14 @@ def restore(api, value, derived, current_run, current_identity, current_attempt=
                         or receipt["run_id"] != str(run["id"])
                         or receipt["run_attempt"] != str(run["run_attempt"])):
                     raise ValueError("artifact producer contract mismatch")
-                # Verify the actual checkout commit against GitHub, independent of
-                # the artifact name and the earlier pre-download selection check.
-                for revision in (receipt["revision"], run["head_sha"]):
-                    if (not isinstance(revision, str)
-                            or not re.fullmatch(r"[0-9a-f]{6,40}", revision)):
-                        raise ValueError("invalid producer revision")
-                    if api.get(f"git/commits/{revision}")["tree"]["sha"] != value["tree"]:
-                        raise ValueError("producer source tree mismatch")
+                # Bind the candidate-authored receipt back to a GitHub-attested
+                # producer revision, re-fingerprinting whatever it names.
+                revision = receipt["revision"]
+                if (not isinstance(revision, str)
+                        or not re.fullmatch(r"[0-9a-f]{6,40}", revision)
+                        or not attested_producer_revision(
+                            api, run, revision, value["product_inputs"])):
+                    raise ValueError("producer revision mismatch")
                 original = json.loads((root / products.RECEIPT).read_text())
                 if original["revision"] != receipt["revision"]:
                     raise ValueError("producer revision mismatch")

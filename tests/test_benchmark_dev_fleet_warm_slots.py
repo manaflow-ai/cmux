@@ -7,6 +7,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
 BENCH = ROOT / "scripts" / "benchmark-dev-fleet-warm-slots.py"
@@ -68,6 +69,74 @@ class BenchmarkTest(unittest.TestCase):
             os.close(read_fd)
             os.close(write_fd)
 
+    def test_benchmark_helpers_request_disk_measurement(self):
+        helper = self.root / "helper.py"
+        state = self.root / "state"
+        checkout = self.repo
+
+        with mock.patch.object(bench, "run_helper", return_value={"status": "ok"}) as run:
+            bench.warm(helper, state, checkout, "slot", self.main, [])
+        warm_argv = run.call_args.args[1]
+        self.assertIn("--measure-disk", warm_argv)
+
+        with mock.patch.object(bench, "run_helper", return_value={"status": "ok"}) as run:
+            bench.task(helper, state, checkout, "slot", self.main, "task", [])
+        task_argv = run.call_args.args[1]
+        self.assertIn("--measure-disk", task_argv)
+
+        with mock.patch.object(bench, "run_helper", return_value={"status": "ok"}) as run:
+            bench.cleanup(helper, state, "slot")
+        cleanup_argv = run.call_args.args[1]
+        self.assertIn("--measure-bytes", cleanup_argv)
+        self.assertIn("--max-generations", cleanup_argv)
+
+    def test_cold_generation_count_tracks_only_generated_directory_ids(self):
+        state = self.root / "state"
+        active = state / "case/slots/slot/cache/cold-tasks"
+        retired = state / "case/slots/slot/cache/retired-cold-tasks"
+        active.mkdir(parents=True)
+        retired.mkdir(parents=True)
+        (active / ("a" * 32)).mkdir()
+        (active / "operator-data").mkdir()
+        (retired / ("b" * 32)).mkdir()
+        outside = self.root / "outside"
+        outside.mkdir()
+        (retired / ("c" * 32)).symlink_to(outside, target_is_directory=True)
+
+        symlink_cache = state / "symlinked/slots/slot/cache"
+        symlink_cache.mkdir(parents=True)
+        outside_namespace = self.root / "outside-namespace"
+        (outside_namespace / ("d" * 32)).mkdir(parents=True)
+        (symlink_cache / "cold-tasks").symlink_to(
+            outside_namespace,
+            target_is_directory=True,
+        )
+
+        outside_case = self.root / "outside-case"
+        (outside_case / "slots/slot/cache/cold-tasks" / ("e" * 32)).mkdir(parents=True)
+        (state / "linked-case").symlink_to(outside_case, target_is_directory=True)
+
+        outside_slots = self.root / "outside-slots"
+        (outside_slots / "slot/cache/cold-tasks" / ("f" * 32)).mkdir(parents=True)
+        slots_parent = state / "linked-slots-case"
+        slots_parent.mkdir()
+        (slots_parent / "slots").symlink_to(outside_slots, target_is_directory=True)
+
+        outside_slot = self.root / "outside-slot"
+        (outside_slot / "cache/cold-tasks" / ("1" * 32)).mkdir(parents=True)
+        slot_parent = state / "linked-slot-case/slots"
+        slot_parent.mkdir(parents=True)
+        (slot_parent / "slot").symlink_to(outside_slot, target_is_directory=True)
+
+        outside_cache = self.root / "outside-cache"
+        (outside_cache / "cold-tasks" / ("2" * 32)).mkdir(parents=True)
+        cache_parent = state / "linked-cache-case/slots/slot"
+        cache_parent.mkdir(parents=True)
+        (cache_parent / "cache").symlink_to(outside_cache, target_is_directory=True)
+
+        self.assertEqual(bench.cold_generation_count(state, "cold-tasks"), 1)
+        self.assertEqual(bench.cold_generation_count(state, "retired-cold-tasks"), 1)
+
     def test_event_report_exposes_trial_metrics(self):
         path = self.root / "events.jsonl"
         rows = [
@@ -84,11 +153,19 @@ class BenchmarkTest(unittest.TestCase):
                     "wall_seconds": 4.0,
                     "swift_compile_count": 0,
                     "disk_growth_bytes": 5,
+                    "cold_cache_retirement_seconds": 0.001,
                 },
             },
+            {"event": "cold_task_retired"},
+            {"event": "cold_task_reclaimed", "reclaimed_bytes": 4096},
+            {"event": "cold_task_cleanup_preempted"},
+            {"event": "cold_task_cleanup_failed"},
+            {"event": "cold_task_cleanup_deferred"},
             {"event": "lineage_quarantined"},
         ]
-        path.write_text("\n".join(json.dumps(row) for row in rows) + "\n")
+        archive = path.with_name("events.jsonl.1")
+        archive.write_text(json.dumps(rows[0]) + "\n")
+        path.write_text("\n".join(json.dumps(row) for row in rows[1:]) + "\n{\"event\":")
         report = bench.summarize_events(path)
         self.assertEqual(report["tasks"], 1)
         self.assertEqual(report["warms"], 1)
@@ -96,6 +173,12 @@ class BenchmarkTest(unittest.TestCase):
         self.assertEqual(report["warmer_build_seconds"], 3.0)
         self.assertEqual(report["quarantine_count"], 1)
         self.assertEqual(report["disk_growth_bytes"], 25)
+        self.assertEqual(report["cold_cache_retirement_seconds"], [0.001])
+        self.assertEqual(report["cold_task_retired_count"], 1)
+        self.assertEqual(report["cold_task_reclaimed_count"], 1)
+        self.assertEqual(report["cold_task_cleanup_preempted_count"], 1)
+        self.assertEqual(report["cold_task_cleanup_failed_count"], 1)
+        self.assertEqual(report["cold_task_cleanup_deferred_count"], 1)
 
 
 if __name__ == "__main__":
