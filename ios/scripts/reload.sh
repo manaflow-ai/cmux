@@ -604,6 +604,9 @@ if [[ "$RELOAD_DEVICE" -eq 1 ]]; then
       -authenticationKeyID "$ASC_API_KEY_ID"
       -authenticationKeyIssuerID "$ASC_API_ISSUER_ID"
     )
+    echo "==> Device signing backend: App Store Connect API key"
+  else
+    echo "==> Device signing backend: local Xcode account"
   fi
 fi
 

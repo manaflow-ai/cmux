@@ -157,6 +157,8 @@ test("physical-device signing rejects partial ASC credentials instead of changin
     reload,
     /if \[\[ ! -f "\$ASC_API_KEY_PATH" \|\| ! -r "\$ASC_API_KEY_PATH" \]\]; then/u,
   );
+  assert.match(reload, /Device signing backend: App Store Connect API key/u);
+  assert.match(reload, /Device signing backend: local Xcode account/u);
 });
 
 test("tagged Debug API-key signing can retry without the App Group", () => {
