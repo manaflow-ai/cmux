@@ -4176,29 +4176,44 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             return
         }
         let key = PairedMacLoadKey(scope)
-        if !forceRefresh, let entry = pairedMacLoadTasks[key] {
-            await entry.task.value
-            return
-        }
-        // A forced refresh represents a store mutation that happened while an
-        // older read was in flight. Wait for that read, then perform the newer
-        // read instead of silently returning its stale snapshot.
-        if forceRefresh, let entry = pairedMacLoadTasks[key] {
-            await entry.task.value
-        }
-        while let entry = pairedMacLoadTasks[key] {
-            await entry.task.value
+        while true {
+            if let entry = pairedMacLoadTasks[key] {
+                await entry.task.value
+                // A forced refresh represents a store mutation that happened
+                // while an older read was in flight. The completed task removes
+                // itself before waking this waiter, so retrying here starts a
+                // read of the newer snapshot without spinning on a completed
+                // task.
+                if forceRefresh {
+                    continue
+                }
+                return
+            }
+            break
         }
         let id = UUID()
         let loadTask = Task { @MainActor [weak self] in
             guard let self else { return }
-            await self.performPairedMacLoad()
+            defer {
+                if self.pairedMacLoadTasks[key]?.id == id {
+                    self.pairedMacLoadTasks[key] = nil
+                }
+            }
+            let load = await Self.raceAgainstDeadline(
+                nanoseconds: 10_000_000_000
+            ) { [weak self] in
+                guard let self else { return false }
+                await self.performPairedMacLoad()
+                return true
+            }
+            if load.value == nil,
+               await self.isScopeCurrent(scope),
+               self.pairedMacLoadState == .notLoaded {
+                self.pairedMacLoadState = .failed
+            }
         }
         pairedMacLoadTasks[key] = PairedMacLoadEntry(id: id, task: loadTask)
         await loadTask.value
-        if pairedMacLoadTasks[key]?.id == id {
-            pairedMacLoadTasks[key] = nil
-        }
     }
 
     private func performPairedMacLoad() async {
