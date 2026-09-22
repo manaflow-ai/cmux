@@ -18,8 +18,8 @@ extension ContentView {
             ),
             CommandPaletteCommandContribution(
                 commandId: "palette.swapWithSession",
-                title: constant(CmuxPaneSwapStrings.swapWithSession),
-                subtitle: constant(CmuxPaneSwapStrings.terminalPane),
+                title: constant(CmuxPaneSwapStrings().swapWithSession),
+                subtitle: constant(CmuxPaneSwapStrings().terminalPane),
                 keywords: ["swap", "pane", "session", "terminal", "exchange"],
                 when: { context in
                     context.bool(CommandPaletteContextKeys.panelIsTerminal)
