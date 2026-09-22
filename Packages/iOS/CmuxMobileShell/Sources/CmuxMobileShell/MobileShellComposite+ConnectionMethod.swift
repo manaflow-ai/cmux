@@ -59,7 +59,7 @@ extension MobileShellComposite {
             stackUserID: scope.userID,
             teamID: scope.teamID
         )
-        await loadPairedMacs()
+        _ = await loadPairedMacs(forceRefresh: true)
         // A method change affects dialing whether or not the Mac is currently
         // connected — the OLD method may be exactly what disconnected it (for
         // example Tailscale Only without a grant). Mirror the legacy app-wide
@@ -85,7 +85,7 @@ extension MobileShellComposite {
             stackUserID: scope.userID,
             teamID: scope.teamID
         )
-        await loadPairedMacs()
+        _ = await loadPairedMacs(forceRefresh: true)
         if connectionMethod(forMacDeviceID: canonical, instanceTag: targetInstanceTag) == .direct {
             recoverMobileConnection(trigger: .connectionMethodChanged)
         }

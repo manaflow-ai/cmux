@@ -135,7 +135,7 @@ extension MobileShellComposite {
                     instanceTag: mac.instanceTag
                 )
             )
-            await loadPairedMacs()
+            _ = await loadPairedMacs(forceRefresh: true)
             await loadRegistryDevices()
             return true
         } catch {
