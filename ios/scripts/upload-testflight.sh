@@ -100,13 +100,20 @@ resign_notification_service_extensions() {
   local identity="$3"
   local host_bundle_id="$4"
   local entitlements_source="$5"
-  local extension extension_bundle_id profile profile_entitlements merged_entitlements
+  local extension extension_candidate extension_bundle_id profile profile_entitlements merged_entitlements candidate_bundle_id
 
   if [[ ! -f "$entitlements_source" ]]; then
     echo "error: notification extension entitlements are missing: $entitlements_source" >&2
     return 1
   fi
-  extension="$(find "$app/PlugIns" -maxdepth 1 -type d -name '*.appex' -print -quit 2>/dev/null || true)"
+  extension=""
+  while IFS= read -r -d '' extension_candidate; do
+    candidate_bundle_id="$($PLISTBUDDY -c 'Print :CFBundleIdentifier' "$extension_candidate/Info.plist" 2>/dev/null || true)"
+    if [[ "$candidate_bundle_id" == "$host_bundle_id.NotificationService" ]]; then
+      extension="$extension_candidate"
+      break
+    fi
+  done < <(find "$app/PlugIns" -maxdepth 1 -type d -name '*.appex' -print0 2>/dev/null)
   if [[ -z "$extension" || ! -d "$extension" ]]; then
     echo "error: exported app has no NotificationService.appex to sign" >&2
     return 1
