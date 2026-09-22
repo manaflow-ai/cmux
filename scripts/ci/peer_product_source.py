@@ -593,9 +593,10 @@ class PeerHTTPServer(ThreadingHTTPServer):
     def get_request(self):
         request, client_address = super().get_request()
         try:
+            # The listener defers TLS handshakes. Keep the accept loop free of
+            # client-controlled handshake work; the bounded request worker will
+            # perform it lazily under this socket deadline.
             request.settimeout(self.client_timeout_seconds)
-            if isinstance(request, ssl.SSLSocket):
-                request.do_handshake()
             return request, client_address
         except BaseException:
             request.close()
