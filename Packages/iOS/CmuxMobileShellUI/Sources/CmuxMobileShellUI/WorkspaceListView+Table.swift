@@ -30,8 +30,7 @@ extension WorkspaceListView {
             if groupedItems.isEmpty
                 && trimmedQuery.isEmpty
                 && !activeFilter.isActive
-                && workspaces.isEmpty
-                && connectionChrome.showsWorkspaceEmptyState {
+                && workspaces.isEmpty {
                 items.append(.emptyWorkspaceList)
             } else {
                 items.append(contentsOf: groupedItems.map { item in
@@ -49,8 +48,7 @@ extension WorkspaceListView {
             items.append(.filterEmpty)
         } else if trimmedQuery.isEmpty
             && !activeFilter.isActive
-            && workspaces.isEmpty
-            && connectionChrome.showsWorkspaceEmptyState {
+            && workspaces.isEmpty {
             items.append(.emptyWorkspaceList)
         } else {
             items.append(contentsOf: displayedFlatWorkspaces.map {
@@ -98,6 +96,8 @@ extension WorkspaceListView {
                         byMacDeviceID: emptyStateMacDeviceID,
                         instanceTag: emptyStateMacInstanceTag
                     )
+                        && currentTarget?.macDeviceID == emptyStateMacDeviceID
+                        && currentTarget?.instanceTag == emptyStateMacInstanceTag
                 }
                 return currentTarget?.macDeviceID == emptyStateMacDeviceID
                     && currentTarget?.instanceTag == emptyStateMacInstanceTag
@@ -170,6 +170,7 @@ extension WorkspaceListView {
             connectionStatus: connectionStatus,
             workspaceOwnerID: emptyStateMacDeviceID,
             workspaceOwnerInstanceTag: emptyStateMacInstanceTag,
+            showsWorkspaceEmptyState: connectionChrome.showsWorkspaceEmptyState,
             workspaceChangesCapable: workspaceChangesCapable,
             workspaceChangeChipsByWorkspaceID: workspaceChangeChipsByWorkspaceID,
             openWorkspaceChanges: openChanges,
