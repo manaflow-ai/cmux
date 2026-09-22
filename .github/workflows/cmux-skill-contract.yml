@@ -28,6 +28,7 @@ on:
       - "skills.sh"
       - "scripts/validate-cmux-browser-skill.py"
       - "tests/test_cmux_browser_skill.py"
+      - "tests/test_cmux_settings_jsonc.py"
       - ".github/workflows/cmux-skill-contract.yml"
 
 permissions:
