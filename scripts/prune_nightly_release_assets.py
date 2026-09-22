@@ -232,8 +232,11 @@ def delete_assets(repo: str, assets: list[ReleaseAsset]) -> None:
         github_api_json("DELETE", f"repos/{repo}/releases/assets/{asset.asset_id}")
 
 
-def is_rate_limit_error(error: GitHubAPIError) -> bool:
-    return error.status in {403, 429} and "rate limit" in error.message.lower()
+def is_rate_limit_error(error: GitHubAPIError | subprocess.CalledProcessError) -> bool:
+    if isinstance(error, GitHubAPIError):
+        return error.status in {403, 429} and "rate limit" in error.message.lower()
+    message = str(error.stderr or error.output or "").lower()
+    return "rate limit" in message
 
 
 def main() -> int:
@@ -247,7 +250,7 @@ def main() -> int:
 
     try:
         release = load_release(args.repo, args.release_tag)
-    except GitHubAPIError as error:
+    except (GitHubAPIError, subprocess.CalledProcessError) as error:
         if args.best_effort and is_rate_limit_error(error):
             log(f"GitHub API rate limit reached; skipping {args.release_tag!r} prune pass.")
             return 0
@@ -299,7 +302,7 @@ def main() -> int:
 
     try:
         delete_assets(args.repo, to_delete)
-    except GitHubAPIError as error:
+    except (GitHubAPIError, subprocess.CalledProcessError) as error:
         if args.best_effort and is_rate_limit_error(error):
             log(f"GitHub API rate limit reached during deletion; prune pass is incomplete.")
             return 0
