@@ -74,7 +74,6 @@ extension MobileShellComposite {
         forMacDeviceID macDeviceID: String?,
         instanceTag: String?
     ) -> Bool {
-        guard workspaceListIsAuthoritative else { return false }
         let key: MacPairingKey
         if let macDeviceID, !macDeviceID.isEmpty {
             key = MacPairingKey(macDeviceID: macDeviceID, instanceTag: instanceTag)
@@ -82,7 +81,11 @@ extension MobileShellComposite {
             guard instanceTag?.isEmpty != false else { return false }
             key = .anonymousForeground
         }
-        return workspacesByMac[key]?.status == .connected
+        guard workspacesByMac[key]?.status == .connected else { return false }
+        // Foreground snapshots also require the aggregate recovery gates. A
+        // secondary Mac owns its own connected snapshot and remains authoritative
+        // while the foreground transport is reconnecting.
+        return key != foregroundMacKey || workspaceListIsAuthoritative
     }
 
     /// UI reconnect entry for a specific workspace's Mac (status pill, toast

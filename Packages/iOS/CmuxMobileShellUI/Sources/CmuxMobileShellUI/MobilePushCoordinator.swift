@@ -1066,6 +1066,14 @@ public final class MobilePushCoordinator {
         pendingDeeplinkTimedOutID = nil
         schedulePendingDeeplinkRecheck()
         applyPendingDeeplinkIfReady()
+        guard let pending = pendingDeeplink, let store else { return }
+        Task { @MainActor [weak self] in
+            await store.reconnectToMac(
+                macDeviceID: pending.macDeviceId,
+                instanceTag: pending.macInstanceTag
+            )
+            self?.workspacesDidChange()
+        }
     }
 
     /// Parks an inline notification reply and sends it once its exact Mac, workspace, surface, and RPC channel are ready.
