@@ -62,6 +62,7 @@ struct MobileSettingsView: View {
     /// cleared when that request finishes or fails.
     @State private var pendingTeamID: String?
     @State private var pendingTeamRequestID: UUID?
+    @State private var teamSelectionTask: Task<Void, Never>?
     /// Mirrors ``MobilePushCoordinator/isEnabled`` so the toggle's label/icon
     /// update after the async enable/disable. The coordinator exposes
     /// `isEnabled` as a non-observable `UserDefaults` read, so reading it
@@ -640,6 +641,7 @@ struct MobileSettingsView: View {
             diagnosticLog?.recordAppEvent(.settingsOpened)
         }
         .onDisappear {
+            teamSelectionTask?.cancel()
             diagnosticLog?.recordAppEvent(.settingsClosed)
         }
         .onChange(of: sendAnonymousTelemetry) { _, value in
@@ -917,9 +919,10 @@ struct MobileSettingsView: View {
                 guard let newValue,
                       newValue != (pendingTeamID ?? authManager.resolvedTeamID) else { return }
                 let requestID = UUID()
+                teamSelectionTask?.cancel()
                 pendingTeamID = newValue
                 pendingTeamRequestID = requestID
-                Task { @MainActor in
+                teamSelectionTask = Task { @MainActor in
                     do {
                         try await authManager.selectTeam(id: newValue)
                     } catch {
