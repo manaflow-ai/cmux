@@ -2,8 +2,8 @@
 import CmuxMobileSupport
 import SwiftUI
 
-/// A real Mac Settings capture. It keeps the selected Mobile sidebar item and
-/// the complete pairing row visible while the animation draws attention to it.
+/// A real Mac Settings capture cropped to the Mobile pane. The asset catalog
+/// selects the light or dark source to match the app appearance.
 struct OnboardingPairingSettingsScreenshot: View {
     let isActive: Bool
 
@@ -12,7 +12,7 @@ struct OnboardingPairingSettingsScreenshot: View {
 
     var body: some View {
         Color.clear
-            .aspectRatio(980.0 / 270.0, contentMode: .fit)
+            .aspectRatio(1030.0 / 285.0, contentMode: .fit)
             .overlay(alignment: .top) {
                 Image("OnboardingPairingSettings", bundle: .module)
                     .resizable()

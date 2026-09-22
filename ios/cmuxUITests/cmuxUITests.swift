@@ -107,7 +107,11 @@ final class cmuxUITests: XCTestCase {
             context.draw(pixels, in: CGRect(x: 0, y: 0, width: 1, height: 1))
             let brightness = Double(Int(rgba[0]) + Int(rgba[1]) + Int(rgba[2])) / (3 * 255)
             screenshotBrightness[appearance] = brightness
-            XCTAssertGreaterThan(brightness, 0.65, "Use the shared Mac Settings capture")
+            if appearance == "light" {
+                XCTAssertGreaterThan(brightness, 0.65, "Light mode must use the light Settings capture")
+            } else {
+                XCTAssertLessThan(brightness, 0.35, "Dark mode must use the dark Settings capture")
+            }
             let before = XCTAttachment(screenshot: app.screenshot())
             before.name = "Fitted pairing page - \(appearance)"
             before.lifetime = .keepAlways
@@ -131,11 +135,12 @@ final class cmuxUITests: XCTestCase {
             XCTAssertEqual(title.frame.minY, pairingTop, accuracy: 2)
             app.terminate()
         }
-        XCTAssertEqual(
-            screenshotBrightness["light"],
-            screenshotBrightness["dark"],
-            accuracy: 0.05,
-            "The instructional screenshot must be identical in both appearances"
+        let lightBrightness = try XCTUnwrap(screenshotBrightness["light"])
+        let darkBrightness = try XCTUnwrap(screenshotBrightness["dark"])
+        XCTAssertGreaterThan(
+            lightBrightness,
+            darkBrightness,
+            "The instructional screenshot must follow the app appearance"
         )
         try testWhatsNewSeparateUpdatesScreenshotCropAndLeadingAlignment()
     }
@@ -160,7 +165,7 @@ final class cmuxUITests: XCTestCase {
             XCTAssertTrue(detail.exists)
             XCTAssertEqual(title.frame.minX, screenshot.frame.minX, accuracy: 2)
             XCTAssertEqual(detail.frame.minX, screenshot.frame.minX, accuracy: 2)
-            XCTAssertEqual(screenshot.frame.width / screenshot.frame.height, 642.0 / 95.0, accuracy: 0.05)
+            XCTAssertEqual(screenshot.frame.width / screenshot.frame.height, 1030.0 / 285.0, accuracy: 0.05)
 
             let request = VNRecognizeTextRequest()
             request.recognitionLevel = .accurate
