@@ -159,6 +159,13 @@ export type VmEntry = {
   /** The machine's address on its owner's private network, when it has one. */
   readonly addressIpv4: string | null;
   readonly addressIpv6: string | null;
+  /**
+   * The image's cmux-tui attach contract (`"snapshot-v2"`: baked daemon with
+   * the trusted private-network listener). With a private address, it is
+   * everything a client needs to dial the daemon, so the create response can
+   * carry it and New Machine skips the separate attach request.
+   */
+  readonly cmuxTuiContract: string | null;
 };
 
 export type BaseVmEntry = VmEntry & {
@@ -4277,6 +4284,7 @@ function vmEntryFromRow(row: CloudVmRow): VmEntry {
     slug: row.slug ?? null,
     addressIpv4: typeof addressIpv4 === "string" && addressIpv4 ? addressIpv4 : null,
     addressIpv6: typeof addressIpv6 === "string" && addressIpv6 ? addressIpv6 : null,
+    cmuxTuiContract: typeof metadata["cmuxTuiContract"] === "string" ? metadata["cmuxTuiContract"] : null,
   };
 }
 

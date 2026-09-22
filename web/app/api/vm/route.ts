@@ -310,6 +310,12 @@ export async function POST(request: Request): Promise<Response> {
         capabilities: vmCapabilitiesFor(created.provider),
         displayName: created.displayName,
         slug: created.slug,
+        // The private address and attach contract let the app dial the new
+        // machine's baked daemon directly. Without them, New Machine pays a
+        // fleet list re-read plus a whole POST /attach-endpoint round trip
+        // (~2 s measured) for data this response already had.
+        address: { ipv4: created.addressIpv4, ipv6: created.addressIpv6 },
+        cmuxTuiContract: created.cmuxTuiContract,
       });
     },
   );

@@ -358,13 +358,18 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             linkError = eventsFeedWarning
         }
         let remoteWorkspaces = cloudState.map(Self.remoteWorkspaces)
+        // Publish the graph without waiting for stats. Stats is a control-plane
+        // HTTP read (provider status plus a guest exec, ~0.8 s) that only fills
+        // the CPU/memory/disk gauges; awaiting it here held a new machine's
+        // first terminal back by that long after the link was already up.
+        // Keep the last gauges until the new read lands below.
         info = Self.info(
             from: summary,
             linkState: linkState,
             linkError: linkError,
-            stats: await stats,
+            stats: nil,
             remoteWorkspaces: remoteWorkspaces
-        )
+        ).carryingGauges(from: info)
         if let cloudState {
             // A successful read or an event install proves the retained graph is
             // current. A failed or stale read keeps the graph for diagnosis but
@@ -403,6 +408,10 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         }
         guard isCurrentRefresh(lifecycle: lifecycle, refresh: generation) else { return false }
         reprojectRestoredPanes(generation: lifecycle)
+        if let stats = await stats, isCurrentRefresh(lifecycle: lifecycle, refresh: generation) {
+            info = info.applyingGauges(stats)
+            catalog.updateMachine(info, from: self)
+        }
         return snapshotEstablishedCurrentGraph
     }
     @discardableResult
@@ -1560,5 +1569,29 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
                 attachReservedTerminalPane(reservation, resource: terminal, remoteTabID: projection.remoteTabID)
             }
         }
+    }
+}
+
+extension SurfaceMachineInfo {
+    /// The same machine row with `previous`'s resource gauges, so a refresh that
+    /// publishes before its stats read lands does not blank the sidebar gauges.
+    func carryingGauges(from previous: SurfaceMachineInfo) -> SurfaceMachineInfo {
+        var info = self
+        info.memoryMb = previous.memoryMb
+        info.diskMb = previous.diskMb
+        info.cpuPercent = previous.cpuPercent
+        info.memoryUsedMb = previous.memoryUsedMb
+        info.diskUsedMb = previous.diskUsedMb
+        return info
+    }
+
+    func applyingGauges(_ stats: VMStats) -> SurfaceMachineInfo {
+        var info = self
+        info.memoryMb = stats.memoryTotalMb
+        info.diskMb = stats.diskTotalMb
+        info.cpuPercent = stats.cpuPercent
+        info.memoryUsedMb = stats.memoryUsedMb
+        info.diskUsedMb = stats.diskUsedMb
+        return info
     }
 }

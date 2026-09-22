@@ -577,7 +577,21 @@ extension TerminalController {
                     throw CloudMachineLinkManager.ManagerError.wireGuardHubUnsupported
                 }
                 var payload: [String: Any]
-                if let deviceFingerprint {
+                if deviceFingerprint == nil,
+                   let createdRoute = await registry.takeCreatedTrustedCarrierRoute(machineID: vmId) {
+                    // New Machine: the create receipt already proved the
+                    // snapshot-v2 trusted listener and named the private
+                    // address. Skip POST /attach-endpoint (~2 s measured);
+                    // it would return this same route from the same row.
+                    payload = [
+                        "transport": "cmux-remote",
+                        "route": createdRoute,
+                        "token": "",
+                        "expires_at_unix": 0,
+                        "session": "cmux",
+                        "trusted_carrier": true,
+                    ]
+                } else if let deviceFingerprint {
                     guard let knownRoute = await registry.privateRoute(machineID: vmId) else {
                         throw CloudMachineLinkManager.ManagerError.privateRouteRequired(vmId)
                     }
