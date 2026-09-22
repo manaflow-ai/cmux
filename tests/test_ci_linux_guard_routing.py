@@ -251,6 +251,34 @@ class LinuxGuardRoutingTests(unittest.TestCase):
                 ))
                 self.assertEqual(result.returncode, 0, result.stderr)
 
+    def test_reusable_workflow_policy_edits_skip_unrelated_guard_jobs(self):
+        outputs, groups = route_decision([".github/workflows/ci-macos.yml"], macos="true")
+        self.assertEqual(outputs, {
+            "linux_guard_tests": "true",
+            "linux_guard_history": "false",
+            "linux_guard_cli": "false",
+            "linux_guard_source": "false",
+            "ghosttykit_release": "true",
+        })
+        self.assertEqual(groups, GROUPS)
+
+        outputs, groups = route_decision(
+            [
+                ".github/workflows/web-complexity.yml",
+                ".github/workflows/web-complexity-trusted.yml",
+                "tests/test_web_complexity_trusted_workflow.py",
+            ],
+            macos="false",
+        )
+        self.assertEqual(outputs, {
+            "linux_guard_tests": "true",
+            "linux_guard_history": "false",
+            "linux_guard_cli": "false",
+            "linux_guard_source": "false",
+            "ghosttykit_release": "false",
+        })
+        self.assertEqual(groups, ("ci",))
+
     def test_native_edit_keeps_source_contracts_without_history_or_cli_guards(self):
         outputs = route(["Sources/Settings.swift", "CLAUDE.md"], macos="true")
         self.assertEqual(outputs, {
