@@ -2525,6 +2525,46 @@ def test_perf_activation_workflow_keeps_required_status_while_gating_benchmark()
     assert 'benchmark["result"] not in {"success", "skipped"}' in sentinel
 
 
+def test_guard_bun_setup_runs_only_for_owned_groups() -> None:
+    block = workflow_job_block("workflow-guard-tests", GUARD_WORKFLOW)
+    setup = block.index("      - name: Set up Bun for guard tests")
+    next_step = block.index("      - name: Validate Claude launch environment policy behavior", setup)
+    setup_block = block[setup:next_step]
+    assert "if: ${{ matrix.group == 'preflight' || matrix.group == 'release-ios' }}" in setup_block
+    assert block.count("setup-bun@") == 1
+
+
+def test_guard_python_setup_is_scoped_to_owning_groups() -> None:
+    block = workflow_job_block("workflow-guard-tests", GUARD_WORKFLOW)
+    setup = block.index("      - name: Set up Python 3.9 for nightly prune compatibility")
+    prepare = block.index("      - name: Prepare workflow guard Python dependencies", setup)
+    setup_block = block[setup:prepare]
+    assert "if: ${{ matrix.group == 'release-tooling' }}" in setup_block
+    prepare_block = block[
+        prepare:block.index("      - name: Validate Blacksmith Testbox broker trust boundary", prepare)
+    ]
+    assert (
+        "if: ${{ matrix.group == 'ci' || matrix.group == 'app-host-execution' || "
+        "matrix.group == 'app-host-process' || matrix.group == 'app-host-cache' || "
+        "matrix.group == 'release-tooling' }}"
+    ) in prepare_block
+    assert "python3 -m venv" in prepare_block
+    assert "packages=(PyYAML==6.0.3)" in prepare_block
+    assert 'if [[ "${{ matrix.group }}" == "release-tooling" ]]; then' in prepare_block
+    assert "packages+=(bashlex==0.18)" in prepare_block
+    assert '"${packages[@]}"' in prepare_block
+    assert block.count("actions/setup-python@") == 1
+
+
+def test_pipe_safe_capture_guard_runs_once_in_app_host_execution_group() -> None:
+    block = workflow_job_block("workflow-guard-tests", GUARD_WORKFLOW)
+    start = block.index("      - name: Validate pipe-safe CI capture")
+    end = block.index("      - name: Validate focused test launcher", start)
+    step = block[start:end]
+    assert "if: ${{ matrix.group == 'app-host-execution' }}" in step
+    assert block.count("Validate pipe-safe CI capture") == 1
+
+
 if __name__ == "__main__":
     for name, value in sorted(globals().items()):
         if name.startswith("test_") and callable(value):
