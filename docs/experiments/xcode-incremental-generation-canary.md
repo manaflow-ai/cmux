@@ -116,3 +116,20 @@ PATH bug prevented the timing wrapper from reaching xcodebuild. The build
 invocation itself remained the canonical compile script. The corrected harness
 has a green Linux regression test for the fixed wrapper/parser path and uploads
 the raw cmux build log for recomputation.
+
+
+## Synthetic seed rebind feasibility
+
+A local Git fixture tested a case where the real seed commit object was absent
+from the restored repository. The producer recorded the seed index entries
+(mode, blob/commit object id, path) and archived the working files without
+.git. The consumer fetched only B, loaded the recorded entries with
+git update-index --index-info, wrote a tree with git write-tree --missing-ok,
+created a local synthetic seed commit, refreshed the index against the restored
+files, and checked out B.
+
+The pre-transition tree was clean, the unchanged source retained its mtime, the
+edited source changed to B, and the real A commit remained absent. This is a
+practical way to consume a generation built from an older synthetic PR merge
+even if GitHub no longer advertises that exact merge commit. It also avoids
+putting the repository object database into the generation artifact.
