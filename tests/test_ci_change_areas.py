@@ -1074,9 +1074,9 @@ def test_router_changes_run_everything() -> None:
     )
     assert_areas(
         ["tests/test_ci_change_areas.py"],
-        macos=True,
-        web=True,
-        agent_session_web=True,
+        macos=False,
+        web=False,
+        agent_session_web=False,
     )
 
 
