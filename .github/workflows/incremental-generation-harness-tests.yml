@@ -15,3 +15,15 @@ jobs:
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       - run: python3 tests/test_ci_incremental_generation_canary.py
+
+      - name: Lint canary workflows
+        env:
+          ACTIONLINT_VERSION: "1.7.7"
+          ACTIONLINT_SHA256: "023070a287cd8cccd71515fedc843f1985bf96c436b7effaecce67290e7e0757"
+          ACTIONLINT_ASSET_ID: "221573254"
+        run: |
+          set -euo pipefail
+          ./scripts/ci/install-actionlint.sh
+          "$RUNNER_TEMP/actionlint" \
+            .github/workflows/incremental-state-canary.yml \
+            .github/workflows/incremental-generation-harness-tests.yml
