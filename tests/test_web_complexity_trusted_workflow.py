@@ -28,7 +28,11 @@ BUN = 'bun --no-env-file --config="$GITHUB_WORKSPACE/trusted/.bunfig-empty.toml"
 EXPECTED_CHECKS = [
     {
         "name": "Check pull-request or merge-group source with trusted policy",
-        "if": "github.event_name != 'push'",
+        # The scan is skipped when scripts/ci/web_complexity_scope.py determines
+        # the pull request changed no production web source and no complexity
+        # policy file. The classifier only ever runs for pull_request_target, so
+        # merge_group and push leave the output empty and keep the full scan.
+        "if": "github.event_name != 'push' && steps.scope.outputs.scan != 'false'",
         "working-directory": "trusted/web",
         "run": (
             "set -euo pipefail\n"
