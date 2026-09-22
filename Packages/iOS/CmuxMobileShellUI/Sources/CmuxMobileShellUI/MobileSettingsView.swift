@@ -663,8 +663,20 @@ struct MobileSettingsView: View {
             accountID: authManager.currentUser?.id,
             installID: analyticsClientID,
             deviceID: UIDevice.current.identifierForVendor?.uuidString,
+            teamID: authManager.resolvedTeamID,
+            bundleID: Bundle.main.bundleIdentifier,
+            appChannel: MobileBuildType.current().token,
             appVersion: version.marketingVersion,
-            buildNumber: version.buildNumber
+            buildNumber: version.buildNumber,
+            osVersion: UIDevice.current.systemVersion,
+            deviceModel: UIDevice.current.model,
+            connectionState: store.map { state in
+                switch state.connectionState {
+                case .connected: "connected"
+                case .disconnected: "disconnected"
+                }
+            },
+            transport: store?.activeRoute?.kind.rawValue
         )
         UIPasteboard.general.string = info.report
         didCopySupportInformation = true
