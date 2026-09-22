@@ -5,6 +5,53 @@ import SwiftUI
 // MARK: - Workspace detail chrome
 
 extension WorkspaceDetailView {
+    private enum LeadingToolbarItem: Hashable, Identifiable {
+        case sidebarToggle
+        case backButton
+
+        var id: Self { self }
+    }
+
+    private var ownedBarLeadingItems: [LeadingToolbarItem] {
+        var items: [LeadingToolbarItem] = []
+        if showsSidebarToggle, toggleSidebar != nil {
+            items.append(.sidebarToggle)
+        }
+        if backButtonConfiguration != nil {
+            items.append(.backButton)
+        }
+        return items
+    }
+
+    private enum TrailingToolbarItem: Hashable, Identifiable {
+        case altScreenNotice
+        case changes
+        case terminalPicker
+
+        var id: Self { self }
+    }
+
+    private var ownedBarTrailingItems: [TrailingToolbarItem] {
+        var items: [TrailingToolbarItem] = []
+        if altScreenNoticeIsVisible {
+            items.append(.altScreenNotice)
+        }
+        if workspaceChangesAreAvailable {
+            items.append(.changes)
+        }
+        items.append(.terminalPicker)
+        return items
+    }
+
+    private var ownedBarTitleMaximumWidth: CGFloat {
+        WorkspaceDetailToolbarTitleSizing.maximumTitleWidth(
+            horizontalSizeClass: horizontalSizeClass,
+            verticalSizeClass: verticalSizeClass,
+            leadingItemCount: ownedBarLeadingItems.count,
+            trailingItemCount: ownedBarTrailingItems.count
+        )
+    }
+
     /// A stable detail bar for every iOS width. The system navigation bar may
     /// re-arbitrate toolbar items as a split sidebar changes width or a compact
     /// surface scrolls, which can move the terminal picker into `More`. This
@@ -12,18 +59,23 @@ extension WorkspaceDetailView {
     /// title width.
     var workspaceOwnedTopBar: some View {
         HStack(spacing: 13) {
-            if showsSidebarToggle, let toggleSidebar {
-                WorkspaceSidebarToggleButton(action: toggleSidebar)
+            ForEach(ownedBarLeadingItems) { item in
+                switch item {
+                case .sidebarToggle:
+                    if let toggleSidebar {
+                        WorkspaceSidebarToggleButton(action: toggleSidebar)
+                    }
+                case .backButton:
+                    workspaceBackToolbarButton
+                        .frame(minWidth: 17, minHeight: 22)
+                        .ownedBarGlassButton()
+                        .fixedSize()
+                }
             }
 
-            if backButtonConfiguration != nil {
-                workspaceBackToolbarButton
-                    .frame(minWidth: 17, minHeight: 22)
-                    .ownedBarGlassButton()
-                    .fixedSize()
-            }
-
-            workspaceTitleMenu(usesNaturalWidth: true)
+            workspaceTitleMenu(
+                maximumWidth: ownedBarTitleMaximumWidth
+            )
                 .ownedBarGlassButton()
 
             Spacer(minLength: 13)
@@ -48,20 +100,23 @@ extension WorkspaceDetailView {
 
     private var ownedBarTrailingCluster: some View {
         HStack(spacing: 15) {
-            if altScreenNoticeIsVisible {
-                AltScreenNoticeButton {
-                    displaySettings.showAltScreenNotice = false
+            ForEach(ownedBarTrailingItems) { item in
+                switch item {
+                case .altScreenNotice:
+                    AltScreenNoticeButton {
+                        displaySettings.showAltScreenNotice = false
+                    }
+                case .changes:
+                    WorkspaceChangesToolbarButton(
+                        chip: workspaceChangesChip,
+                        workspaceID: workspace.rpcWorkspaceID.rawValue,
+                        action: openWorkspaceChanges
+                    )
+                    .environment(\.colorScheme, store.activeTerminalTheme.terminalColorScheme)
+                case .terminalPicker:
+                    terminalPickerToolbarButton
                 }
             }
-            if workspaceChangesAreAvailable {
-                WorkspaceChangesToolbarButton(
-                    chip: workspaceChangesChip,
-                    workspaceID: workspace.rpcWorkspaceID.rawValue,
-                    action: openWorkspaceChanges
-                )
-                .environment(\.colorScheme, store.activeTerminalTheme.terminalColorScheme)
-            }
-            terminalPickerToolbarButton
         }
         .buttonStyle(.plain)
         .padding(.horizontal, 8)

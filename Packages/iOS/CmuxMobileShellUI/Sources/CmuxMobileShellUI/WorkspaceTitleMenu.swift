@@ -2,15 +2,15 @@ import SwiftUI
 
 struct WorkspaceTitleMenu<Label: View, MenuContent: View>: View, Equatable {
     let value: WorkspaceTitleMenuValue
-    /// The regular-width iPad detail bar owns its layout, so the title should
-    /// consume the space left by the fixed controls instead of participating in
-    /// the system toolbar's overflow estimate.
-    var usesNaturalWidth = false
+    /// The app-owned detail bar lays out its fixed controls, so the title can
+    /// use the explicit cap for the current size class and item count.
+    var maximumWidth: CGFloat?
     @ViewBuilder let menuContent: () -> MenuContent
     @ViewBuilder let label: () -> Label
 
     nonisolated static func == (lhs: Self, rhs: Self) -> Bool {
-        lhs.value == rhs.value && lhs.usesNaturalWidth == rhs.usesNaturalWidth
+        lhs.value == rhs.value
+            && lhs.maximumWidth == rhs.maximumWidth
     }
 
     @ViewBuilder
@@ -34,29 +34,11 @@ struct WorkspaceTitleMenu<Label: View, MenuContent: View>: View, Equatable {
 
     @ViewBuilder
     private var fittedLabel: some View {
-        if usesNaturalWidth {
+        if let maximumWidth {
             label()
+                .frame(maxWidth: maximumWidth, alignment: .leading)
         } else {
-            cappedLabel
+            label()
         }
-    }
-
-    private var cappedLabel: some View {
-        let cap = MobileLeadingToolbarTitleWidth(
-            contentWidth: value.contentWidth,
-            hasBackButton: value.hasBackButton,
-            hasTrailingCluster: value.hasTrailingCluster,
-            measuredTrailingItemsWidth: value.measuredTrailingItemsWidth,
-            measuredTrailingItemCount: value.measuredTrailingItemCount,
-            trailingItemCount: value.trailingItemCount,
-            hadTrailingCollapse: value.hadTrailingCollapse
-        ).cap
-
-        return label()
-            .frame(
-                minWidth: min(MobileLeadingToolbarTitleWidth.floor, cap),
-                maxWidth: cap,
-                alignment: .leading
-            )
     }
 }
