@@ -609,7 +609,7 @@ extension TerminalArtifactFilesSheet {
             )
             .equatable()
         }
-        .frame(height: 44)
+        .frame(height: 34)
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
     }
