@@ -4158,6 +4158,16 @@ final class cmuxUITests: XCTestCase {
                 .evaluate(with: selection),
             "The parked notification tap must open the Notes tab after reconnect."
         )
+        let terminalPicker = app.buttons["MobileTerminalDropdown"]
+        XCTAssertTrue(
+            terminalPicker.waitForExistence(timeout: 5),
+            "The production workspace detail must be visible after the push tap."
+        )
+        XCTAssertEqual(
+            terminalPicker.value as? String,
+            "Notes",
+            "The production terminal picker must select the pushed Notes tab."
+        )
         capture("push-tab-opened-after-reconnect")
 
         app.buttons["PushMissingTabButton"].tap()
