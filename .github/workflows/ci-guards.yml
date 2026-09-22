@@ -351,6 +351,10 @@ jobs:
         if: ${{ matrix.group == 'release-ios' }}
         run: node --test ios/tests/tagged-device-entitlements.test.mjs
 
+      - name: Validate manual iOS workflow ref resolution
+        if: ${{ matrix.group == 'release-ios' }}
+        run: python3 tests/test_ios_workflow_dispatch_ref.py
+
       - name: Validate cmux scheme test configuration
         if: ${{ matrix.group == 'app-host-cache' }}
         run: ./tests/test_ci_scheme_testaction_debug.sh
