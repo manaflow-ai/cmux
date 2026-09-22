@@ -9,8 +9,23 @@ struct SidebarWorkspaceDescriptionText: View {
     let isActive: Bool
     let activeForegroundColor: Color
     let fontScale: CGFloat
+    let foregroundColorOverride: Color?
     private static let maxDisplayedLines = 12
     private static let maxDisplayedCharacters = 4096
+
+    init(
+        markdown: String,
+        isActive: Bool,
+        activeForegroundColor: Color,
+        fontScale: CGFloat,
+        foregroundColorOverride: Color? = nil
+    ) {
+        self.markdown = markdown
+        self.isActive = isActive
+        self.activeForegroundColor = activeForegroundColor
+        self.fontScale = fontScale
+        self.foregroundColorOverride = foregroundColorOverride
+    }
 
     var renderedContent: (displayMarkdown: String, renderedMarkdown: AttributedString?) {
         let displayMarkdown = markdown.sidebarBoundedDisplayString(
@@ -21,7 +36,7 @@ struct SidebarWorkspaceDescriptionText: View {
             return (displayMarkdown: displayMarkdown, renderedMarkdown: nil)
         }
         let styledMarkdown = renderedMarkdown.applyingSidebarRowLinkPolicy(
-            activeForegroundColor: isActive ? activeForegroundColor : nil
+            activeForegroundColor: foregroundColorOverride ?? (isActive ? activeForegroundColor : nil)
         )
         return (displayMarkdown: displayMarkdown, renderedMarkdown: styledMarkdown)
     }
@@ -78,7 +93,7 @@ struct SidebarWorkspaceDescriptionText: View {
     }
 
     private var foregroundColor: Color {
-        isActive ? activeForegroundColor : .secondary.opacity(0.95)
+        foregroundColorOverride ?? (isActive ? activeForegroundColor : .secondary.opacity(0.95))
     }
 
     private func logTextPreview(_ text: String, limit: Int = 120) -> String {

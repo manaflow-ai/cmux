@@ -66,6 +66,23 @@ struct SidebarMarkdownRendererTests {
     }
 
     @Test
+    func descriptionColorOverrideStylesSafeLinkWhenInactive() throws {
+        let url = try #require(URL(string: "https://cmux.com"))
+        let content = SidebarWorkspaceDescriptionText(
+            markdown: "Read [cmux](\(url.absoluteString))",
+            isActive: false,
+            activeForegroundColor: .white,
+            fontScale: 1,
+            foregroundColorOverride: Color.green
+        ).renderedContent
+        let rendered = try #require(content.renderedMarkdown)
+        let linkRun = try #require(rendered.runs.first { $0.link == url })
+
+        #expect(linkRun.foregroundColor == Color.green)
+        #expect(linkRun.link == url)
+    }
+
+    @Test
     func descriptionDropsNonWebLinkActivation() throws {
         let content = SidebarWorkspaceDescriptionText(
             markdown: "Open [local](file:///tmp/private.txt)",

@@ -595,6 +595,7 @@ struct SidebarAppKitRowCellTests {
         let defaults = Self.makeDefaults()
         defaults.set("#A6E3A1", forKey: "sidebarWorkspaceDescriptionColorHex")
         let settings = SidebarTabItemSettingsSnapshot(defaults: defaults)
+        #expect(settings.workspaceDescriptionColorHex == "#A6E3A1")
         let description = "next step: finish sidebar polish"
         let model = Self.makeModel(
             isActive: isActive,
@@ -608,6 +609,35 @@ struct SidebarAppKitRowCellTests {
         let expected = try #require(NSColor(hex: "#A6E3A1")?.usingColorSpace(.sRGB))
 
         #expect(rendered == expected)
+    }
+
+    @Test
+    func workspaceDescriptionColorParsesFromSettingsFile() throws {
+        let defaults = Self.makeDefaults()
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-workspace-description-color-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let settingsURL = directory.appendingPathComponent("cmux.json", isDirectory: false)
+        try """
+        {
+          "sidebar": {
+            "workspaceDescriptionColor": "#a6e3a1"
+          }
+        }
+        """.write(to: settingsURL, atomically: true, encoding: .utf8)
+
+        _ = KeyboardShortcutSettingsFileStore(
+            primaryPath: settingsURL.path,
+            fallbackPath: nil,
+            additionalFallbackPaths: [],
+            userDefaults: defaults,
+            startWatching: false,
+            isUserDefaultsKeyForcedByProfile: { _ in false }
+        )
+
+        #expect(defaults.string(forKey: "sidebarWorkspaceDescriptionColorHex") == "#A6E3A1")
     }
 
     /// Rasterizes the link over the row's own selection background. AppKit used

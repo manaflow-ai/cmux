@@ -242,6 +242,9 @@ enum TerminalSettingsFileMapping {
 enum SidebarSettingsFileMapping {
     private static let sidebar = SidebarCatalogSection()
 
+    static let workspaceDescriptionColorJSONKey = "workspaceDescriptionColor"
+    static let workspaceDescriptionColorPath = "sidebar.workspaceDescriptionColor"
+
     struct BooleanSetting {
         let jsonKey: String
         let defaultsKey: String
