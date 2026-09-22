@@ -109,6 +109,36 @@ class LayerTransportTests(unittest.TestCase):
         t.restore_remote(self.api, self.reference, self.identity, self.expected,
                          self.destination, callback or self.assemble)
 
+    def test_app_host_consumer_fetches_only_runtime_test_layers(self):
+        selected = t.APP_HOST_TEST_LAYERS
+        assembled = []
+
+        def assemble(manifest, destination, identity, required_layers):
+            assembled.append(tuple(required_layers))
+            self.assertEqual(tuple(required_layers), selected)
+            self.assertEqual(identity, self.identity)
+            for name in selected:
+                self.assertEqual(
+                    (manifest.parent / (name + ".aar")).read_bytes(),
+                    (self.root / (name + ".aar")).read_bytes(),
+                )
+            self.assertFalse((manifest.parent / "diagnostics.aar").exists())
+            (destination / "Build/Products").mkdir(parents=True)
+
+        t.restore_remote(
+            self.api,
+            self.reference,
+            self.identity,
+            self.expected,
+            self.destination,
+            assemble,
+            selected_layers=selected,
+        )
+
+        self.assertEqual(assembled, [selected])
+        self.assertEqual(self.api.downloaded, [50, 10, 11, 12])
+        self.assertNotIn(13, self.api.downloaded)
+
     def test_oversized_compressed_canonical_manifest_is_rejected_before_assembly(self):
         data = json.dumps(self.manifest).encode() + b" " * t.MAX_INDEX
         self.index["manifest"].update(size=len(data), sha256=hashlib.sha256(data).hexdigest())
