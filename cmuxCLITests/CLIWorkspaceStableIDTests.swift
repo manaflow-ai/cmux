@@ -6,7 +6,7 @@ import Testing
 struct CLIWorkspaceStableIDTests {
     @Test("Workspace inspection JSON keeps mirror UUIDs by default")
     func workspaceInspectionJSONKeepsMirrorUUIDsByDefault() async throws {
-        let cliPath = try BundledCLITestSupport.bundledCLIPath(for: BundledCLILinkageTests.self)
+        let cliPath = try BundledCLITestSupport.bundledCLIPath(for: CLITestBundleAnchor.self)
         let commands = [
             ["list-workspaces", "--window", Self.windowID, "--json"],
             ["workspace", "list", "--window", Self.windowID, "--json"],
@@ -34,7 +34,7 @@ struct CLIWorkspaceStableIDTests {
 
     @Test("Explicit ID formats still shape workspace inspection JSON")
     func explicitIDFormatsStillShapeWorkspaceInspectionJSON() async throws {
-        let cliPath = try BundledCLITestSupport.bundledCLIPath(for: BundledCLILinkageTests.self)
+        let cliPath = try BundledCLITestSupport.bundledCLIPath(for: CLITestBundleAnchor.self)
         let expectations: [(mode: String, hasID: Bool, hasRef: Bool)] = [
             ("refs", false, true),
             ("uuids", true, false),

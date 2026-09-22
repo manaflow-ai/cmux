@@ -270,7 +270,7 @@ func runCodexHookProcess(
 ) -> CodexHookProcessRunResult {
 let result: CodexHookProcessRunResult
     if !fileBackedStandardInput {
-        let shared = CLINotifyProcessIntegrationRegressionTests.runProcess(
+        let shared = CLIHookProcessRunner.run(
             executablePath: executablePath,
             arguments: arguments,
             environment: environment,

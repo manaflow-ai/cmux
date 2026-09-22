@@ -4,12 +4,6 @@ import CryptoKit
 import Testing
 import CMUXAgentLaunch
 import CmuxFoundation
-#if canImport(cmux_DEV)
-@testable import cmux_DEV
-#elseif canImport(cmux)
-@testable import cmux
-#endif
-
 @Suite(.serialized)
 struct CLIClaudeHookTimeoutRegressionTests {
     @Test("Queued lifecycle routes trust an admitted surface snapshot")
@@ -109,7 +103,7 @@ struct CLIClaudeHookTimeoutRegressionTests {
     @Test("Claude non-decision hooks use bounded ordered admission")
     func generatedSettingsUseQueuedAdmissionAndPreserveDecisionHooks() throws {
         let fileManager = FileManager.default
-        let cliPath = try BundledCLITestSupport.bundledCLIPath(for: BundledCLILinkageTests.self)
+        let cliPath = try BundledCLITestSupport.bundledCLIPath(for: CLITestBundleAnchor.self)
         let wrapper = repositoryRoot.appendingPathComponent("Resources/bin/cmux-claude-wrapper")
         let root = fileManager.temporaryDirectory.appendingPathComponent(
             "cmux-claude-queued-hooks-\(UUID().uuidString)",
@@ -244,7 +238,7 @@ struct CLIClaudeHookTimeoutRegressionTests {
     @Test("Local queue admission snapshots the authoritative process route")
     func localQueueAdmissionSnapshotsAuthoritativeProcessRoute() throws {
         let cliPath = try BundledCLITestSupport.bundledCLIPath(
-            for: BundledCLILinkageTests.self
+            for: CLITestBundleAnchor.self
         )
         let socketPath = makeCodexHookSocketPath("local-route")
         let listenerFD = try bindCodexHookUnixSocket(at: socketPath)
@@ -310,7 +304,7 @@ struct CLIClaudeHookTimeoutRegressionTests {
     @Test("Local queue admission retains its lane when route probing fails")
     func localQueueAdmissionFallsBackToLivePIDWhenRouteProbingFails() throws {
         let cliPath = try BundledCLITestSupport.bundledCLIPath(
-            for: BundledCLILinkageTests.self
+            for: CLITestBundleAnchor.self
         )
         let socketPath = makeCodexHookSocketPath("local-route-fallback")
         let listenerFD = try bindCodexHookUnixSocket(at: socketPath)
@@ -363,7 +357,7 @@ struct CLIClaudeHookTimeoutRegressionTests {
     @Test("Local queue admission preserves an existing route snapshot when reprobe fails")
     func localQueueAdmissionPreservesRouteSnapshotWhenReprobeFails() throws {
         let cliPath = try BundledCLITestSupport.bundledCLIPath(
-            for: BundledCLILinkageTests.self
+            for: CLITestBundleAnchor.self
         )
         let socketPath = makeCodexHookSocketPath("local-route-snapshot-fallback")
         let listenerFD = try bindCodexHookUnixSocket(at: socketPath)
@@ -429,7 +423,7 @@ struct CLIClaudeHookTimeoutRegressionTests {
         subcommand: String
     ) throws {
         let cliPath = try BundledCLITestSupport.bundledCLIPath(
-            for: BundledCLILinkageTests.self
+            for: CLITestBundleAnchor.self
         )
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(
             "cmux-queued-route-replay-\(UUID().uuidString)",
@@ -531,7 +525,7 @@ struct CLIClaudeHookTimeoutRegressionTests {
 
     @Test("Claude prompt hook fails open before its declared timeout")
     func promptAdmissionHasAShortInternalDeadline() throws {
-        let cliPath = try BundledCLITestSupport.bundledCLIPath(for: BundledCLILinkageTests.self)
+        let cliPath = try BundledCLITestSupport.bundledCLIPath(for: CLITestBundleAnchor.self)
         let settingsResult = runCodexHookProcess(
             executablePath: cliPath,
             arguments: ["hooks", "claude", "inject-settings"],
@@ -582,7 +576,7 @@ struct CLIClaudeHookTimeoutRegressionTests {
 
     @Test("Queue admission compacts oversized telemetry without losing identity")
     func queueAdmissionCompactsOversizedTelemetry() throws {
-        let cliPath = try BundledCLITestSupport.bundledCLIPath(for: BundledCLILinkageTests.self)
+        let cliPath = try BundledCLITestSupport.bundledCLIPath(for: CLITestBundleAnchor.self)
         let socketPath = makeCodexHookSocketPath("large-queue")
         let listenerFD = try bindCodexHookUnixSocket(at: socketPath)
         defer {
@@ -637,7 +631,7 @@ struct CLIClaudeHookTimeoutRegressionTests {
 
     @Test("Queue admission fails open when stdin exceeds the finite ingress budget")
     func queueAdmissionRejectsPayloadBeyondIngressBudget() throws {
-        let cliPath = try BundledCLITestSupport.bundledCLIPath(for: BundledCLILinkageTests.self)
+        let cliPath = try BundledCLITestSupport.bundledCLIPath(for: CLITestBundleAnchor.self)
         let socketPath = makeCodexHookSocketPath("ingress-budget")
         let listenerFD = try bindCodexHookUnixSocket(at: socketPath)
         defer {
@@ -689,7 +683,7 @@ struct CLIClaudeHookTimeoutRegressionTests {
 
     @Test("Queue compaction preserves behavior-critical needs-input fields")
     func queueCompactionPreservesNeedsInputClassification() throws {
-        let cliPath = try BundledCLITestSupport.bundledCLIPath(for: BundledCLILinkageTests.self)
+        let cliPath = try BundledCLITestSupport.bundledCLIPath(for: CLITestBundleAnchor.self)
         let socketPath = makeCodexHookSocketPath("large-needs-input")
         let listenerFD = try bindCodexHookUnixSocket(at: socketPath)
         defer {
@@ -792,7 +786,7 @@ struct CLIClaudeHookTimeoutRegressionTests {
         flag: String,
         value: Bool
     ) throws {
-        let cliPath = try BundledCLITestSupport.bundledCLIPath(for: BundledCLILinkageTests.self)
+        let cliPath = try BundledCLITestSupport.bundledCLIPath(for: CLITestBundleAnchor.self)
         let socketPath = makeCodexHookSocketPath("\(agent)-lifecycle-flags")
         let listenerFD = try bindCodexHookUnixSocket(at: socketPath)
         defer {
@@ -861,7 +855,7 @@ struct CLIClaudeHookTimeoutRegressionTests {
 
     @Test("Queue compaction preserves Claude background-work evidence")
     func queueCompactionPreservesClaudeBackgroundWorkEvidence() throws {
-        let cliPath = try BundledCLITestSupport.bundledCLIPath(for: BundledCLILinkageTests.self)
+        let cliPath = try BundledCLITestSupport.bundledCLIPath(for: CLITestBundleAnchor.self)
         let socketPath = makeCodexHookSocketPath("claude-background-work")
         let listenerFD = try bindCodexHookUnixSocket(at: socketPath)
         defer {
@@ -929,7 +923,7 @@ struct CLIClaudeHookTimeoutRegressionTests {
         arguments: ["grok", "antigravity"]
     )
     func pinnedAgentQueueAdmissionUsesExplicitSocket(agent: String) throws {
-        let cliPath = try BundledCLITestSupport.bundledCLIPath(for: BundledCLILinkageTests.self)
+        let cliPath = try BundledCLITestSupport.bundledCLIPath(for: CLITestBundleAnchor.self)
         let socketPath = makeCodexHookSocketPath("\(agent)-pinned")
         let listenerFD = try bindCodexHookUnixSocket(at: socketPath)
         defer {
@@ -983,7 +977,7 @@ struct CLIClaudeHookTimeoutRegressionTests {
         arguments: [("claude", "CMUX_CLAUDE_PID"), ("codex", "CMUX_CODEX_PID")]
     )
     func relayOriginSkipsLocalProcessRouting(agent: String, pidKey: String) throws {
-        let cliPath = try BundledCLITestSupport.bundledCLIPath(for: BundledCLILinkageTests.self)
+        let cliPath = try BundledCLITestSupport.bundledCLIPath(for: CLITestBundleAnchor.self)
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(
             "cmux-relay-hook-routing-\(agent)-\(UUID().uuidString)",
             isDirectory: true
@@ -1059,7 +1053,7 @@ struct CLIClaudeHookTimeoutRegressionTests {
 
     @Test("Relay feed fallbacks omit synthetic process identity")
     func relayFeedFallbackOmitsSyntheticProcessIdentity() throws {
-        let cliPath = try BundledCLITestSupport.bundledCLIPath(for: BundledCLILinkageTests.self)
+        let cliPath = try BundledCLITestSupport.bundledCLIPath(for: CLITestBundleAnchor.self)
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(
             "cmux-relay-feed-fallback-\(UUID().uuidString)",
             isDirectory: true
@@ -1125,7 +1119,7 @@ struct CLIClaudeHookTimeoutRegressionTests {
 
     @Test("Relay-origin Codex stop ignores local transcript path collisions")
     func relayOriginCodexStopIgnoresLocalTranscriptPathCollisions() throws {
-        let cliPath = try BundledCLITestSupport.bundledCLIPath(for: BundledCLILinkageTests.self)
+        let cliPath = try BundledCLITestSupport.bundledCLIPath(for: CLITestBundleAnchor.self)
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(
             "cmux-relay-codex-stop-\(UUID().uuidString)",
             isDirectory: true
@@ -1181,7 +1175,7 @@ struct CLIClaudeHookTimeoutRegressionTests {
 
     @Test("Actionable Feed decisions establish their delivery lane barrier before push")
     func actionableFeedDecisionWaitsForEarlierQueuedLifecycleWork() throws {
-        let cliPath = try BundledCLITestSupport.bundledCLIPath(for: BundledCLILinkageTests.self)
+        let cliPath = try BundledCLITestSupport.bundledCLIPath(for: CLITestBundleAnchor.self)
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(
             "cmux-feed-decision-barrier-\(UUID().uuidString)",
             isDirectory: true
@@ -1267,7 +1261,7 @@ struct CLIClaudeHookTimeoutRegressionTests {
 
     @Test("Direct Codex permission status waits for its queued lifecycle lane")
     func codexPermissionStatusWaitsForEarlierQueuedLifecycleWork() throws {
-        let cliPath = try BundledCLITestSupport.bundledCLIPath(for: BundledCLILinkageTests.self)
+        let cliPath = try BundledCLITestSupport.bundledCLIPath(for: CLITestBundleAnchor.self)
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(
             "cmux-codex-decision-barrier-\(UUID().uuidString)",
             isDirectory: true
@@ -1332,7 +1326,7 @@ struct CLIClaudeHookTimeoutRegressionTests {
             let artifact: URL
         }
 
-        let cliPath = try BundledCLITestSupport.bundledCLIPath(for: BundledCLILinkageTests.self)
+        let cliPath = try BundledCLITestSupport.bundledCLIPath(for: CLITestBundleAnchor.self)
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(
             "cmux-custom-agent-queue-\(UUID().uuidString)",
             isDirectory: true

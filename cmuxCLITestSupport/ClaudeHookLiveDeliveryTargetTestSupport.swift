@@ -49,7 +49,7 @@ enum ClaudeHookLiveDeliveryHarness {
             .appendingPathComponent("cli-\(name.prefix(6))-\(shortID).sock")
             .path
         return Context(
-            cliPath: try BundledCLITestSupport.bundledCLIPath(for: BundledCLILinkageTests.self),
+            cliPath: try BundledCLITestSupport.bundledCLIPath(for: CLITestBundleAnchor.self),
             socketPath: socketPath,
             listenerFD: try bindUnixSocket(at: socketPath),
             state: ServerState(),

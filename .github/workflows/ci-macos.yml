@@ -2413,6 +2413,161 @@ jobs:
               ;;
           esac
 
+  cli-product-tests:
+    permissions:
+      contents: read
+      actions: read
+    needs:
+      - macos-compile-admission
+    # Same !cancelled() reasoning as app-host-unit-tests: the implicit success()
+    # gate would count a legitimately skipped linux job in the transitive needs
+    # chain as a reason to skip every macOS job.
+    if: ${{ !cancelled() && needs.macos-compile-admission.result == 'success' && inputs.macos == 'true' && inputs.full_suite == 'true' }}
+    name: CLI product tests
+    # cmuxCLITests has no app host, so it needs no testmanagerd control session
+    # and no GUI console session. It still needs the compiled product, so it
+    # reuses macos-compile-admission's artifact like the app-host shards do.
+    runs-on: ${{ github.event_name == 'pull_request' && (vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15') || vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15' }}
+    timeout-minutes: 40
+    env:
+      CMUX_NODE_PRODUCT_CACHE_ROOT: ${{ vars.CMUX_NODE_PRODUCT_CACHE_ROOT }}
+      CMUX_NODE_PRODUCT_CACHE_MAX_BYTES: ${{ vars.CMUX_NODE_PRODUCT_CACHE_MAX_BYTES }}
+      CMUX_NODE_PRODUCT_CACHE_WAIT_SECONDS: ${{ vars.CMUX_NODE_PRODUCT_CACHE_WAIT_SECONDS }}
+      CMUX_ARTIFACT_PEER_URLS: ${{ vars.CMUX_ARTIFACT_PEER_URLS }}
+      CMUX_ARTIFACT_PEER_TOKEN_FILE: ${{ vars.CMUX_ARTIFACT_PEER_TOKEN_FILE }}
+      CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_15 }}
+      CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
+      CMUX_SKIP_ZIG_BUILD: "1"
+      SWIFT_BACKTRACE: "interactive=no,timeout=0s,symbolicate=off,color=no"
+    steps:
+      - name: Clear stale git locks (self-hosted reused workspace)
+        shell: bash
+        run: |
+          ws="${GITHUB_WORKSPACE:-$PWD}"
+          rm -f "$ws/.git/index.lock" 2>/dev/null || true
+          if [ -d "$ws/.git/modules" ]; then
+            find "$ws/.git/modules" -type f -name "*.lock" -delete 2>/dev/null || true
+          fi
+
+      # No submodules: this lane never compiles Ghostty or the app, it only
+      # loads an already-built bundle and spawns the already-built CLI.
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Select Xcode
+        run: |
+          set -euo pipefail
+          ./scripts/select-ci-xcode.sh
+
+      - name: Prepare isolated DerivedData
+        run: |
+          set -euo pipefail
+          DERIVED_DATA_PATH="$RUNNER_TEMP/cmux-derived-data-cli-tests-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          rm -rf "$DERIVED_DATA_PATH"
+          mkdir -p "$DERIVED_DATA_PATH"
+          echo "CMUX_DERIVED_DATA_PATH=$DERIVED_DATA_PATH" >> "$GITHUB_ENV"
+
+      - name: Try node-local compiled product cache
+        id: node-products
+        continue-on-error: true
+        env:
+          ARTIFACT_ID: ${{ needs.macos-compile-admission.outputs.artifact_id }}
+          ARTIFACT_PROVIDER_DIGEST: ${{ needs.macos-compile-admission.outputs.artifact_digest }}
+          EXPECTED_SHA256: ${{ needs.macos-compile-admission.outputs.sha256 }}
+          CMUX_PRODUCT_CONTRACT: ${{ needs.macos-compile-admission.outputs.product_contract }}
+          CMUX_PRODUCT_SOURCE_REVISION: ${{ needs.macos-compile-admission.outputs.source_revision }}
+          CMUX_PRODUCT_PRODUCER_RUN_ID: ${{ needs.macos-compile-admission.outputs.producer_run_id }}
+          CMUX_PRODUCT_PRODUCER_RUN_ATTEMPT: ${{ needs.macos-compile-admission.outputs.producer_run_attempt }}
+          CMUX_NODE_PRODUCT_CACHE_FALLBACK_SOURCE: ${{ vars.CMUX_ARTIFACT_PEER_URLS != '' && 'peer' || (vars.CI_ARTIFACT_R2_URL != '' && 'r2' || 'github') }}
+        run: python3 scripts/ci/node_product_cache.py acquire "$RUNNER_TEMP/app-host-products"
+
+      - name: Try trusted fleet peer artifact source
+        id: peer-products
+        if: steps.node-products.outputs.hit != 'true'
+        continue-on-error: true
+        env:
+          ARTIFACT_ID: ${{ needs.macos-compile-admission.outputs.artifact_id }}
+          ARTIFACT_PROVIDER_DIGEST: ${{ needs.macos-compile-admission.outputs.artifact_digest }}
+          EXPECTED_SHA256: ${{ needs.macos-compile-admission.outputs.sha256 }}
+          CMUX_PRODUCT_CONTRACT: ${{ needs.macos-compile-admission.outputs.product_contract }}
+          CMUX_PRODUCT_SOURCE_REVISION: ${{ needs.macos-compile-admission.outputs.source_revision }}
+          CMUX_PRODUCT_PRODUCER_RUN_ID: ${{ needs.macos-compile-admission.outputs.producer_run_id }}
+          CMUX_PRODUCT_PRODUCER_RUN_ATTEMPT: ${{ needs.macos-compile-admission.outputs.producer_run_attempt }}
+        run: python3 scripts/ci/peer_product_source.py fetch "$RUNNER_TEMP/app-host-products"
+
+      - name: Download compiled test product
+        if: steps.node-products.outputs.hit != 'true' && steps.peer-products.outputs.hit != 'true'
+        uses: ./.github/actions/download-test-product
+        with:
+          artifact-id: ${{ needs.macos-compile-admission.outputs.artifact_id }}
+          path: ${{ runner.temp }}/app-host-products
+
+      - name: Restore compiled test product
+        id: restore-products
+        env:
+          ARTIFACT_ID: ${{ needs.macos-compile-admission.outputs.artifact_id }}
+          ARTIFACT_PROVIDER_DIGEST: ${{ needs.macos-compile-admission.outputs.artifact_digest }}
+          EXPECTED_SHA256: ${{ needs.macos-compile-admission.outputs.sha256 }}
+          CMUX_PRODUCT_CONTRACT: ${{ needs.macos-compile-admission.outputs.product_contract }}
+          CMUX_PRODUCT_SOURCE_REVISION: ${{ needs.macos-compile-admission.outputs.source_revision }}
+          CMUX_PRODUCT_PRODUCER_RUN_ID: ${{ needs.macos-compile-admission.outputs.producer_run_id }}
+          CMUX_PRODUCT_PRODUCER_RUN_ATTEMPT: ${{ needs.macos-compile-admission.outputs.producer_run_attempt }}
+          CMUX_NODE_PRODUCT_CACHE_HIT: ${{ steps.node-products.outputs.hit }}
+          CMUX_NODE_PRODUCT_CACHE_LOOKUP_SECONDS: ${{ steps.node-products.outputs.lookup_seconds }}
+          CMUX_PEER_PRODUCT_HIT: ${{ steps.peer-products.outputs.hit }}
+          CMUX_PEER_PRODUCT_LOOKUP_SECONDS: ${{ steps.peer-products.outputs.lookup_seconds }}
+          CMUX_PEER_PRODUCT_TRANSFER_SECONDS: ${{ steps.peer-products.outputs.transfer_seconds }}
+          CMUX_PEER_PRODUCT_BYTES: ${{ steps.peer-products.outputs.bytes_transferred }}
+        run: scripts/ci/restore-app-host-test-product.sh
+
+      - name: Resolve the CLI under test
+        run: |
+          set -euo pipefail
+          products="$CMUX_DERIVED_DATA_PATH/Build/Products/Debug"
+          cli="$products/cmux"
+          if [ ! -x "$cli" ]; then
+            cli="$(find "$products" -path "*.app/Contents/Resources/bin/cmux" -perm -111 -print -quit)"
+          fi
+          if [ -z "${cli:-}" ] || [ ! -x "$cli" ]; then
+            echo "::error::no cmux CLI in the restored product" >&2
+            exit 1
+          fi
+          echo "CMUX_CLI_PATH=$cli" >> "$GITHUB_ENV"
+          echo "Testing $cli"
+
+      - name: Isolate HOME
+        run: |
+          set -euo pipefail
+          cli_home="$RUNNER_TEMP/cmux-cli-tests-home"
+          rm -rf "$cli_home"
+          mkdir -p "$cli_home"
+          echo "HOME=$cli_home" >> "$GITHUB_ENV"
+
+      - name: Run CLI product tests
+        run: |
+          set -euo pipefail
+          test_log="$RUNNER_TEMP/cmux-cli-product-tests.log"
+          bash scripts/ci/run-and-capture.sh "$test_log" \
+            xcodebuild test-without-building \
+            -xctestrun "$CMUX_CLI_TESTS_XCTESTRUN" \
+            -destination "platform=macOS" \
+            -test-timeouts-enabled YES \
+            -default-test-execution-time-allowance 180 \
+            -maximum-test-execution-time-allowance 300 \
+            -only-testing:cmuxCLITests
+          scripts/ci/require_selected_test_execution.sh "$test_log" "cmuxCLITests"
+
+      - name: Upload CLI product test log
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cli-product-tests-log
+          path: ${{ runner.temp }}/cmux-cli-product-tests.log
+          if-no-files-found: ignore
+          retention-days: 7
+
   swift-package-tests:
     # !cancelled() disables the implicit success() gate, which GitHub evaluates
     # over the transitive needs chain: linux-preflight runs behind routed linux
@@ -3382,6 +3537,7 @@ jobs:
     needs:
       - macos-compile-admission
       - app-host-unit-tests
+      - cli-product-tests
       - swift-package-tests
       - tests-build-and-lag
       - release-admission
@@ -3417,6 +3573,7 @@ jobs:
           required = {
               "macos-compile-admission": macos and inputs["compile_admitted"] != "true",
               "app-host-unit-tests": macos and full_suite,
+              "cli-product-tests": macos and full_suite,
               "swift-package-tests": macos and full_suite,
               "tests-build-and-lag": macos and full_suite,
               "release-admission": macos and full_suite and inputs["release_build"] == "true",
