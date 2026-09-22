@@ -452,40 +452,10 @@ jobs:
     needs:
       - changes
       - static-preflight
-      - guards
-      - ghosttykit-release-check
-      - web
-    # Admit macOS directly from the cheap-layer aggregates. Reusable guard/web
-    # workflows already validate their routed children, so another Linux
-    # rollup adds a runner hop without adding evidence.
-    if: >-
-      ${{
-        !cancelled()
-        && needs.changes.result == 'success'
-        && needs.static-preflight.result == 'success'
-        && needs.changes.outputs.macos != 'false'
-        && needs.web.result == 'success'
-        && (
-          needs.guards.result == 'success'
-          || (
-            needs.changes.outputs.linux_guard_tests == 'false'
-            && needs.changes.outputs.linux_guard_history == 'false'
-            && needs.changes.outputs.linux_guard_cli == 'false'
-            && needs.changes.outputs.linux_guard_source == 'false'
-            && needs.guards.result == 'skipped'
-          )
-        )
-        && (
-          (
-            needs.changes.outputs.ghosttykit_release == 'true'
-            && needs.ghosttykit-release-check.result == 'success'
-          )
-          || (
-            needs.changes.outputs.ghosttykit_release == 'false'
-            && needs.ghosttykit-release-check.result == 'skipped'
-          )
-        )
-      }}
+    # macOS admission is independent of the routed Linux suites. Start it
+    # after the cheap static checks so its compile and test shards overlap the
+    # web and guard jobs instead of waiting on their aggregate verdict.
+    if: ${{ !cancelled() && needs.changes.result == 'success' && needs.static-preflight.result == 'success' && needs.changes.outputs.macos != 'false' }}
     permissions:
       actions: read
       contents: read
@@ -529,6 +499,10 @@ jobs:
               for name, data in sorted(needs.items())
               if data["result"] not in allowed
           }
+
+          for name in ("changes", "static-preflight"):
+              if needs[name]["result"] != "success":
+                  bad[name] = needs[name]["result"]
 
           changes = needs["changes"]
           if changes["result"] == "success":
