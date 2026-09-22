@@ -1,4 +1,5 @@
 #if os(iOS)
+import CmuxMobileSupport
 import SwiftUI
 
 /// A real Mac Settings capture. It keeps the selected Mobile sidebar item and
