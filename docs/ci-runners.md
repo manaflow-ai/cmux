@@ -1,27 +1,67 @@
 # CI runners
 
 Every CI/CD job picks its runner from a repository variable instead of a
-hardcoded label. Linux uses Blacksmith. macOS uses ephemeral Tart VMs on the
-cmux Mac fleet. Changing a runner type is a single repository-variable update
+hardcoded label. Changing a runner type is a single repository-variable update
 that takes effect on the next workflow run.
 
-| Variable            | Used by                                                    | Active value                | Fallback baked into the workflow |
-| ------------------- | ---------------------------------------------------------- | --------------------------- | -------------------------------- |
-| `LINUX_RUNNER`      | every Linux job (`ci.yml` web/typecheck/db, presence, cloud-vm, nightly/ios decide jobs, claude, homebrew, tmux fuzz) | `blacksmith-4vcpu-ubuntu-2404` | `blacksmith-4vcpu-ubuntu-2404` |
-| `LINUX_ARM64_RUNNER` | native ARM64 package entrypoint verification              | `ubuntu-24.04-arm`          | `ubuntu-24.04-arm`               |
-| `MACOS_RUNNER_15`   | universal Release app builds: nightly, stable release, `release-ghostty-cli-helper`, most macOS defaults | `tart-macos-15` | `blacksmith-6vcpu-macos-15`      |
+Linux uses Blacksmith. macOS uses Blacksmith cloud runners, with the
+self-hosted Tart fleet described below carrying specific lanes as they are
+qualified. WarpBuild is paid overflow and is not a steady state for any lane.
+
+**The table below is the intended steady state, not a live readout.** Repository
+variables drift, and a stale table is worse than no table. For what is actually
+set right now:
+
+```sh
+gh variable list --repo manaflow-ai/cmux
+```
+
+| Variable | Used by | Intended steady state | Fallback baked into the workflow |
+| --- | --- | --- | --- |
+| `LINUX_RUNNER` | every Linux job (`ci.yml` web/typecheck/db, presence, cloud-vm, nightly/ios decide jobs, claude, homebrew, tmux fuzz) | `blacksmith-4vcpu-ubuntu-2404` | `blacksmith-4vcpu-ubuntu-2404` |
+| `LINUX_ARM64_RUNNER` | native ARM64 package entrypoint verification | `ubuntu-24.04-arm` | `ubuntu-24.04-arm` |
+| `MACOS_RUNNER_15` | the macOS 15 default: `macos-compile-admission`, `app-host-unit-tests`, nightly helper and test-cache jobs | `blacksmith-6vcpu-macos-15` | `blacksmith-6vcpu-macos-15` |
+| `MACOS_RUNNER_PR` | **pull-request** macOS jobs only, in `ci-macos.yml`, `cli-pipe-regressions.yml` and `terminal-hang-diagnostics.yml` | unset (see "Lanes" below) | `blacksmith-6vcpu-macos-15` |
+| `MACOS_RUNNER_TESTS` | the manual test-debugging lanes: `test-e2e.yml` and `test-depot.yml` | unset (see "Lanes" below) | `blacksmith-6vcpu-macos-15` |
 | `MACOS_RUNNER_DUAL_XCODE` | `swift-package-tests` (SDK 15 release helper, then SDK 26 package tests) | `blacksmith-6vcpu-macos-15` | `blacksmith-6vcpu-macos-15` |
-| `MACOS_RUNNER_26`   | macOS 26 compatibility jobs                                | `blacksmith-6vcpu-macos-26` | `blacksmith-6vcpu-macos-26`      |
-| `MACOS_RUNNER_26_NIGHTLY_BUILD` | changed-revision universal Nightly app builds       | `blacksmith-12vcpu-macos-26` | `blacksmith-12vcpu-macos-26`     |
-| `MACOS_RUNNER_26_RELEASE` | disk-heavy `release-build` universal app             | `blacksmith-6vcpu-macos-26` | `blacksmith-6vcpu-macos-26`      |
-| `MACOS_RUNNER_DISPLAY` | macOS GUI, XCUITest, and virtual-display tests           | `tart-gui`                  | `blacksmith-6vcpu-macos-15`      |
-| `MACOS_RUNNER_IOS`  | iOS simulator tests + TestFlight upload (`test-ios.yml`, `ios-testflight.yml`) | `tart-ios` | `blacksmith-6vcpu-macos-26`  |
+| `MACOS_RUNNER_26` | macOS 26 compatibility jobs and nightly sign/notarize | `blacksmith-6vcpu-macos-26` | `blacksmith-6vcpu-macos-26` |
+| `MACOS_RUNNER_26_NIGHTLY_BUILD` | changed-revision universal Nightly app builds | `blacksmith-12vcpu-macos-26` | `blacksmith-6vcpu-macos-26` |
+| `MACOS_RUNNER_26_RELEASE` | disk-heavy `release-build` universal app | `blacksmith-6vcpu-macos-26` | `blacksmith-6vcpu-macos-26` |
+| `MACOS_RUNNER_DISPLAY` | macOS GUI, XCUITest, and virtual-display tests (`tests-build-and-lag`) | `blacksmith-6vcpu-macos-15` | `blacksmith-6vcpu-macos-15` |
+| `MACOS_RUNNER_IOS` | iOS simulator tests + TestFlight upload (`test-ios.yml`, `ios-testflight.yml`) | `blacksmith-6vcpu-macos-26` | `blacksmith-6vcpu-macos-26` |
+| `MACOS_RUNNER_STREAMED_VALIDATION` | `ios-streamed-validate.yml`, `iroh-release-gate.yml` streamed validation | `blacksmith-6vcpu-macos-15` | `blacksmith-6vcpu-macos-26` and `blacksmith-6vcpu-macos-15` respectively |
+
+## Lanes
+
+Not every macOS job follows the same variable, because not every macOS job has
+the same cost profile or the same urgency.
+
+- **Required CI on `main`, the merge queue, releases and nightly** follow the
+  `MACOS_RUNNER_*` variables above. This is the lane where a slow or queued
+  runner blocks a merge or a ship, so it is the lane worth paying for if paid
+  capacity is ever warranted.
+- **Pull requests** resolve through `MACOS_RUNNER_PR` first. Unset means
+  Blacksmith. PR runs are cancelled on supersession by design, so they are the
+  wrong place to spend elastic paid capacity.
+- **Manual test debugging** (`test-e2e.yml`, `test-depot.yml`) resolves through
+  `MACOS_RUNNER_TESTS`, and deliberately does **not** follow `MACOS_RUNNER_15`.
+  Re-running one test to chase a flake should never reach for paid capacity.
+
+`MACOS_RUNNER_PR` and `MACOS_RUNNER_TESTS` are escape hatches: leaving them
+unset is the intended state, and setting one overrides just that lane without
+touching required CI. That makes a rollback a variable edit rather than a
+revert.
 
 Workflows reference them as `runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}`.
 If a variable is unset the job uses the fallback, so CI is never broken by a
 missing variable. Pull requests from forks never see repository variables, so
 the fallback is where they always run: it must be a Blacksmith label, never the
-paid Warp overflow. `tests/test_ci_self_hosted_guard.sh` enforces that.
+paid Warp overflow. `tests/test_ci_self_hosted_guard.sh` enforces that, and
+also asserts that no workflow names a Warp label as a literal anywhere.
+
+Because forks cannot see repository variables, a fork pull request resolves
+`MACOS_RUNNER_PR` and `MACOS_RUNNER_TESTS` to empty and lands on the Blacksmith
+fallback. That is the same runner it used before those variables existed.
 
 ## Persistent compile-admission pilot
 
@@ -139,9 +179,13 @@ gh variable set MACOS_RUNNER_DUAL_XCODE --repo manaflow-ai/cmux -b blacksmith-6v
 gh variable set MACOS_RUNNER_26         --repo manaflow-ai/cmux -b blacksmith-6vcpu-macos-26
 gh variable set MACOS_RUNNER_26_NIGHTLY_BUILD --repo manaflow-ai/cmux -b blacksmith-12vcpu-macos-26
 gh variable set MACOS_RUNNER_26_RELEASE --repo manaflow-ai/cmux -b blacksmith-6vcpu-macos-26
-gh variable set MACOS_RUNNER_DISPLAY    --repo manaflow-ai/cmux -b depot-macos-latest
+gh variable set MACOS_RUNNER_DISPLAY    --repo manaflow-ai/cmux -b blacksmith-6vcpu-macos-15
 gh variable set MACOS_RUNNER_IOS        --repo manaflow-ai/cmux -b blacksmith-6vcpu-macos-26
 ```
+
+Leave `MACOS_RUNNER_PR` and `MACOS_RUNNER_TESTS` unset in either recipe.
+They exist to hold the pull-request and manual test lanes on Blacksmith
+independently of whatever the pool above is set to.
 
 Restore the self-hosted pool with explicit labels:
 
