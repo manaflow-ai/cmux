@@ -630,6 +630,26 @@ struct MainWindowZoomPlacementTests {
         }
     }
 
+    @Test func accessibilityStyleResizeClearsZoomIntentBeforeActivation() throws {
+        try withZoomedWindow { window, delegate in
+            var placed = window.frame
+            placed.origin.x += 40
+            placed.size.width -= 120
+            placed.size.height -= 80
+            window.setFrame(placed, display: false)
+
+            // Accessibility window managers set a frame without AppKit's
+            // will-move or live-resize callbacks. didResize is the first
+            // placement signal cmux sees.
+            delegate.windowDidResize?(Notification(
+                name: NSWindow.didResizeNotification,
+                object: window
+            ))
+
+            expectActivationPreservesPlacement(window)
+        }
+    }
+
     @Test func automaticOriginChangesPreserveZoomRecovery() throws {
         try withZoomedWindow { window, _ in
             window.setFrameOrigin(NSPoint(x: window.frame.minX + 20, y: window.frame.minY))
