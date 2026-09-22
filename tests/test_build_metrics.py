@@ -107,6 +107,9 @@ class BuildMetricsTests(unittest.TestCase):
         self.assertIn("-showBuildTimingSummary", compile_script)
         self.assertIn("python3 scripts/ci/build_metrics.py", workflow)
         self.assertIn("xcode-build-metrics-${{ github.run_id }}-${{ github.run_attempt }}", workflow)
+        self.assertIn("steps.hosted-compile.outcome != 'skipped'", workflow)
+        self.assertIn("--compile-outcome \"$HOSTED_COMPILE_OUTCOME\"", workflow)
+        self.assertIn("steps.build-metrics.outcome == 'success'", workflow)
         self.assertIn("continue-on-error: true", workflow)
 
     def test_receipt_discovers_logs_and_activity_metadata(self):
