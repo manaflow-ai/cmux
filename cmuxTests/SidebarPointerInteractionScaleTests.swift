@@ -336,11 +336,23 @@ final class SidebarIssue8373StressTests {
         return try #require(NSEvent(cgEvent: event))
     }
 
-    private static func peakResidentBytes() -> Int64 {
-        var usage = rusage()
-        guard getrusage(RUSAGE_SELF, &usage) == 0 else { return 0 }
-        // Darwin reports ru_maxrss in bytes.
-        return Int64(usage.ru_maxrss)
+    private static func physicalFootprintBytes() -> UInt64 {
+        var info = task_vm_info_data_t()
+        var count = mach_msg_type_number_t(
+            MemoryLayout<task_vm_info_data_t>.size / MemoryLayout<natural_t>.size
+        )
+        let result = withUnsafeMutablePointer(to: &info) { pointer in
+            pointer.withMemoryRebound(to: integer_t.self, capacity: Int(count)) { rebound in
+                task_info(
+                    mach_task_self_,
+                    task_flavor_t(TASK_VM_INFO),
+                    rebound,
+                    &count
+                )
+            }
+        }
+        guard result == KERN_SUCCESS else { return 0 }
+        return UInt64(info.phys_footprint)
     }
 
     @Test(.timeLimit(.minutes(2)))
@@ -394,7 +406,8 @@ final class SidebarIssue8373StressTests {
         var idReads = 0
         SidebarWorkspaceRenderItemDiagnostics.onIDRead = { _ in idReads += 1 }
         harness.counter.reset()
-        let peakResidentBefore = Self.peakResidentBytes()
+        let footprintBefore = Self.physicalFootprintBytes()
+        var maximumFootprint = footprintBefore
         let logStart = Date()
         var insertedWorkspaces: [Workspace] = []
 
@@ -501,6 +514,7 @@ final class SidebarIssue8373StressTests {
             }
 
             await SidebarLazyLayoutScaleTests.drainMainRunLoop(for: harness.window, iterations: 2)
+            maximumFootprint = max(maximumFootprint, Self.physicalFootprintBytes())
 
             let structuralIDs = Self.renderIDs(harness.tabManager)
             #expect(
@@ -516,8 +530,10 @@ final class SidebarIssue8373StressTests {
         let stressWorkspaceBodies = harness.counter.workspaceRowBodies
         let stressGroupBodies = harness.counter.groupHeaderBodies
         let stressMaxSnapshotsInsideOneRowBody = harness.counter.maxSnapshotBuildsInOneRowBody
-        let peakResidentAfter = Self.peakResidentBytes()
-        let residentGrowth = max(0, peakResidentAfter - peakResidentBefore)
+        maximumFootprint = max(maximumFootprint, Self.physicalFootprintBytes())
+        let footprintGrowth = maximumFootprint >= footprintBefore
+            ? maximumFootprint - footprintBefore
+            : 0
 
         let faultMessages = try SidebarLazyLayoutScaleTests.viewUpdateFaultMessages(since: logStart)
         #expect(
@@ -560,11 +576,11 @@ final class SidebarIssue8373StressTests {
             Row replacement/layout churn exceeded the bounded contract.
             """
         )
-        if peakResidentBefore > 0, peakResidentAfter > 0 {
+        if footprintBefore > 0, maximumFootprint > 0 {
             #expect(
-                residentGrowth < 768 * 1024 * 1024,
+                footprintGrowth < 768 * 1024 * 1024,
                 """
-                #8373 stress grew peak RSS by \(residentGrowth / (1024 * 1024)) MiB.
+                #8373 stress grew physical footprint by \(footprintGrowth / (1024 * 1024)) MiB.
                 The historical failure grew by gigabytes; this workload must remain bounded.
                 """
             )
@@ -578,7 +594,7 @@ final class SidebarIssue8373StressTests {
                 + "workspace_row_bodies=\(stressWorkspaceBodies) "
                 + "group_row_bodies=\(stressGroupBodies) "
                 + "max_row_owned_snapshots=\(stressMaxSnapshotsInsideOneRowBody) "
-                + "peak_rss_growth_mib=\(residentGrowth / (1024 * 1024))"
+                + "peak_footprint_growth_mib=\(footprintGrowth / (1024 * 1024))"
         )
 
         // After all input stops, the same hosted list must go quiet. A
