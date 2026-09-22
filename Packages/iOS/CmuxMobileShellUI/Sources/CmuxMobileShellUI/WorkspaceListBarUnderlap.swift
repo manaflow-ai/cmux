@@ -11,7 +11,9 @@ import SwiftUI
 struct WorkspaceListBarUnderlap: ViewModifier {
     func body(content: Content) -> some View {
         if #available(iOS 26.0, *) {
-            content.ignoresSafeArea(.container, edges: .vertical)
+            // The terminal or composer owns keyboard avoidance. Keep the
+            // workspace table full height during their keyboard transitions.
+            content.ignoresSafeArea([.container, .keyboard], edges: .vertical)
         } else {
             content
         }

@@ -26,6 +26,7 @@ struct RemoteTmuxNotificationLifecycleTests {
 
     @MainActor
     private final class Harness {
+        let previousNotificationStore: TerminalNotificationStore?
         let windowID: UUID
         let controller: RemoteTmuxController
         let host: RemoteTmuxHost
@@ -37,6 +38,8 @@ struct RemoteTmuxNotificationLifecycleTests {
 
         init(controller: RemoteTmuxController? = nil) throws {
             let appDelegate = try #require(AppDelegate.shared)
+            previousNotificationStore = appDelegate.notificationStore
+            appDelegate.notificationStore = TerminalNotificationStore.shared
             windowID = appDelegate.createMainWindow()
             manager = try #require(appDelegate.tabManagerFor(windowId: windowID))
             self.controller = controller ?? RemoteTmuxController()
@@ -94,7 +97,7 @@ struct RemoteTmuxNotificationLifecycleTests {
             connection.handleMessageForTesting(.windowPaneChanged(windowId: 2, paneId: 4))
         }
 
-        private func drainPendingCommands(paneRectLines: [String]) {
+        func drainPendingCommands(paneRectLines: [String]) {
             while let kind = connection.pendingCommandKindsForTesting.first {
                 let lines: [String]
                 if case .paneRects = kind {
@@ -111,6 +114,7 @@ struct RemoteTmuxNotificationLifecycleTests {
         }
 
         func tearDown() {
+            AppDelegate.shared?.notificationStore = previousNotificationStore
             TerminalNotificationStore.shared.clearAll()
             controller.detach(host: host, sessionName: "notification")
             writer.close()
@@ -322,9 +326,8 @@ struct RemoteTmuxNotificationLifecycleTests {
             $0.hasPrefix("select-pane ")
         }
         #expect(selectCommands.last?.contains("-t @2.%4") == true)
-        harness.connection.handleMessageForTesting(
-            .commandResult(commandNumber: 3, lines: [], isError: false)
-        )
+        harness.drainPendingCommands(paneRectLines: ["%4 0 0 80 24 1 off :0 \"host\""])
+
         harness.connection.handleMessageForTesting(
             .windowPaneChanged(windowId: 2, paneId: 4)
         )

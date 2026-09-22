@@ -169,4 +169,22 @@ struct MachineCreateOptimisticProjectionTests {
         #expect(coordinator.lastFinished?.outcome == .created(machineID: "already-created", workspaceID: workspaceID))
     }
 
+    @Test func optimisticWorkspaceSuccessStaysSilentWithoutReselecting() {
+        let launches = MachineCreateCoordinatorTests.LaunchRecorder()
+        var notices = 0
+        let coordinator = MachineCreateCoordinator(
+            notifier: { _ in notices += 1 },
+            selectWorkspace: { _, _ in false },
+            notificationCenter: NotificationCenter()
+        )
+        let workspaceID = UUID()
+        let request = MachineCreateCoordinatorTests.newMachineRequest()
+            .targetingReservedWorkspace(workspaceID)
+        #expect(coordinator.start(request, launch: launches.launch))
+
+        launches.complete(status: 0, output: "Created Cloud VM calm-petrel\n", workspaceID: workspaceID)
+
+        #expect(notices == 0, "the reserved workspace was already presented")
+    }
+
 }

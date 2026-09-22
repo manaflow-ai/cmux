@@ -1984,37 +1984,13 @@ final class BrowserPanel: Panel, ObservableObject {
     let stableSurfaceIdentity = PanelStableSurfaceIdentity()
     let panelType: PanelType = .browser
     let cloudAccess = CloudBrowserAccessState()
-    private var cloudBrowserMachineID: String?
-    private var cloudBrowserStoreIdentity: UUID?
-    private var cloudBrowserProxyEndpoint: CloudBrowserProxyEndpoint?
-
-    /// Cloud panes use their own persistent data store so configuring one VM cannot reroute another.
-    func prepareCloudBrowserStore(machineID: String) {
-        let identifier = CloudBrowserRouting.storeID(panelID: id, profileID: profileID, machineID: machineID)
-        guard cloudBrowserStoreIdentity != identifier else { return }
-        cloudBrowserMachineID = machineID
-        cloudBrowserStoreIdentity = identifier
-        cloudBrowserProxyEndpoint = nil
-        websiteDataStore = preservesExplicitEphemeralWebsiteDataStore
-            ? .nonPersistent() : WKWebsiteDataStore(forIdentifier: identifier)
-        // The route may still be connecting. Do not construct its WebView with
-        // an unconfigured store: its first network session must own the proxy.
-    }
-
-    /// Apply proxy credentials before the first request, with no system-network fallback.
-    func prepareCloudBrowserNavigation() {
-        guard let endpoint = cloudAccess.model?.browserProxy,
-              let address = cloudAccess.model?.target.host else { return }
-        guard endpoint != cloudBrowserProxyEndpoint else { return }
-        cloudBrowserProxyEndpoint = endpoint
-        websiteDataStore.proxyConfigurations = [CloudBrowserRouting.configuration(endpoint: endpoint, address: address)]
-        if webView.configuration.websiteDataStore !== websiteDataStore {
-            replaceWebViewPreservingState(from: webView, websiteDataStore: websiteDataStore,
-                                         reason: "cloud_browser_route", restoreAfterReplacement: false)
-        }
-    }
-
     func showCloudAddress(_ url: URL) { currentURL = url }
+    var cloudBrowserMachineID: String?
+    var cloudBrowserStoreIdentity: UUID?
+    var cloudBrowserProxyEndpoint: CloudBrowserProxyEndpoint?
+    /// Saved Cloud path waiting for a provider/resource to become available.
+    /// It is consumed after the first successful authenticated configuration.
+    var pendingCloudRestoreURL: URL?
 
     /// The workspace ID this panel belongs to
     private(set) var workspaceId: UUID
@@ -2031,7 +2007,7 @@ final class BrowserPanel: Panel, ObservableObject {
     var browserViewportHostRestorationTask: Task<Void, Never>?
     var browserViewportHostRestorationPending = false
     var websiteDataStore: WKWebsiteDataStore
-    private let preservesExplicitEphemeralWebsiteDataStore: Bool
+    let preservesExplicitEphemeralWebsiteDataStore: Bool
     var browserAutomationUserScripts: [WKUserScript] = []
     var browserAutomationInitScriptCount = 0
     var browserAutomationStyleScriptCount = 0
@@ -3090,6 +3066,17 @@ final class BrowserPanel: Panel, ObservableObject {
                 forMainFrameOnly: false
             )
         )
+        // WebKit's `loadHTMLString(_:baseURL:)` can defer document-start user
+        // scripts until its synthetic about:blank document commits. Re-run the
+        // idempotent bridge at document end so a parsed `<base>` URL receives
+        // the same loopback rewriting contract as a normal navigation.
+        configuration.userContentController.addUserScript(
+            WKUserScript(
+                source: RemoteLoopbackRuntimeBridge.runtimeBridgeScriptSource,
+                injectionTime: .atDocumentEnd,
+                forMainFrameOnly: false
+            )
+        )
         configuration.userContentController.addUserScript(WKUserScript(source: BrowserWebAuthnBridgeContract.relayScriptSource, injectionTime: .atDocumentStart, forMainFrameOnly: true, in: BrowserWebAuthnBridgeContract.contentWorld)); configuration.userContentController.addUserScript(
             WKUserScript(
                 source: BrowserWebAuthnBridgeContract.scriptSource,
@@ -3245,7 +3232,7 @@ final class BrowserPanel: Panel, ObservableObject {
                     targetURL: Self.remoteProxyDisplayURL(for: self.navigationDelegate?.lastAttemptedURL)
                         ?? self.navigationDelegate?.lastAttemptedURL
                 )
-                self.cloudAccess.didStart(url: self.navigationDelegate?.lastAttemptedURL)
+                self.cloudAccess.didStart(url: self.navigationDelegate?.lastAttemptedURL, navigationID: navigation.map(ObjectIdentifier.init))
                 self.isMainFrameProvisionalNavigationActive = true
                 self.refreshBackgroundAppearance()
                 self.applyMuteState(to: webView, reason: "navigationStart")
@@ -3262,7 +3249,18 @@ final class BrowserPanel: Panel, ObservableObject {
                     instanceID: boundWebViewInstanceID,
                     navigationID: navigation.map { ObjectIdentifier($0) }
                 )
-                self.cloudAccess.didCommit(url: webView.url)
+                let leavingCloudRoute = self.retainsCloudResourceForDuplication
+                    && webView.url.map {
+                        ["http", "https"].contains($0.scheme?.lowercased() ?? "")
+                            && !self.cloudAccess.owns($0)
+                    } == true
+                if leavingCloudRoute {
+                    if let url = webView.url, self.rebindCloudRouteIfNeeded(to: url) == false {
+                        self.leaveCloudResourceForLocalNavigation()
+                    }
+                } else {
+                    self.cloudAccess.didCommit(url: webView.url, navigationID: navigation.map(ObjectIdentifier.init))
+                }
                 // An about:blank placeholder leaves the restore-stall detector armed.
                 if !Self.isAboutBlankURL(webView.url) {
                     self.hasCommittedDocumentSinceWebViewReplacement = true
@@ -3303,7 +3301,7 @@ final class BrowserPanel: Panel, ObservableObject {
         navigationDelegate.didFailNavigation = { [weak self] failedWebView, failedURL, failureMessage, failedNavigation in
             MainActor.assumeIsolated {
                 guard let self, self.isCurrentWebView(failedWebView, instanceID: boundWebViewInstanceID) else { return }
-                self.cloudAccess.didFail(url: URL(string: failedURL), message: failureMessage)
+                self.cloudAccess.didFail(url: URL(string: failedURL), message: failureMessage, navigationID: failedNavigation.map(ObjectIdentifier.init))
                 self.automationNavigationCoordinator.didFail(
                     instanceID: boundWebViewInstanceID,
                     navigationID: failedNavigation.map { ObjectIdentifier($0) },
@@ -3365,6 +3363,7 @@ final class BrowserPanel: Panel, ObservableObject {
             MainActor.assumeIsolated {
                 guard let self, self.isCurrentWebView(webView, instanceID: boundWebViewInstanceID) else { return }
                 (webView as? CmuxWebView)?.diffViewerNavigationDidCancel(cancelledNavigation)
+                self.cloudAccess.didCancel(navigationID: cancelledNavigation.map(ObjectIdentifier.init))
                 self.automationNavigationCoordinator.didCancel(
                     instanceID: boundWebViewInstanceID,
                     navigationID: cancelledNavigation.map { ObjectIdentifier($0) }
@@ -3440,7 +3439,7 @@ final class BrowserPanel: Panel, ObservableObject {
             GlobalSearchCoordinator.shared.captureBrowserPanel(self)
             return
         }
-        currentURL = Self.remoteProxyDisplayURL(for: webView.url)
+        currentURL = cloudAccess.displayURL(webView.url) ?? Self.remoteProxyDisplayURL(for: webView.url)
         navigationDelegate?.clearAttemptedRequest()
         refreshBackgroundAppearance()
         GlobalSearchCoordinator.shared.captureBrowserPanel(self)
@@ -4544,7 +4543,11 @@ final class BrowserPanel: Panel, ObservableObject {
         )
 
         currentURL = restoredURL
-
+        if let resource = snapshot.cloudResource {
+            restoreCloudResource(resource, preferredURL: restoredURL, activate: shouldRenderRestoredWebView)
+            if !shouldRenderRestoredWebView { shouldRenderWebView = false; refreshNavigationAvailability() }
+            return
+        }
         guard shouldRenderRestoredWebView, let restoredURL else {
             shouldRenderWebView = false
             refreshNavigationAvailability()
@@ -4650,7 +4653,7 @@ final class BrowserPanel: Panel, ObservableObject {
                 guard let self, isCurrentObservedWebView(self, webView) else { return }
                 guard !self.isMainFrameProvisionalNavigationActive else { return }
                 self.designModeController.webViewURLDidChange(to: observedURL)
-                self.currentURL = Self.remoteProxyDisplayURL(for: observedURL) ?? observedURL
+                self.currentURL = self.cloudAccess.displayURL(observedURL) ?? Self.remoteProxyDisplayURL(for: observedURL) ?? observedURL
                 self.refreshBackgroundAppearance()
                 GlobalSearchCoordinator.shared.captureBrowserPanel(self)
             }
@@ -4841,10 +4844,13 @@ final class BrowserPanel: Panel, ObservableObject {
             portalAnchorView.layer?.backgroundColor = NSColor.clear.cgColor
             return
         }
-        if usesTransparentBackground {
+        if usesTransparentBackground || cloudAccess.isPreparingDocument {
             // Transparent internal pages keep their page CSS clear. On opaque
             // themes, the native webview layer owns the terminal-color backing
             // fill so loading/empty/code regions never fall through to window gray.
+            // Any Cloud document can wait for CSS after committing. Keep the pane
+            // backing until load completes, then restore normal page rendering,
+            // including the default background of websites without their own CSS.
             webView.wantsLayer = true
             webView.setValue(false, forKey: "drawsBackground")
             webView.underPageBackgroundColor = color
@@ -5419,6 +5425,7 @@ final class BrowserPanel: Panel, ObservableObject {
         recordTypedNavigation: Bool = false,
         onNavigationStarted: ((WKNavigation?) -> Void)? = nil
     ) -> WKNavigation? {
+        var leaveCloudRouteAfterValidation = false
         if cloudAccess.model != nil && cloudAccess.owns(url) {
             if cloudAccess.model?.isReady != true { return nil }
             prepareCloudBrowserNavigation()
@@ -5429,7 +5436,7 @@ final class BrowserPanel: Panel, ObservableObject {
             provider.configureBrowser(self, url: url)
             return nil
         } else {
-            cloudAccess.leave()
+            leaveCloudRouteAfterValidation = retainsCloudResourceForDuplication
         }
         let request = URLRequest(url: url)
         let policy = BrowserURLAllowlistPolicy(defaults: .standard)
@@ -5447,6 +5454,9 @@ final class BrowserPanel: Panel, ObservableObject {
                 onNavigationStarted: onNavigationStarted
             )
             return nil
+        }
+        if leaveCloudRouteAfterValidation {
+            leaveCloudResourceForLocalNavigation()
         }
         return navigateWithoutInsecureHTTPPrompt(
             request: request,
@@ -6434,6 +6444,7 @@ extension BrowserPanel {
 
     /// Stop loading
     func stopLoading() {
+        cloudAccess.didCancel()
         // Fail closed: a reveal must never blank-shell-heal over an explicit Stop.
         userStoppedLoadSinceWebViewReplacement = true
         webView.stopLoading()

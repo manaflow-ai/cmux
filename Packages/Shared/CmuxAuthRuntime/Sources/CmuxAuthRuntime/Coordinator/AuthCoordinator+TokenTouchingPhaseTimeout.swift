@@ -12,6 +12,8 @@ extension AuthCoordinator {
             log.log("auth.phase=\(phase.rawValue) previous timed-out token work still active")
             throw AuthError.timedOut
         }
+        try Task.checkCancellation()
+        let deadline = clock.authTokenDeadline(after: timeout)
         let phaseID = UUID()
         let generation = sessionGeneration
         let signOutEpoch = signOutEpoch
@@ -28,6 +30,8 @@ extension AuthCoordinator {
                 signOutEpoch: signOutEpoch,
                 storeWriteHighWater: storeWriteHighWater
             )
+            try Task.checkCancellation()
+            guard !deadline.hasExpired() else { throw AuthError.timedOut }
             switch result {
             case .success(let value):
                 return value
@@ -54,7 +58,8 @@ extension AuthCoordinator {
                 phaseTask,
                 id: phaseID,
                 phase: phase,
-                timeout: timeout
+                timeout: timeout,
+                deadline: deadline
             )
         } onCancel: {
             phaseTask.cancel()
@@ -68,7 +73,8 @@ extension AuthCoordinator {
         _ phaseTask: Task<T, any Error>,
         id: UUID,
         phase: AuthPhase,
-        timeout: Duration
+        timeout: Duration,
+        deadline: AuthTokenDeadline
     ) async throws -> T {
         try Task.checkCancellation()
         let race = AuthPhaseTimeoutRace()
@@ -84,9 +90,9 @@ extension AuthCoordinator {
                     continuation.finish(throwing: error)
                 }
             }
-            let deadline = Task { [clock, log] in
+            let timer = Task { [log] in
                 do {
-                    try await clock.sleep(for: timeout, tolerance: nil)
+                    try await deadline.wait()
                     try Task.checkCancellation()
                 } catch {
                     return
@@ -101,7 +107,7 @@ extension AuthCoordinator {
             }
             continuation.onTermination = { _ in
                 phaseWaiter.cancel()
-                deadline.cancel()
+                timer.cancel()
             }
         }
 

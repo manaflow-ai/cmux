@@ -24,7 +24,7 @@ actor CloudBrowserProxyProcess {
 
     init(addresses: [String]) { self.addresses = addresses }
 
-    /// The browser carrier authenticates with its generated CONNECT credential
+    /// The browser carrier authenticates with its generated proxy credential
     /// and its explicit state directory. It must not inherit app login material
     /// or dogfood passwords from the GUI process environment.
     nonisolated static func sanitizedEnvironment(_ environment: [String: String]) -> [String: String] {

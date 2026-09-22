@@ -185,6 +185,9 @@ struct CloudTerminalPaneReservationTests {
     func restoredAttachmentRejectsChangedPlacement(change: String) throws {
         let catalog = SurfaceCatalog()
         var resource = Self.resource()
+        let provider = CloudTerminalPlacementTestProvider(machine: resource.machine, catalog: catalog)
+        catalog.register(provider)
+        defer { catalog.unregister(machine: provider.machine) }
         let saved = SurfaceRemoteWorkspace(id: "saved-workspace", name: "Saved", index: 0, focused: false)
         let other = SurfaceRemoteWorkspace(id: "other-workspace", name: "Other", index: 1, focused: true)
         resource.remoteWorkspace = other
@@ -193,7 +196,8 @@ struct CloudTerminalPaneReservationTests {
             SurfaceRemoteView(tabID: "sibling-tab", workspace: saved),
             SurfaceRemoteView(tabID: "saved-tab", workspace: saved)
         ]
-        catalog.upsert(resource)
+        catalog.upsert(resource, from: provider)
+        try #require(catalog.resources[resource.id] == resource)
         let reservation = CloudTerminalPaneReservation(
             workspaceID: UUID(), panelID: UUID(), machine: resource.machine,
             attachmentPlacement: SurfaceResourcePlacement(
@@ -217,7 +221,8 @@ struct CloudTerminalPaneReservationTests {
         case "wrongMachine": returnedResourceID = SurfaceResourceID(machine: .cloud("other-machine"), kind: .terminal, key: resource.id.key)
         default: Issue.record("Unknown placement change")
         }
-        catalog.upsert(resource)
+        catalog.upsert(resource, from: provider)
+        try #require(catalog.resources[resource.id] == resource)
         #expect(throws: CloudDiagnosticFailure.placement) {
             try reservation.validatedAttachmentPlacement(
                 resourceID: returnedResourceID, remoteTabID: "saved-tab",
@@ -246,12 +251,16 @@ struct CloudTerminalPaneReservationTests {
     @Test("Exact restored replacement preserves saved identity while legacy inference remains available",
           arguments: [false, true])
     @MainActor
-    func replacementKeepsSavedPlacementWhenRequested(preservingSavedPlacement: Bool) {
+    func replacementKeepsSavedPlacementWhenRequested(preservingSavedPlacement: Bool) throws {
         let catalog = SurfaceCatalog()
         var resource = Self.resource()
+        let provider = CloudTerminalPlacementTestProvider(machine: resource.machine, catalog: catalog)
+        catalog.register(provider)
+        defer { catalog.unregister(machine: provider.machine) }
         let other = SurfaceRemoteWorkspace(id: "other-workspace", name: "Other", index: 0, focused: true)
         resource.remoteViews = [SurfaceRemoteView(tabID: "other-tab", workspace: other)]
-        catalog.upsert(resource)
+        catalog.upsert(resource, from: provider)
+        try #require(catalog.resources[resource.id] == resource)
         let previous = SurfaceProjection(
             resource: resource.id, workspaceID: UUID(), panelID: UUID(),
             remoteWorkspaceID: "saved-workspace", remoteTabID: "saved-tab"

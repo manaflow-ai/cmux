@@ -867,6 +867,7 @@ extension MobileShellComposite {
                 // metadata from this promotion before trusting a destination.
                 workspaceGroupsAreAuthoritative: authoritativeSnapshot.groups != nil,
                 status: .connected,
+                workspaceSnapshotIsAuthoritative: true,
                 actionCapabilities: sub.actionCapabilities
             )
             foregroundWorkspaceStateRevision &+= 1

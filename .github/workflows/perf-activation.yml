@@ -5,11 +5,11 @@ on:
   workflow_dispatch:
     inputs:
       ref:
-        description: Branch or SHA to test
+        description: Branch, tag, full SHA, or short SHA to test
         required: false
         default: ""
       runner:
-        description: macOS runner (auto follows MACOS_RUNNER_15, default WarpBuild; pick blacksmith-/depot-* to override)
+        description: macOS runner (auto follows MACOS_RUNNER_15; pick a supported runner to override)
         required: false
         default: auto
         type: choice
@@ -19,8 +19,6 @@ on:
           - blacksmith-6vcpu-macos-26
           - blacksmith-6vcpu-macos-latest
           - warp-macos-15-arm64-6x
-          - depot-macos-latest
-          - depot-macos-14
       workspace_count:
         description: Fixture workspace count
         required: false
@@ -42,17 +40,21 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
-env:
-  SWIFTPM_MIRROR_CONFIG: ${{ github.workspace }}/config/swiftpm/mirrors.json
-
 jobs:
+  resolve-ref:
+    uses: ./.github/workflows/resolve-dispatch-ref.yml
+    with:
+      ref: ${{ inputs.ref }}
+
   activation_changes:
+    needs: resolve-ref
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     outputs:
       macos: ${{ steps.detect.outputs.macos }}
       web: ${{ steps.detect.outputs.web }}
       go: ${{ steps.detect.outputs.go }}
+      target_sha: ${{ needs.resolve-ref.outputs.sha }}
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -115,25 +117,6 @@ jobs:
     env:
       PERF_TAG: perf-${{ github.run_id }}-${{ github.run_attempt }}
     steps:
-      - name: Validate Depot runner identity
-        if: ${{ startsWith(((!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15') || inputs.runner), 'depot-macos-') }}
-        env:
-          REQUESTED_RUNNER: ${{ ((!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15') || inputs.runner) }}
-          RUNNER_CONTEXT_NAME: ${{ runner.name }}
-        run: |
-          set -euo pipefail
-          echo "Requested runner: $REQUESTED_RUNNER"
-          case "$RUNNER_CONTEXT_NAME" in
-            depot-*)
-              echo "Resolved runner matches depot-*? yes"
-              ;;
-            *)
-              echo "Resolved runner matches depot-*? no"
-              echo "::error::$REQUESTED_RUNNER resolved outside Depot. Remove $REQUESTED_RUNNER from non-Depot self-hosted runners or choose an explicit runner."
-              exit 1
-              ;;
-          esac
-
       - name: Clear stale git locks (self-hosted reused workspace)
         shell: bash
         run: |
@@ -149,7 +132,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
-          ref: ${{ inputs.ref || github.ref }}
+          ref: ${{ needs.activation_changes.outputs.target_sha }}
           submodules: recursive
 
       - name: Select Xcode
