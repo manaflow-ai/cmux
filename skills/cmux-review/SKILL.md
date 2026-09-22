@@ -49,6 +49,20 @@ Produce:
 
 Keep this brief useful even when the review finds zero defects.
 
+## 1.5. Check intent compliance
+
+Many agent failures come from implementing the wrong behavior cleanly. Treat task compliance as a first-class review dimension before local bug hunting.
+
+Turn the requested task into concrete requirements and constraints. For each one, record:
+
+- `satisfied` — implementation and/or tests give direct evidence;
+- `missing` — the requested behavior is absent or contradicted;
+- `uncertain` — intent or implementation evidence is ambiguous.
+
+Also call out material **out-of-scope changes**: behavior, dependencies, permissions, APIs, persistence, or refactors that the task did not require and that increase review surface.
+
+A requirement mismatch is a real finding even when every changed line is locally valid. Prefer observable task language over assumptions about what the author meant.
+
 ## 2. Independent discovery
 
 Prefer independent reviewer contexts.
@@ -152,6 +166,8 @@ A verification result is one of:
 - `human_judgment`.
 
 Never convert a failed attempt to reproduce into proof that the code is safe. Record what was attempted.
+
+Treat generated tests as claims that also need review. A green generated test only counts as strong evidence when it actually exercises the asserted failure condition. For a regression repair, prefer proving the test/check fails on the defective state and passes after the repair, or otherwise demonstrate why the check discriminates between the two behaviors.
 
 Avoid leaving generated tests or scratch files in the working tree unless they are genuinely valuable additions. Use temp files, disposable worktrees, or a checkpoint/fork for destructive experiments.
 
