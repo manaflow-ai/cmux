@@ -242,7 +242,11 @@ The top-level `source` is the exact state against which discovery, challenge, an
 
 A successful repair crosses into a new source state. Record that state as `repair.after_source` and record the replay of the original discriminator under `repair.verification`. Do not let post-repair evidence inherit the pre-repair source coordinate implicitly.
 
-A later review of the same source state may reuse a receipt only when the relevant policy/ruleset identity also matches. New source changes require re-evaluating affected findings and dependencies.
+A later review of the same source state may reuse a receipt only when the relevant policy/ruleset identity also matches.
+
+Any source change creates a new review coordinate. A repair does not upgrade the pre-repair receipt into a clean review of the repaired patch. After successful post-repair verification, run a fresh clean-room review against `repair.after_source` and persist a separate receipt for that source. Keep the earlier receipt as prior-head evidence for continuity, false-positive evaluation, and repair provenance.
+
+The exact reviewed disposition is reusable only for its exact source coordinate. Historical claims may still be useful after the source moves, but they require explicit applicability/refresh reasoning instead of silent inheritance.
 
 ## 8. Final report
 
