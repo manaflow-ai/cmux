@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Exercise the Linux route CLI and the real required-status gate."""
 
+import ast
 import json
 import os
 import re
@@ -60,6 +61,29 @@ def route(paths, event="pull_request", macos="false"):
 
 
 class LinuxGuardRoutingTests(unittest.TestCase):
+    def test_guard_ownership_manifest_has_no_duplicate_literal_keys(self):
+        source = (ROOT / "scripts/ci/workflow_guard_groups.py").read_text(encoding="utf-8")
+        tree = ast.parse(source)
+        assignments = {
+            node.targets[0].id: node.value
+            for node in tree.body
+            if isinstance(node, ast.Assign)
+            and len(node.targets) == 1
+            and isinstance(node.targets[0], ast.Name)
+            and node.targets[0].id in {"STEP_OWNERS", "PATH_OWNERS"}
+        }
+        self.assertEqual(set(assignments), {"STEP_OWNERS", "PATH_OWNERS"})
+
+        for name, value in assignments.items():
+            self.assertIsInstance(value, ast.Dict, name)
+            keys = []
+            for key in value.keys:
+                self.assertIsInstance(key, ast.Constant, (name, ast.dump(key)))
+                self.assertIsInstance(key.value, str, (name, ast.dump(key)))
+                keys.append(key.value)
+            duplicates = sorted({key for key in keys if keys.count(key) > 1})
+            self.assertEqual(duplicates, [], (name, duplicates))
+
     def test_cloud_machine_workflow_skips_macos_for_control_plane_only_prs(self):
         workflow_path = ROOT / ".github/workflows/cloud-machine-tests.yml"
         workflow = workflow_path.read_text(encoding="utf-8")
