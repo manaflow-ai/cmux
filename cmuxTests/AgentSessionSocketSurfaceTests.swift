@@ -78,7 +78,7 @@ struct AgentSessionSocketSurfaceTests {
         #expect(panel.workspaceId == destination.id)
         #expect(panel.onRunCommand != nil)
 
-        let result = try #require(panel.onRunCommand?("pwd"))
+        let result = try #require(try panel.onRunCommand?("pwd"))
         let terminalPanelID = try #require(
             (result["terminalPanelId"] as? String).flatMap(UUID.init(uuidString:))
         )
@@ -100,7 +100,7 @@ struct AgentSessionSocketSurfaceTests {
             )
         )
 
-        let result = try #require(panel.onRunCommand?("pwd"))
+        let result = try #require(try panel.onRunCommand?("pwd"))
         let terminalPanelID = try #require(
             (result["terminalPanelId"] as? String).flatMap(UUID.init(uuidString:))
         )
