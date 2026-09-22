@@ -229,10 +229,31 @@ def archive_generation(workspace: Path, derived: Path, outdir: Path, metrics: Pa
     outdir.mkdir(parents=True, exist_ok=True)
     worktree_archive = outdir / "worktree.tar.gz"
     dd_archive = outdir / "derived-data.tar.gz"
+    submodule_paths: list[str] = []
+    gitmodules = workspace / ".gitmodules"
+    if gitmodules.is_file():
+        result = subprocess.run(
+            ["git", "config", "--file", str(gitmodules), "--get-regexp", r"^submodule\..*\.path$"],
+            cwd=workspace,
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        if result.returncode not in (0, 1):
+            raise subprocess.CalledProcessError(result.returncode, result.args, result.stdout, result.stderr)
+        for line in result.stdout.splitlines():
+            _, value = line.split(None, 1)
+            submodule_paths.append(value.strip())
+    worktree_excludes = [
+        "./.git",
+        "./GhosttyKit.xcframework",
+        "./.ci-source-packages",
+        *[f"./{path}" for path in submodule_paths],
+    ]
     worktree_seconds = gzip_tar(
         workspace,
         worktree_archive,
-        excludes=("./.git", "./ghostty", "./GhosttyKit.xcframework", "./.ci-source-packages"),
+        excludes=tuple(worktree_excludes),
     )
     reusable_derived_paths = [
         Path("Build/Intermediates.noindex"),
@@ -293,6 +314,7 @@ def archive_generation(workspace: Path, derived: Path, outdir: Path, metrics: Pa
         "derived_data_compress_seconds": round(dd_seconds, 6),
         "generation_compress_seconds": round(worktree_seconds + dd_seconds, 6),
         "worktree_disk_bytes": du_bytes(workspace),
+        "excluded_submodule_paths": submodule_paths,
         "derived_data_disk_bytes": du_bytes(derived),
         "reusable_derived_data_disk_bytes": sum(reusable_derived_disk_bytes.values()),
         "reusable_derived_data_disk_bytes_by_path": reusable_derived_disk_bytes,
