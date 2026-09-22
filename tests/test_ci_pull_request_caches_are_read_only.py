@@ -3,7 +3,7 @@
 
 A cache saved from a pull request can be read only by that pull request, and
 every save pushes the entries seeded from main out of a size-capped store.
-ci.yml therefore restores only, and each Swift package cache it restores must
+ci-macos.yml therefore restores only, and each Swift package cache it restores must
 be one a main-branch job in nightly.yml saves under the same key and path. The
 local cache-restore and cache-save actions choose the store.
 """
@@ -36,12 +36,12 @@ def cache_steps(workflow: str) -> list[tuple[str, dict]]:
 def main() -> int:
     failures: list[str] = []
 
-    ci_steps = cache_steps("ci.yml")
+    ci_steps = cache_steps("ci-macos.yml")
     if not ci_steps:
-        failures.append("ci.yml has no cache steps; this guard is reading the wrong file")
+        failures.append("ci-macos.yml has no cache steps; this guard is reading the wrong file")
     for job_name, step in ci_steps:
         if not step["uses"].startswith(RESTORE):
-            failures.append(f"ci.yml {job_name}: '{step.get('name')}' uses {step['uses'].split('@')[0]}; pull request jobs must use actions/cache/restore")
+            failures.append(f"ci-macos.yml {job_name}: '{step.get('name')}' uses {step['uses'].split('@')[0]}; pull request jobs must use actions/cache/restore")
 
     seeded = {
         (step["with"]["key"], step["with"]["path"])
@@ -51,7 +51,7 @@ def main() -> int:
     for job_name, step in ci_steps:
         key, path = step["with"]["key"], step["with"]["path"]
         if key.startswith("spm-") and (key, path) not in seeded:
-            failures.append(f"ci.yml {job_name}: no nightly.yml job saves key '{key}' with path '{path}', so this restore can never hit")
+            failures.append(f"ci-macos.yml {job_name}: no nightly.yml job saves key '{key}' with path '{path}', so this restore can never hit")
 
     # The wrappers pick one store per call. Exactly one branch may run, the
     # provider branch only on its own runners, and upstream actions stay pinned.
@@ -93,11 +93,11 @@ def main() -> int:
             if len(revision) != 40 or any(c not in "0123456789abcdef" for c in revision):
                 failures.append(f"cache-{kind}: {step['uses']} is not pinned to a commit")
 
-    # Bucket credentials reach a save step only when that run saves to R2, and
-    # never reach ci.yml, whose jobs run pull request code.
-    ci_text = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
-    if "CF_R2_" in ci_text or "secrets.CI_CACHE_R2_" in ci_text:
-        failures.append("ci.yml must not reference the R2 bucket credentials")
+    # Bucket credentials never reach pull-request code in either CI workflow.
+    for workflow_name in ("ci.yml", "ci-macos.yml"):
+        ci_text = (ROOT / ".github/workflows" / workflow_name).read_text(encoding="utf-8")
+        if "CF_R2_" in ci_text or "secrets.CI_CACHE_R2_" in ci_text:
+            failures.append(f"{workflow_name} must not reference the R2 bucket credentials")
     for job_name, step in cache_steps("nightly.yml"):
         for name, value in (step.get("env") or {}).items():
             if "secrets.CF_R2_" in str(value):

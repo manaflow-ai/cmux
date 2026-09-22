@@ -42,7 +42,7 @@ struct CodexAutoresumeChainTests {
                 arguments: snapshot.launchCommand?.arguments ?? []
             )
         )
-        #expect(resumeArgv.prefix(3) == ["codex", "resume", sessionID])
+        #expect(resumeArgv.prefix(3) == ["/usr/local/bin/codex", "resume", sessionID])
         #expect(resumeArgv.contains("--yolo"))
         #expect(resumeArgv.filter { $0 == sessionID }.count == 1)
 

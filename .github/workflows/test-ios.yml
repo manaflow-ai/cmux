@@ -5,7 +5,7 @@ on:
   workflow_dispatch:
     inputs:
       ref:
-        description: Branch or SHA to test
+        description: Branch, tag, full SHA, or short SHA to test
         required: false
         default: ""
       test_filter:
@@ -48,6 +48,20 @@ on:
           - auto
           - blacksmith-6vcpu-macos-26
           - tart-ios
+      cache_backend:
+        description: "Cache store for this run. default follows CI_CACHE_BACKEND."
+        required: false
+        default: "default"
+        type: choice
+        options:
+          - default
+          - r2
+          - warp
+      seed_cache:
+        description: "On main only, save the iOS SwiftPM and GhosttyKit caches after a successful run."
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -59,14 +73,58 @@ jobs:
     outputs:
       should_run: ${{ steps.detect.outputs.should_run }}
       should_lint: ${{ steps.detect.outputs.should_lint }}
+      target_sha: ${{ steps.target.outputs.sha }}
     steps:
-      - name: Checkout
+      - name: Checkout workflow revision
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          ref: ${{ inputs.ref || github.ref }}
-          fetch-depth: 0
+          ref: ${{ github.ref }}
+          # Manual dispatch only needs this workflow revision. Preserve full
+          # history automatically if pull_request routing is re-enabled later,
+          # because that path computes a merge base below.
+          fetch-depth: ${{ github.event_name == 'pull_request' && '0' || '1' }}
           persist-credentials: false
           submodules: false
+
+      - name: Resolve requested revision
+        id: target
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          REQUESTED_REF: ${{ inputs.ref }}
+          DEFAULT_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          target_sha="$DEFAULT_SHA"
+          if [ -n "$REQUESTED_REF" ]; then
+            target_sha="$(python3 - "$GITHUB_REPOSITORY" "$REQUESTED_REF" <<'PY'
+          import json
+          import os
+          import sys
+          import urllib.parse
+          import urllib.request
+
+          repository, requested_ref = sys.argv[1:3]
+          encoded_ref = urllib.parse.quote(requested_ref, safe="")
+          request = urllib.request.Request(
+              f"https://api.github.com/repos/{repository}/commits/{encoded_ref}",
+              headers={
+                  "Accept": "application/vnd.github+json",
+                  "Authorization": f"Bearer {os.environ['GITHUB_TOKEN']}",
+                  "X-GitHub-Api-Version": "2022-11-28",
+              },
+          )
+          with urllib.request.urlopen(request, timeout=20) as response:
+              payload = json.load(response)
+          print(payload["sha"])
+          PY
+          )"
+          fi
+          if [[ ! "$target_sha" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::Unable to resolve iOS test ref to a full commit SHA"
+            exit 1
+          fi
+          echo "sha=$target_sha" >> "$GITHUB_OUTPUT"
+          echo "Resolved iOS test revision: $target_sha"
 
       - name: Detect iOS changes
         id: detect
@@ -106,7 +164,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          ref: ${{ inputs.ref || github.ref }}
+          ref: ${{ needs.detect-ios-changes.outputs.target_sha }}
           persist-credentials: false
           submodules: false
 
@@ -161,7 +219,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          ref: ${{ inputs.ref || github.ref }}
+          ref: ${{ needs.detect-ios-changes.outputs.target_sha }}
           persist-credentials: false
           submodules: false
 
@@ -318,7 +376,7 @@ jobs:
         if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.device_family != 'both' && inputs.device_family != matrix.family) }}
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          ref: ${{ inputs.ref || github.ref }}
+          ref: ${{ needs.detect-ios-changes.outputs.target_sha }}
           persist-credentials: false
           submodules: recursive
 
@@ -343,6 +401,44 @@ jobs:
       - name: Install zig
         if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.device_family != 'both' && inputs.device_family != matrix.family) }}
         run: ./scripts/install-zig-ci.sh
+
+      - name: Capture Ghostty revision
+        if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.device_family != 'both' && inputs.device_family != matrix.family) }}
+        id: ghostty-revision
+        run: echo "sha=$(git -C ghostty rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Prepare shared iOS cache paths
+        if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.device_family != 'both' && inputs.device_family != matrix.family) }}
+        run: |
+          set -euo pipefail
+          echo "IOS_SPM_CACHE=$PWD/.ci-ios-source-packages" >> "$GITHUB_ENV"
+          echo "CMUX_GHOSTTYKIT_CACHE_DIR=$RUNNER_TEMP/cmux-ghosttykit-cache" >> "$GITHUB_ENV"
+
+      # PR and ordinary manual runs restore only. The explicit main-only seed
+      # path below keeps cache writes out of feature branches and fork runs.
+      - name: Restore iOS SwiftPM cache
+        if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.device_family != 'both' && inputs.device_family != matrix.family) }}
+        uses: ./.github/actions/cache-restore
+        with:
+          backend: ${{ inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND }}
+          path: .ci-ios-source-packages
+          key: ios-spm-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('.xcode-version') }}-${{ hashFiles('ios/cmux.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
+          restore-keys: |
+            ios-spm-${{ runner.os }}-${{ runner.arch }}-
+
+      - name: Restore iOS GhosttyKit cache
+        if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.device_family != 'both' && inputs.device_family != matrix.family) }}
+        uses: ./.github/actions/cache-restore
+        with:
+          backend: ${{ inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND }}
+          path: ${{ runner.temp }}/cmux-ghosttykit-cache
+          key: ios-ghosttykit-${{ runner.os }}-${{ runner.arch }}-${{ steps.ghostty-revision.outputs.sha }}-${{ hashFiles('scripts/ghosttykit-checksums.txt') }}
+          restore-keys: |
+            ios-ghosttykit-${{ runner.os }}-${{ runner.arch }}-
+
+      - name: Sanitize iOS SwiftPM cache
+        if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.device_family != 'both' && inputs.device_family != matrix.family) }}
+        run: python3 scripts/ci/sanitize-xcode-source-packages-cache.py "$IOS_SPM_CACHE"
 
       - name: Ensure iOS simulator runtime
         if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.device_family != 'both' && inputs.device_family != matrix.family) }}
@@ -497,6 +593,7 @@ jobs:
             -scheme cmux-ios \
             -destination "platform=iOS Simulator,id=$SIMULATOR_ID" \
             -derivedDataPath "$IOS_DERIVED_DATA" \
+            -clonedSourcePackagesDirPath "$IOS_SPM_CACHE" \
             -resolvePackageDependencies
 
       - name: Run iOS simulator tests
@@ -510,6 +607,7 @@ jobs:
             -scheme cmux-ios
             -destination "platform=iOS Simulator,id=$SIMULATOR_ID"
             -derivedDataPath "$IOS_DERIVED_DATA"
+            -clonedSourcePackagesDirPath "$IOS_SPM_CACHE"
           )
           if [ -n "${TEST_FILTER:-}" ]; then
             if [[ "$TEST_FILTER" == cmuxUITests/* ]]; then
@@ -570,6 +668,38 @@ jobs:
             fi
             exit "$status"
           done
+
+      - name: Seed iOS caches from main
+        if: ${{ inputs.seed_cache && github.ref == 'refs/heads/main' && matrix.family == 'iphone' && !(github.event_name == 'workflow_dispatch' && inputs.device_family != 'both' && inputs.device_family != matrix.family) }}
+        env:
+          AWS_ACCESS_KEY_ID: ${{ (inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND) == 'r2' && secrets.CI_CACHE_R2_ACCESS_KEY_ID || '' }}
+          AWS_SECRET_ACCESS_KEY: ${{ (inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND) == 'r2' && secrets.CI_CACHE_R2_SECRET_ACCESS_KEY || '' }}
+          CI_CACHE_R2_ENDPOINT: ${{ (inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND) == 'r2' && format('https://{0}.r2.cloudflarestorage.com', secrets.CI_CACHE_R2_ACCOUNT_ID) || '' }}
+          CI_CACHE_R2_BUCKET: ${{ vars.CI_CACHE_R2_BUCKET }}
+        run: |
+          set -euo pipefail
+          cache_backend="${{ inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND }}"
+          if [[ "$cache_backend" == "r2" && -z "${AWS_ACCESS_KEY_ID:-}" ]]; then
+            echo "::error::R2 cache seeding requested but CI_CACHE_R2 credentials are unavailable"
+            exit 1
+          fi
+          echo "Seeding iOS caches through $cache_backend"
+
+      - name: Save iOS SwiftPM cache
+        if: ${{ inputs.seed_cache && github.ref == 'refs/heads/main' && matrix.family == 'iphone' && !(github.event_name == 'workflow_dispatch' && inputs.device_family != 'both' && inputs.device_family != matrix.family) }}
+        uses: ./.github/actions/cache-save
+        with:
+          backend: ${{ inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND }}
+          path: .ci-ios-source-packages
+          key: ios-spm-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('.xcode-version') }}-${{ hashFiles('ios/cmux.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
+
+      - name: Save iOS GhosttyKit cache
+        if: ${{ inputs.seed_cache && github.ref == 'refs/heads/main' && matrix.family == 'iphone' && !(github.event_name == 'workflow_dispatch' && inputs.device_family != 'both' && inputs.device_family != matrix.family) }}
+        uses: ./.github/actions/cache-save
+        with:
+          backend: ${{ inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND }}
+          path: ${{ runner.temp }}/cmux-ghosttykit-cache
+          key: ios-ghosttykit-${{ runner.os }}-${{ runner.arch }}-${{ steps.ghostty-revision.outputs.sha }}-${{ hashFiles('scripts/ghosttykit-checksums.txt') }}
 
       - name: Upload iOS test results
         if: ${{ always() && env.IOS_DERIVED_DATA != '' }}

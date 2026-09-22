@@ -141,6 +141,7 @@ describe("shared development error destination", () => {
     const errors = sent.find((item) => item.url.includes("/ingest/"))!.body;
     expect(errors.map((item: any) => item.source)).toEqual(["client", "server"]);
     expect(errors[0].backend_tag).toBe("errhub");
+    expect(errors[0].client_tag).toBeUndefined();
     expect(errors[0].backend_revision).toBe("a".repeat(40));
     expect(errors[0].backend_source_sha256).toBe("b".repeat(64));
     expect(JSON.stringify(sent)).not.toContain("private-account");
@@ -153,5 +154,11 @@ describe("shared development error destination", () => {
       CMUX_CLOUD_AXIOM_TOKEN: "test", CMUX_CLOUD_TELEMETRY_ID_KEY: "k".repeat(32),
     } as unknown as NodeJS.ProcessEnv)!;
     expect(config.errorsDataset).toBe("cmux-cloud-errors-prod");
+  });
+
+  test("client tags survive the strict diagnostics boundary", () => {
+    const original = batch();
+    const value = { ...original, client: { ...original.client, tag: "pr-123-cloud" } };
+    expect(parseCloudTelemetryBatch(value, now)?.client.tag).toBe("pr-123-cloud");
   });
 });
