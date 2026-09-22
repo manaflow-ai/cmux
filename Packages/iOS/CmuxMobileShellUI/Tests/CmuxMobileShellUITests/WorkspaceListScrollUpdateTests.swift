@@ -140,7 +140,11 @@ import UIKit
     @Test(arguments: [0, 5, 39])
     func insertionKeepsVisibleRowAtSameScreenPosition(insertionIndex: Int) throws {
         let workspaces = viewportWorkspaces()
-        let (table, coordinator) = viewportTable(workspaces)
+        let (table, coordinator, window) = viewportTable(workspaces)
+        defer {
+            window.isHidden = true
+            window.rootViewController = nil
+        }
         let anchorID = workspaces[12].id
         let initialY = table.rectForRow(at: IndexPath(row: 12, section: 0)).minY
         table.setContentOffset(CGPoint(x: 0, y: initialY + 13), animated: false)
@@ -161,7 +165,11 @@ import UIKit
 
     @Test func deletingFirstVisibleRowKeepsNextVisibleRowStationary() throws {
         let workspaces = viewportWorkspaces()
-        let (table, coordinator) = viewportTable(workspaces)
+        let (table, coordinator, window) = viewportTable(workspaces)
+        defer {
+            window.isHidden = true
+            window.rootViewController = nil
+        }
         let firstY = table.rectForRow(at: IndexPath(row: 12, section: 0)).minY
         table.setContentOffset(CGPoint(x: 0, y: firstY + 13), animated: false)
         table.layoutIfNeeded()
@@ -180,7 +188,11 @@ import UIKit
     @Test(arguments: [false, true])
     func offscreenHeightChangesKeepVisibleRowStationary(alsoInsert: Bool) throws {
         let workspaces = viewportWorkspaces()
-        let (table, coordinator) = viewportTable(workspaces)
+        let (table, coordinator, window) = viewportTable(workspaces)
+        defer {
+            window.isHidden = true
+            window.rootViewController = nil
+        }
         let initialY = table.rectForRow(at: IndexPath(row: 12, section: 0)).minY
         let initialHeight = table.rectForRow(at: IndexPath(row: 0, section: 0)).height
         table.setContentOffset(CGPoint(x: 0, y: initialY + 13), animated: false)
@@ -204,7 +216,11 @@ import UIKit
 
     @Test func timestampRefreshPreservesCellHeightAndScrollOffset() throws {
         let workspaces = viewportWorkspaces()
-        let (table, coordinator) = viewportTable(workspaces)
+        let (table, coordinator, window) = viewportTable(workspaces)
+        defer {
+            window.isHidden = true
+            window.rootViewController = nil
+        }
         let indexPath = IndexPath(row: 12, section: 0)
         let initialRect = table.rectForRow(at: indexPath)
         table.setContentOffset(CGPoint(x: 0, y: initialRect.minY + 13), animated: false)
@@ -225,7 +241,11 @@ import UIKit
 
     @Test func shrinkingListClampsViewportToRemainingContent() {
         let workspaces = viewportWorkspaces()
-        let (table, coordinator) = viewportTable(workspaces)
+        let (table, coordinator, window) = viewportTable(workspaces)
+        defer {
+            window.isHidden = true
+            window.rootViewController = nil
+        }
         let initialY = table.rectForRow(at: IndexPath(row: 30, section: 0)).minY
         table.setContentOffset(CGPoint(x: 0, y: initialY), animated: false)
         table.layoutIfNeeded()
@@ -245,7 +265,7 @@ import UIKit
 
     private func viewportTable(
         _ workspaces: [MobileWorkspacePreview]
-    ) -> (WorkspaceListUITableView, WorkspaceListTableCoordinator) {
+    ) -> (WorkspaceListUITableView, WorkspaceListTableCoordinator, UIWindow) {
         let table = makeTableView()
         table.contentInsetAdjustmentBehavior = .never
         table.estimatedRowHeight = 0
@@ -253,9 +273,15 @@ import UIKit
         table.estimatedSectionFooterHeight = 0
         table.rowHeight = UITableView.automaticDimension
         let coordinator = WorkspaceListTableCoordinator(configuration: configuration(workspaces: workspaces))
+        let host = UIViewController()
+        host.view = table
+        let window = UIWindow(frame: table.frame)
+        window.rootViewController = host
+        window.isHidden = false
         coordinator.attach(to: table)
+        window.layoutIfNeeded()
         table.layoutIfNeeded()
-        return (table, coordinator)
+        return (table, coordinator, window)
     }
 
     @Test func relayOnlyTerminalDetailsDoNotReconfigureTheWorkspaceRow() {
@@ -392,7 +418,7 @@ import UIKit
         #expect(tableView.numberOfRows(inSection: 0) == 2)
 
         coordinator.scrollViewDidEndDecelerating(tableView)
-        #expect(coordinator.lastPayloadApplyRoute == .tableReload)
+        #expect(coordinator.lastPayloadApplyRoute == .tableBatchUpdate)
         #expect(tableView.numberOfRows(inSection: 0) == 3)
         #expect(
             coordinator.configuration.workspacesByID[firstWorkspace.id]?.previewText
