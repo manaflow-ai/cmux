@@ -383,6 +383,10 @@ path = "tests/test_ci_quality_guard_structure.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_queue_janitor.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_release_guard_structure.py"
 lane = "linux-guard"
 
@@ -404,6 +408,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_source_lint_guard_structure.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_test_execution_registry.py"
 lane = "linux-guard"
 
 [[test]]
@@ -527,6 +535,10 @@ path = "tests/test_run_e2e.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_sync_test_wiring.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_swift_incremental_diagnostics.py"
 lane = "linux-guard"
 
@@ -560,15 +572,15 @@ lane = "legacy"
 
 [[test]]
 path = "tests/test_app_host_layer_transport.py"
-lane = "legacy"
+lane = "linux-guard"
 
 [[test]]
 path = "tests/test_app_host_layered_products.py"
-lane = "legacy"
+lane = "linux-guard"
 
 [[test]]
 path = "tests/test_check_ghostty_zig_workflows.py"
-lane = "legacy"
+lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_actionlint_covers_every_workflow.py"
@@ -580,19 +592,23 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_cache_restore_receipt.py"
-lane = "legacy"
+lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_r2_artifact.py"
-lane = "legacy"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_r2_cache_census.py"
+lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_r2_canary.py"
-lane = "legacy"
+lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_release_helper_archs.py"
-lane = "legacy"
+lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_selective_layer_wiring.py"
@@ -696,11 +712,15 @@ lane = "legacy"
 
 [[test]]
 path = "tests/test_cmux_browser_skill.py"
-lane = "legacy"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_cmux_settings_jsonc.py"
+lane = "linux-guard"
 
 [[test]]
 path = "tests/test_cmux_settings_supported_paths.py"
-lane = "legacy"
+lane = "linux-guard"
 
 [[test]]
 path = "tests/test_codex_feed_hooks.py"
@@ -740,10 +760,14 @@ lane = "legacy"
 
 [[test]]
 path = "tests/test_indexnow_notification.py"
-lane = "legacy"
+lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ios_screenshot_capture_guard.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ios_testflight_archive_log.py"
 lane = "linux-guard"
 
 [[test]]
@@ -796,11 +820,11 @@ lane = "legacy"
 
 [[test]]
 path = "tests/test_node_product_cache.py"
-lane = "legacy"
+lane = "linux-guard"
 
 [[test]]
 path = "tests/test_normalize_pbxproj.py"
-lane = "legacy"
+lane = "linux-guard"
 
 [[test]]
 path = "tests/test_notarize_computer_use_helper.py"
@@ -836,15 +860,15 @@ lane = "legacy"
 
 [[test]]
 path = "tests/test_remote_daemon_release_assets.py"
-lane = "legacy"
+lane = "linux-guard"
 
 [[test]]
 path = "tests/test_remote_daemon_release_verification.py"
-lane = "legacy"
+lane = "linux-guard"
 
 [[test]]
 path = "tests/test_repair_nightly_appcast_content_types.py"
-lane = "legacy"
+lane = "linux-guard"
 
 [[test]]
 path = "tests/test_shell_histfile_ghostty_zdotdir_regression.py"
@@ -879,8 +903,12 @@ path = "tests/test_ssh_relay_report_tty_retry.py"
 lane = "legacy"
 
 [[test]]
+path = "tests/test_swift_testing_require_not_nested.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_terminal_hang_release_gate.py"
-lane = "legacy"
+lane = "linux-guard"
 
 [[test]]
 path = "tests/test_terminfo_bright_colors.py"
@@ -888,11 +916,11 @@ lane = "legacy"
 
 [[test]]
 path = "tests/test_triage_radar.py"
-lane = "legacy"
+lane = "linux-guard"
 
 [[test]]
 path = "tests/test_tui_focused_filter_guard.py"
-lane = "legacy"
+lane = "linux-guard"
 
 [[test]]
 path = "tests/test_tui_installers.py"
@@ -904,7 +932,7 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_tui_publish_workflow_security.py"
-lane = "legacy"
+lane = "linux-guard"
 
 [[test]]
 path = "tests/test_vm_scp.py"
@@ -912,7 +940,7 @@ lane = "legacy"
 
 [[test]]
 path = "tests/test_web_validation.py"
-lane = "legacy"
+lane = "linux-guard"
 
 [[test]]
 path = "tests/test_workspace_churn_up_arrow_lag.py"
