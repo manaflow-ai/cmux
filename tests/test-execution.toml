@@ -339,6 +339,10 @@ path = "tests/test_ci_checkout_network_diagnostics.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_console_session_env_forwarding.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_cmux_unit_test_shard.py"
 lane = "linux-guard"
 
