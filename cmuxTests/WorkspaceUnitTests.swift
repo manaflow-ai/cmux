@@ -7107,8 +7107,13 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
         )
     }
 
+    /// The focused-panel binding (`pullRequest`) and the sidebar list are two
+    /// different things: the binding follows focus, while the list is the
+    /// workspace's deduplicated PR rows in pane/tab order — the same all-panel
+    /// model `sidebarGitBranchesInDisplayOrder()` uses, and what both consumers
+    /// (`taskStatusSignals`, the control-sidebar snapshot) actually want.
     @MainActor
-    func testSidebarPullRequestsTrackFocusedPanelOnly() {
+    func testSidebarPullRequestsListAllPanelsWhileFocusedBindingTracksFocus() {
         let workspace = Workspace()
         guard let firstPanelId = workspace.focusedPanelId,
               let paneId = workspace.paneId(forPanelId: firstPanelId),
@@ -7127,14 +7132,18 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
             status: .open
         )
 
-        XCTAssertNil(workspace.pullRequest)
-        XCTAssertTrue(
-            workspace.sidebarPullRequestsInDisplayOrder().isEmpty,
-            "Expected background panel PRs to stay hidden while the focused panel has no PR"
+        XCTAssertNil(workspace.pullRequest, "The focused panel has no PR, so the binding stays nil")
+        XCTAssertEqual(
+            workspace.sidebarPullRequestsInDisplayOrder().map(\.number),
+            [1629],
+            "The sidebar list covers every panel, not just the focused one"
         )
 
         workspace.focusPanel(secondPanel.id)
 
+        // The list is unchanged because it never depended on focus. (The
+        // `pullRequest` binding itself lands in the coalesced focus reconcile,
+        // so it is not observable synchronously here.)
         XCTAssertEqual(
             workspace.sidebarPullRequestsInDisplayOrder().map(\.number),
             [1629]
