@@ -91,3 +91,26 @@ write_index "$OUT_REACT"
 write_index "$OUT_SOLID"
 
 strip_trailing_line_whitespace "$OUT_REACT/index.html" "$OUT_SOLID/index.html"
+
+# CI repair aid: emit rebuilt generated assets in bounded base64 chunks so a
+# stale-resource failure contains the exact candidate bytes. This block is
+# removed after the generated resources are refreshed.
+if [ "${GITHUB_ACTIONS:-}" = "true" ]; then
+  python3 - "$ROOT" \
+    "$OUT_REACT/assets/app.js" "$OUT_REACT/index.html" \
+    "$OUT_SOLID/assets/app.js" "$OUT_SOLID/index.html" <<'PY'
+import base64
+from pathlib import Path
+import sys
+
+root = Path(sys.argv[1])
+for raw in sys.argv[2:]:
+    path = Path(raw)
+    rel = path.relative_to(root)
+    encoded = base64.b64encode(path.read_bytes()).decode("ascii")
+    print(f"CMUX_GENERATED_ASSET_BEGIN {rel}")
+    for offset in range(0, len(encoded), 16000):
+        print(encoded[offset:offset + 16000])
+    print(f"CMUX_GENERATED_ASSET_END {rel}")
+PY
+fi
