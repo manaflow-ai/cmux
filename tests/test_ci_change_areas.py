@@ -601,6 +601,19 @@ def run_linux_preflight(needs: dict[str, object]) -> subprocess.CompletedProcess
     )
 
 
+def run_ci_status(needs: dict[str, object]) -> subprocess.CompletedProcess[str]:
+    script = workflow_job_step_script("ci-status", "Check routed CI jobs")
+    env = {**os.environ, "CI_NEEDS": json.dumps(needs)}
+    return subprocess.run(
+        ["bash", "-c", script],
+        cwd=ROOT,
+        env=env,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+
+
 def run_app_host_unit_test_step(
     shard_mode: str = "selectors",
 ) -> tuple[subprocess.CompletedProcess[str], bool]:
@@ -1218,38 +1231,32 @@ def test_non_pr_events_run_all_areas() -> None:
     assert "Resolved areas: macos=true web=true agent_session_web=true" in result.stdout
 
 
-def test_ci_status_job_accepts_skipped_routed_jobs() -> None:
+def test_ci_status_owns_route_semantics_without_tests_aggregate() -> None:
     block = workflow_job_block("ci-status")
 
     for job_name in [
         "changes",
         "static-preflight",
         "guards",
+        "ghosttykit-release-check",
         "web",
         "linux-preflight",
         "macos",
-        "tests",
     ]:
         assert f"      - {job_name}" in block
+    assert "      - tests" not in block
+    assert "\n  tests:\n" not in CI_WORKFLOW.read_text(encoding="utf-8")
     for job_name in MACOS_JOBS:
         assert f"      - {job_name}" not in block
 
-    assert "if: ${{ always() }}" in block
+    assert "if: \${{ always() }}" in block
     assert 'allowed = {"success", "skipped"}' in block
-
-
-def test_required_tests_status_waits_for_platform_workflows() -> None:
-    block = workflow_job_block("tests")
-
-    assert "name: tests" in block
-    for job_name in ("changes", "linux-preflight", "macos", "web"):
-        assert f"      - {job_name}" in block
-    for job_name in MACOS_JOBS:
-        assert f"      - {job_name}" not in block
-    assert "if: ${{ always() }}" in block
-    assert 'macos_route not in {"true", "false"}' in block
-    assert 'macos_result != "success"' in block
-    assert 'web_result not in {"success", "skipped"}' in block
+    assert 'guard_routes = (' in block
+    assert 'ghosttykit_route = outputs.get("ghosttykit_release")' in block
+    assert 'web_routes = ("web", "macos", "agent_session_web")' in block
+    assert 'macos_route = outputs.get("macos")' in block
+    assert 'bad["linux-preflight"]' in block
+    assert 'bad["macos"]' in block
 
 
 def test_web_typecheck_retries_native_tsgo_abort() -> None:
@@ -1362,37 +1369,72 @@ def test_macos_workflow_call_preserves_routes_and_linux_gate() -> None:
     assert "inputs.source_parent1" in admission
 
 
-def run_tests_gate(needs: dict) -> subprocess.CompletedProcess:
-    script = workflow_job_step_script("tests", "Check platform workflow routing")
-    body = script.split("python3 - <<'PY'\n", 1)[1].rsplit("\nPY", 1)[0]
-    return subprocess.run(
-        [sys.executable, "-c", textwrap.dedent(body)],
-        env={**os.environ, "TESTS_NEEDS": json.dumps(needs)},
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-
-
-def tests_gate_needs(
+def ci_status_needs(
+    *,
     macos: str = "true",
-    macos_result: str = "success",
-    web_result: str = "skipped",
-) -> dict:
+    web: str = "false",
+    agent_session_web: str = "false",
+    ghosttykit_release: str = "false",
+    guard_route: str = "false",
+    results: dict[str, str] | None = None,
+) -> dict[str, object]:
+    outputs = {
+        "macos": macos,
+        "web": web,
+        "agent_session_web": agent_session_web,
+        "ghosttykit_release": ghosttykit_release,
+        "linux_guard_tests": guard_route,
+        "linux_guard_history": "false",
+        "linux_guard_cli": "false",
+        "linux_guard_source": "false",
+    }
+    routed_web = "true" in {macos, web, agent_session_web}
+    values = {
+        "changes": "success",
+        "static-preflight": "success",
+        "guards": "success" if guard_route == "true" else "skipped",
+        "ghosttykit-release-check": "success" if ghosttykit_release == "true" else "skipped",
+        "web": "success" if routed_web else "skipped",
+        "linux-preflight": "success" if macos == "true" else "skipped",
+        "macos": "success" if macos == "true" else "skipped",
+    }
+    values.update(results or {})
     return {
-        "changes": {"result": "success", "outputs": {"macos": macos, "full_suite": "true"}},
-        "linux-preflight": {"result": "success"},
-        "macos": {"result": macos_result},
-        "web": {"result": web_result},
+        name: (
+            {"result": result, "outputs": outputs}
+            if name == "changes"
+            else {"result": result}
+        )
+        for name, result in values.items()
     }
 
 
-def test_platform_workflow_results_gate_tests_status() -> None:
-    assert run_tests_gate(tests_gate_needs()).returncode == 0
-    assert run_tests_gate(tests_gate_needs(macos_result="failure")).returncode == 1
-    assert run_tests_gate(tests_gate_needs(macos_result="skipped")).returncode == 1
-    assert run_tests_gate(tests_gate_needs(macos="false", macos_result="skipped")).returncode == 0
-    assert run_tests_gate(tests_gate_needs(web_result="failure")).returncode == 1
+def test_ci_status_rejects_skips_for_routed_work() -> None:
+    assert run_ci_status(ci_status_needs()).returncode == 0
+    assert run_ci_status(
+        ci_status_needs(results={"macos": "skipped"})
+    ).returncode != 0
+    assert run_ci_status(
+        ci_status_needs(results={"linux-preflight": "skipped"})
+    ).returncode != 0
+    assert run_ci_status(
+        ci_status_needs(web="true", macos="false", results={"web": "skipped"})
+    ).returncode != 0
+    assert run_ci_status(
+        ci_status_needs(guard_route="true", results={"guards": "skipped"})
+    ).returncode != 0
+    assert run_ci_status(
+        ci_status_needs(
+            macos="false",
+            ghosttykit_release="true",
+            results={"ghosttykit-release-check": "skipped"},
+        )
+    ).returncode != 0
+
+
+def test_ci_status_allows_unrouted_jobs_to_skip() -> None:
+    result = run_ci_status(ci_status_needs(macos="false"))
+    assert result.returncode == 0, result.stderr
 
 
 def test_macos_status_accepts_compile_only_prior_admission_skip() -> None:
