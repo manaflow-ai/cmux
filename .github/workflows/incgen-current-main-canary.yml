@@ -1,0 +1,264 @@
+name: Xcode disposable incremental generation canary
+
+on:
+  push:
+    branches: [exp/incgen-current-main-20260922]
+
+permissions:
+  contents: read
+
+env:
+  CANARY_BASE: ef42fc4bfb8f29d834caf4d1eb77a8cdf36abdef
+  CANARY_REPO_URL: https://github.com/manaflow-ai/cmux.git
+  CANARY_TRUST_CLASS: trusted-same-repo-canary
+  CI_CACHE_R2_PUBLIC_URL: ${{ vars.CI_CACHE_R2_PUBLIC_URL }}
+  CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_15 }}
+  CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
+  CMUX_SKIP_ZIG_BUILD: "1"
+
+jobs:
+  validate:
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with: {persist-credentials: false}
+      - name: Validate harness
+        run: |
+          cat scripts/ci/incgen-canary/benchmark.part* > "$RUNNER_TEMP/benchmark.py"
+          python3 -m py_compile "$RUNNER_TEMP/benchmark.py"
+          python3 "$RUNNER_TEMP/benchmark.py" self-test
+
+  seed:
+    needs: validate
+    runs-on: ${{ vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15' }}
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with: {persist-credentials: false, submodules: recursive}
+      - name: Preserve harness and select Xcode
+        run: |
+          cat scripts/ci/incgen-canary/benchmark.part* > "$RUNNER_TEMP/benchmark.py"
+          chmod +x "$RUNNER_TEMP/benchmark.py"
+          ./scripts/select-ci-xcode.sh
+          command -v zstd >/dev/null || brew install zstd
+      - name: Materialize A
+        run: python3 "$RUNNER_TEMP/benchmark.py" fresh-base --workspace "$GITHUB_WORKSPACE" --repo-url "$CANARY_REPO_URL" --base "$CANARY_BASE"
+      - name: Package key
+        id: pkg
+        run: echo "hash=$(shasum -a 256 cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+      - name: Restore packages
+        id: spm
+        uses: ./.github/actions/cache-restore
+        with:
+          backend: ${{ vars.CI_CACHE_BACKEND }}
+          path: ${{ runner.temp }}/cmux-source-packages
+          key: spm-${{ steps.pkg.outputs.hash }}
+          restore-keys: spm-
+      - run: python3 scripts/ci/sanitize-xcode-source-packages-cache.py "$RUNNER_TEMP/cmux-source-packages"
+      - name: CAS key
+        id: caskey
+        run: echo "fingerprint=$(scripts/ci/compile-app-host-test-product.sh fingerprint "$RUNNER_TEMP/cmux-derived-data-compile-admission")" >> "$GITHUB_OUTPUT"
+      - name: Restore current CAS for seed
+        id: cas
+        uses: ./.github/actions/cache-restore
+        with:
+          backend: ${{ vars.CI_CACHE_BACKEND }}
+          path: ${{ runner.temp }}/cmux-compile-admission-cas
+          key: xcode-compilation-test-${{ runner.os }}-${{ runner.arch }}-${{ steps.caskey.outputs.fingerprint }}-${{ env.CANARY_BASE }}
+          restore-keys: |
+            xcode-compilation-test-${{ runner.os }}-${{ runner.arch }}-${{ steps.caskey.outputs.fingerprint }}-
+            xcode-compilation-test-${{ runner.os }}-${{ runner.arch }}-
+      - name: Build A
+        run: |
+          rm -rf "$RUNNER_TEMP/cmux-derived-data-compile-admission"
+          python3 "$RUNNER_TEMP/benchmark.py" build --workspace "$GITHUB_WORKSPACE" --derived "$RUNNER_TEMP/cmux-derived-data-compile-admission" --source-packages "$RUNNER_TEMP/cmux-source-packages" --cas "$RUNNER_TEMP/cmux-compile-admission-cas" --label seed-A --metrics "$RUNNER_TEMP/seed-build.json"
+      - name: Compress trusted generation
+        run: |
+          python3 "$RUNNER_TEMP/benchmark.py" receipt --workspace "$GITHUB_WORKSPACE" --derived "$RUNNER_TEMP/cmux-derived-data-compile-admission" --base "$CANARY_BASE" --trust-class "$CANARY_TRUST_CLASS" --out "$RUNNER_TEMP/receipt.json"
+          python3 "$RUNNER_TEMP/benchmark.py" archive --workspace "$GITHUB_WORKSPACE" --derived "$RUNNER_TEMP/cmux-derived-data-compile-admission" --outdir "$RUNNER_TEMP/generation" --receipt "$RUNNER_TEMP/receipt.json" --metrics "$RUNNER_TEMP/archive.json"
+          cp "$RUNNER_TEMP/receipt.json" "$RUNNER_TEMP/generation/receipt.json"
+          mkdir -p "$RUNNER_TEMP/dd-generation"
+          cp "$RUNNER_TEMP/generation/derived-data.tar.zst" "$RUNNER_TEMP/dd-generation/"
+          cp "$RUNNER_TEMP/receipt.json" "$RUNNER_TEMP/dd-generation/receipt.json"
+      - name: Start generation save clock
+        run: python3 -c 'import os,time;open(os.environ["RUNNER_TEMP"]+"/gen-save-start","w").write(str(time.monotonic()))'
+      - name: Save isolated generation
+        uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae
+        with:
+          path: ${{ runner.temp }}/generation
+          key: incgen-v3-generation-${{ github.run_id }}-${{ env.CANARY_BASE }}
+      - name: Record generation save
+        run: python3 -c 'import os,time,json; r=os.environ["RUNNER_TEMP"]; p={"kind":"generation-cache-save","seconds":round(time.monotonic()-float(open(r+"/gen-save-start").read()),6)}; open(r+"/gen-save.json","w").write(json.dumps(p)); print("CMUX_CANARY_TRANSFER="+json.dumps(p,sort_keys=True))'
+      - name: Start DD save clock
+        run: python3 -c 'import os,time;open(os.environ["RUNNER_TEMP"]+"/dd-save-start","w").write(str(time.monotonic()))'
+      - name: Save isolated DD
+        uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae
+        with:
+          path: ${{ runner.temp }}/dd-generation
+          key: incgen-v3-dd-${{ github.run_id }}-${{ env.CANARY_BASE }}
+      - name: Record seed economics
+        env:
+          SPM_HIT: ${{ steps.spm.outputs.cache-hit }}
+          CAS_HIT: ${{ steps.cas.outputs.cache-hit }}
+        run: |
+          python3 - <<'PY'
+          import json,os,time
+          from pathlib import Path
+          r=Path(os.environ['RUNNER_TEMP'])
+          dd={'kind':'dd-cache-save','seconds':round(time.monotonic()-float((r/'dd-save-start').read_text()),6)}
+          (r/'dd-save.json').write_text(json.dumps(dd))
+          row={'arm':'seed-A','spm_restore_hit':os.environ.get('SPM_HIT',''),'cas_restore_hit':os.environ.get('CAS_HIT','')}
+          for k,n in [('build','seed-build.json'),('archive','archive.json'),('receipt','receipt.json'),('generation_save','gen-save.json'),('dd_save','dd-save.json')]: row[k]=json.loads((r/n).read_text())
+          print('CMUX_CANARY_SEED_ROW='+json.dumps(row,sort_keys=True))
+          PY
+
+  benchmark:
+    needs: seed
+    runs-on: ${{ vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15' }}
+    timeout-minutes: 75
+    strategy:
+      fail-fast: false
+      max-parallel: 8
+      matrix:
+        scenario: [app-edit, package-edit, synthetic-pr-merge, base-move]
+        arm: [cold-b, fresh-dd-a, restored-generation-a, cas-warm-b, persistent-warm]
+    name: ${{ matrix.scenario }} / ${{ matrix.arm }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with: {persist-credentials: false, submodules: recursive}
+      - name: Preserve harness and select Xcode
+        run: |
+          cat scripts/ci/incgen-canary/benchmark.part* > "$RUNNER_TEMP/benchmark.py"
+          chmod +x "$RUNNER_TEMP/benchmark.py"
+          ./scripts/select-ci-xcode.sh
+          command -v zstd >/dev/null || brew install zstd
+          echo "DD=$RUNNER_TEMP/cmux-derived-data-compile-admission" >> "$GITHUB_ENV"
+          echo "CAS=$RUNNER_TEMP/cmux-compile-admission-cas" >> "$GITHUB_ENV"
+          echo "SPM=$RUNNER_TEMP/cmux-source-packages" >> "$GITHUB_ENV"
+          echo "GENERATION_USED=false" >> "$GITHUB_ENV"
+          echo "FALLBACK_REASON=" >> "$GITHUB_ENV"
+      - name: Start generation restore clock
+        if: matrix.arm == 'restored-generation-a'
+        run: python3 -c 'import os,time;open(os.environ["RUNNER_TEMP"]+"/gen-restore-start","w").write(str(time.monotonic()))'
+      - name: Restore generation cache
+        if: matrix.arm == 'restored-generation-a'
+        id: gencache
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae
+        with:
+          path: ${{ runner.temp }}/generation
+          key: incgen-v3-generation-${{ github.run_id }}-${{ env.CANARY_BASE }}
+      - name: Record generation restore
+        if: matrix.arm == 'restored-generation-a'
+        run: python3 -c 'import os,time,json; r=os.environ["RUNNER_TEMP"]; p={"kind":"generation-cache-restore","seconds":round(time.monotonic()-float(open(r+"/gen-restore-start").read()),6)}; open(r+"/gen-restore.json","w").write(json.dumps(p)); print("CMUX_CANARY_TRANSFER="+json.dumps(p,sort_keys=True))'
+      - name: Start DD restore clock
+        if: matrix.arm == 'fresh-dd-a'
+        run: python3 -c 'import os,time;open(os.environ["RUNNER_TEMP"]+"/dd-cache-start","w").write(str(time.monotonic()))'
+      - name: Restore DD cache
+        if: matrix.arm == 'fresh-dd-a'
+        id: ddcache
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae
+        with:
+          path: ${{ runner.temp }}/dd-generation
+          key: incgen-v3-dd-${{ github.run_id }}-${{ env.CANARY_BASE }}
+      - name: Record DD cache restore
+        if: matrix.arm == 'fresh-dd-a'
+        run: python3 -c 'import os,time,json; r=os.environ["RUNNER_TEMP"]; p={"kind":"dd-cache-restore","seconds":round(time.monotonic()-float(open(r+"/dd-cache-start").read()),6)}; open(r+"/dd-cache.json","w").write(json.dumps(p)); print("CMUX_CANARY_TRANSFER="+json.dumps(p,sort_keys=True))'
+      - name: Prepare cold or CAS-warm B
+        if: matrix.arm == 'cold-b' || matrix.arm == 'cas-warm-b'
+        run: |
+          python3 "$RUNNER_TEMP/benchmark.py" fresh-scenario --workspace "$GITHUB_WORKSPACE" --repo-url "$CANARY_REPO_URL" --base "$CANARY_BASE" --scenario "${{ matrix.scenario }}" --metrics "$RUNNER_TEMP/source.json"
+          rm -rf "$DD" "$CAS"
+      - name: Prepare fresh B plus DD A
+        if: matrix.arm == 'fresh-dd-a'
+        run: |
+          set +e
+          python3 "$RUNNER_TEMP/benchmark.py" validate-receipt --receipt "$RUNNER_TEMP/dd-generation/receipt.json" --workspace "$GITHUB_WORKSPACE" --derived "$DD" --base "$CANARY_BASE" --trust-class "$CANARY_TRUST_CLASS"
+          rc=$?
+          if [ "$rc" -eq 0 ]; then
+            exp=$(python3 -c 'import json,os;print(json.load(open(os.environ["RUNNER_TEMP"]+"/dd-generation/receipt.json"))["archive"]["derived_data_sha256"])')
+            got=$(shasum -a 256 "$RUNNER_TEMP/dd-generation/derived-data.tar.zst" | cut -d' ' -f1)
+            [ "$exp" = "$got" ] || rc=42
+          fi
+          if [ "$rc" -eq 0 ]; then
+            python3 "$RUNNER_TEMP/benchmark.py" fresh-scenario --workspace "$GITHUB_WORKSPACE" --repo-url "$CANARY_REPO_URL" --base "$CANARY_BASE" --scenario "${{ matrix.scenario }}" --metrics "$RUNNER_TEMP/source.json" && \
+            python3 "$RUNNER_TEMP/benchmark.py" extract-dd --archive "$RUNNER_TEMP/dd-generation/derived-data.tar.zst" --derived "$DD" --metrics "$RUNNER_TEMP/dd-restore.json"
+            rc=$?
+          fi
+          set -e
+          if [ "$rc" -eq 0 ]; then echo "GENERATION_USED=true" >> "$GITHUB_ENV"; else echo "FALLBACK_REASON=dd-generation-mismatch" >> "$GITHUB_ENV"; rm -rf "$DD"; python3 "$RUNNER_TEMP/benchmark.py" fresh-scenario --workspace "$GITHUB_WORKSPACE" --repo-url "$CANARY_REPO_URL" --base "$CANARY_BASE" --scenario "${{ matrix.scenario }}" --metrics "$RUNNER_TEMP/source.json"; fi
+          rm -rf "$CAS"
+      - name: Prepare restored A generation advanced to B
+        if: matrix.arm == 'restored-generation-a'
+        run: |
+          set +e
+          python3 "$RUNNER_TEMP/benchmark.py" validate-receipt --receipt "$RUNNER_TEMP/generation/receipt.json" --workspace "$GITHUB_WORKSPACE" --derived "$DD" --base "$CANARY_BASE" --trust-class "$CANARY_TRUST_CLASS" --generation-dir "$RUNNER_TEMP/generation"
+          rc=$?
+          if [ "$rc" -eq 0 ]; then python3 "$RUNNER_TEMP/benchmark.py" restore-scenario --workspace "$GITHUB_WORKSPACE" --archive "$RUNNER_TEMP/generation/worktree.tar.zst" --repo-url "$CANARY_REPO_URL" --base "$CANARY_BASE" --scenario "${{ matrix.scenario }}" --receipt "$RUNNER_TEMP/generation/receipt.json" --metrics "$RUNNER_TEMP/source.json"; rc=$?; fi
+          if [ "$rc" -eq 0 ]; then python3 "$RUNNER_TEMP/benchmark.py" extract-dd --archive "$RUNNER_TEMP/generation/derived-data.tar.zst" --derived "$DD" --metrics "$RUNNER_TEMP/dd-restore.json"; rc=$?; fi
+          set -e
+          if [ "$rc" -eq 0 ]; then echo "GENERATION_USED=true" >> "$GITHUB_ENV"; else echo "FALLBACK_REASON=generation-mismatch" >> "$GITHUB_ENV"; rm -rf "$DD"; python3 "$RUNNER_TEMP/benchmark.py" fresh-scenario --workspace "$GITHUB_WORKSPACE" --repo-url "$CANARY_REPO_URL" --base "$CANARY_BASE" --scenario "${{ matrix.scenario }}" --metrics "$RUNNER_TEMP/source.json"; fi
+          rm -rf "$CAS"
+      - name: Prepare persistent A
+        if: matrix.arm == 'persistent-warm'
+        run: |
+          python3 "$RUNNER_TEMP/benchmark.py" fresh-base --workspace "$GITHUB_WORKSPACE" --repo-url "$CANARY_REPO_URL" --base "$CANARY_BASE"
+          rm -rf "$DD" "$CAS"
+      - name: Package key
+        id: pkg
+        run: echo "hash=$(shasum -a 256 cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+      - name: Restore packages
+        id: spm
+        uses: ./.github/actions/cache-restore
+        with:
+          backend: ${{ vars.CI_CACHE_BACKEND }}
+          path: ${{ runner.temp }}/cmux-source-packages
+          key: spm-${{ steps.pkg.outputs.hash }}
+          restore-keys: spm-
+      - run: python3 scripts/ci/sanitize-xcode-source-packages-cache.py "$SPM"
+      - name: Build A then advance in place
+        if: matrix.arm == 'persistent-warm'
+        run: |
+          python3 "$RUNNER_TEMP/benchmark.py" build --workspace "$GITHUB_WORKSPACE" --derived "$DD" --source-packages "$SPM" --cas "$CAS" --label persistent-seed-A --metrics "$RUNNER_TEMP/persistent-seed.json"
+          python3 "$RUNNER_TEMP/benchmark.py" transition-scenario --workspace "$GITHUB_WORKSPACE" --base "$CANARY_BASE" --scenario "${{ matrix.scenario }}" --mode persistent-warm --metrics "$RUNNER_TEMP/source.json"
+      - name: CAS key
+        if: matrix.arm == 'cas-warm-b'
+        id: caskey
+        run: echo "fingerprint=$(scripts/ci/compile-app-host-test-product.sh fingerprint "$DD")" >> "$GITHUB_OUTPUT"
+      - name: Start CAS clock
+        if: matrix.arm == 'cas-warm-b'
+        run: python3 -c 'import os,time;open(os.environ["RUNNER_TEMP"]+"/cas-start","w").write(str(time.monotonic()))'
+      - name: Restore current CAS
+        if: matrix.arm == 'cas-warm-b'
+        id: cas
+        uses: ./.github/actions/cache-restore
+        with:
+          backend: ${{ vars.CI_CACHE_BACKEND }}
+          path: ${{ runner.temp }}/cmux-compile-admission-cas
+          key: xcode-compilation-test-${{ runner.os }}-${{ runner.arch }}-${{ steps.caskey.outputs.fingerprint }}-${{ env.CANARY_BASE }}
+          restore-keys: |
+            xcode-compilation-test-${{ runner.os }}-${{ runner.arch }}-${{ steps.caskey.outputs.fingerprint }}-
+            xcode-compilation-test-${{ runner.os }}-${{ runner.arch }}-
+      - name: Record CAS restore
+        if: matrix.arm == 'cas-warm-b'
+        run: python3 -c 'import os,time,json; r=os.environ["RUNNER_TEMP"]; p={"kind":"cas-restore","seconds":round(time.monotonic()-float(open(r+"/cas-start").read()),6)}; open(r+"/cas.json","w").write(json.dumps(p)); print("CMUX_CANARY_TRANSFER="+json.dumps(p,sort_keys=True))'
+      - name: Build B
+        run: python3 "$RUNNER_TEMP/benchmark.py" build --workspace "$GITHUB_WORKSPACE" --derived "$DD" --source-packages "$SPM" --cas "$CAS" --label "${{ matrix.scenario }}-${{ matrix.arm }}" --source-metrics "$RUNNER_TEMP/source.json" --dd-metrics "$RUNNER_TEMP/dd-restore.json" --metrics "$RUNNER_TEMP/build.json"
+      - name: Report row
+        env:
+          ARM: ${{ matrix.arm }}
+          SCENARIO: ${{ matrix.scenario }}
+          SPM_HIT: ${{ steps.spm.outputs.cache-hit }}
+          CAS_HIT: ${{ steps.cas.outputs.cache-hit }}
+        run: |
+          python3 - <<'PY'
+          import json,os
+          from pathlib import Path
+          r=Path(os.environ['RUNNER_TEMP']); row={'arm':os.environ['ARM'],'scenario':os.environ['SCENARIO'],'spm_restore_hit':os.environ.get('SPM_HIT',''),'cas_restore_hit':os.environ.get('CAS_HIT',''),'generation_used':os.environ.get('GENERATION_USED')=='true','fallback_reason':os.environ.get('FALLBACK_REASON','')}
+          for k,n in [('source','source.json'),('build','build.json'),('derived_restore','dd-restore.json'),('generation_restore','gen-restore.json'),('dd_cache_restore','dd-cache.json'),('cas_restore','cas.json'),('persistent_seed','persistent-seed.json')]:
+              p=r/n; row[k]=json.loads(p.read_text()) if p.is_file() else None
+          def sec(x,k='seconds'): return float(x.get(k,0)) if isinstance(x,dict) else 0
+          b=row['build'] or {}; s=row['source'] or {}; d=row['derived_restore'] or {}
+          row['consumer_critical_path_seconds']=round(sec(row['generation_restore'])+sec(row['dd_cache_restore'])+sec(row['cas_restore'])+sec(s,'source_transition_seconds')+sec(d,'derived_data_extract_seconds')+sec(b,'setup_seconds')+sec(b,'package_resolve_seconds')+sec(b,'build_wall_seconds'),6)
+          print('CMUX_CANARY_ROW='+json.dumps(row,sort_keys=True))
+          PY
