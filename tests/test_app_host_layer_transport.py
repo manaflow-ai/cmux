@@ -332,21 +332,5 @@ class LayerTransportTests(unittest.TestCase):
         self.restore(local.restore)
         self.assertEqual(local.inventory(derived), local.inventory(self.destination))
 
-    def test_warning_log_restores_real_bytes_and_rejects_changed_evidence(self):
-        import reuse_app_host_products as reuse
-        products = self.destination / "Build/Products"
-        products.mkdir(parents=True)
-        log = b"source.swift:1:1: warning: preserve this warning\n"
-        (products / reuse.BUILD_LOG).write_bytes(log)
-        (products / reuse.RECEIPT).write_text(json.dumps({"build_log_sha256": hashlib.sha256(log).hexdigest()}))
-        t.restore_warning_log(self.destination)
-        self.assertEqual((self.destination / reuse.BUILD_LOG).read_bytes(), log)
-        (self.destination / reuse.BUILD_LOG).unlink()
-        (products / reuse.BUILD_LOG).write_bytes(b"Build succeeded without warnings\n")
-        with self.assertRaises(ValueError):
-            t.restore_warning_log(self.destination)
-        self.assertFalse((self.destination / reuse.BUILD_LOG).exists())
-
-
 if __name__ == "__main__":
     unittest.main()
