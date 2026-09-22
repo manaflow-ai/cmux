@@ -624,7 +624,7 @@ final class AgentSessionWebRendererCoordinator: NSObject, WKNavigationDelegate, 
             guard let onRunCommand else {
                 throw AgentSessionBridgeError.providerNotReady("terminal")
             }
-            return onRunCommand(command)
+            return try onRunCommand(command)
         default:
             throw AgentSessionBridgeError.unsupportedMethod(request.method)
         }
