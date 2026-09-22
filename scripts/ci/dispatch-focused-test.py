@@ -139,10 +139,20 @@ def prior_attempts(commit: str, selector: str) -> list[dict]:
     except json.JSONDecodeError:
         return []
     marker = f" @ {commit} ["
+
+    def ran_selector(title: str) -> bool:
+        # A batched dispatch names several selectors before " on ", so match
+        # membership rather than a prefix. Otherwise batching would silently
+        # bypass this guard for every selector it carried.
+        head, separator, _ = title.partition(" on ")
+        if not separator:
+            return False
+        return selector in [part.strip() for part in head.split(",")]
+
     return [
         run for run in runs
         if isinstance(run, dict)
-        and str(run.get("displayTitle", "")).startswith(f"{selector} on ")
+        and ran_selector(str(run.get("displayTitle", "")))
         and marker in str(run.get("displayTitle", ""))
         and run.get("status") == "completed"
     ]
@@ -204,7 +214,12 @@ def main() -> int:
         epilog="Examples: scripts/run-e2e.sh cmuxTests/RemoteTmuxMirrorPaneInputMappingTests --wait; "
         "scripts/run-e2e.sh UpdatePillUITests/testFoo --ref my-branch --no-video",
     )
-    parser.add_argument("test_filter", help="cmuxTests/Suite[/method] or cmuxUITests/Class[/method]; bare names target UI tests")
+    parser.add_argument(
+        "test_filter",
+        nargs="+",
+        help="cmuxTests/Suite[/method] or cmuxUITests/Class[/method]; bare names target UI tests. "
+        "Pass several to run them against one compile; they must share a target.",
+    )
     parser.add_argument("--ref", help="remote branch, tag, or SHA; default: clean local HEAD, already pushed")
     parser.add_argument("--wait", action="store_true", help="wait and return a nonzero status if the run fails")
     parser.add_argument("--no-video", action="store_true")
@@ -217,8 +232,18 @@ def main() -> int:
         help="dispatch even if this selector already failed at this commit",
     )
     args = parser.parse_args()
-    if not SELECTOR.fullmatch(args.test_filter):
-        parser.error("test_filter must name one suite or method, optionally prefixed with cmuxTests/ or cmuxUITests/")
+    for entry in args.test_filter:
+        if not SELECTOR.fullmatch(entry):
+            parser.error("test_filter must name one suite or method, optionally prefixed with cmuxTests/ or cmuxUITests/")
+    if len(set(args.test_filter)) != len(args.test_filter):
+        parser.error("test_filter entries must be unique")
+    # One dispatch compiles once and runs one scheme, so a batch cannot span
+    # both targets. Bare names keep targeting UI tests.
+    targets = {"cmuxTests" if e.startswith("cmuxTests/") else "cmuxUITests" for e in args.test_filter}
+    if len(targets) != 1:
+        parser.error("test_filter entries must all target cmuxTests or all target cmuxUITests")
+    test_target = targets.pop()
+    test_filter = ",".join(args.test_filter)
     if args.ref is not None and not args.ref.strip():
         parser.error("--ref must not be empty")
     if args.workflow_ref is not None and not args.workflow_ref.strip():
@@ -240,25 +265,28 @@ def main() -> int:
         raise ValueError("GitHub revision differs from local HEAD; push the intended commit first")
 
     if not args.force:
-        earlier = prior_attempts(commit, args.test_filter)
-        failures = [run for run in earlier if run.get("conclusion") == "failure"]
-        if failures and not any(run.get("conclusion") == "success" for run in earlier):
-            latest = failures[0]
-            raise ValueError(
-                f"{args.test_filter} already failed at {commit} "
-                f"({len(failures)} time(s)); the newest is {latest['url']}. "
-                "A focused run compiles the tree first, so the most common red "
-                "result is a compile error in the branch, not a flaky test -- "
-                "and re-running the same selector at the same commit returns the "
-                "same answer. Read that run, fix the branch, push, and dispatch "
-                "the new commit. Pass --force to dispatch anyway."
-            )
+        # Refuse per entry: one already-red selector makes the whole batch a
+        # reprint of a known failure, and the compile it would pay for is shared.
+        for entry in args.test_filter:
+            earlier = prior_attempts(commit, entry)
+            failures = [run for run in earlier if run.get("conclusion") == "failure"]
+            if failures and not any(run.get("conclusion") == "success" for run in earlier):
+                latest = failures[0]
+                raise ValueError(
+                    f"{entry} already failed at {commit} "
+                    f"({len(failures)} time(s)); the newest is {latest['url']}. "
+                    "A focused run compiles the tree first, so the most common red "
+                    "result is a compile error in the branch, not a flaky test -- "
+                    "and re-running the same selector at the same commit returns the "
+                    "same answer. Read that run, fix the branch, push, and dispatch "
+                    "the new commit. Pass --force to dispatch anyway."
+                )
 
     dispatch_id = uuid.uuid4().hex
-    video = not args.no_video and not args.test_filter.startswith("cmuxTests/")
+    video = not args.no_video and test_target != "cmuxTests"
     fields = {
         "ref": commit,
-        "test_filter": args.test_filter,
+        "test_filter": test_filter,
         "record_video": str(video).lower(),
         "test_timeout": str(args.timeout),
         "job_timeout": str(args.job_timeout),
@@ -269,11 +297,11 @@ def main() -> int:
         command.extend(["--ref", args.workflow_ref])
     for key, value in fields.items():
         command.extend(["-f", f"{key}={value}"])
-    print(f"Testing {args.test_filter} at {commit} (request {dispatch_id})", flush=True)
+    print(f"Testing {test_filter} at {commit} (request {dispatch_id})", flush=True)
     subprocess.run(command, cwd=ROOT, check=True)
     with cancellation_scope() as cancel_event:
         run = find_run(
-            commit, args.test_filter, dispatch_id, cancel_event=cancel_event
+            commit, test_filter, dispatch_id, cancel_event=cancel_event
         )
     print(f"Run: {run['url']}", flush=True)
     if args.wait:

@@ -51,5 +51,5 @@ jobs:
           GH_REPO: ${{ github.repository }}
           DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run && 'true' || vars.CI_JANITOR_DRY_RUN == 'true' && 'true' || 'false' }}
           QUEUE_THRESHOLD: ${{ vars.CI_JANITOR_QUEUE_THRESHOLD }}
-          CI_PULL_REQUEST_SUITE: ${{ vars.CI_PULL_REQUEST_SUITE }}
+          CI_PULL_REQUEST_SUITE: ${{ vars.CI_PULL_REQUEST_SUITE || 'compile-only' }}
         run: python3 scripts/ci/queue_janitor.py
