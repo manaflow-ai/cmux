@@ -433,8 +433,20 @@ consumer() {
   build_all "restored_generation_synthetic_merge" "$worktree" "$derived"
 }
 
+warm_only() {
+  record_environment
+  reset_roots
+  restore_support
+  extract_archive "restore_generation_same_path" "$generation_archive" "$root"
+  transition_to_head "$worktree"
+  compare_seed_manifest "restored_worktree_restored_dd_A_to_B" "$worktree"
+  resolve_packages "$worktree" "$derived"
+  build_all "restored_worktree_restored_dd_A_to_B" "$worktree" "$derived"
+}
+
 case "$mode" in
   seed) seed ;;
   consumer) consumer ;;
-  *) echo "usage: $0 seed|consumer BASE_SHA HEAD_SHA ARTIFACT_DIR" >&2; exit 64 ;;
+  warm-only) warm_only ;;
+  *) echo "usage: $0 seed|consumer|warm-only BASE_SHA HEAD_SHA ARTIFACT_DIR" >&2; exit 64 ;;
 esac
