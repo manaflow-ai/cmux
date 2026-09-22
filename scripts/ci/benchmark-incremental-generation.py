@@ -103,7 +103,6 @@ def init_restored_repo(workspace: Path, repo_url: str, base: str, target: str) -
     # Bind HEAD/index to the archived source without rewriting working files.
     run(["git", "reset", "--mixed", base], cwd=workspace)
     run(["git", "submodule", "update", "--init", "--recursive"], cwd=workspace)
-    candidate_transition_seconds = time.monotonic() - transition_started
     status = output("git", "status", "--porcelain", "--untracked-files=all", cwd=workspace)
     if status:
         raise SystemExit("restored worktree differs from recorded seed before transition:\n" + status)
@@ -152,6 +151,7 @@ def source_restored(
         mode = "restored-generation"
 
     run(["git", "submodule", "update", "--init", "--recursive"], cwd=workspace)
+    candidate_transition_seconds = time.monotonic() - transition_started
     status = output("git", "status", "--porcelain", "--untracked-files=all", cwd=workspace)
     if status:
         raise SystemExit("candidate worktree dirty after transition:\n" + status)
