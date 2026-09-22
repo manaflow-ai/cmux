@@ -23,6 +23,19 @@ from typing import Callable
 from urllib.parse import urlencode
 
 ADMISSION_JOB = "macOS compile admission"
+
+
+def admission_job_name(name: object) -> bool:
+    """Whether a GitHub job name refers to the macOS compile admission job.
+
+    A reusable workflow's jobs are reported as "<caller job> / <job name>", so
+    the admission job is "macos / macOS compile admission" whenever ci.yml
+    reaches it through ci-macos.yml. Matching the whole string silently stopped
+    finding any producer when that indirection was introduced, so match the
+    final segment instead.
+    """
+    text = name if isinstance(name, str) else ""
+    return text.rsplit(" / ", 1)[-1] == ADMISSION_JOB
 ARTIFACT_PREFIX = "build-inputs-"
 RUNS_TO_CHECK = 6
 JOB_PAGES_TO_CHECK = 3
@@ -63,7 +76,9 @@ def admitted_run(api: Api, repository: str, branch: str, fingerprint: str, curre
                 jobs_query = urlencode({"filter": "all", "per_page": JOBS_PER_PAGE, "page": page})
                 jobs = api(f"repos/{repository}/actions/runs/{run['id']}/jobs?{jobs_query}").get("jobs", [])
                 admitted_attempts = {
-                    job["run_attempt"] for job in jobs if job["name"] == ADMISSION_JOB and job["conclusion"] == "success"
+                    job["run_attempt"]
+                    for job in jobs
+                    if admission_job_name(job.get("name")) and job["conclusion"] == "success"
                 }
                 for attempt in sorted(admitted_attempts):
                     artifact_query = urlencode({"name": artifact_name(fingerprint, attempt)})

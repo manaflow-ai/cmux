@@ -19,6 +19,16 @@ import time
 PROFILE = "ci-compile-admission"
 BASE_GENERATION = "cmux-ci-v1"
 QUARANTINE_RETAINED_STORES = 1
+# Glaeda performs no automatic eviction of its own cache generations
+# (docs/APPLE_NATIVE_BUILDS.md: "this prototype performs no automatic eviction
+# or broad cache cleanup"). Each generation under
+# .glaeda/apple-build/cache/<key>/ holds a full cmux DerivedData tree, so every
+# Xcode or SDK bump strands a multi-GB directory on the owned Mac forever.
+# Retain this run's generation plus the two most recently used others: enough
+# to survive a toolchain bump and a rollback back onto the previous generation
+# without a cold rebuild, while keeping disk bounded.
+CACHE_RETAINED_GENERATIONS = 3
+CACHE_GENERATION_KEY = re.compile(r"[a-f0-9]{64}")
 STATE_RESET_REASONS = (
     "state belongs to another checkout",
     "existing Apple state is incomplete",
@@ -134,6 +144,54 @@ def prune_quarantine_stores(project: Path, keep: Path | None = None) -> None:
         else:
             shutil.rmtree(path)
         print(f"Pruned obsolete Glaeda quarantine {path.name}")
+
+
+def prune_cache_generations(project: Path, keep_key: str | None = None) -> list[str]:
+    """Bound Glaeda cache growth, which Glaeda itself never bounds.
+
+    Ordering is by directory mtime, which `main` stamps on the generation it
+    used immediately before calling this. That makes the ordering an explicit
+    least-recently-used record rather than an accident of what Xcode last wrote
+    deep inside the tree: writes under `derived_data/` do not touch the
+    generation directory's own mtime, so an unstamped warm generation could
+    otherwise look older than a cold one.
+
+    Only directories whose names are Glaeda cache keys are candidates, and the
+    key this run used is never one. Deleting the wrong generation costs a cold
+    rebuild, not correctness, so every ambiguous entry is left in place.
+    """
+    parent = project / ".glaeda" / "apple-build" / "cache"
+    if not parent.is_dir():
+        return []
+    candidates: list[tuple[int, Path]] = []
+    with os.scandir(parent) as entries:
+        for entry in entries:
+            if not CACHE_GENERATION_KEY.fullmatch(entry.name):
+                continue
+            if not (entry.is_dir(follow_symlinks=False) or entry.is_symlink()):
+                continue
+            info = entry.stat(follow_symlinks=False)
+            candidates.append((info.st_mtime_ns, Path(entry.path)))
+    candidates.sort(reverse=True)
+    retained: set[str] = set()
+    if keep_key is not None:
+        retained.add(keep_key)
+    pruned: list[str] = []
+    for _, path in candidates:
+        if path.name in retained:
+            continue
+        if len(retained) < CACHE_RETAINED_GENERATIONS:
+            retained.add(path.name)
+            continue
+        if path.parent != parent or not CACHE_GENERATION_KEY.fullmatch(path.name):
+            raise Refusal("refusing to prune a path outside the cmux Glaeda cache")
+        if path.is_symlink():
+            path.unlink()
+        else:
+            shutil.rmtree(path)
+        pruned.append(path.name)
+        print(f"Pruned obsolete Glaeda cache generation {path.name}")
+    return pruned
 
 
 def quarantine_state(project: Path, request_id: str) -> Path | None:
@@ -467,6 +525,12 @@ def main() -> int:
     if not build_log.is_file() or not products.is_dir():
         raise Refusal("native compile completed without the admission log/products")
 
+    # Stamp the generation this run used, then evict the least recently used
+    # others. Pruning only after a verified-good compile means a failed run
+    # never deletes a generation on the strength of an unvalidated plan.
+    os.utime(resolved_cache)
+    pruned_cache_generations = prune_cache_generations(project, keep_key=cache_key)
+
     classification = (
         "cold-reset"
         if reset_reasons or initial_state == "cold"
@@ -508,6 +572,7 @@ def main() -> int:
             "reset_reasons": reset_reasons,
             "cache_key": plan.get("cache_key"),
             "invocation_identity": plan.get("invocation_identity"),
+            "pruned_cache_generations": pruned_cache_generations,
             "native_timings_seconds": native_timings if isinstance(native_timings, dict) else {},
             "native_work": native_work if isinstance(native_work, dict) else {},
         },

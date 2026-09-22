@@ -12,7 +12,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 class CheckoutDiagnosticsTests(unittest.TestCase):
     def test_empty_checkout_keeps_evidence_and_failure(self):
-        workflow = yaml.safe_load((ROOT / '.github/workflows/ci.yml').read_text())
+        workflow = yaml.safe_load((ROOT / '.github/workflows/ci-macos.yml').read_text())
         for job in ('app-host-unit-tests', 'macos-compile-admission'):
             with self.subTest(job=job), tempfile.TemporaryDirectory() as directory:
                 root = Path(directory)

@@ -179,6 +179,8 @@ def run_decision_scenario(
     ordering_api_failure: Optional[str] = None,
     compare_api_failure: bool = False,
     artifact_api_failure: bool = False,
+    failed_prior_run: Optional[dict[str, object]] = None,
+    changed_files_since_failure: tuple[str, ...] = (),
     expected_failure: Optional[str] = None,
 ) -> dict[str, object]:
     decision_job = mapping_block(workflow_text(), "decide", indent=2)
@@ -258,6 +260,8 @@ def run_decision_scenario(
         "orderingApiFailure": ordering_api_failure,
         "compareApiFailure": compare_api_failure,
         "artifactApiFailure": artifact_api_failure,
+        "failedPriorRun": failed_prior_run,
+        "changedFilesSinceFailure": changed_files_since_failure,
     }
     harness = f"""
 const scenario = {json.dumps(scenario)};
@@ -297,6 +301,15 @@ const priorRuns = (request) => {{
         ? '2020-01-01T00:00:00Z'
         : undefined,
   }}));
+  if (scenario.failedPriorRun && page === 1) {{
+    runs.push({{
+      id: scenario.failedPriorRun.id,
+      status: 'completed',
+      conclusion: 'failure',
+      event: 'schedule',
+      head_sha: scenario.failedPriorRun.sha,
+    }});
+  }}
   const idleRunsBeforePage = (page - 1) * 100;
   const idleRunsOnPage = Math.min(
     Math.max(100 - runs.length, 0),
@@ -363,6 +376,20 @@ const github = {{
         ) {{
           orderingFailurePending = false;
           throw new Error('transient jobs failure');
+        }}
+        if (
+          scenario.failedPriorRun &&
+          Number(request.run_id) === scenario.failedPriorRun.id
+        ) {{
+          return {{
+            data: {{
+              jobs: [{{
+                name: 'Upload to TestFlight',
+                status: 'completed',
+                conclusion: scenario.failedPriorRun.uploadConclusion,
+              }}],
+            }},
+          }};
         }}
         const priorRun = allPriorRuns.find(
           (run) => run.id === Number(request.run_id)
@@ -437,9 +464,14 @@ const github = {{
         if (scenario.compareApiFailure) {{
           throw new Error('transient compare failure');
         }}
+        const files =
+          scenario.failedPriorRun &&
+          request.base === scenario.failedPriorRun.sha
+            ? scenario.changedFilesSinceFailure
+            : scenario.changedFiles;
         return {{
           data: {{
-            files: scenario.changedFiles.map((filename) => ({{ filename }})),
+            files: files.map((filename) => ({{ filename }})),
           }},
         }};
       }},
@@ -1140,6 +1172,100 @@ def test_demo_schedule_retries_ordering_api_errors() -> None:
         }
 
 
+def test_internal_poll_skips_inputs_that_already_failed_to_upload() -> None:
+    # A broken main otherwise re-archives the same inputs on macOS every
+    # 20 minutes until someone lands a fix.
+    for head_sha, since_failure in (
+        ("failed-sha", ()),
+        ("head-sha", ("web/app/page.tsx",)),
+    ):
+        result = run_decision_scenario(
+            event_name="schedule",
+            schedule=IOS_SCHEDULES[0],
+            prior_sha="base-sha",
+            prior_run_ids=(40,),
+            head_sha=head_sha,
+            changed_files=("ios/cmux/App.swift",),
+            failed_prior_run={
+                "id": 60,
+                "sha": "failed-sha",
+                "uploadConclusion": "failure",
+            },
+            changed_files_since_failure=since_failure,
+        )
+
+        assert result["outputs"] == {
+            "should_build": "false",
+            "last_uploaded_sha": "base-sha",
+            "variant": "internal",
+        }
+        assert result["workflowRunCalls"] == 1
+        assert result["warnings"] == []
+
+
+def test_internal_poll_retries_failed_inputs_after_an_ios_change() -> None:
+    result = run_decision_scenario(
+        event_name="schedule",
+        schedule=IOS_SCHEDULES[0],
+        prior_sha="base-sha",
+        prior_run_ids=(40,),
+        head_sha="head-sha",
+        changed_files=("ios/cmux/App.swift",),
+        failed_prior_run={
+            "id": 60,
+            "sha": "failed-sha",
+            "uploadConclusion": "failure",
+        },
+        changed_files_since_failure=("Packages/iOS/Fix.swift",),
+    )
+
+    assert result["outputs"]["should_build"] == "true"
+
+
+def test_failed_upload_skip_ignores_other_failures() -> None:
+    # Only a failed upload job marks the inputs bad. A failed decide job, a
+    # failure older than the last upload, and a manual or DEMO run all build.
+    cases = (
+        dict(failed_id=60, conclusion="skipped", schedule=IOS_SCHEDULES[0]),
+        dict(failed_id=30, conclusion="failure", schedule=IOS_SCHEDULES[0]),
+        dict(failed_id=60, conclusion="failure", schedule=IOS_SCHEDULES[1]),
+    )
+    for case in cases:
+        prior_artifact = (
+            "ios-testflight-build-metadata-demo"
+            if case["schedule"] == IOS_SCHEDULES[1]
+            else "ios-testflight-build-metadata"
+        )
+        result = run_decision_scenario(
+            event_name="schedule",
+            schedule=case["schedule"],
+            prior_sha="base-sha",
+            prior_artifact=prior_artifact,
+            prior_run_ids=(40,),
+            head_sha="failed-sha",
+            changed_files=("ios/cmux/App.swift",),
+            failed_prior_run={
+                "id": case["failed_id"],
+                "sha": "failed-sha",
+                "uploadConclusion": case["conclusion"],
+            },
+        )
+
+        assert result["outputs"]["should_build"] == "true", case
+    manual = run_decision_scenario(
+        event_name="workflow_dispatch",
+        prior_sha="base-sha",
+        prior_run_ids=(40,),
+        head_sha="failed-sha",
+        failed_prior_run={
+            "id": 60,
+            "sha": "failed-sha",
+            "uploadConclusion": "failure",
+        },
+    )
+    assert manual["outputs"]["should_build"] == "true"
+
+
 def test_mapping_keys_normalizes_quoted_yaml_keys() -> None:
     triggers = "  push:\n  'schedule':\n  \"workflow_dispatch\":\n"
 
@@ -1225,12 +1351,12 @@ def test_automatic_lane_stays_on_cmux_internal_identity() -> None:
     )
     assert "ASSIGN_BUNDLE_ID: ${{ needs.upload.outputs.bundle_id }}" in assignment
     assert assignment.count("needs: [decide, upload]") == 1
-    assert (
-        "if: github.ref == 'refs/heads/main' "
-        "&& needs.upload.result == 'success' "
-        "&& needs.upload.outputs.assign_internal_group == '1'"
-        in assignment
-    )
+    # The parts of the gate this test owns: automatic uploads assign only from
+    # main, and only for the internal-group variant. That it keys on the upload
+    # *step*'s outcome rather than the upload job's result is
+    # tests/test_ios_testflight_assignment_after_upload.py's concern.
+    assert "github.ref == 'refs/heads/main'" in assignment
+    assert "needs.upload.outputs.assign_internal_group == '1'" in assignment
 
 
 if __name__ == "__main__":
@@ -1261,6 +1387,9 @@ if __name__ == "__main__":
     test_internal_poll_skips_when_ordering_cannot_be_checked()
     test_demo_schedule_still_waits_for_an_earlier_upload()
     test_demo_schedule_retries_ordering_api_errors()
+    test_internal_poll_skips_inputs_that_already_failed_to_upload()
+    test_internal_poll_retries_failed_inputs_after_an_ios_change()
+    test_failed_upload_skip_ignores_other_failures()
     test_mapping_keys_normalizes_quoted_yaml_keys()
     test_testflight_notes_use_the_same_ios_path_contract()
     test_scheduled_and_manual_runs_use_independent_concurrency_groups()

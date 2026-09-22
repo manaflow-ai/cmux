@@ -19,6 +19,17 @@ WORKFLOW = "persistent-macos-compile.yml"
 JOB_NAME = "Persistent Apple compile"
 TERMINAL = {"completed"}
 
+# Must stay identical to the producer's `authorize` job in
+# .github/workflows/persistent-macos-compile.yml, which admits only MEMBER/OWNER.
+# Routing wider than the producer is not a security hole -- the producer still
+# refuses -- but it dispatches a producer that is guaranteed to fail, burning an
+# owned-Mac allocation and returning producer_failure instead of falling through
+# to the hosted path immediately. Alignment is deliberately at the narrower set:
+# the owned hardware keeps warm cmux DerivedData across runs, so its trust
+# boundary stays at organization membership rather than per-repository
+# collaborator grants.
+TRUSTED_AUTHOR_ASSOCIATIONS = frozenset({"MEMBER", "OWNER"})
+
 
 def now() -> float:
     return time.monotonic()
@@ -116,7 +127,7 @@ def eligibility(args: argparse.Namespace) -> tuple[bool, str]:
         return False, "event_not_pull_request"
     if args.head_repository.casefold() != args.repository.casefold():
         return False, "untrusted_repository"
-    if args.author_association not in {"MEMBER", "OWNER"}:
+    if args.author_association not in TRUSTED_AUTHOR_ASSOCIATIONS:
         return False, "untrusted_author"
     if selector == "pilot":
         if cohort_match(args.cohort, args.pr_number, args.head_ref):
@@ -145,7 +156,7 @@ def verify_live_request(api: GitHub, args: argparse.Namespace) -> tuple[bool, st
     checks = {
         "pr_closed": pr.get("state") == "open",
         "untrusted_repository": str(head_repo).casefold() == args.repository.casefold(),
-        "untrusted_author": pr.get("author_association") in {"MEMBER", "OWNER"},
+        "untrusted_author": pr.get("author_association") in TRUSTED_AUTHOR_ASSOCIATIONS,
         "head_changed": head.get("sha") == args.head_sha,
         "base_changed": base.get("sha") == args.source_parent1,
         "merge_changed": pr.get("merge_commit_sha") == args.source_sha,
@@ -307,7 +318,14 @@ def main() -> int:
     parser.add_argument("--execution-seconds", type=int, default=480)
     parser.add_argument("--github-output", type=Path, required=True)
     parser.add_argument("--observe-only", action="store_true")
+    parser.add_argument(
+        "--ready-only",
+        action="store_true",
+        help="observe once and use the producer only when its compile is already complete",
+    )
     args = parser.parse_args()
+    if args.ready_only and not args.observe_only:
+        parser.error("--ready-only requires --observe-only")
 
     eligible, reason = eligibility(args)
     if not eligible:
@@ -327,7 +345,11 @@ def main() -> int:
             return fallback(args.github_output, live_reason)
 
         discovery_started = now()
-        if args.observe_only:
+        if args.ready_only:
+            run = matching_run(api, request_id)
+            if run is None:
+                return fallback(args.github_output, "producer_not_ready")
+        elif args.observe_only:
             run = find_run(api, request_id, discovery_started + 90, waiter)
         else:
             api.dispatch(
@@ -344,26 +366,35 @@ def main() -> int:
             run = find_run(api, request_id, discovery_started + 30, waiter)
         run_id = int(run["id"])
         producer_run_id = run_id
-        queue_deadline = now() + args.queue_seconds
-
-        def observe_queue():
+        if args.ready_only:
             selected = compile_job(api, run_id)
-            if selected and selected.get("started_at"):
-                return True, ("started", selected)
-            if selected and selected.get("status") in TERMINAL:
-                return True, ("terminal", selected)
-            return False, None
+            if selected is None or selected.get("status") != "completed":
+                return fallback(
+                    args.github_output,
+                    "producer_not_ready",
+                    producer_run_id=run_id,
+                )
+        else:
+            queue_deadline = now() + args.queue_seconds
 
-        queue_result = waiter.until(queue_deadline, observe_queue)
-        if queue_result is not None and queue_result[0] == "terminal":
-            selected = queue_result[1]
-            conclusion = str(selected.get("conclusion") or "unknown")
-            return fallback(args.github_output, f"producer_{conclusion}", producer_run_id=run_id)
-        selected = queue_result[1] if queue_result is not None else None
-        if not selected or not selected.get("started_at"):
-            if not args.observe_only:
-                cancel(api, run_id)
-            return fallback(args.github_output, "queue_timeout", producer_run_id=run_id)
+            def observe_queue():
+                selected = compile_job(api, run_id)
+                if selected and selected.get("started_at"):
+                    return True, ("started", selected)
+                if selected and selected.get("status") in TERMINAL:
+                    return True, ("terminal", selected)
+                return False, None
+
+            queue_result = waiter.until(queue_deadline, observe_queue)
+            if queue_result is not None and queue_result[0] == "terminal":
+                selected = queue_result[1]
+                conclusion = str(selected.get("conclusion") or "unknown")
+                return fallback(args.github_output, f"producer_{conclusion}", producer_run_id=run_id)
+            selected = queue_result[1] if queue_result is not None else None
+            if not selected or not selected.get("started_at"):
+                if not args.observe_only:
+                    cancel(api, run_id)
+                return fallback(args.github_output, "queue_timeout", producer_run_id=run_id)
 
         created = parse_time(str(selected.get("created_at") or ""))
         started = parse_time(str(selected.get("started_at") or ""))
@@ -373,24 +404,27 @@ def main() -> int:
             return fallback(args.github_output, "producer_timing_unavailable", producer_run_id=run_id)
         queue_seconds = max(0.0, (started - created).total_seconds())
 
-        execution_deadline = now() + args.execution_seconds
+        if args.ready_only:
+            completed = selected
+        else:
+            execution_deadline = now() + args.execution_seconds
 
-        def observe_execution():
-            current = compile_job(api, run_id)
-            if current and current.get("status") == "completed":
-                return True, current
-            return False, None
+            def observe_execution():
+                current = compile_job(api, run_id)
+                if current and current.get("status") == "completed":
+                    return True, current
+                return False, None
 
-        completed = waiter.until(execution_deadline, observe_execution)
-        if completed is None:
-            if not args.observe_only:
-                cancel(api, run_id)
-            return fallback(
-                args.github_output,
-                "execution_budget_exceeded",
-                producer_run_id=run_id,
-                queue_to_start_seconds=round(queue_seconds, 3),
-            )
+            completed = waiter.until(execution_deadline, observe_execution)
+            if completed is None:
+                if not args.observe_only:
+                    cancel(api, run_id)
+                return fallback(
+                    args.github_output,
+                    "execution_budget_exceeded",
+                    producer_run_id=run_id,
+                    queue_to_start_seconds=round(queue_seconds, 3),
+                )
         if completed.get("conclusion") != "success":
             return fallback(
                 args.github_output,

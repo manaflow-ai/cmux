@@ -1,4 +1,5 @@
 """Exercise the workflow's publication decision and all product consumers."""
+import json
 import os
 from pathlib import Path
 import re
@@ -19,23 +20,30 @@ def condition(expression, *, full_suite, publish="true"):
         name = match.group(0)
         if name.endswith(".result"):
             return repr("success")
-        if name.endswith(".outputs.full_suite"):
+        if name.endswith(".outputs.full_suite") or name == "inputs.full_suite":
             return repr(full_suite)
-        if name.endswith(".outputs.compile_admitted"):
+        if name.endswith(".outputs.compile_admitted") or name == "inputs.compile_admitted":
             return repr("false")
         if name.endswith(".outputs.publish"):
             return repr(publish)
-        if name.endswith((".outputs.macos", ".outputs.release_build")):
+        if name.endswith((".outputs.macos", ".outputs.release_build")) or name in {
+            "inputs.macos",
+            "inputs.release_build",
+        }:
             return repr("true")
         raise AssertionError(f"Unmodeled workflow input: {name}")
-    expression = re.sub(r"(?:needs|steps)\.[\w-]+\.(?:result|outputs\.[\w-]+)", value, expression)
+    expression = re.sub(
+        r"(?:needs|steps)\.[\w-]+\.(?:result|outputs\.[\w-]+)|inputs\.[\w-]+",
+        value,
+        expression,
+    )
     return eval(expression.replace("&&", " and ").replace("||", " or "), {"__builtins__": {}})
 
 
 class ProductPublicationTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.workflow = yaml.safe_load((ROOT / ".github/workflows/ci.yml").read_text())
+        cls.workflow = yaml.safe_load((ROOT / ".github/workflows/ci-macos.yml").read_text())
         cls.job = cls.workflow["jobs"]["macos-compile-admission"]
 
     def publication(self, *, full_suite, event="pull_request", head="contributor/cmux", repo="manaflow-ai/cmux"):
@@ -43,7 +51,7 @@ class ProductPublicationTests(unittest.TestCase):
         if step is None:
             return "true"  # The previous workflow always packaged and uploaded.
         self.assertEqual(step["env"], {
-            "PRODUCT_FULL_SUITE": "${{ needs.changes.outputs.full_suite }}",
+            "PRODUCT_FULL_SUITE": "${{ inputs.full_suite }}",
             "PRODUCT_EVENT": "${{ github.event_name }}",
             "PRODUCT_HEAD_REPOSITORY": "${{ github.event.pull_request.head.repo.full_name }}",
             "PRODUCT_REPOSITORY": "${{ github.repository }}",
@@ -129,6 +137,28 @@ class ProductPublicationTests(unittest.TestCase):
         index = {s["name"]: i for i, s in enumerate(self.job["steps"])}
         self.assertIn("Choose product artifact publication", index)
         self.assertLess(index["Run early CLI binary smoke checks"], index["Choose product artifact publication"])
+
+
+    def macos_status(self, compile_admitted, *, full_suite="true", results="success"):
+        step = next(
+            s for s in self.workflow["jobs"]["macos-status"]["steps"]
+            if s.get("name") == "Check routed macOS jobs"
+        )
+        needs = {name: {"result": results} for name in self.workflow["jobs"]["macos-status"]["needs"]}
+        inputs = {"macos": "true", "full_suite": full_suite, "compile_admitted": compile_admitted, "release_build": "true"}
+        env = {**os.environ, "MACOS_INPUTS": json.dumps(inputs), "MACOS_NEEDS": json.dumps(needs)}
+        return subprocess.run(["bash", "-c", step["run"]], env=env, text=True, capture_output=True)
+
+    def test_macos_status_reads_unset_compile_admitted_as_compile(self):
+        # ci.yml leaves compile_admitted unset on full-suite runs, which skip
+        # both build-input reuse steps. That must not fail an all-green run.
+        passed = self.macos_status("")
+        self.assertEqual(passed.returncode, 0, passed.stderr)
+        self.assertNotIn("invalid route", passed.stderr)
+        failed = self.macos_status("", results="failure")
+        self.assertNotEqual(failed.returncode, 0)
+        garbage = self.macos_status("maybe")
+        self.assertIn("invalid route compile_admitted='maybe'", garbage.stderr)
 
 
 if __name__ == "__main__":

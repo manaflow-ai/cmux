@@ -126,6 +126,20 @@ class WebValidationTests(unittest.TestCase):
             with self.subTest(path=path):
                 self.assertTrue(gate.classify_files([path]).web)
 
+    def test_pr_and_merge_group_workflow_delegation_uses_one_cheap_status_job(self):
+        workflow = (ROOT / ".github/workflows/web-validation.yml").read_text()
+        changes = workflow[workflow.index("  changes:"):workflow.index("\n  build:")]
+        status = workflow[workflow.index("  web-validation:"):]
+
+        delegated = "github.event_name == 'pull_request' || github.event_name == 'merge_group'"
+        standalone = "github.event_name != 'pull_request' && github.event_name != 'merge_group'"
+
+        self.assertIn(standalone, changes)
+        self.assertIn("Accept CI-owned pull-request validation", status)
+        self.assertIn(delegated, status)
+        self.assertGreaterEqual(status.count(standalone), 2)
+        self.assertIn("required ci-status check", status)
+
     def test_pr_and_merge_group_checks_belong_to_ci(self):
         delegated = {"changes": {"result": "success", "outputs": {"required": "true"}},
                      "build": {"result": "skipped"},

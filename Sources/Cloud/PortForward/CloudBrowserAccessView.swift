@@ -19,10 +19,19 @@ struct CloudBrowserAccessView<Content: View>: View {
                             message: nil,
                             onRetry: nil
                         )
-                    } else if state.showsPage || state.failureMessage == nil { content() } else {
+                    } else if state.showsPage || state.failureMessage == nil {
+                        VStack(spacing: 0) {
+                            if state.isDesktop && !state.desktopConnected && state.failureMessage == nil {
+                                ProgressView(String(localized: "cloud.display.connecting", defaultValue: "Connecting to Cloud display…"))
+                                    .controlSize(.small).padding(12)
+                                    .accessibilityIdentifier("CloudDisplayConnecting")
+                            }
+                            content()
+                        }
+                    } else {
                         CloudBrowserConnectionCard(
                             address: state.remoteURL?.absoluteString ?? "",
-                            message: state.error ?? model.failureMessage,
+                            message: state.failureMessage ?? model.failureMessage,
                             onRetry: {
                                 _ = panel.reload()
                                 navigateIfReady()

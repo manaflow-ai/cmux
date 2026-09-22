@@ -6,7 +6,9 @@ from __future__ import annotations
 import argparse
 import importlib.util
 import json
+import os
 from pathlib import Path
+import re
 import tempfile
 import unittest
 from unittest import mock
@@ -15,6 +17,7 @@ from unittest import mock
 ROOT = Path(__file__).resolve().parents[1]
 ROUTE = ROOT / "scripts/ci/persistent_mac_route.py"
 CI = ROOT / ".github/workflows/ci.yml"
+MACOS_CI = ROOT / ".github/workflows/ci-macos.yml"
 PRODUCER = ROOT / ".github/workflows/persistent-macos-compile.yml"
 ROUTER = ROOT / ".github/workflows/persistent-macos-router.yml"
 PROFILE = ROOT / "glaeda.apple.json"
@@ -114,8 +117,23 @@ class RoutingTests(unittest.TestCase):
         self.assertEqual(waits, [0.25])
         cancel.assert_called_once_with(api, 77)
 
-    def test_only_trusted_same_repository_members_are_eligible(self):
+    def test_ready_only_contract_is_explicit(self):
+        source = ROUTE.read_text()
+        self.assertIn('"--ready-only"', source)
+        self.assertIn("args.ready_only and not args.observe_only", source)
+        self.assertIn('if args.ready_only:', source)
+        self.assertIn('"producer_not_ready"', source)
+        self.assertIn("selected = compile_job(api, run_id)", source)
+        self.assertIn('selected.get("status") != "completed"', source)
+
+    def test_only_trusted_same_repository_maintainers_are_eligible(self):
         self.assertEqual(route.eligibility(args()), (True, "pilot"))
+        self.assertEqual(route.eligibility(args(author_association="OWNER")), (True, "pilot"))
+        # COLLABORATOR routes no further than the producer would admit it.
+        self.assertEqual(
+            route.eligibility(args(author_association="COLLABORATOR")),
+            (False, "untrusted_author"),
+        )
         self.assertEqual(
             route.eligibility(args(head_repository="someone/cmux")),
             (False, "untrusted_repository"),
@@ -204,15 +222,188 @@ class StateRetentionTests(unittest.TestCase):
             self.assertEqual(remaining[0].name, old[-1].name)
             self.assertTrue(unrelated.is_dir())
 
+    @staticmethod
+    def _cache_generation(root: Path, index: int, mtime: int) -> Path:
+        """A fake Glaeda cache generation: a 64-hex key holding a DerivedData tree."""
+        path = root / f"{index:064x}"
+        (path / "derived_data" / "Build" / "Products" / "Debug").mkdir(parents=True)
+        (path / "derived_data" / "cmux-build.log").write_text(str(index))
+        os.utime(path, ns=(mtime, mtime))
+        return path
+
+    def test_cache_pruning_keeps_the_current_and_most_recent_generations(self):
+        with tempfile.TemporaryDirectory() as directory:
+            project = Path(directory)
+            cache = project / ".glaeda" / "apple-build" / "cache"
+            cache.mkdir(parents=True)
+            # index 0 is oldest, index 5 newest; the current run uses the oldest,
+            # which must survive precisely because it is the one in use.
+            generations = [
+                self._cache_generation(cache, index, 1_000_000_000 + index)
+                for index in range(6)
+            ]
+            current = generations[0]
+            # Neither of these is a cache key, so neither may ever be a candidate.
+            stray_file = cache / "README"
+            stray_file.write_text("not a generation")
+            stray_dir = cache / "scratch"
+            stray_dir.mkdir()
+
+            pruned = driver.prune_cache_generations(project, keep_key=current.name)
+
+            survivors = {path.name for path in cache.iterdir()}
+            expected = {
+                current.name,
+                generations[-1].name,
+                generations[-2].name,
+                stray_file.name,
+                stray_dir.name,
+            }
+            self.assertEqual(survivors, expected)
+            self.assertEqual(
+                sorted(pruned),
+                sorted(path.name for path in generations[1:-2]),
+            )
+            self.assertTrue((current / "derived_data" / "cmux-build.log").is_file())
+            self.assertEqual(
+                len(survivors) - 2, driver.CACHE_RETAINED_GENERATIONS
+            )
+
+    def test_cache_pruning_never_evicts_the_generation_in_use(self):
+        """Even as the least recently used generation, the current key survives."""
+        with tempfile.TemporaryDirectory() as directory:
+            project = Path(directory)
+            cache = project / ".glaeda" / "apple-build" / "cache"
+            cache.mkdir(parents=True)
+            generations = [
+                self._cache_generation(cache, index, 1_000_000_000 + index)
+                for index in range(driver.CACHE_RETAINED_GENERATIONS + 2)
+            ]
+            oldest = generations[0]
+
+            driver.prune_cache_generations(project, keep_key=oldest.name)
+
+            self.assertTrue(oldest.is_dir())
+            self.assertTrue((oldest / "derived_data" / "cmux-build.log").is_file())
+
+    def test_cache_pruning_is_a_noop_below_the_retention_bound(self):
+        with tempfile.TemporaryDirectory() as directory:
+            project = Path(directory)
+            cache = project / ".glaeda" / "apple-build" / "cache"
+            cache.mkdir(parents=True)
+            generations = [
+                self._cache_generation(cache, index, 1_000_000_000 + index)
+                for index in range(driver.CACHE_RETAINED_GENERATIONS)
+            ]
+
+            self.assertEqual(
+                driver.prune_cache_generations(project, keep_key=generations[0].name), []
+            )
+            self.assertEqual(
+                {path.name for path in cache.iterdir()},
+                {path.name for path in generations},
+            )
+
+    def test_cache_pruning_tolerates_an_absent_cache_root(self):
+        with tempfile.TemporaryDirectory() as directory:
+            self.assertEqual(driver.prune_cache_generations(Path(directory)), [])
+
+    def test_cache_pruning_unlinks_generation_symlinks_without_following_them(self):
+        with tempfile.TemporaryDirectory() as directory:
+            project = Path(directory)
+            cache = project / ".glaeda" / "apple-build" / "cache"
+            cache.mkdir(parents=True)
+            outside = project / "outside"
+            (outside / "derived_data").mkdir(parents=True)
+            (outside / "derived_data" / "treasure").write_text("keep me")
+            # Oldest entry is a symlink out of the cache root.
+            link = cache / f"{0:064x}"
+            link.symlink_to(outside, target_is_directory=True)
+            os.utime(link, ns=(1_000_000_000, 1_000_000_000), follow_symlinks=False)
+            newer = [
+                self._cache_generation(cache, index, 1_000_000_100 + index)
+                for index in range(1, driver.CACHE_RETAINED_GENERATIONS + 2)
+            ]
+
+            pruned = driver.prune_cache_generations(project, keep_key=newer[-1].name)
+
+            self.assertIn(link.name, pruned)
+            self.assertFalse(link.is_symlink())
+            self.assertTrue((outside / "derived_data" / "treasure").is_file())
+
+    def test_driver_prunes_cache_generations_after_a_verified_compile(self):
+        source = DRIVER.read_text()
+        prune = source.index("    pruned_cache_generations = prune_cache_generations(")
+        self.assertIn("os.utime(resolved_cache)", source[:prune])
+        # Eviction must follow every check that proves the current generation.
+        for guard in (
+            'raise Refusal("Glaeda cache locator escaped the project cache root")',
+            'raise Refusal("Glaeda DerivedData escaped the admitted cache generation")',
+            'raise Refusal("native compile completed without the admission log/products")',
+        ):
+            self.assertLess(source.index(guard), prune)
+        self.assertIn('"pruned_cache_generations": pruned_cache_generations', source)
+
 
 class WorkflowContractTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.ci = CI.read_text()
+        cls.macos_ci = MACOS_CI.read_text()
         cls.producer = PRODUCER.read_text()
         cls.router = ROUTER.read_text()
         cls.driver = DRIVER.read_text()
         cls.profile = json.loads(PROFILE.read_text())
+
+    @staticmethod
+    def _python_association_set(source: str) -> set[str]:
+        """Every Python set literal of author associations found in `source`."""
+        found: list[set[str]] = []
+        for literal in re.findall(r"\{[^{}]*\}", source):
+            names = re.findall(r"\"([A-Z][A-Z_]+)\"", literal)
+            if "MEMBER" in names or "OWNER" in names or "COLLABORATOR" in names:
+                found.append(set(names))
+        if not found:
+            raise AssertionError("no author-association set literal found")
+        if any(names != found[0] for names in found):
+            raise AssertionError(f"author-association sets disagree within one file: {found}")
+        return found[0]
+
+    @staticmethod
+    def _workflow_gate_association_set(gate: str) -> set[str]:
+        """Associations admitted by a `github.event.pull_request` workflow gate."""
+        names = set(
+            re.findall(r"github\.event\.pull_request\.author_association == '([A-Z_]+)'", gate)
+        )
+        if not names:
+            raise AssertionError("no author-association gate found")
+        return names
+
+    def test_every_author_association_gate_matches_the_producer(self):
+        """The producer refuses anything it is not shown; no gate ahead of it may be wider.
+
+        A routing gate wider than the producer's `authorize` job still fails
+        safe, but it dispatches a producer that is certain to refuse -- wasting
+        an owned-Mac allocation and reporting producer_failure instead of
+        falling straight through to the hosted path. Each set below is derived
+        from its own source file so the four cannot drift apart again.
+        """
+        producer_gate = self.producer.split("  authorize:", 1)[1].split("\n  compile:", 1)[0]
+        producer = self._python_association_set(producer_gate)
+        self.assertTrue(producer, "producer admitted no author association")
+
+        router_script = self._python_association_set(ROUTE.read_text())
+        self.assertEqual(router_script, producer)
+        self.assertEqual(set(route.TRUSTED_AUTHOR_ASSOCIATIONS), producer)
+
+        request_gate = self.ci.split("      - name: Publish persistent Mac route request", 1)[1]
+        request_gate = request_gate.split("\n        env:", 1)[0]
+        self.assertEqual(self._workflow_gate_association_set(request_gate), producer)
+
+        observe_gate = self.macos_ci.split(
+            "      - name: Observe persistent Mac compile candidate", 1
+        )[1].split("\n        env:", 1)[0]
+        self.assertEqual(self._workflow_gate_association_set(observe_gate), producer)
 
     def test_producer_is_manual_dedicated_and_credential_minimized(self):
         self.assertIn("  workflow_dispatch:", self.producer)
@@ -235,37 +426,97 @@ class WorkflowContractTests(unittest.TestCase):
     def test_dispatch_authority_is_default_branch_only(self):
         self.assertIn("  workflow_run:", self.router)
         self.assertIn("    workflows: [CI]", self.router)
-        self.assertIn("    types: [in_progress]", self.router)
+        # `requested` fires once per CI run. `in_progress` fires again for every
+        # CI job that starts, and each of those notifications created a router
+        # run that the job condition then skipped. Match the whole trigger block,
+        # so `types: [requested, in_progress]` cannot satisfy this.
+        self.assertIn(
+            "on:\n  workflow_run:\n    workflows: [CI]\n    types: [requested]\n",
+            self.router,
+        )
+        self.assertNotIn("in_progress]", self.router)
         self.assertIn("\npermissions: {}\n", self.router)
         self.assertIn("      actions: write", self.router)
         self.assertIn("          ref: main", self.router)
         self.assertIn("persistent-mac-route-request-", self.router)
+        # Attaching at `requested` means the wait starts before CI has a job, so
+        # it has to outlast CI's queue and end on its own when CI finishes
+        # without publishing a request.
+        self.assertIn("deadline=$(( $(date +%s) + 600 ))", self.router)
+        self.assertIn('if [ "$status" = "completed" ]; then', self.router)
+        # The wait and the bounded compile that follows it both have to fit
+        # inside the job, or the router is killed after dispatching an owned Mac.
+        self.assertIn("    timeout-minutes: 25", self.router)
+        # One `requested` notification is the only one: a transient API error
+        # must not end the route.
+        self.assertIn('per_page=100" 2>/dev/null || true)', self.router)
+        # A fork can never satisfy the request envelope, so it must not hold a
+        # runner for the length of the wait.
+        self.assertIn(
+            "github.event.workflow_run.head_repository.full_name == github.repository",
+            self.router,
+        )
         self.assertNotIn("actions: write", self.ci)
-        route_block = self.ci.split("  persistent-mac-compile-route:", 1)[1].split(
-            "  macos-compile-admission:", 1
-        )[0]
-        self.assertIn("      actions: read", route_block)
-        self.assertIn("--observe-only", route_block)
-
-    def test_ci_routes_only_trusted_prs_and_preserves_hosted_fallback(self):
-        route_block = self.ci.split("  persistent-mac-compile-route:", 1)[1].split(
-            "  macos-compile-admission:", 1
-        )[0]
-        self.assertIn("vars.CI_PERSISTENT_MAC_COMPILE", route_block)
-        self.assertIn("persistent-mac-route-request-", self.ci)
-        self.assertIn("github.event.pull_request.head.repo.full_name == github.repository", route_block)
-        self.assertIn("github.event.pull_request.author_association == 'MEMBER'", route_block)
-        self.assertIn("github.event.pull_request.author_association == 'OWNER'", route_block)
-        admission = self.ci.split("  macos-compile-admission:", 1)[1].split(
+        admission = self.macos_ci.split("  macos-compile-admission:", 1)[1].split(
             "  app-host-unit-tests:", 1
         )[0]
-        self.assertNotIn("needs.persistent-mac-compile-route.result == 'success'", admission)
+        self.assertNotIn("  persistent-mac-compile-route:", self.ci)
+        self.assertIn("      actions: read", admission)
+        self.assertIn("      pull-requests: read", admission)
+        self.assertIn("--observe-only", admission)
+        self.assertIn("--ready-only", admission)
+        self.assertNotIn("--queue-seconds \"$queue_seconds\"", admission.split("Observe persistent Mac compile candidate", 1)[1].split("Download persistent Mac compile product", 1)[0])
+
+    def test_ci_routes_only_trusted_prs_and_preserves_hosted_fallback(self):
+        admission = self.macos_ci.split("  macos-compile-admission:", 1)[1].split(
+            "  app-host-unit-tests:", 1
+        )[0]
+        self.assertIn("vars.CI_PERSISTENT_MAC_COMPILE", admission)
+        self.assertIn("persistent-mac-route-request-", self.ci)
+        self.assertIn("source_identity_valid: ${{ steps.source-identity.outputs.valid }}", self.ci)
+        self.assertIn("steps.source-identity.outputs.valid == 'true'", self.ci)
+        self.assertIn("inputs.source_identity_valid == 'true'", admission)
+        self.assertIn("github.event.pull_request.head.repo.full_name == github.repository", admission)
+        self.assertIn("github.event.pull_request.author_association == 'MEMBER'", admission)
+        self.assertIn("github.event.pull_request.author_association == 'OWNER'", admission)
+        self.assertNotIn("github.event.pull_request.author_association == 'COLLABORATOR'", admission)
+        self.assertNotIn("- persistent-mac-compile-route", admission)
         self.assertIn("steps.persistent-restore.outputs.hit != 'true'", admission)
         self.assertIn("actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131", admission)
-        self.assertIn("run-id: ${{ needs.persistent-mac-compile-route.outputs.producer_run_id }}", admission)
+        self.assertIn("run-id: ${{ steps.persistent-route.outputs.producer_run_id }}", admission)
+
+    def test_stale_pull_request_rerun_is_rejected_before_compile_setup(self):
+        admission = self.macos_ci.split("  macos-compile-admission:", 1)[1].split(
+            "  app-host-unit-tests:", 1
+        )[0]
+        guard_start = admission.index("      - name: Reject stale pull request rerun")
+        guard = admission[guard_start:].split("\n      - name:", 1)[0]
+        self.assertIn("if: ${{ github.event_name == 'pull_request' }}", guard)
+        self.assertIn('gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID"', guard)
+        self.assertIn('gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER"', guard)
+        self.assertIn('current_head" != "$run_head"', guard)
+        self.assertIn("continuing with normal CI", guard)
+        self.assertIn("exit 1", guard)
+        self.assertLess(guard_start, admission.index("      - name: Start compile admission timers"))
+        self.assertLess(guard_start, admission.index("      - name: Clear stale git locks"))
+        self.assertLess(guard_start, admission.index("      - name: Checkout"))
+
+
+    def test_admission_total_does_not_double_count_route_observation(self):
+        admission = self.macos_ci.split("  macos-compile-admission:", 1)[1].split(
+            "  app-host-unit-tests:", 1
+        )[0]
+        self.assertIn(
+            '"total_macos_compile_admission_seconds": number("ADMISSION_SECONDS")',
+            admission,
+        )
+        self.assertNotIn(
+            '(number("ROUTE_WALL_SECONDS") or 0.0) + (number("ADMISSION_SECONDS") or 0.0)',
+            admission,
+        )
 
     def test_persistent_product_revalidation_retains_admission_checks(self):
-        admission = self.ci.split("  macos-compile-admission:", 1)[1].split(
+        admission = self.macos_ci.split("  macos-compile-admission:", 1)[1].split(
             "  app-host-unit-tests:", 1
         )[0]
         self.assertIn("persistent producer source identity mismatch", admission)
