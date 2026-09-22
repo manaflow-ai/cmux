@@ -27,3 +27,19 @@ jobs:
             -f device_family=iphone \
             -f runner=auto \
             -f seed_cache=false
+
+      - name: Dispatch viewport ownership SwiftPM regression
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TARGET_REF: fix/13474-viewport-presentation-lease
+        run: |
+          set -euo pipefail
+          gh workflow run test-ios.yml \
+            --repo manaflow-ai/cmux \
+            --ref "$TARGET_REF" \
+            -f ref="$TARGET_REF" \
+            -f test_filter="ownerAwareOutputTerminationPreservesViewportUntilPresentationClear" \
+            -f swift_package="CmuxMobileShell" \
+            -f device_family=iphone \
+            -f runner=auto \
+            -f seed_cache=false
