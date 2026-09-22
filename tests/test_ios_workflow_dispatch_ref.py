@@ -33,6 +33,7 @@ class IOSWorkflowDispatchRefTests(unittest.TestCase):
         )
         self.assertIn("target_sha: ${{ steps.target.outputs.sha }}", detect)
         self.assertIn("ref: ${{ github.ref }}", detect)
+        self.assertIn("fetch-depth: ${{ github.event_name == 'pull_request' && '0' || '1' }}", detect)
         self.assertIn("id: target", detect)
         self.assertIn("GITHUB_TOKEN: ${{ github.token }}", detect)
         self.assertIn("REQUESTED_REF: ${{ inputs.ref }}", detect)

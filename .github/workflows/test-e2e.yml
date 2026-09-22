@@ -5,7 +5,7 @@ on:
   workflow_dispatch:
     inputs:
       ref:
-        description: Branch or SHA to test
+        description: Branch, tag, full SHA, or short SHA to test
         required: false
         default: ""
       test_filter:
@@ -48,11 +48,17 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  resolve-ref:
+    uses: ./.github/workflows/resolve-dispatch-ref.yml
+    with:
+      ref: ${{ inputs.ref }}
+
   e2e:
+    needs: resolve-ref
     runs-on: ${{ (!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15') || inputs.runner }}
     timeout-minutes: ${{ fromJSON(inputs.job_timeout || '20') }}
     env:
-      TEST_REF: ${{ inputs.ref || github.ref }}
+      TEST_REF: ${{ needs.resolve-ref.outputs.sha }}
       CMUX_CI_MAX_MACOS_SDK_MAJOR: "26"
     steps:
       - name: Validate Tart canary identity
@@ -89,7 +95,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          ref: ${{ inputs.ref || github.ref }}
+          ref: ${{ needs.resolve-ref.outputs.sha }}
           submodules: recursive
 
       - name: Capture SHA

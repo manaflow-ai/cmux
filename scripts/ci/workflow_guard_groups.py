@@ -27,6 +27,7 @@ GROUPS = (
 # A step move or rename must update this table in the same change.
 STEP_OWNERS = {
     "Initialize Ghostty for Zig version guard": "release-tooling",
+    "Set up Python 3.9 for nightly prune compatibility": "release-tooling",
     "Run canonical CMUX CI guard profile": "ci",
     "Test XCStrings catalog lint": "preflight",
     "Test macOS localization catalog tooling": "preflight",
@@ -49,6 +50,7 @@ STEP_OWNERS = {
     "Validate Pro TestFlight distribution workflow": "release-ios",
     "Validate Python R2 appcast upload guard": "release-tooling",
     "Validate Python test harness syntax": "preflight",
+    "Set up Python 3.9 for nightly prune compatibility": "release-tooling",
     "Validate Release check architectures": "release-tooling",
     "Validate Sparkle appcast generation without previous archives": "release-notary",
     "Validate Sparkle delta finalization": "release-notary",
@@ -155,6 +157,7 @@ PATH_OWNERS = {
     "scripts/check-test-determinism.py": frozenset(("quality-determinism",)),
     "scripts/ci/app_host_test_products.py": frozenset(("preflight",)),
     "scripts/ci/build_input_fingerprint.py": frozenset(("preflight",)),
+    "scripts/ci/build_graph_health.py": frozenset(("preflight",)),
     "scripts/ci/cmux_unit_test_shard.py": frozenset(("quality-sharding",)),
     "scripts/ci/cmux_workload_profile.py": frozenset(("ci",)),
     "scripts/ci/compile-app-host-test-product.sh": frozenset(("preflight",)),
@@ -176,6 +179,7 @@ PATH_OWNERS = {
     "tests/test_app_host_test_products.py": frozenset(("ci",)),
     "tests/test_bash_integration_no_done_notifications.py": frozenset(("quality-determinism",)),
     "tests/test_benchmark_dev_fleet_warm_slots.py": frozenset(("preflight",)),
+    "tests/test_build_graph_health.py": frozenset(("preflight",)),
     "tests/test_build_app_bundled_resources.sh": frozenset(("quality-runtime",)),
     "tests/test_build_graph_health.py": frozenset(("preflight",)),
     "tests/test_build_metrics.py": frozenset(("ci",)),
