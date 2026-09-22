@@ -128,6 +128,10 @@ jobs:
         if: ${{ matrix.group == 'preflight' }}
         run: python3 tests/test_merge_xcstrings.py
 
+
+      - name: "Validate Swift Testing #require is not nested"
+        if: ${{ matrix.group == 'preflight' }}
+        run: python3 tests/test_swift_testing_require_not_nested.py
       - name: Validate Python test harness syntax
         if: ${{ matrix.group == 'preflight' }}
         run: git ls-files 'tests/*.py' 'tests_v2/*.py' 'scripts/*.py' | xargs python3 -m py_compile
@@ -144,6 +148,10 @@ jobs:
             args=(--base-sha "$CMUX_TEST_REGISTRY_BASE_SHA")
           fi
           python3 scripts/ci/validate_test_execution_registry.py "${args[@]}"
+
+      - name: Validate Python test execution registry blast radius
+        if: ${{ matrix.group == 'preflight' }}
+        run: python3 tests/test_ci_test_execution_registry.py
 
       - name: Validate dev-fleet warm-slot lifecycle
         if: ${{ matrix.group == 'preflight' }}
@@ -263,6 +271,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_cleanup_stale_runs.py
 
+      - name: Validate CI queue janitor policy
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_queue_janitor.py
+
       - name: Validate the trusted web complexity workflow
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_web_complexity_trusted_workflow.py
@@ -294,6 +306,10 @@ jobs:
       - name: Validate the R2 cache store script
         if: ${{ matrix.group == 'ci' }}
         run: bash tests/test_ci_r2_cache.sh
+
+      - name: Validate the R2 cache census
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_r2_cache_census.py
 
       - name: Validate nightly prune Python compatibility
         if: ${{ matrix.group == 'release-tooling' }}
@@ -450,6 +466,10 @@ jobs:
       - name: Validate TestFlight assignment after a post-upload failure
         if: ${{ matrix.group == 'release-ios' }}
         run: python3 tests/test_ios_testflight_assignment_after_upload.py
+
+      - name: Validate the TestFlight archive log is kept on failure
+        if: ${{ matrix.group == 'release-ios' }}
+        run: python3 tests/test_ios_testflight_archive_log.py
 
       - name: Validate tagged iOS device entitlement fallback
         if: ${{ matrix.group == 'release-ios' }}
