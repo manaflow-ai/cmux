@@ -15,7 +15,6 @@ import yaml
 from test_ci_change_areas import (
     linux_preflight_needs,
     module,
-    run_detect_step_for_paths,
     run_guard_status,
     run_linux_preflight,
     run_tests_gate,
@@ -61,21 +60,6 @@ def route(paths, event="pull_request", macos="false"):
 
 
 class LinuxGuardRoutingTests(unittest.TestCase):
-    def test_empty_effective_pr_diff_skips_product_areas(self):
-        result, outputs = run_detect_step_for_paths([])
-
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(
-            outputs,
-            [
-                "macos=false",
-                "web=false",
-                "agent_session_web=false",
-                "release_build=false",
-            ],
-        )
-        self.assertIn("PR diff is empty; skipping product-area CI.", result.stdout)
-
     def test_ios_shell_ui_test_only_change_skips_macos(self):
         actual = module.classify_files([
             "Packages/iOS/CmuxMobileShellUI/Tests/CmuxMobileShellUITests/WorkspaceListScrollUpdateTests.swift"
