@@ -328,16 +328,38 @@ class ReviewFabricTests(unittest.TestCase):
         self.assertEqual(configured["required_capability_classes"], {"frontier": 1})
 
     def test_ci_executes_review_fabric_contracts(self):
+        # Assert what the router does, not how it is written. This used to grep
+        # the detector for each path as a literal, which #13775 broke by
+        # deriving the route inputs from ci-guards.yml instead of listing them.
+        # Routing a contract file to the guard that tests it is the contract;
+        # where the router reads that from is not.
+        sys.path.insert(0, str(ROOT / "scripts/ci"))
+        try:
+            from detect_linux_guard_changes import classify, classify_test_groups
+            from workflow_guard_groups import direct_path_owners
+        finally:
+            sys.path.pop(0)
+
         workflow = (ROOT / ".github/workflows/ci-guards.yml").read_text(encoding="utf-8")
-        detector = (ROOT / "scripts/ci/detect_linux_guard_changes.py").read_text(encoding="utf-8")
         self.assertIn("python3 tests/test_review_fabric.py", workflow)
+        # Whichever group runs this file is the group every review fabric
+        # contract must reach, so a step that moves between groups stays covered.
+        owners = direct_path_owners(workflow).get("tests/test_review_fabric.py")
+        self.assertTrue(owners, "no ci-guards.yml group runs tests/test_review_fabric.py")
+
         for path in (
             ".github/review-fabric-policy.json",
             ".github/review-fabric.md",
             ".github/scripts/review_fabric.py",
             "tests/test_review_fabric.py",
         ):
-            self.assertIn(f'"{path}"', detector)
+            routes = classify([path], event="pull_request", macos="false")
+            self.assertTrue(routes["linux_guard_tests"], f"{path} skips the guard job")
+            groups = classify_test_groups([path], event="pull_request", macos="false")
+            self.assertTrue(
+                owners.intersection(groups),
+                f"{path} reaches {sorted(groups)}, none of which runs the review fabric tests",
+            )
 
 
 if __name__ == "__main__":
