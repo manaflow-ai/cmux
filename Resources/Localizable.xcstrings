@@ -331789,55 +331789,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Port %lld is in use. The pairing listener is still on %lld."
+            "value": "Port %@ is in use. The pairing listener is still on %@."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ポート %lld は使用中です。ペアリングリスナーは引き続きポート %lld で待ち受けています。"
+            "value": "ポート %@ は使用中です。ペアリングリスナーは引き続きポート %@ で待ち受けています。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "端口 %lld 已被占用。配对监听器仍在 %lld 上。"
+            "value": "端口 %@ 已被占用。配对监听器仍在 %@ 上。"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Port %lld wird bereits verwendet. Der Kopplungs-Listener läuft weiterhin auf %lld."
+            "value": "Port %@ wird bereits verwendet. Der Kopplungs-Listener läuft weiterhin auf %@."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Le port %lld est en cours d’utilisation. L’écouteur de jumelage est toujours sur %lld."
+            "value": "Le port %@ est en cours d’utilisation. L’écouteur de jumelage est toujours sur %@."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "المنفذ %lld قيد الاستخدام. لا يزال مستمع الاقتران يعمل على %lld."
+            "value": "المنفذ %@ قيد الاستخدام. لا يزال مستمع الاقتران يعمل على %@."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "El puerto %lld está en uso. El receptor de vinculación sigue en %lld."
+            "value": "El puerto %@ está en uso. El receptor de vinculación sigue en %@."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "連接埠 %lld 正在使用中。配對接聽程式仍位於 %lld。"
+            "value": "連接埠 %@ 正在使用中。配對接聽程式仍位於 %@。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "%lld 포트가 사용 중입니다. 페어링 리스너는 여전히 %lld에 있습니다."
+            "value": "%@ 포트가 사용 중입니다. 페어링 리스너는 여전히 %@에 있습니다."
           }
         }
       }
@@ -331848,55 +331848,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Saved port %lld. It takes effect the next time iOS Pairing starts."
+            "value": "Saved port %@. It takes effect the next time iOS Pairing starts."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Port %lld gespeichert. Er wird beim nächsten Start der iOS-Kopplung verwendet."
+            "value": "Port %@ gespeichert. Er wird beim nächsten Start der iOS-Kopplung verwendet."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Port %lld enregistré. Il sera utilisé au prochain démarrage du jumelage iOS."
+            "value": "Port %@ enregistré. Il sera utilisé au prochain démarrage du jumelage iOS."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "تم حفظ المنفذ %lld. سيُستخدم عند بدء اقتران iOS في المرة القادمة."
+            "value": "تم حفظ المنفذ %@. سيُستخدم عند بدء اقتران iOS في المرة القادمة."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Se guardó el puerto %lld. Se usará la próxima vez que se inicie la vinculación con iOS."
+            "value": "Se guardó el puerto %@. Se usará la próxima vez que se inicie la vinculación con iOS."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "已保存端口 %lld。下次启动 iOS 配对时生效。"
+            "value": "已保存端口 %@。下次启动 iOS 配对时生效。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "已儲存連接埠 %lld。下次啟動 iOS 配對時生效。"
+            "value": "已儲存連接埠 %@。下次啟動 iOS 配對時生效。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "%lld 포트를 저장했습니다. 다음에 iOS 페어링을 시작할 때 적용됩니다."
+            "value": "%@ 포트를 저장했습니다. 다음에 iOS 페어링을 시작할 때 적용됩니다."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ポート %lld を保存しました。次回 iOS ペアリングを開始すると適用されます。"
+            "value": "ポート %@ を保存しました。次回 iOS ペアリングを開始すると適用されます。"
           }
         }
       }
@@ -331966,55 +331966,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Port %lld is saved for the next pairing start. Currently using port %lld."
+            "value": "Port %@ is saved for the next pairing start. Currently using port %@."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Port %lld ist für den nächsten Kopplungsstart gespeichert. Aktuell wird Port %lld verwendet."
+            "value": "Port %@ ist für den nächsten Kopplungsstart gespeichert. Aktuell wird Port %@ verwendet."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Le port %lld est enregistré pour le prochain démarrage du jumelage. Le port %lld est actuellement utilisé."
+            "value": "Le port %@ est enregistré pour le prochain démarrage du jumelage. Le port %@ est actuellement utilisé."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "تم حفظ المنفذ %lld لبدء الاقتران القادم. يُستخدم المنفذ %lld حاليًا."
+            "value": "تم حفظ المنفذ %@ لبدء الاقتران القادم. يُستخدم المنفذ %@ حاليًا."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "El puerto %lld se guardó para el próximo inicio de la vinculación. Actualmente se usa el puerto %lld."
+            "value": "El puerto %@ se guardó para el próximo inicio de la vinculación. Actualmente se usa el puerto %@."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "已保存端口 %lld，下次启动配对时生效。当前使用端口 %lld。"
+            "value": "已保存端口 %@，下次启动配对时生效。当前使用端口 %@。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "已儲存連接埠 %lld，下次啟動配對時生效。目前使用連接埠 %lld。"
+            "value": "已儲存連接埠 %@，下次啟動配對時生效。目前使用連接埠 %@。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "다음 페어링 시작에 사용할 %lld 포트를 저장했습니다. 현재는 %lld 포트를 사용 중입니다."
+            "value": "다음 페어링 시작에 사용할 %@ 포트를 저장했습니다. 현재는 %@ 포트를 사용 중입니다."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "次回のペアリング開始用にポート %lld を保存しました。現在はポート %lld を使用しています。"
+            "value": "次回のペアリング開始用にポート %@ を保存しました。現在はポート %@ を使用しています。"
           }
         }
       }
@@ -332025,55 +332025,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Port %lld is in use. The pairing listener is on %lld instead."
+            "value": "Port %@ is in use. The pairing listener is on %@ instead."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ポート %lld は使用中です。ペアリングリスナーは代わりにポート %lld で待ち受けています。"
+            "value": "ポート %@ は使用中です。ペアリングリスナーは代わりにポート %@ で待ち受けています。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "端口 %lld 已被占用。配对监听器改用 %lld。"
+            "value": "端口 %@ 已被占用。配对监听器改用 %@。"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Port %lld wird bereits verwendet. Der Kopplungs-Listener läuft stattdessen auf %lld."
+            "value": "Port %@ wird bereits verwendet. Der Kopplungs-Listener läuft stattdessen auf %@."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Le port %lld est en cours d’utilisation. L’écouteur de jumelage est sur %lld à la place."
+            "value": "Le port %@ est en cours d’utilisation. L’écouteur de jumelage est sur %@ à la place."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "المنفذ %lld قيد الاستخدام. مستمع الاقتران يعمل على %lld بدلاً من ذلك."
+            "value": "المنفذ %@ قيد الاستخدام. مستمع الاقتران يعمل على %@ بدلاً من ذلك."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "El puerto %lld está en uso. El receptor de vinculación está en %lld en su lugar."
+            "value": "El puerto %@ está en uso. El receptor de vinculación está en %@ en su lugar."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "連接埠 %lld 已被佔用。配對接聽程式改為使用 %lld。"
+            "value": "連接埠 %@ 已被佔用。配對接聽程式改為使用 %@。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "%lld 포트가 사용 중입니다. 페어링 리스너가 대신 %lld에 있습니다."
+            "value": "%@ 포트가 사용 중입니다. 페어링 리스너가 대신 %@에 있습니다."
           }
         }
       }
@@ -332143,55 +332143,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pairing listener on port %lld."
+            "value": "Pairing listener on port %@."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ペアリングリスナーはポート %lld で待ち受けています。"
+            "value": "ペアリングリスナーはポート %@ で待ち受けています。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "配对监听器在端口 %lld 上。"
+            "value": "配对监听器在端口 %@ 上。"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Kopplungs-Listener auf Port %lld."
+            "value": "Kopplungs-Listener auf Port %@."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Écouteur de jumelage sur le port %lld."
+            "value": "Écouteur de jumelage sur le port %@."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "مستمع الاقتران يعمل على المنفذ %lld."
+            "value": "مستمع الاقتران يعمل على المنفذ %@."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Receptor de vinculación en el puerto %lld."
+            "value": "Receptor de vinculación en el puerto %@."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "配對接聽程式正於連接埠 %lld 運作。"
+            "value": "配對接聽程式正於連接埠 %@ 運作。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "%lld 포트에서 페어링 리스너가 실행 중입니다."
+            "value": "%@ 포트에서 페어링 리스너가 실행 중입니다."
           }
         }
       }

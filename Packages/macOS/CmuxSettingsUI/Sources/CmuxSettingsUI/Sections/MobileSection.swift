@@ -346,7 +346,7 @@ public struct MobileSection: View {
             statusCaption {
                 Label(
                     String(localized: "settings.mobile.port.pending",
-                        defaultValue: "Port \(current.configuredPort) is saved for the next pairing start. Currently using port \(bound)."),
+                        defaultValue: "Port \(String(current.configuredPort)) is saved for the next pairing start. Currently using port \(String(bound))."),
                     systemImage: "info.circle"
                 )
                 .foregroundStyle(.secondary)
@@ -358,7 +358,7 @@ public struct MobileSection: View {
                 Label(
                     String(
                         localized: "settings.mobile.port.apply.inUse",
-                        defaultValue: "Port \(requested) is in use. The pairing listener is still on \(status.current?.boundPort ?? requested)."
+                        defaultValue: "Port \(String(requested)) is in use. The pairing listener is still on \(String(status.current?.boundPort ?? requested))."
                     ),
                     systemImage: "exclamationmark.triangle.fill"
                 )
@@ -367,7 +367,7 @@ public struct MobileSection: View {
         } else if case let .savedForLater(saved) = applyResult, status.current?.isRunning != true {
             statusCaption {
                 Label(
-                    String(localized: "settings.mobile.port.apply.saved", defaultValue: "Saved port \(saved). It takes effect the next time iOS Pairing starts."),
+                    String(localized: "settings.mobile.port.apply.saved", defaultValue: "Saved port \(String(saved)). It takes effect the next time iOS Pairing starts."),
                     systemImage: "checkmark.circle.fill"
                 )
                 .foregroundStyle(.secondary)
@@ -395,14 +395,14 @@ public struct MobileSection: View {
             Label(
                 String(
                     localized: "settings.mobile.port.status.fallback",
-                    defaultValue: "Port \(snapshot.configuredPort) is in use. The pairing listener is on \(bound) instead."
+                    defaultValue: "Port \(String(snapshot.configuredPort)) is in use. The pairing listener is on \(String(bound)) instead."
                 ),
                 systemImage: "exclamationmark.triangle.fill"
             )
             .foregroundStyle(.orange)
         } else if let bound = snapshot.boundPort {
             Label(
-                String(localized: "settings.mobile.port.status.ok", defaultValue: "Pairing listener on port \(bound)."),
+                String(localized: "settings.mobile.port.status.ok", defaultValue: "Pairing listener on port \(String(bound))."),
                 systemImage: "checkmark.circle.fill"
             )
             .foregroundStyle(.secondary)
