@@ -1519,16 +1519,15 @@ def test_ghosttykit_guard_wiring_pr_stays_on_release_guard() -> None:
     ]
 
 
-def test_workflow_only_pr_keeps_fail_open_routing() -> None:
-    # The base has no ci.yml to compare against.
+def test_workflow_only_pr_uses_trusted_base_without_product_work() -> None:
     result, outputs = run_detect_step_for_paths([".github/workflows/ci.yml"])
 
-    assert "running all CI areas" in result.stdout + result.stderr
+    assert "CI routing-policy-only PR; skipping product-area CI." in result.stdout
     assert outputs == [
-        "macos=true",
-        "web=true",
-        "agent_session_web=true",
-        "release_build=true",
+        "macos=false",
+        "web=false",
+        "agent_session_web=false",
+        "release_build=false",
     ]
 
 
