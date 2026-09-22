@@ -1187,6 +1187,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         label: "com.cmuxterm.app.sessionPersistence",
         qos: .utility
     )
+    private var todoStatePersistenceCoordinator: SessionTodoStatePersistenceCoordinator?
     /// Session snapshot persistence (CmuxSession); composition-root owned.
     /// `nonisolated` because the autosave write block runs on `sessionPersistenceQueue`.
     nonisolated let sessionSnapshotStore: any SessionSnapshotStoring<AppSessionSnapshot> = SessionSnapshotRepository(
@@ -4575,6 +4576,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         sessionAutosaveDeferredRetryPending = false
     }
 
+    /// Schedule a session snapshot after todo edits settle. The existing
+    /// session persistence owner captures current in-memory state, keeping
+    /// todo edits consistent with simultaneous pane and workspace changes.
+    func saveTodoState(in _: Workspace) {
+        guard !isTerminatingApp,
+              didAttemptStartupSessionRestore,
+              !isApplyingSessionRestore else { return }
+        if todoStatePersistenceCoordinator == nil {
+            todoStatePersistenceCoordinator = SessionTodoStatePersistenceCoordinator(
+                saveSnapshot: { [weak self] in
+                    guard let self, !self.isTerminatingApp else { return false }
+                    return self.saveSessionSnapshotUsingCachedProcessDetectedIndexes(includeScrollback: false)
+                }
+            )
+        }
+        todoStatePersistenceCoordinator?.enqueue()
+    }
+
     private func installLifecycleSnapshotObserversIfNeeded() {
         guard !didInstallLifecycleSnapshotObservers else { return }
         didInstallLifecycleSnapshotObservers = true
@@ -6223,7 +6242,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     @discardableResult
-    func addWorkspace(windowId: UUID, workingDirectory: String? = nil, bringToFront shouldBringToFront: Bool = false) -> UUID? {
+    func addWorkspace(
+        windowId: UUID,
+        workingDirectory: String? = nil,
+        bringToFront shouldBringToFront: Bool = false,
+        select: Bool? = nil,
+        placementOverride: WorkspacePlacement? = nil
+    ) -> UUID? {
         guard let state = scriptableMainWindow(windowId: windowId) else { return nil }
         if shouldBringToFront, let window = state.window {
             setActiveMainWindow(window)
@@ -6231,9 +6256,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
         guard let workspace = state.tabManager.addWorkspaceIfActive(
             workingDirectory: workingDirectory,
-            select: shouldBringToFront
+            select: select ?? shouldBringToFront,
+            placementOverride: placementOverride
         ) else { return nil }
         return workspace.id
+    }
+
+    /// Routes the sidebar's trailing workspace action through the window that
+    /// owns that sidebar, without changing whichever main window is active.
+    func createWorkspaceAtEndFromSidebar(
+        windowId: UUID,
+        tabManager: TabManager
+    ) {
+        if tabManager.selectedTab?.isRemoteTmuxMirror == true {
+            _ = performNewWorkspaceAction(
+                tabManager: tabManager,
+                debugSource: "sidebar.emptyArea.remoteTmux"
+            )
+        } else if addWorkspace(
+            windowId: windowId,
+            bringToFront: false,
+            select: true,
+            placementOverride: .end
+        ) == nil {
+            // Keep previews and transitional windows usable while the
+            // per-window context is being registered.
+            tabManager.addWorkspaceIfActive(placementOverride: .end)
+        }
     }
 
     private func markCommandPaletteOpenRequested(for window: NSWindow?) {

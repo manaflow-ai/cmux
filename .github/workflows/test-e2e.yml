@@ -456,11 +456,12 @@ jobs:
           fi
 
           set +e
-          # Stream xcodebuild output into the live job log (and a file for the
-          # summary parsing below). The previous buffered capture lost all
-          # build/test output whenever the job hit its timeout mid-run.
-          "${RUN_XCODEBUILD[@]}" "${XCODEBUILD_CMD[@]}" 2>&1 | tee /tmp/xcodebuild-e2e.log
-          EXIT_CODE=${PIPESTATUS[0]}
+          # Keep the tested command on a regular file descriptor. The capture
+          # helper owns the live log tail, so a detached test descendant cannot
+          # keep this job alive after xcodebuild exits.
+          bash scripts/ci/run-and-capture.sh /tmp/xcodebuild-e2e.log \
+            "${RUN_XCODEBUILD[@]}" "${XCODEBUILD_CMD[@]}"
+          EXIT_CODE=$?
           set -e
           OUTPUT=$(cat /tmp/xcodebuild-e2e.log)
 
