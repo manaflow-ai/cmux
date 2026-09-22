@@ -14,6 +14,7 @@ type Catalog = {
 let catalog: Catalog | undefined;
 let pending = false;
 let searchTeam: string | null = null;
+let legacyCookieScope: string | null = "team-2";
 const queryData = new Map<string, unknown>();
 const routerReplace = mock(() => undefined);
 const routerRefresh = mock(() => undefined);
@@ -49,12 +50,25 @@ mock.module("@/i18n/navigation", () => ({
   useRouter: () => ({ replace: routerReplace, refresh: routerRefresh }),
 }));
 
+mock.module("@/services/coderouter/organizationScope", () => ({
+  clearCoderouterOrganizationScope: () => {
+    legacyCookieScope = null;
+  },
+  coderouterOrganizationFromCookieHeader: () => legacyCookieScope,
+  persistCoderouterOrganizationScope: (_userId: string, organizationId: string) => {
+    legacyCookieScope = organizationId;
+  },
+}));
+
 const { useDashboardTeamScope, parseTeamCatalog, selectedTeam, permittedTeams } = await import(
   "../app/[locale]/dashboard/dashboard-team-scope"
 );
 
+let probedScope: ReturnType<typeof useDashboardTeamScope> | undefined;
+
 function Probe({ userId }: { userId: string | null }) {
   const scope = useDashboardTeamScope(userId);
+  probedScope = scope;
   return (
     <pre data-status={scope.status}>
       {scope.status === "ready"
@@ -62,6 +76,14 @@ function Probe({ userId }: { userId: string | null }) {
         : ""}
     </pre>
   );
+} 
+
+function renderReadyScope() {
+  probedScope = undefined;
+  renderToStaticMarkup(<Probe userId="user-1" />);
+  const scope = probedScope;
+  if (!scope || scope.status !== "ready") throw new Error("Expected a ready team scope");
+  return scope;
 }
 
 const twoTeams: Catalog = {
@@ -93,6 +115,7 @@ describe("dashboard team scope", () => {
     catalog = twoTeams;
     pending = false;
     searchTeam = null;
+    legacyCookieScope = "team-2";
     queryData.clear();
     queryData.set(queryKey(["dashboard-team-catalog", "user-1"]), twoTeams);
     routerReplace.mockClear();
@@ -168,8 +191,7 @@ describe("dashboard team scope", () => {
       signal?.addEventListener("abort", () => reject(signal?.reason), { once: true });
     })) as typeof fetch;
     try {
-      const scope = useDashboardTeamScope("user-1");
-      if (scope.status !== "ready") throw new Error("Expected a ready team scope");
+      const scope = renderReadyScope();
       const switching = scope.switchTeam(twoTeams.teams[0]!);
       expect(signal).toBeInstanceOf(AbortSignal);
       expect(expire).toBeDefined();
@@ -191,8 +213,7 @@ describe("dashboard team scope", () => {
       resolveFetch = resolve;
     })) as typeof fetch;
     try {
-      const scope = useDashboardTeamScope("user-1");
-      if (scope.status !== "ready") throw new Error("Expected a ready team scope");
+      const scope = renderReadyScope();
 
       const switching = scope.switchTeam(twoTeams.teams[0]!);
 
@@ -212,12 +233,73 @@ describe("dashboard team scope", () => {
     }
   });
 
+  test("an older failed switch cannot roll back a newer optimistic switch", async () => {
+    const originalFetch = globalThis.fetch;
+    const extendedCatalog: Catalog = {
+      ...twoTeams,
+      teams: [
+        ...twoTeams.teams,
+        {
+          id: "team-4",
+          name: "Other",
+          personal: false,
+          permissions: { use: true, manageAccounts: false },
+        },
+      ],
+    };
+    catalog = extendedCatalog;
+    queryData.set(queryKey(["dashboard-team-catalog", "user-1"]), extendedCatalog);
+    const resolvers: Array<(response: Response) => void> = [];
+    globalThis.fetch = (() => new Promise<Response>((resolve) => {
+      resolvers.push(resolve);
+    })) as typeof fetch;
+    try {
+      const scope = renderReadyScope();
+      const first = scope.switchTeam(extendedCatalog.teams[0]!);
+      const second = scope.switchTeam(extendedCatalog.teams[3]!);
+
+      expect(legacyCookieScope).toBe("team-4");
+      expect(routerReplace).toHaveBeenLastCalledWith("/dashboard/coderouter?team=team-4");
+
+      resolvers[0]!(new Response(null, { status: 500 }));
+      await expect(first).rejects.toThrow("Could not switch dashboard team");
+      expect(queryData.get(queryKey(["dashboard-team-catalog", "user-1"]))).toMatchObject({
+        selectedTeamId: "team-4",
+      });
+      expect(legacyCookieScope).toBe("team-4");
+      expect(routerReplace).toHaveBeenLastCalledWith("/dashboard/coderouter?team=team-4");
+
+      resolvers[1]!(new Response(null, { status: 204 }));
+      await second;
+      expect(routerReplace).toHaveBeenLastCalledWith("/dashboard/coderouter");
+      expect(routerRefresh).toHaveBeenCalledTimes(1);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  test("rollback restores the pre-switch legacy cookie instead of the URL-selected team", async () => {
+    searchTeam = "user-1";
+    legacyCookieScope = "team-2";
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = (async () => new Response(null, { status: 500 })) as typeof fetch;
+    try {
+      const scope = renderReadyScope();
+      await expect(scope.switchTeam(twoTeams.teams[1]!)).rejects.toThrow(
+        "Could not switch dashboard team",
+      );
+      expect(legacyCookieScope).toBe("team-2");
+      expect(routerReplace).toHaveBeenLastCalledWith("/dashboard/coderouter?team=user-1");
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
   test("rolls back the optimistic scope when the server rejects the switch", async () => {
     const originalFetch = globalThis.fetch;
     globalThis.fetch = (async () => new Response(null, { status: 500 })) as typeof fetch;
     try {
-      const scope = useDashboardTeamScope("user-1");
-      if (scope.status !== "ready") throw new Error("Expected a ready team scope");
+      const scope = renderReadyScope();
 
       await expect(scope.switchTeam(twoTeams.teams[0]!)).rejects.toThrow("Could not switch dashboard team");
 
