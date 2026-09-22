@@ -1304,6 +1304,110 @@ check_persistent_compile_lane() {
   echo "PASS: persistent compile producer is dispatch-only, credential-minimized, pinned, and cohort-gated"
 }
 
+# Print a job's CMUX_CI_XCODE_APP / CMUX_CI_REQUIRED_MACOS_SDK_MAJOR pins, so the
+# owned Mac and the hosted job that revalidates its product can be compared.
+persistent_compile_toolchain_pin() {
+  local file="$1" job="$2"
+  awk -v want="  ${job}:" '
+    $0 == want { in_job=1; next }
+    in_job && /^  [A-Za-z0-9_-]+:/ { exit }
+    in_job && /^    env:$/ { in_env=1; next }
+    in_env && /^    [A-Za-z0-9_-]+:/ { exit }
+    in_env && /^      (CMUX_CI_XCODE_APP|CMUX_CI_REQUIRED_MACOS_SDK_MAJOR):/ {
+      line=$0
+      sub(/^      /, "", line)
+      print line
+    }
+  ' "$file" | sort
+}
+
+check_persistent_compile_owned_mac_occupancy() {
+  # The owned Mac is one runner behind one workflow-restricted group, so its
+  # capacity is bounded by how long a single job may hold it. Three invariants
+  # keep that bound real; none of them is enforced anywhere else.
+  local concurrency_block group_line
+  concurrency_block="$(awk '
+    /^concurrency:/ { in_block=1; next }
+    in_block && /^[^[:space:]#]/ { exit }
+    in_block && NF { print }
+  ' "$PERSISTENT_COMPILE_FILE")"
+  if [ -z "$concurrency_block" ]; then
+    echo "FAIL: persistent compile producer must declare a top-level concurrency group"
+    echo "      Without one, every push to a pull request queues another owned-Mac run."
+    exit 1
+  fi
+
+  # 1. One in-flight producer per pull request. Keyed on anything coarser and
+  #    two PRs serialize behind each other; keyed on anything finer (the run id,
+  #    the head sha) and a six-push burst parks six compiles on one machine,
+  #    each of which the hosted job has already given up waiting for.
+  group_line="$(printf '%s\n' "$concurrency_block" | awk '/^[[:space:]]+group:/ { print; exit }')"
+  if ! printf '%s\n' "$group_line" | grep -Fq 'inputs.pr_number'; then
+    echo "FAIL: persistent compile producer concurrency group must be keyed on inputs.pr_number"
+    printf 'group=%s\n' "$group_line"
+    exit 1
+  fi
+  if ! printf '%s\n' "$concurrency_block" | grep -Eq '^[[:space:]]+cancel-in-progress:[[:space:]]*true[[:space:]]*$'; then
+    echo "FAIL: persistent compile producer must cancel a superseded run for the same pull request"
+    echo "      A stale compile holds the owned Mac while the hosted job it was for has already fallen back."
+    exit 1
+  fi
+
+  # 2. A bounded compile. The workflow default is 360 minutes; a wedged
+  #    xcodebuild would hold the only owned runner for six hours, during which
+  #    every routed PR reports producer_not_ready and compiles hosted anyway.
+  local timeout
+  timeout="$(awk '
+    /^  compile:$/ { in_job=1; next }
+    in_job && /^  [A-Za-z0-9_-]+:/ { exit }
+    in_job && /^    timeout-minutes:[[:space:]]*[0-9]+[[:space:]]*$/ {
+      line=$0
+      sub(/^[^0-9]*/, "", line)
+      sub(/[^0-9]*$/, "", line)
+      print line
+      exit
+    }
+  ' "$PERSISTENT_COMPILE_FILE")"
+  if [ -z "$timeout" ]; then
+    echo "FAIL: persistent compile producer's compile job must set an explicit timeout-minutes"
+    exit 1
+  fi
+  # The hosted observer gives up after CI_PERSISTENT_MAC_EXECUTION_SECONDS
+  # (480s default, 600s ceiling); a producer allowed to run far past that only
+  # occupies the machine. 45 leaves headroom for a cold-reset compile.
+  if [ "$timeout" -lt 1 ] || [ "$timeout" -gt 45 ]; then
+    echo "FAIL: persistent compile timeout-minutes must be between 1 and 45, got $timeout"
+    echo "      An unbounded compile holds the single owned runner long after the hosted job stopped waiting."
+    exit 1
+  fi
+
+  # 3. The producer builds with the same toolchain the hosted job revalidates
+  #    against. Drift is not a correctness hole -- hosted revalidation refuses
+  #    an Xcode/SDK mismatch -- but every producer run then burns an owned-Mac
+  #    allocation to produce an artifact that is certain to be rejected.
+  local producer_pin hosted_pin
+  producer_pin="$(persistent_compile_toolchain_pin "$PERSISTENT_COMPILE_FILE" compile)"
+  hosted_pin="$(persistent_compile_toolchain_pin "$CI_MACOS_FILE" macos-compile-admission)"
+  if [ "$(printf '%s\n' "$producer_pin" | grep -c .)" -ne 2 ]; then
+    echo "FAIL: could not read both toolchain pins from the persistent compile producer"
+    printf 'producer=%s\n' "$producer_pin"
+    exit 1
+  fi
+  if [ "$(printf '%s\n' "$hosted_pin" | grep -c .)" -ne 2 ]; then
+    echo "FAIL: could not read both toolchain pins from macos-compile-admission"
+    printf 'hosted=%s\n' "$hosted_pin"
+    exit 1
+  fi
+  if [ "$producer_pin" != "$hosted_pin" ]; then
+    echo "FAIL: owned-Mac producer and hosted macOS compile admission pin different toolchains."
+    echo "      Hosted revalidation rejects the mismatch, so every producer run is wasted owned-Mac time."
+    printf 'producer:\n%s\nhosted:\n%s\n' "$producer_pin" "$hosted_pin"
+    exit 1
+  fi
+
+  echo "PASS: owned-Mac occupancy is bounded to one timed compile per pull request on the hosted toolchain"
+}
+
 check_persistent_compile_router() {
   if [ ! -f "$PERSISTENT_ROUTER_FILE" ]; then
     echo "FAIL: default-branch persistent Mac router workflow is missing"
@@ -1449,6 +1553,7 @@ check_cla_guard_runner
 check_no_bare_github_hosted_runners
 check_no_self_hosted_fleet_runners
 check_persistent_compile_lane
+check_persistent_compile_owned_mac_occupancy
 check_persistent_compile_router
 check_macos_runner "$CI_MACOS_FILE" "app-host-unit-tests"
 check_macos_runner "$CI_MACOS_FILE" "macos-compile-admission"
