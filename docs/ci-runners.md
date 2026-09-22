@@ -64,7 +64,16 @@ Rollout is reversible through two repository variables:
   `CI_PERSISTENT_MAC_COMPILE_COHORT=13198,feature/name`: only matching trusted
   PR numbers or head branches;
 - `CI_PERSISTENT_MAC_COMPILE=all`: every trusted same-repository
-  maintainer PR (`OWNER`, `MEMBER`, or `COLLABORATOR`).
+  organization PR (`OWNER` or `MEMBER`).
+
+`OWNER`/`MEMBER` is the single admitted author-association set. The producer's
+`authorize` job enforces it, and every routing gate ahead of the producer
+(`ci.yml`, `ci-macos.yml`, `scripts/ci/persistent_mac_route.py`) must match it
+exactly. A routing gate wider than the producer still fails safe, but it
+dispatches a producer that is certain to refuse, which costs an owned-Mac
+allocation and reports `producer_failure` instead of falling through to the
+hosted path at once. `tests/test_ci_persistent_mac_compile.py` derives all four
+sets from their source files and asserts they agree, so they cannot drift.
 
 Queue and execution ceilings may be set with
 `CI_PERSISTENT_MAC_QUEUE_SECONDS` and

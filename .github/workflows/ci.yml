@@ -501,7 +501,7 @@ jobs:
       # cancellation authority live in persistent-macos-router.yml on main.
       - name: Publish persistent Mac route request
         id: persistent-route-request
-        if: ${{ github.event_name == 'pull_request' && steps.source-identity.outputs.valid == 'true' && steps.detect.outputs.macos == 'true' && steps.unchanged_inputs.outputs.compile_admitted != 'true' && steps.admitted.outputs.compile_admitted != 'true' && (vars.CI_PERSISTENT_MAC_COMPILE == 'pilot' || vars.CI_PERSISTENT_MAC_COMPILE == 'all' || vars.CI_PERSISTENT_MAC_COMPILE == 'on' || vars.CI_PERSISTENT_MAC_COMPILE == 'true' || vars.CI_PERSISTENT_MAC_COMPILE == '1') && github.event.pull_request.head.repo.full_name == github.repository && (github.event.pull_request.author_association == 'MEMBER' || github.event.pull_request.author_association == 'OWNER' || github.event.pull_request.author_association == 'COLLABORATOR') }}
+        if: ${{ github.event_name == 'pull_request' && steps.source-identity.outputs.valid == 'true' && steps.detect.outputs.macos == 'true' && steps.unchanged_inputs.outputs.compile_admitted != 'true' && steps.admitted.outputs.compile_admitted != 'true' && (vars.CI_PERSISTENT_MAC_COMPILE == 'pilot' || vars.CI_PERSISTENT_MAC_COMPILE == 'all' || vars.CI_PERSISTENT_MAC_COMPILE == 'on' || vars.CI_PERSISTENT_MAC_COMPILE == 'true' || vars.CI_PERSISTENT_MAC_COMPILE == '1') && github.event.pull_request.head.repo.full_name == github.repository && (github.event.pull_request.author_association == 'MEMBER' || github.event.pull_request.author_association == 'OWNER') }}
         env:
           PR_NUMBER: ${{ github.event.pull_request.number }}
           HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name }}

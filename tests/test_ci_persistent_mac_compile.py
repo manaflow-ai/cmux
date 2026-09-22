@@ -7,6 +7,7 @@ import argparse
 import importlib.util
 import json
 from pathlib import Path
+import re
 import tempfile
 import unittest
 from unittest import mock
@@ -126,9 +127,11 @@ class RoutingTests(unittest.TestCase):
 
     def test_only_trusted_same_repository_maintainers_are_eligible(self):
         self.assertEqual(route.eligibility(args()), (True, "pilot"))
+        self.assertEqual(route.eligibility(args(author_association="OWNER")), (True, "pilot"))
+        # COLLABORATOR routes no further than the producer would admit it.
         self.assertEqual(
             route.eligibility(args(author_association="COLLABORATOR")),
-            (True, "pilot"),
+            (False, "untrusted_author"),
         )
         self.assertEqual(
             route.eligibility(args(head_repository="someone/cmux")),
@@ -229,6 +232,56 @@ class WorkflowContractTests(unittest.TestCase):
         cls.driver = DRIVER.read_text()
         cls.profile = json.loads(PROFILE.read_text())
 
+    @staticmethod
+    def _python_association_set(source: str) -> set[str]:
+        """Every Python set literal of author associations found in `source`."""
+        found: list[set[str]] = []
+        for literal in re.findall(r"\{[^{}]*\}", source):
+            names = re.findall(r"\"([A-Z][A-Z_]+)\"", literal)
+            if "MEMBER" in names or "OWNER" in names or "COLLABORATOR" in names:
+                found.append(set(names))
+        if not found:
+            raise AssertionError("no author-association set literal found")
+        if any(names != found[0] for names in found):
+            raise AssertionError(f"author-association sets disagree within one file: {found}")
+        return found[0]
+
+    @staticmethod
+    def _workflow_gate_association_set(gate: str) -> set[str]:
+        """Associations admitted by a `github.event.pull_request` workflow gate."""
+        names = set(
+            re.findall(r"github\.event\.pull_request\.author_association == '([A-Z_]+)'", gate)
+        )
+        if not names:
+            raise AssertionError("no author-association gate found")
+        return names
+
+    def test_every_author_association_gate_matches_the_producer(self):
+        """The producer refuses anything it is not shown; no gate ahead of it may be wider.
+
+        A routing gate wider than the producer's `authorize` job still fails
+        safe, but it dispatches a producer that is certain to refuse -- wasting
+        an owned-Mac allocation and reporting producer_failure instead of
+        falling straight through to the hosted path. Each set below is derived
+        from its own source file so the four cannot drift apart again.
+        """
+        producer_gate = self.producer.split("  authorize:", 1)[1].split("\n  compile:", 1)[0]
+        producer = self._python_association_set(producer_gate)
+        self.assertTrue(producer, "producer admitted no author association")
+
+        router_script = self._python_association_set(ROUTE.read_text())
+        self.assertEqual(router_script, producer)
+        self.assertEqual(set(route.TRUSTED_AUTHOR_ASSOCIATIONS), producer)
+
+        request_gate = self.ci.split("      - name: Publish persistent Mac route request", 1)[1]
+        request_gate = request_gate.split("\n        env:", 1)[0]
+        self.assertEqual(self._workflow_gate_association_set(request_gate), producer)
+
+        observe_gate = self.macos_ci.split(
+            "      - name: Observe persistent Mac compile candidate", 1
+        )[1].split("\n        env:", 1)[0]
+        self.assertEqual(self._workflow_gate_association_set(observe_gate), producer)
+
     def test_producer_is_manual_dedicated_and_credential_minimized(self):
         self.assertIn("  workflow_dispatch:", self.producer)
         for trigger in ("pull_request:", "pull_request_target:", "push:", "schedule:", "merge_group:"):
@@ -303,7 +356,7 @@ class WorkflowContractTests(unittest.TestCase):
         self.assertIn("github.event.pull_request.head.repo.full_name == github.repository", admission)
         self.assertIn("github.event.pull_request.author_association == 'MEMBER'", admission)
         self.assertIn("github.event.pull_request.author_association == 'OWNER'", admission)
-        self.assertIn("github.event.pull_request.author_association == 'COLLABORATOR'", admission)
+        self.assertNotIn("github.event.pull_request.author_association == 'COLLABORATOR'", admission)
         self.assertNotIn("- persistent-mac-compile-route", admission)
         self.assertIn("steps.persistent-restore.outputs.hit != 'true'", admission)
         self.assertIn("actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131", admission)
