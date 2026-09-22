@@ -6,7 +6,8 @@ extension CloudTreeNodeBuilder {
         machine: SurfaceMachineID,
         info: SurfaceMachineInfo,
         resources: [SurfaceResource],
-        projectionIndex: LocalProjectionIndex
+        projectionIndex: LocalProjectionIndex,
+        showsCloudVPNWarning: Bool = false
     ) -> [CloudTreeNode] {
         var children = resources.filter { $0.machine == machine }.map { resource in
             CloudTreeNode(
@@ -27,6 +28,22 @@ extension CloudTreeNodeBuilder {
         if !resources.isEmpty, let status = CloudMachineSurfacePresentation.portStatus(info: info) {
             children.append(status)
         }
-        return children.isEmpty ? [CloudMachineSurfacePresentation.emptyPorts(info: info)] : children
+        if children.isEmpty {
+            children.append(CloudMachineSurfacePresentation.emptyPorts(info: info))
+        }
+        if showsCloudVPNWarning, info.linkState == .connected || info.linkState == .notApplicable {
+            children.append(CloudTreeNode(
+                id: "machine:\(machine.rawValue)/ports/vpn-guidance",
+                kind: .placeholder(
+                    machine: machine,
+                    CloudTreePlaceholder(
+                        text: CloudPortsStatusPresentation.vpnGuidance.title,
+                        style: CloudPortsStatusPresentation.vpnGuidance.style,
+                        portStatus: CloudPortsStatusPresentation.vpnGuidance
+                    )
+                )
+            ))
+        }
+        return children
     }
 }

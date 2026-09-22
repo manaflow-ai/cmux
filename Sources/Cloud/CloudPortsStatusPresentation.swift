@@ -3,6 +3,16 @@ import Foundation
 /// One immutable Ports reason shared by native status rows and their actions.
 struct CloudPortsStatusPresentation: Equatable {
     let state: CloudPortDiscoveryState
+    let isVPNGuidance: Bool
+
+    init(state: CloudPortDiscoveryState, isVPNGuidance: Bool = false) {
+        self.state = state
+        self.isVPNGuidance = isVPNGuidance
+    }
+
+    static var vpnGuidance: Self {
+        Self(state: .available, isVPNGuidance: true)
+    }
 
     static func make(info: SurfaceMachineInfo) -> Self {
         if info.portDiscoveryState == .notRequested {
@@ -17,6 +27,9 @@ struct CloudPortsStatusPresentation: Equatable {
     }
 
     var title: String {
+        if isVPNGuidance {
+            return String(localized: "cloud.ports.vpnOff.title", defaultValue: "Cloud VPN is off")
+        }
         switch state {
         case .notRequested:
             return String(localized: "cloudTree.ports.notRequested.title", defaultValue: "Ports not checked yet")
@@ -46,6 +59,12 @@ struct CloudPortsStatusPresentation: Equatable {
     }
 
     var message: String {
+        if isVPNGuidance {
+            return String(
+                localized: "cloud.ports.vpnOff.explanation",
+                defaultValue: "cmux’s in-app forwarding works without a system VPN. Cloud VPN lets Safari, Chrome, and other apps open private VM ports."
+            )
+        }
         switch state {
         case .notRequested:
             return Self.routeNote
@@ -81,6 +100,7 @@ struct CloudPortsStatusPresentation: Equatable {
     }
 
     var action: CloudPortsStatusAction {
+        if isVPNGuidance { return .setupVPN }
         switch state {
         case .unavailable(.machineAsleep): return .openMachine
         case .unsupported: return .openShell
@@ -100,6 +120,7 @@ struct CloudPortsStatusPresentation: Equatable {
     }
 
     var style: CloudTreePlaceholder.Style {
+        if isVPNGuidance { return .dimmed }
         switch state {
         case .loading: return .connecting
         case .unavailable(.machineAsleep), .notRequested, .available, .loopbackOnly, .empty, .unsupported: return .dimmed

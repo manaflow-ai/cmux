@@ -30,7 +30,8 @@ struct CloudPortsVPNAffordanceTests {
                 isDesktop: false, activity: .ready, createdAt: nil, label: nil)],
             snapshot: SurfaceCatalogSnapshot(machines: [info], resources: [port], projections: []),
             localWorkspaces: [], machineActions: machineActions(), nodeActions: nodeActions(),
-            expansionStore: CloudTreeExpansionStore(defaults: defaults))
+            expansionStore: CloudTreeExpansionStore(defaults: defaults),
+            showsCloudVPNWarning: true)
         let host = NSHostingView(rootView: tree)
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 260, height: 900),
             styleMask: [.titled], backing: .buffered, defer: false)

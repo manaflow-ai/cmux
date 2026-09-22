@@ -573,6 +573,7 @@ enum CloudTreeNodeBuilder {
         includeLocalMachine: Bool = CloudTreeNodeBuilder.includesLocalMachine,
         source: CloudTreeMachineSource = .cloud,
         devicesSection: CloudTreeDevicesSection = .init(),
+        showsCloudVPNWarning: Bool = false,
         now: Date = .now
     ) -> [CloudTreeNode] {
         let projectionIndex = LocalProjectionIndex(snapshot: snapshot, unreadTerminalIDs: unreadTerminalIDs)
@@ -617,7 +618,8 @@ enum CloudTreeNodeBuilder {
                     snapshot: snapshot,
                     projectionIndex: projectionIndex,
                     resourceNodeBuilder: resourceNodeBuilder,
-                    now: now
+                    now: now,
+                    showsCloudVPNWarning: showsCloudVPNWarning
                 ),
                 // A machine pin is explicit sidebar priority, stamped by the panel;
                 // organization only pins the organizable rows below a machine.
@@ -648,7 +650,8 @@ enum CloudTreeNodeBuilder {
                     snapshot: snapshot,
                     projectionIndex: projectionIndex,
                     resourceNodeBuilder: resourceNodeBuilder,
-                    now: now
+                    now: now,
+                    showsCloudVPNWarning: showsCloudVPNWarning
                 ),
                 isPinned: pinnedMachineIDs.contains(id)
             ))
@@ -861,7 +864,8 @@ enum CloudTreeNodeBuilder {
         projectionIndex: LocalProjectionIndex,
         resourceNodeBuilder: CloudTreeMachineResourceNodeBuilder,
         now: Date,
-        machineResources: [SurfaceResource]? = nil
+        machineResources: [SurfaceResource]? = nil,
+        showsCloudVPNWarning: Bool = false
     ) -> [CloudTreeNode] {
         var children: [CloudTreeNode] = []
         let resources = machineResources ?? snapshot.resources(on: machine)
@@ -919,20 +923,13 @@ enum CloudTreeNodeBuilder {
                 children.append(CloudTreeNode(
                     id: nodeID(portsGroup: machine),
                     kind: .portsGroup(machine: machine),
-                    children: portBrowsers.isEmpty ? [CloudMachineSurfacePresentation.emptyPorts(info: info)] : portBrowsers.map {
-                        CloudTreeNode(
-                            id: nodeID(resource: $0.id),
-                            kind: .port(
-                                $0,
-                                url: $0.url ?? portURL(
-                                    machine: machine,
-                                    info: info,
-                                    port: $0.id.forwardedPort ?? $0.port
-                                ),
-                                openIn: projectionIndex.localWorkspaceShowing(resource: $0.id)
-                            )
-                        )
-                    }
+                    children: Self.portChildren(
+                        machine: machine,
+                        info: info,
+                        resources: portBrowsers,
+                        projectionIndex: projectionIndex,
+                        showsCloudVPNWarning: showsCloudVPNWarning
+                    )
                 ))
             }
             // Cloud machines expose Displays as a machine-level category, just like
