@@ -774,7 +774,7 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
             case .endpointClosed:
                 return String(
                     localized: "mobile.pairing.error.endpointClosed",
-                    defaultValue: "Another cmux instance may already own this Mac's secure pairing endpoint. Close other cmux builds and try again."
+                    defaultValue: "The secure pairing endpoint stopped before startup completed. Close other cmux builds and try again."
                 )
             case .noDirectAddress:
                 return String(
