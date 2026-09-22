@@ -4365,6 +4365,26 @@ final class cmuxUITests: XCTestCase {
     }
 
     @MainActor
+    func testAboutOffersSupportInformationCopy() throws {
+        let app = launchApp(
+            mockData: false,
+            environment: ["CMUX_UITEST_WORKSPACE_LIST_PREVIEW": "1"]
+        )
+        defer { app.terminate() }
+
+        let settings = app.buttons["MobileWorkspaceSettingsMenu"]
+        XCTAssertTrue(settings.waitForExistence(timeout: 8))
+        tap(settings, in: app)
+
+        let supportInformation = app.buttons["MobileSettingsCopySupportInformation"]
+        for _ in 0..<12 where !supportInformation.isHittable {
+            app.swipeUp(velocity: .slow)
+        }
+        XCTAssertTrue(supportInformation.waitForExistence(timeout: 4))
+        XCTAssertTrue(supportInformation.isHittable)
+    }
+
+    @MainActor
     func testDiagnosticsExportPresentsTheShareSheet() throws {
         let app = launchApp(
             mockData: false,
