@@ -34,7 +34,9 @@ permissions:
   contents: read
 
 env:
-  CI_CACHE_R2_PUBLIC_URL: ${{ vars.CI_CACHE_R2_PUBLIC_URL }}
+  # Fork pull requests do not receive repository variables; the public read
+  # URL is not a secret, so default it rather than run every fork build cold.
+  CI_CACHE_R2_PUBLIC_URL: ${{ vars.CI_CACHE_R2_PUBLIC_URL || 'https://ci-cache.cmux.com' }}
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -315,7 +317,9 @@ jobs:
         id: suite
         env:
           EVENT_NAME: ${{ github.event_name }}
-          PULL_REQUEST_POLICY: ${{ vars.CI_PULL_REQUEST_SUITE }}
+          # Fork pull requests do not receive repository variables, so keep
+          # the default in sync with the repository setting (#13095).
+          PULL_REQUEST_POLICY: ${{ vars.CI_PULL_REQUEST_SUITE || 'compile-only' }}
         run: |
           set -euo pipefail
           python3 scripts/ci/choose_ci_suite.py \
