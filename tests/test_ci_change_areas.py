@@ -1749,6 +1749,27 @@ def test_web_workflow_pins_every_bun_setup_version() -> None:
         assert '          bun-version: "1.3.14"' in setup_tail
 
 
+def test_every_setup_bun_step_declares_a_version() -> None:
+    workflows = ROOT / ".github" / "workflows"
+    action = "oven-sh/setup-bun@"
+    found = 0
+
+    for workflow_path in sorted(workflows.glob("*.yml")):
+        lines = workflow_path.read_text(encoding="utf-8").splitlines()
+        for index, line in enumerate(lines):
+            if action not in line:
+                continue
+            found += 1
+            tail = lines[index + 1:index + 7]
+            assert any("bun-version:" in candidate for candidate in tail), (
+                workflow_path.relative_to(ROOT),
+                index + 1,
+                "setup-bun must declare an explicit bun-version",
+            )
+
+    assert found >= 20, "setup-bun inventory unexpectedly disappeared"
+
+
 def test_web_typecheck_retries_native_tsgo_abort() -> None:
     script = workflow_job_step_script("web-typecheck", "Typecheck", WEB_WORKFLOW)
 
