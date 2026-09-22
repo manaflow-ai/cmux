@@ -27,11 +27,11 @@ GROUPS = (
 # A step move or rename must update this table in the same change.
 STEP_OWNERS = {
     "Initialize Ghostty for Zig version guard": "release-tooling",
-    "Set up Python 3.9 for nightly prune compatibility": "release-tooling",
     "Run canonical CMUX CI guard profile": "ci",
     "Test XCStrings catalog lint": "preflight",
     "Test macOS localization catalog tooling": "preflight",
     "Test review fabric contracts": "preflight",
+    "Set up Python 3.9 for nightly prune compatibility": "release-tooling",
     "Validate Blacksmith Testbox broker trust boundary": "ci",
     "Validate build graph health tooling": "preflight",
     "Validate CI Xcode selection fast path": "release-notary",
@@ -155,7 +155,6 @@ PATH_OWNERS = {
     "scripts/check-test-determinism.py": frozenset(("quality-determinism",)),
     "scripts/ci/app_host_test_products.py": frozenset(("preflight",)),
     "scripts/ci/build_input_fingerprint.py": frozenset(("preflight",)),
-    "scripts/ci/build_graph_health.py": frozenset(("preflight",)),
     "scripts/ci/cmux_unit_test_shard.py": frozenset(("quality-sharding",)),
     "scripts/ci/cmux_workload_profile.py": frozenset(("ci",)),
     "scripts/ci/compile-app-host-test-product.sh": frozenset(("preflight",)),

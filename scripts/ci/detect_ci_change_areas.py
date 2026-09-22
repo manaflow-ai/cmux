@@ -294,6 +294,11 @@ def is_agent_session_web_change(path: str) -> bool:
 def is_macos_neutral(path: str) -> bool:
     if path in CI_CONTROL_PLANE_ONLY:
         return True
+    # CmuxMobileShellUI is an iOS-only package and its Tests target is exercised
+    # by test-ios.yml, not by the macOS Swift-package lane. Test-only edits here
+    # cannot affect desktop product bytes or macOS package tests.
+    if path.startswith("Packages/iOS/CmuxMobileShellUI/Tests/"):
+        return True
     # `cmux-tui/` is the standalone cmux-tui Rust project, gated by its own
     # workflow. Packages/iOS stays macOS-relevant because the desktop app
     # links CmuxMobileRPC, CmuxMobileTransport, and their package dependencies.
