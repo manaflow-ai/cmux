@@ -16,6 +16,9 @@ final class WorkspaceListGroupedProjectionCache {
 
     private var input: Input?
     private var projectedItems: [MobileWorkspaceListItem] = []
+    #if DEBUG
+    private(set) var projectionBuildCount = 0
+    #endif
 
     func items(
         workspaces: [MobileWorkspacePreview],
@@ -36,6 +39,9 @@ final class WorkspaceListGroupedProjectionCache {
             : MobileWorkspaceListItem.items(workspaces: workspaces, groups: groups)
         self.input = input
         self.projectedItems = projectedItems
+        #if DEBUG
+        projectionBuildCount &+= 1
+        #endif
         return projectedItems
     }
 }

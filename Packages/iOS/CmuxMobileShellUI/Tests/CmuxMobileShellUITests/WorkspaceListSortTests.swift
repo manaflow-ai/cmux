@@ -210,6 +210,18 @@ import Testing
             appliesRecencySort: true
         ) == initial)
 
+        let buildCountBeforeRelayChange = cache.projectionBuildCount
+        workspaces[2].currentDirectory = "/tmp/agent-output"
+        _ = cache.items(
+            workspaces: workspaces,
+            groups: [expandedGroup],
+            appliesRecencySort: true
+        )
+        #expect(
+            cache.projectionBuildCount == buildCountBeforeRelayChange,
+            "Terminal and directory relay fields must not rebuild the list projection."
+        )
+
         workspaces[2].name = "Renamed member"
         let renamed = cache.items(
             workspaces: workspaces,
