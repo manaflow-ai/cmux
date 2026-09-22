@@ -20,6 +20,7 @@ on:
 
 permissions:
   contents: read
+  pull-requests: read
 
 concurrency:
   group: cloud-machine-tests-${{ github.ref }}
@@ -33,41 +34,67 @@ jobs:
 
   changes:
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
-    timeout-minutes: 5
+    timeout-minutes: 2
     outputs:
       should_run: ${{ steps.route.outputs.should_run }}
     steps:
-      - name: Checkout routing revision
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          ref: ${{ github.sha }}
-          fetch-depth: 0
-          persist-credentials: false
-
       - name: Detect cloud-machine package changes
         id: route
         env:
           EVENT_NAME: ${{ github.event_name }}
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
-          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          GITHUB_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          REPOSITORY: ${{ github.repository }}
         run: |
           set -euo pipefail
           if [ "$EVENT_NAME" != "pull_request" ]; then
             echo "should_run=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          if ! merge_base="$(git merge-base "$BASE_SHA" "$HEAD_SHA")" \
-            || ! git diff --name-only "$merge_base" "$HEAD_SHA" > "$RUNNER_TEMP/cloud-machine-changed.txt"; then
-            echo "::warning::Could not compute cloud-machine PR diff; running package tests"
-            echo "should_run=true" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          if grep -q '^Packages/macOS/CmuxCloudMachines/' "$RUNNER_TEMP/cloud-machine-changed.txt"; then
-            echo "should_run=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "No CmuxCloudMachines package files changed; skipping macOS lifecycle tests."
-            echo "should_run=false" >> "$GITHUB_OUTPUT"
-          fi
+          python3 - <<'PY'
+          import json
+          import os
+          import urllib.request
+
+          repository = os.environ["REPOSITORY"]
+          pr_number = os.environ["PR_NUMBER"]
+          token = os.environ["GITHUB_TOKEN"]
+          should_run = True
+          try:
+              page = 1
+              should_run = False
+              while True:
+                  request = urllib.request.Request(
+                      f"https://api.github.com/repos/{repository}/pulls/{pr_number}/files?per_page=100&page={page}",
+                      headers={
+                          "Accept": "application/vnd.github+json",
+                          "Authorization": f"Bearer {token}",
+                          "X-GitHub-Api-Version": "2022-11-28",
+                      },
+                  )
+                  with urllib.request.urlopen(request, timeout=20) as response:
+                      files = json.load(response)
+                  if any(
+                      item.get("filename", "").startswith("Packages/macOS/CmuxCloudMachines/")
+                      for item in files
+                  ):
+                      should_run = True
+                      break
+                  if len(files) < 100:
+                      break
+                  page += 1
+          except Exception as error:
+              print(
+                  f"::warning::Could not inspect cloud-machine PR files "
+                  f"({type(error).__name__}); running package tests"
+              )
+              should_run = True
+
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
+              output.write(f"should_run={'true' if should_run else 'false'}\n")
+          if not should_run:
+              print("No CmuxCloudMachines package files changed; skipping macOS lifecycle tests.")
+          PY
 
   lifecycle:
     needs: [changes, resolve-ref]
