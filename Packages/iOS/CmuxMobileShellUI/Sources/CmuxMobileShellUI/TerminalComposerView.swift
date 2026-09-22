@@ -414,9 +414,9 @@ struct TerminalComposerView: View {
             isPresented: $isPickerPresented,
             selection: $pickerSelection,
             maxSelectionCount: Self.maxAttachmentCount,
-            // Include both image and video assets. Images are optimized;
-            // videos are staged as files.
-            matching: .any(of: [.images, .videos])
+            // Leave the filter unset so every supported Photos library asset
+            // remains selectable, including videos and future media types.
+            matching: nil
         )
         .onChange(of: pickerSelection) { _, items in
             guard !items.isEmpty else { return }
@@ -884,7 +884,7 @@ struct TerminalComposerView: View {
                 let fileURL = imported.url
                 // Always release the temp file, on every exit from this iteration.
                 defer { try? FileManager.default.removeItem(at: fileURL) }
-                guard item.supportedContentTypes.first?.conforms(to: .image) == true else {
+                guard imported.kind == .image else {
                     await stagePastedFile(
                         MobilePastedAttachment(
                             kind: .file,

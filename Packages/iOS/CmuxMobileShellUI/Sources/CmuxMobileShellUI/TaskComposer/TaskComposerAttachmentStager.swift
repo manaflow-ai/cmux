@@ -135,26 +135,36 @@ struct TaskComposerAttachmentStager: Sendable {
 /// common images and movies before falling back to the generic `.item` form for
 /// Live Photos and future library media.
 struct ImportedPhotoLibraryFile: Transferable, Sendable {
+    enum Kind: Sendable {
+        case image
+        case file
+    }
+
     let url: URL
     let originalFileName: String
+    let kind: Kind
 
     static var transferRepresentation: some TransferRepresentation {
+        FileRepresentation(importedContentType: .livePhoto) { received in
+            try importFile(received, kind: .file)
+        }
         FileRepresentation(importedContentType: .image) { received in
-            try importFile(received)
+            try importFile(received, kind: .image)
         }
         FileRepresentation(importedContentType: .video) { received in
-            try importFile(received)
+            try importFile(received, kind: .file)
         }
         FileRepresentation(importedContentType: .movie) { received in
-            try importFile(received)
+            try importFile(received, kind: .file)
         }
         FileRepresentation(importedContentType: .item) { received in
-            try importFile(received)
+            try importFile(received, kind: .file)
         }
     }
 
     private static func importFile(
-        _ received: ReceivedTransferredFile
+        _ received: ReceivedTransferredFile,
+        kind: Kind
     ) throws -> Self {
         let ext = received.file.pathExtension
         let name = UUID().uuidString + (ext.isEmpty ? "" : ".\(ext)")
@@ -164,7 +174,8 @@ struct ImportedPhotoLibraryFile: Transferable, Sendable {
         try FileManager.default.copyItem(at: received.file, to: destination)
         return Self(
             url: destination,
-            originalFileName: received.file.lastPathComponent
+            originalFileName: received.file.lastPathComponent,
+            kind: kind
         )
     }
 }

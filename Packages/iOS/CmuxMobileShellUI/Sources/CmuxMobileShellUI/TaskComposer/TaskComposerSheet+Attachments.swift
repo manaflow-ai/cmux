@@ -218,7 +218,7 @@ extension TaskComposerSheet {
         }
 
         let stager = TaskComposerAttachmentStager()
-        guard item.supportedContentTypes.first?.conforms(to: .image) == true else {
+        guard imported.kind == .image else {
             return try await stager.stageFile(
                 at: imported.url,
                 originalFileName: imported.originalFileName
