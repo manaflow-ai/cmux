@@ -23,6 +23,13 @@ https://github.com/manaflow-ai/cmux/pull/13299 (lawrencecchen).
   clear-history/Control-C RPCs is NOT an atomic input fence and is insufficient.
 - New-machine open uses the initial-terminal receipt rather than refreshing the
   entire catalog or creating a duplicate first terminal. Reopen uses real state.
+  The app still has to link the new machine once: `cmux vm open` reads
+  `surface.catalog` with `ensure_linked: true` (one connect plus one graph read,
+  free for a machine that is already linked). A plain cached read has no graph
+  for a just-created VM and fails with "sessions are unavailable" (seen on tag
+  pr-13299-vm-startup-v4, VM vm-3d661f4b2bbf4aef85f42878cd7b5efc). Do not drop it.
+- Freestyle create/restore/resume/attach do no guest work; see the NO-WORK
+  INVARIANT in web/services/vms/drivers/freestyle.ts. New guest work is baked.
 - Consolidate VM edge credential to one x-cmux-authorization Bearer header;
   signed VM claims retain validation, expiry, ownership and revocation semantics.
 - Old-image create/attach healing is intentionally retired, not silently retained.
