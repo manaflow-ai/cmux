@@ -10,7 +10,6 @@ import getpass
 import json
 import os
 import pty
-import select
 from pathlib import Path
 import shlex
 import socket
@@ -270,28 +269,62 @@ LogLevel ERROR
                     wrong_host_key = fails
                     destination = f"human-{tty}-{fails}"
                     master, slave = pty.openpty() if tty else (None, None)
+                    argv = [cli, "vm", "push", "test-vm", str(payload), destination]
                     try:
-                        result = subprocess.run(
-                            [cli, "vm", "push", "test-vm", str(payload), destination],
-                            env=env, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
-                            stderr=slave if tty else subprocess.PIPE, timeout=30,
-                        )
-                        stderr = result.stderr or b""
-                        if master is not None:
-                            while select.select([master], [], [], 0)[0]:
-                                stderr += os.read(master, 65536)
+                        if master is None:
+                            result = subprocess.run(
+                                argv, env=env, stdin=subprocess.DEVNULL,
+                                stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=30,
+                            )
+                            returncode, stdout, stderr = result.returncode, result.stdout, result.stderr or b""
+                        else:
+                            # A PTY has a small fixed buffer. Draining it only
+                            # after the child exits deadlocks whenever stderr
+                            # outgrows that buffer: the child blocks in write()
+                            # and never exits, so the timeout fires instead.
+                            # Drain concurrently, and close the parent's slave
+                            # copy now so the reader sees EOF once the child is
+                            # gone (otherwise this end holds the PTY open).
+                            chunks = []
+                            proc = subprocess.Popen(
+                                argv, env=env, stdin=subprocess.DEVNULL,
+                                stdout=subprocess.PIPE, stderr=slave,
+                            )
+                            os.close(slave)
+                            slave = None
+
+                            def drain(fd=master, sink=chunks):
+                                while True:
+                                    try:
+                                        data = os.read(fd, 65536)
+                                    except OSError:
+                                        return  # EIO: the last slave fd closed
+                                    if not data:
+                                        return
+                                    sink.append(data)
+
+                            reader = threading.Thread(target=drain, daemon=True)
+                            reader.start()
+                            try:
+                                stdout, _ = proc.communicate(timeout=30)
+                            except subprocess.TimeoutExpired:
+                                proc.kill()
+                                proc.communicate()
+                                raise
+                            reader.join(timeout=5)
+                            returncode, stderr = proc.returncode, b"".join(chunks)
                     finally:
                         if slave is not None: os.close(slave)
                         if master is not None: os.close(master)
                         wrong_host_key = False
-                    assert result.returncode == (1 if fails else 0), stderr
+                    assert returncode == (1 if fails else 0), stderr
                     if fails:
                         assert b"Host key verification failed" in stderr, stderr
                         assert b"Cloud diagnostic reference:" in stderr, stderr
-                        assert b"Pushed" not in result.stdout, result.stdout
+                        assert b"Pushed" not in stdout, stdout
                         assert not (guest / destination).exists()
                     else:
-                        assert b"Pushed" in result.stdout and destination.encode() in result.stdout, result.stdout
+                        assert b"Pushed" in stdout and destination.encode() in stdout, stdout
                         assert stderr == b"", stderr
                         assert (guest / destination).read_bytes() == payload.read_bytes()
             print("PASS SCP human output and errors over pipes and terminals", flush=True)
