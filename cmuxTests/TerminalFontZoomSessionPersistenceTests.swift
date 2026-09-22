@@ -1007,8 +1007,12 @@ struct TerminalFontZoomSessionPersistenceTests {
         let secondMirrorPanel = try #require(mirror.panel(forPane: 22))
         // Manual-I/O panes already have a runtime: adjust the live font, not
         // only its durable cache, which the next live snapshot replaces.
-        #expect(firstMirrorPanel.surface.adjustFontSize(byRuntimePoints: -1))
-        #expect(secondMirrorPanel.surface.adjustFontSize(byRuntimePoints: -3))
+        // Mirror panes inherit the outer 8pt source, so these deltas land them
+        // at 6pt and 4pt before the workspace-wide -1.
+        #expect(firstMirrorPanel.surface.fontSizeLineageSnapshot()?.basePoints == 8)
+        #expect(secondMirrorPanel.surface.fontSizeLineageSnapshot()?.basePoints == 8)
+        #expect(firstMirrorPanel.surface.adjustFontSize(byRuntimePoints: -2))
+        #expect(secondMirrorPanel.surface.adjustFontSize(byRuntimePoints: -4))
 
         #expect(workspace.adjustTerminalFontSizes(byRuntimePoints: -1) == 3)
         #expect(outerPanel.surface.fontSizeLineageSnapshot()?.basePoints == 7)

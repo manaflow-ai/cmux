@@ -5508,7 +5508,24 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
                     && initialCommand.contains("CMUX_SSH_RECONNECT_LIMIT"),
                 initialCommand
             )
-            XCTAssertEqual(initialCommand.components(separatedBy: "/usr/bin/uuidgen").count - 1, 2, initialCommand)
+            // Exactly two identity UUIDs: the per-attempt id and the once-per-attach
+            // lifecycle id. The auth event token helper (#11497) mints its own
+            // optional token via `/usr/bin/uuidgen 2>/dev/null`, asserted separately.
+            XCTAssertEqual(
+                initialCommand.components(separatedBy: "$(/usr/bin/uuidgen | /usr/bin/tr").count - 1,
+                2,
+                initialCommand
+            )
+            XCTAssertEqual(
+                initialCommand.components(separatedBy: "cmux_ssh_attach_lifecycle_id=$(/usr/bin/uuidgen").count - 1,
+                1,
+                initialCommand
+            )
+            XCTAssertEqual(
+                initialCommand.components(separatedBy: "cmux_ssh_attach_auth_event_token=$(/usr/bin/uuidgen 2>/dev/null").count - 1,
+                1,
+                initialCommand
+            )
             XCTAssertTrue(initialCommand.contains("ssh-session-end --lifecycle-only"), initialCommand)
             return self.v2Response(
                 id: id,

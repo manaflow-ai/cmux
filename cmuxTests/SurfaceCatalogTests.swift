@@ -453,6 +453,12 @@ struct SurfaceCatalogTests {
         )
         let catalog = SurfaceCatalog(live: live)
         let provider = FakeProvider(machine: machine)
+        // The tree lists a device's workspaces and terminals only behind a
+        // trusted live link (e3d424c722); an untrusted device keeps just its
+        // header row, which would hide the directories this test checks.
+        provider.info.presence = SurfaceDevicePresence(
+            state: .online, lastSeenAt: nil, tag: "default", bundleID: nil, accountTrust: .sameAccount
+        )
         catalog.register(provider)
         var resource = terminal(machine, "term_1", title: "~")
         resource.remoteWorkspace = SurfaceRemoteWorkspace(id: "ws", name: "~", index: 0, focused: true)
