@@ -244,6 +244,306 @@ def test_ios_packages_keep_macos_dependency_coverage() -> None:
     )
 
 
+def test_pbx_list_ids_accepts_bare_and_commented_references() -> None:
+    body = textwrap.dedent(
+        """\
+        packageProductDependencies = (
+            COMMENTED /* Root */,
+            BARE,
+        );
+        """
+    )
+
+    assert module._pbx_list_ids(body, "packageProductDependencies") == [
+        "COMMENTED",
+        "BARE",
+    ]
+
+
+def test_macos_ios_package_closure_matches_current_desktop_graph() -> None:
+    assert module.macos_ios_package_closure(ROOT) == frozenset(
+        {
+            "Packages/iOS/CmuxMobileDiagnostics",
+            "Packages/iOS/CmuxMobilePairedMac",
+            "Packages/iOS/CmuxMobileRPC",
+            "Packages/iOS/CmuxMobileShellModel",
+            "Packages/iOS/CmuxMobileSupport",
+            "Packages/iOS/CmuxMobileTransport",
+        }
+    )
+
+
+def test_ios_package_routing_follows_desktop_dependency_closure() -> None:
+    mac_relevant = (
+        "CmuxMobileDiagnostics",
+        "CmuxMobilePairedMac",
+        "CmuxMobileRPC",
+        "CmuxMobileShellModel",
+        "CmuxMobileSupport",
+        "CmuxMobileTransport",
+    )
+    for package in mac_relevant:
+        path = f"Packages/iOS/{package}/Sources/{package}/Probe.swift"
+        actual = module.classify_files([path])
+        assert actual.macos is True, (path, actual)
+        assert actual.release_build is True, (path, actual)
+
+    for package in ("CmuxMobileAnalytics", "CmuxMobileShellUI"):
+        path = f"Packages/iOS/{package}/Sources/{package}/Probe.swift"
+        actual = module.classify_files([path])
+        assert actual.macos is False, (path, actual)
+        assert actual.release_build is False, (path, actual)
+
+
+def test_recent_ios_pr_shapes_skip_unobservable_macos_compile() -> None:
+    # PR #13441: iOS-only ShellUI sources plus an unrelated reusable guard workflow.
+    pr_13441 = [
+        ".github/workflows/ci-guards.yml",
+        "Packages/iOS/CmuxMobileShellUI/Sources/CmuxMobileShellUI/TaskComposer/TaskComposerAttachmentPickerModifier.swift",
+        "Packages/iOS/CmuxMobileShellUI/Sources/CmuxMobileShellUI/TaskComposer/TaskComposerAttachmentStager.swift",
+        "Packages/iOS/CmuxMobileShellUI/Sources/CmuxMobileShellUI/TaskComposer/TaskComposerSheet+Attachments.swift",
+        "Packages/iOS/CmuxMobileShellUI/Sources/CmuxMobileShellUI/TerminalComposerView.swift",
+    ]
+    actual = module.classify_files(pr_13441)
+    assert actual.macos is False, actual
+    assert actual.release_build is False, actual
+
+    # PR #13459: iOS-only analytics plus web and docs work. Web still routes.
+    pr_13459 = [
+        "Packages/iOS/CmuxMobileAnalytics/Sources/CmuxMobileAnalytics/MobileNetworkOutcomeReporter.swift",
+        "Packages/iOS/CmuxMobileAnalytics/Tests/CmuxMobileAnalyticsTests/MobileNetworkOutcomeReporterTests.swift",
+        "docs/transport-sentry-diagnostics.md",
+        "web/services/observability/mobileNetworkOutcome.ts",
+        "web/tests/mobile-network-observability-route.test.ts",
+    ]
+    actual = module.classify_files(pr_13459)
+    assert actual.macos is False, actual
+    assert actual.release_build is False, actual
+    assert actual.web is True, actual
+
+
+def test_macos_ios_package_closure_is_derived_transitively() -> None:
+    with tempfile.TemporaryDirectory() as temporary_directory:
+        root = Path(temporary_directory)
+        project = root / "cmux.xcodeproj"
+        project.mkdir()
+        (project / "project.pbxproj").write_text(
+            textwrap.dedent(
+                """\
+                /* Begin PBXNativeTarget section */
+                    TARGET /* cmux */ = {
+                        isa = PBXNativeTarget;
+                        name = cmux;
+                        packageProductDependencies = (
+                            PRODUCT /* DesktopRoot */,
+                        );
+                    };
+                /* End PBXNativeTarget section */
+
+                /* Begin XCLocalSwiftPackageReference section */
+                    ROOTREF /* XCLocalSwiftPackageReference "DesktopRoot" */ = {
+                        isa = XCLocalSwiftPackageReference;
+                        relativePath = Packages/macOS/DesktopRoot;
+                    };
+                /* End XCLocalSwiftPackageReference section */
+
+                /* Begin XCSwiftPackageProductDependency section */
+                    PRODUCT /* DesktopRoot */ = {
+                        isa = XCSwiftPackageProductDependency;
+                        package = ROOTREF /* XCLocalSwiftPackageReference "DesktopRoot" */;
+                        productName = DesktopRoot;
+                    };
+                /* End XCSwiftPackageProductDependency section */
+                """
+            ),
+            encoding="utf-8",
+        )
+        packages = {
+            "Packages/macOS/DesktopRoot": (
+                "DesktopRoot",
+                '.package(path: "../../iOS/Bridge"),',
+            ),
+            "Packages/iOS/Bridge": (
+                "Bridge",
+                '.package(path: "../Leaf"),',
+            ),
+            "Packages/iOS/Leaf": ("Leaf", ""),
+            "Packages/iOS/Ignored": ("Ignored", ""),
+        }
+        for directory, (name, dependency) in packages.items():
+            package = root / directory
+            package.mkdir(parents=True)
+            dependencies = f"dependencies: [{dependency}]," if dependency else ""
+            (package / "Package.swift").write_text(
+                textwrap.dedent(
+                    f"""\
+                    // swift-tools-version: 6.0
+                    import PackageDescription
+                    let package = Package(
+                        name: "{name}",
+                        products: [.library(name: "{name}", targets: ["{name}"])],
+                        {dependencies}
+                        targets: [.target(name: "{name}")]
+                    )
+                    """
+                ),
+                encoding="utf-8",
+            )
+
+        assert module.macos_ios_package_closure(root) == frozenset(
+            {"Packages/iOS/Bridge", "Packages/iOS/Leaf"}
+        )
+
+
+def test_macos_ios_package_closure_rejects_ambiguous_unowned_product() -> None:
+    with tempfile.TemporaryDirectory() as temporary_directory:
+        root = Path(temporary_directory)
+        project = root / "cmux.xcodeproj"
+        project.mkdir()
+        (project / "project.pbxproj").write_text(
+            textwrap.dedent(
+                """\
+                /* Begin PBXNativeTarget section */
+                    TARGET /* cmux */ = {
+                        isa = PBXNativeTarget;
+                        name = cmux;
+                        packageProductDependencies = (
+                            PRODUCTA /* RootA */,
+                            PRODUCTB /* RootB */,
+                            AMBIGUOUS /* SharedUI */,
+                        );
+                    };
+                /* End PBXNativeTarget section */
+
+                /* Begin XCLocalSwiftPackageReference section */
+                    REFA /* XCLocalSwiftPackageReference "RootA" */ = {
+                        isa = XCLocalSwiftPackageReference;
+                        relativePath = Packages/macOS/RootA;
+                    };
+                    REFB /* XCLocalSwiftPackageReference "RootB" */ = {
+                        isa = XCLocalSwiftPackageReference;
+                        relativePath = Packages/macOS/RootB;
+                    };
+                /* End XCLocalSwiftPackageReference section */
+
+                /* Begin XCSwiftPackageProductDependency section */
+                    PRODUCTA /* RootA */ = {
+                        isa = XCSwiftPackageProductDependency;
+                        package = REFA /* XCLocalSwiftPackageReference "RootA" */;
+                        productName = RootA;
+                    };
+                    PRODUCTB /* RootB */ = {
+                        isa = XCSwiftPackageProductDependency;
+                        package = REFB /* XCLocalSwiftPackageReference "RootB" */;
+                        productName = RootB;
+                    };
+                    AMBIGUOUS /* SharedUI */ = {
+                        isa = XCSwiftPackageProductDependency;
+                        productName = SharedUI;
+                    };
+                /* End XCSwiftPackageProductDependency section */
+                """
+            ),
+            encoding="utf-8",
+        )
+        for directory, name in (
+            ("Packages/macOS/RootA", "RootA"),
+            ("Packages/macOS/RootB", "RootB"),
+        ):
+            package = root / directory
+            package.mkdir(parents=True)
+            (package / "Package.swift").write_text(
+                textwrap.dedent(
+                    f"""\
+                    // swift-tools-version: 6.0
+                    import PackageDescription
+                    let package = Package(
+                        name: "{name}",
+                        products: [
+                            .library(name: "{name}", targets: ["{name}"]),
+                            .library(name: "SharedUI", targets: ["{name}"]),
+                        ],
+                        targets: [.target(name: "{name}")]
+                    )
+                    """
+                ),
+                encoding="utf-8",
+            )
+
+        try:
+            module.macos_ios_package_closure(root)
+        except ValueError:
+            pass
+        else:
+            raise AssertionError("ambiguous package product ownership must fail open")
+
+
+def test_macos_ios_package_closure_rejects_xcode_path_escape() -> None:
+    with tempfile.TemporaryDirectory() as temporary_directory:
+        root = Path(temporary_directory) / "repo"
+        root.mkdir()
+        project = root / "cmux.xcodeproj"
+        project.mkdir()
+        (project / "project.pbxproj").write_text(
+            textwrap.dedent(
+                """\
+                /* Begin PBXNativeTarget section */
+                    TARGET /* cmux */ = {
+                        isa = PBXNativeTarget;
+                        name = cmux;
+                        packageProductDependencies = (
+                            PRODUCT /* Escape */,
+                        );
+                    };
+                /* End PBXNativeTarget section */
+
+                /* Begin XCLocalSwiftPackageReference section */
+                    ESCAPE /* XCLocalSwiftPackageReference "Escape" */ = {
+                        isa = XCLocalSwiftPackageReference;
+                        relativePath = ../outside;
+                    };
+                /* End XCLocalSwiftPackageReference section */
+
+                /* Begin XCSwiftPackageProductDependency section */
+                    PRODUCT /* Escape */ = {
+                        isa = XCSwiftPackageProductDependency;
+                        package = ESCAPE /* XCLocalSwiftPackageReference "Escape" */;
+                        productName = Escape;
+                    };
+                /* End XCSwiftPackageProductDependency section */
+                """
+            ),
+            encoding="utf-8",
+        )
+        outside = root.parent / "outside"
+        outside.mkdir()
+        (outside / "Package.swift").write_text(
+            '// swift-tools-version: 6.0\nimport PackageDescription\n',
+            encoding="utf-8",
+        )
+
+        try:
+            module.macos_ios_package_closure(root)
+        except ValueError as error:
+            assert "escapes repository" in str(error)
+        else:
+            raise AssertionError("escaping Xcode package roots must fail open")
+
+
+def test_ios_package_dependency_parser_failure_fails_open_to_macos() -> None:
+    original = module.load_macos_ios_package_closure
+    module.load_macos_ios_package_closure = lambda: None
+    try:
+        actual = module.classify_files(
+            ["Packages/iOS/CmuxMobileAnalytics/Sources/CmuxMobileAnalytics/AnalyticsEmitter.swift"]
+        )
+    finally:
+        module.load_macos_ios_package_closure = original
+
+    assert actual.macos is True, actual
+    assert actual.release_build is True, actual
+
+
 def test_app_source_runs_macos() -> None:
     assert_areas(["Sources/AppDelegate.swift"], macos=True, web=False)
 
