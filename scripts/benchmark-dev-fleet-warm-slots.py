@@ -464,23 +464,50 @@ def event_journal_paths(path: Path) -> list[Path]:
 
 
 def cold_generation_count(state_root: Path, namespace: str) -> int:
+    """Count generated cold directories without traversing any symlink ancestor."""
     count = 0
-    for root in state_root.glob(f"*/slots/*/cache/{namespace}"):
+    try:
+        cases = list(state_root.iterdir())
+    except OSError:
+        return 0
+
+    for case in cases:
         try:
-            if not stat.S_ISDIR(root.lstat().st_mode):
+            if not stat.S_ISDIR(case.lstat().st_mode):
                 continue
-            entries = root.iterdir()
+            slots = case / "slots"
+            if not stat.S_ISDIR(slots.lstat().st_mode):
+                continue
+            slot_entries = list(slots.iterdir())
         except OSError:
             continue
-        for entry in entries:
-            name = entry.name
-            if (
-                len(name) == 32
-                and all(character in "0123456789abcdef" for character in name)
-                and not entry.is_symlink()
-                and entry.is_dir()
-            ):
-                count += 1
+
+        for slot in slot_entries:
+            try:
+                if not stat.S_ISDIR(slot.lstat().st_mode):
+                    continue
+                cache = slot / "cache"
+                if not stat.S_ISDIR(cache.lstat().st_mode):
+                    continue
+                root = cache / namespace
+                if not stat.S_ISDIR(root.lstat().st_mode):
+                    continue
+                entries = list(root.iterdir())
+            except OSError:
+                continue
+
+            for entry in entries:
+                name = entry.name
+                try:
+                    mode = entry.lstat().st_mode
+                except OSError:
+                    continue
+                if (
+                    len(name) == 32
+                    and all(character in "0123456789abcdef" for character in name)
+                    and stat.S_ISDIR(mode)
+                ):
+                    count += 1
     return count
 
 
