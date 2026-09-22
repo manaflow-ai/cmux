@@ -1,0 +1,15 @@
+# yaml-language-server: $schema=https://cubic.dev/schema/cubic-repository-config.schema.json
+
+# Only the pull-request description behavior is configured here. Review
+# settings stay wherever they are configured today.
+#
+# cubic writes its summary into the pull-request body. On this repository that
+# body edit is not free: `CLA policy guard` and `Web complexity` are
+# `pull_request_target` workflows whose trigger list includes `edited`, so every
+# description cubic writes starts two more required-check runs on a tree that
+# has not changed. cubic keeps posting its review as comments and checks; only
+# the body rewrite is turned off.
+version: 1
+
+pr_descriptions:
+  generate: false
