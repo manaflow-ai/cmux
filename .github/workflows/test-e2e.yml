@@ -46,6 +46,13 @@ concurrency:
   group: e2e-${{ (!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_TESTS || 'blacksmith-6vcpu-macos-15') || inputs.runner }}-${{ inputs.ref || github.ref_name }}-${{ inputs.test_filter }}
   cancel-in-progress: true
 
+# This lane checks out and compiles a dispatcher-chosen ref, so it should hold
+# the narrowest token that still works. It reads the repository, downloads a
+# public GhosttyKit release over plain curl, and uploads its own artifacts;
+# none of that needs a writable token.
+permissions:
+  contents: read
+
 jobs:
   resolve-ref:
     uses: ./.github/workflows/resolve-dispatch-ref.yml

@@ -69,6 +69,22 @@ web_subareas = importlib.util.module_from_spec(web_subareas_spec)
 sys.modules[web_subareas_spec.name] = web_subareas
 web_subareas_spec.loader.exec_module(web_subareas)
 
+TEST_EXECUTION_VALIDATOR = ROOT / "scripts" / "ci" / "validate_test_execution_registry.py"
+validator_spec = importlib.util.spec_from_file_location("validate_test_execution_registry", TEST_EXECUTION_VALIDATOR)
+assert validator_spec and validator_spec.loader
+test_execution_validator = importlib.util.module_from_spec(validator_spec)
+sys.modules[validator_spec.name] = test_execution_validator
+validator_spec.loader.exec_module(test_execution_validator)
+
+
+def test_execution_registry_lane_discovery_ignores_yaml_comments() -> None:
+    workflow = """
+# scripts/ci/run_python_test_lane.py --lane full-line-comment
+run: echo ok # scripts/ci/run_python_test_lane.py --lane inline-comment
+run: scripts/ci/run_python_test_lane.py --lane live-lane # trailing comment
+"""
+    assert test_execution_validator.runner_lanes_from_workflow_text(workflow) == {"live-lane"}
+
 
 def assert_areas(
     paths: list[str],
@@ -3306,10 +3322,13 @@ def test_guard_python_setup_is_scoped_to_owning_groups() -> None:
     prepare_block = block[
         prepare:block.index("      - name: Validate Blacksmith Testbox broker trust boundary", prepare)
     ]
+    # release-notary joined when test_release_homebrew_gate.py was wired there:
+    # it imports yaml, and that was the one group running Python guards without
+    # the venv.
     assert (
         "if: ${{ matrix.group == 'ci' || matrix.group == 'app-host-execution' || "
         "matrix.group == 'app-host-process' || matrix.group == 'app-host-cache' || "
-        "matrix.group == 'release-tooling' }}"
+        "matrix.group == 'release-notary' || matrix.group == 'release-tooling' }}"
     ) in prepare_block
     assert "python3 -m venv" in prepare_block
     assert "packages=(PyYAML==6.0.3)" in prepare_block

@@ -17,6 +17,9 @@ jobs:
     timeout-minutes: 30
     env:
       CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_15 }}
+      # Caller workflow env does not reach a reusable workflow; the R2 cache
+      # restore needs this set here.
+      CI_CACHE_R2_PUBLIC_URL: ${{ vars.CI_CACHE_R2_PUBLIC_URL }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -43,15 +46,37 @@ jobs:
       - name: Install Rust toolchain
         run: ./scripts/install-rust-ci.sh
 
+      # A cold resolve clones every package in the project and took about 90
+      # seconds of each run. Nightly seeds this key; a miss only means a cold
+      # resolve.
+      - name: Restore Swift packages
+        uses: ./.github/actions/cache-restore
+        with:
+          backend: ${{ vars.CI_CACHE_BACKEND }}
+          path: .spm-cache
+          key: spm-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
+          restore-keys: spm-
+
+      - name: Sanitize Swift package cache
+        run: python3 scripts/ci/sanitize-xcode-source-packages-cache.py .spm-cache
+
       - name: Resolve Swift package dependencies
         run: |
           set -euo pipefail
-          SOURCE_PACKAGES_DIR="$RUNNER_TEMP/cmux-source-packages"
+          SOURCE_PACKAGES_DIR="$PWD/.spm-cache"
           mkdir -p "$SOURCE_PACKAGES_DIR"
-          xcodebuild -project cmux.xcodeproj -scheme cmux-cli \
-            -configuration Debug -derivedDataPath "$RUNNER_TEMP/cmux-cli-resolve" \
-            -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
-            -resolvePackageDependencies
+          resolve() {
+            xcodebuild -project cmux.xcodeproj -scheme cmux-cli \
+              -configuration Debug -derivedDataPath "$RUNNER_TEMP/cmux-cli-resolve" \
+              -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
+              -resolvePackageDependencies
+          }
+          if ! resolve; then
+            echo "Resolve failed with the restored package cache; retrying cold." >&2
+            rm -rf "$SOURCE_PACKAGES_DIR"
+            mkdir -p "$SOURCE_PACKAGES_DIR"
+            resolve
+          fi
 
       - name: Test semantic config validator and Glaeda execution contract
         run: |
@@ -68,7 +93,7 @@ jobs:
           xcodebuild -project cmux.xcodeproj -scheme cmux-cli \
             -configuration Debug -destination 'platform=macOS' \
             -derivedDataPath "$CMUX_CLI_DERIVED" \
-            -clonedSourcePackagesDirPath "$RUNNER_TEMP/cmux-source-packages" \
+            -clonedSourcePackagesDirPath "$PWD/.spm-cache" \
             CODE_SIGNING_ALLOWED=NO build 2>&1 | tee "$RUNNER_TEMP/cli-build.log"
 
       - name: Exercise closed consumers and socket disconnects

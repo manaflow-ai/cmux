@@ -62,12 +62,15 @@ PATH_OWNERS = {
     "scripts/ci/product_input_identity.py": frozenset(("preflight",)),
     "scripts/ci/restore-app-host-test-product.sh": frozenset(("preflight",)),
     "scripts/ci/reuse_app_host_products.py": frozenset(("preflight",)),
+    "scripts/ci/run_python_test_lane.py": frozenset(("preflight",)),
     "scripts/ci/sanitize-xcode-source-packages-cache.py": frozenset(("preflight",)),
     "scripts/ci/swift_incremental_diagnostics.py": frozenset(("preflight",)),
+    "scripts/ci/test_execution_registry.py": frozenset(("preflight",)),
     "skills/cmux-cloud-vm/SKILL.md": frozenset(("preflight",)),
     "skills/cmux-cloud-vm/references/agent-workflows.md": frozenset(("preflight",)),
     "skills/cmux-cloud-vm/references/commands.md": frozenset(("preflight",)),
     "skills/cmux-cloud-vm/references/guest.md": frozenset(("preflight",)),
+    "tests/test-execution.toml": frozenset(("preflight",)),
 }
 
 # Changes here can alter which required work runs. They always exercise every
