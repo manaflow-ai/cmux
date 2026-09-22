@@ -26,7 +26,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        group: [preflight, ci, app-host, release, quality-sharding, quality-runtime, quality-determinism]
+        group: [preflight, ci, app-host-execution, app-host-process, app-host-cache, release, quality-sharding, quality-runtime, quality-determinism]
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     # This job executes scripts from the pull request. It needs only read
     # access for checkout, never workflow, issue, or repository write access.
@@ -46,6 +46,10 @@ jobs:
         if: ${{ matrix.group == 'preflight' }}
         run: python3 tests/test_ci_persistent_mac_compile.py
 
+      - name: Validate Swift incremental diagnostics tooling
+        if: ${{ matrix.group == 'preflight' }}
+        run: python3 tests/test_swift_incremental_diagnostics.py
+
       - name: Validate CMUX workload profile contract
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_workload_profiles.py
@@ -53,6 +57,14 @@ jobs:
       - name: Validate quality guard structure
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_quality_guard_structure.py
+
+      - name: Validate Xcode build metrics receipt
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_build_metrics.py
+
+      - name: Validate app-host guard structure
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_app_host_guard_structure.py
 
       - name: Run canonical CMUX CI guard profile
         if: ${{ matrix.group == 'ci' }}
@@ -222,7 +234,7 @@ jobs:
         run: ./tests/test_app_bundle_license_compliance.sh
 
       - name: Validate unit-test SwiftPM retry guard
-        if: ${{ matrix.group == 'app-host' }}
+        if: ${{ matrix.group == 'app-host-execution' }}
         run: ./tests/test_ci_unit_test_spm_retry.sh
 
       - name: Validate checkout failure network diagnostics
@@ -230,32 +242,33 @@ jobs:
         run: python3 tests/test_ci_checkout_network_diagnostics.py
 
       - name: Validate Swift Testing suite timeout guard
-        if: ${{ matrix.group == 'app-host' }}
+        if: ${{ matrix.group == 'app-host-execution' }}
         run: python3 tests/test_swift_testing_suite_timeout.py
 
       - name: Validate xcodebuild noninteractive crash prompt guard
-        if: ${{ matrix.group == 'app-host' }}
+        if: ${{ matrix.group == 'app-host-execution' }}
         run: python3 tests/test_ci_xcodebuild_noninteractive_helper.py
 
       - name: Validate xcodebuild failure diagnostics
-        if: ${{ matrix.group == 'app-host' }}
+        if: ${{ matrix.group == 'app-host-execution' }}
         run: ./tests/test_ci_xcodebuild_with_diagnostics.sh
 
       - name: Validate pipe-safe CI capture
+        if: ${{ matrix.group == 'app-host-execution' }}
         run: |
           bash tests/test_ci_run_and_capture.sh
           python3 tests/test_ci_app_host_pipe_capture.py
 
       - name: Validate focused test launcher
-        if: ${{ matrix.group == 'app-host' }}
+        if: ${{ matrix.group == 'app-host-execution' }}
         run: python3 tests/test_run_e2e.py
 
       - name: Validate app-host xcodebuild retry guard
-        if: ${{ matrix.group == 'app-host' }}
+        if: ${{ matrix.group == 'app-host-execution' }}
         run: ./tests/test_ci_app_host_xcodebuild_retry.sh
 
       - name: Validate app-host xcodebuild attempt budget
-        if: ${{ matrix.group == 'app-host' }}
+        if: ${{ matrix.group == 'app-host-execution' }}
         run: ./tests/test_ci_app_host_xcodebuild_attempts.sh
 
       - name: Validate notification semantics gates
@@ -263,41 +276,41 @@ jobs:
         run: python3 tests/test_ci_notification_semantics.py
 
       - name: Validate app-host test failure classification
-        if: ${{ matrix.group == 'app-host' }}
+        if: ${{ matrix.group == 'app-host-process' }}
         run: python3 tests/test_ci_app_host_test_output.py
 
       - name: Validate app-host failure census
-        if: ${{ matrix.group == 'app-host' }}
+        if: ${{ matrix.group == 'app-host-process' }}
         run: python3 tests/test_ci_app_host_failure_census.py
 
       - name: Validate app-host user configuration isolation
-        if: ${{ matrix.group == 'app-host' }}
+        if: ${{ matrix.group == 'app-host-process' }}
         run: python3 tests/test_ci_app_host_home_isolation.py
 
       - name: Validate app-host identity and cleanup confirmation
-        if: ${{ matrix.group == 'app-host' }}
+        if: ${{ matrix.group == 'app-host-process' }}
         run: bash tests/test_ci_app_host_identity.sh
 
       - name: Validate app-host process receipts
-        if: ${{ matrix.group == 'app-host' }}
+        if: ${{ matrix.group == 'app-host-process' }}
         run: bash tests/test_ci_app_host_processes.sh
 
       - name: Validate isolated app-host home cleanup
-        if: ${{ matrix.group == 'app-host' }}
+        if: ${{ matrix.group == 'app-host-process' }}
         run: bash tests/test_ci_app_host_home_cleanup.sh
 
       - name: Validate Xcode SourcePackages cache sanitizer
-        if: ${{ matrix.group == 'app-host' }}
+        if: ${{ matrix.group == 'app-host-cache' }}
         run: python3 tests/test_ci_sanitize_xcode_source_packages_cache.py
 
       - name: Validate local build cache preflight
-        if: ${{ matrix.group == 'app-host' }}
+        if: ${{ matrix.group == 'app-host-cache' }}
         run: |
           python3 tests/test_local_build_cache_preflight.py
           python3 tests/test_local_build_cache_policy.py
 
       - name: Validate Xcode compilation cache pruning
-        if: ${{ matrix.group == 'app-host' }}
+        if: ${{ matrix.group == 'app-host-cache' }}
         run: python3 tests/test_ci_prune_xcode_compilation_cache.py
 
       - name: Validate TestFlight notes generator
@@ -321,11 +334,11 @@ jobs:
         run: python3 tests/test_ios_appstore_lane_identity.py
 
       - name: Validate cmux scheme test configuration
-        if: ${{ matrix.group == 'app-host' }}
+        if: ${{ matrix.group == 'app-host-cache' }}
         run: ./tests/test_ci_scheme_testaction_debug.sh
 
       - name: Validate selected iOS test execution guard
-        if: ${{ matrix.group == 'app-host' }}
+        if: ${{ matrix.group == 'app-host-cache' }}
         run: python3 tests/test_ios_selected_test_execution.py
 
       - name: Validate cmuxTests sharding

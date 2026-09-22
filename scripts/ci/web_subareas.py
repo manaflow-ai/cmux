@@ -72,9 +72,25 @@ DB_PREFIXES = (
     "web/openapi/",
     "web/orpc/",
     "web/services/",
-    "web/tests/",
     "web/types/",
 )
+
+DB_TEST_PREFIX = "web/tests/"
+
+
+def test_path_requires_db(path: str, repo_root: Path) -> bool:
+    if not path.startswith(DB_TEST_PREFIX):
+        return False
+    candidate = repo_root / path
+    if not candidate.is_file():
+        # Deleted or unavailable tests are conservative: the old file may have
+        # been one of the DB-behavior cases.
+        return True
+    try:
+        return "CMUX_DB_TEST" in candidate.read_text(encoding="utf-8")
+    except (OSError, UnicodeError):
+        return True
+
 
 INSTANT_EXACT = {
     "web/bun.lock",
@@ -167,7 +183,8 @@ REACT_PREFIXES = (
 )
 
 
-def classify_paths(paths: list[str]) -> WebSubareas:
+def classify_paths(paths: list[str], repo_root: Path | None = None) -> WebSubareas:
+    root = Path.cwd() if repo_root is None else repo_root
     db = False
     diff_sidecar = False
     instant = False
@@ -181,7 +198,7 @@ def classify_paths(paths: list[str]) -> WebSubareas:
             db = diff_sidecar = instant = production_build = react_apps = typecheck = unit_tests = True
             continue
 
-        if path in DB_EXACT or path.startswith(DB_PREFIXES):
+        if path in DB_EXACT or path.startswith(DB_PREFIXES) or test_path_requires_db(path, root):
             db = True
 
         if path in DIFF_SIDECAR_EXACT or path.startswith(DIFF_SIDECAR_PREFIXES):

@@ -88,6 +88,7 @@ build() {
       "COMPILATION_CACHE_CAS_PATH=$cas_path" \
       "COMPILATION_CACHE_LIMIT_SIZE=$cache_limit_bytes" \
       ${module_cache_setting[@]+"${module_cache_setting[@]}"} \
+      -showBuildTimingSummary \
       build-for-testing 2>&1 | tee "$derived_data/$scheme-build.log" | tee -a "$log"
   done
 }

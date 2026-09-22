@@ -103,12 +103,12 @@ class WarmSlotTest(unittest.TestCase):
     def common(self, slot="slot"):
         return ["--machine-state", str(self.state), "--slot", slot, "--checkout", str(self.repo)]
 
-    def warm(self, target, slot="slot", command=None, env=None):
-        return self.call(
-            "warm", *self.common(slot), "--target", target, "--",
-            *(command or native_command()),
-            env=env,
-        )
+    def warm(self, target, slot="slot", command=None, env=None, measure_disk=False):
+        argv = ["warm", *self.common(slot), "--target", target]
+        if measure_disk:
+            argv.append("--measure-disk")
+        argv += ["--", *(command or native_command())]
+        return self.call(*argv, env=env)
 
     def task(
         self,
@@ -118,8 +118,11 @@ class WarmSlotTest(unittest.TestCase):
         command=None,
         lease_id=None,
         warm_generation_id=None,
+        measure_disk=False,
     ):
         argv = ["task-run", *self.common(slot), "--target", target, "--task-id", task_id]
+        if measure_disk:
+            argv.append("--measure-disk")
         if lease_id:
             argv += ["--lease-id", lease_id]
         if warm_generation_id:
@@ -216,6 +219,32 @@ class WarmSlotTest(unittest.TestCase):
 
         planned = self.call("plan", *self.common(), "--target", self.base)
         self.assertEqual(planned["reason"], "slot_needs_rewarm")
+
+    def test_recursive_disk_measurement_is_explicit(self):
+        default_warm = self.warm(self.base, slot="default-disk")
+        self.assertEqual(default_warm["status"], "warmed")
+        for field in ("disk_bytes_before", "disk_bytes_after", "disk_growth_bytes"):
+            self.assertNotIn(field, default_warm["receipt"])
+
+        measured_warm = self.warm(self.base, slot="measured-disk", measure_disk=True)
+        self.assertEqual(measured_warm["status"], "warmed")
+        for field in ("disk_bytes_before", "disk_bytes_after", "disk_growth_bytes"):
+            self.assertIn(field, measured_warm["receipt"])
+
+        default_task = self.task(self.base, slot="default-disk", task_id="default-task")
+        self.assertEqual(default_task["status"], "success")
+        for field in ("disk_bytes_before", "disk_bytes_after", "disk_growth_bytes"):
+            self.assertNotIn(field, default_task["receipt"])
+
+        measured_task = self.task(
+            self.base,
+            slot="measured-disk",
+            task_id="measured-task",
+            measure_disk=True,
+        )
+        self.assertEqual(measured_task["status"], "success")
+        for field in ("disk_bytes_before", "disk_bytes_after", "disk_growth_bytes"):
+            self.assertIn(field, measured_task["receipt"])
 
     def test_reserved_generation_change_forces_cold_task_build(self):
         warmed = self.warm(self.base)

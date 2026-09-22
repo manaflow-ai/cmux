@@ -434,16 +434,48 @@ jobs:
         id: hosted-compile
         if: steps.reuse-products.outputs.hit != 'true' && steps.persistent-restore.outputs.hit != 'true'
         run: |
-          set -euo pipefail
+          set -uo pipefail
           started="$(python3 -c 'import time; print(time.monotonic())')"
           scripts/ci/compile-app-host-test-product.sh build \
             "$CMUX_COMPILE_ADMISSION_DERIVED_DATA" \
             "$PWD/.ci-source-packages" \
             "$CMUX_COMPILE_ADMISSION_CAS" \
             "$RUNNER_TEMP/cmux-compile-admission.txt"
+          status=$?
           finished="$(python3 -c 'import time; print(time.monotonic())')"
           seconds="$(python3 -c 'import sys; print(round(float(sys.argv[2])-float(sys.argv[1]), 6))' "$started" "$finished")"
           echo "seconds=$seconds" >> "$GITHUB_OUTPUT"
+          exit "$status"
+
+      - name: Generate Xcode build metrics receipt
+        id: build-metrics
+        if: always() && !cancelled() && steps.hosted-compile.outcome != 'skipped'
+        continue-on-error: true
+        env:
+          HOSTED_COMPILE_SECONDS: ${{ steps.hosted-compile.outputs.seconds }}
+          HOSTED_COMPILE_OUTCOME: ${{ steps.hosted-compile.outcome }}
+        run: |
+          set -euo pipefail
+          args=(
+            "$CMUX_COMPILE_ADMISSION_DERIVED_DATA"
+            --output "$RUNNER_TEMP/xcode-build-metrics.json"
+            --compile-outcome "$HOSTED_COMPILE_OUTCOME"
+            --summary "$GITHUB_STEP_SUMMARY"
+          )
+          if [ -n "$HOSTED_COMPILE_SECONDS" ]; then
+            args+=(--compile-seconds "$HOSTED_COMPILE_SECONDS")
+          fi
+          python3 scripts/ci/build_metrics.py "${args[@]}"
+
+      - name: Upload Xcode build metrics receipt
+        if: always() && !cancelled() && steps.build-metrics.outcome == 'success'
+        continue-on-error: true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: xcode-build-metrics-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/xcode-build-metrics.json
+          retention-days: 14
+          if-no-files-found: ignore
 
       - name: Validate Swift warning budget
         id: warning-validation
@@ -2178,6 +2210,80 @@ jobs:
           # "Select package tests" diffs against.
           fetch-depth: 2
 
+      - name: Select package tests
+        id: select
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          set -euo pipefail
+          PACKAGES=(
+            CMUXAuthCore
+            CmuxBrowser
+            CmuxCanvasUI
+            CmuxCloudMachines
+            CmuxComputerUse
+            CmuxCore
+            CmuxRemoteDaemon
+            CmuxRemoteWorkspace
+            CmuxRemoteSession
+            CmuxAgentChat
+            CmuxAgentSessionStore
+            CmuxAuthRuntime
+            CmuxIrohTransport
+            CmuxIrxTransport
+            CmuxHive
+            CmuxCommandPalette
+            CmuxControlSocket
+            CmuxFoundation
+            CmuxGit
+            CmuxMobileTerminalKit
+            CmuxMobileWorkspace
+            CmuxNotifications
+            CmuxSettings
+            CmuxSettingsUI
+            CmuxSudoBroker
+            CmuxSudoBrokerUI
+            CmuxTerminal
+            CmuxTerminalCore
+            CmuxUpdater
+            CMUXAgentLaunch
+            CmuxAgentJournal
+            CmuxFilePreviewCore
+            CmuxSyntaxHighlighting
+          )
+
+          changed="$RUNNER_TEMP/changed-files.txt"
+          selected="$RUNNER_TEMP/selected-packages.txt"
+          if { [ "$EVENT_NAME" = "pull_request" ] || [ "$EVENT_NAME" = "merge_group" ]; } \
+            && git diff --no-renames --name-only HEAD^1 HEAD > "$changed" 2>/dev/null; then
+            echo "changed_files=$changed" >> "$GITHUB_OUTPUT"
+            # vendor/bonsplit is a submodule, so a revision bump is the bare path.
+            if grep -qE '^vendor/bonsplit(/|$)' "$changed" || grep -qxF '.github/workflows/ci.yml' "$changed"; then
+              echo "bonsplit=true" >> "$GITHUB_OUTPUT"
+            fi
+            python3 scripts/ci/select_package_tests.py --changed-files "$changed" "${PACKAGES[@]}" > "$selected"
+          else
+            echo "Diff unavailable; running every package."
+            echo "bonsplit=true" >> "$GITHUB_OUTPUT"
+            printf '%s\n' "${PACKAGES[@]}" > "$selected"
+          fi
+
+          count="$(wc -l < "$selected" | tr -d ' ')"
+          echo "selected_packages=$selected" >> "$GITHUB_OUTPUT"
+          echo "selected_count=$count" >> "$GITHUB_OUTPUT"
+
+          if grep -qxE 'CmuxTerminal|CmuxTerminalCore' "$selected"; then
+            echo "needs_ghosttykit=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "needs_ghosttykit=false" >> "$GITHUB_OUTPUT"
+          fi
+          if grep -qxF CmuxCommandPalette "$selected"; then
+            echo "needs_rust=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "needs_rust=false" >> "$GITHUB_OUTPUT"
+          fi
+          echo "Selected $count of ${#PACKAGES[@]} Swift packages."
+
       # Resolve once for the helper producer and Release consumer. Nightly
       # still builds the shipped universal app independently of this policy.
       - name: Resolve Release check architectures
@@ -2269,11 +2375,13 @@ jobs:
           ./scripts/select-ci-xcode.sh
 
       - name: Capture Ghostty revision
+        if: ${{ steps.select.outputs.needs_ghosttykit == 'true' }}
         id: ghostty-revision
         run: |
           echo "sha=$(git -C ghostty rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
       - name: Cache GhosttyKit.xcframework
+        if: ${{ steps.select.outputs.needs_ghosttykit == 'true' }}
         id: cache-ghosttykit-package-tests
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
@@ -2281,6 +2389,7 @@ jobs:
           key: ghosttykit-sentry-off-v1-${{ steps.ghostty-revision.outputs.sha }}
 
       - name: Validate cached GhosttyKit.xcframework
+        if: ${{ steps.select.outputs.needs_ghosttykit == 'true' }}
         id: validate-ghosttykit-package-tests
         shell: bash
         run: |
@@ -2293,39 +2402,14 @@ jobs:
           fi
 
       - name: Download pre-built GhosttyKit.xcframework
-        if: steps.validate-ghosttykit-package-tests.outputs.valid != 'true'
+        if: ${{ steps.select.outputs.needs_ghosttykit == 'true' && steps.validate-ghosttykit-package-tests.outputs.valid != 'true' }}
         run: |
           ./scripts/download-prebuilt-ghosttykit.sh
 
       - name: Install Rust
+        if: ${{ steps.select.outputs.needs_rust == 'true' }}
         run: |
           ./scripts/install-rust-ci.sh
-
-      # A package's tests can change outcome only when it, a package it depends
-      # on by path, or this job changes, so only those run. HEAD is the pull
-      # request's merge commit or the merge group's commit; its first parent is
-      # the base or the queue entry ahead of it, which its own run already
-      # validated. Without that parent, or on a dispatch, everything runs.
-      # --no-renames lists both sides of a move, so a file leaving a package
-      # still selects that package.
-      - name: Select package tests
-        id: select
-        env:
-          EVENT_NAME: ${{ github.event_name }}
-        run: |
-          set -euo pipefail
-          changed="$RUNNER_TEMP/changed-files.txt"
-          if { [ "$EVENT_NAME" = "pull_request" ] || [ "$EVENT_NAME" = "merge_group" ]; } \
-            && git diff --no-renames --name-only HEAD^1 HEAD > "$changed" 2>/dev/null; then
-            echo "changed_files=$changed" >> "$GITHUB_OUTPUT"
-            # vendor/bonsplit is a submodule, so a revision bump is the bare path.
-            if grep -qE '^vendor/bonsplit(/|$)' "$changed" || grep -qxF '.github/workflows/ci.yml' "$changed"; then
-              echo "bonsplit=true" >> "$GITHUB_OUTPUT"
-            fi
-          else
-            echo "Diff unavailable; running every package."
-            echo "bonsplit=true" >> "$GITHUB_OUTPUT"
-          fi
 
       - name: Run Bonsplit package tests
         if: ${{ steps.select.outputs.bonsplit == 'true' }}
@@ -2353,7 +2437,8 @@ jobs:
 
       - name: Run Swift package unit tests
         env:
-          CHANGED_FILES: ${{ steps.select.outputs.changed_files }}
+          SELECTED_PACKAGES: ${{ steps.select.outputs.selected_packages }}
+          SELECTED_COUNT: ${{ steps.select.outputs.selected_count }}
         run: |
           set -euo pipefail
           # The cmux-unit scheme only runs the cmuxTests app-host suite; it does
@@ -2368,41 +2453,9 @@ jobs:
           # xcframework present at the repo root (downloaded earlier in this
           # job), and their test runners link a C stub for the @_silgen_name
           # symbol instead of the GhosttyKit archive.
-          PACKAGES=(
-            CMUXAuthCore
-            CmuxBrowser
-            CmuxCanvasUI
-            CmuxCloudMachines
-            CmuxComputerUse
-            CmuxCore
-            CmuxRemoteDaemon
-            CmuxRemoteWorkspace
-            CmuxRemoteSession
-            CmuxAgentChat
-            CmuxAgentSessionStore
-            CmuxAuthRuntime
-            CmuxIrohTransport
-            CmuxIrxTransport
-            CmuxHive
-            CmuxCommandPalette
-            CmuxControlSocket
-            CmuxFoundation
-            CmuxGit
-            CmuxMobileTerminalKit
-            CmuxMobileWorkspace
-            CmuxNotifications
-            CmuxSettings
-            CmuxSettingsUI
-            CmuxSudoBroker
-            CmuxSudoBrokerUI
-            CmuxTerminal
-            CmuxTerminalCore
-            CmuxUpdater
-            CMUXAgentLaunch
-            CmuxAgentJournal
-            CmuxFilePreviewCore
-            CmuxSyntaxHighlighting
-          )
+          selected="$SELECTED_PACKAGES"
+          test -f "$selected"
+          echo "Testing $SELECTED_COUNT selected Swift packages."
           # SwiftPM emits an error-severity diagnostic while planning the
           # GhosttyKit binaryTarget (the xcframework's static archive is not
           # lib-prefixed: "unexpected binary name"/"unexpected binary
@@ -2413,9 +2466,6 @@ jobs:
           # is present, no test failures are reported, and the only error
           # lines are that known diagnostic. Everything else (compile errors,
           # test failures, crashes) still fails the job.
-          selected="$RUNNER_TEMP/selected-packages.txt"
-          python3 scripts/ci/select_package_tests.py ${CHANGED_FILES:+--changed-files "$CHANGED_FILES"} "${PACKAGES[@]}" > "$selected"
-          echo "Testing $(wc -l < "$selected" | tr -d ' ') of ${#PACKAGES[@]} packages."
           if grep -qxF CmuxCommandPalette "$selected"; then
             # CmuxCommandPalette's nucleo FFI tests load the Rust dylib through
             # CMUX_NUCLEO_FFI_LIB (they skip when it is absent, so build it here
@@ -2423,10 +2473,8 @@ jobs:
             cargo build --manifest-path Native/CommandPaletteNucleoFFI/Cargo.toml --release
             export CMUX_NUCLEO_FFI_LIB="$PWD/Native/CommandPaletteNucleoFFI/target/release/libcmux_command_palette_nucleo_ffi.dylib"
           fi
-          for pkg in "${PACKAGES[@]}"; do
-            if ! grep -qxF "$pkg" "$selected"; then
-              continue
-            fi
+          while IFS= read -r pkg; do
+            [ -n "$pkg" ] || continue
             # Packages live under group folders (Packages/{Shared,iOS,macOS}/);
             # resolve the actual directory so this list stays group-agnostic.
             pkgdir="$(find Packages -mindepth 2 -maxdepth 2 -type d -name "$pkg" -print -quit)"
@@ -2488,7 +2536,7 @@ jobs:
               ;;
             esac
             echo "::endgroup::"
-          done
+          done < "$selected"
 
   tests-build-and-lag:
     permissions:

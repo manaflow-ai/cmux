@@ -1417,7 +1417,7 @@ def test_build_input_fingerprint_tracks_product_identity_not_ci_orchestration() 
     from build_input_fingerprint import fingerprint
     import product_input_identity as product_inputs
 
-    workflow = CI_WORKFLOW.read_text(encoding="utf-8")
+    workflow = MACOS_WORKFLOW.read_text(encoding="utf-8")
     admission = product_inputs._job_block(
         workflow,
         product_inputs.MACOS_ADMISSION_JOB,
@@ -1442,11 +1442,7 @@ def test_build_input_fingerprint_tracks_product_identity_not_ci_orchestration() 
 
     # Changing CI orchestration still exercises CI, but it does not make the
     # already-compiled app-host product stale.
-    orchestration_workflow = workflow.replace(
-        "name: CI\n",
-        "name: CI orchestration-only\n",
-        1,
-    )
+    orchestration_workflow = workflow
     metrics_admission = admission.replace(
         "      - name: Record compiled-product reuse metrics\n",
         "      - name: Record compiled-product reuse metrics\n"
@@ -2098,7 +2094,8 @@ def test_web_subarea_router_keeps_expensive_lanes_narrow() -> None:
         (["Sources/Panels/DiffSidecarBridge.swift"], (False, True, False, False, False, False, False)),
         (["Resources/markdown-viewer/webviews-app/main.mjs"], (False, False, False, False, True, False, False)),
         (["web/public/logo.png"], (False, False, False, True, False, False, True)),
-        (["web/tests/account-route.test.ts"], (True, False, False, False, False, True, True)),
+        (["web/tests/account-route.test.ts"], (False, False, False, False, False, True, True)),
+        (["web/tests/notifications-push-route.test.ts"], (True, False, False, False, False, True, True)),
         (["web/e2e/instant/locale-navigation.instant.ts"], (False, False, True, False, False, True, False)),
         (["web/playwright.instant.config.ts"], (False, False, True, False, False, True, True)),
         (["scripts/ci/web_validation.py"], (False, False, False, False, False, False, False)),
@@ -2258,6 +2255,29 @@ def test_required_macos_topology_collapses_display_and_release_helper_jobs() -> 
     assert "Download Release Ghostty CLI helper" in release_block
     assert "actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131" in release_block
     assert "Install Release helpers" in release_block
+
+
+def test_swift_package_selection_precedes_optional_tool_setup() -> None:
+    block = workflow_job_block("swift-package-tests", MACOS_WORKFLOW)
+
+    select_index = block.index("      - name: Select package tests")
+    ghostty_index = block.index("      - name: Capture Ghostty revision")
+    rust_index = block.index("      - name: Install Rust")
+    unit_index = block.index("      - name: Run Swift package unit tests")
+
+    assert select_index < ghostty_index < unit_index
+    assert select_index < rust_index < unit_index
+    assert "needs_ghosttykit=true" in block
+    assert "needs_rust=true" in block
+    assert "if: ${{ steps.select.outputs.needs_ghosttykit == 'true' }}" in block
+    assert "if: ${{ steps.select.outputs.needs_rust == 'true' }}" in block
+    assert "SELECTED_PACKAGES: ${{ steps.select.outputs.selected_packages }}" in block
+    assert 'done < "$selected"' in block
+    assert block.count("python3 scripts/ci/select_package_tests.py") == 1
+
+    app_host = workflow_job_block("app-host-unit-tests", MACOS_WORKFLOW)
+    assert "steps.select.outputs.needs_ghosttykit" not in app_host
+    assert "steps.select.outputs.needs_rust" not in app_host
 
 
 def test_remote_tmux_layout_identity_uses_a_nontolerant_focused_gate() -> None:
