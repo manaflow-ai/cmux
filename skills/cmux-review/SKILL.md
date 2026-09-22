@@ -123,6 +123,29 @@ Default publication policy:
 
 A vague concern is a hypothesis, not a finding.
 
+### Preserve epistemic provenance
+
+Use the repository-evidence vocabulary already exercised by Cultist:
+
+- `PROVEN` — exact machine fact or guarantee established by direct evidence;
+- `DERIVED` — deterministic conclusion from explicit facts;
+- `OBSERVED` — empirical repository pattern or supplied observation;
+- `INFERRED` — plausible interpretation that still depends on reasoning;
+- `UNKNOWN` — the available evidence cannot establish the answer.
+
+A semantic concern emitted by an LLM starts as `INFERRED`. Do not mutate that claim into `PROVEN` merely because a later test passes. Preserve the original inferred claim and add a separate proven/derived claim describing exactly what the executable evidence establishes.
+
+Likewise, a successful challenge adds counterevidence or a counterclaim; it does not erase the original hypothesis from the receipt. This keeps later evaluation able to distinguish:
+
+```text
+model hypothesis
++ deterministic support
++ counterevidence
++ final disposition
+```
+
+from a single flattened confidence label.
+
 ## 4. Challenge credible findings
 
 For every candidate that survives triage, run an adversarial pass whose job is to prove the claim wrong.
