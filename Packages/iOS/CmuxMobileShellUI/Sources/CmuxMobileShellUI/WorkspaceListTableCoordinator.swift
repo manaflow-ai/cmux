@@ -135,7 +135,10 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
             guard let self, let tableView else { return }
             self.heightCache.removeAll(keepingCapacity: true)
             let viewportAnchor = self.dataSource?.captureViewportAnchor(in: tableView)
-            tableView.reloadData()
+            UIView.performWithoutAnimation {
+                tableView.beginUpdates()
+                tableView.endUpdates()
+            }
             if let viewportAnchor {
                 tableView.layoutIfNeeded()
                 self.dataSource?.restoreViewportAnchor(viewportAnchor, in: tableView)
@@ -326,12 +329,11 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
             // unread, or chip tick while agents stream. Re-configure visible
             // changed cells in place; offscreen rows pick up the new payload
             // from `configuredItemsByID` when they dequeue.
-            for item in changedToApply {
-                guard
-                    let indexPath = dataSource.indexPath(for: item),
-                    let cell = tableView.cellForRow(at: indexPath)
-                else { continue }
-                configure(cell, for: item)
+            let changedIndexPaths = changedToApply.compactMap { dataSource.indexPath(for: $0) }
+            if !changedIndexPaths.isEmpty {
+                UIView.performWithoutAnimation {
+                    tableView.reconfigureRows(at: changedIndexPaths)
+                }
             }
             #if DEBUG
             recordPayloadApplyRoute(.reconfiguredInPlace(changedToApply.map(\.id)))
@@ -343,25 +345,28 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
             let viewportAnchor = dataSource.captureViewportAnchor(in: tableView)
             dataSource.replaceItems(next.items, in: tableView)
             appliedItems = next.items
-            let rowsRequiringReload = changed.filter {
+            let rowsRequiringReconfiguration = changed.filter {
                 changedRowHeightIDs.contains($0.id) || nativeActionReloadIDs.contains($0.id)
             }
-            let changedIndexPaths = rowsRequiringReload.compactMap {
+            let changedIndexPaths = rowsRequiringReconfiguration.compactMap {
                 dataSource.indexPath(for: $0)
             }
             if !changedIndexPaths.isEmpty {
-                tableView.reloadRows(at: changedIndexPaths, with: .none)
+                UIView.performWithoutAnimation {
+                    tableView.reconfigureRows(at: changedIndexPaths)
+                }
             }
             let rowsRequiringInPlaceUpdate = changed.filter {
                 !changedRowHeightIDs.contains($0.id)
                     && !nativeActionReloadIDs.contains($0.id)
             }
-            for item in rowsRequiringInPlaceUpdate {
-                guard
-                    let indexPath = dataSource.indexPath(for: item),
-                    let cell = tableView.cellForRow(at: indexPath)
-                else { continue }
-                configure(cell, for: item)
+            let inPlaceIndexPaths = rowsRequiringInPlaceUpdate.compactMap {
+                dataSource.indexPath(for: $0)
+            }
+            if !inPlaceIndexPaths.isEmpty {
+                UIView.performWithoutAnimation {
+                    tableView.reconfigureRows(at: inPlaceIndexPaths)
+                }
             }
             if let viewportAnchor {
                 tableView.layoutIfNeeded()
@@ -372,11 +377,11 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
             #endif
         } else if !changedRowHeightsStable {
             // A description or changes chip can alter a row's self-sizing
-            // height. Reload only those rows so a live session update never
+            // height. Reconfigure only those rows so a live session update never
             // forces UIKit to remeasure the entire workspace list.
             let changedIndexPaths = changedToApply.compactMap { dataSource.indexPath(for: $0) }
             if !changedIndexPaths.isEmpty {
-                reloadRowsPreservingViewport(changedIndexPaths, in: tableView)
+                reconfigureRowsPreservingViewport(changedIndexPaths, in: tableView)
             }
             #if DEBUG
             recordPayloadApplyRoute(.tableRelayout)
@@ -384,7 +389,7 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
         } else {
             let changedIndexPaths = changedToApply.compactMap { dataSource.indexPath(for: $0) }
             if !changedIndexPaths.isEmpty {
-                reloadRowsPreservingViewport(changedIndexPaths, in: tableView)
+                reconfigureRowsPreservingViewport(changedIndexPaths, in: tableView)
             }
             #if DEBUG
             recordPayloadApplyRoute(.tableReload)
@@ -392,17 +397,17 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
         }
     }
 
-    private func reloadRowsPreservingViewport(
+    private func reconfigureRowsPreservingViewport(
         _ indexPaths: [IndexPath],
         in tableView: UITableView
     ) {
         guard let dataSource else {
-            tableView.reloadRows(at: indexPaths, with: .none)
+            tableView.reconfigureRows(at: indexPaths)
             return
         }
         let viewportAnchor = dataSource.captureViewportAnchor(in: tableView)
         UIView.performWithoutAnimation {
-            tableView.reloadRows(at: indexPaths, with: .none)
+            tableView.reconfigureRows(at: indexPaths)
         }
         guard let viewportAnchor else { return }
         tableView.layoutIfNeeded()
@@ -830,7 +835,9 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
         // controls finish closing. Reloading here refreshes UIKit's cached
         // swipe-derived accessibility actions without replacing the cell
         // during the completion animation.
-        tableView.reloadRows(at: [deferredIndexPath], with: .none)
+        UIView.performWithoutAnimation {
+            tableView.reconfigureRows(at: [deferredIndexPath])
+        }
         #if DEBUG
         recordPayloadApplyRoute(.tableReload)
         #endif
