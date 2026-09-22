@@ -110,7 +110,8 @@ class AgentPRReviewGateTests(unittest.TestCase):
         self.assertIn("issue_comment:", workflow)
         self.assertNotIn("concurrency:", workflow)
         self.assertIn(
-            "if: ${{ github.event_name != 'issue_comment' || startsWith(github.actor, 'greptile-apps') }}",
+            "if: ${{ github.event_name != 'issue_comment' || (github.event.issue.pull_request != null && "
+            "startsWith(github.actor, 'greptile-apps')) }}",
             workflow,
         )
         self.assertNotIn("github.event.comment.user.login", workflow)

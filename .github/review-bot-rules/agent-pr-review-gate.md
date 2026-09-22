@@ -49,8 +49,9 @@ the request state. The opt-in marker controls enforcement, not whether automated
 review is requested.
 
 The workflow listens to `pull_request_review`, `pull_request_review_comment`,
-and PR `issue_comment` updates. Only Greptile-authored issue comments evaluate
-the gate; status-comment edits from other providers are skipped before checkout.
+and PR `issue_comment` updates. Only Greptile-authored comments on pull requests
+evaluate the gate; normal issues and status-comment edits from other providers
+are skipped before checkout.
 
 Every eligible trigger executes the checker from `github.workflow_sha`, the exact trusted
 commit that defines the workflow. Stacked PR base branches supply review data
