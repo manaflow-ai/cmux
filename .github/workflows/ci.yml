@@ -451,8 +451,11 @@ jobs:
   macos:
     needs:
       - changes
-      - linux-preflight
-    if: ${{ !cancelled() && needs.changes.result == 'success' && needs.linux-preflight.result == 'success' && needs.changes.outputs.macos != 'false' }}
+      - static-preflight
+    # macOS admission is independent of the routed Linux suites. Start it
+    # after the cheap static checks so its compile and test shards overlap the
+    # web and guard jobs instead of waiting on their aggregate verdict.
+    if: ${{ !cancelled() && needs.changes.result == 'success' && needs.static-preflight.result == 'success' && needs.changes.outputs.macos != 'false' }}
     permissions:
       actions: read
       contents: read
@@ -531,6 +534,8 @@ jobs:
 
   linux-preflight:
     name: linux-preflight
+    # Retain the Linux verdict in the required final statuses. It no longer
+    # serializes independent macOS work behind the full Linux suite.
     needs:
       - changes
       - static-preflight
@@ -545,7 +550,7 @@ jobs:
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     steps:
-      - name: Check cheap CI layer before macOS runners
+      - name: Check routed Linux results
         env:
           PREFLIGHT_NEEDS: ${{ toJSON(needs) }}
         run: |
