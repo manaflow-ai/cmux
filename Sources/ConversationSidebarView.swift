@@ -19,6 +19,9 @@ struct ConversationSidebarView: View {
     @State private var searchResults: [SessionEntry] = []
     @State private var searchErrors: [String] = []
     @State private var isSearchInFlight = false
+    @State private var searchGeneration: UInt64 = 0
+    @State private var searchDebounceScheduler = MainActorDeferredActionScheduler()
+    @State private var searchTasks = MainActorTaskStore<String>()
     @State private var expandedHistory: [SessionEntry] = []
     @State private var historyErrors: [String] = []
     @State private var isLoadingMoreHistory = false
@@ -29,6 +32,7 @@ struct ConversationSidebarView: View {
     @State private var livePresentationAgentsByDirectory: [String: [String: SessionAgent]] = [:]
 
     private static let pageSize = 24
+    private static let searchDebounceDelay: Duration = .milliseconds(150)
     private let projection = ConversationSidebarProjection()
 
     private enum Destination {
@@ -253,9 +257,6 @@ struct ConversationSidebarView: View {
                 store.reload()
             }
         }
-        .task(id: searchText) {
-            await updateSearchResults(for: searchText)
-        }
         .modifier(ConversationSidebarLiveRefreshModifier(
             store: store,
             revision: $liveSessionRevision,
@@ -265,7 +266,11 @@ struct ConversationSidebarView: View {
             visibleHistoryCount = Self.pageSize
             searchResults = []
             searchErrors = []
-            isSearchInFlight = !newValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            scheduleSearch(newValue)
+        }
+        .onDisappear {
+            cancelSearchWork()
+            isSearchInFlight = false
         }
     }
 
@@ -462,7 +467,10 @@ struct ConversationSidebarView: View {
             && nextLimit < SessionIndexStore.searchMaxFiles
     }
 
-    private func updateSearchResults(for rawQuery: String) async {
+    private func scheduleSearch(_ rawQuery: String) {
+        cancelSearchWork()
+        searchGeneration &+= 1
+        let generation = searchGeneration
         let trimmed = rawQuery.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {
             searchResults = []
@@ -472,16 +480,22 @@ struct ConversationSidebarView: View {
         }
 
         isSearchInFlight = true
-        // `.task(id: searchText)` cancels the previous search. The short
-        // debounce keeps rapid typing from starting one full-disk search per
-        // keystroke while preserving cancellation for the final query.
-        try? await ContinuousClock().sleep(for: .milliseconds(150))
-        guard !Task.isCancelled else { return }
-        let outcome = await store.searchAllSessions(rawQuery: trimmed)
-        guard !Task.isCancelled else { return }
-        searchResults = outcome.entries
-        searchErrors = outcome.errors
-        isSearchInFlight = false
+        searchDebounceScheduler.schedule(after: Self.searchDebounceDelay) {
+            guard searchGeneration == generation else { return }
+            searchTasks.replaceOnMainActor("search") {
+                guard searchGeneration == generation, !Task.isCancelled else { return }
+                let outcome = await store.searchAllSessions(rawQuery: trimmed)
+                guard searchGeneration == generation, !Task.isCancelled else { return }
+                searchResults = outcome.entries
+                searchErrors = outcome.errors
+                isSearchInFlight = false
+            }
+        }
+    }
+
+    private func cancelSearchWork() {
+        searchDebounceScheduler.cancel()
+        searchTasks.cancel("search")
     }
 
     private static func activate(_ row: Row, tabManager: TabManager) {
