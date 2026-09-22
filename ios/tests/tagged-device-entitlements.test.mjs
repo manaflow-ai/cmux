@@ -317,7 +317,22 @@ test("production configurations cannot enter the tagged Debug fallback", () => {
   const retry = reload.indexOf(
     '"CMUX_APP_CODE_SIGN_ENTITLEMENTS=$fallback_entitlements_dir/cmux.entitlements"',
   );
+  const retryCommandStart = reload.indexOf(
+    'run_and_capture "$fallback_build_log" "${build_args[@]}" \\',
+  );
+  const retryCommandEnd = reload.indexOf("build; then", retryCommandStart);
   assert.ok(fullAttempt >= 0, "full-entitlement device build attempt is missing");
   assert.ok(renderer > fullAttempt, "fallback entitlements must be generated only after full signing fails");
   assert.ok(retry > renderer, "no-App-Group override must appear only on the retry");
+  assert.ok(retryCommandStart > renderer, "fallback build command must follow entitlement rendering");
+  assert.ok(retryCommandEnd > retryCommandStart, "fallback build command must terminate in build");
+  const retryCommand = reload.slice(retryCommandStart, retryCommandEnd);
+  assert.match(
+    retryCommand,
+    /CMUX_APP_CODE_SIGN_ENTITLEMENTS=\$fallback_entitlements_dir\/cmux\.entitlements/u,
+  );
+  assert.match(
+    retryCommand,
+    /CMUX_NOTIFICATION_SERVICE_CODE_SIGN_ENTITLEMENTS=\$fallback_entitlements_dir\/NotificationService\.entitlements/u,
+  );
 });
