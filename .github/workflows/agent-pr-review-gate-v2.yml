@@ -23,7 +23,7 @@ concurrency:
   # Keep the head/request lane separate from review state. Unrelated issue
   # comment providers also get their own lane, so their status edits cannot
   # cancel either the Greptile request or a real review-state evaluation.
-  group: agent-pr-review-gate-${{ github.event.pull_request.number || github.event.issue.number }}-${{ github.event_name == 'pull_request_target' && 'head' || github.event_name == 'issue_comment' && !startsWith(github.event.comment.user.login, 'greptile-apps') && github.event.comment.user.login || 'review' }}
+  group: agent-pr-review-gate-v2-${{ github.event.pull_request.number || github.event.issue.number }}-${{ github.event_name == 'pull_request_target' && 'head' || github.event_name == 'issue_comment' && !startsWith(github.event.comment.user.login, 'greptile-apps') && github.event.comment.user.login || 'review' }}
   cancel-in-progress: true
 
 jobs:
