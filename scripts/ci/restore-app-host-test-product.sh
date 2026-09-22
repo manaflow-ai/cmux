@@ -34,6 +34,14 @@ local_hit = os.environ.get("CMUX_NODE_PRODUCT_CACHE_HIT") == "true"
 peer_hit = os.environ.get("CMUX_PEER_PRODUCT_HIT") == "true"
 r2_hit = os.environ.get("CMUX_R2_PRODUCT_HIT") == "true"
 record = {
+    "repository": os.environ["GITHUB_REPOSITORY"],
+    "artifact_id": int(os.environ["ARTIFACT_ID"]),
+    "provider_digest": os.environ["ARTIFACT_PROVIDER_DIGEST"],
+    "archive_sha256": os.environ["EXPECTED_SHA256"],
+    "product_contract": os.environ["CMUX_PRODUCT_CONTRACT"],
+    "source_revision": os.environ["CMUX_PRODUCT_SOURCE_REVISION"],
+    "producer_run_id": int(os.environ["CMUX_PRODUCT_PRODUCER_RUN_ID"]),
+    "producer_run_attempt": int(os.environ["CMUX_PRODUCT_PRODUCER_RUN_ATTEMPT"]),
     "archive_bytes": archive.stat().st_size,
     "elapsed_seconds": round(elapsed, 6),
     "lookup_source": "local" if local_hit else "peer" if peer_hit else "r2" if r2_hit else "github",
