@@ -1052,11 +1052,11 @@ def test_workflow_routes_when_main_moved_past_the_event_base() -> None:
     assert outputs == ["macos=false", "web=true", "agent_session_web=false", "release_build=false"]
 
 
-def test_workflow_empty_diff_runs_all_areas() -> None:
+def test_workflow_empty_diff_skips_product_areas() -> None:
     result, outputs = run_detect_step_for_paths([])
 
-    assert "PR diff is empty; running all CI areas." in result.stdout
-    assert outputs == ["macos=true", "web=true", "agent_session_web=true", "release_build=true"]
+    assert "PR diff is empty; skipping product-area CI." in result.stdout
+    assert outputs == ["macos=false", "web=false", "agent_session_web=false", "release_build=false"]
 
 
 def test_router_changes_run_everything() -> None:
@@ -1251,6 +1251,17 @@ def test_required_tests_status_waits_for_platform_workflows() -> None:
     assert 'macos_route not in {"true", "false"}' in block
     assert 'macos_result != "success"' in block
     assert 'web_result not in {"success", "skipped"}' in block
+
+
+
+def test_web_workflow_pins_every_bun_setup_version() -> None:
+    workflow = WEB_WORKFLOW.read_text(encoding="utf-8")
+    action = "uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6"
+    blocks = workflow.split(action)
+    assert len(blocks) > 1
+    for suffix in blocks[1:]:
+        setup_tail = suffix.split("\n      - name: ", 1)[0]
+        assert '          bun-version: "1.3.14"' in setup_tail
 
 
 def test_web_typecheck_retries_native_tsgo_abort() -> None:
