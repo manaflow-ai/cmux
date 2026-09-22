@@ -481,6 +481,104 @@ class NodeProductCacheTests(unittest.TestCase):
         self.assertEqual(hit["snapshot"]["local_hit_rate"], 0.5)
 
 
+    def test_peer_transfer_uses_one_absolute_deadline_across_reads(self):
+        destination = Path(self.temp.name) / "peer-deadline.tar.gz"
+        clock = {"now": 0.0}
+        timeouts = []
+
+        class FakeSocket:
+            def settimeout(self, value):
+                timeouts.append(value)
+
+        class FakeResponse:
+            status = 200
+
+            def __init__(self):
+                self.chunks = [b"a", b"b"]
+
+            def getheader(self, name, default=None):
+                if name == "Content-Length":
+                    return "2"
+                return default
+
+            def read(self, _size=-1):
+                clock["now"] += 0.6
+                if self.chunks:
+                    return self.chunks.pop(0)
+                return b""
+
+        class FakeConnection:
+            def __init__(self):
+                self.timeout = 1.0
+                self.sock = FakeSocket()
+                self.response = FakeResponse()
+
+            def request(self, *_args, **_kwargs):
+                return None
+
+            def getresponse(self):
+                return self.response
+
+            def close(self):
+                return None
+
+        connection = FakeConnection()
+        with (
+            mock.patch.object(peer.time, "monotonic", side_effect=lambda: clock["now"]),
+            mock.patch.object(
+                peer,
+                "_connection",
+                return_value=(connection, "peer.example"),
+            ),
+        ):
+            with self.assertRaisesRegex(
+                peer.PeerUnavailable,
+                "deadline exceeded",
+            ):
+                peer.transfer_http(
+                    peer.PeerSource("https://peer.example"),
+                    "a" * 64,
+                    "read-token",
+                    destination,
+                    2,
+                    timeout=1.0,
+                )
+
+        self.assertEqual(destination.read_bytes(), b"ab")
+        self.assertGreaterEqual(len(timeouts), 2)
+        self.assertGreater(timeouts[0], timeouts[-1])
+
+    def test_peer_server_bounds_client_time_and_active_requests(self):
+        server = peer.PeerHTTPServer(
+            ("127.0.0.1", 0),
+            peer.PeerRequestHandler,
+            store=self.store,
+            token="read-token",
+            drain_marker=None,
+            client_timeout_seconds=0.25,
+            max_active_requests=1,
+        )
+        self.addCleanup(server.server_close)
+
+        client = peer.socket.create_connection(server.server_address, timeout=1)
+        accepted = None
+        try:
+            accepted, _ = server.get_request()
+            self.assertAlmostEqual(accepted.gettimeout(), 0.25)
+        finally:
+            if accepted is not None:
+                accepted.close()
+            client.close()
+
+        self.assertTrue(server._request_slots.acquire(blocking=False))
+        try:
+            request = mock.Mock()
+            with mock.patch.object(server, "shutdown_request") as shutdown:
+                server.process_request(request, ("127.0.0.1", 1))
+                shutdown.assert_called_once_with(request)
+        finally:
+            server._request_slots.release()
+
     def test_peer_probe_and_fetch_use_only_exact_object_identity(self):
         self.publish()
         offer = peer.local_availability(self.store, self.identity.key())
@@ -646,10 +744,33 @@ class NodeProductCacheTests(unittest.TestCase):
                 self.store, self.identity, waiter_destinations[index], wait=3
             )
 
+        registrations = 0
+        registration_lock = threading.Lock()
+        all_registered = threading.Event()
+        register_waiter = cache._register_waiter_locked
+
+        def tracked_register(*args, **kwargs):
+            nonlocal registrations
+            result = register_waiter(*args, **kwargs)
+            if result is not None:
+                with registration_lock:
+                    registrations += 1
+                    if registrations == len(waiter_destinations):
+                        all_registered.set()
+            return result
+
         threads = [threading.Thread(target=waiter, args=(index,)) for index in range(6)]
-        for thread in threads:
-            thread.start()
-        time.sleep(0.1)
+        with mock.patch.object(
+            cache,
+            "_register_waiter_locked",
+            side_effect=tracked_register,
+        ):
+            for thread in threads:
+                thread.start()
+            self.assertTrue(
+                all_registered.wait(3),
+                "all waiter registrations must exist before peer publication",
+            )
 
         peer_store = cache.Store(Path(self.temp.name) / "peer-source-store")
         token = cache.acquire(
