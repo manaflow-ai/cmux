@@ -4,7 +4,6 @@ import {
   type ResizeVmOptions,
   type TunnelData,
   type VmData,
-  type VmResources,
   type Vm,
   type VpcData,
   type SnapshotData,
@@ -42,7 +41,6 @@ import {
   type VMResourceStatsResult,
   type VMStatus,
 } from "./types";
-import { vcpusForMemoryMb, vmDiskMb } from "../machineSpec";
 import {
   DEVBOX_DESKTOP_NOVNC_PORT,
   DEVBOX_DESKTOP_START_SCRIPT,
@@ -54,13 +52,6 @@ import { parseSshPublicKey, scpPrepareCommand, SCP_KEY_TTL_SECONDS } from "./scp
 import {
   CMUX_TUI_PORT,
   CMUX_TUI_SESSION,
-  CMUX_TUI_TRUSTED_CARRIER_ENV,
-  cmuxTuiDaemonCommand,
-  cmuxTuiLayoutSelector,
-  cmuxTuiPinCheckCommand,
-  resolveCmuxTuiSource,
-  shellQuote,
-  type CmuxTuiSource,
 } from "./cmuxTuiDaemon";
 
 // The Freestyle driver, on the public platform (api.freestyle.sh /v5, SDK
@@ -88,9 +79,9 @@ import {
 // The daemon's Noise handshake encrypts and authenticates the session end to
 // end either way (carrier TLS is not required and the route token only feeds
 // the lease ledger). The daemon must bind dual-stack: the baked systemd unit
-// sets CMUX_TUI_REMOTE_WS_BIND=[::]:1337 and the driver re-asserts it on heal —
-// which is also what makes a VPC address reachable, since it is neither
-// loopback nor the public NIC.
+// sets CMUX_TUI_REMOTE_WS_BIND=[::]:1337, which is also what makes a VPC
+// address reachable, since it is neither loopback nor the public NIC. The
+// driver never re-asserts it; a wrong bind is an image bug, fixed by a rebake.
 //
 // Creates take NO ports field, NO create-time env, and NO systemd injection;
 // `firewall` is mandatory. The model-plane env is baked into the snapshot at
@@ -104,6 +95,26 @@ import {
 // identity as soon as the machine resumes, keyed on the platform instance id.
 // Create and trusted-carrier attach therefore use provider metadata and the
 // immutable image contract, with no guest exec or filesystem upload.
+//
+// NO-WORK INVARIANT (read before adding a provider call to create, restore,
+// resume, or openCmuxRemote). These paths are on the user's New Machine
+// critical path, and every provider round trip here is paid on every create:
+//   - create: one `vms.create` with VPC and TLS rules inline. No resize (each
+//     size has its own snapshot), no `vm.exec`, no `vm.fs` write, no
+//     readiness poll, no second provider read.
+//   - restore/resume: no guest exec; the baked supervisor owns the daemon.
+//   - openCmuxRemote: built from the row's providerMetadata alone. No guest
+//     exec, no install, no "heal", no enrollment round trip.
+// If the guest needs a new binary, file, hook, package, or setting, bake it
+// into the devbox snapshot (web/scripts/build-devbox-freestyle.ts, the boot
+// supervisor in services/vms/images/devbox/cmux-devbox-boot) and bump
+// images/manifest.json. If it needs per-machine identity, derive it in the
+// guest at boot from the platform instance id, or fetch it asynchronously
+// from the guest (cmux-prompt-sync) without gating terminal access. Old
+// images without `cmuxTuiContract: "snapshot-v2"` are refused on purpose;
+// do not reintroduce create- or attach-time healing to support them.
+// Explicit user operations (`exec`, `resize`, file push/pull) are separate
+// and stay.
 //
 // The coderouter model plane is edge-injected: the create carries an inline
 // `tls` rule for the coderouter host whose transform overwrites `authorization`
@@ -157,12 +168,12 @@ const ROUTE_TOKEN_TTL_SECONDS = 12 * 60 * 60;
 const EDGE_DOMAIN = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/i;
 
 /**
- * The seams tests replace: the SDK client and the cmux-tui manifest read.
- * Production uses the env-configured client and the live manifest.
+ * The seam tests replace: the SDK client. There is deliberately no daemon
+ * manifest resolver here; the driver never installs or repairs cmux-tui (the
+ * snapshot owns it, see NO-WORK INVARIANT above).
  */
 export type FreestyleProviderDependencies = {
   readonly client: (timeoutMs?: number) => Freestyle;
-  readonly resolveDaemonSource: typeof resolveCmuxTuiSource;
 };
 
 /**
@@ -507,96 +518,6 @@ export function mapFreestyleState(state: VmData["state"] | null | undefined): VM
   }
 }
 
-/**
- * Healthy = the daemon process is up AND something listens on 1337 in the v6
- * table (a dual-stack `[::]` bind; 0x0539 = 1337). A daemon bound 0.0.0.0 only
- * appears in /proc/net/tcp, is unreachable at the public IPv6, and must be
- * restarted under the dual-stack override.
- */
-/**
- * Is the installed binary the machine's pinned build? A baked image records
- * the pin it was built with in /etc/cmux/cmux-tui-pin (`<sha256> <commit>`),
- * and that is the version contract for every machine from that snapshot: the
- * heal reinstalls only a missing or corrupt binary, never one the live
- * files.cmux.com manifest has since moved past (a new pin ships by rebake).
- * Images without the file were installed from the live pin at create, so the
- * live pin stays their reference.
- */
-export function freestylePinCheckCommand(source: CmuxTuiSource): string {
-  return (
-    "if [ -s /etc/cmux/cmux-tui-pin ]; then " +
-    `${cmuxTuiLayoutSelector()} && ` +
-    `test -x "$CMUX_TUI_BIN" && printf '%s  %s\\n' "$(cut -d' ' -f1 /etc/cmux/cmux-tui-pin)" "$CMUX_TUI_BIN" | sha256sum -c >/dev/null 2>&1; ` +
-    `else ${cmuxTuiPinCheckCommand(source)}; fi`
-  );
-}
-
-/** How long the heal lets a baked supervisor bring the daemon up before restarting it. */
-const DAEMON_SETTLE_TIMEOUT_MS = 3_000;
-
-/**
- * Healthy now, or healthy within the settle budget on an image whose
- * supervisor binds the daemon to the instance id (it ships
- * /etc/cmux/bake-instance-id) and is active. A machine attached right after
- * create is inside the sub-second window before that supervisor has started
- * the daemon; restarting the unit there costs a second and a half, waiting
- * costs a few hundred milliseconds. Older images take the immediate check.
- */
-export function freestyleDaemonSettledCommand(): string {
-  const healthy = freestyleDaemonHealthyCommand();
-  const ticks = Math.floor(DAEMON_SETTLE_TIMEOUT_MS / 100);
-  return (
-    "if [ -f /etc/cmux/bake-instance-id ] && systemctl is-active cmux-tui-daemon >/dev/null 2>&1; then " +
-    `for i in $(seq 1 ${ticks}); do { ${healthy}; } && exit 0; sleep 0.1; done; exit 1; ` +
-    `else ${healthy}; fi`
-  );
-}
-
-export function freestyleDaemonHealthyCommand(): string {
-  // [s]tart: pgrep -f would otherwise match the exec shell carrying this command line.
-  // On an image whose supervisor binds the daemon identity to the instance id
-  // (it ships /etc/cmux/bake-instance-id), the daemon is healthy only when the
-  // bound id is this machine's: a clone of a live machine briefly runs the
-  // source machine's daemon until the supervisor re-keys it, and an
-  // invitation minted from that daemon would name the wrong fingerprint.
-  return (
-    "pgrep -f 'cmux-tui server [s]tart' >/dev/null 2>&1 && grep -qi ':0539 ' /proc/net/tcp6" +
-    " && { [ ! -f /etc/cmux/bake-instance-id ] || [ \"$(cat /etc/cmux/daemon-instance-id 2>/dev/null)\" = \"$(" +
-    "curl -sf -m 2 -H \"X-aws-ec2-metadata-token: $(curl -sf -m 2 -X PUT http://169.254.169.254/latest/api/token -H 'X-metadata-token-ttl-seconds: 60')\" http://169.254.169.254/latest/meta-data/instance-id" +
-    ")\" ]; }"
-  );
-}
-
-const REMOTE_WS_BIND_OVERRIDE =
-  "/etc/systemd/system/cmux-tui-daemon.service.d/10-cmux-remote-ws-bind.conf";
-
-/**
- * (Re)start the daemon listening dual-stack. Under systemd (the baked
- * cmux-tui-daemon unit), install a drop-in setting
- * CMUX_TUI_REMOTE_WS_BIND=[::]:1337 — the env cmux-devbox-boot reads — then
- * restart the unit, healing machines from bakes that predate the env default.
- * Without systemd (or the unit), fall back to a direct daemon launch with the
- * dual-stack bind.
- */
-export function freestyleStartDaemonCommand(options?: { replaceExisting?: boolean }): string {
-  const replace = options?.replaceExisting === true;
-  // shellQuote, not a bare '…': the daemon command carries single quotes of
-  // its own (the layout breadcrumb's printf), which would end the string early.
-  const fallbackLaunch = `(setsid nohup sh -c ${shellQuote(cmuxTuiDaemonCommand(FREESTYLE_REMOTE_WS_BIND))} >>/tmp/cmux-tui-daemon.log 2>&1 &)`;
-  return [
-    "if [ -d /run/systemd/system ] && [ -f /etc/systemd/system/cmux-tui-daemon.service ]; then",
-    `mkdir -p ${REMOTE_WS_BIND_OVERRIDE.replace(/\/[^/]+$/, "")};`,
-    `printf '[Service]\\nEnvironment=CMUX_TUI_REMOTE_WS_BIND=${FREESTYLE_REMOTE_WS_BIND}\\nEnvironment=${CMUX_TUI_TRUSTED_CARRIER_ENV}=1\\n' > ${REMOTE_WS_BIND_OVERRIDE};`,
-    "systemctl daemon-reload;",
-    "systemctl restart cmux-tui-daemon;",
-    "else",
-    replace
-      ? `pkill -f 'cmux-tui server [s]tart' >/dev/null 2>&1; sleep 1; ${fallbackLaunch};`
-      : `pgrep -f 'cmux-tui server [s]tart' >/dev/null 2>&1 || ${fallbackLaunch};`,
-    "fi",
-  ].join(" ");
-}
-
 function isNotFound(err: unknown): boolean {
   return err instanceof FreestyleApiError && (err.status === 404 || err.code === "NOT_FOUND");
 }
@@ -894,7 +815,6 @@ export class FreestyleProvider implements VMProvider {
   constructor(
     private readonly deps: FreestyleProviderDependencies = {
       client: freestyleClient,
-      resolveDaemonSource: resolveCmuxTuiSource,
     },
   ) {
     this.privateNetworking = new FreestylePrivateNetworking(this.deps.client);
@@ -1128,8 +1048,9 @@ export class FreestyleProvider implements VMProvider {
           const status = mapFreestyleState(data.state);
           setSpanAttributes(span, { "cmux.vm.provider_state": data.state, "cmux.vm.status": status });
           // A memory-preserving pause keeps the daemon; a cold boot (the VM had
-          // stopped) relies on the baked systemd unit. Heal best-effort so the
-          // first attach doesn't race the unit; attach re-verifies anyway.
+          // stopped) relies on the baked systemd unit. Resume does no guest
+          // work (see NO-WORK INVARIANT at the top of this file). The client's
+          // link retry covers the short window before the unit is listening.
           return {
             provider: "freestyle" as const,
             providerVmId: data.id,
@@ -1366,6 +1287,8 @@ export class FreestyleProvider implements VMProvider {
       spanAttributes(vmId, "open_cmux_remote"),
       async (span) => {
         try {
+          // Attach is pure metadata: no provider read and no guest exec. See
+          // NO-WORK INVARIANT at the top of this file before adding either.
           const persisted = freestyleRouteAddressesFromMetadata(options?.providerMetadata);
           if (options?.providerMetadata?.cmuxTuiContract !== "snapshot-v2" || !persisted) {
             throw new ProviderError("freestyle", `VM ${vmId} does not carry the snapshot-v2 trusted-carrier contract`);
@@ -1505,30 +1428,3 @@ export class FreestyleProvider implements VMProvider {
 
 }
 
-/** The resources a machine of `memoryMb` is sold with (see entitlements.ts). */
-export function freestyleTargetResources(
-  memoryMb: number,
-  env: Record<string, string | undefined> = process.env,
-): VmResources {
-  return {
-    cpu: vcpusForMemoryMb(memoryMb),
-    memory: memoryMb,
-    storage: vmDiskMb(env),
-  };
-}
-
-/**
- * The grow-only resize that takes `current` to `target`, or null when nothing
- * needs to grow. Shrinks are never requested: Freestyle rejects them, and a
- * snapshot restored at a larger size keeps what it had.
- */
-export function freestyleResizeRequest(
-  current: VmResources,
-  target: VmResources,
-): ResizeVmOptions | null {
-  const request: ResizeVmOptions = {};
-  if (target.cpu > current.cpu) request.cpu = target.cpu;
-  if (target.memory > current.memory) request.memory = target.memory;
-  if (target.storage > current.storage) request.storage = target.storage;
-  return Object.keys(request).length > 0 ? request : null;
-}

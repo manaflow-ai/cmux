@@ -25,7 +25,6 @@ function fixture() {
   } as unknown as Freestyle;
   const provider = new FreestyleProvider({
     client: () => client,
-    resolveDaemonSource: async () => { throw new Error("snapshot-v2 must not resolve a guest artifact"); },
   });
   return { provider, commands, writes };
 }

@@ -10,21 +10,15 @@ import {
   freestyleCmuxRemoteRoute,
   freestyleNetworkAddressMetadata,
   freestyleRouteAddressesFromMetadata,
-  freestyleDaemonHealthyCommand,
   freestyleDesktopHealCommand,
   freestyleEdgeRules,
   freestyleFirewallRules,
   freestylePortAddress,
   freestylePortUrls,
-  freestyleResizeRequest,
-  freestyleStartDaemonCommand,
-  freestyleTargetResources,
   mapFreestyleState,
   normalizeFreestyleExecTimeout,
-  freestylePinCheckCommand,
 } from "../services/vms/drivers/freestyle";
 import type { VMProvider } from "../services/vms/drivers/types";
-import { cmuxTuiPinCheckCommand } from "../services/vms/drivers/cmuxTuiDaemon";
 import { ProviderError, type VmEdgeRule } from "../services/vms/drivers/types";
 import { DEVBOX_DESKTOP_NOVNC_PORT } from "../services/vms/images/desktop";
 
@@ -84,12 +78,6 @@ function fakeFreestyle(input: { readonly probeExit: number; readonly guestCliExi
 function providerWith(fake: { readonly client: Freestyle }): FreestyleProvider {
   return new FreestyleProvider({
     client: () => fake.client,
-    resolveDaemonSource: async () => ({
-      url: "https://files.cmux.com/cmux-tui/abc/cmux-tui-linux-x64",
-      sha256: "0".repeat(64),
-      commit: "abc",
-      builtAt: null, hookUrl: "https://files.cmux.com/cmux-tui/test/cmux-tui-hook-x86_64-unknown-linux-musl", hookSha256: "1".repeat(64),
-    }),
   });
 }
 
@@ -262,27 +250,6 @@ describe("Freestyle platform contract", () => {
     expect(() => freestyleCmuxRemoteRoute({ publicIpv6: "  " }, VM_ID)).toThrow("public IPv6");
   });
 
-  test("daemon health requires a v6-table listener; start installs the dual-stack override", () => {
-    // 0x0539 = 1337; a 0.0.0.0-bound daemon appears only in /proc/net/tcp and
-    // is unreachable at the public IPv6, so it must be restarted.
-    expect(freestyleDaemonHealthyCommand()).toContain("/proc/net/tcp6");
-    expect(freestyleDaemonHealthyCommand()).toContain(":0539 ");
-    const start = freestyleStartDaemonCommand();
-    expect(start).toContain("Environment=CMUX_TUI_REMOTE_WS_BIND=[::]:1337");
-    expect(start).toContain("Environment=CMUX_TUI_REMOTE_WS_TRUSTED_CARRIER=1");
-    expect(start).toContain("systemctl restart cmux-tui-daemon");
-    expect(start).toContain("--remote-ws [::]:1337"); // non-systemd fallback
-    expect(start).toContain("--remote-ws-trusted-carrier");
-  });
-
-  test("pin check trusts the pin recorded at bake time, falling back to the live pin on older images", () => {
-    const source = { url: "https://files.cmux.com/x", sha256: "f".repeat(64), commit: "abc", builtAt: null, hookUrl: "https://files.cmux.com/cmux-tui/test/cmux-tui-hook-x86_64-unknown-linux-musl", hookSha256: "1".repeat(64) };
-    const check = freestylePinCheckCommand(source);
-    expect(check).toContain("if [ -s /etc/cmux/cmux-tui-pin ]; then");
-    expect(check).toContain("cut -d' ' -f1 /etc/cmux/cmux-tui-pin");
-    expect(check).toContain(`else ${cmuxTuiPinCheckCommand(source)}; fi`);
-  });
-
   test("edge rules map to inline egress tls rules with header transforms", () => {
     expect(freestyleEdgeRules([EDGE_RULE])).toEqual([
       {
@@ -386,12 +353,6 @@ describe("Freestyle platform contract", () => {
     } as unknown as Freestyle;
     const provider = new FreestyleProvider({
       client: () => client,
-      resolveDaemonSource: async () => ({
-        url: "https://files.cmux.com/cmux-tui/abc/cmux-tui-linux-x64",
-        sha256: "0".repeat(64),
-        commit: "abc",
-        builtAt: null, hookUrl: "https://files.cmux.com/cmux-tui/test/cmux-tui-hook-x86_64-unknown-linux-musl", hookSha256: "1".repeat(64),
-      }),
     });
 
     const recovered = await provider.privateNetworking!.createTunnel({
@@ -587,12 +548,6 @@ describe("FreestyleProvider resume policy", () => {
     const client = { vms: { ref: () => vm } } as unknown as Freestyle;
     const provider = new FreestyleProvider({
       client: () => client,
-      resolveDaemonSource: async () => ({
-        url: "https://files.cmux.com/cmux-tui/abc/cmux-tui-linux-x64",
-        sha256: "0".repeat(64),
-        commit: "abc",
-        builtAt: null, hookUrl: "https://files.cmux.com/cmux-tui/test/cmux-tui-hook-x86_64-unknown-linux-musl", hookSha256: "1".repeat(64),
-      }),
     });
 
     const handle = await provider.resume(VM_ID);
@@ -653,44 +608,6 @@ describe("Freestyle client configuration", () => {
   });
 });
 
-describe("Freestyle machine sizing", () => {
-  test("the plan machine is 5 vCPU / 20 GB / 32 GB, vCPUs following memory", () => {
-    expect(freestyleTargetResources(20480, {})).toEqual({ cpu: 5, memory: 20480, storage: 32768 });
-    expect(freestyleTargetResources(8192, {})).toEqual({ cpu: 2, memory: 8192, storage: 32768 });
-    expect(freestyleTargetResources(4096, { CMUX_VM_DISK_MB: "65536" })).toEqual({
-      cpu: 1,
-      memory: 4096,
-      storage: 65536,
-    });
-  });
-
-  test("resize grows the devbox snapshot size to the plan machine", () => {
-    // Every VM boots at its snapshot's resources; the devbox snapshot is
-    // 2 vCPU / 4 GB / 16 GB, so a fresh create must grow all three.
-    expect(freestyleResizeRequest(
-      { cpu: 2, memory: 4096, storage: 16384 },
-      { cpu: 5, memory: 20480, storage: 32768 },
-    )).toEqual({ cpu: 5, memory: 20480, storage: 32768 });
-  });
-
-  test("resize is grow-only and sends only the dimensions that grow", () => {
-    // A snapshot taken from an already-sized machine restores at that size:
-    // nothing to do. A snapshot larger than the request is never shrunk.
-    expect(freestyleResizeRequest(
-      { cpu: 5, memory: 20480, storage: 204800 },
-      { cpu: 5, memory: 20480, storage: 204800 },
-    )).toBeNull();
-    expect(freestyleResizeRequest(
-      { cpu: 8, memory: 32768, storage: 262144 },
-      { cpu: 5, memory: 20480, storage: 204800 },
-    )).toBeNull();
-    expect(freestyleResizeRequest(
-      { cpu: 5, memory: 20480, storage: 16384 },
-      { cpu: 5, memory: 20480, storage: 204800 },
-    )).toEqual({ storage: 204800 });
-  });
-});
-
 // The desktop and forwarded ports travel the daemon's private path: the URL
 // is the machine's VPC address over the owner's tunnel, nothing is minted at
 // the platform and nothing public is opened. noVNC on 6901 has no auth of
@@ -702,7 +619,7 @@ describe("Freestyle openCmuxRemote: snapshot-v2 fast path", () => {
       exec: async ({ command }: { command: string }) => { commands.push(command); return { statusCode: 0, stdout: "", stderr: "" }; },
     };
     const client = { vms: { ref: () => vm } } as unknown as Freestyle;
-    const provider = new FreestyleProvider({ client: () => client, resolveDaemonSource: async () => { throw new Error("unused"); } });
+    const provider = new FreestyleProvider({ client: () => client });
     const endpoint = await provider.openCmuxRemote(VM_ID, {
       providerMetadata: { cmuxTuiContract: "snapshot-v2", networkIpv4: "10.4.0.7", networkIpv6: "fd00:4::7" },
     });
@@ -726,7 +643,7 @@ describe("Freestyle port open: the private address, the desktop healed", () => {
       },
     };
     const client = { vms: { ref: () => vm } } as unknown as Freestyle;
-    return { provider: new FreestyleProvider({ client: () => client, resolveDaemonSource: async () => { throw new Error("unused"); } }), execs };
+    return { provider: new FreestyleProvider({ client: () => client }), execs };
   }
 
   test("address: private v4, then private v6, never public (the desktop has no auth of its own)", () => {
@@ -802,7 +719,7 @@ describe("Go provider runtime ceiling", () => {
   test("a resume adds only the remaining billing-period allowance to prior provider runtime", async () => {
     const updates: unknown[] = [];
     const client = { vms: { ref: () => ({ data: async () => ({ totalRunSeconds: 3600 }), update: async (value: unknown) => { updates.push(value); } }) } } as unknown as Freestyle;
-    const provider = new FreestyleProvider({ client: () => client, resolveDaemonSource: async () => { throw new Error("unused"); } });
+    const provider = new FreestyleProvider({ client: () => client });
     await provider.setRuntimeBudget(VM_ID, 1800);
     await provider.setRuntimeBudget(VM_ID, 0);
     await provider.setRuntimeBudget(VM_ID, null);
@@ -815,7 +732,7 @@ describe("Go provider runtime ceiling", () => {
   test("missing provider runtime fails closed", async () => {
     let updated = false;
     const client = { vms: { ref: () => ({ data: async () => ({}), update: async () => { updated = true; } }) } } as unknown as Freestyle;
-    const provider = new FreestyleProvider({ client: () => client, resolveDaemonSource: async () => { throw new Error("unused"); } });
+    const provider = new FreestyleProvider({ client: () => client });
     await expect(provider.setRuntimeBudget(VM_ID, 1800)).rejects.toThrow("setRuntimeBudget");
     expect(updated).toBe(false);
   });

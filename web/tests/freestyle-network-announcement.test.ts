@@ -75,7 +75,6 @@ describe("Freestyle private network readiness", () => {
     } } as unknown as Freestyle;
     const provider = new FreestyleProvider({
       client: () => client,
-      resolveDaemonSource: async () => { throw new Error("No daemon install is needed"); },
     });
 
     const allocation = operation === "create"
@@ -114,7 +113,6 @@ describe("Freestyle private network readiness", () => {
     } } as unknown as Freestyle;
     const provider = new FreestyleProvider({
       client: () => client,
-      resolveDaemonSource: async () => { throw new Error("No daemon install is needed"); },
     });
 
     const handle = await provider.create({ image: "sh-fixture", network: { id: "vpc-fixture" } });
