@@ -150,6 +150,10 @@ jobs:
           print("CMUX_CANARY_TRANSFER=" + json.dumps(payload, sort_keys=True))
           PY
 
+      - name: Preserve seed build log
+        if: always()
+        run: cp "$RUNNER_TEMP/cmux-derived-data-compile-admission/cmux-build.log" "$RUNNER_TEMP/seed-cmux-build.log" 2>/dev/null || true
+
       - name: Record seed row
         env:
           SPM_CACHE_HIT: ${{ steps.spm-cache.outputs.cache-hit }}
@@ -186,6 +190,7 @@ jobs:
             ${{ runner.temp }}/worktree-upload.json
             ${{ runner.temp }}/dd-upload.json
             ${{ runner.temp }}/seed-row.json
+            ${{ runner.temp }}/seed-cmux-build.log
           retention-days: 1
 
   benchmark:
@@ -387,6 +392,10 @@ jobs:
             --dd-metrics "$RUNNER_TEMP/dd-restore.json" \
             --metrics "$RUNNER_TEMP/build.json"
 
+      - name: Preserve benchmark build log
+        if: always()
+        run: cp "$CMUX_CANARY_DERIVED/cmux-build.log" "$RUNNER_TEMP/cmux-build.log" 2>/dev/null || true
+
       - name: Record benchmark row
         if: always()
         env:
@@ -432,6 +441,7 @@ jobs:
             ${{ runner.temp }}/worktree-download.json
             ${{ runner.temp }}/dd-download.json
             ${{ runner.temp }}/row.json
+            ${{ runner.temp }}/cmux-build.log
           if-no-files-found: ignore
           retention-days: 1
 
