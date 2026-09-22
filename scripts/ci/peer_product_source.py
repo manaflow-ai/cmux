@@ -255,6 +255,17 @@ def _arm_connection_deadline(
         connection.sock.settimeout(remaining)
 
 
+def _read_response_once(
+    connection: http.client.HTTPSConnection,
+    response: http.client.HTTPResponse,
+    deadline: float,
+    size: int,
+) -> bytes:
+    """Read with a fresh remaining timeout for at most one buffered raw receive."""
+    _arm_connection_deadline(connection, deadline)
+    return response.read1(size)
+
+
 def probe_http(
     source: PeerSource,
     object_key: str,
@@ -280,8 +291,7 @@ def probe_http(
         _arm_connection_deadline(connection, deadline)
         response = connection.getresponse()
         while True:
-            _arm_connection_deadline(connection, deadline)
-            if not response.read(64 * 1024):
+            if not _read_response_once(connection, response, deadline, 64 * 1024):
                 break
         if response.status == 404:
             return None
@@ -331,8 +341,7 @@ def transfer_http(
         response = connection.getresponse()
         if response.status != 200:
             while True:
-                _arm_connection_deadline(connection, deadline)
-                if not response.read(64 * 1024):
+                if not _read_response_once(connection, response, deadline, 64 * 1024):
                     break
             raise PeerUnavailable(f"peer fetch returned HTTP {response.status}")
         try:
@@ -343,8 +352,12 @@ def transfer_http(
             raise PeerUnavailable("peer fetch size changed after probe")
         with target.open("xb") as output:
             while True:
-                _arm_connection_deadline(connection, deadline)
-                chunk = response.read(min(1024 * 1024, size - copied + 1))
+                chunk = _read_response_once(
+                    connection,
+                    response,
+                    deadline,
+                    min(1024 * 1024, size - copied + 1),
+                )
                 if not chunk:
                     break
                 copied += len(chunk)
