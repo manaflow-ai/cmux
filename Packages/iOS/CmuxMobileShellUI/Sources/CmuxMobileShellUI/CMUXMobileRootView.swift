@@ -394,8 +394,8 @@ struct CMUXMobileRootView: View {
                         pushCoordinator.retryPendingDeeplink()
                     },
                     secondaryButton: .cancel(Text(L10n.string(
-                        "mobile.push.connectionUnavailable.keepWaiting",
-                        defaultValue: "Keep waiting"
+                        "mobile.push.connectionUnavailable.cancel",
+                        defaultValue: "Cancel"
                     ))) {
                         pushCoordinator.dismissTabUnavailableAlert()
                     }

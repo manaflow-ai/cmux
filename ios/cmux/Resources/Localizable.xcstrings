@@ -86315,18 +86315,18 @@
         "ko": {"stringUnit": {"state": "translated", "value": "다시 시도"}}
       }
     },
-    "mobile.push.connectionUnavailable.keepWaiting": {
+    "mobile.push.connectionUnavailable.cancel": {
       "extractionState": "manual",
       "localizations": {
-        "en": {"stringUnit": {"state": "translated", "value": "Keep waiting"}},
-        "ja": {"stringUnit": {"state": "translated", "value": "待機を続ける"}},
-        "de": {"stringUnit": {"state": "translated", "value": "Weiter warten"}},
-        "fr": {"stringUnit": {"state": "translated", "value": "Continuer à attendre"}},
-        "ar": {"stringUnit": {"state": "translated", "value": "متابعة الانتظار"}},
-        "es": {"stringUnit": {"state": "translated", "value": "Seguir esperando"}},
-        "zh-Hant": {"stringUnit": {"state": "translated", "value": "繼續等待"}},
-        "zh-Hans": {"stringUnit": {"state": "translated", "value": "继续等待"}},
-        "ko": {"stringUnit": {"state": "translated", "value": "계속 기다리기"}}
+        "en": {"stringUnit": {"state": "translated", "value": "Cancel"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "キャンセル"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Abbrechen"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Annuler"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "إلغاء"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Cancelar"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "取消"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "取消"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "취소"}}
       }
     },
     "mobile.push.preview.ready": {

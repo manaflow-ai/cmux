@@ -1068,6 +1068,9 @@ public final class MobilePushCoordinator {
     /// Dismiss the one-shot alert presented for a terminal that no longer
     /// exists on its owning Mac.
     public func dismissTabUnavailableAlert() {
+        if tabUnavailableAlert?.kind == .connectionUnavailable {
+            clearPendingDeeplink()
+        }
         tabUnavailableAlert = nil
     }
 
@@ -1159,11 +1162,24 @@ public final class MobilePushCoordinator {
         // the tap is never spent on a selection that cannot navigate.
         var workspaceTarget: MobileWorkspacePreview.ID
         if let workspaceId = pending.workspaceId {
-            guard let resolved = store.workspaceID(
+            if let resolved = store.workspaceID(
                 matchingRemoteWorkspaceID: workspaceId,
                 macDeviceID: pending.macDeviceId,
                 instanceTag: pending.macInstanceTag
-            ) else {
+            ) {
+                workspaceTarget = resolved
+            } else if pending.retargetsToLiveSurfaceOwner,
+                      let surfaceId = pending.surfaceId,
+                      let liveOwner = store.workspaceID(
+                          containingSurfaceID: surfaceId,
+                          macDeviceID: pending.macDeviceId,
+                          instanceTag: pending.macInstanceTag
+                      ) {
+                // A trusted push may name the workspace from before a tab
+                // move. Follow the same live owner used by the surface-only
+                // path before declaring the original workspace unavailable.
+                workspaceTarget = liveOwner
+            } else {
                 // Once the owning Mac has published an authoritative list, a
                 // missing workspace is a definitive closed-tab result. During
                 // recovery the retained list is only a cache, so keep waiting
@@ -1173,7 +1189,6 @@ public final class MobilePushCoordinator {
                 presentTabUnavailableAlert()
                 return
             }
-            workspaceTarget = resolved
         } else if let surfaceId = pending.surfaceId {
             guard let owner = store.workspaceID(
                 containingSurfaceID: surfaceId,
@@ -1249,6 +1264,7 @@ public final class MobilePushCoordinator {
             store.selectTerminal(MobileTerminalPreview.ID(rawValue: surfaceId))
         }
         clearPendingDeeplink()
+        tabUnavailableAlert = nil
         diagnosticLog?.recordAppEvent(.pushDeeplinkResolved)
         analytics.capture("ios_push_deeplink_resolved", [
             "resolved_workspace": .bool(pending.workspaceId != nil),

@@ -299,8 +299,8 @@ private struct PushTabNavigationPresentationModifier: ViewModifier {
                             coordinator.retryPendingDeeplink()
                         },
                         secondaryButton: .cancel(Text(L10n.string(
-                            "mobile.push.connectionUnavailable.keepWaiting",
-                            defaultValue: "Keep waiting"
+                            "mobile.push.connectionUnavailable.cancel",
+                            defaultValue: "Cancel"
                         ))) {
                             coordinator.dismissTabUnavailableAlert()
                         }
