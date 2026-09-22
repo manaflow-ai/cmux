@@ -298,8 +298,8 @@ final class SidebarOverflowingScrollStatusChurnTests {
 /// guard on the fallback and on the identity/snapshot ownership contract.
 @Suite(.serialized)
 final class SidebarIssue8373StressTests {
-    private static let startingWorkspaceCount = 160
-    private static let stressIterations = 48
+    private static let startingWorkspaceCount = 48
+    private static let stressIterations = 24
     private static let simultaneousContentTargets = 8
 
     @MainActor
@@ -366,13 +366,15 @@ final class SidebarIssue8373StressTests {
             harness.tearDown()
         }
 
-        // Expand the fixture from five groups to twenty-five. The first 20
-        // workspaces were grouped by mountSidebar; group another 80 in fixed
-        // chunks so collapse/expand and reorder repeatedly alter visible rows.
+        // The field reports reproduced around 30-34 workspaces across several
+        // groups. Keep this fixture above that size without paying for 160 rows:
+        // mountSidebar groups the first 20; group another 16 in fixed chunks so
+        // collapse/expand and reorder repeatedly alter visible rows while enough
+        // ungrouped workspaces remain for independent content churn.
         let additionalGroupCandidates = Array(
             harness.tabManager.tabs
                 .filter { $0.groupId == nil }
-                .prefix(80)
+                .prefix(16)
                 .map(\.id)
         )
         for start in stride(from: 0, to: additionalGroupCandidates.count, by: 4) {
@@ -394,8 +396,8 @@ final class SidebarIssue8373StressTests {
         )
         let groupIds = harness.tabManager.workspaceGroups.map(\.id)
         #expect(
-            groupIds.count >= 20,
-            "The #8373 fixture needs many grouped runs; only \(groupIds.count) groups were created."
+            groupIds.count >= 8,
+            "The #8373 fixture needs several grouped runs; only \(groupIds.count) groups were created."
         )
 
         // Keep content churn on stable, ungrouped workspaces. Insert/remove
