@@ -174,7 +174,7 @@ PATH_OWNERS = {
     "tests/test_app_host_test_products.py": frozenset(("ci",)),
     "tests/test_bash_integration_no_done_notifications.py": frozenset(("quality-determinism",)),
     "tests/test_benchmark_dev_fleet_warm_slots.py": frozenset(("preflight",)),
-    "tests/test_build_graph_health.py": frozenset(("ci",)),
+    "tests/test_build_graph_health.py": frozenset(("ci", "preflight")),
     "tests/test_build_app_bundled_resources.sh": frozenset(("quality-runtime",)),
     "tests/test_build_metrics.py": frozenset(("ci",)),
     "tests/test_ci_app_host_failure_census.py": frozenset(("app-host-process",)),
