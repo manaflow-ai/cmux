@@ -591,6 +591,10 @@ path = "tests/test_ci_r2_artifact.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_r2_cache_census.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_r2_canary.py"
 lane = "linux-guard"
 
