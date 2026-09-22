@@ -28,38 +28,7 @@
       "minLength": 1
     },
     "source": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "base_sha",
-        "head_sha",
-        "diff_sha256",
-        "working_tree_dirty"
-      ],
-      "properties": {
-        "base_sha": {
-          "type": "string",
-          "pattern": "^[0-9a-f]{7,64}$"
-        },
-        "head_sha": {
-          "type": "string",
-          "pattern": "^[0-9a-f]{7,64}$"
-        },
-        "diff_sha256": {
-          "type": "string",
-          "pattern": "^[0-9a-f]{64}$"
-        },
-        "working_tree_dirty": {
-          "type": "boolean"
-        },
-        "ruleset_sha256": {
-          "type": [
-            "string",
-            "null"
-          ],
-          "pattern": "^[0-9a-f]{64}$"
-        }
-      }
+      "$ref": "#/$defs/source"
     },
     "brief": {
       "type": "object",
@@ -339,14 +308,10 @@
           "additionalProperties": false,
           "required": [
             "attempted",
-            "verification_replayed",
             "result"
           ],
           "properties": {
             "attempted": {
-              "type": "boolean"
-            },
-            "verification_replayed": {
               "type": "boolean"
             },
             "result": {
@@ -359,6 +324,12 @@
             },
             "notes": {
               "type": "string"
+            },
+            "after_source": {
+              "$ref": "#/$defs/source"
+            },
+            "verification": {
+              "$ref": "#/$defs/post_repair_verification"
             }
           }
         },
@@ -441,6 +412,63 @@
         "message": {
           "type": "string",
           "minLength": 1
+        },
+        "evidence": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/evidence"
+          }
+        }
+      }
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "base_sha",
+        "head_sha",
+        "diff_sha256",
+        "working_tree_dirty"
+      ],
+      "properties": {
+        "base_sha": {
+          "type": "string",
+          "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$"
+        },
+        "head_sha": {
+          "type": "string",
+          "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$"
+        },
+        "diff_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "working_tree_dirty": {
+          "type": "boolean"
+        },
+        "ruleset_sha256": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      }
+    },
+    "post_repair_verification": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "result",
+        "evidence"
+      ],
+      "properties": {
+        "result": {
+          "enum": [
+            "passed",
+            "failed",
+            "blocked"
+          ]
         },
         "evidence": {
           "type": "array",
