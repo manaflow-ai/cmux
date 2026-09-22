@@ -18,8 +18,8 @@ TARGET_RE = re.compile(r"\(in target '([^']+)' from project '[^']+'\)")
 SWIFT_COMPILE_RE = re.compile(r"^SwiftCompile\s+.*\bCompiling(?:\\ |\s)")
 SWIFT_EMIT_RE = re.compile(r"^(?:SwiftEmitModule|SwiftDriverJobDiscovery\s+.*\bEmitting module)")
 TIMING_RE = re.compile(
-    r"^\\s*(.+?)(?:\\s+\\(\\d+\\s+tasks?\\)\\s+\\|)?\\s+"
-    r"([0-9]+(?:\\.[0-9]+)?) seconds\\s*$"
+    r"^\s*(.+?)(?:\s+\(\d+\s+tasks?\)\s+\|)?\s+"
+    r"([0-9]+(?:\.[0-9]+)?) seconds\s*$"
 )
 CACHE_VALUES = {"Cache hit": "hit", "Cache miss": "miss"}
 
