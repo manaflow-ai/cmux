@@ -85,9 +85,9 @@ shared compilation-CAS namespace.
 
 ## Identity contract for any later canary implementation
 
-Reuse scripts/ci/product_input_identity.py for app-host source and recipe identity. A generation manifest additionally binds repository, PR number and head repository, seed commit/tree, exact candidate commit/tree at consumption, Xcode and selected developer directory, macOS SDK version/build, architecture/runner class, absolute workspace path, absolute DerivedData path, Package.resolved digest, recursive submodule identity, generation schema, archive digests, and byte/file ceilings.
+Reuse scripts/ci/product_input_identity.py for app-host identity, but compare its fields deliberately: the algorithm and recipe fingerprints must match while the seed and candidate source fingerprints are recorded separately and are expected to differ for the changed-source use case. A generation manifest additionally binds repository, PR number, head repository, producer PR head SHA, seed commit/tree, exact candidate commit/tree at consumption, Xcode and selected developer directory, macOS SDK version/build, architecture/runner class, absolute workspace path, absolute DerivedData path, Package.resolved digest, recursive submodule identity, generation schema, archive digests, and byte/file ceilings.
 
-The seed commit may differ from the candidate commit. Unknown identity fields fail closed to a cold compile.
+The producer PR head SHA must be an ancestor of or equal to the current PR head SHA. A force push onto unrelated history is therefore a compatibility miss. The synthetic merge source SHA itself may differ and need not be an ancestor of the next synthetic merge, because the base branch can advance between PR runs; record the exact seed merge tree and exact candidate merge tree independently. The seed commit may differ from the candidate commit. Unknown identity fields fail closed to a cold compile.
 
 ## Untrusted-state threat model
 
