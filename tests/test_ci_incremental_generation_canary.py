@@ -132,9 +132,9 @@ class IncrementalGenerationCanaryTests(unittest.TestCase):
             git(origin, "commit", "-qm", "generation A")
             base = git(origin, "rev-parse", "HEAD")
 
-            seed_mtime = 1_600_000_000_123_456_789
-            os.utime(unchanged, ns=(seed_mtime, seed_mtime))
-            os.utime(edited, ns=(seed_mtime + 1, seed_mtime + 1))
+            bench.normalize_tracked_mtimes(origin)
+            unchanged_seed_mtime = unchanged.stat().st_mtime_ns
+            edited_seed_mtime = edited.stat().st_mtime_ns
 
             archive = root / "worktree.tar.gz"
             bench.gzip_tar(origin, archive, excludes=("./.git",))
@@ -159,6 +159,9 @@ class IncrementalGenerationCanaryTests(unittest.TestCase):
             payload = json.loads(metrics.read_text())
             self.assertTrue(payload["unchanged_mtime_preserved"])
             self.assertTrue(payload["edited_mtime_changed"])
+            self.assertEqual(payload["sample_unchanged_mtime_ns_before"], unchanged_seed_mtime)
+            self.assertEqual(payload["sample_unchanged_mtime_ns_after"], unchanged_seed_mtime)
+            self.assertEqual(payload["edited_mtime_ns_before"], edited_seed_mtime)
             self.assertEqual(payload["head"], target)
             self.assertEqual(git(restored, "status", "--porcelain", "--untracked-files=all"), "")
 
