@@ -47,19 +47,19 @@ public struct ComputerUseSection: View {
     public var body: some View {
         Group {
             SettingsSectionHeader(
-                String(localized: "settings.section.computerUse", defaultValue: "Computer Use"),
+                String(localized: "settings.section.computerUse", defaultValue: "cmux Computer Use"),
                 section: .computerUse
             )
 
             SettingsCard {
                 SettingsCardRow(
                     configurationReview: .json("computerUse.enabled"),
-                    String(localized: "settings.computerUse.enabled", defaultValue: "Enable Computer Use"),
+                    String(localized: "settings.computerUse.enabled", defaultValue: "Enable cmux Computer Use"),
                     subtitle: managedByPolicy
                         ? String(localized: "settings.managedByOrganization", defaultValue: "Managed by your organization")
                         : setupSnapshot.enabled
                             ? String(localized: "settings.computerUse.enabled.subtitleOn", defaultValue: "Supported agent sessions can see and drive apps on this Mac.")
-                            : String(localized: "settings.computerUse.enabled.subtitleOff", defaultValue: "The first functional Computer Use request starts setup automatically.")
+                            : String(localized: "settings.computerUse.enabled.subtitleOff", defaultValue: "The first functional cmux Computer Use request starts setup automatically.")
                 ) {
                     Toggle("", isOn: Binding(get: { setupSnapshot.enabled && !managedByPolicy }, set: { enabled.set($0) }))
                         .labelsHidden()
@@ -69,7 +69,7 @@ public struct ComputerUseSection: View {
                 }
                 SettingsCardDivider()
                 SettingsCardNote(
-                    String(localized: "settings.computerUse.enabled.note", defaultValue: "Computer Use runs locally in the bundled cmux Computer Use app. Its permissions and restart lifecycle are independent from cmux. Telemetry and update checks are disabled.")
+                    String(localized: "settings.computerUse.enabled.note", defaultValue: "cmux Computer Use runs locally in the bundled cmux Computer Use app. Its permissions and restart lifecycle are independent from cmux. Telemetry and update checks are disabled.")
                 )
             }
             .task {
@@ -100,7 +100,7 @@ public struct ComputerUseSection: View {
             SettingsCard {
                 SettingsCardRow(
                     configurationReview: .json("computerUse.showInMenuBar"),
-                    String(localized: "settings.computerUse.showInMenuBar", defaultValue: "Show Computer Use in Menu Bar"),
+                    String(localized: "settings.computerUse.showInMenuBar", defaultValue: "Show cmux Computer Use in Menu Bar"),
                     subtitle: String(localized: "settings.computerUse.showInMenuBar.subtitle", defaultValue: "Show live agent sessions and shortcuts to their terminal and driven app.")
                 ) {
                     Toggle("", isOn: Binding(get: { showInMenuBar.current }, set: { showInMenuBar.set($0) }))

@@ -40,9 +40,9 @@ public enum ComputerUseSetupStatus: Equatable, Sendable {
     var message: String {
         switch self {
         case .disabled:
-            String(localized: "settings.computerUse.setup.disabled", defaultValue: "Enable Computer Use to finish setup.")
+            String(localized: "settings.computerUse.setup.disabled", defaultValue: "Enable cmux Computer Use to finish setup.")
         case .unavailable:
-            String(localized: "settings.computerUse.setup.unavailable", defaultValue: "Computer Use is unavailable. Retry setup.")
+            String(localized: "settings.computerUse.setup.unavailable", defaultValue: "cmux Computer Use is unavailable. Retry setup.")
         case .accessibilityRequired:
             String(localized: "settings.computerUse.setup.accessibility", defaultValue: "Accessibility permission is required.")
         case .screenRecordingRequired:
@@ -50,7 +50,7 @@ public enum ComputerUseSetupStatus: Equatable, Sendable {
         case .captureConfirmationRequired:
             String(localized: "settings.computerUse.setup.capture", defaultValue: "Permissions are granted. Finish setup to confirm screen capture with macOS.")
         case .ready:
-            String(localized: "settings.computerUse.setup.ready", defaultValue: "Setup is complete. Computer Use is ready.")
+            String(localized: "settings.computerUse.setup.ready", defaultValue: "Setup is complete. cmux Computer Use is ready.")
         }
     }
 }

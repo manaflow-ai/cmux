@@ -67,7 +67,7 @@ the existing onboarding window when setup is required. This is an explicit
 user opt-in signal, not a permission grant: the user still chooses every
 Accessibility and Screen Recording action in the window. Launch or resume,
 MCP/skill discovery, helper status checks, protected tool calls, and prompt or
-UI text remain quiet. Settings → Computer Use continues to offer **Finish
+UI text remain quiet. Settings → cmux Computer Use continues to offer **Finish
 Setup…**, **Grant…**, and **Open System Settings** for resuming setup.
 
 The Settings action uses the same onboarding flow: its first **Allow** action
@@ -109,7 +109,7 @@ method. `list-tools` and `check_permissions` intentionally work before admission
 
 An already attached but unconfigured proxy can still wait for its external
 readiness milestone and then return the pinned helper's setup-required response,
-**“Computer Use onboarding is still in progress. Finish setup in cmux, then
+**“cmux Computer Use onboarding is still in progress. Finish setup in cmux, then
 retry.”** That response is bounded by the helper's current 55-second poll and
 is intentionally documented here rather than bypassing permission readiness or
 silently granting access. Existing users who completed setup retain their

@@ -1,7 +1,7 @@
 ---
 name: cmux-cua
 disable-model-invocation: true
-description: "Use only after the user explicitly asks for Computer Use: drive real macOS apps from a cmux agent session via the bundled engine (accessibility tree + screenshots, click/type/scroll/drag, branded cursor), or explain its user-directed permission setup. Reading or discovering this skill is not consent."
+description: "Use only after the user explicitly asks for cmux Computer Use through the cmux-cua skill: drive real macOS apps from a cmux agent session via the bundled engine (accessibility tree + screenshots, click/type/scroll/drag, branded cursor), or explain its user-directed permission setup. Reading or discovering this skill is not consent."
 ---
 
 # cmux-cua
@@ -20,7 +20,7 @@ restarting cmux. Upstream telemetry and update checks are disabled at runtime.
 
 Do not invoke this skill, start its helper, request permissions, or perform a
 GUI action when the user is only reading, asking about, quoting, or mentioning
-Computer Use. Wait for a direct user request to use Computer Use; missing tools
+cmux Computer Use. Wait for a direct user request to use cmux Computer Use; missing tools
 or permissions are not a reason to begin setup automatically.
 
 ## How it attaches
@@ -91,11 +91,11 @@ the main cmux app:
 - **Accessibility** — inspect and drive app UI (`AXIsProcessTrusted`).
 - **Screen Recording** — screenshots / vision (`CGPreflightScreenCaptureAccess`).
 
-When the user has asked for Computer Use, the first functional tool call from
+When the user has asked for cmux Computer Use through this skill, the first functional tool call from
 a current cmux agent session opens setup automatically if setup is required.
 Opening setup does not grant access: the user still completes each permission
 step. Skill loading, prompt text, MCP discovery, `check_permissions`, cmux
-startup, and agent resume never open setup. Settings → Computer Use also opens
+startup, and agent resume never open setup. Settings → cmux Computer Use also opens
 setup through **Finish Setup…**, **Grant…**, or **Open System Settings** and shows the two authoritative
 permission states; choosing **Grant…** for an ungranted permission opens that
 same permission step and its draggable helper-app recovery path. Each **Allow**
@@ -122,8 +122,7 @@ onboarding deliberately avoids. The main cmux process never calls a TCC API or
 executes the cmux-cua binary.
 
 An unconfigured proxy waits for setup before forwarding its protected call.
-If setup is not finished before the bounded wait ends, it returns **“Computer
-Use onboarding is still in progress. Finish setup in cmux, then retry.”**
+If setup is not finished before the bounded wait ends, it returns **“cmux Computer Use onboarding is still in progress. Finish setup in cmux, then retry.”**
 Retries do not repeatedly reopen a dismissed setup window. Resume a dismissed
 flow with **Finish Setup…** in Settings, then retry the requested tool. Never
 attempt to grant consent by calling a setup/status tool.
@@ -255,7 +254,7 @@ The active target and session ordering come from cmux-cua's per-session state
 files under `~/Library/Application Support/cmux/cmux-cua/runtime/<scope>/state/`.
 
 The item hides when there is no live or recent session. Toggle visibility in
-Settings → Computer Use.
+Settings → cmux Computer Use.
 
 ## Troubleshooting
 
@@ -289,7 +288,7 @@ Settings → Computer Use.
   closed instead of running a user-supplied executable.
 - If the cmux-owned daemon is unavailable, do **not** invoke `cmux-cua`
   directly through Bash and do not start its default socket. Tell the user to
-  open Settings → Computer Use or restart the tagged cmux build, then retry the
+  open Settings → cmux Computer Use or restart the tagged cmux build, then retry the
   MCP tool after the helper runtime is healthy.
 - Never hand-edit `docs/.../cmux-cua/mcp-tools.mdx` in the fork — it is
   generated from the Rust tool descriptions.
