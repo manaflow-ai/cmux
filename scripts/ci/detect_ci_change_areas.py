@@ -95,10 +95,7 @@ def forces_all_areas(path: str) -> bool:
         and path not in CI_MACOS_TEST_PRODUCT_INPUTS
     ):
         return True
-    return path in {
-        CI_WORKFLOW_PATH,
-        "tests/test_ci_change_areas.py",
-    }
+    return path == CI_WORKFLOW_PATH
 
 
 _TEST_REFERENCE_RE = re.compile(r"tests/[A-Za-z0-9_./-]*")
