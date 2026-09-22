@@ -57,9 +57,14 @@ public final class MobileIrohReleaseGateTerminalSession {
             completion.finish()
         }
         do {
+            let client = self.client
+            let submitTask = Task { @MainActor [client, probe, surfaceID] in
+                await client.submitTerminalRawInput(probe.command, surfaceID: surfaceID)
+            }
+            defer { submitTask.cancel() }
             try await withThrowingTaskGroup(of: Void.self) { group in
-                group.addTask { @MainActor in
-                    await self.client.submitTerminalRawInput(probe.command, surfaceID: surfaceID)
+                group.addTask {
+                    await submitTask.value
                     try Task.checkCancellation()
                     for try await _ in proof {
                         try Task.checkCancellation()

@@ -5,6 +5,10 @@ struct ChatArtifactMarkdownPresentation: Equatable, Sendable {
     let isRenderedAvailable: Bool
     private(set) var mode: ChatArtifactMarkdownMode
 
+    init(markdown: String) {
+        self.init(byteCount: Int64(markdown.utf8.count))
+    }
+
     init(byteCount: Int64) {
         isRenderedAvailable = byteCount <= Self.maximumRenderedByteCount
         mode = isRenderedAvailable ? .rendered : .raw

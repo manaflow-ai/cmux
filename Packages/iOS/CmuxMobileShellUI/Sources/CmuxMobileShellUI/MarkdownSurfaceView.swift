@@ -24,9 +24,13 @@ struct MarkdownSurfaceView: View {
         // Path changes reload outright; title churn with a stable path re-runs
         // the load so a rewritten file re-renders (same-title edits stay stale
         // until the next descriptor emission — wave-0 accepted residual).
-        .task(id: "\(path)\u{0}\(surface.title)\u{0}\(retryCount)") {
+        .task(id: loadTaskID) {
             await model.load(path: path, loader: loader)
         }
+    }
+
+    private var loadTaskID: String {
+        [path, surface.title, loader.sourceIdentity ?? "", "\(retryCount)"].joined(separator: "\u{0}")
     }
 
     @ViewBuilder
@@ -44,7 +48,7 @@ struct MarkdownSurfaceView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .padding()
         case .loaded(let text):
-            ChatArtifactEmbeddedMarkdown(markdown: text)
+            ChatArtifactEmbeddedMarkdown(markdown: text, documentID: path)
         case .failed(let failure):
             failureView(failure)
         }
