@@ -34,5 +34,3 @@ For UI or behavior changes, include a short demo video (GitHub upload, Loom, or 
 - [ ] I requested bot reviews after my latest commit (copy/paste block above or equivalent)
 - [ ] All code review bot comments are resolved
 - [ ] All human review comments are resolved
-
-<!-- The trusted workflow requests Greptile automatically for every PR head. Agent-authored/API-created PRs opt into blocking current-head review coverage by adding the marker `agent-pr-review-required` to the PR body; GitHub's API does not inject this template. -->
