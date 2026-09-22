@@ -295,7 +295,7 @@ class CmuxSettingsJSONCTests(unittest.TestCase):
             self.assertIn("intermediate key 'app' is not an object", result.stderr)
             self.assertEqual(config.read_text(encoding="utf-8"), source)
 
-    def test_project_scope_uses_target_location_not_process_cwd(self) -> None:
+    def test_project_scope_follows_the_config_the_cwd_would_load(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             project = root / "project"
@@ -304,6 +304,44 @@ class CmuxSettingsJSONCTests(unittest.TestCase):
             other.mkdir()
             config = project / "cmux.json"
             config.write_text('{"app":{"appearance":"dark"}}\n', encoding="utf-8")
+
+            # Discovered from inside the project: this is the project config.
+            with mock.patch.object(helper.Path, "cwd", return_value=project):
+                self.assertEqual(helper.semantic_scope_for(config), "project")
+
+            # A cmux.json the current project would never load is a custom
+            # global config, not a project-local one. Inferring scope from the
+            # target's own directory would make it match itself here and reject
+            # global-only keys such as `$.app`.
+            with mock.patch.object(helper.Path, "cwd", return_value=other):
+                self.assertEqual(helper.semantic_scope_for(config), "global")
+
+    def test_custom_global_config_outside_any_project_is_global(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            workspace = home / "workspace" / "child"
+            workspace.mkdir(parents=True)
+            # A user-level cmux.json must not turn its whole home into a project.
+            (home / "cmux.json").write_text("{}\n", encoding="utf-8")
+            config = home / "custom-global" / "cmux.json"
+            config.parent.mkdir()
+            config.write_text('{"app":{"appearance":"dark"}}\n', encoding="utf-8")
+
+            with (
+                mock.patch.object(helper.Path, "home", return_value=home),
+                mock.patch.object(helper.Path, "cwd", return_value=workspace),
+            ):
+                self.assertEqual(helper.semantic_scope_for(config), "global")
+                self.assertEqual(helper.semantic_scope_for(home / "cmux.json"), "global")
+
+    def test_dot_cmux_directory_is_always_project_scoped(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            config = root / "project" / ".cmux" / "cmux.json"
+            config.parent.mkdir(parents=True)
+            config.write_text("{}\n", encoding="utf-8")
+            other = root / "other"
+            other.mkdir()
 
             with mock.patch.object(helper.Path, "cwd", return_value=other):
                 self.assertEqual(helper.semantic_scope_for(config), "project")

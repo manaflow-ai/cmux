@@ -385,18 +385,23 @@ def find_cmux_cli() -> str | None:
 
 
 def discovered_project_config(start: Path | None = None) -> Path | None:
-    """Find the nearest project config relative to a path, not process CWD."""
+    """Find the project config for the working directory (default: process CWD).
+
+    The walk stops before `$HOME`: a `cmux.json` sitting directly in the home
+    directory is a user-level file, not the config of an enclosing project.
+    """
     current = (start or Path.cwd()).expanduser().resolve()
     if current.is_file():
         current = current.parent
     home = Path.home().resolve()
-    while True:
+    while current != home:
         for candidate in (current / ".cmux" / "cmux.json", current / "cmux.json"):
             if candidate.is_file():
                 return candidate.resolve()
-        if current == home or current.parent == current:
+        parent = current.parent
+        if parent == current:
             break
-        current = current.parent
+        current = parent
     return None
 
 
@@ -413,7 +418,13 @@ def semantic_scope_for(path: Path, explicit_scope: str | None = None) -> str:
         return "global"
     if resolved.parent.name == ".cmux":
         return "project"
-    if discovered_project_config(resolved.parent) == resolved:
+    # Discovery must start from the working directory, never from the target's
+    # own directory: seeding the walk at `resolved.parent` makes the target its
+    # own first candidate, so every `cmux.json` outside the known global paths
+    # matches itself and gets misclassified as project-local. A custom global
+    # config is only project-local when it is the config the current project
+    # would actually load.
+    if discovered_project_config() == resolved:
         return "project"
     return "global"
 
