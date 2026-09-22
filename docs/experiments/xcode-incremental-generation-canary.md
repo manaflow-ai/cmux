@@ -103,6 +103,42 @@ deterministic blob-derived mtimes before the candidate transition. This keeps
 tracked resources such as `Resources/ghostty/**` while excluding mutable
 submodule worktrees and arbitrary ignored PR output.
 
+## Generation receipt sketch
+
+A later selector can authenticate the outer artifact from GitHub-owned metadata
+before parsing any PR-authored bytes: artifact id, SHA-256 digest, compressed
+size, expiry, producer workflow run, producer head repository id, branch, and
+run head SHA are all available from the Actions artifact/run APIs.
+
+The inner receipt then carries the values that must be revalidated rather than
+trusted:
+
+```json
+{
+  "schema": "cmux-xcode-incremental-generation/v1",
+  "repository": "manaflow-ai/cmux",
+  "pr_number": 123,
+  "producer_run_id": "…",
+  "producer_run_attempt": "…",
+  "producer_pr_head_sha": "…",
+  "seed_source": {"commit": "…", "tree": "…"},
+  "product_identity": {"algorithm": "…", "recipe": "…", "source": "…"},
+  "toolchain": {"xcode": "…", "sdk_version": "…", "sdk_build": "…", "arch": "arm64"},
+  "paths": {"workspace": "…", "derived_data": "…"},
+  "package_resolved_sha256": "…",
+  "submodule_identity_sha256": "…",
+  "source_index_sha256": "…",
+  "worktree_tar_sha256": "…",
+  "derived_data_tar_sha256": "…"
+}
+```
+
+The consumer recomputes the current recipe/toolchain/path/package values,
+verifies the producer/current PR pairing through GitHub metadata, checks the
+producer PR head lineage, validates archive digests/ceilings, reconstructs the
+exact seed tree, then transitions to the exact current candidate tree. Any
+missing field is a cache miss.
+
 ## Untrusted-state threat model
 
 Mutable incremental generations never cross PR boundaries. Fork or otherwise untrusted generations are scoped to one PR lineage, execute only on disposable macOS runners with no repository secrets, and are never restored on persistent trusted fleet hosts.
