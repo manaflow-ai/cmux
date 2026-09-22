@@ -114,6 +114,47 @@ class ReviewFabricTests(unittest.TestCase):
         self.assertEqual(report["counts"]["independent_sessions"], 1)
         self.assertTrue(any("1/2" in reason for reason in report["reasons"]))
 
+    def test_capability_quorum_is_independent_of_run_order_within_session(self):
+        first = document([
+            run("local-a", "session-a", capability="local"),
+            run("frontier-a", "session-a", capability="frontier"),
+            run("local-b", "session-b", capability="local"),
+        ])
+        second = document([
+            run("frontier-a", "session-a", capability="frontier"),
+            run("local-a", "session-a", capability="local"),
+            run("local-b", "session-b", capability="local"),
+        ])
+
+        first_report = review_fabric.evaluate(first, policy())
+        second_report = review_fabric.evaluate(second, policy())
+        self.assertTrue(first_report["passed"])
+        self.assertTrue(second_report["passed"])
+        self.assertEqual(first_report["counts"]["independent_sessions"], 2)
+        self.assertEqual(second_report["counts"]["independent_sessions"], 2)
+        self.assertEqual(first_report["capability_counts"], {"frontier": 1, "local": 2})
+        self.assertEqual(second_report["capability_counts"], {"frontier": 1, "local": 2})
+
+    def test_unavailable_completed_run_does_not_count_toward_quorum(self):
+        report = review_fabric.evaluate(
+            document([
+                run(
+                    "unavailable",
+                    "session-unavailable",
+                    capability="frontier",
+                    disposition="unavailable",
+                ),
+                run("local", "session-local", capability="local"),
+            ]),
+            policy(),
+        )
+        self.assertFalse(report["passed"])
+        self.assertEqual(report["counts"]["independent_sessions"], 1)
+        self.assertEqual(report["counts"]["eligible_runs"], 1)
+        self.assertEqual(report["capability_counts"], {"local": 1})
+        self.assertTrue(any("1/2" in reason for reason in report["reasons"]))
+        self.assertIn("capability quorum frontier is 0/1", report["reasons"])
+
     def test_frontier_requirement_is_independent_of_total_quorum(self):
         report = review_fabric.evaluate(
             document([
