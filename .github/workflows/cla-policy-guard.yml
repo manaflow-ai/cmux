@@ -12,6 +12,25 @@ permissions: {}
 jobs:
   validate:
     name: CLA policy guard
+    # An `edited` event fires for a title, body or base change. Only a base
+    # change moves the (base.sha, head.sha) pair this guard reads, so a title
+    # or body edit can only reproduce the verdict already published for that
+    # head. Review bots write their summaries into the body, which is what
+    # makes those events frequent.
+    #
+    # The job is gated rather than the trigger list: a job skipped by its own
+    # condition still reports a conclusion, which GitHub counts as success for
+    # a required check, while dropping `edited` from `types` would leave the
+    # check missing and block merges. It would also break stacked pull
+    # requests, which GitHub retargets with an `edited` event carrying
+    # `changes.base` -- the case this condition keeps running.
+    #
+    # scripts/ci/validate-cla-policy.rb pins this expression exactly
+    # (GUARD_VALIDATE_IF); it is the only condition this job may carry.
+    if: >-
+      github.event.action != 'edited'
+      || github.event.changes.base.ref.from != ''
+      || github.event.changes.base.sha.from != ''
     # This control-plane workflow parses attacker-controlled YAML and shell
     # bytes. Use a GitHub-hosted ephemeral runner; a repository variable must
     # not be able to redirect it to a persistent or contributor-controlled
