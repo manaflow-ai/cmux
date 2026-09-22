@@ -46,7 +46,7 @@ def check(root: Path, changed: list[str] | None, expected: list[str], why: str) 
 
 def job_scripts() -> set[str]:
     """Scripts the swift-package-tests job runs, plus the helpers those scripts call beside them."""
-    workflow = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
+    workflow = (ROOT / ".github/workflows/ci-macos.yml").read_text(encoding="utf-8")
     job = workflow.split("\n  swift-package-tests:\n", 1)[1]
     job = re.split(r"\n  [A-Za-z0-9_-]+:\n", job, maxsplit=1)[0]
     found = set(re.findall(r"(?:\./)?(scripts/[A-Za-z0-9_./-]+\.(?:sh|py))", job))
@@ -95,7 +95,7 @@ def main() -> int:
             raise AssertionError("a listed package that does not exist must fail")
 
     # Every package the workflow lists must exist, or the job fails before testing anything.
-    workflow = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
+    workflow = (ROOT / ".github/workflows/ci-macos.yml").read_text(encoding="utf-8")
     listed = workflow.split("          PACKAGES=(\n", 1)[1].split("          )\n", 1)[0].split()
     assert len(listed) == len(set(listed)), "PACKAGES lists a package twice"
     result = subprocess.run(

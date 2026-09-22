@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-CI_FILE="$ROOT_DIR/.github/workflows/ci.yml"
+CI_FILE="$ROOT_DIR/.github/workflows/ci-macos.yml"
 RELEASE_FILE="$ROOT_DIR/.github/workflows/release.yml"
 
 # nightly.yml is intentionally not covered here. It has its own helper-build

@@ -677,7 +677,7 @@ struct CloudTreeOneMachineManyWorkspacesTests {
             "machine:brave-otter/terminals",
             "machine:brave-otter/terminals/placeholder",
         ], "the screens sit above the Terminals section")
-        guard case .displaysPool(_, let count) = try #require(tree.first { $0.id == "machine:brave-otter/displays" }).kind else {
+        guard case .displaysPool(_, let count, _) = try #require(tree.first { $0.id == "machine:brave-otter/displays" }).kind else {
             Issue.record("expected the Displays group"); return
         }
         #expect(count == 2)

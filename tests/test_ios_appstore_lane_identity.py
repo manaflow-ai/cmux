@@ -1203,6 +1203,23 @@ def test_upload_appstore_lane_uses_production_bundle_id(tmp: Path, fakebin: Path
         )
 
 
+def test_official_testflight_workflow_publishes_changelog_notes() -> None:
+    workflow = (ROOT / ".github" / "workflows" / "ios-appstore-upload.yml").read_text(
+        encoding="utf-8"
+    )
+    upload_step = workflow.split(
+        "      - name: Archive, export, and upload to App Store Connect", 1
+    )[1].split("      - name: Record completed upload before group assignment", 1)[0]
+    _check(
+        "ARGS=(--lane appstore --signing manual)" in upload_step,
+        "official cmux.app TestFlight upload enables the default changelog notes path",
+    )
+    _check(
+        "--skip-notes" not in upload_step,
+        "official cmux.app TestFlight upload does not suppress changelog notes",
+    )
+
+
 def test_upload_appstore_checks_asc_app_bundle_id_before_upload(tmp: Path, fakebin: Path) -> None:
     env = _asc_upload_env(tmp, fakebin)
     env["CMUX_IOS_UPLOAD_DIR"] = str(tmp / "upload")
@@ -1221,6 +1238,14 @@ def test_upload_appstore_checks_asc_app_bundle_id_before_upload(tmp: Path, fakeb
     _check(
         f"configured app record verified: {ASC_APP_ID} bundle id {APPSTORE_BUNDLE_ID}" in result.stdout,
         "upload lane verifies ASC app bundle id before upload",
+    )
+    _check(
+        "setting TestFlight 'internal' What to Test notes" in result.stderr,
+        "official App Store upload attempts to publish the changelog notes",
+    )
+    _check(
+        "lane 'appstore' is not a TestFlight lane" not in result.stderr,
+        "official App Store upload is treated as a TestFlight lane",
     )
 
     asc_calls = [
@@ -1693,6 +1718,7 @@ def main() -> None:
         )
         test_bump_ios_version_accepts_trailing_appstore_lane(tmp / "version-bump-test", fakebin)
         test_upload_appstore_lane_uses_production_bundle_id(tmp / "upload-test", fakebin)
+        test_official_testflight_workflow_publishes_changelog_notes()
         test_upload_appstore_checks_asc_app_bundle_id_before_upload(tmp / "upload-live-test", fakebin)
         test_profile_installer_accepts_production_profile_by_default(tmp / "profile-test", fakebin)
         test_profile_installer_ignores_stale_primary_secret(tmp / "profile-stale-test", fakebin)
