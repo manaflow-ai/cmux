@@ -214,6 +214,24 @@ GUARD_HOSTED_TRIGGER = {
 }.freeze
 GUARD_WORKFLOW_NAME = "CLA policy guard"
 GUARD_TIMEOUT_MINUTES = 10
+# The only condition the guard job may carry. An `edited` event fires for a
+# title, body or base change, and only a base change moves the revision pair
+# (`base.sha`, `head.sha`) that the guard reads, so a title or body edit can
+# only reproduce the verdict already published for that head. Review bots write
+# their summaries into the pull-request body, which is what makes those events
+# frequent.
+#
+# The expression is pinned as an exact string rather than admitted as a general
+# `if:`. A free-form condition on this job would be an opt-out of the guard
+# itself: anything that evaluates false skips the control plane. Pinning keeps
+# exactly one skippable case, the one reviewed here. A retarget is still
+# checked, because `changes.base` carries the previous ref and sha, and every
+# non-`edited` action keeps the condition true.
+GUARD_VALIDATE_IF = [
+  "github.event.action != 'edited'",
+  "github.event.changes.base.ref.from != ''",
+  "github.event.changes.base.sha.from != ''"
+].join(" || ").freeze
 GUARD_VERIFY_ENV = {
   "WORKFLOW_SHA" => "${{ github.workflow_sha }}"
 }.freeze
@@ -1310,6 +1328,60 @@ def run_guard_contract_regression_matrix!
       "regression guard validation run"
     )
   end
+  # The guard job's condition is the one place where this workflow can decline
+  # to run, so admission of that key is exercised against whole documents.
+  guard_document = lambda do |condition|
+    job = {
+      "name" => GUARD_WORKFLOW_NAME,
+      "runs-on" => "ubuntu-24.04",
+      "timeout-minutes" => GUARD_TIMEOUT_MINUTES,
+      "permissions" => { "contents" => "read", "pull-requests" => "read" },
+      "steps" => [
+        {
+          "name" => "Checkout immutable guard revision",
+          "uses" => "actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd",
+          "with" => Marshal.load(Marshal.dump(GUARD_CHECKOUT_WITH))
+        },
+        { "name" => "Verify trusted checkout", "env" => GUARD_VERIFY_ENV.dup, "run" => "#{GUARD_VERIFY_RUN}\n" },
+        {
+          "name" => "Run trusted CLA regression matrix and validate policy as data",
+          "env" => GUARD_VALIDATE_ENV.dup,
+          "run" => "#{GUARD_VALIDATE_RUN}\n"
+        }
+      ]
+    }
+    job = { "name" => job["name"], "if" => condition }.merge(job) unless condition.nil?
+    YAML.dump(
+      "name" => GUARD_WORKFLOW_NAME,
+      "on" => { "pull_request_target" => Marshal.load(Marshal.dump(GUARD_TRIGGER)) },
+      "permissions" => {},
+      "jobs" => { "validate" => job }
+    )
+  end
+
+  validate_guard_workflow(guard_document.call(nil), authorize: false)
+  checks += 1
+  validate_guard_workflow(guard_document.call(GUARD_VALIDATE_IF), authorize: false)
+  checks += 1
+  # Folded YAML arrives with newlines collapsed to spaces; the reviewed
+  # expression must still be recognized after that normalization.
+  validate_guard_workflow(
+    guard_document.call(GUARD_VALIDATE_IF.gsub(" || ", "\n  || ")),
+    authorize: false
+  )
+  checks += 1
+  [
+    "false",
+    "github.event.action != 'edited'",
+    "github.actor != 'dependabot[bot]'",
+    "github.event.action != 'edited' || github.event.changes.base.ref.from != ''",
+    "#{GUARD_VALIDATE_IF} || github.event.pull_request.user.login == 'someone'"
+  ].each do |condition|
+    expect_failure.call("guard condition #{condition.inspect}") do
+      validate_guard_workflow(guard_document.call(condition), authorize: false)
+    end
+  end
+
   puts "PASS: guard workflow contract regression matrix (#{checks} cases)"
 end
 
@@ -2250,7 +2322,16 @@ def validate_guard_workflow(raw, authorize: true, pr_author_id: nil)
   fail!("guard workflow has an unexpected job") unless jobs.keys == ["validate"]
   guard_job = document.dig("jobs", "validate")
   fail!("guard workflow validate job is missing") unless guard_job.is_a?(Hash)
-  assert_exact_keys(guard_job, %w[name runs-on timeout-minutes permissions steps], "guard workflow validate job")
+  # The condition is optional so that the guard workflow validates both with
+  # and without it. When it is present it must be exactly GUARD_VALIDATE_IF;
+  # any other expression is a way to switch the guard off.
+  guard_job_keys = %w[name runs-on timeout-minutes permissions steps]
+  guard_job_keys += ["if"] if guard_job.key?("if")
+  assert_exact_keys(guard_job, guard_job_keys, "guard workflow validate job")
+  if guard_job.key?("if")
+    fail!("guard workflow validate condition is not the reviewed expression") unless
+      guard_job["if"].to_s.gsub(/\s+/, " ").strip == GUARD_VALIDATE_IF
+  end
   assert_string(guard_job["name"], "guard workflow validate job name")
   assert_positive_integer(guard_job["timeout-minutes"], "guard workflow validate timeout")
   fail!("guard workflow validate timeout is not the reviewed value") unless
