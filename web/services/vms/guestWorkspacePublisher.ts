@@ -55,31 +55,43 @@ def snapshot():
     data = payload(result.stdout)
     if not isinstance(data, dict):
         raise RuntimeError("cmux-tui returned an invalid snapshot")
-    generation = data.get("generation") or data.get("session", {}).get("generation")
+    cursor = data.get("cursor") if isinstance(data.get("cursor"), dict) else {}
+    generation = data.get("generation") or cursor.get("generation") or data.get("session", {}).get("generation")
     if not isinstance(generation, str) or not generation:
         try:
             generation = open("/etc/cmux/daemon-instance-id").read().strip()
         except OSError:
             generation = "cloud"
-    revision = data.get("workspace_revision")
+    revision = data.get("workspace_revision") or data.get("workspaceRevision") or cursor.get("revision")
     if not isinstance(revision, int) or revision < 0:
-        revision = data.get("workspaceRevision", 0)
+        try:
+            revision = int(revision)
+        except (TypeError, ValueError):
+            revision = 0
     workspaces, terminals = [], []
-    for index, workspace in enumerate(data.get("workspaces", [])):
+    workspace_rows = data.get("workspaces", []) if isinstance(data.get("workspaces"), list) else []
+    screen_rows = data.get("screens", []) if isinstance(data.get("screens"), list) else []
+    pane_rows = data.get("panes", []) if isinstance(data.get("panes"), list) else []
+    tab_rows = data.get("tabs", []) if isinstance(data.get("tabs"), list) else []
+    terminal_rows = data.get("terminals", []) if isinstance(data.get("terminals"), list) else []
+    screen_workspace = {screen.get("id"): screen.get("workspace_id") for screen in screen_rows if isinstance(screen, dict)}
+    pane_workspace = {pane.get("id"): screen_workspace.get(pane.get("screen_id")) for pane in pane_rows if isinstance(pane, dict)}
+    terminal_by_id = {row.get("id"): row for row in terminal_rows if isinstance(row, dict) and isinstance(row.get("id"), str)}
+    for index, workspace in enumerate(workspace_rows):
         if not isinstance(workspace, dict):
             continue
         workspace_id = workspace.get("id") or workspace.get("workspace_id")
         if not isinstance(workspace_id, str) or not workspace_id:
             continue
         workspaces.append({"id": workspace_id, "name": str(workspace.get("name") or workspace_id), "index": int(workspace.get("index", index)), "focused": bool(workspace.get("focused") or workspace.get("active"))})
-        for screen in workspace.get("screens", []):
-            for pane in (screen.get("panes", []) if isinstance(screen, dict) else []):
-                for tab in (pane.get("tabs", []) if isinstance(pane, dict) else []):
-                    if not isinstance(tab, dict) or tab.get("kind") not in (None, "pty"):
-                        continue
-                    terminal_id = tab.get("terminal_resource_id") or tab.get("content_id") or tab.get("id")
-                    if isinstance(terminal_id, str) and terminal_id:
-                        terminals.append({"id": terminal_id, "title": str(tab.get("title") or tab.get("name") or ""), "workspaceId": workspace_id, "cwd": tab.get("cwd") if isinstance(tab.get("cwd"), str) else None, "agent": None})
+    for tab in tab_rows:
+        if not isinstance(tab, dict) or tab.get("content_kind") not in (None, "terminal"):
+            continue
+        terminal_id = tab.get("terminal_resource_id") or tab.get("content_id") or tab.get("id")
+        workspace_id = tab.get("workspace_id") or pane_workspace.get(tab.get("pane_id"))
+        row = terminal_by_id.get(terminal_id, {})
+        if isinstance(terminal_id, str) and terminal_id:
+            terminals.append({"id": terminal_id, "title": str(row.get("title") or tab.get("name") or tab.get("title") or ""), "workspaceId": workspace_id if isinstance(workspace_id, str) else None, "cwd": row.get("cwd") if isinstance(row.get("cwd"), str) else None, "agent": None})
     return {"generation": generation, "revision": int(revision), "snapshot": {"workspaces": workspaces, "terminals": terminals}}
 
 def publish():
