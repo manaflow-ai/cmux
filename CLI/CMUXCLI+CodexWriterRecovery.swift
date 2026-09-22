@@ -18,18 +18,21 @@ extension CMUXCLI {
         }
         let reports = CodexWriterRecovery(temporaryDirectory: FileManager.default.temporaryDirectory)
             .inspect(sessionIDs: conflicts, codexHome: codexHome)
-        for (identifier, error) in failures {
-            if let report = reports[identifier], report.lock.state == .active {
-                cliWriteStderr(codexWriterReportMessage(sessionID: identifier, report: report) + "\n")
+        for (identifier, _) in failures {
+            if let report = reports[identifier] {
+                let message = report.lock.state == .active
+                    ? codexWriterReportMessage(report: report)
+                    : codexWriterUnavailableMessage()
+                cliWriteStderr(message + "\n")
             } else {
-                cliWriteStderr("cmux codex-teams watcher skipped thread \(identifier): \(error)\n")
+                cliWriteStderr(String(localized: "cli.codex.writer.recovery.watcherSkipped", defaultValue: "cmux could not check one watched session. Try resuming it again.") + "\n")
             }
         }
     }
 
     func runCodexWriterRecovery(commandArgs: [String]) throws {
         guard let request = CodexWriterRecoveryRequest(arguments: commandArgs) else {
-            throw CLIError(message: Self.codexWriterRecoveryUsage())
+            throw CLIError(message: String(localized: "cli.codex.writer.recovery.invalidCommand", defaultValue: "Invalid recovery command. Run `cmux codex-teams recover --help` for usage."))
         }
         let sessionID = request.sessionID
         let confirms = request.confirmsTermination
@@ -42,22 +45,16 @@ extension CMUXCLI {
         let recovery = CodexWriterRecovery(temporaryDirectory: FileManager.default.temporaryDirectory)
         let report = recovery.inspect(sessionID: sessionID, codexHome: codexHome)
         guard report.lock.state != .unavailable else {
-            throw CLIError(message: Self.codexWriterUnavailableMessage(sessionID: sessionID, lockPath: report.lock.lockPath))
+            throw CLIError(message: Self.codexWriterUnavailableMessage())
         }
         guard report.lock.state == .active else {
-            throw CLIError(message: String.localizedStringWithFormat(
-                String(localized: "cli.codex.writer.recovery.notBlocked", defaultValue: "Codex thread %@ is not currently blocked by an active local writer lock."),
-                sessionID
-            ))
+            throw CLIError(message: String(localized: "cli.codex.writer.recovery.notBlocked", defaultValue: "This session is not blocked by another local session. Try resuming again."))
         }
         guard let orphan = report.orphanedHolder else {
-            throw CLIError(message: Self.codexWriterReportMessage(sessionID: sessionID, report: report))
+            throw CLIError(message: Self.codexWriterReportMessage(report: report))
         }
         guard confirms else {
-            throw CLIError(message: String.localizedStringWithFormat(
-                String(localized: "cli.codex.writer.recovery.confirm", defaultValue: "This will terminate orphaned Codex app-server PID %d. Re-run with --yes to continue."),
-                orphan.pid
-            ))
+            throw CLIError(message: String(localized: "cli.codex.writer.recovery.confirm", defaultValue: "This will stop the abandoned background process blocking this session. Re-run with --yes to continue."))
         }
         guard recovery.terminateOrphanedHolder(
             sessionID: sessionID,
@@ -67,27 +64,14 @@ extension CMUXCLI {
             let refreshedReport = recovery.inspect(sessionID: sessionID, codexHome: codexHome)
             switch refreshedReport.lock.state {
             case .unavailable:
-                throw CLIError(message: Self.codexWriterUnavailableMessage(
-                    sessionID: sessionID,
-                    lockPath: refreshedReport.lock.lockPath
-                ))
+                throw CLIError(message: Self.codexWriterUnavailableMessage())
             case .available:
-                throw CLIError(message: String.localizedStringWithFormat(
-                    String(localized: "cli.codex.writer.recovery.notBlocked", defaultValue: "Codex thread %@ is not currently blocked by an active local writer lock."),
-                    sessionID
-                ))
+                throw CLIError(message: String(localized: "cli.codex.writer.recovery.notBlocked", defaultValue: "This session is not blocked by another local session. Try resuming again."))
             case .active:
-                throw CLIError(message: Self.codexWriterReportMessage(
-                    sessionID: sessionID,
-                    report: refreshedReport
-                ))
+                throw CLIError(message: Self.codexWriterReportMessage(report: refreshedReport))
             }
         }
-        print(String.localizedStringWithFormat(
-            String(localized: "cli.codex.writer.recovery.signalled", defaultValue: "Sent SIGTERM to orphaned Codex app-server PID %d for thread %@. Retry resume after it exits."),
-            orphan.pid,
-            sessionID
-        ))
+        print(String(localized: "cli.codex.writer.recovery.signalled", defaultValue: "cmux asked the abandoned background process to stop. Wait for it to exit, then try resuming again."))
     }
 
     func guardCodexWriterBeforeResume(
@@ -108,55 +92,24 @@ extension CMUXCLI {
         let report = CodexWriterRecovery(temporaryDirectory: FileManager.default.temporaryDirectory)
             .inspect(sessionID: sessionID, codexHome: codexHome)
         guard report.lock.state == CodexWriterLockInspection.State.active else { return }
-        cliWriteStderr(Self.codexWriterReportMessage(sessionID: sessionID, report: report) + "\n")
+        cliWriteStderr(Self.codexWriterReportMessage(report: report) + "\n")
     }
 
     static func codexWriterRecoveryUsage() -> String {
-        String(localized: "cli.codex.writer.recovery.usageWithHome", defaultValue: "Usage: cmux codex-teams recover <thread-id> [--codex-home <path>] [--yes]\n\nInspect the local Codex writer lock and, with --yes, terminate only a holder proven to be an orphaned app-server.")
+        String(localized: "cli.codex.writer.recovery.usageWithHome", defaultValue: "Usage: cmux codex-teams recover <thread-id> [--codex-home <path>] [--yes]\n\nCheck whether a local session can be recovered. Use the thread ID of the session you want to resume. If it uses a custom storage location, pass that same absolute path with --codex-home. With --yes, stop a blocking background process only after confirming it has no active session or connected clients.")
     }
 
-    static func codexWriterUnavailableMessage(sessionID: String, lockPath: String) -> String {
-        String.localizedStringWithFormat(
-            String(localized: "cli.codex.writer.recovery.unavailable", defaultValue: "cmux could not safely inspect the Codex writer lock for thread %@. No process was started or terminated. Lock: %@"),
-            sessionID,
-            lockPath
-        )
+    static func codexWriterUnavailableMessage() -> String {
+        String(localized: "cli.codex.writer.recovery.unavailable", defaultValue: "cmux could not safely check this session. Nothing was changed. Try again.")
     }
 
-    static func codexWriterReportMessage(sessionID: String, report: CodexWriterRecoveryReport) -> String {
-        let lock = report.lock.lockPath
+    static func codexWriterReportMessage(report: CodexWriterRecoveryReport) -> String {
         if let holder = report.orphanedHolder,
            let assessment = report.assessments.first(where: { $0.holder.pid == holder.pid }),
            assessment.classification == .orphanedAppServer {
-            return String.localizedStringWithFormat(
-                String(localized: "cli.codex.writer.recovery.orphanedWithHome", defaultValue: "Codex thread %@ is blocked by an orphaned app-server (PID %d, parent PID %d, executable %@). Run `cmux codex-teams recover %@ --codex-home %@ --yes`, then retry resume. Lock: %@"),
-                sessionID,
-                holder.pid,
-                holder.parentPID,
-                holder.validatedExecutableName
-                    ?? String(localized: "cli.codex.writer.recovery.unknownExecutable", defaultValue: "unidentified process"),
-                sessionID,
-                "'" + report.lock.codexHome.replacingOccurrences(of: "'", with: "'\\''") + "'",
-                lock
-            )
+            return String(localized: "cli.codex.writer.recovery.orphanedWithHome", defaultValue: "An abandoned background process is blocking this session. Run `cmux codex-teams recover --help` for recovery instructions, then try resuming again.")
         }
-        let ownerText = report.holders.map {
-            String.localizedStringWithFormat(
-                String(localized: "cli.codex.writer.recovery.owner", defaultValue: "PID %d, parent PID %d, executable %@"),
-                $0.pid,
-                $0.parentPID,
-                $0.validatedExecutableName
-                    ?? String(localized: "cli.codex.writer.recovery.unknownExecutable", defaultValue: "unidentified process")
-            )
-        }.joined(separator: String(localized: "cli.codex.writer.recovery.ownerSeparator", defaultValue: "; "))
-        return String.localizedStringWithFormat(
-            String(localized: "cli.codex.writer.recovery.active", defaultValue: "Codex thread %@ already has an active writer (%@). Continue in the owning Codex session, then retry. cmux will not terminate it. Lock: %@"),
-            sessionID,
-            ownerText.isEmpty
-                ? String(localized: "cli.codex.writer.recovery.unknownHolder", defaultValue: "unknown holder")
-                : ownerText,
-            lock
-        )
+        return String(localized: "cli.codex.writer.recovery.active", defaultValue: "This session is already in use. Continue in its current terminal, or close it there and try resuming again. cmux will not stop it.")
     }
 
     static func codexWriterReportMessage(
@@ -166,6 +119,6 @@ extension CMUXCLI {
         let report = CodexWriterRecovery(temporaryDirectory: FileManager.default.temporaryDirectory)
             .inspect(sessionID: sessionID, codexHome: codexHome)
         guard report.lock.state == CodexWriterLockInspection.State.active else { return nil }
-        return Self.codexWriterReportMessage(sessionID: sessionID, report: report)
+        return Self.codexWriterReportMessage(report: report)
     }
 }
