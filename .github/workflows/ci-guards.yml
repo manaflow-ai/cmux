@@ -73,6 +73,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_app_host_guard_structure.py
 
+      - name: Validate canonical compile cache build root
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_canonical_build_root.py
+
       - name: Validate release guard structure
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_release_guard_structure.py

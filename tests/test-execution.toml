@@ -877,3 +877,7 @@ lane = "legacy"
 [[test]]
 path = "tests/test_workspace_churn_up_arrow_lag.py"
 lane = "legacy"
+
+[[test]]
+path = "tests/test_ci_canonical_build_root.py"
+lane = "linux-guard"
