@@ -682,6 +682,11 @@ path = "tests/test_codex_feed_hooks.py"
 lane = "legacy"
 
 [[test]]
+path = "tests/test_codex_monitor_memory.py"
+lane = "legacy"
+reason = "existing built-CLI memory regression; execution placement stays unchanged in this registry migration"
+
+[[test]]
 path = "tests/test_codex_wrapper_hook_append.py"
 lane = "legacy"
 
@@ -772,6 +777,11 @@ lane = "legacy"
 [[test]]
 path = "tests/test_plain_text_paste_worker.py"
 lane = "legacy"
+
+[[test]]
+path = "tests/test_prune_nightly_release_assets.py"
+lane = "legacy"
+reason = "existing release-maintenance regression; execution placement stays unchanged in this registry migration"
 
 [[test]]
 path = "tests/test_r2_upload_requests.py"
