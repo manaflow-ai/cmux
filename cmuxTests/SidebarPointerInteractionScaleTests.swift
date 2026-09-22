@@ -2,6 +2,7 @@ import AppKit
 import CmuxSidebar
 import CmuxNotifications
 import CoreGraphics
+import Darwin
 import OSLog
 import Testing
 #if canImport(cmux_DEV)
@@ -286,5 +287,309 @@ final class SidebarOverflowingScrollStatusChurnTests {
             did not converge and is still feeding lazy layout back into view state.
             """
         )
+    }
+}
+
+
+/// Deterministic regression harness for #8373. The suite keeps the legacy
+/// SwiftUI workspace list selected (via SidebarLazyLayoutScaleTests.mountSidebar)
+/// because that is the implementation whose LazyVStack/ForEach graph appears in
+/// the reporter's stack. The production default is AppKit; this remains as a
+/// guard on the fallback and on the identity/snapshot ownership contract.
+@Suite(.serialized)
+final class SidebarIssue8373StressTests {
+    private static let startingWorkspaceCount = 160
+    private static let stressIterations = 48
+    private static let simultaneousContentTargets = 8
+
+    @MainActor
+    private static func renderIDs(_ manager: TabManager) -> [SidebarWorkspaceRenderItemID] {
+        let groups = manager.workspaceGroups
+        let groupsById = Dictionary(uniqueKeysWithValues: groups.map { ($0.id, $0) })
+        let membership = SidebarWorkspaceRenderItem.effectiveGroupIdByWorkspaceId(
+            tabs: manager.tabs,
+            groupsById: groupsById
+        )
+        return SidebarWorkspaceRenderItem.renderItems(
+            tabs: manager.tabs,
+            groupsById: groupsById,
+            orderedGroups: groups,
+            effectiveMembership: membership
+        ).map(\.id)
+    }
+
+    private static func scrollWheelEvent(
+        deltaY: Int32,
+        phase: Int64,
+        at pointInWindow: NSPoint,
+        window: NSWindow
+    ) throws -> NSEvent {
+        let event = try #require(CGEvent(
+            scrollWheelEvent2Source: nil,
+            units: .pixel,
+            wheelCount: 1,
+            wheel1: deltaY,
+            wheel2: 0,
+            wheel3: 0
+        ))
+        event.location = window.convertPoint(toScreen: pointInWindow)
+        event.setIntegerValueField(.scrollWheelEventIsContinuous, value: 1)
+        event.setIntegerValueField(.scrollWheelEventScrollPhase, value: phase)
+        return try #require(NSEvent(cgEvent: event))
+    }
+
+    private static func peakResidentBytes() -> Int64 {
+        var usage = rusage()
+        guard getrusage(RUSAGE_SELF, &usage) == 0 else { return 0 }
+        // Darwin reports ru_maxrss in bytes.
+        return Int64(usage.ru_maxrss)
+    }
+
+    @Test(.timeLimit(.minutes(2)))
+    @MainActor
+    func groupedScrollMutationStormKeepsIdentityStableAndConverges() async throws {
+        let harness = try await SidebarLazyLayoutScaleTests.mountSidebar(
+            workspaceCount: Self.startingWorkspaceCount
+        )
+        defer {
+            SidebarWorkspaceRenderItemDiagnostics.reset()
+            harness.tearDown()
+        }
+
+        // Expand the fixture from five groups to twenty-five. The first 20
+        // workspaces were grouped by mountSidebar; group another 80 in fixed
+        // chunks so collapse/expand and reorder repeatedly alter visible rows.
+        let additionalGroupCandidates = Array(harness.tabManager.tabs.dropFirst(20).prefix(80).map(\.id))
+        for start in stride(from: 0, to: additionalGroupCandidates.count, by: 4) {
+            let end = min(start + 4, additionalGroupCandidates.count)
+            _ = harness.tabManager.createWorkspaceGroup(
+                name: "Issue 8373 Group \(start / 4 + 5)",
+                childWorkspaceIds: Array(additionalGroupCandidates[start..<end]),
+                selectAnchor: false,
+                collapseSidebarSelection: false
+            )
+        }
+        await SidebarLazyLayoutScaleTests.drainMainRunLoop(for: harness.window, iterations: 30)
+
+        let rootView = try #require(harness.window.contentView)
+        let scrollView = try #require(SidebarLazyLayoutScaleTests.firstScrollView(in: rootView))
+        let eventPoint = scrollView.convert(
+            NSPoint(x: scrollView.bounds.midX, y: scrollView.bounds.midY),
+            to: nil
+        )
+        let groupIds = harness.tabManager.workspaceGroups.map(\.id)
+        #expect(
+            groupIds.count >= 20,
+            "The #8373 fixture needs many grouped runs; only \(groupIds.count) groups were created."
+        )
+
+        // Keep content churn on stable, ungrouped workspaces. Insert/remove
+        // operations use separate workspaces so a content-only phase can prove
+        // the ForEach identity sequence stays byte-for-byte identical.
+        let contentTargets = Array(
+            harness.tabManager.tabs
+                .filter { $0.groupId == nil }
+                .suffix(Self.simultaneousContentTargets)
+        )
+        #expect(contentTargets.count == Self.simultaneousContentTargets)
+
+        var idReads = 0
+        SidebarWorkspaceRenderItemDiagnostics.onIDRead = { _ in idReads += 1 }
+        harness.counter.reset()
+        let peakResidentBefore = Self.peakResidentBytes()
+        let logStart = Date()
+        var insertedWorkspaces: [Workspace] = []
+
+        for iteration in 0..<Self.stressIterations {
+            let idsBeforeContentMutation = Self.renderIDs(harness.tabManager)
+            #expect(Set(idsBeforeContentMutation).count == idsBeforeContentMutation.count)
+
+            // One main-actor turn publishes title and status changes from eight
+            // independent workspaces before the run loop is drained. This is
+            // the concurrent publisher burst that used to replace row-owned
+            // snapshots while LazySubviewPlacements/ForEachState was walking
+            // the same live Workspace objects.
+            for (offset, workspace) in contentTargets.enumerated() {
+                let longTitle = "issue-8373 \(iteration)-\(offset) "
+                    + String(repeating: "layout ", count: 10 + (offset % 3))
+                _ = workspace.setCustomTitle(
+                    iteration.isMultiple(of: 2) ? longTitle : "issue-8373 \(iteration)-\(offset)"
+                )
+                let key = "issue-8373.status"
+                if iteration.isMultiple(of: 2) {
+                    workspace.statusEntries[key] = SidebarStatusEntry(
+                        key: key,
+                        value: "status \(iteration)-\(offset) " + String(repeating: "x", count: 24),
+                        icon: "bolt.fill"
+                    )
+                } else {
+                    workspace.statusEntries.removeValue(forKey: key)
+                }
+            }
+
+            // Sawtooth through the entire document, then deliver one continuous
+            // wheel event so each cycle crosses lazy realization/retirement
+            // boundaries while the content burst is pending.
+            let documentHeight = scrollView.documentView?.bounds.height ?? 0
+            let maximumOffset = max(0, documentHeight - scrollView.contentView.bounds.height)
+            let fraction = CGFloat(iteration % 12) / 11
+            let requestedOffset = iteration.isMultiple(of: 2)
+                ? maximumOffset * fraction
+                : maximumOffset * (1 - fraction)
+            scrollView.contentView.scroll(to: NSPoint(x: 0, y: requestedOffset))
+            scrollView.reflectScrolledClipView(scrollView.contentView)
+
+            let scrollPhase: Int64
+            switch iteration % 12 {
+            case 0: scrollPhase = 1
+            case 11: scrollPhase = 4
+            default: scrollPhase = 2
+            }
+            scrollView.scrollWheel(with: try Self.scrollWheelEvent(
+                deltaY: iteration.isMultiple(of: 2) ? -64 : 64,
+                phase: scrollPhase,
+                at: eventPoint,
+                window: harness.window
+            ))
+
+            await SidebarLazyLayoutScaleTests.drainMainRunLoop(for: harness.window, iterations: 2)
+
+            // Title/status changes may alter row height and contents; they must
+            // never alter identity. This specifically audits the id key path
+            // visible in the #8373 ForEach.IDGenerator/ForEachState stacks.
+            let idsAfterContentMutation = Self.renderIDs(harness.tabManager)
+            #expect(
+                idsAfterContentMutation == idsBeforeContentMutation,
+                "Content-only churn changed the sidebar ForEach identity sequence at iteration \(iteration)."
+            )
+            #expect(Set(idsAfterContentMutation).count == idsAfterContentMutation.count)
+
+            // Apply one deterministic structural mutation after the content-only
+            // identity checkpoint. These changes exercise legitimate collection
+            // diffs without mixing them into the identity-stability assertion.
+            let groupId = groupIds[iteration % groupIds.count]
+            harness.tabManager.toggleWorkspaceGroupCollapsed(groupId: groupId)
+
+            if iteration.isMultiple(of: 3) {
+                harness.tabManager.moveWorkspaceGroup(
+                    groupId: groupId,
+                    toIndex: (iteration * 7) % groupIds.count
+                )
+            }
+
+            if iteration.isMultiple(of: 4) {
+                let workspace = harness.tabManager.addWorkspace(
+                    title: "issue-8373 inserted \(iteration)",
+                    select: false,
+                    autoWelcomeIfNeeded: false,
+                    autoRefreshMetadata: false
+                )
+                insertedWorkspaces.append(workspace)
+            } else if iteration % 4 == 2, !insertedWorkspaces.isEmpty {
+                let workspace = insertedWorkspaces.removeFirst()
+                harness.tabManager.closeWorkspace(workspace, recordHistory: false)
+            }
+
+            if iteration % 3 == 1,
+               let reorderTarget = harness.tabManager.tabs.reversed().first(where: {
+                   $0.groupId == nil && !contentTargets.contains(where: { $0.id == $0.id })
+               }) {
+                _ = harness.tabManager.reorderWorkspace(
+                    tabId: reorderTarget.id,
+                    toIndex: max(0, harness.tabManager.tabs.count - 2),
+                    isDragOperation: true
+                )
+            }
+
+            await SidebarLazyLayoutScaleTests.drainMainRunLoop(for: harness.window, iterations: 2)
+
+            let structuralIDs = Self.renderIDs(harness.tabManager)
+            #expect(
+                Set(structuralIDs).count == structuralIDs.count,
+                "Duplicate sidebar identity appeared after structural mutation at iteration \(iteration)."
+            )
+        }
+
+        await SidebarLazyLayoutScaleTests.drainMainRunLoop(for: harness.window, iterations: 40)
+
+        let stressSnapshotBuilds = harness.counter.workspaceSnapshotBuilds
+        let stressRowInputProjections = harness.counter.workspaceRowInputProjections
+        let stressWorkspaceBodies = harness.counter.workspaceRowBodies
+        let stressGroupBodies = harness.counter.groupHeaderBodies
+        let stressMaxSnapshotsInsideOneRowBody = harness.counter.maxSnapshotBuildsInOneRowBody
+        let peakResidentAfter = Self.peakResidentBytes()
+        let residentGrowth = max(0, peakResidentAfter - peakResidentBefore)
+
+        let faultMessages = try SidebarLazyLayoutScaleTests.viewUpdateFaultMessages(since: logStart)
+        #expect(
+            faultMessages.isEmpty,
+            """
+            #8373 stress emitted \(faultMessages.count) view-update/reentrant-layout faults:
+            \(faultMessages.joined(separator: "\n"))
+            """
+        )
+
+        // This is the deterministic pre-fix red edge. In 0.64.19 TabItemView
+        // built/read its live Workspace snapshot inside the lazy row body and
+        // subscribed from row lifecycle. #8211 moved that projection above
+        // LazyVStack; the exact workload must therefore record zero row-owned
+        // snapshot builds.
+        #expect(
+            stressMaxSnapshotsInsideOneRowBody == 0,
+            """
+            A lazy row built \(stressMaxSnapshotsInsideOneRowBody) workspace snapshot(s) in one body pass.
+            The parent snapshot boundary regressed toward the 0.64.19 #8373 ownership path.
+            """
+        )
+
+        // Generous ceilings turn a self-sustaining diff/layout loop into a
+        // bounded failure while allowing normal whole-list projections caused
+        // by legitimate reorder/insert/remove operations.
+        #expect(idReads < 250_000, "#8373 stress performed \(idReads) ForEach identity reads.")
+        #expect(
+            stressSnapshotBuilds < 25_000,
+            "#8373 stress built \(stressSnapshotBuilds) workspace snapshots."
+        )
+        #expect(
+            stressRowInputProjections < 250_000,
+            "#8373 stress projected \(stressRowInputProjections) row inputs."
+        )
+        #expect(
+            stressWorkspaceBodies + stressGroupBodies < 12_000,
+            """
+            #8373 stress evaluated \(stressWorkspaceBodies) workspace and \(stressGroupBodies) group row bodies.
+            Row replacement/layout churn exceeded the bounded contract.
+            """
+        )
+        if peakResidentBefore > 0, peakResidentAfter > 0 {
+            #expect(
+                residentGrowth < 768 * 1024 * 1024,
+                """
+                #8373 stress grew peak RSS by \(residentGrowth / (1024 * 1024)) MiB.
+                The historical failure grew by gigabytes; this workload must remain bounded.
+                """
+            )
+        }
+
+        print(
+            "ISSUE_8373_STRESS "
+                + "id_reads=\(idReads) "
+                + "snapshot_builds=\(stressSnapshotBuilds) "
+                + "row_input_projections=\(stressRowInputProjections) "
+                + "workspace_row_bodies=\(stressWorkspaceBodies) "
+                + "group_row_bodies=\(stressGroupBodies) "
+                + "max_row_owned_snapshots=\(stressMaxSnapshotsInsideOneRowBody) "
+                + "peak_rss_growth_mib=\(residentGrowth / (1024 * 1024))"
+        )
+
+        // After all input stops, the same hosted list must go quiet. A
+        // LazySubviewPlacements/SubgraphList loop keeps evaluating rows here.
+        harness.counter.reset()
+        let idReadsBeforeQuietDrain = idReads
+        await SidebarLazyLayoutScaleTests.drainMainRunLoop(for: harness.window, iterations: 40)
+        let quietBodies = harness.counter.workspaceRowBodies + harness.counter.groupHeaderBodies
+        let quietIDReads = idReads - idReadsBeforeQuietDrain
+        #expect(quietBodies < 20, "#8373 sidebar kept evaluating \(quietBodies) rows after input stopped.")
+        #expect(quietIDReads < 5_000, "#8373 sidebar kept evaluating \(quietIDReads) row IDs after input stopped.")
     }
 }
