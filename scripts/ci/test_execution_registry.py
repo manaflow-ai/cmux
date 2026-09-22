@@ -8,11 +8,21 @@ from typing import Optional
 
 
 def load_registry(path: Path) -> list[dict[str, object]]:
+    return parse_registry(path.read_text(encoding="utf-8"), str(path))
+
+
+def parse_registry(text: str, label: str) -> list[dict[str, object]]:
+    """Parse registry text. `label` names the source in error messages.
+
+    The validator reads the base branch's registry through `git show`, which
+    has no path on disk, so parsing is separate from reading.
+    """
     version: object = None
     tests: list[dict[str, object]] = []
     current: Optional[dict[str, object]] = None
+    path = label
 
-    for line_number, raw_line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
+    for line_number, raw_line in enumerate(text.splitlines(), start=1):
         line = raw_line.strip()
         if not line or line.startswith("#"):
             continue
