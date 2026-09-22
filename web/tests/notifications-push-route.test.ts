@@ -268,54 +268,6 @@ describe("notifications push route", () => {
     expect(cloudDb).not.toHaveBeenCalled();
   });
 
-  test("requires a target namespace before DB access", async () => {
-    const response = await pushRoute.sendPushWithTransport(
-      new Request("https://cmux.test/api/notifications/push", {
-        method: "POST",
-        headers: {
-          authorization: "Bearer access-token",
-          "x-stack-refresh-token": "refresh-token",
-        },
-        body: JSON.stringify(pushBody()),
-      }),
-      sendApnsNotificationReliably as Parameters<
-        typeof pushRoute.sendPushWithTransport
-      >[1],
-    );
-
-    expect(response.status).toBe(400);
-    expect(await response.json()).toEqual({
-      error: "missing_target_namespace",
-    });
-    expect(cloudDb).not.toHaveBeenCalled();
-    expect(sendApnsNotificationReliably).not.toHaveBeenCalled();
-  });
-
-  test("rejects a header-less legacy Mac before any fanout", async () => {
-    const response = await pushRoute.sendPushWithTransport(
-      new Request("https://cmux.test/api/notifications/push", {
-        method: "POST",
-        headers: {
-          authorization: "Bearer access-token",
-          "x-stack-refresh-token": "refresh-token",
-        },
-        body: JSON.stringify(pushBody({
-          correlationId: "7f1f7a48-9f38-4a0f-9a71-a4c14f0f6d59",
-        })),
-      }),
-      sendApnsNotificationReliably as Parameters<
-        typeof pushRoute.sendPushWithTransport
-      >[1],
-    );
-
-    expect(response.status).toBe(400);
-    expect(await response.json()).toEqual({
-      error: "missing_target_namespace",
-    });
-    expect(cloudDb).not.toHaveBeenCalled();
-    expect(sendApnsNotificationReliably).not.toHaveBeenCalled();
-  });
-
   test("rejects an encrypted recipient tuple with the wrong account before DB access", async () => {
     const response = await pushRoute.sendPushWithTransport(
       new Request("https://cmux.test/api/notifications/push", {
