@@ -365,39 +365,39 @@ jobs:
                 release_only=false
                 if [ "$macos_workflow_changed" = true ] && [ "$other_full_guard_matrix" = false ]; then
                   if python3 - <<'PY'
-import re
-import subprocess
-from pathlib import Path
+          import re
+          import subprocess
+          from pathlib import Path
 
-def jobs(text: str) -> dict[str, str]:
-    _, marker, body = text.partition("\njobs:\n")
-    if not marker:
-        raise SystemExit(2)
-    result = {}
-    for block in re.split(r"(?m)^  (?=[A-Za-z0-9_-]+:\s*$)", body):
-        if not block.strip():
-            continue
-        name = block.partition(":")[0]
-        if not re.fullmatch(r"[A-Za-z0-9_-]+", name) or name in result:
-            raise SystemExit(2)
-        result[name] = block
-    return result
+          def jobs(text: str) -> dict[str, str]:
+              _, marker, body = text.partition("\njobs:\n")
+              if not marker:
+                  raise SystemExit(2)
+              result = {}
+              for block in re.split(r"(?m)^  (?=[A-Za-z0-9_-]+:\s*$)", body):
+                  if not block.strip():
+                      continue
+                  name = block.partition(":")[0]
+                  if not re.fullmatch(r"[A-Za-z0-9_-]+", name) or name in result:
+                      raise SystemExit(2)
+                  result[name] = block
+              return result
 
-base = subprocess.check_output(
-    ["git", "show", "HEAD^1:.github/workflows/ci-macos.yml"],
-    text=True,
-)
-head = Path(".github/workflows/ci-macos.yml").read_text(encoding="utf-8")
-base_jobs = jobs(base)
-head_jobs = jobs(head)
-changed = {
-    name
-    for name in base_jobs.keys() | head_jobs.keys()
-    if base_jobs.get(name) != head_jobs.get(name)
-}
-release_only_jobs = {"release-admission", "release-build", "macos-status"}
-raise SystemExit(0 if changed and changed <= release_only_jobs else 1)
-PY
+          base = subprocess.check_output(
+              ["git", "show", "HEAD^1:.github/workflows/ci-macos.yml"],
+              text=True,
+          )
+          head = Path(".github/workflows/ci-macos.yml").read_text(encoding="utf-8")
+          base_jobs = jobs(base)
+          head_jobs = jobs(head)
+          changed = {
+              name
+              for name in base_jobs.keys() | head_jobs.keys()
+              if base_jobs.get(name) != head_jobs.get(name)
+          }
+          release_only_jobs = {"release-admission", "release-build", "macos-status"}
+          raise SystemExit(0 if changed and changed <= release_only_jobs else 1)
+          PY
                   then
                     release_only=true
                   fi
