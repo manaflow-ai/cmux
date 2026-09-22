@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Census failed app-host tests across GitHub Actions logs."""
 import argparse
+import functools
 import json
 import re
 import subprocess
@@ -118,8 +119,24 @@ def read_log_dir(directory, explicit_run_id=None):
     return records
 
 
+@functools.lru_cache(maxsize=1)
+def _gh_api_escape_flag():
+    """`gh api` refuses to print job logs containing terminal escape sequences
+    unless asked. The flag arrived in gh 2.75; fall back to bare `gh api` so an
+    older CLI keeps working (it only fails on logs that contain escapes)."""
+    try:
+        help_text = subprocess.run(
+            ["gh", "api", "--help"], capture_output=True, text=True, check=False
+        ).stdout
+    except OSError:
+        return []
+    return ["--allow-escape-sequences"] if "--allow-escape-sequences" in help_text else []
+
+
 def _gh_api(endpoint):
-    return subprocess.check_output(["gh", "api", endpoint], text=True)
+    return subprocess.check_output(
+        ["gh", "api", *_gh_api_escape_flag(), endpoint], text=True
+    )
 
 
 def download_runs(run_ids):
