@@ -7,6 +7,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
 BENCH = ROOT / "scripts" / "benchmark-dev-fleet-warm-slots.py"
@@ -67,6 +68,21 @@ class BenchmarkTest(unittest.TestCase):
         finally:
             os.close(read_fd)
             os.close(write_fd)
+
+    def test_benchmark_helpers_request_disk_measurement(self):
+        helper = self.root / "helper.py"
+        state = self.root / "state"
+        checkout = self.repo
+
+        with mock.patch.object(bench, "run_helper", return_value={"status": "ok"}) as run:
+            bench.warm(helper, state, checkout, "slot", self.main, [])
+        warm_argv = run.call_args.args[1]
+        self.assertIn("--measure-disk", warm_argv)
+
+        with mock.patch.object(bench, "run_helper", return_value={"status": "ok"}) as run:
+            bench.task(helper, state, checkout, "slot", self.main, "task", [])
+        task_argv = run.call_args.args[1]
+        self.assertIn("--measure-disk", task_argv)
 
     def test_event_report_exposes_trial_metrics(self):
         path = self.root / "events.jsonl"
