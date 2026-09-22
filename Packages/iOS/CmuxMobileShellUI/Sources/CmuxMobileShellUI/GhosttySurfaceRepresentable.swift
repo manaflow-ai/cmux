@@ -1082,12 +1082,16 @@ struct GhosttySurfaceRepresentable: UIViewControllerRepresentable {
                   terminalPresentationIsActive,
                   surfaceView.window != nil else { return }
 
-            let ownsCurrentStream = outputConsumerOwnerID.map {
-                store?.isTerminalOutputConsumerOwner(
+            let ownsCurrentStream: Bool
+            if let ownerID = outputConsumerOwnerID,
+               let store {
+                ownsCurrentStream = store.isTerminalOutputConsumerOwner(
                     surfaceID: surfaceID,
-                    ownerID: $0
+                    ownerID: ownerID
                 )
-            } ?? false
+            } else {
+                ownsCurrentStream = false
+            }
             guard outputTask == nil || !ownsCurrentStream else { return }
 
             // Backgrounding can cancel the AsyncStream task without UIKit
