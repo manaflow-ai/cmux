@@ -1,3 +1,4 @@
+@testable import CmuxComputerUse
 import Foundation
 import Testing
 
@@ -65,7 +66,8 @@ struct HostSettingsShortcutNotificationTests {
         try updatedContents.write(to: settingsFileURL, atomically: true, encoding: .utf8)
         HostSettingsActions(
             configFileURL: settingsFileURL,
-            computerUseRuntimeService: ComputerUseRuntimeService()
+            computerUseRuntimeService: ComputerUseRuntimeService(),
+            runComputerUseOnboardingAction: { _ in }
         ).notifyShortcutSettingsDidChange()
 
         #expect(counter.value == expectedNotificationCount)

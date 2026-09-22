@@ -46,10 +46,12 @@ function fakeFreestyle(input: { readonly probeExit: number; readonly guestCliExi
   const execs: string[] = [];
   const writes: Array<{ path: string; content: string }> = [];
   const deletes: string[] = [];
+  let guestCliProbeSeen = false;
   const vm = {
     exec: async ({ command }: { command: string }) => {
       execs.push(command);
-      const statusCode = command.includes("sha256sum") ? (input.guestCliExit ?? 0)
+      const statusCode = command.includes("sha256sum") && !guestCliProbeSeen
+        ? (guestCliProbeSeen = true, input.guestCliExit ?? 0)
         : command.includes("/api/coderouter/vm-usage/self") ? input.probeExit : 0;
       return { statusCode, stdout: "", stderr: statusCode === 0 ? "" : "probe failed" };
     },
@@ -100,10 +102,9 @@ describe("FreestyleProvider transport contract", () => {
     expect(typeof provider.approveCmuxRemoteEnrollment).toBe("function");
   });
 
-  test("openAttach/openSSH are structurally absent, not throwing stubs", () => {
-    // Capability derivation reads method presence; the gateway maps an absent
-    // method to VmOperationUnsupportedError (501), so a throwing stub would
-    // only turn an honest 501 into a retryable-looking 502.
+  test("legacy attach and public SSH remain unavailable", () => {
+    // SSH is an explicit legacy attach verb. It must not become the default
+    // transport advertised for cmux-tui machines.
     const provider: VMProvider = new FreestyleProvider();
     expect(provider.openAttach).toBeUndefined();
     expect(provider.openSSH).toBeUndefined();
@@ -205,6 +206,19 @@ describe("Freestyle platform contract", () => {
     expect(freestyleNetworkAddressMetadata({ publicIpv6: "2602::1" })).toEqual({});
   });
 
+  test("network metadata drops malformed provider addresses before publication", () => {
+    expect(
+      freestyleNetworkAddressMetadata({
+        vpcs: [{ ipv4: "not-an-ip", ipv6: "fd60:1e5e:6720::3" }],
+      }),
+    ).toEqual({ networkIpv6: "fd60:1e5e:6720::3" });
+    expect(
+      freestyleNetworkAddressMetadata({
+        vpcs: [{ ipv4: "not-an-ip", ipv6: "also-not-an-ip" }],
+      }),
+    ).toEqual({});
+  });
+
   test("cmux-remote route prefers the private VPC address and never falls back from it", () => {
     // On a VPC: the private address wins even when a public address exists,
     // because a VPC machine has no public inbound rule. v4 is preferred within
@@ -302,10 +316,10 @@ describe("Freestyle platform contract", () => {
     const fake = fakeFreestyle({ probeExit: 0 });
     const result = await providerWith(fake).exec(VM_ID, "echo hi", { timeoutMs: 5_000 });
     expect(result.exitCode).toBe(0);
-    expect(fake.execs).toHaveLength(2);
+    expect(fake.execs).toHaveLength(3);
     const command = fake.execs[0] ?? "";
     expect(command).toContain(`sha256sum '${GUEST_CMUX_SHIM_PATH}'`);
-    expect(fake.execs[1]).toBe("echo hi");
+    expect(fake.execs[2]).toBe("echo hi");
     expect(fake.writes).toHaveLength(0);
     expect(command).not.toContain("crt_");
   });
@@ -316,7 +330,7 @@ describe("Freestyle platform contract", () => {
     expect(result.exitCode).toBe(0);
     expect(fake.writes).toHaveLength(1);
     expect(fake.writes[0]?.content).toBe(GUEST_CMUX_SHIM);
-    expect(fake.execs[1]).toContain(`mv -f`);
+    expect(fake.execs.some(command => command.includes("mv -f"))).toBe(true);
     expect(fake.execs.at(-1)).toBe("cmux self --json");
   });
 
@@ -444,10 +458,10 @@ describe("FreestyleProvider create with edge rules", () => {
     // adapter itself is safe to write because it contains no issued token.
     expect(JSON.stringify(fake.execs)).not.toContain("crt_");
     expect(fake.writes).toHaveLength(1);
-    expect(fake.writes[0]?.path).toMatch(/^\/usr\/local\/bin\/cmux\.tmp-[0-9a-f]{24}$/);
+    expect(fake.writes[0]?.path).toMatch(/^\/usr\/local\/libexec\/cmux-cloud-adapter\.tmp-[0-9a-f]{24}$/);
     expect(fake.writes[0]?.content).toContain("cmux auth status");
     expect(fake.writes[0]?.content).not.toContain("crt_secret-token");
-    expect(fake.execs.some((command) => command.includes("mv -f") && command.includes("/usr/local/bin/cmux'"))).toBe(true);
+    expect(fake.execs.some((command) => command.includes("mv -f") && command.includes("/usr/local/libexec/cmux-cloud-adapter'"))).toBe(true);
     expect(fake.execs.some((command) => command.includes("/api/coderouter/vm-usage/self"))).toBe(false);
     expect(fake.deletes).toEqual([]);
   });
@@ -466,8 +480,8 @@ describe("FreestyleProvider create with edge rules", () => {
     });
     expect(handle.providerMetadata).toMatchObject({ networkId: "vpc_1" });
     expect(fake.writes).toHaveLength(1);
-    expect(fake.writes[0]?.path).toMatch(/^\/usr\/local\/bin\/cmux\.tmp-[0-9a-f]{24}$/);
-    expect(fake.execs.some((command) => command.includes("mv -f") && command.includes("/usr/local/bin/cmux'"))).toBe(true);
+    expect(fake.writes[0]?.path).toMatch(/^\/usr\/local\/libexec\/cmux-cloud-adapter\.tmp-[0-9a-f]{24}$/);
+    expect(fake.execs.some((command) => command.includes("mv -f") && command.includes("/usr/local/libexec/cmux-cloud-adapter'"))).toBe(true);
     expect(fake.writes[0]?.content).not.toContain("crt_secret-token");
     expect(handle.providerMetadata).toMatchObject({
       networkId: "vpc_1",
@@ -485,7 +499,7 @@ describe("FreestyleProvider create with edge rules", () => {
     expect(fake.creates[0]).not.toHaveProperty("tls");
     expect(fake.execs.some((command) => command.includes("/api/coderouter/vm-usage/self"))).toBe(false);
     expect(fake.writes).toHaveLength(1);
-    expect(fake.writes[0]?.path).toMatch(/^\/usr\/local\/bin\/cmux\.tmp-[0-9a-f]{24}$/);
+    expect(fake.writes[0]?.path).toMatch(/^\/usr\/local\/libexec\/cmux-cloud-adapter\.tmp-[0-9a-f]{24}$/);
   });
 
   test("restore passes the rule inline and installs the guest adapter", async () => {
@@ -498,9 +512,9 @@ describe("FreestyleProvider create with edge rules", () => {
       tls: { rules: freestyleEdgeRules([EDGE_RULE]) },
     });
     expect(ok.writes).toHaveLength(1);
-    expect(ok.writes[0]?.path).toMatch(/^\/usr\/local\/bin\/cmux\.tmp-[0-9a-f]{24}$/);
+    expect(ok.writes[0]?.path).toMatch(/^\/usr\/local\/libexec\/cmux-cloud-adapter\.tmp-[0-9a-f]{24}$/);
     expect(ok.writes[0]?.content).not.toContain("crt_secret-token");
-    expect(ok.execs.some((command) => command.includes("mv -f") && command.includes("/usr/local/bin/cmux'"))).toBe(true);
+    expect(ok.execs.some((command) => command.includes("mv -f") && command.includes("/usr/local/libexec/cmux-cloud-adapter'"))).toBe(true);
     expect(ok.deletes).toEqual([]);
   });
 });
@@ -960,5 +974,34 @@ describe("Freestyle port open: the private address, the desktop healed", () => {
       .rejects.toThrow(/has no desktop/);
     await expect(portFake({ data: PRIVATE, healExit: 1 }).provider.openPort(VM_ID, DEVBOX_DESKTOP_NOVNC_PORT))
       .rejects.toThrow(/did not come up on port 6901/);
+  });
+});
+
+describe("Go provider runtime ceiling", () => {
+  test("sets a lifetime cap at create so traffic cannot restart an exhausted VM", async () => {
+    const fake = fakeFreestyle({ probeExit: 0 });
+    await providerWith(fake).create({ image: "snapshot-small", runtimeBudgetSeconds: 144000,
+      imageSize: { name: "sm", cpu: 2, memoryMb: 4096, storageMb: 16384 } });
+    expect(fake.creates[0]).toMatchObject({ maxRunTotalSeconds: 144000, automaticRestart: false });
+  });
+  test("a resume adds only the remaining billing-period allowance to prior provider runtime", async () => {
+    const updates: unknown[] = [];
+    const client = { vms: { ref: () => ({ data: async () => ({ totalRunSeconds: 3600 }), update: async (value: unknown) => { updates.push(value); } }) } } as unknown as Freestyle;
+    const provider = new FreestyleProvider({ client: () => client, resolveDaemonSource: async () => { throw new Error("unused"); } });
+    await provider.setRuntimeBudget(VM_ID, 1800);
+    await provider.setRuntimeBudget(VM_ID, 0);
+    await provider.setRuntimeBudget(VM_ID, null);
+    expect(updates).toEqual([
+      { maxRunTotalSeconds: 5400, automaticRestart: false },
+      { maxRunTotalSeconds: 3600, automaticRestart: false },
+      { maxRunTotalSeconds: -1, automaticRestart: true },
+    ]);
+  });
+  test("missing provider runtime fails closed", async () => {
+    let updated = false;
+    const client = { vms: { ref: () => ({ data: async () => ({}), update: async () => { updated = true; } }) } } as unknown as Freestyle;
+    const provider = new FreestyleProvider({ client: () => client, resolveDaemonSource: async () => { throw new Error("unused"); } });
+    await expect(provider.setRuntimeBudget(VM_ID, 1800)).rejects.toThrow("setRuntimeBudget");
+    expect(updated).toBe(false);
   });
 });

@@ -58,7 +58,8 @@ final class CloudTerminalOverlayCoordinator {
         hostedView: GhosttySurfaceScrollView,
         contentFrame: CGRect,
         legacyPresentation: CloudTerminalReconnectOverlayPolicy.Presentation?,
-        onReconnect: @escaping () -> Void
+        onReconnect: @escaping () -> Void,
+        onCancel: (() -> Void)? = nil
     ) {
         let visible = anchor == nil ? hostedView.isVisibleInUI : anchorVisible
         let presented: Bool
@@ -78,19 +79,45 @@ final class CloudTerminalOverlayCoordinator {
         }
 
         let destination: NSView = presented ? hostedView : ((anchor as NSView?) ?? hostedView)
-        let dismissalID = hostedView.surfaceView.terminalSurface.map {
-            "cloud.remote-reconnect.\($0.id.uuidString)"
+        let deviceStatus = hostedView.surfaceView.terminalSurface.flatMap { surface in
+            surface.owningWorkspace()?.terminalPanel(for: surface.id)?.deviceAttachment
         }
+        let dismissalID = deviceStatus == nil ? hostedView.surfaceView.terminalSurface.map {
+            "cloud.remote-reconnect.\($0.id.uuidString)"
+        } : nil
+        let effectiveCancel = { [weak self] in
+            if let deviceStatus {
+                deviceStatus.dismiss()
+            } else if let onCancel {
+                onCancel()
+            } else if let session = self?.session {
+                session.cancelConnectionAttempt()
+            }
+        }
+        let dismissDevice: (() -> Void)?
+        if let deviceStatus { dismissDevice = { deviceStatus.dismiss() } }
+        else { dismissDevice = nil }
         apply(
             visible ? presentation : nil,
             in: destination,
             frame: presented ? contentFrame : destination.bounds,
             dismissalID: dismissalID,
-            onReconnect: onReconnect
+            onReconnect: onReconnect,
+            onCancel: effectiveCancel,
+            onDismiss: dismissDevice
         )
         let next: Destination = overlay == nil ? .hidden : (presented ? .terminal : .anchor)
         if next != lastDestination, let session {
             cloudTerminalPresentationLogger.notice("pane terminal=\(session.terminalID, privacy: .private(mask: .hash)) destination=\(next.rawValue, privacy: .public) bound=\(presented) phase=\(String(describing: session.phase), privacy: .public)")
+            CloudTerminalAttachmentLog(correlationID: session.attachmentCorrelationID).presentation(
+                machineID: session.machineID,
+                terminalID: session.terminalID,
+                destination: next.rawValue,
+                visible: visible,
+                presented: presented,
+                phase: session.phase,
+                hasPresentation: presentation != nil
+            )
         }
         lastDestination = next
     }
@@ -111,7 +138,9 @@ final class CloudTerminalOverlayCoordinator {
         in destination: NSView,
         frame: CGRect,
         dismissalID: String? = nil,
-        onReconnect: @escaping () -> Void
+        onReconnect: @escaping () -> Void,
+        onCancel: (() -> Void)? = nil,
+        onDismiss: (() -> Void)? = nil
     ) {
         guard let presentation else {
             overlay?.removeFromSuperview()
@@ -131,8 +160,20 @@ final class CloudTerminalOverlayCoordinator {
         card.apply(presentation)
         card.onReconnect = onReconnect
         card.onDismiss = { [weak self, weak card] in
-            guard let self, let card, let dismissalID else { return }
-            self.dismissalStore.dismiss(id: dismissalID, signature: presentation.copyableError)
+            guard let self, let card else { return }
+            if let onDismiss {
+                onDismiss()
+            } else if presentation.showsProgress {
+                if let onCancel {
+                    onCancel()
+                } else if let session = self.session {
+                    session.cancelConnectionAttempt()
+                } else if let dismissalID {
+                    self.dismissalStore.dismiss(id: dismissalID, signature: presentation.copyableError)
+                }
+            } else if let dismissalID {
+                self.dismissalStore.dismiss(id: dismissalID, signature: presentation.copyableError)
+            }
             if self.overlay === card {
                 card.removeFromSuperview()
                 self.overlay = nil

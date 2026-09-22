@@ -9,9 +9,11 @@ struct WorkspaceRemoteRelayCommandRewriter: RemoteRelayCommandRewriting {
     static let authenticationCodeKey = "_cmux_remote_relay_authentication_code"
     static let requestAuthenticationCodeKey = "_cmux_remote_relay_request_authentication_code"
     static let remoteWorkspaceIDKey = "_cmux_remote_workspace_id"
+    static let connectionIDKey = "_cmux_remote_connection_id"
 
     let remoteWorkspaceID: UUID
     let remoteRelayTokenHex: String
+    var remoteSessionControllerID: UUID? = nil
 
     func rewriteRemoteRelayCommandLine(
         _ commandLine: Data,
@@ -25,14 +27,13 @@ struct WorkspaceRemoteRelayCommandRewriter: RemoteRelayCommandRewriting {
             remoteWorkspaceID: remoteWorkspaceID
         )
         // Method classification is a trust boundary; decoded JSON honors
-        // escapes that raw bytes do not.  The legacy resume MAC is retained
-        // for its existing handler, then every JSON request receives the
-        // generic relay MAC used by the local socket authorization gate.
-        var commandLine = rewritten.commandLine
+        // escapes that raw bytes do not. Stamp the connection and generic MAC
+        // first; the resume MAC must cover that same connection provenance.
+        var commandLine = authenticatedRemoteRelayCommandLine(rewritten.commandLine)
         if rewritten.method == "surface.resume.set" {
             commandLine = authenticatedRemoteResumeCommandLine(commandLine)
         }
-        return authenticatedRemoteRelayCommandLine(commandLine)
+        return commandLine
     }
 
     static func authenticatesRemoteResumeParameters(
@@ -124,6 +125,9 @@ struct WorkspaceRemoteRelayCommandRewriter: RemoteRelayCommandRewriting {
             return commandLine
         }
         var params = request["params"] as? [String: Any] ?? [:]
+        // This is the local controller that accepted the authenticated relay,
+        // never an identifier supplied by the remote client or an alias map.
+        params[Self.connectionIDKey] = remoteSessionControllerID?.uuidString
         guard let authenticationCode = Self.requestAuthenticationCode(
             id: request["id"],
             method: method,

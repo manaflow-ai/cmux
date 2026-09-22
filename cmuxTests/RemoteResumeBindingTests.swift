@@ -305,6 +305,7 @@ struct RemoteResumeBindingTests {
 
         let workspace = try #require(manager.selectedWorkspace)
         workspace.configureRemoteConnection(remoteConfiguration(), autoConnect: false)
+        workspace.activeRemoteSessionControllerID = UUID()
         let relayToken = try #require(workspace.remoteConfiguration?.relayToken)
         let request: [String: Any] = [
             "id": "reported-tty-restore",
@@ -317,7 +318,8 @@ struct RemoteResumeBindingTests {
         ]
         let rewritten = WorkspaceRemoteRelayCommandRewriter(
             remoteWorkspaceID: workspace.id,
-            remoteRelayTokenHex: relayToken
+            remoteRelayTokenHex: relayToken,
+            remoteSessionControllerID: workspace.activeRemoteSessionControllerID
         ).rewriteRemoteRelayCommandLine(
             try requestData(request),
             workspaceAliases: [:],
@@ -557,10 +559,13 @@ struct RemoteResumeBindingTests {
         let surfaceID = try #require(workspace.focusedPanelId)
         let remoteSurfaceID = UUID()
         workspace.configureRemoteConnection(remoteConfiguration(), autoConnect: false)
+        workspace.activeRemoteSessionControllerID = UUID()
+        workspace.trackRemoteTerminalSurface(surfaceID)
         let relayToken = try #require(workspace.remoteConfiguration?.relayToken)
         let rewriter = WorkspaceRemoteRelayCommandRewriter(
             remoteWorkspaceID: workspace.id,
-            remoteRelayTokenHex: relayToken
+            remoteRelayTokenHex: relayToken,
+            remoteSessionControllerID: workspace.activeRemoteSessionControllerID
         )
 
         let ping = rewriter.rewriteRemoteRelayCommandLine(
@@ -609,7 +614,7 @@ struct RemoteResumeBindingTests {
         let forbidden = rewriter.rewriteRemoteRelayCommandLine(
             try requestData([
                 "id": "relay-forbidden",
-                "method": "surface.send_text",
+                "method": "surface.respawn",
                 "params": [
                     "workspace_id": workspace.id.uuidString,
                     "surface_id": surfaceID.uuidString,
@@ -720,6 +725,7 @@ struct RemoteResumeBindingTests {
         let workspace = try #require(manager.selectedWorkspace)
         let surfaceID = try #require(workspace.focusedPanelId)
         workspace.configureRemoteConnection(remoteConfiguration(), autoConnect: false)
+        workspace.activeRemoteSessionControllerID = UUID()
 
         let relayedWorkspaceID = UUID()
         let relayedSurfaceID = UUID()
@@ -795,6 +801,7 @@ struct RemoteResumeBindingTests {
         let workspace = try #require(manager.selectedWorkspace)
         let surfaceID = try #require(workspace.focusedPanelId)
         workspace.configureRemoteConnection(remoteConfiguration(), autoConnect: false)
+        workspace.activeRemoteSessionControllerID = UUID()
         let relayToken = try #require(workspace.remoteConfiguration?.relayToken)
 
         var missingAuthenticationParams = remoteResumeParams(
@@ -848,6 +855,7 @@ struct RemoteResumeBindingTests {
             remoteConfiguration(preserveAfterTerminalExit: false, persistentDaemonSlot: nil),
             autoConnect: false
         )
+        workspace.activeRemoteSessionControllerID = UUID()
         let nonPersistentRequest: [String: Any] = [
             "id": "non-persistent-owner",
             "method": "surface.resume.set",
@@ -859,7 +867,8 @@ struct RemoteResumeBindingTests {
         ]
         let nonPersistentData = WorkspaceRemoteRelayCommandRewriter(
             remoteWorkspaceID: workspace.id,
-            remoteRelayTokenHex: relayToken
+            remoteRelayTokenHex: relayToken,
+            remoteSessionControllerID: workspace.activeRemoteSessionControllerID
         ).rewriteRemoteRelayCommandLine(
             try requestData(nonPersistentRequest),
             workspaceAliases: [:],
@@ -915,7 +924,11 @@ struct RemoteResumeBindingTests {
         let socketPath = reserveRemoteRestoreSocket()
         defer { cleanupRemoteRestoreSocket(socketPath) }
 
-        let restoredWorkspace = Workspace(agentSessionAutoResumeDefaults: defaults)
+        let restoredWorkspace = Workspace(
+            agentSessionAutoResumeDefaults: defaults,
+            restorableAgentIndexProvider: { .empty }
+        )
+        defer { restoredWorkspace.teardownAllPanels() }
         let restoredIDs = restoredWorkspace.restoreSessionSnapshot(fixture.snapshot)
         let restoredSurfaceID = try #require(restoredIDs[fixture.surfaceID])
         let restoredPanel = try #require(restoredWorkspace.terminalPanel(for: restoredSurfaceID))
@@ -984,7 +997,11 @@ struct RemoteResumeBindingTests {
         let socketPath = reserveRemoteRestoreSocket()
         defer { cleanupRemoteRestoreSocket(socketPath) }
 
-        let restoredWorkspace = Workspace(agentSessionAutoResumeDefaults: defaults)
+        let restoredWorkspace = Workspace(
+            agentSessionAutoResumeDefaults: defaults,
+            restorableAgentIndexProvider: { .empty }
+        )
+        defer { restoredWorkspace.teardownAllPanels() }
         let restoredIDs = restoredWorkspace.restoreSessionSnapshot(mismatchedSnapshot)
         let restoredSurfaceID = try #require(restoredIDs[fixture.surfaceID])
         let restoredPanel = try #require(restoredWorkspace.terminalPanel(for: restoredSurfaceID))
@@ -1011,7 +1028,11 @@ struct RemoteResumeBindingTests {
         let socketPath = reserveRemoteRestoreSocket()
         defer { cleanupRemoteRestoreSocket(socketPath) }
 
-        let restoredWorkspace = Workspace(agentSessionAutoResumeDefaults: defaults)
+        let restoredWorkspace = Workspace(
+            agentSessionAutoResumeDefaults: defaults,
+            restorableAgentIndexProvider: { .empty }
+        )
+        defer { restoredWorkspace.teardownAllPanels() }
         let restoredIDs = restoredWorkspace.restoreSessionSnapshot(legacySnapshot)
         let restoredSurfaceID = try #require(restoredIDs[fixture.surfaceID])
         let startupCommand = try #require(
@@ -1151,6 +1172,7 @@ struct RemoteResumeBindingTests {
             ),
             autoConnect: false
         )
+        workspace.activeRemoteSessionControllerID = UUID()
 
         let localResult = try v2Result(
             request: [
@@ -1327,11 +1349,12 @@ struct RemoteResumeBindingTests {
     private func decodedRemoteCommand(from startupCommand: String) throws -> String {
         let words = TerminalStartupWorkingDirectoryPrefix.shellWordRanges(startupCommand).map(\.value)
         let script = try #require(words.dropFirst(2).first)
-        let range = try #require(
-            script.range(of: #"--command-b64 [A-Za-z0-9+/=]+"#, options: .regularExpression)
-        )
-        let encoded = String(script[range]).split(separator: " ", maxSplits: 1).last.map(String.init)
-        let data = try #require(encoded.flatMap { Data(base64Encoded: $0) })
+        let scriptWords = TerminalStartupWorkingDirectoryPrefix.shellWordRanges(script).map(\.value)
+        let commandIndex = try #require(scriptWords.firstIndex(of: "--command-b64"))
+        let token = try #require(scriptWords.dropFirst(commandIndex + 1).first)
+        // The word parser retains the retry script's command separator.
+        let encoded = token.hasSuffix(";") ? String(token.dropLast()) : token
+        let data = try #require(Data(base64Encoded: encoded))
         return try #require(String(data: data, encoding: .utf8))
     }
 

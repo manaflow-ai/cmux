@@ -113,8 +113,36 @@ def run_probe(cli_path: str, probe: HelpProbe) -> ProbeResult:
     return run_cli_args(cli_path, tokens[1:])
 
 
-def run_cli_args(cli_path: str, args: list[str]) -> ProbeResult:
-    env = dict(os.environ)
+GIT_LOCATION_ENV_KEYS = {
+    "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+    "GIT_CEILING_DIRECTORIES",
+    "GIT_COMMON_DIR",
+    "GIT_DIR",
+    "GIT_INDEX_FILE",
+    "GIT_NAMESPACE",
+    "GIT_OBJECT_DIRECTORY",
+    "GIT_WORK_TREE",
+    "GIT_REFERENCE_BACKEND",
+    "GIT_CONFIG",
+    "GIT_CONFIG_PARAMETERS",
+    "GIT_CONFIG_COUNT",
+}
+
+
+def clean_git_env() -> dict[str, str]:
+    env = {
+        key: value
+        for key, value in os.environ.items()
+        if key not in GIT_LOCATION_ENV_KEYS
+    }
+    for key in list(env):
+        if key.startswith(("GIT_CONFIG_KEY_", "GIT_CONFIG_VALUE_")):
+            env.pop(key)
+    return env
+
+
+def run_cli_args(cli_path: str, args: list[str], *, cwd: str | None = None) -> ProbeResult:
+    env = clean_git_env()
     for key in [
         "CMUX_SOCKET_PASSWORD",
         "CMUX_SOCKET",
@@ -137,6 +165,7 @@ def run_cli_args(cli_path: str, args: list[str]) -> ProbeResult:
             check=False,
             timeout=5.0,
             env=env,
+            cwd=cwd,
         )
 
     return ProbeResult(
@@ -158,6 +187,8 @@ def main() -> int:
 
     failures: list[str] = []
     failures.extend(check_guide_contract(cli_path))
+    failures.extend(check_task_help_contract(cli_path))
+    failures.extend(check_review_ledger_contract(cli_path))
     for probe in probes:
         try:
             result = run_probe(cli_path, probe)
@@ -273,6 +304,325 @@ def main() -> int:
     return 0
 
 
+
+def check_review_ledger_contract(cli_path: str) -> list[str]:
+    failures: list[str] = []
+    with tempfile.TemporaryDirectory(prefix="cmux-review-ledger-") as tmpdir:
+        repository = Path(tmpdir) / "repo"
+        init = subprocess.run(
+            ["git", "init", "-q", str(repository)],
+            text=True,
+            capture_output=True,
+            check=False,
+            timeout=5.0,
+            env=clean_git_env(),
+        )
+        if init.returncode != 0:
+            return [f"cmux review fixture: git init failed: {init.stderr!r}"]
+        canonical_repository = str(repository.resolve())
+
+        review_id = "aaaaaaaa-bbbbbbbb-" + ("c" * 64)
+        receipt_dir = repository / ".git" / "cmux" / "reviews"
+        receipt_dir.mkdir(parents=True)
+        receipt = {
+            "schema_version": 1,
+            "policy_version": "cmux-review/v1",
+            "repository_root": str(repository),
+            "ruleset_sha256": None,
+            "source": {
+                "repository_id": "github:manaflow-ai/cmux",
+                "base_sha": "1" * 40,
+                "head_sha": "2" * 40,
+                "tree_sha": "3" * 40,
+                "working_tree_dirty": True,
+                "patch_sha256": None,
+            },
+            "brief": {
+                "intent": "Preserve the review ledger",
+                "requirements": [
+                    {
+                        "requirement": "Read receipts without a running app",
+                        "status": "satisfied",
+                        "evidence": ["cmux review is routed before socket connection"],
+                    }
+                ],
+                "out_of_scope_changes": [],
+                "behavior_changed": ["Local review receipts are readable from the CLI"],
+                "risk_areas": [],
+                "file_groups": [],
+                "reading_order": [],
+                "safeguards": [],
+                "coverage_gaps": [],
+            },
+            "summary": {
+                "hypotheses_investigated": 2,
+                "suppressed": 1,
+                "refuted": 0,
+                "verified": 1,
+                "human_judgment": 0,
+            },
+            "findings": [
+                {
+                    "id": "LEDGER-01",
+                    "title": "Verified finding",
+                    "severity": "P1",
+                    "claims": [
+                        {
+                            "kind": "inferred",
+                            "message": "A real issue exists",
+                            "evidence": [],
+                        },
+                        {
+                            "kind": "proven",
+                            "message": "The example failure reproduced",
+                            "evidence": [],
+                        },
+                    ],
+                    "failure_mode": "Example failure",
+                    "paths": ["Sources/App.swift"],
+                    "discovery_sources": ["correctness"],
+                    "challenge": {"disposition": "survives_challenge", "evidence": []},
+                    "verification": {"result": "reproduced", "evidence": []},
+                    "repair": {
+                        "attempted": True,
+                        "result": "fixed",
+                        "after_source": {
+                            "repository_id": "github:manaflow-ai/cmux",
+                            "base_sha": "1" * 40,
+                            "head_sha": "4" * 40,
+                            "tree_sha": "5" * 40,
+                            "working_tree_dirty": True,
+                            "patch_sha256": None,
+                        },
+                        "verification": {
+                            "result": "passed",
+                            "evidence": [
+                                {
+                                    "kind": "test",
+                                    "summary": "original discriminator passes after repair",
+                                }
+                            ],
+                        },
+                    },
+                    "disposition": "repaired",
+                },
+                {
+                    "id": "LEDGER-02",
+                    "title": "Suppressed nit",
+                    "severity": "P3",
+                    "claims": [
+                        {
+                            "kind": "inferred",
+                            "message": "Low-value issue",
+                            "evidence": [],
+                        }
+                    ],
+                    "failure_mode": "No meaningful failure",
+                    "paths": ["Sources/App.swift"],
+                    "discovery_sources": ["rules"],
+                    "challenge": {"disposition": "refuted", "evidence": []},
+                    "verification": {"result": "not_reproduced", "evidence": []},
+                    "repair": None,
+                    "disposition": "suppressed",
+                },
+            ],
+            "created_at": "2026-09-22T00:00:00Z",
+        }
+        (receipt_dir / f"{review_id}.json").write_text(
+            json.dumps(receipt),
+            encoding="utf-8",
+        )
+
+        # This instant is newer than 2026-09-22T00:00:00Z even though its
+        # original ISO-8601 string sorts lexically before it.
+        offset_review_id = "offset-newer-" + ("e" * 64)
+        offset_receipt = dict(receipt)
+        offset_receipt["created_at"] = "2026-09-21T23:30:00-01:00"
+        (receipt_dir / f"{offset_review_id}.json").write_text(
+            json.dumps(offset_receipt),
+            encoding="utf-8",
+        )
+
+        cases = [
+            (
+                "list",
+                ["review", "list", "--repo", str(repository), "--json"],
+                lambda payload: (
+                    payload["repo_root"] == canonical_repository
+                    and payload["reviews"][0]["id"] == offset_review_id
+                    and payload["reviews"][0]["verified"] == 1
+                ),
+            ),
+            (
+                "show",
+                ["review", "show", "latest", "--json"],
+                lambda payload: (
+                    payload["policy_version"] == "cmux-review/v1"
+                    and payload["brief"]["requirements"][0]["status"] == "satisfied"
+                ),
+            ),
+            (
+                "findings",
+                ["review", "findings", "latest", "--json"],
+                lambda payload: (
+                    [finding["id"] for finding in payload["findings"]] == ["LEDGER-01"]
+                ),
+            ),
+            (
+                "findings --all",
+                ["review", "findings", "latest", "--all", "--json"],
+                lambda payload: (
+                    [finding["id"] for finding in payload["findings"]]
+                    == ["LEDGER-01", "LEDGER-02"]
+                ),
+            ),
+        ]
+
+        for label, args, validate in cases:
+            try:
+                result = run_cli_args(cli_path, args, cwd=str(repository))
+            except (subprocess.TimeoutExpired, OSError, ValueError) as exc:
+                failures.append(f"cmux review {label}: {exc}")
+                continue
+            if result.returncode != 0 or result.stderr:
+                failures.append(
+                    f"cmux review {label}: expected clean exit\n"
+                    f"stdout={result.stdout!r}\nstderr={result.stderr!r}"
+                )
+                continue
+            if result.socket_path in result.stdout:
+                failures.append(
+                    f"cmux review {label}: unexpectedly attempted socket access "
+                    f"{result.socket_path!r}"
+                )
+                continue
+            try:
+                payload = json.loads(result.stdout)
+            except json.JSONDecodeError as exc:
+                failures.append(f"cmux review {label}: invalid JSON: {exc}")
+                continue
+            if not validate(payload):
+                failures.append(
+                    f"cmux review {label}: unexpected payload {payload!r}"
+                )
+
+        try:
+            text_result = run_cli_args(cli_path, ["review", "show"], cwd=str(repository))
+        except (subprocess.TimeoutExpired, OSError, ValueError) as exc:
+            failures.append(f"cmux review show: {exc}")
+        else:
+            if (
+                text_result.returncode != 0
+                or "Requirements: 1 satisfied · 0 missing · 0 uncertain" not in text_result.stdout
+                or "Findings: 1 verified · 0 human · 0 refuted · 1 suppressed" not in text_result.stdout
+            ):
+                failures.append(
+                    "cmux review show: human output lost review summary\n"
+                    f"stdout={text_result.stdout!r}\nstderr={text_result.stderr!r}"
+                )
+
+        future_receipt = dict(receipt)
+        future_receipt["schema_version"] = 2
+        (receipt_dir / ("future-" + ("d" * 64) + ".json")).write_text(
+            json.dumps(future_receipt),
+            encoding="utf-8",
+        )
+        try:
+            future_result = run_cli_args(
+                cli_path,
+                ["review", "list", "--repo", str(repository), "--json"],
+                cwd=str(repository),
+            )
+        except (subprocess.TimeoutExpired, OSError, ValueError) as exc:
+            failures.append(f"cmux review list future receipt: {exc}")
+        else:
+            if (
+                future_result.returncode == 0
+                or "schema_version must be 1" not in future_result.stderr
+            ):
+                failures.append(
+                    "cmux review list: future receipt schema should fail closed\n"
+                    f"stdout={future_result.stdout!r}\nstderr={future_result.stderr!r}"
+                )
+
+    return failures
+
+def check_task_help_contract(cli_path: str) -> list[str]:
+    failures: list[str] = []
+    topics = {
+        "start": ("Start & Resume:", "open <path-or-url>..."),
+        "agents": ("Agents:", "claude-teams [claude-args...]"),
+        "navigate": ("Navigate & Arrange:", "new-split <left|right|up|down>"),
+        "inspect": ("Inspect:", "tree [--all]"),
+        "customize": ("Customize:", "settings [open [target]|path|docs|<target>]"),
+        "automation": ("Automation:", "automation <list|show|test|enable|disable|logs|reload> [args]"),
+        "browser": ("Browser:", "browser snapshot [--interactive|-i]"),
+        "remote": ("Remote:", "remotes <list|add|remove>"),
+        "diagnostics": ("Diagnostics / Advanced:", "ping"),
+    }
+    headings = {heading for heading, _ in topics.values()}
+
+    for topic, (heading, needle) in topics.items():
+        label = f"cmux help {topic}"
+        try:
+            result = run_cli_args(cli_path, ["help", topic])
+        except subprocess.TimeoutExpired:
+            failures.append(f"{label}: timed out")
+            continue
+        except (RuntimeError, OSError, ValueError) as exc:
+            failures.append(f"{label}: {exc}")
+            continue
+
+        merged = f"{result.stdout}\n{result.stderr}".strip()
+        if result.returncode != 0:
+            failures.append(
+                f"{label}: expected exit 0, got {result.returncode}\n"
+                f"stdout={result.stdout!r}\nstderr={result.stderr!r}"
+            )
+            continue
+        if result.stderr:
+            failures.append(
+                f"{label}: task help should write only stdout\n"
+                f"stdout={result.stdout!r}\nstderr={result.stderr!r}"
+            )
+        if result.socket_path in merged:
+            failures.append(
+                f"{label}: unexpected socket usage with forced socket {result.socket_path!r}\n"
+                f"stdout={result.stdout!r}\nstderr={result.stderr!r}"
+            )
+        if heading not in result.stdout or needle not in result.stdout:
+            failures.append(
+                f"{label}: missing task help content {heading!r} / {needle!r}\n"
+                f"stdout={result.stdout!r}"
+            )
+        leaked = sorted(other for other in headings if other != heading and other in result.stdout)
+        if leaked:
+            failures.append(
+                f"{label}: included unrelated task headings {leaked!r}\n"
+                f"stdout={result.stdout!r}"
+            )
+
+    try:
+        fallback = run_cli_args(cli_path, ["help", "unknown-task-topic"])
+    except subprocess.TimeoutExpired:
+        failures.append("cmux help unknown-task-topic: timed out")
+    except (RuntimeError, OSError, ValueError) as exc:
+        failures.append(f"cmux help unknown-task-topic: {exc}")
+    else:
+        if (
+            fallback.returncode != 0
+            or fallback.stderr
+            or "cmux - control cmux via Unix socket" not in fallback.stdout
+            or "Start & Resume:" not in fallback.stdout
+        ):
+            failures.append(
+                "cmux help unknown-task-topic: expected legacy top-level help fallback\n"
+                f"stdout={fallback.stdout!r}\nstderr={fallback.stderr!r}"
+            )
+
+    return failures
+
+
 def check_guide_contract(cli_path: str) -> list[str]:
     failures: list[str] = []
     # An explicit missing socket and invalid window prove that guides do not
@@ -309,7 +659,7 @@ def check_guide_contract(cli_path: str) -> list[str]:
                 if topic == "cmux":
                     expected.append("agent-browser --headed")
                 if topic == "cloud":
-                    expected += ["cua-driver --version", "cua-driver doctor", "cua-driver mcp", "DISPLAY=:1", "cmux cloud route --json", "would_provision", "route --provision", "terminal wait", "terminal read", "google-chrome-stable --remote-debugging-port=9222", "cmux cloud dev <machine> --no-open"]
+                    expected += ["cua-driver --version", "cua-driver doctor", "cua-driver mcp", "DISPLAY=:1", "cmux cloud route --json", "would_provision", "route --provision", "terminal wait", "terminal read", "google-chrome-stable", "--remote-debugging-port=9222", "cmux cloud dev <machine> --no-open"]
                 missing = [needle for needle in expected if needle not in plain.stdout]
                 if missing:
                     raise ValueError(f"guide is missing method details: {missing}")

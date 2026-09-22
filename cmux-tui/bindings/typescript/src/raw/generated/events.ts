@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 3e8a21a3080c830d3765698c21641715ff9592b480170c4c7e6a7a764d362543. */
+/* cmux-tui mux protocol 12, IR 7042c629f34d3606581d07b2d2c03b65116c2467810724163c54674865825cc0. */
 
 
 import type * as T from "./types.js";
@@ -332,6 +332,13 @@ export type TitleChangedEvent = { event: "title-changed" } & {
 export type TreeChangedEvent = { event: "tree-changed" } & {
 };
 
+/** Protocol v12; emission: emitted; streams: control. */
+export type UrlOpenEvent = { event: "url-open" } & {
+  "request_id": string;
+  "terminal_id": string;
+  "url": string;
+};
+
 /** Protocol v5; emission: emitted; streams: attach-byte. */
 export type VtStateEvent = { event: "vt-state" } & {
   "colors"?: T.TerminalColors;
@@ -444,6 +451,7 @@ export type KnownCmuxEvent =
   | TerminalRegistryChangedEvent
   | TitleChangedEvent
   | TreeChangedEvent
+  | UrlOpenEvent
   | VtStateEvent
   | WindowTitleRequestedEvent
   | WorkspaceAddedEvent

@@ -64,6 +64,7 @@ This is a **living implementation spec** (also called an **execution spec**): a 
 - `DONE` session snapshots persist the relay port for persistent SSH PTYs and mint fresh relay credentials on restore, so a reattached remote shell can keep using its existing `CMUX_SOCKET_PATH=127.0.0.1:<relay_port>` after app relaunch.
 - `DONE` relay startup writes `~/.cmux/relay/<relay_port>.daemon_path`; remote `cmux` wrapper uses this to select the right daemon binary per session, including mixed local cmux versions.
 - `DONE` relay startup writes `~/.cmux/relay/<relay_port>.auth` with a relay ID and token; the local relay requires HMAC-SHA256 challenge-response before forwarding any command to the real local socket.
+- `DONE` relay authorization (GHSA-9vmv-3hjw-j28c): deny-by-default method and closed parameter schemas before forwarding; request HMAC bound to the workspace and active SSH controller generation; live ownership and connection-generation revalidation at dispatch and terminal target resolution. Local creation/respawn, local startup overrides, global listing/navigation, and irrelevant routing selectors are denied. See `daemon/remote/README.md` for the current allowlist contract and the separately authenticated persistent-SSH resume metadata exception. Sessions have a 16-connection cap, 10-second handshake deadlines, a 30-second lifetime, bounded responses, and cancellation of outstanding local-socket I/O.
 - `DONE` SSH agent forwarding is opt-in. `cmux ssh` preserves its live `SSH_AUTH_SOCK` for app-launched OpenSSH transports so `ForwardAgent yes` from ssh_config works normally, and accepts `-A` / `--forward-agent` or `-a` / `--no-forward-agent` for explicit forwarding control.
 - `DONE` ephemeral port range (49152-65535) filtered from probe results to exclude relay ports from other workspaces.
 - `DONE` multi-workspace port conflict detection uses TCP connect check (`isLoopbackPortReachable`) so ports already forwarded by another workspace are silently skipped instead of flagged as conflicts.
@@ -77,6 +78,7 @@ This is a **living implementation spec** (also called an **execution spec**): a 
 ### 3.3 Error Surfacing
 - `DONE` remote errors are surfaced in sidebar status + logs + notifications.
 - `DONE` reconnect retry count/time is included in surfaced error text (for example, `retry 1 in 4s`).
+- `DONE` a session that cannot become ready parks in bounded time and says so in the terminal (issue #12813). Parking is the session's single terminal transition: bootstrap and reachability park through their retry policies, and a session that bootstraps over SSH parks if no proxy endpoint is published within 60 s of its first daemon `hello` (the reverse-relay restart loop and the escalate-and-rebootstrap cycle have no bound of their own). Parking releases every `ssh-pty-attach --wait` waiting on the session with the same detail the sidebar shows; the attach prints it and exits instead of rejoining its wrapper's retry loop. Managed Cloud VM sessions are not deadlined. A launching attach does not repaint a parked workspace as connecting.
 
 ### 3.4 Removed Temporary Behavior
 - `DONE` removed remote listening-port probe loop and per-port SSH `-L` mirroring.
@@ -243,7 +245,13 @@ Before declaring browser proxying complete:
 3. `workspace.remote.configure.terminal_profile` accepts `shell` (default) or `tmux`; `terminal_tmux_session` carries the validated named session and defaults to `main` for tmux profiles.
 4. `workspace.remote.status.remote` reports `terminal_transport`, `terminal_profile`, and `terminal_tmux_session`; the separate `transport` field continues to report the management/control transport.
 
-### 10.4 SSH Docker E2E Harness Knobs
+### 10.4 `workspace.remote.pty_bridge` Parked Sessions
+1. When the workspace's remote session is parked, `workspace.remote.pty_bridge` fails with code `remote_session_parked` (with or without `wait_for_ready`), immediately rather than after its readiness timeout. This includes a workspace that has no session controller and cannot create one until the user reconnects (a reconnect whose previous-connection cleanup failed, or a rejected ControlMaster adoption).
+2. The error `message` is the app-localized, user-facing reason and next step. It is prose and may contain phrases such as "timed out"; clients must classify on the code, never on the wording, and should show the message verbatim.
+3. `cmux ssh-pty-attach` maps the code to a terminal exit status (1), so the persistent attach wrapper stops retrying. It leaves the remote PTY session and its lifecycle untouched, because a session can park while its persistent remote PTY is still running and Reconnect must be able to reattach to it.
+4. Transient states keep their existing codes and retry behavior (`remote_pty_error` with "remote daemon is not ready" / "remote connection is not active").
+
+### 10.5 SSH Docker E2E Harness Knobs
 1. `CMUX_SSH_TEST_DOCKER_HOST` sets the SSH destination host/IP used by docker-backed SSH fixtures (default `127.0.0.1`).
 2. `CMUX_SSH_TEST_DOCKER_BIND_ADDR` sets the bind address used in fixture container publish mappings (default `127.0.0.1`).
 3. Defaults preserve loopback behavior on a single host; override both when docker runs on a different host (for example VM -> host OrbStack).

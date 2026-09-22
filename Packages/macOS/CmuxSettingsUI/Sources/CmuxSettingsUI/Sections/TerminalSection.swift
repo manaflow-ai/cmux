@@ -258,6 +258,20 @@ public struct TerminalSection: View {
             }
             SettingsCardDivider()
             SettingsCardRow(
+                configurationReview: .settingsOnly,
+                String(localized: "settings.app.theme", defaultValue: "Theme")
+            ) {
+                Button(
+                    String(localized: "settings.browser.import.choose", defaultValue: "Choose…")
+                ) {
+                    hostActions.openTerminalThemePicker()
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+                .accessibilityIdentifier("SettingsTerminalThemePickerButton")
+            }
+            SettingsCardDivider()
+            SettingsCardRow(
                 configurationReview: .json("terminal.adaptiveDefaultTheme"),
                 String(
                     localized: "settings.terminal.adaptiveDefaultTheme",
@@ -266,7 +280,7 @@ public struct TerminalSection: View {
                 subtitle: adaptiveDefaultTheme.current
                     ? String(
                         localized: "settings.terminal.adaptiveDefaultTheme.subtitleOn",
-                        defaultValue: "cmux's managed light and dark palettes follow the app appearance only when your Ghostty config has no settings. Existing Ghostty settings are never overlaid."
+                        defaultValue: "Use light and dark default terminal colors when no Ghostty theme or terminal colors are configured. Font and other settings are preserved."
                     )
                     : String(
                         localized: "settings.terminal.adaptiveDefaultTheme.subtitleOff",

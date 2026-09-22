@@ -301,7 +301,7 @@ Terminal panes, the workspace sidebar, and the shortcut modal share the same `â–
 | --- | --- | --- | --- |
 | `viewport.animation` | boolean | `true` | Animate horizontal viewport movement |
 
-`Ctrl-b g` inserts a terminal immediately after the focused horizontal column at two-thirds of the current viewport width. Existing panes retain their tiled layout. The status bar gains a continuous horizontal track whenever the resulting screen is wider than the viewport. Focus movement and track clicks reveal offscreen panes. `Alt-n` applies automatic layout inside the focused column. Set `{"viewport":{"animation":false}}` to make viewport moves immediate.
+`Ctrl-b g` inserts a terminal immediately after the focused horizontal column at two-thirds of the current viewport width. Existing panes retain their tiled layout. The status bar gains a continuous horizontal track whenever the resulting screen is wider than the viewport. Focus movement and track clicks reveal offscreen panes. `Ctrl-b N` or `Alt-n` applies automatic layout inside the focused column. Set `{"viewport":{"animation":false}}` to make viewport moves immediate.
 
 ## Server
 
@@ -347,7 +347,7 @@ Try the tracked example with `CMUX_TUI_CONFIG=examples/user-commands.json cargo 
 | `keys.send-prefix` | chord string or array or `"none"` | current prefix chord | Send the configured prefix to the active surface |
 | `keys.new-tab` | chord string or array or `"none"` | `["t","alt+t"]` | New PTY tab |
 | `keys.new_browser_tab` | chord string or array or `"none"` | `"B"` | Browser URL prompt |
-| `keys.new-pane-smart` | chord string or array or `"none"` | `"alt+n"` | New pane using the default automatic layout |
+| `keys.new-pane-smart` | chord string or array or `"none"` | `["alt+n","N"]` | New pane using the default automatic layout |
 | `keys.next-tab` | chord string or array or `"none"` | `"tab"` | Next tab |
 | `keys.prev-tab` | chord string or array or `"none"` | `"backtab"` | Previous tab |
 | `keys.select-tab-0` through `keys.select-tab-9` | chord string or array or `"none"` | unbound | Select tab by its zero-based visible index |
@@ -382,8 +382,8 @@ Try the tracked example with `CMUX_TUI_CONFIG=examples/user-commands.json cargo 
 | `keys.swap-pane-prev` | chord string or array or `"none"` | `"{"` | Swap active pane with the previous pane in split-tree order |
 | `keys.swap-pane-next` | chord string or array or `"none"` | `"}"` | Swap active pane with the next pane in split-tree order |
 | `keys.zoom-pane` | chord string or array or `"none"` | `"z"` | Toggle zoom for the active pane |
-| `keys.resize-grow` | chord string or array or `"none"` | `"alt+="` | Grow the focused split |
-| `keys.resize-shrink` | chord string or array or `"none"` | `"alt+-"` | Shrink the focused split |
+| `keys.resize-grow` | chord string or array or `"none"` | `["alt+=","shift+="]` | Grow the focused split |
+| `keys.resize-shrink` | chord string or array or `"none"` | `["alt+-","-"]` | Shrink the focused split |
 | `keys.scroll-up` | chord string or array or `"none"` | `["[","pageup"]` | Scroll active PTY up 10 rows |
 | `keys.scroll-down` | chord string or array or `"none"` | `"pagedown"` | Scroll active PTY down 10 rows |
 | `keys.clear-history` | chord string or array or `"none"` | `"cmd+k"` | Clear retained PTY history and completed visible rows while preserving active input |
@@ -402,6 +402,8 @@ Kitty keyboard reports the same empty-text character sequence for a real termina
 `Ctrl-b x` closes the active tab because tab lifecycle is the more frequent cmux action. `Ctrl-b X` closes its containing pane. Both bindings accept independent overrides.
 
 Screen and tab positions are zero-based, so each `select-screen-N` or `select-tab-N` action selects index `N`. Generated workspace names also start at `0`. The snake_case spellings `select_screen_N` and `select_tab_N` are accepted as aliases. `Ctrl-b ]` and `Ctrl-b q` are intentionally unbound: cmux has no paste-buffer command and no pane-number quick-jump overlay yet. Zellij's modal `ctrl+p`, `ctrl+t`, `ctrl+s`, `ctrl+n`, and `ctrl+o` modes are not defaults because they conflict with common shell and editor control keys.
+
+Use `"shift+="` to configure the `+` character, since `+` separates modifiers in chord strings.
 
 Chord strings can be single characters or a key name with optional `ctrl`, `control`, `alt`, `option`, `cmd`, `command`, `super`, or `shift` modifiers. Examples: `"c"`, `"%"`, `"ctrl+b"`, `"alt+enter"`, `"cmd+k"`, `"tab"`, `"backtab"`, `"shift+tab"`, `"pageup"`, `"pagedown"`, `"esc"`, `"space"`, `"left"`, `"right"`, `"up"`, `"down"`, `"home"`, and `"end"`.
 
@@ -475,7 +477,9 @@ Chord strings can be single characters or a key name with optional `ctrl`, `cont
     "super_shortcuts": false,
     "new-tab": ["t", "alt+t"],
     "new_browser_tab": "B",
-    "new-pane-smart": "alt+n",
+    "new-pane-smart": ["alt+n", "N"],
+    "resize-grow": ["alt+=", "shift+="],
+    "resize-shrink": ["alt+-", "-"],
     "next-tab": "tab",
     "prev-tab": "backtab",
     "select-screen-1": "1",

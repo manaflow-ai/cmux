@@ -171,8 +171,7 @@ public struct BetaFeaturesSection: View {
                     : String(localized: "settings.betaFeatures.cloudMachines.subtitleOff", defaultValue: "Hides every Cloud Machines surface unless remote rollout enables it.")
         ) {
             Toggle("", isOn: Binding(get: { cloudMachines.current && !cloudMachinesManagedByPolicy }, set: {
-                cloudMachines.set($0)
-                NotificationCenter.default.post(name: Notification.Name("rightSidebarBetaFeatureDidChange"), object: nil)
+                CloudMachinesBetaSettingAction(model: cloudMachines).setEnabled($0)
             }))
                 .labelsHidden()
                 .controlSize(.small)

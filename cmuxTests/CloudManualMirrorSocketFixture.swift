@@ -5,18 +5,38 @@ import Foundation
 /// handshake tests assert on.
 struct CloudManualMirrorFixtureCommand: Sendable {
     let cmd: String
+    let inputBytes: Data?
+    let expectedGeneration: String?
+    let expectedTerminalID: String?
     let id: UInt64
     let surface: UInt64?
     let capabilities: [String]
     let hasInitialSize: Bool
+    let imageOperation: String?
+    let terminalID: String?
+    let lease: String?
+    let uploadID: String?
+    let offset: Int?
+    let imageBytes: Data?
+    let hasDestinationPath: Bool
 
     init?(_ object: [String: Any]) {
         guard let cmd = object["cmd"] as? String else { return nil }
         self.cmd = cmd
+        expectedGeneration = object["expected_generation"] as? String
+        expectedTerminalID = object["expected_terminal_id"] as? String
+        inputBytes = (object["bytes"] as? String).flatMap { Data(base64Encoded: $0) }
         id = (object["id"] as? NSNumber)?.uint64Value ?? 0
         surface = (object["surface"] as? NSNumber)?.uint64Value
         capabilities = object["capabilities"] as? [String] ?? []
         hasInitialSize = object["cols"] != nil || object["rows"] != nil
+        imageOperation = object["op"] as? String
+        terminalID = object["terminal_id"] as? String
+        lease = object["lease"] as? String
+        uploadID = object["upload_id"] as? String
+        offset = object["offset"] as? Int
+        imageBytes = (object["data"] as? String).flatMap { Data(base64Encoded: $0) }
+        hasDestinationPath = object["path"] != nil
     }
 }
 
@@ -32,6 +52,8 @@ final class CloudManualMirrorSocketFixture: @unchecked Sendable {
     private var clientFD: Int32 = -1
     private var received: [CloudManualMirrorFixtureCommand] = []
     private var cursor = 0
+    private var inputAcknowledged = false
+    private var preAcknowledgementInputs: [CloudManualMirrorFixtureCommand] = []
 
     init() throws {
         let name = "cmux-mm-" + UUID().uuidString.prefix(8).lowercased() + ".sock"
@@ -77,6 +99,22 @@ final class CloudManualMirrorSocketFixture: @unchecked Sendable {
         }
     }
 
+    /// Marks the exact point at which the attach acknowledgement is sent.
+    /// Input commands received before this boundary are retained for a
+    /// deterministic assertion instead of being detected by a timeout.
+    func markInputAcknowledged() {
+        lock.lock()
+        inputAcknowledged = true
+        lock.unlock()
+    }
+
+    /// Returns input commands that arrived before the explicit attach ack.
+    func preAcknowledgementInputCount() -> Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return preAcknowledgementInputs.count
+    }
+
     func close() {
         lock.lock()
         if clientFD >= 0 {
@@ -117,6 +155,9 @@ final class CloudManualMirrorSocketFixture: @unchecked Sendable {
                       let command = CloudManualMirrorFixtureCommand(object) else { continue }
                 lock.lock()
                 received.append(command)
+                if command.inputBytes != nil, !inputAcknowledged {
+                    preAcknowledgementInputs.append(command)
+                }
                 lock.unlock()
             }
         }

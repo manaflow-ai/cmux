@@ -75,9 +75,10 @@ extension CloudTreeNodeBuilder {
                 byWorkspace[workspace.id] = members
             }
         }
-        for member in SurfaceProjection.localDisplayMembers(resources: resources, projections: projections) {
+        for member in SurfaceProjection.localWorkspaceMembers(resources: resources, projections: projections) {
             var members = byWorkspace[member.workspaceID] ?? .none
-            members.displays.append(member.resource)
+            if member.resource.kind == .browser { members.browsers.append(member.resource) }
+            else { members.displays.append(member.resource) }
             byWorkspace[member.workspaceID] = members
         }
         return byWorkspace

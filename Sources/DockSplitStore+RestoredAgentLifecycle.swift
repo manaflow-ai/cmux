@@ -1,10 +1,10 @@
+import CmuxTerminalCore
 import CmuxNotifications
 import CmuxSidebar
 import CmuxWorkspaces
 import Darwin
 import AppKit
 import Foundation
-
 extension DockSplitStore {
     func clearSessionRestoreState(panelId: UUID) {
         discardPendingTerminalTitleUpdate(panelId: panelId)
@@ -28,10 +28,15 @@ extension DockSplitStore {
         flushPendingTerminalTitleUpdate(panelId: panelId)
         let previousState = terminal.shellActivity.state
         terminal.updateShellActivityState(state)
-        if previousState != state,
+        // A transferred terminal can already report promptIdle before the
+        // destination receives its first prompt marker. Replaying that
+        // idempotent marker is still meaningful to the restore boundary: it
+        // clears any buffered pre-transfer title before commandRunning can
+        // release it as if it came from a new user command.
+        if (previousState != state || state == .promptIdle),
            let pendingTitle = advanceRestoredPanelTitleBoundary(
-               panelId: panelId,
-               state: state
+                panelId: panelId,
+                state: state
            ) {
             applyResolvedTerminalTitle(pendingTitle, to: terminal)
         }
@@ -76,7 +81,7 @@ extension DockSplitStore {
         internallySeededInput: String?
     ) {
         let boundary = RestoredPanelTitleBoundary(
-            internallySeededInput: internallySeededInput,
+            internallySeededInput: internallySeededInput.map { AutomaticTerminalTitle($0.trimmingCharacters(in: .whitespacesAndNewlines))?.value ?? $0.trimmingCharacters(in: .whitespacesAndNewlines) },
             shellState: (panels[panelId] as? TerminalPanel)?.shellActivity.state
                 ?? .unknown
         )
@@ -184,23 +189,6 @@ extension DockSplitStore {
         terminal.onRequestAgentHibernationResume = { [weak self, weak terminal] focus in
             guard let self, let terminal else { return false }
             return self.resumeAgentHibernation(panelId: terminal.id, focus: focus)
-        }
-    }
-
-    /// Replays a retained restore selector once after the shell reports an idle prompt.
-    func scheduleRestoredStartupInputResend(panelId: UUID) {
-        guard restoredAgentLifecycle.armStartupInputResend(panelId: panelId) else { return }
-        DispatchQueue.main.asyncAfter(deadline: .now() + Workspace.restoredStartupInputResendGrace) { [weak self] in
-            Task { @MainActor [weak self] in
-                guard let self,
-                      let terminal = self.panels[panelId] as? TerminalPanel,
-                      let input = self.restoredAgentLifecycle.takeStartupInputForResend(
-                          panelId: panelId,
-                          shellState: terminal.shellActivity.state
-                      ),
-                      terminal.surface.surface != nil else { return }
-                _ = terminal.sendInputResult(input)
-            }
         }
     }
 

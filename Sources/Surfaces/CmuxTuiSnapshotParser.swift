@@ -1610,7 +1610,7 @@ struct CmuxTuiSnapshotParser: Sendable {
     /// The workspace and first terminal a `workspace create` mutation made
     /// (`{value: {workspace_id, terminal_id, …}}`).
     static func createdWorkspaceTerminal(fromResult result: [String: Any]) -> (workspaceID: String, terminalID: String?)? {
-        let path = (result["value"] as? [String: Any]) ?? ((result["result"] as? [String: Any])?["value"] as? [String: Any]) ?? (result["result"] as? [String: Any]) ?? result
+        let path = (result["value"] as? [String: Any]) ?? result
         guard let workspaceID = ((path["workspace_id"] as? String) ?? (path["id"] as? String)), !workspaceID.isEmpty else { return nil }
         return (workspaceID, (path["terminal_id"] as? String).flatMap { $0.isEmpty ? nil : $0 })
     }
@@ -1655,6 +1655,7 @@ struct CmuxTuiSnapshotParser: Sendable {
     }
 
     struct CreatedTerminalPath: Equatable, Sendable {
+        var attachment: CloudCreationAttachment? = nil
         let terminalID: String
         let workspaceID: String?
         let screenID: String?
@@ -1675,7 +1676,12 @@ struct CmuxTuiSnapshotParser: Sendable {
         func optionalID(_ key: String) -> String? {
             (path[key] as? String).flatMap { $0.isEmpty ? nil : $0 }
         }
+        let cursor = mutationCursor(fromResult: result)
+        let attachment = cursor.map {
+            CloudCreationAttachment(generation: $0.generation, terminalID: terminalID)
+        }
         return CreatedTerminalPath(
+            attachment: attachment,
             terminalID: terminalID,
             workspaceID: optionalID("workspace_id"),
             screenID: optionalID("screen_id"),
@@ -1747,7 +1753,10 @@ struct CmuxTuiSnapshotParser: Sendable {
     /// publish them: SSH (22), the cmux-tui daemon (1337), the VNC server
     /// (5901) and its noVNC front end (6901, the Desktop surface), and the
     /// image's internal 8080 listener.
-    static let internalPorts: Set<Int> = [22, 1337, 5901, 6901, 8080]
+    /// Guest display slots use these private RFB/noVNC ports; they are owned by
+    /// the display catalog and must never become generic forwarded-port rows.
+    static let internalPorts: Set<Int> = [22, 1337, 8080]
+    static let displayPorts: Set<Int> = Set(Array(5901...5916) + Array(6901...6916))
 
     static let desktopPort = 6901
 
@@ -1772,17 +1781,9 @@ struct CmuxTuiSnapshotParser: Sendable {
             lifecycle: .running,
             agent: nil,
             remoteWorkspace: nil,
-            port: desktopPort,
+            port: key == SurfaceResourceID.desktopDisplayKey ? desktopPort : nil,
             url: directURL
         )
-    }
-
-    /// The machine's display list after a snapshot: a display the daemon's workspaces point
-    /// at (carrying its views) replaces the bare pool entry of the same id; every other
-    /// resource passes through. Pure, so the provider's refresh stays a straight line.
-    static func mergingDisplays(pool: [SurfaceResource], parsed: [SurfaceResource]) -> [SurfaceResource] {
-        let pointed = Set(parsed.filter { $0.kind == .display }.map(\.id))
-        return pool.filter { !($0.kind == .display && pointed.contains($0.id)) } + parsed
     }
 
     /// A forwarded port, shown as a browser resource. `directURL`, when

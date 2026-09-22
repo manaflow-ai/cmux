@@ -1,11 +1,19 @@
 import { createHash, randomUUID } from "node:crypto";
-import { applyVmResourceUsage } from "./resourceUsage";
+import {
+  applyVmResourceUsage,
+  VM_RESOURCE_USAGE_KEY,
+  VM_RESOURCE_USAGE_MAX_AGE_MS,
+  shouldReadVmResourceStatsDirectly,
+} from "./resourceUsage";
 import * as Cause from "effect/Cause";
 import * as Effect from "effect/Effect";
 import * as Either from "effect/Either";
 import * as Exit from "effect/Exit";
 import * as ManagedRuntime from "effect/ManagedRuntime";
 import * as Option from "effect/Option";
+import { eq } from "drizzle-orm";
+import { cloudDb } from "../../db/client";
+import { cloudVms } from "../../db/schema";
 import type { CreateOptions } from "./drivers/types";
 import * as Layer from "effect/Layer";
 import type {
@@ -50,6 +58,7 @@ import {
 } from "./machineSpec";
 import {
   VmBillingError,
+  VmMemoryPlanError,
   VmAccountDeletionIdentityRevocationError,
   VmAttachTransportUnsupportedError,
   VmCreateDisabledError,
@@ -65,6 +74,8 @@ import {
   VmOperationUnsupportedError,
   VmProviderOperationError,
   VmSnapshotNotFoundError,
+  VmUsageLimitExceededError,
+  VmGoShapeError,
   VM_MODEL_PLANE_FAILURE_CODES,
   isVmCreateCreditsInsufficientError,
   isVmLimitExceededError,
@@ -80,6 +91,8 @@ import {
   maxVcpusForPlan,
   vmFreeAccessWindowDays,
 } from "./entitlements";
+import { getGoVmUsage, GO_INCLUDED_VM_HOURS } from "./goUsage";
+import { GO_PAUSE_INTENT_KEY, pauseGoVm } from "./goPause";
 import { networkSlugForUser, privateNetworkUnavailableReason, resolveOwnerNetwork } from "./privateNetwork";
 import { isProviderIdentityNotFoundError, isProviderNotFoundError } from "./providerErrors";
 import { VmProviderGateway, VmProviderGatewayLive, type VmProviderGatewayShape } from "./providerGateway";
@@ -484,7 +497,49 @@ function rollbackProviderCreate(
   });
 }
 
-export function createVm(input: {
+/** Check the copied or requested shape before provisioning side effects. */
+function requireMemoryPlan(planId: string, memoryMb: number | null) {
+  const maxMemoryMb = maxMemoryMbForPlan(planId);
+  if (memoryMb === null ? maxMemoryMb < 65536 : memoryMb > maxMemoryMb) {
+    return Effect.fail(new VmMemoryPlanError({ planId, memoryMb, maxMemoryMb }));
+  }
+  return Effect.void;
+}
+
+function requestedCreateMemory(input: { memoryMb?: number; imageSize?: { memoryMb: number }; resourceReservation?: { memoryMb: number } }) {
+  return Math.max(input.memoryMb ?? 0, input.imageSize?.memoryMb ?? 0, input.resourceReservation?.memoryMb ?? 0);
+}
+
+const GO_VM_RESERVATION = { vcpus: 2, memoryMb: 4096, diskMb: 16384 } as const;
+function requireGoShape(planId: string | null | undefined, shape: VmResourceReservation | null) {
+  return planId === "go" && (!shape || shape.vcpus !== GO_VM_RESERVATION.vcpus || shape.memoryMb !== GO_VM_RESERVATION.memoryMb || shape.diskMb !== GO_VM_RESERVATION.diskMb)
+    ? Effect.fail(new VmGoShapeError()) : Effect.void;
+}
+
+function requireGoCreate(input: Pick<Parameters<typeof createVm>[0], "billingPlanId" | "userId" | "imageSize" | "resourceReservation">) {
+  return Effect.gen(function* () {
+    if (input.billingPlanId === "go") {
+      yield* requireGoShape("go", input.resourceReservation ?? (input.imageSize ? {
+        vcpus: input.imageSize.cpu, memoryMb: input.imageSize.memoryMb, diskMb: input.imageSize.storageMb,
+      } : null));
+      const usage = yield* Effect.tryPromise({
+        try: () => getGoVmUsage(input.userId),
+        catch: (cause) => new VmBillingError({ operation: "go_runtime", cause }),
+      });
+      if (usage && usage.remainingSeconds <= 0) {
+        return yield* Effect.fail(new VmUsageLimitExceededError({ includedHours: GO_INCLUDED_VM_HOURS, usedHours: GO_INCLUDED_VM_HOURS }));
+      }
+      if (!usage) return yield* Effect.fail(new VmBillingError({ operation: "go_runtime", cause: "Go subscription is not active" }));
+      return usage.remainingSeconds;
+    }
+  });
+}
+
+function requireGoMetadataShape(planId: string, metadata: Record<string, unknown>) {
+  return requireGoShape(planId, hasVmResourceReservationMetadata(metadata) ? vmResourceReservationFromMetadata(metadata) : null);
+}
+
+type CreateVmInput = {
   readonly userId: string;
   readonly billingCustomerType: BillingCustomerType;
   readonly billingTeamId: string;
@@ -494,6 +549,8 @@ export function createVm(input: {
   readonly image: string;
   readonly imageVersion?: string | null;
   readonly idempotencyKey?: string;
+  /** Stored before provisioning so the first guest prompt already has its chosen name. */
+  readonly displayName?: string | null;
   /**
    * "Your computer" semantics: mount a per-user persistent volume as the machine's home so
    * the sandbox is disposable compute around durable data. The volume name is derived from
@@ -522,25 +579,31 @@ export function createVm(input: {
    */
   readonly modelPlane?: VmModelPlaneProvisioner;
   readonly timing?: VmTimingSink;
-}): Effect.Effect<VmEntry, VmWorkflowError, VmRepository | VmProviderGateway | VmBillingGateway> {
+};
+
+function createVmBeginInput(input: CreateVmInput): CreateVmInput {
+  if (!isPaidVmPlan(input.billingPlanId)) return input;
+  return {
+    ...input,
+    // Reserve the logical CPU and memory profile when memoryMb is present,
+    // while retaining the baked image's actual disk claim. A direct caller
+    // may instead provide only imageSize; in that form the image is the
+    // authoritative request.
+    resourceReservation: input.resourceReservation ?? (input.billingPlanId === "go"
+      ? GO_VM_RESERVATION
+      : vmResourceReservationForCreate({ memoryMb: input.memoryMb, imageSize: input.imageSize })),
+  };
+}
+
+export function createVm(input: CreateVmInput): Effect.Effect<VmEntry, VmWorkflowError, VmRepository | VmProviderGateway | VmBillingGateway> {
   return Effect.gen(function* () {
+    const runtimeBudgetSeconds = yield* requireGoCreate(input);
+    yield* requireMemoryPlan(input.billingPlanId, requestedCreateMemory(input as { memoryMb?: number; imageSize?: { memoryMb: number }; resourceReservation?: { memoryMb: number } }));
     const repo = yield* VmRepository;
     const providers = yield* VmProviderGateway;
     const billing = yield* VmBillingGateway;
     // Record paid machine shapes for snapshot, fork, and resize recovery.
-    const beginInput = isPaidVmPlan(input.billingPlanId)
-      ? {
-        ...input,
-        // Reserve the logical CPU and memory profile when memoryMb is present,
-        // while retaining the baked image's actual disk claim. A direct caller
-        // may instead provide only imageSize; in that form the image is the
-        // authoritative request.
-        resourceReservation: input.resourceReservation ?? vmResourceReservationForCreate({
-          memoryMb: input.memoryMb,
-          imageSize: input.imageSize,
-        }),
-      }
-      : input;
+    const beginInput = createVmBeginInput(input);
 
     // The owner's network row and the create row do not depend on each other,
     // so the request pays the slower of the two reads, not their sum. A network
@@ -630,7 +693,10 @@ export function createVm(input: {
       "provider_create",
       providers.create(input.provider, {
         image: input.image,
-        displayName: create.vm.slug ?? undefined,
+        // The display label is reserved with the row before provider work starts.
+        // Passing it here makes the first guest prompt correct and removes the
+        // blocking post-create rename on current backends.
+        displayName: create.vm.displayName ?? create.vm.slug ?? undefined,
         promptIdentity: vmPromptIdentity(create.vm),
         providerMetadata: create.vm.providerMetadata,
         homeVolume: input.perMachineHome
@@ -638,8 +704,9 @@ export function createVm(input: {
           : input.persistentHome
             ? homeVolumeNameForUser(input.userId)
             : undefined,
+        runtimeBudgetSeconds,
         memoryMb: input.memoryMb,
-        imageSize: input.imageSize,
+        imageSize: input.imageSize ?? (input.billingPlanId === "go" ? { name: "sm", cpu: 2, memoryMb: 4096, storageMb: 16384 } : undefined),
         edgeRules: materials?.edgeRules,
         network: { id: network.providerNetworkId },
       }),
@@ -754,18 +821,23 @@ export function openBaseVm(input: {
   readonly provider: ProviderId;
   readonly image: string;
   readonly imageVersion?: string | null;
+  readonly imageSize?: CreateOptions["imageSize"];
   readonly baseName?: string;
   readonly modelPlane?: VmModelPlaneProvisioner;
   readonly timing?: VmTimingSink;
 }): Effect.Effect<BaseVmEntry, VmWorkflowError, VmRepository | VmProviderGateway | VmBillingGateway> {
   return Effect.gen(function* () {
+    yield* requireGoShape(input.billingPlanId, input.imageSize ? {
+      vcpus: input.imageSize.cpu, memoryMb: input.imageSize.memoryMb, diskMb: input.imageSize.storageMb,
+    } : null);
+    const runtimeBudgetSeconds = yield* requireGoCreate(input);
     const repo = yield* VmRepository;
     const providers = yield* VmProviderGateway;
     const billing = yield* VmBillingGateway;
     const beginInput = isPaidVmPlan(input.billingPlanId)
       ? {
         ...input,
-        resourceReservation: vmResourceReservationForCreate(),
+        resourceReservation: input.billingPlanId === "go" ? GO_VM_RESERVATION : vmResourceReservationForCreate({ imageSize: input.imageSize }),
       }
       : input;
     const create = yield* measureVmEffect(
@@ -773,7 +845,7 @@ export function openBaseVm(input: {
       "begin_base_open",
       repo.beginBaseOpen(beginInput),
     );
-    return yield* finishBaseCreate(repo, providers, billing, input, create);
+    return yield* finishBaseCreate(repo, providers, billing, { ...input, runtimeBudgetSeconds }, create);
   });
 }
 
@@ -786,19 +858,24 @@ export function resetBaseVm(input: {
   readonly provider: ProviderId;
   readonly image: string;
   readonly imageVersion?: string | null;
+  readonly imageSize?: CreateOptions["imageSize"];
   readonly baseName?: string;
   readonly reason?: string | null;
   readonly modelPlane?: VmModelPlaneProvisioner;
   readonly timing?: VmTimingSink;
 }): Effect.Effect<BaseVmEntry, VmWorkflowError, VmRepository | VmProviderGateway | VmBillingGateway> {
   return Effect.gen(function* () {
+    yield* requireGoShape(input.billingPlanId, input.imageSize ? {
+      vcpus: input.imageSize.cpu, memoryMb: input.imageSize.memoryMb, diskMb: input.imageSize.storageMb,
+    } : null);
+    const runtimeBudgetSeconds = yield* requireGoCreate(input);
     const repo = yield* VmRepository;
     const providers = yield* VmProviderGateway;
     const billing = yield* VmBillingGateway;
     const beginInput = isPaidVmPlan(input.billingPlanId)
       ? {
         ...input,
-        resourceReservation: vmResourceReservationForCreate(),
+        resourceReservation: input.billingPlanId === "go" ? GO_VM_RESERVATION : vmResourceReservationForCreate({ imageSize: input.imageSize }),
       }
       : input;
     const create = yield* measureVmEffect(
@@ -806,7 +883,7 @@ export function resetBaseVm(input: {
       "begin_base_reset",
       repo.beginBaseReset(beginInput),
     );
-    return yield* finishBaseCreate(repo, providers, billing, input, create);
+    return yield* finishBaseCreate(repo, providers, billing, { ...input, runtimeBudgetSeconds }, create);
   });
 }
 
@@ -823,6 +900,8 @@ function finishBaseCreate(
     readonly provider: ProviderId;
     readonly image: string;
     readonly imageVersion?: string | null;
+    readonly imageSize?: CreateOptions["imageSize"];
+    readonly runtimeBudgetSeconds?: number;
     readonly baseName?: string;
     readonly modelPlane?: VmModelPlaneProvisioner;
     readonly timing?: VmTimingSink;
@@ -911,6 +990,8 @@ function finishBaseCreate(
       "provider_create",
       providers.create(input.provider, {
         image: input.image,
+        imageSize: input.imageSize,
+        runtimeBudgetSeconds: input.runtimeBudgetSeconds,
         displayName: create.vm.slug ?? undefined,
         promptIdentity: vmPromptIdentity(create.vm),
         providerMetadata: create.vm.providerMetadata,
@@ -1017,7 +1098,7 @@ function finishBaseCreate(
 function reopenBaseIfProviderDeleted(
   repo: VmRepositoryShape,
   providers: VmProviderGatewayShape,
-  input: Parameters<VmRepositoryShape["beginBaseOpen"]>[0] & { readonly timing?: VmTimingSink },
+  input: Parameters<VmRepositoryShape["beginBaseOpen"]>[0] & { readonly timing?: VmTimingSink; readonly imageSize?: CreateOptions["imageSize"] },
   create: Extract<BeginBaseCreateResult, { readonly kind: "existing" }>,
   existing: CloudVmRow,
   providerVmId: string,
@@ -1059,7 +1140,7 @@ function reopenBaseIfProviderDeleted(
               isPaidVmPlan(input.billingPlanId)
                 ? {
                   ...input,
-                  resourceReservation: vmResourceReservationForCreate(),
+                  resourceReservation: input.billingPlanId === "go" ? GO_VM_RESERVATION : vmResourceReservationForCreate({ imageSize: input.imageSize }),
                 }
                 : input,
             )),
@@ -1264,6 +1345,7 @@ export function pauseVm(input: {
     if (!pause) {
       return yield* Effect.fail(new VmOperationUnsupportedError({ provider: vm.provider, operation: "pause" }));
     }
+    if (vm.billingPlanId === "go") yield* setRuntimeBudget(providers, vm, providerVmId, 0);
     yield* pause(vm.provider, providerVmId);
     const recorded = yield* repo.markProviderObservedStatus({ id: vm.id, providerVmId, status: "paused" });
     if (!recorded) {
@@ -1398,7 +1480,7 @@ export function restoreVm(input: {
         snapshotId: input.snapshotId,
       });
     }
-    const resourceReservation = isPaidVmPlan(input.billingPlanId)
+    const resourceReservation = input.billingPlanId === "go" ? snapshotReservation ?? undefined : isPaidVmPlan(input.billingPlanId)
       ? restoreResourceReservation(snapshotReservation ?? {
         ...DEFAULT_VM_RESOURCE_RESERVATION,
         // A snapshot event written before resource metadata existed has no
@@ -1406,6 +1488,8 @@ export function restoreVm(input: {
         diskMb: VM_DISK_MB_MAX,
       })
       : undefined;
+    yield* requireGoShape(input.billingPlanId, snapshotReservation);
+    yield* requireMemoryPlan(input.billingPlanId, snapshotReservation?.memoryMb ?? null);
     return yield* createVm({
       userId: input.userId,
       billingCustomerType: input.billingCustomerType,
@@ -1528,14 +1612,24 @@ function finalizeNativeForkReservation(
   );
 }
 
-/**
- * Select native cloning only when the driver declares that capability. The
- * gateway exposes a fork function for every provider, but unsupported drivers
- * fail inside that function; checking its presence alone selects the wrong path.
- */
-function providerForksNatively(providers: VmProviderGatewayShape, provider: ProviderId): boolean {
-  if (provider !== "freestyle" || providers.fork === undefined) return false;
-  return providers.capabilities?.(provider).fork ?? true;
+function requireForkMemoryPlan(source: CloudVmRow, providers: VmProviderGatewayShape, providerVmId: string, planId: string) {
+  return Effect.gen(function* () {
+    const sourceMemoryMb = hasVmResourceReservationMetadata(source.providerMetadata)
+      ? vmResourceReservationFromMetadata(source.providerMetadata).memoryMb
+      : yield* (providers.getStats
+        ? providers.getStats(source.provider, source.providerVmId ?? providerVmId).pipe(
+            Effect.timeout("5 seconds"),
+            Effect.map((stats) => vmProviderResourceSize("memoryMb", stats.memoryTotalMb)),
+            Effect.catchAll(() => Effect.succeed(null)),
+          )
+        : Effect.succeed(null));
+    yield* requireMemoryPlan(planId, sourceMemoryMb);
+  });
+}
+
+function nativeForkOperation(providers: VmProviderGatewayShape, provider: ProviderId, modelPlane?: VmModelPlaneProvisioner) {
+  if (modelPlane || !(providers.capabilities?.(provider).fork ?? vmCapabilitiesFor(provider).fork)) return undefined;
+  return providers.fork;
 }
 
 export function forkVm(input: {
@@ -1555,7 +1649,9 @@ export function forkVm(input: {
     const repo = yield* VmRepository;
     const providers = yield* VmProviderGateway;
     const billing = yield* VmBillingGateway;
-    const source = yield* requireUserVm(input);
+    const source = yield* requireAccessibleUserVm({ ...input, callerPlanId: input.billingPlanId });
+    yield* requireGoMetadataShape(input.billingPlanId, source.providerMetadata);
+    yield* requireForkMemoryPlan(source, providers, input.providerVmId, input.billingPlanId);
     // Kill-switch parity with POST /api/vm: fork provisions a brand-new
     // machine on the source VM's provider and spends the same provider money.
     // The check lives here rather than in the route because the provider is
@@ -1579,7 +1675,7 @@ export function forkVm(input: {
     // A native fork has no way to accept the new row's edge rules. Use the
     // snapshot/create path for a model-plane machine so it receives its own
     // VM-bound credential instead of inheriting an unrouteable alias.
-    const nativeFork = !input.modelPlane && providerForksNatively(providers, source.provider) ? providers.fork : undefined;
+    const nativeFork = nativeForkOperation(providers, source.provider, input.modelPlane);
     // The provider owns cloning the source. Record its initial shape and
     // reconcile the copied machine independently after the fork completes.
     const sourceHasReservation = hasVmResourceReservationMetadata(source.providerMetadata);
@@ -1791,7 +1887,6 @@ export function forkVm(input: {
       provider: source.provider,
       imageId: source.imageId,
       metadata: {
-        native: false,
         snapshotId: snapshot.id,
         forkProviderVmId: fork.providerVmId,
         idempotencyKeySet: !!input.idempotencyKey,
@@ -2262,7 +2357,7 @@ function boundedVmStatusReconcileLimit(limit: number | undefined): number {
 const RESUME_STATUS_PROBE_TIMEOUT = "5 seconds";
 const RESUME_SETTLE_ATTEMPTS = 10;
 const RESUME_SETTLE_INTERVAL = "1 second";
-type VmResumeSource = "exec" | "attach" | "ssh" | "fork" | "open_port" | "resize" | "user";
+type VmResumeSource = "exec" | "attach" | "ssh" | "scp" | "fork" | "open_port" | "resize" | "user";
 
 type ResumePreflightOptions = {
   /** Resolved billing-scope allowance; null is unlimited, undefined uses the plan default. */
@@ -2308,6 +2403,11 @@ function waitForRunningStatus(
   });
 }
 
+function setRuntimeBudget(providers: VmProviderGatewayShape, vm: CloudVmRow, vmId: string, seconds: number | null) {
+  if (!providers.setRuntimeBudget) return Effect.fail(new VmOperationUnsupportedError({ provider: vm.provider, operation: "runtime limits" }));
+  return providers.setRuntimeBudget(vm.provider, vmId, seconds);
+}
+
 function bestEffortPause(
   providers: VmProviderGatewayShape,
   vm: CloudVmRow,
@@ -2315,7 +2415,10 @@ function bestEffortPause(
 ): Effect.Effect<void, never> {
   const pause = providers.pause;
   if (!pause) return Effect.void;
-  return pause(vm.provider, providerVmId).pipe(Effect.catchAll(() => Effect.void));
+  return Effect.gen(function* () {
+    if (vm.billingPlanId === "go") yield* setRuntimeBudget(providers, vm, providerVmId, 0);
+    yield* pause(vm.provider, providerVmId);
+  }).pipe(Effect.catchAll(() => Effect.void));
 }
 
 function resumeUntilRunning(
@@ -2326,7 +2429,12 @@ function resumeUntilRunning(
   return Effect.gen(function* () {
     const resume = providers.resume;
     if (!resume) return;
-    const handle = yield* resume(vm.provider, providerVmId);
+    if (vm.billingPlanId === "go") {
+      const usage = yield* Effect.tryPromise({ try: () => getGoVmUsage(vm.userId), catch: (cause) => new VmBillingError({ operation: "go_runtime", cause }) });
+      if (usage && usage.remainingSeconds <= 0) return yield* Effect.fail(new VmUsageLimitExceededError({ includedHours: 40, usedHours: 40 }));
+      yield* setRuntimeBudget(providers, vm, providerVmId, usage?.remainingSeconds ?? null);
+    }
+    const handle = yield* resume(vm.provider, providerVmId).pipe(Effect.tapError(() => bestEffortPause(providers, vm, providerVmId)));
     if (handle.status === "running") return;
     const settled = yield* waitForRunningStatus(providers, vm, providerVmId);
     if (settled) return;
@@ -2423,6 +2531,16 @@ function preflightResumeIfSuspended(
     const getStatus = providers.getStatus;
     const resume = providers.resume;
     if (!getStatus || !resume) return false;
+    if (vm.billingPlanId === "go") {
+      const usage = yield* Effect.tryPromise({
+        try: () => getGoVmUsage(vm.userId),
+        catch: (cause) => new VmBillingError({ operation: "go_runtime", cause }),
+      });
+      if (usage && usage.remainingSeconds <= 0) {
+        yield* pauseGoVm(repo, providers, vm, providerVmId, usage.usedSeconds);
+        return yield* Effect.fail(new VmUsageLimitExceededError({ includedHours: GO_INCLUDED_VM_HOURS, usedHours: GO_INCLUDED_VM_HOURS }));
+      }
+    }
     const forceProviderProbe = options.forceProviderProbe === true;
     // A passive/exec path can trust the row and let the provider operation
     // perform its own wake. User-open paths opt into a live probe because a
@@ -2872,7 +2990,27 @@ export function getVmStats(input: {
       );
     }
     return yield* providers.getStats(vm.provider, input.providerVmId).pipe(
-      Effect.map((stats) => applyVmResourceUsage(stats, vm.providerMetadata, input.providerVmId, Date.now())),
+      Effect.flatMap((stats) => {
+        const now = Date.now();
+        const reported = applyVmResourceUsage(stats, vm.providerMetadata, input.providerVmId, now);
+        // The private development backend cannot receive production-edge reports.
+        // Production keeps the push path. Never probe non-awake machines, and
+        // prefer an existing fresh report over another guest round trip.
+        const fresh = reported.resourceSampledAt !== undefined
+          && reported.resourceSampledAt <= now
+          && now - reported.resourceSampledAt <= VM_RESOURCE_USAGE_MAX_AGE_MS;
+        if (stats.state !== "awake" || fresh || !shouldReadVmResourceStatsDirectly() || !providers.getResourceStats) {
+          return Effect.succeed(reported);
+        }
+        return providers.getResourceStats(vm.provider, input.providerVmId).pipe(
+          Effect.map((sample) => sample ? applyVmResourceUsage(stats, {
+            [VM_RESOURCE_USAGE_KEY]: {
+              ...sample, providerVmId: input.providerVmId, receivedAt: sample.resourceSampledAt,
+            },
+          }, input.providerVmId, Date.now()) : reported),
+          Effect.catchAll((error) => isProviderNotFoundError(error) ? Effect.fail(error) : Effect.succeed(reported)),
+        );
+      }),
       Effect.mapError((error): VmWorkflowError => error),
       Effect.catchAll((error) => {
         if (!isProviderNotFoundError(error)) return Effect.fail(error);
@@ -2908,6 +3046,9 @@ export function resizeVm(input: {
     const providers = yield* VmProviderGateway;
     const vm = yield* requireAccessibleUserVm({ ...input, callerPlanId: input.billingPlanId });
     const planId = input.billingPlanId ?? vm.billingPlanId ?? "free";
+    if (planId === "go" && ((input.storageMb ?? 0) > 16 * 1024 || (input.cpu ?? 0) > 2 || (input.memoryMb ?? 0) > 4 * 1024)) {
+      return yield* Effect.fail(new VmGoShapeError());
+    }
     for (const [resource, requested, max] of [
       ["cpu", input.cpu, maxVcpusForPlan(planId)],
       ["memory", input.memoryMb, maxMemoryMbForPlan(planId)],
@@ -3429,6 +3570,47 @@ export function openAttachEndpoint(input: OpenAttachEndpointInput) {
   });
 }
 
+export function prepareScpEndpoint(input: {
+  readonly publicKey: string;
+  readonly userId: string;
+  readonly billingTeamId?: string | null;
+  readonly teamIds?: readonly string[];
+  readonly providerVmId: string;
+  readonly callerPlanId?: string | null;
+  readonly maxActiveVms?: number | null;
+}) {
+  return Effect.gen(function* () {
+    const repo = yield* VmRepository;
+    const providers = yield* VmProviderGateway;
+    const vm = yield* requireAccessibleUserVm(input);
+    if (!providers.prepareSCP) return yield* Effect.fail(new VmOperationUnsupportedError({ provider: vm.provider, operation: "prepareSCP" }));
+    if (vm.status === "destroyed") return yield* Effect.fail(new VmNotFoundError({ vmId: input.providerVmId }));
+    yield* preflightResumeIfSuspended(repo, providers, vm, input.providerVmId, "scp", {
+      forceProviderProbe: true, maxActiveVms: input.maxActiveVms,
+    });
+    const endpoint = yield* withResumeOnSuspendedAfterFailure(
+      repo,
+      providers,
+      vm,
+      input.providerVmId,
+      "scp",
+      providers.prepareSCP(vm.provider, input.providerVmId, input.publicKey),
+      input.maxActiveVms,
+    );
+    yield* repo.recordUsageEvent({
+      userId: input.userId,
+      billingTeamId: vm.billingTeamId,
+      billingPlanId: vm.billingPlanId,
+      vmId: vm.id,
+      eventType: "vm.scp_endpoint",
+      provider: vm.provider,
+      imageId: vm.imageId,
+      metadata: { transport: "wireguard-scp", expiresAtUnix: endpoint.expiresAtUnix },
+    }).pipe(Effect.catchAll(() => Effect.void));
+    return endpoint;
+  });
+}
+
 export function openVmSession(input: {
   readonly userId: string;
   readonly billingTeamId?: string | null;
@@ -3564,7 +3746,35 @@ function openAttachEndpointResult(input: OpenAttachEndpointInput) {
 /// machine stays visible and disposable while locked.
 function requireAccessibleUserVm(input: ExistingVmAccessInput) {
   return Effect.gen(function* () {
-    const vm = yield* requireUserVm(input);
+    let vm = yield* requireUserVm(input);
+    if (input.callerPlanId === "go") {
+      yield* requireGoShape("go", hasVmResourceReservationMetadata(vm.providerMetadata) ? vmResourceReservationFromMetadata(vm.providerMetadata) : null);
+    }
+    if (input.callerPlanId && vm.billingPlanId !== input.callerPlanId &&
+      (input.callerPlanId === "go" || vm.billingPlanId === "go")) {
+      const billingPlanId = input.callerPlanId;
+      if (vm.billingPlanId === "go" && billingPlanId !== "go" && isPaidVmPlan(billingPlanId)) {
+        const providers = yield* VmProviderGateway;
+        yield* setRuntimeBudget(providers, vm, input.providerVmId, null);
+      }
+      yield* Effect.tryPromise({
+        try: () => cloudDb().update(cloudVms).set({ billingPlanId }).where(eq(cloudVms.id, vm.id)),
+        catch: (cause) => new VmDatabaseError({ operation: "sync_vm_billing_plan", cause }),
+      });
+      vm = { ...vm, billingPlanId };
+    }
+    if (vm.providerMetadata[GO_PAUSE_INTENT_KEY] != null) {
+      const repo = yield* VmRepository;
+      if (vm.billingPlanId === "go") {
+        const providers = yield* VmProviderGateway;
+        yield* pauseGoVm(repo, providers, vm, input.providerVmId);
+        vm = { ...vm, status: "paused" };
+      } else {
+        if (!repo.mergeProviderMetadata) return yield* Effect.fail(new VmDatabaseError({ operation: "cancel_go_pause", cause: "Durable metadata writes are unavailable" }));
+        yield* repo.mergeProviderMetadata({ id: vm.id, patch: { [GO_PAUSE_INTENT_KEY]: null } });
+      }
+      vm = { ...vm, providerMetadata: { ...vm.providerMetadata, [GO_PAUSE_INTENT_KEY]: null } };
+    }
     if (isVmFreeAccessExpired(input.callerPlanId, vm.createdAt ?? undefined)) {
       return yield* Effect.fail(new VmFreeAccessExpiredError({
         vmId: input.providerVmId,
@@ -3595,8 +3805,8 @@ function requireUserVm(input: ExistingVmAccessInput) {
 }
 
 function callerStillOwnsBillingScope(input: ExistingVmAccessInput, vm: CloudVmRow): boolean {
-  const billingTeamId = vm.billingTeamId?.trim();
-  if (!billingTeamId) return true;
+  const billingTeamId = vm.ownerTeamId?.trim();
+  if (!billingTeamId) return false;
   if (billingTeamId === input.userId) return true;
   if (!input.teamIds) return false;
   return new Set(input.teamIds).has(billingTeamId);

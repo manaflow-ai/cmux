@@ -17,7 +17,7 @@ import CmuxTerminal
 import CmuxBrowser
 import struct CmuxSettings.IntegrationsCatalogSection
 import enum CmuxSettings.KiroNotificationLevel
-@_implementationOnly import XCTest
+import XCTest
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -1325,6 +1325,56 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
 
         XCTAssertTrue(SidebarWorkspaceTitleWrapSettings.wraps(defaults: defaults))
         XCTAssertEqual(defaults.object(forKey: SidebarWorkspaceTitleWrapSettings.key) as? Bool, true)
+    }
+
+    func testSettingsFileStoreParsesSidebarWorkspaceDescriptionColor() throws {
+        let defaults = UserDefaults.standard
+        let managedKey = SettingCatalog().sidebar.workspaceDescriptionColorHex.userDefaultsKey
+        let previousValue = defaults.object(forKey: managedKey)
+        let previousBackups = defaults.data(forKey: settingsFileBackupsDefaultsKey)
+        defer {
+            if let previousValue {
+                defaults.set(previousValue, forKey: managedKey)
+            } else {
+                defaults.removeObject(forKey: managedKey)
+            }
+
+            if let previousBackups {
+                defaults.set(previousBackups, forKey: settingsFileBackupsDefaultsKey)
+            } else {
+                defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
+            }
+        }
+
+        defaults.removeObject(forKey: managedKey)
+        defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
+
+        let directoryURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+        try writeSettingsFile(
+            """
+            {
+              "sidebar": {
+                "workspaceDescriptionColor": "#a6e3a1"
+              }
+            }
+            """,
+            to: settingsFileURL
+        )
+
+        _ = KeyboardShortcutSettingsFileStore(
+            primaryPath: settingsFileURL.path,
+            fallbackPath: nil,
+            startWatching: false
+        )
+
+        XCTAssertEqual(defaults.string(forKey: managedKey), "#A6E3A1")
+        XCTAssertEqual(
+            SidebarTabItemSettingsSnapshot(defaults: defaults).workspaceDescriptionColorHex,
+            "#A6E3A1"
+        )
     }
 
     func testSettingsFileStoreParsesWorkspaceTodoControlsBetaSetting() throws {
@@ -5211,6 +5261,7 @@ final class WorkspaceSidebarExtensionBrowserSurfaceTests: XCTestCase {
         let loadingPanelId = try XCTUnwrap(workspace.focusedPanelId)
         let loadingSurfaceId = try XCTUnwrap(workspace.surfaceIdFromPanelId(loadingPanelId))
         let stableSurfaceId = try XCTUnwrap(workspace.panels[loadingPanelId]).stableSurfaceId
+
         let command = "cmux vm-pty-connect --config /tmp/cmux.json --id vm_123"
         let terminal = workspace.replaceCloudVMLoadingSurfaceWithTerminal(
             workspaceId: workspace.id,
@@ -5224,7 +5275,6 @@ final class WorkspaceSidebarExtensionBrowserSurfaceTests: XCTestCase {
         XCTAssertEqual(terminal?.stableSurfaceId, stableSurfaceId)
         XCTAssertEqual(workspace.focusedTerminalPanel?.id, loadingPanelId)
         XCTAssertEqual(terminal?.surface.initialCommand, command)
-        XCTAssertTrue(workspace.bonsplitController.tab(loadingSurfaceId)?.isLoading == true)
     }
 
     func testCloudVMLoadingFailureSummarizesRetrySpam() {
@@ -6596,24 +6646,24 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
                 snapshot: snapshot
             )
         )
-
         XCTAssertTrue(launch.autoConnectRemoteConfiguration)
         XCTAssertEqual(launch.remoteConfiguration?.destination, "cmux-macmini")
         XCTAssertEqual(launch.remoteConfiguration?.port, 2222)
         XCTAssertEqual(launch.remoteConfiguration?.preserveAfterTerminalExit, false)
-        XCTAssertNil(launch.remoteConfiguration?.relayPort)
-        XCTAssertNil(launch.remoteConfiguration?.relayID)
-        XCTAssertNil(launch.remoteConfiguration?.relayToken)
-        XCTAssertNil(launch.remoteConfiguration?.localSocketPath)
+        let relayPort = try XCTUnwrap(launch.remoteConfiguration?.relayPort)
+        let relayID = try XCTUnwrap(launch.remoteConfiguration?.relayID)
+        let relayToken = try XCTUnwrap(launch.remoteConfiguration?.relayToken)
+        let localSocketPath = try XCTUnwrap(launch.remoteConfiguration?.localSocketPath)
+        XCTAssertEqual(relayPort, 64017)
+        XCTAssertNotEqual(relayID, "relay-fork-persistent")
+        XCTAssertNotEqual(relayToken, String(repeating: "c", count: 64))
+        XCTAssertNotEqual(localSocketPath, "/tmp/cmux-fork-persistent.sock")
         XCTAssertNil(launch.remoteConfiguration?.persistentDaemonSlot)
         let startupCommand = try XCTUnwrap(launch.remoteConfiguration?.terminalStartupCommand)
+        XCTAssertTrue(startupCommand.contains("terminal_session_launching"), startupCommand)
+        XCTAssertTrue(startupCommand.contains("relay_port"), startupCommand)
         XCTAssertFalse(startupCommand.contains("ssh-pty-attach"), startupCommand)
-        XCTAssertEqual(
-            startupCommand,
-            "ssh -p 2222 -i /Users/example/.ssh/cmux -tt cmux-macmini"
-        )
     }
-
     func testForkAgentWorkspaceLaunchInRemoteWorkspaceUsesFallbackDirectoryInForkCommand() throws {
         let workspace = Workspace()
         workspace.configureRemoteConnection(

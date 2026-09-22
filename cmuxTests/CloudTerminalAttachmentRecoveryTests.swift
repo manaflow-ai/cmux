@@ -15,6 +15,30 @@ import Testing
     private static let terminalID = "term_41fb0b7fe0f204d428acf9db124023f4"
     private static let socketPath = "/tmp/cmux-12362-fixture.sock"
 
+    /// Resolver and session logs can be joined without exposing terminal data.
+    /// The correlation value is caller supplied so a materialization can carry
+    /// one id from identity resolution through native presentation.
+    @Test @MainActor
+    func attachmentDiagnosticsKeepOneCorrelationIDAcrossResolverAndSession() {
+        let correlationID = "attachment-correlation-12567"
+        let resolver = CloudTerminalAttachmentResolver(
+            commandRunner: ScriptedTuiCommandRunner(),
+            socketPath: Self.socketPath,
+            correlationID: correlationID
+        )
+        let session = CloudTuiManualMirrorSession(
+            machineID: "machine",
+            terminalID: Self.terminalID,
+            remoteSurfaceID: 17,
+            correlationID: correlationID,
+            onNeedsReconnect: {}
+        )
+        defer { session.stop() }
+
+        #expect(resolver.attachmentCorrelationID == correlationID)
+        #expect(session.attachmentCorrelationID == correlationID)
+    }
+
     /// The deployed daemon (897bb7a9) validates `resolve-terminal` ids as
     /// UUIDv4 host ids, so a public `term_…` id answers `invalid_terminal_id`,
     /// and the compatibility tree only lists terminals that have a tab. A
@@ -105,10 +129,10 @@ import Testing
         )
         defer { session.stop() }
         session.reconnect(socketPath: fixture.socketPath)
+        #expect(session.phase == .connecting)
 
         let identify = try #require(await fixture.nextCommand(timeout: .seconds(5)))
         #expect(identify.cmd == "identify")
-        #expect(session.phase == .connecting)
 
         #expect(await Self.waitUntil { session.phase == .disconnected })
         #expect(reconnects.count >= 1)
@@ -152,8 +176,8 @@ import Testing
         #expect(reconnects.count >= 1)
     }
 
-    /// The attachment retry policy retains bounded initial checks and capped
-    /// background recovery for already materialized panes.
+    /// One open retries a couple of times, then reports "did not answer";
+    /// an open pane keeps retrying at the capped interval forever.
     @Test
     func retryPoliciesBoundOneOpenAndCapBackgroundRecovery() {
         let materialize = CloudTerminalAttachmentRetryPolicy.materialize
@@ -164,14 +188,6 @@ import Testing
         #expect(background.cappedDelay(afterFailures: 1) == .seconds(1))
         #expect(background.cappedDelay(afterFailures: 6) == .seconds(30))
         #expect(background.cappedDelay(afterFailures: 60) == .seconds(30))
-    }
-
-    @Test
-    func creationRecoveryUsesCappedBackoff() {
-        let policy = CloudTuiCreationRecoveryPolicy.standard
-        #expect(policy.delay(afterAttempts: 1) == .seconds(1))
-        #expect(policy.delay(afterAttempts: 2) == .seconds(2))
-        #expect(policy.delay(afterAttempts: 60) == .seconds(30))
     }
 
     /// The scheduler arms exactly one retry per failed pass, replaces an
@@ -195,21 +211,6 @@ import Testing
         scheduler.cancel()
         #expect(!scheduler.isPending)
         #expect(!(await Self.waitUntil(timeout: .milliseconds(200)) { fired.count == 2 }))
-    }
-
-    /// The pane shows nothing while attached and a reason while reconnecting.
-    @Test
-    func attachmentBannerNamesTheMachineAndTheReason() {
-        #expect(CloudTerminalAttachmentBanner.text(for: .attached, machineID: "vm-1") == nil)
-        #expect(CloudTerminalAttachmentBanner.text(for: .ended, machineID: "vm-1") == nil)
-        let attaching = CloudTerminalAttachmentBanner.text(for: .attaching(attempt: 1), machineID: "vm-1")
-        #expect(attaching?.contains("vm-1") == true)
-        let reconnecting = CloudTerminalAttachmentBanner.text(
-            for: .reconnecting(attempt: 3, reason: .livenessTimedOut), machineID: "vm-1"
-        )
-        #expect(reconnecting?.contains("vm-1") == true)
-        #expect(reconnecting?.contains("3") == true)
-        #expect(reconnecting?.contains(CloudTerminalAttachmentInterruption.livenessTimedOut.localizedDescription) == true)
     }
 
     /// The raw bridge wraps transport errors inside details.error on some daemons.
@@ -295,7 +296,7 @@ import Testing
             for waiter in pending { waiter.resume() }
         }
 
-        func runTuiCommand(arguments: [String], deadline: Duration) async throws -> Data {
+        func runTuiCommand(arguments: CloudTuiRequest, deadline: Duration) async throws -> Data {
             active += 1
             calls += 1
             maximumActive = max(maximumActive, active)
@@ -385,37 +386,31 @@ private final class ScriptedTuiCommandRunner: CloudTuiCommandRunning, @unchecked
     typealias Answer = @Sendable () throws -> Data
 
     private let lock = NSLock()
-    private var scripts: [(matches: @Sendable ([String]) -> Bool, answer: Answer)] = []
-    private var recorded: [[String]] = []
+    private var scripts: [(matches: @Sendable (CloudTuiRequest) -> Bool, answer: Answer)] = []
+    private var recorded: [CloudTuiRequest] = []
 
     /// Every invocation seen so far, in order.
-    var calls: [[String]] {
+    var calls: [CloudTuiRequest] {
         lock.lock(); defer { lock.unlock() }
         return recorded
     }
 
     /// Answers a `raw command --request-json {"cmd": <name>, …}` invocation.
     func onRawCommand(_ name: String, _ answer: @escaping Answer) {
-        on({ arguments in
-            guard let index = arguments.firstIndex(of: "--request-json"),
-                  arguments.indices.contains(index + 1),
-                  let data = arguments[index + 1].data(using: .utf8),
-                  let request = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return false }
-            return request["cmd"] as? String == name
-        }, answer)
+        on({ $0.raw && $0.operation == name }, answer)
     }
 
     /// Answers a resource-CLI invocation whose argv ends with `words`.
     func onSubcommand(_ words: [String], _ answer: @escaping Answer) {
-        on({ Array($0.suffix(words.count)) == words }, answer)
+        on({ $0.operation == "session.snapshot" && words == ["session", "current", "snapshot"] }, answer)
     }
 
-    private func on(_ matches: @escaping @Sendable ([String]) -> Bool, _ answer: @escaping Answer) {
+    private func on(_ matches: @escaping @Sendable (CloudTuiRequest) -> Bool, _ answer: @escaping Answer) {
         lock.lock(); defer { lock.unlock() }
         scripts.append((matches: matches, answer: answer))
     }
 
-    func runTuiCommand(arguments: [String], deadline: Duration) async throws -> Data {
+    func runTuiCommand(arguments: CloudTuiRequest, deadline: Duration) async throws -> Data {
         lock.lock()
         recorded.append(arguments)
         let script = scripts.first { $0.matches(arguments) }
@@ -423,7 +418,7 @@ private final class ScriptedTuiCommandRunner: CloudTuiCommandRunning, @unchecked
         guard let script else {
             throw CloudMachineLink.LinkError.exited(
                 status: 2,
-                output: "unscripted cmux-tui invocation: \(arguments.joined(separator: " "))"
+                output: "unscripted cmux-tui invocation: \(arguments.operation)"
             )
         }
         return try script.answer()

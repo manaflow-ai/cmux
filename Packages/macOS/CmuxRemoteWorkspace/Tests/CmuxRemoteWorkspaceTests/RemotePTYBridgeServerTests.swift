@@ -13,6 +13,7 @@ final class RecordingPTYBridgeRPCClient: RemotePTYBridgeRPCClient, @unchecked Se
     private var _eventQueue: DispatchQueue?
     var attachError: (any Error)?
     var supportsInputSeqAck = false
+    let daemonVersion: String? = "0.64.22"
     var replayByteCount = 0
 
     var writes: [Data] {
@@ -218,6 +219,7 @@ struct RemotePTYBridgeServerTests {
         let server = makeServer(client: RecordingPTYBridgeRPCClient())
         defer { server.stop() }
         let endpoint = try server.start()
+        #expect(endpoint.daemonVersion == "0.64.22")
         #expect(endpoint.host == "127.0.0.1")
         #expect(endpoint.port > 0)
         #expect(!endpoint.token.isEmpty)

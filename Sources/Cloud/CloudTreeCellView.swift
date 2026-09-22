@@ -8,13 +8,18 @@ import SwiftUI
 /// tracking area (the buttons are always laid out so hovering never reflows).
 final class CloudTreeCellView: NSTableCellView {
     static let identifier = NSUserInterfaceItemIdentifier("CloudTreeCell")
+    var machineReorderAccessibilityActions: (() -> [NSAccessibilityCustomAction])?
+
+    override func accessibilityCustomActions() -> [NSAccessibilityCustomAction]? {
+        machineReorderAccessibilityActions?() ?? super.accessibilityCustomActions()
+    }
 
     private let displayHost = CloudTreePassthroughHostingView(rootView: AnyView(EmptyView()))
     private var buttonsHost: NSHostingView<AnyView>?
+    private var buttonsTrailingConstraint: NSLayoutConstraint?
     private var buttonsLeadingConstraint: NSLayoutConstraint?
     private var buttonsTopConstraint: NSLayoutConstraint?
     private var buttonsCenterConstraint: NSLayoutConstraint?
-    private var trackingArea: NSTrackingArea?
     private var hovered = false {
         didSet { buttonsHost?.alphaValue = hovered ? 1 : 0 }
     }
@@ -24,14 +29,11 @@ final class CloudTreeCellView: NSTableCellView {
         identifier = Self.identifier
         displayHost.translatesAutoresizingMaskIntoConstraints = false
         addSubview(displayHost)
-        // The outline's `frameOfCell` already shifted this cell 2pt past the 16pt
-        // disclosure slot; the remaining 4pt completes `CloudTreeRowGrid.disclosureGap`.
-        // Content pads its own trailing edge (`CloudTreeRowGrid.trailingPadding`).
+        // The outline owns the complete disclosure slot and gap. The hosted
+        // content starts at the cell edge, with no second horizontal offset.
+        // Content pads its own trailing edge (`style.rowGrid.trailingPadding`).
         NSLayoutConstraint.activate([
-            displayHost.leadingAnchor.constraint(
-                equalTo: leadingAnchor,
-                constant: CloudTreeRowGrid.disclosureGap - CloudTreeNSOutlineView.cellShift
-            ),
+            displayHost.leadingAnchor.constraint(equalTo: leadingAnchor),
             displayHost.topAnchor.constraint(equalTo: topAnchor),
             displayHost.bottomAnchor.constraint(equalTo: bottomAnchor),
         ])
@@ -55,34 +57,36 @@ final class CloudTreeCellView: NSTableCellView {
     ///   - machineActions: Actions for machine and creation controls.
     ///   - nodeActions: Actions for workspace and surface controls.
     ///   - style: The visual preset for the row.
-    ///   - showsCloudVPNWarning: Whether the Ports group exposes the VPN affordance.
     func configure(
         node: CloudTreeNode,
         machineActions: MachineRowActions,
         nodeActions: CloudTreeNodeActions,
-        style: CloudTreeStyle = CloudTreeStyleStore.current,
-        showsCloudVPNWarning: Bool = false
+        style: CloudTreeStyle = CloudTreeStyleStore.current
     ) {
         #if DEBUG
         if case .terminal(let row) = node.kind, row.hasUnreadNotification {
             cmuxDebugLog("cloudTree.cell.configure unread terminal=\(row.resource.id.key.suffix(4)) node=\(node.id.suffix(12))")
         }
         #endif
+        displayHost.isHidden = false
         displayHost.rootView = AnyView(
-            CloudTreeRowContentView(kind: node.kind, style: style, showsCloudVPNWarning: showsCloudVPNWarning)
+            CloudTreeRowContentView(kind: node.kind, style: style)
+                .modifier(CloudSidebarRowDecoration(isPinned: node.isPinned, showsAttentionSlot: node.showsAttentionSlot, hasUnreadNotification: node.hasUnreadAttention))
                 .frame(maxWidth: .infinity, alignment: .leading)
         )
         // An in-place row reload reuses this cell; the new content can be wider
         // than the last fitting size, so ask AppKit to re-measure the host.
         displayHost.invalidateIntrinsicContentSize()
         needsLayout = true
-        if CloudTreeRowHoverButtons.hasButtons(for: node.kind, showsCloudVPNWarning: showsCloudVPNWarning) {
-            let buttons = buttonsHost ?? makeButtonsHost()
-            buttons.rootView = AnyView(CloudTreeRowHoverButtons(kind: node.kind, machineActions: machineActions, nodeActions: nodeActions, showsCloudVPNWarning: showsCloudVPNWarning))
+        if CloudTreeRowHoverButtons.hasButtons(for: node.kind) {
+            let buttons = buttonsHost ?? makeButtonsHost(style: style)
+            buttons.rootView = AnyView(CloudTreeRowHoverButtons(kind: node.kind, machineActions: machineActions, nodeActions: nodeActions))
             buttons.isHidden = false
             buttons.alphaValue = hovered ? 1 : 0
+            buttonsLeadingConstraint?.constant = -style.rowGrid.trailingGap
+            buttonsTrailingConstraint?.constant = -style.rowGrid.trailingPadding
             buttonsLeadingConstraint?.isActive = true
-            // Cloud resources sit below the name; keep hover buttons on its line.
+            // Keep hover buttons on the name line above the resource summary.
             // Local and pending rows retain their preset alignment.
             let pinToNameLine = node.isMachineRow && (style.machineRowLayout == .twoLine || node.structureTag == "machine")
             buttonsTopConstraint?.constant = style.machineVerticalPadding + (style.machineBand ? 4 : 0)
@@ -99,35 +103,44 @@ final class CloudTreeCellView: NSTableCellView {
             toolTip = operation.summaryLine
         } else if case .localMachine(let row) = node.kind {
             toolTip = row.name
-        } else if showsCloudVPNWarning, case .portsGroup = node.kind {
-            toolTip = CloudPortsVPNWarning.projection(tunnelState: .off)?.help
-        } else if showsCloudVPNWarning, case .display = node.kind {
-            toolTip = CloudPortsVPNWarning.projection(tunnelState: .off)?.help
+        } else if case .device(let row) = node.kind {
+            // Full status and counts: the row itself carries only a dim fact.
+            toolTip = CloudTreeDeviceRowContent(row: row, style: style).toolTip
         } else {
             toolTip = nil
         }
         if case .machine(let machine, _) = node.kind {
             setAccessibilityLabel(CloudTreeMachineRowContent(machine: machine).accessibilityLabel)
+        } else if case .device(let row) = node.kind {
+            setAccessibilityLabel(CloudTreeDeviceRowContent(row: row, style: style).accessibilityLabel)
+        } else if case .resource(_, let row) = node.kind {
+            setAccessibilityLabel(row.accessibilityLabel)
+        } else if case .terminal(let row) = node.kind {
+            setAccessibilityLabel(CloudTreeTerminalRowContent(row: row, style: style).toolTip)
+        } else if case .display(let resource, _, _) = node.kind {
+            setAccessibilityLabel([node.searchableTitle, CloudTreeRowContentView.text(for: resource)].joined(separator: ", "))
         } else {
             setAccessibilityLabel(node.searchableTitle)
         }
     }
 
-    private func makeButtonsHost() -> NSHostingView<AnyView> {
+    private func makeButtonsHost(style: CloudTreeStyle) -> NSHostingView<AnyView> {
         let host = NSHostingView(rootView: AnyView(EmptyView()))
         host.translatesAutoresizingMaskIntoConstraints = false
         addSubview(host)
         // Buttons sit on the name line (two-line machine cards), like the chevron
         // and the status dot; every other row activates the center constraint.
-        let top = host.topAnchor.constraint(equalTo: topAnchor, constant: CloudTreeStyleStore.current.machineVerticalPadding)
+        let top = host.topAnchor.constraint(equalTo: topAnchor, constant: style.machineVerticalPadding)
         let center = host.centerYAnchor.constraint(equalTo: centerYAnchor)
+        let trailing = host.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -style.rowGrid.trailingPadding)
+        buttonsTrailingConstraint = trailing
         NSLayoutConstraint.activate([
-            host.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -CloudTreeRowGrid.trailingPadding),
+            trailing,
             top,
         ])
         buttonsLeadingConstraint = displayHost.trailingAnchor.constraint(
             lessThanOrEqualTo: host.leadingAnchor,
-            constant: -CloudTreeRowGrid.trailingGap
+            constant: -style.rowGrid.trailingGap
         )
         buttonsTopConstraint = top
         buttonsCenterConstraint = center
@@ -135,31 +148,14 @@ final class CloudTreeCellView: NSTableCellView {
         return host
     }
 
-    override func updateTrackingAreas() {
-        super.updateTrackingAreas()
-        if let trackingArea {
-            removeTrackingArea(trackingArea)
-        }
-        let area = NSTrackingArea(
-            rect: bounds,
-            options: [.mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect],
-            owner: self,
-            userInfo: nil
-        )
-        addTrackingArea(area)
-        trackingArea = area
-    }
-
-    override func mouseEntered(with event: NSEvent) {
-        hovered = true
-    }
-
-    override func mouseExited(with event: NSEvent) {
-        hovered = false
+    func setHovered(_ hovered: Bool) {
+        guard self.hovered != hovered else { return }
+        self.hovered = hovered
     }
 
     override func prepareForReuse() {
         super.prepareForReuse()
+        machineReorderAccessibilityActions = nil
         hovered = false
     }
 }
@@ -168,7 +164,9 @@ final class CloudTreeCellView: NSTableCellView {
 /// it owns selection, drag, double-click, and the context menu.
 final class CloudTreePassthroughHostingView: NSHostingView<AnyView> {
     override func hitTest(_ point: NSPoint) -> NSView? {
-        nil
+        // The outline owns all ordinary row interaction. Returning nil here is
+        // what keeps a header click from being swallowed by the SwiftUI host.
+        return nil
     }
 }
 

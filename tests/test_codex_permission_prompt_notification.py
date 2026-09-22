@@ -29,6 +29,8 @@ from test_codex_feed_hooks import (
     FakeCmuxSocket,
 )
 
+from test_codex_monitor_memory import test_codex_monitor_rss_reaches_a_plateau
+
 EXPECTED_NOTIFY = {
     "kind": "agent.approval.requested", "source": "codex",
     "workspace_id": FAKE_WORKSPACE_ID, "surface_id": FAKE_SURFACE_ID,
@@ -353,6 +355,7 @@ def main() -> int:
             test_permission_notification_survives_slow_authentication(cli_path, root)
             test_permission_notification_targets_rehomed_pane(cli_path, root)
             test_stalled_live_target_probe_does_not_starve_notification(cli_path, root)
+            test_codex_monitor_rss_reaches_a_plateau(cli_path, root)
         except Exception as exc:
             print(f"FAIL: {exc}")
             return 1

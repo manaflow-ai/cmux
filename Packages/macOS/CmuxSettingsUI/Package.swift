@@ -25,11 +25,14 @@ let package = Package(
                 "CMUXMobileCore",
                 .product(name: "CmuxFoundation", package: "CmuxFoundation"),
                 .product(name: "CmuxSettings", package: "CmuxSettings"),
+            ],
+            resources: [
+                .copy("Resources/CustomSidebars"),
             ]
         ),
         .testTarget(
             name: "CmuxSettingsUITests",
-            dependencies: ["CmuxSettingsUI"]
+            dependencies: ["CmuxSettingsUI", "CmuxSettings"]
         ),
     ]
 )

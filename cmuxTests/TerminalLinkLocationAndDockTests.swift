@@ -37,13 +37,27 @@ private final class RecordingTerminalLinkContainer: TerminalLinkOpenContainer {
         return true
     }
 
-    func openTerminalBrowserLink(url: URL, sourcePanelId: UUID) -> Bool {
+    func openTerminalBrowserLink(url: URL, sourcePanelId: UUID, focus: Bool) -> Bool {
         false
     }
 }
 
 @Suite("Terminal link locations and Dock controls", .serialized)
 struct TerminalLinkLocationAndDockTests {
+    @Test("Bare localhost links retain port, query and fragment", arguments: [
+        "localhost:8000",
+        "localhost:8000/probe?duplicate=1&duplicate=2#fragment",
+        "api.localhost:8000/probe?encoded=a%2Fb#fragment"
+    ])
+    func bareLocalhostLinksOpenEmbedded(_ raw: String) throws {
+        let target = try #require(resolveTerminalOpenURLTarget(raw))
+        guard case let .embeddedBrowser(url) = target else {
+            Issue.record("Expected a localhost web link, not an external URL scheme")
+            return
+        }
+        #expect(url.absoluteString == "http://\(raw)")
+    }
+
     private func makeDefaults() -> UserDefaults {
         let suiteName = "terminal-link-location-tests-\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suiteName)!
@@ -88,12 +102,11 @@ struct TerminalLinkLocationAndDockTests {
         let terminalPanel = try #require(
             store.panels.values.compactMap { $0 as? TerminalPanel }.first
         )
-        // Dock callbacks carry a surface identity. Keep an alias in the Dock's
-        // tab-to-panel index to exercise resolution when those identities do
-        // not equal the panel dictionary key.
-        let callbackSurfaceId = UUID()
-        let callbackTabId = TabID(uuid: callbackSurfaceId)
-        store.bindSurface(callbackTabId, toPanelId: terminalPanel.id)
+        // Exercise a real tab identity that differs from the panel identity.
+        // Rebinding to an unmounted alias would remove the panel's live pane route.
+        let callbackTabId = try #require(store.surfaceId(forPanelId: terminalPanel.id))
+        let callbackSurfaceId = callbackTabId.uuid
+        #expect(callbackSurfaceId != terminalPanel.id)
         #expect(store.surfaceIdToPanelId[callbackTabId] == terminalPanel.id)
 
         var externallyOpened: [URL] = []

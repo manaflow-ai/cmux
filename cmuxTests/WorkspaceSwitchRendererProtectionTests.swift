@@ -10,6 +10,22 @@ import Testing
 @MainActor
 struct WorkspaceSwitchRendererProtectionTests {
     @Test
+    func bonsplitGeometryCallbackDoesNotPublishDuringLayoutTurn() async {
+        let workspace = Workspace()
+        let snapshot = workspace.bonsplitController.layoutSnapshot()
+        let before = workspace.tmuxLayoutSnapshot
+
+        workspace.splitTabBar(workspace.bonsplitController, didChangeGeometry: snapshot)
+
+        #expect(workspace.tmuxLayoutSnapshot == before)
+        let didPublishSnapshot = await AppKitTestEventPump().waitUntil(timeout: .seconds(3)) {
+            workspace.tmuxLayoutSnapshot == snapshot
+        }
+        #expect(didPublishSnapshot)
+        #expect(workspace.tmuxLayoutSnapshot == snapshot)
+    }
+
+    @Test
     func rendererProtectionOwnerExpiresWithCoordinator() {
         var ownerIsAlive: (() -> Bool)?
         var coordinator: WorkspaceSwitchCoordinator? = WorkspaceSwitchCoordinator(

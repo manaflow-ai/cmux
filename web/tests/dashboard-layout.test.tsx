@@ -34,7 +34,7 @@ const verifyBrowserSessionRequest = mock(async () =>
 const previousProjectId = process.env.NEXT_PUBLIC_STACK_PROJECT_ID;
 process.env.NEXT_PUBLIC_STACK_PROJECT_ID = TEST_STACK_PROJECT_ID;
 
-mock.module("@stackframe/stack", () => ({
+mock.module("@hexclave/next", () => ({
   StackProvider: ({ children }: React.PropsWithChildren) => children,
   StackTheme: ({ children }: React.PropsWithChildren) => children,
 }));

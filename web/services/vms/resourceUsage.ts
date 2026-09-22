@@ -1,3 +1,4 @@
+import { directDevBackendOrigin } from "../../app/lib/direct-dev-backend-origin";
 import type { VMStats } from "./drivers/types";
 
 export const VM_RESOURCE_USAGE_KEY = "cmuxResourceUsage";
@@ -5,6 +6,22 @@ export const VM_RESOURCE_USAGE_MAX_AGE_MS = 90_000;
 export const VM_RESOURCE_USAGE_MIN_INTERVAL_MS = 15_000;
 
 export type VmResourceUsage = Pick<VMStats, "cpuPercent" | "memoryUsedMb" | "diskUsedMb">;
+
+/**
+ * Direct GCP development backends cannot receive the guest reporter's
+ * production edge callback. The explicit override remains available for
+ * operator-controlled environments; a validated direct backend enables the
+ * same fallback automatically so its stats route is useful by default.
+ */
+export function shouldReadVmResourceStatsDirectly(
+  environment: Readonly<Record<string, string | undefined>> = process.env,
+): boolean {
+  const override = environment.CMUX_DEV_RESOURCE_STATS_DIRECT;
+  if (override !== undefined) return override === "1";
+  return environment.NODE_ENV === "development"
+    && !environment.VERCEL_ENV
+    && directDevBackendOrigin(environment) !== undefined;
+}
 
 function record(value: unknown): Record<string, unknown> | null {
   return value !== null && typeof value === "object" && !Array.isArray(value)
@@ -26,7 +43,8 @@ export function parseVmResourceUsage(value: unknown): VmResourceUsage | null {
   return Object.keys(result).length ? result : null;
 }
 
-/** The provider owns state and dimensions. Only a fresh sample from this guest supplies usage. */
+/** The provider owns state and dimensions. A fresh guest sample supplies usage;
+ * an expired one keeps only its timestamp so clients can explain staleness. */
 export function applyVmResourceUsage(
   stats: VMStats,
   metadata: Readonly<Record<string, unknown>>,
@@ -38,7 +56,15 @@ export function applyVmResourceUsage(
   if (!sample || sample.providerVmId !== providerVmId) return stats;
   const receivedAt = sample.receivedAt;
   if (typeof receivedAt !== "number" || !Number.isFinite(receivedAt)
-    || receivedAt > now || now - receivedAt > VM_RESOURCE_USAGE_MAX_AGE_MS) return stats;
+    || receivedAt > now) return stats;
   const usage = parseVmResourceUsage(sample);
-  return usage ? { ...stats, ...usage, sampledAt: receivedAt } : stats;
+  if (!usage) return stats;
+  const result = { ...stats, resourceSampledAt: receivedAt };
+  if (now - receivedAt > VM_RESOURCE_USAGE_MAX_AGE_MS) {
+    delete result.cpuPercent;
+    delete result.memoryUsedMb;
+    delete result.diskUsedMb;
+    return result;
+  }
+  return { ...result, ...usage, sampledAt: receivedAt };
 }

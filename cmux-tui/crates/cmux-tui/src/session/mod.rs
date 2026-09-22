@@ -2067,6 +2067,35 @@ impl Session {
         }
     }
 
+    pub fn supports_tab_workspace_moves(&self) -> bool {
+        match self {
+            Session::Local(_) => true,
+            Session::Remote(remote) => {
+                remote.supports_capability(cmux_tui_core::server::TAB_WORKSPACE_MOVE_CAPABILITY)
+            }
+        }
+    }
+
+    pub fn move_tab_to_workspace(
+        &self,
+        surface: SurfaceId,
+        workspace: Option<WorkspaceId>,
+    ) -> anyhow::Result<()> {
+        anyhow::ensure!(
+            self.supports_tab_workspace_moves(),
+            "{}",
+            crate::localization::catalog().menu.move_tab_workspace_unsupported
+        );
+        match self {
+            Session::Local(mux) => mux.move_tab_to_workspace(surface, workspace),
+            Session::Remote(remote) => remote
+                .request(json!({
+                    "cmd":"move-tab-to-workspace", "surface":surface, "workspace":workspace
+                }))
+                .map(|_| ()),
+        }
+    }
+
     pub fn move_workspace(&self, workspace: WorkspaceId, index: usize) -> anyhow::Result<()> {
         match self {
             Session::Local(mux) => {

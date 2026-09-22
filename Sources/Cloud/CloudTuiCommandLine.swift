@@ -21,7 +21,7 @@ struct CloudTuiCommandLine: Sendable {
             "remote", "connect", route,
             "--device-name", deviceName,
             "--state-dir", stateDir,
-            "--headless", "--json", "--exit-with-parent",
+            "--headless", "--json", "--exit-with-parent", "--lanes", "single",
         ]
         if carrier {
             arguments.append("--carrier")
@@ -41,6 +41,16 @@ struct CloudTuiCommandLine: Sendable {
     /// The probe capability a client advertises when it understands `--wireguard-hub`.
     static let wireGuardHubCapability = "wireguard-hub"
 
+    /// Private addresses are browser identities; the daemon opens each requested port on its loopback
+    /// after the authenticated CONNECT proxy or Cloud WebSocket bridge accepts the browser connection.
+    static func browserProxyArguments(route: String, addresses: [String], stateDir: String, wireGuardHubSocket: String, carrier: Bool) -> [String] {
+        var args = ["remote", "browser-proxy", route, "--workspace-root", "/", "--state-dir", stateDir,
+                    "--wireguard-hub", wireGuardHubSocket, "--exit-with-parent"]
+        for address in addresses { args += ["--allowed-host", address] }
+        if carrier { args.append("--carrier") }
+        return args
+    }
+
     /// Whole-session public snapshot (`session current snapshot`, `--json`).
     static func snapshotArguments(socketPath: String) -> [String] {
         ["--socket", socketPath, "--json", "session", "current", "snapshot"]
@@ -59,36 +69,16 @@ struct CloudTuiCommandLine: Sendable {
 
     /// `workspace <ws_id> run -- <argv…>`: a new terminal in that cmux-tui workspace
     /// running the exact argv. Result: `MutationResult<CreatedTerminalPath>`
-    /// (`spec/resource-operations-v2.json` → `workspace.run`). A caller that owns
-    /// a creation intent supplies both keys so a lost reply can be reconciled and
-    /// retried without executing the command twice.
-    static func runArguments(
-        socketPath: String,
-        workspaceID: String,
-        command: [String],
-        onExit: String? = nil,
-        idempotencyKey: String? = nil,
-        correlationKey: String? = nil
-    ) -> [String] {
-        var arguments = ["--socket", socketPath, "--json"]
-        if let idempotencyKey, !idempotencyKey.isEmpty {
-            arguments += ["--idempotency-key", idempotencyKey]
-        }
-        arguments += ["workspace", workspaceID, "run"]
+    /// (`spec/resource-operations-v2.json` → `workspace.run`).
+    static func runArguments(socketPath: String, workspaceID: String, command: [String], onExit: String? = nil, idempotencyKey: String? = nil, correlationKey: String? = nil) -> [String] {
+        var arguments = ["--socket", socketPath, "--json", "workspace", workspaceID, "run"]
+        if let idempotencyKey { arguments += ["--idempotency-key", idempotencyKey] }
+        if let correlationKey { arguments += ["--correlation-key", correlationKey] }
         // `--on-exit keep` retains the tab and the final screen after the process exits
         // (spec `workspace.run`): what a sender needs when the process's last lines ARE
         // the result (`CloudEnvDelivery`). The default (`close`) detaches every view.
         if let onExit, !onExit.isEmpty { arguments += ["--on-exit", onExit] }
-        if let correlationKey, !correlationKey.isEmpty {
-            arguments += ["--correlation-key", correlationKey]
-        }
         return arguments + ["--"] + command
-    }
-
-    /// `session current creation <correlation-key> resolve`: reads the daemon's
-    /// durable outcome for a previously started creation intent.
-    static func creationResolveArguments(socketPath: String, correlationKey: String) -> [String] {
-        ["--socket", socketPath, "--json", "session", "current", "creation", correlationKey, "resolve"]
     }
 
     /// `workspace create [--name <name>]`: the daemon owns auto-naming.

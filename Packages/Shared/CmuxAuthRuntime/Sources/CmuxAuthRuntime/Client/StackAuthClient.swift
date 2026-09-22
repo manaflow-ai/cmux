@@ -10,11 +10,18 @@ public import StackAuth
 /// safe to inject as `any AuthClient`.
 public struct StackAuthClient: AuthClient {
     private let stack: StackClientApp
+    private let apiBaseURL: URL?
 
     /// Wrap a Stack client app.
     /// - Parameter stack: The configured Stack client to delegate to.
     public init(stack: StackClientApp) {
         self.stack = stack
+        self.apiBaseURL = nil
+    }
+
+    private init(stack: StackClientApp, apiBaseURL: URL?) {
+        self.stack = stack
+        self.apiBaseURL = apiBaseURL
     }
 
     /// Build a Stack client from resolved config and a token-store choice.
@@ -42,12 +49,23 @@ public struct StackAuthClient: AuthClient {
                 tokenStore: tokenStore,
                 noAutomaticPrefetch: noAutomaticPrefetch,
                 oauthBrowserSessionPrivacy: oauthBrowserSessionPrivacy
-            )
+            ),
+            apiBaseURL: URL(string: config.apiBaseURL)
         )
     }
 
     public func accessToken() async -> String? {
         await stack.getAccessToken()
+    }
+
+    public func resolvedAccessToken(forceRefresh: Bool) async throws -> String? {
+        let pair = await stack.resolvedTokenPair(forceRefresh: forceRefresh)
+        try Task.checkCancellation()
+        switch pair.refreshFailure {
+        case .cancelled, .sessionChanged: throw CancellationError()
+        case .timedOut: throw AuthError.timedOut
+        case nil: return pair.accessToken
+        }
     }
 
     public func refreshToken() async -> String? {
@@ -76,6 +94,57 @@ public struct StackAuthClient: AuthClient {
             summaries.append(CMUXAuthTeam(id: team.id, displayName: await team.displayName))
         }
         return summaries
+    }
+
+    public func selectedTeamID() async throws -> String? {
+        guard let user = try await stack.getUser(or: .returnNull) else { return nil }
+        return await user.selectedTeam?.id
+    }
+
+    public func setSelectedTeam(id: String?) async throws {
+        guard let user = try await stack.getUser(or: .returnNull) else {
+            throw AuthClientError.unsupported
+        }
+        try await user.setSelectedTeam(id: id)
+    }
+
+    public func createTeam(displayName: String) async throws -> CMUXAuthTeam {
+        if let apiBaseURL {
+            return try await createTeamThroughCmuxBackend(displayName: displayName, apiBaseURL: apiBaseURL)
+        }
+        guard let user = try await stack.getUser(or: .returnNull) else {
+            throw AuthClientError.unsupported
+        }
+        let team = try await user.createTeam(displayName: displayName)
+        return CMUXAuthTeam(
+            id: team.id,
+            displayName: await team.displayName
+        )
+    }
+
+    private func createTeamThroughCmuxBackend(
+        displayName: String,
+        apiBaseURL: URL
+    ) async throws -> CMUXAuthTeam {
+        guard let accessToken = await stack.getAccessToken(),
+              let refreshToken = await stack.getRefreshToken() else {
+            throw AuthClientError.unsupported
+        }
+        let endpoint = apiBaseURL.appendingPathComponent("api/subrouter/teams")
+        var request = URLRequest(url: endpoint)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
+        request.setValue(refreshToken, forHTTPHeaderField: "X-Stack-Refresh-Token")
+        request.httpBody = try JSONEncoder().encode(CreateTeamRequest(displayName: displayName))
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse,
+              (200..<300).contains(http.statusCode) else {
+            throw AuthClientError.unsupported
+        }
+        let created = try JSONDecoder().decode(CreateTeamResponse.self, from: data)
+        return CMUXAuthTeam(id: created.team.id, displayName: created.team.name)
     }
 
     public func sendMagicLinkEmail(email: String, callbackURL: String) async throws -> String {
@@ -154,5 +223,18 @@ extension CurrentUser {
         CMUXAuthUser.demonstrationContentEnabled(
             fromClientReadOnlyMetadata: clientReadOnlyMetadata
         )
+    }
+}
+
+private struct CreateTeamRequest: Encodable {
+    let displayName: String
+}
+
+private struct CreateTeamResponse: Decodable {
+    let team: TeamSummary
+
+    struct TeamSummary: Decodable {
+        let id: String
+        let name: String
     }
 }

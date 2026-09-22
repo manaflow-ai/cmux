@@ -55,6 +55,8 @@ export async function loadCloudVmRow(vmId: string): Promise<VmPrincipalRow | nul
     .select({
       id: cloudVms.id,
       userId: cloudVms.userId,
+      ownerTeamId: cloudVms.ownerTeamId,
+      coderouterPoolId: cloudVms.coderouterPoolId,
       billingTeamId: cloudVms.billingTeamId,
       billingPlanId: cloudVms.billingPlanId,
       provider: cloudVms.provider,
@@ -80,13 +82,11 @@ export function isVmPrincipalLiveStatus(status: string): status is VmPrincipalLi
 }
 
 /**
- * Whether `identity` (the token's owner) may speak for `row`: the row was created
- * by that user, or belongs to the billing team the token was issued for. The same
- * ownership rule `teamMachines.ts` applies to per-machine usage.
+ * A VM identity is fixed to the resource team. Its creator cannot substitute
+ * another team, and changing the payer does not change machine authorization.
  */
 export function vmPrincipalOwns(row: VmPrincipalRow, identity: Pick<RouteTokenIdentity, "stackUserId" | "teamId">): boolean {
-  if (row.userId === identity.stackUserId) return true;
-  return row.billingTeamId !== null && row.billingTeamId === identity.teamId;
+  return row.ownerTeamId === identity.teamId;
 }
 
 export async function requireVmPrincipal(

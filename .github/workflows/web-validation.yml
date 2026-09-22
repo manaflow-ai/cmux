@@ -1,0 +1,159 @@
+name: Web validation
+
+on:
+  # Always create the required status, including mixed and docs-only PRs.
+  # The changes job owns routing; no separate fallback may report success.
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+  # Both web-validation and ci-status are required. CI owns the production build,
+  # tests, and database checks on PRs/merge groups, where its Linux preflight gates
+  # the Mac workers. This workflow runs the full standalone suite on main/manual.
+  merge_group:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: web-validation-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  changes:
+    if: ${{ github.event_name != 'pull_request' && github.event_name != 'merge_group' }}
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 5
+    outputs:
+      required: ${{ steps.route.outputs.required }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - name: Test routing and result enforcement
+        run: python3 tests/test_web_validation.py
+      - name: Select web validation
+        id: route
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+          HEAD_SHA: ${{ github.sha }}
+        run: python3 scripts/ci/web_validation.py route
+
+  build:
+    name: web-build
+    needs: changes
+    if: needs.changes.outputs.required == 'true' && github.event_name != 'pull_request' && github.event_name != 'merge_group'
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.3.14"
+      - run: bun install --frozen-lockfile
+      - name: Vercel production build
+        env:
+          # Valid fixtures, no production credentials or validation bypasses.
+          RESEND_API_KEY: re_ci_build
+          CMUX_FEEDBACK_FROM_EMAIL: ci@example.test
+          STACK_SECRET_SERVER_KEY: ci-build-only
+          NEXT_PUBLIC_STACK_PROJECT_ID: 00000000-0000-4000-8000-000000000000
+          NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY: ci-build-only
+          DATABASE_URL: postgres://cmux:cmux@127.0.0.1:1/cmux
+          DIRECT_DATABASE_URL: postgres://cmux:cmux@127.0.0.1:1/cmux
+          CMUX_ANALYTICS_TEST_MODE: '1'
+        run: bun run vercel-build
+
+  tests:
+    name: web-tests
+    needs: changes
+    if: needs.changes.outputs.required == 'true' && github.event_name != 'pull_request' && github.event_name != 'merge_group'
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.3.14"
+      - run: bun install --frozen-lockfile
+      - run: bun run typecheck
+      - run: bun run test
+      - run: bunx playwright install --with-deps chromium
+      - run: bun run test:instant
+        env:
+          CMUX_INSTANT_SKIP_TYPECHECK: "1"
+
+  database:
+    name: web-database-tests
+    needs: changes
+    if: needs.changes.outputs.required == 'true' && github.event_name != 'pull_request' && github.event_name != 'merge_group'
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: web
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: cmux_test
+          POSTGRES_PASSWORD: cmux
+          POSTGRES_USER: cmux
+        ports: [5432:5432]
+        options: >-
+          --health-cmd "pg_isready -U cmux -d cmux_test"
+          --health-interval 1s --health-timeout 5s --health-retries 30
+    env:
+      CMUX_DB_TEST: '1'
+      DATABASE_URL: postgres://cmux:cmux@localhost:5432/cmux_test
+      DIRECT_DATABASE_URL: postgres://cmux:cmux@localhost:5432/cmux_test
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.3.14"
+      - run: bun install --frozen-lockfile
+      - name: Apply migrations, including an idempotent second pass
+        run: |
+          bunx drizzle-kit migrate --config drizzle.config.ts
+          bunx drizzle-kit migrate --config drizzle.config.ts
+      - run: bun run test:db:behavior
+
+  web-validation:
+    name: web-validation
+    needs: [changes, build, tests, database]
+    if: always()
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 5
+    steps:
+      - name: Accept CI-owned pull-request validation
+        if: github.event_name == 'pull_request' || github.event_name == 'merge_group'
+        run: |
+          echo "PR and merge-group web validation is owned by the required ci-status check."
+          echo "This workflow only publishes the separate required web-validation status."
+
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        if: github.event_name != 'pull_request' && github.event_name != 'merge_group'
+        with:
+          persist-credentials: false
+
+      - name: Enforce selected results
+        if: github.event_name != 'pull_request' && github.event_name != 'merge_group'
+        env:
+          WEB_VALIDATION_NEEDS: ${{ toJSON(needs) }}
+        run: python3 scripts/ci/web_validation.py check

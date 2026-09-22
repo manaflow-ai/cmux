@@ -6,13 +6,134 @@ import CmuxFoundation
 /// the mode shortcuts that jump between sidebar tabs.
 final class CloudTreeNSOutlineView: NSOutlineView {
     static let leadingMargin: CGFloat = 8
+    lazy var reorderPresentation = CloudTreeReorderPresentation(outline: self)
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        draggingDestinationFeedbackStyle = .none
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+
+    private var hoverTrackingArea: NSTrackingArea?
+    private weak var hoveredCell: CloudTreeCellView?
+
+    /// The outline owns exactly one hover target. Cells cannot retain independent
+    /// enter/exit state across tracking-area replacement, scrolling, or reloads.
+    private func updateHover(at point: NSPoint?) {
+        var next: CloudTreeCellView?
+        if let point, visibleRect.contains(point) {
+            let row = row(at: point)
+            if row >= 0,
+               let cell = view(atColumn: 0, row: row, makeIfNecessary: false) as? CloudTreeCellView,
+               convert(cell.bounds, from: cell).contains(point) {
+                next = cell
+            }
+        }
+        if hoveredCell !== next {
+            hoveredCell?.setHovered(false)
+            hoveredCell = next
+        }
+        next?.setHovered(true)
+    }
+
+    private func refreshHover() {
+        guard let window, window.isKeyWindow, !isHiddenOrHasHiddenAncestor else {
+            updateHover(at: nil)
+            return
+        }
+        let pointerInWindow = window.convertFromScreen(
+            NSRect(origin: window.mouseLocationOutsideOfEventStream, size: .zero)
+        ).origin
+        updateHover(at: convert(pointerInWindow, from: nil))
+    }
+
+    @objc private func hoverEnvironmentDidChange(_ notification: Notification) {
+        refreshHover()
+        reorderPresentation.layout()
+    }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let hoverTrackingArea { removeTrackingArea(hoverTrackingArea) }
+        let area = NSTrackingArea(
+            rect: .zero,
+            options: [.mouseEnteredAndExited, .mouseMoved, .activeInKeyWindow, .inVisibleRect],
+            owner: self, userInfo: nil
+        )
+        addTrackingArea(area)
+        hoverTrackingArea = area
+        refreshHover()
+    }
+
+    override func mouseEntered(with event: NSEvent) {
+        updateHover(at: convert(event.locationInWindow, from: nil))
+    }
+
+    override func mouseMoved(with event: NSEvent) {
+        updateHover(at: convert(event.locationInWindow, from: nil))
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        // Tracking-area replacement can deliver a stale exit after the new
+        // area has refreshed; recompute from the current pointer location.
+        refreshHover()
+    }
+
+    override func viewWillMove(toWindow newWindow: NSWindow?) {
+        if window !== newWindow { reorderPresentation.clear() }
+        updateHover(at: nil)
+        NotificationCenter.default.removeObserver(self, name: NSWindow.didResignKeyNotification, object: window)
+        NotificationCenter.default.removeObserver(self, name: NSWindow.didBecomeKeyNotification, object: window)
+        super.viewWillMove(toWindow: newWindow)
+        if let newWindow {
+            NotificationCenter.default.addObserver(
+                self, selector: #selector(hoverEnvironmentDidChange(_:)),
+                name: NSWindow.didResignKeyNotification, object: newWindow
+            )
+            NotificationCenter.default.addObserver(
+                self, selector: #selector(hoverEnvironmentDidChange(_:)),
+                name: NSWindow.didBecomeKeyNotification, object: newWindow
+            )
+        }
+    }
+
+    override func viewDidMoveToSuperview() {
+        super.viewDidMoveToSuperview()
+        NotificationCenter.default.removeObserver(self, name: NSView.boundsDidChangeNotification, object: nil)
+        if let clip = enclosingScrollView?.contentView {
+            clip.postsBoundsChangedNotifications = true
+            NotificationCenter.default.addObserver(
+                self, selector: #selector(hoverEnvironmentDidChange(_:)),
+                name: NSView.boundsDidChangeNotification, object: clip
+            )
+        }
+        updateHover(at: nil)
+    }
+
+    override func layout() {
+        super.layout()
+        reorderPresentation.layout()
+        refreshHover()
+    }
 
     var activeNativeDragCoordinator: AnyObject?
-    var activeNativeDragSession: NSDraggingSession?
+    var activeNativeDragSession: NSDraggingSession? {
+        didSet { if activeNativeDragSession == nil { reorderPresentation.clear() } }
+    }
     var onNativeDragPointerBoundary: (() -> Void)?
     var onDocumentContentChanged: (() -> Void)?
 
     var treeStyle: CloudTreeStyle = CloudTreeStyleStore.current
+
+    override func selectRowIndexes(_ indexes: IndexSet, byExtendingSelection extend: Bool) {
+        let selectable = IndexSet(indexes.filter { row in
+            (item(atRow: row) as? CloudTreeNode)?.kind.isSelectable == true
+        })
+        guard indexes.isEmpty || !selectable.isEmpty else { return }
+        super.selectRowIndexes(selectable, byExtendingSelection: extend)
+    }
 
     /// Per-event context menu, the same presentation path the sidebar rows
     /// use. The persistent `menu` + delegate `menuNeedsUpdate` route rendered
@@ -31,15 +152,45 @@ final class CloudTreeNSOutlineView: NSOutlineView {
     }
 
     var onOpenSelection: (() -> Void)?
+    let ownershipFeedback = SurfaceDropFeedback()
     var onMoveSelection: ((Int) -> Void)?
+    var onMoveMachine: ((Int) -> Bool)?
     var onDisclosure: ((RightSidebarKeyboardNavigation.DisclosureAction) -> Void)?
     var onQuickSearch: ((String) -> Void)?
     var onDidBecomeFirstResponder: (() -> Void)?
     private var quickSearchQuery: String?
 
     override func mouseDown(with event: NSEvent) {
+        reorderPresentation.clear()
         onNativeDragPointerBoundary?()
         super.mouseDown(with: event)
+    }
+
+    override func draggingExited(_ sender: (any NSDraggingInfo)?) {
+        ownershipFeedback.clear()
+        guard reorderPresentation.isCurrent(sender) else { return }
+        super.draggingExited(sender)
+        reorderPresentation.clear(sequence: sender?.draggingSequenceNumber)
+    }
+
+    override func draggingEnded(_ sender: any NSDraggingInfo) {
+        ownershipFeedback.clear()
+        guard reorderPresentation.isCurrent(sender) else { return }
+        // NSOutlineView may not implement this optional destination notification.
+        reorderPresentation.ended(sender)
+    }
+
+    override func concludeDragOperation(_ sender: (any NSDraggingInfo)?) {
+        ownershipFeedback.clear()
+        guard reorderPresentation.isCurrent(sender) else { return }
+        super.concludeDragOperation(sender)
+        reorderPresentation.clear(sequence: sender?.draggingSequenceNumber)
+    }
+
+    override func viewDidHide() {
+        ownershipFeedback.clear()
+        super.viewDidHide()
+        reorderPresentation.clear()
     }
 
     override func keyDown(with event: NSEvent) {
@@ -53,6 +204,9 @@ final class CloudTreeNSOutlineView: NSOutlineView {
     }
 
     private func handle(_ event: NSEvent) -> Bool {
+        // Native row controls own their keys; Return must not also toggle the group.
+        if let control = window?.firstResponder as? NSControl,
+           control !== self, control.isDescendant(of: self) { return false }
         if let mode = AppDelegate.shared?.rightSidebarModeShortcut(for: event) {
             _ = AppDelegate.shared?.focusRightSidebarInActiveMainWindow(
                 mode: mode,
@@ -149,39 +303,55 @@ final class CloudTreeNSOutlineView: NSOutlineView {
         onDocumentContentChanged?()
     }
 
-    override func reloadData() { super.reloadData(); onDocumentContentChanged?() }
+    override func reloadData() {
+        reorderPresentation.clear()
+        updateHover(at: nil)
+        super.reloadData()
+        needsLayout = true
+        onDocumentContentChanged?()
+    }
     override func reloadData(forRowIndexes rowIndexes: IndexSet, columnIndexes: IndexSet) {
+        updateHover(at: nil)
         super.reloadData(forRowIndexes: rowIndexes, columnIndexes: columnIndexes)
+        needsLayout = true
         onDocumentContentChanged?()
     }
 
-    /// How far `frameOfCell` moves content past AppKit's default; the cell adds the
-    /// rest of `CloudTreeRowGrid.disclosureGap` so every row's content starts 6pt
-    /// after the 16pt disclosure slot (`indentationPerLevel`).
-    static let cellShift: CGFloat = leadingMargin - 6
+    private func disclosureLeading(atRow row: Int) -> CGFloat {
+        GlobalFontMagnification.scaledSize(
+            Self.leadingMargin + CGFloat(max(0, level(forRow: row))) * treeStyle.indentPerLevel
+        )
+    }
 
     override func frameOfOutlineCell(atRow row: Int) -> NSRect {
         var frame = super.frameOfOutlineCell(atRow: row)
-        frame.origin.x += Self.leadingMargin
+        frame.origin.x = disclosureLeading(atRow: row)
+        // The native disclosure control keeps its own artwork and height; only
+        // its column is fixed so every row's caret lines up at the same depth.
+        frame.size.width = GlobalFontMagnification.scaledSize(treeStyle.rowGrid.disclosureSlot)
         if let node = item(atRow: row) as? CloudTreeNode, node.isMachineRow,
-           treeStyle.machineRowLayout == .twoLine || node.structureTag == "machine" {
+           treeStyle.machineRowLayout == .twoLine {
             // Multi-line machine rows: the chevron centers on the name line (first
             // line, after the row's top padding), not on the row's vertical middle,
             // so it reads with the name and the status dot. NSTableView is flipped.
             let rowFrame = rect(ofRow: row)
             let nameLineCenter = rowFrame.minY
-                + GlobalFontMagnification.scaledSize(treeStyle.machineVerticalPadding + (treeStyle.machineBand ? 4 : 0))
+                + GlobalFontMagnification.scaledSize(treeStyle.machineVerticalPadding + treeStyle.machineBandVerticalPadding)
                 + GlobalFontMagnification.scaledSize(treeStyle.machineNameLineHeight) / 2
             frame.origin.y = (nameLineCenter - frame.height / 2).rounded()
+        } else {
+            frame.origin.y = (rect(ofRow: row).midY - frame.height / 2).rounded()
         }
         return frame
     }
 
     override func frameOfCell(atColumn column: Int, row: Int) -> NSRect {
         var frame = super.frameOfCell(atColumn: column, row: row)
-        let cellShift = Self.cellShift
-        frame.origin.x += cellShift
-        frame.size.width -= cellShift
+        let trailing = frame.maxX
+        frame.origin.x = disclosureLeading(atRow: row) + GlobalFontMagnification.scaledSize(
+            treeStyle.rowGrid.disclosureSlot + treeStyle.rowGrid.disclosureGap
+        )
+        frame.size.width = max(0, trailing - frame.minX)
         return frame
     }
 

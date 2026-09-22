@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "3e8a21a3080c830d3765698c21641715ff9592b480170c4c7e6a7a764d362543";
+pub const ir_sha256 = "7042c629f34d3606581d07b2d2c03b65116c2467810724163c54674865825cc0";
 
 pub const AgentRecord = struct {
     session: wire.Nullable([]const u8),
@@ -448,6 +448,22 @@ pub const GetCellPixelsResult = struct {
     height_px: u16,
     surfaces: []const CellPixelSurface,
     width_px: u16,
+};
+
+pub const GuestUrlAcknowledgeResult = struct {
+    accepted: bool,
+};
+
+pub const GuestUrlClaimResult = struct {
+    claimed: bool,
+};
+
+pub const GuestUrlOpenResult = struct {
+    opened: bool,
+};
+
+pub const GuestUrlSubscribeResult = struct {
+    url_open_ready: bool,
 };
 
 pub const Id = u64;
@@ -1896,9 +1912,11 @@ pub const AttachSurfaceRequestMode = enum {
 
 pub const AttachSurfaceRequest = struct {
     cols: wire.Field(u16) = .absent,
+    expected_generation: wire.Field([]const u8) = .absent,
+    expected_terminal_id: wire.Field([]const u8) = .absent,
     mode: wire.Field(AttachSurfaceRequestMode) = .absent,
     rows: wire.Field(u16) = .absent,
-    surface: Id,
+    surface: wire.Field(Id) = .absent,
 };
 
 pub const AttachSurfaceResult = EmptyResult;
@@ -1912,6 +1930,8 @@ pub fn attachSurface(client: anytype, request: AttachSurfaceRequest) !client_run
             .capability = null,
             .fields = &.{
                 .{ .name = "cols", .since = null, .capability = "attach-initial-size" },
+                .{ .name = "expected_generation", .since = null, .capability = "attach-identity-v1" },
+                .{ .name = "expected_terminal_id", .since = null, .capability = "attach-identity-v1" },
                 .{ .name = "mode", .since = 7, .capability = null },
                 .{ .name = "rows", .since = null, .capability = "attach-initial-size" },
             },
@@ -2997,6 +3017,26 @@ pub fn moveTab(client: anytype, request: MoveTabRequest) !wire.Decoded(MoveTabRe
     );
 }
 
+pub const MoveTabToWorkspaceRequest = struct {
+    surface: Id,
+    workspace: wire.Field(Id) = .absent,
+};
+
+pub const MoveTabToWorkspaceResult = EmptyResult;
+
+pub fn moveTabToWorkspace(client: anytype, request: MoveTabToWorkspaceRequest) !wire.Decoded(MoveTabToWorkspaceResult) {
+    return client.callTyped(
+        MoveTabToWorkspaceResult,
+        .{
+            .name = "move-tab-to-workspace",
+            .authority = "control",
+            .since = 12,
+            .capability = "tab-workspace-move-v1",
+        },
+        request,
+    );
+}
+
 pub const MoveTerminalRequest = struct {
     expected_generation: wire.Field([]const u8) = .absent,
     expected_revision: wire.Field(u64) = .absent,
@@ -3234,6 +3274,35 @@ pub fn paneNeighbor(client: anytype, request: PaneNeighborRequest) !wire.Decoded
             .authority = "control",
             .since = 6,
             .capability = null,
+        },
+        request,
+    );
+}
+
+pub const PasteImageRequest = struct {
+    data: wire.Field([]const u8) = .absent,
+    lease: []const u8,
+    mime: wire.Field([]const u8) = .absent,
+    offset: wire.Field(u64) = .absent,
+    op: []const u8,
+    size: wire.Field(u64) = .absent,
+    surface: Id,
+    terminal_id: []const u8,
+    upload_id: []const u8,
+};
+
+pub const PasteImageResult = struct {
+    accepted: bool,
+};
+
+pub fn pasteImage(client: anytype, request: PasteImageRequest) !wire.Decoded(PasteImageResult) {
+    return client.callTyped(
+        PasteImageResult,
+        .{
+            .name = "paste-image",
+            .authority = "control",
+            .since = 12,
+            .capability = "terminal-image-paste-v1",
         },
         request,
     );
@@ -4199,6 +4268,84 @@ pub fn unregisterBrowserProvider(client: anytype, request: UnregisterBrowserProv
     );
 }
 
+pub const UrlOpenRequest = struct {
+    terminal_id: []const u8,
+    url: []const u8,
+};
+
+pub const UrlOpenResult = GuestUrlOpenResult;
+
+pub fn urlOpen(client: anytype, request: UrlOpenRequest) !wire.Decoded(UrlOpenResult) {
+    return client.callTyped(
+        UrlOpenResult,
+        .{
+            .name = "url-open",
+            .authority = "local-admin",
+            .since = 12,
+            .capability = null,
+        },
+        request,
+    );
+}
+
+pub const UrlOpenClaimRequest = struct {
+    request_id: []const u8,
+};
+
+pub const UrlOpenClaimResult = GuestUrlClaimResult;
+
+pub fn urlOpenClaim(client: anytype, request: UrlOpenClaimRequest) !wire.Decoded(UrlOpenClaimResult) {
+    return client.callTyped(
+        UrlOpenClaimResult,
+        .{
+            .name = "url-open-claim",
+            .authority = "frontend",
+            .since = 12,
+            .capability = null,
+        },
+        request,
+    );
+}
+
+pub const UrlOpenResultRequest = struct {
+    opened: bool,
+    request_id: []const u8,
+};
+
+pub const UrlOpenResultResult = GuestUrlAcknowledgeResult;
+
+pub fn urlOpenResult(client: anytype, request: UrlOpenResultRequest) !wire.Decoded(UrlOpenResultResult) {
+    return client.callTyped(
+        UrlOpenResultResult,
+        .{
+            .name = "url-open-result",
+            .authority = "frontend",
+            .since = 12,
+            .capability = null,
+        },
+        request,
+    );
+}
+
+pub const UrlOpenSubscribeRequest = struct {
+    terminal_ids: []const []const u8,
+};
+
+pub const UrlOpenSubscribeResult = GuestUrlSubscribeResult;
+
+pub fn urlOpenSubscribe(client: anytype, request: UrlOpenSubscribeRequest) !client_runtime.Stream {
+    return client.openStream(
+        .{
+            .name = "url-open-subscribe",
+            .authority = "frontend",
+            .since = 12,
+            .capability = null,
+        },
+        request,
+        null,
+    );
+}
+
 pub const VtStateRequest = struct {
     surface: Id,
 };
@@ -4713,6 +4860,13 @@ pub const TreeChangedEvent = struct {
     event: []const u8,
 };
 
+pub const UrlOpenEvent = struct {
+    event: []const u8,
+    request_id: []const u8,
+    terminal_id: []const u8,
+    url: []const u8,
+};
+
 pub const VtStateEvent = struct {
     colors: ?TerminalColors = null,
     cols: u16,
@@ -4850,6 +5004,7 @@ pub const Event = union(enum) {
     terminal_registry_changed: TerminalRegistryChangedEvent,
     title_changed: TitleChangedEvent,
     tree_changed: TreeChangedEvent,
+    url_open: UrlOpenEvent,
     vt_state: VtStateEvent,
     window_title_requested: WindowTitleRequestedEvent,
     workspace_added: WorkspaceAddedEvent,
@@ -4903,6 +5058,7 @@ pub fn eventWireName(event: Event) []const u8 {
         .terminal_registry_changed => "terminal-registry-changed",
         .title_changed => "title-changed",
         .tree_changed => "tree-changed",
+        .url_open => "url-open",
         .vt_state => "vt-state",
         .window_title_requested => "window-title-requested",
         .workspace_added => "workspace-added",
@@ -5095,6 +5251,10 @@ pub fn decodeEvent(allocator: std.mem.Allocator, value: wire.Value) !DecodedEven
         const decoded = try wire.decodeLeaky(TreeChangedEvent, arena.allocator(), value);
         return .{ .arena = arena, .value = .{ .tree_changed = decoded } };
     }
+    if (std.mem.eql(u8, name, "url-open")) {
+        const decoded = try wire.decodeLeaky(UrlOpenEvent, arena.allocator(), value);
+        return .{ .arena = arena, .value = .{ .url_open = decoded } };
+    }
     if (std.mem.eql(u8, name, "vt-state")) {
         const decoded = try wire.decodeLeaky(VtStateEvent, arena.allocator(), value);
         return .{ .arena = arena, .value = .{ .vt_state = decoded } };
@@ -5144,7 +5304,7 @@ pub const CommandDescriptor = struct {
     stream: ?[]const u8,
 };
 
-pub const command_count: usize = 106;
+pub const command_count: usize = 112;
 pub const commands = [_]CommandDescriptor{
     .{ .name = "apply-layout", .authority = "control", .since = 6, .capability = null, .stream = null },
     .{ .name = "attach-surface", .authority = "frontend", .since = 5, .capability = null, .stream = "attach" },
@@ -5195,6 +5355,7 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "mint-terminal-renderer", .authority = "frontend", .since = 9, .capability = null, .stream = null },
     .{ .name = "mint-terminal-renderer-by-terminal", .authority = "frontend", .since = 11, .capability = null, .stream = null },
     .{ .name = "move-tab", .authority = "control", .since = 5, .capability = null, .stream = null },
+    .{ .name = "move-tab-to-workspace", .authority = "control", .since = 12, .capability = "tab-workspace-move-v1", .stream = null },
     .{ .name = "move-terminal", .authority = "control", .since = 9, .capability = null, .stream = null },
     .{ .name = "move-workspace", .authority = "control", .since = 5, .capability = null, .stream = null },
     .{ .name = "new-browser-tab", .authority = "control", .since = 5, .capability = null, .stream = null },
@@ -5206,6 +5367,7 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "notify", .authority = "control", .since = 6, .capability = null, .stream = null },
     .{ .name = "pairing-response", .authority = "local-admin", .since = 7, .capability = null, .stream = null },
     .{ .name = "pane-neighbor", .authority = "control", .since = 6, .capability = null, .stream = null },
+    .{ .name = "paste-image", .authority = "control", .since = 12, .capability = "terminal-image-paste-v1", .stream = null },
     .{ .name = "ping", .authority = "control", .since = 6, .capability = null, .stream = null },
     .{ .name = "process-info", .authority = "control", .since = 6, .capability = null, .stream = null },
     .{ .name = "put-frontend-projection", .authority = "control", .since = 7, .capability = null, .stream = null },
@@ -5249,6 +5411,10 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "terminal-events", .authority = "control", .since = 9, .capability = null, .stream = null },
     .{ .name = "undo-layout", .authority = "control", .since = 9, .capability = "layout-undo-v1", .stream = null },
     .{ .name = "unregister-browser-provider", .authority = "local-admin", .since = 10, .capability = "browser-provider-v1", .stream = null },
+    .{ .name = "url-open", .authority = "local-admin", .since = 12, .capability = null, .stream = null },
+    .{ .name = "url-open-claim", .authority = "frontend", .since = 12, .capability = null, .stream = null },
+    .{ .name = "url-open-result", .authority = "frontend", .since = 12, .capability = null, .stream = null },
+    .{ .name = "url-open-subscribe", .authority = "frontend", .since = 12, .capability = null, .stream = "subscribe" },
     .{ .name = "vt-state", .authority = "control", .since = 5, .capability = null, .stream = null },
     .{ .name = "wait-for", .authority = "control", .since = 6, .capability = null, .stream = null },
     .{ .name = "zoom-pane", .authority = "control", .since = 6, .capability = null, .stream = null },
@@ -5303,14 +5469,15 @@ const event_streams_38 = [_][]const u8{"subscribe-deltas"};
 const event_streams_39 = [_][]const u8{"subscribe"};
 const event_streams_40 = [_][]const u8{"subscribe"};
 const event_streams_41 = [_][]const u8{"subscribe"};
-const event_streams_42 = [_][]const u8{"attach-byte"};
-const event_streams_43 = [_][]const u8{"subscribe"};
-const event_streams_44 = [_][]const u8{"subscribe-deltas"};
+const event_streams_42 = [_][]const u8{"control"};
+const event_streams_43 = [_][]const u8{"attach-byte"};
+const event_streams_44 = [_][]const u8{"subscribe"};
 const event_streams_45 = [_][]const u8{"subscribe-deltas"};
 const event_streams_46 = [_][]const u8{"subscribe-deltas"};
 const event_streams_47 = [_][]const u8{"subscribe-deltas"};
+const event_streams_48 = [_][]const u8{"subscribe-deltas"};
 
-pub const event_count: usize = 48;
+pub const event_count: usize = 49;
 pub const events = [_]EventDescriptor{
     .{ .name = "agent-changed", .since = 11, .capability = null, .streams = &event_streams_0 },
     .{ .name = "bell", .since = 5, .capability = null, .streams = &event_streams_1 },
@@ -5354,10 +5521,11 @@ pub const events = [_]EventDescriptor{
     .{ .name = "terminal-registry-changed", .since = 9, .capability = null, .streams = &event_streams_39 },
     .{ .name = "title-changed", .since = 5, .capability = null, .streams = &event_streams_40 },
     .{ .name = "tree-changed", .since = 5, .capability = null, .streams = &event_streams_41 },
-    .{ .name = "vt-state", .since = 5, .capability = null, .streams = &event_streams_42 },
-    .{ .name = "window-title-requested", .since = 6, .capability = null, .streams = &event_streams_43 },
-    .{ .name = "workspace-added", .since = 7, .capability = null, .streams = &event_streams_44 },
-    .{ .name = "workspace-closed", .since = 7, .capability = null, .streams = &event_streams_45 },
-    .{ .name = "workspace-moved", .since = 7, .capability = null, .streams = &event_streams_46 },
-    .{ .name = "workspace-renamed", .since = 7, .capability = null, .streams = &event_streams_47 },
+    .{ .name = "url-open", .since = 12, .capability = null, .streams = &event_streams_42 },
+    .{ .name = "vt-state", .since = 5, .capability = null, .streams = &event_streams_43 },
+    .{ .name = "window-title-requested", .since = 6, .capability = null, .streams = &event_streams_44 },
+    .{ .name = "workspace-added", .since = 7, .capability = null, .streams = &event_streams_45 },
+    .{ .name = "workspace-closed", .since = 7, .capability = null, .streams = &event_streams_46 },
+    .{ .name = "workspace-moved", .since = 7, .capability = null, .streams = &event_streams_47 },
+    .{ .name = "workspace-renamed", .since = 7, .capability = null, .streams = &event_streams_48 },
 };
