@@ -1117,7 +1117,10 @@ struct CMUXMobileRootView: View {
         }
         Task {
             defer { restoringGateDeadline.cancel() }
-            _ = await store.reconnectActiveMacIfAvailable(stackUserID: stackUserID)
+            _ = await store.reconnectActiveMacIfAvailable(
+                stackUserID: stackUserID,
+                hydratePairedMacs: true
+            )
             startupConnectionCoordinator.finishStoredReconnect(startupAttempt)
         }
     }
