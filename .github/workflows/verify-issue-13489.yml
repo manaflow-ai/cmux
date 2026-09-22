@@ -8,9 +8,13 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: verify-issue-13489-real-codex
+  cancel-in-progress: true
+
 jobs:
   verify:
-    runs-on: ${{ vars.MACOS_RUNNER_STREAMED_VALIDATION || 'blacksmith-6vcpu-macos-26' }}
+    runs-on: ${{ vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15' }}
     timeout-minutes: 90
     env:
       CMUX_SKIP_ZIG_BUILD: "1"
