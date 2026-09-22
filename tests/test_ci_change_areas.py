@@ -589,7 +589,7 @@ def workflow_job_step_script(job_name: str, step_name: str, workflow_path: Path 
 
 
 def run_linux_preflight(needs: dict[str, object]) -> subprocess.CompletedProcess[str]:
-    script = workflow_job_step_script("linux-preflight", "Check cheap CI layer before macOS runners")
+    script = workflow_job_step_script("linux-preflight", "Check routed Linux results")
     env = {**os.environ, "PREFLIGHT_NEEDS": json.dumps(needs)}
     return subprocess.run(
         ["bash", "-c", script],
@@ -1333,11 +1333,12 @@ def test_early_cli_smoke_checks_propagate_failure_and_require_this_build() -> No
                 assert result.returncode == 0 and invoked == ["version", "help", "config-doctor"]
 
 
-def test_macos_workflow_call_preserves_routes_and_linux_gate() -> None:
+def test_macos_workflow_call_starts_after_cheap_static_gate() -> None:
     caller = workflow_job_block("macos")
 
     assert "      - changes" in caller
-    assert "      - linux-preflight" in caller
+    assert "      - static-preflight" in caller
+    assert "      - linux-preflight" not in caller
     assert "uses: ./.github/workflows/ci-macos.yml" in caller
     assert "needs.changes.outputs.macos != 'false'" in caller
     for route in (
@@ -1353,6 +1354,9 @@ def test_macos_workflow_call_preserves_routes_and_linux_gate() -> None:
     assert "      actions: read" in caller
     assert "      contents: read" in caller
     assert "      pull-requests: read" in caller
+
+    assert "needs.static-preflight.result == 'success'" in caller
+    assert "needs.linux-preflight.result" not in caller
 
     admission = workflow_job_block("macos-compile-admission", MACOS_WORKFLOW)
     assert "needs.changes" not in admission
@@ -1393,6 +1397,15 @@ def test_platform_workflow_results_gate_tests_status() -> None:
     assert run_tests_gate(tests_gate_needs(macos_result="skipped")).returncode == 1
     assert run_tests_gate(tests_gate_needs(macos="false", macos_result="skipped")).returncode == 0
     assert run_tests_gate(tests_gate_needs(web_result="failure")).returncode == 1
+
+
+def test_linux_failure_still_blocks_tests_after_macos_succeeds() -> None:
+    for outcome in ("failure", "cancelled", "skipped"):
+        needs = tests_gate_needs(macos_result="success")
+        needs["linux-preflight"]["result"] = outcome
+        result = run_tests_gate(needs)
+        assert result.returncode != 0, outcome
+        assert f"linux preflight did not pass: {outcome}" in result.stderr
 
 
 def test_macos_status_accepts_compile_only_prior_admission_skip() -> None:
@@ -1876,7 +1889,8 @@ def test_macos_compile_admission_precedes_expensive_shards() -> None:
 
     assert "name: macOS compile admission" in admission
     assert "      - changes" in caller
-    assert "      - linux-preflight" in caller
+    assert "      - static-preflight" in caller
+    assert "      - linux-preflight" not in caller
     assert "inputs.macos == 'true'" in admission
     # The compile lives in one script so the nightly cache seeder runs the same
     # invocation; see tests/test_ci_test_compilation_cache_seed.sh.
@@ -1943,7 +1957,7 @@ def test_app_host_failures_preserve_attempt_and_crash_diagnostics() -> None:
     assert "if: ${{ failure() || cancelled() }}" in app_host
 
 
-def test_linux_preflight_blocks_macos_on_cheap_layer_failure() -> None:
+def test_linux_aggregate_preserves_all_routed_results() -> None:
     block = workflow_job_block("linux-preflight")
 
     assert "name: linux-preflight" in block
@@ -2511,19 +2525,12 @@ def test_perf_activation_workflow_keeps_required_status_while_gating_benchmark()
     assert 'benchmark["result"] not in {"success", "skipped"}' in sentinel
 
 
-if __name__ == "__main__":
-    for name, value in sorted(globals().items()):
-        if name.startswith("test_") and callable(value):
-            value()
-    print("PASS: CI change area filter")
-
-
 def test_guard_bun_setup_runs_only_for_owned_groups() -> None:
     block = workflow_job_block("workflow-guard-tests", GUARD_WORKFLOW)
     setup = block.index("      - name: Set up Bun for guard tests")
     next_step = block.index("      - name: Validate Claude launch environment policy behavior", setup)
     setup_block = block[setup:next_step]
-    assert "if: ${{ matrix.group == 'preflight' || matrix.group == 'release' }}" in setup_block
+    assert "if: ${{ matrix.group == 'preflight' || matrix.group == 'release-ios' }}" in setup_block
     assert block.count("setup-bun@") == 1
 
 
@@ -2532,18 +2539,19 @@ def test_guard_python_setup_is_scoped_to_owning_groups() -> None:
     setup = block.index("      - name: Set up Python 3.9 for nightly prune compatibility")
     prepare = block.index("      - name: Prepare workflow guard Python dependencies", setup)
     setup_block = block[setup:prepare]
-    assert "if: ${{ matrix.group == 'release' }}" in setup_block
+    assert "if: ${{ matrix.group == 'release-tooling' }}" in setup_block
+
     prepare_block = block[
         prepare:block.index("      - name: Validate Blacksmith Testbox broker trust boundary", prepare)
     ]
     assert (
         "if: ${{ matrix.group == 'ci' || matrix.group == 'app-host-execution' || "
         "matrix.group == 'app-host-process' || matrix.group == 'app-host-cache' || "
-        "matrix.group == 'release' }}"
+        "matrix.group == 'release-tooling' }}"
     ) in prepare_block
     assert "python3 -m venv" in prepare_block
     assert "packages=(PyYAML==6.0.3)" in prepare_block
-    assert 'if [[ "${{ matrix.group }}" == "release" ]]; then' in prepare_block
+    assert 'if [[ "${{ matrix.group }}" == "release-tooling" ]]; then' in prepare_block
     assert "packages+=(bashlex==0.18)" in prepare_block
     assert '"${packages[@]}"' in prepare_block
     assert block.count("actions/setup-python@") == 1
@@ -2556,3 +2564,10 @@ def test_pipe_safe_capture_guard_runs_once_in_app_host_execution_group() -> None
     step = block[start:end]
     assert "if: ${{ matrix.group == 'app-host-execution' }}" in step
     assert block.count("Validate pipe-safe CI capture") == 1
+
+
+if __name__ == "__main__":
+    for name, value in sorted(globals().items()):
+        if name.startswith("test_") and callable(value):
+            value()
+    print("PASS: CI change area filter")
