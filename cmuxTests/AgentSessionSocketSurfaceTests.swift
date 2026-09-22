@@ -50,6 +50,43 @@ struct AgentSessionSocketSurfaceTests {
     }
 
     @Test
+    func testMovedAgentSessionRebindsTerminalCommandRoutingToDestinationWorkspace() throws {
+        let source = Workspace()
+        let destination = Workspace()
+        let sourcePane = try #require(source.bonsplitController.focusedPaneId)
+        let destinationPane = try #require(destination.bonsplitController.focusedPaneId)
+        let panel = try #require(
+            source.newAgentSessionSurface(
+                inPane: sourcePane,
+                rendererKind: .react,
+                workingDirectory: "/tmp",
+                focus: false
+            )
+        )
+
+        #expect(panel.onRunCommand != nil)
+        let detached = try #require(source.detachSurface(panelId: panel.id))
+        #expect(panel.onRunCommand == nil)
+
+        #expect(
+            destination.attachDetachedSurface(
+                detached,
+                inPane: destinationPane,
+                focus: false
+            ) == panel.id
+        )
+        #expect(panel.workspaceId == destination.id)
+        #expect(panel.onRunCommand != nil)
+
+        let result = try #require(panel.onRunCommand?("pwd"))
+        let terminalPanelID = try #require(
+            (result["terminalPanelId"] as? String).flatMap(UUID.init(uuidString:))
+        )
+        #expect(destination.terminalPanel(for: terminalPanelID) != nil)
+        #expect(source.terminalPanel(for: terminalPanelID) == nil)
+    }
+
+    @Test
     func testWorkspaceSessionSnapshotPersistsAgentSessionWorkingDirectory() throws {
         let manager = TabManager()
         let workspace = try #require(manager.selectedWorkspace)
