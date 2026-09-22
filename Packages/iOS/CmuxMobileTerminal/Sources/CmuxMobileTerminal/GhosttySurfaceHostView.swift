@@ -73,6 +73,12 @@ public final class GhosttySurfaceHostView: UIView {
     private var presentationContentCapConstraint: NSLayoutConstraint!
     /// The blank measurement currently baked into the content cap.
     private var appliedBlankBelowContent: CGFloat = 0
+    /// During an alternate-screen keyboard hide, keep the full-height
+    /// presentation wrapper at its pre-transition bottom edge. The grid is
+    /// intentionally still on the old PTY size until the UIKit leg completes;
+    /// letting this wrapper follow the dock first moves that stale grid down,
+    /// then the settled resize moves it back up one frame later.
+    private var keyboardHidePresentationHold: NSLayoutConstraint?
     /// The scroll-top reveal currently baked into the content cap: how far
     /// the pixel-scroll axis has slid the render back down past
     /// scrollback-top so the keyboard-up presentation's clipped top rows are
@@ -300,6 +306,7 @@ public final class GhosttySurfaceHostView: UIView {
         guard window != nil else {
             keyboardTransitionGeneration &+= 1
             keyboardTransitionActive = false
+            releasePresentationForKeyboardHide()
             pendingGuideKeyboardEndFrame = nil
             surfaceView.setHostedKeyboardTransitionActive(false)
             interfaceTransitionID = nil
@@ -477,6 +484,7 @@ public final class GhosttySurfaceHostView: UIView {
         transition: MobileKeyboardTransition,
         durationOverride: TimeInterval? = nil
     ) {
+        let previousKeyboardHeight = surfaceView.hostedKeyboardHeight
         if targetHeight > 0 {
             // Refresh the blank-band measurement immediately: content written
             // or cleared just before this raise (with no output since) must
@@ -528,6 +536,13 @@ public final class GhosttySurfaceHostView: UIView {
             // (the #10006 reversal contract the iOS 27 seat shipped with).
             rebaseInterruptedKeyboardLegFromLiveFrames()
         }
+        if surfaceView.hostedAltScreenActive,
+           !surfaceView.useLegacyTerminalSizing,
+           targetHeight + 0.5 < previousKeyboardHeight {
+            holdPresentationForAlternateScreenKeyboardHide()
+        } else {
+            releasePresentationForKeyboardHide()
+        }
         keyboardTransitionActive = true
         dockBottomConstraint.constant = -surfaceView.hostedBottomReservation(
             keyboardHeight: targetHeight,
@@ -539,12 +554,38 @@ public final class GhosttySurfaceHostView: UIView {
             guard let self, self.keyboardTransitionGeneration == generation else { return }
             self.keyboardTransitionActive = false
             self.surfaceView.setHostedKeyboardTransitionActive(false)
+            self.releasePresentationForKeyboardHide()
+            UIView.performWithoutAnimation {
+                self.layoutIfNeeded()
+            }
             MobileDebugLog.anchormux(
                 "kb.leg.done gen=\(generation) wrapY=\(Int(self.terminalPresentationView.frame.minY)) "
                 + "dockTop=\(Int(self.surfaceView.hostedBottomDockFrame.minY))"
             )
             self.sampleTerminalDockPresentationGap()
         }
+    }
+
+    private func holdPresentationForAlternateScreenKeyboardHide() {
+        guard keyboardHidePresentationHold == nil else { return }
+        let currentBottom = terminalPresentationView.frame.maxY
+        let hold = terminalPresentationView.bottomAnchor.constraint(
+            equalTo: bottomAnchor,
+            constant: currentBottom - bounds.maxY
+        )
+        hold.priority = .required
+        hold.isActive = true
+        keyboardHidePresentationHold = hold
+        MobileDebugLog.anchormux(
+            "kb.altHide.hold bottom=\(Int(currentBottom)) constant=\(Int(hold.constant))"
+        )
+    }
+
+    private func releasePresentationForKeyboardHide() {
+        guard let hold = keyboardHidePresentationHold else { return }
+        hold.isActive = false
+        keyboardHidePresentationHold = nil
+        MobileDebugLog.anchormux("kb.altHide.release")
     }
 
     /// Called by the owning controller before UIKit changes model bounds.

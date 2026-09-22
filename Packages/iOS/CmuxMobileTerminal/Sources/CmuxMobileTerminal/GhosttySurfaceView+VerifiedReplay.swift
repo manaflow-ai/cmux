@@ -431,6 +431,32 @@ extension GhosttySurfaceView {
         CATransaction.commit()
     }
 
+    /// Keeps the last-good replay frame aligned with the settled viewport while
+    /// a keyboard geometry pass replaces its old grid. Without this, the
+    /// frozen frame remains bottom-pinned using the old row count and visibly
+    /// drops before the new natural grid is presented.
+    func alignVerifiedReplayFrozenPresentationToViewportTop(viewportRect: CGRect) {
+        guard let frozenLayer = verifiedReplayFrozenPresentationLayer,
+              let backgroundLayer = verifiedReplayFrozenBackgroundLayer else {
+            return
+        }
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        frozenLayer.frame = layer.bounds
+        let oldViewport = verifiedReplayFrozenViewportRect ?? viewportRect
+        if let contentLayer = verifiedReplayFrozenContentLayer {
+            contentLayer.frame = CGRect(
+                x: viewportRect.minX,
+                y: viewportRect.minY,
+                width: contentLayer.bounds.width,
+                height: contentLayer.bounds.height
+            )
+        }
+        let contentRect = verifiedReplayFrozenContentLayer?.frame ?? .null
+        backgroundLayer.frame = oldViewport.union(viewportRect).union(contentRect)
+        CATransaction.commit()
+    }
+
     func clearVerifiedReplayPresentation() {
         CATransaction.begin()
         CATransaction.setDisableActions(true)

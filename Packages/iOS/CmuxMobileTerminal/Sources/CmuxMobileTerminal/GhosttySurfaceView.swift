@@ -733,6 +733,12 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     private var hostedInterfaceTransitionActive = false
     private var dockReflowGeneration: UInt64 = 0
     private var dockReflowActive = false
+    /// A keyboard leg changes the local viewport only after UIKit's animation
+    /// completes. The first geometry pass that measures that settled viewport
+    /// can publish its natural grid immediately; waiting through the generic
+    /// quiet-frame report debounce makes the host move first and Vim redraw
+    /// later, which looks like a second resize.
+    private var publishSettledKeyboardViewportImmediately = false
     private var bottomDockToKeyboardConstraint: NSLayoutConstraint?
     private var bottomDockHostConstraints: [NSLayoutConstraint] = []
     private weak var bottomDockHostView: UIView?
@@ -1288,24 +1294,84 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// completion, after which the settled keyboard height becomes eligible
     /// for the alternate-screen grid.
     func setHostedKeyboardTransitionActive(_ active: Bool) {
+        let wasActive = keyboardTransitionActiveForGeometry
         keyboardTransitionActiveForGeometry = active
         if !active {
-            commitHostedKeyboardGeometryIfNeeded()
+            let committed = commitHostedKeyboardGeometryIfNeeded()
+            if wasActive, committed, alternateScreenSizingEnabled {
+                publishSettledKeyboardViewportImmediately = true
+            }
         }
     }
 
-    private func commitHostedKeyboardGeometryIfNeeded() {
+    @discardableResult
+    private func commitHostedKeyboardGeometryIfNeeded() -> Bool {
         let next = hostedAltScreenActive && !useLegacyTerminalSizing
             ? max(0, keyboardHeight)
             : 0
-        guard abs(next - committedKeyboardHeight) > 0.25 else { return }
+        guard abs(next - committedKeyboardHeight) > 0.25 else { return false }
         committedKeyboardHeight = next
         MobileDebugLog.anchormux(
             "kb.geometry.commit \(Int(committedKeyboardHeight)) alt=\(hostedAltScreenActive ? 1 : 0)"
         )
+        // The daemon's previous keyboard-leg echo is still an effective-grid
+        // pin at this point (for example, 29 rows while the keyboard is up).
+        // Keeping it through the new settled geometry pass makes the host move
+        // with the new viewport while the renderer paints the old pin, then a
+        // second pass expands it to the natural grid. Drop that stale pin at
+        // the same commit boundary; the settled natural-grid report below is
+        // the new authoritative negotiation, and its echo can install a fresh
+        // effective grid if the daemon grants one.
+        if alternateScreenSizingEnabled, let effectiveGrid {
+            MobileDebugLog.anchormux(
+                "kb.geometry.clearEffectiveGrid \(effectiveGrid.cols)x\(effectiveGrid.rows)"
+            )
+            self.effectiveGrid = nil
+        }
         resetAlternateScreenGeometryFence()
         layoutRenderedTerminalForCurrentViewport()
+        alignSettledKeyboardRenderToViewportTop()
         setNeedsGeometrySync()
+        return true
+    }
+
+    /// The replayed renderer can still contain the previous keyboard leg's
+    /// grid when the host finishes its UIKit animation. Bottom-pinning that
+    /// old frame to the newly settled viewport puts Vim's top rows far below
+    /// the toolbar for one frame, then the natural-grid pass moves them back
+    /// up. Keep the stale frame top-anchored until the settled geometry pass
+    /// replaces it; the final Ghostty grid still owns the real layout.
+    private func alignSettledKeyboardRenderToViewportTop() {
+        guard !lastRenderRect.isEmpty else { return }
+        let snapshot = viewportSnapshot()
+        let aligned = CGRect(
+            x: lastRenderRect.minX,
+            y: snapshot.layoutViewportRect.minY,
+            width: lastRenderRect.width,
+            height: lastRenderRect.height
+        )
+        guard aligned != lastRenderRect else {
+            alignVerifiedReplayFrozenPresentationToViewportTop(
+                viewportRect: snapshot.layoutViewportRect
+            )
+            return
+        }
+        MobileDebugLog.anchormux(
+            "kb.renderRect.topAlign \(Int(lastRenderRect.minY))->\(Int(aligned.minY)) "
+                + "h=\(Int(aligned.height))"
+        )
+        lastRenderRect = aligned
+        syncRendererLayerFrame(
+            scale: preferredScreenScale,
+            renderRect: rendererLayerRect(forGridRenderRect: aligned)
+        )
+        updateLetterboxBorder(
+            renderRect: aligned,
+            isLetterboxed: snapshot.isLetterboxed(renderSize: aligned.size)
+        )
+        alignVerifiedReplayFrozenPresentationToViewportTop(
+            viewportRect: snapshot.layoutViewportRect
+        )
     }
 
     func sampleHostedKeyboardPresentation() {
@@ -4330,12 +4396,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             } else {
                 viewportReportSettleFrames += 1
                 if viewportReportSettleFrames >= Self.viewportReportSettleThreshold {
-                    pendingViewportReport = nil
-                    viewportReportSettleFrames = 0
-                    viewportReportID &+= 1
-                    awaitingViewportEcho = true
-                    MobileDebugLog.anchormux("zoom.report grid=\(pending.columns)x\(pending.rows) id=\(viewportReportID)")
-                    delegate?.ghosttySurfaceView(self, didResize: pending, reportID: viewportReportID)
+                    publishViewportReport(pending, reason: "settled")
                 }
             }
         }
@@ -5422,13 +5483,42 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         } ?? true
         let shouldReportNaturalSize = reportGrid != lastReportedSize ||
             (shouldReassertNaturalSize && !effectiveMatchesNatural)
-        guard shouldReportNaturalSize, reportGrid.columns > 0, reportGrid.rows > 0 else { return }
+        let canPublishSettledKeyboardViewport =
+            publishSettledKeyboardViewportImmediately
+            && alternateScreenSizingEnabled
+            && !keyboardTransitionActiveForGeometry
+            && viewportSnapshot() == snapshot
+        guard shouldReportNaturalSize, reportGrid.columns > 0, reportGrid.rows > 0 else {
+            if canPublishSettledKeyboardViewport, !shouldReportNaturalSize {
+                publishSettledKeyboardViewportImmediately = false
+            }
+            return
+        }
         lastReportedSize = reportGrid
+        if canPublishSettledKeyboardViewport {
+            publishSettledKeyboardViewportImmediately = false
+            publishViewportReport(reportGrid, reason: "keyboard_settled")
+            return
+        }
         // Debounce the actual report (a PTY resize on the Mac) until the grid
         // settles; the display link fires it once it stops changing.
         pendingViewportReport = reportGrid
         viewportReportSettleFrames = 0
         scheduleVisibleArtifactCountUpdate()
+    }
+
+    /// Publishes a natural-grid report with a fresh sequence stamp. Keyboard
+    /// completion uses this immediately after its final geometry measurement;
+    /// other geometry changes continue through the quiet-frame debounce.
+    private func publishViewportReport(_ report: TerminalGridSize, reason: String) {
+        pendingViewportReport = nil
+        viewportReportSettleFrames = 0
+        viewportReportID &+= 1
+        awaitingViewportEcho = true
+        MobileDebugLog.anchormux(
+            "viewport.report grid=\(report.columns)x\(report.rows) id=\(viewportReportID) reason=\(reason)"
+        )
+        delegate?.ghosttySurfaceView(self, didResize: report, reportID: viewportReportID)
     }
 
     private func syncRendererLayerFrame(scale: CGFloat, renderRect: CGRect) {
