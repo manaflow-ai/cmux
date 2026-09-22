@@ -71,9 +71,10 @@ export function useDashboardTeamScope(userId: string | null): DashboardTeamScope
     activeSwitchId.current = operationId;
     const previousCatalog = queryClient.getQueryData<DashboardTeamCatalog>(queryKey) ?? data;
     const previousSearch = new URLSearchParams(searchParams.toString());
-    const previousCookieScope = typeof document === "undefined"
-      ? null
-      : coderouterOrganizationFromCookieHeader(document.cookie, userId);
+    const previousCookieScope = coderouterOrganizationFromCookieHeader(
+      typeof document === "undefined" ? null : document.cookie,
+      userId,
+    );
     const optimisticSearch = new URLSearchParams(previousSearch);
 
     // Update the shared catalog and URL before waiting for Stack Auth. The
