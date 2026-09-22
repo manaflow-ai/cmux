@@ -11,8 +11,9 @@ import Testing
 @Suite("Control handle ordinal persistence")
 struct ControlHandleOrdinalPersistenceTests {
     @Test func firstUpgradedLaunchLeavesLegacyLowRefsUnknown() throws {
-        let defaults = try makeDefaults()
-        defer { defaults.removePersistentDomain(forName: try! #require(defaults.volatileDomainNames.first)) }
+        let suite = "cmux-control-handle-legacy-floor-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
 
         let store = ControlHandleOrdinalDefaultsStore(defaults: defaults)
         var registry = store.makeRegistry()
@@ -77,8 +78,4 @@ struct ControlHandleOrdinalPersistenceTests {
         #expect(secondRegistry.ensureRef(kind: .surface, uuid: UUID()) == "surface:204")
     }
 
-    private func makeDefaults() throws -> UserDefaults {
-        let suite = "cmux-control-handle-legacy-floor-\(UUID().uuidString)"
-        return try #require(UserDefaults(suiteName: suite))
-    }
 }
