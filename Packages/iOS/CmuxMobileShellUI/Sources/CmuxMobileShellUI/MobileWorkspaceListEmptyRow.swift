@@ -1,9 +1,24 @@
 #if os(iOS)
 import Foundation
 import CmuxMobileSupport
+import SafariServices
 import SwiftUI
 
+private struct MobileDocsSafariView: UIViewControllerRepresentable {
+    let url: URL
+
+    func makeUIViewController(context: Context) -> SFSafariViewController {
+        let controller = SFSafariViewController(url: url)
+        controller.view.accessibilityIdentifier = "MobileDocsSafariView"
+        controller.view.accessibilityValue = url.absoluteString
+        return controller
+    }
+
+    func updateUIViewController(_ controller: SFSafariViewController, context: Context) {}
+}
+
 struct MobileWorkspaceListEmptyRow: View {
+    private static let docsURL = URL(string: "https://cmux.com/docs/ios#setup")!
     private static let retryTimeout: Duration = .seconds(30)
 
     let retry: (@Sendable () async -> Void)?
@@ -20,6 +35,7 @@ struct MobileWorkspaceListEmptyRow: View {
     @State private var retryAttemptID: UUID?
     @State private var retryRecoveryGeneration: UUID?
     @State private var retryTimedOut = false
+    @State private var isDocsPresented = false
 
     var body: some View {
         ContentUnavailableView {
@@ -87,43 +103,25 @@ struct MobileWorkspaceListEmptyRow: View {
                         retryRecoveryGeneration = nil
                         retryTimedOut = true
                     }
-                } label: {
-                    Label {
-                        Text(L10n.string("mobile.common.retry", defaultValue: "Retry"))
-                    } icon: {
-                        if isRetrying {
-                            ProgressView()
-                                .controlSize(.small)
-                        } else {
+                    } label: {
+                        Label {
+                            Text(L10n.string("mobile.common.retry", defaultValue: "Retry"))
+                        } icon: {
                             Image(systemName: "arrow.clockwise")
                         }
                     }
-                }
                 .buttonStyle(.borderedProminent)
                 .controlSize(.regular)
                 .disabled(isRetrying)
                 .accessibilityIdentifier("MobileWorkspaceEmptyRetry")
-                if isRetrying || retryTask != nil {
-                    Button(L10n.string("mobile.common.cancel", defaultValue: "Cancel")) {
-                        retryTask?.cancel()
-                        (cancelRetryAttempt ?? { _ in cancelRetry?() })(retryRecoveryGeneration)
-                        retryTimeoutTask?.cancel()
-                        retryAttemptID = nil
-                        retryTask = nil
-                        retryTimeoutTask = nil
-                        isRetrying = false
-                        retryRecoveryGeneration = nil
-                    }
-                    .buttonStyle(.bordered)
-                    .controlSize(.regular)
-                    .accessibilityIdentifier("MobileWorkspaceEmptyRetryCancel")
-                }
             }
-            Link(destination: URL(string: "https://cmux.com/docs/ios#setup")!) {
+            Button {
+                isDocsPresented = true
+            } label: {
                 Label(
                     L10n.string(
                         "mobile.workspaces.empty.setupGuide",
-                        defaultValue: "Set Up cmux iOS"
+                        defaultValue: "See Docs"
                     ),
                     systemImage: "book"
                 )
@@ -138,14 +136,21 @@ struct MobileWorkspaceListEmptyRow: View {
         .padding(.vertical, 32)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("MobileWorkspaceEmptyState")
-        .onChange(of: isRetrying) { _, _ in onLayoutChange?() }
+        .sheet(isPresented: $isDocsPresented) {
+            MobileDocsSafariView(url: Self.docsURL)
+                .ignoresSafeArea()
+        }
         .onChange(of: retryTimedOut) { _, _ in onLayoutChange?() }
         .onDisappear {
             let hasActiveRetry = isRetrying || retryTask != nil
             if hasActiveRetry {
-                retryTask?.cancel()
                 let ownerIsCurrent = isRetryOwnerCurrentOnDisappear?() ?? true
-                if !ownerIsCurrent || shouldCancelRetryOnDisappear?() ?? true {
+                // A missing predicate means this row has no owner that can
+                // safely cancel recovery during structural removal. Preserve
+                // the task until its explicit completion or timeout.
+                let shouldCancel = shouldCancelRetryOnDisappear?() ?? false
+                if !ownerIsCurrent || shouldCancel {
+                    retryTask?.cancel()
                     if let cancelRetryOnDisappear {
                         cancelRetryOnDisappear(retryRecoveryGeneration)
                     } else if let cancelRetryAttempt {
@@ -153,14 +158,14 @@ struct MobileWorkspaceListEmptyRow: View {
                     } else {
                         cancelRetry?()
                     }
+                    retryTimeoutTask?.cancel()
+                    retryTask = nil
+                    retryAttemptID = nil
+                    retryTimeoutTask = nil
+                    retryRecoveryGeneration = nil
+                    isRetrying = false
+                    retryTimedOut = false
                 }
-                retryTimeoutTask?.cancel()
-                retryTask = nil
-                retryAttemptID = nil
-                retryTimeoutTask = nil
-                retryRecoveryGeneration = nil
-                isRetrying = false
-                retryTimedOut = false
             } else if !hasActiveRetry {
                 retryTimeoutTask?.cancel()
                 retryTask = nil

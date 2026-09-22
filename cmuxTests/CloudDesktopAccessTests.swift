@@ -14,6 +14,143 @@ import WebKit
 @MainActor
 @Suite(.serialized, .timeLimit(.minutes(1)))
 struct CloudDesktopAccessTests {
+    @Test("Route readiness drives cold open and cached retry without a SwiftUI phase update")
+    func automaticallyNavigatesAfterRouteReadiness() async throws {
+        let ready = CloudLinkFirstValue<Bool>()
+        var starts = 0
+        let model = CloudPortAccessModel(target: .init(host: "10.0.0.7", port: 6901), coordinator: nil,
+            wake: {}, startForward: { _ in
+                _ = await ready.result
+                starts += 1
+                return 46901
+            }, stopForward: {}, route: .loopback)
+        let state = CloudBrowserAccessState()
+        state.configure(model: model, url: URL(string: "http://10.0.0.7:6901/vnc.html")!)
+        var navigations: [URL] = []
+        state.automaticallyNavigate { navigations.append($0) }
+        model.connect()
+        state.configure(model: model, url: URL(string: "http://10.0.0.7:6901/vnc.html")!)
+        #expect(navigations.isEmpty, "A slow route cannot invent a completed navigation")
+        ready.resolve(true)
+        #expect(await wait { navigations.count == 1 })
+        let url = try #require(navigations.first)
+        state.didCommit(url: url)
+        state.didFinish(url: url)
+        state.desktopConnectionDidChange(url: url, isConnected: true)
+        state.retry()
+        #expect(await wait { starts == 2 && navigations.count == 2 })
+        #expect(navigations[1] == url)
+        state.leave()
+        model.retry()
+        #expect(await wait { starts == 3 })
+        #expect(navigations.count == 2, "A retired document cannot navigate after leaving Cloud")
+        await model.retire()
+    }
+
+    @Test("A finished noVNC page without RFB readiness reaches a retryable deadline")
+    func desktopReadinessDeadline() async throws {
+        let clock = CloudCommandDeadlineClock()
+        let model = CloudPortAccessModel(target: .init(host: "10.0.0.7", port: 6901), coordinator: nil,
+            wake: {}, startForward: { _ in 46901 }, stopForward: {}, route: .loopback)
+        let state = CloudBrowserAccessState(clock: clock)
+        state.configure(model: model, url: URL(string: "http://10.0.0.7:6901/vnc.html")!)
+        model.connect()
+        #expect(await wait { model.isReady })
+        let url = try #require(state.nextURL())
+        state.didCommit(url: url)
+        state.didFinish(url: url)
+        await clock.waitUntilSleeping()
+        clock.advance(by: .seconds(46))
+        #expect(await wait { state.showsFailureAlert })
+        #expect(!state.desktopConnected)
+        state.retry()
+        #expect(state.failureMessage == nil)
+        state.leave()
+        await model.retire()
+    }
+
+    @Test("Automatic reconnect attempts do not extend the display deadline")
+    func reconnectDoesNotResetDeadline() async throws {
+        let clock = CloudCommandDeadlineClock()
+        let model = CloudPortAccessModel(target: .init(host: "10.0.0.7", port: 6901), coordinator: nil,
+            wake: {}, startForward: { _ in 46901 }, stopForward: {}, route: .loopback)
+        let state = CloudBrowserAccessState(clock: clock)
+        state.configure(model: model, url: URL(string: "http://10.0.0.7:6901/vnc.html")!)
+        model.connect()
+        #expect(await wait { model.isReady })
+        let url = try #require(state.nextURL())
+        state.didCommit(url: url)
+        state.desktopConnectionIsConnecting(url: url)
+        await clock.waitUntilSleeping()
+        state.desktopConnectionIsConnecting(url: url)
+        clock.advance(by: .seconds(46))
+        #expect(await wait { state.showsFailureAlert })
+        await model.retire()
+    }
+
+    @Test("A cancelled old navigation cannot cancel a newer display attempt")
+    func cancellationUsesNavigationIdentity() async throws {
+        let old = NSObject(), current = NSObject()
+        let model = CloudPortAccessModel(target: .init(host: "10.0.0.7", port: 6901), coordinator: nil,
+            wake: {}, startForward: { _ in 46901 }, stopForward: {}, route: .loopback)
+        let state = CloudBrowserAccessState()
+        state.configure(model: model, url: URL(string: "http://10.0.0.7:6901/vnc.html")!)
+        model.connect()
+        #expect(await wait { model.isReady })
+        let url = try #require(state.nextURL())
+        state.didStart(url: url, navigationID: ObjectIdentifier(current))
+        state.didCancel(navigationID: ObjectIdentifier(old))
+        #expect(state.error == nil)
+        state.didCancel(navigationID: ObjectIdentifier(current))
+        #expect(state.error != nil && !state.showsPage)
+        state.didCommit(url: url, navigationID: ObjectIdentifier(current))
+        state.desktopConnectionDidChange(url: url, isConnected: true)
+        #expect(!state.showsPage && !state.desktopConnected)
+        state.leave()
+        await model.retire()
+    }
+
+    @Test("A connected noVNC document is ready even before WebKit's finish callback", arguments: [6901, 6902])
+    func desktopConnectionCompletesReadiness(port: Int) async throws {
+        let model = CloudPortAccessModel(target: .init(host: "10.0.0.7", port: port), coordinator: nil,
+            wake: {}, startForward: { _ in UInt16(40_000 + port) }, stopForward: {}, route: .loopback)
+        let state = CloudBrowserAccessState()
+        let remote = try #require(URL(string: "http://10.0.0.7:\(port)/vnc.html"))
+        state.configure(model: model, url: remote,
+                        resourceID: SurfaceResourceID(machine: .cloud("display-test"), kind: .display, key: "display:\(port == 6901 ? 1 : 2)"))
+        model.connect()
+        #expect(await wait { model.isReady })
+        let url = try #require(state.nextURL())
+        state.didCommit(url: url)
+        state.desktopConnectionDidChange(url: url, isConnected: true)
+        #expect(state.showsPage, "A live RFB connection is stronger evidence than document finish")
+        state.configure(model: model, url: remote)
+        #expect(state.resourceID?.key == "display:\(port == 6901 ? 1 : 2)",
+                "Rebinding an existing WebView preserves the display identity")
+        let reboundURL = try #require(state.nextURL())
+        state.didCommit(url: reboundURL)
+        state.desktopConnectionDidChange(url: url, isConnected: false)
+        #expect(state.showsFailureAlert)
+        state.desktopConnectionDidChange(url: url, isConnected: true)
+        #expect(!state.showsFailureAlert && state.showsPage)
+        await model.retire()
+    }
+
+    @Test("A stale finish cannot complete the requested Cloud document")
+    func ignoresForeignFinish() async throws {
+        let model = CloudPortAccessModel(target: .init(host: "10.0.0.7", port: 6901), coordinator: nil,
+            wake: {}, startForward: { _ in 46901 }, stopForward: {}, route: .loopback)
+        let state = CloudBrowserAccessState()
+        state.configure(model: model, url: URL(string: "http://10.0.0.7:6901/vnc.html")!)
+        model.connect()
+        #expect(await wait { model.isReady })
+        let url = try #require(state.nextURL())
+        state.didCommit(url: url)
+        state.didFinish(url: URL(string: "http://10.0.0.8:6901/vnc.html"))
+        #expect(!state.showsPage)
+        await model.retire()
+    }
+
     @Test("Desktop failure can be dismissed and Retry re-establishes the shared route")
     func desktopFailureRecovery() async throws {
         var starts = 0
@@ -122,6 +259,94 @@ struct CloudDesktopAccessTests {
         )
         browser.cloudAccess.configure(model: model, url: remote)
         #expect(browser.preferredURLStringForSessionSnapshot() == remote.absoluteString)
+    }
+
+    @Test("Leaving a Cloud page clears its resource provenance")
+    func leavingCloudClearsResourceIdentity() {
+        let state = CloudBrowserAccessState()
+        let model = CloudPortAccessModel(target: .init(host: "10.0.0.7", port: 6901), coordinator: nil,
+            wake: {}, startForward: { _ in 46901 }, stopForward: {}, route: .loopback)
+        let display = SurfaceResourceID(machine: .cloud("a"), kind: .display, key: "display:1")
+        state.configure(model: model, url: URL(string: "http://10.0.0.7:6901/vnc.html")!, resourceID: display)
+        #expect(state.resourceID == display)
+        state.leave()
+        #expect(state.resourceID == nil)
+        #expect(!state.retainsCloudResourceForDuplication)
+    }
+
+    @Test("An unavailable Cloud placeholder retains its resource for duplication")
+    func unavailableCloudRetainsResourceIdentity() {
+        let state = CloudBrowserAccessState()
+        let model = CloudPortAccessModel(target: .init(host: "10.0.0.7", port: 6901), coordinator: nil,
+            wake: {}, startForward: { _ in 46901 }, stopForward: {}, route: .loopback)
+        let display = SurfaceResourceID(machine: .cloud("a"), kind: .display, key: "display:1")
+        state.configure(model: model, url: URL(string: "http://10.0.0.7:6901/vnc.html")!, resourceID: display)
+        state.showUnavailable("display unavailable")
+        #expect(state.resourceID == display)
+        #expect(state.retainsCloudResourceForDuplication)
+        state.leave()
+        #expect(state.resourceID == nil)
+    }
+
+    @Test("Leaving Cloud for an external page drops stale session provenance")
+    func externalNavigationDropsCloudSessionResource() {
+        let browser = BrowserPanel(workspaceId: UUID(), websiteDataStore: .nonPersistent())
+        defer { browser.close() }
+        let model = CloudPortAccessModel(target: .init(host: "10.0.0.7", port: 6902), coordinator: nil,
+            wake: {}, startForward: { _ in 46902 }, stopForward: {}, route: .loopback)
+        let display = SurfaceResourceID(machine: .cloud("a"), kind: .display, key: "display:2")
+        browser.cloudAccess.configure(model: model, url: URL(string: "http://10.0.0.7:6902/vnc.html")!, resourceID: display)
+        #expect(browser.cloudResourceForSession == display)
+        browser.leaveCloudResourceForLocalNavigation()
+        #expect(browser.cloudResourceForSession == nil)
+    }
+
+    @Test("A delayed Cloud restore keeps the saved path and query")
+    func delayedCloudRestoreKeepsSavedURL() throws {
+        let browser = BrowserPanel(workspaceId: UUID(), websiteDataStore: .nonPersistent())
+        defer { browser.close() }
+        browser.pendingCloudRestoreURL = try #require(URL(string: "http://10.0.0.7:8000/projects/123?tab=logs#tail"))
+        let target = try #require(URL(string: "http://10.0.0.7:8000/"))
+        #expect(browser.cloudRestoreURL(on: target).absoluteString == "http://10.0.0.7:8000/projects/123?tab=logs#tail")
+    }
+
+    @Test("Display restore ignores untrusted noVNC host and port query items")
+    func displayRestoreFiltersTransportQuery() throws {
+        let browser = BrowserPanel(workspaceId: UUID(), websiteDataStore: .nonPersistent())
+        defer { browser.close() }
+        let model = CloudPortAccessModel(target: .init(host: "10.0.0.7", port: 6902), coordinator: nil,
+            wake: {}, startForward: { _ in 46902 }, stopForward: {}, route: .loopback)
+        let display = SurfaceResourceID(machine: .cloud("a"), kind: .display, key: "display:2")
+        browser.cloudAccess.configure(model: model, url: URL(string: "http://10.0.0.7:6902/vnc.html")!, resourceID: display)
+        browser.pendingCloudRestoreURL = try #require(URL(string: "http://10.0.0.7:6902/vnc.html?host=evil.test&port=9999&path=websockify"))
+        let target = try #require(URL(string: "http://10.0.0.7:6902/vnc.html?path=websockify"))
+        let restored = browser.cloudRestoreURL(on: target)
+        #expect(restored.host == "10.0.0.7" && restored.port == 6902)
+        #expect(restored.query?.contains("host=") != true && restored.query?.contains("port=") != true)
+        #expect(restored.query?.contains("path=websockify") == true)
+    }
+
+    @Test("A browser Cloud resource cannot retain ownership after its service port changes")
+    func browserResourceOwnsOnlyItsPort() throws {
+        let endpoint = CloudBrowserProxyEndpoint(host: "127.0.0.1", port: 48000, username: "u", password: "p")
+        let model = CloudPortAccessModel(target: .init(host: "10.0.0.7", port: 3000), coordinator: nil,
+            wake: {}, startForward: { _ in 47000 }, stopForward: {},
+            startBrowserProxy: { endpoint })
+        let state = CloudBrowserAccessState()
+        state.configure(model: model, url: URL(string: "http://10.0.0.7:3000/")!,
+                        resourceID: SurfaceResourceID(machine: .cloud("a"), kind: .browser, key: "port:3000"))
+        #expect(state.owns(try #require(URL(string: "http://10.0.0.7:3000/"))))
+        #expect(!state.owns(try #require(URL(string: "http://10.0.0.7:8000/"))))
+    }
+
+    @Test("A forwarded /vnc.html URL is not a display when its resource is a browser")
+    func nonDisplayVNCPathDoesNotUseDesktopReadiness() {
+        let state = CloudBrowserAccessState()
+        let model = CloudPortAccessModel(target: .init(host: "10.0.0.7", port: 8000), coordinator: nil,
+            wake: {}, startForward: { _ in 48000 }, stopForward: {}, route: .loopback)
+        state.configure(model: model, url: URL(string: "http://10.0.0.7:8000/vnc.html")!,
+                        resourceID: SurfaceResourceID(machine: .cloud("a"), kind: .browser, key: "port:8000"))
+        #expect(!state.isDesktop)
     }
 
     @Test("Desktop bootstrap does not paint WebKit's default white background")

@@ -409,6 +409,9 @@ _cmux_install_cli_wrapper() {
     local wrapper_variable="$2"
     local wrapper_file="${3:-$command_name}"
     local integration_dir="${CMUX_SHELL_INTEGRATION_DIR:-}"
+    if [[ "$command_name" == "claude" && "${CMUX_CLAUDE_INTEGRATION_DISABLED:-0}" == "1" ]]; then
+        return 0
+    fi
     [[ -n "$integration_dir" ]] || return 0
 
     integration_dir="${integration_dir%/}"
