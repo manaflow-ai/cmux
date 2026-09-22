@@ -265,7 +265,9 @@ jobs:
 
       - name: Validate nightly prune Python compatibility
         if: ${{ matrix.group == 'release-tooling' }}
-        run: PYTHON_BIN=python3.9 bash ./tests/test_ci_nightly_prune_python_compat.sh
+        run: |
+          PYTHON_BIN=python3.9 bash ./tests/test_ci_nightly_prune_python_compat.sh
+          python3 tests/test_prune_nightly_release_assets.py
 
       - name: Validate activation benchmark scrollback sizing
         if: ${{ matrix.group == 'ci' }}
