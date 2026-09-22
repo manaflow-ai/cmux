@@ -82,7 +82,6 @@ jobs:
           key: xcode-compilation-test-${{ runner.os }}-${{ runner.arch }}-${{ steps.cas-key.outputs.fingerprint }}-${{ env.CANARY_BASE }}
           restore-keys: |
             xcode-compilation-test-${{ runner.os }}-${{ runner.arch }}-${{ steps.cas-key.outputs.fingerprint }}-
-            xcode-compilation-test-${{ runner.os }}-${{ runner.arch }}-
 
       - name: Build generation A from cold DerivedData
         run: |
@@ -376,7 +375,6 @@ jobs:
           key: xcode-compilation-test-${{ runner.os }}-${{ runner.arch }}-${{ steps.cas-key.outputs.fingerprint }}-${{ env.CANARY_BASE }}
           restore-keys: |
             xcode-compilation-test-${{ runner.os }}-${{ runner.arch }}-${{ steps.cas-key.outputs.fingerprint }}-
-            xcode-compilation-test-${{ runner.os }}-${{ runner.arch }}-
 
       - name: Build benchmark arm
         id: build
