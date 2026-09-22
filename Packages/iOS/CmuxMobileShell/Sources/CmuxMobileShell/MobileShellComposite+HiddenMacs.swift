@@ -336,10 +336,10 @@ extension MobileShellComposite {
         }
         for row in rows
         where row.stackUserID == pinnedAccountID
-            && macInstanceTagAuthority.sameStoredAuthority(
+            && (primary.instanceTag == nil || macInstanceTagAuthority.sameStoredAuthority(
                 row.instanceTag,
-                computer.instanceTag
-            )
+                primary.instanceTag
+            ))
             && !(macInstanceTagAuthority.sameStoredAuthority(
                 row.instanceTag,
                 primary.instanceTag

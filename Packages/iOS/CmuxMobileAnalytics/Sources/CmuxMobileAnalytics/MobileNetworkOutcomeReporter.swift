@@ -39,7 +39,9 @@ public final class MobileNetworkOutcomeReporter: Sendable {
     }
 
     private final class StateStore: @unchecked Sendable {
+        // Carve-out: ordered diagnostic callback delivery; the producer cannot suspend.
         private let queue = DispatchQueue(label: "com.cmux.mobile-network-outcomes")
+        // Carve-out: nonblocking admission bounds synchronous event-tap work before it is queued.
         private let permits = DispatchSemaphore(value: 128)
         private var state = State()
 

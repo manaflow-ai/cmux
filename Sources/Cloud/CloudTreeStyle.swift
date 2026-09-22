@@ -108,14 +108,14 @@ struct CloudTreeStyle: Equatable, Identifiable, Sendable {
     /// too small next to the Files tree).
     static let compact = CloudTreeStyle(
         id: "compact", name: "Compact",
-        rowHeight: 24, machineRowLayout: .singleLine, leafLayout: .singleLine,
+        rowHeight: 22, machineRowLayout: .singleLine, leafLayout: .singleLine,
         iconTreatment: .monochrome, groupLabelStyle: .plain, metaPlacement: .inline,
         machineBand: false, monospacedText: false, rowSeparators: false,
-        indentPerLevel: 8,
+        indentPerLevel: 10,
         machineNameSize: 13, titleSize: 13, detailSize: 11, groupLabelSize: 11.5,
-        iconSize: 11, iconSlot: 2, iconGap: 13,
+        iconSize: 11, iconSlot: 16, iconGap: 4,
         showsGroupCounts: true, showsViewBadges: true, showsMachineStats: true,
-        machineVerticalPadding: 0
+        machineVerticalPadding: 2
     )
 
     /// System Settings voice: filled color squircles with white glyphs, so

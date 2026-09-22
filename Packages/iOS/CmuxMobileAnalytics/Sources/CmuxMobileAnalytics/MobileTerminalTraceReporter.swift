@@ -26,7 +26,9 @@ public final class MobileTerminalTraceReporter: Sendable {
     }
 
     private final class StateStore: @unchecked Sendable {
+        // Carve-out: ordered diagnostic callback delivery; the producer cannot suspend.
         private let queue = DispatchQueue(label: "com.cmux.mobile-terminal-traces")
+        // Carve-out: nonblocking admission bounds synchronous event-tap work before it is queued.
         private let permits = DispatchSemaphore(value: 128)
         private var state = State()
 

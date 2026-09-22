@@ -1,3 +1,4 @@
+import CmuxFoundation
 import Foundation
 
 /// Task-grouped `cmux help` output and `cmux help <topic>` topic views.
@@ -287,16 +288,21 @@ extension CMUXCLI {
         feed tui|clear
         themes [list|set|clear]
         reload-config
-        right-sidebar <toggle|show|hide|focus|set|mode|files|find|vault|sessions|feed|dock|cloud> [--workspace <id|ref|index>] [--window <id|ref|index>] [--no-focus]
+        right-sidebar <toggle|show|hide|focus|set|mode|files|find|vault|sessions|feed|dock|cloud|devices> [--workspace <id|ref|index>] [--window <id|ref|index>] [--no-focus]
         sidebar <validate|reload|select|open> [name]
         help
         """
     }
 
     private var automationCommandsHelp: String {
+        let executionExchangeHelp = CmuxGlaedaExecutionLocalization().string(
+            "glaeda.cli.taskHelp",
+            defaultValue: "glaeda <request|observe> [options]"
+        )
         return """
         events [--after <seq>] [--cursor-file <path>] [--name <event>] [--category <category>] [--reconnect] [--limit <n>] [--no-ack] [--no-heartbeat]
         automation <list|show|test|enable|disable|logs|reload> [args]
+        \(executionExchangeHelp)
         todo <add|list|check|uncheck|start|rm|clear> [args] [--workspace <id|ref|index>] [--window <id|ref|index>]
         send [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] <text>
         send-key [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] <key>
@@ -355,7 +361,7 @@ extension CMUXCLI {
         browser profiles <list|add|rename|clear|delete> [...]
         browser profiles clear <profile|--all> [--force]
         browser import [...]
-        \(String(localized: "cli.browser.cookies.usage", defaultValue: "browser cookies <get|set|clear> [--http-only] [...]"))
+        \(String(localized: "cli.browser.cookies.usage", defaultValue: "browser cookies <get|set|clear> [set: --http-only] [...]"))
         browser storage <local|session> <get|set|clear> [...]
         browser tab <new|list|switch|close|<index>> [...]
         browser console <list|clear>

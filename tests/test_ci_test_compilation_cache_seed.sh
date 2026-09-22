@@ -4,7 +4,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-CI_FILE="$ROOT_DIR/.github/workflows/ci.yml"
+CI_FILE="$ROOT_DIR/.github/workflows/ci-macos.yml"
 NIGHTLY_FILE="$ROOT_DIR/.github/workflows/nightly.yml"
 SCRIPT="$ROOT_DIR/scripts/ci/compile-app-host-test-product.sh"
 
@@ -21,7 +21,7 @@ ADMISSION="$(job_body "$CI_FILE" "macos-compile-admission")"
 SEEDER="$(job_body "$NIGHTLY_FILE" "refresh-test-compilation-cache")"
 
 if [ -z "$ADMISSION" ] || [ -z "$SEEDER" ]; then
-  echo "FAIL: expected ci.yml macos-compile-admission and nightly.yml refresh-test-compilation-cache"
+  echo "FAIL: expected ci-macos.yml macos-compile-admission and nightly.yml refresh-test-compilation-cache"
   exit 1
 fi
 
@@ -164,6 +164,7 @@ for expected in \
   cmux-unit \
   cmux-numeric-locale \
   build-for-testing \
+  -showBuildTimingSummary \
   COMPILATION_CACHE_ENABLE_CACHING=YES \
   "COMPILATION_CACHE_CAS_PATH=$TMP_DIR/cas" \
   "$TMP_DIR/derived" \

@@ -1,7 +1,9 @@
 public import Foundation
 
 /// Composes PATH values that cmux exports across process boundaries.
-public enum CmuxPathEnvironment {
+public struct CmuxPathEnvironment: Sendable {
+    public init() {}
+
     /// Returns PATH components that can be safely represented as UTF-8.
     ///
     /// Foundation decodes malformed inherited environment bytes as the
@@ -9,7 +11,7 @@ public enum CmuxPathEnvironment {
     /// components, prevents cmux from re-exporting a value that strict tools
     /// reject while preserving empty components and their current-directory
     /// semantics.
-    public static func components(from path: String?) -> [String] {
+    public func components(from path: String?) -> [String] {
         guard let path else { return [] }
         return path
             .split(separator: ":", omittingEmptySubsequences: false)
@@ -20,7 +22,7 @@ public enum CmuxPathEnvironment {
     }
 
     /// Prepends entries once while discarding malformed inherited components.
-    public static func prependingUniqueEntries(
+    public func prependingUniqueEntries(
         _ newEntries: [String],
         to currentPath: String?
     ) -> String {
@@ -36,7 +38,7 @@ public enum CmuxPathEnvironment {
     }
 
     /// Prepends a standardized directory once while discarding malformed PATH components.
-    public static func prependingUniqueDirectory(_ directory: String, to path: String) -> String {
+    public func prependingUniqueDirectory(_ directory: String, to path: String) -> String {
         let trimmedDirectory = directory.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedDirectory.isEmpty else { return path }
         let standardizedDirectory = URL(fileURLWithPath: trimmedDirectory, isDirectory: true)
@@ -57,7 +59,7 @@ public enum CmuxPathEnvironment {
         return entries.joined(separator: ":")
     }
 
-    private static func isMalformedScalar(_ scalar: Unicode.Scalar) -> Bool {
+    private func isMalformedScalar(_ scalar: Unicode.Scalar) -> Bool {
         CharacterSet.controlCharacters.contains(scalar) || scalar == "\u{FFFD}"
     }
 }

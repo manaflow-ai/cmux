@@ -45,8 +45,9 @@ final class LocalSurfaceProviderTests: XCTestCase {
         XCTAssertEqual(LocalSurfaceProvider.shellQuote(""), "''")
     }
 
-    func testTerminalPaneIsALocalResourceWithOneProjectionUntilItCloses() throws {
+    func testTerminalPaneIsALocalResourceWithOneProjectionUntilItCloses() async throws {
         let manager = TabManager()
+        defer { manager.tabs.forEach { $0.teardownAllPanels() } }
         let workspace = manager.addWorkspace(select: true)
         let terminals = workspace.panels.filter { $0.value is TerminalPanel }
         let panelID = try XCTUnwrap(terminals.keys.first, "a new workspace opens with a terminal pane")
@@ -60,8 +61,17 @@ final class LocalSurfaceProviderTests: XCTestCase {
         XCTAssertEqual(resource.kind, .terminal)
         XCTAssertTrue(resource.machine.isLocal)
 
-        // The tab bar title is the resource title.
+        // Title updates are coalesced before the catalog publishes its next change.
+        let titleChanged = expectation(
+            forNotification: SurfaceCatalog.didChangeNotification,
+            object: catalog
+        ) { _ in
+            MainActor.assumeIsolated {
+                catalog.resources[projection.resource]?.title == "cargo test"
+            }
+        }
         workspace.panelTitles[panelID] = "cargo test"
+        await fulfillment(of: [titleChanged], timeout: 5)
         XCTAssertEqual(catalog.resources[projection.resource]?.title, "cargo test")
 
         XCTAssertTrue(workspace.closePanel(panelID, force: true))

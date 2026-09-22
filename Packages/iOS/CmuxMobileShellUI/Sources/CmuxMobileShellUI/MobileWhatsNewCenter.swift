@@ -124,7 +124,7 @@ public final class MobileWhatsNewCenter {
     /// (`MobileWebPageHosts`) with the web app session broker, so navigation
     /// and credential policy agree.
     var allowedWebHosts: Set<String> {
-        var hosts = MobileWebPageHosts.cmuxOwned
+        var hosts = MobileWebPageHosts().cmuxOwned
         if let apiHost = requestURL?.host?.lowercased() {
             hosts.insert(apiHost)
         }
@@ -146,8 +146,8 @@ public final class MobileWhatsNewCenter {
     /// current native page does not disappear from Settings until the API
     /// catches up. An explicit empty list remains a deliberate retraction.
     var visibleBinaryEntries: [MobileWhatsNewPage] {
-        let channelAllowed = MobileWhatsNewCatalog.entries.filter { page in
-            MobileWhatsNewChannelPolicy.isVisible(
+        let channelAllowed = MobileWhatsNewCatalog().entries.filter { page in
+            MobileWhatsNewChannelPolicy().isVisible(
                 channelTokens: remoteList?.entryChannels?[page.id] ?? page.channels,
                 buildType: buildType
             )
@@ -174,11 +174,11 @@ public final class MobileWhatsNewCenter {
         return remoteList.announcements.compactMap { announcement in
             // Channel gate first: an announcement with no channel list is
             // team-lanes only and never reaches the official App Store app.
-            guard MobileWhatsNewChannelPolicy.isVisible(
+            guard MobileWhatsNewChannelPolicy().isVisible(
                 channelTokens: announcement.channels,
                 buildType: buildType
             ) else { return nil }
-            guard MobileAppVersionCompare.version(
+            guard MobileAppVersionCompare().version(
                 appVersion,
                 isWithinMin: announcement.minVersion,
                 max: announcement.maxVersion
@@ -208,9 +208,9 @@ public final class MobileWhatsNewCenter {
         let visible = visibleBinaryEntries
         let unseenBinary: [MobileWhatsNewPage]
         if let marker = defaults.string(forKey: Self.markerKey) {
-            if let markerIndex = MobileWhatsNewCatalog.index(ofID: marker) {
+            if let markerIndex = MobileWhatsNewCatalog().index(ofID: marker) {
                 unseenBinary = visible.filter { page in
-                    (MobileWhatsNewCatalog.index(ofID: page.id) ?? Int.max) < markerIndex
+                    (MobileWhatsNewCatalog().index(ofID: page.id) ?? Int.max) < markerIndex
                 }
             } else {
                 // The marker id is unknown to this binary (downgrade or a
@@ -238,13 +238,13 @@ public final class MobileWhatsNewCenter {
         defaults.set(acknowledged.sorted(), forKey: Self.acknowledgedAnnouncementsKey)
 
         let shownIndices = pages.compactMap { page in
-            page.isAnnouncement ? nil : MobileWhatsNewCatalog.index(ofID: page.id)
+            page.isAnnouncement ? nil : MobileWhatsNewCatalog().index(ofID: page.id)
         }
         guard let newestShown = shownIndices.min() else { return }
         let currentIndex = defaults.string(forKey: Self.markerKey)
-            .flatMap(MobileWhatsNewCatalog.index(ofID:))
+            .flatMap(MobileWhatsNewCatalog().index(ofID:))
         if let currentIndex, currentIndex <= newestShown { return }
-        defaults.set(MobileWhatsNewCatalog.entries[newestShown].id, forKey: Self.markerKey)
+        defaults.set(MobileWhatsNewCatalog().entries[newestShown].id, forKey: Self.markerKey)
     }
 
     private var acknowledgedAnnouncementIDs: Set<String> {
@@ -294,7 +294,7 @@ public final class MobileWhatsNewCenter {
     private func allowlistedWebURL(_ string: String?) -> URL? {
         guard let string,
               let url = URL(string: string),
-              mobileWebPageURLAllowed(url, allowedHosts: allowedWebHosts) else { return nil }
+              MobileWebPageHosts().allows(url, allowedHosts: allowedWebHosts) else { return nil }
         return url
     }
 
