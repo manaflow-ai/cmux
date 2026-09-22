@@ -1,7 +1,8 @@
 import Foundation
 
-public enum CmuxPaneSwapStrings {
-    public static var swapWithSession: String {
+public struct CmuxPaneSwapStrings {
+    public init() {}
+    public var swapWithSession: String {
         String(
             localized: "paneSwap.swapWithSession",
             defaultValue: "Swap With Session…",
@@ -9,7 +10,7 @@ public enum CmuxPaneSwapStrings {
         )
     }
 
-    public static var terminalPane: String {
+    public var terminalPane: String {
         String(
             localized: "paneSwap.terminalPane",
             defaultValue: "Terminal Pane",
@@ -17,7 +18,7 @@ public enum CmuxPaneSwapStrings {
         )
     }
 
-    public static var source: String {
+    public var source: String {
         String(
             localized: "paneSwap.source",
             defaultValue: "Source",
@@ -25,7 +26,7 @@ public enum CmuxPaneSwapStrings {
         )
     }
 
-    public static var swapHere: String {
+    public var swapHere: String {
         String(
             localized: "paneSwap.swapHere",
             defaultValue: "Swap Here",
