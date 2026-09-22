@@ -327,7 +327,7 @@ final class MobilePairingModel {
                 comment: "The placeholder contains a safe transport diagnosis."
             ).replacingOccurrences(of: "%@", with: detail)
         }
-        String(localized: "mobile.pairing.error.preparationFailed",
+        return String(localized: "mobile.pairing.error.preparationFailed",
                defaultValue: "Pairing could not finish. Check your connection and try again.")
     }
 
