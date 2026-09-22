@@ -9,6 +9,7 @@ permissions:
   contents: read
 
 env:
+  CI_CACHE_R2_PUBLIC_URL: ${{ vars.CI_CACHE_R2_PUBLIC_URL }}
   CANARY_BASE: 2393fd16b875819909c8f633271934a3f6d0292e
   CANARY_TARGET: 2f943925239bcff183fcb452379725fa3b4b4b20
   CANARY_REPO_URL: https://github.com/manaflow-ai/cmux.git
