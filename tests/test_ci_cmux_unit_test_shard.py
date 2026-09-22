@@ -501,6 +501,44 @@ def check_folded_fish_suite_keeps_prerequisite() -> int:
     return 0
 
 
+def check_global_search_has_dedicated_consumer() -> int:
+    """Global search must run beside, never ahead of, the six broad workers."""
+    import re
+
+    workflow = (ROOT / ".github" / "workflows" / "ci-macos.yml").read_text(encoding="utf-8")
+    match = re.search(r"(?ms)^  app-host-unit-tests:\n(.*?)(?=^  [A-Za-z0-9_-]+:\n)", workflow)
+    if match is None:
+        print("FAIL: app-host-unit-tests job missing")
+        return 1
+    job = match.group(1)
+    if "shard: [1, 2, 3, 4, 5, 6, 7]" not in job:
+        print("FAIL: app-host matrix must include the dedicated seventh consumer")
+        return 1
+    if 'CMUX_APP_HOST_GLOBAL_SEARCH_SHARD: "7"' not in job:
+        print("FAIL: global search must own consumer 7")
+        return 1
+
+    steps = {
+        part.split("\n", 1)[0]: part
+        for part in re.split(r"(?m)^      - name: ", job)[1:]
+    }
+    global_step = steps.get("Run global search shortcut regressions", "")
+    broad_step = steps.get("Run unit tests", "")
+    if "matrix.shard == fromJSON(env.CMUX_APP_HOST_GLOBAL_SEARCH_SHARD)" not in global_step:
+        print("FAIL: global search step is not pinned to its dedicated consumer")
+        return 1
+    if "matrix.shard != fromJSON(env.CMUX_APP_HOST_GLOBAL_SEARCH_SHARD)" not in broad_step:
+        print("FAIL: dedicated global-search consumer can still enter broad batches")
+        return 1
+
+    physical, _ = production_shard_constants()
+    if physical != 6:
+        print(f"FAIL: dedicated consumer must not change six-worker broad topology, got {physical}")
+        return 1
+    print("PASS: global search has a seventh consumer and the broad topology stays six workers")
+    return 0
+
+
 def check_focused_gates_run_once() -> int:
     import importlib.util
     import re
@@ -533,15 +571,14 @@ def check_focused_gates_run_once() -> int:
     groups = {
         env.get(name)
         for name in (
-            "CMUX_APP_HOST_GLOBAL_SEARCH_SHARD",
             "CMUX_APP_HOST_CLI_REGRESSION_SHARD",
             "CMUX_APP_HOST_FOCUSED_REGRESSION_B_SHARD",
             "CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD",
         )
     }
     reserved = {value.split("=")[0] for value in env.get("CMUX_APP_HOST_RESERVED_WALL_SECONDS", "").split()}
-    if None in groups or len(groups) != 4 or groups != reserved:
-        print(f"FAIL: strict step groups run on shards {sorted(map(str, groups))} but wall time is reserved on {sorted(reserved)}")
+    if None in groups or len(groups) != 3 or groups != reserved:
+        print(f"FAIL: shared strict groups run on shards {sorted(map(str, groups))} but wall time is reserved on {sorted(reserved)}")
         return 1
     print("PASS: strict suites run once, exist, and every worker that runs them has wall time reserved")
     return 0
@@ -694,6 +731,9 @@ def main() -> int:
         return rc
 
     if (rc := check_folded_fish_suite_keeps_prerequisite()) != 0:
+        return rc
+
+    if (rc := check_global_search_has_dedicated_consumer()) != 0:
         return rc
 
     if (rc := check_focused_gates_run_once()) != 0:

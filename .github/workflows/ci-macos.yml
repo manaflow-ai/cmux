@@ -748,7 +748,7 @@ jobs:
     # transitive skip otherwise marks every macOS job skipped even when
     # linux-preflight itself succeeds. Require the direct needs explicitly.
     if: ${{ !cancelled() && needs.macos-compile-admission.result == 'success' && inputs.macos == 'true' && inputs.full_suite == 'true' }}
-    name: app-host unit tests (${{ matrix.shard }}/6)
+    name: app-host unit tests (${{ matrix.shard }}/7)
     # App-host XCTest needs a runner that can broker testmanagerd control
     # sessions, so route through the shared MACOS_RUNNER_15 var like the other
     # macOS jobs. The fallback is what fork pull requests get, because
@@ -761,7 +761,7 @@ jobs:
       # only needs a verdict, and the first failure already is one.
       fail-fast: ${{ github.event_name == 'merge_group' }}
       matrix:
-        shard: [1, 2, 3, 4, 5, 6]
+        shard: [1, 2, 3, 4, 5, 6, 7]
     env:
       CMUX_NODE_PRODUCT_CACHE_ROOT: ${{ vars.CMUX_NODE_PRODUCT_CACHE_ROOT }}
       CMUX_NODE_PRODUCT_CACHE_MAX_BYTES: ${{ vars.CMUX_NODE_PRODUCT_CACHE_MAX_BYTES }}
@@ -776,15 +776,15 @@ jobs:
       CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_15 }}
       CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
       CMUX_SKIP_ZIG_BUILD: "1"
-      # Strict steps run outside the batch, in four groups on four workers.
-      # CMUX_APP_HOST_RESERVED_WALL_SECONDS is each group's measured wall time,
-      # so the batch gives those workers less and every shard ends together.
-      # Update both when a group moves or grows.
-      CMUX_APP_HOST_GLOBAL_SEARCH_SHARD: "1"
+      # Global search owns a seventh consumer because its serialized container
+      # takes about eight minutes; it skips the broad batches entirely. The
+      # remaining strict groups share workers with broad batches, so reserve
+      # their measured wall time when packing those six workers.
+      CMUX_APP_HOST_GLOBAL_SEARCH_SHARD: "7"
       CMUX_APP_HOST_CLI_REGRESSION_SHARD: "4"
       CMUX_APP_HOST_FOCUSED_REGRESSION_B_SHARD: "5"
       CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD: "6"
-      CMUX_APP_HOST_RESERVED_WALL_SECONDS: "1=474 4=235 5=138 6=235"
+      CMUX_APP_HOST_RESERVED_WALL_SECONDS: "4=235 5=138 6=235"
       # Four-way packing now exceeds the app-host's memory budget as the suite
       # grows: a shard can crash around 1,000 UI tests and poison the remaining
       # selectors. Six-way packing keeps each broad shard near 13 minutes of
@@ -1399,6 +1399,7 @@ jobs:
           done
 
       - name: Run unit tests
+        if: ${{ matrix.shard != fromJSON(env.CMUX_APP_HOST_GLOBAL_SEARCH_SHARD) }}
         run: |
           set -euo pipefail
           PHYSICAL_SHARD="${{ matrix.shard }}"
