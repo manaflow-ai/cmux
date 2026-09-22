@@ -8,7 +8,9 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 GUARD_WORKFLOW = ROOT / ".github" / "workflows" / "ci-guards.yml"
-MATRIX_GROUPS = "${{ fromJSON(inputs.linux_guard_test_groups) }}"\n\n
+MATRIX_GROUPS = "${{ fromJSON(inputs.linux_guard_test_groups) }}"
+
+
 def workflow_guard_job() -> dict:
     workflow = yaml.safe_load(GUARD_WORKFLOW.read_text(encoding="utf-8"))
     return workflow["jobs"]["workflow-guard-tests"]
