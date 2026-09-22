@@ -21,6 +21,34 @@ def policy():
     return json.loads(POLICY.read_text(encoding="utf-8"))
 
 
+def _guard_router():
+    """The Linux guard router, imported the way CI invokes it.
+
+    It lives next to its own imports under scripts/ci, so that directory has to
+    be on sys.path for `from workflow_guard_groups import ...` to resolve.
+    """
+    guard_dir = str(ROOT / "scripts/ci")
+    if guard_dir not in sys.path:
+        sys.path.insert(0, guard_dir)
+    router_path = ROOT / "scripts/ci/detect_linux_guard_changes.py"
+    router_spec = importlib.util.spec_from_file_location(
+        "detect_linux_guard_changes", router_path
+    )
+    router = importlib.util.module_from_spec(router_spec)
+    router_spec.loader.exec_module(router)
+    return router
+
+
+def _groups_for_path(path):
+    """Which workflow-guard-tests groups own `path`, or None if unowned."""
+    guard_dir = str(ROOT / "scripts/ci")
+    if guard_dir not in sys.path:
+        sys.path.insert(0, guard_dir)
+    from workflow_guard_groups import groups_for_path
+
+    return groups_for_path(path)
+
+
 def run(
     run_id,
     session_id,
@@ -329,15 +357,42 @@ class ReviewFabricTests(unittest.TestCase):
 
     def test_ci_executes_review_fabric_contracts(self):
         workflow = (ROOT / ".github/workflows/ci-guards.yml").read_text(encoding="utf-8")
-        detector = (ROOT / "scripts/ci/detect_linux_guard_changes.py").read_text(encoding="utf-8")
         self.assertIn("python3 tests/test_review_fabric.py", workflow)
+
+        # #13775 made the guard routes derived rather than literal: a path now
+        # reaches this suite through PATH_OWNERS or through ci-guards.yml's own
+        # `run:` lines, so grepping the router for the path text says nothing
+        # about whether the path is routed. Ask the router instead.
+        routes = _guard_router()
         for path in (
             ".github/review-fabric-policy.json",
             ".github/review-fabric.md",
             ".github/scripts/review_fabric.py",
             "tests/test_review_fabric.py",
         ):
-            self.assertIn(f'"{path}"', detector)
+            with self.subTest(path=path):
+                decision = routes.classify(
+                    [path], event="pull_request", macos="false"
+                )
+                self.assertTrue(
+                    decision["linux_guard_tests"],
+                    f"editing {path} must run the workflow-guard-tests lane",
+                )
+                # classify_test_groups falls open to every group for a path the
+                # manifest does not know, so asserting on its output alone would
+                # pass even if ownership were dropped. Assert the ownership
+                # itself: the path must be explicitly owned by preflight, which
+                # is the group that runs tests/test_review_fabric.py.
+                owners = _groups_for_path(path)
+                self.assertIsNotNone(
+                    owners, f"{path} has no guard-group owner; routing fell open"
+                )
+                self.assertIn(
+                    "preflight",
+                    owners,
+                    f"editing {path} must select the preflight guard group, "
+                    "which is where tests/test_review_fabric.py runs",
+                )
 
 
 if __name__ == "__main__":
