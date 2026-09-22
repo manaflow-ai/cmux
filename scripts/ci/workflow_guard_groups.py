@@ -143,6 +143,8 @@ STEP_OWNERS = {
 # Direct executables plus known indirect inputs whose guard ownership is stable.
 # Broad scanners below add their groups on top of these exact owners.
 PATH_OWNERS = {
+    ".github/workflows/web-complexity.yml": frozenset(("ci",)),
+    ".github/workflows/web-complexity-trusted.yml": frozenset(("ci",)),
     ".github/review-fabric-policy.json": frozenset(("preflight",)),
     ".github/review-fabric.md": frozenset(("preflight",)),
     ".github/scripts/review_fabric.py": frozenset(("preflight",)),
