@@ -35,7 +35,7 @@ jobs:
   seed:
     name: Build generation A
     needs: validate
-    runs-on: ${{ vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15' }}
+    runs-on: blacksmith-6vcpu-macos-15
     timeout-minutes: 75
     steps:
       - name: Checkout benchmark harness
@@ -211,7 +211,7 @@ jobs:
   benchmark:
     name: Benchmark ${{ matrix.arm }}
     needs: seed
-    runs-on: ${{ vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15' }}
+    runs-on: blacksmith-6vcpu-macos-15
     timeout-minutes: 75
     strategy:
       fail-fast: false
