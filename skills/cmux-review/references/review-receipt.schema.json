@@ -30,7 +30,12 @@
     "source": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["base_sha", "head_sha", "diff_sha256", "working_tree_dirty"],
+      "required": [
+        "base_sha",
+        "head_sha",
+        "diff_sha256",
+        "working_tree_dirty"
+      ],
       "properties": {
         "base_sha": {
           "type": "string",
@@ -48,7 +53,10 @@
           "type": "boolean"
         },
         "ruleset_sha256": {
-          "type": ["string", "null"],
+          "type": [
+            "string",
+            "null"
+          ],
           "pattern": "^[0-9a-f]{64}$"
         }
       }
@@ -58,6 +66,8 @@
       "additionalProperties": false,
       "required": [
         "intent",
+        "requirements",
+        "out_of_scope_changes",
         "behavior_changed",
         "risk_areas",
         "file_groups",
@@ -71,17 +81,26 @@
         },
         "behavior_changed": {
           "type": "array",
-          "items": { "type": "string" }
+          "items": {
+            "type": "string"
+          }
         },
         "risk_areas": {
           "type": "array",
           "items": {
             "type": "object",
             "additionalProperties": false,
-            "required": ["level", "area"],
+            "required": [
+              "level",
+              "area"
+            ],
             "properties": {
               "level": {
-                "enum": ["high", "medium", "low"]
+                "enum": [
+                  "high",
+                  "medium",
+                  "low"
+                ]
               },
               "area": {
                 "type": "string"
@@ -97,27 +116,77 @@
           "items": {
             "type": "object",
             "additionalProperties": false,
-            "required": ["label", "paths"],
+            "required": [
+              "label",
+              "paths"
+            ],
             "properties": {
-              "label": { "type": "string" },
+              "label": {
+                "type": "string"
+              },
               "paths": {
                 "type": "array",
-                "items": { "type": "string" }
+                "items": {
+                  "type": "string"
+                }
               }
             }
           }
         },
         "reading_order": {
           "type": "array",
-          "items": { "type": "string" }
+          "items": {
+            "type": "string"
+          }
         },
         "safeguards": {
           "type": "array",
-          "items": { "type": "string" }
+          "items": {
+            "type": "string"
+          }
         },
         "coverage_gaps": {
           "type": "array",
-          "items": { "type": "string" }
+          "items": {
+            "type": "string"
+          }
+        },
+        "requirements": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "requirement",
+              "status",
+              "evidence"
+            ],
+            "properties": {
+              "requirement": {
+                "type": "string",
+                "minLength": 1
+              },
+              "status": {
+                "enum": [
+                  "satisfied",
+                  "missing",
+                  "uncertain"
+                ]
+              },
+              "evidence": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "out_of_scope_changes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
         }
       }
     },
@@ -191,7 +260,12 @@
           "minLength": 1
         },
         "severity": {
-          "enum": ["P0", "P1", "P2", "P3"]
+          "enum": [
+            "P0",
+            "P1",
+            "P2",
+            "P3"
+          ]
         },
         "claim": {
           "type": "string",
@@ -203,30 +277,46 @@
         },
         "paths": {
           "type": "array",
-          "items": { "type": "string" }
+          "items": {
+            "type": "string"
+          }
         },
         "discovery_sources": {
           "type": "array",
-          "items": { "type": "string" }
+          "items": {
+            "type": "string"
+          }
         },
         "challenge": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["disposition", "evidence"],
+          "required": [
+            "disposition",
+            "evidence"
+          ],
           "properties": {
             "disposition": {
-              "enum": ["refuted", "survives_challenge", "uncertain"]
+              "enum": [
+                "refuted",
+                "survives_challenge",
+                "uncertain"
+              ]
             },
             "evidence": {
               "type": "array",
-              "items": { "$ref": "#/$defs/evidence" }
+              "items": {
+                "$ref": "#/$defs/evidence"
+              }
             }
           }
         },
         "verification": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["result", "evidence"],
+          "required": [
+            "result",
+            "evidence"
+          ],
           "properties": {
             "result": {
               "enum": [
@@ -239,21 +329,41 @@
             },
             "evidence": {
               "type": "array",
-              "items": { "$ref": "#/$defs/evidence" }
+              "items": {
+                "$ref": "#/$defs/evidence"
+              }
             }
           }
         },
         "repair": {
-          "type": ["object", "null"],
+          "type": [
+            "object",
+            "null"
+          ],
           "additionalProperties": false,
-          "required": ["attempted", "verification_replayed", "result"],
+          "required": [
+            "attempted",
+            "verification_replayed",
+            "result"
+          ],
           "properties": {
-            "attempted": { "type": "boolean" },
-            "verification_replayed": { "type": "boolean" },
-            "result": {
-              "enum": ["fixed", "failed", "deferred", "not_attempted"]
+            "attempted": {
+              "type": "boolean"
             },
-            "notes": { "type": "string" }
+            "verification_replayed": {
+              "type": "boolean"
+            },
+            "result": {
+              "enum": [
+                "fixed",
+                "failed",
+                "deferred",
+                "not_attempted"
+              ]
+            },
+            "notes": {
+              "type": "string"
+            }
           }
         },
         "disposition": {
@@ -272,7 +382,10 @@
     "evidence": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["kind", "summary"],
+      "required": [
+        "kind",
+        "summary"
+      ],
       "properties": {
         "kind": {
           "enum": [
