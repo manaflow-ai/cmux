@@ -10,6 +10,7 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 CI_FILE="$ROOT_DIR/.github/workflows/ci.yml"
+CI_MACOS_FILE="$ROOT_DIR/.github/workflows/ci-macos.yml"
 CI_WEB_FILE="$ROOT_DIR/.github/workflows/ci-web.yml"
 PERSISTENT_COMPILE_FILE="$ROOT_DIR/.github/workflows/persistent-macos-compile.yml"
 PERSISTENT_ROUTER_FILE="$ROOT_DIR/.github/workflows/persistent-macos-router.yml"
@@ -75,7 +76,7 @@ check_release_build_runner_disk_capacity() {
     in_job && /^  [^[:space:]#][^:]*:[[:space:]]*(#.*)?$/ { in_job=0 }
     in_job && /runs-on:/ && /vars\.MACOS_RUNNER_26_RELEASE/ && /blacksmith-6vcpu-macos-26/ { saw_release_runner=1 }
     END { exit !saw_release_runner }
-  ' "$CI_FILE"; then
+  ' "$CI_MACOS_FILE"; then
     echo "FAIL: release-build must use the release-specific macOS 26 runner var with a cloud (Blacksmith) fallback for disk-heavy universal builds"
     exit 1
   fi
@@ -100,7 +101,7 @@ check_build_lag_deriveddata_cache_path() {
     END {
       exit !(saw_prepare_path && !saw_dynamic_prepare_path && !saw_deriveddata_cache)
     }
-  ' "$CI_FILE"; then
+  ' "$CI_MACOS_FILE"; then
     echo "FAIL: tests-build-and-lag must build into the stable RUNNER_TEMP DerivedData path and must not cache DerivedData"
     exit 1
   fi
@@ -213,12 +214,12 @@ check_xcode_selection() {
 }
 
 check_release_build_signal() {
-  if ! grep -Fq './scripts/ci/verify-binary-archs.sh "$RELEASE_ARCHS" "$APP_BINARY" "$CLI_BINARY" "$CMUX_CUA_BINARY"' "$CI_FILE"; then
+  if ! grep -Fq './scripts/ci/verify-binary-archs.sh "$RELEASE_ARCHS" "$APP_BINARY" "$CLI_BINARY" "$CMUX_CUA_BINARY"' "$CI_MACOS_FILE"; then
     echo "FAIL: release-build must verify the Release app, CLI, and cmux-cua contain exactly the resolved architectures"
     exit 1
   fi
 
-  if ! grep -Fq './scripts/ci/verify-binary-archs.sh "$RELEASE_ARCHS" "$APP_BINARY" "$CLI_BINARY" "$CMUX_CUA_BINARY" "$HELPER_BINARY" "$TUI_CLIENT"' "$CI_FILE"; then
+  if ! grep -Fq './scripts/ci/verify-binary-archs.sh "$RELEASE_ARCHS" "$APP_BINARY" "$CLI_BINARY" "$CMUX_CUA_BINARY" "$HELPER_BINARY" "$TUI_CLIENT"' "$CI_MACOS_FILE"; then
     echo "FAIL: release-build must verify both bundled helpers contain exactly the producer-selected architectures"
     exit 1
   fi
@@ -239,7 +240,7 @@ check_release_build_disk_cleanup() {
     in_step && /cleanup-dev-builds\.sh/ { saw_tag_cleanup=1 }
 
     END { exit !(saw_step && saw_df && saw_workspace && !saw_direct_derived_data && !saw_tag_cleanup) }
-  ' "$CI_FILE"; then
+  ' "$CI_MACOS_FILE"; then
     echo "FAIL: release-build cleanup must stay limited to job-owned workspace paths"
     exit 1
   fi
@@ -281,7 +282,7 @@ check_release_helper_artifact_from_package_lane() {
     END {
       exit !(saw_dual_runner && saw_timeout && saw_helper_xcode_env && saw_helper_select && saw_helper_sdk_pin && saw_build_step && saw_build && saw_arch_validation && saw_helper_sdk_validation && saw_upload_step && saw_upload && saw_artifact_name && saw_select && !saw_build_after_select && !saw_upload_after_select)
     }
-  ' "$CI_FILE"; then
+  ' "$CI_MACOS_FILE"; then
     echo "FAIL: swift-package-tests must use the dual-Xcode runner, then pin and validate the macOS 15 Ghostty helper before selecting Xcode 26"
     exit 1
   fi
@@ -300,12 +301,12 @@ check_release_helper_artifact_from_package_lane() {
     END {
       exit !(saw_need && saw_download_step && saw_download && saw_artifact_name && saw_install_step && saw_install)
     }
-  ' "$CI_FILE"; then
+  ' "$CI_MACOS_FILE"; then
     echo "FAIL: release-build must depend on swift-package-tests, download the helper artifact, and install it into the app"
     exit 1
   fi
 
-  if grep -Fq "release-ghostty-cli-helper:" "$CI_FILE"; then
+  if grep -Fq "release-ghostty-cli-helper:" "$CI_MACOS_FILE"; then
     echo "FAIL: CI must not queue a separate release-ghostty-cli-helper job"
     exit 1
   fi
@@ -314,7 +315,7 @@ check_release_helper_artifact_from_package_lane() {
 }
 
 check_runtime_regressions_collapsed() {
-  if grep -Fq "ui-regressions:" "$CI_FILE"; then
+  if grep -Fq "ui-regressions:" "$CI_MACOS_FILE"; then
     echo "FAIL: CI must not queue a separate ui-regressions job"
     exit 1
   fi
@@ -330,7 +331,7 @@ check_runtime_regressions_collapsed() {
     in_job && /timeout-minutes:[[:space:]]*75/ { saw_timeout=1 }
 
     END { exit !(saw_shared_product && saw_ui_script && saw_force_kill && saw_reap_strays && saw_timeout) }
-  ' "$CI_FILE"; then
+  ' "$CI_MACOS_FILE"; then
     echo "FAIL: tests-build-and-lag must restore the shared product, run display UI regressions from that DerivedData, and clean virtual displays before releasing the lock"
     exit 1
   fi
@@ -763,21 +764,21 @@ check_gui_smoke_unsupported_launch_handling() {
 }
 
 check_no_ci_xctest_skips() {
-  if grep -nE '(^|[[:space:]])-skip-testing:' "$CI_FILE"; then
-    echo "FAIL: ci.yml must not exclude individual XCTest methods with -skip-testing; fix or isolate the flaky test instead"
+  if grep -nE '(^|[[:space:]])-skip-testing:' "$CI_MACOS_FILE"; then
+    echo "FAIL: ci-macos.yml must not exclude individual XCTest methods with -skip-testing; fix or isolate the flaky test instead"
     exit 1
   fi
 
-  echo "PASS: ci.yml does not exclude XCTest methods"
+  echo "PASS: ci-macos.yml does not exclude XCTest methods"
 }
 
 check_no_ci_swift_package_skips() {
-  if grep -nE '(^|[[:space:]])swift[[:space:]]+test([[:space:]].*)?[[:space:]]--skip([[:space:]]|$)' "$CI_FILE"; then
-    echo "FAIL: ci.yml must not exclude Swift package tests with swift test --skip; fix or isolate the failing package test instead"
+  if grep -nE '(^|[[:space:]])swift[[:space:]]+test([[:space:]].*)?[[:space:]]--skip([[:space:]]|$)' "$CI_MACOS_FILE"; then
+    echo "FAIL: ci-macos.yml must not exclude Swift package tests with swift test --skip; fix or isolate the failing package test instead"
     exit 1
   fi
 
-  echo "PASS: ci.yml does not exclude Swift package tests"
+  echo "PASS: ci-macos.yml does not exclude Swift package tests"
 }
 
 check_web_db_behavior_tests() {
@@ -1359,7 +1360,7 @@ check_persistent_compile_router() {
     /^  macos-compile-admission:$/ { in_job=1; print; next }
     in_job && /^  [A-Za-z0-9_-]+:$/ { exit }
     in_job { print }
-  ' "$CI_FILE")"
+  ' "$CI_MACOS_FILE")"
   if [ -z "$admission_block" ]; then
     echo "FAIL: macOS compile admission job is missing"
     exit 1
@@ -1418,17 +1419,17 @@ check_persistent_compile_router() {
 
 check_cla_guard_runner
 
-# ci.yml jobs
+# ci-macos.yml jobs
 check_no_bare_github_hosted_runners
 check_no_self_hosted_fleet_runners
 check_persistent_compile_lane
 check_persistent_compile_router
-check_macos_runner "$CI_FILE" "app-host-unit-tests"
-check_macos_runner "$CI_FILE" "macos-compile-admission"
-check_macos_runner "$CI_FILE" "tests-build-and-lag"
-check_macos_runner "$CI_FILE" "release-build"
+check_macos_runner "$CI_MACOS_FILE" "app-host-unit-tests"
+check_macos_runner "$CI_MACOS_FILE" "macos-compile-admission"
+check_macos_runner "$CI_MACOS_FILE" "tests-build-and-lag"
+check_macos_runner "$CI_MACOS_FILE" "release-build"
 check_release_build_runner_disk_capacity
-check_display_runner_identity_guard "$CI_FILE" "tests-build-and-lag"
+check_display_runner_identity_guard "$CI_MACOS_FILE" "tests-build-and-lag"
 
 # build-ghosttykit.yml
 check_macos_runner "$GHOSTTYKIT_FILE" "build-ghosttykit"

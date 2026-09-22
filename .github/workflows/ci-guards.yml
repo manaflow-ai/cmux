@@ -26,7 +26,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        group: [preflight, ci, app-host, release, quality]
+        group: [preflight, ci, app-host-execution, app-host-process, app-host-cache, release, quality-sharding, quality-runtime, quality-determinism]
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     # This job executes scripts from the pull request. It needs only read
     # access for checkout, never workflow, issue, or repository write access.
@@ -49,6 +49,14 @@ jobs:
       - name: Validate CMUX workload profile contract
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_workload_profiles.py
+
+      - name: Validate quality guard structure
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_quality_guard_structure.py
+
+      - name: Validate app-host guard structure
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_app_host_guard_structure.py
 
       - name: Run canonical CMUX CI guard profile
         if: ${{ matrix.group == 'ci' }}
@@ -218,7 +226,7 @@ jobs:
         run: ./tests/test_app_bundle_license_compliance.sh
 
       - name: Validate unit-test SwiftPM retry guard
-        if: ${{ matrix.group == 'app-host' }}
+        if: ${{ matrix.group == 'app-host-execution' }}
         run: ./tests/test_ci_unit_test_spm_retry.sh
 
       - name: Validate checkout failure network diagnostics
@@ -226,32 +234,33 @@ jobs:
         run: python3 tests/test_ci_checkout_network_diagnostics.py
 
       - name: Validate Swift Testing suite timeout guard
-        if: ${{ matrix.group == 'app-host' }}
+        if: ${{ matrix.group == 'app-host-execution' }}
         run: python3 tests/test_swift_testing_suite_timeout.py
 
       - name: Validate xcodebuild noninteractive crash prompt guard
-        if: ${{ matrix.group == 'app-host' }}
+        if: ${{ matrix.group == 'app-host-execution' }}
         run: python3 tests/test_ci_xcodebuild_noninteractive_helper.py
 
       - name: Validate xcodebuild failure diagnostics
-        if: ${{ matrix.group == 'app-host' }}
+        if: ${{ matrix.group == 'app-host-execution' }}
         run: ./tests/test_ci_xcodebuild_with_diagnostics.sh
 
       - name: Validate pipe-safe CI capture
+        if: ${{ matrix.group == 'app-host-execution' }}
         run: |
           bash tests/test_ci_run_and_capture.sh
           python3 tests/test_ci_app_host_pipe_capture.py
 
       - name: Validate focused test launcher
-        if: ${{ matrix.group == 'app-host' }}
+        if: ${{ matrix.group == 'app-host-execution' }}
         run: python3 tests/test_run_e2e.py
 
       - name: Validate app-host xcodebuild retry guard
-        if: ${{ matrix.group == 'app-host' }}
+        if: ${{ matrix.group == 'app-host-execution' }}
         run: ./tests/test_ci_app_host_xcodebuild_retry.sh
 
       - name: Validate app-host xcodebuild attempt budget
-        if: ${{ matrix.group == 'app-host' }}
+        if: ${{ matrix.group == 'app-host-execution' }}
         run: ./tests/test_ci_app_host_xcodebuild_attempts.sh
 
       - name: Validate notification semantics gates
@@ -259,41 +268,41 @@ jobs:
         run: python3 tests/test_ci_notification_semantics.py
 
       - name: Validate app-host test failure classification
-        if: ${{ matrix.group == 'app-host' }}
+        if: ${{ matrix.group == 'app-host-process' }}
         run: python3 tests/test_ci_app_host_test_output.py
 
       - name: Validate app-host failure census
-        if: ${{ matrix.group == 'app-host' }}
+        if: ${{ matrix.group == 'app-host-process' }}
         run: python3 tests/test_ci_app_host_failure_census.py
 
       - name: Validate app-host user configuration isolation
-        if: ${{ matrix.group == 'app-host' }}
+        if: ${{ matrix.group == 'app-host-process' }}
         run: python3 tests/test_ci_app_host_home_isolation.py
 
       - name: Validate app-host identity and cleanup confirmation
-        if: ${{ matrix.group == 'app-host' }}
+        if: ${{ matrix.group == 'app-host-process' }}
         run: bash tests/test_ci_app_host_identity.sh
 
       - name: Validate app-host process receipts
-        if: ${{ matrix.group == 'app-host' }}
+        if: ${{ matrix.group == 'app-host-process' }}
         run: bash tests/test_ci_app_host_processes.sh
 
       - name: Validate isolated app-host home cleanup
-        if: ${{ matrix.group == 'app-host' }}
+        if: ${{ matrix.group == 'app-host-process' }}
         run: bash tests/test_ci_app_host_home_cleanup.sh
 
       - name: Validate Xcode SourcePackages cache sanitizer
-        if: ${{ matrix.group == 'app-host' }}
+        if: ${{ matrix.group == 'app-host-cache' }}
         run: python3 tests/test_ci_sanitize_xcode_source_packages_cache.py
 
       - name: Validate local build cache preflight
-        if: ${{ matrix.group == 'app-host' }}
+        if: ${{ matrix.group == 'app-host-cache' }}
         run: |
           python3 tests/test_local_build_cache_preflight.py
           python3 tests/test_local_build_cache_policy.py
 
       - name: Validate Xcode compilation cache pruning
-        if: ${{ matrix.group == 'app-host' }}
+        if: ${{ matrix.group == 'app-host-cache' }}
         run: python3 tests/test_ci_prune_xcode_compilation_cache.py
 
       - name: Validate TestFlight notes generator
@@ -317,15 +326,15 @@ jobs:
         run: python3 tests/test_ios_appstore_lane_identity.py
 
       - name: Validate cmux scheme test configuration
-        if: ${{ matrix.group == 'app-host' }}
+        if: ${{ matrix.group == 'app-host-cache' }}
         run: ./tests/test_ci_scheme_testaction_debug.sh
 
       - name: Validate selected iOS test execution guard
-        if: ${{ matrix.group == 'app-host' }}
+        if: ${{ matrix.group == 'app-host-cache' }}
         run: python3 tests/test_ios_selected_test_execution.py
 
       - name: Validate cmuxTests sharding
-        if: ${{ matrix.group == 'quality' }}
+        if: ${{ matrix.group == 'quality-sharding' }}
         run: |
           python3 scripts/ci/cmux_unit_test_shard.py --validate
           python3 tests/test_ci_cmux_unit_test_shard.py
@@ -359,11 +368,11 @@ jobs:
         run: ./tests/test_ghostty_zig_version_sync.sh
 
       - name: Validate bundled-resource incremental outputs
-        if: ${{ matrix.group == 'quality' }}
+        if: ${{ matrix.group == 'quality-runtime' }}
         run: ./tests/test_build_app_bundled_resources.sh
 
       - name: Validate virtual display lock
-        if: ${{ matrix.group == 'quality' }}
+        if: ${{ matrix.group == 'quality-runtime' }}
         run: ./tests/test_ci_virtual_display_lock.sh
 
       - name: Validate nightly tag push auth
@@ -387,7 +396,7 @@ jobs:
         run: bash ./tests/test_nightly_universal_build.sh
 
       - name: Validate test compilation cache seeding
-        if: ${{ matrix.group == 'quality' }}
+        if: ${{ matrix.group == 'quality-sharding' }}
         run: bash ./tests/test_ci_test_compilation_cache_seed.sh
 
       - name: Validate cmux-tui client installation
@@ -419,6 +428,10 @@ jobs:
         run: |
           python3 tests/test_ci_change_areas.py
           python3 tests/test_ci_linux_guard_routing.py
+
+      - name: Validate reusable guard workflow structure
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_guard_workflow_structure.py
           python3 tests/test_app_host_test_products.py
           python3 tests/test_reuse_app_host_products.py
           python3 tests/test_ci_product_publication.py
@@ -468,31 +481,32 @@ jobs:
         run: ./tests/test_ci_swift_warning_budget.sh
 
       - name: Validate auxiliary window close shortcut lint
-        if: ${{ matrix.group == 'quality' }}
+        if: ${{ matrix.group == 'quality-determinism' }}
         run: ./tests/test_ci_auxiliary_window_close_shortcuts.sh
 
       - name: Validate bash shell integration job control
-        if: ${{ matrix.group == 'quality' }}
+        if: ${{ matrix.group == 'quality-determinism' }}
         run: python3 tests/test_bash_integration_no_done_notifications.py
 
       - name: Validate focused Dock shortcut routing guard
-        if: ${{ matrix.group == 'quality' }}
+        if: ${{ matrix.group == 'quality-determinism' }}
         run: python3 tests/test_dock_shortcut_routing_guard.py
 
       - name: Validate bash prompt bootstrap composes with user PROMPT_COMMAND (starship)
-        if: ${{ matrix.group == 'quality' }}
+        if: ${{ matrix.group == 'quality-determinism' }}
         run: python3 tests/test_issue_5164_starship_prompt_composition.py
 
       - name: Validate test determinism gate
-        if: ${{ matrix.group == 'quality' }}
+        if: ${{ matrix.group == 'quality-determinism' }}
         run: |
           python3 scripts/check-test-determinism.py --self-test
           python3 scripts/check-test-determinism.py --strict
 
   workflow-guard-history:
     if: ${{ inputs.linux_guard_history == 'true' }}
-    # The lockfile policy diffs against the merge base, so this is the only
-    # guard job that fetches history.
+    # The lockfile policy compares the candidate with the exact base parent of
+    # GitHub's synthetic PR/merge-group commit. Depth 2 contains HEAD and that
+    # parent; the policy does not need the rest of repository history.
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 15
     permissions:
@@ -501,8 +515,23 @@ jobs:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          fetch-depth: 0
+          # PR/merge-group synthetic commits need only HEAD + first parent.
+          # Manual dispatches have no synthetic parent, so retain full history
+          # and origin/main for the policy's fallback merge-base comparison.
+          fetch-depth: ${{ github.event_name == 'workflow_dispatch' && '0' || '2' }}
           persist-credentials: false
+
+      - name: Bind package policy to synthetic merge base
+        if: ${{ github.event_name == 'pull_request' || github.event_name == 'merge_group' }}
+        env:
+          CHECKED_OUT_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          [ "$(git rev-parse HEAD)" = "$CHECKED_OUT_SHA" ]
+          base="$(git rev-parse HEAD^1)"
+          git cat-file -e "$base^{commit}"
+          echo "PACKAGE_RESOLVED_POLICY_BASE_REF=$base" >> "$GITHUB_ENV"
+          echo "Package policy base: $base"
 
       - name: Set up Python 3.9
         uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6
@@ -520,7 +549,13 @@ jobs:
 
   workflow-guard-cli-scripts:
     if: ${{ inputs.linux_guard_cli == 'true' }}
-    # Slow guards run beside workflow-guard-tests so they do not extend it.
+    name: workflow-guard-cli-scripts / ${{ matrix.group }}
+    strategy:
+      fail-fast: false
+      matrix:
+        group: [tui-resolution, profiling]
+    # The two slow CLI contracts are independent; run them beside each other
+    # and let the reusable-workflow job aggregate their result.
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 15
     permissions:
@@ -540,14 +575,22 @@ jobs:
         run: python3 -m pip install --disable-pip-version-check --no-input PyYAML==6.0.3 bashlex==0.18
 
       - name: Validate cmux-tui client commit resolution
+        if: ${{ matrix.group == 'tui-resolution' }}
         run: ./tests/test_ci_resolve_cmux_tui_client_commit.sh
 
       - name: Validate cmux profiling support scripts
+        if: ${{ matrix.group == 'profiling' }}
         run: ./tests/test_start_cmux_profiling.sh
 
   workflow-guard-source-lints:
     if: ${{ inputs.linux_guard_source == 'true' }}
-    # Slow guards run beside workflow-guard-tests so they do not extend it.
+    name: workflow-guard-source-lints / ${{ matrix.group }}
+    strategy:
+      fail-fast: false
+      matrix:
+        group: [sidebar-layout, dispatch-ownership]
+    # These source-policy scans are independent and each dominates wall time;
+    # run them concurrently and aggregate through the reusable-workflow job.
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 15
     permissions:
@@ -566,13 +609,20 @@ jobs:
       - name: Install workflow guard Python dependencies
         run: python3 -m pip install --disable-pip-version-check --no-input PyYAML==6.0.3 bashlex==0.18
 
+      - name: Validate source-lint guard structure
+        if: ${{ matrix.group == 'sidebar-layout' }}
+        run: python3 tests/test_ci_source_lint_guard_structure.py
+
       - name: Validate sidebar lazy-layout guard
+        if: ${{ matrix.group == 'sidebar-layout' }}
         run: python3 tests/test_ci_sidebar_lazy_layout_guard.py
 
       - name: Initialize Bonsplit for deferred-work ownership guard
+        if: ${{ matrix.group == 'dispatch-ownership' }}
         run: git submodule update --init --depth 1 vendor/bonsplit
 
       - name: Validate stored DispatchWorkItem ownership
+        if: ${{ matrix.group == 'dispatch-ownership' }}
         run: |
           python3 tests/test_lint_stored_dispatch_work_items.py
           python3 scripts/lint-stored-dispatch-work-items.py
