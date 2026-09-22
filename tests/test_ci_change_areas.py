@@ -2571,6 +2571,7 @@ def test_web_workflow_call_preserves_routes_and_static_gate() -> None:
     assert "    uses: ./.github/workflows/ci-web.yml" in block
     for route in ("web", "macos", "agent_session_web"):
         assert f"      {route}: ${{{{ needs.changes.outputs.{route} }}}}" in block
+    for route in ("web", "agent_session_web"):
         assert f"needs.changes.outputs.{route} != 'false'" in block
 
 

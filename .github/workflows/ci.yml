@@ -318,18 +318,26 @@ jobs:
           policy_only=true
           routing_policy_changed=false
           full_guard_matrix=false
+          macos_workflow_changed=false
+          other_full_guard_matrix=false
           if [ -f /tmp/cmux-ci-changed-files.txt ]; then
             while IFS= read -r path; do
               case "$path" in
                 .github/workflows/ci-guards.yml)
                   routing_policy_changed=true
                   full_guard_matrix=true
+                  other_full_guard_matrix=true
                   ;;
                 .github/workflows/ci.yml|scripts/ci/detect_ci_change_areas.py|scripts/ci/detect_linux_guard_changes.py|scripts/ci/workflow_guard_groups.py|tests/test_ci_change_areas.py|tests/test_ci_linux_guard_routing.py|tests/test_ci_guard_workflow_structure.py|tests/test_ci_app_host_guard_structure.py|tests/test_ci_quality_guard_structure.py|tests/test_ci_release_guard_structure.py)
                   routing_policy_changed=true
                   ;;
-                .github/workflows/ci-macos.yml|.github/workflows/ci-web.yml)
+                .github/workflows/ci-macos.yml)
                   full_guard_matrix=true
+                  macos_workflow_changed=true
+                  ;;
+                .github/workflows/ci-web.yml)
+                  full_guard_matrix=true
+                  other_full_guard_matrix=true
                   ;;
                 .github/workflows/web-complexity.yml|.github/workflows/web-complexity-trusted.yml|tests/test_web_complexity_trusted_workflow.py)
                   ;;
@@ -354,7 +362,52 @@ jobs:
                 echo "ghosttykit_release=false"
               fi
               if [ "$full_guard_matrix" = true ]; then
-                echo 'linux_guard_test_groups=["preflight","ci","app-host-execution","app-host-process","app-host-cache","release-ios","release-notary","release-tooling","quality-sharding","quality-runtime","quality-determinism"]'
+                release_only=false
+                if [ "$macos_workflow_changed" = true ] && [ "$other_full_guard_matrix" = false ]; then
+                  if python3 - <<'PY'
+import re
+import subprocess
+from pathlib import Path
+
+def jobs(text: str) -> dict[str, str]:
+    _, marker, body = text.partition("\njobs:\n")
+    if not marker:
+        raise SystemExit(2)
+    result = {}
+    for block in re.split(r"(?m)^  (?=[A-Za-z0-9_-]+:\s*$)", body):
+        if not block.strip():
+            continue
+        name = block.partition(":")[0]
+        if not re.fullmatch(r"[A-Za-z0-9_-]+", name) or name in result:
+            raise SystemExit(2)
+        result[name] = block
+    return result
+
+base = subprocess.check_output(
+    ["git", "show", "HEAD^1:.github/workflows/ci-macos.yml"],
+    text=True,
+)
+head = Path(".github/workflows/ci-macos.yml").read_text(encoding="utf-8")
+base_jobs = jobs(base)
+head_jobs = jobs(head)
+changed = {
+    name
+    for name in base_jobs.keys() | head_jobs.keys()
+    if base_jobs.get(name) != head_jobs.get(name)
+}
+release_only_jobs = {"release-admission", "release-build", "macos-status"}
+raise SystemExit(0 if changed and changed <= release_only_jobs else 1)
+PY
+                  then
+                    release_only=true
+                  fi
+                fi
+
+                if [ "$release_only" = true ]; then
+                  echo 'linux_guard_test_groups=["preflight","ci","release-notary","release-tooling"]'
+                else
+                  echo 'linux_guard_test_groups=["preflight","ci","app-host-execution","app-host-process","app-host-cache","release-ios","release-notary","release-tooling","quality-sharding","quality-runtime","quality-determinism"]'
+                fi
               else
                 echo 'linux_guard_test_groups=["ci"]'
               fi
