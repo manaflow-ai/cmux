@@ -81,7 +81,9 @@ extension MobileShellComposite {
             guard instanceTag?.isEmpty != false else { return false }
             key = .anonymousForeground
         }
-        guard workspacesByMac[key]?.status == .connected else { return false }
+        guard let state = workspacesByMac[key],
+              state.status == .connected,
+              state.workspaceSnapshotIsAuthoritative else { return false }
         // Foreground snapshots also require the aggregate recovery gates. A
         // secondary Mac owns its own connected snapshot and remains authoritative
         // while the foreground transport is reconnecting.
