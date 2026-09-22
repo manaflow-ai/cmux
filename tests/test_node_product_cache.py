@@ -523,26 +523,28 @@ class NodeProductCacheTests(unittest.TestCase):
                 return None
 
         connection = FakeConnection()
-        with (
-            mock.patch.object(peer.time, "monotonic", side_effect=lambda: clock["now"]),
-            mock.patch.object(
+        with mock.patch.object(
+            peer.time,
+            "monotonic",
+            side_effect=lambda: clock["now"],
+        ):
+            with mock.patch.object(
                 peer,
                 "_connection",
                 return_value=(connection, "peer.example"),
-            ),
-        ):
-            with self.assertRaisesRegex(
-                peer.PeerUnavailable,
-                "deadline exceeded",
             ):
-                peer.transfer_http(
-                    peer.PeerSource("https://peer.example"),
-                    "a" * 64,
-                    "read-token",
-                    destination,
-                    2,
-                    timeout=1.0,
-                )
+                with self.assertRaisesRegex(
+                    peer.PeerUnavailable,
+                    "deadline exceeded",
+                ):
+                    peer.transfer_http(
+                        peer.PeerSource("https://peer.example"),
+                        "a" * 64,
+                        "read-token",
+                        destination,
+                        2,
+                        timeout=1.0,
+                    )
 
         self.assertEqual(destination.read_bytes(), b"ab")
         self.assertGreaterEqual(len(timeouts), 2)
