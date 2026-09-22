@@ -168,7 +168,7 @@ public struct PushTabNavigationPreviewView: View {
         CMUXMobileShellStore(
             isSignedIn: true,
             connectionState: connectionState,
-            workspaces: [
+            workspaces: connectionState == .connected ? [
                 MobileWorkspacePreview(
                     id: "workspace-docs",
                     name: "Docs",
@@ -176,7 +176,7 @@ public struct PushTabNavigationPreviewView: View {
                         MobileTerminalPreview(id: "terminal-notes", name: "Notes")
                     ]
                 )
-            ]
+            ] : []
         )
     }
 }
