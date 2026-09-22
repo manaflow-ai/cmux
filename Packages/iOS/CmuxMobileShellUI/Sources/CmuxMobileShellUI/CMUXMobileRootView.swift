@@ -79,6 +79,7 @@ struct CMUXMobileRootView: View {
     @State private var openURLTaskToken: UUID?
     #if os(iOS)
     @State private var addDeviceSheetDetent: PresentationDetent = .large
+    @State private var tabUnavailableAlert: MobilePushCoordinator.TabUnavailableAlert?
     #endif
     /// The app's one tailnet detector, built at the composition root and
     /// injected through the environment so pairing, the disconnected shell,
@@ -347,6 +348,33 @@ struct CMUXMobileRootView: View {
         // mutation without allocating ID arrays on every body evaluation.
         .onChange(of: store.workspaceTopologyVersion) { _, _ in
             pushCoordinator.workspacesDidChange()
+        }
+        // A tap can arrive while the Mac transport is down. Retry the parked
+        // request when the connection recovers even if the workspace list did
+        // not change in that same turn.
+        .onChange(of: store.connectionState) { _, _ in
+            pushCoordinator.workspacesDidChange()
+        }
+        .onChange(of: pushCoordinator.tabUnavailableAlert, initial: true) { _, alert in
+            tabUnavailableAlert = alert
+        }
+        .alert(item: $tabUnavailableAlert) { _ in
+            Alert(
+                title: Text(L10n.string(
+                    "mobile.push.tabUnavailable.title",
+                    defaultValue: "Tab unavailable"
+                )),
+                message: Text(L10n.string(
+                    "mobile.push.tabUnavailable.message",
+                    defaultValue: "This tab is no longer available on your Mac."
+                )),
+                dismissButton: .default(Text(L10n.string(
+                    "mobile.common.ok",
+                    defaultValue: "OK"
+                ))) {
+                    pushCoordinator.dismissTabUnavailableAlert()
+                }
+            )
         }
         #if DEBUG
         // The UI-test auto-open hook observes the same workspace-arrival

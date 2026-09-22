@@ -391,6 +391,8 @@ public struct CMUXMobileRootScene: View {
         #if DEBUG
         if UITestConfig.taskComposerPreviewEnabled {
             TaskComposerAccessibilityPreviewView()
+        } else if UITestConfig.pushTabNavigationPreviewEnabled {
+            PushTabNavigationPreviewView()
         } else if UITestConfig.notificationFeedPreviewEnabled {
             NotificationFeedPreviewView()
         } else if UITestConfig.whatsNewPreviewEnabled {
