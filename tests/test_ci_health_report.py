@@ -245,6 +245,18 @@ class WastePatternTests(unittest.TestCase):
         attempt = reruns[("nightly.yml", "eee5eee5eee5")]
         self.assertEqual((attempt.runs, attempt.retries), (1, 1))
 
+    def test_two_triggers_over_one_head_are_distinguishable_rows(self):
+        # The event is part of the grouping key, so without it in the output
+        # two different triggers render as duplicate-looking rows.
+        runs = [
+            dict(self.fixture["runs"][0], id=2001, event="issue_comment"),
+            dict(self.fixture["runs"][0], id=2002, event="issue_comment"),
+            dict(self.fixture["runs"][0], id=2003, event="pull_request"),
+            dict(self.fixture["runs"][0], id=2004, event="pull_request"),
+        ]
+        events = {item.event for item in report.unchanged_tree_reruns(runs)}
+        self.assertEqual(events, {"issue_comment", "pull_request"})
+
     def test_a_single_first_attempt_run_is_not_a_rerun(self):
         keys = {(item.workflow, item.head_sha) for item in report.unchanged_tree_reruns(self.fixture["runs"])}
         self.assertNotIn(("ci.yml", "bbb2bbb2bbb2"), keys)

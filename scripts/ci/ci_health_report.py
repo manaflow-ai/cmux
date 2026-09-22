@@ -498,6 +498,7 @@ def mostly_skipped_workflows(
 class UnchangedTreeReruns:
     workflow: str
     head_sha: str
+    event: str
     runs: int
     retries: int
     branch: str
@@ -529,7 +530,9 @@ def unchanged_tree_reruns(
         retries = attempts[key] - 1
         if total < min_runs and retries <= 0:
             continue
-        repeated.append(UnchangedTreeReruns(key[0], key[1], total, max(0, retries), branch.get(key, "")))
+        repeated.append(
+            UnchangedTreeReruns(key[0], key[1], key[2], total, max(0, retries), branch.get(key, ""))
+        )
     repeated.sort(key=lambda item: (-(item.runs + item.retries), item.workflow, item.head_sha))
     return repeated
 
@@ -970,12 +973,12 @@ def render_report(
             f"{len(reruns)} workflow/head pairs."
         )
         lines.append("")
-        lines.append("| Workflow | head | runs | re-run attempts | branch |")
-        lines.append("| --- | --- | ---: | ---: | --- |")
+        lines.append("| Workflow | head | trigger | runs | re-run attempts | branch |")
+        lines.append("| --- | --- | --- | ---: | ---: | --- |")
         for item in reruns[:limit]:
             lines.append(
-                f"| {_escape(item.workflow)} | `{item.head_sha[:8]}` | {item.runs} | "
-                f"{item.retries} | {_escape(item.branch)} |"
+                f"| {_escape(item.workflow)} | `{item.head_sha[:8]}` | {_escape(item.event)} | "
+                f"{item.runs} | {item.retries} | {_escape(item.branch)} |"
             )
     else:
         lines.append("_None in the window._")
