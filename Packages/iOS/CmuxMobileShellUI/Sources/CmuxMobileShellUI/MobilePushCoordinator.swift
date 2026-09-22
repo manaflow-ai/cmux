@@ -1260,6 +1260,9 @@ public final class MobilePushCoordinator {
         guard isWorkspaceConnectionReady(store.workspaces.first { $0.id == workspaceTarget }) else {
             return
         }
+        guard isWorkspaceListAuthoritative(for: pending, store: store) else {
+            return
+        }
 
         store.navigateToWorkspaceForDeeplink(workspaceTarget)
         if let surfaceId = pending.surfaceId {
