@@ -589,7 +589,7 @@ def workflow_job_step_script(job_name: str, step_name: str, workflow_path: Path 
 
 
 def run_linux_preflight(needs: dict[str, object]) -> subprocess.CompletedProcess[str]:
-    script = workflow_job_step_script("linux-preflight", "Check cheap CI layer before macOS runners")
+    script = workflow_job_step_script("linux-preflight", "Check routed Linux results")
     env = {**os.environ, "PREFLIGHT_NEEDS": json.dumps(needs)}
     return subprocess.run(
         ["bash", "-c", script],
@@ -1333,11 +1333,12 @@ def test_early_cli_smoke_checks_propagate_failure_and_require_this_build() -> No
                 assert result.returncode == 0 and invoked == ["version", "help", "config-doctor"]
 
 
-def test_macos_workflow_call_preserves_routes_and_linux_gate() -> None:
+def test_macos_workflow_call_starts_after_cheap_static_gate() -> None:
     caller = workflow_job_block("macos")
 
     assert "      - changes" in caller
-    assert "      - linux-preflight" in caller
+    assert "      - static-preflight" in caller
+    assert "      - linux-preflight" not in caller
     assert "uses: ./.github/workflows/ci-macos.yml" in caller
     assert "needs.changes.outputs.macos != 'false'" in caller
     for route in (
@@ -1353,6 +1354,9 @@ def test_macos_workflow_call_preserves_routes_and_linux_gate() -> None:
     assert "      actions: read" in caller
     assert "      contents: read" in caller
     assert "      pull-requests: read" in caller
+
+    assert "needs.static-preflight.result == 'success'" in caller
+    assert "needs.linux-preflight.result" not in caller
 
     admission = workflow_job_block("macos-compile-admission", MACOS_WORKFLOW)
     assert "needs.changes" not in admission
@@ -1393,6 +1397,15 @@ def test_platform_workflow_results_gate_tests_status() -> None:
     assert run_tests_gate(tests_gate_needs(macos_result="skipped")).returncode == 1
     assert run_tests_gate(tests_gate_needs(macos="false", macos_result="skipped")).returncode == 0
     assert run_tests_gate(tests_gate_needs(web_result="failure")).returncode == 1
+
+
+def test_linux_failure_still_blocks_tests_after_macos_succeeds() -> None:
+    for outcome in ("failure", "cancelled", "skipped"):
+        needs = tests_gate_needs(macos_result="success")
+        needs["linux-preflight"]["result"] = outcome
+        result = run_tests_gate(needs)
+        assert result.returncode != 0, outcome
+        assert f"linux preflight did not pass: {outcome}" in result.stderr
 
 
 def test_macos_status_accepts_compile_only_prior_admission_skip() -> None:
@@ -1876,7 +1889,8 @@ def test_macos_compile_admission_precedes_expensive_shards() -> None:
 
     assert "name: macOS compile admission" in admission
     assert "      - changes" in caller
-    assert "      - linux-preflight" in caller
+    assert "      - static-preflight" in caller
+    assert "      - linux-preflight" not in caller
     assert "inputs.macos == 'true'" in admission
     # The compile lives in one script so the nightly cache seeder runs the same
     # invocation; see tests/test_ci_test_compilation_cache_seed.sh.
@@ -1943,7 +1957,7 @@ def test_app_host_failures_preserve_attempt_and_crash_diagnostics() -> None:
     assert "if: ${{ failure() || cancelled() }}" in app_host
 
 
-def test_linux_preflight_blocks_macos_on_cheap_layer_failure() -> None:
+def test_linux_aggregate_preserves_all_routed_results() -> None:
     block = workflow_job_block("linux-preflight")
 
     assert "name: linux-preflight" in block

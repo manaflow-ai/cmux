@@ -24,7 +24,7 @@ final class CloudTreeNode: NSObject {
         /// row per identity, whatever workspaces (zero or more) show it.
         case terminalsPool(machine: SurfaceMachineID, count: Int)
         /// "Displays" group under a cloud machine: one row per VNC screen it exposes.
-        case displaysPool(machine: SurfaceMachineID, count: Int)
+        case displaysPool(machine: SurfaceMachineID, count: Int, canCreate: Bool = false)
         /// "Workspaces" group under a machine.
         case workspacesGroup(machine: SurfaceMachineID)
         /// A cmux-tui workspace on a cloud machine; its children are flat pointer rows
@@ -67,7 +67,7 @@ final class CloudTreeNode: NSObject {
         /// Empty My Devices state with independent discovery actions.
         case devicesEmpty(CloudTreeDevicesSection)
         /// Port discovery is demand-driven when the user opens the Ports group.
-        var refreshesOnExpansion: Bool { if case .portsGroup = self { true } else { false } }
+        var refreshesOnExpansion: Bool { switch self { case .portsGroup, .displaysPool: true; default: false } }
     }
     let id: String
     private(set) var kind: Kind
@@ -142,7 +142,7 @@ final class CloudTreeNode: NSObject {
         case .localMachine: return .local
         case .workspacesGroup(let machine), .browsersGroup(let machine), .portsGroup(let machine), .resourcesPool(let machine, _):
             return machine
-        case .terminalsPool(let machine, _), .displaysPool(let machine, _):
+        case .terminalsPool(let machine, _), .displaysPool(let machine, _, _):
             return machine
         case .resource(let machine, _):
             return machine
@@ -942,7 +942,7 @@ enum CloudTreeNodeBuilder {
             if !machine.isDevice && (info.linkState == .connected || info.linkState == .notApplicable || !displays.isEmpty) {
                 children.append(CloudTreeNode(
                     id: nodeID(displaysPool: machine),
-                    kind: .displaysPool(machine: machine, count: displays.count),
+                    kind: .displaysPool(machine: machine, count: displays.count, canCreate: snapshot.displayCreationMachines?.contains(machine) == true),
                     children: displays.isEmpty
                         ? [CloudMachineSurfacePresentation.emptyDisplays(info: info)]
                         : displays.map {

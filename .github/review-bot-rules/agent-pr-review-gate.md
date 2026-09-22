@@ -38,15 +38,27 @@ older Greptile review object as coverage for a newer head.
 Greptile is configured with `triggerOnUpdates: true` and `statusCheck: true`.
 On each `pull_request_target` head event, the trusted workflow requests Greptile
 for every PR, independent of whether the PR opted into the blocking review gate.
-It first checks for a current Greptile review, an in-progress Greptile check, or
-its own per-head request marker. When none exists it posts exactly one
-`@greptileai review` request for that head. Only `github-actions[bot]` markers
-suppress a repeat, so a PR author cannot forge the request state. The opt-in
-marker controls enforcement, not whether automated review is requested.
+The request path reads the PR number/head directly from the event and uses REST
+only for request deduplication, current-head review evidence, and Greptile check
+state. It does not depend on the heavier GraphQL thread ledger, so a ledger read
+failure cannot prevent the review request itself. When no current review,
+in-progress Greptile check, or trusted per-head request marker exists, it posts
+exactly one `@greptileai review` request for that head. Only
+`github-actions[bot]` markers suppress a repeat, so a PR author cannot forge
+the request state. The opt-in marker controls enforcement, not whether automated
+review is requested.
 
-The workflow listens to both `pull_request_review` and PR `issue_comment`
-updates, so either a new review object or an updated Greptile summary reevaluates
-the gate automatically.
+The workflow listens to `pull_request_review`, `pull_request_review_comment`,
+and PR `issue_comment` updates. Only Greptile-authored issue comments evaluate
+the gate; status-comment edits from other providers are skipped before checkout.
+Those unrelated comment providers also receive separate concurrency keys.
+
+Every eligible trigger executes the checker from `github.workflow_sha`, the exact trusted
+commit that defines the workflow. Stacked PR base branches supply review data
+only; they never supply executable gate code. Head-change triggers use a
+separate concurrency lane from review rechecks, and unrelated comment churn
+cannot cancel either the current-head request run or a real review-state
+evaluation.
 
 Repositories can replace the required coverage subset with
 `AGENT_REQUIRED_REVIEW_COVERAGE_BOTS`. The older
@@ -55,6 +67,6 @@ requires every configured `AGENT_REVIEW_BOTS` provider when no explicit
 coverage subset is set. An unavailable provider never counts as a current-head
 review.
 
-For an audit-friendly read, run the trusted base-branch checker with
+For an audit-friendly read, run the trusted workflow-commit checker with
 `--json`; it emits `cmux.agent-pr-review/v1` with the PR/head, configured bots
 and actors, coverage states, capture completeness, and obligation dispositions.

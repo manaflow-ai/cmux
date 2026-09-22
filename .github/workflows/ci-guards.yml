@@ -117,6 +117,12 @@ jobs:
         if: ${{ matrix.group == 'preflight' }}
         run: git ls-files 'tests/*.py' 'tests_v2/*.py' 'scripts/*.py' | xargs python3 -m py_compile
 
+      - name: Validate dev-fleet warm-slot lifecycle
+        if: ${{ matrix.group == 'preflight' }}
+        run: |
+          python3 tests/test_dev_fleet_warm_slot.py
+          python3 tests/test_benchmark_dev_fleet_warm_slots.py
+
       - name: Test review fabric contracts
         if: ${{ matrix.group == 'preflight' }}
         run: python3 tests/test_review_fabric.py
@@ -342,8 +348,12 @@ jobs:
         run: python3 tests/test_ios_appstore_lane_identity.py
 
       - name: Validate tagged iOS device entitlement fallback
-        if: ${{ matrix.group == 'release' }}
+        if: ${{ matrix.group == 'release-ios' }}
         run: node --test ios/tests/tagged-device-entitlements.test.mjs
+
+      - name: Validate manual iOS workflow ref resolution
+        if: ${{ matrix.group == 'release-ios' }}
+        run: python3 tests/test_ios_workflow_dispatch_ref.py
 
       - name: Validate cmux scheme test configuration
         if: ${{ matrix.group == 'app-host-cache' }}
@@ -451,7 +461,8 @@ jobs:
 
       - name: Validate reusable guard workflow structure
         if: ${{ matrix.group == 'ci' }}
-        run: python3 tests/test_ci_guard_workflow_structure.py
+        run: |
+          python3 tests/test_ci_guard_workflow_structure.py
           python3 tests/test_app_host_test_products.py
           python3 tests/test_reuse_app_host_products.py
           python3 tests/test_ci_product_publication.py

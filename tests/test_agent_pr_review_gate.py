@@ -109,7 +109,16 @@ class AgentPRReviewGateTests(unittest.TestCase):
         self.assertIn("pull_request_review:", workflow)
         self.assertIn("issue_comment:", workflow)
         self.assertIn("github.event.pull_request.number || github.event.issue.number", workflow)
-        self.assertIn("github.event.pull_request.base.sha || github.event.repository.default_branch", workflow)
+        self.assertIn("github.event_name == \'pull_request_target\' && \'head\'", workflow)
+        self.assertIn("startsWith(github.event.comment.user.login, 'greptile-apps')", workflow)
+        self.assertIn("github.event.comment.user.login || 'review'", workflow)
+        self.assertIn(
+            "if: ${{ github.event_name != 'issue_comment' || (github.event.issue.pull_request != null && "
+            "startsWith(github.event.comment.user.login, 'greptile-apps')) }}",
+            workflow,
+        )
+        self.assertIn("ref: ${{ github.workflow_sha }}", workflow)
+        self.assertNotIn("github.event.pull_request.base.sha", workflow)
         self.assertIn("AGENT_REQUIRED_REVIEW_COVERAGE_BOTS || 'greptile-apps'", workflow)
         self.assertIn("checks: read", workflow)
         self.assertIn("--request-greptile", workflow)
@@ -127,6 +136,58 @@ class AgentPRReviewGateTests(unittest.TestCase):
         agents = (root / "CLAUDE.md").read_text(encoding="utf-8")
         self.assertIn("agent-pr-review-required", agents)
         self.assertIn("gate owns Greptile review requests", agents)
+
+    def test_request_mode_does_not_depend_on_graphql_review_capture(self):
+        head = "e" * 40
+        request_pr = {"number": 42, "headRefOid": head, "author": {"login": "agent-author"}}
+        calls = []
+
+        def github_rest(method, path, payload=None):
+            calls.append((method, path, payload))
+            if method == "GET" and path.startswith("issues/42/comments"):
+                return []
+            if method == "GET" and path.startswith("pulls/42/reviews"):
+                return []
+            if method == "GET" and path == f"commits/{head}/check-runs":
+                return {"check_runs": []}
+            if method == "POST" and path == "issues/42/comments":
+                return {}
+            raise AssertionError((method, path, payload))
+
+        with mock.patch.object(gate, "request_pr_from_event", return_value=request_pr), \
+                mock.patch.object(gate, "github_rest", side_effect=github_rest), \
+                mock.patch.object(gate, "fetch_pr", side_effect=AssertionError("GraphQL path must not run")), \
+                mock.patch.object(sys, "argv", ["agent-pr-review-gate.py", "--request-greptile"]):
+            self.assertEqual(gate.main(), 0)
+
+        marker = gate.GREPTILE_REQUEST_MARKER.format(head=head)
+        self.assertEqual(
+            calls[-1],
+            ("POST", "issues/42/comments", {"body": f"{marker}\\n@greptileai review"}),
+        )
+
+    def test_request_greptile_review_rest_hydrates_trusted_marker(self):
+        head = "f" * 40
+        marker = gate.GREPTILE_REQUEST_MARKER.format(head=head)
+        pr = {"number": 42, "headRefOid": head}
+        calls = []
+
+        def github_rest(method, path, payload=None):
+            calls.append((method, path, payload))
+            if path.startswith("issues/42/comments"):
+                return [{
+                    "user": {"login": "github-actions[bot]"},
+                    "body": f"{marker}\n@greptileai review",
+                    "created_at": "2026-01-01T00:00:00Z",
+                    "updated_at": "2026-01-01T00:00:00Z",
+                }]
+            if path.startswith("pulls/42/reviews"):
+                return []
+            raise AssertionError(path)
+
+        with mock.patch.object(gate, "github_rest", side_effect=github_rest):
+            self.assertEqual(gate.request_greptile_review(pr), "already-requested")
+        self.assertFalse(any(method == "POST" for method, _, _ in calls))
 
     def test_request_greptile_review_posts_once_for_each_head(self):
         head = "a" * 40

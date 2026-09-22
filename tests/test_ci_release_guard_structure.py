@@ -42,6 +42,7 @@ def test_release_groups_are_parallel_and_owned() -> None:
         "Validate external TestFlight group assignment helper": "release-ios",
         "Validate Pro TestFlight distribution workflow": "release-ios",
         "Validate iOS App Store lane identity": "release-ios",
+        "Validate tagged iOS device entitlement fallback": "release-ios",
         "Validate release does not gate on iOS screenshot capture": "release-ios",
         "Validate release tunnel extension identifiers": "release-ios",
         "Validate create-dmg version pinning": "release-notary",
