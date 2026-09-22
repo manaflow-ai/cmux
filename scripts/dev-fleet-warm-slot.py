@@ -978,7 +978,7 @@ def warm(args: argparse.Namespace) -> dict[str, Any]:
                 tag = args.tag or f"warm-{args.slot}-{args.target[:8]}"
                 argv = build_command(checkout, tag, args.command)
                 env = build_env(derived, tag)
-                before_bytes = disk_bytes(layout.cache)
+                before_bytes = disk_bytes(layout.cache) if args.measure_disk else None
                 receipt = {
                     "schema_version": SCHEMA,
                     "kind": "warm",
@@ -995,9 +995,10 @@ def warm(args: argparse.Namespace) -> dict[str, Any]:
                     layout.logs / f"warm-{int(time.time())}-{log_token(args.target)}.log",
                     "warm", True, True, preempt_fd,
                 ))
-                receipt["disk_bytes_before"] = before_bytes
-                receipt["disk_bytes_after"] = disk_bytes(layout.cache)
-                receipt["disk_growth_bytes"] = receipt["disk_bytes_after"] - before_bytes
+                if before_bytes is not None:
+                    receipt["disk_bytes_before"] = before_bytes
+                    receipt["disk_bytes_after"] = disk_bytes(layout.cache)
+                    receipt["disk_growth_bytes"] = receipt["disk_bytes_after"] - before_bytes
                 atomic_json(layout.slot / "last-warm-receipt.json", receipt)
                 event(layout, "warm_finished", receipt=receipt)
 
@@ -1248,7 +1249,7 @@ def task_run(args: argparse.Namespace) -> dict[str, Any]:
                 match_class=match,
                 fallback_reason=fallback_reason,
             ):
-                before_bytes = disk_bytes(layout.cache)
+                before_bytes = disk_bytes(layout.cache) if args.measure_disk else None
                 build_started = time.time()
                 run = run_native(
                     layout, checkout, argv, env,
@@ -1276,11 +1277,13 @@ def task_run(args: argparse.Namespace) -> dict[str, Any]:
                     "toolchain": p["toolchain"],
                     "toolchain_fingerprint": p["toolchain_fingerprint"],
                     "derived_data_path": str(derived),
-                    "disk_bytes_before": before_bytes,
                 }
+                if before_bytes is not None:
+                    receipt["disk_bytes_before"] = before_bytes
                 receipt.update(run)
-                receipt["disk_bytes_after"] = disk_bytes(layout.cache)
-                receipt["disk_growth_bytes"] = receipt["disk_bytes_after"] - before_bytes
+                if before_bytes is not None:
+                    receipt["disk_bytes_after"] = disk_bytes(layout.cache)
+                    receipt["disk_growth_bytes"] = receipt["disk_bytes_after"] - before_bytes
                 receipt["source_after"] = head(checkout)
                 receipt["source_clean_after"] = clean(checkout)
                 try:
@@ -1457,6 +1460,11 @@ def make_parser() -> argparse.ArgumentParser:
     p.add_argument("--owner", default="main-warmer")
     p.add_argument("--tag")
     p.add_argument("--ready-fd", type=int)
+    p.add_argument(
+        "--measure-disk",
+        action="store_true",
+        help="recursively measure cache bytes before/after native work; intended for benchmarks/diagnostics",
+    )
     p.add_argument("command", nargs=argparse.REMAINDER)
 
     p = sub.add_parser("task-base")
@@ -1481,6 +1489,11 @@ def make_parser() -> argparse.ArgumentParser:
     p.add_argument("--tag")
     p.add_argument("--known-at", type=float)
     p.add_argument("--receipt", type=Path)
+    p.add_argument(
+        "--measure-disk",
+        action="store_true",
+        help="recursively measure cache bytes before/after native work; intended for benchmarks/diagnostics",
+    )
     p.add_argument("command", nargs=argparse.REMAINDER)
 
     p = sub.add_parser("release")
