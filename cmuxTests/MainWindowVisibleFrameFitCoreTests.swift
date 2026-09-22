@@ -630,6 +630,79 @@ struct MainWindowZoomPlacementTests {
         }
     }
 
+    @Test func accessibilityStyleResizeClearsZoomIntentBeforeActivation() throws {
+        try withZoomedWindow { window, delegate in
+            var placed = window.frame
+            placed.origin.x += 40
+            placed.size.width -= 120
+            placed.size.height -= 80
+            window.setFrame(placed, display: false)
+
+            // Accessibility window managers set a frame without AppKit's
+            // will-move or live-resize callbacks. didResize is the first
+            // placement signal cmux sees.
+            delegate.windowDidResize?(Notification(
+                name: NSWindow.didResizeNotification,
+                object: window
+            ))
+
+            expectActivationPreservesPlacement(window)
+        }
+    }
+
+    @Test func delayedManagedResizeCallbackPreservesZoomRecovery() throws {
+        try withZoomedWindow { window, delegate in
+            var shrunk = window.frame
+            shrunk.size.height -= 80
+
+            // Simulate AppKit delivering didResize after the managed setFrame
+            // call returns instead of synchronously inside it.
+            window.delegate = nil
+            window.setFrameForManagedPlacement(shrunk, display: false)
+            window.delegate = delegate
+            delegate.windowDidResize?(Notification(
+                name: NSWindow.didResizeNotification,
+                object: window
+            ))
+
+            #expect(window.cmuxWantsZoomedFrame)
+            repairOnActivation(window)
+            #expect(NSScreen.screens.contains { $0.visibleFrame == window.frame })
+        }
+    }
+
+    @Test func nativeZoomResizeCallbackPreservesZoomRecovery() throws {
+        try withZoomedWindow { window, delegate in
+            delegate.windowDidResize?(Notification(
+                name: NSWindow.didResizeNotification,
+                object: window
+            ))
+
+            shrinkAndExpectZoomRecovery(window)
+        }
+    }
+
+    @Test func lifecycleOwnedResizeCallbackPreservesZoomRecovery() throws {
+        try withZoomedWindow { window, delegate in
+            guard let controller = delegate as? MainWindowController else {
+                Issue.record("Expected MainWindowController delegate")
+                return
+            }
+            controller.shouldRetireZoomIntentForProgrammaticResize = { _ in false }
+            var shrunk = window.frame
+            shrunk.size.height -= 80
+            window.setFrame(shrunk, display: false)
+            delegate.windowDidResize?(Notification(
+                name: NSWindow.didResizeNotification,
+                object: window
+            ))
+
+            #expect(window.cmuxWantsZoomedFrame)
+            repairOnActivation(window)
+            #expect(NSScreen.screens.contains { $0.visibleFrame == window.frame })
+        }
+    }
+
     @Test func automaticOriginChangesPreserveZoomRecovery() throws {
         try withZoomedWindow { window, _ in
             window.setFrameOrigin(NSPoint(x: window.frame.minX + 20, y: window.frame.minY))

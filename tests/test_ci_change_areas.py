@@ -242,6 +242,20 @@ def test_changelog_runs_web_validation() -> None:
 
 def test_web_only_runs_web_without_macos() -> None:
     assert_areas(["web/app/page.tsx", "webviews/src/diff/App.tsx"], macos=False, web=True)
+    assert_areas(
+        [
+            "workers/presence/src/index.ts",
+            "config/iroh/managed-relay-catalog.json",
+            "vercel.json",
+            ".vercelignore",
+        ],
+        macos=False,
+        web=True,
+    )
+
+
+def test_macos_config_stays_macos_relevant() -> None:
+    assert_areas(["config/IrohRelayPolicyProduction.xcconfig"], macos=True, web=True)
 
 
 def test_cmux_tui_only_skips_macos() -> None:
@@ -1858,6 +1872,24 @@ def test_macos_workflow_call_starts_after_cheap_static_gate() -> None:
     assert "inputs.source_identity_valid" in admission
     assert "inputs.source_tree" in admission
     assert "inputs.source_parent1" in admission
+
+
+def test_macos_admission_waits_for_pull_request_debounce() -> None:
+    debounce = workflow_job_block("macos-debounce")
+    assert "    needs: changes" in debounce
+    assert "github.event_name == 'pull_request'" in debounce
+    assert "needs.changes.outputs.macos != 'false'" in debounce
+    assert "vars.CI_MACOS_ADMISSION_DEBOUNCE_SECONDS || '180'" in debounce
+    assert "macos" not in debounce.split("runs-on:", 1)[1].split("\n", 1)[0]
+    assert '[ "$current" != "$HEAD_SHA" ]' in debounce
+
+    caller = workflow_job_block("macos")
+    assert "      - macos-debounce" in caller
+    assert (
+        "(needs.macos-debounce.result == 'success' || needs.macos-debounce.result == 'skipped')"
+        in caller
+    )
+    assert "      - macos-debounce" in workflow_job_block("ci-status")
 
 
 def run_tests_gate(needs: dict) -> subprocess.CompletedProcess:
