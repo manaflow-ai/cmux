@@ -128,6 +128,10 @@ jobs:
         if: ${{ matrix.group == 'preflight' }}
         run: python3 tests/test_merge_xcstrings.py
 
+
+      - name: "Validate Swift Testing #require is not nested"
+        if: ${{ matrix.group == 'preflight' }}
+        run: python3 tests/test_swift_testing_require_not_nested.py
       - name: Validate Python test harness syntax
         if: ${{ matrix.group == 'preflight' }}
         run: git ls-files 'tests/*.py' 'tests_v2/*.py' 'scripts/*.py' | xargs python3 -m py_compile
@@ -462,6 +466,10 @@ jobs:
       - name: Validate TestFlight assignment after a post-upload failure
         if: ${{ matrix.group == 'release-ios' }}
         run: python3 tests/test_ios_testflight_assignment_after_upload.py
+
+      - name: Validate the TestFlight archive log is kept on failure
+        if: ${{ matrix.group == 'release-ios' }}
+        run: python3 tests/test_ios_testflight_archive_log.py
 
       - name: Validate tagged iOS device entitlement fallback
         if: ${{ matrix.group == 'release-ios' }}

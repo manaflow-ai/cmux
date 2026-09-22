@@ -767,6 +767,10 @@ path = "tests/test_ios_screenshot_capture_guard.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ios_testflight_archive_log.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ios_testflight_assignment_after_upload.py"
 lane = "linux-guard"
 
@@ -897,6 +901,10 @@ lane = "legacy"
 [[test]]
 path = "tests/test_ssh_relay_report_tty_retry.py"
 lane = "legacy"
+
+[[test]]
+path = "tests/test_swift_testing_require_not_nested.py"
+lane = "linux-guard"
 
 [[test]]
 path = "tests/test_terminal_hang_release_gate.py"
