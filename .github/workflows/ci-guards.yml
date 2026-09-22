@@ -303,6 +303,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_r2_cache_census.py
 
+      - name: Validate deterministic cmuxTests wiring
+        if: ${{ matrix.group == 'preflight' }}
+        run: python3 tests/test_sync_test_wiring.py
+
       - name: Validate nightly prune Python compatibility
         if: ${{ matrix.group == 'release-tooling' }}
         run: |

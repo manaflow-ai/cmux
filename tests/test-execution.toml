@@ -921,3 +921,11 @@ lane = "linux-guard"
 [[test]]
 path = "tests/test_workspace_churn_up_arrow_lag.py"
 lane = "legacy"
+
+[[test]]
+path = "tests/test_ci_r2_cache_census.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_sync_test_wiring.py"
+lane = "linux-guard"
