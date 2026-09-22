@@ -352,8 +352,22 @@ def check_review_ledger_contract(cli_path: str) -> list[str]:
                     "verification": {"result": "reproduced", "evidence": []},
                     "repair": {
                         "attempted": True,
-                        "verification_replayed": True,
                         "result": "fixed",
+                        "after_source": {
+                            "base_sha": "1" * 40,
+                            "head_sha": "4" * 40,
+                            "diff_sha256": "5" * 64,
+                            "working_tree_dirty": True,
+                        },
+                        "verification": {
+                            "result": "passed",
+                            "evidence": [
+                                {
+                                    "kind": "test",
+                                    "summary": "original discriminator passes after repair",
+                                }
+                            ],
+                        },
                     },
                     "disposition": "repaired",
                 },
