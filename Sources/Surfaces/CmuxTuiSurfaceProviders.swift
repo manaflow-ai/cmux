@@ -255,23 +255,11 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
                 let parsed = CmuxTuiSnapshotParser.mergingDisplays(
                     pool: hasDesktop ? [desktopDisplayResource()] : [],
                     parsed: CmuxTuiSnapshotParser.resources(from: cloudState)
-                ) + Self.portResources(
-                    machine: machine,
-                    scannedPorts: scannedPorts,
-                    previousResources: previousResources,
-                    privateAddress: summary.preferredPrivateAddress,
-                    displayPortsOwned: hasDesktop
-                )
+                ) + Self.portResources(machine: machine, scannedPorts: scannedPorts, previousResources: previousResources, privateAddress: summary.preferredPrivateAddress, displayPortsOwned: hasDesktop)
                 resources = resourcesWithPendingCreations(parsed, state: cloudState)
             } else {
                 var fallback = hasDesktop ? [desktopDisplayResource()] : []
-                fallback.append(contentsOf: Self.portResources(
-                    machine: machine,
-                    scannedPorts: scannedPorts,
-                    previousResources: previousResources,
-                    privateAddress: summary.preferredPrivateAddress,
-                    displayPortsOwned: hasDesktop
-                ))
+                fallback.append(contentsOf: Self.portResources(machine: machine, scannedPorts: scannedPorts, previousResources: previousResources, privateAddress: summary.preferredPrivateAddress, displayPortsOwned: hasDesktop))
                 appendMissingResources(preservedNonPortResources, to: &fallback)
                 resources = resourcesWithPendingCreations(fallback, state: nil)
             }
@@ -307,14 +295,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             // Start both after the link is ready, so refresh latency is the slower
             // request rather than their sum. Each result remains guarded by the
             // same generation fence before it publishes.
-            async let refreshedPorts = ports(
-                link: link,
-                socketPath: connected.socketPath,
-                force: force,
-                generation: generation,
-                privateAddress: privateAddress,
-                displayPortsOwned: hasDesktop
-            )
+            async let refreshedPorts = ports(link: link, socketPath: connected.socketPath, force: force, generation: generation, privateAddress: privateAddress, displayPortsOwned: hasDesktop)
             async let snapshotData = link.run(arguments: CloudTuiRequests.snapshotArguments(socketPath: connected.socketPath))
             if let refreshedPorts = await refreshedPorts {
                 guard isCurrentRefresh(lifecycle: lifecycle, refresh: generation) else { return false }
@@ -726,13 +707,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
     /// the Freestyle attach path. Keeping this derivation in one place avoids
     /// losing the route when a cached or unavailable snapshot is published.
     private func portResources(_ ports: [Int]) -> [SurfaceResource] {
-        Self.portResources(
-            machine: machine,
-            scannedPorts: ports,
-            previousResources: catalog.authoritativeSnapshot.resources(on: machine),
-            privateAddress: summary.preferredPrivateAddress,
-            displayPortsOwned: summary.resolvedKind.hasDesktop
-        )
+        Self.portResources(machine: machine, scannedPorts: ports, previousResources: catalog.authoritativeSnapshot.resources(on: machine), privateAddress: summary.preferredPrivateAddress, displayPortsOwned: summary.resolvedKind.hasDesktop)
     }
 
     /// cmux-tui's `selector.not_found` error body, surfaced by `link.run` as the
@@ -1336,14 +1311,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         return updated
     }
 
-    private func ports(
-        link: CloudMachineLink,
-        socketPath: String,
-        force: Bool,
-        generation: UInt64,
-        privateAddress: String?,
-        displayPortsOwned: Bool
-    ) async -> [Int]? {
+    private func ports(link: CloudMachineLink, socketPath: String, force: Bool, generation: UInt64, privateAddress: String?, displayPortsOwned: Bool) async -> [Int]? {
         if !force, let cached = portsCache, Date.now.timeIntervalSince(cached.at) < portsTTL {
             return cached.ports.filter {
                 !CmuxTuiSnapshotParser.internalPorts.contains($0)
@@ -1357,11 +1325,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             return nil
         }
         let result = VMExecResult(exitCode: 0, stdout: stdout, stderr: "")
-        guard let ports = Self.ports(
-            from: result,
-            privateAddress: privateAddress,
-            displayPortsOwned: displayPortsOwned
-        ) else { return nil }
+        guard let ports = Self.ports(from: result, privateAddress: privateAddress, displayPortsOwned: displayPortsOwned) else { return nil }
         guard generation == refreshGeneration else { return nil }
         portsCache = (ports, Date.now)
         return ports

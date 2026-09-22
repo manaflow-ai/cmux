@@ -4027,15 +4027,7 @@ final class WindowBrowserPortal: NSObject {
         for subview in hostView.subviews.reversed() {
             guard let container = subview as? WindowBrowserSlotView else { continue }
             guard !container.isHidden else { continue }
-            // The portal host can be reparented during a split/workspace handoff.
-            // In that interval its local frame and the window-space frame may be
-            // expressed in different coordinate systems even though the WebView
-            // is visibly rendering. The first-responder guard uses this lookup to
-            // admit a real pointer click; relying only on `container.frame` then
-            // drops clicks into a visible VNC page while the terminal keeps focus.
-            let containsPoint = container.frame.contains(point)
-                || container.convert(container.bounds, to: nil).contains(windowPoint)
-            guard containsPoint else { continue }
+            let containsPoint = container.frame.contains(point) || container.convert(container.bounds, to: nil).contains(windowPoint); guard containsPoint else { continue }
             guard let webView = entriesByWebViewId
                 .first(where: { _, entry in entry.containerView === container })?
                 .value
