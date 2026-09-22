@@ -201,6 +201,24 @@ class ReviewFabricTests(unittest.TestCase):
                     report["reasons"],
                 )
 
+    def test_finding_head_must_match_referenced_run_head(self):
+        report = review_fabric.evaluate(
+            document(
+                [
+                    run("old", "session-old", head=OLD_HEAD),
+                    run("current-a", "session-current-a"),
+                    run("current-b", "session-current-b", capability="local"),
+                ],
+                [finding("f1", "old", head=HEAD)],
+            ),
+            policy(),
+        )
+        self.assertFalse(report["passed"])
+        self.assertIn(
+            "finding f1 head_sha differs from its review run",
+            report["reasons"],
+        )
+
     def test_stale_head_receipts_never_count(self):
         report = review_fabric.evaluate(
             document([
