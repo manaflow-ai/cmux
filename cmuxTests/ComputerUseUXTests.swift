@@ -300,10 +300,17 @@ struct ComputerUseUXTests {
             "granted TCC permissions must resume the final capture verification"
         )
 
+        runtime.onboardingWasPresented()
+        await actions.refreshComputerUsePermissions()
+        #expect(
+            presentations == [.screenRecording, .screenRecording],
+            "dismissed incomplete onboarding must resume when Settings refreshes again"
+        )
+
         runtime.onboardingWasCompleted()
         await actions.refreshComputerUsePermissions()
         #expect(
-            presentations == [.screenRecording],
+            presentations == [.screenRecording, .screenRecording],
             "completed onboarding runtime state must remain quiet"
         )
     }
