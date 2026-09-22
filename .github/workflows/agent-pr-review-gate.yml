@@ -8,6 +8,8 @@ on:
   pull_request_review_comment:
     types: [created, edited, deleted]
   # Greptile updates one PR summary comment when it re-reviews a new head.
+  # GitHub cannot filter issue_comment by author at trigger time; the job below
+  # skips unrelated comment providers before checkout/evaluation.
   issue_comment:
     types: [created, edited, deleted]
 
@@ -18,13 +20,16 @@ permissions:
   pull-requests: read
 
 concurrency:
-  group: agent-pr-review-gate-${{ github.event.pull_request.number || github.event.issue.number }}-${{ github.event_name == 'pull_request_target' && 'head' || 'review' }}
+  # Keep the head/request lane separate from review state. Unrelated issue
+  # comment providers also get their own lane, so their status edits cannot
+  # cancel either the Greptile request or a real review-state evaluation.
+  group: agent-pr-review-gate-${{ github.event.pull_request.number || github.event.issue.number }}-${{ github.event_name == 'pull_request_target' && 'head' || github.event_name == 'issue_comment' && !startsWith(github.event.comment.user.login, 'greptile-apps') && github.event.comment.user.login || 'review' }}
   cancel-in-progress: true
 
 jobs:
   agent-pr-review-complete:
     name: agent-pr-review-complete
-    if: ${{ github.event_name != 'issue_comment' || github.event.issue.pull_request != null }}
+    if: ${{ github.event_name != 'issue_comment' || (github.event.issue.pull_request != null && startsWith(github.event.comment.user.login, 'greptile-apps')) }}
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     steps:
       # Execute the checker from the exact trusted commit that defines this workflow.
