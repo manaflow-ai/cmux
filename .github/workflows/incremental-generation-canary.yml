@@ -8,6 +8,7 @@ on:
 
 permissions:
   contents: read
+  statuses: write
 
 concurrency:
   group: incgen-canary-20260921
@@ -28,6 +29,16 @@ jobs:
       transport_viable: ${{ steps.seed.outputs.transport_viable }}
       generation_archive_bytes: ${{ steps.seed.outputs.generation_archive_bytes }}
     steps:
+      - name: Publish canary run locator
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api --method POST "repos/$GITHUB_REPOSITORY/statuses/$GITHUB_SHA" \
+            -f state=pending \
+            -f context="incgen-canary-run-$GITHUB_RUN_ID" \
+            -f description="branch-only incremental-generation benchmark" \
+            -f target_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+
       - name: Checkout canary harness
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
