@@ -856,8 +856,8 @@ private final class PaneSwapSelectionOverlayView: NSView {
 }
 
 @MainActor
-enum PaneSwapSelectionController {
-    static func canBegin(from terminalSurface: TerminalSurface?) -> Bool {
+struct PaneSwapSelectionController {
+    func canBegin(from terminalSurface: TerminalSurface?) -> Bool {
         guard let terminalSurface,
               let workspace = terminalSurface.owningWorkspace(),
               let sourcePaneID = workspace.paneId(forPanelId: terminalSurface.id)?.id else {
@@ -867,7 +867,7 @@ enum PaneSwapSelectionController {
     }
 
     @discardableResult
-    static func begin(from terminalSurface: TerminalSurface?, in window: NSWindow?) -> Bool {
+    func begin(from terminalSurface: TerminalSurface?, in window: NSWindow?) -> Bool {
         guard let terminalSurface,
               let workspace = terminalSurface.owningWorkspace(),
               let sourcePaneID = workspace.paneId(forPanelId: terminalSurface.id)?.id,
@@ -878,7 +878,7 @@ enum PaneSwapSelectionController {
     }
 
     @discardableResult
-    static func beginFocused(in tabManager: TabManager) -> Bool {
+    func beginFocused(in tabManager: TabManager) -> Bool {
         guard let workspace = tabManager.selectedWorkspace,
               let panelID = workspace.focusedPanelId,
               workspace.terminalPanel(for: panelID) != nil,
@@ -890,7 +890,7 @@ enum PaneSwapSelectionController {
     }
 
     @discardableResult
-    static func commit(sourcePaneID: UUID, targetPaneID: UUID) -> Bool {
+    func commit(sourcePaneID: UUID, targetPaneID: UUID) -> Bool {
         let resolution = TerminalController.shared.controlPaneSwap(
             sourcePaneID: sourcePaneID,
             targetPaneID: targetPaneID,
@@ -903,7 +903,7 @@ enum PaneSwapSelectionController {
         return false
     }
 
-    private static func canBegin(workspace: Workspace, sourcePaneID: UUID) -> Bool {
+    private func canBegin(workspace: Workspace, sourcePaneID: UUID) -> Bool {
         guard workspace.remoteTmuxControlPane(paneID: sourcePaneID) == nil else {
             return false
         }
@@ -919,7 +919,7 @@ enum PaneSwapSelectionController {
         }
     }
 
-    private static func begin(workspace: Workspace, sourcePaneID: UUID, in window: NSWindow) -> Bool {
+    private func begin(workspace: Workspace, sourcePaneID: UUID, in window: NSWindow) -> Bool {
         guard canBegin(workspace: workspace, sourcePaneID: sourcePaneID) else {
             return false
         }
@@ -2839,7 +2839,7 @@ final class WindowTerminalPortal: NSObject {
             endPaneSwapSelection(restoreResponder: reason != .abandonedInteraction)
         case .commit(let sourcePaneID, let targetPaneID):
             endPaneSwapSelection(restoreResponder: true)
-            _ = PaneSwapSelectionController.commit(
+            _ = PaneSwapSelectionController().commit(
                 sourcePaneID: sourcePaneID,
                 targetPaneID: targetPaneID
             )
