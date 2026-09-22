@@ -1,9 +1,14 @@
 "use client";
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useRef } from "react";
 import { useSearchParams } from "next/navigation";
 import { usePathname, useRouter } from "@/i18n/navigation";
-import { persistCoderouterOrganizationScope } from "@/services/coderouter/organizationScope";
+import {
+  clearCoderouterOrganizationScope,
+  coderouterOrganizationFromCookieHeader,
+  persistCoderouterOrganizationScope,
+} from "@/services/coderouter/organizationScope";
 
 export type DashboardTeamCatalog = {
   readonly selectedTeamId: string | null;
@@ -42,6 +47,7 @@ export function useDashboardTeamScope(userId: string | null): DashboardTeamScope
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const queryClient = useQueryClient();
+  const activeSwitchId = useRef(0);
   const queryKey = ["dashboard-team-catalog", userId] as const;
   const { data, isPending } = useQuery({
     queryKey,
@@ -61,8 +67,13 @@ export function useDashboardTeamScope(userId: string | null): DashboardTeamScope
 
   const switchTeam = async (team: DashboardCatalogTeam) => {
     if (team.id === selected.id) return;
+    const operationId = activeSwitchId.current + 1;
+    activeSwitchId.current = operationId;
     const previousCatalog = queryClient.getQueryData<DashboardTeamCatalog>(queryKey) ?? data;
     const previousSearch = new URLSearchParams(searchParams.toString());
+    const previousCookieScope = typeof document === "undefined"
+      ? null
+      : coderouterOrganizationFromCookieHeader(document.cookie, userId);
     const optimisticSearch = new URLSearchParams(previousSearch);
 
     // Update the shared catalog and URL before waiting for Stack Auth. The
@@ -80,9 +91,15 @@ export function useDashboardTeamScope(userId: string | null): DashboardTeamScope
     const cancellation = new AbortController();
     const timeout = setTimeout(() => cancellation.abort(new Error("Team switch timed out")), CATALOG_TIMEOUT_MS);
     const rollback = () => {
+      if (activeSwitchId.current !== operationId) return;
       queryClient.setQueryData(queryKey, previousCatalog);
-      persistCoderouterOrganizationScope(userId, selected.id);
+      if (previousCookieScope === null) {
+        clearCoderouterOrganizationScope();
+      } else {
+        persistCoderouterOrganizationScope(userId, previousCookieScope);
+      }
       router.replace(pathWithSearch(pathname, previousSearch));
+      activeSwitchId.current = 0;
     };
     try {
       const response = await fetch("/api/subrouter/teams", {
@@ -99,6 +116,10 @@ export function useDashboardTeamScope(userId: string | null): DashboardTeamScope
       clearTimeout(timeout);
     }
 
+    // A newer optimistic switch owns the shared catalog, cookie, and URL.
+    // Older requests may still settle, but they cannot rewrite newer UI state.
+    if (activeSwitchId.current !== operationId) return;
+    activeSwitchId.current = 0;
     const next = new URLSearchParams(optimisticSearch);
     next.delete("team");
     router.replace(pathWithSearch(pathname, next));
