@@ -1397,8 +1397,14 @@ check_persistent_compile_router() {
   fi
 
   observer_step="$(printf '%s\n' "$admission_block" | awk '
-    /^      - name: Observe persistent Mac compile candidate$/ { in_step=1; print; next }
-    in_step && /^      - name:/ { exit }
+    !finished && /^      - name: Observe persistent Mac compile candidate$/ { in_step=1; print; next }
+    in_step && /^      - name:/ {
+      # Keep consuming the block after the step ends. Exiting awk early can
+      # SIGPIPE the upstream printf while pipefail is active.
+      in_step=0
+      finished=1
+      next
+    }
     in_step { print }
   ')"
   if [ -z "$observer_step" ]; then
