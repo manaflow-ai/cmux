@@ -69,6 +69,22 @@ web_subareas = importlib.util.module_from_spec(web_subareas_spec)
 sys.modules[web_subareas_spec.name] = web_subareas
 web_subareas_spec.loader.exec_module(web_subareas)
 
+TEST_EXECUTION_VALIDATOR = ROOT / "scripts" / "ci" / "validate_test_execution_registry.py"
+validator_spec = importlib.util.spec_from_file_location("validate_test_execution_registry", TEST_EXECUTION_VALIDATOR)
+assert validator_spec and validator_spec.loader
+test_execution_validator = importlib.util.module_from_spec(validator_spec)
+sys.modules[validator_spec.name] = test_execution_validator
+validator_spec.loader.exec_module(test_execution_validator)
+
+
+def test_execution_registry_lane_discovery_ignores_yaml_comments() -> None:
+    workflow = """
+# scripts/ci/run_python_test_lane.py --lane full-line-comment
+run: echo ok # scripts/ci/run_python_test_lane.py --lane inline-comment
+run: scripts/ci/run_python_test_lane.py --lane live-lane # trailing comment
+"""
+    assert test_execution_validator.runner_lanes_from_workflow_text(workflow) == {"live-lane"}
+
 
 def assert_areas(
     paths: list[str],
@@ -1051,6 +1067,8 @@ def run_linux_preflight(needs: dict[str, object]) -> subprocess.CompletedProcess
 
 def run_app_host_unit_test_step(
     shard_mode: str = "selectors",
+    *,
+    known_failure: bool = False,
 ) -> tuple[subprocess.CompletedProcess[str], bool]:
     script = workflow_job_step_script("app-host-unit-tests", "Run unit tests", MACOS_WORKFLOW)
     script = script.replace("${{ matrix.shard }}", "1")
@@ -1066,6 +1084,40 @@ def run_app_host_unit_test_step(
         shutil.copy2(
             ROOT / "scripts/ci/classify-app-host-test-output.py",
             ci_scripts / "classify-app-host-test-output.py",
+        )
+        shutil.copy2(
+            ROOT / "scripts/ci/app_host_result_accounting.py",
+            ci_scripts / "app_host_result_accounting.py",
+        )
+        known_catalog = ci_scripts / "app-host-known-failures.json"
+        shutil.copy2(
+            ROOT / "scripts/ci/app-host-known-failures.json",
+            known_catalog,
+        )
+        if known_failure:
+            known_catalog.write_text(
+                json.dumps({
+                    "bootstrap_main_sha": "1" * 40,
+                    "version": 1,
+                    "tests": {
+                        "FakeTests/testOne()": {
+                            "classification": "test bug",
+                            "issue": 13095,
+                        }
+                    },
+                }),
+                encoding="utf-8",
+            )
+        inventory = runner_temp / "cmux-app-host-test-inventory.json"
+        inventory.write_text(
+            json.dumps({
+                "version": 1,
+                "tests": [
+                    "FakeTests/testOne()",
+                    "FakeTests/testTwo()",
+                ],
+            }),
+            encoding="utf-8",
         )
 
         shard_helper = ci_scripts / "cmux_unit_test_shard.py"
@@ -1099,8 +1151,22 @@ if [ -f "$counter" ]; then
 fi
 iteration=$((iteration + 1))
 printf '%s\n' "$iteration" > "$counter"
+result_root="${CMUX_APP_HOST_RESULT_BUNDLE_ROOT:-$RUNNER_TEMP/cmux-app-host-xcresults}"
+mkdir -p "$result_root"
+if [ "${CMUX_TEST_KNOWN_FAILURE_MODE:-0}" = "1" ]; then
+  cat >"$result_root/cmux-app-host-xcodebuild-${CMUX_TAG}-pid-${iteration}.tests.json" <<'JSON'
+{"testNodes":[{"nodeType":"Test Suite","children":[{"nodeType":"Test Case","nodeIdentifier":"FakeTests/testOne()","result":"Failed"},{"nodeType":"Test Case","nodeIdentifier":"FakeTests/testTwo()","result":"Passed"}]}]}
+JSON
+  echo "Executed 2 tests, with 1 failure (0 unexpected)"
+  echo "** TEST FAILED **"
+  exit 65
+fi
 if [ "$iteration" -eq 1 ]; then
+  cat >"$result_root/cmux-app-host-xcodebuild-${CMUX_TAG}-pid-1.tests.json" <<'JSON'
+{"testNodes":[{"nodeType":"Test Suite","children":[{"nodeType":"Test Case","nodeIdentifier":"FakeTests/testOne()","result":"Failed"},{"nodeType":"Test Case","nodeIdentifier":"FakeTests/testTwo()","result":"Failed"}]}]}
+JSON
   echo "Executed 2 tests, with 2 failures (0 unexpected)"
+  echo "** TEST FAILED **"
   exit 65
 fi
 echo "simulated app-host crash before test summary" >&2
@@ -1128,13 +1194,14 @@ exit 9
                 "CMUX_TEST_BATCH_COUNTER": str(root / "batch-counter"),
                 "CMUX_TEST_RUNNER_MARKER": str(runner_marker),
                 "CMUX_TEST_SHARD_MODE": shard_mode,
+                "CMUX_TEST_KNOWN_FAILURE_MODE": "1" if known_failure else "0",
+                "CMUX_APP_HOST_TEST_INVENTORY": str(inventory),
             },
             text=True,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
         )
         return result, runner_marker.exists()
-
 
 def linux_preflight_needs(
     *,
@@ -2124,8 +2191,15 @@ def admission_run(run_id: int, owner: str = "manaflow-ai/cmux") -> dict:
     return {"id": run_id, "head_repository": {"full_name": owner}, "html_url": f"https://example/{run_id}"}
 
 
+# ci.yml reaches the admission job through ci-macos.yml, so GitHub reports it
+# as "<caller job> / <job name>". The fixture must use the composed name the
+# API actually returns; using the bare name hid a regression in which both
+# reuse lookups silently matched nothing.
+ADMISSION_JOB_API_NAME = "macos / macOS compile admission"
+
+
 def admission_job(conclusion: str, run_attempt: int = 1) -> dict:
-    return {"name": "macOS compile admission", "conclusion": conclusion, "run_attempt": run_attempt}
+    return {"name": ADMISSION_JOB_API_NAME, "conclusion": conclusion, "run_attempt": run_attempt}
 
 
 def test_only_an_in_org_run_with_a_passed_admission_counts_as_admitted() -> None:
@@ -2891,6 +2965,7 @@ def test_r2_transport_is_an_explicit_optional_remote_broker() -> None:
     expected_condition = (
         "if: steps.node-products.outputs.hit != 'true' && "
         "steps.peer-products.outputs.hit != 'true' && "
+        "steps.restore-layers.outputs.hit != 'true' && "
         "vars.CI_ARTIFACT_R2_URL != ''"
     )
     for job_name in ("app-host-unit-tests", "tests-build-and-lag"):
@@ -3011,6 +3086,29 @@ def test_app_host_multi_batch_failure_cannot_reuse_prior_expected_summary() -> N
     assert runner_invoked
     assert result.returncode != 0, result.stdout
     assert "simulated app-host crash before test summary" in result.stdout
+
+
+def test_app_host_catalogued_failure_is_tolerated_with_red_xcode_status() -> None:
+    result, runner_invoked = run_app_host_unit_test_step(known_failure=True)
+
+    assert runner_invoked
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "RATCHET_KNOWN_FAILURE FakeTests/testOne()" in result.stdout
+
+
+def test_app_host_ratchet_uses_built_inventory_and_typed_results() -> None:
+    app_host = workflow_job_block("app-host-unit-tests", MACOS_WORKFLOW)
+    run_script = workflow_job_step_script(
+        "app-host-unit-tests", "Run unit tests", MACOS_WORKFLOW
+    )
+
+    assert "- name: Enumerate built app-host tests" in app_host
+    assert "-enumerate-tests" in app_host
+    assert "CMUX_APP_HOST_TEST_INVENTORY" in app_host
+    assert "app_host_result_accounting.py inventory" in app_host
+    assert "app_host_result_accounting.py check-run" in run_script
+    assert "--tests-json" in run_script
+    assert "app-host-known-failures.json" in run_script
 
 
 def run_focused_app_host_step(
@@ -3224,10 +3322,13 @@ def test_guard_python_setup_is_scoped_to_owning_groups() -> None:
     prepare_block = block[
         prepare:block.index("      - name: Validate Blacksmith Testbox broker trust boundary", prepare)
     ]
+    # release-notary joined when test_release_homebrew_gate.py was wired there:
+    # it imports yaml, and that was the one group running Python guards without
+    # the venv.
     assert (
         "if: ${{ matrix.group == 'ci' || matrix.group == 'app-host-execution' || "
         "matrix.group == 'app-host-process' || matrix.group == 'app-host-cache' || "
-        "matrix.group == 'release-tooling' }}"
+        "matrix.group == 'release-notary' || matrix.group == 'release-tooling' }}"
     ) in prepare_block
     assert "python3 -m venv" in prepare_block
     assert "packages=(PyYAML==6.0.3)" in prepare_block
@@ -3244,6 +3345,89 @@ def test_pipe_safe_capture_guard_runs_once_in_app_host_execution_group() -> None
     step = block[start:end]
     assert "if: ${{ matrix.group == 'app-host-execution' }}" in step
     assert block.count("Validate pipe-safe CI capture") == 1
+
+
+def test_reuse_lookups_match_the_job_name_github_actually_reports() -> None:
+    """The producer lookups must survive ci.yml reaching admission indirectly.
+
+    `.github/workflows/ci.yml` calls `ci-macos.yml`, so the admission job is
+    reported as "<caller job key> / <job name>", not by its bare name. Both
+    reuse paths previously compared the whole string and therefore stopped
+    finding any producer the moment that indirection was introduced, with no
+    failing test and no CI signal. Derive the composed name from the workflows
+    themselves so a future move breaks this test instead of reuse.
+    """
+    import yaml
+
+    ci = yaml.safe_load((ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8"))
+    caller = next(
+        (key for key, job in ci["jobs"].items()
+         if str(job.get("uses", "")).endswith("/ci-macos.yml")),
+        None,
+    )
+    assert caller, "no ci.yml job calls ci-macos.yml"
+
+    macos = yaml.safe_load((ROOT / ".github/workflows/ci-macos.yml").read_text(encoding="utf-8"))
+    inner = macos["jobs"]["macos-compile-admission"]["name"]
+    composed = f"{caller} / {inner}"
+
+    sys.path.insert(0, str(ROOT / "scripts/ci"))
+    from find_admitted_build import ADMISSION_JOB, admission_job_name
+
+    assert inner == ADMISSION_JOB, f"ci-macos.yml job name {inner!r} != ADMISSION_JOB {ADMISSION_JOB!r}"
+    assert admission_job_name(composed), f"find_admitted_build does not match {composed!r}"
+    assert admission_job_name(inner), "the bare name must still match for inlined callers"
+    assert not admission_job_name("macos / some other job")
+    assert not admission_job_name(None)
+
+    reuse = (ROOT / "scripts/ci/reuse_app_host_products.py").read_text(encoding="utf-8")
+    assert '.rsplit(" / ", 1)[-1] == "macOS compile admission"' in reuse, (
+        "reuse_app_host_products.py must match the final segment of the job name"
+    )
+
+
+
+def test_trusted_router_reads_new_guard_tests_from_the_pr_head() -> None:
+    # A routing-policy PR is classified by the base router, whose workflows
+    # have never named a guard test the PR adds. Merging the head's references
+    # keeps that test Linux-only; a head macOS job naming it still counts.
+    def write_root(root: Path, guards_block: str, macos_block: str) -> None:
+        (root / "scripts/ci/workloads").mkdir(parents=True)
+        (root / "scripts/ci/workloads/ci-guard.sh").write_text(
+            "python3 tests/test_existing_guard.py\n", encoding="utf-8"
+        )
+        (root / ".github/workflows").mkdir(parents=True)
+        linux = "name: fixture\njobs:\n  guard:\n    runs-on: ubuntu-24.04\n    steps:\n      - run: python3 tests/test_existing_guard.py\n"
+        for name in ("ci.yml", "ci-web.yml"):
+            (root / ".github/workflows" / name).write_text(linux, encoding="utf-8")
+        (root / ".github/workflows/ci-guards.yml").write_text(linux + guards_block, encoding="utf-8")
+        (root / ".github/workflows/ci-macos.yml").write_text(
+            "name: fixture\njobs:\n  mac:\n    runs-on: macos-15\n    steps:\n      - run: echo mac\n" + macos_block,
+            encoding="utf-8",
+        )
+
+    with tempfile.TemporaryDirectory() as base_dir, tempfile.TemporaryDirectory() as head_dir:
+        base, head = Path(base_dir), Path(head_dir)
+        write_root(base, "", "")
+        write_root(head, "      - run: python3 tests/test_new_guard.py\n", "")
+        previous = os.environ.pop(module.HEAD_TEST_REFERENCE_ROOT_ENV, None)
+        try:
+            base_only = module.load_macos_job_test_references(base)
+            assert not module.is_guard_only_test("tests/test_new_guard.py", base_only)
+
+            os.environ[module.HEAD_TEST_REFERENCE_ROOT_ENV] = str(head)
+            merged = module.load_macos_job_test_references(base)
+            assert module.is_guard_only_test("tests/test_new_guard.py", merged)
+
+            shutil.rmtree(head)
+            head.mkdir()
+            write_root(head, "", "      - run: python3 tests/test_new_guard.py\n")
+            macos_named = module.load_macos_job_test_references(base)
+            assert not module.is_guard_only_test("tests/test_new_guard.py", macos_named)
+        finally:
+            os.environ.pop(module.HEAD_TEST_REFERENCE_ROOT_ENV, None)
+            if previous is not None:
+                os.environ[module.HEAD_TEST_REFERENCE_ROOT_ENV] = previous
 
 
 if __name__ == "__main__":

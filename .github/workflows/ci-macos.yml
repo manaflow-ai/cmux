@@ -9,6 +9,10 @@ on:
       full_suite:
         required: true
         type: string
+      product_artifacts:
+        required: false
+        default: "layered"
+        type: string
       compile_admitted:
         required: true
         type: string
@@ -36,6 +40,11 @@ on:
 permissions:
   contents: read
 
+# A called workflow does not inherit the caller's workflow-level env, so the
+# R2 cache URL must be declared here or every R2 restore reports a miss.
+env:
+  CI_CACHE_R2_PUBLIC_URL: ${{ vars.CI_CACHE_R2_PUBLIC_URL || 'https://ci-cache.cmux.com' }}
+
 jobs:
   macos-compile-admission:
     name: macOS compile admission
@@ -54,6 +63,8 @@ jobs:
     outputs:
       artifact_id: ${{ steps.upload-products.outputs.artifact-id }}
       artifact_digest: ${{ steps.upload-products.outputs.artifact-digest }}
+      layer_index_artifact_id: ${{ steps.upload-layer-index.outputs.artifact-id }}
+      layer_index_digest: ${{ steps.upload-layer-index.outputs.artifact-digest }}
       sha256: ${{ steps.package-products.outputs.sha256 }}
       product_contract: ${{ steps.product-key.outputs.key }}
       source_revision: ${{ github.sha }}
@@ -245,7 +256,7 @@ jobs:
 
       - name: Observe persistent Mac compile candidate
         id: persistent-route
-        if: ${{ steps.reuse-products.outputs.hit != 'true' && github.event_name == 'pull_request' && inputs.source_identity_valid == 'true' && (vars.CI_PERSISTENT_MAC_COMPILE == 'pilot' || vars.CI_PERSISTENT_MAC_COMPILE == 'all' || vars.CI_PERSISTENT_MAC_COMPILE == 'on' || vars.CI_PERSISTENT_MAC_COMPILE == 'true' || vars.CI_PERSISTENT_MAC_COMPILE == '1') && github.event.pull_request.head.repo.full_name == github.repository && (github.event.pull_request.author_association == 'MEMBER' || github.event.pull_request.author_association == 'OWNER' || github.event.pull_request.author_association == 'COLLABORATOR') }}
+        if: ${{ steps.reuse-products.outputs.hit != 'true' && github.event_name == 'pull_request' && inputs.source_identity_valid == 'true' && (vars.CI_PERSISTENT_MAC_COMPILE == 'pilot' || vars.CI_PERSISTENT_MAC_COMPILE == 'all' || vars.CI_PERSISTENT_MAC_COMPILE == 'on' || vars.CI_PERSISTENT_MAC_COMPILE == 'true' || vars.CI_PERSISTENT_MAC_COMPILE == '1') && github.event.pull_request.head.repo.full_name == github.repository && (github.event.pull_request.author_association == 'MEMBER' || github.event.pull_request.author_association == 'OWNER') }}
         env:
           GH_TOKEN: ${{ github.token }}
           CI_PERSISTENT_MAC_COMPILE: ${{ vars.CI_PERSISTENT_MAC_COMPILE }}
@@ -409,7 +420,7 @@ jobs:
         if: steps.reuse-products.outputs.hit != 'true' && steps.persistent-restore.outputs.hit != 'true'
         uses: ./.github/actions/cache-restore
         with:
-          backend: ${{ inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND }}
+          backend: ${{ inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND || 'r2' }}
           path: .ci-source-packages
           key: spm-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
           restore-keys: spm-
@@ -445,7 +456,7 @@ jobs:
         if: steps.reuse-products.outputs.hit != 'true' && steps.persistent-restore.outputs.hit != 'true'
         uses: ./.github/actions/cache-restore
         with:
-          backend: ${{ inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND }}
+          backend: ${{ inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND || 'r2' }}
           path: ${{ env.CMUX_COMPILE_ADMISSION_CAS }}
           key: xcode-compilation-test-${{ runner.os }}-${{ runner.arch }}-${{ steps.compilation-cache-key.outputs.fingerprint }}-${{ github.event.pull_request.base.sha || github.sha }}
           restore-keys: |
@@ -589,6 +600,116 @@ jobs:
         with:
           name: app-host-products-v1-${{ steps.product-key.outputs.key }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/app-host-products.tar.gz
+          if-no-files-found: error
+          retention-days: 3
+          compression-level: 0
+
+      - name: Package app-host product layers
+        id: package-layers
+        if: ${{ steps.upload-products.outcome == 'success' && inputs.full_suite == 'true' && inputs.product_artifacts == 'layered' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          normalized="$(mktemp -d "$RUNNER_TEMP/cmux-layer-normalized.XXXXXX")"
+          trap 'rm -rf "$normalized"' EXIT
+          tar -xzf "$RUNNER_TEMP/app-host-products.tar.gz" -C "$normalized"
+          python3 scripts/ci/app_host_layer_transport.py identity "$normalized/identity.json"
+          python3 scripts/ci/app_host_layered_products.py pack             "$normalized" "$RUNNER_TEMP/app-host-layers"             --identity "$normalized/identity.json"
+
+      - name: Upload app-host app-cli layer
+        id: upload-layer-app-cli
+        if: steps.package-layers.outcome == 'success'
+        continue-on-error: true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: app-host-layer-app-cli-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/app-host-layers/app-cli.aar
+          if-no-files-found: error
+          retention-days: 3
+          compression-level: 0
+
+      - name: Upload app-host runtime layer
+        id: upload-layer-runtime
+        if: steps.package-layers.outcome == 'success'
+        continue-on-error: true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: app-host-layer-runtime-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/app-host-layers/runtime.aar
+          if-no-files-found: error
+          retention-days: 3
+          compression-level: 0
+
+      - name: Upload app-host tests layer
+        id: upload-layer-tests
+        if: steps.package-layers.outcome == 'success'
+        continue-on-error: true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: app-host-layer-tests-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/app-host-layers/tests.aar
+          if-no-files-found: error
+          retention-days: 3
+          compression-level: 0
+
+      - name: Upload app-host diagnostics layer
+        id: upload-layer-diagnostics
+        if: steps.package-layers.outcome == 'success'
+        continue-on-error: true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: app-host-layer-diagnostics-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/app-host-layers/diagnostics.aar
+          if-no-files-found: error
+          retention-days: 3
+          compression-level: 0
+
+      - name: Pin app-host layer provider identities
+        id: pin-layer-index
+        if: ${{ steps.upload-layer-app-cli.outcome == 'success' && steps.upload-layer-runtime.outcome == 'success' && steps.upload-layer-tests.outcome == 'success' && steps.upload-layer-diagnostics.outcome == 'success' }}
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CMUX_RUN_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          APP_CLI_ID: ${{ steps.upload-layer-app-cli.outputs.artifact-id }}
+          APP_CLI_DIGEST: ${{ steps.upload-layer-app-cli.outputs.artifact-digest }}
+          RUNTIME_ID: ${{ steps.upload-layer-runtime.outputs.artifact-id }}
+          RUNTIME_DIGEST: ${{ steps.upload-layer-runtime.outputs.artifact-digest }}
+          TESTS_ID: ${{ steps.upload-layer-tests.outputs.artifact-id }}
+          TESTS_DIGEST: ${{ steps.upload-layer-tests.outputs.artifact-digest }}
+          DIAGNOSTICS_ID: ${{ steps.upload-layer-diagnostics.outputs.artifact-id }}
+          DIAGNOSTICS_DIGEST: ${{ steps.upload-layer-diagnostics.outputs.artifact-digest }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          rows = []
+          for name in ("app-cli", "runtime", "tests", "diagnostics"):
+              key = name.replace("-", "_").upper()
+              rows.append({
+                  "name": name,
+                  "artifact_id": os.environ[key + "_ID"],
+                  "artifact_digest": os.environ[key + "_DIGEST"],
+              })
+          (Path(os.environ["RUNNER_TEMP"]) / "app-host-layer-receipts.json").write_text(
+              json.dumps(rows)
+          )
+          PY
+          python3 scripts/ci/app_host_layer_transport.py publish-index             "$RUNNER_TEMP/app-host-layers"             --receipts "$RUNNER_TEMP/app-host-layer-receipts.json"
+
+      - name: Upload pinned app-host layer index
+        id: upload-layer-index
+        if: steps.pin-layer-index.outcome == 'success'
+        continue-on-error: true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: app-host-layer-index-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/app-host-layers/app-host-layer-index.json
+            ${{ runner.temp }}/app-host-layers/app-host-layers.json
           if-no-files-found: error
           retention-days: 3
           compression-level: 0
@@ -888,7 +1009,7 @@ jobs:
       - name: Cache Swift packages
         uses: ./.github/actions/cache-restore
         with:
-          backend: ${{ inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND }}
+          backend: ${{ inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND || 'r2' }}
           path: .ci-source-packages
           key: spm-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
           restore-keys: spm-
@@ -932,11 +1053,24 @@ jobs:
           CMUX_PRODUCT_PRODUCER_RUN_ATTEMPT: ${{ needs.macos-compile-admission.outputs.producer_run_attempt }}
         run: python3 scripts/ci/peer_product_source.py fetch "$RUNNER_TEMP/app-host-products"
 
+      - name: Restore selective app-host product layers
+        id: restore-layers
+        if: steps.node-products.outputs.hit != 'true' && steps.peer-products.outputs.hit != 'true' && needs.macos-compile-admission.outputs.layer_index_artifact_id != ''
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CMUX_RUN_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          CMUX_APP_HOST_LAYER_PROFILE: app-host-tests
+          LAYER_INDEX_ID: ${{ needs.macos-compile-admission.outputs.layer_index_artifact_id }}
+          LAYER_INDEX_DIGEST: ${{ needs.macos-compile-admission.outputs.layer_index_digest }}
+        run: |
+          python3 scripts/ci/app_host_layer_transport.py restore             "${CMUX_DERIVED_DATA_PATH}-layers"             --index-id "$LAYER_INDEX_ID"             --index-digest "$LAYER_INDEX_DIGEST"
+
       # R2 is an optional remote broker. With no configured endpoint, a peer
       # miss falls straight through to the canonical GitHub artifact.
       - name: Try shared R2 artifact transport
         id: r2-products
-        if: steps.node-products.outputs.hit != 'true' && steps.peer-products.outputs.hit != 'true' && vars.CI_ARTIFACT_R2_URL != ''
+        if: steps.node-products.outputs.hit != 'true' && steps.peer-products.outputs.hit != 'true' && steps.restore-layers.outputs.hit != 'true' && vars.CI_ARTIFACT_R2_URL != ''
         continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
@@ -946,7 +1080,7 @@ jobs:
         run: python3 scripts/ci/restore-r2-artifact.py
 
       - name: Download compiled app-host test product
-        if: steps.node-products.outputs.hit != 'true' && steps.peer-products.outputs.hit != 'true' && steps.r2-products.outputs.hit != 'true'
+        if: steps.node-products.outputs.hit != 'true' && steps.peer-products.outputs.hit != 'true' && steps.restore-layers.outputs.hit != 'true' && steps.r2-products.outputs.hit != 'true'
         uses: ./.github/actions/download-test-product
         with:
           artifact-id: ${{ needs.macos-compile-admission.outputs.artifact_id }}
@@ -962,6 +1096,7 @@ jobs:
           CMUX_PRODUCT_SOURCE_REVISION: ${{ needs.macos-compile-admission.outputs.source_revision }}
           CMUX_PRODUCT_PRODUCER_RUN_ID: ${{ needs.macos-compile-admission.outputs.producer_run_id }}
           CMUX_PRODUCT_PRODUCER_RUN_ATTEMPT: ${{ needs.macos-compile-admission.outputs.producer_run_attempt }}
+          CMUX_LAYER_RESTORED: ${{ steps.restore-layers.outputs.hit }}
           CMUX_NODE_PRODUCT_CACHE_HIT: ${{ steps.node-products.outputs.hit }}
           CMUX_NODE_PRODUCT_CACHE_LOOKUP_SECONDS: ${{ steps.node-products.outputs.lookup_seconds }}
           CMUX_PEER_PRODUCT_HIT: ${{ steps.peer-products.outputs.hit }}
@@ -986,7 +1121,7 @@ jobs:
           CMUX_NODE_PRODUCT_CACHE_TOKEN: ${{ steps.node-products.outputs.token }}
           CMUX_NODE_PRODUCT_CACHE_LEASE: ${{ steps.node-products.outputs.lease }}
           CMUX_NODE_PRODUCT_SOURCE_CLASS: ${{ steps.peer-products.outputs.hit == 'true' && 'peer' || (steps.r2-products.outputs.hit == 'true' && 'r2' || 'github') }}
-          CMUX_PRODUCT_RESTORE_SUCCEEDED: ${{ steps.restore-products.outcome == 'success' }}
+          CMUX_PRODUCT_RESTORE_SUCCEEDED: ${{ steps.restore-products.outcome == 'success' && steps.restore-layers.outputs.hit != 'true' }}
         run: python3 scripts/ci/node_product_cache.py finalize "$RUNNER_TEMP/app-host-products/app-host-products.tar.gz"
 
       - name: Prepare isolated app-host home
@@ -1059,6 +1194,40 @@ jobs:
           test -n "$framework_source"
           rsync -aL "$(dirname "$framework_source")/" "$products/PackageFrameworks/"
           test -f "$products/PackageFrameworks/CmuxAgentJournal_27B6EF8727F6C277_PackageProduct.framework/Versions/A/CmuxAgentJournal_27B6EF8727F6C277_PackageProduct"
+
+      - name: Enumerate built app-host tests
+        run: |
+          set -euo pipefail
+          enumeration_json="$RUNNER_TEMP/cmux-app-host-test-enumeration.json"
+          inventory_json="$RUNNER_TEMP/cmux-app-host-test-inventory.json"
+          enumeration_log="$RUNNER_TEMP/cmux-app-host-test-enumeration.log"
+          rm -f -- "$enumeration_json" "$inventory_json" "$enumeration_log"
+          bash scripts/ci/run-and-capture.sh "$enumeration_log" \
+            scripts/ci/run-in-console-session.sh \
+            xcodebuild test-without-building \
+            -enumerate-tests \
+            -xctestrun "$CMUX_APP_HOST_XCTESTRUN" \
+            -destination "platform=macOS" \
+            -test-enumeration-style hierarchical \
+            -test-enumeration-format json \
+            -test-enumeration-output-path "$enumeration_json"
+          test -s "$enumeration_json"
+          python3 scripts/ci/app_host_result_accounting.py inventory \
+            "$enumeration_json" --output "$inventory_json"
+          test -s "$inventory_json"
+          echo "CMUX_APP_HOST_TEST_INVENTORY=$inventory_json" >> "$GITHUB_ENV"
+
+      - name: Upload built app-host test inventory
+        if: ${{ matrix.shard == 1 }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cmux-app-host-test-inventory-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/cmux-app-host-test-enumeration.json
+            ${{ runner.temp }}/cmux-app-host-test-inventory.json
+            ${{ runner.temp }}/cmux-app-host-test-enumeration.log
+          if-no-files-found: error
+          retention-days: 14
 
       - name: Run Ghostty split-theme appearance regression
         if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
@@ -1764,6 +1933,8 @@ jobs:
             local execution_attempt="$2"
             local shard_args="$RUNNER_TEMP/cmux-unit-shard-${logical_shard}-of-${LOGICAL_SHARD_TOTAL}.args"
             local batch_output="$RUNNER_TEMP/cmux-unit-output-${logical_shard}-of-${LOGICAL_SHARD_TOTAL}-run-${execution_attempt}.txt"
+            local batch_tag="unit-physical-${PHYSICAL_SHARD}-logical-${logical_shard}-run-${execution_attempt}"
+            local result_bundle_root="${CMUX_APP_HOST_RESULT_BUNDLE_ROOT:-${RUNNER_TEMP:-/tmp}/cmux-app-host-xcresults}"
             local reserve_args=()
             local reservation
             for reservation in ${CMUX_APP_HOST_RESERVED_WALL_SECONDS:-}; do
@@ -1794,7 +1965,7 @@ jobs:
 
             echo "Running app-host unit-test batch ${logical_shard}/${LOGICAL_SHARD_TOTAL}, execution ${execution_attempt}"
             : >"$batch_output"
-            CMUX_TAG="unit-physical-${PHYSICAL_SHARD}-logical-${logical_shard}-run-${execution_attempt}" \
+            CMUX_TAG="$batch_tag" \
               scripts/ci/run-in-console-session.sh \
               scripts/ci/run-app-host-xcodebuild.sh \
               -xctestrun "$CMUX_APP_HOST_XCTESTRUN" \
@@ -1859,19 +2030,35 @@ jobs:
             kill "$stream_pid" 2>/dev/null || true
             wait "$stream_pid" 2>/dev/null || true
 
-            local classification_status
-            set +e
-            python3 scripts/ci/classify-app-host-test-output.py "$batch_output"
-            classification_status=$?
-            set -e
+            shopt -s nullglob
+            local typed_results=("$result_bundle_root"/cmux-app-host-xcodebuild-"$batch_tag"-pid-*.tests.json)
+            shopt -u nullglob
+            if [ "${#typed_results[@]}" -eq 0 ]; then
+              echo "No typed xcresult test JSON found for $batch_tag" >&2
+              if [ "$batch_status" -ne 0 ]; then
+                return "$batch_status"
+              fi
+              return 1
+            fi
 
-            # xcodebuild's non-zero status is always authoritative. For a zero
-            # xcodebuild status, the classifier still requires positive,
-            # completed XCTest/Swift Testing execution.
+            local accounting_status
+            set +e
+            python3 scripts/ci/app_host_result_accounting.py check-run \
+              --inventory "$CMUX_APP_HOST_TEST_INVENTORY" \
+              --selectors "$shard_args" \
+              --known scripts/ci/app-host-known-failures.json \
+              --log "$batch_output" \
+              --xcode-status "$batch_status" \
+              --tests-json "${typed_results[@]}"
+            accounting_status=$?
+            set -e
+            if [ "$accounting_status" -eq 0 ]; then
+              return 0
+            fi
             if [ "$batch_status" -ne 0 ]; then
               return "$batch_status"
             fi
-            return "$classification_status"
+            return "$accounting_status"
           }
 
           run_unit_tests() {
@@ -1893,6 +2080,8 @@ jobs:
             : >"$TEST_OUTPUT"
             local output_path
             shopt -s nullglob
+            # The unquoted expansion is the glob this line exists to perform.
+            # shellcheck disable=SC2206
             local output_paths=("$RUNNER_TEMP"/cmux-unit-output-*-of-${LOGICAL_SHARD_TOTAL}-run-*.txt)
             shopt -u nullglob
             for output_path in "${output_paths[@]}"; do
@@ -2040,6 +2229,10 @@ jobs:
             CMUX_BASH_NEW_BIN="$BASH_NEW_BIN" \
             python3 tests/test_issue_11257_prompt_command_export.py
 
+      - name: Run open-wrapper shell regressions
+        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_CLI_REGRESSION_SHARD) }}
+        run: python3 scripts/ci/run_python_test_lane.py --lane macos-shell
+
       - name: Run CLI no-socket regressions
         if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_CLI_REGRESSION_SHARD) }}
         run: |
@@ -2056,54 +2249,8 @@ jobs:
             exit 1
           fi
 
-          CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_vm_transfer_progress.py
-          CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_vm_resize.py
-          CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_vm_open_device_target.py
-          CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_cloud_hostname.py
-          CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_layout_focus_contract.py
-          CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_right_sidebar_aliases.py
-          CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_socket_operation_deadline.py
-          CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_simulator_contract.py
-          CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_browser_profile_cli.py
-          python3 tests/test_stress_cli_socket_api.py
-          CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_omo_openagent_plugin_migration.py
-          CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_socket_autodiscovery.py
-          python3 tests/test_codex_wrapper_resume_hooks.py
-          python3 tests/test_codex_autoresume_chain.py
-          python3 tests/test_claude_wrapper_hooks.py
-          python3 tests/test_codex_wrapper_computer_use_mcp.py
-          python3 tests/test_cmux_cua_mcp_smoke.py
-          python3 tests/test_cmux_cua_build_cache_safety.py
-          python3 tests/test_cmux_cua_helper_identity.py
-          python3 tests/test_hermes_wrapper_hooks.py
-          python3 tests/test_claude_wrapper_mutual_shim_loop.py
-          python3 tests/test_claude_wrapper_shim_root_survives_tmpdir_change.py
-          python3 tests/test_claude_wrapper_user_binary_resolution.py
-          python3 tests/test_claude_teams_test_utils.py
-          CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_codex_teams_informational.py
-          CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_claude_teams_fallback_path.py
-          CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_claude_teams_env.py
-          CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_claude_teams_existing_shim.py
-          CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_claude_teams_main_vertical.py
-          CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_claude_teams_moved_surface.py
-          CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_claude_teams_tmux_sequence.py
-          CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_tmux_compat_targeted_read_budget.py
-          CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_claude_teams_trust_optin.py
-          CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_omo_fallback_path.py
-          CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_omx_fallback_path.py
-          CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_omc_fallback_path.py
-          CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_issue_8743_path_directory_shadowing.py
-          python3 tests/test_issue_2448_shell_claude_wrapper_dispatch.py
-          python3 tests/test_issue_8093_ghostty_ssh_binary_path.py
-          python3 tests/test_issue_6714_zsh_shim_noclobber.py
-          python3 tests/test_issue_9356_bash_shim_noclobber.py
-          python3 tests/test_issue_13343_claude_integration_toggle.py
-          python3 tests/test_issue_8953_zsh_prompt_wrap_guard.py
-          python3 tests/test_nushell_shim_path_refront.py
-          python3 tests/test_nushell_resume_command_dialect.py
-          python3 tests/test_nushell_integration_hooks.py
-          python3 tests/test_shell_git_branch_stale_cwd.py
-          python3 tests/test_shell_git_config_remote_url_parsing.py
+          CMUX_CLI_BIN="$CLI_BIN" python3 scripts/ci/run_python_test_lane.py --lane macos-cli-no-socket
+
           if ! command -v fish >/dev/null 2>&1; then
             HOMEBREW_NO_AUTO_UPDATE=1 brew install fish
           fi
@@ -2111,17 +2258,8 @@ jobs:
             echo "fish is required for the issue #9075 shell socket regression" >&2
             exit 1
           }
-          python3 tests/test_issue_9075_shell_socket_reports.py
-          CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_claude_hook_stop_last_assistant.py
-          CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_claude_hook_clear_running_status.py
-          CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_claude_hook_push_notification.py
-          CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_pi_extension_install.py
-          CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_pi_extension_dispatch.py
-          CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_pi_compacted_feed.py
-          CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_codex_permission_prompt_notification.py
-          CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_omp_extension_install.py
-          CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_omp_subagent_lifecycle.py
-          CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_campfire_extension_install.py
+          python3 scripts/ci/run_python_test_lane.py --lane macos-shell-fish
+          CMUX_CLI_BIN="$CLI_BIN" python3 scripts/ci/run_python_test_lane.py --lane macos-cli-no-socket-post-fish
 
       - name: Collect app-host failure diagnostics
         if: ${{ failure() || cancelled() }}
@@ -2237,7 +2375,7 @@ jobs:
     outputs:
       release_archs: ${{ steps.release-archs.outputs.archs }}
     # Build the release helper with SDK 15, then run package tests with SDK 26.
-    runs-on: ${{ vars.MACOS_RUNNER_DUAL_XCODE || 'blacksmith-6vcpu-macos-15' }}
+    runs-on: ${{ github.event_name == 'pull_request' && (vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15') || vars.MACOS_RUNNER_DUAL_XCODE || 'blacksmith-6vcpu-macos-15' }}
     timeout-minutes: 40
     env:
       CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_15 }}
@@ -2700,11 +2838,24 @@ jobs:
           CMUX_PRODUCT_PRODUCER_RUN_ATTEMPT: ${{ needs.macos-compile-admission.outputs.producer_run_attempt }}
         run: python3 scripts/ci/peer_product_source.py fetch "$RUNNER_TEMP/app-host-products"
 
+      - name: Restore selective app-host product layers
+        id: restore-layers
+        if: steps.node-products.outputs.hit != 'true' && steps.peer-products.outputs.hit != 'true' && needs.macos-compile-admission.outputs.layer_index_artifact_id != ''
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CMUX_RUN_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          CMUX_APP_HOST_LAYER_PROFILE: app-host-tests
+          LAYER_INDEX_ID: ${{ needs.macos-compile-admission.outputs.layer_index_artifact_id }}
+          LAYER_INDEX_DIGEST: ${{ needs.macos-compile-admission.outputs.layer_index_digest }}
+        run: |
+          python3 scripts/ci/app_host_layer_transport.py restore             "${CMUX_DERIVED_DATA_PATH}-layers"             --index-id "$LAYER_INDEX_ID"             --index-digest "$LAYER_INDEX_DIGEST"
+
       # R2 is an optional remote broker. With no configured endpoint, a peer
       # miss falls straight through to the canonical GitHub artifact.
       - name: Try shared R2 artifact transport
         id: r2-products
-        if: steps.node-products.outputs.hit != 'true' && steps.peer-products.outputs.hit != 'true' && vars.CI_ARTIFACT_R2_URL != ''
+        if: steps.node-products.outputs.hit != 'true' && steps.peer-products.outputs.hit != 'true' && steps.restore-layers.outputs.hit != 'true' && vars.CI_ARTIFACT_R2_URL != ''
         continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
@@ -2714,7 +2865,7 @@ jobs:
         run: python3 scripts/ci/restore-r2-artifact.py
 
       - name: Download compiled app-host test product
-        if: steps.node-products.outputs.hit != 'true' && steps.peer-products.outputs.hit != 'true' && steps.r2-products.outputs.hit != 'true'
+        if: steps.node-products.outputs.hit != 'true' && steps.peer-products.outputs.hit != 'true' && steps.restore-layers.outputs.hit != 'true' && steps.r2-products.outputs.hit != 'true'
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
           artifact-ids: ${{ needs.macos-compile-admission.outputs.artifact_id }}
@@ -2731,6 +2882,7 @@ jobs:
           CMUX_PRODUCT_SOURCE_REVISION: ${{ needs.macos-compile-admission.outputs.source_revision }}
           CMUX_PRODUCT_PRODUCER_RUN_ID: ${{ needs.macos-compile-admission.outputs.producer_run_id }}
           CMUX_PRODUCT_PRODUCER_RUN_ATTEMPT: ${{ needs.macos-compile-admission.outputs.producer_run_attempt }}
+          CMUX_LAYER_RESTORED: ${{ steps.restore-layers.outputs.hit }}
           CMUX_NODE_PRODUCT_CACHE_HIT: ${{ steps.node-products.outputs.hit }}
           CMUX_NODE_PRODUCT_CACHE_LOOKUP_SECONDS: ${{ steps.node-products.outputs.lookup_seconds }}
           CMUX_PEER_PRODUCT_HIT: ${{ steps.peer-products.outputs.hit }}
@@ -2755,7 +2907,7 @@ jobs:
           CMUX_NODE_PRODUCT_CACHE_TOKEN: ${{ steps.node-products.outputs.token }}
           CMUX_NODE_PRODUCT_CACHE_LEASE: ${{ steps.node-products.outputs.lease }}
           CMUX_NODE_PRODUCT_SOURCE_CLASS: ${{ steps.peer-products.outputs.hit == 'true' && 'peer' || (steps.r2-products.outputs.hit == 'true' && 'r2' || 'github') }}
-          CMUX_PRODUCT_RESTORE_SUCCEEDED: ${{ steps.restore-products.outcome == 'success' }}
+          CMUX_PRODUCT_RESTORE_SUCCEEDED: ${{ steps.restore-products.outcome == 'success' && steps.restore-layers.outputs.hit != 'true' }}
         run: python3 scripts/ci/node_product_cache.py finalize "$RUNNER_TEMP/app-host-products/app-host-products.tar.gz"
 
       - name: Run display UI regressions
@@ -3085,7 +3237,7 @@ jobs:
       - name: Cache Xcode compilation results
         uses: ./.github/actions/cache-restore
         with:
-          backend: ${{ inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND }}
+          backend: ${{ inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND || 'r2' }}
           path: build-universal/CompilationCache.noindex
           key: xcode-compilation-release-${{ runner.os }}-${{ runner.arch }}-${{ steps.compilation-cache-key.outputs.toolchain }}-${{ github.event.pull_request.base.sha || github.sha }}
           restore-keys: |
@@ -3094,7 +3246,7 @@ jobs:
       - name: Cache Swift packages
         uses: ./.github/actions/cache-restore
         with:
-          backend: ${{ inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND }}
+          backend: ${{ inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND || 'r2' }}
           path: .spm-cache
           key: spm-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
           restore-keys: spm-

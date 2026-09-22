@@ -6,7 +6,9 @@ from __future__ import annotations
 import argparse
 import importlib.util
 import json
+import os
 from pathlib import Path
+import re
 import tempfile
 import unittest
 from unittest import mock
@@ -126,9 +128,11 @@ class RoutingTests(unittest.TestCase):
 
     def test_only_trusted_same_repository_maintainers_are_eligible(self):
         self.assertEqual(route.eligibility(args()), (True, "pilot"))
+        self.assertEqual(route.eligibility(args(author_association="OWNER")), (True, "pilot"))
+        # COLLABORATOR routes no further than the producer would admit it.
         self.assertEqual(
             route.eligibility(args(author_association="COLLABORATOR")),
-            (True, "pilot"),
+            (False, "untrusted_author"),
         )
         self.assertEqual(
             route.eligibility(args(head_repository="someone/cmux")),
@@ -218,6 +222,128 @@ class StateRetentionTests(unittest.TestCase):
             self.assertEqual(remaining[0].name, old[-1].name)
             self.assertTrue(unrelated.is_dir())
 
+    @staticmethod
+    def _cache_generation(root: Path, index: int, mtime: int) -> Path:
+        """A fake Glaeda cache generation: a 64-hex key holding a DerivedData tree."""
+        path = root / f"{index:064x}"
+        (path / "derived_data" / "Build" / "Products" / "Debug").mkdir(parents=True)
+        (path / "derived_data" / "cmux-build.log").write_text(str(index))
+        os.utime(path, ns=(mtime, mtime))
+        return path
+
+    def test_cache_pruning_keeps_the_current_and_most_recent_generations(self):
+        with tempfile.TemporaryDirectory() as directory:
+            project = Path(directory)
+            cache = project / ".glaeda" / "apple-build" / "cache"
+            cache.mkdir(parents=True)
+            # index 0 is oldest, index 5 newest; the current run uses the oldest,
+            # which must survive precisely because it is the one in use.
+            generations = [
+                self._cache_generation(cache, index, 1_000_000_000 + index)
+                for index in range(6)
+            ]
+            current = generations[0]
+            # Neither of these is a cache key, so neither may ever be a candidate.
+            stray_file = cache / "README"
+            stray_file.write_text("not a generation")
+            stray_dir = cache / "scratch"
+            stray_dir.mkdir()
+
+            pruned = driver.prune_cache_generations(project, keep_key=current.name)
+
+            survivors = {path.name for path in cache.iterdir()}
+            expected = {
+                current.name,
+                generations[-1].name,
+                generations[-2].name,
+                stray_file.name,
+                stray_dir.name,
+            }
+            self.assertEqual(survivors, expected)
+            self.assertEqual(
+                sorted(pruned),
+                sorted(path.name for path in generations[1:-2]),
+            )
+            self.assertTrue((current / "derived_data" / "cmux-build.log").is_file())
+            self.assertEqual(
+                len(survivors) - 2, driver.CACHE_RETAINED_GENERATIONS
+            )
+
+    def test_cache_pruning_never_evicts_the_generation_in_use(self):
+        """Even as the least recently used generation, the current key survives."""
+        with tempfile.TemporaryDirectory() as directory:
+            project = Path(directory)
+            cache = project / ".glaeda" / "apple-build" / "cache"
+            cache.mkdir(parents=True)
+            generations = [
+                self._cache_generation(cache, index, 1_000_000_000 + index)
+                for index in range(driver.CACHE_RETAINED_GENERATIONS + 2)
+            ]
+            oldest = generations[0]
+
+            driver.prune_cache_generations(project, keep_key=oldest.name)
+
+            self.assertTrue(oldest.is_dir())
+            self.assertTrue((oldest / "derived_data" / "cmux-build.log").is_file())
+
+    def test_cache_pruning_is_a_noop_below_the_retention_bound(self):
+        with tempfile.TemporaryDirectory() as directory:
+            project = Path(directory)
+            cache = project / ".glaeda" / "apple-build" / "cache"
+            cache.mkdir(parents=True)
+            generations = [
+                self._cache_generation(cache, index, 1_000_000_000 + index)
+                for index in range(driver.CACHE_RETAINED_GENERATIONS)
+            ]
+
+            self.assertEqual(
+                driver.prune_cache_generations(project, keep_key=generations[0].name), []
+            )
+            self.assertEqual(
+                {path.name for path in cache.iterdir()},
+                {path.name for path in generations},
+            )
+
+    def test_cache_pruning_tolerates_an_absent_cache_root(self):
+        with tempfile.TemporaryDirectory() as directory:
+            self.assertEqual(driver.prune_cache_generations(Path(directory)), [])
+
+    def test_cache_pruning_unlinks_generation_symlinks_without_following_them(self):
+        with tempfile.TemporaryDirectory() as directory:
+            project = Path(directory)
+            cache = project / ".glaeda" / "apple-build" / "cache"
+            cache.mkdir(parents=True)
+            outside = project / "outside"
+            (outside / "derived_data").mkdir(parents=True)
+            (outside / "derived_data" / "treasure").write_text("keep me")
+            # Oldest entry is a symlink out of the cache root.
+            link = cache / f"{0:064x}"
+            link.symlink_to(outside, target_is_directory=True)
+            os.utime(link, ns=(1_000_000_000, 1_000_000_000), follow_symlinks=False)
+            newer = [
+                self._cache_generation(cache, index, 1_000_000_100 + index)
+                for index in range(1, driver.CACHE_RETAINED_GENERATIONS + 2)
+            ]
+
+            pruned = driver.prune_cache_generations(project, keep_key=newer[-1].name)
+
+            self.assertIn(link.name, pruned)
+            self.assertFalse(link.is_symlink())
+            self.assertTrue((outside / "derived_data" / "treasure").is_file())
+
+    def test_driver_prunes_cache_generations_after_a_verified_compile(self):
+        source = DRIVER.read_text()
+        prune = source.index("    pruned_cache_generations = prune_cache_generations(")
+        self.assertIn("os.utime(resolved_cache)", source[:prune])
+        # Eviction must follow every check that proves the current generation.
+        for guard in (
+            'raise Refusal("Glaeda cache locator escaped the project cache root")',
+            'raise Refusal("Glaeda DerivedData escaped the admitted cache generation")',
+            'raise Refusal("native compile completed without the admission log/products")',
+        ):
+            self.assertLess(source.index(guard), prune)
+        self.assertIn('"pruned_cache_generations": pruned_cache_generations', source)
+
 
 class WorkflowContractTests(unittest.TestCase):
     @classmethod
@@ -228,6 +354,56 @@ class WorkflowContractTests(unittest.TestCase):
         cls.router = ROUTER.read_text()
         cls.driver = DRIVER.read_text()
         cls.profile = json.loads(PROFILE.read_text())
+
+    @staticmethod
+    def _python_association_set(source: str) -> set[str]:
+        """Every Python set literal of author associations found in `source`."""
+        found: list[set[str]] = []
+        for literal in re.findall(r"\{[^{}]*\}", source):
+            names = re.findall(r"\"([A-Z][A-Z_]+)\"", literal)
+            if "MEMBER" in names or "OWNER" in names or "COLLABORATOR" in names:
+                found.append(set(names))
+        if not found:
+            raise AssertionError("no author-association set literal found")
+        if any(names != found[0] for names in found):
+            raise AssertionError(f"author-association sets disagree within one file: {found}")
+        return found[0]
+
+    @staticmethod
+    def _workflow_gate_association_set(gate: str) -> set[str]:
+        """Associations admitted by a `github.event.pull_request` workflow gate."""
+        names = set(
+            re.findall(r"github\.event\.pull_request\.author_association == '([A-Z_]+)'", gate)
+        )
+        if not names:
+            raise AssertionError("no author-association gate found")
+        return names
+
+    def test_every_author_association_gate_matches_the_producer(self):
+        """The producer refuses anything it is not shown; no gate ahead of it may be wider.
+
+        A routing gate wider than the producer's `authorize` job still fails
+        safe, but it dispatches a producer that is certain to refuse -- wasting
+        an owned-Mac allocation and reporting producer_failure instead of
+        falling straight through to the hosted path. Each set below is derived
+        from its own source file so the four cannot drift apart again.
+        """
+        producer_gate = self.producer.split("  authorize:", 1)[1].split("\n  compile:", 1)[0]
+        producer = self._python_association_set(producer_gate)
+        self.assertTrue(producer, "producer admitted no author association")
+
+        router_script = self._python_association_set(ROUTE.read_text())
+        self.assertEqual(router_script, producer)
+        self.assertEqual(set(route.TRUSTED_AUTHOR_ASSOCIATIONS), producer)
+
+        request_gate = self.ci.split("      - name: Publish persistent Mac route request", 1)[1]
+        request_gate = request_gate.split("\n        env:", 1)[0]
+        self.assertEqual(self._workflow_gate_association_set(request_gate), producer)
+
+        observe_gate = self.macos_ci.split(
+            "      - name: Observe persistent Mac compile candidate", 1
+        )[1].split("\n        env:", 1)[0]
+        self.assertEqual(self._workflow_gate_association_set(observe_gate), producer)
 
     def test_producer_is_manual_dedicated_and_credential_minimized(self):
         self.assertIn("  workflow_dispatch:", self.producer)
@@ -303,7 +479,7 @@ class WorkflowContractTests(unittest.TestCase):
         self.assertIn("github.event.pull_request.head.repo.full_name == github.repository", admission)
         self.assertIn("github.event.pull_request.author_association == 'MEMBER'", admission)
         self.assertIn("github.event.pull_request.author_association == 'OWNER'", admission)
-        self.assertIn("github.event.pull_request.author_association == 'COLLABORATOR'", admission)
+        self.assertNotIn("github.event.pull_request.author_association == 'COLLABORATOR'", admission)
         self.assertNotIn("- persistent-mac-compile-route", admission)
         self.assertIn("steps.persistent-restore.outputs.hit != 'true'", admission)
         self.assertIn("actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131", admission)
