@@ -1,7 +1,10 @@
 name: iOS simulator tests
 
 on:
-  # Temporarily manual-only beginning 2026-07-13 to pause automatic CI.
+  push:
+    branches:
+      - chatgpt/13538-benchmark
+  # Benchmark-only trigger; main remains manual-only.
   workflow_dispatch:
     inputs:
       ref:
