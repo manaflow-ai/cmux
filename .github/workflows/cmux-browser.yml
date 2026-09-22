@@ -12,7 +12,9 @@ permissions:
   contents: read
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  # Reusable calls inherit the caller's `github.workflow` value. Keep this
+  # explicit so a CI call cannot collide with and cancel its own caller.
+  group: cmux-browser-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
