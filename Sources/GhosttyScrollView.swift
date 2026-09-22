@@ -196,17 +196,6 @@ final class GhosttyScrollView: NSScrollView {
         refreshPromptMarkers(using: geometry)
     }
 
-    #if DEBUG
-    var promptScrollMarkerRowsForTesting: [UInt64] {
-        promptScrollMarkers.map(\.topRow)
-    }
-
-    func activatePromptScrollMarkerForTesting(at index: Int) -> Bool {
-        guard promptScrollMarkers.indices.contains(index) else { return false }
-        return activatePromptScrollMarker(promptScrollMarkers[index])
-    }
-    #endif
-
     private func ensurePromptMarkerScrollbarObserver() {
         guard promptMarkerScrollbarObserver == nil, let surfaceView else { return }
         promptMarkerScrollbarObserver = NotificationCenter.default.addObserver(
@@ -257,7 +246,7 @@ final class GhosttyScrollView: NSScrollView {
         scroller.addSubview(promptMarkerOverlay)
     }
 
-    private func activatePromptScrollMarker(
+    func activatePromptScrollMarker(
         _ marker: TerminalPromptScrollMarker
     ) -> Bool {
         guard let surfaceView,
@@ -311,13 +300,4 @@ extension GhosttySurfaceScrollView {
         promptMarkerScrollView?.recordPromptScrollMarker()
     }
 
-    #if DEBUG
-    var promptScrollMarkerRowsForTesting: [UInt64] {
-        promptMarkerScrollView?.promptScrollMarkerRowsForTesting ?? []
-    }
-
-    func activatePromptScrollMarkerForTesting(at index: Int) -> Bool {
-        promptMarkerScrollView?.activatePromptScrollMarkerForTesting(at: index) ?? false
-    }
-    #endif
 }
