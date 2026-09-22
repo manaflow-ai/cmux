@@ -109,6 +109,21 @@ class AgentPRReviewGateTests(unittest.TestCase):
         self.assertTrue(workflow_path.exists())
         self.assertTrue((root / ".github/workflows/agent-pr-review-gate.yml").exists())
         workflow = workflow_path.read_text(encoding="utf-8")
+        for gate_path in (
+            root / ".github/workflows/agent-pr-review-gate.yml",
+            root / ".github/workflows/agent-pr-review-gate-v2.yml",
+        ):
+            gate_workflow = gate_path.read_text(encoding="utf-8")
+            self.assertIn(
+                "types: [opened, synchronize, reopened, ready_for_review]",
+                gate_workflow,
+            )
+            self.assertNotIn("ready_for_review, edited", gate_workflow)
+            request_step = gate_workflow.split(
+                "      - name: Request Greptile review for this head\n", 1
+            )[1].split("      - name: Evaluate current-head review obligations\n", 1)[0]
+            self.assertIn("        continue-on-error: true", request_step)
+
         self.assertIn("pull_request_review:", workflow)
         self.assertIn("issue_comment:", workflow)
         self.assertNotIn("concurrency:", workflow)
