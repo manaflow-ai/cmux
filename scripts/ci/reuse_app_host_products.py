@@ -302,8 +302,11 @@ def select(api, value, current_run, current_attempt, consumer, reasons):
                     break
             # The compile job must finish successfully; unrelated producer tests
             # may still be running because no test result is reused here.
+            # A reusable workflow reports "<caller job> / <job name>", so this
+            # is "macos / macOS compile admission" when ci.yml reaches the job
+            # through ci-macos.yml. Match the final segment.
             compile_job = next((job for job in jobs
-                                if job.get("name") == "macOS compile admission"
+                                if str(job.get("name") or "").rsplit(" / ", 1)[-1] == "macOS compile admission"
                                 and job.get("status") == "completed"
                                 and job.get("conclusion") == "success"), None)
             if compile_job is None:
