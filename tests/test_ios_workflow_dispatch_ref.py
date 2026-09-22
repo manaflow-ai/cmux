@@ -16,7 +16,7 @@ def job_block(name: str) -> str:
     text = WORKFLOW.read_text(encoding="utf-8")
     marker = f"  {name}:\n"
     start = text.index(marker)
-    match = re.search(r"(?m)^  [A-Za-z0-9_-]+:\\n", text[start + len(marker) :])
+    match = re.search(r"(?m)^  [A-Za-z0-9_-]+:\n", text[start + len(marker) :])
     if match is None:
         return text[start:]
     return text[start : start + len(marker) + match.start()]
