@@ -129,8 +129,13 @@ jobs:
             fi
 
             if [ ! -s /tmp/cmux-ci-changed-files.txt ]; then
-              echo "PR diff is empty; running all CI areas."
-              emit_all_areas
+              echo "PR diff is empty; skipping product-area CI."
+              {
+                echo "macos=false"
+                echo "web=false"
+                echo "agent_session_web=false"
+                echo "release_build=false"
+              } >> "$GITHUB_OUTPUT"
               exit 0
             fi
 
