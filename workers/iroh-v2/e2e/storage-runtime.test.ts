@@ -126,10 +126,10 @@ test("failed upgrade rolls back without version marker or partial table", async 
 test("authority lease accepts newer verification and ignores stale updates", async () => {
   const first = await post("/authority/observe", { userId: "authority-user", verifiedAt: 1000, expiresAt: 4600, now: 1000 });
   expect(first.status).toBe(200);
-  expect(first.body.revision).toBe(5);
+  expect(first.body.revision).toBe(6);
   expect((await post("/authority/get", { userId: "authority-user" })).body.expiresAt).toBe(4600);
   expect((await post("/authority/observe", { userId: "authority-user", verifiedAt: 900, expiresAt: 4500, now: 1000 })).body.revision).toBeNull();
-  expect((await post("/authority/observe", { userId: "authority-user", verifiedAt: 2000, expiresAt: 5600, now: 2000 })).body.revision).toBe(6);
+  expect((await post("/authority/observe", { userId: "authority-user", verifiedAt: 2000, expiresAt: 5600, now: 2000 })).body.revision).toBe(7);
   expect((await post("/authority/observe", { userId: "authority-user", verifiedAt: 3000, expiresAt: 6601, now: 3000 })).status).toBe(500);
   expect((await post("/authority/observe", { userId: "authority-user", verifiedAt: 3000, expiresAt: 6600, now: 6600 })).status).toBe(500);
 });
@@ -139,7 +139,7 @@ test("SQLite state survives a workerd restart", async () => {
   mf = new Miniflare({ ...convertV4MiniflareOptions({ rootPath: workerRoot, resourcePersistencePath: persistencePath, scriptPath: "worker.js", modules: true, durableObjects: { STORAGE: { className: "StorageTestDO", useSQLite: true }, MIGRATION: { className: "MigrationProbeDO", useSQLite: true } }, compatibilityDate: "2025-01-01" }), verbose: true });
   const namespace = await mf.getDurableObjectNamespace("STORAGE");
   stub = namespace.getByName("team-e2e");
-  expect((await post("/revision", {})).body.revision).toBe(6);
+  expect((await post("/revision", {})).body.revision).toBe(7);
 });
 
 test("socket reservations aggregate across teams and survive retries", async () => {

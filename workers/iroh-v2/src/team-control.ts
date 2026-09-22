@@ -18,7 +18,7 @@ import { DashboardControl } from "./dashboard-control";
 
 const SessionSchema = z.strictObject({
   sessionId: identifier, identity: IdentitySchema, endpointId: endpointID, identityGeneration: revision,
-  authority: AuthoritySchema, expiresAt: timestamp,
+  authority: AuthoritySchema, expiresAt: timestamp, issueTicket: z.boolean().default(false),
 });
 const AttachmentSchema = z.strictObject({
   version: z.literal(1), session: SessionSchema, deviceKey: z.string().regex(/^[a-f0-9]{64}$/),
@@ -55,7 +55,7 @@ export class TeamControl extends DurableObject<Environment> {
       requestId = incoming.setup.requestId;
       const broker = this.broker(incoming.authority.teamId);
       if (incoming.path === "/request") {
-        const session = await broker.authorizeHTTP(incoming.setup, incoming.input, incoming.authority, incoming.expiresAt);
+        const session = await broker.authorizeHTTP(incoming.setup, incoming.input, incoming.authority, incoming.expiresAt, incoming.issueTicket);
         const result = await broker.execute(session, incoming.input);
         this.scheduleChanges(result, session.identity.teamId);
         observe(this.ctx, this.env, { event: "iroh.team.operation", environment: this.env.ENVIRONMENT, operation: result.response.schemaId, requestId, status: 200 });

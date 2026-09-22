@@ -14,8 +14,8 @@ const authority = {
 };
 
 test("the owning Mac can recover a forgotten registration with fresh Stack auth", async () => {
-  const keyPair = await crypto.subtle.generateKey("Ed25519", true, ["sign", "verify"]);
-  const rawPublic = await crypto.subtle.exportKey("raw", keyPair.publicKey);
+  const keyPair = await crypto.subtle.generateKey("Ed25519", true, ["sign", "verify"]) as CryptoKeyPair;
+  const rawPublic = await crypto.subtle.exportKey("raw", keyPair.publicKey) as ArrayBuffer;
   const endpointID = Array.from(new Uint8Array(rawPublic), byte => byte.toString(16).padStart(2, "0")).join("");
   const descriptor = {
     identity: { environment: authority.environment, projectId: authority.projectId, teamId: authority.teamId, userId: authority.userId, deviceId: "mac", appNamespace: "cmux", buildTag: "test" },
@@ -24,9 +24,11 @@ test("the owning Mac can recover a forgotten registration with fresh Stack auth"
     metadata: { platform: "mac" as const, displayName: "Mac", appVersion: "1", pairingEnabled: true, capabilities: [], relayURLs: [] },
   };
   let device: DeviceRecord = { descriptor, deviceRecordId: endpointID, revision: 2, revoked: true };
+  let recoverable = true;
   const store = {
     getDevice: () => device,
     getDeviceByRecordId: () => device,
+    canRecoverRevokedDevice: () => recoverable,
     consumeDeviceProof: () => { throw new Error("revoked devices must use recovery enrollment"); },
     issueChallenge: () => {},
     findRegistrationReceipt: () => null,
@@ -63,6 +65,9 @@ test("the owning Mac can recover a forgotten registration with fresh Stack auth"
     proof: { requestId: requestID, nonce, issuedAt, signature: encodeBase64URL(new Uint8Array(signed)) },
   };
   await expect(broker.open(setup, authority, now + 3600, false)).rejects.toMatchObject({ code: "device_revoked" });
+  recoverable = false;
+  await expect(broker.open(setup, authority, now + 3600, true)).rejects.toMatchObject({ code: "device_revoked" });
+  recoverable = true;
   const opened = await broker.open(setup, authority, now + 3600, true);
   expect(opened.response.schemaId).toBe("session.ready.v1");
   expect("device" in opened.response).toBe(false);

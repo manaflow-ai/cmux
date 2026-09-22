@@ -89,7 +89,7 @@ export class PermissionTestDO {
       const verifiedAt = device.descriptor.identity.userId === "alice" ? 1200 : 1000;
       const session: BrokerSession = {
         sessionId: "fixture", identity: device.descriptor.identity, endpointId: device.descriptor.endpointId, identityGeneration: 0,
-        authority: { ...scope, userId: device.descriptor.identity.userId, verifiedAt }, expiresAt: verifiedAt + 3600,
+        authority: { ...scope, userId: device.descriptor.identity.userId, verifiedAt }, expiresAt: verifiedAt + 3600, issueTicket: false,
       };
       const message = path === "/renew" ? { schemaId: "ticket.request.v1", requestId: "renew", stackAccessToken: "fixture" }
         : { schemaId: "directory.request.v1", requestId: "directory", ...(input.cursor ? { cursor: input.cursor, haveRevision: input.revision } : {}) };
