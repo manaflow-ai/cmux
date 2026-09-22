@@ -421,6 +421,24 @@ def bytes_under(path: Path) -> int:
     return total
 
 
+def event_log_paths(path: Path) -> list[Path]:
+    archive = path.with_name(path.name + ".1")
+    return [candidate for candidate in (archive, path) if candidate.exists()]
+
+
+def event_rows(path: Path) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for source in event_log_paths(path):
+        for line in source.read_text(errors="replace").splitlines():
+            try:
+                value = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(value, dict):
+                rows.append(value)
+    return rows
+
+
 def summarize(results: dict[str, Any], elapsed: float, state_root: Path) -> dict[str, Any]:
     tasks: list[dict[str, Any]] = []
     warms: list[dict[str, Any]] = []
@@ -453,11 +471,7 @@ def summarize(results: dict[str, Any], elapsed: float, state_root: Path) -> dict
     quarantines = 0
     recovered = 0
     for events in state_root.rglob("events.jsonl"):
-        for line in events.read_text(errors="replace").splitlines():
-            try:
-                row = json.loads(line)
-            except json.JSONDecodeError:
-                continue
+        for row in event_rows(events):
             quarantines += row.get("event") == "lineage_quarantined"
             recovered += row.get("event") == "native_run_recovered"
 
@@ -659,14 +673,7 @@ def run_matrix(args: argparse.Namespace) -> dict[str, Any]:
 
 
 def summarize_events(path: Path) -> dict[str, Any]:
-    rows = []
-    for line in path.read_text(errors="replace").splitlines():
-        try:
-            value = json.loads(line)
-        except json.JSONDecodeError:
-            continue
-        if isinstance(value, dict):
-            rows.append(value)
+    rows = event_rows(path)
     tasks = [row["receipt"] for row in rows if row.get("event") == "task_finished" and isinstance(row.get("receipt"), dict)]
     warms = [row["receipt"] for row in rows if row.get("event") == "warm_finished" and isinstance(row.get("receipt"), dict)]
     exact = sum(row.get("match_class") == "exact" for row in tasks)
