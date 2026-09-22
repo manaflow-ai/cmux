@@ -1367,14 +1367,19 @@ check_persistent_compile_router() {
   fi
 
   admission_permissions="$(printf '%s\n' "$admission_block" | awk '
-    /^    permissions:$/ { in_permissions=1; next }
+    !finished && /^    permissions:$/ { in_permissions=1; next }
     in_permissions && /^      [A-Za-z0-9_-]+:/ {
       line=$0
       sub(/^      /, "", line)
       print line
       next
     }
-    in_permissions { exit }
+    in_permissions {
+      # Keep consuming the block after the permissions stanza. Exiting awk
+      # early can SIGPIPE the upstream printf under this script's pipefail.
+      in_permissions=0
+      finished=1
+    }
   ')"
   expected_admission_permissions=$'contents: read\nactions: read\npull-requests: read'
   if [ "$admission_permissions" != "$expected_admission_permissions" ]; then
