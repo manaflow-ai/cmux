@@ -1824,8 +1824,9 @@ def test_guard_bun_setup_runs_only_for_preflight_group() -> None:
     setup = block.index("      - name: Set up Bun for guard tests")
     next_step = block.index("      - name: Validate Claude launch environment policy behavior", setup)
     setup_block = block[setup:next_step]
-    assert "if: ${{ matrix.group == 'preflight' }}" in setup_block
+    assert "if: ${{ matrix.group == 'preflight' || matrix.group == 'release' }}" in setup_block
     assert block.count("setup-bun@") == 1
+    assert "test_ios_testflight_main_push_filter.py" in block
 
 
 def test_guard_python_39_setup_runs_only_for_release_group() -> None:
