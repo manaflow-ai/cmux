@@ -414,9 +414,16 @@ struct BrowserDesignModeScreenshotEvaluatorTests {
         guard didLoad else { return }
         webView.pageZoom = 2
 
+        // Each stitched tile scrolls and then waits for two animation frames.
+        // This web view is never on screen in the test host, so no frame ever
+        // arrives and every one of the ~20 tiles waits out the settle bound
+        // instead. Shorten that bound; the tiling, stitching, and bounded
+        // output sizes under test are unchanged.
+        #expect(BrowserScreenshotWebViewSnapshotter.defaultScrollSettleTimeout == 0.25)
         let screenshotEvaluator = BrowserDesignModeScreenshotEvaluator(
             timeout: 10,
-            cleanupTimeout: 2
+            cleanupTimeout: 2,
+            scrollSettleTimeout: 0.05
         )
         let overview = try await screenshotEvaluator.captureFullPage(from: webView)
         let selection = try await screenshotEvaluator.captureDocumentRect(

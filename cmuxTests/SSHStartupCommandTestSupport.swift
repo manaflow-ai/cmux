@@ -47,6 +47,53 @@ enum SSHStartupCommandTestSupport {
         }
     }
 
+    /// Rewrites text inside the embedded startup script and re-encodes it.
+    ///
+    /// Lets a test shrink a production budget that the generated script pins as
+    /// a literal (a retry limit, for example) so the behavior around that budget
+    /// can be exercised without paying for every attempt. The caller is expected
+    /// to assert separately that the untouched script carried the production
+    /// value.
+    static func replacingWithinScript(
+        in command: String,
+        replacements: [String: String]
+    ) -> String? {
+        guard let payload = decodedPayload(in: command) else {
+            return applyingReplacements(replacements, to: command)
+        }
+        let rewrittenScript = applyingReplacements(replacements, to: payload.script)
+            // Startup commands nest their payloads, so keep descending until the
+            // level that actually carries the text is found.
+            ?? replacingWithinScript(in: payload.script, replacements: replacements)
+        guard let rewrittenScript else { return nil }
+        return command.replacingOccurrences(
+            of: String(command[payload.range]), with: Data(rewrittenScript.utf8).base64EncodedString()
+        )
+    }
+
+    /// Every decode level of an embedded startup command, outermost first.
+    static func scriptDecodeLevels(in command: String) -> [String] {
+        var levels = [command]
+        var current = command
+        while let payload = decodedPayload(in: current), levels.count < 8 {
+            levels.append(payload.script)
+            current = payload.script
+        }
+        return levels
+    }
+
+    private static func applyingReplacements(
+        _ replacements: [String: String],
+        to script: String
+    ) -> String? {
+        var rewritten = script
+        for (original, replacement) in replacements {
+            guard rewritten.contains(original) else { return nil }
+            rewritten = rewritten.replacingOccurrences(of: original, with: replacement)
+        }
+        return rewritten
+    }
+
     private static func payloadRange(in command: String) -> Range<String.Index>? {
         if let assignment = command.range(of: "cmux_payload=") {
             let end = command[assignment.upperBound...].firstIndex(of: "\n") ?? command.endIndex

@@ -449,7 +449,29 @@ struct SSHStartupManualReconnectTests {
             replacingSystemSSHWith: fakeSSH
         )
         defer { Self.removeFixturePaths(startup.cleanupPaths) }
-        let startupCommand = startup.command
+        // The pane ships a 20-failure foreground-authentication budget. Assert
+        // that value on the generated script, then run the loop against a
+        // shrunken budget so the test proves the limit is honored without
+        // spawning 20 authentication attempts.
+        let authPolicy = SSHForegroundAuthenticationRetryPolicy()
+        #expect(authPolicy.maximumConsecutiveTransientFailures == 20)
+        let generatedScripts = SSHStartupCommandTestSupport.scriptDecodeLevels(in: startup.command)
+        let productionBudget = try #require(
+            ["cmux_ssh_auth_retry_limit", "cmux_ssh_attach_auth_retry_limit"]
+                .map { "\($0)=\(authPolicy.maximumConsecutiveTransientFailures)" }
+                .first { budget in generatedScripts.contains { $0.contains(budget) } },
+            "the generated startup script no longer pins the production authentication retry budget"
+        )
+        let shrunkenBudget = 3
+        let startupCommand = try #require(SSHStartupCommandTestSupport.replacingWithinScript(
+            in: startup.command,
+            replacements: [
+                productionBudget: productionBudget.replacingOccurrences(
+                    of: "=\(authPolicy.maximumConsecutiveTransientFailures)",
+                    with: "=\(shrunkenBudget)"
+                )
+            ]
+        ))
         var environment = ProcessInfo.processInfo.environment
         environment["PATH"] = "\(root.path):\(environment["PATH"] ?? "/usr/bin:/bin")"
         environment["CMUX_BUNDLED_CLI_PATH"] = fakeCLI.path
@@ -472,7 +494,7 @@ struct SSHStartupManualReconnectTests {
         #expect(!result.timedOut, Comment(rawValue: result.stderr))
         #expect(result.status == 255, Comment(rawValue: result.stderr))
         let attempts = try String(contentsOf: attemptFile, encoding: .utf8)
-        #expect(attempts == "20", Comment(rawValue: result.stderr))
+        #expect(attempts == "\(shrunkenBudget)", Comment(rawValue: result.stderr))
     }
 
     @Test func establishedStartupRetriesUnclassifiedReauthenticationFailure() throws {

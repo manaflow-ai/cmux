@@ -16,11 +16,19 @@ final class WorkspaceStressProfileTests: XCTestCase {
         let createP95BudgetMs: Double?
         let switchP95BudgetMs: Double?
 
+        /// The checked-in defaults are the smoke-sized profile every CI run
+        /// pays for: enough workspaces, panels, and switch passes to catch a
+        /// broken workspace lifecycle, and small enough to stay off the
+        /// critical path. A real profiling run raises them through the
+        /// environment (and then supplies the p95 budgets), e.g.
+        /// `CMUX_WORKSPACE_STRESS_WORKSPACES=48
+        ///  CMUX_WORKSPACE_STRESS_TABS_PER_WORKSPACE=10
+        ///  CMUX_WORKSPACE_STRESS_SWITCH_PASSES=6`.
         static func current(environment: [String: String] = ProcessInfo.processInfo.environment) -> StressConfig {
             StressConfig(
-                workspaceCount: parseInt(environment["CMUX_WORKSPACE_STRESS_WORKSPACES"], default: 48, minimum: 2),
-                tabsPerWorkspace: parseInt(environment["CMUX_WORKSPACE_STRESS_TABS_PER_WORKSPACE"], default: 10, minimum: 1),
-                switchPasses: parseInt(environment["CMUX_WORKSPACE_STRESS_SWITCH_PASSES"], default: 6, minimum: 1),
+                workspaceCount: parseInt(environment["CMUX_WORKSPACE_STRESS_WORKSPACES"], default: 12, minimum: 2),
+                tabsPerWorkspace: parseInt(environment["CMUX_WORKSPACE_STRESS_TABS_PER_WORKSPACE"], default: 4, minimum: 1),
+                switchPasses: parseInt(environment["CMUX_WORKSPACE_STRESS_SWITCH_PASSES"], default: 2, minimum: 1),
                 createP95BudgetMs: parseDouble(environment["CMUX_WORKSPACE_STRESS_CREATE_P95_BUDGET_MS"]),
                 switchP95BudgetMs: parseDouble(environment["CMUX_WORKSPACE_STRESS_SWITCH_P95_BUDGET_MS"])
             )

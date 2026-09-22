@@ -1,5 +1,6 @@
 import AppKit
 import CmuxCore
+import CmuxFoundation
 import Foundation
 import Testing
 
@@ -307,7 +308,47 @@ struct SSHDeepSleepReattachTests {
         #expect(restartedSnapshot.remotePTYSessionID == customSessionID)
     }
 
-    @Test(arguments: [(nil, Int32(255), "21", 20), ("2O", Int32(255), "21", 20)])
+    /// The attach wrapper resolves its retry budget before the loop starts, so
+    /// the production default and its malformed-value fallback are provable
+    /// without paying for a full budget of attach attempts.
+    @Test(arguments: [nil, "2O", "0", "021", "21"] as [String?])
+    func foregroundAuthenticatedAttachClampsRetryBudgetToProductionDefault(
+        reconnectLimit: String?
+    ) throws {
+        let attachLines = SSHPTYAttachRetryScriptBuilder().lines(
+            command: "cmux_ssh_attach_attempt",
+            reauthenticates: true
+        )
+        let budgetResolution = Array(attachLines.prefix { $0 != "while :; do" })
+        #expect(
+            budgetResolution.count < attachLines.count,
+            "the attach retry loop marker moved; the budget probe would run the whole loop"
+        )
+        // The generated startup command embeds these same lines, so the probe
+        // cannot drift away from what a real pane runs.
+        let startupCommand = SSHPTYAttachStartupCommandBuilder.command(
+            sessionID: "ssh-test-session",
+            foregroundAuth: Self.foregroundAuth()
+        )
+        let clampLine = try #require(budgetResolution.first { $0.contains("CMUX_SSH_RECONNECT_LIMIT") })
+        #expect(startupCommand.contains(clampLine))
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SSH_RECONNECT_LIMIT"] = reconnectLimit
+        let result = Self.runProcessCapturingStandardOutput(
+            command: (budgetResolution + ["printf '%s' \"$cmux_ssh_attach_reconnect_limit\""])
+                .joined(separator: "\n"),
+            environment: environment
+        )
+
+        #expect(!result.timedOut, Comment(rawValue: result.stderr))
+        #expect(result.status == 0, Comment(rawValue: result.stderr))
+        // Absent, malformed, and out-of-range budgets all fail closed to the
+        // finite production default.
+        #expect(result.stdout == "20", Comment(rawValue: result.stdout))
+    }
+
+    @Test(arguments: [(Optional("4"), Int32(255), "5", 4)])
     func foregroundAuthenticatedAttachUsesConfiguredRetryBudget(
         reconnectLimit: String?, expectedStatus: Int32, expectedAttempts: String, expectedSleepCount: Int
     ) throws {
@@ -525,6 +566,41 @@ struct SSHDeepSleepReattachTests {
 
     private static func writeShellFile(at url: URL, lines: [String]) throws {
         try (lines.joined(separator: "\n") + "\n").write(to: url, atomically: true, encoding: .utf8)
+    }
+
+    /// Runs a short shell probe and keeps its stdout, for scripts that report a
+    /// resolved value instead of exercising a retry loop.
+    private static func runProcessCapturingStandardOutput(
+        command: String,
+        environment: [String: String]
+    ) -> (status: Int32, stdout: String, stderr: String, timedOut: Bool) {
+        let process = Process()
+        let stdoutPipe = Pipe()
+        let stderrPipe = Pipe()
+        process.executableURL = URL(fileURLWithPath: "/bin/sh")
+        process.arguments = ["-c", command]
+        process.environment = environment
+        process.standardInput = FileHandle.nullDevice
+        process.standardOutput = stdoutPipe
+        process.standardError = stderrPipe
+        do {
+            try process.run()
+        } catch {
+            return (-1, "", String(describing: error), false)
+        }
+        let exitSignal = DispatchSemaphore(value: 0)
+        DispatchQueue.global(qos: .userInitiated).async {
+            process.waitUntilExit()
+            exitSignal.signal()
+        }
+        let timedOut = exitSignal.wait(timeout: .now() + 10) == .timedOut
+        if timedOut {
+            process.terminate()
+            _ = exitSignal.wait(timeout: .now() + 1)
+        }
+        let stdout = String(data: stdoutPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+        let stderr = String(data: stderrPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+        return (process.terminationStatus, stdout, stderr, timedOut)
     }
 
     private static func runProcess(command: String, environment: [String: String]) -> ProcessRunResult {

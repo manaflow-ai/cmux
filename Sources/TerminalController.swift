@@ -240,8 +240,12 @@ class TerminalController {
     private nonisolated static var socketMainHopSignpostingActive: Bool {
         socketMainHopSignposter.isEnabled
     }
-    private nonisolated static let v2BrowserDownloadWaitDefaultTimeoutMs = 10_000
-    private nonisolated static let v2BrowserDownloadWaitMaxTimeoutMs = 120_000
+    /// Shared with the CLI client, which sizes its socket response timeout from
+    /// the same window.
+    private nonisolated static let v2BrowserDownloadWaitDefaultTimeoutMs =
+        BrowserDownloadWaitTimeout.defaultTimeoutMilliseconds
+    private nonisolated static let v2BrowserDownloadWaitMaxTimeoutMs =
+        BrowserDownloadWaitTimeout.maximumTimeoutMilliseconds
     private nonisolated static let v2ConsumedBrowserDownloadIDLimit = 128
     private struct MobileViewportReport {
         var columns: Int; var rows: Int; var updatedAt: Date; var generation: UInt64? = nil

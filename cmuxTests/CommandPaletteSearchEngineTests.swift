@@ -303,6 +303,21 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
         Array(repeating: baseQueries, count: repetitions).flatMap { $0 }
     }
 
+    /// Wall-clock search benchmarks do not belong in the sharded app-host unit
+    /// suite; see `skipUnlessCommandPaletteSearchBenchmarksAreEnabled()` in
+    /// `CommandPaletteNucleoFixtures.swift` for the gate and how to run them.
+    ///
+    /// Correctness of the benchmarked code paths remains in the unit suite:
+    /// `testOptimizedSearchMatchesReferencePipeline` and
+    /// `testBenchmarkCorporaMatchReferencePipelineOnSmallFixture` assert result
+    /// parity between the optimized engine and the legacy reference pipeline on
+    /// the same corpora and queries the benchmarks time, and
+    /// `testLimitedSearchReturnsSameTopResultsAsFullSearch` covers the capped /
+    /// preview paths the fast-typing benchmark times.
+    private func skipUnlessSearchBenchmarksAreEnabled() throws {
+        try skipUnlessCommandPaletteSearchBenchmarksAreEnabled()
+    }
+
     func testOptimizedSearchMatchesReferencePipeline() {
         let commandEntries = makeCommandEntries(count: 96)
         let switcherEntries = makeSwitcherEntries(count: 64)
@@ -328,6 +343,62 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
                 optimizedResults(entries: switcherEntries, query: query),
                 referenceResults(entries: switcherEntries, query: query),
                 "Switcher corpus mismatch for query \(query)"
+            )
+        }
+    }
+
+    /// Correctness half of the env-gated search benchmarks: the benchmarks time
+    /// the optimized engine against the legacy reference pipeline on the switcher
+    /// and large-workspace corpora, and the fast-typing benchmark times the
+    /// capped and visible-candidate preview paths over typed prefixes. This test
+    /// keeps the *result* contract for exactly those corpora, queries and paths
+    /// in the unit suite on small fixtures, so a behavior regression is still
+    /// caught when the timing runs are skipped.
+    func testBenchmarkCorporaMatchReferencePipelineOnSmallFixture() {
+        let switcherEntries = makeSwitcherEntries(count: 32)
+        let switcherQueries = ["workspace 12", "phoenix", "feature-18", "rename-tab", "3007", "9202", "switch", "worktrees"]
+        for query in switcherQueries {
+            XCTAssertEqual(
+                optimizedResults(entries: switcherEntries, query: query),
+                referenceResults(entries: switcherEntries, query: query),
+                "Switcher benchmark corpus mismatch for query \(query)"
+            )
+        }
+
+        let largeEntries = makeLargeWorkspaceSwitcherEntries(count: 32)
+        let largeQueries = [
+            "workspace 31",
+            "palette latency",
+            "feature 21",
+            "cmd-p-search",
+            "project-17",
+            "4207",
+            "9204",
+            "Window 3",
+        ]
+        for query in largeQueries {
+            XCTAssertEqual(
+                optimizedResults(entries: largeEntries, query: query),
+                referenceResults(entries: largeEntries, query: query),
+                "Large workspace benchmark corpus mismatch for query \(query)"
+            )
+        }
+
+        // Fast-typing paths: the capped full-corpus search and the
+        // visible-candidate preview search must return the same ordered results
+        // (and highlights) the uncapped search would show for that corpus.
+        let previewEntries = Array(largeEntries.prefix(16))
+        for query in fastTypingPrefixes("cmd-p-search").suffix(6) {
+            let fullResults = optimizedResults(entries: largeEntries, query: query)
+            XCTAssertEqual(
+                optimizedResults(entries: largeEntries, query: query, resultLimit: 8),
+                Array(fullResults.prefix(8)),
+                "Capped full-corpus search diverged from full search for prefix \(query)"
+            )
+            XCTAssertEqual(
+                optimizedResults(entries: previewEntries, query: query, resultLimit: 8),
+                Array(optimizedResults(entries: previewEntries, query: query).prefix(8)),
+                "Visible-candidate preview search diverged from full search for prefix \(query)"
             )
         }
     }
@@ -2259,7 +2330,8 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
         XCTAssertNotEqual(base, changedSurfaceKind)
     }
 
-    func testCommandSearchBenchmarkBeatsLegacyPipeline() {
+    func testCommandSearchBenchmarkBeatsLegacyPipeline() throws {
+        try skipUnlessSearchBenchmarksAreEnabled()
         let entries = makeCommandEntries(count: 900)
         let corpus = entries.map { entry in
             CommandPaletteSearchCorpusEntry(
@@ -2300,7 +2372,8 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
         )
     }
 
-    func testSwitcherSearchBenchmarkBeatsLegacyPipeline() {
+    func testSwitcherSearchBenchmarkBeatsLegacyPipeline() throws {
+        try skipUnlessSearchBenchmarksAreEnabled()
         let entries = makeSwitcherEntries(count: 400)
         let corpus = entries.map { entry in
             CommandPaletteSearchCorpusEntry(
@@ -2341,7 +2414,8 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
         )
     }
 
-    func testLargeWorkspaceSwitcherSearchBenchmarkAvoidsPerQueryPreparationCost() {
+    func testLargeWorkspaceSwitcherSearchBenchmarkAvoidsPerQueryPreparationCost() throws {
+        try skipUnlessSearchBenchmarksAreEnabled()
         let entries = makeLargeWorkspaceSwitcherEntries(count: 800)
         let corpus = entries.map { entry in
             CommandPaletteSearchCorpusEntry(
@@ -2391,7 +2465,8 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
         )
     }
 
-    func testFastTypingPreviewSearchBenchmarkReportsEstimatedDroppedFrames() {
+    func testFastTypingPreviewSearchBenchmarkReportsEstimatedDroppedFrames() throws {
+        try skipUnlessSearchBenchmarksAreEnabled()
         let entries = makeLargeWorkspaceSwitcherEntries(count: 800)
         let corpus = entries.map { entry in
             CommandPaletteSearchCorpusEntry(

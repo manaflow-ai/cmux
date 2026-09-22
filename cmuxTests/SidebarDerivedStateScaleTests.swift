@@ -14,7 +14,12 @@ import Testing
 @MainActor
 @Suite("Sidebar derived state scale", .serialized)
 struct SidebarDerivedStateScaleTests {
-    @Test(arguments: [20, 50, 100])
+    // Both invariants below are absolute work counts (zero derived work for
+    // bookkeeping; a constant snapshot bound and an O(N) input ceiling for one
+    // event), so the smallest and largest mounted lists bracket the claim. The
+    // middle 50-workspace case re-ran the same assertions at a scale between
+    // two it already held at.
+    @Test(arguments: [20, 100])
     func paneRegistryBookkeepingDoesNotInvalidateCachedSidebar(workspaceCount: Int) async throws {
         let harness = try await SidebarLazyLayoutScaleTests.mountSidebar(
             workspaceCount: workspaceCount, includeGroups: false
@@ -37,7 +42,7 @@ struct SidebarDerivedStateScaleTests {
                 "Cached sidebar rows must not observe pane registry bookkeeping through task-status inference.")
     }
 
-    @Test(arguments: [20, 50, 100])
+    @Test(arguments: [20, 100])
     func workspaceEventKeepsDerivedWorkScoped(workspaceCount: Int) async throws {
         let harness = try await SidebarLazyLayoutScaleTests.mountSidebar(
             workspaceCount: workspaceCount, includeGroups: false
@@ -64,6 +69,15 @@ struct SidebarDerivedStateScaleTests {
 
     /// Wait for accepted publisher emissions, then require a quiet interval.
     /// This is a test deadline, not a delay or polling loop in shipped code.
+    ///
+    /// The quiet window only has to outlast the slowest coalescing stage a
+    /// leaked sidebar update would have to cross: the per-workspace
+    /// `sidebarImmediateObservationCoalesceInterval` (50 ms), the sidebar
+    /// observation debounce (40 ms), and one run-loop turn for
+    /// `SidebarWorkspaceSnapshotRefreshCoalescer`. 150 ms is three times the
+    /// longest of those, so a late emission still lands inside the window.
+    private static let quietWindow = Duration.milliseconds(150)
+
     private func settle(_ harness: SidebarLazyLayoutScaleTests.Harness, minimumSnapshotBuilds: Int = 1) async {
         let deadline = ContinuousClock.now.advanced(by: .seconds(4))
         var quietSince = ContinuousClock.now
@@ -77,7 +91,7 @@ struct SidebarDerivedStateScaleTests {
                 quietSince = .now
             }
             if harness.counter.workspaceSnapshotBuilds >= minimumSnapshotBuilds,
-               quietSince.duration(to: .now) >= .milliseconds(350) { return }
+               quietSince.duration(to: .now) >= Self.quietWindow { return }
         } while .now < deadline
         Issue.record("Sidebar derived-state work did not converge within four seconds.")
     }

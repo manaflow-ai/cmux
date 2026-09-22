@@ -42,7 +42,11 @@ final class BrowserDesignModeScreenshotEvaluator {
     private var operationIDsByWebView: [ObjectIdentifier: UUID] = [:]
     private var webViewIDsByOperation: [UUID: ObjectIdentifier] = [:]
 
-    init(timeout: TimeInterval = 5, cleanupTimeout: TimeInterval = 2) {
+    init(
+        timeout: TimeInterval = 5,
+        cleanupTimeout: TimeInterval = 2,
+        scrollSettleTimeout: TimeInterval = BrowserScreenshotWebViewSnapshotter.defaultScrollSettleTimeout
+    ) {
         self.timeout = timeout
         self.cleanupTimeout = cleanupTimeout
         visibleViewportCapture = { webView, completion in
@@ -55,6 +59,7 @@ final class BrowserDesignModeScreenshotEvaluator {
             try await BrowserScreenshotWebViewSnapshotter.captureBoundedFullPageOverview(
                 from: webView,
                 maximumPixelCount: BrowserScreenshotPasteboardWriter.maximumDesignModeArtifactPixelCount,
+                scrollSettleTimeout: scrollSettleTimeout,
                 onProgress: onProgress
             )
         }
@@ -62,6 +67,7 @@ final class BrowserDesignModeScreenshotEvaluator {
             try await BrowserScreenshotWebViewSnapshotter.captureDocumentRect(
                 rect,
                 from: webView,
+                scrollSettleTimeout: scrollSettleTimeout,
                 onProgress: onProgress
             )
         }

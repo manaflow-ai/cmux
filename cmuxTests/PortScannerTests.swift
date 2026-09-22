@@ -1257,6 +1257,30 @@ struct PortScannerLsofBatchingTests {
 
 @Suite("Port scanner retirement end to end")
 struct PortScannerPortRetirementTests {
+    /// The production burst spans ten seconds, so these tests drive the scanner
+    /// on a compressed schedule of the same shape: six scans, one burst, the
+    /// same coalesce step. Only the wall-clock spacing shrinks; the scan count
+    /// and the ordering the reconciler depends on are unchanged.
+    private static let fastBurstOffsets: [TimeInterval] = [0.05, 0.15, 0.3, 0.45, 0.6, 0.75]
+    /// Same six-scan burst, but with the final scan left far enough behind the
+    /// fifth that a kick issued at the fifth scan reliably lands while the
+    /// burst still owes exactly one scan — the case the late-burst test covers.
+    private static let fastLateBurstOffsets: [TimeInterval] = [0.05, 0.15, 0.3, 0.45, 0.6, 1.6]
+    /// Well under the 25ms poll the kicking test uses: a kick that lands
+    /// before the coalesce timer fires reschedules it, so a poll faster than
+    /// this window would starve the burst.
+    private static let fastCoalesceDelay: TimeInterval = 0.01
+
+    /// The compressed schedules above only stand in for production if the
+    /// shipped cadence still has the shape they mimic.
+    @Test("The production scan schedule keeps its six-scan burst and coalesce window")
+    func productionScanScheduleMatchesCompressedShape() {
+        #expect(PortScanner.defaultBurstOffsets == [0.5, 1.5, 3, 5, 7.5, 10])
+        #expect(PortScanner.defaultCoalesceDelay == 0.2)
+        #expect(Self.fastBurstOffsets.count == PortScanner.defaultBurstOffsets.count)
+        #expect(Self.fastLateBurstOffsets.count == PortScanner.defaultBurstOffsets.count)
+    }
+
     /// Drives the whole scanner — TTY registration, kick, coalesce, burst,
     /// reconcile, publish — so a break anywhere in that chain surfaces even
     /// when every individual stage still passes its own test.
@@ -1283,7 +1307,9 @@ struct PortScannerPortRetirementTests {
         let sessionIdentity = TerminalTTYSessionIdentity(processIdentity: listenerIdentity)
         let scanner = PortScanner(
             commandRunner: runner,
-            ttySessionIdentityProvider: { _ in sessionIdentity }
+            ttySessionIdentityProvider: { _ in sessionIdentity },
+            burstOffsets: Self.fastBurstOffsets,
+            coalesceDelay: Self.fastCoalesceDelay
         )
         let publishedPorts = OSAllocatedUnfairLock(initialState: [[Int]]())
 
@@ -1299,7 +1325,8 @@ struct PortScannerPortRetirementTests {
         let didPublishListeningPort = await Self.waitForPublication(
             in: publishedPorts,
             matching: { $0 == [listeningPort] },
-            onKick: { scanner.kick(workspaceId: workspaceId, panelId: panelId) }
+            onKick: { scanner.kick(workspaceId: workspaceId, panelId: panelId) },
+            pollInterval: .milliseconds(25)
         )
         try #require(didPublishListeningPort, "the listening port was never published")
 
@@ -1312,7 +1339,8 @@ struct PortScannerPortRetirementTests {
             in: publishedPorts,
             after: publicationsBeforeStop,
             matching: \.isEmpty,
-            onKick: { scanner.kick(workspaceId: workspaceId, panelId: panelId) }
+            onKick: { scanner.kick(workspaceId: workspaceId, panelId: panelId) },
+            pollInterval: .milliseconds(25)
         )
 
         #expect(didRetirePort, "the port was never retired after its process stopped listening")
@@ -1338,7 +1366,9 @@ struct PortScannerPortRetirementTests {
         let sessionIdentity = TerminalTTYSessionIdentity(processIdentity: listenerIdentity)
         let scanner = PortScanner(
             commandRunner: runner,
-            ttySessionIdentityProvider: { _ in sessionIdentity }
+            ttySessionIdentityProvider: { _ in sessionIdentity },
+            burstOffsets: Self.fastLateBurstOffsets,
+            coalesceDelay: Self.fastCoalesceDelay
         )
         let publishedPorts = OSAllocatedUnfairLock(initialState: [[Int]]())
 
@@ -1354,15 +1384,18 @@ struct PortScannerPortRetirementTests {
         let didPublishListeningPort = await Self.waitForPublication(
             in: publishedPorts,
             matching: { $0 == [listeningPort] },
-            onKick: {}
+            onKick: {},
+            pollInterval: .milliseconds(10)
         )
         try #require(didPublishListeningPort, "the listening port was never published")
 
-        // The fifth scan is at 7.5 seconds in the six-scan burst. Stopping here
-        // leaves only the 10-second scan in the original burst, so clearing the
-        // kick at that scan strands the port after only one complete miss.
+        // The fifth scan leaves only the last scan of the six-scan burst.
+        // Stopping here means clearing the kick at that scan strands the port
+        // after only one complete miss, so the kick must survive the burst.
         let reachedFifthScan = await runner.waitForLsofInvocation(5)
         try #require(reachedFifthScan, "the scanner did not reach the fifth burst scan")
+        let sawSixthScan = await runner.hasReachedLsofInvocation(6)
+        try #require(!sawSixthScan, "the burst finished before the late kick was issued")
         let publicationsBeforeStop = publishedPorts.withLock { $0.count }
         await runner.stopListening()
         scanner.kick(workspaceId: workspaceId, panelId: panelId)
@@ -1372,7 +1405,8 @@ struct PortScannerPortRetirementTests {
             after: publicationsBeforeStop,
             matching: \.isEmpty,
             onKick: {},
-            timeout: .seconds(12)
+            timeout: .seconds(12),
+            pollInterval: .milliseconds(10)
         )
 
         #expect(didRetirePort, "a late-burst kick did not schedule enough complete misses")
@@ -1428,17 +1462,19 @@ struct PortScannerPortRetirementTests {
     }
 
     /// Polls rather than sleeping a fixed interval, since the scan burst runs
-    /// on real timers whose spacing shifts under load.
+    /// on real timers whose spacing shifts under load. The deadline bounds only
+    /// the failure path: a satisfied predicate returns immediately.
     ///
-    /// The interval must stay above the scanner's 200ms kick coalesce window:
-    /// each kick reschedules that timer, so polling faster than it starves the
-    /// burst and no scan ever runs.
+    /// A caller that kicks on every poll must keep the interval above the
+    /// scanner's coalesce window: each kick reschedules that timer, so polling
+    /// faster than it starves the burst and no scan ever runs.
     private static func waitForPublication(
         in publishedPorts: OSAllocatedUnfairLock<[[Int]]>,
         after startIndex: Int = 0,
         matching predicate: @Sendable ([Int]) -> Bool,
         onKick: @Sendable () -> Void,
-        timeout: Duration = .seconds(20)
+        timeout: Duration = .seconds(20),
+        pollInterval: Duration = .milliseconds(500)
     ) async -> Bool {
         func isSatisfied() -> Bool {
             publishedPorts.withLock { $0.dropFirst(startIndex).contains(where: predicate) }
@@ -1450,7 +1486,7 @@ struct PortScannerPortRetirementTests {
             // Cancellation makes the sleep throw immediately; without this the
             // poll would spin until the wall-clock deadline.
             do {
-                try await Task.sleep(for: .milliseconds(500))
+                try await Task.sleep(for: pollInterval)
             } catch {
                 break
             }
@@ -1500,12 +1536,16 @@ private actor PortLifecycleCommandRunner: CommandRunning {
         let deadline = ContinuousClock.now + timeout
         while lsofInvocationCount < target, ContinuousClock.now < deadline {
             do {
-                try await Task.sleep(for: .milliseconds(50))
+                try await Task.sleep(for: .milliseconds(2))
             } catch {
                 return false
             }
         }
         return lsofInvocationCount >= target
+    }
+
+    func hasReachedLsofInvocation(_ target: Int) -> Bool {
+        lsofInvocationCount >= target
     }
 
     func run(

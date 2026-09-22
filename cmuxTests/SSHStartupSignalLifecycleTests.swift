@@ -962,19 +962,31 @@ extension CLINotifyProcessIntegrationRegressionTests {
         environment["CMUX_TEST_SLEEP_LOG"] = sleepLog.path
         environment["CMUX_SSH_RECONNECT_DELAY_SECONDS"] = "0"
         environment["CMUX_SSH_RECONNECT_LIMIT"] = "2"
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
 
-        let result = runProcess(
+        let child = try StreamingChildProcess(
             executablePath: "/bin/sh",
             arguments: ["-c", startupCommand],
-            environment: environment,
-            timeout: 1
+            environment: environment
         )
+        defer { child.terminate() }
 
-        XCTAssertTrue(result.timedOut, "closed stdin must not dismiss the terminal failure prompt")
+        // The prompt is the wrapper's own completion signal: it is printed only
+        // after the retry loop gave up and reported the session end.
+        XCTAssertTrue(
+            child.waitForStandardError(
+                containing: "[cmux] press Enter to close this pane.",
+                timeout: 20
+            ),
+            child.standardError
+        )
+        XCTAssertTrue(
+            child.waitUntilBlocked(timeout: 10),
+            "closed stdin must not dismiss the terminal failure prompt: \(child.standardError)"
+        )
         XCTAssertEqual((try? String(contentsOf: attemptFile, encoding: .utf8))?.trimmingCharacters(in: .whitespacesAndNewlines), "3")
         XCTAssertEqual(try String(contentsOf: sleepLog, encoding: .utf8), "2\n2\n")
-        XCTAssertTrue(result.stderr.contains("[cmux] ssh exited with status 255."), result.stderr)
-        XCTAssertTrue(result.stderr.contains("[cmux] press Enter to close this pane."), result.stderr)
+        XCTAssertTrue(child.standardError.contains("[cmux] ssh exited with status 255."), child.standardError)
         let recordedCalls = (try? String(contentsOf: logFile, encoding: .utf8)) ?? ""
         let sessionEndCalls = recordedCalls
             .split(separator: "\n")
@@ -1021,15 +1033,26 @@ extension CLINotifyProcessIntegrationRegressionTests {
         environment["CMUX_TEST_SESSION_END_LOG"] = logFile.path
         environment["CMUX_TEST_ATTEMPT_FILE"] = attemptFile.path
         environment["CMUX_SSH_RECONNECT_DELAY_SECONDS"] = "0"
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
 
-        let result = runProcess(
+        let child = try StreamingChildProcess(
             executablePath: "/bin/sh",
             arguments: ["-c", startupCommand],
-            environment: environment,
-            timeout: 1
+            environment: environment
         )
+        defer { child.terminate() }
 
-        XCTAssertTrue(result.timedOut, "closed stdin must not dismiss the terminal failure prompt")
+        XCTAssertTrue(
+            child.waitForStandardError(
+                containing: "[cmux] press Enter to close this pane.",
+                timeout: 20
+            ),
+            child.standardError
+        )
+        XCTAssertTrue(
+            child.waitUntilBlocked(timeout: 10),
+            "closed stdin must not dismiss the terminal failure prompt: \(child.standardError)"
+        )
         XCTAssertEqual((try? String(contentsOf: attemptFile, encoding: .utf8))?.trimmingCharacters(in: .whitespacesAndNewlines), "1")
         let recordedCalls = (try? String(contentsOf: logFile, encoding: .utf8)) ?? ""
         let sessionEndCalls = recordedCalls
@@ -1071,20 +1094,30 @@ extension CLINotifyProcessIntegrationRegressionTests {
         environment["CMUX_SURFACE_ID"] = "22222222-2222-2222-2222-222222222222"
         environment["CMUX_TEST_SESSION_END_LOG"] = logFile.path
         environment["CMUX_SSH_RECONNECT_DELAY_SECONDS"] = "0"
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
 
-        let result = runProcess(
+        let child = try StreamingChildProcess(
             executablePath: "/bin/sh",
             arguments: ["-c", startupCommand],
-            environment: environment,
-            timeout: 1
+            environment: environment
         )
+        defer { child.terminate() }
 
         // A child status is an ordinary session failure, unlike a signal sent
         // to the supervisor. Keep its status visible until a fresh Enter; EOF
         // must not dismiss the failure prompt (the #9966 contract).
-        XCTAssertTrue(result.timedOut, "closed stdin must not dismiss the terminal failure prompt")
-        XCTAssertTrue(result.stderr.contains("[cmux] ssh exited with status 130."), result.stderr)
-        XCTAssertTrue(result.stderr.contains("[cmux] press Enter to close this pane."), result.stderr)
+        XCTAssertTrue(
+            child.waitForStandardError(
+                containing: "[cmux] press Enter to close this pane.",
+                timeout: 20
+            ),
+            child.standardError
+        )
+        XCTAssertTrue(
+            child.waitUntilBlocked(timeout: 10),
+            "closed stdin must not dismiss the terminal failure prompt: \(child.standardError)"
+        )
+        XCTAssertTrue(child.standardError.contains("[cmux] ssh exited with status 130."), child.standardError)
         let recordedCalls = (try? String(contentsOf: logFile, encoding: .utf8)) ?? ""
         let sessionEndCalls = recordedCalls
             .split(separator: "\n")
@@ -1217,17 +1250,27 @@ extension CLINotifyProcessIntegrationRegressionTests {
         environment["CMUX_SURFACE_ID"] = "22222222-2222-2222-2222-222222222222"
         environment["CMUX_TEST_SESSION_END_LOG"] = logFile.path
         environment["CMUX_SSH_RECONNECT_DELAY_SECONDS"] = "0"
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
 
-        let result = runProcess(
+        let child = try StreamingChildProcess(
             executablePath: "/bin/sh",
             arguments: ["-c", startupCommand],
-            environment: environment,
-            timeout: 1
+            environment: environment
         )
+        defer { child.terminate() }
 
-        XCTAssertTrue(result.timedOut, "closed stdin must not dismiss the terminal failure prompt")
-        XCTAssertTrue(result.stderr.contains("[cmux] ssh exited with status 1."), result.stderr)
-        XCTAssertTrue(result.stderr.contains("[cmux] press Enter to close this pane."), result.stderr)
+        XCTAssertTrue(
+            child.waitForStandardError(
+                containing: "[cmux] press Enter to close this pane.",
+                timeout: 20
+            ),
+            child.standardError
+        )
+        XCTAssertTrue(
+            child.waitUntilBlocked(timeout: 10),
+            "closed stdin must not dismiss the terminal failure prompt: \(child.standardError)"
+        )
+        XCTAssertTrue(child.standardError.contains("[cmux] ssh exited with status 1."), child.standardError)
     }
 
     func testSSHStartupForwardsStdinToBackgroundedSSH() throws {
@@ -1562,5 +1605,145 @@ extension CLINotifyProcessIntegrationRegressionTests {
         }
         let contents = (try? String(contentsOf: url, encoding: .utf8)) ?? ""
         return condition(contents)
+    }
+}
+
+/// A child process whose output is streamed while it runs.
+///
+/// Startup-wrapper tests that end at the terminal exit prompt used to prove
+/// "the pane stays open" by letting a blocking `runProcess` call burn its whole
+/// timeout (20s under CI). This type lets those tests wait on the real signals
+/// instead: the prompt text the wrapper prints, and the prompt helper blocking
+/// with its input at EOF. Both return the instant they hold, so the timeouts
+/// bound only the failure path.
+final class StreamingChildProcess: @unchecked Sendable {
+    let process = Process()
+
+    private let stdoutPipe = Pipe()
+    private let stderrPipe = Pipe()
+    private let outputLock = NSLock()
+    private let drainGroup = DispatchGroup()
+    private var stdoutData = Data()
+    private var stderrData = Data()
+
+    init(
+        executablePath: String,
+        arguments: [String],
+        environment: [String: String]
+    ) throws {
+        process.executableURL = URL(fileURLWithPath: executablePath)
+        process.arguments = arguments
+        process.environment = CLIChildEnvironment(
+            appHostEnvironment: ProcessInfo.processInfo.environment
+        ).normalizing(environment)
+        // The #9966 contract under test is "input already at EOF must not
+        // dismiss the failure prompt", so the child starts with a closed stdin.
+        process.standardInput = FileHandle.nullDevice
+        process.standardOutput = stdoutPipe
+        process.standardError = stderrPipe
+        try process.run()
+
+        drain(stdoutPipe) { [weak self] data in
+            guard let self else { return }
+            self.outputLock.lock()
+            self.stdoutData.append(data)
+            self.outputLock.unlock()
+        }
+        drain(stderrPipe) { [weak self] data in
+            guard let self else { return }
+            self.outputLock.lock()
+            self.stderrData.append(data)
+            self.outputLock.unlock()
+        }
+    }
+
+    var standardOutput: String {
+        outputLock.lock()
+        defer { outputLock.unlock() }
+        return String(data: stdoutData, encoding: .utf8) ?? ""
+    }
+
+    var standardError: String {
+        outputLock.lock()
+        defer { outputLock.unlock() }
+        return String(data: stderrData, encoding: .utf8) ?? ""
+    }
+
+    /// Returns as soon as `text` has been written to stderr.
+    ///
+    /// A child that exits before emitting `text` resolves immediately from its
+    /// drained output rather than waiting out `timeout`.
+    func waitForStandardError(containing text: String, timeout: TimeInterval) -> Bool {
+        let deadline = Date.now.addingTimeInterval(timeout)
+        while Date.now < deadline {
+            if standardError.contains(text) { return true }
+            if !process.isRunning {
+                _ = drainGroup.wait(timeout: .now() + 2)
+                return standardError.contains(text)
+            }
+            Thread.sleep(forTimeInterval: 0.005)
+        }
+        return standardError.contains(text)
+    }
+
+    /// Returns true once the child is alive but consuming no CPU, i.e. parked in
+    /// a blocking wait rather than on its way to exiting.
+    ///
+    /// The terminal exit prompt parks in `pause()` after a failed `tcgetattr`,
+    /// so a correct wrapper reaches a steady state with zero scheduled threads
+    /// and a frozen CPU counter. A regression that dismissed the prompt on EOF
+    /// exits instead, and `Process.isRunning` reports that without waiting.
+    func waitUntilBlocked(timeout: TimeInterval) -> Bool {
+        let deadline = Date.now.addingTimeInterval(timeout)
+        var previousCPU: UInt64?
+        var stableSamples = 0
+        while Date.now < deadline {
+            guard process.isRunning, let sample = taskSample() else { return false }
+            if sample.running == 0, let previousCPU, previousCPU == sample.cpu {
+                stableSamples += 1
+            } else {
+                stableSamples = 0
+            }
+            previousCPU = sample.cpu
+            // Two consecutive idle samples separated by real time: a child still
+            // starting up, or about to exit, keeps accumulating CPU.
+            if stableSamples >= 2 { return process.isRunning }
+            Thread.sleep(forTimeInterval: 0.025)
+        }
+        return false
+    }
+
+    func terminate() {
+        if process.isRunning {
+            process.terminate()
+        }
+        process.waitUntilExit()
+        _ = drainGroup.wait(timeout: .now() + 2)
+    }
+
+    private func taskSample() -> (cpu: UInt64, running: Int32)? {
+        var info = proc_taskinfo()
+        let expectedSize = MemoryLayout<proc_taskinfo>.stride
+        let size = proc_pidinfo(
+            process.processIdentifier,
+            PROC_PIDTASKINFO,
+            0,
+            &info,
+            Int32(expectedSize)
+        )
+        guard Int(size) == expectedSize else { return nil }
+        return (info.pti_total_user &+ info.pti_total_system, info.pti_numrunning)
+    }
+
+    private func drain(_ pipe: Pipe, into append: @escaping @Sendable (Data) -> Void) {
+        drainGroup.enter()
+        DispatchQueue.global(qos: .utility).async {
+            defer { self.drainGroup.leave() }
+            while true {
+                let data = pipe.fileHandleForReading.availableData
+                if data.isEmpty { return }
+                append(data)
+            }
+        }
     }
 }
