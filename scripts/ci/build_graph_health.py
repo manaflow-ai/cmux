@@ -82,11 +82,11 @@ def recent_touch_counts(
         "log",
         "--first-parent",
         f"--since={window_start.isoformat()}",
-        ref,
         "--format=commit:%H%x00",
         "--name-only",
         "-z",
         "--no-renames",
+        ref,
         "--",
         "Sources",
         "Packages",
@@ -115,6 +115,7 @@ def summarize(files: list[str], touches: Counter[str], commits: int, days: int, 
     app_touches = touches_by_owner["app"]
 
     def top_rows(counter: Counter[str]) -> list[dict[str, object]]:
+        """Render the most active groups in descending edit volume."""
         return [{"name": name, "touches": count} for name, count in counter.most_common(top)]
 
     return {
