@@ -67,14 +67,16 @@ struct MobileWhatsNewPage: Identifiable {
 /// device's acknowledgement marker and the remote visibility list
 /// (`/api/whats-new` `visibleEntryIds`) both reference it, and the
 /// unseen computation orders pages by catalog index.
-enum MobileWhatsNewCatalog {
+struct MobileWhatsNewCatalog: Sendable {
+    init() {}
+
     /// Newest first. The one-time sheet shows every visible entry newer than
     /// the acknowledgement marker.
-    static var entries: [MobileWhatsNewPage] {
+    var entries: [MobileWhatsNewPage] {
         [pairingOptInUpdate, connectionsUpdate]
     }
 
-    static func entry(withID id: String) -> MobileWhatsNewPage? {
+    func entry(withID id: String) -> MobileWhatsNewPage? {
         entries.first { $0.id == id }
     }
 
@@ -83,11 +85,11 @@ enum MobileWhatsNewCatalog {
     /// baseline: never-fetched devices and centerless fallbacks (previews)
     /// use it, so an official App Store build renders NO What's New surface
     /// before its first fetch, while team builds keep the full catalog.
-    static func channelVisibleEntries(
+    func channelVisibleEntries(
         buildType: MobileBuildType = .current()
     ) -> [MobileWhatsNewPage] {
         entries.filter { page in
-            MobileWhatsNewChannelPolicy.isVisible(
+            MobileWhatsNewChannelPolicy().isVisible(
                 channelTokens: page.channels,
                 buildType: buildType
             )
@@ -97,7 +99,7 @@ enum MobileWhatsNewCatalog {
     /// Catalog position (0 = newest). The unseen computation compares
     /// positions in the FULL catalog so remotely hiding one entry cannot
     /// shift how other entries compare against the marker.
-    static func index(ofID id: String) -> Int? {
+    func index(ofID id: String) -> Int? {
         if let index = entries.firstIndex(where: { $0.id == id }) {
             return index
         }
@@ -111,7 +113,7 @@ enum MobileWhatsNewCatalog {
         }
     }
 
-    static var pairingOptInUpdate: MobileWhatsNewPage {
+    var pairingOptInUpdate: MobileWhatsNewPage {
         MobileWhatsNewPage(
             id: "connections.v2",
             releaseLabel: L10n.string(
@@ -127,7 +129,7 @@ enum MobileWhatsNewCatalog {
         )
     }
 
-    static var connectionsUpdate: MobileWhatsNewPage {
+    var connectionsUpdate: MobileWhatsNewPage {
         MobileWhatsNewPage(
             id: "connections.v1",
             releaseLabel: L10n.string(
@@ -199,7 +201,7 @@ enum MobileWhatsNewCatalog {
         )
     }
 
-    static func macCompatibility(
+    func macCompatibility(
         policy: MobileMacCompatPolicy,
         iosVersion: String,
         buildType: MobileBuildType
@@ -218,7 +220,7 @@ enum MobileWhatsNewCatalog {
         )
     }
 
-    static func macUpdateDetail(
+    func macUpdateDetail(
         buildType: MobileBuildType,
         requiredVersion: String?
     ) -> String {

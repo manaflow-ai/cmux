@@ -17,6 +17,9 @@ mock.module("../app/handler/cli-auth-confirmation", () => ({
 
 mock.module("@hexclave/next", () => ({
   MagicLinkSignIn: () => React.createElement("div"),
+  MessageCard: () => React.createElement("div"),
+  useCliAuthConfirmation: () => null,
+  useUser: () => null,
   StackHandler: () => {
     throw pendingStackRender;
   },

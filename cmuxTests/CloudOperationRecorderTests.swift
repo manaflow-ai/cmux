@@ -231,6 +231,7 @@ struct CloudOperationRecorderTests {
         #expect(CloudTelemetryClient.current(info: info, flavor: .stable).channel == "production")
         #expect(CloudTelemetryClient.current(info: info, flavor: .dev).channel == "dev")
         #expect(CloudTelemetryClient.current(info: info, flavor: .nightly).revision == "abcdef123")
+        #expect(CloudTelemetryClient.current(info: info, flavor: .dev, environment: ["CMUX_TAG": "pr-123-cloud"]).tag == "pr-123-cloud")
     }
 
     @Test func machineUsageFailuresKeepTheirActionableCategories() {

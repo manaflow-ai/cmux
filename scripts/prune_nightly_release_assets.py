@@ -83,6 +83,11 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Delete assets instead of printing a dry-run plan",
     )
+    parser.add_argument(
+        "--best-effort",
+        action="store_true",
+        help="Treat GitHub API rate limits as a skipped maintenance pass",
+    )
     return parser.parse_args()
 
 
@@ -227,6 +232,13 @@ def delete_assets(repo: str, assets: list[ReleaseAsset]) -> None:
         github_api_json("DELETE", f"repos/{repo}/releases/assets/{asset.asset_id}")
 
 
+def is_rate_limit_error(error: GitHubAPIError | subprocess.CalledProcessError) -> bool:
+    if isinstance(error, GitHubAPIError):
+        return error.status in {403, 429} and "rate limit" in error.message.lower()
+    message = str(error.stderr or error.output or "").lower()
+    return "rate limit" in message
+
+
 def main() -> int:
     args = parse_args()
     if args.keep_builds < 1:
@@ -236,7 +248,13 @@ def main() -> int:
         print("--max-assets must be at least 1", file=sys.stderr)
         return 2
 
-    release = load_release(args.repo, args.release_tag)
+    try:
+        release = load_release(args.repo, args.release_tag)
+    except (GitHubAPIError, subprocess.CalledProcessError) as error:
+        if args.best_effort and is_rate_limit_error(error):
+            log(f"GitHub API rate limit reached; skipping {args.release_tag!r} prune pass.")
+            return 0
+        raise
     if release is None:
         log(f"Release {args.release_tag!r} does not exist yet, nothing to prune.")
         return 0
@@ -282,7 +300,13 @@ def main() -> int:
         log("Dry run only. Re-run with --execute to delete assets.")
         return 0
 
-    delete_assets(args.repo, to_delete)
+    try:
+        delete_assets(args.repo, to_delete)
+    except (GitHubAPIError, subprocess.CalledProcessError) as error:
+        if args.best_effort and is_rate_limit_error(error):
+            log(f"GitHub API rate limit reached during deletion; prune pass is incomplete.")
+            return 0
+        raise
     log("Prune complete.")
     return 0
 

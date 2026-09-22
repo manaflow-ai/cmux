@@ -106,6 +106,7 @@ private struct CloudTreeStyleGalleryColumn: View {
                 localWorkspaces: localWorkspaces,
                 machineActions: MachineRowActions.bound(onDidMutate: {}),
                 nodeActions: CloudTreeNodeActions.bound(
+                    navigationHost: AppDelegate.makeCloudTerminalNavigationHost(),
                     catalog: { SurfaceCatalog.shared },
                     selectedWorkspaceID: { AppDelegate.shared?.tabManager?.selectedTabId },
                     selectLocalWorkspace: { workspaceID in

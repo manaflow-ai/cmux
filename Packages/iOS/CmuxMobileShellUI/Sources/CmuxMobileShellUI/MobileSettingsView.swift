@@ -20,6 +20,7 @@ struct MobileSettingsView: View {
     private static let sendAnonymousTelemetryKey = "sendAnonymousTelemetry"
 
     @Environment(AuthCoordinator.self) private var authManager
+    @Environment(\.analyticsClientID) private var analyticsClientID
     @Environment(MobilePushCoordinator.self) private var pushCoordinator
     @Environment(MobileDisplaySettings.self) private var displaySettings
     /// Optional so previews and hosts without the app root still render; the
@@ -61,6 +62,7 @@ struct MobileSettingsView: View {
     /// `isEnabled` as a non-observable `UserDefaults` read, so reading it
     /// directly in `body` would not re-render when it flips.
     @State private var notificationsEnabled = false
+    @State private var didCopySupportInformation = false
 #if DEBUG
     @State private var debugReplyScheduled: Bool?
 #endif
@@ -76,7 +78,7 @@ struct MobileSettingsView: View {
     var body: some View {
         @Bindable var displaySettings = displaySettings
         #if DEBUG
-        let whatsNewPages = whatsNewCenter?.archivePages ?? MobileWhatsNewCatalog.channelVisibleEntries()
+        let whatsNewPages = whatsNewCenter?.archivePages ?? MobileWhatsNewCatalog().channelVisibleEntries()
         let whatsNewHosts = whatsNewCenter?.allowedWebHosts ?? []
         #endif
         return NavigationStack {
@@ -532,10 +534,7 @@ struct MobileSettingsView: View {
                     ))
                 }
 
-                MobileSettingsDiagnosticsSection(
-                    store: store,
-                    connectedHostName: connectedHostName
-                )
+                MobileSettingsDiagnosticsSection()
 
                 MobileSettingsLegalSupportSection()
 
@@ -551,6 +550,21 @@ struct MobileSettingsView: View {
                         )
                     }
                     .accessibilityIdentifier("MobileSettingsVersionRow")
+
+                    Button {
+                        copySupportInformation()
+                    } label: {
+                        Label(
+                            didCopySupportInformation
+                                ? L10n.string("mobile.textSheet.copied", defaultValue: "Copied")
+                                : L10n.string(
+                                    "mobile.settings.about.copySupportInfo",
+                                    defaultValue: "Copy Support Information"
+                                ),
+                            systemImage: didCopySupportInformation ? "checkmark" : "doc.on.clipboard"
+                        )
+                    }
+                    .accessibilityIdentifier("MobileSettingsCopySupportInformation")
                 }
             }
             .task {
@@ -591,7 +605,7 @@ struct MobileSettingsView: View {
                         didFinishSearch: store?.didFinishStoredMacReconnectAttempt == true
                     ),
                     connectionMethod: connectionMethodStore?.method ?? .automatic,
-                    keepAwakeOffer: OnboardingKeepAwakeOfferSource.offer(from: store),
+                    keepAwakeOffer: OnboardingKeepAwakeOfferSource().offer(from: store),
                     onSelectConnectionMethod: { connectionMethodStore?.method = $0 },
                     onEnablePush: {
                         await pushCoordinator.enable(trigger: "onboarding_replay")
@@ -604,27 +618,16 @@ struct MobileSettingsView: View {
                         (startTailscalePairing ?? startPairingScanner)?()
                     },
                     onSetKeepAwake: { [store] enabled in
-                        await OnboardingKeepAwakeOfferSource.set(enabled, on: store)
+                        await OnboardingKeepAwakeOfferSource().set(enabled, on: store)
                     },
                     onComplete: { showingOnboarding = false }
                 )
             }
             .sheet(isPresented: $showingSetupHelp) {
-                // Re-enterable setup help as a plain reference: every pre-pairing
-                // gate with its concrete next step. Settings is reached only from
-                // the connected workspace list, so there is no current blocker to
-                // mark "You are here".
+                // Re-enterable setup help as a plain reference. Settings can be
+                // opened before pairing, but it does not own the active connection
+                // gate, so there is no current blocker to mark "You are here".
                 SetupHelpView(highlight: setupHelpHighlight) { showingSetupHelp = false }
-            }
-        }
-        .onChange(of: connectionMethodStore?.method) { oldMethod, newMethod in
-            guard oldMethod != newMethod, store != nil else { return }
-            let stackUserID = authManager.currentUser?.id
-            Task {
-                _ = await store?.retryActiveMacReconnect(
-                    stackUserID: stackUserID,
-                    force: true
-                )
             }
         }
         .accessibilityIdentifier("MobileSettingsView")
@@ -643,6 +646,37 @@ struct MobileSettingsView: View {
         }
     }
 
+    @MainActor
+    private func copySupportInformation() {
+        let version = AppVersionInfo.current()
+        let info = MobileDebugInformation(
+            accountID: authManager.currentUser?.id,
+            installID: analyticsClientID,
+            deviceID: UIDevice.current.identifierForVendor?.uuidString,
+            teamID: authManager.resolvedTeamID,
+            bundleID: Bundle.main.bundleIdentifier,
+            appChannel: MobileBuildType.current().token,
+            appVersion: version.marketingVersion,
+            buildNumber: version.buildNumber,
+            osVersion: UIDevice.current.systemVersion,
+            deviceModel: UIDevice.current.model,
+            connectionState: store.map { state in
+                switch state.connectionState {
+                case .connected: "connected"
+                case .disconnected: "disconnected"
+                }
+            },
+            transport: store?.activeRoute?.kind.rawValue
+        )
+        UIPasteboard.general.string = info.report
+        didCopySupportInformation = true
+        Task { @MainActor in
+            try? await Task.sleep(for: .seconds(2))
+            guard !Task.isCancelled else { return }
+            didCopySupportInformation = false
+        }
+    }
+
     /// Whether the What's New row has anything to open. The center's archive
     /// is already channel-gated; the centerless fallback applies the same
     /// gate to the binary catalog. Officially distributed builds default to
@@ -652,7 +686,7 @@ struct MobileSettingsView: View {
         if let whatsNewCenter {
             return !whatsNewCenter.archivePages.isEmpty
         }
-        return !MobileWhatsNewCatalog.channelVisibleEntries().isEmpty
+        return !MobileWhatsNewCatalog().channelVisibleEntries().isEmpty
     }
 
     private func recordBooleanSetting(
@@ -847,10 +881,8 @@ struct MobileSettingsView: View {
         }
     }
 
-    /// Which setup gate to mark as the user's current blocker. Settings is reached
-    /// only from the connected workspace list, so the user has cleared every gate
-    /// and there is no "You are here" step; the help is a plain reference. `nil`
-    /// keeps that honest instead of mislabeling a connected Mac as unreachable.
+    /// Settings is a reference entry point from both connected and pre-pairing
+    /// workspace shells. It does not identify which connection gate is active.
     private var setupHelpHighlight: MobileSetupGuidanceState? {
         nil
     }
@@ -862,10 +894,11 @@ struct MobileSettingsView: View {
     }
 
     /// Whether the setup and introduction entries apply. When this sheet is
-    /// reused from the no-devices screen there is no connected Mac or store,
-    /// so they are hidden.
+    /// hosted by the workspace shell, the host's Computers action keeps these
+    /// entries useful even before a Mac has connected. Previews without a
+    /// shell action still omit the section.
     private var hasConnectionSection: Bool {
-        !connectedHostName.isEmpty || store != nil
+        !connectedHostName.isEmpty || store != nil || showComputers != nil
     }
 
     /// Drives the team Picker. Reads the EFFECTIVE current team (`resolvedTeamID`,
@@ -917,19 +950,14 @@ struct MobileSettingsView: View {
 /// (simulator, browser, composer, lifecycle), and the connection diagnostics
 /// cover all connection activity, not one transport.
 private struct MobileSettingsDiagnosticsSection: View {
-    @Environment(AuthCoordinator.self) private var authManager
-    @Environment(\.analyticsClientID) private var analyticsClientID
     @Environment(\.irohSettingsController) private var irohSettingsController
     @Environment(\.mobileDiagnosticLog) private var diagnosticLog
     @Environment(\.mobileAppLog) private var appLog
-    let store: CMUXMobileShellStore?
-    let connectedHostName: String
     @State private var isPreparingExport = false
     @State private var logExportTask: Task<Void, Never>?
     @State private var logExportTaskID: UUID?
     @State private var presentationHost: UIViewController?
     @State private var exportErrorMessage: String?
-    @State private var didCopyDebugInformation = false
     /// Owns the verbose-log toggle and the privacy-scrubbed connection report
     /// that used to live on the Networking screen. `nil` without a controller
     /// (previews, hosts without the app root).
@@ -938,21 +966,6 @@ private struct MobileSettingsDiagnosticsSection: View {
 
     var body: some View {
         Section {
-            Button {
-                copyDebugInformation()
-            } label: {
-                Label(
-                    didCopyDebugInformation
-                        ? L10n.string("mobile.textSheet.copied", defaultValue: "Copied")
-                        : L10n.string(
-                            "mobile.settings.diagnostics.copyDebugInfo",
-                            defaultValue: "Copy Debug Information"
-                        ),
-                    systemImage: didCopyDebugInformation ? "checkmark" : "doc.on.clipboard"
-                )
-            }
-            .accessibilityIdentifier("MobileSettingsCopyDebugInformation")
-
             if appLog != nil {
                 Button {
                     startLogExport()
@@ -1101,33 +1114,6 @@ private struct MobileSettingsDiagnosticsSection: View {
                 }
             }
             await prepareLogExport()
-        }
-    }
-
-    @MainActor
-    private func copyDebugInformation() {
-        let version = AppVersionInfo.current()
-        let info = MobileDebugInformation(
-            deviceID: UIDevice.current.identifierForVendor?.uuidString,
-            email: authManager.currentUser?.primaryEmail,
-            hexclaveAuthID: authManager.currentUser?.id,
-            teamID: authManager.resolvedTeamID,
-            bundleID: Bundle.main.bundleIdentifier,
-            appVersion: version.marketingVersion,
-            buildNumber: version.buildNumber,
-            osVersion: UIDevice.current.systemVersion,
-            deviceModel: UIDevice.current.model,
-            analyticsClientID: analyticsClientID,
-            connectedHost: connectedHostName.isEmpty ? nil : connectedHostName,
-            connectionState: store.map { String(describing: $0.connectionState) },
-            transport: store?.activeRoute?.kind.rawValue
-        )
-        UIPasteboard.general.string = info.report
-        didCopyDebugInformation = true
-        Task { @MainActor in
-            try? await Task.sleep(for: .seconds(2))
-            guard !Task.isCancelled else { return }
-            didCopyDebugInformation = false
         }
     }
 
