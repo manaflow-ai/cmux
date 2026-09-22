@@ -266,7 +266,8 @@ async function sendPush(
         ? { "x-cmux-push-replayed": "true" }
         : {},
     );
-  } catch {
+  } catch (error) {
+    if (process.env.CMUX_DB_TEST === "1") console.error("push fanout test error", error);
     // At this point the request has a safe, validated correlation id. Preserve
     // it for support without returning or recording payload, token, database,
     // or provider details from the unexpected exception.
