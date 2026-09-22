@@ -2250,6 +2250,22 @@ def test_compiled_product_source_order_is_local_peer_r2_github() -> None:
         assert block.index("Try shared R2 artifact transport") < block.index("Download compiled app-host test product")
 
 
+def test_r2_transport_is_an_explicit_optional_remote_broker() -> None:
+    expected_condition = (
+        "if: steps.node-products.outputs.hit != 'true' && "
+        "steps.peer-products.outputs.hit != 'true' && "
+        "vars.CI_ARTIFACT_R2_URL != ''"
+    )
+    for job_name in ("app-host-unit-tests", "tests-build-and-lag"):
+        block = workflow_job_block(job_name, MACOS_WORKFLOW)
+        start = block.index("      - name: Try shared R2 artifact transport")
+        step = block[start:]
+        next_step = step.index("\n      - name:", 1)
+        r2_step = step[:next_step]
+        assert expected_condition in r2_step, job_name
+        assert "CI_ARTIFACT_R2_URL: ${{ vars.CI_ARTIFACT_R2_URL }}" in r2_step
+
+
 def test_macos_jobs_use_lane_specific_xcode_pin_vars() -> None:
     for job_name in [
         "app-host-unit-tests",
