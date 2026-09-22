@@ -274,6 +274,7 @@ def test_macos_test_product_ci_helpers_run_admission_without_web_or_release() ->
         "scripts/ci/app_host_test_products.py",
         "scripts/ci/compile-app-host-test-product.sh",
         "scripts/ci/product_input_identity.py",
+        "scripts/ci/peer_product_source.py",
         "scripts/ci/restore-app-host-test-product.sh",
         "scripts/ci/reuse_app_host_products.py",
         "scripts/ci/sanitize-xcode-source-packages-cache.py",
@@ -2220,6 +2221,63 @@ def test_compiled_product_cache_is_opt_in_on_persistent_macos_lanes() -> None:
         assert "CMUX_NODE_PRODUCT_CACHE_ROOT: ${{ vars.CMUX_NODE_PRODUCT_CACHE_ROOT }}" in block
         assert "CMUX_NODE_PRODUCT_CACHE_MAX_BYTES: ${{ vars.CMUX_NODE_PRODUCT_CACHE_MAX_BYTES }}" in block
         assert "CMUX_NODE_PRODUCT_CACHE_WAIT_SECONDS: ${{ vars.CMUX_NODE_PRODUCT_CACHE_WAIT_SECONDS }}" in block
+        assert "CMUX_ARTIFACT_PEER_URLS: ${{ vars.CMUX_ARTIFACT_PEER_URLS }}" in block
+        assert "CMUX_ARTIFACT_PEER_TOKEN_FILE: ${{ vars.CMUX_ARTIFACT_PEER_TOKEN_FILE }}" in block
+
+
+def test_product_restore_receipt_binds_immutable_product_identity() -> None:
+    required_env = (
+        "ARTIFACT_ID: ${{ needs.macos-compile-admission.outputs.artifact_id }}",
+        "ARTIFACT_PROVIDER_DIGEST: ${{ needs.macos-compile-admission.outputs.artifact_digest }}",
+        "EXPECTED_SHA256: ${{ needs.macos-compile-admission.outputs.sha256 }}",
+        "CMUX_PRODUCT_CONTRACT: ${{ needs.macos-compile-admission.outputs.product_contract }}",
+        "CMUX_PRODUCT_SOURCE_REVISION: ${{ needs.macos-compile-admission.outputs.source_revision }}",
+        "CMUX_PRODUCT_PRODUCER_RUN_ID: ${{ needs.macos-compile-admission.outputs.producer_run_id }}",
+        "CMUX_PRODUCT_PRODUCER_RUN_ATTEMPT: ${{ needs.macos-compile-admission.outputs.producer_run_attempt }}",
+    )
+    for job_name in ("app-host-unit-tests", "tests-build-and-lag"):
+        block = workflow_job_block(job_name, MACOS_WORKFLOW)
+        restore = block[block.index("      - name: Restore compiled app-host test product"):]
+        restore = restore[:restore.index("\n      - name:", 1)]
+        for binding in required_env:
+            assert binding in restore, (job_name, binding)
+
+    script = (ROOT / "scripts/ci/restore-app-host-test-product.sh").read_text(encoding="utf-8")
+    for field in (
+        '"repository": os.environ["GITHUB_REPOSITORY"]',
+        '"artifact_id": int(os.environ["ARTIFACT_ID"])',
+        '"provider_digest": os.environ["ARTIFACT_PROVIDER_DIGEST"]',
+        '"archive_sha256": os.environ["EXPECTED_SHA256"]',
+        '"product_contract": os.environ["CMUX_PRODUCT_CONTRACT"]',
+        '"source_revision": os.environ["CMUX_PRODUCT_SOURCE_REVISION"]',
+        '"producer_run_id": int(os.environ["CMUX_PRODUCT_PRODUCER_RUN_ID"])',
+        '"producer_run_attempt": int(os.environ["CMUX_PRODUCT_PRODUCER_RUN_ATTEMPT"])',
+    ):
+        assert field in script
+
+
+def test_compiled_product_source_order_is_local_peer_r2_github() -> None:
+    for job_name in ("app-host-unit-tests", "tests-build-and-lag"):
+        block = workflow_job_block(job_name, MACOS_WORKFLOW)
+        assert block.index("Try node-local compiled product cache") < block.index("Try trusted fleet peer artifact source")
+        assert block.index("Try trusted fleet peer artifact source") < block.index("Try shared R2 artifact transport")
+        assert block.index("Try shared R2 artifact transport") < block.index("Download compiled app-host test product")
+
+
+def test_r2_transport_is_an_explicit_optional_remote_broker() -> None:
+    expected_condition = (
+        "if: steps.node-products.outputs.hit != 'true' && "
+        "steps.peer-products.outputs.hit != 'true' && "
+        "vars.CI_ARTIFACT_R2_URL != ''"
+    )
+    for job_name in ("app-host-unit-tests", "tests-build-and-lag"):
+        block = workflow_job_block(job_name, MACOS_WORKFLOW)
+        start = block.index("      - name: Try shared R2 artifact transport")
+        step = block[start:]
+        next_step = step.index("\n      - name:", 1)
+        r2_step = step[:next_step]
+        assert expected_condition in r2_step, job_name
+        assert "CI_ARTIFACT_R2_URL: ${{ vars.CI_ARTIFACT_R2_URL }}" in r2_step
 
 
 def test_macos_jobs_use_lane_specific_xcode_pin_vars() -> None:
