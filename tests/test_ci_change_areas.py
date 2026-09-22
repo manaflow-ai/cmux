@@ -50,6 +50,7 @@ MACOS_JOBS = (
     "app-host-unit-tests",
     "swift-package-tests",
     "tests-build-and-lag",
+    "release-admission",
     "release-build",
 )
 CI_STATUS_FALLBACK_WORKFLOW = ROOT / ".github" / "workflows" / "ci-status-fallback.yml"
@@ -95,10 +96,17 @@ def test_test_only_changes_skip_the_release_build() -> None:
         assert actual.release_build is False, (paths, actual)
 
 
+def test_open_wrapper_changes_skip_the_release_build() -> None:
+    paths = ["Resources/bin/open", "tests/test_open_wrapper.py"]
+    actual = module.classify_files(paths)
+    assert actual.macos is True, (paths, actual)
+    assert actual.web is False, (paths, actual)
+    assert actual.release_build is False, (paths, actual)
+
+
 def test_anything_the_app_can_build_from_runs_the_release_build() -> None:
     for path in (
         "Sources/AppDelegate.swift",
-        "CLI/cmux.swift",
         "cmux.xcodeproj/project.pbxproj",
         "Packages/macOS/CmuxTerminal/Sources/CmuxTerminal/TerminalEngine.swift",
         "Packages/macOS/CmuxTerminal/Package.swift",
@@ -114,18 +122,73 @@ def test_anything_the_app_can_build_from_runs_the_release_build() -> None:
         assert actual.release_build is True, (paths, actual)
 
 
+def test_cli_sources_use_dedicated_cli_workflow_without_app_host_compile() -> None:
+    cli_workflow = (ROOT / ".github/workflows/cli-pipe-regressions.yml").read_text()
+    assert "  workflow_call:" in cli_workflow
+    assert "-scheme cmux-cli" in cli_workflow
+
+    actual = module.classify_files(["CLI/cmux.swift", "CLI/FeedEventClassifier.swift"])
+    assert actual.macos is False
+    assert actual.web is False
+    assert actual.agent_session_web is False
+    assert actual.cli is True
+    assert actual.release_build is False
+
+
+def test_cli_workflow_inputs_route_the_required_cli_lane() -> None:
+    for path in (
+        "tests/test_cli_broken_pipe_writes.py",
+        "tests/test_cli_socket_operation_deadline.py",
+        "tests/test_cli_config_doctor.py",
+        "tests/test_cli_glaeda_execution.py",
+        "tests/fixtures/glaeda-external-request.json",
+        "tests/fixtures/glaeda-external-result.json",
+        "scripts/generate-cmux-config-schema.py",
+        "web/data/cmux.schema.json",
+        "cmux.xcodeproj/project.pbxproj",
+        "Packages/macOS/CmuxFoundation/Sources/CmuxFoundation/Process/AgentPIDProcessIdentity.swift",
+        ".github/workflows/cli-pipe-regressions.yml",
+    ):
+        assert module.classify_files([path]).cli is True, path
+
+
 def test_release_build_follows_the_other_areas_when_macos_is_skipped_or_forced() -> None:
     assert module.classify_files(["docs/ci.md"]).release_build is False
     assert module.classify_files([".github/workflows/ci.yml"]).release_build is True
     assert module.classify_files([".github/workflows/ci-guards.yml"]).release_build is False
+    assert module.ChangeAreas.all().cli is True
     assert module.ChangeAreas.all().release_build is True
+
+
+def test_release_build_waits_for_linux_preflight_admission() -> None:
+    admission = workflow_job_block("release-admission", MACOS_WORKFLOW)
+    release = workflow_job_block("release-build", MACOS_WORKFLOW)
+    status = workflow_job_block("macos-status", MACOS_WORKFLOW)
+
+    assert "runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}" in admission
+    assert 'TARGET_JOB: "linux-preflight"' in admission
+    assert "actions/runs/{run_id}/jobs?filter=latest&per_page=100" in admission
+    assert "- release-admission" in release
+    assert "needs.release-admission.result == 'success'" in release
+    assert "- release-admission" in status
+
+
+def test_native_diff_sidecar_inputs_route_the_web_workflow_explicitly() -> None:
+    for path in (
+        "Sources/Panels/DiffSidecarBridge.swift",
+        "Native/DiffSidecar/src/server.rs",
+        "scripts/build-diff-sidecar.sh",
+    ):
+        actual = module.classify_files([path])
+        assert actual.macos is True, (path, actual)
+        assert actual.web is True, (path, actual)
 
 
 def test_test_only_pull_request_routes_macos_without_the_release_build() -> None:
     result, outputs = run_detect_step_for_paths(["cmuxTests/GhosttyConfigTests.swift"])
 
     assert result.returncode == 0, result.stderr
-    assert outputs == ["macos=true", "web=false", "agent_session_web=false", "release_build=false"]
+    assert outputs == ["macos=true", "web=false", "agent_session_web=false", "cli=false", "release_build=false"]
 
 
 def test_docs_only_skips_expensive_areas() -> None:
@@ -816,14 +879,14 @@ def test_workflow_routes_linux_only_ci_workflow_edit_away_from_macos() -> None:
     _, outputs = run_detect_step_for_ci_workflow_edit(
         CI_DIFF_BASE, CI_DIFF_BASE.replace("- run: guard", "- run: guard\n      - run: more")
     )
-    assert outputs == ["macos=false", "web=false", "agent_session_web=false", "release_build=false"]
+    assert outputs == ["macos=false", "web=false", "agent_session_web=false", "cli=false", "release_build=false"]
 
 
-def test_workflow_routes_macos_job_edit_to_every_area() -> None:
+def test_workflow_routes_top_level_macos_job_edit_as_control_plane_only() -> None:
     _, outputs = run_detect_step_for_ci_workflow_edit(
         CI_DIFF_BASE, CI_DIFF_BASE.replace("- run: compile", "- run: compile --faster")
     )
-    assert outputs == ["macos=true", "web=true", "agent_session_web=true", "release_build=true"]
+    assert outputs == ["macos=false", "web=false", "agent_session_web=false", "cli=false", "release_build=false"]
 
 
 def test_indirect_guard_profile_references_follow_invoking_runner() -> None:
@@ -1190,6 +1253,17 @@ def run_detect_step_for_paths(
         helper_copy = repo / "scripts" / "ci" / "detect_ci_change_areas.py"
         helper_copy.parent.mkdir(parents=True, exist_ok=True)
         helper_copy.write_text(HELPER.read_text(encoding="utf-8"), encoding="utf-8")
+        for support in (
+            CI_WORKFLOW,
+            GUARD_WORKFLOW,
+            WEB_WORKFLOW,
+            MACOS_WORKFLOW,
+            ROOT / "scripts" / "ci" / "workloads" / "ci-guard.sh",
+        ):
+            relative = support.relative_to(ROOT)
+            target = repo / relative
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(support.read_text(encoding="utf-8"), encoding="utf-8")
         (repo / "base.txt").write_text("base\n", encoding="utf-8")
         subprocess.run(["git", "add", "."], cwd=repo, check=True)
         subprocess.run(["git", "commit", "-q", "-m", "base"], cwd=repo, check=True)
@@ -1230,15 +1304,35 @@ def run_detect_step_for_paths(
 def test_workflow_self_change_guard_runs_before_detector_imports() -> None:
     result, outputs = run_detect_step_for_paths(["scripts/ci/subprocess.py"])
 
-    assert "CI router changed; running all CI areas." in result.stdout
-    assert outputs == ["macos=true", "web=true", "agent_session_web=true", "release_build=true"]
+    assert "Could not load trusted base router" not in result.stderr
+    assert outputs == ["macos=true", "web=true", "agent_session_web=true", "cli=true", "release_build=true"]
+
+
+def test_router_policy_only_change_skips_product_areas_with_trusted_base() -> None:
+    result, outputs = run_detect_step_for_paths([
+        "scripts/ci/detect_ci_change_areas.py",
+        "tests/test_ci_change_areas.py",
+    ])
+
+    assert "CI routing-policy-only PR; skipping product-area CI." in result.stdout
+    assert outputs == ["macos=false", "web=false", "agent_session_web=false", "cli=false", "release_build=false"]
+
+
+def test_router_change_with_app_source_uses_trusted_base_product_routing() -> None:
+    result, outputs = run_detect_step_for_paths([
+        "scripts/ci/detect_ci_change_areas.py",
+        "Sources/AppDelegate.swift",
+    ])
+
+    assert "classifying product inputs with the trusted base router" in result.stdout
+    assert outputs == ["macos=true", "web=false", "agent_session_web=false", "cli=false", "release_build=true"]
 
 
 def test_owned_control_plane_helper_reaches_detector_instead_of_fail_open_guard() -> None:
     result, outputs = run_detect_step_for_paths(["scripts/ci/persistent_mac_route.py"])
 
     assert "CI router changed; running all CI areas." not in result.stdout
-    assert outputs == ["macos=false", "web=false", "agent_session_web=false", "release_build=false"]
+    assert outputs == ["macos=false", "web=false", "agent_session_web=false", "cli=false", "release_build=false"]
 
     for path in (
         "scripts/ci/build_input_fingerprint.py",
@@ -1253,6 +1347,7 @@ def test_owned_control_plane_helper_reaches_detector_instead_of_fail_open_guard(
             "macos=true",
             "web=false",
             "agent_session_web=false",
+            "cli=false",
             "release_build=false",
         ], path
 
@@ -1285,6 +1380,7 @@ def test_workflow_diff_failure_runs_all_areas() -> None:
             "macos=true",
             "web=true",
             "agent_session_web=true",
+            "cli=true",
             "release_build=true",
         ]
 
@@ -1374,7 +1470,7 @@ def test_workflow_routes_from_shallow_synthetic_merge() -> None:
     result, outputs = run_detect_step_on_shallow_synthetic_merge(stale_event_base=False)
 
     assert "Could not compute PR diff" not in result.stderr
-    assert outputs == ["macos=false", "web=true", "agent_session_web=false", "release_build=false"]
+    assert outputs == ["macos=false", "web=true", "agent_session_web=false", "cli=false", "release_build=false"]
 
 
 def test_workflow_routes_when_main_moved_past_the_event_base() -> None:
@@ -1383,14 +1479,14 @@ def test_workflow_routes_when_main_moved_past_the_event_base() -> None:
     assert "Could not compute PR diff" not in result.stderr
     # base-only.txt landed on main after the event base. It is not part of the
     # pull request and must not route macOS.
-    assert outputs == ["macos=false", "web=true", "agent_session_web=false", "release_build=false"]
+    assert outputs == ["macos=false", "web=true", "agent_session_web=false", "cli=false", "release_build=false"]
 
 
 def test_workflow_empty_diff_skips_product_areas() -> None:
     result, outputs = run_detect_step_for_paths([])
 
     assert "PR diff is empty; skipping product-area CI." in result.stdout
-    assert outputs == ["macos=false", "web=false", "agent_session_web=false", "release_build=false"]
+    assert outputs == ["macos=false", "web=false", "agent_session_web=false", "cli=false", "release_build=false"]
 
 
 def test_router_changes_run_everything() -> None:
@@ -1429,6 +1525,7 @@ def test_ghosttykit_checksum_pr_uses_release_guard_only() -> None:
         "macos=false",
         "web=false",
         "agent_session_web=false",
+        "cli=false",
         "release_build=false",
     ]
 
@@ -1451,20 +1548,21 @@ def test_ghosttykit_guard_wiring_pr_stays_on_release_guard() -> None:
         "macos=false",
         "web=false",
         "agent_session_web=false",
+        "cli=false",
         "release_build=false",
     ]
 
 
-def test_workflow_only_pr_keeps_fail_open_routing() -> None:
-    # The base has no ci.yml to compare against.
+def test_workflow_only_pr_uses_trusted_base_without_product_work() -> None:
     result, outputs = run_detect_step_for_paths([".github/workflows/ci.yml"])
 
-    assert "running all CI areas" in result.stdout + result.stderr
+    assert "CI routing-policy-only PR; skipping product-area CI." in result.stdout
     assert outputs == [
-        "macos=true",
-        "web=true",
-        "agent_session_web=true",
-        "release_build=true",
+        "macos=false",
+        "web=false",
+        "agent_session_web=false",
+        "cli=false",
+        "release_build=false",
     ]
 
 
@@ -1504,6 +1602,7 @@ def test_cli_writes_github_outputs() -> None:
             "macos=false",
             "web=true",
             "agent_session_web=false",
+            "cli=false",
             "release_build=false",
         ]
 
@@ -1537,6 +1636,7 @@ def test_cli_empty_diff_runs_all_areas() -> None:
             "macos=true",
             "web=true",
             "agent_session_web=true",
+            "cli=true",
             "release_build=true",
         ]
 
@@ -1560,6 +1660,7 @@ def test_ci_status_job_accepts_skipped_routed_jobs() -> None:
         "changes",
         "static-preflight",
         "guards",
+        "cli",
         "web",
         "linux-preflight",
         "macos",
@@ -1687,6 +1788,7 @@ def test_macos_workflow_call_starts_after_cheap_static_gate() -> None:
     assert "      - linux-preflight" not in caller
     assert "uses: ./.github/workflows/ci-macos.yml" in caller
     assert "needs.changes.outputs.macos != 'false'" in caller
+    assert "needs.changes.outputs.full_suite == 'true' || needs.changes.outputs.compile_admitted != 'true'" in caller
     for route in (
         "macos",
         "full_suite",
@@ -1728,9 +1830,18 @@ def tests_gate_needs(
     macos: str = "true",
     macos_result: str = "success",
     web_result: str = "skipped",
+    full_suite: str = "true",
+    compile_admitted: str = "false",
 ) -> dict:
     return {
-        "changes": {"result": "success", "outputs": {"macos": macos, "full_suite": "true"}},
+        "changes": {
+            "result": "success",
+            "outputs": {
+                "macos": macos,
+                "full_suite": full_suite,
+                "compile_admitted": compile_admitted,
+            },
+        },
         "linux-preflight": {"result": "success"},
         "macos": {"result": macos_result},
         "web": {"result": web_result},
@@ -1742,6 +1853,13 @@ def test_platform_workflow_results_gate_tests_status() -> None:
     assert run_tests_gate(tests_gate_needs(macos_result="failure")).returncode == 1
     assert run_tests_gate(tests_gate_needs(macos_result="skipped")).returncode == 1
     assert run_tests_gate(tests_gate_needs(macos="false", macos_result="skipped")).returncode == 0
+    assert run_tests_gate(
+        tests_gate_needs(
+            macos_result="skipped",
+            full_suite="false",
+            compile_admitted="true",
+        )
+    ).returncode == 0
     assert run_tests_gate(tests_gate_needs(web_result="failure")).returncode == 1
 
 
@@ -2175,10 +2293,34 @@ def test_build_input_reuse_steps_never_fail_the_changes_job() -> None:
     # which compiles; it must not take routing down with it.
     for step in (
         "Fingerprint the build inputs",
+        "Skip compile when build inputs are unchanged",
         "Publish the build-input fingerprint",
         "Look for an earlier run that compiled these inputs",
     ):
         assert "        continue-on-error: true" in workflow_step_block("changes", step).splitlines(), step
+
+
+def test_unchanged_build_inputs_skip_mac_compile_before_runner_allocation() -> None:
+    changes = workflow_job_block("changes")
+    assert (
+        "compile_admitted: ${{ steps.unchanged_inputs.outputs.compile_admitted == 'true' && 'true' || steps.admitted.outputs.compile_admitted }}"
+        in changes
+    )
+    assert (
+        "ghosttykit_release: ${{ steps.unchanged_inputs.outputs.compile_admitted == 'true' && 'false' || steps.linux_guards.outputs.ghosttykit_release }}"
+        in changes
+    )
+
+    unchanged = workflow_step_block("changes", "Skip compile when build inputs are unchanged")
+    assert "--revision 'HEAD^1'" in unchanged
+    assert 'echo "compile_admitted=true" >> "$GITHUB_OUTPUT"' in unchanged
+    assert "build_input_fingerprint\\.py|product_input_identity\\.py" in unchanged
+
+    lookup = workflow_step_block("changes", "Look for an earlier run that compiled these inputs")
+    assert "steps.unchanged_inputs.outputs.compile_admitted != 'true'" in lookup
+
+    persistent = workflow_step_block("changes", "Publish persistent Mac route request")
+    assert "steps.unchanged_inputs.outputs.compile_admitted != 'true'" in persistent
 
 
 def test_published_fingerprint_artifact_is_the_one_the_lookup_reads() -> None:
@@ -2365,7 +2507,7 @@ def test_linux_aggregate_preserves_all_routed_results() -> None:
     assert 'guard_routes = (' in block
     assert 'bad[f"guards.{route}"]' in block
     assert 'bad["guards"] = f"{guard_result} (one or more guard routes=true)"' in block
-    assert 'web_routes = ("web", "macos", "agent_session_web")' in block
+    assert 'web_routes = ("web", "agent_session_web")' in block
     assert 'bad[f"web.{route}"]' in block
     assert 'bad["web"] = f"{web_result} (one or more web routes=true)"' in block
     assert 'allowed_routed = {' in block
@@ -2460,11 +2602,13 @@ def test_history_guard_uses_shallow_synthetic_merge_parent() -> None:
 
 def test_web_workflow_call_preserves_routes_and_static_gate() -> None:
     block = workflow_job_block("web")
+    assert "needs.changes.outputs.macos != 'false'" not in block
 
     assert "    needs: [changes, static-preflight]" in block
     assert "    uses: ./.github/workflows/ci-web.yml" in block
     for route in ("web", "macos", "agent_session_web"):
         assert f"      {route}: ${{{{ needs.changes.outputs.{route} }}}}" in block
+    for route in ("web", "agent_session_web"):
         assert f"needs.changes.outputs.{route} != 'false'" in block
 
 
@@ -2943,7 +3087,7 @@ def test_agent_session_web_resources_runs_only_for_agent_session_web_area() -> N
 
 def test_perf_activation_runs_for_its_own_workflow_and_not_for_others() -> None:
     _, outputs = run_detect_step_for_paths([".github/workflows/relay-tls.yml"], PERF_ACTIVATION_WORKFLOW)
-    assert outputs == ["macos=false", "web=false", "agent_session_web=false", "release_build=false"]
+    assert outputs == ["macos=false", "web=false", "agent_session_web=false", "cli=false", "release_build=false"]
 
     for path in (".github/workflows/perf-activation.yml", "scripts/ci/subprocess.py"):
         result, outputs = run_detect_step_for_paths([path], PERF_ACTIVATION_WORKFLOW)
@@ -2955,7 +3099,7 @@ def test_perf_activation_workflow_keeps_required_status_while_gating_benchmark()
     result, outputs = run_detect_step_for_paths(["docs/ci-runners.md"], PERF_ACTIVATION_WORKFLOW)
 
     assert "Resolved areas: macos=false web=false" in result.stdout
-    assert outputs == ["macos=false", "web=false", "agent_session_web=false", "release_build=false"]
+    assert outputs == ["macos=false", "web=false", "agent_session_web=false", "cli=false", "release_build=false"]
 
     benchmark = workflow_job_block("activation-session-benchmark", PERF_ACTIVATION_WORKFLOW)
     sentinel = workflow_job_block("activation-session", PERF_ACTIVATION_WORKFLOW)
