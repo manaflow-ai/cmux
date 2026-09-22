@@ -1,15 +1,7 @@
 name: SSH remote daemon
 
 on:
-  pull_request:
-    paths:
-      - daemon/remote/**
-      - scripts/*remote_daemon*
-      - scripts/release_asset_guard*
-      - tests/*remote_daemon*
-      - .github/workflows/remote-daemon.yml
-      - .github/workflows/release.yml
-      - .github/workflows/nightly.yml
+  workflow_call:
   push:
     branches: [main]
     paths:
@@ -54,6 +46,24 @@ jobs:
     runs-on: ${{ vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
     timeout-minutes: 15
     steps:
+      - name: Reject stale pull request rerun
+        if: ${{ github.event_name == 'pull_request' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          RUN_ID: ${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          run_head="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID" --jq '.head_sha' 2>/dev/null || true)"
+          current_head="$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER" --jq '.head.sha' 2>/dev/null || true)"
+          if [ -z "$run_head" ] || [ -z "$current_head" ]; then
+            echo "Could not resolve run/PR head identity; continuing with normal CI."
+            exit 0
+          fi
+          if [ "$current_head" != "$run_head" ]; then
+            echo "Refusing stale PR run: run head $run_head; current head $current_head." >&2
+            exit 1
+          fi
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
