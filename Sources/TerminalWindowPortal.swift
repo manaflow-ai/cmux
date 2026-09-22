@@ -803,14 +803,14 @@ private final class PaneSwapSelectionOverlayView: NSView {
         drawHighlight(
             frame: sourceFrame,
             color: .controlAccentColor,
-            title: CmuxPaneSwapStrings.source,
+            title: CmuxPaneSwapStrings().source,
             dirtyRect: dirtyRect
         )
         if let targetFrame {
             drawHighlight(
                 frame: targetFrame,
                 color: .systemGreen,
-                title: CmuxPaneSwapStrings.swapHere,
+                title: CmuxPaneSwapStrings().swapHere,
                 dirtyRect: dirtyRect
             )
         }
