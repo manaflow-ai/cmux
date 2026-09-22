@@ -2346,11 +2346,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         presenter.present()
     }
 
-    static func shouldPersistQuitConfirmationSuppression(
+    static func persistQuitConfirmationSuppressionIfNeeded(
         response: NSApplication.ModalResponse,
-        suppressionState: NSControl.StateValue
-    ) -> Bool {
-        response == .alertFirstButtonReturn && suppressionState == .on
+        suppressionState: NSControl.StateValue,
+        store: QuitConfirmationStore
+    ) {
+        guard response == .alertFirstButtonReturn, suppressionState == .on else { return }
+        store.setMode(.never)
     }
 
     static func shouldShowQuitConfirmation(
@@ -2370,12 +2372,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         _ response: NSApplication.ModalResponse,
         suppressionState: NSControl.StateValue
     ) {
-        if Self.shouldPersistQuitConfirmationSuppression(
+        Self.persistQuitConfirmationSuppressionIfNeeded(
             response: response,
-            suppressionState: suppressionState
-        ) {
-            QuitConfirmationStore(defaults: .standard).setMode(.never)
-        }
+            suppressionState: suppressionState,
+            store: QuitConfirmationStore(defaults: .standard)
+        )
 
         let shouldQuit = response == .alertFirstButtonReturn
         if shouldQuit {
@@ -14593,12 +14594,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         presentQuitConfirmationAlert(ownsTerminateRequest: false) { [weak self] response, suppressionState in
-            if Self.shouldPersistQuitConfirmationSuppression(
+            Self.persistQuitConfirmationSuppressionIfNeeded(
                 response: response,
-                suppressionState: suppressionState
-            ) {
-                QuitConfirmationStore(defaults: .standard).setMode(.never)
-            }
+                suppressionState: suppressionState,
+                store: QuitConfirmationStore(defaults: .standard)
+            )
 
             if response == .alertFirstButtonReturn {
                 // Mark as confirmed so applicationShouldTerminate does not show a
