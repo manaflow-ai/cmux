@@ -58,9 +58,13 @@ Interpret the changed-source arms in this order:
 
 ## Break-even
 
-For a revision after the seed, define F as fresh-checkout build wall time, W as restored-generation build wall time, D as generation download plus extraction, P as compression plus upload charged to the previous successful revision, and S as source-generation restore/transition overhead.
+For a revision after the seed, define C as the cold source transition, Kc as cold setup plus package readiness, F as cold build wall, D as generation artifact download, S as warm source restore/transition, N as deterministic-mtime normalization when used, E as DerivedData validation/extraction, Kw as warm setup plus package readiness, W as warm build wall, and P as compression plus upload charged to the previous successful revision.
 
-A steady-state generation chain improves total CI work when F - W > D + S + P.
+A steady-state generation chain improves measured candidate work when:
+
+`C + Kc + F > D + S + N + E + Kw + W + P`
+
+`scripts/ci/summarize-incremental-generation.py` computes this comparison from raw seed/cold/warm rows and reports the maximum warm build wall that still breaks even. Common cache-action restore time is kept separately in the raw action receipts; when the same cache route is used by both arms it does not drive the delta.
 
 If publication can occur outside the authoritative required-check critical path, report both feedback latency and total macOS/transfer consumption. A generation that wins compile time but loses after transfer stops here.
 
