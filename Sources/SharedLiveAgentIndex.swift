@@ -58,9 +58,8 @@ final class SharedLiveAgentIndex {
     private(set) var index: RestorableAgentSessionIndex?
     private var loadedAt: Date?
     private var liveAgentProcessFingerprint: Set<String> = []
-    // A synchronous loader cannot be interrupted once it is inside its
-    // process/filesystem scan. Share one detached loader across refresh
-    // wrappers so an ownership timeout never starts an unbounded second scan.
+    // A loader cannot be interrupted once it is inside its
+    // filesystem scan. Share one detached loader across refresh
     private var indexLoaderTask: Task<SharedLiveAgentIndexLoader.LoadResult, Never>?
     private var indexLoaderTaskGeneration: UUID?
     // A timed-out synchronous loader cannot be force-cancelled safely from
@@ -96,6 +95,7 @@ final class SharedLiveAgentIndex {
     private var pendingForkExecutableWatchDescriptorReservations = 0
     private var forkExecutableWatchPathTasks: [String: Task<ForkExecutableWatchKey?, Never>] = [:]
     private var forkExecutableWatchOpenTasks: [String: Task<[Int32]?, Never>] = [:]
+    private var forkExecutableWatchInstallTasks: [ForkExecutableWatchKey: Task<UUID?, Never>] = [:]
     private var timedOutForkExecutableWatchPathKeys = Set<String>()
     private var timedOutForkExecutableWatchOpenKeys = Set<String>()
     private var validatedForkPanels = Set<RestorableAgentSessionIndex.PanelKey>()
@@ -118,18 +118,14 @@ final class SharedLiveAgentIndex {
     private static let forkAvailabilityProbeTTL: TimeInterval = 15.0
     nonisolated private static let maximumForkExecutableWatchPathCountPerValidation = 32
     nonisolated static let forkExecutableWatchOpenFlags = O_EVTONLY | O_CLOEXEC
-    nonisolated private static let maximumForkExecutableWatchSourceCountCeiling = 64
     nonisolated private static let forkExecutableWatchInstallTimeoutNanoseconds: UInt64 = 3_000_000_000
     nonisolated private static let maximumOutstandingForkExecutableWatchInstallWork = 8
-    nonisolated private static let minimumReservedFileDescriptorCount = 128
-    nonisolated private static let rlimInfinity = rlim_t(Int64.max)
     // Floor between event-driven reloads so chatty hook stores cannot keep the
     // measured ~350ms-1.8s loader running at near-continuous duty cycle.
     private static let minEventReloadInterval: TimeInterval = 5.0
-    // Ownership-sensitive restore may retry once when a hook event lands during
-    // the first scan, but it must fail closed instead of waiting forever for a
-    // continuously changing hook store to become quiescent.
-    private static let maximumOwnershipSensitiveRefreshPasses = 2
+    // An ownership-sensitive restore waits for one scan that started after its
+    // request. The deadline keeps an uncooperative loader from holding a
+    // restored terminal behind admission indefinitely.
     private static let ownershipRefreshTimeoutNanoseconds: UInt64 = 10_000_000_000
 
     nonisolated private static func remainingOwnershipRefreshNanoseconds(
@@ -139,92 +135,23 @@ final class SharedLiveAgentIndex {
         return deadline > now ? deadline - now : 0
     }
 
-    nonisolated static func forkExecutableWatchSourceCountBudget(
-        softFileDescriptorLimit explicitSoftLimit: Int? = nil,
-        openFileDescriptorCount explicitOpenFileDescriptorCount: Int? = nil,
-        pendingReservationCount: Int = 0
-    ) -> Int {
-        guard let softLimit = forkExecutableWatchSoftFileDescriptorLimit(explicitSoftLimit),
-              let openFileDescriptorCount = explicitOpenFileDescriptorCount ?? currentOpenFileDescriptorCount() else {
-            return 0
-        }
-        let availableAfterReserve = forkExecutableWatchAvailableDescriptorCount(
-            softFileDescriptorLimit: softLimit,
-            openFileDescriptorCount: openFileDescriptorCount,
-            pendingReservationCount: pendingReservationCount
-        )
-        guard availableAfterReserve > 0 else {
-            return 0
-        }
-        let derivedBudget = max(1, availableAfterReserve / 4)
-        return min(maximumForkExecutableWatchSourceCountCeiling, derivedBudget)
-    }
-
-    nonisolated private static func forkExecutableWatchDescriptorReserveIsSatisfied(
-        pendingReservationCount: Int,
-        softFileDescriptorLimit explicitSoftLimit: Int? = nil,
-        openFileDescriptorCount explicitOpenFileDescriptorCount: Int? = nil
-    ) -> Bool {
-        guard let softLimit = forkExecutableWatchSoftFileDescriptorLimit(explicitSoftLimit),
-              let openFileDescriptorCount = explicitOpenFileDescriptorCount ?? currentOpenFileDescriptorCount() else {
-            return false
-        }
-        return forkExecutableWatchAvailableDescriptorCount(
-            softFileDescriptorLimit: softLimit,
-            openFileDescriptorCount: openFileDescriptorCount,
-            pendingReservationCount: pendingReservationCount
-        ) >= 0
-    }
-
-    nonisolated private static func forkExecutableWatchAvailableDescriptorCount(
-        softFileDescriptorLimit: Int,
-        openFileDescriptorCount: Int,
-        pendingReservationCount: Int
-    ) -> Int {
-        softFileDescriptorLimit
-            - openFileDescriptorCount
-            - pendingReservationCount
-            - minimumReservedFileDescriptorCount
-    }
-
-    nonisolated private static func forkExecutableWatchSoftFileDescriptorLimit(
-        _ explicitSoftLimit: Int?
-    ) -> Int? {
-        if let explicitSoftLimit {
-            return explicitSoftLimit
-        }
-        var limit = rlimit()
-        guard getrlimit(RLIMIT_NOFILE, &limit) == 0,
-              limit.rlim_cur != rlimInfinity,
-              limit.rlim_cur <= rlim_t(Int.max) else {
-            return nil
-        }
-        return Int(limit.rlim_cur)
-    }
-
-    nonisolated private static func currentOpenFileDescriptorCount() -> Int? {
-        guard let fileDescriptorNames = try? FileManager.default.contentsOfDirectory(atPath: "/dev/fd") else {
-            return nil
-        }
-        return fileDescriptorNames.compactMap(Int.init).count
-    }
-
     private var directoryWatchSource: DispatchSourceFileSystemObject?
     // DispatchSource file watching requires a delivery queue; state hops back to MainActor.
     private let watchQueue = DispatchQueue(label: "com.cmuxterm.app.sharedLiveAgentIndexWatch")
 
-    private let indexLoader: @Sendable () -> SharedLiveAgentIndexLoader.LoadResult
+    private let indexLoader: @Sendable () async -> SharedLiveAgentIndexLoader.LoadResult
+    private let processSnapshotLoader: @Sendable () async -> CmuxTopProcessSnapshot
     private let forkExecutableIdentityResolver: AgentForkExecutableIdentityResolver
     private let forkCapabilityProbeCache: ForkCapabilityProbeResultCache
     private let customForkSupportProvider: (@Sendable (SessionRestorableAgentSnapshot, Bool) async -> Bool)?
     private let hookStoreDirectoryProvider: @MainActor () -> String
     private let dateProvider: @MainActor () -> Date
     private let forkExecutableWatchSourceBudgetProvider: @MainActor (Int) -> Int
-
     init(
-        indexLoader: @escaping @Sendable () -> SharedLiveAgentIndexLoader.LoadResult = {
-            SharedLiveAgentIndexLoader().loadResultSynchronously()
+        indexLoader: @escaping @Sendable () async -> SharedLiveAgentIndexLoader.LoadResult = {
+            await SharedLiveAgentIndexLoader.loadFreshResult()
         },
+        processSnapshotLoader: @escaping @Sendable () async -> CmuxTopProcessSnapshot = { await CmuxTopProcessSnapshot.capture(includeProcessDetails: true, includeCMUXScope: true, includeResources: false) },
         forkExecutableIdentityResolver: AgentForkExecutableIdentityResolver = AgentForkExecutableIdentityResolver(),
         forkCapabilityProbeCache: ForkCapabilityProbeResultCache = ForkCapabilityProbeResultCache(),
         forkSupportProvider: (@Sendable (SessionRestorableAgentSnapshot, Bool) async -> Bool)? = nil,
@@ -241,6 +168,7 @@ final class SharedLiveAgentIndex {
         }
     ) {
         self.indexLoader = indexLoader
+        self.processSnapshotLoader = processSnapshotLoader
         self.forkExecutableIdentityResolver = forkExecutableIdentityResolver
         self.forkCapabilityProbeCache = forkCapabilityProbeCache
         self.customForkSupportProvider = forkSupportProvider
@@ -248,7 +176,6 @@ final class SharedLiveAgentIndex {
         self.dateProvider = dateProvider
         self.forkExecutableWatchSourceBudgetProvider = forkExecutableWatchSourceBudgetProvider
     }
-
     func forkValidationExecutableFingerprint(
         snapshot: SessionRestorableAgentSnapshot,
         isRemoteContext: Bool = false
@@ -518,18 +445,69 @@ final class SharedLiveAgentIndex {
 
     /// Returns a freshly loaded index, coalescing with any refresh already in flight.
     func indexRefreshingNow() async -> RestorableAgentSessionIndex? {
+        if case .index(let index) = await indexForOwnershipDecision() {
+            return index
+        }
+        return nil
+    }
+
+    func beginScheduledHibernationRefresh() -> SharedLiveAgentIndexScheduledHibernationSession? {
         ensureWatchingHookStoreDirectory()
-        var completedRefreshPasses = 0
+        guard let cachedIndex = index else { return nil }
+        return SharedLiveAgentIndexScheduledHibernationSession(
+            cachedIndex: cachedIndex,
+            processSnapshotLoader: processSnapshotLoader,
+            completionGeneration: refreshCompletionGeneration
+        )
+    }
+
+    func finishScheduledHibernationRefresh(
+        _ session: SharedLiveAgentIndexScheduledHibernationSession,
+        refreshedIndex: RestorableAgentSessionIndex
+    ) -> Bool {
+        guard !Task.isCancelled,
+              refreshCompletionGeneration == session.completionGeneration,
+              refreshTask == nil,
+              forkAvailabilityRefreshTask == nil,
+              !changePending,
+              deferredReloadTimer == nil else { return false }
+        let previousFingerprint = liveAgentProcessFingerprint
+        index = refreshedIndex
+        loadedAt = dateProvider()
+        liveAgentProcessFingerprint = refreshedIndex.liveAgentProcessFingerprint()
+            .union(refreshedIndex.liveSessionOwnerFingerprint)
+        if liveAgentProcessFingerprint != previousFingerprint {
+            NotificationCenter.default.post(name: .sharedLiveAgentIndexDidChange, object: self)
+        }
+        return true
+    }
+
+    /// Waits for an index whose scan started after this request, and names the
+    /// reason when no such scan can finish.
+    ///
+    /// A scan that begins after the request has read every hook record written
+    /// before the caller asked. Hook-store events that land while it runs are
+    /// left to the ordinary coalesced refresh instead of restarting the wait:
+    /// the admission boundary revalidates the recorded owner's PID generation
+    /// and argv itself, and `AgentResumeLaunchGuard` serialises cmux's own
+    /// launches, so a later scan could not make this point-in-time answer
+    /// safer. Requiring the shared hook-store directory to stay quiet for a
+    /// whole scan made admission fail on any Mac where other agents keep
+    /// rewriting their hook stores (#12158).
+    func indexForOwnershipDecision() async -> SharedLiveAgentIndexRefreshOutcome {
+        ensureWatchingHookStoreDirectory()
+        var requestedRefreshGeneration: UUID?
         let ownershipRefreshDeadline = DispatchTime.now().uptimeNanoseconds
             &+ Self.ownershipRefreshTimeoutNanoseconds
         while true {
-            guard !Task.isCancelled else { return nil }
+            guard !Task.isCancelled else { return .cancelled }
             guard DispatchTime.now().uptimeNanoseconds < ownershipRefreshDeadline else {
                 abandonOwnershipRefreshTasks()
                 preservePendingHookChangeAfterOwnershipRefreshFailure()
-                return nil
+                return .timedOut
             }
             if let refreshTask {
+                let awaitedRefreshGeneration = refreshTaskGeneration
                 guard await awaitOwnershipRefreshTask(
                     refreshTask,
                     kind: .full,
@@ -537,28 +515,37 @@ final class SharedLiveAgentIndex {
                         until: ownershipRefreshDeadline
                     )
                 ) else {
-                    guard !Task.isCancelled else { return nil }
+                    guard !Task.isCancelled else { return .cancelled }
                     abandonOwnershipRefreshTasks()
                     preservePendingHookChangeAfterOwnershipRefreshFailure()
-                    return nil
+                    return .timedOut
                 }
-                guard !Task.isCancelled else { return nil }
+                guard !Task.isCancelled else { return .cancelled }
+                if let index,
+                   let requestedRefreshGeneration,
+                   awaitedRefreshGeneration == requestedRefreshGeneration {
+                    // The scan this request started is fresh by construction.
+                    // Any hook event it overlapped was already queued for the
+                    // coalesced refresh by the reload completion handler.
+                    return .index(index)
+                }
                 guard DispatchTime.now().uptimeNanoseconds < ownershipRefreshDeadline else {
                     abandonOwnershipRefreshTasks()
                     preservePendingHookChangeAfterOwnershipRefreshFailure()
-                    return nil
+                    return .timedOut
                 }
-                completedRefreshPasses += 1
-                if self.refreshTask == nil,
+                if let index,
+                   self.refreshTask == nil,
                    forkAvailabilityRefreshTask == nil,
                    !changePending,
                    deferredReloadTimer == nil {
-                    return index
+                    // A scan that was already running when the request arrived
+                    // is only as fresh as its start. With no event observed
+                    // since then, no newer hook record can exist.
+                    return .index(index)
                 }
-                guard completedRefreshPasses < Self.maximumOwnershipSensitiveRefreshPasses else {
-                    preservePendingHookChangeAfterOwnershipRefreshFailure()
-                    return nil
-                }
+                // The in-flight scan predates this request and a hook event
+                // overlapped it, so this request needs one scan of its own.
                 continue
             }
             if let forkAvailabilityRefreshTask {
@@ -569,20 +556,19 @@ final class SharedLiveAgentIndex {
                         until: ownershipRefreshDeadline
                     )
                 ) else {
-                    guard !Task.isCancelled else { return nil }
+                    guard !Task.isCancelled else { return .cancelled }
                     abandonOwnershipRefreshTasks()
                     preservePendingHookChangeAfterOwnershipRefreshFailure()
-                    return nil
+                    return .timedOut
                 }
                 guard DispatchTime.now().uptimeNanoseconds < ownershipRefreshDeadline else {
                     abandonOwnershipRefreshTasks()
                     preservePendingHookChangeAfterOwnershipRefreshFailure()
-                    return nil
+                    return .timedOut
                 }
                 // Fork availability reloads may intentionally retain an
                 // unchanged index. Ownership-sensitive callers need the full
-                // refresh task below as well, so this pass must not consume the
-                // bounded full-refresh retry budget.
+                // refresh below as well.
                 continue
             }
             if changePending || deferredReloadTimer != nil {
@@ -592,10 +578,9 @@ final class SharedLiveAgentIndex {
                 deferredReloadTimer?.cancel()
                 deferredReloadTimer = nil
                 changePending = false
-                startReload()
-                continue
             }
             startReload()
+            requestedRefreshGeneration = refreshTaskGeneration
         }
     }
 
@@ -820,7 +805,7 @@ final class SharedLiveAgentIndex {
         let indexLoader = self.indexLoader
         let generation = UUID()
         let task = Task.detached(priority: .utility) {
-            indexLoader()
+            await indexLoader()
         }
         indexLoaderTask = task
         indexLoaderTaskGeneration = generation
@@ -1196,16 +1181,24 @@ final class SharedLiveAgentIndex {
         forkAvailabilityRefreshTaskGeneration = generation
         forkAvailabilityRefreshTask = Task { @MainActor [weak self] in
             guard let self else { return }
-            let reloadResult = await self.reloadIfLiveAgentProcessFingerprintChanged()
+            let refreshResult: (didComplete: Bool, panelIdsByWorkspaceId: [UUID: Set<UUID>])
+            let requiresLiveIndex = self.pendingForkValidationRequests.values
+                .contains { requests in requests.contains { $0.fallbackSnapshot == nil } }
+            if requiresLiveIndex {
+                let reloadResult = await self.reloadIfLiveAgentProcessFingerprintChanged()
+                refreshResult = (reloadResult.didReload, reloadResult.panelIdsByWorkspaceId)
+            } else {
+                refreshResult = (true, await self.applyPendingForkValidations())
+            }
             guard self.forkAvailabilityRefreshTaskGeneration == generation else { return }
             self.forkAvailabilityRefreshTask = nil
             self.forkAvailabilityRefreshTaskGeneration = nil
             self.noteOwnershipRefreshCompleted(
                 kind: .fork,
-                success: reloadResult.didReload && !Task.isCancelled
+                success: refreshResult.didComplete && !Task.isCancelled
             )
             self.restartForkAvailabilityRefreshIfPending()
-            self.postSharedLiveAgentIndexDidChange(panelIdsByWorkspaceId: reloadResult.panelIdsByWorkspaceId)
+            self.postSharedLiveAgentIndexDidChange(panelIdsByWorkspaceId: refreshResult.panelIdsByWorkspaceId)
             if self.changePending {
                 self.changePending = false
                 self.handleHookStoreChange()
@@ -1610,11 +1603,12 @@ final class SharedLiveAgentIndex {
                     from: pendingRequestBatches[(batchIndex + 1)...]
                 )
                 requestsToRestore[probeKey, default: []].append(contentsOf: pendingRequests)
-                var requestIDsToDropOnRestore = pendingRequestIDsToRemoveOnCancellation
-                requestIDsToDropOnRestore[probeKey, default: []].formUnion(cancelledRequestIDsForProbe)
+                // Contention is not cancellation: retain this caller's request
+                // while the active probe finishes. The restore helper drops
+                // requests with actual cancellation tombstones itself.
                 restorePendingForkValidationsAfterCancellation(
                     requestsToRestore,
-                    dropping: requestIDsToDropOnRestore,
+                    dropping: [:],
                     restartIfPending: false
                 )
                 requeuedPendingRequests = true
@@ -2053,23 +2047,40 @@ final class SharedLiveAgentIndex {
             return nil
         }
         let watchKey: ForkExecutableWatchKey = watchPaths
-        if var record = forkExecutableWatchRecords[watchKey] {
-            record.probeKeys.insert(probeKey)
-            record.panelAliasesByProbeKey[probeKey, default: []].insert(requestingPanelKey)
-            forkExecutableWatchRecords[watchKey] = record
-            forkExecutableWatchKeysByProbeKey[probeKey] = watchKey
-            forkExecutableWatchGenerations[probeKey] = record.generation
-            return record.generation
+        let generation: UUID?
+        if let record = forkExecutableWatchRecords[watchKey] {
+            generation = record.generation
+        } else {
+            let installTask: Task<UUID?, Never>
+            if let pendingTask = forkExecutableWatchInstallTasks[watchKey] {
+                installTask = pendingTask
+            } else {
+                installTask = Task { @MainActor [weak self] in
+                    guard let self else { return nil }
+                    defer { self.forkExecutableWatchInstallTasks[watchKey] = nil }
+                    return await self.installForkExecutableWatch(watchPaths: watchPaths)
+                }
+                forkExecutableWatchInstallTasks[watchKey] = installTask
+            }
+            generation = await installTask.value
         }
+        guard let generation,
+              var record = forkExecutableWatchRecords[watchKey],
+              record.generation == generation else { return nil }
+        record.probeKeys.insert(probeKey)
+        record.panelAliasesByProbeKey[probeKey, default: []].insert(requestingPanelKey)
+        forkExecutableWatchRecords[watchKey] = record
+        forkExecutableWatchKeysByProbeKey[probeKey] = watchKey
+        forkExecutableWatchGenerations[probeKey] = generation
+        return generation
+    }
 
+    /// Shares an installed watch record, keeping descriptor ownership inside one task.
+    private func installForkExecutableWatch(watchPaths: ForkExecutableWatchKey) async -> UUID? {
+        let watchKey = watchPaths
         let generation = UUID()
         pruneExpiredForkSupportValidations(now: dateProvider())
-        if var record = forkExecutableWatchRecords[watchKey] {
-            record.probeKeys.insert(probeKey)
-            record.panelAliasesByProbeKey[probeKey, default: []].insert(requestingPanelKey)
-            forkExecutableWatchRecords[watchKey] = record
-            forkExecutableWatchKeysByProbeKey[probeKey] = watchKey
-            forkExecutableWatchGenerations[probeKey] = record.generation
+        if let record = forkExecutableWatchRecords[watchKey] {
             return record.generation
         }
         let activeWatchCount = forkExecutableWatchRecords.values.reduce(0) { partial, record in
@@ -2088,13 +2099,8 @@ final class SharedLiveAgentIndex {
         guard let openedFileDescriptors else {
             return nil
         }
-        if var record = forkExecutableWatchRecords[watchKey] {
+        if let record = forkExecutableWatchRecords[watchKey] {
             openedFileDescriptors.forEach { Darwin.close($0) }
-            record.probeKeys.insert(probeKey)
-            record.panelAliasesByProbeKey[probeKey, default: []].insert(requestingPanelKey)
-            forkExecutableWatchRecords[watchKey] = record
-            forkExecutableWatchKeysByProbeKey[probeKey] = watchKey
-            forkExecutableWatchGenerations[probeKey] = record.generation
             return record.generation
         }
         guard Self.forkExecutableWatchDescriptorReserveIsSatisfied(
@@ -2133,12 +2139,10 @@ final class SharedLiveAgentIndex {
         }
         forkExecutableWatchRecords[watchKey] = (
             generation: generation,
-            probeKeys: [probeKey],
-            panelAliasesByProbeKey: [probeKey: [requestingPanelKey]],
+            probeKeys: [],
+            panelAliasesByProbeKey: [:],
             sources: sources
         )
-        forkExecutableWatchKeysByProbeKey[probeKey] = watchKey
-        forkExecutableWatchGenerations[probeKey] = generation
         for source in sources {
             source.resume()
         }
@@ -2155,24 +2159,26 @@ final class SharedLiveAgentIndex {
             realPath: realPath,
             watchDirectories: watchDirectories
         )
-        guard forkExecutableWatchPathTasks[key] == nil,
-              !timedOutForkExecutableWatchPathKeys.contains(key),
-              outstandingForkExecutableWatchInstallWorkCount
-                < Self.maximumOutstandingForkExecutableWatchInstallWork else {
-            return nil
-        }
-        let task = Task.detached(priority: .utility) {
-            Self.forkExecutableWatchPaths(
-                lookupPath: lookupPath,
-                realPath: realPath,
-                watchDirectories: watchDirectories
-            )
-        }
-        forkExecutableWatchPathTasks[key] = task
-        Task { @MainActor in
-            _ = await task.value
-            self.forkExecutableWatchPathTasks[key] = nil
-            self.timedOutForkExecutableWatchPathKeys.remove(key)
+        guard !timedOutForkExecutableWatchPathKeys.contains(key) else { return nil }
+        let task: Task<ForkExecutableWatchKey?, Never>
+        if let pendingTask = forkExecutableWatchPathTasks[key] {
+            task = pendingTask
+        } else {
+            guard outstandingForkExecutableWatchInstallWorkCount
+                    < Self.maximumOutstandingForkExecutableWatchInstallWork else { return nil }
+            task = Task.detached(priority: .utility) {
+                Self.forkExecutableWatchPaths(
+                    lookupPath: lookupPath,
+                    realPath: realPath,
+                    watchDirectories: watchDirectories
+                )
+            }
+            forkExecutableWatchPathTasks[key] = task
+            Task { @MainActor in
+                _ = await task.value
+                self.forkExecutableWatchPathTasks[key] = nil
+                self.timedOutForkExecutableWatchPathKeys.remove(key)
+            }
         }
         return await boundedForkExecutableWatchTaskValue(
             task: task,

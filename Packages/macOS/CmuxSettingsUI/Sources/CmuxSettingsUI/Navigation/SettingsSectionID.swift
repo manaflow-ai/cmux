@@ -11,6 +11,7 @@ import Foundation
 /// `Sections/`.
 public enum SettingsSectionID: String, CaseIterable, Identifiable, Sendable, Hashable {
     case account
+    case computers
     case app
     case terminal
     case textBox
@@ -42,26 +43,27 @@ public enum SettingsSectionID: String, CaseIterable, Identifiable, Sendable, Has
     /// User-facing section title shown in the sidebar.
     public var title: String {
         switch self {
-        case .account: return "Account"
-        case .app: return "App"
-        case .terminal: return "Terminal"
+        case .account: return String(localized: "settings.section.account", defaultValue: "Account")
+        case .computers: return String(localized: "settings.section.computers", defaultValue: "Computers")
+        case .app: return String(localized: "settings.section.app", defaultValue: "App")
+        case .terminal: return String(localized: "settings.section.terminal", defaultValue: "Terminal")
         case .textBox: return String(localized: "settings.section.textBox", defaultValue: "TextBox (Beta)")
         case .sleepyMode: return String(localized: "settings.section.sleepyMode", defaultValue: "Sleepy Mode")
         case .mobile: return String(localized: "settings.section.mobile", defaultValue: "Mobile")
         case .cloudMachines: return String(localized: "settings.section.cloudMachines", defaultValue: "Cloud")
         case .networking: return String(localized: "settings.section.networking", defaultValue: "Networking")
-        case .sidebarAppearance: return "Sidebar"
+        case .sidebarAppearance: return String(localized: "settings.section.sidebarAppearance", defaultValue: "Sidebar")
         case .customSidebars: return String(localized: "settings.section.customSidebars", defaultValue: "Custom Sidebars")
-        case .betaFeatures: return "Beta Features"
-        case .automation: return "Automation"
+        case .betaFeatures: return String(localized: "settings.section.betaFeatures", defaultValue: "Beta Features")
+        case .automation: return String(localized: "settings.section.automation", defaultValue: "Automation")
         case .computerUse: return String(localized: "settings.section.computerUse", defaultValue: "Computer Use")
-        case .browser: return "Browser"
-        case .browserImport: return "Import Browser Data"
-        case .globalHotkey: return "Global Hotkey"
-        case .keyboardShortcuts: return "Keyboard Shortcuts"
-        case .workspaceColors: return "Workspace Colors"
+        case .browser: return String(localized: "settings.section.browser", defaultValue: "Browser")
+        case .browserImport: return String(localized: "settings.browser.import", defaultValue: "Import Browser Data")
+        case .globalHotkey: return String(localized: "settings.section.globalHotkey", defaultValue: "Global Hotkey")
+        case .keyboardShortcuts: return String(localized: "settings.section.keyboardShortcuts", defaultValue: "Keyboard Shortcuts")
+        case .workspaceColors: return String(localized: "settings.section.workspaceColors", defaultValue: "Workspace Colors")
         case .settingsJSON: return "cmux.json"
-        case .reset: return "Reset"
+        case .reset: return String(localized: "settings.section.reset", defaultValue: "Reset")
         }
     }
 
@@ -69,6 +71,7 @@ public enum SettingsSectionID: String, CaseIterable, Identifiable, Sendable, Has
     public var symbolName: String {
         switch self {
         case .account: return "person.crop.circle"
+        case .computers: return "desktopcomputer"
         case .app: return "gearshape"
         case .terminal: return "terminal"
         case .textBox: return "textformat"
@@ -97,6 +100,7 @@ public enum SettingsSectionID: String, CaseIterable, Identifiable, Sendable, Has
     public var searchKeywords: String {
         switch self {
         case .account: return "sign in team sync user profile"
+        case .computers: return String(localized: "settings.computers.keywords", defaultValue: "computers devices mac tailscale pairing remote workspaces")
         case .app: return "appearance language workspace notifications menu bar telemetry"
         case .terminal: return "scrollbar copy on select agent resume hibernation"
         case .textBox: return "textbox text box rich input prompt default new terminal workspace split tab focus show beta"

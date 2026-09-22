@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 8ff10c20fef75f9aaa1498eaf5e1107f084bdcf3febdcf8806fb4e7fc1c90b86.
+// cmux-tui mux protocol 12, IR 7042c629f34d3606581d07b2d2c03b65116c2467810724163c54674865825cc0.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -100,6 +100,8 @@ pub struct ColorsChangedEvent {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub cursor_style: Optional<T::CursorStyle>,
     pub fg: Nullable<T::ColorHex>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub overrides: Option<T::TerminalColorOverrides>,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub palette: Option<BTreeMap<String, T::ColorHex>>,
     pub selection_bg: Nullable<T::ColorHex>,
@@ -440,6 +442,14 @@ pub struct TreeChangedEvent {
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct UrlOpenEvent {
+    pub request_id: String,
+    pub terminal_id: String,
+    pub url: String,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct VtStateEvent {
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub colors: Option<T::TerminalColors>,
@@ -572,6 +582,7 @@ pub enum Event {
     TerminalRegistryChanged(TerminalRegistryChangedEvent),
     TitleChanged(TitleChangedEvent),
     TreeChanged(TreeChangedEvent),
+    UrlOpen(UrlOpenEvent),
     VtState(VtStateEvent),
     WindowTitleRequested(WindowTitleRequestedEvent),
     WorkspaceAdded(WorkspaceAddedEvent),
@@ -627,6 +638,7 @@ impl Event {
             Self::TerminalRegistryChanged(_) => Some("terminal-registry-changed"),
             Self::TitleChanged(_) => Some("title-changed"),
             Self::TreeChanged(_) => Some("tree-changed"),
+            Self::UrlOpen(_) => Some("url-open"),
             Self::VtState(_) => Some("vt-state"),
             Self::WindowTitleRequested(_) => Some("window-title-requested"),
             Self::WorkspaceAdded(_) => Some("workspace-added"),
@@ -681,6 +693,7 @@ impl Event {
             Self::TerminalRegistryChanged(_) => Some(&TERMINAL_REGISTRY_CHANGED_EVENT_METADATA),
             Self::TitleChanged(_) => Some(&TITLE_CHANGED_EVENT_METADATA),
             Self::TreeChanged(_) => Some(&TREE_CHANGED_EVENT_METADATA),
+            Self::UrlOpen(_) => Some(&URL_OPEN_EVENT_METADATA),
             Self::VtState(_) => Some(&VT_STATE_EVENT_METADATA),
             Self::WindowTitleRequested(_) => Some(&WINDOW_TITLE_REQUESTED_EVENT_METADATA),
             Self::WorkspaceAdded(_) => Some(&WORKSPACE_ADDED_EVENT_METADATA),
@@ -1026,6 +1039,14 @@ pub fn decode_event(raw: Value) -> Event {
         },
         Some("tree-changed") => match serde_json::from_value::<TreeChangedEvent>(raw.clone()) {
             Ok(event) => Event::TreeChanged(event),
+            Err(error) => Event::Unknown(UnknownEvent {
+                name,
+                raw,
+                decode_error: Some(error.to_string()),
+            }),
+        },
+        Some("url-open") => match serde_json::from_value::<UrlOpenEvent>(raw.clone()) {
+            Ok(event) => Event::UrlOpen(event),
             Err(error) => Event::Unknown(UnknownEvent {
                 name,
                 raw,

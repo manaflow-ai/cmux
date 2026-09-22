@@ -207,6 +207,9 @@ impl MachineAgentMessages {
 
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) struct MenuMessages {
+    pub move_tab_workspace_unsupported: &'static str,
+    pub move_tab_workspace: &'static str,
+    pub move_tab_new_workspace: &'static str,
     pub copy_message: &'static str,
     pub copy_workspace_id: &'static str,
     pub copy_tab_id: &'static str,
@@ -432,6 +435,7 @@ pub(crate) struct RemoteClientMessages {
     pub connect_help: &'static str,
     pub ssh_help: &'static str,
     pub forward_help: &'static str,
+    pub browser_proxy_help: &'static str,
     pub rpc_help: &'static str,
     pub enroll_help: &'static str,
     pub known_daemons_help: &'static str,
@@ -1081,6 +1085,8 @@ pub(crate) struct StartupMessages {
 
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) struct LocalServerMessages {
+    pub shorthand_help: &'static str,
+    pub shorthand_invalid: &'static str,
     pub startup_lifecycle_usage: &'static str,
     pub root_remote_usage: &'static str,
     pub root_server_usage: &'static str,
@@ -1159,10 +1165,19 @@ impl StartupMessages {
 }
 
 #[derive(Debug, PartialEq, Eq)]
+pub(crate) struct TerminalInputMessages {
+    pub too_large: &'static str,
+    pub unavailable: &'static str,
+    pub confirmation_unsupported: &'static str,
+    pub delivery_failed: &'static str,
+}
+
+#[derive(Debug, PartialEq, Eq)]
 pub(crate) struct Catalog {
     japanese: bool,
     pub startup: StartupMessages,
     pub local_server: LocalServerMessages,
+    pub terminal_input: TerminalInputMessages,
     pub pairing: PairingMessages,
     pub foreign_viewport: ForeignViewportMessages,
     pub graphics: GraphicsMessages,
@@ -1206,7 +1221,15 @@ static ENGLISH: Catalog = Catalog {
         saved_state_requires_newer: "the saved state still requires a newer cmux; upgrade cmux to reopen this session",
         start_separate_session: "or start this build in a separate session:",
     },
+    terminal_input: TerminalInputMessages {
+        too_large: "Terminal input is too large. Send less input at once.",
+        unavailable: "Terminal input is temporarily unavailable. Try again shortly.",
+        confirmation_unsupported: "Input delivery confirmation is unavailable for this terminal. Update cmux, start a new terminal session, and retry.",
+        delivery_failed: "Terminal input could not be delivered. Check that the terminal is available.",
+    },
     local_server: LocalServerMessages {
+        shorthand_help: "USAGE\n  cmux help shorthands\n\nShorthands use the same public resource operations and output modes.\n-t/--target accepts a cmux selector, not tmux session:window.pane syntax.\nNo target means current in the selected session. Lists stay within that session.\nsplitw defaults to down; -h is right and -v is down. Use --help for help.\nselectp accepts one of -L/-R/-U/-D. neww accepts -n NAME.\nrenamew accepts one new name. capturep always prints (-p is optional).\nsend-keys accepts key names (Enter, C-c, M-x); -l joins literal UTF-8 text.\nIt does not mix arbitrary text and key names. Use terminal write for text.\nResource paths may omit current: pane split, term read, ws rename --name NAME.\nExplicit selector paths win; name: forces names that match command words.\nNo new-session alias: use cmux --session NAME or server ensure --session NAME.\n",
+        shorthand_invalid: "invalid or unsupported shorthand argument {value}; use cmux help shorthands",
         startup_lifecycle_usage: "  cmux server <ACTION>     Start, inspect, stop, or reload one local session\n  cmux remote connect <ROUTE>  Attach through an authenticated remote route\n  cmux remote ssh <HOST>       Bootstrap and attach over direct SSH\n  cmux remote forward <ROUTE>  Forward a workspace TCP service locally\n  cmux remote rpc <ROUTE>     Run workspace coding-agent RPC requests\n  cmux remote enroll <ACTION> Enroll, approve, list, or revoke devices\n  cmux remote known-daemons   List client-pinned daemon identities and routes\n  cmux remote stop            Stop a replaceable SSH sidecar explicitly",
         root_remote_usage: "  cmux remote <connect|ssh|forward|rpc|enroll|known-daemons|stop> [OPTIONS]",
         root_server_usage: "  cmux server <start|ensure|status|stats|stop|reload-config> [OPTIONS]",
@@ -1373,6 +1396,9 @@ edits shell files. Authenticate with the configured host before retrying.
         unknown_argument: "Unknown machine-agent argument: {argument}",
     },
     menu: MenuMessages {
+        move_tab_workspace_unsupported: "This session owner needs a newer cmux build to move tabs between workspaces",
+        move_tab_workspace: "Move tab to workspace",
+        move_tab_new_workspace: "New workspace",
         copy_message: "Copy message",
         copy_workspace_id: "Copy workspace id",
         copy_tab_id: "Copy tab id",
@@ -1483,12 +1509,15 @@ ROUTES:
   relay+ws:// | relay+wss:// | relay+https:// | relay+do://
 
 IDENTITY AND SESSION:
-  --invite-file PATH|-  --daemon FINGERPRINT
+  --invite-file PATH|-  --daemon FINGERPRINT  --carrier
   --device-name NAME  --session NAME
   --state-dir PATH  --local-socket PATH  --headless [--json]
 
   --invite-file avoids exposing the single-use invitation in process arguments.
   Regular files must be owner-only; - reads one line from stdin.
+  --carrier dials ws routes with carrier authentication (no enrollment, no
+    invitation); only a daemon whose listener is trusted accepts it, such as a
+    cmux Cloud machine reached over the owner's private network.
 
 TRANSPORT:
   --lanes auto|single|isolated  --connect-timeout-seconds N
@@ -1532,6 +1561,7 @@ OPTIONS:
   --reconnect-jitter full|none  --heartbeat-interval-ms MS
   --heartbeat-timeout-ms MS
 "#,
+        browser_proxy_help: "USAGE: cmux remote browser-proxy [ROUTE] --allowed-host HOST [--allowed-host HOST ...] --workspace-root PATH --wireguard-hub PATH [OPTIONS]\n\nStarts an authenticated local browser proxy to the selected machine's loopback ports. Prints private proxy credentials on stdout.\n",
         forward_help: r#"USAGE: cmux remote forward [ROUTE] --workspace-root PATH --port PORT [OPTIONS]
 
 OPTIONS:
@@ -1882,7 +1912,15 @@ static JAPANESE: Catalog = Catalog {
         saved_state_requires_newer: "保存状態には新しい cmux が必要です。このセッションを再度開くには cmux をアップグレードしてください",
         start_separate_session: "または、このビルドを別のセッションで開始:",
     },
+    terminal_input: TerminalInputMessages {
+        too_large: "端末への入力が大きすぎます。一度に送る入力を減らしてください。",
+        unavailable: "現在、端末への入力を受け付けられません。しばらくしてから再試行してください。",
+        confirmation_unsupported: "この端末では入力の送信完了を確認できません。cmux を更新し、新しい端末セッションを開始してから、もう一度お試しください。",
+        delivery_failed: "端末に入力を送信できませんでした。端末が利用可能か確認してください。",
+    },
     local_server: LocalServerMessages {
+        shorthand_help: "使用方法\n  cmux help shorthands\n\n短縮形は同じ公開リソース操作と出力形式を使います。\n-t/--target は cmux セレクターです。tmux の session:window.pane 形式ではありません。\n対象の省略は選択したセッションの current です。一覧もそのセッション内です。\nsplitw の既定は下、-h は右、-v は下です。ヘルプは --help を使います。\nselectp は -L/-R/-U/-D の一つ、neww は -n NAME を受け付けます。\nrenamew は新しい名前一つ、capturep は常に出力します（-p は省略可）。\nsend-keys は Enter、C-c、M-x などのキー名、-l は UTF-8 文字列を連結します。\n文字列とキー名の混在には対応しません。文字列には terminal write を使います。\nリソースの current は省略可能です: pane split、term read、ws rename --name NAME。\n明示的なセレクターパスを優先します。コマンドと同名なら name: を使います。\nnew-session はありません。cmux --session NAME または server ensure --session NAME を使います。\n",
+        shorthand_invalid: "短縮形の引数 {value} は無効または未対応です。cmux help shorthands を参照してください",
         startup_lifecycle_usage: "  cmux server <操作>       一つのローカルセッションを起動、確認、停止、再読み込み\n  cmux remote connect <ルート>  認証済みリモートルート経由で接続\n  cmux remote ssh <ホスト>       直接 SSH で導入して接続\n  cmux remote forward <ルート>  ワークスペースの TCP サービスをローカル転送\n  cmux remote rpc <ルート>       ワークスペースのコーディングエージェント RPC を実行\n  cmux remote enroll <操作>      デバイスを登録、承認、一覧、失効\n  cmux remote known-daemons      クライアントに固定したデーモン ID とルートを一覧表示\n  cmux remote stop               置換可能な SSH サイドカーを明示的に停止",
         root_remote_usage: "  cmux remote <connect|ssh|forward|rpc|enroll|known-daemons|stop> [オプション]",
         root_server_usage: "  cmux server <start|ensure|status|stats|stop|reload-config> [オプション]",
@@ -2049,6 +2087,9 @@ cmux machine-agent - ローカルの cmux セッションをリモートサー�
         unknown_argument: "不明な machine-agent 引数です: {argument}",
     },
     menu: MenuMessages {
+        move_tab_workspace_unsupported: "ワークスペース間でタブを移動するにはセッション所有者を新しい cmux ビルドに更新してください",
+        move_tab_workspace: "タブをワークスペースへ移動",
+        move_tab_new_workspace: "新しいワークスペース",
         copy_message: "メッセージをコピー",
         copy_workspace_id: "ワークスペース ID をコピー",
         copy_tab_id: "タブ ID をコピー",
@@ -2159,12 +2200,15 @@ cmux machine-agent - ローカルの cmux セッションをリモートサー�
   relay+ws:// | relay+wss:// | relay+https:// | relay+do://
 
 ID とセッション:
-  --invite-file パス|-  --daemon フィンガープリント
+  --invite-file パス|-  --daemon フィンガープリント  --carrier
   --device-name 名前  --session 名前
   --state-dir パス  --local-socket パス  --headless [--json]
 
   --invite-file は一回限りの招待をプロセス引数に公開しません。
   通常ファイルは所有者だけが読める必要があります。- は標準入力から 1 行読みます。
+  --carrier は ws ルートをキャリア認証で接続します（登録や招待は不要）。
+    信頼済みリスナーを持つデーモンだけが受け入れます（例: 所有者のプライベート
+    ネットワーク経由で到達する cmux Cloud マシン）。
 
 トランスポート:
   --lanes auto|single|isolated  --connect-timeout-seconds 秒数
@@ -2206,6 +2250,7 @@ ID とセッション:
   --reconnect-jitter full|none  --heartbeat-interval-ms ミリ秒
   --heartbeat-timeout-ms ミリ秒
 "#,
+        browser_proxy_help: "使用方法: cmux remote browser-proxy [ルート] --allowed-host ホスト [--allowed-host ホスト ...] --workspace-root パス --wireguard-hub パス [オプション]\n\n選択したマシンのループバックポートへの認証付きローカルブラウザプロキシを起動します。非公開のプロキシ認証情報を標準出力に出力します。\n",
         forward_help: r#"使用方法: cmux remote forward [ルート] --workspace-root パス --port ポート [オプション]
 
 オプション:

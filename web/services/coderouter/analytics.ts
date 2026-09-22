@@ -23,6 +23,9 @@ export type CoderouterAnalyticsEvent =
   | "coderouter_auth_rejected"
   | "coderouter_route_session_issued"
   | "coderouter_route_session_revoked"
+  | "coderouter_api_key_created"
+  | "coderouter_api_key_revoked"
+  | "coderouter_api_key_listed"
   | "coderouter_organization_catalog_viewed"
   | "coderouter_metrics_loaded"
   | "coderouter_vm_usage_viewed"
@@ -32,6 +35,13 @@ export type CoderouterAnalyticsEvent =
   | "coderouter_claude_upstream_removed"
   /** @deprecated usage is ClickHouse-only; this event is rejected. */
   | "coderouter_model_request_completed";
+
+type CoderouterApiKeyEvent = Extract<
+  CoderouterAnalyticsEvent,
+  | "coderouter_api_key_created"
+  | "coderouter_api_key_revoked"
+  | "coderouter_api_key_listed"
+>;
 
 type AnalyticsScalar = string | number | boolean;
 export type CoderouterRawProperty = AnalyticsScalar | readonly Record<string, unknown>[];
@@ -269,6 +279,9 @@ function eventNeedsUser(event: CoderouterAnalyticsEvent): boolean {
     event === "coderouter_account_removed" ||
     event === "coderouter_route_session_issued" ||
     event === "coderouter_route_session_revoked" ||
+    event === "coderouter_api_key_created" ||
+    event === "coderouter_api_key_revoked" ||
+    event === "coderouter_api_key_listed" ||
     event === "coderouter_claude_upstream_set" ||
     event === "coderouter_claude_upstream_removed";
 }
@@ -283,25 +296,10 @@ function eventProperties(
       // `usageLedger.ts` in ClickHouse.
       return null;
     case "coderouter_account_added": {
-      const provider = accountProvider(input.provider);
-      const source = lifecycleSource(input.source);
-      if (!provider || !source || typeof input.already_exists !== "boolean") {
-        return null;
-      }
-      return { provider, source, already_exists: input.already_exists };
+      return accountAddedProperties(input);
     }
-    case "coderouter_account_removed": {
-      const source = lifecycleSource(input.source);
-      if (!source) return null;
-      const output: Record<string, AnalyticsScalar> = { source };
-      if (typeof input.last_account === "boolean") {
-        output.last_account = input.last_account;
-      }
-      if (typeof input.legacy_cleanup_pending === "boolean") {
-        output.legacy_cleanup_pending = input.legacy_cleanup_pending;
-      }
-      return output;
-    }
+    case "coderouter_account_removed":
+      return accountRemovedProperties(input);
     case "coderouter_account_status_viewed":
       return {
         source: lifecycleSource(input.source) ?? "native_api",
@@ -309,55 +307,117 @@ function eventProperties(
         account_error_count_bucket: countBucket(input.account_error_count),
         latency_bucket: latencyBucket(input.duration_ms),
       };
-    case "coderouter_auth_rejected": {
-      const surface = authSurface(input.surface);
-      const reason = authReason(input.reason);
-      return surface && reason ? { surface, reason } : null;
-    }
+    case "coderouter_auth_rejected":
+      return authRejectedProperties(input);
     case "coderouter_route_session_issued":
     case "coderouter_route_session_revoked":
       return {};
+    case "coderouter_api_key_created":
+    case "coderouter_api_key_revoked":
+    case "coderouter_api_key_listed":
+      return apiKeyEventProperties(event, input);
     case "coderouter_organization_catalog_viewed":
       return {
         organization_count_bucket: countBucket(input.organization_count),
         has_selected_organization:
           input.has_selected_organization === true,
       };
-    case "coderouter_metrics_loaded": {
-      const outcome = enumValue(input.outcome, ["ready", "unavailable"]);
-      const failureStage = enumValue(input.failure_stage, [
-        "none",
-        "configuration",
-        "request",
-        "endpoint_status",
-        "response_parse",
-        "response_validation",
-      ]);
-      return outcome && failureStage
-        ? { outcome, failure_stage: failureStage }
-        : null;
-    }
-    case "coderouter_vm_usage_viewed": {
-      const surface = enumValue(input.surface, [
-        "dashboard",
-        "vm_usage_api",
-        "team_machines_api",
-        "vm_self_api",
-      ]);
-      const outcome = enumValue(input.outcome, ["ready", "unavailable"]);
-      return surface && outcome ? { surface, outcome } : null;
-    }
+    case "coderouter_metrics_loaded":
+      return metricsLoadedProperties(input);
+    case "coderouter_vm_usage_viewed":
+      return vmUsageViewedProperties(input);
     case "coderouter_cli_command_started":
     case "coderouter_cli_command_completed":
       return cliCommandProperties(input);
-    case "coderouter_claude_upstream_set": {
-      const upstreamKind = claudeUpstreamKind(input.upstream_kind);
-      if (!upstreamKind || typeof input.replaced !== "boolean") return null;
-      return { upstream_kind: upstreamKind, replaced: input.replaced };
-    }
+    case "coderouter_claude_upstream_set":
+      return claudeUpstreamSetProperties(input);
     case "coderouter_claude_upstream_removed":
       return {};
   }
+  // Keep this closed-schema builder fail-closed if a new event is added before
+  // its telemetry properties are defined.
+  return null;
+}
+
+function accountAddedProperties(
+  input: Readonly<Record<string, AnalyticsScalar | null | undefined>>,
+): Record<string, AnalyticsScalar> | null {
+  const provider = accountProvider(input.provider);
+  const source = lifecycleSource(input.source);
+  if (!provider || !source || typeof input.already_exists !== "boolean") {
+    return null;
+  }
+  return { provider, source, already_exists: input.already_exists };
+}
+
+function accountRemovedProperties(
+  input: Readonly<Record<string, AnalyticsScalar | null | undefined>>,
+): Record<string, AnalyticsScalar> | null {
+  const source = lifecycleSource(input.source);
+  if (!source) return null;
+  const output: Record<string, AnalyticsScalar> = { source };
+  if (typeof input.last_account === "boolean") {
+    output.last_account = input.last_account;
+  }
+  if (typeof input.legacy_cleanup_pending === "boolean") {
+    output.legacy_cleanup_pending = input.legacy_cleanup_pending;
+  }
+  return output;
+}
+
+function authRejectedProperties(
+  input: Readonly<Record<string, AnalyticsScalar | null | undefined>>,
+): Record<string, AnalyticsScalar> | null {
+  const surface = authSurface(input.surface);
+  const reason = authReason(input.reason);
+  return surface && reason ? { surface, reason } : null;
+}
+
+function metricsLoadedProperties(
+  input: Readonly<Record<string, AnalyticsScalar | null | undefined>>,
+): Record<string, AnalyticsScalar> | null {
+  const outcome = enumValue(input.outcome, ["ready", "unavailable"]);
+  const failureStage = enumValue(input.failure_stage, [
+    "none",
+    "configuration",
+    "request",
+    "endpoint_status",
+    "response_parse",
+    "response_validation",
+  ]);
+  return outcome && failureStage
+    ? { outcome, failure_stage: failureStage }
+    : null;
+}
+
+function vmUsageViewedProperties(
+  input: Readonly<Record<string, AnalyticsScalar | null | undefined>>,
+): Record<string, AnalyticsScalar> | null {
+  const surface = enumValue(input.surface, [
+    "dashboard",
+    "vm_usage_api",
+    "team_machines_api",
+    "vm_self_api",
+  ]);
+  const outcome = enumValue(input.outcome, ["ready", "unavailable"]);
+  return surface && outcome ? { surface, outcome } : null;
+}
+
+function claudeUpstreamSetProperties(
+  input: Readonly<Record<string, AnalyticsScalar | null | undefined>>,
+): Record<string, AnalyticsScalar> | null {
+  const upstreamKind = claudeUpstreamKind(input.upstream_kind);
+  if (!upstreamKind || typeof input.replaced !== "boolean") return null;
+  return { upstream_kind: upstreamKind, replaced: input.replaced };
+}
+
+function apiKeyEventProperties(
+  event: CoderouterApiKeyEvent,
+  input: Readonly<Record<string, AnalyticsScalar | null | undefined>>,
+): Record<string, AnalyticsScalar> {
+  if (event === "coderouter_api_key_revoked") return { self: input.self === true };
+  if (event === "coderouter_api_key_listed") return { key_count_bucket: countBucket(input.key_count) };
+  return {};
 }
 
 function cliCommandProperties(
@@ -418,6 +478,7 @@ function accountProvider(value: unknown): string | null {
     "openai-apikey",
     "anthropic-apikey",
     "opencode-go",
+    "openrouter-apikey",
   ]);
 }
 
@@ -440,6 +501,7 @@ function authSurface(value: unknown): string | null {
     "opencode_proxy",
     "session_validation",
     "vm_usage",
+    "vm_reflection",
   ]);
 }
 

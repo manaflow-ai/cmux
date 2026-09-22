@@ -76,7 +76,7 @@ describe("coderouter OpenCode Go proxy", () => {
         selected.push(...(excluded ?? []));
         const id = ids.shift();
         return id
-          ? { id, vaultRevision: 1, credentialExpiresAt: new Date() }
+          ? { id, provider: "codex" as const, vaultRevision: 1, credentialExpiresAt: new Date() }
           : null;
       },
       credential: async ({ accountId }) => {
@@ -119,6 +119,7 @@ describe("coderouter OpenCode Go proxy VM-bound route tokens", () => {
       },
       select: async () => ({
         id: "acct-1",
+        provider: "codex" as const,
         vaultRevision: 1,
         credentialExpiresAt: new Date(),
       }),

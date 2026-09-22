@@ -1,4 +1,6 @@
 import { authorizeCronRequest } from "../../../../services/cronAuth";
+import { runBillingAlertChecks } from "../../../../services/observability/billingAlerts";
+import { runCronAlertChecks } from "../../../../services/observability/cronAlerts";
 import { runVmAlertChecks } from "../../../../services/observability/vmAlerts";
 import { jsonResponse } from "../../../../services/vms/routeHelpers";
 
@@ -13,7 +15,9 @@ export async function GET(request: Request): Promise<Response> {
   }
 
   const checks = await runVmAlertChecks();
+  const billing = await runBillingAlertChecks();
+  const cron = await runCronAlertChecks();
   // Top-level `configured` makes a sink-less production deployment visible to
   // anything scraping the cron response, not only readers of the summary.
-  return jsonResponse({ configured: checks.alertSink.configured, checks });
+  return jsonResponse({ configured: checks.alertSink.configured, checks, billing, cron });
 }

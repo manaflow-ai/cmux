@@ -79,7 +79,7 @@ describe("route token request authentication", () => {
     expect(result).toEqual({ ok: false, reason: "invalid_route_token" });
   });
 
-  test("an unbound token ignores x-cmux-vm-id", async () => {
+  test("a VM request cannot substitute an unbound CLI credential", async () => {
     const withHeader = await authenticateRequestRouteToken(
       request({ authorization: "Bearer crt_cli", [VM_ID_HEADER]: "vm-9" }),
       authenticate,
@@ -92,7 +92,7 @@ describe("route token request authentication", () => {
       ok: true,
       identity: { teamId: "team-1", stackUserId: "user-1", vmId: null, token: "crt_cli" },
     };
-    expect(withHeader).toEqual(expected);
+    expect(withHeader).toEqual({ ok: false, reason: "vm_mismatch" });
     expect(withoutHeader).toEqual(expected);
   });
 
@@ -119,9 +119,13 @@ describe("route token request authentication", () => {
 
   test("a legacy principal without vmId is treated as unbound", async () => {
     const result = await authenticateRequestRouteToken(
-      request({ authorization: "Bearer crt_legacy", [VM_ID_HEADER]: "vm-1" }),
+      request({ authorization: "Bearer crt_legacy" }),
       async () => ({ teamId: "team-1", stackUserId: "user-1" }),
     );
     expect(result).toMatchObject({ ok: true, identity: { vmId: null } });
+    expect(await authenticateRequestRouteToken(
+      request({ authorization: "Bearer crt_legacy", [VM_ID_HEADER]: "vm-1" }),
+      async () => ({ teamId: "team-1", stackUserId: "user-1" }),
+    )).toEqual({ ok: false, reason: "vm_mismatch" });
   });
 });

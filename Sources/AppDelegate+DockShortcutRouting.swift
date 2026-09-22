@@ -31,6 +31,7 @@ extension KeyboardShortcutSettings.Action {
              .focusLeft, .focusRight, .focusUp, .focusDown,
              .focusPreviousPane, .focusNextPane,
              .splitRight, .splitDown, .toggleSplitZoom,
+             .resizePaneLeft, .resizePaneRight, .resizePaneUp, .resizePaneDown,
              .equalizeSplits,
              .splitBrowserRight, .splitBrowserDown,
              .openBrowser, .focusBrowserAddressBar,
@@ -68,10 +69,10 @@ extension KeyboardShortcutSettings.Action {
              .diffViewerNextFile, .diffViewerPreviousFile:
             .focusResolved
 
-        case .openSettings, .reloadConfiguration,
+        case .openSettings, .openTeamPicker, .reloadConfiguration,
              .showHideAllWindows, .globalSearch,
              .newWindow, .closeWindow, .toggleFullScreen, .quit,
-             .toggleSidebar, .newTab, .newBrowserWorkspace,
+             .toggleSidebar, .newTab, .newBrowserWorkspace, .newCloudWorkspace, .newCloudMachine,
              .saveLayoutTemplate, .openFolder,
              .reopenPreviousSession, .goToWorkspace,
              .commandPalette, .sendFeedback,

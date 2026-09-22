@@ -6,6 +6,8 @@ final class MainWindowController: ReleasingWindowController {
     var onClose: ((NSWindow) -> Void)?
     var shouldClose: ((NSWindow) -> Bool)?
     var onFrameRestorationCheckpoint: ((NSWindow) -> Void)?
+    /// Reports AppKit geometry callbacks for this window to its lifecycle owner.
+    var onGeometryChanged: ((NSWindow) -> Void)?
 
 #if DEBUG
     private func logWindowEvent(_ event: String, notification: Notification) {
@@ -27,6 +29,33 @@ final class MainWindowController: ReleasingWindowController {
 
     func windowDidDeminiaturize(_ notification: Notification) {
         handleFrameRestorationCheckpoint("didDeminiaturize", notification: notification)
+    }
+
+    /// Clears zoom intent when AppKit starts moving the window. A click passed
+    /// to performDrag(with:) can finish without ever producing this callback.
+    func windowWillMove(_ notification: Notification) {
+        handleUserPlacement(notification)
+    }
+
+    /// Includes native Window-menu and green-button tiling, whose animations
+    /// emit live-resize callbacks without passing through setFrame(_:display:).
+    func windowWillStartLiveResize(_ notification: Notification) {
+        handleUserPlacement(notification)
+    }
+
+    /// Forwards a completed AppKit move callback for the managed window.
+    func windowDidMove(_ notification: Notification) {
+        handleGeometryChange(notification)
+    }
+
+    /// Forwards a completed AppKit resize callback for the managed window.
+    func windowDidResize(_ notification: Notification) {
+        handleGeometryChange(notification)
+    }
+
+    /// Forwards a completed AppKit screen-change callback for the managed window.
+    func windowDidChangeScreen(_ notification: Notification) {
+        handleGeometryChange(notification)
     }
 
 #if DEBUG
@@ -76,5 +105,23 @@ final class MainWindowController: ReleasingWindowController {
         logWindowEvent(event, notification: notification)
 #endif
         onFrameRestorationCheckpoint?(restoredWindow)
+    }
+
+    /// Delivers a geometry callback only when it belongs to the managed window.
+    private func handleGeometryChange(_ notification: Notification) {
+        guard let changedWindow = notification.object as? NSWindow,
+              changedWindow === window else {
+            return
+        }
+        onGeometryChanged?(changedWindow)
+    }
+
+    /// Applies user placement only to the window owned by this controller.
+    private func handleUserPlacement(_ notification: Notification) {
+        guard let placedWindow = notification.object as? CmuxMainWindow,
+              placedWindow === window else {
+            return
+        }
+        placedWindow.recordUserPlacement()
     }
 }

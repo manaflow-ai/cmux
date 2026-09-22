@@ -260,7 +260,10 @@ final class GhosttyConfigTests: XCTestCase {
         let result = runCLI(
             try bundledCLIPath(),
             arguments: ["--json", "themes", "list"],
-            environment: ["CFFIXED_USER_HOME": root.path],
+            environment: [
+                "CFFIXED_USER_HOME": root.path,
+                "CMUX_SOCKET_PATH": "/tmp/cmux-themes-\(UUID().uuidString).sock",
+            ],
             timeout: 10
         )
 
@@ -1371,6 +1374,9 @@ final class GhosttyConfigTests: XCTestCase {
         process.executableURL = URL(fileURLWithPath: cliPath)
         process.arguments = arguments
         var environment = ProcessInfo.processInfo.environment
+        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
+            environment.removeValue(forKey: key)
+        }
         for (key, value) in overrides {
             environment[key] = value
         }
@@ -4407,7 +4413,7 @@ final class GhosttyMouseFocusTests: XCTestCase {
 
         XCTAssertTrue(paths.contains(currentConfig.path))
         XCTAssertFalse(paths.contains(legacyConfig.path))
-        XCTAssertFalse(GhosttyApp.shouldApplyManagedDefaultAppearance(
+        XCTAssertTrue(GhosttyApp.shouldApplyManagedDefaultAppearance(
             configPaths: paths,
             adaptiveDefaultThemeEnabled: true
         ))
@@ -4415,12 +4421,12 @@ final class GhosttyMouseFocusTests: XCTestCase {
 
     // MARK: shouldApplyManagedDefaultAppearance
 
-    func testShouldApplyManagedDefaultAppearanceSkipsNonAppearanceConfig() throws {
+    func testShouldApplyManagedDefaultAppearancePreservesNonAppearanceConfig() throws {
         try withTempConfig("""
         font-family = JetBrains Mono
         background-opacity = 0.92
         """) { path in
-            XCTAssertFalse(
+            XCTAssertTrue(
                 GhosttyApp.shouldApplyManagedDefaultAppearance(
                     configPaths: [path],
                     adaptiveDefaultThemeEnabled: true
@@ -5075,7 +5081,7 @@ final class ZshShellIntegrationHandoffTests: XCTestCase {
         XCTAssertTrue(log.contains("set-environment -gu CMUX_PANEL_ID"), log)
     }
 
-    func testShellIntegrationRefreshesWorkspaceScopedCmuxEnvironmentFromTmuxWithoutOverwritingSurfaceScope() throws {
+    func testShellIntegrationRefreshesWorkspaceScopedCmuxEnvironmentFromTmuxAndClearsSurfaceScope() throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
             .appendingPathComponent("cmux-zsh-tmux-refresh-\(UUID().uuidString)")
@@ -5089,6 +5095,10 @@ final class ZshShellIntegrationHandoffTests: XCTestCase {
             contents: """
             #!/bin/sh
             if [ "$1" = "show-environment" ] && [ "$2" = "-g" ]; then
+              printf '%s\\n' 'CMUX_TAG=wrong-global-session'
+              exit 0
+            fi
+            if [ "$1" = "show-environment" ] && [ "$#" = "1" ]; then
               printf '%s\\n' 'CMUX_SOCKET_PATH=/tmp/cmux-current.sock'
               printf '%s\\n' 'CMUX_TAG=feat-tmux-notification-attention-state'
               printf '%s\\n' 'CMUX_WORKSPACE_ID=11111111-1111-1111-1111-111111111111'
@@ -5104,7 +5114,7 @@ final class ZshShellIntegrationHandoffTests: XCTestCase {
         let output = try runInteractiveZsh(
             cmuxLoadGhosttyIntegration: false,
             cmuxLoadShellIntegration: true,
-            command: "_cmux_precmd; print -r -- \"$CMUX_TAG|$CMUX_SOCKET_PATH|$CMUX_WORKSPACE_ID|$CMUX_SURFACE_ID|$CMUX_PANEL_ID\"",
+            command: "_cmux_precmd; print -r -- \"$CMUX_TAG|$CMUX_SOCKET_PATH|$CMUX_WORKSPACE_ID|$CMUX_TAB_ID|${CMUX_SURFACE_ID-unset}|${CMUX_PANEL_ID-unset}\"",
             extraEnvironment: [
                 "PATH": "\(binDir.path):/usr/bin:/bin:/usr/sbin:/sbin",
                 "TMUX": "/tmp/tmux-stale,123,0",
@@ -5119,7 +5129,7 @@ final class ZshShellIntegrationHandoffTests: XCTestCase {
 
         XCTAssertEqual(
             output,
-            "feat-tmux-notification-attention-state|/tmp/cmux-current.sock|11111111-1111-1111-1111-111111111111|22222222-2222-2222-2222-222222222222|22222222-2222-2222-2222-222222222222"
+            "feat-tmux-notification-attention-state|/tmp/cmux-current.sock|11111111-1111-1111-1111-111111111111|11111111-1111-1111-1111-111111111111|unset|unset"
         )
     }
 
@@ -5429,7 +5439,7 @@ final class ZshShellIntegrationHandoffTests: XCTestCase {
 
     func testBashNoGitWatchSkipsHeadTrackingAndPRClear() throws {
         let fileManager = FileManager.default
-        let root = fileManager.temporaryDirectory
+        let root = URL(fileURLWithPath: "/tmp", isDirectory: true)
             .appendingPathComponent("cmux-bash-no-git-watch-\(UUID().uuidString)")
         let repoA = root.appendingPathComponent("repo-a", isDirectory: true)
         let repoB = root.appendingPathComponent("repo-b", isDirectory: true)
@@ -5490,7 +5500,7 @@ final class ZshShellIntegrationHandoffTests: XCTestCase {
 
     func testZshNoGitWatchSkipsHeadTrackingAndPRClear() throws {
         let fileManager = FileManager.default
-        let root = fileManager.temporaryDirectory
+        let root = URL(fileURLWithPath: "/tmp", isDirectory: true)
             .appendingPathComponent("cmux-zsh-no-git-watch-\(UUID().uuidString)")
         let repoA = root.appendingPathComponent("repo-a", isDirectory: true)
         let repoB = root.appendingPathComponent("repo-b", isDirectory: true)
@@ -5552,7 +5562,7 @@ final class ZshShellIntegrationHandoffTests: XCTestCase {
 
     func testZshNoPullRequestWatchSkipsLegacyGhPRProbe() throws {
         let fileManager = FileManager.default
-        let root = fileManager.temporaryDirectory
+        let root = URL(fileURLWithPath: "/tmp", isDirectory: true)
             .appendingPathComponent("cmux-zsh-no-pr-watch-\(UUID().uuidString)")
         let repoURL = root.appendingPathComponent("repo", isDirectory: true)
         let fakeBinURL = root.appendingPathComponent("fake-bin", isDirectory: true)
@@ -5603,7 +5613,7 @@ final class ZshShellIntegrationHandoffTests: XCTestCase {
 
     func testBashNoPullRequestWatchSkipsLegacyGhPRProbe() throws {
         let fileManager = FileManager.default
-        let root = fileManager.temporaryDirectory
+        let root = URL(fileURLWithPath: "/tmp", isDirectory: true)
             .appendingPathComponent("cmux-bash-no-pr-watch-\(UUID().uuidString)")
         let repoURL = root.appendingPathComponent("repo", isDirectory: true)
         let fakeBinURL = root.appendingPathComponent("fake-bin", isDirectory: true)
@@ -6047,6 +6057,15 @@ final class ZshShellIntegrationHandoffTests: XCTestCase {
     }
 
     private func bindUnixSocket(at path: String) throws -> Int32 {
+        var addr = sockaddr_un()
+        let maxPathLength = MemoryLayout.size(ofValue: addr.sun_path)
+        guard path.utf8.count < maxPathLength else {
+            throw NSError(
+                domain: NSPOSIXErrorDomain,
+                code: Int(ENAMETOOLONG),
+                userInfo: [NSLocalizedDescriptionKey: "Unix socket path exceeds sun_path capacity: \(path)"]
+            )
+        }
         unlink(path)
 
         let fd = socket(AF_UNIX, SOCK_STREAM, 0)
@@ -6058,9 +6077,7 @@ final class ZshShellIntegrationHandoffTests: XCTestCase {
             )
         }
 
-        var addr = sockaddr_un()
         addr.sun_family = sa_family_t(AF_UNIX)
-        let maxPathLength = MemoryLayout.size(ofValue: addr.sun_path)
         path.withCString { ptr in
             withUnsafeMutablePointer(to: &addr.sun_path) { pathPtr in
                 let pathBuf = UnsafeMutableRawPointer(pathPtr).assumingMemoryBound(to: CChar.self)

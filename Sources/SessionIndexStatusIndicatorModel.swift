@@ -3,7 +3,7 @@ import SwiftUI
 /// Immutable presentation state for the status circle shown beside a Vault
 /// session. The private state enum keeps the active flag and accessibility
 /// label derived from one source instead of allowing contradictory values.
-nonisolated struct SessionIndexStatusIndicatorModel: Equatable, Sendable {
+struct SessionIndexStatusIndicatorModel: Equatable, Sendable {
     private enum State: Equatable, Sendable {
         case activeInPane
         case active

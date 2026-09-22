@@ -91,6 +91,20 @@ jobs:
             // uploaded monotonically, so wait on a cheap Linux runner until every
             // earlier main-push run has finished its upload job. Assignment can
             // continue independently after the upload completes.
+            //
+            // The 20-minute internal poll never waits: each waiting run lists
+            // every run ahead of it once a minute, so waiting polls cost API
+            // calls quadratically. A poll is idempotent, so it leaves and the
+            // next one builds whatever main is by then. Manual dispatches and
+            // the DEMO schedule still wait, because dropping one loses a build.
+            const isInternalPoll =
+              context.eventName === 'schedule' && variant === 'internal';
+            const skipPoll = (reason) => {
+              core.notice(`skipping this upload poll: ${reason}; the next poll retries`);
+              core.setOutput('should_build', 'false');
+              core.setOutput('last_uploaded_sha', '');
+              core.setOutput('variant', variant);
+            };
             if (context.ref === 'refs/heads/main') {
               const currentRunId = Number(context.runId);
               const maxWaits = 300;
@@ -145,6 +159,13 @@ jobs:
                     }
                   }
                 } catch (error) {
+                  if (isInternalPoll) {
+                    // The run page is public, so the notice stays generic. The
+                    // API's own message is only shown with debug logging on.
+                    core.debug(`ordering check failed: ${error.message}`);
+                    skipPoll('could not inspect earlier runs');
+                    return;
+                  }
                   if (wait === maxWaits - 1) {
                     core.setFailed(
                       `timed out ordering main TestFlight uploads after GitHub API errors: ${error.message}`
@@ -160,6 +181,10 @@ jobs:
                   continue;
                 }
                 if (blockingRuns.length === 0) break;
+                if (isInternalPoll) {
+                  skipPoll(`earlier run(s) ${blockingRuns.join(', ')} have not finished uploading`);
+                  return;
+                }
                 if (wait === maxWaits - 1) {
                   core.setFailed(
                     `timed out waiting for earlier main TestFlight upload run(s): ${blockingRuns.join(', ')}`

@@ -28,6 +28,19 @@ import Testing
         DiagnosticEvent(code: .rpcReady, tNanos: seconds * Self.second, a: 1, c: 1)
     }
 
+    @Test func terminalLagCapturesWithoutInventingATransportOutage() {
+        var policy = TransportIncidentPolicy(configuration: .init(signatureCooldown: 0), locale: englishLocale)
+        for index in 1...8 {
+            let incident = policy.decide(DiagnosticEvent(code: .appFeatureAction,
+                tNanos: UInt64(index * 70) * Self.second,
+                a: DiagnosticAppEventKind.terminalRenderLagDetected.rawValue,
+                b: DiagnosticFailureKind.timedOut.rawValue))
+            #expect(incident?.kind == .failure)
+            #expect(incident?.signature == "terminalRenderLagDetected/timedOut")
+            #expect(incident?.consecutiveFailures == 0)
+        }
+    }
+
     @Test func firstFailureCaptures() {
         var policy = TransportIncidentPolicy(locale: englishLocale)
         let incident = policy.decide(dialFailed(at: 10))

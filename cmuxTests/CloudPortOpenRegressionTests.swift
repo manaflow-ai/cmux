@@ -158,7 +158,7 @@ struct CloudPortOpenRegressionTests {
             "resource:port-vm/browser/port:3000",
             "resource:port-vm/browser/port:8000",
         ])
-        #expect(byID["machine:port-vm/ws/ws_app/resource:port-vm/browser/port:8000"] != nil)
+        #expect(byID["machine:port-vm/ws/ws_app/resource:port-vm/browser/port:8000/tab:tab_port_8000"] != nil)
         #expect(portsGroup.children.last?.dragResource?.id == port.id)
         #expect(SurfaceResourceID(machine: machine, kind: .browser, key: "port:08000").forwardedPort == nil)
 
@@ -171,7 +171,10 @@ struct CloudPortOpenRegressionTests {
             localWorkspaces: [],
             includeLocalMachine: false
         ))
-        #expect(emptyNodes.first { $0.structureTag == "portsGroup" } == nil)
+        let emptyPorts = try #require(emptyNodes.first { $0.structureTag == "portsGroup" })
+        #expect(emptyPorts.children.count == 1)
+        #expect(emptyPorts.children.first?.structureTag == "placeholder")
+        #expect(emptyNodes.allSatisfy { $0.dragResource?.id.isForwardedPort != true })
     }
 
     @Test("A localhost browser view is folded into the canonical port in its cloud workspace")
@@ -237,7 +240,7 @@ struct CloudPortOpenRegressionTests {
         ))
         let portsGroup = try #require(tree.first { $0.id == "machine:port-vm/ports" })
         #expect(portsGroup.children.compactMap { $0.dragResource?.id } == [port.id])
-        let workspacePort = try #require(tree.first { $0.id == "machine:port-vm/ws/ws_app/resource:port-vm/browser/port:8000" })
+        let workspacePort = try #require(tree.first { $0.id == "machine:port-vm/ws/ws_app/resource:port-vm/browser/port:8000/tab:tab_port" })
         guard case .port = workspacePort.kind else {
             Issue.record("the workspace pointer should retain the port row kind")
             return
@@ -270,6 +273,23 @@ struct CloudPortOpenRegressionTests {
         )
         let port = try #require(merged.first { $0.id.isForwardedPort })
         #expect(port.remoteViews?.map(\.tabID) == ["tab_port_8000", "tab_port_second"])
+    }
+
+    @Test("SSH and display transport listeners are not advertised as web previews")
+    func infrastructureListenersAreNotWebPorts() {
+        let bindings = """
+        State Recv-Q Send-Q Local Address:Port Peer Address:Port
+        LISTEN 0 128 0.0.0.0:22 0.0.0.0:*
+        LISTEN 0 128 [::]:22 [::]:*
+        LISTEN 0 128 0.0.0.0:1337 0.0.0.0:*
+        LISTEN 0 128 127.0.0.1:5901 0.0.0.0:*
+        LISTEN 0 128 0.0.0.0:6901 0.0.0.0:*
+        LISTEN 0 128 0.0.0.0:3000 0.0.0.0:*
+        """
+        #expect(CmuxTuiSurfaceProvider.ports(
+            from: VMExecResult(exitCode: 0, stdout: bindings, stderr: ""),
+            privateAddress: "10.16.179.6"
+        ) == [3000])
     }
 
     @Test("Unavailable scans retain ports while an authoritative empty scan retires them")
@@ -307,6 +327,14 @@ struct CloudPortOpenRegressionTests {
         )
         #expect(retained.map(\.id) == [previous[0].id])
         #expect(retained.first?.url == "http://10.0.0.7:8000")
+        let staleSSH = discoveredPort(22)
+        let retainedWithStaleSSH = CmuxTuiSurfaceProvider.portResources(
+            machine: machine,
+            scannedPorts: nil,
+            previousResources: [staleSSH, previous[0]],
+            privateAddress: "10.0.0.7"
+        )
+        #expect(retainedWithStaleSSH.map(\.id) == [previous[0].id], "an unavailable refresh must not resurrect a cached SSH listener")
         #expect(CmuxTuiSurfaceProvider.portResources(
             machine: machine,
             scannedPorts: [],
@@ -370,6 +398,7 @@ struct CloudPortOpenRegressionTests {
         var completion: AsyncStream<Void>.Continuation!
         let completionStream = AsyncStream<Void> { completion = $0 }
         let actions = CloudTreeNodeActions.bound(
+            navigationHost: AppDelegate.makeCloudTerminalNavigationHost(),
             catalog: { catalog },
             selectedWorkspaceID: { unrelatedWorkspaceID },
             selectLocalWorkspace: { _ in },

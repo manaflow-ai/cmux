@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = '8ff10c20fef75f9aaa1498eaf5e1107f084bdcf3febdcf8806fb4e7fc1c90b86'
+IR_SHA256 = '7042c629f34d3606581d07b2d2c03b65116c2467810724163c54674865825cc0'
 
 
 @dataclass(frozen=True)
@@ -62,6 +62,8 @@ COMMANDS = {
         'attach',
         {
             'cols': CommandFieldMetadata(None, 'attach-initial-size'),
+            'expected_generation': CommandFieldMetadata(None, 'attach-identity-v1'),
+            'expected_terminal_id': CommandFieldMetadata(None, 'attach-identity-v1'),
             'mode': CommandFieldMetadata(7, None),
             'rows': CommandFieldMetadata(None, 'attach-initial-size'),
             'surface': CommandFieldMetadata(None, None),
@@ -662,6 +664,18 @@ COMMANDS = {
             'surface': CommandFieldMetadata(None, None),
         },
     ),
+    'move-tab-to-workspace': CommandMetadata(
+        'move-tab-to-workspace',
+        'control',
+        12,
+        'tab-workspace-move-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'surface': CommandFieldMetadata(None, None),
+            'workspace': CommandFieldMetadata(None, None),
+        },
+    ),
     'move-terminal': CommandMetadata(
         'move-terminal',
         'control',
@@ -813,6 +827,25 @@ COMMANDS = {
         {
             'dir': CommandFieldMetadata(None, None),
             'pane': CommandFieldMetadata(None, None),
+        },
+    ),
+    'paste-image': CommandMetadata(
+        'paste-image',
+        'control',
+        12,
+        'terminal-image-paste-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'data': CommandFieldMetadata(None, None),
+            'lease': CommandFieldMetadata(None, None),
+            'mime': CommandFieldMetadata(None, None),
+            'offset': CommandFieldMetadata(None, None),
+            'op': CommandFieldMetadata(None, None),
+            'size': CommandFieldMetadata(None, None),
+            'surface': CommandFieldMetadata(None, None),
+            'terminal_id': CommandFieldMetadata(None, None),
+            'upload_id': CommandFieldMetadata(None, None),
         },
     ),
     'ping': CommandMetadata(
@@ -1371,6 +1404,52 @@ COMMANDS = {
         {
         },
     ),
+    'url-open': CommandMetadata(
+        'url-open',
+        'local-admin',
+        12,
+        None,
+        ('local-admin',),
+        None,
+        {
+            'terminal_id': CommandFieldMetadata(None, None),
+            'url': CommandFieldMetadata(None, None),
+        },
+    ),
+    'url-open-claim': CommandMetadata(
+        'url-open-claim',
+        'frontend',
+        12,
+        None,
+        ('frontend',),
+        None,
+        {
+            'request_id': CommandFieldMetadata(None, None),
+        },
+    ),
+    'url-open-result': CommandMetadata(
+        'url-open-result',
+        'frontend',
+        12,
+        None,
+        ('frontend',),
+        None,
+        {
+            'opened': CommandFieldMetadata(None, None),
+            'request_id': CommandFieldMetadata(None, None),
+        },
+    ),
+    'url-open-subscribe': CommandMetadata(
+        'url-open-subscribe',
+        'frontend',
+        12,
+        None,
+        ('frontend',),
+        'subscribe',
+        {
+            'terminal_ids': CommandFieldMetadata(None, None),
+        },
+    ),
     'vt-state': CommandMetadata(
         'vt-state',
         'control',
@@ -1452,6 +1531,7 @@ EVENTS = {
     'terminal-registry-changed': EventMetadata('terminal-registry-changed', 9, None, ('subscribe',), 'emitted'),
     'title-changed': EventMetadata('title-changed', 5, None, ('subscribe',), 'emitted'),
     'tree-changed': EventMetadata('tree-changed', 5, None, ('subscribe',), 'emitted'),
+    'url-open': EventMetadata('url-open', 12, None, ('control',), 'emitted'),
     'vt-state': EventMetadata('vt-state', 5, None, ('attach-byte',), 'emitted'),
     'window-title-requested': EventMetadata('window-title-requested', 6, None, ('subscribe',), 'emitted'),
     'workspace-added': EventMetadata('workspace-added', 7, None, ('subscribe-deltas',), 'emitted'),

@@ -14,6 +14,7 @@ final class RightSidebarCommandPaletteTests: XCTestCase {
             let defaults = UserDefaults.standard
             defaults.removeObject(forKey: RightSidebarBetaFeatureSettings.feedEnabledKey)
             defaults.removeObject(forKey: RightSidebarBetaFeatureSettings.dockEnabledKey)
+            defaults.removeObject(forKey: RightSidebarBetaFeatureSettings.cloudMachinesEnabledKey)
             let contributions = ContentView.commandPaletteRightSidebarModeCommandContributions()
             let contributionsByID = Dictionary(uniqueKeysWithValues: contributions.map { ($0.commandId, $0) })
             let context = CommandPaletteContextSnapshot()
@@ -37,24 +38,30 @@ final class RightSidebarCommandPaletteTests: XCTestCase {
                 XCTAssertTrue(contribution.enablement(context))
             }
 
-            // Files/Find/Vault are always present; Machines follows the Cloud VM
-            // UI feature flag (visible in DEBUG builds), and feed/dock stay off.
-            let expectedCount = RightSidebarMode.machines.isAvailable() ? 4 : 3
-            XCTAssertEqual(contributions.count, expectedCount)
+            // Files/Find/Vault are always present; Machines follows the Cloud
+            // Machines beta toggle, which is off by default on every build
+            // (cleared above) unless a managed profile forces Cloud off, and
+            // feed/dock stay off.
+            let machinesAvailable = RightSidebarMode.machines.isAvailable()
+            XCTAssertFalse(machinesAvailable)
+            XCTAssertEqual(contributions.count, 3)
             XCTAssertNil(contributionsByID[ContentView.commandPaletteRightSidebarModeCommandID(.feed)])
             XCTAssertNil(contributionsByID[ContentView.commandPaletteRightSidebarModeCommandID(.dock)])
-            XCTAssertEqual(
-                contributionsByID[ContentView.commandPaletteRightSidebarModeCommandID(.machines)] != nil,
-                RightSidebarMode.machines.isAvailable()
-            )
+            XCTAssertNil(contributionsByID[ContentView.commandPaletteRightSidebarModeCommandID(.machines)])
         }
     }
 
+    @MainActor
     func testCommandPaletteRightSidebarActionsUseModeShortcutActions() {
         withSavedBetaFeatureDefaults {
+            let definition = CmuxFeatureFlags.cloudMachinesFlag
+            let previousOverride = CmuxFeatureFlags.shared.overrideValue(for: definition)
+            CmuxFeatureFlags.shared.setOverride(true, for: definition)
+            defer { CmuxFeatureFlags.shared.setOverride(previousOverride, for: definition) }
             let defaults = UserDefaults.standard
             defaults.set(true, forKey: RightSidebarBetaFeatureSettings.feedEnabledKey)
             defaults.set(true, forKey: RightSidebarBetaFeatureSettings.dockEnabledKey)
+            defaults.set(true, forKey: RightSidebarBetaFeatureSettings.cloudMachinesEnabledKey)
 
             for mode in RightSidebarMode.allCases {
                 XCTAssertEqual(
@@ -82,9 +89,11 @@ final class RightSidebarCommandPaletteTests: XCTestCase {
         let defaults = UserDefaults.standard
         let previousFeed = defaults.object(forKey: RightSidebarBetaFeatureSettings.feedEnabledKey)
         let previousDock = defaults.object(forKey: RightSidebarBetaFeatureSettings.dockEnabledKey)
+        let previousCloudMachines = defaults.object(forKey: RightSidebarBetaFeatureSettings.cloudMachinesEnabledKey)
         defer {
             restore(previousFeed, forKey: RightSidebarBetaFeatureSettings.feedEnabledKey)
             restore(previousDock, forKey: RightSidebarBetaFeatureSettings.dockEnabledKey)
+            restore(previousCloudMachines, forKey: RightSidebarBetaFeatureSettings.cloudMachinesEnabledKey)
         }
         try body()
     }

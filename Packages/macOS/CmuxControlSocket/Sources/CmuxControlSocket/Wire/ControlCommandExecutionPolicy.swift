@@ -68,13 +68,11 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
             self = .mainActor
         }
     }
-
     /// True when the command runs on the socket-worker thread.
     public var runsOnSocketWorker: Bool {
         if case .socketWorker = self { return true }
         return false
     }
-
     /// Socket-worker methods; internal so package tests can pin the exact set.
     static let socketWorkerMethods: Set<String> = Set([
         "system.ping",
@@ -83,6 +81,9 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         "auth.sign_in_url",
         "auth.begin_sign_in",
         "auth.sign_out",
+        "auth.team.list",
+        "auth.team.use",
+        "auth.team.create",
         "feedback.submit",
         // `feed.jump` awaits its actor-owned hook-session lookup while the
         // socket worker waits for the response.
@@ -91,7 +92,15 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         "feed.permission.reply",
         "feed.question.reply",
         "feed.exit_plan.reply",
-        "browser.download.wait",
+        // Admission appends an immutable event to the actor-owned queue.
+        "agent.hook.enqueue",
+        "agent.hook.barrier",
+        // Performs a fresh off-main process scan before one agent exec. Only
+        // the final target revalidation and launch claim hop to MainActor.
+        "agent.restore.admit",
+        // Releases only the tokenized claim owned by a failed restore exec.
+        "agent.restore.release",
+        "browser.download.list", "browser.download.wait",
         "browser.profiles.list",
         "browser.profiles.create",
         "browser.profiles.rename",
@@ -150,10 +159,10 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         // return one immutable snapshot for response shaping on this worker.
         // The async bridge must never be entered inline by a main-thread caller.
         "surface.read_selection",
-        // The surface catalog verbs await main-actor catalog work that can sit on the
-        // network (a cloud provider materializing a pane); like `vm.*` they park the
-        // worker instead of holding the main actor.
+        // Surface verbs park the worker while awaiting catalog or provider work.
         "surface.catalog",
+        // Current-work captures owners once, then reduces/encodes off-main without refresh.
+        "current.list",
         "surface.project",
         "surface.new_terminal",
         // SSH-session attach resolves ownership and reads the remote PTY
@@ -199,6 +208,7 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         // connection-owned shutdown path, which awaits asynchronous writers.
         // Keep that wait off the main actor.
         "debug.mobile.transport.disconnect",
+        "debug.mobile.transport.reconnect_loop",
         // Presents the Cloud tree style gallery window: one v2MainSync hop for
         // the presentation, like debug.window.screenshot's capture wait.
         "debug.cloudtree.gallery",
@@ -299,6 +309,7 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         "notification.create_for_target",
         "notification.create_for_caller",
         "workspace.set_auto_title",
+        "surface.sync_codex_native_title",
         // The v2 resolution reads (tranche D of issue #5757) — the implicit
         // handle-normalization reads nearly every CLI invocation pays 1-3 of.
         // Their nonisolated coordinator bodies
@@ -369,7 +380,7 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         "pane.list",
         "pane.surfaces",
         "system.identify",
-        "system.tree",
+        "system.tree", "browser.download.list",
         // The v2 send lane (tranche E): one narrow, non-blocking hop each
         // (resolve target + inject input + forceRefresh), so an inline
         // main-thread run is exactly the legacy main-lane dispatch.

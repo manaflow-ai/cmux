@@ -11,14 +11,15 @@ a peer unless it later becomes a direct Cloud network client.
 
 | role | traffic | implementation | first user action |
 | --- | --- | --- | --- |
-| terminal | cmux-tui terminal and metadata | user-space WireGuard hub | none |
-| browser | browser and webview traffic to private VM addresses | Apple Network Extension | allow the cmux network extension |
+| terminal | cmux-tui terminal and in-app HTTP browser/Desktop traffic | user-space WireGuard hub | none |
+| browser | a system-wide route for other apps on this Mac (`cmux vpn up`) | Apple Network Extension | allow the cmux network extension |
 
-The terminal role does not create a system interface. It does not run
-`wg-quick`, ask for administrator access, or ask for a password. The browser
-role starts only when the user opens a Cloud browser or webview. A browser
-does not navigate to a private address until the Network Extension is ready.
-There is no public, SSH, or command-line tunnel fallback.
+The terminal role does not create a system interface or require macOS VPN
+approval. In-app HTTP browser and Desktop pages use an authenticated loopback
+forward over the same hub, so they work with the optional system VPN off. The
+system VPN remains the path for other Mac apps that need the VM private address.
+Browser and Desktop show inline connection errors with a Reload action.
+They never offer VPN setup.
 
 ## Terminal path
 
@@ -40,22 +41,108 @@ The first terminal use creates the terminal peer through `POST /api/vm/tunnel`.
 The completed WireGuard configuration stays on the Mac with mode 0600. Later
 app launches reuse it and make no Freestyle tunnel call.
 
-The first cmux-tui connection to one VM still needs one device invitation. The
-control plane creates and approves that invitation. The invitation is sent
-through the private WireGuard link. Later connections use the saved cmux-tui
-device key and private route, with no connection ticket and no Freestyle call.
+cmux-tui connections need no device invitation and no approval. The VM's
+daemon serves a trusted-carrier listener that is reachable only inside the
+private network, so the Mac dials `remote connect <route> --carrier` and is
+admitted by the network itself. Every connection uses the private route, with
+no connection ticket and no Freestyle call.
 
-## Browser path
+## Ports and Desktop path
 
-The first Cloud browser use creates a separate browser peer through
-`POST /api/vm/tunnel`, saves its configuration in the Apple VPN manager, and
-requests activation of the bundled packet tunnel system extension. macOS can
-require one user approval in System Settings. cmux must not request this at
-launch, during machine list refresh, or during terminal use.
+A Cloud browser keeps the machine's private IP and original port as its actual
+URL and document origin. Command-clicking `http://0.0.0.0:8000/` or
+`http://localhost:8000/` in a Cloud terminal opens the page to the right at that
+terminal's machine address, for example `http://10.16.0.7:8000/`. Another VM can
+use the same port at `http://10.16.0.8:8000/`; their routes and origins are distinct.
 
-After approval, macOS starts the browser route without `sudo` or a password.
-Later browser opens reuse the saved peer and VPN configuration. Private IP
-addresses can stay visible in browser URLs.
+Each machine has one app-owned authenticated HTTP CONNECT proxy. WebKit sends
+only that machine's private-address requests through it, with direct fallback
+disabled. The proxy opens the existing daemon's `LoopbackOnly` TCP route over
+an authenticated carrier through the shared userspace WireGuard hub. The daemon
+connects to `127.0.0.1:<port>` inside the VM, so loopback-only development servers
+work as well as servers listening on all interfaces. No guest firewall rule,
+system network route, public preview, or macOS VPN approval is needed.
+
+Browser data stores are isolated per pane, profile, and machine, with stable
+identifiers across session restore. A new proxy for one VM cannot reconfigure
+another pane's networking. HTTP request bodies and WebSocket bytes are relayed
+without changing the private-IP Host header or document origin. Cleartext
+localhost fetch, XHR, WebSocket, and EventSource URLs inside the page are mapped
+to its VM address. HTTPS keeps its normal certificate validation against the
+visible private address.
+
+Opening a page starts the userspace connection automatically. Loading and failure
+states remain in the same browser pane and Reload retries the connection.
+The local proxy requires a fresh per-process credential exchanged only through
+the app's private stdout pipe; it accepts only the configured VM addresses and
+refuses the daemon port. Machine removal, sign-out, and process exit close the
+proxy and its WireGuard claim. Explicit loopback forwards for other local clients
+remain separate from the browser's stable private-IP URL.
+
+## System-wide route (`cmux vpn up`)
+
+The system VPN is controlled explicitly through `cmux vpn up`, `cmux vpn down`,
+and `cmux vpn status`. These commands retain the existing authenticated tunnel
+coordinator, macOS extension approval, and cancellation behavior. There are no
+VPN setup rows, buttons, menu items, Settings entries, or setup panes in the app.
+HTTP Desktop uses the userspace hub regardless of system VPN state. HTTPS retains
+its original private host and requires a private network connection.
+
+
+`cmux vpn up` creates a separate browser peer through `POST /api/vm/tunnel`,
+saves its configuration in the Apple VPN manager, and requests activation of
+the bundled packet tunnel system extension. macOS can require one user
+approval in System Settings › General › Login Items & Extensions; the CLI
+explains what is about to be installed before the request, and the Machines
+panel shows the wait with a button to that pane. cmux must not request this at
+launch, during machine list refresh, during terminal use, or when a Ports or
+Desktop row is opened.
+
+After approval, macOS starts the route without `sudo` or a password. Later
+`cmux vpn up` runs reuse the saved peer and VPN configuration. This route is
+for other apps on the Mac (a system browser, `ssh`, `.internal` hostnames via
+`cmux vpn hosts`); cmux's own panes never depend on it.
+
+### Activation gate
+
+Nothing on the browser path runs until `CloudActivationPolicy` admits it. The
+policy is built once at the composition root from local state only, and it is
+the single decision every tunnel consumer (browser navigation, `cmux vpn up`,
+`vm.tunnel_config`, `vm.tunnel_up`) flows through:
+
+- A start is admitted only when `Settings › Beta Features › Cloud Machines` is
+  on (`cloud.beta.machines.enabled`, on by default in dev builds and off by
+  default in release builds, and never forced on by a managed `DisableCloud`
+  profile) **and** the account has at
+  least one machine. Launch-time decisions and status answer "has a machine"
+  from a cached marker written by every machine list and create
+  (`cloud.machines.cachedHasAny`; cleared on sign-out, reset to unknown by a
+  delete). An explicit start (`cmux vpn up`, a Cloud browser open) does not
+  trust that marker: it settles the count against the control plane with one
+  fleet list before scheduling the start, so a machine deleted or created
+  outside this app is neither trusted nor missed; while the tunnel is up or a
+  start is in flight, uses read local state only. A refused start touches
+  neither enrollment nor NetworkExtension and reports `cloud-machines-off`
+  or `no-cloud-machine` (`start_refusal` in `vm.tunnel_status`, from local
+  state only).
+- The NetworkExtension controller, whose construction reads
+  `NETunnelProviderManager` preferences, is built at launch only when the
+  browser-role config already exists on this Mac (a previous opted-in session
+  saved a VPN configuration), so an inherited tunnel can still be adopted or
+  stopped. Otherwise it is built on the first admitted start. A fresh install,
+  or an update from a version without the tunnel, therefore never calls
+  NetworkExtension at all.
+- The Beta Features toggle is honored while the app runs: turning it off
+  brings a running tunnel down; turning it on lets the next Cloud use start
+  the tunnel without a relaunch. The periodic fleet read (`GET /api/vm` from
+  the cmux-tui registry) runs only while the toggle is on **or** this Mac has
+  used Cloud before (the marker said the account had a machine, or a tunnel
+  role was enrolled here), so an idle app that never opted in makes no Cloud
+  API traffic, while an existing Cloud user's fleet keeps reconnecting even
+  with the toggle off. Sign-out clears that evidence and stops the poll; a
+  delete resets the marker to unknown until the next list.
+- `down`, `revoke`, sign-out, and quit stay available regardless, so a tunnel
+  from an earlier opted-in session is always cleaned up.
 
 ## Device identity and revoke
 
@@ -88,18 +175,19 @@ through Vercel or Freestyle APIs.
 Freestyle calls required by this design are:
 
 1. Create or find the account private network during VM provisioning.
-2. Create one channel's terminal WireGuard peer on its first terminal use.
-3. Create one channel's browser WireGuard peer on its first browser use.
+2. Create one channel's terminal WireGuard peer on its first terminal, Ports,
+   or Desktop use.
+3. Create one channel's browser WireGuard peer on the first `cmux vpn up`.
 4. Delete that Mac's peers across all channels on sign-out or remote revoke.
 5. Create, delete, start, stop, resize, or inspect a VM when the user requests
    that management operation.
 
-The first cmux-tui device invitation per Mac and VM uses one control-plane
-approval request and one Freestyle VM command. The command waits for the claim
-on the VM's local daemon socket. The Mac does not poll Vercel or Freestyle. This
-flow is not part of normal reconnect traffic. Machine list refresh can use the
-Cloud API, but live workspace, terminal, pane, display, and agent metadata comes
-from cmux-tui through the terminal WireGuard link.
+The first attach to a machine whose daemon predates the trusted listener costs
+one control-plane request that brings the daemon to the pinned build and
+restarts it with the trusted drop-in. Nothing is approved and the Mac does not
+poll Vercel or Freestyle. Machine list refresh can use the Cloud API, but live
+workspace, terminal, pane, display, and agent metadata comes from cmux-tui
+through the terminal WireGuard link.
 
 ## WireGuard implementation
 
@@ -131,7 +219,13 @@ so its TCP maximum segment size stays within the tunnel packet size.
 - `cargo test -p cmux-tui`: hub command and required capability.
 - Web tests: one physical Mac with two role peers, multiple Stack sessions,
   rename, sign-out revoke, remote revoke, and no iOS registry coupling.
-- Tagged Mac build: system VPN off, two VM terminals work through one hub, no
-  new system interface, and no password prompt.
-- Signed Nightly build: the first Cloud browser asks for Network Extension
-  approval, terminal-only use does not ask, and revoke ends both paths.
+- Tagged Mac build: with system VPN off, HTTP Desktop and browser ports use
+  `http://127.0.0.1:<port>` through the shared hub. noVNC assets and websockify
+  share that listener; private URLs remain the copied link metadata.
+- `CloudLoopbackPortForwardTests`: a loopback client, the real forward, and a
+  fake SOCKS5 hub; bytes relay both ways, a refused CONNECT closes the client,
+  the hub lease follows each connection, and one machine port keeps one local
+  port across a private-address change.
+- Signed Nightly build: opening a Ports or Desktop row never asks for Network
+  Extension approval; `cmux vpn up` does, the Machines panel shows the wait
+  with an Open System Settings button, and revoke ends both paths.

@@ -90,19 +90,15 @@ function verify(image: string, client: string) {
     const hub = yield* startPrivateLinkClient(client, ["wg", "hub", "--config", configPath, "--socket", hubSocket], { event: "hub-ready", socket: hubSocket });
     yield* hub.ready;
     const endpoint = yield* attempt("Read image attach bundle failed", () => provider.openCmuxRemote(vm.providerVmId, { clientCapabilities: probe.capabilities }));
-    if (!endpoint.invitation) return yield* Effect.fail(new Error("Fresh VM returned no enrollment invitation"));
-    const invitation = endpoint.invitation;
-    const invitePath = path.join(root, "invite");
-    yield* Effect.try(() => writeFileSync(invitePath, invitation.uri, { mode: 0o600 }));
-    const args = ["remote", "connect", endpoint.route, "--state-dir", path.join(root, "identity"),
+    if (!endpoint.trustedCarrier) return yield* Effect.fail(new Error("Fresh VM does not serve the trusted-carrier listener"));
+    const args = ["remote", "connect", endpoint.route, "--carrier", "--state-dir", path.join(root, "identity"),
       "--device-name", slug, "--headless", "--json", "--wireguard-hub", hubSocket,
       "--connect-timeout-seconds", "30", "--reconnect-attempts", "1"];
-    // Enroll once, then reconnect from the persisted client identity with no
-    // control-plane attach/approval call. This also tests older baked daemons.
+    // Two carrier dials, no enrollment, no approval, no control-plane call in
+    // between: the private network is the only admission.
     yield* Effect.scoped(Effect.gen(function* () {
       const socket = path.join(root, "first.sock");
-      const connection = yield* startPrivateLinkClient(client, [...args, "--local-socket", socket, "--invite-file", invitePath], { event: "connection-snapshot", socket });
-      yield* attempt("Approve image enrollment failed", () => provider.approveCmuxRemoteEnrollment(vm.providerVmId, invitation.invitationId));
+      const connection = yield* startPrivateLinkClient(client, [...args, "--local-socket", socket], { event: "connection-snapshot", socket });
       yield* connection.ready;
       yield* readSnapshot(client, socket);
     }));
@@ -111,7 +107,7 @@ function verify(image: string, client: string) {
     yield* connection.ready;
     yield* readSnapshot(client, socket);
     console.log(JSON.stringify({ image, clientCommit: probe.build_identity,
-      daemonCommit: endpoint.daemonBuild?.commit, enrollment: "passed", reconnect: "passed", snapshot: "passed" }));
+      daemonCommit: endpoint.daemonBuild?.commit, trustedCarrier: true, reconnect: "passed", snapshot: "passed" }));
   });
 }
 

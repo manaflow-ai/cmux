@@ -24,14 +24,6 @@ struct OnboardingSceneFooter: View {
             } else {
                 VStack(spacing: 10) {
                     actions
-                    if reservesSecondarySlot, secondaryTitle == nil {
-                        // Sized like the secondary button's label so the
-                        // reservation tracks Dynamic Type.
-                        Text(verbatim: " ")
-                            .font(.subheadline.weight(.medium))
-                            .frame(minHeight: 36)
-                            .accessibilityHidden(true)
-                    }
                 }
             }
         }
@@ -57,11 +49,21 @@ struct OnboardingSceneFooter: View {
             .accessibilityIdentifier("MobileOnboardingPrimaryButton")
         }
 
-        if let secondaryTitle {
-            Button(secondaryTitle, action: onSecondary)
+        if secondaryTitle != nil || (reservesSecondarySlot && verticalSizeClass != .compact) {
+            // Reserve the actual control's size, including system button
+            // padding, so Enable Notifications stays aligned with Continue.
+            Button(
+                secondaryTitle ?? L10n.string(
+                    "mobile.onboarding.push.notNow", defaultValue: "Not Now"
+                ),
+                action: onSecondary
+            )
                 .font(.subheadline.weight(.medium))
                 .frame(maxWidth: verticalSizeClass == .compact ? .infinity : nil)
-                .frame(minHeight: 36)
+                .frame(minHeight: 44)
+                .opacity(secondaryTitle == nil ? 0 : 1)
+                .disabled(secondaryTitle == nil)
+                .accessibilityHidden(secondaryTitle == nil)
                 .accessibilityIdentifier("MobileOnboardingSecondaryButton")
         }
     }

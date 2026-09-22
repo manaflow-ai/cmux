@@ -5,6 +5,7 @@ import * as Layer from "effect/Layer";
 import postgres, { type Sql } from "postgres";
 import { closeCloudDbForTests } from "../db/client";
 import { maxActiveVmsForPlan } from "../services/vms/entitlements";
+import { VmBillingGateway, noOpVmBillingGateway } from "../services/vms/billingGateway";
 import { VmRepository, VmRepositoryLive } from "../services/vms/repository";
 import { VmProviderGateway, type VmProviderGatewayShape } from "../services/vms/providerGateway";
 import { execVm, openAttachEndpoint, openVmCmuxRemote, openVmSession, resizeVm } from "../services/vms/workflows";
@@ -93,7 +94,7 @@ describe("VM review regressions", () => {
             operations += 1;
             return {
               transport: "cmux-remote", route: "ws://10.0.0.5:1337/v1/link", token: "test-token",
-              session: "test-session", expiresAtUnix: 2_000_000_000,
+              session: "test-session", expiresAtUnix: 2_000_000_000, trustedCarrier: true,
             };
           }),
         } as unknown as VmProviderGatewayShape;
@@ -111,7 +112,11 @@ describe("VM review regressions", () => {
         }[operation]();
         const result = await Effect.runPromise(program.pipe(
           Effect.either,
-          Effect.provide(Layer.mergeAll(VmRepositoryLive, Layer.succeed(VmProviderGateway, provider))),
+          Effect.provide(Layer.mergeAll(
+            VmRepositoryLive,
+            Layer.succeed(VmProviderGateway, provider),
+            Layer.succeed(VmBillingGateway, noOpVmBillingGateway()),
+          )),
         ));
         if (allowance === 50 || allowance === undefined) {
           expect(result._tag).toBe("Left");

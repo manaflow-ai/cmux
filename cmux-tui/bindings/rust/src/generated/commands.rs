@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 8ff10c20fef75f9aaa1498eaf5e1107f084bdcf3febdcf8806fb4e7fc1c90b86.
+// cmux-tui mux protocol 12, IR 7042c629f34d3606581d07b2d2c03b65116c2467810724163c54674865825cc0.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -32,15 +32,20 @@ pub enum AttachSurfaceRequestMode {
 }
 
 #[rustfmt::skip]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct AttachSurfaceRequest {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub cols: Optional<u16>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub expected_generation: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub expected_terminal_id: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub mode: Optional<AttachSurfaceRequestMode>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub rows: Optional<u16>,
-    pub surface: T::Id,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub surface: Optional<T::Id>,
 }
 
 #[rustfmt::skip]
@@ -632,6 +637,17 @@ pub type MoveTabResult = T::EmptyResult;
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct MoveTabToWorkspaceRequest {
+    pub surface: T::Id,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub workspace: Optional<T::Id>,
+}
+
+#[rustfmt::skip]
+pub type MoveTabToWorkspaceResult = T::EmptyResult;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct MoveTerminalRequest {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub expected_generation: Optional<String>,
@@ -781,6 +797,30 @@ pub type PairingResponseResult = T::EmptyResult;
 pub struct PaneNeighborRequest {
     pub dir: T::PaneDirection,
     pub pane: T::Id,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PasteImageRequest {
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub data: Optional<String>,
+    pub lease: String,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub mime: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub offset: Optional<u64>,
+    pub op: String,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub size: Optional<u64>,
+    pub surface: T::Id,
+    pub terminal_id: String,
+    pub upload_id: String,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PasteImageResult {
+    pub accepted: bool,
 }
 
 #[rustfmt::skip]
@@ -1291,6 +1331,44 @@ pub type UnregisterBrowserProviderResult = T::BrowserProviderUnregisterResult;
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct UrlOpenRequest {
+    pub terminal_id: String,
+    pub url: String,
+}
+
+#[rustfmt::skip]
+pub type UrlOpenResult = T::GuestUrlOpenResult;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct UrlOpenClaimRequest {
+    pub request_id: String,
+}
+
+#[rustfmt::skip]
+pub type UrlOpenClaimResult = T::GuestUrlClaimResult;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct UrlOpenResultRequest {
+    pub opened: bool,
+    pub request_id: String,
+}
+
+#[rustfmt::skip]
+pub type UrlOpenResultResult = T::GuestUrlAcknowledgeResult;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct UrlOpenSubscribeRequest {
+    pub terminal_ids: Vec<String>,
+}
+
+#[rustfmt::skip]
+pub type UrlOpenSubscribeResult = T::GuestUrlSubscribeResult;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct VtStateRequest {
     pub surface: T::Id,
 }
@@ -1333,6 +1411,12 @@ impl CmuxClient {
     pub fn attach_surface(&mut self, request: AttachSurfaceRequest) -> Result<CmuxStream> {
         if !request.cols.is_missing() {
             self.require_capability_field("attach-surface", "attach-initial-size")?;
+        }
+        if !request.expected_generation.is_missing() {
+            self.require_capability_field("attach-surface", "attach-identity-v1")?;
+        }
+        if !request.expected_terminal_id.is_missing() {
+            self.require_capability_field("attach-surface", "attach-identity-v1")?;
         }
         if !request.mode.is_missing() {
             self.require_protocol_field("attach-surface", 7)?;
@@ -1557,6 +1641,10 @@ impl CmuxClient {
         self.execute(&MOVE_TAB_METADATA, &request)
     }
 
+    pub fn move_tab_to_workspace(&mut self, request: MoveTabToWorkspaceRequest) -> Result<MoveTabToWorkspaceResult> {
+        self.execute(&MOVE_TAB_TO_WORKSPACE_METADATA, &request)
+    }
+
     pub fn move_terminal(&mut self, request: MoveTerminalRequest) -> Result<T::MoveTerminalResult> {
         self.execute(&MOVE_TERMINAL_METADATA, &request)
     }
@@ -1615,6 +1703,10 @@ impl CmuxClient {
 
     pub fn pane_neighbor(&mut self, request: PaneNeighborRequest) -> Result<T::PaneNeighborResult> {
         self.execute(&PANE_NEIGHBOR_METADATA, &request)
+    }
+
+    pub fn paste_image(&mut self, request: PasteImageRequest) -> Result<PasteImageResult> {
+        self.execute(&PASTE_IMAGE_METADATA, &request)
     }
 
     pub fn ping(&mut self, request: PingRequest) -> Result<T::PingResult> {
@@ -1849,6 +1941,22 @@ impl CmuxClient {
 
     pub fn unregister_browser_provider(&mut self, request: UnregisterBrowserProviderRequest) -> Result<UnregisterBrowserProviderResult> {
         self.execute(&UNREGISTER_BROWSER_PROVIDER_METADATA, &request)
+    }
+
+    pub fn url_open(&mut self, request: UrlOpenRequest) -> Result<UrlOpenResult> {
+        self.execute(&URL_OPEN_METADATA, &request)
+    }
+
+    pub fn url_open_claim(&mut self, request: UrlOpenClaimRequest) -> Result<UrlOpenClaimResult> {
+        self.execute(&URL_OPEN_CLAIM_METADATA, &request)
+    }
+
+    pub fn url_open_result(&mut self, request: UrlOpenResultRequest) -> Result<UrlOpenResultResult> {
+        self.execute(&URL_OPEN_RESULT_METADATA, &request)
+    }
+
+    pub fn url_open_subscribe(&mut self, request: UrlOpenSubscribeRequest) -> Result<CmuxStream> {
+        self.execute_stream(&URL_OPEN_SUBSCRIBE_METADATA, &request)
     }
 
     pub fn vt_state(&mut self, request: VtStateRequest) -> Result<T::VtStateResult> {

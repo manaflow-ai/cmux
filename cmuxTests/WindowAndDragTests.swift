@@ -386,6 +386,114 @@ final class AppDelegateWindowContextRoutingTests: XCTestCase {
         XCTAssertEqual(managerB.selectedTabId, originalSelectedB, "Expected background workspace creation to preserve selected tab")
         XCTAssertEqual(managerB.tabs.count, originalTabCountB + 1)
         XCTAssertTrue(managerB.tabs.contains(where: { $0.id == createdWorkspaceId }))
+
+        windowB.makeKeyAndOrderFront(nil)
+        _ = app.synchronizeActiveMainWindowContext(preferredWindow: windowB)
+        XCTAssertTrue(app.tabManager === managerB)
+
+        let focusedWorkspaceId = app.addWorkspace(windowId: windowAId, bringToFront: true)
+
+        XCTAssertNotNil(focusedWorkspaceId)
+        XCTAssertTrue(app.tabManager === managerA)
+        XCTAssertEqual(managerA.selectedTabId, focusedWorkspaceId, "bringToFront should preserve the legacy selection behavior")
+    }
+
+    func testAddWorkspaceCanSelectInExplicitWindowWithoutChangingActiveWindow() {
+        _ = NSApplication.shared
+        let app = AppDelegate()
+
+        let windowAId = UUID()
+        let windowBId = UUID()
+        let windowA = makeMainWindow(id: windowAId)
+        let windowB = makeMainWindow(id: windowBId)
+        defer {
+            windowA.orderOut(nil)
+            windowB.orderOut(nil)
+        }
+
+        let managerA = TabManager()
+        let managerB = TabManager()
+        app.registerMainWindow(
+            windowA,
+            windowId: windowAId,
+            tabManager: managerA,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState(),
+            fileExplorerState: FileExplorerState()
+        )
+        app.registerMainWindow(
+            windowB,
+            windowId: windowBId,
+            tabManager: managerB,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState(),
+            fileExplorerState: FileExplorerState()
+        )
+
+        windowA.makeKeyAndOrderFront(nil)
+        _ = app.synchronizeActiveMainWindowContext(preferredWindow: windowA)
+        let originalSelectedA = managerA.selectedTabId
+
+        let createdWorkspaceId = app.addWorkspace(
+            windowId: windowBId,
+            bringToFront: false,
+            select: true,
+            placementOverride: .end
+        )
+
+        XCTAssertNotNil(createdWorkspaceId)
+        XCTAssertTrue(app.tabManager === managerA)
+        XCTAssertEqual(managerA.selectedTabId, originalSelectedA)
+        XCTAssertEqual(managerB.selectedTabId, createdWorkspaceId)
+        XCTAssertEqual(managerB.tabs.last?.id, createdWorkspaceId)
+    }
+
+    func testSidebarCreateWorkspaceAtEndUsesOwningWindowWhileAnotherWindowIsActive() {
+        _ = NSApplication.shared
+        let app = AppDelegate()
+
+        let activeWindowId = UUID()
+        let sidebarWindowId = UUID()
+        let activeWindow = makeMainWindow(id: activeWindowId)
+        let sidebarWindow = makeMainWindow(id: sidebarWindowId)
+        defer {
+            activeWindow.orderOut(nil)
+            sidebarWindow.orderOut(nil)
+        }
+
+        let activeManager = TabManager()
+        let sidebarManager = TabManager()
+        app.registerMainWindow(
+            activeWindow,
+            windowId: activeWindowId,
+            tabManager: activeManager,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState(),
+            fileExplorerState: FileExplorerState()
+        )
+        app.registerMainWindow(
+            sidebarWindow,
+            windowId: sidebarWindowId,
+            tabManager: sidebarManager,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState(),
+            fileExplorerState: FileExplorerState()
+        )
+
+        activeWindow.makeKeyAndOrderFront(nil)
+        _ = app.synchronizeActiveMainWindowContext(preferredWindow: activeWindow)
+        let originalActiveSelection = activeManager.selectedTabId
+        let originalSidebarCount = sidebarManager.tabs.count
+
+        app.createWorkspaceAtEndFromSidebar(
+            windowId: sidebarWindowId,
+            tabManager: sidebarManager
+        )
+
+        XCTAssertTrue(app.tabManager === activeManager)
+        XCTAssertEqual(activeManager.selectedTabId, originalActiveSelection)
+        XCTAssertEqual(sidebarManager.tabs.count, originalSidebarCount + 1)
+        XCTAssertEqual(sidebarManager.selectedTabId, sidebarManager.tabs.last?.id)
     }
 
     func testApplicationOpenURLsAddsWorkspaceForDroppedFolderURL() throws {
@@ -2984,6 +3092,9 @@ final class FilePreviewDragPasteboardWriterTests: XCTestCase {
                 displayTitle: "old-preview.txt",
                 tabDragTransferRegistry: appDelegate.tabDragTransferRegistry
             )
+            // AppKit promotes the selected writer before the native session
+            // owns live registry entries and a Bonsplit capability.
+            _ = try XCTUnwrap(oldWriter.nativeDragOwnership())
             let oldData = try XCTUnwrap(
                 oldWriter.pasteboardPropertyList(
                     forType: DragOverlayRoutingPolicy.filePreviewTransferType
@@ -3040,6 +3151,7 @@ final class FilePreviewDragPasteboardWriterTests: XCTestCase {
             displayTitle: "preview-only.txt",
             tabDragTransferRegistry: isolatedRegistry
         )
+        _ = try XCTUnwrap(writer.nativeDragOwnership())
         let data = try XCTUnwrap(
             writer.pasteboardPropertyList(
                 forType: DragOverlayRoutingPolicy.filePreviewTransferType
@@ -3202,25 +3314,23 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
         await panel.loadTextContent().value
         panel.updateTextContent("first save")
 
-        try FileManager.default.removeItem(at: url)
-        XCTAssertEqual(mkfifo(url.path, 0o600), 0)
-
+        // `saveTextContent()` flips `isSaving` synchronously and the write
+        // finishes on a later main-actor hop, so the second request below is
+        // always observed while the first is still in flight. Earlier versions
+        // swapped the file for a FIFO to hold the first write open; with the
+        // preview panel now re-opening its watched path for change monitoring,
+        // that FIFO could block the app host's main thread and wedge the whole
+        // test batch (app-host shards 1 and 5 on runs 34232451577 and
+        // 34245949340 stalled inside this test).
         let firstSave = try XCTUnwrap(panel.saveTextContent())
         XCTAssertTrue(panel.isSaving)
 
         panel.updateTextContent("second save")
         XCTAssertNil(panel.saveTextContent())
 
-        let pipeRead = Task.detached { () throws -> String in
-            let handle = try FileHandle(forReadingFrom: url)
-            defer { try? handle.close() }
-            return String(data: handle.availableData, encoding: .utf8) ?? ""
-        }
-
-        let savedContent = try await pipeRead.value
-        XCTAssertEqual(savedContent, "first save")
         await firstSave.value
 
+        XCTAssertEqual(try String(contentsOf: url, encoding: .utf8), "first save")
         XCTAssertEqual(panel.textContent, "second save")
         XCTAssertTrue(panel.isDirty)
         XCTAssertFalse(panel.isSaving)

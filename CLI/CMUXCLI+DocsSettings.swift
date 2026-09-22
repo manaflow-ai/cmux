@@ -42,7 +42,7 @@ extension CMUXCLI {
         DocsReference(
             topic: "managed-policies",
             aliases: ["mdm", "managed", "policy", "policies", "enterprise", "managed-device-policies"],
-            summary: "MDM-enforceable managed policies: disable the embedded browser and iOS remote control on managed Macs.",
+            summary: "MDM-enforceable managed policies: disable the embedded browser, iOS remote control, and Cloud on managed Macs.",
             webURL: "https://cmux.com/docs/managed-policies",
             rawResources: [
                 DocsResource(label: "managed device policies", url: "https://raw.githubusercontent.com/manaflow-ai/cmux/main/docs/managed-device-policies.md"),
@@ -381,7 +381,7 @@ extension CMUXCLI {
           docs                Print the same output as `cmux docs settings`.
 
         Targets:
-          account, app, terminal, networking, sidebar-appearance,
+          account, app, terminal, networking, computers, devices, sidebar-appearance,
           custom-sidebars, automation, browser, browser-import,
           global-hotkey, keyboard-shortcuts, shortcuts, workspace-colors,
           cmux-json, json, reset
@@ -425,6 +425,8 @@ extension CMUXCLI {
             return "browser"
         case "networking", "network", "iroh":
             return "networking"
+        case "computers", "devices":
+            return "computers"
         case "browser-import", "browserimport", "import-browser-data":
             return "browserImport"
         case "global-hotkey", "globalhotkey", "hotkey":

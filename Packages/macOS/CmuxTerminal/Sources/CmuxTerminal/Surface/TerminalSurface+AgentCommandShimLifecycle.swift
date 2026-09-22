@@ -6,6 +6,10 @@ extension TerminalSurface {
         view: any TerminalSurfaceNativeViewing,
         source: RuntimeSurfaceCreationSource
     ) -> (isReady: Bool, shims: AgentCommandShimSet?) {
+        // The embedder owns process execution for manual I/O. There is no
+        // local child to consume PATH wrappers, so disk installation must not
+        // gate creation of the empty renderer (or run for these surfaces).
+        guard !ioMode.usesManualIO else { return (true, nil) }
         guard let wrapperDirectoryURL = Bundle.main.resourceURL?.appendingPathComponent("bin", isDirectory: true) else {
             agentCommandShimInstallCompleted = true
             return (true, nil)

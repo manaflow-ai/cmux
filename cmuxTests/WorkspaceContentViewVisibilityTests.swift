@@ -250,6 +250,8 @@ final class WorkspaceContentViewVisibilityTests {
             defer: false
         )
         window.contentView = MainWindowHostingView(rootView: root)
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
         defer {
             window.contentView = nil
             window.close()
@@ -537,36 +539,6 @@ final class WorkspaceContentViewVisibilityTests {
 
     private static func descendants(of view: NSView) -> [NSView] {
         view.subviews + view.subviews.flatMap { descendants(of: $0) }
-    }
-
-    @Test
-    func testNonSelectedNonRetiringWorkspaceIsFullyHidden() {
-        #expect(
-            MountedWorkspacePresentation.resolve(
-                isSelectedWorkspace: false,
-                isRetiringWorkspace: false
-            ) ==
-            MountedWorkspacePresentation(
-                isRenderedVisible: false,
-                isPanelVisible: false,
-                renderOpacity: 0
-            )
-        )
-    }
-
-    @Test
-    func testRetiringWorkspaceStaysPanelVisibleDuringHandoff() {
-        #expect(
-            MountedWorkspacePresentation.resolve(
-                isSelectedWorkspace: false,
-                isRetiringWorkspace: true
-            ) ==
-            MountedWorkspacePresentation(
-                isRenderedVisible: true,
-                isPanelVisible: true,
-                renderOpacity: 1
-            )
-        )
     }
 
     @Test

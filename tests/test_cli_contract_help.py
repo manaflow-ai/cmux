@@ -10,6 +10,7 @@ inspect Swift source.
 from __future__ import annotations
 
 import glob
+import json
 import os
 import re
 import shlex
@@ -156,6 +157,8 @@ def main() -> int:
         return 1
 
     failures: list[str] = []
+    failures.extend(check_guide_contract(cli_path))
+    failures.extend(check_task_help_contract(cli_path))
     for probe in probes:
         try:
             result = run_probe(cli_path, probe)
@@ -269,6 +272,131 @@ def main() -> int:
 
     print(f"PASS: {len(probes)} CLI help contract probes and {len(negative_probes)} negative probes passed")
     return 0
+
+
+def check_task_help_contract(cli_path: str) -> list[str]:
+    failures: list[str] = []
+    topics = {
+        "start": ("Start & Resume:", "open <path-or-url>..."),
+        "agents": ("Agents:", "claude-teams [claude-args...]"),
+        "navigate": ("Navigate & Arrange:", "new-split <left|right|up|down>"),
+        "inspect": ("Inspect:", "tree [--all]"),
+        "customize": ("Customize:", "settings [open [target]|path|docs|<target>]"),
+        "automation": ("Automation:", "automation <list|show|test|enable|disable|logs|reload> [args]"),
+        "browser": ("Browser:", "browser snapshot [--interactive|-i]"),
+        "remote": ("Remote:", "remotes <list|add|remove>"),
+        "diagnostics": ("Diagnostics / Advanced:", "ping"),
+    }
+    headings = {heading for heading, _ in topics.values()}
+
+    for topic, (heading, needle) in topics.items():
+        label = f"cmux help {topic}"
+        try:
+            result = run_cli_args(cli_path, ["help", topic])
+        except subprocess.TimeoutExpired:
+            failures.append(f"{label}: timed out")
+            continue
+        except (RuntimeError, OSError, ValueError) as exc:
+            failures.append(f"{label}: {exc}")
+            continue
+
+        merged = f"{result.stdout}\n{result.stderr}".strip()
+        if result.returncode != 0:
+            failures.append(
+                f"{label}: expected exit 0, got {result.returncode}\n"
+                f"stdout={result.stdout!r}\nstderr={result.stderr!r}"
+            )
+            continue
+        if result.stderr:
+            failures.append(
+                f"{label}: task help should write only stdout\n"
+                f"stdout={result.stdout!r}\nstderr={result.stderr!r}"
+            )
+        if result.socket_path in merged:
+            failures.append(
+                f"{label}: unexpected socket usage with forced socket {result.socket_path!r}\n"
+                f"stdout={result.stdout!r}\nstderr={result.stderr!r}"
+            )
+        if heading not in result.stdout or needle not in result.stdout:
+            failures.append(
+                f"{label}: missing task help content {heading!r} / {needle!r}\n"
+                f"stdout={result.stdout!r}"
+            )
+        leaked = sorted(other for other in headings if other != heading and other in result.stdout)
+        if leaked:
+            failures.append(
+                f"{label}: included unrelated task headings {leaked!r}\n"
+                f"stdout={result.stdout!r}"
+            )
+
+    try:
+        fallback = run_cli_args(cli_path, ["help", "unknown-task-topic"])
+    except subprocess.TimeoutExpired:
+        failures.append("cmux help unknown-task-topic: timed out")
+    except (RuntimeError, OSError, ValueError) as exc:
+        failures.append(f"cmux help unknown-task-topic: {exc}")
+    else:
+        if (
+            fallback.returncode != 0
+            or fallback.stderr
+            or "cmux - control cmux via Unix socket" not in fallback.stdout
+            or "Start & Resume:" not in fallback.stdout
+        ):
+            failures.append(
+                "cmux help unknown-task-topic: expected legacy top-level help fallback\n"
+                f"stdout={fallback.stdout!r}\nstderr={fallback.stderr!r}"
+            )
+
+    return failures
+
+
+def check_guide_contract(cli_path: str) -> list[str]:
+    failures: list[str] = []
+    # An explicit missing socket and invalid window prove that guides do not
+    # connect, authenticate, or focus a window, even with ambient cmux context.
+    prefix = ["--socket", f"/tmp/cmux-guide-{uuid.uuid4().hex}.sock", "--window", "window:999999"]
+    topics = {
+        "cmux": [["guide"], ["--skill"]],
+        "cloud": [["cloud", "guide"], ["cloud", "--skill"], ["vm", "guide"], ["vm", "--skill"]],
+    }
+    for topic, aliases in topics.items():
+        expected_content = None
+        for invocation in aliases:
+            label = "cmux " + " ".join(invocation)
+            try:
+                plain = run_cli_args(cli_path, prefix + invocation)
+                if plain.returncode != 0 or plain.stderr or not plain.stdout.startswith("# cmux"):
+                    raise ValueError(f"guide failed: {plain}")
+                if expected_content is None:
+                    expected_content = plain.stdout
+                if plain.stdout != expected_content:
+                    raise ValueError("alias output differs from the canonical guide")
+                for arguments in (["--json", *invocation], [*invocation, "--json"]):
+                    result = run_cli_args(cli_path, prefix + arguments)
+                    payload = json.loads(result.stdout)
+                    if result.returncode != 0 or result.stderr or payload != {
+                        "topic": topic, "format": "markdown", "content": expected_content,
+                    }:
+                        raise ValueError(f"JSON guide differs from plain output: {result}")
+                if topic == "cmux":
+                    for needle in ("cmux cloud", "Chrome", "cua-driver"):
+                        if needle not in plain.stdout:
+                            raise ValueError(f"local guide must include the Cloud detail: {needle}")
+                expected = ["agent-browser.dev", "agent-browser --auto-connect", "agent-browser --cdp"]
+                if topic == "cmux":
+                    expected.append("agent-browser --headed")
+                if topic == "cloud":
+                    expected += ["cua-driver --version", "cua-driver doctor", "cua-driver mcp", "DISPLAY=:1", "cmux cloud route --json", "would_provision", "route --provision", "terminal wait", "terminal read", "google-chrome-stable", "--remote-debugging-port=9222", "cmux cloud dev <machine> --no-open"]
+                missing = [needle for needle in expected if needle not in plain.stdout]
+                if missing:
+                    raise ValueError(f"guide is missing method details: {missing}")
+                for suffix in (["unexpected"], ["--", "--help"]):
+                    result = run_cli_args(cli_path, prefix + invocation + suffix)
+                    if result.returncode != 2 or result.stdout or "Usage:" not in result.stderr:
+                        raise ValueError(f"invalid arguments must fail before socket access: {result}")
+            except (subprocess.TimeoutExpired, OSError, ValueError) as exc:
+                failures.append(f"{label}: {exc}")
+    return failures
 
 
 if __name__ == "__main__":

@@ -69,6 +69,13 @@ impl InboundLink {
         Self::new(link, InboundAuthEvidence::Network(peer))
     }
 
+    /// A link from a listener the operator marked trusted (`DirectWebSocketOptions::
+    /// trusted_carrier`): the network admitted the peer, so carrier authentication
+    /// is granted without enrollment.
+    pub fn trusted_network(link: Box<dyn FrameLink>, peer: NetworkPeer) -> Self {
+        Self::new(link, InboundAuthEvidence::TrustedNetwork(peer))
+    }
+
     pub fn evidence(&self) -> &InboundAuthEvidence {
         &self.evidence
     }
@@ -1248,6 +1255,18 @@ async fn close_pending_links(pending: Option<PendingLinks>) {
 struct WebSocketState {
     daemon: Arc<RemoteDaemon>,
     maximum_frame_bytes: usize,
+    trusted_carrier: bool,
+}
+
+/// How a direct WebSocket listener admits links.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct DirectWebSocketOptions {
+    /// Bind plaintext off loopback (the carrier is expected to encrypt: WireGuard, TLS proxy).
+    pub allow_insecure_non_loopback: bool,
+    /// Grant carrier authentication to every link: the listener is reachable only
+    /// from a network whose members are all authorized (a cmux Cloud machine's
+    /// private VPC). Enrolled and invitation dials keep working alongside.
+    pub trusted_carrier: bool,
 }
 
 struct LimitedTcpListener {
@@ -1386,6 +1405,22 @@ pub async fn serve_direct_websocket(
     maximum_frame_bytes: usize,
     allow_insecure_non_loopback: bool,
 ) -> Result<DirectWebSocketServer, DaemonError> {
+    serve_direct_websocket_with_options(
+        daemon,
+        address,
+        maximum_frame_bytes,
+        DirectWebSocketOptions { allow_insecure_non_loopback, trusted_carrier: false },
+    )
+    .await
+}
+
+pub async fn serve_direct_websocket_with_options(
+    daemon: Arc<RemoteDaemon>,
+    address: SocketAddr,
+    maximum_frame_bytes: usize,
+    options: DirectWebSocketOptions,
+) -> Result<DirectWebSocketServer, DaemonError> {
+    let DirectWebSocketOptions { allow_insecure_non_loopback, trusted_carrier } = options;
     if !address.ip().is_loopback() && !allow_insecure_non_loopback {
         return Err(DaemonError::Protocol(format!(
             "refusing plaintext remote WebSocket bind {address}; use TLS or explicitly allow it"
@@ -1397,7 +1432,7 @@ pub async fn serve_direct_websocket(
     let local_addr = listener.local_addr().map_err(|error| {
         DaemonError::Protocol(format!("could not read WebSocket address: {error}"))
     })?;
-    let state = WebSocketState { daemon, maximum_frame_bytes };
+    let state = WebSocketState { daemon, maximum_frame_bytes, trusted_carrier };
     let router = Router::new().route("/v1/link", get(upgrade_websocket)).with_state(state);
     let listener = LimitedTcpListener {
         inner: listener,
@@ -1430,7 +1465,11 @@ async fn upgrade_websocket(
             admission.upgraded.store(true, Ordering::Release);
             let link =
                 AxumWebSocketLink::new("direct-websocket", state.maximum_frame_bytes, socket);
-            let inbound = InboundLink::network(Box::new(link), NetworkPeer::Tcp);
+            let inbound = if state.trusted_carrier {
+                InboundLink::trusted_network(Box::new(link), NetworkPeer::Tcp)
+            } else {
+                InboundLink::network(Box::new(link), NetworkPeer::Tcp)
+            };
             let _ = state.daemon.accept(inbound).await;
         })
 }
@@ -2056,6 +2095,41 @@ mod tests {
                 "{carrier} network evidence granted Carrier authentication"
             );
         }
+    }
+
+    /// A listener the operator marked trusted vouches for its peers by itself:
+    /// the grant needs no enrollment and no daemon-wide carrier policy, and it
+    /// still names the client's own key so the connection stays attributable.
+    #[tokio::test]
+    async fn trusted_network_listener_grants_carrier_without_policy_or_enrollment() {
+        let directory = tempdir().unwrap();
+        let denied =
+            AuthDatabase::load_or_create(directory.path(), "trusted-network", false).unwrap();
+        let client = StaticIdentity::generate().unwrap();
+        let public_key = client.public_key();
+        for peer in [NetworkPeer::Tcp, NetworkPeer::Tls] {
+            let grant = ServerAuthenticator::authorize(
+                &*denied,
+                carrier_auth_request(public_key, InboundAuthEvidence::TrustedNetwork(peer)),
+            )
+            .await
+            .unwrap_or_else(|error| panic!("trusted {peer:?} evidence was rejected: {error}"));
+            assert_eq!(grant.device_id, format!("network:{}", public_key_fingerprint(&public_key)));
+            // The grant stays current without the daemon-wide carrier policy: the
+            // network, not the device list, is what admits and revokes it.
+            assert!(denied.grant_is_current(&grant).await);
+            assert!(denied.device_is_active(&grant.device_id).await);
+        }
+        assert!(
+            ServerAuthenticator::authorize(
+                &*denied,
+                carrier_auth_request(public_key, InboundAuthEvidence::Network(NetworkPeer::Tcp)),
+            )
+            .await
+            .is_err(),
+            "an untrusted listener's network evidence granted Carrier authentication"
+        );
+        assert!(denied.pending_enrollments().await.is_empty());
     }
 
     struct FaultEpoch {

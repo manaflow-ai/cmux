@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 8ff10c20fef75f9aaa1498eaf5e1107f084bdcf3febdcf8806fb4e7fc1c90b86. */
+/* cmux-tui mux protocol 12, IR 7042c629f34d3606581d07b2d2c03b65116c2467810724163c54674865825cc0. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -213,6 +213,22 @@ export type GetCellPixelsResult = {
   "height_px": number;
   "surfaces": Array<CellPixelSurface>;
   "width_px": number;
+};
+
+export type GuestUrlAcknowledgeResult = {
+  "accepted": boolean;
+};
+
+export type GuestUrlClaimResult = {
+  "claimed": boolean;
+};
+
+export type GuestUrlOpenResult = {
+  "opened": boolean;
+};
+
+export type GuestUrlSubscribeResult = {
+  "url_open_ready": boolean;
 };
 
 export type Id = bigint;
@@ -672,12 +688,19 @@ export type Tab = {
   "title": string;
 };
 
+export type TerminalColorOverrides = {
+  "bg": (ColorHex) | null;
+  "cursor": (ColorHex) | null;
+  "fg": (ColorHex) | null;
+};
+
 export type TerminalColors = {
   "bg": (ColorHex) | null;
   "cursor"?: (ColorHex) | null;
   "cursor_blink"?: (boolean) | null;
   "cursor_style"?: (CursorStyle) | null;
   "fg": (ColorHex) | null;
+  "overrides"?: TerminalColorOverrides;
   "palette"?: Record<string, ColorHex>;
   "selection_bg": (ColorHex) | null;
   "selection_fg": (ColorHex) | null;

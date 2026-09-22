@@ -2,10 +2,10 @@ extension ShortcutAction {
     /// Which group this action belongs to in the settings pane.
     public var group: Group {
         switch self {
-        case .openSettings, .reloadConfiguration, .showHideAllWindows, .globalSearch,
+        case .openSettings, .openTeamPicker, .reloadConfiguration, .showHideAllWindows, .globalSearch,
              .newWindow, .closeWindow, .toggleFullScreen, .quit:
             return .app
-        case .toggleSidebar, .newTab, .newBrowserWorkspace, .saveLayoutTemplate, .openFolder, .reopenPreviousSession, .goToWorkspace,
+        case .toggleSidebar, .newTab, .newBrowserWorkspace, .newCloudWorkspace, .newCloudMachine, .saveLayoutTemplate, .openFolder, .reopenPreviousSession, .goToWorkspace,
              .commandPalette, .commandPaletteNext, .commandPalettePrevious, .sendFeedback,
              .showNotifications, .jumpToUnread, .toggleUnread, .markOldestUnreadAndJumpNext,
              .markAllNotificationsRead, .clearAllNotifications,
@@ -35,7 +35,8 @@ extension ShortcutAction {
              .focusPreviousPane, .focusNextPane, .splitRight, .splitDown,
              .toggleSplitZoom, .increaseWorkspaceTerminalFontSize,
              .decreaseWorkspaceTerminalFontSize, .resetWorkspaceTerminalFontSize,
-             .equalizeSplits, .splitBrowserRight, .splitBrowserDown,
+             .equalizeSplits, .resizePaneLeft, .resizePaneRight,
+             .resizePaneUp, .resizePaneDown, .splitBrowserRight, .splitBrowserDown,
              .toggleRightSidebar, .fileExplorerOpenSelection, .fileExplorerOpenSelectionFinderAlias,
              .toggleCanvasLayout, .canvasRevealFocusedPane, .canvasOverview,
              .canvasZoomIn, .canvasZoomOut, .canvasZoomReset, .canvasTidy,

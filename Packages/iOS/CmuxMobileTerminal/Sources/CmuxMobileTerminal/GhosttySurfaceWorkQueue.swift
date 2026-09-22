@@ -4,6 +4,16 @@ import Foundation
 /// All mutable state is accessed only from `queue`; main-actor code replaces whole instances on recovery.
 final class GhosttySurfaceWorkQueue: @unchecked Sendable {
     let queue: DispatchQueue
+    // Carve-out: synchronous C-event admission must reject a full queue before allocating more work.
+    private let pendingLock = NSLock()
+    private var pendingPriority: [@Sendable () -> Void] = []
+    private var pendingNormal: [@Sendable () -> Void] = []
+    private var priorityHead = 0
+    private var normalHead = 0
+    private var priorityBurst = 0
+    private static let maximumPriorityBurst = 4
+    private static let maximumPendingOperations = 256
+    private var isRunning = false
     #if DEBUG
     /// Accessed only from ``queue`` while producing DEBUG accessibility snapshots.
     var lastAccessibilityTextTime: CFTimeInterval = 0
@@ -66,7 +76,78 @@ final class GhosttySurfaceWorkQueue: @unchecked Sendable {
         )
     }
 
-    func async(_ work: @escaping @Sendable () -> Void) {
-        queue.async(execute: work)
+    @discardableResult
+    func async(
+        _ work: @escaping @Sendable () -> Void,
+        priority: Bool = false
+    ) -> Bool {
+        enqueue(work, priority: priority)
+    }
+
+    /// Enqueue latency-sensitive interaction work ahead of queued repaint work.
+    /// The same serial worker still executes every Ghostty call, so priority
+    /// changes scheduling only and never permits concurrent surface mutation.
+    @discardableResult
+    func asyncPriority(_ work: @escaping @Sendable () -> Void) -> Bool {
+        enqueue(work, priority: true)
+    }
+
+    private func enqueue(_ work: @escaping @Sendable () -> Void, priority: Bool) -> Bool {
+        pendingLock.lock()
+        let pendingCount = pendingPriority.count - priorityHead + pendingNormal.count - normalHead
+        if pendingCount >= Self.maximumPendingOperations {
+            pendingLock.unlock()
+            return false
+        }
+        if priority {
+            pendingPriority.append(work)
+        } else {
+            pendingNormal.append(work)
+        }
+        let shouldStart = !isRunning
+        if shouldStart { isRunning = true }
+        pendingLock.unlock()
+        guard shouldStart else { return true }
+        scheduleNext()
+        return true
+    }
+
+    private func scheduleNext() {
+        queue.async { [weak self] in
+            guard let self else { return }
+            self.pendingLock.lock()
+            let work: (@Sendable () -> Void)?
+            let shouldRunPriority = self.priorityHead < self.pendingPriority.count
+                && (self.priorityBurst < Self.maximumPriorityBurst || self.normalHead >= self.pendingNormal.count)
+            if shouldRunPriority {
+                work = self.pendingPriority[self.priorityHead]
+                self.priorityHead += 1
+                self.priorityBurst += 1
+            } else if self.normalHead < self.pendingNormal.count {
+                work = self.pendingNormal[self.normalHead]
+                self.normalHead += 1
+                self.priorityBurst = 0
+            } else {
+                work = nil
+                self.isRunning = false
+                self.priorityBurst = 0
+                self.pendingPriority.removeAll(keepingCapacity: true)
+                self.pendingNormal.removeAll(keepingCapacity: true)
+                self.priorityHead = 0
+                self.normalHead = 0
+            }
+            if self.priorityHead > 32, self.priorityHead * 2 >= self.pendingPriority.count {
+                self.pendingPriority.removeFirst(self.priorityHead)
+                self.priorityHead = 0
+            }
+            if self.normalHead > 32, self.normalHead * 2 >= self.pendingNormal.count {
+                self.pendingNormal.removeFirst(self.normalHead)
+                self.normalHead = 0
+            }
+            self.pendingLock.unlock()
+            guard let work else { return }
+            work()
+            self.scheduleNext()
+        }
     }
 }

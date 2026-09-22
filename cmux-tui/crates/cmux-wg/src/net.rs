@@ -9,7 +9,7 @@
 //! datagram, a command, a stream write, the WireGuard timer tick, or the
 //! deadline smoltcp asks for.
 
-use std::collections::hash_map::RandomState;
+use std::collections::{VecDeque, hash_map::RandomState};
 use std::fmt;
 use std::hash::{BuildHasher, Hasher};
 use std::io;
@@ -60,8 +60,15 @@ const COMMAND_DEPTH: usize = 64;
 const TIMER_TICK: Duration = Duration::from_millis(250);
 /// Idle TCP connections with no ACK for this long are aborted.
 const TCP_TIMEOUT: Duration = Duration::from_secs(60);
+/// Probe each idle TCP connection before its receive timeout. WireGuard
+/// keepalives and application heartbeats on another lane do not elicit its ACKs.
+const TCP_KEEP_ALIVE: Duration = Duration::from_secs(15);
 /// Largest datagram or packet buffer: the UDP payload maximum.
 const BUFFER_BYTES: usize = 65_535;
+/// UDP send readiness is edge-triggered by Tokio. Keep datagrams that arrive
+/// while the socket is temporarily unwritable and retry them on the next
+/// driver pass instead of silently losing a handshake.
+const UDP_SEND_QUEUE_DEPTH: usize = 64;
 /// The ephemeral port range (IANA 49152-65535); allocation starts at a random
 /// port inside it and wraps, as a real stack does.
 const FIRST_EPHEMERAL_PORT: u16 = 49_152;
@@ -90,6 +97,8 @@ pub enum WgError {
     ListenerBusy(u16),
     /// The tunnel has been shut down.
     Shutdown,
+    /// No WireGuard handshake completed before the startup deadline.
+    HandshakeTimeout(Duration),
     /// smoltcp refused the operation.
     Stack(String),
 }
@@ -108,6 +117,9 @@ impl fmt::Display for WgError {
             Self::ConnectionRefused(remote) => write!(formatter, "{remote} refused the connection"),
             Self::ListenerBusy(port) => write!(formatter, "port {port} already has a listener"),
             Self::Shutdown => formatter.write_str("the tunnel is shut down"),
+            Self::HandshakeTimeout(timeout) => {
+                write!(formatter, "no WireGuard handshake completed within {timeout:?}")
+            }
             Self::Stack(detail) => write!(formatter, "tcp stack: {detail}"),
         }
     }
@@ -243,6 +255,27 @@ impl WgNet {
             .await
             .map_err(|_| WgError::Shutdown)?;
         reply_rx.await.map_err(|_| WgError::Shutdown)
+    }
+
+    /// Wait until the peer completes a WireGuard handshake.
+    ///
+    /// Starting the driver only proves that the local UDP socket and the
+    /// userspace stack are alive. A hub must also prove that its peer can be
+    /// reached before it advertises a ready SOCKS socket. The driver sends an
+    /// initial handshake during startup, so polling this value is a bounded
+    /// end-to-end readiness check.
+    pub async fn wait_for_handshake(&self, timeout: Duration) -> Result<Duration, WgError> {
+        let deadline = tokio::time::Instant::now() + timeout;
+        loop {
+            if let Some(age) = self.time_since_last_handshake().await? {
+                return Ok(age);
+            }
+            let now = tokio::time::Instant::now();
+            if now >= deadline {
+                return Err(WgError::HandshakeTimeout(timeout));
+            }
+            tokio::time::sleep_until(deadline.min(now + Duration::from_millis(100))).await;
+        }
     }
 
     /// Stop the driver and wait for it to exit. Open connections are reset.
@@ -446,6 +479,7 @@ struct Driver {
     epoch: std::time::Instant,
     next_port: u16,
     scratch: Vec<u8>,
+    pending_udp: VecDeque<(Vec<u8>, SocketAddr)>,
 }
 
 enum Event {
@@ -523,6 +557,7 @@ impl Driver {
             epoch,
             next_port: random_ephemeral_port(),
             scratch: vec![0u8; BUFFER_BYTES + 32],
+            pending_udp: VecDeque::new(),
         })
     }
 
@@ -540,6 +575,7 @@ impl Driver {
         let mut datagram = vec![0u8; BUFFER_BYTES];
 
         self.initiate_handshake();
+        self.flush_pending_udp();
         self.service();
 
         loop {
@@ -585,15 +621,40 @@ impl Driver {
                 Event::Wake | Event::StackDeadline => {}
                 Event::Tick => self.update_timers(),
             }
+            self.flush_pending_udp();
             self.service();
+            self.flush_pending_udp();
         }
     }
 
-    fn send_to_peer(&self, packet: &[u8]) {
+    fn send_to_peer(&mut self, packet: &[u8]) {
         if let Some(peer) = self.peer {
-            // WireGuard tolerates loss; a momentarily unwritable UDP socket
-            // drops the datagram rather than blocking the driver.
-            let _ = self.udp.try_send_to(packet, peer);
+            match self.udp.try_send_to(packet, peer) {
+                Ok(_) => {}
+                Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
+                    if self.pending_udp.len() < UDP_SEND_QUEUE_DEPTH {
+                        self.pending_udp.push_back((packet.to_vec(), peer));
+                    }
+                }
+                Err(error) => {
+                    eprintln!("wireguard UDP send to {peer} failed: {error}");
+                }
+            }
+        }
+    }
+
+    fn flush_pending_udp(&mut self) {
+        while let Some((packet, peer)) = self.pending_udp.front() {
+            match self.udp.try_send_to(packet, *peer) {
+                Ok(_) => {
+                    self.pending_udp.pop_front();
+                }
+                Err(error) if error.kind() == io::ErrorKind::WouldBlock => break,
+                Err(error) => {
+                    eprintln!("wireguard UDP send to {peer} failed: {error}");
+                    self.pending_udp.pop_front();
+                }
+            }
         }
     }
 
@@ -732,6 +793,9 @@ impl Driver {
         socket.set_timeout(Some(smoltcp::time::Duration::from_micros(
             u64::try_from(TCP_TIMEOUT.as_micros()).unwrap_or(u64::MAX),
         )));
+        socket.set_keep_alive(Some(smoltcp::time::Duration::from_micros(
+            u64::try_from(TCP_KEEP_ALIVE.as_micros()).unwrap_or(u64::MAX),
+        )));
         socket
     }
 
@@ -740,6 +804,9 @@ impl Driver {
         remote: SocketAddr,
         reply: oneshot::Sender<Result<WgStream, WgError>>,
     ) {
+        if reply.is_closed() {
+            return;
+        }
         let Some(local_ip) = self.config.local_address_for(remote.ip()) else {
             let _ = reply.send(Err(WgError::NoTunnelAddress(remote.ip())));
             return;
@@ -892,6 +959,15 @@ impl Driver {
             let socket = self.sockets.get_mut::<tcp::Socket>(conn.handle);
 
             if let Some((handoff, stream)) = conn.pending_stream.take() {
+                if matches!(&handoff, Handoff::Connect(reply) if reply.is_closed()) {
+                    // The connect future was cancelled before the handshake
+                    // completed. No stream owner remains to close this socket.
+                    socket.abort();
+                    let handle = conn.handle;
+                    self.sockets.remove(handle);
+                    self.conns.swap_remove(index);
+                    continue;
+                }
                 if socket.state() == tcp::State::Established {
                     match handoff {
                         Handoff::Connect(reply) => {
@@ -1037,6 +1113,143 @@ fn packet_source(packet: &[u8]) -> Option<IpAddr> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    struct TcpPeer {
+        iface: Interface,
+        device: VirtualDevice,
+        sockets: SocketSet<'static>,
+        handle: SocketHandle,
+    }
+
+    impl TcpPeer {
+        fn new(address: IpAddress, seed: u64) -> Self {
+            let mut device = VirtualDevice::new(1420);
+            let mut config = Config::new(HardwareAddress::Ip);
+            config.random_seed = seed;
+            let mut iface = Interface::new(config, &mut device, SmolInstant::from_millis(0));
+            iface.update_ip_addrs(|addresses| {
+                addresses.push(IpCidr::new(address, 24)).unwrap();
+            });
+            let mut sockets = SocketSet::new(Vec::new());
+            let handle = sockets.add(Driver::new_socket());
+            Self { iface, device, sockets, handle }
+        }
+
+        fn socket(&self) -> &tcp::Socket<'static> {
+            self.sockets.get::<tcp::Socket>(self.handle)
+        }
+
+        fn socket_mut(&mut self) -> &mut tcp::Socket<'static> {
+            self.sockets.get_mut::<tcp::Socket>(self.handle)
+        }
+
+        fn poll(&mut self, now: SmolInstant) {
+            self.iface.poll(now, &mut self.device, &mut self.sockets);
+        }
+    }
+
+    /// Exchange actual TCP packets without WireGuard or wall-clock delays.
+    fn exchange_tcp(left: &mut TcpPeer, right: &mut TcpPeer, now: SmolInstant) {
+        for _ in 0..16 {
+            left.poll(now);
+            right.poll(now);
+            let mut transferred = false;
+            while let Some(packet) = left.device.pop_tx() {
+                right.device.push_rx(packet);
+                transferred = true;
+            }
+            while let Some(packet) = right.device.pop_tx() {
+                left.device.push_rx(packet);
+                transferred = true;
+            }
+            if !transferred {
+                return;
+            }
+        }
+        panic!("TCP packet exchange did not settle");
+    }
+
+    fn connected_tcp_peers() -> (TcpPeer, TcpPeer) {
+        let client_ip = IpAddress::Ipv4("10.200.0.1".parse().unwrap());
+        let server_ip = IpAddress::Ipv4("10.200.0.2".parse().unwrap());
+        let mut client = TcpPeer::new(client_ip, 1);
+        let mut server = TcpPeer::new(server_ip, 2);
+        server.socket_mut().listen(1337).unwrap();
+        client
+            .sockets
+            .get_mut::<tcp::Socket>(client.handle)
+            .connect(
+                client.iface.context(),
+                IpEndpoint::new(server_ip, 1337),
+                IpEndpoint::new(client_ip, FIRST_EPHEMERAL_PORT),
+            )
+            .unwrap();
+        exchange_tcp(&mut client, &mut server, SmolInstant::from_millis(0));
+        assert_eq!(client.socket().state(), tcp::State::Established);
+        assert_eq!(server.socket().state(), tcp::State::Established);
+        (client, server)
+    }
+
+    #[test]
+    fn tcp_idle_healthy_peers_survive_multiple_timeouts() {
+        let (mut client, mut server) = connected_tcp_peers();
+        // Idle link-group lanes must stay usable even when all application
+        // heartbeats and traffic travel over a different TCP connection.
+        for second in 1..=180 {
+            exchange_tcp(&mut client, &mut server, SmolInstant::from_secs(second));
+            assert_eq!(client.socket().state(), tcp::State::Established, "client at {second}s");
+            assert_eq!(server.socket().state(), tcp::State::Established, "server at {second}s");
+            assert_eq!(client.socket().recv_queue(), 0, "probes must not reach the application");
+            assert_eq!(server.socket().recv_queue(), 0, "probes must not reach the application");
+        }
+
+        client.socket_mut().send_slice(b"client after idle").unwrap();
+        server.socket_mut().send_slice(b"server after idle").unwrap();
+        exchange_tcp(&mut client, &mut server, SmolInstant::from_secs(181));
+        let mut received = [0u8; 64];
+        let count = client.socket_mut().recv_slice(&mut received).unwrap();
+        assert_eq!(&received[..count], b"server after idle");
+        let count = server.socket_mut().recv_slice(&mut received).unwrap();
+        assert_eq!(&received[..count], b"client after idle");
+    }
+
+    #[test]
+    fn tcp_idle_unresponsive_peer_still_times_out() {
+        let (mut client, _server) = connected_tcp_peers();
+        // Stop delivering packets after the handshake, as with a dead peer.
+        // Sending probes alone must not refresh the receive timeout.
+        for second in 1..60 {
+            client.poll(SmolInstant::from_secs(second));
+            while client.device.pop_tx().is_some() {}
+            assert_eq!(client.socket().state(), tcp::State::Established, "client at {second}s");
+        }
+        client.poll(SmolInstant::from_secs(60));
+        assert_eq!(client.socket().state(), tcp::State::Closed);
+    }
+
+    #[tokio::test]
+    async fn cancelled_hub_dial_releases_the_pending_tcp_socket() {
+        let pair = crate::testing::loopback_pair().await.unwrap();
+        let (_commands, receiver) = mpsc::channel(COMMAND_DEPTH);
+        let mut driver = Driver::new(
+            pair.client,
+            pair.client_socket,
+            Some(pair.server_socket.local_addr().unwrap()),
+            receiver,
+            Arc::new(Notify::new()),
+        )
+        .unwrap();
+        let (reply, pending) = oneshot::channel();
+        driver.begin_connect(SocketAddr::new(pair.server_v6, 1337), reply);
+        assert_eq!(driver.conns.len(), 1);
+        assert_eq!(driver.sockets.iter().count(), 1);
+
+        drop(pending);
+        driver.process_conns();
+
+        assert!(driver.conns.is_empty(), "a cancelled dial must not wait for TCP_TIMEOUT");
+        assert_eq!(driver.sockets.iter().count(), 0);
+    }
 
     #[test]
     fn packet_source_reads_both_families() {

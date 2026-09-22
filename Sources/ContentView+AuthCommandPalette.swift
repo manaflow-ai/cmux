@@ -5,6 +5,7 @@ import Foundation
 extension ContentView {
     static let commandPaletteAuthSignInCommandId = "palette.auth.signIn"
     static let commandPaletteAuthSignOutCommandId = "palette.auth.signOut"
+    static let commandPaletteAuthTeamPickerCommandId = "palette.auth.teamPicker"
 
     static func commandPaletteAuthCommandContributions() -> [CommandPaletteCommandContribution] {
         func constant(_ value: String) -> (CommandPaletteContextSnapshot) -> String {
@@ -27,6 +28,16 @@ extension ContentView {
                 title: constant(String(localized: "command.auth.signOut.title", defaultValue: "Sign Out")),
                 subtitle: constant(String(localized: "command.auth.subtitle", defaultValue: "Account")),
                 keywords: ["account", "auth", "logout", "log out", "signout", "sign out"],
+                when: { context in
+                    context.bool(CommandPaletteContextKeys.authSignedIn)
+                        && !context.bool(CommandPaletteContextKeys.authWorking)
+                }
+            ),
+            CommandPaletteCommandContribution(
+                commandId: commandPaletteAuthTeamPickerCommandId,
+                title: constant(String(localized: "command.auth.teamPicker.title", defaultValue: "Open Team Picker")),
+                subtitle: constant(String(localized: "command.auth.subtitle", defaultValue: "Account")),
+                keywords: ["account", "auth", "team", "teams", "switch", "create"],
                 when: { context in
                     context.bool(CommandPaletteContextKeys.authSignedIn)
                         && !context.bool(CommandPaletteContextKeys.authWorking)
@@ -58,6 +69,9 @@ extension ContentView {
                 await auth.accountFlow.signOut()
             }
         }
+        registry.register(commandId: Self.commandPaletteAuthTeamPickerCommandId) {
+            NotificationCenter.default.post(name: .cmuxTeamPickerShortcutRequested, object: self)
+        }
     }
 }
 
@@ -72,10 +86,13 @@ extension ContentView {
     static let commandPaletteCloudHandoffCommandId = "palette.cloud.handoff"
     static let commandPaletteCloudNewMachineCommandId = "palette.cloud.newMachine"
 
-    static func commandPaletteCloudCommandContributions() -> [CommandPaletteCommandContribution] {
+    static func commandPaletteCloudCommandContributions(
+        isAuthenticated: Bool? = nil
+    ) -> [CommandPaletteCommandContribution] {
         // Feature-gated: hide every Cloud VM command from the palette when the
         // Cloud VM UI flag is off, matching the dropdown and shortcut gates.
-        guard CloudMachinesFeature.isEnabled else { return [] }
+        guard CloudMachinesFeature.isEnabled,
+              isAuthenticated ?? (AppDelegate.shared?.auth?.accountFlow.isAuthenticated == true) else { return [] }
         func constant(_ value: String) -> (CommandPaletteContextSnapshot) -> String {
             { _ in value }
         }
@@ -140,7 +157,10 @@ extension ContentView {
 
     func registerCloudCommandHandlers(_ registry: inout CommandPaletteHandlerRegistry) {
         registry.register(commandId: Self.commandPaletteCloudNewMachineCommandId) {
-            NewMachineSheetPresenter.shared.presentNewMachineFetchingPlan(preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow)
+            _ = AppDelegate.shared?.performNewCloudMachineAction(
+                preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow,
+                debugSource: "palette.cloud.newMachine"
+            )
         }
         registry.register(commandId: Self.commandPaletteCloudForkCommandId) {
             _ = AppDelegate.shared?.performCurrentCloudVMCommand(.fork, debugSource: "palette.cloud.fork")
