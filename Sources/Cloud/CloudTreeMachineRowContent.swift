@@ -18,7 +18,7 @@ struct CloudTreeMachineRowContent: View {
                     systemName: machine.freeAccess == .expired ? "lock.fill" : "cloud",
                     tint: CloudTreeIconPalette.machine
                 )
-                .frame(height: scaled(style.machineNameLineHeight))
+                .frame(width: scaled(max(style.iconSlot, style.iconSize)), height: scaled(style.machineNameLineHeight))
                 VStack(alignment: .leading, spacing: scaled(style.rowGrid.machineLineSpacing)) {
                     nameRow
                     if style.machineRowLayout == .twoLine {
@@ -47,12 +47,6 @@ struct CloudTreeMachineRowContent: View {
                     .lineLimit(1)
                     .truncationMode(.tail)
                     .layoutPriority(1)
-                if machine.isDefault {
-                    Image(systemName: "star.fill")
-                        .font(.system(size: 9, weight: .semibold))
-                        .foregroundStyle(.secondary)
-                        .help(String(localized: "machines.row.default.help", defaultValue: "Default machine for New Cloud Workspace"))
-                }
             }
             Spacer(minLength: 0)
         }
@@ -63,9 +57,6 @@ struct CloudTreeMachineRowContent: View {
     var accessibilityLabel: String {
         var parts = [machine.displayName, machine.activityLabel, CloudMachineResourcePresentation(machine: machine, now: now).summary]
         parts.append(usageSummary)
-        if machine.isDefault {
-            parts.append(String(localized: "machines.row.default.accessibilityLabel", defaultValue: "Default machine"))
-        }
         return parts.joined(separator: ", ")
     }
 

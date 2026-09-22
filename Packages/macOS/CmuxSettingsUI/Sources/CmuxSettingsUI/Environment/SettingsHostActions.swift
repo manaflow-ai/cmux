@@ -16,6 +16,7 @@ import Foundation
 /// when no host action is available.
 @MainActor
 public protocol SettingsHostActions: AnyObject {
+    func computersSettingsActions() -> ComputersSettingsActions
     /// A registry snapshot used to populate the per-agent notification sound
     /// matrix. The host owns discovery so newly registered agents appear
     /// without a second list in the settings package.
@@ -45,6 +46,24 @@ public protocol SettingsHostActions: AnyObject {
     /// Returns false when the host has no live automation engine.
     @discardableResult
     func reloadAutomationRules() -> Bool
+
+    /// Names of custom sidebar files currently discovered by the host.
+    func customSidebarNames() -> [String]
+
+    /// Streams sidebar names after external filesystem changes, including an initial snapshot.
+    func customSidebarNamesUpdates() async -> AsyncStream<[String]>
+
+    /// Creates a starter custom sidebar and opens it in the preferred editor.
+    func createCustomSidebar() -> CustomSidebarOnboardingResult
+
+    /// Copies one bundled example into the custom-sidebar directory and opens it.
+    func installCustomSidebarExample(id: String) -> CustomSidebarOnboardingResult
+
+    /// Opens an existing discovered custom sidebar in the preferred editor.
+    func openCustomSidebarInExternalEditor(named name: String)
+
+    /// Creates the custom-sidebar directory when needed, then reveals it in Finder.
+    func openCustomSidebarsFolder()
 
     /// Launches the host's feedback flow (typically a "Send Feedback"
     /// URL or in-app form).
@@ -78,6 +97,9 @@ public protocol SettingsHostActions: AnyObject {
 
     /// Live-reloads Ghostty after the adaptive-default-theme preference commits.
     func terminalAdaptiveDefaultThemeDidChange()
+
+    /// Opens the interactive terminal theme picker in a focused cmux terminal pane.
+    func openTerminalThemePicker()
 
     /// Launches the host's browser-import flow (Safari / Chrome /
     /// Firefox source picker + profile selection + cookie prompt).
@@ -420,11 +442,34 @@ public extension SettingsHostActions {
     /// Default no-op for package-only settings hosts without Ghostty.
     func terminalAdaptiveDefaultThemeDidChange() {}
 
+    /// Default no-op for package-only settings hosts without a terminal theme picker.
+    func openTerminalThemePicker() {}
+
     /// Default no-op for hosts with no app-owned reset side effects.
     func resetAllSettingsSideEffects() {}
 
     /// Default no-op for hosts with no app-owned shortcut caches.
     func notifyShortcutSettingsDidChange() {}
+
+    /// Custom-sidebar defaults for package previews and tests without a live host.
+    func customSidebarNames() -> [String] { [] }
+
+    func customSidebarNamesUpdates() async -> AsyncStream<[String]> {
+        let names = customSidebarNames()
+        return AsyncStream { continuation in
+            continuation.yield(names)
+            continuation.finish()
+        }
+    }
+    func createCustomSidebar() -> CustomSidebarOnboardingResult {
+        .writeFailed
+    }
+    func installCustomSidebarExample(id: String) -> CustomSidebarOnboardingResult {
+        _ = id
+        return .writeFailed
+    }
+    func openCustomSidebarInExternalEditor(named name: String) { _ = name }
+    func openCustomSidebarsFolder() {}
 
     /// Default no-op for package previews and tests without host layout editing.
     func customizeWorkspaceLayouts() {}

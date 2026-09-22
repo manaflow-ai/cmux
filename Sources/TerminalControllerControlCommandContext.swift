@@ -111,3 +111,4 @@ extension TerminalController: ControlWindowContext {
         return ControlMoveAllWindowsResult(display: result.display, windowIDs: result.windowIds)
     }
 }
+

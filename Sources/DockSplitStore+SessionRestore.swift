@@ -6,7 +6,6 @@ import Foundation
 
 extension DockSplitStore {
     /// Restores Dock topology and panel state from a persisted split snapshot.
-    ///
     /// Browser panels can remain lightweight until their host reports visibility;
     /// terminal restore ownership is still validated through the supplied agent index.
     @discardableResult
@@ -16,7 +15,7 @@ extension DockSplitStore {
         deferBrowserPanels: Bool = false,
         sourceWorkspaceResolver: (UUID) -> Workspace? = { _ in nil }
     ) -> [UUID: UUID] {
-        guard !isRetired else { return [:] }
+        guard !isRetired, snapshot.panels.allSatisfy(acceptsRestoredDisplay) else { return [:] }
         sessionRestoreDepth += 1
         defer {
             sessionRestoreDepth = max(sessionRestoreDepth - 1, 0)
@@ -146,6 +145,7 @@ extension DockSplitStore {
         deferBrowserPanel: Bool = false,
         restorableAgentIndex: RestorableAgentSessionIndex? = nil
     ) -> UUID? {
+        guard acceptsRestoredDisplay(snapshot) else { return nil }
         if (!deferBrowserPanel || snapshot.type != .browser),
            let sourceWorkspaceId,
            let sourceWorkspace = sourceWorkspaceResolver(sourceWorkspaceId),

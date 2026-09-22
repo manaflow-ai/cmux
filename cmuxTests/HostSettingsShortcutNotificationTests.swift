@@ -61,7 +61,8 @@ struct HostSettingsShortcutNotificationTests {
         let host = HostSettingsActions(
             configFileURL: directoryURL.appendingPathComponent("cmux.json"),
             computerUseRuntimeService: ComputerUseRuntimeService(),
-            automationConfigStore: store
+            automationConfigStore: store,
+            runComputerUseOnboardingAction: { _ in }
         )
         let status = await host.automationRulesStatus()
 
@@ -87,7 +88,8 @@ struct HostSettingsShortcutNotificationTests {
         let host = HostSettingsActions(
             configFileURL: directoryURL.appendingPathComponent("cmux.json"),
             computerUseRuntimeService: ComputerUseRuntimeService(),
-            automationConfigStore: store
+            automationConfigStore: store,
+            runComputerUseOnboardingAction: { _ in }
         )
         let status = await host.automationRulesStatus()
 
@@ -115,7 +117,8 @@ struct HostSettingsShortcutNotificationTests {
             computerUseRuntimeService: ComputerUseRuntimeService(),
             automationConfigStore: AutomationConfigStore(fileURL: fileURL),
             openAutomationRulesFile: { opened.append($0) },
-            reportAutomationRulesError: { errors.append($0) }
+            reportAutomationRulesError: { errors.append($0) },
+            runComputerUseOnboardingAction: { _ in }
         )
         host.openAutomationRulesInExternalEditor()
         if blockParent {
@@ -165,7 +168,8 @@ struct HostSettingsShortcutNotificationTests {
         try updatedContents.write(to: settingsFileURL, atomically: true, encoding: .utf8)
         HostSettingsActions(
             configFileURL: settingsFileURL,
-            computerUseRuntimeService: ComputerUseRuntimeService()
+            computerUseRuntimeService: ComputerUseRuntimeService(),
+            runComputerUseOnboardingAction: { _ in }
         ).notifyShortcutSettingsDidChange()
 
         #expect(counter.value == expectedNotificationCount)

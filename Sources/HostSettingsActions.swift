@@ -4,12 +4,13 @@ import CMUXMobileCore
 import CmuxWorkspaces
 import CmuxSettings
 import CmuxSettingsUI
+import CmuxSwiftRenderUI
 import CmuxFoundation
 import Foundation
 import OSLog
 import SwiftUI
 
-private let hostSettingsLogger = Logger(subsystem: "com.cmuxterm.app", category: "Settings")
+nonisolated private let hostSettingsLogger = Logger(subsystem: "com.cmuxterm.app", category: "Settings")
 
 /// App-side implementation of the package's `SettingsHostActions`
 /// protocol. Routes UI-triggered actions to the existing host
@@ -18,13 +19,14 @@ private let hostSettingsLogger = Logger(subsystem: "com.cmuxterm.app", category:
 /// depend on them directly.
 @MainActor
 final class HostSettingsActions: SettingsHostActions {
+    let computersActions: ComputersSettingsActions
     private let configFileURL: URL
     private let automationConfigStore: AutomationConfigStore
     private let openAutomationRulesFile: @MainActor (URL) -> Void
     private let reportAutomationRulesError: @MainActor (Error) -> Void
     private let computerUseRuntimeService: ComputerUseRuntimeService
-    private var runComputerUseOnboardingAction:
-        @MainActor (ComputerUseOnboardingWindowController.StartingPoint) -> Void = { _ in }
+    private let runComputerUseOnboardingAction:
+        @MainActor (ComputerUseOnboardingWindowController.StartingPoint) -> Void
 
     /// Serializes font-size config writes so rapid slider saves persist in order.
     private let fontConfigWriter = FontConfigWriter()
@@ -73,13 +75,18 @@ final class HostSettingsActions: SettingsHostActions {
                 defaultValue: "Check that the configuration folder is writable and the disk has free space, then try again."
             )
             alert.runModal()
-        }
+        },
+        computersActions: ComputersSettingsActions? = nil,
+        runComputerUseOnboardingAction:
+            @escaping @MainActor (ComputerUseOnboardingWindowController.StartingPoint) -> Void
     ) {
+        self.computersActions = computersActions ?? ComputersSettingsActions()
         self.configFileURL = configFileURL
         self.automationConfigStore = automationConfigStore
         self.openAutomationRulesFile = openAutomationRulesFile
         self.reportAutomationRulesError = reportAutomationRulesError
         self.computerUseRuntimeService = computerUseRuntimeService
+        self.runComputerUseOnboardingAction = runComputerUseOnboardingAction
         startObservingAppIconMode()
     }
 
@@ -133,6 +140,45 @@ final class HostSettingsActions: SettingsHostActions {
         TerminalAdaptiveDefaultThemeSettings.notifyDidChange()
     }
 
+    func openTerminalThemePicker() {
+        let cliURL = Bundle.main.bundleURL
+            .appendingPathComponent("Contents/Resources/bin/cmux", isDirectory: false)
+        guard FileManager.default.isExecutableFile(atPath: cliURL.path) else {
+            hostSettingsLogger.error("Theme picker unavailable: bundled cmux CLI missing")
+            return
+        }
+
+        guard let appDelegate = AppDelegate.shared,
+              let manager = appDelegate.activeTabManagerForCommands(),
+              let workspace = manager.selectedWorkspace else {
+            NSSound.beep()
+            return
+        }
+
+        // The native Settings entry point keeps CLI diagnostics private. The
+        // interactive picker still owns stdout/the TTY, while raw helper and
+        // launch errors on stderr are suppressed on this user-facing path.
+        let initialInput = "\(LocalSurfaceProvider.shellQuote(cliURL.path)) themes 2>/dev/null; exit\n"
+        do {
+            let picker = try SurfacePaneFactory.makeTerminalPane(
+                initialCommand: nil,
+                initialInput: initialInput,
+                workingDirectory: nil,
+                at: .workspace(id: workspace.id, placement: .tab),
+                focus: true
+            )
+            if let windowID = appDelegate.windowId(for: manager) {
+                _ = appDelegate.focusMainWindow(windowId: windowID)
+            }
+            SurfacePaneFactory.focus(
+                panelID: picker.panelID,
+                in: picker.workspaceID
+            )
+        } catch {
+            hostSettingsLogger.error("Failed to open terminal theme picker")
+        }
+    }
+
     func notifyShortcutSettingsDidChange() {
         // reload() already posts didChangeNotification when the file's
         // contents changed; posting again here double-notified every
@@ -156,7 +202,17 @@ final class HostSettingsActions: SettingsHostActions {
     }
 
     func refreshComputerUsePermissions() async {
-        _ = await computerUseRuntimeService.refreshHelperStatus()
+        let status = await computerUseRuntimeService.refreshHelperStatus()
+        guard
+            CmuxFeatureFlags.shared.isComputerUseUXEnabled,
+            computerUseRuntimeService.permissionStatusIsKnown,
+            status.accessibility,
+            status.screenRecording,
+            computerUseRuntimeService.onboardingRequiresCompletion
+        else {
+            return
+        }
+        runComputerUseOnboardingAction(.screenRecording)
     }
 
     func computerUseAccessibilityGranted() -> Bool {
@@ -185,12 +241,6 @@ final class HostSettingsActions: SettingsHostActions {
 
     func openComputerUseScreenRecordingSettings() {
         runComputerUseOnboardingAction(.screenRecording)
-    }
-
-    func setRunComputerUseOnboardingAction(
-        _ action: @escaping @MainActor (ComputerUseOnboardingWindowController.StartingPoint) -> Void
-    ) {
-        runComputerUseOnboardingAction = action
     }
 
     func openConfigInExternalEditor() {
@@ -250,6 +300,78 @@ final class HostSettingsActions: SettingsHostActions {
             return true
         }
         return false
+    }
+
+    func customSidebarNames() -> [String] {
+        CmuxExtensionSidebarSelection.discoveredCustomSidebarNames(
+            sidebarsDirectory: CmuxExtensionSidebarSelection.customSidebarsDirectory
+        )
+    }
+
+    func customSidebarNamesUpdates() async -> AsyncStream<[String]> {
+        await CustomSidebarDiscovery(directory: CmuxExtensionSidebarSelection.customSidebarsDirectory).updates()
+    }
+
+    func createCustomSidebar() -> CustomSidebarOnboardingResult {
+        guard let template = CustomSidebarOnboardingAssets().starterTemplate() else {
+            return .templateUnavailable
+        }
+        return installCustomSidebarTemplate(
+            template,
+            name: template.suggestedName,
+            uniquingIfNeeded: true
+        )
+    }
+
+    func installCustomSidebarExample(id: String) -> CustomSidebarOnboardingResult {
+        guard let template = CustomSidebarOnboardingAssets().exampleTemplate(id: id) else {
+            return .templateUnavailable
+        }
+        return installCustomSidebarTemplate(
+            template,
+            name: template.suggestedName,
+            uniquingIfNeeded: true
+        )
+    }
+
+    func openCustomSidebarInExternalEditor(named name: String) {
+        guard let fileURL = CmuxExtensionSidebarSelection.customSidebarFileURL(forName: name) else {
+            return
+        }
+        PreferredEditorService(defaults: .standard).open(fileURL)
+    }
+
+    func openCustomSidebarsFolder() {
+        do {
+            let directory = try CmuxExtensionSidebarSelection.ensureCustomSidebarsDirectory(
+                CmuxExtensionSidebarSelection.customSidebarsDirectory
+            )
+            NSWorkspace.shared.open(directory)
+        } catch {
+            hostSettingsLogger.error("failed to open custom sidebars folder: \(error.localizedDescription, privacy: .public)")
+        }
+    }
+
+    private func installCustomSidebarTemplate(
+        _ template: CustomSidebarTemplate,
+        name: String,
+        uniquingIfNeeded: Bool
+    ) -> CustomSidebarOnboardingResult {
+        switch CmuxExtensionSidebarSelection.writeCustomSidebar(
+            named: name,
+            fileExtension: template.fileExtension,
+            source: template.source,
+            uniquingIfNeeded: uniquingIfNeeded,
+            sidebarsDirectory: CmuxExtensionSidebarSelection.customSidebarsDirectory
+        ) {
+        case let .created(createdName, fileURL):
+            PreferredEditorService(defaults: .standard).open(fileURL)
+            return .created(name: createdName)
+        case .invalidTemplate:
+            return .templateUnavailable
+        case .invalidName, .alreadyExists, .failed:
+            return .writeFailed
+        }
     }
 
     func sendFeedback() {

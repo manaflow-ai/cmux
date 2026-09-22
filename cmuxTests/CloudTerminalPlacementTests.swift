@@ -342,6 +342,7 @@ struct CloudTerminalPlacementTests {
             var finished = false
             // No live local destination makes these exercise the awaited sidebar path.
             let actions = CloudTreeNodeActions.bound(
+                navigationHost: AppDelegate.makeCloudTerminalNavigationHost(),
                 catalog: { catalog }, selectedWorkspaceID: { UUID() }, selectLocalWorkspace: { _ in },
                 onWillMutate: { _ in }, onDidMutate: { finished = true },
                 onFailure: { failures.append($0) }, refresh: {}
@@ -373,6 +374,7 @@ struct CloudTerminalPlacementTests {
             var failures: [String] = []
             var finished = false
             let actions = CloudTreeNodeActions.bound(
+                navigationHost: AppDelegate.makeCloudTerminalNavigationHost(),
                 catalog: { catalog }, selectedWorkspaceID: { selectedDestination }, selectLocalWorkspace: { _ in },
                 onWillMutate: { _ in }, onDidMutate: { finished = true },
                 onFailure: { failures.append($0) }, refresh: {}
