@@ -18,6 +18,7 @@ jobs:
     timeout-minutes: 90
     env:
       CMUX_SKIP_ZIG_BUILD: "1"
+      CMUX_DEV_BACKEND_MODE: "local"
       TAG: verify13489
     steps:
       - name: Checkout
