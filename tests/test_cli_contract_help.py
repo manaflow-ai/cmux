@@ -113,8 +113,36 @@ def run_probe(cli_path: str, probe: HelpProbe) -> ProbeResult:
     return run_cli_args(cli_path, tokens[1:])
 
 
+GIT_LOCATION_ENV_KEYS = {
+    "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+    "GIT_CEILING_DIRECTORIES",
+    "GIT_COMMON_DIR",
+    "GIT_DIR",
+    "GIT_INDEX_FILE",
+    "GIT_NAMESPACE",
+    "GIT_OBJECT_DIRECTORY",
+    "GIT_WORK_TREE",
+    "GIT_REFERENCE_BACKEND",
+    "GIT_CONFIG",
+    "GIT_CONFIG_PARAMETERS",
+    "GIT_CONFIG_COUNT",
+}
+
+
+def clean_git_env() -> dict[str, str]:
+    env = {
+        key: value
+        for key, value in os.environ.items()
+        if key not in GIT_LOCATION_ENV_KEYS
+    }
+    for key in list(env):
+        if key.startswith(("GIT_CONFIG_KEY_", "GIT_CONFIG_VALUE_")):
+            env.pop(key)
+    return env
+
+
 def run_cli_args(cli_path: str, args: list[str], *, cwd: str | None = None) -> ProbeResult:
-    env = dict(os.environ)
+    env = clean_git_env()
     for key in [
         "CMUX_SOCKET_PASSWORD",
         "CMUX_SOCKET",
@@ -287,6 +315,7 @@ def check_review_ledger_contract(cli_path: str) -> list[str]:
             capture_output=True,
             check=False,
             timeout=5.0,
+            env=clean_git_env(),
         )
         if init.returncode != 0:
             return [f"cmux review fixture: git init failed: {init.stderr!r}"]
@@ -403,13 +432,23 @@ def check_review_ledger_contract(cli_path: str) -> list[str]:
             encoding="utf-8",
         )
 
+        # This instant is newer than 2026-09-22T00:00:00Z even though its
+        # original ISO-8601 string sorts lexically before it.
+        offset_review_id = "offset-newer-" + ("e" * 64)
+        offset_receipt = dict(receipt)
+        offset_receipt["created_at"] = "2026-09-21T23:30:00-01:00"
+        (receipt_dir / f"{offset_review_id}.json").write_text(
+            json.dumps(offset_receipt),
+            encoding="utf-8",
+        )
+
         cases = [
             (
                 "list",
                 ["review", "list", "--repo", str(repository), "--json"],
                 lambda payload: (
                     payload["repo_root"] == str(repository)
-                    and payload["reviews"][0]["id"] == review_id
+                    and payload["reviews"][0]["id"] == offset_review_id
                     and payload["reviews"][0]["verified"] == 1
                 ),
             ),
@@ -466,16 +505,20 @@ def check_review_ledger_contract(cli_path: str) -> list[str]:
                     f"cmux review {label}: unexpected payload {payload!r}"
                 )
 
-        text_result = run_cli_args(cli_path, ["review", "show"], cwd=str(repository))
-        if (
-            text_result.returncode != 0
-            or "Requirements: 1 satisfied · 0 missing · 0 uncertain" not in text_result.stdout
-            or "Findings: 1 verified · 0 human · 0 refuted · 1 suppressed" not in text_result.stdout
-        ):
-            failures.append(
-                "cmux review show: human output lost review summary\n"
-                f"stdout={text_result.stdout!r}\nstderr={text_result.stderr!r}"
-            )
+        try:
+            text_result = run_cli_args(cli_path, ["review", "show"], cwd=str(repository))
+        except (subprocess.TimeoutExpired, OSError, ValueError) as exc:
+            failures.append(f"cmux review show: {exc}")
+        else:
+            if (
+                text_result.returncode != 0
+                or "Requirements: 1 satisfied · 0 missing · 0 uncertain" not in text_result.stdout
+                or "Findings: 1 verified · 0 human · 0 refuted · 1 suppressed" not in text_result.stdout
+            ):
+                failures.append(
+                    "cmux review show: human output lost review summary\n"
+                    f"stdout={text_result.stdout!r}\nstderr={text_result.stderr!r}"
+                )
 
         future_receipt = dict(receipt)
         future_receipt["schema_version"] = 2
@@ -483,19 +526,23 @@ def check_review_ledger_contract(cli_path: str) -> list[str]:
             json.dumps(future_receipt),
             encoding="utf-8",
         )
-        future_result = run_cli_args(
-            cli_path,
-            ["review", "list", "--repo", str(repository), "--json"],
-            cwd=str(repository),
-        )
-        if (
-            future_result.returncode == 0
-            or "schema_version must be 1" not in future_result.stderr
-        ):
-            failures.append(
-                "cmux review list: future receipt schema should fail closed\n"
-                f"stdout={future_result.stdout!r}\nstderr={future_result.stderr!r}"
+        try:
+            future_result = run_cli_args(
+                cli_path,
+                ["review", "list", "--repo", str(repository), "--json"],
+                cwd=str(repository),
             )
+        except (subprocess.TimeoutExpired, OSError, ValueError) as exc:
+            failures.append(f"cmux review list future receipt: {exc}")
+        else:
+            if (
+                future_result.returncode == 0
+                or "schema_version must be 1" not in future_result.stderr
+            ):
+                failures.append(
+                    "cmux review list: future receipt schema should fail closed\n"
+                    f"stdout={future_result.stdout!r}\nstderr={future_result.stderr!r}"
+                )
 
     return failures
 
