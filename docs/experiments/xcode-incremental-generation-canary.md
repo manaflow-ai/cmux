@@ -113,6 +113,21 @@ Completed producer A measurements:
 The matched cold-fresh B arm took 946.270 seconds and produced 10,307
 SwiftCompile log lines with 0 / 3,708 compiler-CAS hit/miss mentions.
 
+The fresh-checkout + restored-DerivedData B arm took 912.263 seconds and
+produced the same 10,307 SwiftCompile lines with 0 / 3,708 CAS hit/miss
+mentions. Its 2.088 GB DD artifact took 120.599 seconds to download and
+19.315 seconds to extract. Against the 82.442 seconds of seed compression +
+upload, the steady-state accounting for this arm is about 1,134.619 seconds
+versus 946.270 seconds cold: 34.008 seconds of build-wall saving is overwhelmed
+by about 222.356 seconds of generation transport/preparation. This arm therefore
+reproduces the old failure mode: a fresh checkout discarded useful incremental
+state.
+
+The restored-worktree arm in this first run failed before Xcode because the
+prototype source archive included two submodule directories without their Git
+metadata. That is a harness failure, not a hypothesis result. The corrected
+archive excludes every submodule worktree and rehydrates submodules normally.
+
 The build-timing fields in this first run are intentionally excluded: a harness
 PATH bug prevented the timing wrapper from reaching xcodebuild. The build
 invocation itself remained the canonical compile script. The corrected harness
