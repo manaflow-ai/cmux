@@ -125,12 +125,12 @@ public final class MobileNetworkOutcomeReporter: Sendable {
         var properties: [String: AnalyticsValue] = [
             "operation": .string("model_list"),
             "outcome": .string(outcome),
+            // Transport failures can precede a catalog result. The ingress
+            // requires this field even when discovery produced no models.
+            "model_count": .int(event.c ?? 0),
         ]
         if let duration = event.ms {
             properties["duration_ms"] = .int(Int(duration))
-        }
-        if let count = event.c {
-            properties["model_count"] = .int(Int(count))
         }
         let failure = DiagnosticEventPresentation().failureKind(of: event)
         if let failure, failure != .none {
