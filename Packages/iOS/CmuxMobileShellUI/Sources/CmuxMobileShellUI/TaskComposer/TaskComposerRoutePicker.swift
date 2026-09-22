@@ -84,7 +84,7 @@ struct TaskComposerRoutePicker: View {
     private var destinationPicker: some View {
         Button(action: presentDestinationPicker) {
             TaskComposerRouteLabel(
-                icon: .symbol("rectangle.3.group"),
+                icon: .symbol("location.viewfinder"),
                 title: L10n.string("mobile.taskComposer.destination", defaultValue: "Run task in"),
                 value: destinationValue,
                 valueFont: .system(.caption, design: .rounded, weight: .semibold),

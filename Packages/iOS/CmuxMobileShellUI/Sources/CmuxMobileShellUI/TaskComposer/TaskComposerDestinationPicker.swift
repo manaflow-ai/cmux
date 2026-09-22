@@ -113,7 +113,7 @@ struct TaskComposerDestinationPicker: View {
             .padding(.top, 8)
         } label: {
             HStack(spacing: 10) {
-                Image(systemName: "rectangle.3.group")
+                Image(systemName: "rectangle.split.3x1")
                     .font(.title3)
                     .foregroundStyle(.tint)
                 Text(workspace.name)
@@ -150,6 +150,9 @@ struct TaskComposerDestinationPicker: View {
 
                 ForEach(workspace.panes) { pane in
                     let frame = pane.frame
+                    let paneGap: CGFloat = 4
+                    let paneWidth = max(44, proxy.size.width * frame.width - paneGap)
+                    let paneHeight = max(36, proxy.size.height * frame.height - paneGap)
                     Button {
                         select(workspace.rpcWorkspaceID, pane.id)
                         dismiss()
@@ -186,12 +189,12 @@ struct TaskComposerDestinationPicker: View {
                         "MobileTaskComposerDestinationPane-\(workspace.rpcWorkspaceID.rawValue)-\(pane.id.rawValue)"
                     )
                     .frame(
-                        width: max(44, proxy.size.width * frame.width),
-                        height: max(36, proxy.size.height * frame.height)
+                        width: paneWidth,
+                        height: paneHeight
                     )
                     .offset(
-                        x: proxy.size.width * frame.x,
-                        y: proxy.size.height * frame.y
+                        x: proxy.size.width * frame.x + paneGap / 2,
+                        y: proxy.size.height * frame.y + paneGap / 2
                     )
                 }
             }
