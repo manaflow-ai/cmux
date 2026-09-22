@@ -134,7 +134,12 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
         tableView.layoutMetricsDidChange = { [weak self, weak tableView] in
             guard let self, let tableView else { return }
             self.heightCache.removeAll(keepingCapacity: true)
+            let viewportAnchor = self.dataSource?.captureViewportAnchor(in: tableView)
             tableView.reloadData()
+            if let viewportAnchor {
+                tableView.layoutIfNeeded()
+                self.dataSource?.restoreViewportAnchor(viewportAnchor, in: tableView)
+            }
         }
 
         previousConfiguration = nil
@@ -371,7 +376,7 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
             // forces UIKit to remeasure the entire workspace list.
             let changedIndexPaths = changedToApply.compactMap { dataSource.indexPath(for: $0) }
             if !changedIndexPaths.isEmpty {
-                tableView.reloadRows(at: changedIndexPaths, with: .none)
+                reloadRowsPreservingViewport(changedIndexPaths, in: tableView)
             }
             #if DEBUG
             recordPayloadApplyRoute(.tableRelayout)
@@ -379,12 +384,29 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
         } else {
             let changedIndexPaths = changedToApply.compactMap { dataSource.indexPath(for: $0) }
             if !changedIndexPaths.isEmpty {
-                tableView.reloadRows(at: changedIndexPaths, with: .none)
+                reloadRowsPreservingViewport(changedIndexPaths, in: tableView)
             }
             #if DEBUG
             recordPayloadApplyRoute(.tableReload)
             #endif
         }
+    }
+
+    private func reloadRowsPreservingViewport(
+        _ indexPaths: [IndexPath],
+        in tableView: UITableView
+    ) {
+        guard let dataSource else {
+            tableView.reloadRows(at: indexPaths, with: .none)
+            return
+        }
+        let viewportAnchor = dataSource.captureViewportAnchor(in: tableView)
+        UIView.performWithoutAnimation {
+            tableView.reloadRows(at: indexPaths, with: .none)
+        }
+        guard let viewportAnchor else { return }
+        tableView.layoutIfNeeded()
+        dataSource.restoreViewportAnchor(viewportAnchor, in: tableView)
     }
 
     private func setDragSessionActive(_ active: Bool, in tableView: UITableView) {
