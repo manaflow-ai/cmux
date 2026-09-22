@@ -472,15 +472,15 @@ describe("notifications push route", () => {
     await sql`
       insert into device_tokens (
         user_id, device_token, platform, bundle_id, environment,
-        installation_id, push_key_id
+        installation_id, push_key_id, push_public_key
       ) values
         (
           'user-1', ${releaseToken}, 'ios', 'com.cmux.app', 'production',
-          'release-installation', 'legacy'
+          'release-installation', 'ios-push-key-1', ${'R'.repeat(43) + '='}
         ),
         (
           'user-1', ${internalToken}, 'ios', 'dev.cmux.app.internal', 'production',
-          'internal-installation', 'ios-push-key-2'
+          'internal-installation', 'ios-push-key-2', ${'I'.repeat(43) + '='}
         )
     `;
 
