@@ -107,6 +107,41 @@ def validate_tar_archive(
     return {"member_count": len(members), "regular_bytes": regular_bytes}
 
 
+def configured_submodule_paths(workspace: Path) -> list[str]:
+    gitmodules = workspace / ".gitmodules"
+    if not gitmodules.is_file():
+        return []
+    result = subprocess.run(
+        ["git", "config", "--file", str(gitmodules), "--get-regexp", r"^submodule\..*\.path$"],
+        cwd=workspace,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    if result.returncode not in (0, 1):
+        raise subprocess.CalledProcessError(result.returncode, result.args, result.stdout, result.stderr)
+    paths: list[str] = []
+    for line in result.stdout.splitlines():
+        _, raw = line.split(None, 1)
+        value = raw.strip()
+        parsed = PurePosixPath(value)
+        if parsed.is_absolute() or ".." in parsed.parts or not value:
+            raise SystemExit(f"unsafe submodule path: {value}")
+        paths.append(value)
+    return paths
+
+
+def remove_restored_submodule_worktrees(workspace: Path) -> list[str]:
+    paths = configured_submodule_paths(workspace)
+    for relative in paths:
+        target = workspace / relative
+        if target.is_symlink() or target.is_file():
+            target.unlink()
+        elif target.is_dir():
+            shutil.rmtree(target)
+    return paths
+
+
 def fetch_pair(workspace: Path, base: str, target: str) -> None:
     refs = [base] if base == target else [base, target]
     run(["git", "fetch", "--no-tags", "--force", "origin", *refs], cwd=workspace)
@@ -168,8 +203,12 @@ def init_restored_repo(workspace: Path, repo_url: str, base: str, target: str) -
     run(["git", "init"], cwd=workspace)
     run(["git", "remote", "add", "origin", repo_url], cwd=workspace)
     run(["git", "fetch", "--no-tags", "--depth=8", "origin", base, target], cwd=workspace)
-    # Bind HEAD/index to the archived source without rewriting working files.
+    # Bind HEAD/index to the archived source without rewriting ordinary working
+    # files. Old prototype archives may contain materialized submodule bytes
+    # without their .git metadata; remove only configured gitlink worktrees and
+    # rehydrate them through Git before validating the restored source.
     run(["git", "reset", "--mixed", base], cwd=workspace)
+    remove_restored_submodule_worktrees(workspace)
     run(["git", "submodule", "update", "--init", "--recursive"], cwd=workspace)
     status = output("git", "status", "--porcelain", "--untracked-files=all", cwd=workspace)
     if status:
@@ -299,21 +338,7 @@ def archive_generation(workspace: Path, derived: Path, outdir: Path, metrics: Pa
     outdir.mkdir(parents=True, exist_ok=True)
     worktree_archive = outdir / "worktree.tar.gz"
     dd_archive = outdir / "derived-data.tar.gz"
-    submodule_paths: list[str] = []
-    gitmodules = workspace / ".gitmodules"
-    if gitmodules.is_file():
-        result = subprocess.run(
-            ["git", "config", "--file", str(gitmodules), "--get-regexp", r"^submodule\..*\.path$"],
-            cwd=workspace,
-            text=True,
-            capture_output=True,
-            check=False,
-        )
-        if result.returncode not in (0, 1):
-            raise subprocess.CalledProcessError(result.returncode, result.args, result.stdout, result.stderr)
-        for line in result.stdout.splitlines():
-            _, value = line.split(None, 1)
-            submodule_paths.append(value.strip())
+    submodule_paths = configured_submodule_paths(workspace)
     worktree_excludes = [
         "./.git",
         "./GhosttyKit.xcframework",
