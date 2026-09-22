@@ -466,6 +466,7 @@ describe("notifications push route", () => {
 
   dbTest("fans out encrypted pushes across every registered iOS bundle", async () => {
     if (!sql) throw new Error("test database not initialized");
+    useStubDb = false;
     const releaseToken = "c".repeat(64);
     const internalToken = "d".repeat(64);
     await sql`
