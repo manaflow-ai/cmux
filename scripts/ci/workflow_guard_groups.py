@@ -27,6 +27,7 @@ GROUPS = (
 # A step move or rename must update this table in the same change.
 STEP_OWNERS = {
     "Initialize Ghostty for Zig version guard": "release-tooling",
+    "Set up Python 3.9 for nightly prune compatibility": "release-tooling",
     "Run canonical CMUX CI guard profile": "ci",
     "Test XCStrings catalog lint": "preflight",
     "Test macOS localization catalog tooling": "preflight",
