@@ -7337,7 +7337,10 @@ final class cmuxUITests: XCTestCase {
             "The workspace changes action must be visible in the detail bar."
         )
         assertToolbarOverflowButtonDoesNotExist(in: app)
-        XCTAssertTrue(app.buttons["MobileTerminalDropdown"].exists)
+        XCTAssertTrue(
+            waitForHittable(app.buttons["MobileTerminalDropdown"], timeout: 8),
+            "The terminal picker must remain visible and usable in the detail bar."
+        )
     }
 
     @MainActor
