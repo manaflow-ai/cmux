@@ -937,6 +937,10 @@ struct MobileSettingsView: View {
                 teamSelectionTask = Task { @MainActor in
                     do {
                         try await authManager.selectTeam(id: newValue)
+                    } catch is CancellationError {
+                        guard pendingTeamRequestID == requestID else { return }
+                        pendingTeamID = nil
+                        pendingTeamRequestID = nil
                     } catch {
                         guard pendingTeamRequestID == requestID else { return }
                         pendingTeamID = nil
