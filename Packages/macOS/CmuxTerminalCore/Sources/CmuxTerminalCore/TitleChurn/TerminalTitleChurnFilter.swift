@@ -2,27 +2,29 @@
 ///
 /// Command-line spinners commonly prefix a stable label with one of ten
 /// Braille Pattern frames. Collapsing that standalone animation token makes
-/// successive frames equal while preserving ordinary titles byte-for-byte.
+/// successive frames equal while preserving ordinary short titles byte-for-byte.
+/// Automatic title bounds and control admission run before spinner detection.
 public struct TerminalTitleChurnFilter: Sendable {
     /// Creates a stateless terminal-title normalizer.
     public init() {}
 
-    /// Returns a stable title, or `nil` when a title contains only spinner glyphs.
+    /// Returns a bounded stable title, or `nil` for unsafe controls or spinner-only frames.
     ///
     /// - Parameter rawTitle: The title received from the terminal runtime.
     /// - Returns: The unchanged ordinary title, its spinner-free label, or `nil`
     ///   when no label remains after normalization.
     public func stableTitle(for rawTitle: String) -> String? {
-        var remainder = rawTitle[...]
+        guard let boundedTitle = AutomaticTerminalTitle(rawTitle)?.value else { return nil }
+        var remainder = boundedTitle[...]
         while remainder.first?.isWhitespace == true {
             remainder = remainder.dropFirst()
         }
         guard let first = remainder.first, isKnownSpinnerFrame(first) else {
-            return rawTitle
+            return boundedTitle
         }
         remainder = remainder.dropFirst()
         guard remainder.isEmpty || remainder.first?.isWhitespace == true else {
-            return rawTitle
+            return boundedTitle
         }
         while remainder.first?.isWhitespace == true {
             remainder = remainder.dropFirst()
@@ -30,7 +32,7 @@ public struct TerminalTitleChurnFilter: Sendable {
         guard !remainder.isEmpty else { return nil }
         guard let labelStart = remainder.first,
               brailleScalarValue(for: labelStart) == nil else {
-            return rawTitle
+            return boundedTitle
         }
         return String(remainder)
     }

@@ -48,6 +48,15 @@ public struct RemoteRelayCommandPolicy: Sendable {
     /// Creates the stateless relay command policy.
     public init() {}
 
+    /// Filters discovery to reviewed relay methods without granting access.
+    /// Each call still requires the method's parameter contract and live owner checks.
+    /// - Parameter methods: Method names advertised by the local server.
+    /// - Returns: Only exact methods with an explicit relay parameter contract.
+    public func permittedMethods(from methods: [String]) -> [String] {
+        let schema = RemoteRelayRoutingSchema()
+        return methods.filter { schema.parameters(for: $0) != nil }
+    }
+
     /// Evaluates one complete command line before rewriting or forwarding.
     /// Alias dictionaries are accepted for API compatibility; live ownership
     /// is checked later by the app-side authorization gate.
@@ -61,7 +70,8 @@ public struct RemoteRelayCommandPolicy: Sendable {
             line.hasPrefix("{"),
             let data = line.data(using: .utf8),
             let request = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-            let rawMethod = request["method"] as? String else {
+            let rawMethod = request["method"] as? String,
+            request["params"] == nil || request["params"] is [String: Any] else {
             return .deny(reason: "remote relay commands must be v2 JSON-RPC requests")
         }
         let method = rawMethod.trimmingCharacters(in: .whitespacesAndNewlines)

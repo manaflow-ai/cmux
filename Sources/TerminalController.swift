@@ -25,9 +25,7 @@ import CmuxSidebar
 import CmuxWorkspaces
 import CmuxNotifications
 import CmuxSimulator
-
 private let mobileReconnectDebugLog = Logger(subsystem: "dev.cmux", category: "mobile-reconnect-debug")
-
 extension Notification.Name {
     static let socketListenerDidStart = Notification.Name("cmux.socketListenerDidStart")
     // terminalSurfaceDidBecomeReady moved to CmuxTerminal (posted by TerminalSurface).
@@ -64,7 +62,6 @@ private struct RemotePTYSocketTarget {
     let workspaceRef: Any
     let workspaceTitle: String
 }
-
 nonisolated func remotePTYSessionListErrorIsUnsupportedDaemon(_ error: Error) -> Bool {
     let nsError = error as NSError
     guard nsError.domain == "cmux.remote.daemon.rpc", nsError.code == 14 else {
@@ -73,11 +70,9 @@ nonisolated func remotePTYSessionListErrorIsUnsupportedDaemon(_ error: Error) ->
     return error.localizedDescription
         .range(of: "pty.list failed (method_not_found)", options: [.caseInsensitive]) != nil
 }
-
 nonisolated private func v2RemotePTYUserFacingErrorMessage(_ error: Error) -> String {
     v2RemotePTYUserFacingErrorMessage(error.localizedDescription)
 }
-
 nonisolated private func v2RemotePTYUserFacingErrorMessage(_ message: String) -> String {
     let trimmed = message.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !trimmed.isEmpty else { return "remote PTY operation failed" }
@@ -112,7 +107,6 @@ nonisolated private func v2RemotePTYUserFacingErrorMessage(_ message: String) ->
     }
     return "remote PTY operation failed"
 }
-
 /// Unix socket-based controller for programmatic terminal control
 /// Allows automated testing and external control of terminal tabs
 @MainActor
@@ -239,7 +233,6 @@ class TerminalController {
         subsystem: "com.cmux.socket",
         category: .dynamicTracing
     )
-
     /// True while a tool (e.g. Instruments' os_signpost instrument) is
     /// recording the main-hop signposts. The single predicate consulted by
     /// both `withSocketCommandPolicy` (command-key stack bookkeeping) and
@@ -276,25 +269,21 @@ class TerminalController {
             defaultValue: "The terminal session has ended; reopen it or create a new terminal session."
         )
     }
-
     nonisolated static var terminalInputQueueFullMessage: String {
         String(
             localized: "socket.terminal.inputQueueFull",
             defaultValue: "The terminal can't accept more input right now. Wait a moment and retry, or reopen the terminal if it stays unavailable."
         )
     }
-
     nonisolated static var terminalSurfaceUnavailableMessage: String {
         String(
             localized: "socket.terminal.surfaceUnavailable",
             defaultValue: "The terminal surface is no longer available; reopen it or create a new terminal session."
         )
     }
-
     private nonisolated static var terminalProcessExitedSocketError: String {
         "ERROR: \(terminalProcessExitedMessage)"
     }
-
     private nonisolated static var terminalInputQueueFullSocketError: String {
         "ERROR: \(terminalInputQueueFullMessage)"
     }
@@ -332,7 +321,7 @@ class TerminalController {
         "notification.jump_to_unread",
         "debug.command_palette.toggle", "debug.pro_welcome_checklist.show",
         "debug.notification.focus",
-        "debug.app.activate",
+        "debug.app.activate", "debug.cloudtree.spacing",
         "debug.right_sidebar.focus",
         "feed.jump"
     ]
@@ -1169,7 +1158,7 @@ class TerminalController {
     /// (`Any`) field shapes, so the existing command bodies keep their
     /// `[String: Any]` params until they migrate onto the typed DTOs in the
     /// ControlCommandCoordinator stage.
-    private struct V2SocketRequest {
+    struct V2SocketRequest {
         let id: Any?
         let method: String
         let params: [String: Any]
@@ -1512,7 +1501,6 @@ class TerminalController {
             return "ERROR: reload_config busy"
         }
     }
-
     private nonisolated static func feedPushWaitTimeoutSeconds(params: [String: Any]) -> TimeInterval? {
         guard let rawTimeout = params["wait_timeout_seconds"] else {
             return 0
@@ -1532,7 +1520,6 @@ class TerminalController {
         }
         return seconds
     }
-
     private nonisolated func socketWorkerV2Response(_ request: V2SocketRequest) -> String {
         switch request.method {
         case "auth.status":
@@ -1575,6 +1562,8 @@ class TerminalController {
             }
             semaphore.wait()
             return v2Ok(id: request.id, result: v2AuthStatusPayload(timedOut: false))
+        case "auth.team.list", "auth.team.use", "auth.team.create":
+            return v2AuthTeamResponse(request)
         case "feedback.submit":
             return v2Result(id: request.id, v2FeedbackSubmit(params: request.params))
         case "feed.push":
@@ -1720,6 +1709,14 @@ class TerminalController {
             return v2AsyncResultCall(id: request.id, timeoutSeconds: 30) {
                 await self.v2MobileAttachTicketCreate(params: request.params)
             }
+        case "mobile.panel.artifact.stat", "mobile.panel.artifact.thumbnail":
+            return v2AsyncResultCall(id: request.id, timeoutSeconds: 30) {
+                await self.v2MobilePanelArtifactDispatch(
+                    method: request.method,
+                    params: request.params,
+                    executionContext: nil
+                )
+            }
         case "mobile.terminal.set_font":
             return v2Result(id: request.id, v2MobileTerminalSetFont(params: request.params))
         case "mobile.compatible_tags.get":
@@ -1729,11 +1726,24 @@ class TerminalController {
         case "system.ping":
             return v2Ok(id: request.id, result: ["pong": true])
         case "system.capabilities":
-            return v2Ok(id: request.id, result: v2CapabilitiesWithBrowserDesignMode())
+            return v2Ok(id: request.id, result: v2CapabilitiesWithBrowserDesignMode(params: request.params))
         case "system.top":
-            return v2Result(id: request.id, v2SystemTop(params: request.params))
+            return v2AsyncResultCall(id: request.id, timeoutSeconds: 30) {
+                let response = await self.v2SystemTopAsync(ControlRequest(
+                    id: nil, method: "system.top", params: request.params.compactMapValues { JSONValue(foundationObject: $0) }
+                ))
+                guard let typed = Self.controlCallResult(fromEncodedResponse: response) else {
+                    return .err(code: "internal_error", message: "Invalid system.top payload", data: nil)
+                }
+                switch typed {
+                case .ok(let value): return .ok(value.foundationObject)
+                case .err(let code, let message, let data): return .err(code: code, message: message, data: data?.foundationObject)
+                }
+            }
         case "system.memory":
-            return v2Result(id: request.id, v2SystemMemory(params: request.params))
+            return v2AsyncResultCall(id: request.id, timeoutSeconds: 30) {
+                await self.v2SystemMemory(params: request.params)
+            }
         case "vault.sessions":
             return v2AsyncResultCall(id: request.id, timeoutSeconds: 30) {
                 await self.v2VaultSessions(params: request.params)
@@ -1938,6 +1948,8 @@ class TerminalController {
                 ])
             }
 #endif
+        case "current.list":
+            return socketWorkerCurrentWorkResponse(id: request.id, params: request.params)
         case "surface.catalog", "surface.project", "surface.new_terminal":
             return socketWorkerSurfaceResponse(method: request.method, id: request.id, params: request.params)
         case let method where method.hasPrefix("vm."):
@@ -2018,6 +2030,12 @@ class TerminalController {
         guard submission != .rejected else { return }
     }
 
+    /// Owns the accepted socket until the command loop and source teardown finish.
+    #if compiler(>=6.2)
+    @concurrent
+    #else
+    @Sendable
+    #endif
     private nonisolated func handleClientAsync(
         _ socket: Int32,
         peerPid: pid_t? = nil,
@@ -2026,14 +2044,51 @@ class TerminalController {
         initialReadLimits: ControlClientLineReadLimits? = nil,
         holdsPreauthorizationSlot initialSlotHeld: Bool = false
     ) async {
-        // Shut down before close so a DispatchSource callback racing
-        // cancellation observes EOF rather than a recycled descriptor number.
-        defer {
-            shutdown(socket, SHUT_RDWR)
-            close(socket)
-        }
         let pid = peerPid ?? transport.peerProcessID(of: socket)
         let peerHasSameUID = transport.peerHasSameUID(socket)
+        let lineReader = ControlClientAsyncLineReader(
+            socket: socket,
+            initialLimits: initialReadLimits,
+            authorizationRevocationSignal: authorizationRevocationSignal
+        )
+        let writer = ControlClientAsyncWriter(socket: socket)
+
+        await handleClientLoop(
+            socket: socket,
+            pid: pid,
+            peerHasSameUID: peerHasSameUID,
+            authorizationGeneration: authorizationGeneration,
+            authorizationRevocationSignal: authorizationRevocationSignal,
+            initialSlotHeld: initialSlotHeld,
+            lineReader: lineReader,
+            writer: writer
+        )
+
+        // Dispatch source cancellation is asynchronous. Await every borrowed
+        // socket source before shutting down and closing the descriptor.
+        await lineReader.cancelAndWait()
+        await writer.cancelAndWait()
+        shutdown(socket, SHUT_RDWR)
+        close(socket)
+    }
+
+    /// Runs the admitted command loop while retaining ownership of its async
+    /// socket readers and writer until the caller joins source cancellation.
+    #if compiler(>=6.2)
+    @concurrent
+    #else
+    @Sendable
+    #endif
+    private nonisolated func handleClientLoop(
+        socket: Int32,
+        pid: pid_t?,
+        peerHasSameUID: Bool,
+        authorizationGeneration: UInt64,
+        authorizationRevocationSignal: SocketAuthorizationRevocationSignal,
+        initialSlotHeld: Bool,
+        lineReader: ControlClientAsyncLineReader,
+        writer: ControlClientAsyncWriter
+    ) async {
         let preauthorizationLimiter = socketClientPreauthorizationLimiter
         var holdsPreauthorizationSlot = initialSlotHeld
         defer {
@@ -2042,17 +2097,7 @@ class TerminalController {
             }
         }
         var passwordAuthorization = SocketPasswordAuthorization()
-        let lineReader = ControlClientAsyncLineReader(
-            socket: socket,
-            initialLimits: initialReadLimits,
-            authorizationRevocationSignal: authorizationRevocationSignal
-        )
-        let writer = ControlClientAsyncWriter(socket: socket)
         let rateLimiter = ControlClientRateLimiter()
-        defer {
-            lineReader.cancel()
-            writer.cancel()
-        }
         while let line = await lineReader.nextLine(shouldContinueReading: {
             self.socketServer.isConnectionAuthorizationCurrent(authorizationGeneration)
         }) {
@@ -2078,6 +2123,8 @@ class TerminalController {
                 )
                 return
             }
+            // Recheck after admission so a policy refresh cannot cross into execution.
+            guard socketAuthorizationIsCurrent(authorizationGeneration, passwordAuthorization: &passwordAuthorization) else { _ = await writer.writeAll(Data((Self.socketClientAccessDeniedResponse + "\n").utf8)); return }
             // Only a process in cmux's own descendant tree may attach the
             // internal automation envelope. Same-UID clients are authorized
             // for ordinary automation RPCs, but cannot forge a rule chain.
@@ -2888,7 +2935,7 @@ class TerminalController {
         case "system.ping":
             return v2Ok(id: id, result: ["pong": true])
         case "system.capabilities":
-            return v2Ok(id: id, result: v2CapabilitiesWithBrowserDesignMode())
+            return v2Ok(id: id, result: v2CapabilitiesWithBrowserDesignMode(params: params))
         case "automation.list":
             return v2Result(id: id, v2AutomationList())
         case "automation.show":
@@ -2966,6 +3013,10 @@ class TerminalController {
         case "agent.resolve_delivery_target": return v2Result(id: id, self.v2AgentResolveDeliveryTarget(params: params))
         case "agent.hibernation.session_end": return v2Result(id: id, self.v2AgentHibernationSessionEnd(params: params))
         #if DEBUG
+        case "debug.cloudtree.spacing":
+            // Explicit window presentation needs AppKit; the socket awaits the main-actor lane.
+            AppDelegate.shared?.debugWindowsCoordinator.cloudSidebarDebugLabController.show()
+            return v2Ok(id: id, result: ["window": "cmux.cloudSidebarDebugLab"])
         case "debug.notification.status":
             return v2Ok(id: id, result: notificationDebugStatus())
         case "debug.notification.mode":
@@ -3110,384 +3161,6 @@ class TerminalController {
             }
     }
 
-    private nonisolated func v2CapabilitiesWithBrowserDesignMode() -> [String: Any] {
-        var capabilities = v2Capabilities()
-        var methods = capabilities["methods"] as? [String] ?? []
-        for method in ["browser.design_mode.set", "browser.design_mode.status"]
-            where !methods.contains(method)
-        {
-            methods.append(method)
-        }
-        capabilities["methods"] = methods.sorted()
-        return capabilities
-    }
-
-    private nonisolated func v2Capabilities() -> [String: Any] {
-        var methods: [String] = [
-            "system.ping",
-            "system.capabilities",
-            "system.identify",
-            "system.tree",
-            "sidebar.custom.open",
-            "system.top",
-            "system.memory",
-            "automation.list",
-            "automation.show",
-            "automation.test",
-            "automation.enable",
-            "automation.disable",
-            "automation.logs",
-            "automation.reload",
-            "vault.sessions",
-            "vault.search",
-            "vault.checkpoints",
-            "vault.checkpoint",
-            "vault.fork",
-            "caffeine.status",
-            "caffeine.set",
-            "comments.list",
-            "mobile.host.status",
-            "mobile.attach_ticket.create",
-            "mobile.terminal.set_font",
-            "mobile.compatible_tags.get",
-            "mobile.compatible_tags.set",
-            "mobile.task.attachment.upload",
-            "mobile.task.models.list",
-            "mobile.workspace.list",
-            "mobile.terminal.create",
-            "mobile.terminal.input",
-            "mobile.terminal.paste",
-            "mobile.terminal.replay",
-            "mobile.browser.list",
-            "mobile.browser.create",
-            "mobile.browser.stream.start",
-            "mobile.browser.stream.stop",
-            "mobile.browser.viewport",
-            "mobile.browser.frame.ack",
-            "mobile.browser.dialog.respond",
-            "mobile.browser.input.pointer",
-            "mobile.browser.input.scroll",
-            "mobile.browser.input.key",
-            "mobile.browser.input.text",
-            "mobile.browser.navigate",
-            "mobile.browser.back",
-            "mobile.browser.forward",
-            "mobile.browser.reload",
-            "mobile.terminal.viewport", "mobile.events.subscribe", "mobile.events.unsubscribe",
-            "terminal.create",
-            "terminal.input",
-            "terminal.paste",
-            "terminal.replay",
-            "terminal.viewport",
-            "auth.login",
-            "auth.status",
-            "auth.sign_in_url",
-            "auth.begin_sign_in",
-            "auth.sign_out",
-            "vm.billing_checkout",
-            "vm.list",
-            "vm.diagnostics", "vm.file_transfer_failure",
-            "vm.publication_list",
-            "vm.publication_create",
-            "vm.publication_verify",
-            "vm.publication_update",
-            "vm.publication_delete",
-            "vm.publication_grants",
-            "vm.publication_grant",
-            "vm.publication_ungrant",
-            "vm.domain_list",
-            "vm.domain_verify",
-            "vm.create",
-            "vm.base_open",
-            "vm.base_reset",
-            "vm.status",
-            "vm.stats",
-            "vm.resize",
-            "vm.rename",
-            "vm.snapshot",
-            "vm.fork",
-            "vm.restore",
-            "vm.destroy",
-            "vm.exec",
-            "vm.open_port",
-            "vm.attach_info",
-            "vm.cmux_remote_info",
-            "vm.ssh_info",
-            "vm.scp_info",
-            "vm.sessions",
-            "vm.session_attach_info",
-            "vm.tree",
-            "vm.terminal_open",
-            "vm.terminal_new",
-            "vm.terminal_rename",
-            "vm.tab_rename",
-            "vm.workspace_new",
-            "vm.workspace_open",
-            "vm.workspace_close",
-            "vm.workspace_delete",
-            "vm.workspace_rename",
-            "vm.terminal_close",
-            "vm.terminal_write",
-            "vm.terminal_read",
-            "vm.terminal_wait",
-            "vm.desktop_open",
-            "vm.port_open",
-            "vm.link_socket",
-            "vm.cloud_agent_open",
-            "vm.cloud_prompt",
-            "vm.tunnel_config",
-            "vm.tunnel_status",
-            "vm.tunnel_revoke",
-            "vm.tunnel_up",
-            "vm.tunnel_down",
-            "vm.tunnel_wait",
-            "surface.catalog",
-            "surface.project",
-            "surface.new_terminal",
-            "aiAccounts.list",
-            "aiAccounts.upload",
-            "aiAccounts.remove",
-            "coderouter.claude_upstream.get",
-            "coderouter.claude_upstream.set",
-            "coderouter.claude_upstream.add",
-            "coderouter.claude_upstream.update",
-            "coderouter.claude_upstream.remove",
-            "coderouter.claude_upstream.clear",
-            "coderouter.machines",
-            "window.list",
-            "window.current",
-            "window.focus",
-            "window.create",
-            "window.close",
-            "window.displays",
-            "window.display",
-            "workspace.list",
-            "workspace.create",
-            "workspace.cloud_vm_open",
-            "workspace.cloud_vm_terminal_ready",
-            "workspace.cloud_vm_bind",
-            "workspace.env",
-            "workspace.select",
-            "workspace.current",
-            "workspace.close",
-            "workspace.move_to_window",
-            "workspace.reorder",
-            "workspace.reorder_many",
-            "workspace.prompt_submit",
-            "workspace.rename",
-            "workspace.set_auto_title",
-            "surface.sync_codex_native_title",
-            "workspace.group.list",
-            "workspace.group.create",
-            "workspace.group.ungroup",
-            "workspace.group.delete",
-            "workspace.group.rename",
-            "workspace.group.collapse",
-            "workspace.group.expand",
-            "workspace.group.pin",
-            "workspace.group.unpin",
-            "workspace.group.add",
-            "workspace.group.remove",
-            "workspace.group.set_anchor",
-            "workspace.group.new_workspace",
-            "workspace.group.set_color",
-            "workspace.group.set_icon",
-            "workspace.group.move",
-            "workspace.group.focus",
-            "workspace.action",
-            "extension.sidebar.snapshot",
-            "workspace.next",
-            "workspace.previous",
-            "workspace.last",
-            "workspace.equalize_splits",
-            "workspace.remote.configure",
-            "workspace.remote.foreground_auth_ready",
-            "workspace.remote.reconnect",
-            "workspace.remote.disconnect",
-            "workspace.remote.status",
-            "workspace.remote.pty_sessions", "workspace.remote.pty_close", "workspace.remote.pty_detach",
-            "workspace.remote.pty_bridge", "workspace.remote.pty_resize", "workspace.remote.pty_attach_end",
-            "workspace.remote.terminal_session_launching",
-            "workspace.remote.terminal_session_connected", "workspace.remote.terminal_session_end",
-            "remote.tmux.sessions", "remote.tmux.attach", "remote.tmux.detach", "remote.tmux.state", "remote.tmux.mirror", "remote.tmux.window", "remote.tmux.pane_grids", "remote.tmux.pane_surfaces",
-            "session.restore_previous",
-            "settings.open",
-            "feedback.open",
-            "feedback.submit",
-            "feed.push",
-            "feed.permission.reply",
-            "feed.question.reply",
-            "feed.exit_plan.reply",
-            "feed.jump",
-            "feed.list",
-            "surface.list",
-            "surface.current",
-            "surface.focus",
-            "surface.split",
-            "surface.respawn",
-            "surface.create",
-            "surface.close",
-            "surface.drag_to_split",
-            "surface.split_off",
-            "surface.move",
-            "surface.reorder",
-            "surface.action",
-            "tab.action",
-            "surface.refresh",
-            "surface.health",
-            "surface.resume.set",
-            "surface.resume.get",
-            "surface.resume.clear",
-            "agent.restore.admit",
-            "agent.restore.release",
-            "debug.terminals",
-            "surface.send_text",
-            "surface.send_key",
-            "surface.report_tty",
-            "surface.report_pwd",
-            "surface.report_git_branch",
-            "surface.clear_git_branch",
-            "surface.report_shell_state",
-            "surface.ports_kick",
-            "surface.read_text",
-            "surface.read_selection",
-            "surface.clear_history",
-            "surface.trigger_flash",
-            "pane.list",
-            "pane.focus",
-            "pane.surfaces",
-            "pane.create",
-            "pane.resize",
-            "pane.swap",
-            "pane.break",
-            "pane.join",
-            "pane.last",
-            "notification.create",
-            "notification.create_for_caller", "agent.resolve_delivery_target", "agent.hibernation.session_end",
-            "notification.create_for_surface",
-            "notification.create_for_target",
-            "notification.list",
-            "notification.clear",
-            "notification.dismiss",
-            "notification.mark_read",
-            "notification.open",
-            "notification.jump_to_unread",
-            "app.focus_override.set",
-            "app.simulate_active",
-            "file.open",
-            "markdown.open",
-            "browser.open_split",
-            "browser.navigate",
-            "browser.back",
-            "browser.forward",
-            "browser.reload",
-            "browser.react_grab.toggle",
-            "browser.devtools.toggle",
-            "browser.console.show",
-            "browser.focus_mode.set",
-            "browser.zoom.set",
-            "browser.history.clear",
-            "browser.url.get",
-            "browser.snapshot",
-            "browser.eval",
-            "browser.wait",
-            "browser.click",
-            "browser.dblclick",
-            "browser.hover",
-            "browser.focus",
-            "browser.type",
-            "browser.fill",
-            "browser.press",
-            "browser.keydown",
-            "browser.keyup",
-            "browser.check",
-            "browser.uncheck",
-            "browser.select",
-            "browser.scroll",
-            "browser.scroll_into_view",
-            "browser.screenshot",
-            "browser.get.text",
-            "browser.get.html",
-            "browser.get.value",
-            "browser.get.attr",
-            "browser.get.title",
-            "browser.get.count",
-            "browser.get.box",
-            "browser.get.styles",
-            "browser.is.visible",
-            "browser.is.enabled",
-            "browser.is.checked",
-            "browser.focus_webview",
-            "browser.is_webview_focused",
-            "browser.find.role",
-            "browser.find.text",
-            "browser.find.label",
-            "browser.find.placeholder",
-            "browser.find.alt",
-            "browser.find.title",
-            "browser.find.testid",
-            "browser.find.first",
-            "browser.find.last",
-            "browser.find.nth",
-            "browser.frame.select",
-            "browser.frame.main",
-            "browser.dialog.accept",
-            "browser.dialog.dismiss",
-            "browser.download.list", "browser.download.wait",
-            "browser.cookies.get",
-            "browser.cookies.set",
-            "browser.cookies.clear",
-            "browser.storage.get",
-            "browser.storage.set",
-            "browser.storage.clear",
-            "browser.tab.new",
-            "browser.tab.list",
-            "browser.tab.switch",
-            "browser.tab.close",
-            "browser.console.list",
-            "browser.console.clear",
-            "browser.errors.list",
-            "browser.highlight",
-            "browser.state.save",
-            "browser.state.load",
-            "browser.addinitscript",
-            "browser.addscript",
-            "browser.addstyle",
-            "browser.viewport.set",
-            "browser.geolocation.set",
-            "browser.offline.set",
-            "browser.trace.start",
-            "browser.trace.stop",
-            "browser.network.route",
-            "browser.network.unroute",
-            "browser.network.requests",
-            "browser.screencast.start",
-            "browser.screencast.stop",
-            "browser.input_mouse",
-            "browser.input_keyboard",
-            "browser.input_touch",
-        ]
-        if !Self.mobileTaskComposerFeatureEnabled {
-            let taskComposerMethods: Set<String> = [
-                "mobile.task.attachment.upload",
-                "mobile.task.models.list",
-            ]
-            methods.removeAll { taskComposerMethods.contains($0) }
-        }
-        methods.append(contentsOf: ControlCommandExecutionPolicy.simulatorMethods)
-#if DEBUG
-        methods.append(contentsOf: Self.v2DebugMethodNames)
-#endif
-
-        return [
-            "protocol": "cmux-socket",
-            "version": 2,
-            "socket_path": socketServer.currentSocketPath,
-            "access_mode": socketServer.accessMode.rawValue,
-            "capabilities": MobileHostService.mobileHostCapabilities,
-            "methods": methods.sorted()
-        ]
-    }
 
     func v2Identify(params: [String: Any]) -> [String: Any] {
         guard let tabManager = v2ResolveTabManager(params: params) else {
@@ -3661,115 +3334,6 @@ class TerminalController {
 #if DEBUG
 #endif
 
-    func taskManagerTopPayload(includeProcesses: Bool) async throws -> [String: Any] {
-        v2RefreshKnownRefs()
-
-        let identifyPayload = v2Identify(params: [:])
-        let focused = identifyPayload["focused"] as? [String: Any] ?? [:]
-        var windowNodes: [[String: Any]] = []
-
-        if let app = AppDelegate.shared {
-            let summaries = app.listMainWindowSummaries()
-
-            for (windowIndex, summary) in summaries.enumerated() {
-                guard let manager = app.tabManagerFor(windowId: summary.windowId) else { continue }
-                let workspaceNodes = manager.tabs.enumerated().map { workspaceIndex, workspace in
-                    v2TopWorkspaceNode(
-                        workspace: workspace,
-                        index: workspaceIndex,
-                        selected: workspace.id == manager.selectedTabId
-                    )
-                }
-                windowNodes.append(
-                    v2TopWindowNode(
-                        summary: summary,
-                        index: windowIndex,
-                        workspaceNodes: workspaceNodes
-                    )
-                )
-            }
-        }
-        v2AttachTopApplicationProcess(to: &windowNodes)
-
-        let processSnapshot = await withTaskGroup(
-            of: CmuxTopProcessSnapshot.self,
-            returning: CmuxTopProcessSnapshot.self
-        ) { group in
-            group.addTask(priority: .utility) {
-                CmuxTopProcessSnapshot.capture(includeProcessDetails: includeProcesses)
-            }
-            return await group.next()!
-        }
-        let browserPIDOccurrences = v2TopBrowserPIDOccurrences(in: windowNodes)
-        var annotatedWindows = windowNodes
-        let totalPIDs = v2AnnotateTopWindows(
-            &annotatedWindows,
-            processSnapshot: processSnapshot,
-            browserPIDOccurrences: browserPIDOccurrences,
-            includeProcesses: includeProcesses
-        )
-        let aggregates = processAggregates(from: processSnapshot, totalPIDs: totalPIDs)
-        let memoryDiagnostic = v2TopMemoryDiagnosticPayload(
-            processSnapshot: processSnapshot,
-            annotatedWindows: annotatedWindows
-        )
-
-        return [
-            "active": focused.isEmpty ? (NSNull() as Any) : focused,
-            "caller": NSNull(),
-            "sample": processSnapshot.samplePayload(),
-            "totals": processSnapshot.summaryPayload(for: totalPIDs),
-            "memory_diagnostic": memoryDiagnostic,
-            "program_totals": aggregates.programs,
-            "coding_agents": aggregates.codingAgents,
-            "windows": annotatedWindows
-        ]
-    }
-
-    nonisolated func processAggregates(
-        from processSnapshot: CmuxTopProcessSnapshot,
-        totalPIDs: Set<Int>
-    ) -> (programs: [[String: Any]], codingAgents: [[String: Any]]) {
-        (
-            programs: processSnapshot.programSummaryPayload(for: totalPIDs),
-            codingAgents: processSnapshot.codingAgentSummaryPayload(for: totalPIDs)
-        )
-    }
-
-    private nonisolated func v2SystemTop(params: [String: Any]) -> V2CallResult {
-        let base = v2MainSync {
-            self.v2RefreshKnownRefs()
-            return self.v2SystemTopBasePayload(params: params)
-        }
-        guard case .ok(let value) = base else { return base }
-        guard var payload = value as? [String: Any],
-              let includeProcesses = payload.removeValue(forKey: "include_processes") as? Bool,
-              var windowNodes = payload.removeValue(forKey: "windows") as? [[String: Any]] else {
-            return .err(code: "internal_error", message: "Invalid system.top payload", data: nil)
-        }
-        let processSnapshot = CmuxTopProcessSnapshot.capture(includeProcessDetails: includeProcesses)
-        let browserPIDOccurrences = v2TopBrowserPIDOccurrences(in: windowNodes)
-        let totalPIDs = v2AnnotateTopWindows(
-            &windowNodes,
-            processSnapshot: processSnapshot,
-            browserPIDOccurrences: browserPIDOccurrences,
-            includeProcesses: includeProcesses
-        )
-        let aggregates = processAggregates(from: processSnapshot, totalPIDs: totalPIDs)
-        let memoryDiagnostic = v2TopMemoryDiagnosticPayload(
-            processSnapshot: processSnapshot,
-            annotatedWindows: windowNodes
-        )
-
-        payload["sample"] = processSnapshot.samplePayload()
-        payload["totals"] = processSnapshot.summaryPayload(for: totalPIDs)
-        payload["memory_diagnostic"] = memoryDiagnostic
-        payload["program_totals"] = aggregates.programs
-        payload["coding_agents"] = aggregates.codingAgents
-        payload["windows"] = windowNodes
-        return .ok(payload)
-    }
-
     func v2SystemTopBasePayload(params: [String: Any]) -> V2CallResult {
         let workspaceFilter = v2UUID(params, "workspace_id")
         if params["workspace_id"] != nil && workspaceFilter == nil {
@@ -3865,7 +3429,7 @@ class TerminalController {
         ])
     }
 
-    private func v2TopWindowNode(
+    func v2TopWindowNode(
         summary: AppDelegate.MainWindowSummary,
         index: Int,
         workspaceNodes: [[String: Any]]
@@ -3884,7 +3448,7 @@ class TerminalController {
         ]
     }
 
-    private func v2TopWorkspaceNode(
+    func v2TopWorkspaceNode(
         workspace: Workspace,
         index: Int,
         selected: Bool
@@ -4346,6 +3910,11 @@ class TerminalController {
             default:
                 break
             }
+        }
+        // An ownership rejection is app-owned copy naming the workspace rule
+        // that blocked the open; the generic Cloud VM line would hide it.
+        if let rejection = error as? SurfaceTransferRejection {
+            return rejection.message
         }
         guard case let VMClientError.httpStatus(status, body) = error else {
             guard let vmError = error as? VMClientError else { return fallback }
@@ -5195,6 +4764,8 @@ class TerminalController {
             return v2RemoteSessionParkedResult(workspaceId: target.workspaceId, params: params) ?? .err(code: "remote_pty_error", message: "remote connection is not active", data: [
                 "workspace_id": target.workspaceId.uuidString,
                 "workspace_ref": target.workspaceRef,
+                "session_id": sessionID,
+                "attachment_id": attachmentID,
             ])
         }
         do {
@@ -5222,6 +4793,8 @@ class TerminalController {
             return .err(code: code, message: v2RemotePTYUserFacingErrorMessage(error), data: [
                 "workspace_id": target.workspaceId.uuidString,
                 "workspace_ref": target.workspaceRef,
+                "session_id": sessionID,
+                "attachment_id": attachmentID,
             ])
         }
     }
@@ -6044,6 +5617,17 @@ class TerminalController {
                         code: "invalid_params",
                         message: "Surface is not a terminal",
                         data: ["surface_id": dockSurfaceId.uuidString]
+                    ))
+                }
+                guard self.remoteRelayDockTargetIsCurrent(
+                    routing: routing,
+                    dock: dock,
+                    surfaceID: dockSurfaceId
+                ) else {
+                    return .finished(.err(
+                        code: "not_found",
+                        message: self.controlSurfaceNotFoundMessage(),
+                        data: nil
                     ))
                 }
                 guard let terminalTarget = dock.controlSocketTerminalTarget(for: dockSurfaceId) else {
@@ -15118,6 +14702,10 @@ class TerminalController {
             result = v2MobileTerminalScroll(params: request.params)
         case "mobile.terminal.mouse", "terminal.mouse":
             result = v2MobileTerminalMouse(params: request.params)
+        case "mobile.terminal.close":
+            result = v2MobileTerminalClose(params: request.params)
+        case "mobile.terminal.rename":
+            result = v2MobileTerminalRename(params: request.params)
         case let method where method.hasPrefix("mobile.terminal.artifact."):
             result = await v2MobileTerminalArtifactDispatch(
                 method: method,

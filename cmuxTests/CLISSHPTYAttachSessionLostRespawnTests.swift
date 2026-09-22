@@ -361,6 +361,9 @@ extension CLINotifyProcessIntegrationRegressionTests {
                     "lifecycle_id": lifecycleId, "attachment_id": surfaceId,
                 ])
             case "workspace.remote.pty_resize":
+                XCTAssertEqual(params["session_id"] as? String, sessionId)
+                XCTAssertEqual(params["attachment_id"] as? String, surfaceId)
+                XCTAssertEqual(params["attachment_token"] as? String, "attach-token")
                 return self.v2Response(id: id, ok: true, result: ["resized": true])
             case "workspace.remote.pty_sessions":
                 return self.v2Response(id: id, ok: true, result: ["sessions": []])

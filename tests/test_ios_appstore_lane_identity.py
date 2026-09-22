@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import base64
+from datetime import datetime, timedelta, timezone
 import http.server
 import json
 import os
@@ -11,6 +12,7 @@ import plistlib
 import re
 import shutil
 import stat
+import ssl
 import subprocess
 import sys
 import tempfile
@@ -36,7 +38,6 @@ IDENTITY = f"Apple Distribution: Manaflow, Inc. ({TEAM_ID})"
 # fixed instant so the test never reads the real clock.
 PROFILE_VALIDATION_TIME = "2026-09-19T00:00:00Z"
 APPSTORE_MARKETING_VERSION = "1.0.0"
-BETA_MARKETING_VERSION = "1.0.4"
 PRODUCTION_RUNTIME_ORIGINS = {
     "CMUXAuthEnvironment": "production",
     "CMUXApiBaseURL": "https://cmux.com",
@@ -49,6 +50,9 @@ PRODUCTION_RUNTIME_BUILD_ARGS = (
     "CMUX_API_BASE_URL=https://cmux.com",
     "CMUX_IROH_BROKER_BASE_URL=https://cmux.com",
     "CMUX_PRESENCE_BASE_URL=https://presence.cmux.dev",
+)
+FIXTURE_CERTIFICATE_DER = base64.b64decode(
+    "MIIDKTCCAhGgAwIBAgIUEv3LISQuuT8OjxfV//zjFyQ+TzEwDQYJKoZIhvcNAQELBQAwJDEiMCAGA1UEAwwZY211eCBmaXh0dXJlIGRpc3RyaWJ1dGlvbjAeFw0yNjA5MTkwMDI2NDRaFw0zNjA5MTYwMDI2NDRaMCQxIjAgBgNVBAMMGWNtdXggZml4dHVyZSBkaXN0cmlidXRpb24wggEiMA0GCSqGSIb3DQEBAQUAA4IBDwAwggEKAoIBAQCq2ClWbIuXTvS8Wm8d0LhDZZO494nA3XaVzYi3iutZDsuHCio6GslN9cGuDwI3thY71rCE5D+81bECHdK8yoKt5/rYhRySYXSxbqROO9ZgX8DxN++ewqr/yhG26rKczv0e4t09L26WKhlazM6Cyy5SkAOXcI34YcE3bXpTWjcvlf7QxikBNSTfuqRNYTaffBZgtwoocwlmhsOPjTwqbdWwUv2qEUChQ+N6Ucc4b2FI+4tFXIwiNlsQ/xZR5DxdxUj4GlzuD3V8yZpNSbkIaG5iosSLb3GN5KqTCBpfv95BLoi1lTCckTbp7gRGfeYaat/j2dQjyMRm1S1x9j85pCVxAgMBAAGjUzBRMB0GA1UdDgQWBBSV62e0TWExHARtKtzP1un//R8/BTAfBgNVHSMEGDAWgBSV62e0TWExHARtKtzP1un//R8/BTAPBgNVHRMBAf8EBTADAQH/MA0GCSqGSIb3DQEBCwUAA4IBAQB1VIgPD8AydYQYK/u7vcYT2ThTbINE7IAqIReBd5mO71HhRIYb9zGKPULLRUFXEdCVUt8dujiLDzNtwz4tWsOvftKD0K1anjCQIg/jJNt5nwFjhfyGq99Uf9WsQuyaq6cLpHopz55awc8N0vjnCYBTzhjnVUgcZLErIOGtVs0VAB9+NyjIQwOMEFcNZZPBiaeen3Sac3aw1yTS69CYgH7hwBElNcTqH25yFRszd792HnJj/cPVqCmqQ77rxNOkS1EXtb8cAADG7IfI3iwQaqOFkY1JXpZ+HkBJS2ZHskeN54QEBeM0N4hGveK/8BhILfcJe7hbHxf19v+ecEpu9Bft"
 )
 
 FAILURES: list[str] = []
@@ -69,11 +73,14 @@ def _plist_bytes(value: object) -> bytes:
 def _profile_plist(
     bundle_id: str = APPSTORE_BUNDLE_ID,
     name: str = "cmux App Store Distribution Test",
+    uuid: str = "00000000-0000-0000-0000-000000000001",
 ) -> dict[str, object]:
     app_id = f"{TEAM_ID}.{bundle_id}"
     return {
         "Name": name,
-        "UUID": "00000000-0000-0000-0000-000000000001",
+        "UUID": uuid,
+        "ExpirationDate": (datetime.now(timezone.utc) + timedelta(days=365)).replace(tzinfo=None),
+        "DeveloperCertificates": [FIXTURE_CERTIFICATE_DER],
         "Entitlements": {
             "application-identifier": app_id,
             "com.apple.developer.team-identifier": TEAM_ID,
@@ -114,8 +121,10 @@ def write_plist(path, value):
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_bytes(plist_bytes(value))
 
-APPSTORE_PROFILE = {_profile_plist()!r}
-BETA_PROFILE = {_profile_plist(BETA_BUNDLE_ID, "cmux Beta Distribution Test")!r}
+APPSTORE_PROFILE = plistlib.loads({_plist_bytes(_profile_plist())!r})
+BETA_PROFILE = plistlib.loads({_plist_bytes(_profile_plist(BETA_BUNDLE_ID, "cmux Beta Distribution Test", "00000000-0000-0000-0000-000000000002"))!r})
+EXTENSION_PROFILE = plistlib.loads({_plist_bytes(_profile_plist(APPSTORE_EXTENSION_BUNDLE_ID, APPSTORE_EXTENSION_PROFILE_NAME, "00000000-0000-0000-0000-000000000003"))!r})
+FIXTURE_CERTIFICATE = {ssl.DER_cert_to_PEM_cert(FIXTURE_CERTIFICATE_DER)!r}
 
 def profile_for_bundle(bundle_id):
     source = BETA_PROFILE if bundle_id == BETA_BUNDLE_ID else APPSTORE_PROFILE
@@ -350,10 +359,12 @@ def setting(prefix):
 
 if "archive" in args:
     archive = Path(after("-archivePath"))
+    # Release.xcconfig derives PRODUCT_BUNDLE_IDENTIFIER from the app-target
+    # variable. The lane must override the app target without renaming the
+    # notification extension (#12935).
     # ios/Config/Release.xcconfig derives the app target's
-    # PRODUCT_BUNDLE_IDENTIFIER from CMUX_APP_BUNDLE_IDENTIFIER; the lanes
-    # override that per-target variable instead of the global setting, which
-    # would also rename the notification extension (#12935).
+    # PRODUCT_BUNDLE_IDENTIFIER from CMUX_APP_BUNDLE_IDENTIFIER; retain the
+    # legacy setting as a fixture fallback for older lane invocations.
     bundle_id = setting("CMUX_APP_BUNDLE_IDENTIFIER=") or setting("PRODUCT_BUNDLE_IDENTIFIER=")
     build_number = setting("CURRENT_PROJECT_VERSION=") or "1"
     marketing_version = setting("MARKETING_VERSION=") or {BETA_MARKETING_VERSION!r}
@@ -459,7 +470,6 @@ sys.exit(0)
         fakebin / "security",
         f"""#!/usr/bin/env python3
 import copy
-import datetime
 import plistlib
 import sys
 from pathlib import Path
@@ -468,15 +478,6 @@ LEGACY_PROFILE = copy.deepcopy(APPSTORE_PROFILE)
 LEGACY_PROFILE["Entitlements"] = dict(APPSTORE_PROFILE["Entitlements"])
 LEGACY_PROFILE["Entitlements"]["application-identifier"] = f"{{TEAM_ID}}.com.cmuxterm.app"
 LEGACY_PROFILE["Entitlements"]["keychain-access-groups"] = [f"{{TEAM_ID}}.com.cmuxterm.app"]
-# The notification extension's App Store profile (#12935). The installer's
-# extension validator also requires an unexpired ExpirationDate.
-EXTENSION_PROFILE = copy.deepcopy(APPSTORE_PROFILE)
-EXTENSION_PROFILE["Name"] = APPSTORE_EXTENSION_PROFILE_NAME
-EXTENSION_PROFILE["UUID"] = "00000000-0000-0000-0000-000000000002"
-EXTENSION_PROFILE["ExpirationDate"] = datetime.datetime(2099, 1, 1, tzinfo=datetime.timezone.utc)
-EXTENSION_PROFILE["Entitlements"] = dict(APPSTORE_PROFILE["Entitlements"])
-EXTENSION_PROFILE["Entitlements"]["application-identifier"] = f"{{TEAM_ID}}.{{APPSTORE_EXTENSION_BUNDLE_ID}}"
-EXTENSION_PROFILE["Entitlements"]["keychain-access-groups"] = [f"{{TEAM_ID}}.{{APPSTORE_EXTENSION_BUNDLE_ID}}"]
 
 args = sys.argv[1:]
 if args[:3] == ["find-identity", "-v", "-p"]:
@@ -490,15 +491,14 @@ if len(args) >= 2 and args[0] == "cms" and args[1] == "-D":
             body = source.read_bytes()
             if b"legacy profile" in body:
                 profile = LEGACY_PROFILE
-            elif b"extension profile" in body:
-                profile = EXTENSION_PROFILE
             elif b"beta profile" in body:
                 profile = profile_for_bundle(BETA_BUNDLE_ID)
+            elif b"extension profile" in body:
+                profile = EXTENSION_PROFILE
     sys.stdout.buffer.write(plist_bytes(profile))
     sys.exit(0)
 if args and args[0] == "find-certificate":
-    print("-----BEGIN CERTIFICATE-----")
-    print("-----END CERTIFICATE-----")
+    sys.stdout.write(FIXTURE_CERTIFICATE)
     sys.exit(0)
 sys.exit(0)
 """,
@@ -553,9 +553,12 @@ def _base_env(tmp: Path, fakebin: Path) -> dict[str, str]:
     env["CMUX_FAKE_EXPORT_OPTIONS_COPY"] = str(tmp / "ExportOptions.plist")
     env["CMUX_FAKE_ASC_LOG"] = str(tmp / "asc.jsonl")
     env["IOS_DISTRIBUTION_IDENTITY"] = IDENTITY
+    # Manual App Store export maps the notification extension to its own
+    # profile; the lane refuses to export without this name.
     # A manual App Store export maps the notification extension to its own
     # profile (#12935); the lane refuses to export without the name.
     env["IOS_APPSTORE_EXTENSION_PROVISIONING_PROFILE_NAME"] = APPSTORE_EXTENSION_PROFILE_NAME
+    env["IOS_APPSTORE_EXTENSION_PROVISIONING_PROFILE_BASE64"] = base64.b64encode(b"extension profile").decode()
     # Profile expiry is validated against this fixed instant, not the real clock.
     env["IOS_APPSTORE_PROFILE_VALIDATION_TIME"] = PROFILE_VALIDATION_TIME
     env["PLISTBUDDY"] = str(fakebin / "PlistBuddy")
@@ -750,6 +753,11 @@ def _read_xcconfig_setting(path: Path, key: str) -> str:
         if name.strip() == key:
             values.append(value.strip())
     return values[-1] if values else ""
+
+
+BETA_MARKETING_VERSION = _read_xcconfig_setting(
+    ROOT / "ios/Config/Shared.xcconfig", "CMUX_IOS_BETA_MARKETING_VERSION"
+)
 
 
 def test_upload_beta_lane_uses_beta_marketing_version(tmp: Path, fakebin: Path) -> None:
@@ -1151,7 +1159,11 @@ def test_upload_appstore_lane_uses_production_bundle_id(tmp: Path, fakebin: Path
     for build_arg in PRODUCTION_RUNTIME_BUILD_ARGS:
         _check(build_arg in archive_call, f"App Store archive stamps {build_arg.split('=', 1)[0]}")
     _check(
-        all(not arg.endswith("BUNDLE_IDENTIFIER=com.cmuxterm.app") for arg in archive_call),
+        all(
+            "CMUX_APP_BUNDLE_IDENTIFIER=com.cmuxterm.app" not in call
+            and "PRODUCT_BUNDLE_IDENTIFIER=com.cmuxterm.app" not in call
+            for call in archive_call
+        ),
         "archive command does not stamp the retired com.cmuxterm.app id",
     )
 
@@ -1191,6 +1203,23 @@ def test_upload_appstore_lane_uses_production_bundle_id(tmp: Path, fakebin: Path
         )
 
 
+def test_official_testflight_workflow_publishes_changelog_notes() -> None:
+    workflow = (ROOT / ".github" / "workflows" / "ios-appstore-upload.yml").read_text(
+        encoding="utf-8"
+    )
+    upload_step = workflow.split(
+        "      - name: Archive, export, and upload to App Store Connect", 1
+    )[1].split("      - name: Record completed upload before group assignment", 1)[0]
+    _check(
+        "ARGS=(--lane appstore --signing manual)" in upload_step,
+        "official cmux.app TestFlight upload enables the default changelog notes path",
+    )
+    _check(
+        "--skip-notes" not in upload_step,
+        "official cmux.app TestFlight upload does not suppress changelog notes",
+    )
+
+
 def test_upload_appstore_checks_asc_app_bundle_id_before_upload(tmp: Path, fakebin: Path) -> None:
     env = _asc_upload_env(tmp, fakebin)
     env["CMUX_IOS_UPLOAD_DIR"] = str(tmp / "upload")
@@ -1210,6 +1239,14 @@ def test_upload_appstore_checks_asc_app_bundle_id_before_upload(tmp: Path, fakeb
         f"configured app record verified: {ASC_APP_ID} bundle id {APPSTORE_BUNDLE_ID}" in result.stdout,
         "upload lane verifies ASC app bundle id before upload",
     )
+    _check(
+        "setting TestFlight 'internal' What to Test notes" in result.stderr,
+        "official App Store upload attempts to publish the changelog notes",
+    )
+    _check(
+        "lane 'appstore' is not a TestFlight lane" not in result.stderr,
+        "official App Store upload is treated as a TestFlight lane",
+    )
 
     asc_calls = [
         json.loads(line)
@@ -1224,6 +1261,8 @@ def test_upload_appstore_checks_asc_app_bundle_id_before_upload(tmp: Path, fakeb
 
 def test_profile_installer_accepts_production_profile_by_default(tmp: Path, fakebin: Path) -> None:
     env = _base_env(tmp, fakebin)
+    # These fixtures select profiles without an imported signing certificate.
+    env.pop("IOS_DISTRIBUTION_IDENTITY", None)
     env["RUNNER_TEMP"] = str(tmp / "runner")
     env["HOME"] = str(tmp / "home")
     env["GITHUB_ENV"] = str(tmp / "github-env")
@@ -1243,12 +1282,18 @@ def test_profile_installer_accepts_production_profile_by_default(tmp: Path, fake
     )
     _check(
         f"IOS_APPSTORE_EXTENSION_PROVISIONING_PROFILE_NAME={APPSTORE_EXTENSION_PROFILE_NAME}" in github_env,
-        "profile installer exports the notification extension profile name",
+        "profile installer exports a separate NotificationService profile name",
+    )
+    _check(
+        len(list((Path(env["HOME"]) / "Library/MobileDevice/Provisioning Profiles").glob("*.mobileprovision"))) == 2,
+        "profile installer keeps distinct app and extension profile files",
     )
 
 
 def test_profile_installer_ignores_stale_primary_secret(tmp: Path, fakebin: Path) -> None:
     env = _base_env(tmp, fakebin)
+    # These fixtures select profiles without an imported signing certificate.
+    env.pop("IOS_DISTRIBUTION_IDENTITY", None)
     env["RUNNER_TEMP"] = str(tmp / "runner")
     env["HOME"] = str(tmp / "home")
     env["GITHUB_ENV"] = str(tmp / "github-env")
@@ -1267,6 +1312,10 @@ def test_profile_installer_ignores_stale_primary_secret(tmp: Path, fakebin: Path
     _check(
         "IOS_APPSTORE_PROVISIONING_PROFILE_NAME=cmux App Store Distribution Test" in github_env,
         "profile installer falls back to a matching production profile",
+    )
+    _check(
+        f"IOS_APPSTORE_EXTENSION_PROVISIONING_PROFILE_NAME={APPSTORE_EXTENSION_PROFILE_NAME}" in github_env,
+        "profile installer exports the fallback extension profile name",
     )
 
 
@@ -1669,6 +1718,7 @@ def main() -> None:
         )
         test_bump_ios_version_accepts_trailing_appstore_lane(tmp / "version-bump-test", fakebin)
         test_upload_appstore_lane_uses_production_bundle_id(tmp / "upload-test", fakebin)
+        test_official_testflight_workflow_publishes_changelog_notes()
         test_upload_appstore_checks_asc_app_bundle_id_before_upload(tmp / "upload-live-test", fakebin)
         test_profile_installer_accepts_production_profile_by_default(tmp / "profile-test", fakebin)
         test_profile_installer_ignores_stale_primary_secret(tmp / "profile-stale-test", fakebin)

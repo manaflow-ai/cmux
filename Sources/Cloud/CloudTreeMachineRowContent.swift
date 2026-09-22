@@ -12,12 +12,14 @@ struct CloudTreeMachineRowContent: View {
 
     var body: some View {
         CloudTreeMachineBand(style: style) {
-            HStack(alignment: .top, spacing: CloudTreeRowGrid.dotGap) {
-                Image(systemName: machine.freeAccess == .expired ? "lock.fill" : "cloud")
-                    .font(.system(size: 9, weight: .medium))
-                    .foregroundStyle(.secondary)
-                    .frame(width: CloudTreeRowGrid.dotSlot, height: scaled(style.machineNameLineHeight))
-                VStack(alignment: .leading, spacing: scaled(CloudTreeRowGrid.machineLineSpacing)) {
+            HStack(alignment: .top, spacing: scaled(style.iconGap)) {
+                CloudTreeRowIcon(
+                    style: style,
+                    systemName: machine.freeAccess == .expired ? "lock.fill" : "cloud",
+                    tint: CloudTreeIconPalette.machine
+                )
+                .frame(width: scaled(max(style.iconSlot, style.iconSize)), height: scaled(style.machineNameLineHeight))
+                VStack(alignment: .leading, spacing: scaled(style.rowGrid.machineLineSpacing)) {
                     nameRow
                     if style.machineRowLayout == .twoLine {
                         Text(subtitle)
@@ -37,20 +39,14 @@ struct CloudTreeMachineRowContent: View {
 
     /// Machine identity retains its own line at every sidebar width.
     private var nameRow: some View {
-        HStack(alignment: .firstTextBaseline, spacing: CloudTreeRowGrid.dotGap) {
-            HStack(alignment: .firstTextBaseline, spacing: CloudTreeRowGrid.dotGap) {
+        HStack(alignment: .firstTextBaseline, spacing: style.rowGrid.dotGap) {
+            HStack(alignment: .firstTextBaseline, spacing: style.rowGrid.dotGap) {
                 Text(machine.displayName)
                     .cmuxFont(size: style.machineNameSize, weight: .medium, design: style.fontDesign)
                     .foregroundStyle(.primary)
                     .lineLimit(1)
                     .truncationMode(.tail)
                     .layoutPriority(1)
-                if machine.isDefault {
-                    Image(systemName: "star.fill")
-                        .font(.system(size: 9, weight: .semibold))
-                        .foregroundStyle(.secondary)
-                        .help(String(localized: "machines.row.default.help", defaultValue: "Default machine for New Cloud Workspace"))
-                }
             }
             Spacer(minLength: 0)
         }
@@ -61,9 +57,6 @@ struct CloudTreeMachineRowContent: View {
     var accessibilityLabel: String {
         var parts = [machine.displayName, machine.activityLabel, CloudMachineResourcePresentation(machine: machine, now: now).summary]
         parts.append(usageSummary)
-        if machine.isDefault {
-            parts.append(String(localized: "machines.row.default.accessibilityLabel", defaultValue: "Default machine"))
-        }
         return parts.joined(separator: ", ")
     }
 

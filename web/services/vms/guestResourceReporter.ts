@@ -35,6 +35,14 @@ def sample():
     return stats
 `;
 
+/** A one-shot probe used only by provider-owned direct resource sampling. */
+export function guestResourceSampleCommand(): string {
+  return `python3 - <<'PY'
+${GUEST_RESOURCE_SAMPLE_SCRIPT}
+print(json.dumps(sample()))
+PY`;
+}
+
 /** The awake guest publishes through its existing edge identity; no secret is stored here. */
 export function guestResourceReporterScript(): string {
   return `${GUEST_RESOURCE_SAMPLE_SCRIPT}
@@ -88,5 +96,7 @@ if ! cmp -s "$cmux_stats_tmp/script" /usr/local/lib/cmux/resource-stats.py || ! 
     systemctl daemon-reload
     systemctl restart cmux-resource-stats.service
 fi
-systemctl enable --now cmux-resource-stats.service >/dev/null 2>&1`;
+if ! systemctl is-enabled --quiet cmux-resource-stats.service || ! systemctl is-active --quiet cmux-resource-stats.service; then
+    systemctl enable --now cmux-resource-stats.service >/dev/null 2>&1
+fi`;
 }

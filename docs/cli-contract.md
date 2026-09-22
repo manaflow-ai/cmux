@@ -32,7 +32,8 @@ localized.
 | `cmux <path>` | Open a directory or file parent in cmux through the app's file-open path, without requiring control-socket access. Relative paths resolve from the current working directory. |
 | `cmux [global-options] <command> [options]` | Run a named command. Presentation options may appear before or after the command. |
 | `cmux --help`, `cmux -h` | Print top-level usage without a socket. |
-| `cmux help` | Print top-level usage without a socket. |
+| `cmux help` | Print top-level usage without a socket. Commands are listed once each under task groups: Start & Resume, Agents, Navigate & Arrange, Inspect, Customize, Automation, Browser, Remote, Diagnostics / Advanced. |
+| `cmux help <topic>` | Print one task group without a socket. Topics: `start`, `agents`, `navigate`, `inspect`, `customize`, `automation`, `browser`, `remote`, `diagnostics`. An unknown topic, or more than one argument, prints top-level usage. |
 | `cmux --version`, `cmux -v`, `cmux version` | Print version summary without a socket. |
 
 Global options:
@@ -69,6 +70,7 @@ Environment:
 | `disable-browser` | Disable cmux browser creation and link interception until re-enabled. |
 | `enable-browser` | Re-enable cmux browser creation and link interception. |
 | `browser-status` | Print whether cmux browser creation and link interception are enabled. |
+| `socket-status` | Print effective automation socket mode and managed source without connecting to the socket; `--json` also reports configured mode, forced-value status, and socket-path observation (`live_enforcement` is intentionally `not_observed`). Works when the listener is off or cmux is not running. |
 | `agent-hibernation` | Enable or disable routine Agent Hibernation. |
 | `restore` | Replace the CLI with a process restored from structured surface state. |
 | `fork` | Replace the CLI with a provider fork process restored from structured surface state. |
@@ -88,8 +90,9 @@ Environment:
 | `capabilities` | Print server capabilities as JSON. |
 | `events` | Stream reconnectable cmux events as newline-delimited JSON. |
 | `automation` | Manage config-backed event rules: `list`, `show <id>`, dry-run `test <id> --event <json>`, `enable`, `disable`, `logs`, and `reload`. Rules live in `~/.cmuxterm/automations.json`; actions are dispatched by the running app. |
+| `glaeda` | Emit one caller-neutral `glaeda-external-execution-request/v1` and validate/correlate one bounded Glaeda receipt. `request` and `observe` are local data operations and do not require a running cmux socket. They carry exact Git source plus caller correlation only; CMUX workspace/UI and provider placement stay outside the request. |
 | `sessions [list]` | List saved agent session records without requiring a running cmux socket. Filters: `--agent <name>`, `--session <id>`, `--workspace <id>`, `--surface <id>`, `--cwd <text>`. Overrides: `--state-dir <path>`, `--codex-home <path>`. Text output defaults to 100 results; `--limit <n>` takes a positive integer and `--all` removes the limit. Supports `--json`. |
-| `auth` | Manage auth status, login, and logout through the app. |
+| `auth` | Manage auth status, login, logout, and the selected team through the app. |
 | `coderouter`, `cr` | `cmux coderouter <status|machines|claude>` manages the team's coderouter model plane through the app (sign-in state, per-machine usage, the team's Claude upstream accounts). Every other `cmux coderouter ...` verb and all of `cmux cr ...` exec the CodeRouter CLI unchanged with the `CMUX_*`/`CMUXD_*` environment stripped: `coderouter` or `cr` on PATH first, then the official installer's `~/.coderouter/bin/coderouter` (`$CODEROUTER_INSTALL/bin` when set), never with a network call. When neither exists and stdin and stderr are terminals, cmux shows the documented installer `curl -fsSL https://cmux.com/coderouter/install.sh | sh`, says what it does (checksum-verified binary into `~/.coderouter/bin`, PATH line in the shell profile), asks once (`Install CodeRouter now? [y/N]`), and after `y` fetches the script, runs it with `sh`, and execs the new install with the original arguments. Any other outcome (non-interactive, declined, download or installer failure) prints that install command on stderr and exits 127. |
 | `vm`, `cloud` | Manage cloud VMs and their HTTPS publications. `cloud` is an alias for `vm`. |
 | `cloud guide`, `cloud --skill` (also `vm guide`, `vm --skill`) | Print the same short Cloud guide without connecting to the app. `--json` returns `{topic: "cloud", format: "markdown", content: "..."}`. This does not install a skill or start an agent; `vm prompt` and its existing `vm skill` alias keep that behavior. |
@@ -191,6 +194,43 @@ Environment:
 | `ssh-session-end` | Internal helper that clears remote SSH session state. |
 | `__tmux-compat` | Internal tmux compatibility dispatcher. |
 
+
+## Glaeda execution exchange and current-work ownership
+
+`cmux glaeda` is an execution exchange seam, not another CMUX work database. A
+complete transport-independent flow can look like this:
+
+```sh
+cmux glaeda request \
+  --request-ref cmux:exec:42 \
+  --work-ref cmux:work:42 \
+  --repository owner/repo \
+  --commit <commit> \
+  --tree <tree> > request.json
+
+# Carry request.json through the selected transport and receive result.json.
+
+cmux glaeda observe \
+  --request request.json \
+  --receipt result.json > observation.json
+
+cmux current --json
+```
+
+The observation is bounded correlation/evidence: request identity, the caller's
+`work_ref`, terminal state, and receipt digests. The caller that already owns
+the CMUX work item uses `work_ref` to associate that evidence with its existing
+work lifecycle. `observe` does not create a workspace, work item, scheduler
+record, or placement decision, and `cmux current` does not ingest
+`observation.json`.
+
+`cmux current --json` and **Find Work** continue to read the same bounded,
+read-only projection of work already owned by CMUX, as described in
+[Current work](current-work.md). When an existing owner records its normal
+lifecycle change, that ordinary CMUX projection reflects it. The execution
+transport, machine placement, physical attempt, and recovery truth remain with
+their existing owners rather than being duplicated into a second CMUX ledger.
+
 ## Surface Selection Contract
 
 `surface.read_selection` is a v2 worker-lane socket method advertised by
@@ -285,6 +325,11 @@ Auth subcommands:
 | `auth status` | Print signed-in state. Supports `--json`. |
 | `auth login` | Begin sign-in through the app and wait for completion. |
 | `auth logout` | Clear the current session. |
+| `auth team list`, `auth team use <team-id>`, `auth team create <name>` | List teams, select one, or create one. |
+
+My Devices connects opted-in Macs on the same account through authenticated Iroh v2 sessions. It runs only while Cloud Machines is enabled. Fresh installations default to discovering other Macs, with access to this Mac off. The Cloud sidebar exposes **Discover other Macs** and **Allow access to this Mac** independently. Turning off incoming Mac access disconnects incoming Mac sessions; turning off discovery stops this installation’s outgoing device connections. Existing iPhone pairing remains separately opt-in. Turning Cloud Machines off stops My Devices discovery, connections, and hosting. My Devices requires no Tailscale setup, pairing link, or address entry.
+
+The corresponding preferences are `devices.discovery.enabled`, `devices.incomingAccess.enabled`, and `devices.sidebar.hiddenMacIDs`. Hiding a physical Mac affects its sidebar rows across build tags, preserves pairing and existing panes, and can be reversed in Computers settings. Use `surface ls`, `surface open`, and `surface new-terminal` for discovered Mac resources; the cloud-only `vm workspace` commands remain VM operations.
 
 VM subcommands:
 
@@ -577,8 +622,8 @@ Right sidebar commands:
 | --- | --- |
 | `right-sidebar toggle`, `right-sidebar show`, `right-sidebar hide` | Change right-sidebar visibility without printing on success. |
 | `right-sidebar focus` | Focus the current right-sidebar mode. |
-| `right-sidebar set <files\|find\|vault\|sessions\|feed\|dock\|cloud>` | Show the right sidebar, switch mode, and focus it unless `--no-focus` is passed. |
-| `right-sidebar files`, `right-sidebar find`, `right-sidebar vault`, `right-sidebar sessions`, `right-sidebar feed`, `right-sidebar dock`, `right-sidebar cloud` | Short aliases for `right-sidebar set <mode>` with focus. `cloud` (aliases `machines`, `vms`) is the Cloud machines panel; `mode` reports it as `machines`. |
+| `right-sidebar set <files\|find\|vault\|sessions\|feed\|dock\|cloud\|devices>` | Show the right sidebar, switch mode, and focus it unless `--no-focus` is passed. |
+| `right-sidebar files`, `right-sidebar find`, `right-sidebar vault`, `right-sidebar sessions`, `right-sidebar feed`, `right-sidebar dock`, `right-sidebar cloud`, `right-sidebar devices` | Short aliases for `right-sidebar set <mode>` with focus. `cloud` (aliases `machines`, `vms`) is the Cloud machines panel; `mode` reports it as `machines`. `devices` (aliases `device`, `macs`) opens the same Cloud panel and reports `machines`. While Cloud Machines is enabled, the My Devices menu independently controls `devices.discovery.enabled` (Discover other Macs) and `devices.incomingAccess.enabled` (Make this Mac discoverable). |
 | `right-sidebar mode` | Print JSON with `visible` and `mode`. |
 | `--workspace <id\|ref\|index>` | Target the window containing a workspace. Refs and indexes resolve before the V1 socket command is sent. |
 | `--window <id\|ref\|index>` | Target a window. Refs and indexes resolve before the V1 socket command is sent. |
@@ -618,7 +663,7 @@ Config subcommands:
 
 | Command | Contract |
 | --- | --- |
-| `config doctor [--path <file>]`, `config check`, `config validate` | Validate JSONC syntax for config files. When `--path` is absent, default discovery checks the primary config, project-level `.cmux/cmux.json` or `cmux.json`, and legacy config files. `--path <file>` may be repeated to validate multiple explicit files. Exits 0 on success and 1 on any error. Supports `--json`. Works without a socket. |
+| `config doctor [--path <file>]`, `config check`, `config validate` | Validate JSONC syntax and semantic cmux.json constraints (recognized paths, value types, enums, bounds, nested values, and project/global scope). When `--path` is absent, default discovery checks the primary config, project-level `.cmux/cmux.json` or `cmux.json`, and legacy config files. `--path <file>` may be repeated; `--scope global\|project` overrides scope inference for explicit files. Exits 0 on success and 1 on any error. Supports `--json`. Works without a socket. |
 | `config path`, `config paths` | Print cmux.json paths, docs URL, schema URL, backup reminder, and reload command without a socket. |
 | `config docs`, `config documentation` | Print the same output as `docs settings` without a socket. |
 | `config reload` | Ask the running cmux app to reload configuration. Requires a socket. |
@@ -633,7 +678,10 @@ Config subcommands:
 `config doctor --json` outputs an object with `ok`, `error_count`,
 `findings`, `reload_command`, `docs_url`, and `schema_url`. Each finding includes
 `label`, `display_path`, `path`, `status`, `ok`, `keys`, and, when available,
-`message` and `bytes`.
+`message` and `bytes`. A finding that fails semantic validation also includes
+`issues`, an array of objects with a `path` string (a JSON path into the file
+such as `$.app.appearance`) and a localized `message` string. `issues` is absent
+when there are none.
 
 Events command:
 
@@ -722,6 +770,23 @@ the expected text without connecting to a cmux socket.
 - `cmux --help` -> `open <path-or-url>...`
 - `cmux --help` -> `sessions [list] [options]`
 - `cmux help` -> `cmux - control cmux via Unix socket`
+- `cmux --help` -> `Start & Resume:`
+- `cmux --help` -> `Diagnostics / Advanced:`
+- `cmux help start` -> `Start & Resume:`
+- `cmux help agents` -> `Agents:`
+- `cmux help navigate` -> `Navigate & Arrange:`
+- `cmux help inspect` -> `Inspect:`
+- `cmux help customize` -> `Customize:`
+- `cmux help automation` -> `Automation:`
+- `cmux help browser` -> `Browser:`
+- `cmux help remote` -> `Remote:`
+- `cmux help diagnostics` -> `Diagnostics / Advanced:`
+- `cmux help diagnostics` -> `socket-status [--json]`
+- `cmux help remote` -> `auth <status|login|logout|team>`
+- `cmux --help` -> `socket-status [--json]`
+- `cmux --help` -> `cmux help <start|agents|navigate|inspect|customize|automation|browser|remote|diagnostics>`
+- `cmux help --help` -> `Usage: cmux help [topic]`
+- `cmux help unknown-task-topic` -> `cmux - control cmux via Unix socket`
 - `cmux --help` -> `cmux guide | cmux --skill`
 - `cmux cloud --help` -> `guide | --skill`
 - `cmux guide` -> `# cmux guide`
@@ -738,7 +803,8 @@ the expected text without connecting to a cmux socket.
 - `cmux ping --help` -> `Usage: cmux ping`
 - `cmux capabilities --help` -> `Usage: cmux capabilities`
 - `cmux events --help` -> `Usage: cmux events [options]`
-- `cmux auth --help` -> `Usage: cmux auth <status|login|logout>`
+- `cmux glaeda --help` -> `Usage: cmux glaeda <request|observe> [options]`
+- `cmux auth --help` -> `Usage: cmux auth <status|login|logout|team>`
 - `cmux vm --help` -> `Usage: cmux vm <base|new|ls|domains|tree|self|status|stats|resize|rename|pause|resume|snapshot|fork|restore|rm|run|route|agent|dev|prompt|exec|push|pull|wait|shell|tui|desktop|open|workspace|terminal|tab|layout|env|ports|tools|handoff|promote-template|attach|ssh|ssh-info> [args...]`
 - `cmux cloud --help` -> `Usage: cmux cloud <base|new|ls|domains|tree|self|status|stats|resize|rename|pause|resume|snapshot|fork|restore|rm|run|route|agent|dev|prompt|exec|push|pull|wait|shell|tui|desktop|open|workspace|terminal|tab|layout|env|ports|tools|handoff|promote-template|attach|ssh|ssh-info> [args...]`
 - `cmux vm ls --help` -> `Usage: cmux vm <base|new|ls|domains|tree|self|status|stats|resize|rename|pause|resume|snapshot|fork|restore|rm|run|route|agent|dev|prompt|exec|push|pull|wait|shell|tui|desktop|open|workspace|terminal|tab|layout|env|ports|tools|handoff|promote-template|attach|ssh|ssh-info> [args...]`

@@ -76,7 +76,7 @@ struct MobileSettingsView: View {
     var body: some View {
         @Bindable var displaySettings = displaySettings
         #if DEBUG
-        let whatsNewPages = whatsNewCenter?.archivePages ?? MobileWhatsNewCatalog.channelVisibleEntries()
+        let whatsNewPages = whatsNewCenter?.archivePages ?? MobileWhatsNewCatalog().channelVisibleEntries()
         let whatsNewHosts = whatsNewCenter?.allowedWebHosts ?? []
         #endif
         return NavigationStack {
@@ -591,7 +591,7 @@ struct MobileSettingsView: View {
                         didFinishSearch: store?.didFinishStoredMacReconnectAttempt == true
                     ),
                     connectionMethod: connectionMethodStore?.method ?? .automatic,
-                    keepAwakeOffer: OnboardingKeepAwakeOfferSource.offer(from: store),
+                    keepAwakeOffer: OnboardingKeepAwakeOfferSource().offer(from: store),
                     onSelectConnectionMethod: { connectionMethodStore?.method = $0 },
                     onEnablePush: {
                         await pushCoordinator.enable(trigger: "onboarding_replay")
@@ -604,16 +604,15 @@ struct MobileSettingsView: View {
                         (startTailscalePairing ?? startPairingScanner)?()
                     },
                     onSetKeepAwake: { [store] enabled in
-                        await OnboardingKeepAwakeOfferSource.set(enabled, on: store)
+                        await OnboardingKeepAwakeOfferSource().set(enabled, on: store)
                     },
                     onComplete: { showingOnboarding = false }
                 )
             }
             .sheet(isPresented: $showingSetupHelp) {
-                // Re-enterable setup help as a plain reference: every pre-pairing
-                // gate with its concrete next step. Settings is reached only from
-                // the connected workspace list, so there is no current blocker to
-                // mark "You are here".
+                // Re-enterable setup help as a plain reference. Settings can be
+                // opened before pairing, but it does not own the active connection
+                // gate, so there is no current blocker to mark "You are here".
                 SetupHelpView(highlight: setupHelpHighlight) { showingSetupHelp = false }
             }
         }
@@ -652,7 +651,7 @@ struct MobileSettingsView: View {
         if let whatsNewCenter {
             return !whatsNewCenter.archivePages.isEmpty
         }
-        return !MobileWhatsNewCatalog.channelVisibleEntries().isEmpty
+        return !MobileWhatsNewCatalog().channelVisibleEntries().isEmpty
     }
 
     private func recordBooleanSetting(
@@ -847,10 +846,8 @@ struct MobileSettingsView: View {
         }
     }
 
-    /// Which setup gate to mark as the user's current blocker. Settings is reached
-    /// only from the connected workspace list, so the user has cleared every gate
-    /// and there is no "You are here" step; the help is a plain reference. `nil`
-    /// keeps that honest instead of mislabeling a connected Mac as unreachable.
+    /// Settings is a reference entry point from both connected and pre-pairing
+    /// workspace shells. It does not identify which connection gate is active.
     private var setupHelpHighlight: MobileSetupGuidanceState? {
         nil
     }
@@ -862,22 +859,23 @@ struct MobileSettingsView: View {
     }
 
     /// Whether the setup and introduction entries apply. When this sheet is
-    /// reused from the no-devices screen there is no connected Mac or store,
-    /// so they are hidden.
+    /// hosted by the workspace shell, the host's Computers action keeps these
+    /// entries useful even before a Mac has connected. Previews without a
+    /// shell action still omit the section.
     private var hasConnectionSection: Bool {
-        !connectedHostName.isEmpty || store != nil
+        !connectedHostName.isEmpty || store != nil || showComputers != nil
     }
 
     /// Drives the team Picker. Reads the EFFECTIVE current team (`resolvedTeamID`,
     /// which falls back to the first team when nothing is explicitly selected) so
     /// the picker always shows a concrete selection, and writes the user's choice
-    /// to `selectedTeamID` (persisted; observed by the root for the lazy re-scope).
+    /// through the shared coordinator action (persisted; observed by the root for the lazy re-scope).
     private var teamSelection: Binding<String?> {
         Binding(
             get: { authManager.resolvedTeamID },
             set: { newValue in
                 if let newValue, newValue != authManager.selectedTeamID {
-                    authManager.selectedTeamID = newValue
+                    Task { try? await authManager.selectTeam(id: newValue) }
                 }
             }
         )

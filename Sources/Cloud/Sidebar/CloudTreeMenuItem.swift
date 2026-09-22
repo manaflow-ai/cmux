@@ -27,4 +27,3 @@ final class CloudTreeMenuItem: NSMenuItem {
         runAction()
     }
 }
-

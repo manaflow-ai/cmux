@@ -1,0 +1,213 @@
+diff --git a/dist/components/credential-sign-up.js b/dist/components/credential-sign-up.js
+index 56a74bf9419e1c0cdc5324918d351f937e82eb9f..bbecb001f029102c646fdbc58e18b2550f9a7a07 100644
+--- a/dist/components/credential-sign-up.js
++++ b/dist/components/credential-sign-up.js
+@@ -44,10 +44,28 @@ function CredentialSignUp(props) {
+ 				email,
+-				password
++				password,
++				noRedirect: true
+ 			});
+-			if (result.status === "error") setError("email", {
+-				type: "manual",
+-				message: result.error.message
+-			});
++			if (result.status === "ok") {
++				const currentUrl = new URL(window.location.href);
++				const url = new URL("/handler/auth-error", currentUrl);
++				url.searchParams.set("code", "signup-pending");
++				for (const name of ["after_auth_return_to", "web_return_to", "native_app_return_to"]) {
++					const value = currentUrl.searchParams.get(name);
++					if (value) url.searchParams.set(name, value);
++				}
++				await app.signOut({ redirectUrl: url.toString() });
++				return;
++			}
++			if (result.status === "error") {
++				if (result.error.errorCode === "USER_EMAIL_ALREADY_EXISTS") {
++					(0, _hexclave_shared_dist_utils_promises.runAsynchronouslyWithAlert)(Promise.reject(result.error), { noErrorLogging: true });
++					return;
++				}
++				setError("email", {
++					type: "manual",
++					message: result.error.message
++				});
++			}
+ 		} finally {
+ 			setLoading(false);
+ 		}
+diff --git a/dist/components/elements/maybe-full-page.js b/dist/components/elements/maybe-full-page.js
+index 90859736d47d4694725dff06a0309c47905323a4..01afde66ed8cb3096fc98a0c0ad4ab28724e677a 100644
+--- a/dist/components/elements/maybe-full-page.js
++++ b/dist/components/elements/maybe-full-page.js
+@@ -30,7 +30,7 @@ function MaybeFullPage({ children, fullPage }) {
+ 		},
+ 		className: "stack-scope",
+ 		children
+-	}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)(__ssr_layout_effect_js.SsrScript, { script: scriptString })] });
++	}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)(__ssr_layout_effect_js.SsrScript, { waitForElementId: id, script: scriptString })] });
+ 	else return /* @__PURE__ */ (0, react_jsx_runtime.jsx)(react_jsx_runtime.Fragment, { children });
+ }
+ //#endregion
+diff --git a/dist/components/elements/ssr-layout-effect.js b/dist/components/elements/ssr-layout-effect.js
+index 537734d109b622f8fa4981b29fc5f43ad106f180..5a0cdaebc7f15f721182a3b7161df79894121b49 100644
+--- a/dist/components/elements/ssr-layout-effect.js
++++ b/dist/components/elements/ssr-layout-effect.js
+@@ -1,19 +1,31 @@
+ "use client";
+ Object.defineProperty(exports, Symbol.toStringTag, { value: "Module" });
+ let react = require("react");
++let next_navigation = require("next/navigation");
+ let react_jsx_runtime = require("react/jsx-runtime");
+ //#region src/components/elements/ssr-layout-effect.tsx
+-function escapeHtmlAttr(str) {
+-	return str.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+-}
++function escapeHtmlAttr(str) {
++  return str.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
++}
++// Patched (cmux): inject the SSR script outside the React tree. The ref keeps
++// streamed renders from emitting duplicate bootstrap scripts per request.
+ function SsrScript(props) {
++	const insertedRef = react.useRef(false);
++	(0, next_navigation.useServerInsertedHTML)(() => {
++		if (insertedRef.current) return null;
++		insertedRef.current = true;
++		const escapedSource = props.script.replace(/<\/script/gi, "<\\/script");
++		const readiness = props.waitForElementId ? `document.getElementById(${JSON.stringify(props.waitForElementId)})` : props.waitForBody ? "document.body" : "true";
++		const bodyReadyScript = `(function(){let ran=false;let observer=null;const run=()=>{if(ran)return;if(!(${readiness})){if(!observer){observer=new MutationObserver(()=>run());observer.observe(document.documentElement,{childList:true,subtree:true});}return;}ran=true;if(observer)observer.disconnect();${escapedSource};};run();})()`;
++		return /* @__PURE__ */ (0, react_jsx_runtime.jsx)("script", {
++			nonce: props.nonce,
++			dangerouslySetInnerHTML: { __html: bodyReadyScript }
++		}, "stack-ssr-script");
++	});
+ 	(0, react.useLayoutEffect)(() => {
+ 		(0, eval)(props.script);
+ 	}, []);
+-	return /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+-		suppressHydrationWarning: true,
+-		dangerouslySetInnerHTML: { __html: `<script${props.nonce ? ` nonce="${escapeHtmlAttr(props.nonce)}"` : ""}>${props.script}<\/script>` }
+-	});
++	return null;
+ }
+ //#endregion
+ exports.SsrScript = SsrScript;
+diff --git a/dist/esm/components/credential-sign-up.js b/dist/esm/components/credential-sign-up.js
+index 5d725553ccf9851cc7809ef2809f1860df677b5d..070b11390666a50d05eb1f88a4c651c9092f9a49 100644
+--- a/dist/esm/components/credential-sign-up.js
++++ b/dist/esm/components/credential-sign-up.js
+@@ -40,10 +40,28 @@ function CredentialSignUp(props) {
+ 				email,
+-				password
++				password,
++				noRedirect: true
+ 			});
+-			if (result.status === "error") setError("email", {
+-				type: "manual",
+-				message: result.error.message
+-			});
++			if (result.status === "ok") {
++				const currentUrl = new URL(window.location.href);
++				const url = new URL("/handler/auth-error", currentUrl);
++				url.searchParams.set("code", "signup-pending");
++				for (const name of ["after_auth_return_to", "web_return_to", "native_app_return_to"]) {
++					const value = currentUrl.searchParams.get(name);
++					if (value) url.searchParams.set(name, value);
++				}
++				await app.signOut({ redirectUrl: url.toString() });
++				return;
++			}
++			if (result.status === "error") {
++				if (result.error.errorCode === "USER_EMAIL_ALREADY_EXISTS") {
++					runAsynchronouslyWithAlert(Promise.reject(result.error), { noErrorLogging: true });
++					return;
++				}
++				setError("email", {
++					type: "manual",
++					message: result.error.message
++				});
++			}
+ 		} finally {
+ 			setLoading(false);
+ 		}
+diff --git a/dist/esm/components/elements/maybe-full-page.js b/dist/esm/components/elements/maybe-full-page.js
+index 44dce915c9d3a8ff40a5090c38870c48f5dcfded..8db6f7ca2ec7f6e23012fde7b632ea5367b3ee75 100644
+--- a/dist/esm/components/elements/maybe-full-page.js
++++ b/dist/esm/components/elements/maybe-full-page.js
+@@ -27,7 +27,7 @@ function MaybeFullPage({ children, fullPage }) {
+ 		},
+ 		className: "stack-scope",
+ 		children
+-	}), /* @__PURE__ */ jsx(SsrScript, { script: scriptString })] });
++	}), /* @__PURE__ */ jsx(SsrScript, { waitForElementId: id, script: scriptString })] });
+ 	else return /* @__PURE__ */ jsx(Fragment, { children });
+ }
+ //#endregion
+diff --git a/dist/esm/components/elements/ssr-layout-effect.js b/dist/esm/components/elements/ssr-layout-effect.js
+index 9712b3eb0c4f503f5d32130c3a7547745f4c6a5d..fd526b0a16b0954a4af561a73f5b488564fced11 100644
+--- a/dist/esm/components/elements/ssr-layout-effect.js
++++ b/dist/esm/components/elements/ssr-layout-effect.js
+@@ -1,18 +1,31 @@
+ "use client";
+-import { useLayoutEffect } from "react";
++import { useLayoutEffect, useRef } from "react";
++import { useServerInsertedHTML } from "next/navigation";
+ import { jsx } from "react/jsx-runtime";
+ //#region src/components/elements/ssr-layout-effect.tsx
+-function escapeHtmlAttr(str) {
+-	return str.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+-}
++function escapeHtmlAttr(str) {
++  return str.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
++}
++// Patched (cmux): React 19 warns about <script> elements rendered inside
++// components. Inject the SSR copy outside the React tree and guard it for
++// streamed renders; the client path remains the layout-effect eval below.
+ function SsrScript(props) {
++	const insertedRef = useRef(false);
++	useServerInsertedHTML(() => {
++		if (insertedRef.current) return null;
++		insertedRef.current = true;
++		const escapedSource = props.script.replace(/<\/script/gi, "<\\/script");
++		const readiness = props.waitForElementId ? `document.getElementById(${JSON.stringify(props.waitForElementId)})` : props.waitForBody ? "document.body" : "true";
++		const bodyReadyScript = `(function(){let ran=false;let observer=null;const run=()=>{if(ran)return;if(!(${readiness})){if(!observer){observer=new MutationObserver(()=>run());observer.observe(document.documentElement,{childList:true,subtree:true});}return;}ran=true;if(observer)observer.disconnect();${escapedSource};};run();})()`;
++		return /* @__PURE__ */ jsx("script", {
++			nonce: props.nonce,
++			dangerouslySetInnerHTML: { __html: bodyReadyScript }
++		}, "stack-ssr-script");
++	});
+ 	useLayoutEffect(() => {
+ 		(0, eval)(props.script);
+ 	}, []);
+-	return /* @__PURE__ */ jsx("span", {
+-		suppressHydrationWarning: true,
+-		dangerouslySetInnerHTML: { __html: `<script${props.nonce ? ` nonce="${escapeHtmlAttr(props.nonce)}"` : ""}>${props.script}<\/script>` }
+-	});
++	return null;
+ }
+ //#endregion
+ export { SsrScript };
+diff --git a/dist/esm/utils/browser-script.js b/dist/esm/utils/browser-script.js
+index d24bcfdd1f36e6fd7ad8d64a4aa503b75974eee8..969ee2ac0b97d0f839b7b89e95a78bfd6be4d982 100644
+--- a/dist/esm/utils/browser-script.js
++++ b/dist/esm/utils/browser-script.js
+@@ -95,6 +95,7 @@ const script = () => {
+ function BrowserScript(props) {
+ 	return /* @__PURE__ */ jsx(SsrScript, {
+ 		nonce: props.nonce,
++		waitForBody: true,
+ 		script: `(${script.toString()})()`
+ 	});
+ }
+diff --git a/dist/utils/browser-script.js b/dist/utils/browser-script.js
+index 687b23e1299f025f126be22a38a89279687fef42..84ee0ba5002cafd3608105504bcf0bbc60c8460c 100644
+--- a/dist/utils/browser-script.js
++++ b/dist/utils/browser-script.js
+@@ -96,6 +96,7 @@ const script = () => {
+ function BrowserScript(props) {
+ 	return /* @__PURE__ */ (0, react_jsx_runtime.jsx)(___components_elements_ssr_layout_effect_js.SsrScript, {
+ 		nonce: props.nonce,
++		waitForBody: true,
+ 		script: `(${script.toString()})()`
+ 	});
+ }

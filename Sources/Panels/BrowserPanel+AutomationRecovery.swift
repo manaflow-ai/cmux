@@ -80,22 +80,7 @@ extension BrowserPanel {
             )
         }
 
-        switch navigationDelegate?.activeErrorPageRetryForAutomation() {
-        case .request(let request):
-            navigateWithoutInsecureHTTPPrompt(
-                request: request,
-                recordTypedNavigation: false,
-                onNavigationStarted: navigationStarted
-            )
-        case .urlOnly:
-            navigate(
-                to: targetURL,
-                recordTypedNavigation: false,
-                onNavigationStarted: navigationStarted
-            )
-        case .disabled:
-            navigationStarted(nil)
-        case nil:
+        if !retryFailedNavigationForReload(mode: .soft, onNavigationStarted: navigationStarted) {
             if let navigation = reload() {
                 navigationStarted(navigation)
             } else {
@@ -170,6 +155,9 @@ extension BrowserPanel {
                 source: RemoteLoopbackRuntimeBridge.scriptSource(aliasHost: host, preservesSubdomains: false),
                 injectionTime: .atDocumentStart, forMainFrameOnly: false
             ))
+            if let endpoint = cloudAccess.model?.browserProxy {
+                CloudBrowserRouting.installWebSocketBridge(endpoint: endpoint, address: host, on: replacement)
+            }
         }
         return replacement
     }

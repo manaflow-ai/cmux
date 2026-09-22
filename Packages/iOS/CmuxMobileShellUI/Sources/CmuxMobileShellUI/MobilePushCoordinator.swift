@@ -862,7 +862,8 @@ public final class MobilePushCoordinator {
     /// status. A missing Mac status fails closed.
     public func readiness(
         macStatus: MobileHostPhonePushStatus?,
-        macAccountMismatch: Bool = false
+        macAccountMismatch: Bool = false,
+        securePushSetupFailed: Bool = false
     ) -> MobilePushReadiness {
         MobilePushReadiness.resolve(
             authorization: authorization,
@@ -870,7 +871,8 @@ public final class MobilePushCoordinator {
             mac: macStatus.map(MobilePushReadiness.MacStatus.init),
             macAccountMismatch: macAccountMismatch,
             systemSettings: systemSettings,
-            phoneAPIOrigin: phoneAPIOrigin
+            phoneAPIOrigin: phoneAPIOrigin,
+            securePushSetupFailed: securePushSetupFailed
         )
     }
 

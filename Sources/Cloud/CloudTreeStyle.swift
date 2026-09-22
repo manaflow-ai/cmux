@@ -78,6 +78,7 @@ struct CloudTreeStyle: Equatable, Identifiable, Sendable {
     /// Legacy gallery geometry flag; machine headers no longer render stats inline.
     let showsMachineStats: Bool
     let machineVerticalPadding: CGFloat
+    var rowGrid = CloudTreeRowGrid()
 
     var fontDesign: Font.Design { monospacedText ? .monospaced : .default }
     var machineNameLineHeight: CGFloat { machineNameSize + 3.5 }
@@ -91,7 +92,7 @@ struct CloudTreeStyle: Equatable, Identifiable, Sendable {
         case .singleLine:
             let identityHeight = machineNameLineHeight
                 + 2 * (machineVerticalPadding + machineBandVerticalPadding)
-            return max(rowHeight + (machineBand ? 7 : 2), identityHeight)
+            return max(rowHeight + 2 * machineBandVerticalPadding, identityHeight)
         case .twoLine:
             let statsHeight = hasStats && showsMachineStats ? 1 + machineResourceHeight : 0
             let usageHeight = hasUsage ? 1 + machineResourceHeight : 0
@@ -107,14 +108,14 @@ struct CloudTreeStyle: Equatable, Identifiable, Sendable {
     /// too small next to the Files tree).
     static let compact = CloudTreeStyle(
         id: "compact", name: "Compact",
-        rowHeight: 24, machineRowLayout: .singleLine, leafLayout: .singleLine,
+        rowHeight: 22, machineRowLayout: .singleLine, leafLayout: .singleLine,
         iconTreatment: .monochrome, groupLabelStyle: .plain, metaPlacement: .inline,
         machineBand: false, monospacedText: false, rowSeparators: false,
         indentPerLevel: 10,
         machineNameSize: 13, titleSize: 13, detailSize: 11, groupLabelSize: 11.5,
-        iconSize: 11, iconSlot: 16, iconGap: 7,
+        iconSize: 11, iconSlot: 16, iconGap: 4,
         showsGroupCounts: true, showsViewBadges: true, showsMachineStats: true,
-        machineVerticalPadding: 3
+        machineVerticalPadding: 2
     )
 
     /// System Settings voice: filled color squircles with white glyphs, so
