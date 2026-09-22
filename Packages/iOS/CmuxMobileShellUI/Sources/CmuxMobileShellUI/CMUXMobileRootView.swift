@@ -77,6 +77,7 @@ struct CMUXMobileRootView: View {
     #endif
     @State private var openURLTask: Task<Void, Never>?
     @State private var openURLTaskToken: UUID?
+    @State private var startupReconnectRetryTask: Task<Void, Never>?
     #if os(iOS)
     @State private var addDeviceSheetDetent: PresentationDetent = .large
     #endif
@@ -337,6 +338,8 @@ struct CMUXMobileRootView: View {
         }
         .onDisappear {
             cancelOpenURLTask(failure: .cancelled)
+            startupReconnectRetryTask?.cancel()
+            startupReconnectRetryTask = nil
             clearAttachTicketAuthenticationIfNeeded()
         }
         #if os(iOS)
@@ -1092,7 +1095,7 @@ struct CMUXMobileRootView: View {
     /// already authenticated) and `onChange(of: isAuthenticated)` (covers a
     /// sign-in that completes after mount) so the restoring gate always resolves
     /// even when the auth state never transitions while this view is mounted.
-    private func reconnectStoredMacIfNeeded() {
+    private func reconnectStoredMacIfNeeded(allowRetry: Bool = true) {
         guard isAuthenticated,
               didFinishAuthBootstrap,
               !authManager.isRestoringSession else { return }
@@ -1117,11 +1120,18 @@ struct CMUXMobileRootView: View {
         }
         Task {
             defer { restoringGateDeadline.cancel() }
-            _ = await store.reconnectActiveMacIfAvailable(
+            let didReconnect = await store.reconnectActiveMacIfAvailable(
                 stackUserID: stackUserID,
                 hydratePairedMacs: true
             )
             startupConnectionCoordinator.finishStoredReconnect(startupAttempt)
+            guard allowRetry, !didReconnect, !Task.isCancelled else { return }
+            startupReconnectRetryTask?.cancel()
+            startupReconnectRetryTask = Task { @MainActor in
+                try? await ContinuousClock().sleep(for: .seconds(1))
+                guard !Task.isCancelled else { return }
+                reconnectStoredMacIfNeeded(allowRetry: false)
+            }
         }
     }
 
