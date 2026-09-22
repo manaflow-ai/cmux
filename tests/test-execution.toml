@@ -571,6 +571,14 @@ path = "tests/test_check_ghostty_zig_workflows.py"
 lane = "legacy"
 
 [[test]]
+path = "tests/test_ci_actionlint_covers_every_workflow.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_app_host_result_accounting.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_cache_restore_receipt.py"
 lane = "legacy"
 
@@ -587,8 +595,16 @@ path = "tests/test_ci_release_helper_archs.py"
 lane = "legacy"
 
 [[test]]
+path = "tests/test_ci_selective_layer_wiring.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_ubuntu_apt_https.py"
 lane = "legacy"
+
+[[test]]
+path = "tests/test_ci_workflow_guards_are_wired.py"
+lane = "linux-guard"
 
 [[test]]
 path = "tests/test_claude_hook_missing_socket_error.py"
@@ -727,6 +743,14 @@ path = "tests/test_indexnow_notification.py"
 lane = "legacy"
 
 [[test]]
+path = "tests/test_ios_screenshot_capture_guard.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ios_upload_array_expansion.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_iroh_monitor_simulator_plan.py"
 lane = "legacy"
 
@@ -745,6 +769,10 @@ lane = "legacy"
 [[test]]
 path = "tests/test_memory_resource_diagnostics.py"
 lane = "legacy"
+
+[[test]]
+path = "tests/test_merge_xcstrings.py"
+lane = "linux-guard"
 
 [[test]]
 path = "tests/test_mobile_attach_prefers_iroh.py"
@@ -793,6 +821,10 @@ lane = "legacy"
 [[test]]
 path = "tests/test_reconcile_entitlements_with_profile.py"
 lane = "legacy"
+
+[[test]]
+path = "tests/test_release_homebrew_gate.py"
+lane = "linux-guard"
 
 [[test]]
 path = "tests/test_reload_tag_lock.py"
@@ -865,6 +897,10 @@ lane = "legacy"
 [[test]]
 path = "tests/test_tui_installers.py"
 lane = "legacy"
+
+[[test]]
+path = "tests/test_tui_publish_dispatch_budget.py"
+lane = "linux-guard"
 
 [[test]]
 path = "tests/test_tui_publish_workflow_security.py"
