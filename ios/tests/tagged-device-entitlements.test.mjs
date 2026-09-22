@@ -1,4 +1,4 @@
-// Run with: node --test scripts/lib/ios-tagged-device-entitlements.test.mjs
+// Run with: node --test ios/tests/tagged-device-entitlements.test.mjs
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";

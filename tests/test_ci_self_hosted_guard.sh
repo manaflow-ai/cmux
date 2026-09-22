@@ -1510,6 +1510,20 @@ pr_concurrency_cancels_superseded_runs() {
   done
 }
 
+check_ios_only_tests_stay_under_ios() {
+  # ios/** is explicitly macOS-neutral in detect_ci_change_areas.py. Keeping
+  # iOS-only tests under that tree prevents them from accidentally selecting
+  # the expensive macOS compile-admission lane.
+  local misplaced
+  misplaced="$(find "$ROOT_DIR/scripts/lib" -maxdepth 1 -type f -name 'ios-*.test.mjs' -print 2>/dev/null || true)"
+  if [ -n "$misplaced" ]; then
+    echo "FAIL: iOS-only Node tests under scripts/lib trigger macOS compile admission; move them under ios/tests/"
+    printf '%s\n' "$misplaced" | sed "s|$ROOT_DIR/||"
+    return 1
+  fi
+  echo "PASS: iOS-only Node tests stay in the macOS-neutral ios/tests tree"
+}
+
 check_pr_macos_workflows_cancel_superseded_runs() {
   # Without a concurrency group a push never cancels the previous run, and on
   # a fixed pool of macOS runners those dead runs queue ahead of live ones.
@@ -1593,4 +1607,5 @@ check_web_db_behavior_tests
 check_web_test_runner_behavior
 check_tmux_terminal_nightly_isolation
 check_pr_macos_workflows_cancel_superseded_runs
+check_ios_only_tests_stay_under_ios
 check_no_paid_overflow_fallbacks
