@@ -44,6 +44,36 @@ def fetch_pair(workspace: Path, base: str, target: str) -> None:
     run(["git", "fetch", "--no-tags", "--force", "origin", *refs], cwd=workspace)
 
 
+def normalize_tracked_mtimes(workspace: Path, metrics: Path | None = None) -> None:
+    base_seconds = 978_307_200
+    span_seconds = 15 * 365 * 24 * 60 * 60
+    records = subprocess.check_output(
+        ["git", "ls-files", "--recurse-submodules", "--stage", "-z"],
+        cwd=workspace,
+    ).split(b"\0")
+    normalized = 0
+    for record in records:
+        if not record:
+            continue
+        metadata, raw_path = record.split(b"\t", 1)
+        mode, object_id, stage = metadata.split()
+        if mode == b"160000" or stage != b"0":
+            continue
+        path = workspace / os.fsdecode(raw_path)
+        if not os.path.lexists(path):
+            continue
+        digest = object_id.decode("ascii")
+        seconds = base_seconds + int(digest[:12], 16) % span_seconds
+        nanoseconds = int(digest[12:20], 16) % 1_000_000_000
+        mtime_ns = seconds * 1_000_000_000 + nanoseconds
+        os.utime(path, ns=(mtime_ns, mtime_ns), follow_symlinks=False)
+        normalized += 1
+    payload = {"workspace": str(workspace.resolve()), "normalized_files": normalized}
+    if metrics:
+        metrics.write_text(json.dumps(payload, sort_keys=True, indent=2) + "\n")
+    print("CMUX_CANARY_MTIME_NORMALIZATION=" + json.dumps(payload, sort_keys=True), flush=True)
+
+
 def source_fresh(workspace: Path, base: str, target: str, metrics: Path) -> None:
     fetch_pair(workspace, base, target)
     run(["git", "reset", "--hard", target], cwd=workspace)
@@ -376,6 +406,10 @@ def main() -> int:
     p.add_argument("--target", required=True)
     p.add_argument("--metrics", type=Path, required=True)
 
+    p = sub.add_parser("normalize-mtimes")
+    p.add_argument("--workspace", type=Path, required=True)
+    p.add_argument("--metrics", type=Path)
+
     p = sub.add_parser("source-restored")
     p.add_argument("--workspace", type=Path, required=True)
     p.add_argument("--archive", type=Path, required=True)
@@ -409,6 +443,8 @@ def main() -> int:
     args = parser.parse_args()
     if args.command == "source-fresh":
         source_fresh(args.workspace, args.base, args.target, args.metrics)
+    elif args.command == "normalize-mtimes":
+        normalize_tracked_mtimes(args.workspace, args.metrics)
     elif args.command == "source-restored":
         source_restored(args.workspace, args.archive, args.repo_url, args.base, args.target, args.metrics, args.synthetic_merge)
     elif args.command == "archive":
