@@ -2346,12 +2346,35 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         presenter.present()
     }
 
+    static func shouldPersistQuitConfirmationSuppression(
+        response: NSApplication.ModalResponse,
+        suppressionState: NSControl.StateValue
+    ) -> Bool {
+        response == .alertFirstButtonReturn && suppressionState == .on
+    }
+
+    static func shouldShowQuitConfirmation(
+        store: QuitConfirmationStore,
+        isQuitWarningConfirmed: Bool,
+        hasDirtyWorkspaces: Bool,
+        isDevBuild: Bool
+    ) -> Bool {
+        store.shouldShowConfirmation(
+            isQuitWarningConfirmed: isQuitWarningConfirmed,
+            hasDirtyWorkspaces: hasDirtyWorkspaces,
+            isDevBuild: isDevBuild
+        )
+    }
+
     private func handleApplicationTerminateQuitConfirmationResponse(
         _ response: NSApplication.ModalResponse,
         suppressionState: NSControl.StateValue
     ) {
-        if suppressionState == .on {
-            QuitConfirmationStore(defaults: .standard).setEnabled(false)
+        if Self.shouldPersistQuitConfirmationSuppression(
+            response: response,
+            suppressionState: suppressionState
+        ) {
+            QuitConfirmationStore(defaults: .standard).setMode(.never)
         }
 
         let shouldQuit = response == .alertFirstButtonReturn
@@ -2401,7 +2424,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         // If the user already confirmed via the Cmd+Q shortcut warning dialog,
         // or policy skips the warning, avoid a second alert.
-        if !quitConfirmationStore.shouldShowConfirmation(
+        if !Self.shouldShowQuitConfirmation(
+            store: quitConfirmationStore,
             isQuitWarningConfirmed: isQuitWarningConfirmed,
             hasDirtyWorkspaces: hasDirtyWorkspaces,
             isDevBuild: buildFlavor == .dev
@@ -14550,8 +14574,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func handleQuitShortcutWarning(
-        onCancel: (() -> Void)? = nil,
-        forceConfirmation: Bool = false
+        onCancel: (() -> Void)? = nil
     ) -> Bool {
         if let activeQuitConfirmationAlertPresenter {
             if let onCancel {
@@ -14559,7 +14582,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
             return true
         }
-        if !forceConfirmation && !QuitConfirmationStore(defaults: .standard).shouldShowConfirmation(
+        if !Self.shouldShowQuitConfirmation(
+            store: QuitConfirmationStore(defaults: .standard),
             isQuitWarningConfirmed: false,
             hasDirtyWorkspaces: hasQuitConfirmationDirtyWorkspaces(),
             isDevBuild: BuildFlavor.current == .dev
@@ -14569,8 +14593,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         presentQuitConfirmationAlert(ownsTerminateRequest: false) { [weak self] response, suppressionState in
-            if suppressionState == .on {
-                QuitConfirmationStore(defaults: .standard).setEnabled(false)
+            if Self.shouldPersistQuitConfirmationSuppression(
+                response: response,
+                suppressionState: suppressionState
+            ) {
+                QuitConfirmationStore(defaults: .standard).setMode(.never)
             }
 
             if response == .alertFirstButtonReturn {
@@ -18559,13 +18586,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
-        // The "Don't warn again for Cmd+Q" preference does not apply here:
-        // Ctrl+D has already exited the sole shell, so this decision must offer
-        // Cancel as the only way to recover a terminal instead of quitting cmux.
-        _ = handleQuitShortcutWarning(
-            onCancel: onCancel,
-            forceConfirmation: onCancel != nil
-        )
+        // A sole-terminal child exit follows the same app.confirmQuit policy as
+        // every other app-quit path. When a confirmation is required, onCancel
+        // remains available to recover the exited terminal.
+        _ = handleQuitShortcutWarning(onCancel: onCancel)
         return false
     }
 
