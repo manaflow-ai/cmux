@@ -208,11 +208,6 @@ struct CloudTreeOneMachineManyWorkspacesTests {
             "machine:brave-otter/displays/placeholder",
             "machine:brave-otter/terminals",
             "resource:brave-otter/terminal/term_1",
-            "machine:brave-otter/resources",
-            "machine:brave-otter/resources/cpu",
-            "machine:brave-otter/resources/memory",
-            "machine:brave-otter/resources/disk",
-            "machine:brave-otter/resources/usage",
         ], "the group is its own row above the lone workspace — never folded into it")
         let group = try #require(tree.first { $0.id == "machine:brave-otter/workspaces" })
         #expect(group.structureTag == "workspacesGroup")
@@ -262,11 +257,6 @@ struct CloudTreeOneMachineManyWorkspacesTests {
             "resource:brave-otter/terminal/term_2",
             "resource:brave-otter/terminal/term_3",
             "resource:brave-otter/terminal/term_shared",
-            "machine:brave-otter/resources",
-            "machine:brave-otter/resources/cpu",
-            "machine:brave-otter/resources/memory",
-            "machine:brave-otter/resources/disk",
-            "machine:brave-otter/resources/usage",
         ], "the machine's four groups in order, Terminals last; a daemon browser in no workspace gets no group of its own")
         let byID = Dictionary(tree.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         // Terminals lists every terminal the machine owns, one row per identity — the
@@ -297,7 +287,7 @@ struct CloudTreeOneMachineManyWorkspacesTests {
         ])
         // Displays is one row per screen; the group is searchable under that name.
         #expect(byID["machine:brave-otter/displays"]?.searchableTitle == "Displays")
-        #expect(tree.last?.id == "machine:brave-otter/resources/usage", "Resources is the machine's final section")
+        #expect(tree.last?.id == "resource:brave-otter/terminal/term_shared", "Terminals is the machine's last section")
     }
 
     @Test("An empty machine still offers Workspaces, Ports, Displays, and Terminals")
@@ -314,11 +304,6 @@ struct CloudTreeOneMachineManyWorkspacesTests {
             "machine:brave-otter/displays/placeholder",
             "machine:brave-otter/terminals",
             "machine:brave-otter/terminals/placeholder",
-            "machine:brave-otter/resources",
-            "machine:brave-otter/resources/cpu",
-            "machine:brave-otter/resources/memory",
-            "machine:brave-otter/resources/disk",
-            "machine:brave-otter/resources/usage",
         ])
         for groupID in ["machine:brave-otter/workspaces", "machine:brave-otter/terminals"] {
             let group = try #require(tree.first { $0.id == groupID })
@@ -650,11 +635,6 @@ struct CloudTreeOneMachineManyWorkspacesTests {
             "resource:brave-otter/terminal/term_1",
             "resource:brave-otter/terminal/term_bg",
             "resource:brave-otter/terminal/term_2",
-            "machine:brave-otter/resources",
-            "machine:brave-otter/resources/cpu",
-            "machine:brave-otter/resources/memory",
-            "machine:brave-otter/resources/disk",
-            "machine:brave-otter/resources/usage",
         ], "no row for it under any workspace; one row for it in Terminals, like every other terminal")
         let byID = Dictionary(tree.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         guard case .terminal(let poolRow) = try #require(byID["resource:brave-otter/terminal/term_bg"]).kind,
@@ -691,13 +671,13 @@ struct CloudTreeOneMachineManyWorkspacesTests {
         let snapshot = SurfaceCatalogSnapshot(machines: [info(workspaces: [main], hasDesktop: true)], resources: [first, second], projections: [])
         let tree = rows(snapshot)
         #expect(tree.map(\.id).suffix(5) == [
-            "machine:brave-otter/resources",
-            "machine:brave-otter/resources/cpu",
-            "machine:brave-otter/resources/memory",
-            "machine:brave-otter/resources/disk",
-            "machine:brave-otter/resources/usage",
-        ], "Resources is the machine's final section")
-        guard case .displaysPool(_, let count) = try #require(tree.first { $0.id == "machine:brave-otter/displays" }).kind else {
+            "machine:brave-otter/displays",
+            "resource:brave-otter/display/display:1",
+            "resource:brave-otter/display/display:2",
+            "machine:brave-otter/terminals",
+            "machine:brave-otter/terminals/placeholder",
+        ], "the screens sit above the Terminals section")
+        guard case .displaysPool(_, let count, _) = try #require(tree.first { $0.id == "machine:brave-otter/displays" }).kind else {
             Issue.record("expected the Displays group"); return
         }
         #expect(count == 2)
