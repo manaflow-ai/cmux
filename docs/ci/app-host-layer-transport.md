@@ -47,10 +47,11 @@ Missing, expired, malformed, corrupted or wrong-origin layers leave the existing
 aggregate destination untouched and emit `hit=false`. Local assembly publishes
 only to an absent task-owned sibling using the canonical no-replace assembler.
 Only a successful verified assembly updates the consumer's DerivedData path.
-The ordinary restore step still validates real producer warning-log bytes and
-the warning budget, stages package frameworks, and performs product provenance
-checks and checkout/toolchain path relocation. A failure in these semantic
-checks fails validation; it does not turn into an artifact fallback or bypass.
+The current canonical app-host restore path stages package frameworks and runs
+the product's provenance, checkout, and toolchain validation after transport.
+Layer transport does not revive retired warning-log fields from older product
+receipts. A failure in current semantic validation fails the consumer; it does
+not turn into an artifact fallback or bypass.
 
 ## Canary receipts
 
@@ -72,8 +73,8 @@ Run the cheap contract checks with:
 
 ```sh
 python3 tests/test_app_host_layer_transport.py
-python3 tests/test_ci_layered_product_wiring.py
-python3 tests/test_ci_product_publication.py
+python3 tests/test_app_host_layered_products.py
+bash tests/test_app_host_products_archive.sh
 ```
 
 On macOS, the transport test includes a real Apple Archive pack/fetch/restore
