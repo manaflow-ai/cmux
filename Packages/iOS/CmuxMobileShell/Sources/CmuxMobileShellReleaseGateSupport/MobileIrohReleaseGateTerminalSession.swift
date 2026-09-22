@@ -19,6 +19,9 @@ public final class MobileIrohReleaseGateTerminalSession {
         var probe: MobileIrohReleaseGateTerminalProbe
         let completion: AsyncStream<Void>.Continuation
     }
+    private struct ClientBox: @unchecked Sendable {
+        let value: any MobileIrohReleaseGateTerminalClient
+    }
     private let client: any MobileIrohReleaseGateTerminalClient
     private var state = State.idle
     private var pending: Pending?
@@ -58,16 +61,24 @@ public final class MobileIrohReleaseGateTerminalSession {
         }
         do {
             try await withThrowingTaskGroup(of: Void.self) { group in
-                let client = self.client
+                let client = ClientBox(value: self.client)
                 let command = probe.command
-                group.addTask { @MainActor in
-                    await client.submitTerminalRawInput(command, surfaceID: surfaceID)
-                    try Task.checkCancellation()
-                    for try await _ in proof {
+                let submitTask = Task { @MainActor in
+                    await client.value.submitTerminalRawInput(command, surfaceID: surfaceID)
+                }
+                defer { submitTask.cancel() }
+                group.addTask {
+                    try await withTaskCancellationHandler {
+                        await submitTask.value
                         try Task.checkCancellation()
-                        return
+                        for try await _ in proof {
+                            try Task.checkCancellation()
+                            return
+                        }
+                        throw MobileIrohReleaseGateProbeFailure.terminalRoundTripFailed
+                    } onCancel: {
+                        submitTask.cancel()
                     }
-                    throw MobileIrohReleaseGateProbeFailure.terminalRoundTripFailed
                 }
                 group.addTask {
                     try await ContinuousClock().sleep(for: Self.verificationTimeout)

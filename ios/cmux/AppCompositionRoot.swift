@@ -42,8 +42,7 @@ final class AppCompositionRoot {
     /// host view lifetime.
     let keyboardFrameTracker = MobileKeyboardFrameTracker()
     private var pushReachabilityTask: Task<Void, Never>? = nil
-    /// The user's Auto-Connect vs Tailscale connection-method choice, shared by
-    /// the shell store (dial ordering) and the Settings/onboarding UI.
+    /// The legacy connection-method choice used only by onboarding and migration UI.
     let connectionMethodStore: MobileConnectionMethodStore
     /// One-time BETA migration eligibility, snapshotted before launch writes.
     let autoConnectMigrationStore: MobileAutoConnectMigrationStore

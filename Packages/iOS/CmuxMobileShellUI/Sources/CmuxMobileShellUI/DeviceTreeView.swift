@@ -30,9 +30,6 @@ struct DeviceTreeView: View {
     /// Live app routes dismiss through the root modal owner. Standalone hosts
     /// leave this nil and retain the environment dismissal fallback.
     var dismissAction: (() -> Void)? = nil
-    @Environment(MobileConnectionMethodStore.self) private var connectionMethodStore:
-        MobileConnectionMethodStore?
-
     /// The user's computers as immutable snapshots, sourced from the paired-Mac
     /// backup (`pairedMacs`) — this feature's source of truth, the same set that
     /// feeds the workspace aggregation, and the one ``CMUXMobileShellStore/hideMac``
@@ -200,9 +197,6 @@ struct DeviceTreeView: View {
     }
 
     private var emptyDescription: String {
-        if connectionMethodStore?.method == .tailscale {
-            return MobilePairingScannerSheet.emptyStateGuidanceText
-        }
         let description = showAddDevice != nil
             ? L10n.string(
                 "mobile.v2.connections.empty",

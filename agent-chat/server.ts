@@ -238,6 +238,10 @@ function sessionSummary(s: Session) {
     title: s.title,
     status: s.status,
     createdAt: s.createdAt,
+    conversationId: s.conversationId,
+    parentSessionId: s.parentSessionId,
+    parentConversationId: s.parentConversationId,
+    startRequestId: s.startRequestId,
     capabilities: capabilitiesFor(s.provider),
   };
 }
@@ -341,6 +345,12 @@ function createSession(
   autoApprove: boolean,
   title: string,
   startOptions: Record<string, OptionValue> = {},
+  lineage: {
+    conversationId?: string;
+    parentSessionId?: string;
+    parentConversationId?: string;
+    startRequestId?: string;
+  } = {},
 ): Session {
   const adapter = adapters.get(provider);
   if (!adapter) throw new Error(`unknown provider: ${provider}`);
@@ -350,6 +360,10 @@ function createSession(
     provider,
     cwd,
     title,
+    conversationId: lineage.conversationId ?? crypto.randomUUID(),
+    parentSessionId: lineage.parentSessionId,
+    parentConversationId: lineage.parentConversationId,
+    startRequestId: lineage.startRequestId,
     autoApprove,
     startOptions,
     seedOptions: optionCatalog.get(provider)?.options,
@@ -385,6 +399,17 @@ function createSession(
   sessions.set(id, sess);
   broadcastSessions();
   return sess;
+}
+
+function emitRouting(
+  sess: Session,
+  input: Omit<Extract<AgentEvent, { kind: "routing" }>, "kind" | "conversationId"> & { conversationId?: string },
+) {
+  sess.emit({
+    kind: "routing",
+    ...input,
+    conversationId: input.conversationId ?? sess.conversationId ?? sess.id,
+  });
 }
 
 function emitSessionEvent(sess: Session, evt: AgentEvent) {
@@ -542,7 +567,8 @@ function emitDoneAfterFiles(sess: Session, evt: InternalDoneEvent) {
   });
 }
 
-function sendPrompt(sess: Session, prompt: string) {
+function sendPrompt(sess: Session, prompt: string, requestId = crypto.randomUUID()) {
+  emitRouting(sess, { phase: "started", requestId, attempt: 1, provider: sess.provider });
   const activeGeneration = activeAttributionGeneration(sess);
   if (adapterAttributionMode(sess) === "current-turn" && activeGeneration) {
     sess.emit({ kind: "user", text: prompt });
@@ -588,14 +614,30 @@ function refreshSession(sess: Session) {
   });
 }
 
-async function forkSession(source: Session): Promise<Session> {
+async function forkSession(source: Session, reason = "fork"): Promise<Session> {
+  if (source.status === "running") {
+    throw new Error("cannot continue elsewhere while a turn is running");
+  }
   if (!source.adapter.forkSession) throw new Error(`${source.provider} does not support fork`);
   await assertCwd(source.cwd);
-  const fork = createSession(source.provider, source.cwd, source.autoApprove, source.title, { ...source.startOptions });
+  const fork = createSession(source.provider, source.cwd, source.autoApprove, source.title, { ...source.startOptions }, {
+    parentSessionId: source.id,
+    parentConversationId: source.conversationId,
+  });
   fork.events = source.events.slice();
   rebuildFileDiffAllowlist(fork);
   try {
     await source.adapter.forkSession(source, fork);
+    emitRouting(fork, {
+      phase: "handoff",
+      requestId: crypto.randomUUID(),
+      attempt: 1,
+      parentSessionId: source.id,
+      parentConversationId: source.conversationId,
+      provider: fork.provider,
+      reason,
+      handoffMode: "native_fork",
+    });
     refreshSession(fork);
     return fork;
   } catch (err) {
@@ -604,6 +646,15 @@ async function forkSession(source: Session): Promise<Session> {
     broadcastSessions();
     throw err;
   }
+}
+
+/**
+ * User-facing continuation. This is deliberately separate from the legacy
+ * `fork` operation: callers can distinguish an intentional handoff from a
+ * branching experiment while both use the provider-native context transfer.
+ */
+async function handoffSession(source: Session): Promise<Session> {
+  return forkSession(source, "user_handoff");
 }
 
 async function checkCwd(cwd: string): Promise<{ ok: boolean; message?: string }> {
@@ -1989,14 +2040,20 @@ function handleMessage(ws: Bun.ServerWebSocket<WsData>, msg: any) {
       const cwd = String(msg.cwd || DEFAULT_CWD);
       const title = prompt.length > 64 ? prompt.slice(0, 64) + "…" : prompt;
       const provider = String(msg.provider);
+      const conversationId = typeof msg.conversationId === "string" && msg.conversationId ? msg.conversationId : undefined;
+      const parentSessionId = typeof msg.parentSessionId === "string" && msg.parentSessionId ? msg.parentSessionId : undefined;
       const autoApprove = msg.autoApprove !== false;
       const rawOptions = applyAutoApproveDefaults(provider, autoApprove, parseOptions(msg.options));
       pruneStartRequests();
       const existing = requestId ? startRequests.get(requestId) : undefined;
       const startPromise = existing?.promise ?? Promise.resolve(assertCwd(cwd).then(() => sanitizeStartOptions(provider, cwd, rawOptions))).then((options) => {
-        const sess = createSession(provider, cwd, autoApprove, title, options);
+        const sess = createSession(provider, cwd, autoApprove, title, options, {
+          conversationId,
+          parentSessionId,
+          startRequestId: requestId,
+        });
         refreshSession(sess);
-        sendPrompt(sess, prompt);
+        sendPrompt(sess, prompt, requestId ?? crypto.randomUUID());
         return sess;
       });
       if (requestId && !existing) {
@@ -2009,7 +2066,8 @@ function handleMessage(ws: Bun.ServerWebSocket<WsData>, msg: any) {
       }
       startPromise.then((sess) => {
         subscribe(ws, sess);
-        ws.send(JSON.stringify({ kind: "session-created", session: sessionSummary(sess), requestId }));
+        const routing = [...sess.events].reverse().find((evt) => evt.kind === "routing");
+        ws.send(JSON.stringify({ kind: "session-created", session: sessionSummary(sess), requestId, routing }));
         if (existing) {
           ws.send(JSON.stringify({
             kind: "history",
@@ -2043,7 +2101,8 @@ function handleMessage(ws: Bun.ServerWebSocket<WsData>, msg: any) {
       const sess = sessions.get(String(msg.sessionId));
       const prompt = String(msg.prompt ?? "").trim();
       if (!sess || !prompt) return;
-      sendPrompt(sess, prompt);
+      const requestId = typeof msg.requestId === "string" && msg.requestId ? msg.requestId : crypto.randomUUID();
+      sendPrompt(sess, prompt, requestId);
       break;
     }
     case "subscribe": {
@@ -2089,6 +2148,20 @@ function handleMessage(ws: Bun.ServerWebSocket<WsData>, msg: any) {
         .catch((err) => {
           sess.emit({ kind: "error", message: safeErrorMessage("fork", err) });
           sendWsErrorDetails(ws, "fork", err, { sessionId: sess.id });
+        });
+      break;
+    }
+    case "handoff": {
+      const sess = sessions.get(String(msg.sessionId));
+      if (!sess) {
+        sendWsErrorDetails(ws, "handoff", new Error("no session"), { sessionId: String(msg.sessionId ?? "") });
+        return;
+      }
+      Promise.resolve(handoffSession(sess))
+        .then((child) => ws.send(JSON.stringify({ kind: "session-handoff", session: sessionSummary(child), sourceSessionId: sess.id })))
+        .catch((err) => {
+          sess.emit({ kind: "error", message: safeErrorMessage("handoff", err) });
+          sendWsErrorDetails(ws, "handoff", err, { sessionId: sess.id });
         });
       break;
     }
