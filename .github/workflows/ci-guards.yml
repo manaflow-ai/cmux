@@ -140,6 +140,9 @@ jobs:
       - name: "Validate Swift Testing #require is not nested"
         if: ${{ matrix.group == 'preflight' }}
         run: python3 tests/test_swift_testing_require_not_nested.py
+      - name: Validate pairing tests name their URL scheme
+        if: ${{ matrix.group == 'preflight' }}
+        run: python3 tests/test_pairing_scheme_is_explicit_in_tests.py
       - name: Validate Python test harness syntax
         if: ${{ matrix.group == 'preflight' }}
         run: git ls-files 'tests/*.py' 'tests_v2/*.py' 'scripts/*.py' | xargs python3 -m py_compile

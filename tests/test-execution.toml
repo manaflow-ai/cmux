@@ -839,6 +839,10 @@ path = "tests/test_opencode_plugin_install.py"
 lane = "legacy"
 
 [[test]]
+path = "tests/test_pairing_scheme_is_explicit_in_tests.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_plain_text_paste_worker.py"
 lane = "legacy"
 
