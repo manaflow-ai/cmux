@@ -30625,11 +30625,14 @@ struct CMUXCLI {
             }
 
             if let currentTranscriptPath = transcriptPath {
-                if let userInput = readCodexTranscriptUserInput(
-                    path: currentTranscriptPath,
-                    turnId: turnId,
-                    excluding: publishedUserInputCallIds
-                ) {
+                let userInput = autoreleasepool {
+                    readCodexTranscriptUserInput(
+                        path: currentTranscriptPath,
+                        turnId: turnId,
+                        excluding: publishedUserInputCallIds
+                    )
+                }
+                if let userInput {
                     publishedUserInputCallIds.insert(userInput.callId)
                     publishCodexMonitorUserInput(
                         userInput,
@@ -30639,11 +30642,14 @@ struct CMUXCLI {
                     )
                 }
 
-                switch readCodexTranscriptFailure(
-                    path: currentTranscriptPath,
-                    turnId: turnId,
-                    requireTerminalCompletion: true
-                ) {
+                let failureResult = autoreleasepool {
+                    readCodexTranscriptFailure(
+                        path: currentTranscriptPath,
+                        turnId: turnId,
+                        requireTerminalCompletion: true
+                    )
+                }
+                switch failureResult {
                 case .failure(let failure):
                     publishCodexMonitorFailure(
                         failure,
