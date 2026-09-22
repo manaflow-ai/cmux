@@ -260,6 +260,19 @@ def test_pbx_list_ids_accepts_bare_and_commented_references() -> None:
     ]
 
 
+def test_pbx_list_ids_rejects_present_malformed_optional_lists() -> None:
+    assert module._pbx_list_ids("name = cmux;", "dependencies") == []
+    assert module._pbx_list_ids("dependencies = (\n);", "dependencies") == []
+
+    for body in ("dependencies = (\nTARGET,\n", "dependencies = TARGET;"):
+        try:
+            module._pbx_list_ids(body, "dependencies")
+        except ValueError as error:
+            assert "unreadable pbx list dependencies" in str(error)
+        else:
+            raise AssertionError("present malformed optional PBX list must fail open")
+
+
 def test_macos_ios_package_closure_matches_current_desktop_graph() -> None:
     assert module.macos_ios_package_closure(ROOT) == frozenset(
         {
@@ -293,6 +306,27 @@ def test_ios_package_routing_follows_desktop_dependency_closure() -> None:
         actual = module.classify_files([path])
         assert actual.macos is False, (path, actual)
         assert actual.release_build is False, (path, actual)
+
+
+def test_ios_package_routing_preserves_nested_package_roots() -> None:
+    original = module.load_macos_ios_package_closure
+    module.load_macos_ios_package_closure = lambda: frozenset(
+        {"Packages/iOS/Group/Leaf"}
+    )
+    try:
+        covered = module.classify_files(
+            ["Packages/iOS/Group/Leaf/Sources/Leaf/Probe.swift"]
+        )
+        sibling = module.classify_files(
+            ["Packages/iOS/Group/Other/Sources/Other/Probe.swift"]
+        )
+    finally:
+        module.load_macos_ios_package_closure = original
+
+    assert covered.macos is True, covered
+    assert covered.release_build is True, covered
+    assert sibling.macos is False, sibling
+    assert sibling.release_build is False, sibling
 
 
 def test_recent_ios_pr_shapes_skip_unobservable_macos_compile() -> None:
