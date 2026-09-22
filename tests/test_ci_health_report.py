@@ -581,6 +581,9 @@ class WorkflowStructureTests(unittest.TestCase):
         )
         self.assertNotIn("inputs.skip_issue && ''", self.text)
 
+    def test_it_allows_enough_time_for_a_few_hundred_api_calls(self):
+        self.assertIn("timeout-minutes: 30", self.text)
+
     def test_it_never_opens_an_issue(self):
         self.assertNotIn("create-issue", self.text)
         self.assertIn("No issue is ever opened automatically", self.text)

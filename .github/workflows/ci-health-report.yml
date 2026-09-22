@@ -50,7 +50,10 @@ jobs:
   report:
     name: Report CI health
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
-    timeout-minutes: 15
+    # Measured against this repo: a window's run listings plus ~160 job
+    # listings is a few hundred calls, and the Actions API answers each one
+    # in seconds on a repo this size. 15 minutes was not enough headroom.
+    timeout-minutes: 30
     steps:
       - name: Check out trusted report code
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
