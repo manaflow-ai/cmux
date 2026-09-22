@@ -9,7 +9,7 @@ on:
         required: false
         default: ""
       test_filter:
-        description: "UI test class or class/method, for example cmuxUITests/testSignInPairingAndWorkspaceShell"
+        description: "UI test target/class or target/class/method, for example cmuxUITests/cmuxUITests/testSignInPairingAndWorkspaceShell"
         required: false
         default: ""
       swift_package:
@@ -66,6 +66,11 @@ on:
 permissions:
   contents: read
 
+# A called workflow does not inherit the caller's workflow-level env, so the
+# R2 cache URL must be declared here or every R2 restore reports a miss.
+env:
+  CI_CACHE_R2_PUBLIC_URL: ${{ vars.CI_CACHE_R2_PUBLIC_URL || 'https://ci-cache.cmux.com' }}
+
 jobs:
   detect-ios-changes:
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
@@ -79,7 +84,10 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: ${{ github.ref }}
-          fetch-depth: 0
+          # Manual dispatch only needs this workflow revision. Preserve full
+          # history automatically if pull_request routing is re-enabled later,
+          # because that path computes a merge base below.
+          fetch-depth: ${{ github.event_name == 'pull_request' && '0' || '1' }}
           persist-credentials: false
           submodules: false
 

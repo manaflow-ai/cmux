@@ -331,6 +331,7 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     var headlessStartupWindow: NSWindow?
     var surfaceCallbackContext: Unmanaged<GhosttySurfaceCallbackContext>?
     var agentCommandShims: AgentCommandShimSet?
+    var agentCommandShimSpawnPolicy: TerminalSurfaceSpawnPolicy?
     var agentCommandShimInstallTask: Task<AgentCommandShimSet?, Never>?
     var agentCommandShimCompletionTask: Task<Void, Never>?
     var agentCommandShimDeadlineTask: Task<Void, Never>?

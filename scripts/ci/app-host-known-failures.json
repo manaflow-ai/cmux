@@ -1,0 +1,6 @@
+{
+  "_comment": "Temporary known-main app-host failures. Bootstrap entries come only from a reproducible current-main census. After bootstrap this set may only shrink.",
+  "bootstrap_main_sha": null,
+  "version": 1,
+  "tests": {}
+}

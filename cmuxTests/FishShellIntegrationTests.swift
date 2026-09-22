@@ -164,6 +164,34 @@ struct FishShellIntegrationTests {
     }
 
     @Test(.enabled(if: fishExecutablePath != nil))
+    func testFishClaudeIntegrationToggleControlsWrapperAndShim() throws {
+        _ = try requireFishExecutable()
+        let probe = """
+        if functions -q claude
+            printf 'function=1\\n'
+        else
+            printf 'function=0\\n'
+        end
+        if set -q CMUX_CLAUDE_WRAPPER_SHIM; and test -x "$CMUX_CLAUDE_WRAPPER_SHIM"
+            printf 'shim=1\\n'
+        else
+            printf 'shim=0\\n'
+        end
+        """
+
+        let enabled = try runInteractiveFish(command: probe)
+        expectTrue(enabled.stdout.contains("function=1"), enabled.stdout)
+        expectTrue(enabled.stdout.contains("shim=1"), enabled.stdout)
+
+        let disabled = try runInteractiveFish(
+            command: probe,
+            extraEnvironment: ["CMUX_CLAUDE_INTEGRATION_DISABLED": "1"]
+        )
+        expectTrue(disabled.stdout.contains("function=0"), disabled.stdout)
+        expectTrue(disabled.stdout.contains("shim=0"), disabled.stdout)
+    }
+
+    @Test(.enabled(if: fishExecutablePath != nil))
     func testFishIntegrationRelayPromptReportsPWD() throws {
         _ = try requireFishExecutable()
         let fileManager = FileManager.default
