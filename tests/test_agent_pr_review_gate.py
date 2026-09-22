@@ -109,6 +109,8 @@ class AgentPRReviewGateTests(unittest.TestCase):
         self.assertIn("pull_request_review:", workflow)
         self.assertIn("issue_comment:", workflow)
         self.assertIn("github.event.pull_request.number || github.event.issue.number", workflow)
+        self.assertIn("startsWith(github.event.comment.user.login, 'greptile-apps')", workflow)
+        self.assertIn("github.event.comment.user.login || 'review-state'", workflow)
         self.assertIn("github.event.pull_request.base.sha || github.event.repository.default_branch", workflow)
         self.assertIn("AGENT_REQUIRED_REVIEW_COVERAGE_BOTS || 'greptile-apps'", workflow)
         self.assertIn("checks: read", workflow)
