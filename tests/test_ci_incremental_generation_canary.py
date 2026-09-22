@@ -275,6 +275,33 @@ class IncrementalGenerationCanaryTests(unittest.TestCase):
                 archive.addfile(member)
             with self.assertRaises(SystemExit):
                 bench.validate_tar_archive(escaping)
+    def test_archive_validator_allows_only_in_root_absolute_derived_symlinks(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            derived = root / "derived"
+            derived.mkdir()
+            archive = root / "derived.tar.gz"
+            inside = derived / "Build/Products/Debug/lib.dylib"
+            with tarfile.open(archive, "w:gz") as tar:
+                member = tarfile.TarInfo("Build/Intermediates.noindex/link")
+                member.type = tarfile.SYMTYPE
+                member.linkname = str(inside)
+                tar.addfile(member)
+
+            stats = bench.validate_tar_archive(
+                archive,
+                allowed_absolute_symlink_root=derived,
+            )
+            self.assertEqual(stats["absolute_symlink_count"], 1)
+
+            with self.assertRaises(SystemExit):
+                bench.validate_tar_archive(archive)
+            with self.assertRaises(SystemExit):
+                bench.validate_tar_archive(
+                    archive,
+                    allowed_absolute_symlink_root=root / "relocated",
+                )
+
     def test_archive_keeps_only_bounded_derived_data_set(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
