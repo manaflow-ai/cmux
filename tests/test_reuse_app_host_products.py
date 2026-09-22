@@ -9,9 +9,11 @@ from unittest import mock
 import shutil
 import sys
 import tarfile
+import subprocess
 import unittest
 import zipfile
 from pathlib import Path
+from urllib.parse import parse_qs
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts/ci"))
 import reuse_app_host_products as reuse
@@ -629,15 +631,20 @@ class ReuseProducts(TestProductHandoff):
 
     def test_candidate_lookup_is_bounded(self):
         original_get = self.api.get
-        artifact_pages = []
+        artifact_queries = []
         def no_matches(path):
             if path.startswith("actions/artifacts?"):
-                artifact_pages.append(path)
+                artifact_queries.append(path)
                 return {"artifacts": [{"name": "unrelated"} for _ in range(100)]}
             return original_get(path)
         with mock.patch.object(self.api, "get", side_effect=no_matches):
             self.assertFalse(self.restore_reuse())
-        self.assertEqual(len(artifact_pages), 3)
+        # One exact-name request per plausible producer attempt, never a page scan.
+        self.assertEqual(
+            artifact_queries,
+            [f"actions/artifacts?name={reuse.artifact_name(self.contract, attempt)}&per_page=100"
+             for attempt in (1, 2, 3)],
+        )
 
         prefix = reuse.PREFIX + reuse.key(self.contract) + "-1"
         candidates = [
@@ -662,6 +669,103 @@ class ReuseProducts(TestProductHandoff):
         with mock.patch.object(self.api, "get", side_effect=six_candidates):
             self.assertFalse(self.restore_reuse())
         self.assertEqual(len(attempts), 6)
+
+    def test_exact_name_lookup_finds_artifact_outside_recent_listing_window(self):
+        # Retention is days, while the newest few hundred repository artifacts
+        # span minutes. An artifact this old is reachable by name only.
+        self.api.artifact["created_at"] = "2026-09-19T08:00:00Z"
+        self.assertTrue(self.restore_reuse())
+        self.assertEqual(
+            self.api.artifact_queries,
+            [f"actions/artifacts?name={reuse.artifact_name(self.contract, attempt)}&per_page=100"
+             for attempt in (1, 2, 3)],
+        )
+
+    def test_earlier_producer_attempt_is_reachable_by_name(self):
+        self.api.run["run_attempt"] = 2
+        self.api.artifact["name"] = reuse.artifact_name(self.contract, 2)
+        self.seal()
+        self.assertTrue(self.restore_reuse())
+
+    def test_artifact_of_another_contract_is_never_a_candidate(self):
+        self.api.artifact["name"] = reuse.PREFIX + "0" * 64 + "-1"
+        report = {}
+        with mock.patch.object(self.api, "download") as download:
+            self.assertFalse(self.restore_reuse(report=report))
+            download.assert_not_called()
+        self.assertIn("no_matching_contract_artifact", report["miss_reasons"])
+        self.assertFalse(self.consumer.exists())
+
+    def test_named_candidate_still_requires_producer_validation(self):
+        cases = {
+            "untrusted_producer": (
+                lambda: self.api.run.update({"head_repository": {"full_name": "fork/cmux"}}),
+                "producer_consumer_pair_disallowed",
+            ),
+            "failed_compile": (
+                lambda: self.api.job.update({"conclusion": "failure"}),
+                "producer_compile_unsuccessful",
+            ),
+            "product_inputs_changed": (
+                lambda: self.api.product_identities.__setitem__(
+                    "abc123", {**self.contract["product_inputs"], "source": "f" * 64}),
+                "producer_product_inputs_mismatch",
+            ),
+            "oversize_archive": (
+                lambda: self.api.artifact.update({"size_in_bytes": reuse.MAX_ARCHIVE_BYTES + 1}),
+                "artifact_oversize",
+            ),
+            "expired_artifact": (
+                lambda: self.api.artifact.update({"expired": True}),
+                "artifact_expired",
+            ),
+            "missing_digest": (
+                lambda: self.api.artifact.pop("digest"),
+                "artifact_digest_missing",
+            ),
+        }
+        for name, (mutate, expected) in cases.items():
+            with self.subTest(name=name):
+                self.setUp()
+                mutate()
+                report = {}
+                with mock.patch.object(self.api, "download") as download:
+                    self.assertFalse(self.restore_reuse(report=report))
+                    download.assert_not_called()
+                self.assertIn(expected, report["miss_reasons"])
+                self.assertFalse(self.consumer.exists())
+
+    def test_artifact_listing_errors_are_misses_not_failures(self):
+        original_get = self.api.get
+        cases = {
+            "api_error": subprocess.CalledProcessError(1, "gh"),
+            "transport_error": OSError("artifact listing unavailable"),
+            "invalid_json": ValueError("no JSON object could be decoded"),
+        }
+        for name, error in cases.items():
+            with self.subTest(name=name):
+                def failing(path, error=error):
+                    if path.startswith("actions/artifacts?"):
+                        raise error
+                    return original_get(path)
+                report = {}
+                with mock.patch.object(self.api, "get", side_effect=failing), \
+                        mock.patch.object(self.api, "download") as download:
+                    self.assertFalse(self.restore_reuse(report=report))
+                    download.assert_not_called()
+                self.assertIn("artifact_listing_unavailable", report["miss_reasons"])
+                self.assertIn("no_matching_contract_artifact", report["miss_reasons"])
+                self.assertFalse(self.consumer.exists())
+
+        def malformed(path):
+            if path.startswith("actions/artifacts?"):
+                return {"artifacts": "not-a-list"}
+            return original_get(path)
+        report = {}
+        with mock.patch.object(self.api, "get", side_effect=malformed):
+            self.assertFalse(self.restore_reuse(report=report))
+        self.assertIn("artifact_listing_invalid", report["miss_reasons"])
+        self.assertFalse(self.consumer.exists())
 
     def test_multi_hop_reuse_preserves_original_producer(self):
         first_report = {}
@@ -755,6 +859,7 @@ class FakeGitHub:
             "workflow_run": {"id": 12},
         }
         self.artifacts = [self.artifact]
+        self.artifact_queries = []
         self.run = {
             "id": 12,
             "path": ".github/workflows/ci.yml",
@@ -790,7 +895,15 @@ class FakeGitHub:
 
     def get(self, path):
         if path.startswith("actions/artifacts?"):
-            return {"artifacts": self.artifacts}
+            query = parse_qs(path.split("?", 1)[1])
+            self.artifact_queries.append(path)
+            # The real endpoint returns only exact name matches when `name` is
+            # given; an unfiltered listing would reach just the newest few
+            # hundred artifacts of a fast-churning repository.
+            names = query.get("name")
+            if not names:
+                raise AssertionError(f"unfiltered artifact listing: {path}")
+            return {"artifacts": [a for a in self.artifacts if a.get("name") == names[0]]}
         if path == f"actions/runs/{self.consumer_run['id']}":
             return self.consumer_run
         match = __import__("re").fullmatch(r"actions/runs/(\d+)/attempts/(\d+)", path)
