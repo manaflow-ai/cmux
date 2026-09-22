@@ -505,9 +505,7 @@ describe("notifications push route", () => {
       >[1],
     );
 
-    if (response.status !== 200) {
-      throw new Error(`fanout response ${response.status}: ${await response.text()}`);
-    }
+    expect(response.status).toBe(200);
     const targets = (
       (sendApnsNotificationReliably as unknown as {
         mock: { calls: unknown[][] };
