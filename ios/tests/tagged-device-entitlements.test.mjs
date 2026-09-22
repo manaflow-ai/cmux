@@ -207,6 +207,10 @@ test("tagged Debug API-key signing can retry without the App Group", () => {
     reload,
     /CMUX_NOTIFICATION_SERVICE_CODE_SIGN_ENTITLEMENTS=\$fallback_entitlements_dir\/NotificationService\.entitlements/u,
   );
+  assert.match(
+    reload,
+    /run_and_capture "\\$fallback_build_log" "\\$\\{build_args\\[@\\]\\}" \\\\\\s*\\n\\s*"CMUX_APP_CODE_SIGN_ENTITLEMENTS=\\$fallback_entitlements_dir\\/cmux\\.entitlements" \\\\\\s*\\n\\s*"CMUX_NOTIFICATION_SERVICE_CODE_SIGN_ENTITLEMENTS=\\$fallback_entitlements_dir\\/NotificationService\\.entitlements" \\\\\\s*\\n\\s*build/u,
+  );
 });
 
 test("App Group fallback is narrow and preserves capable signing paths", () => {
