@@ -15,5 +15,4 @@ echo "==> Git hooks installed (core.hooksPath = scripts/git-hooks)."
 # not run a driver it cannot resolve, it just falls back to the default one.
 git config merge.xcstrings.name "Xcode string catalog (key-wise three-way merge)"
 git config merge.xcstrings.driver "python3 scripts/merge-xcstrings.py %O %A %B %P"
-chmod +x scripts/merge-xcstrings.py
 echo "==> .xcstrings merge driver installed (merge.xcstrings.driver)."
