@@ -17,7 +17,10 @@ from typing import Iterable
 TARGET_RE = re.compile(r"\(in target '([^']+)' from project '[^']+'\)")
 SWIFT_COMPILE_RE = re.compile(r"^SwiftCompile\s+.*\bCompiling(?:\\ |\s)")
 SWIFT_EMIT_RE = re.compile(r"^(?:SwiftEmitModule|SwiftDriverJobDiscovery\s+.*\bEmitting module)")
-TIMING_RE = re.compile(r"^\s*(.+?)\s+([0-9]+(?:\.[0-9]+)?) seconds\s*$")
+TIMING_RE = re.compile(
+    r"^\\s*(.+?)(?:\\s+\\(\\d+\\s+tasks?\\)\\s+\\|)?\\s+"
+    r"([0-9]+(?:\\.[0-9]+)?) seconds\\s*$"
+)
 CACHE_VALUES = {"Cache hit": "hit", "Cache miss": "miss"}
 
 
@@ -161,7 +164,11 @@ def git_output(*args: str) -> str | None:
     return command_output("git", *args)
 
 
-def build_receipt(derived_data: Path, compile_seconds: float | None) -> dict[str, object]:
+def build_receipt(
+    derived_data: Path,
+    compile_seconds: float | None,
+    compile_outcome: str | None = None,
+) -> dict[str, object]:
     scheme_logs = sorted(derived_data.glob("*-build.log"))
     schemes = [parse_log(path) for path in scheme_logs]
 
@@ -186,6 +193,7 @@ def build_receipt(derived_data: Path, compile_seconds: float | None) -> dict[str
             "arch": os.environ.get("RUNNER_ARCH") or platform.machine(),
         },
         "compile_wall_seconds": compile_seconds,
+        "compile_outcome": compile_outcome,
         "derived_data_log_count": len(schemes),
         "activity_logs": discover_activity_logs(derived_data),
         "schemes": schemes,
@@ -219,10 +227,15 @@ def main() -> int:
     parser.add_argument("derived_data", type=Path)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--compile-seconds", type=float)
+    parser.add_argument("--compile-outcome")
     parser.add_argument("--summary", type=Path)
     args = parser.parse_args()
 
-    receipt = build_receipt(args.derived_data, args.compile_seconds)
+    receipt = build_receipt(
+        args.derived_data,
+        args.compile_seconds,
+        compile_outcome=args.compile_outcome,
+    )
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(receipt, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
