@@ -130,6 +130,39 @@ class AgentPRReviewGateTests(unittest.TestCase):
         self.assertIn("agent-pr-review-required", agents)
         self.assertIn("gate owns Greptile review requests", agents)
 
+    def test_request_mode_does_not_depend_on_graphql_review_capture(self):
+        head = "e" * 40
+        request_pr = {"number": 42, "headRefOid": head, "author": {"login": "agent-author"}}
+        with mock.patch.object(gate, "request_pr_from_event", return_value=request_pr), \
+                mock.patch.object(gate, "request_greptile_review", return_value="requested") as request, \
+                mock.patch.object(gate, "fetch_pr", side_effect=AssertionError("GraphQL path must not run")), \
+                mock.patch.object(sys, "argv", ["agent-pr-review-gate.py", "--request-greptile"]):
+            self.assertEqual(gate.main(), 0)
+        request.assert_called_once_with(request_pr)
+
+    def test_request_greptile_review_rest_hydrates_trusted_marker(self):
+        head = "f" * 40
+        marker = gate.GREPTILE_REQUEST_MARKER.format(head=head)
+        pr = {"number": 42, "headRefOid": head}
+        calls = []
+
+        def github_rest(method, path, payload=None):
+            calls.append((method, path, payload))
+            if path.startswith("issues/42/comments"):
+                return [{
+                    "user": {"login": "github-actions[bot]"},
+                    "body": f"{marker}\n@greptileai review",
+                    "created_at": "2026-01-01T00:00:00Z",
+                    "updated_at": "2026-01-01T00:00:00Z",
+                }]
+            if path.startswith("pulls/42/reviews"):
+                return []
+            raise AssertionError(path)
+
+        with mock.patch.object(gate, "github_rest", side_effect=github_rest):
+            self.assertEqual(gate.request_greptile_review(pr), "already-requested")
+        self.assertFalse(any(method == "POST" for method, _, _ in calls))
+
     def test_request_greptile_review_posts_once_for_each_head(self):
         head = "a" * 40
         pr = make_pr(head=head)
