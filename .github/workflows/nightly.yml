@@ -447,13 +447,17 @@ jobs:
 
       - name: Restore test compilation cache
         id: compilation-cache-restore
+        # Exact key only, so the seed is always one clean build. Restoring the
+        # last seed by prefix stacked another build's objects onto the CAS every
+        # run: the primary generation and the upstream it faults from grew 3.5 ->
+        # 5.0 GiB over eight runs, crossed the bound below, and then no run could
+        # save again. A cold build covers all of main, and measured smaller and
+        # faster than a stacked one. Only a re-run of the same revision hits here.
         uses: ./.github/actions/cache-restore
         with:
           backend: ${{ inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND || 'r2' }}
           path: ${{ env.CMUX_COMPILE_ADMISSION_CAS }}
           key: xcode-compilation-test-${{ runner.os }}-${{ runner.arch }}-${{ steps.compilation-cache-key.outputs.fingerprint }}-${{ needs.decide.outputs.head_sha }}
-          restore-keys: |
-            xcode-compilation-test-${{ runner.os }}-${{ runner.arch }}-${{ steps.compilation-cache-key.outputs.fingerprint }}-
 
       - name: Install compilation dependencies
         if: steps.compilation-cache-restore.outputs.cache-hit != 'true'
