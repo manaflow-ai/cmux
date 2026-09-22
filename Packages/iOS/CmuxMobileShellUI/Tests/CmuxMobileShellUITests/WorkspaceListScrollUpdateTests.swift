@@ -137,6 +137,127 @@ import UIKit
         )
     }
 
+    @Test(arguments: [0, 5, 39])
+    func insertionKeepsVisibleRowAtSameScreenPosition(insertionIndex: Int) throws {
+        let workspaces = viewportWorkspaces()
+        let (table, coordinator) = viewportTable(workspaces)
+        let anchorID = workspaces[12].id
+        let initialY = table.rectForRow(at: IndexPath(row: 12, section: 0)).minY
+        table.setContentOffset(CGPoint(x: 0, y: initialY + 13), animated: false)
+        table.layoutIfNeeded()
+        let cell = try #require(table.cellForRow(at: IndexPath(row: 12, section: 0)))
+        var next = workspaces
+        next.insert(preview(id: "inserted", activityAt: .distantPast), at: insertionIndex)
+
+        coordinator.update(configuration: configuration(workspaces: next), in: table)
+        table.layoutIfNeeded()
+
+        let newIndex = try #require(next.firstIndex { $0.id == anchorID })
+        let indexPath = IndexPath(row: newIndex, section: 0)
+        #expect(abs(table.rectForRow(at: indexPath).minY - table.contentOffset.y + 13) < 0.5)
+        #expect(table.cellForRow(at: indexPath) === cell)
+        #expect(table.numberOfRows(inSection: 0) == next.count)
+    }
+
+    @Test func deletingFirstVisibleRowKeepsNextVisibleRowStationary() throws {
+        let workspaces = viewportWorkspaces()
+        let (table, coordinator) = viewportTable(workspaces)
+        let firstY = table.rectForRow(at: IndexPath(row: 12, section: 0)).minY
+        table.setContentOffset(CGPoint(x: 0, y: firstY + 13), animated: false)
+        table.layoutIfNeeded()
+        let nextVisibleY = table.rectForRow(at: IndexPath(row: 13, section: 0)).minY
+            - table.contentOffset.y
+        var next = workspaces
+        next.remove(at: 12)
+
+        coordinator.update(configuration: configuration(workspaces: next), in: table)
+        table.layoutIfNeeded()
+
+        #expect(abs(table.rectForRow(at: IndexPath(row: 12, section: 0)).minY
+            - table.contentOffset.y - nextVisibleY) < 0.5)
+    }
+
+    @Test(arguments: [false, true])
+    func offscreenHeightChangesKeepVisibleRowStationary(alsoInsert: Bool) throws {
+        let workspaces = viewportWorkspaces()
+        let (table, coordinator) = viewportTable(workspaces)
+        let initialY = table.rectForRow(at: IndexPath(row: 12, section: 0)).minY
+        let initialHeight = table.rectForRow(at: IndexPath(row: 0, section: 0)).height
+        table.setContentOffset(CGPoint(x: 0, y: initialY + 13), animated: false)
+        table.layoutIfNeeded()
+        var next = workspaces
+        next[0].customDescription = "Additional context for the first workspace"
+        next[4].customDescription = "Additional context for another workspace"
+        if alsoInsert { next.insert(preview(id: "inserted", activityAt: .distantPast), at: 0) }
+
+        coordinator.update(configuration: configuration(workspaces: next), in: table)
+        table.layoutIfNeeded()
+
+        let anchorRow = alsoInsert ? 13 : 12
+        #expect(abs(table.rectForRow(at: IndexPath(row: anchorRow, section: 0)).minY
+            - table.contentOffset.y + 13) < 0.5)
+        for row in [0, 4] {
+            let indexPath = IndexPath(row: row + (alsoInsert ? 1 : 0), section: 0)
+            #expect(table.rectForRow(at: indexPath).height > initialHeight)
+        }
+    }
+
+    @Test func timestampRefreshPreservesCellHeightAndScrollOffset() throws {
+        let workspaces = viewportWorkspaces()
+        let (table, coordinator) = viewportTable(workspaces)
+        let indexPath = IndexPath(row: 12, section: 0)
+        let initialRect = table.rectForRow(at: indexPath)
+        table.setContentOffset(CGPoint(x: 0, y: initialRect.minY + 13), animated: false)
+        table.layoutIfNeeded()
+        let cell = try #require(table.cellForRow(at: indexPath))
+        let offset = table.contentOffset
+        var next = workspaces
+        next[12].lastActivityAt = next[12].lastActivityAt?.addingTimeInterval(60)
+
+        coordinator.update(configuration: configuration(workspaces: next), in: table)
+        table.layoutIfNeeded()
+
+        #expect(table.cellForRow(at: indexPath) === cell)
+        #expect(table.rectForRow(at: indexPath) == initialRect)
+        #expect(table.contentOffset == offset)
+        #expect(coordinator.lastPayloadApplyRoute == .reconfiguredInPlace(["workspace.viewport-12"]))
+    }
+
+    @Test func shrinkingListClampsViewportToRemainingContent() {
+        let workspaces = viewportWorkspaces()
+        let (table, coordinator) = viewportTable(workspaces)
+        let initialY = table.rectForRow(at: IndexPath(row: 30, section: 0)).minY
+        table.setContentOffset(CGPoint(x: 0, y: initialY), animated: false)
+        table.layoutIfNeeded()
+
+        coordinator.update(configuration: configuration(workspaces: Array(workspaces[30...32])), in: table)
+        table.layoutIfNeeded()
+
+        #expect(table.contentOffset.y >= -table.adjustedContentInset.top)
+        let maxOffset = max(-table.adjustedContentInset.top,
+            table.contentSize.height - table.bounds.height + table.adjustedContentInset.bottom)
+        #expect(table.contentOffset.y <= maxOffset)
+    }
+
+    private func viewportWorkspaces() -> [MobileWorkspacePreview] {
+        (0..<40).map { preview(id: "viewport-\($0)", activityAt: Date(timeIntervalSinceReferenceDate: 790_000_020)) }
+    }
+
+    private func viewportTable(
+        _ workspaces: [MobileWorkspacePreview]
+    ) -> (WorkspaceListUITableView, WorkspaceListTableCoordinator) {
+        let table = makeTableView()
+        table.contentInsetAdjustmentBehavior = .never
+        table.estimatedRowHeight = 0
+        table.estimatedSectionHeaderHeight = 0
+        table.estimatedSectionFooterHeight = 0
+        table.rowHeight = UITableView.automaticDimension
+        let coordinator = WorkspaceListTableCoordinator(configuration: configuration(workspaces: workspaces))
+        coordinator.attach(to: table)
+        table.layoutIfNeeded()
+        return (table, coordinator)
+    }
+
     @Test func relayOnlyTerminalDetailsDoNotReconfigureTheWorkspaceRow() {
         var workspace = preview(
             id: "workspace-1",
