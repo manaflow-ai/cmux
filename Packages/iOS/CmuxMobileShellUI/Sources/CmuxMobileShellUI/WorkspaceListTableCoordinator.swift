@@ -1091,10 +1091,12 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
         cell.accessibilityIdentifier = nil
         cell.accessibilityCustomActions = nil
         cell.isHidden = false
+        cell.contentView.isHidden = false
         cell.isUserInteractionEnabled = true
         cell.accessibilityElementsHidden = false
         if case .emptyWorkspaceList = item, !configuration.showsWorkspaceEmptyState {
             cell.isHidden = true
+            cell.contentView.isHidden = true
             cell.isUserInteractionEnabled = false
             cell.accessibilityElementsHidden = true
         }
@@ -1154,6 +1156,7 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
         if let cell = tableView.cellForRow(at: indexPath) {
             let isVisible = configuration.showsWorkspaceEmptyState
             cell.isHidden = !isVisible
+            cell.contentView.isHidden = !isVisible
             cell.isUserInteractionEnabled = isVisible
             cell.accessibilityElementsHidden = !isVisible
         }
