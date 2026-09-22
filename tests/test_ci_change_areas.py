@@ -1253,6 +1253,17 @@ def test_required_tests_status_waits_for_platform_workflows() -> None:
     assert 'web_result not in {"success", "skipped"}' in block
 
 
+
+def test_web_workflow_pins_every_bun_setup_version() -> None:
+    workflow = WEB_WORKFLOW.read_text(encoding="utf-8")
+    action = "uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6"
+    blocks = workflow.split(action)
+    assert len(blocks) > 1
+    for suffix in blocks[1:]:
+        setup_tail = suffix.split("\n      - name: ", 1)[0]
+        assert '          bun-version: "1.3.14"' in setup_tail
+
+
 def test_web_typecheck_retries_native_tsgo_abort() -> None:
     script = workflow_job_step_script("web-typecheck", "Typecheck", WEB_WORKFLOW)
 
