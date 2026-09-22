@@ -43,7 +43,11 @@ import {
   type SessionState,
   type TranscriptEntry,
 } from "../shared/sessionModel";
-import { commandText, composerCommandRoute } from "../shared/commandRouting";
+import {
+  commandText,
+  ComposerCommandSubmissionGate,
+  composerCommandRoute,
+} from "../shared/commandRouting";
 import { applyCodexDocumentMetadata } from "../shared/theme";
 import type { AgentSessionRateLimitRow, ProviderId } from "../shared/types";
 
@@ -111,6 +115,35 @@ function SessionSurface({
   const canStop = () => canStopProvider(state());
   const canSend = () =>
     (state().status === "running" && state().input.length > 0) || composerCommandRoute(state().input) !== null;
+  let inputRevision = 0;
+  const commandSubmissionGate = new ComposerCommandSubmissionGate();
+  const setComposerInput = (input: string) => {
+    inputRevision += 1;
+    dispatch({ type: "setInput", input });
+  };
+  const submitRoutedCommand = (input: string): boolean => {
+    if (composerCommandRoute(input) === null) {
+      return false;
+    }
+    const submittedRevision = inputRevision;
+    if (!commandSubmissionGate.begin(submittedRevision)) {
+      return true;
+    }
+
+    void callNative("terminal.runCommand", { command: commandText(input) })
+      .then(() => {
+        const shouldClear = commandSubmissionGate.complete(submittedRevision, inputRevision);
+        if (shouldClear && state().input === input) {
+          dispatch({ type: "setInput", input: "" });
+        }
+      })
+      .catch((error) => {
+        if (commandSubmissionGate.fail(submittedRevision)) {
+          dispatch({ type: "failed", message: messageForError(error, state()) });
+        }
+      });
+    return true;
+  };
   const [isRateLimitOpen, setIsRateLimitOpen] = createSignal(false);
   const root = document.createElement("section");
   root.className = "agent-shell";
@@ -156,10 +189,7 @@ function SessionSurface({
   form.addEventListener("submit", (event) => {
     event.preventDefault();
     const input = state().input;
-    if (composerCommandRoute(input)) {
-      void callNative("terminal.runCommand", { command: commandText(input) })
-        .then(() => dispatch({ type: "setInput", input: "" }))
-        .catch((error) => dispatch({ type: "failed", message: messageForError(error, state()) }));
+    if (submitRoutedCommand(input)) {
       return;
     }
     void sendInput(state(), dispatch);
@@ -184,7 +214,7 @@ function SessionSurface({
 
   const textarea = document.createElement("textarea");
   textarea.className = "prompt-input text-base";
-  textarea.addEventListener("input", () => dispatch({ type: "setInput", input: textarea.value }));
+  textarea.addEventListener("input", () => setComposerInput(textarea.value));
   textarea.addEventListener("keydown", (event) => {
     if (isComposingEnter(event)) {
       return;
@@ -197,10 +227,7 @@ function SessionSurface({
     }
     event.preventDefault();
     const input = state().input;
-    if (composerCommandRoute(input)) {
-      void callNative("terminal.runCommand", { command: commandText(input) })
-        .then(() => dispatch({ type: "setInput", input: "" }))
-        .catch((error) => dispatch({ type: "failed", message: messageForError(error, state()) }));
+    if (submitRoutedCommand(input)) {
       return;
     }
     void sendInput(state(), dispatch);
@@ -213,7 +240,7 @@ function SessionSurface({
       selectionEnd: textarea.selectionEnd ?? state().input.length,
       token,
     });
-    dispatch({ type: "setInput", input: insertion.text });
+    setComposerInput(insertion.text);
     queueMicrotask(() => {
       textarea.focus();
       textarea.setSelectionRange(insertion.cursor, insertion.cursor);
