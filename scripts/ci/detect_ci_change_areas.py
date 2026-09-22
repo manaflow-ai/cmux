@@ -47,6 +47,7 @@ def normalize_path(path: str) -> str:
 CI_WORKFLOW_PATH = ".github/workflows/ci.yml"
 GUARD_WORKFLOW_PATH = ".github/workflows/ci-guards.yml"
 WEB_WORKFLOW_PATH = ".github/workflows/ci-web.yml"
+MACOS_WORKFLOW_PATH = ".github/workflows/ci-macos.yml"
 
 
 def is_other_workflow_config(path: str) -> bool:
@@ -60,6 +61,11 @@ def is_other_workflow_config(path: str) -> bool:
 CI_CONTROL_PLANE_ONLY = frozenset({
     "scripts/ci/persistent_mac_route.py",
     "scripts/ci/web_validation.py",
+})
+
+CI_MACOS_ADMISSION_CONTROL_INPUTS = frozenset({
+    "scripts/ci/build_input_fingerprint.py",
+    "scripts/ci/find_admitted_build.py",
 })
 
 CI_MACOS_TEST_PRODUCT_INPUTS = frozenset({
@@ -84,6 +90,7 @@ def forces_all_areas(path: str) -> bool:
     if (
         direct_ci_python
         and path not in CI_CONTROL_PLANE_ONLY
+        and path not in CI_MACOS_ADMISSION_CONTROL_INPUTS
         and path not in CI_MACOS_TEST_PRODUCT_INPUTS
     ):
         return True
@@ -205,7 +212,7 @@ def load_macos_job_test_references() -> Optional[tuple[frozenset[str], frozenset
         )
         if not indirect_guard_references:
             return None
-        for workflow_path in (CI_WORKFLOW_PATH, GUARD_WORKFLOW_PATH, WEB_WORKFLOW_PATH):
+        for workflow_path in (CI_WORKFLOW_PATH, GUARD_WORKFLOW_PATH, WEB_WORKFLOW_PATH, MACOS_WORKFLOW_PATH):
             references = macos_job_test_references(
                 Path(workflow_path).read_text(encoding="utf-8"),
                 indirect_guard_references,
@@ -351,11 +358,23 @@ def classify_files(paths: Iterable[str], *, ci_workflow_linux_only: bool = False
             agent_session_web = True
             release_build = True
             continue
+        if path in CI_MACOS_ADMISSION_CONTROL_INPUTS:
+            # These helpers decide whether compile admission is required.
+            # Exercise the macOS admission path and its Linux contracts, but
+            # they cannot affect web or Release app bytes.
+            macos = True
+            continue
         if path in CI_MACOS_TEST_PRODUCT_INPUTS:
             # These helpers own the reusable Debug/test product and its
             # admission/restore contract. Exercise macOS admission/consumption,
             # but they cannot affect the web deployment or Release app bytes.
             macos = True
+            continue
+        if path == MACOS_WORKFLOW_PATH:
+            # A reusable macOS workflow edit must exercise every hosted Mac job
+            # body it owns, including the Release check.
+            macos = True
+            release_build = True
             continue
         if path == WEB_WORKFLOW_PATH:
             # A reusable web workflow edit must exercise every job body it owns.

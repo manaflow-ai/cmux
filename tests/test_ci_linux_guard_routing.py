@@ -132,17 +132,21 @@ class LinuxGuardRoutingTests(unittest.TestCase):
         }
         for path in (
             "scripts/ci/persistent_mac_route.py",
+            "scripts/ci/swift_incremental_diagnostics.py",
             "tests/test_ci_persistent_mac_compile.py",
+            "tests/test_swift_incremental_diagnostics.py",
             "tests/test_ci_self_hosted_guard.sh",
         ):
             with self.subTest(path=path):
                 self.assertEqual(route([path]), expected)
 
-    def test_macos_test_product_helpers_run_only_workflow_guard_contracts(self):
+    def test_macos_admission_helpers_run_only_workflow_guard_contracts(self):
         expected = {
             name: "true" if name == "linux_guard_tests" else "false" for name in JOBS
         }
         for path in (
+            "scripts/ci/build_input_fingerprint.py",
+            "scripts/ci/find_admitted_build.py",
             "scripts/ci/app_host_test_products.py",
             "scripts/ci/compile-app-host-test-product.sh",
             "scripts/ci/product_input_identity.py",

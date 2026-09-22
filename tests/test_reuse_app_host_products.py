@@ -132,7 +132,7 @@ class ReuseProducts(TestProductHandoff):
 
     def test_product_identity_separates_orchestration_from_product_inputs(self):
         identity = reuse.product_inputs
-        workflow = (Path(__file__).resolve().parents[1] / ".github/workflows/ci.yml").read_text()
+        workflow = (Path(__file__).resolve().parents[1] / ".github/workflows/ci-macos.yml").read_text()
         admission = identity._job_block(workflow, identity.MACOS_ADMISSION_JOB)
 
         def mutate_admission(old: str, new: str) -> str:
@@ -144,18 +144,18 @@ class ReuseProducts(TestProductHandoff):
             f"100644 blob {'1' * 40}\tSources/App.swift",
             f"100644 blob {'2' * 40}\tscripts/ci/compile-app-host-test-product.sh",
             f"100644 blob {'3' * 40}\tscripts/ci/persistent_mac_route.py",
-            f"100644 blob {'4' * 40}\t.github/workflows/ci.yml",
+            f"100644 blob {'4' * 40}\t.github/workflows/ci-macos.yml",
         ]
         admission_only = [
             f"100644 blob {'1' * 40}\tSources/App.swift",
             f"100644 blob {'2' * 40}\tscripts/ci/compile-app-host-test-product.sh",
             f"100644 blob {'5' * 40}\tscripts/ci/persistent_mac_route.py",
-            f"100644 blob {'6' * 40}\t.github/workflows/ci.yml",
+            f"100644 blob {'6' * 40}\t.github/workflows/ci-macos.yml",
         ]
         base_identity = identity.identity_from_tree_lines(base, workflow)
         orchestration_workflow = workflow.replace(
-            "name: CI\n",
-            "name: CI orchestration-only\n",
+            "name: CI macOS\n",
+            "name: CI macOS orchestration-only\n",
             1,
         )
         self.assertEqual(
@@ -264,17 +264,17 @@ class ReuseProducts(TestProductHandoff):
             identity.identity_from_tree_lines(base, changed_ghostty_selection),
         )
 
-        self.assertFalse(identity.reaches_product(".github/workflows/ci.yml"))
+        self.assertFalse(identity.reaches_product(".github/workflows/ci-macos.yml"))
         self.assertFalse(identity.reaches_product("scripts/ci/persistent_mac_route.py"))
         self.assertTrue(identity.reaches_product("scripts/ci/compile-app-host-test-product.sh"))
         self.assertTrue(identity.reaches_product("cmuxTests/WorkspaceTests.swift"))
 
     def test_github_product_identity_is_recomputed_from_git_objects(self):
-        workflow = (Path(__file__).resolve().parents[1] / ".github/workflows/ci.yml").read_text()
+        workflow = (Path(__file__).resolve().parents[1] / ".github/workflows/ci-macos.yml").read_text()
         entries = [
             {"path": "Sources/App.swift", "mode": "100644", "type": "blob", "sha": "1" * 40},
             {
-                "path": ".github/workflows/ci.yml",
+                "path": ".github/workflows/ci-macos.yml",
                 "mode": "100644",
                 "type": "blob",
                 "sha": "2" * 40,
