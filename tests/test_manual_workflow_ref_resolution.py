@@ -11,12 +11,22 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 RESOLVER = ROOT / ".github" / "workflows" / "resolve-dispatch-ref.yml"
 TARGETS = {
-    ".github/workflows/ios-screenshots.yml": ("screenshots",),
-    ".github/workflows/perf-activation.yml": ("activation-session-benchmark",),
-    ".github/workflows/iroh-release-gate.yml": ("tailscale-version-skew", "simulator-e2e"),
-    ".github/workflows/reload-build.yml": ("build",),
-    ".github/workflows/test-depot.yml": ("tests",),
-    ".github/workflows/test-e2e.yml": ("e2e",),
+    ".github/workflows/ios-screenshots.yml": {
+        "screenshots": "ref: ${{ needs.resolve-ref.outputs.sha }}",
+    },
+    ".github/workflows/iroh-release-gate.yml": {
+        "tailscale-version-skew": "ref: ${{ needs.resolve-ref.outputs.sha }}",
+        "simulator-e2e": "ref: ${{ needs.resolve-ref.outputs.sha }}",
+    },
+    ".github/workflows/reload-build.yml": {
+        "build": "ref: ${{ needs.resolve-ref.outputs.sha }}",
+    },
+    ".github/workflows/test-depot.yml": {
+        "tests": "ref: ${{ needs.resolve-ref.outputs.sha }}",
+    },
+    ".github/workflows/test-e2e.yml": {
+        "e2e": "ref: ${{ needs.resolve-ref.outputs.sha }}",
+    },
 }
 
 
@@ -47,7 +57,6 @@ class ManualWorkflowRefResolutionTests(unittest.TestCase):
         self.assertIn("value: ${{ jobs.resolve.outputs.sha }}", resolver)
 
     def test_manual_macos_workflows_resolve_before_checkout(self) -> None:
-        resolved_ref = "ref: ${{ needs.resolve-ref.outputs.sha }}"
         resolver_call = "uses: ./.github/workflows/resolve-dispatch-ref.yml"
 
         for relative_path, jobs in TARGETS.items():
@@ -56,11 +65,24 @@ class ManualWorkflowRefResolutionTests(unittest.TestCase):
                 self.assertIn(resolver_call, workflow)
                 self.assertIn("ref: ${{ inputs.ref }}", job_block(workflow, "resolve-ref"))
                 self.assertIn("short SHA", workflow)
-                for job in jobs:
+                for job, resolved_ref in jobs.items():
                     block = job_block(workflow, job)
                     self.assertIn("resolve-ref", block)
                     self.assertIn(resolved_ref, block)
                 self.assertNotIn("ref: ${{ inputs.ref || github.ref }}", workflow)
+
+        perf = (ROOT / ".github/workflows/perf-activation.yml").read_text(
+            encoding="utf-8"
+        )
+        activation_changes = job_block(perf, "activation_changes")
+        benchmark = job_block(perf, "activation-session-benchmark")
+        self.assertIn("needs: resolve-ref", activation_changes)
+        self.assertIn("target_sha: ${{ needs.resolve-ref.outputs.sha }}", activation_changes)
+        self.assertIn("needs: activation_changes", benchmark)
+        self.assertIn(
+            "ref: ${{ needs.activation_changes.outputs.target_sha }}",
+            benchmark,
+        )
 
 
 if __name__ == "__main__":
