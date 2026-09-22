@@ -277,6 +277,28 @@ class ReuseProducts(TestProductHandoff):
         self.assertTrue(identity.reaches_product("scripts/ci/compile-app-host-test-product.sh"))
         self.assertTrue(identity.reaches_product("cmuxTests/WorkspaceTests.swift"))
 
+    def test_bundled_paste_worker_source_reaches_product(self):
+        """cmux.xcodeproj compiles this into the bundle, so reuse must see it."""
+        identity = reuse.product_inputs
+        # The "Build Plain Text Paste Worker" phase declares main.m as an input
+        # and emits bin/cmux-paste-text-worker into the app-host bundle, which
+        # PlainPastePTYFixture and the paste startup suites execute. The rest of
+        # workers/ is Cloudflare Worker source and stays excluded.
+        self.assertTrue(identity.reaches_product("workers/cmux-paste-text/main.m"))
+        self.assertFalse(identity.reaches_product("workers/presence/src/index.ts"))
+
+        project = (Path(__file__).resolve().parents[1] / "cmux.xcodeproj/project.pbxproj").read_text()
+        self.assertIn("$(SRCROOT)/workers/cmux-paste-text/main.m", project)
+
+        # A commit that only touches the worker must change the fingerprint.
+        workflow = (Path(__file__).resolve().parents[1] / ".github/workflows/ci-macos.yml").read_text()
+        base = ["100644 blob 1111111111111111111111111111111111111111\tworkers/cmux-paste-text/main.m"]
+        changed = ["100644 blob 2222222222222222222222222222222222222222\tworkers/cmux-paste-text/main.m"]
+        self.assertNotEqual(
+            identity.identity_from_tree_lines(base, workflow),
+            identity.identity_from_tree_lines(changed, workflow),
+        )
+
     def test_github_product_identity_is_recomputed_from_git_objects(self):
         workflow = (Path(__file__).resolve().parents[1] / ".github/workflows/ci-macos.yml").read_text()
         entries = [
