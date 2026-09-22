@@ -121,7 +121,13 @@ def relevant(event):
         return any(marker in changes for marker in ("workspace", "tab", "terminal"))
     return False
 
-publish()
+try:
+    publish()
+except Exception as error:
+    # The event stream below emits an initial snapshot. Keep the subscriber
+    # alive across a temporary edge deployment outage so that snapshot is the
+    # first retry once the route becomes available.
+    print("initial workspace publish failed:", error, file=sys.stderr, flush=True)
 while True:
     process = subscribe()
     try:
