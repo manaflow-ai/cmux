@@ -13,6 +13,54 @@ import Testing
 // rows from the old geometry onto the new one.
 
 @MainActor
+@Test func ownerAwareOutputTerminationPreservesViewportUntilPresentationClear() async throws {
+    let store = MobileShellComposite.preview()
+    let workspace = try #require(store.workspaces.first { !$0.terminals.isEmpty })
+    let terminal = try #require(workspace.terminals.first)
+    let surfaceID = terminal.id.rawValue
+    let viewport = MobileTerminalViewportSize(columns: 72, rows: 61)
+    let ownerID = UUID()
+
+    let preparation = try #require(
+        store.prepareTerminalViewport(
+            surfaceID: surfaceID,
+            columns: viewport.columns,
+            rows: viewport.rows
+        )
+    )
+    let stream = store.terminalOutputStream(surfaceID: surfaceID, ownerID: ownerID)
+    let reader = Task { @MainActor in
+        for await chunk in stream {
+            if Task.isCancelled { break }
+            store.terminalOutputDidProcess(
+                surfaceID: surfaceID,
+                streamToken: chunk.streamToken
+            )
+        }
+    }
+
+    _ = await store.updatePreparedTerminalViewport(preparation)
+    let generation = try #require(store.terminalViewportGeneration(for: surfaceID))
+    #expect(store.reportedViewportSizesByTerminalKey.values.contains(viewport))
+
+    reader.cancel()
+    let unregistered = try await pollUntil {
+        store.terminalByteContinuationsBySurfaceID[surfaceID] == nil
+    }
+    #expect(unregistered)
+    #expect(store.terminalViewportGeneration(for: surfaceID) == generation)
+    #expect(
+        store.reportedViewportSizesByTerminalKey.values.contains(viewport),
+        "renderer stream teardown must preserve the presentation-owned viewport lease"
+    )
+
+    store.clearTerminalOutputConsumerOwner(surfaceID: surfaceID, ownerID: ownerID)
+    store.clearTerminalViewport(surfaceID: surfaceID)
+    #expect(!store.reportedViewportSizesByTerminalKey.values.contains(viewport))
+    #expect(store.terminalViewportGeneration(for: surfaceID) == generation + 1)
+}
+
+@MainActor
 @Test func terminalViewportGeometryChangeRequestsAuthoritativeReplay() async throws {
     let router = LivenessHostRouter()
     let box = TransportBox()
