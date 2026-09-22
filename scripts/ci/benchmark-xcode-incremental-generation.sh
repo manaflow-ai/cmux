@@ -122,7 +122,8 @@ resolve_packages() {
 }
 
 build_all() {
-  local arm="$1" wt="$2" dd="$3"\n  local log="$artifact_dir/${arm}.log"
+  local arm="$1" wt="$2" dd="$3"
+  local log="$artifact_dir/${arm}.log"
   local started finished wall
   : > "$log"
   mkdir -p "$dd" "$cas"
