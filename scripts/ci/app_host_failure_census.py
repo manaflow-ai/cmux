@@ -15,6 +15,11 @@ SWIFT_START = re.compile(r"(?:◇|▶) Test (.+?) started\.")
 SWIFT_ISSUE = re.compile(r"✘ Test (.+?) recorded an issue(?: at .*?)?(?::\s*(.*))?$|✘ Test (.+?) recorded an issue(?: \(.*\))?$")
 SWIFT_KNOWN_ISSUE = re.compile(r"✘ Test (.+?) recorded a known issue(?: at .*?)?(?: \(.*?\))?(?:\.\s*)?(?::\s*(.*))?$")
 SWIFT_FAIL = re.compile(r"✘ Test (.+?) failed(?: after| with)\b")
+# swift-testing ends a bundle with "✘ Test run with 253 tests in 41 suites
+# failed after ...", which the patterns above otherwise capture as a test
+# named "run with 253 tests in 41 suites". One such line per shard inflates
+# every failure count.
+SWIFT_RUN_SUMMARY = re.compile(r"^run with \d+ tests?\b")
 RESTART = "Restarting after unexpected exit"
 KNOWN = re.compile(r"known issue|XCTExpectFailure", re.IGNORECASE)
 
@@ -25,6 +30,11 @@ def _clean(value):
 
 def _test_name(kind, suite, name):
     return "{}{}{}".format(suite, "/" if suite else "", name).strip()
+
+
+def _is_run_summary(name):
+    """True for swift-testing's per-bundle run summary, which is not a test."""
+    return bool(SWIFT_RUN_SUMMARY.match((name or "").strip()))
 
 
 def parse_log(text, run_id="unknown", job_id=None):
@@ -46,7 +56,9 @@ def parse_log(text, run_id="unknown", job_id=None):
         if xm:
             current = _test_name("xctest", xm.group(1), xm.group(2))
             seen.setdefault(current, True)
-        elif sm and not KNOWN.search(line):
+        elif sm and not KNOWN.search(line) and not _is_run_summary(
+            _clean(sm.group(1)).strip('"')
+        ):
             current = _clean(sm.group(1)).strip('"')
             seen.setdefault(current, True)
         if RESTART in line:
@@ -68,7 +80,7 @@ def parse_log(text, run_id="unknown", job_id=None):
             im = None
         else:
             im = SWIFT_ISSUE.search(line)
-        if im:
+        if im and not _is_run_summary(_clean(im.group(1) or im.group(3)).strip('"')):
             name = _clean(im.group(1) or im.group(3)).strip('"')
             seen.setdefault(name, True)
             failed[name] = True
@@ -78,8 +90,9 @@ def parse_log(text, run_id="unknown", job_id=None):
         sf = SWIFT_FAIL.search(line)
         if sf and not KNOWN.search(line):
             name = _clean(sf.group(1)).strip('"')
-            seen.setdefault(name, True)
-            failed[name] = True
+            if not _is_run_summary(name):
+                seen.setdefault(name, True)
+                failed[name] = True
         recent.append(line)
         if len(recent) > 30:
             recent.pop(0)
