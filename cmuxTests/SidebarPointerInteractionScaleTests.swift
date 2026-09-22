@@ -304,17 +304,15 @@ final class SidebarIssue8373StressTests {
 
     @MainActor
     private static func renderIDs(_ manager: TabManager) -> [SidebarWorkspaceRenderItemID] {
-        let groups = manager.workspaceGroups
-        let groupsById = Dictionary(uniqueKeysWithValues: groups.map { ($0.id, $0) })
-        let membership = SidebarWorkspaceRenderItem.effectiveGroupIdByWorkspaceId(
-            tabs: manager.tabs,
-            groupsById: groupsById
+        let groupsById = Dictionary(
+            uniqueKeysWithValues: manager.workspaceGroups.map { ($0.id, $0) }
         )
+        // Keep this on the historical two-argument renderItems API so the
+        // workload can be applied directly to the 0.64.19 / pre-#8211 source
+        // when validating the red side of the regression.
         return SidebarWorkspaceRenderItem.renderItems(
             tabs: manager.tabs,
-            groupsById: groupsById,
-            orderedGroups: groups,
-            effectiveMembership: membership
+            groupsById: groupsById
         ).map(\.id)
     }
 
