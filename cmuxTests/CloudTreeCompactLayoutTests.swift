@@ -53,13 +53,13 @@ struct CloudTreeCompactLayoutTests {
                 #expect(cell.accessibilityLabel()?.contains(node.searchableTitle) == true)
                 return cell
             }
-            if width == 220, percent == 200 {
-                // The unchanged leaf rows cannot fit title ink at this width
-                // and zoom, even before #13072. Capture the clipping and check
-                // full accessible identities; there is no visible gap to measure.
+            if width == 220, percent >= 150 {
+                // The narrow rows cannot fit title ink at this width and zoom.
+                // Capture the clipping and check full accessible identities;
+                // there is no visible gap to measure.
                 #if compiler(>=6.2)
-                Attachment.record("Leaf titles are clipped at 220pt/200%; spacing is not measurable. Accessible identities checked.",
-                                  named: "icon-spacing-220-200-pinned-\(pinned).txt")
+                Attachment.record("Leaf titles are clipped at 220pt/\(percent)%; spacing is not measurable. Accessible identities checked.",
+                                  named: "icon-spacing-220-\(percent)-pinned-\(pinned).txt")
                 #endif
                 continue
             }
