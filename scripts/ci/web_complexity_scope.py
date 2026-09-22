@@ -80,20 +80,36 @@ def relevant_paths(rows: list[list[str]]) -> list[str]:
     paths: list[str] = []
     for row in rows:
         if len(row) < 2:
-            continue
+            continue  # decide() already refuses a listing containing these
         paths.append(row[1])
         if len(row) > 2 and row[2]:
             paths.append(row[2])
     return paths
 
 
-def decide(rows: list[list[str]], limit: int) -> tuple[bool, str, list[str]]:
-    """Return (needs_scan, reason, matched_paths)."""
+def decide(rows: list[list[str]], limit: int, expected_count: int | None = None) -> tuple[bool, str, list[str]]:
+    """Return (needs_scan, reason, matched_paths).
+
+    Every branch that is not "I read a complete listing and understood every
+    row" must return True. A row this function cannot parse is a listing it
+    cannot vouch for, and vouching for a listing is the only thing that lets
+    the required check be skipped.
+    """
     if not rows:
         # An empty diff is indistinguishable here from a failed listing.
         return True, "changed-file list was empty", []
+
+    malformed = sum(1 for row in rows if len(row) < 2)
+    if malformed:
+        return True, f"{malformed} unparseable row(s) in the changed-file list", []
+
     if len(rows) >= limit:
         return True, f"changed-file list hit the {limit}-file API limit", []
+
+    # GitHub reports the pull request's own file count. Anything short means a
+    # partial read: a dropped page, a stopped paginator, or a changed cap.
+    if expected_count is not None and len(rows) != expected_count:
+        return True, f"listed {len(rows)} file(s) but the pull request reports {expected_count}", []
 
     matched = sorted({p for p in relevant_paths(rows) if p in POLICY_FILES or is_production_source(p)})
     if matched:
@@ -104,18 +120,28 @@ def decide(rows: list[list[str]], limit: int) -> tuple[bool, str, list[str]]:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--changed-files", required=True, help="TSV of status\\tfilename\\tprevious_filename")
-    parser.add_argument("--limit", type=int, default=3000, help="GitHub's per-pull-request changed-file ceiling")
+    parser.add_argument("--limit", type=int, default=300, help="GitHub's compare-endpoint changed-file ceiling")
+    parser.add_argument(
+        "--expected-count",
+        type=int,
+        default=None,
+        help="github.event.pull_request.changed_files; a short listing means a partial read",
+    )
     args = parser.parse_args(argv)
 
     try:
-        with open(args.changed_files, encoding="utf-8") as handle:
+        # surrogateescape so a non-UTF-8 byte in a filename cannot turn a
+        # decision into a traceback. Such a path will not match any policy file
+        # or production extension, and a listing containing one still gets
+        # classified rather than crashing the step.
+        with open(args.changed_files, encoding="utf-8", errors="surrogateescape") as handle:
             rows = [line.rstrip("\n").split("\t") for line in handle if line.strip()]
-    except OSError as error:
+    except (OSError, ValueError) as error:
         print(f"Could not read the changed-file list ({error}); running the full scan.", file=sys.stderr)
         print("scan=true")
         return 0
 
-    needs_scan, reason, matched = decide(rows, args.limit)
+    needs_scan, reason, matched = decide(rows, args.limit, args.expected_count)
     print(f"Considered {len(rows)} changed file(s): {reason}.", file=sys.stderr)
     for path in matched[:20]:
         print(f"  selected: {path}", file=sys.stderr)

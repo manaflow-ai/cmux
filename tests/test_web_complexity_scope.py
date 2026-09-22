@@ -26,8 +26,8 @@ def check(name: str, condition: bool, detail: str = "") -> None:
         print(f"FAIL: {name}{(': ' + detail) if detail else ''}")
 
 
-def run(rows: list[list[str]], limit: int = 3000) -> bool:
-    needs_scan, _reason, _matched = scope.decide(rows, limit)
+def run(rows: list[list[str]], limit: int = 300, expected: int | None = None) -> bool:
+    needs_scan, _reason, _matched = scope.decide(rows, limit, expected)
     return needs_scan
 
 
@@ -113,10 +113,29 @@ def test_policy_and_toolchain_edits_take_the_full_path() -> None:
 
 
 def test_fails_conservative() -> None:
+    """Anything short of "complete listing, every row understood" must scan.
+
+    A row this module cannot parse is a listing it cannot vouch for, and
+    vouching is the only thing that permits skipping a required check.
+    """
     check("empty diff scans", run([]) is True)
     check("truncated list scans", run([mod(f"docs/{i}.md") for i in range(50)], limit=50) is True)
-    check("malformed row is ignored, rest still classified", run([["modified"], mod("web/app/p.tsx")]) is True)
-    check("malformed row alone scans nothing relevant", run([["modified"]]) is False)
+    check("malformed row forces a scan even alongside clean rows", run([["modified"], mod("docs/a.md")]) is True)
+    check("malformed row alone forces a scan", run([["modified"]]) is True)
+    check("empty row alone forces a scan", run([[""]]) is True)
+    check(
+        "short listing against the reported file count scans",
+        run([mod("docs/a.md")], expected=5) is True,
+    )
+    check(
+        "listing longer than the reported file count scans",
+        run([mod("docs/a.md"), mod("docs/b.md")], expected=1) is True,
+    )
+    check(
+        "listing matching the reported file count is trusted",
+        run([mod("docs/a.md")], expected=1) is False,
+    )
+    check("no reported count still classifies", run([mod("docs/a.md")]) is False)
 
 
 def test_pathological_filenames_are_data() -> None:
@@ -171,6 +190,29 @@ def test_cli_contract() -> None:
             check=True,
         )
         check("cli fails conservative when the listing is unreadable", out.stdout.strip() == "scan=true", out.stdout)
+
+        # A non-UTF-8 byte in a filename must not turn a decision into a traceback.
+        listing.write_bytes(b"modified\tweb/app/\xff\xfe.tsx\t\n")
+        out = subprocess.run(
+            [sys.executable, str(ROOT / "scripts" / "ci" / "web_complexity_scope.py"), "--changed-files", str(listing)],
+            capture_output=True,
+            text=True,
+        )
+        check(
+            "cli survives undecodable bytes and still decides",
+            out.returncode == 0 and out.stdout.strip() in {"scan=true", "scan=false"},
+            f"rc={out.returncode} stdout={out.stdout!r} stderr={out.stderr[-200:]!r}",
+        )
+
+        # A truncated write (no tab) is an unparseable row, not "nothing changed".
+        listing.write_text("modified", encoding="utf-8")
+        out = subprocess.run(
+            [sys.executable, str(ROOT / "scripts" / "ci" / "web_complexity_scope.py"), "--changed-files", str(listing)],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        check("cli scans on a truncated listing", out.stdout.strip() == "scan=true", out.stdout)
 
 
 def main() -> int:

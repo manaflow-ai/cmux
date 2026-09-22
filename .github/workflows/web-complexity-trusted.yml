@@ -64,29 +64,37 @@ jobs:
           [[ "$(git -C trusted rev-parse HEAD)" == "$TRUSTED_SHA" ]]
           [[ -f trusted/web/scripts/check-complexity.mjs ]]
           [[ -f trusted/web/oxlint-complexity-baseline.txt ]]
+          [[ -f trusted/scripts/ci/web_complexity_scope.py ]]
 
       - name: Scope the scan to changed paths
         id: scope
         if: github.event_name == 'pull_request_target'
         env:
           GH_TOKEN: ${{ github.token }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
+          CHANGED_FILES: ${{ github.event.pull_request.changed_files }}
         run: |
           set -euo pipefail
-          # Candidate filenames are data. They come from the pull-request files
-          # API rather than the candidate tree, and the trusted classifier only
-          # compares them as strings, so no candidate code runs here.
-          if ! gh api --paginate \
+          # Pin the diff to the exact pair of revisions this job judges. The
+          # pull-request files endpoint takes no ref and always describes the
+          # PR's current head, so it can disagree with CANDIDATE_SHA while a
+          # push is still settling. `compare` is three-dot, so base...head is
+          # the same merge-base diff the checker is evaluated against.
+          #
+          # Candidate filenames are data: they come from the compare API rather
+          # than the candidate tree, and the trusted classifier only compares
+          # them as strings, so no candidate code runs here.
+          if ! gh api \
               -H "Accept: application/vnd.github+json" \
-              "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}/files" \
-              --jq '.[] | [.status, .filename, (.previous_filename // "")] | @tsv' \
+              "repos/${GITHUB_REPOSITORY}/compare/${TRUSTED_SHA}...${CANDIDATE_SHA}" \
+              --jq '.files[]? | [.status, .filename, (.previous_filename // "")] | @tsv' \
               > "$RUNNER_TEMP/changed-files.tsv"; then
             echo "Could not list changed files; running the full scan."
             echo "scan=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
           python3 "$GITHUB_WORKSPACE/trusted/scripts/ci/web_complexity_scope.py" \
-            --changed-files "$RUNNER_TEMP/changed-files.tsv" >> "$GITHUB_OUTPUT"
+            --changed-files "$RUNNER_TEMP/changed-files.tsv" \
+            --expected-count "$CHANGED_FILES" >> "$GITHUB_OUTPUT"
 
       - name: Setup Bun
         if: steps.scope.outputs.scan != 'false'
