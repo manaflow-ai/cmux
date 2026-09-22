@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import datetime as dt
 import json
+import re
 import sys
 from collections import Counter
 from pathlib import Path
@@ -30,7 +31,7 @@ FINDING_DISPOSITIONS = {
     "blocked_on_human",
 }
 SEVERITIES = {"P0", "P1", "P2", "P3", "info", "unknown"}
-COMMIT_SHA_RE = __import__("re").compile(r"^[0-9a-f]{40}$")
+COMMIT_SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 EVIDENCE_CLASSES = {
     "source-read",
     "model-executed",
