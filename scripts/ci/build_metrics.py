@@ -71,7 +71,6 @@ def parse_log(path: Path) -> dict[str, object]:
     cache_by_target: dict[str, Counter[str]] = defaultdict(Counter)
     swift_compile_by_target = Counter()
     swift_emit_by_target = Counter()
-    target_action_events = Counter()
 
     for index, raw in enumerate(lines):
         line = raw.strip()
@@ -85,7 +84,6 @@ def parse_log(path: Path) -> dict[str, object]:
         target_match = TARGET_RE.search(line)
         target = target_match.group(1) if target_match else None
         if target:
-            target_action_events[target] += 1
             if SWIFT_COMPILE_RE.match(line):
                 swift_compile_by_target[target] += 1
             if SWIFT_EMIT_RE.match(line):
