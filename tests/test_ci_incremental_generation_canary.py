@@ -8,6 +8,7 @@ import json
 import os
 from pathlib import Path
 import subprocess
+import tarfile
 import tempfile
 import time
 import unittest
@@ -185,6 +186,54 @@ class IncrementalGenerationCanaryTests(unittest.TestCase):
             self.assertTrue(payload["unchanged_mtime_preserved"])
             self.assertTrue(payload["edited_mtime_changed"])
 
+    def test_archive_keeps_only_bounded_derived_data_set(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            repo = root / "repo"
+            repo.mkdir()
+            git(repo, "init", "-q")
+            git(repo, "config", "user.name", "Canary Test")
+            git(repo, "config", "user.email", "canary@example.invalid")
+            (repo / "Sources" / "Mobile").mkdir(parents=True)
+            (repo / "Sources/AppDelegate.swift").write_text("let a = 1\\n")
+            (repo / "Sources/Mobile/MobileTerminalByteTee.swift").write_text("let b = 1\\n")
+            git(repo, "add", ".")
+            git(repo, "commit", "-qm", "seed")
+
+            derived = root / "derived"
+            for relative in (
+                "Build/Intermediates.noindex",
+                "Build/Products/Debug",
+                "ModuleCache.noindex",
+                "SDKStatCaches.noindex",
+                "Index.noindex",
+            ):
+                item = derived / relative
+                item.mkdir(parents=True, exist_ok=True)
+                (item / "marker").write_text(relative + "\\n")
+
+            out = root / "archive"
+            metrics = root / "metrics.json"
+            bench.archive_generation(repo, derived, out, metrics)
+            with tarfile.open(out / "derived-data.tar.gz", "r:gz") as archive:
+                names = set(archive.getnames())
+            self.assertTrue(any(name.startswith("Build/Intermediates.noindex") for name in names))
+            self.assertTrue(any(name.startswith("Build/Products/Debug") for name in names))
+            self.assertTrue(any(name.startswith("ModuleCache.noindex") for name in names))
+            self.assertTrue(any(name.startswith("SDKStatCaches.noindex") for name in names))
+            self.assertFalse(any(name.startswith("Index.noindex") for name in names))
+
+            payload = json.loads(metrics.read_text())
+            self.assertLess(payload["reusable_derived_data_disk_bytes"], payload["derived_data_disk_bytes"])
+
+    def test_workflow_has_r2_parity_and_normalized_checkout_control(self) -> None:
+        workflow = (ROOT / ".github/workflows/incremental-state-canary.yml").read_text()
+        self.assertIn("CI_CACHE_R2_PUBLIC_URL: ${{ vars.CI_CACHE_R2_PUBLIC_URL }}", workflow)
+        self.assertIn("- fresh-normalized-restored-dd", workflow)
+        self.assertIn("Normalize fresh B mtimes from Git blob IDs", workflow)
+        self.assertIn("branches:\\n      - exp/incremental-state-canary-20260921", workflow)
+        self.assertNotIn("pull_request:", workflow)
+        self.assertNotIn("merge_group:", workflow)
     def test_archive_refuses_dirty_seed(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
