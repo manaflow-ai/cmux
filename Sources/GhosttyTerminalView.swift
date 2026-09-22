@@ -13443,15 +13443,55 @@ extension GhosttyNSView: NSTextInputClient {
             )
         }
 #endif
+        let incoming: NSAttributedString
         switch string {
         case let v as NSAttributedString:
-            markedText = NSMutableAttributedString(attributedString: v)
+            incoming = v
         case let v as String:
-            markedText = NSMutableAttributedString(string: v)
+            incoming = NSAttributedString(string: v)
         default:
             return
         }
-        markedSelectedRange = normalizedMarkedSelectionRange(selectedRange, markedLength: markedText.length)
+
+        // NSTextInputClient defines replacementRange relative to the beginning
+        // of the current marked text. Japanese IME uses a subrange replacement
+        // during conversion-state edits, including an empty replacement for
+        // Backspace. Preserve the rest of the preedit buffer in that case.
+        let replacementStart: Int
+        if markedText.length > 0,
+           replacementRange.location != NSNotFound,
+           replacementRange.location >= 0,
+           replacementRange.length >= 0,
+           replacementRange.location <= markedText.length,
+           replacementRange.length <= markedText.length - replacementRange.location {
+            markedText.replaceCharacters(in: replacementRange, with: incoming)
+            replacementStart = replacementRange.location
+        } else {
+            markedText = NSMutableAttributedString(attributedString: incoming)
+            replacementStart = 0
+        }
+
+        if markedText.length > 0 {
+            // selectedRange is relative to the inserted replacement, so offset
+            // it back into our marked-text coordinate space.
+            let insertedLength = incoming.length
+            let relativeLocation = selectedRange.location == NSNotFound
+                ? insertedLength
+                : min(max(selectedRange.location, 0), insertedLength)
+            let relativeLength = min(
+                max(selectedRange.length, 0),
+                insertedLength - relativeLocation
+            )
+            markedSelectedRange = normalizedMarkedSelectionRange(
+                NSRange(
+                    location: replacementStart + relativeLocation,
+                    length: relativeLength
+                ),
+                markedLength: markedText.length
+            )
+        } else {
+            markedSelectedRange = NSRange(location: NSNotFound, length: 0)
+        }
 
         // If we're not in a keyDown event, sync preedit immediately.
         // This can happen due to external events like changing keyboard layouts

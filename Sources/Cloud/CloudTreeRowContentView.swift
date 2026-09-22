@@ -101,8 +101,8 @@ struct CloudTreeRowContentView: View {
             )
         case .portsGroup:
             CloudTreeGroupRowContent(title: String(localized: "cloudTree.group.ports", defaultValue: "Ports"), count: nil, style: style)
-        case .resourcesPool(_, let count):
-            CloudTreeGroupRowContent(title: String(localized: "cloudTree.group.resources", defaultValue: "Resources"), count: count, style: style)
+        case .resourcesPool:
+            CloudTreeGroupRowContent(title: String(localized: "cloudTree.group.resources", defaultValue: "Resources"), count: nil, style: style)
         case .resource(_, let row):
             CloudTreeMachineResourceRowContent(row: row, style: style)
         case .port(let resource, let url, _):
