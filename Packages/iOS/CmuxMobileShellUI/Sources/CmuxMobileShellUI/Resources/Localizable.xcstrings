@@ -1,6 +1,65 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "mobile.connections.direct.addressHelp": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "On your Mac, open cmux Settings > Mobile > Reachable at. Enter the full address, including its current port (for example, 192.168.1.5:58470). Your iPhone must be able to reach that network."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Öffne auf deinem Mac cmux-Einstellungen > Mobil > Erreichbar unter. Gib die vollständige Adresse mit dem aktuellen Port ein (zum Beispiel 192.168.1.5:58470). Dein iPhone muss dieses Netzwerk erreichen können."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sur votre Mac, ouvrez les réglages de cmux > Mobile > Accessible à. Saisissez l’adresse complète avec son port actuel (par exemple, 192.168.1.5:58470). Votre iPhone doit pouvoir accéder à ce réseau."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "على Mac، افتح إعدادات cmux > الجوال > يمكن الوصول إليه على. أدخل العنوان كاملًا مع منفذه الحالي (مثل 192.168.1.5:58470). يجب أن يتمكن iPhone من الوصول إلى تلك الشبكة."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En el Mac, abre Ajustes de cmux > Móvil > Accesible en. Introduce la dirección completa con su puerto actual (por ejemplo, 192.168.1.5:58470). El iPhone debe poder acceder a esa red."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在 Mac 上開啟 cmux「設定」>「行動裝置」>「可連線於」。輸入包含目前連接埠的完整位址（例如 192.168.1.5:58470）。iPhone 必須能連上該網路。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在 Mac 上打开 cmux“设置”>“移动设备”>“可达地址”。输入包含当前端口的完整地址（例如 192.168.1.5:58470）。iPhone 必须能够访问该网络。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac에서 cmux 설정 > 모바일 > 연결 가능 주소를 여세요. 현재 포트를 포함한 전체 주소를 입력하세요(예: 192.168.1.5:58470). iPhone에서 해당 네트워크에 접근할 수 있어야 합니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Macでcmuxの「設定」>「モバイル」>「接続先」を開きます。現在のポートを含む完全なアドレス（例：192.168.1.5:58470）を入力してください。iPhoneからそのネットワークに接続できる必要があります。"
+          }
+        }
+      }
+    },
     "mobile.signIn.billingRecovery": {
       "extractionState": "manual",
       "localizations": {

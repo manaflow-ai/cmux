@@ -287,8 +287,8 @@ public struct MobileSection: View {
         SettingsCardRow(
             configurationReview: .settingsOnly,
             searchAnchorID: "setting:mobile:iOSPairingPort",
-            String(localized: "settings.mobile.port", defaultValue: "Pairing Port"),
-            subtitle: String(localized: "settings.mobile.port.subtitle", defaultValue: "Preferred port for IROH connections, 1–65535.")
+            String(localized: "settings.mobile.port", defaultValue: "Preferred Pairing Port"),
+            subtitle: String(localized: "settings.mobile.port.subtitle", defaultValue: "Used when pairing starts. The current port appears under Reachable at below.")
         ) {
             HStack(spacing: 8) {
                 TextField(
@@ -522,6 +522,12 @@ public struct MobileSection: View {
                                 .textSelection(.enabled)
                         }
                     }
+                    Text(String(
+                        localized: "settings.mobile.routes.directHelp",
+                        defaultValue: "For a direct connection, enter one of these complete addresses on your iPhone. Each includes the current port, which may differ from the preferred port. Choose a network your iPhone can reach."
+                    ))
+                    .cmuxFont(.caption)
+                    .foregroundStyle(.secondary)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.horizontal, 14)

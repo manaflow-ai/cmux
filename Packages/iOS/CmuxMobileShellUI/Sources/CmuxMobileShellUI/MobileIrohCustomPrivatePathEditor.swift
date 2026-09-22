@@ -91,6 +91,10 @@ struct MobileIrohCustomPrivatePathEditor: View {
                     ))
                 } footer: {
                     Text(L10n.string(
+                        "mobile.connections.direct.addressHelp",
+                        defaultValue: "On your Mac, open cmux Settings > Mobile > Reachable at. Enter the full address, including its current port (for example, 192.168.1.5:58470). Your iPhone must be able to reach that network."
+                    ))
+                    Text(L10n.string(
                         "mobile.iroh.v2.private.addresses.footer",
                         defaultValue: "Enter one address and port per line, such as 192.168.1.5:58470 or [fd00::5]:58470. These addresses stay on this iPhone."
                     ))

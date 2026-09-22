@@ -1,6 +1,65 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "settings.mobile.routes.directHelp": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "For a direct connection, enter one of these complete addresses on your iPhone. Each includes the current port, which may differ from the preferred port. Choose a network your iPhone can reach."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gib für eine Direktverbindung eine dieser vollständigen Adressen auf deinem iPhone ein. Jede enthält den aktuellen Port, der vom bevorzugten Port abweichen kann. Wähle ein Netzwerk, das dein iPhone erreichen kann."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pour une connexion directe, saisissez l’une de ces adresses complètes sur votre iPhone. Chacune inclut le port actuel, qui peut différer du port préféré. Choisissez un réseau accessible à votre iPhone."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "للاتصال المباشر، أدخل أحد هذه العناوين كاملةً على iPhone. يتضمن كل عنوان المنفذ الحالي، الذي قد يختلف عن المنفذ المفضل. اختر شبكة يمكن لـ iPhone الوصول إليها."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Para una conexión directa, introduce una de estas direcciones completas en el iPhone. Cada una incluye el puerto actual, que puede diferir del preferido. Elige una red a la que pueda acceder el iPhone."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "若要直接連線，請在 iPhone 上輸入其中一個完整位址。每個位址都包含目前的連接埠，可能與偏好的連接埠不同。請選擇 iPhone 能連上的網路。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "要直接连接，请在 iPhone 上输入其中一个完整地址。每个地址都包含当前端口，可能与首选端口不同。请选择 iPhone 能够访问的网络。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "직접 연결하려면 iPhone에 이 주소 중 하나를 전체 입력하세요. 각 주소에는 현재 포트가 포함되어 있으며 선호하는 포트와 다를 수 있습니다. iPhone에서 접근할 수 있는 네트워크를 선택하세요."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "直接接続するには、これらの完全なアドレスのいずれかをiPhoneに入力してください。各アドレスには現在のポートが含まれており、優先ポートと異なる場合があります。iPhoneから接続できるネットワークを選んでください。"
+          }
+        }
+      }
+    },
     "connection.relay.nativeFailure": {
       "extractionState": "manual",
       "localizations": {
@@ -331612,55 +331671,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pairing Port"
+            "value": "Preferred Pairing Port"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ペアリングポート"
+            "value": "優先ペアリングポート"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "配对端口"
+            "value": "首选配对端口"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Kopplungs-Port"
+            "value": "Bevorzugter Kopplungsport"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Port de jumelage"
+            "value": "Port de jumelage préféré"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "منفذ الاقتران"
+            "value": "منفذ الاقتران المفضل"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Puerto de vinculación"
+            "value": "Puerto de enlace preferido"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "配對連接埠"
+            "value": "偏好的配對連接埠"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "페어링 포트"
+            "value": "선호하는 페어링 포트"
           }
         }
       }
@@ -332202,55 +332261,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Preferred port for IROH connections, 1–65535."
+            "value": "Used when pairing starts. The current port appears under Reachable at below."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Bevorzugter Port für IROH-Verbindungen, 1–65535."
+            "value": "Wird beim Start der Kopplung verwendet. Der aktuelle Port steht unten unter „Erreichbar unter“."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Port préféré pour les connexions IROH, de 1 à 65535."
+            "value": "Utilisé au démarrage du jumelage. Le port actuel figure ci-dessous sous « Accessible à »."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "المنفذ المفضل لاتصالات IROH، من 1 إلى 65535."
+            "value": "يُستخدم عند بدء الاقتران. يظهر المنفذ الحالي أدناه ضمن «يمكن الوصول إليه على»."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Puerto preferido para conexiones IROH, entre 1 y 65535."
+            "value": "Se usa al iniciar el enlace. El puerto actual aparece abajo, en «Accesible en»."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "IROH 连接的首选端口，范围为 1–65535。"
+            "value": "开始配对时使用。当前端口显示在下方的“可达地址”中。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "IROH 連線的偏好連接埠，範圍為 1–65535。"
+            "value": "開始配對時使用。目前的連接埠顯示在下方的「可連線於」。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "IROH 연결에 사용할 기본 포트(1–65535)입니다."
+            "value": "페어링을 시작할 때 사용합니다. 현재 포트는 아래의 연결 가능 주소에 표시됩니다."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "IROH 接続に使用する優先ポート（1〜65535）。"
+            "value": "ペアリング開始時に使用します。現在のポートは下の「接続先」に表示されます。"
           }
         }
       }

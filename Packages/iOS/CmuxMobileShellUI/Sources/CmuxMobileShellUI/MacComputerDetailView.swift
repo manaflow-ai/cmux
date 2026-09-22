@@ -177,8 +177,8 @@ struct MacComputerDetailView: View {
             }
         } message: {
             Text(L10n.string(
-                "mobile.connections.direct.addMessage",
-                defaultValue: "A numeric IP and port where this computer is reachable, like 192.168.1.20:64000 or [fd00::5]:64000. A port is required."
+                "mobile.connections.direct.addressHelp",
+                defaultValue: "On your Mac, open cmux Settings > Mobile > Reachable at. Enter the full address, including its current port (for example, 192.168.1.5:58470). Your iPhone must be able to reach that network."
             ))
         }
         .confirmationDialog(
@@ -678,8 +678,13 @@ struct MacComputerDetailView: View {
                 defaultValue: "Direct Addresses"
             ))
         } footer: {
-            Text(directAddressDrafts.contains(where: \.enabled)
-                ? L10n.string(
+            VStack(alignment: .leading, spacing: 8) {
+                Text(L10n.string(
+                    "mobile.connections.direct.addressHelp",
+                    defaultValue: "On your Mac, open cmux Settings > Mobile > Reachable at. Enter the full address, including its current port (for example, 192.168.1.5:58470). Your iPhone must be able to reach that network."
+                ))
+                Text(directAddressDrafts.contains(where: \.enabled)
+                    ? L10n.string(
                     "mobile.v2.connections.direct.footer",
                     defaultValue: "Enter each address with its port. These routes stay on this iPhone. The encrypted connection verifies the Mac’s identity."
                 )
@@ -687,6 +692,7 @@ struct MacComputerDetailView: View {
                     "mobile.connections.direct.noneEnabled",
                     defaultValue: "No address is enabled — this computer stays disconnected until you enable or add one."
                 ))
+            }
         }
     }
 
