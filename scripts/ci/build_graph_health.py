@@ -68,20 +68,38 @@ def parse_touch_log(output: str) -> tuple[int, Counter[str]]:
     return commits, touches
 
 
+def window_start_iso(days: int, window_end_epoch: int) -> str:
+    """Return the UTC history-window boundary anchored to a commit timestamp."""
+    window_start = dt.datetime.fromtimestamp(
+        window_end_epoch,
+        tz=dt.timezone.utc,
+    ) - dt.timedelta(days=days)
+    return window_start.isoformat()
+
+
+def history_commit_count(days: int, ref: str, window_end_epoch: int) -> int:
+    """Count every first-parent commit in the selected history window."""
+    return int(
+        git(
+            "rev-list",
+            "--first-parent",
+            "--count",
+            f"--since={window_start_iso(days, window_end_epoch)}",
+            ref,
+        ).strip()
+    )
+
+
 def recent_touch_counts(
     days: int,
     ref: str,
     window_end_epoch: int,
 ) -> tuple[int, Counter[str]]:
-    """Count touches in a window anchored to the selected commit's timestamp."""
-    window_start = dt.datetime.fromtimestamp(
-        window_end_epoch,
-        tz=dt.timezone.utc,
-    ) - dt.timedelta(days=days)
+    """Count source-root commits and Swift touches in the selected window."""
     output = git(
         "log",
         "--first-parent",
-        f"--since={window_start.isoformat()}",
+        f"--since={window_start_iso(days, window_end_epoch)}",
         "--format=commit:%H%x00",
         "--name-only",
         "-z",
@@ -95,7 +113,14 @@ def recent_touch_counts(
     return parse_touch_log(output)
 
 
-def summarize(files: list[str], touches: Counter[str], commits: int, days: int, top: int) -> dict[str, object]:
+def summarize(
+    files: list[str],
+    touches: Counter[str],
+    source_commits: int,
+    history_commits: int,
+    days: int,
+    top: int,
+) -> dict[str, object]:
     """Build the versioned ownership and recent-edit report payload."""
     current_by_owner: Counter[str] = Counter()
     current_by_group: Counter[str] = Counter()
@@ -121,7 +146,8 @@ def summarize(files: list[str], touches: Counter[str], commits: int, days: int, 
     return {
         "schema_version": 1,
         "window_days": days,
-        "first_parent_commits": commits,
+        "first_parent_commits": history_commits,
+        "first_parent_source_commits": source_commits,
         "current_swift_files": {
             "total": len(files),
             "by_owner": dict(sorted(current_by_owner.items())),
@@ -149,6 +175,10 @@ def print_summary(data: dict[str, object]) -> None:
     print(f"Build graph health ({data['window_days']}d)")
     print(f"  source: {source['ref']} @ {str(source['commit'])[:12]}")
     print(f"  first-parent commits: {data['first_parent_commits']}")
+    print(
+        "  commits touching Sources/Packages/CLI: "
+        f"{data['first_parent_source_commits']}"
+    )
     print(f"  tracked Swift files: {files['total']}")
     print(f"  Swift file touches: {touches['total']}")
     print(f"  app Sources/ touches: {touches['app']} ({touches['app_share']:.1%})")
@@ -175,8 +205,16 @@ def main() -> int:
 
     commit, window_end_epoch = resolve_ref(args.ref)
     files = tracked_swift_files(commit)
-    commits, touches = recent_touch_counts(args.days, commit, window_end_epoch)
-    data = summarize(files, touches, commits, args.days, args.top)
+    history_commits = history_commit_count(args.days, commit, window_end_epoch)
+    source_commits, touches = recent_touch_counts(args.days, commit, window_end_epoch)
+    data = summarize(
+        files,
+        touches,
+        source_commits,
+        history_commits,
+        args.days,
+        args.top,
+    )
     data["source"] = {
         "ref": args.ref,
         "commit": commit,
