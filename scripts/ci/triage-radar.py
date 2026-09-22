@@ -30,13 +30,13 @@ STOP_WORDS = {
 }
 
 BROAD_CLUSTER_TERMS = {
-    "agent", "app", "browser", "build", "cloud", "ios", "machine", "pane", "relay", "remote",
-    "session", "sidebar", "ssh", "terminal", "window", "workspace",
+    "agent", "app", "browser", "build", "cloud", "connect", "display", "ios", "machine", "pane",
+    "relay", "remote", "session", "sidebar", "ssh", "terminal", "window", "workspace",
 }
 
 STRONG_CLUSTER_TERMS = {
-    "auth", "connect", "crash", "drag", "drop", "fail", "freeze", "hang", "index", "input",
-    "reject", "reorder", "route",
+    "auth", "crash", "drag", "drop", "fail", "freeze", "hang", "index", "input", "reject",
+    "reorder", "route", "socket",
 }
 
 NORMALIZE_PREFIXES = {
@@ -178,7 +178,7 @@ def cluster_term_weight(token: str) -> float:
 
 def pair_is_clustered(left: set[str], right: set[str]) -> bool:
     shared = left & right
-    if not shared:
+    if not (shared & STRONG_CLUSTER_TERMS):
         return False
     shared_score = sum(cluster_term_weight(token) for token in shared)
     smaller_score = min(
@@ -187,7 +187,7 @@ def pair_is_clustered(left: set[str], right: set[str]) -> bool:
     )
     if smaller_score <= 0:
         return False
-    return shared_score >= 1.5 and shared_score / smaller_score >= 0.20
+    return shared_score >= 1.75 and shared_score / smaller_score >= 0.18
 
 
 def is_cluster_candidate(item: dict[str, Any]) -> bool:
