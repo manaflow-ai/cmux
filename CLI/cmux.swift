@@ -1561,7 +1561,7 @@ final class ClaudeHookSessionStore {
                 pid: pid,
                 launchCommand: launchCommand,
                 isRestorable: false,
-                agentLifecycle: .running,
+                agentLifecycle: .idle,
                 hookEventName: hookEventName,
                 lastSubtitle: nil,
                 lastBody: nil,
@@ -27594,9 +27594,9 @@ struct CMUXCLI {
                     telemetry: telemetry
                 )
             }
-            // SessionStart itself is the process-running signal. Keep ordinary
-            // startup/resume visually quiet, but register the PID immediately so
-            // later hooks and terminal state are attached to this exact surface.
+            // SessionStart establishes session identity and process ownership.
+            // Keep ordinary startup/resume visually quiet; actual work starts at
+            // UserPromptSubmit, while the PID still binds later hooks to this surface.
             let shouldRegisterPID = isForkSessionLaunch
                 ? resolvedSurface.isAuthoritative
                 : shouldPromoteActiveSession ||
@@ -27619,9 +27619,9 @@ struct CMUXCLI {
                     client: client,
                     workspaceId: workspaceId,
                     surfaceId: surfaceId,
-                    value: "Running",
-                    icon: "bolt.fill",
-                    color: "#4C8DFF",
+                    value: "Idle",
+                    icon: "pause.circle.fill",
+                    color: "#8E8E93",
                     pid: claudePid
                 )
             }
