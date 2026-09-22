@@ -1,0 +1,190 @@
+
+def transition_scenario(workspace: Path, base: str, scenario: str, metrics: Path, mode: str) -> None:
+    before = sample_stats(workspace)
+    started = time.monotonic()
+    commits = create_scenario_commit(workspace, base, scenario)
+    create_seconds = time.monotonic() - started
+    checkout_started = time.monotonic()
+    run(["git", "checkout", "--detach", commits["target"]], cwd=workspace)
+    run(["git", "submodule", "update", "--init", "--recursive", "--checkout"], cwd=workspace)
+    checkout_seconds = time.monotonic() - checkout_started
+    after = sample_stats(workspace)
+    if git_status(workspace):
+        raise SystemExit("candidate worktree dirty after transition")
+    files = {}
+    for rel in SAMPLE_PATHS:
+        key = str(rel)
+        files[key] = {
+            "before": before[key],
+            "after": after[key],
+            "mtime_preserved": before[key]["mtime_ns"] == after[key]["mtime_ns"],
+            "inode_preserved": before[key]["inode"] == after[key]["inode"],
+        }
+    payload = {
+        "mode": mode,
+        **commits,
+        "tree": output("git", "rev-parse", "HEAD^{tree}", cwd=workspace),
+        "workspace": str(workspace.resolve()),
+        "scenario_create_seconds": round(create_seconds, 6),
+        "git_checkout_seconds": round(checkout_seconds, 6),
+        "source_transition_seconds": round(create_seconds + checkout_seconds, 6),
+        "files": files,
+        "package_resolved_sha256": package_hash(workspace),
+    }
+    write_json(metrics, payload)
+    print("CMUX_CANARY_SOURCE=" + json.dumps(payload, sort_keys=True), flush=True)
+
+
+def source_fresh(workspace: Path, repo_url: str, base: str, scenario: str, metrics: Path) -> None:
+    started = time.monotonic()
+    checkout_base(workspace, repo_url, base)
+    checkout_seconds = time.monotonic() - started
+    transition_scenario(workspace, base, scenario, metrics, "fresh-checkout")
+    payload = json.loads(metrics.read_text())
+    payload["fresh_checkout_seconds"] = round(checkout_seconds, 6)
+    payload["source_transition_seconds"] = round(checkout_seconds + payload["source_transition_seconds"], 6)
+    write_json(metrics, payload)
+    print("CMUX_CANARY_SOURCE_FINAL=" + json.dumps(payload, sort_keys=True), flush=True)
+
+
+def restore_worktree(workspace: Path, archive: Path, repo_url: str, base: str, scenario: str, metrics: Path, receipt: Path | None = None) -> None:
+    wipe(workspace)
+    # Extract with a shell pipe because Python's tarfile lacks zstd on all runner images.
+    extract_started = time.monotonic()
+    cmd = f"zstd -dc {json.dumps(str(archive))} | tar -xf - -C {json.dumps(str(workspace))}"
+    run(["bash", "-lc", cmd])
+    extract_seconds = time.monotonic() - extract_started
+    if not (workspace / ".git").exists():
+        raise SystemExit("restored checkout is missing .git metadata")
+    run(["git", "remote", "set-url", "origin", repo_url], cwd=workspace)
+    if output("git", "rev-parse", "HEAD", cwd=workspace) != base:
+        print("CMUX_CANARY_GENERATION_MISMATCH=source-head", flush=True)
+        raise SystemExit(42)
+    if git_status(workspace):
+        print("CMUX_CANARY_GENERATION_MISMATCH=dirty-restored-source", flush=True)
+        raise SystemExit(42)
+    if receipt is not None:
+        rec = json.loads(receipt.read_text())
+        expected = rec.get("source", {})
+        restored = source_snapshot(workspace)
+        checks = {
+            "head": restored["head"] == expected.get("head") == base,
+            "tree": restored["tree"] == expected.get("tree"),
+            "package": restored["package_resolved_sha256"] == expected.get("package_resolved_sha256"),
+            "submodules": restored["submodules"] == expected.get("submodules"),
+        }
+        print("CMUX_CANARY_RESTORED_SOURCE_VALIDATION=" + json.dumps({"valid": all(checks.values()), "checks": checks}, sort_keys=True), flush=True)
+        if not all(checks.values()):
+            raise SystemExit(42)
+    fetch_started = time.monotonic()
+    run(["git", "fetch", "--no-tags", "--force", "--depth=32", "origin", base], cwd=workspace)
+    run(["git", "submodule", "sync", "--recursive"], cwd=workspace)
+    run(["git", "submodule", "update", "--init", "--recursive", "--checkout"], cwd=workspace)
+    fetch_seconds = time.monotonic() - fetch_started
+    transition_scenario(workspace, base, scenario, metrics, "restored-generation")
+    payload = json.loads(metrics.read_text())
+    payload["worktree_extract_seconds"] = round(extract_seconds, 6)
+    payload["git_fetch_rebind_seconds"] = round(fetch_seconds, 6)
+    payload["source_transition_seconds"] = round(extract_seconds + fetch_seconds + payload["source_transition_seconds"], 6)
+    write_json(metrics, payload)
+    print("CMUX_CANARY_SOURCE_FINAL=" + json.dumps(payload, sort_keys=True), flush=True)
+
+
+def zstd_tar(source: Path, destination: Path) -> float:
+    started = time.monotonic()
+    cmd = f"tar -cf - -C {json.dumps(str(source))} . | zstd -3 -T0 -q -o {json.dumps(str(destination))}"
+    run(["bash", "-lc", cmd])
+    return time.monotonic() - started
+
+
+def archive_generation(workspace: Path, derived: Path, outdir: Path, receipt: Path, metrics: Path) -> None:
+    if git_status(workspace):
+        raise SystemExit("refusing to archive dirty seed checkout")
+    outdir.mkdir(parents=True, exist_ok=True)
+    worktree_archive = outdir / "worktree.tar.zst"
+    dd_archive = outdir / "derived-data.tar.zst"
+    worktree_seconds = zstd_tar(workspace, worktree_archive)
+    dd_seconds = zstd_tar(derived, dd_archive)
+    incremental_paths = {
+        "intermediates": derived / "Build/Intermediates.noindex",
+        "debug_products": derived / "Build/Products/Debug",
+        "module_cache": derived / "ModuleCache.noindex",
+        "sdk_stat_caches": derived / "SDKStatCaches.noindex",
+    }
+    payload = {
+        "schema": SCHEMA,
+        "worktree_disk_bytes": du_bytes(workspace),
+        "derived_data_disk_bytes": du_bytes(derived),
+        "generation_disk_bytes": du_bytes(workspace) + du_bytes(derived),
+        "worktree_archive_bytes": worktree_archive.stat().st_size,
+        "derived_data_archive_bytes": dd_archive.stat().st_size,
+        "generation_archive_bytes": worktree_archive.stat().st_size + dd_archive.stat().st_size,
+        "worktree_compress_seconds": round(worktree_seconds, 6),
+        "derived_data_compress_seconds": round(dd_seconds, 6),
+        "generation_compress_seconds": round(worktree_seconds + dd_seconds, 6),
+        "worktree_archive_sha256": sha256_file(worktree_archive),
+        "derived_data_archive_sha256": sha256_file(dd_archive),
+        "incremental_subset_components_bytes": {k: du_bytes(v) for k, v in incremental_paths.items()},
+    }
+    payload["incremental_subset_disk_bytes"] = sum(payload["incremental_subset_components_bytes"].values())
+    write_json(metrics, payload)
+    rec = json.loads(receipt.read_text())
+    rec["archive"] = {
+        "worktree_sha256": payload["worktree_archive_sha256"],
+        "derived_data_sha256": payload["derived_data_archive_sha256"],
+        "generation_archive_bytes": payload["generation_archive_bytes"],
+    }
+    write_json(receipt, rec)
+    print("CMUX_CANARY_ARCHIVE=" + json.dumps(payload, sort_keys=True), flush=True)
+
+
+def extract_derived(archive: Path, derived: Path, metrics: Path) -> None:
+    wipe(derived)
+    started = time.monotonic()
+    cmd = f"zstd -dc {json.dumps(str(archive))} | tar -xf - -C {json.dumps(str(derived))}"
+    run(["bash", "-lc", cmd])
+    seconds = time.monotonic() - started
+    payload = {
+        "derived_data": str(derived.resolve()),
+        "derived_data_extract_seconds": round(seconds, 6),
+        "archive_bytes": archive.stat().st_size,
+        "archive_sha256": sha256_file(archive),
+    }
+    write_json(metrics, payload)
+    print("CMUX_CANARY_DD_RESTORE=" + json.dumps(payload, sort_keys=True), flush=True)
+
+
+def make_receipt(workspace: Path, derived: Path, base: str, trust_class: str, out: Path) -> None:
+    payload = {
+        "schema": SCHEMA,
+        "producer_trust_class": trust_class,
+        "base": base,
+        "source": source_snapshot(workspace),
+        "xcode": output("xcodebuild", "-version"),
+        "sdk": output("xcrun", "--sdk", "macosx", "--show-sdk-version"),
+        "workspace": str(workspace.resolve()),
+        "derived_data": str(derived.resolve()),
+    }
+    write_json(out, payload)
+    print("CMUX_CANARY_RECEIPT=" + json.dumps(payload, sort_keys=True), flush=True)
+
+
+def validate_receipt(receipt: Path, workspace: Path, derived: Path, base: str, trust_class: str, generation_dir: Path | None = None) -> int:
+    try:
+        rec = json.loads(receipt.read_text())
+    except Exception as exc:
+        print(f"CMUX_CANARY_RECEIPT_MISMATCH=corrupt:{exc}", flush=True)
+        return 42
+    checks = {
+        "schema": rec.get("schema") == SCHEMA,
+        "trust": rec.get("producer_trust_class") == trust_class,
+        "base": rec.get("base") == base,
+        "workspace": rec.get("workspace") == str(workspace.resolve()),
+        "derived_data": rec.get("derived_data") == str(derived.resolve()),
+        "xcode": rec.get("xcode") == output("xcodebuild", "-version"),
+        "sdk": rec.get("sdk") == output("xcrun", "--sdk", "macosx", "--show-sdk-version"),
+    }
+    if generation_dir is not None:
+        archive = rec.get("archive", {})
+        worktree = generation_dir / "worktree.tar.zst"
+        dd = generation_dir / "derived-data.tar.zst"
