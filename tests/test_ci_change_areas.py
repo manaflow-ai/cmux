@@ -1234,7 +1234,10 @@ def test_ci_status_job_accepts_skipped_routed_jobs() -> None:
     for job_name in MACOS_JOBS:
         assert f"      - {job_name}" not in block
 
-    assert "if: ${{ always() }}" in block
+    assert (
+        "if: ${{ always() && needs.changes.result == 'success' "
+        "&& needs.changes.outputs.macos != 'false' }}"
+    ) in block
     assert 'allowed = {"success", "skipped"}' in block
 
 
@@ -1946,7 +1949,7 @@ def test_app_host_failures_preserve_attempt_and_crash_diagnostics() -> None:
 def test_linux_preflight_blocks_macos_on_cheap_layer_failure() -> None:
     block = workflow_job_block("linux-preflight")
 
-    assert "name: linux-preflight" in block
+    assert "name: macOS preflight gate (Linux)" in block
     assert "      - changes" in block
     assert "      - static-preflight" in block
     assert "      - guards" in block
