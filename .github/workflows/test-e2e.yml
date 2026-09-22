@@ -118,6 +118,16 @@ jobs:
           # Dispatchers chasing one flake routinely fire several filters at the
           # same commit seconds apart, and each of those runs paid its own cold
           # build of identical source.
+          # A trailing field is never visited by the split loop below, so
+          # "cmuxTests/AlphaTests," would otherwise pass as a single selector
+          # instead of failing the empty-entry check.
+          case "$raw_filter" in
+            ,*|*,|*, )
+              echo "::error::test_filter '$raw_filter' has a leading or trailing comma"
+              exit 1
+              ;;
+          esac
+
           selectors=""
           filters=""
           test_target=""
