@@ -1957,10 +1957,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // Seed the per-Mac source of truth from the injected workspaces (preview /
         // tests) so the derived list stays consistent; mirror it into the derived
         // cache directly since `didSet` does not fire during init.
-        self.workspacesByMac = workspaces.isEmpty
-            ? [:]
-            : [.anonymousForeground: MacWorkspaceState(
-                macDeviceID: Self.foregroundAnonymousKey, workspaces: workspaces)]
+        self.workspacesByMac = [.anonymousForeground: MacWorkspaceState(
+            macDeviceID: Self.foregroundAnonymousKey,
+            workspaces: workspaces,
+            status: connectionState == .connected ? .connected : .unavailable,
+            workspaceSnapshotIsAuthoritative: connectionState == .connected)]
         self.workspaces = workspaces
         self.terminalInputText = ""
         self.connectionError = nil
@@ -7493,6 +7494,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         guard var state = workspacesByMac[ownerKey] else { return }
         state.status = .unavailable
         state.workspaceGroupsAreAuthoritative = false
+        state.workspaceSnapshotIsAuthoritative = false
         workspacesByMac[ownerKey] = state
     }
 
@@ -7670,6 +7672,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     // destination until a fresh group snapshot arrives.
                     workspaceGroupsAreAuthoritative: snapshot.groups != nil,
                     status: .connected,
+                    workspaceSnapshotIsAuthoritative: true,
                     actionCapabilities: subscription.actionCapabilities
                 )
                 // One owner performs a leading pass plus at most one trailing
@@ -8297,8 +8300,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             // validate a restored group. Keep the rows, but require a future
             // authoritative group snapshot before clearing a pending ID.
             state.workspaceGroupsAreAuthoritative = false
+        state.workspaceSnapshotIsAuthoritative = false
         }
         state.status = .connected
+        if !merge {
+            state.workspaceSnapshotIsAuthoritative = true
+        }
         state.actionCapabilities = Self.workspaceActionCapabilities(
             from: supportedHostCapabilities,
             allowsMacScopedMutations: allowsMacScopedWorkspaceMutations
@@ -11143,6 +11150,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             guard var offline = updatedWorkspacesByMac[key] else { continue }
             offline.status = .unavailable
             offline.workspaceGroupsAreAuthoritative = false
+            offline.workspaceSnapshotIsAuthoritative = false
             updatedWorkspacesByMac[key] = offline
         }
         workspacesByMac = updatedWorkspacesByMac
@@ -11483,6 +11491,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         if var offline = workspacesByMac[foregroundMacKey] {
             offline.status = .unavailable
             offline.workspaceGroupsAreAuthoritative = false
+            offline.workspaceSnapshotIsAuthoritative = false
             workspacesByMac[foregroundMacKey] = offline
         }
         connectionState = .disconnected
@@ -12122,6 +12131,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         macConnectionStatus = .reconnecting
         if var foregroundState = workspacesByMac[foregroundMacKey] {
             foregroundState.workspaceGroupsAreAuthoritative = false
+            foregroundState.workspaceSnapshotIsAuthoritative = false
             workspacesByMac[foregroundMacKey] = foregroundState
         }
         isRecoveringConnection = true
@@ -12136,6 +12146,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         macConnectionStatus = .unavailable
         if var foregroundState = workspacesByMac[foregroundMacKey] {
             foregroundState.workspaceGroupsAreAuthoritative = false
+            foregroundState.workspaceSnapshotIsAuthoritative = false
             workspacesByMac[foregroundMacKey] = foregroundState
         }
         isRecoveringConnection = false
