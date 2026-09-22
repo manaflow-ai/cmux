@@ -147,6 +147,38 @@ def fetch_pair(workspace: Path, base: str, target: str) -> None:
     run(["git", "fetch", "--no-tags", "--force", "origin", *refs], cwd=workspace)
 
 
+def restore_missing_tracked_files(workspace: Path) -> list[str]:
+    """Materialize only seed-index files absent from the archived worktree."""
+    records = subprocess.check_output(
+        ["git", "ls-files", "--stage", "-z"],
+        cwd=workspace,
+    ).split(b"\0")
+    missing: list[str] = []
+    for record in records:
+        if not record:
+            continue
+        metadata, raw_path = record.split(b"\t", 1)
+        mode, _object_id, stage = metadata.split()
+        if stage != b"0" or mode == b"160000":
+            continue
+        relative = os.fsdecode(raw_path)
+        if not os.path.lexists(workspace / relative):
+            missing.append(relative)
+    if missing:
+        process = subprocess.Popen(
+            ["git", "checkout-index", "-f", "-z", "--stdin"],
+            cwd=workspace,
+            stdin=subprocess.PIPE,
+        )
+        assert process.stdin is not None
+        process.stdin.write(b"\0".join(os.fsencode(path) for path in missing) + b"\0")
+        process.stdin.close()
+        code = process.wait()
+        if code:
+            raise subprocess.CalledProcessError(code, process.args)
+    return missing
+
+
 def normalize_tracked_mtimes(workspace: Path, metrics: Path | None = None) -> None:
     base_seconds = 978_307_200
     span_seconds = 15 * 365 * 24 * 60 * 60
@@ -204,10 +236,16 @@ def init_restored_repo(workspace: Path, repo_url: str, base: str, target: str) -
     run(["git", "remote", "add", "origin", repo_url], cwd=workspace)
     run(["git", "fetch", "--no-tags", "--depth=8", "origin", base, target], cwd=workspace)
     # Bind HEAD/index to the archived source without rewriting ordinary working
-    # files. Old prototype archives may contain materialized submodule bytes
-    # without their .git metadata; remove only configured gitlink worktrees and
-    # rehydrate them through Git before validating the restored source.
+    # files. Repair only tracked files that the archive omitted, then remove any
+    # stale gitlink worktrees and rehydrate submodules through Git. Existing
+    # archived files keep their mtimes.
     run(["git", "reset", "--mixed", base], cwd=workspace)
+    restored_missing = restore_missing_tracked_files(workspace)
+    if restored_missing:
+        print(
+            f"restored {len(restored_missing)} missing tracked seed files from Git",
+            flush=True,
+        )
     remove_restored_submodule_worktrees(workspace)
     run(["git", "submodule", "update", "--init", "--recursive"], cwd=workspace)
     status = output("git", "status", "--porcelain", "--untracked-files=all", cwd=workspace)
