@@ -68,6 +68,7 @@ final class cmuxUITests: XCTestCase {
     func testWhatsNewSheetFitsSwipedPageAndMatchesAppearance() throws {
         let app = XCUIApplication()
         defer { app.terminate() }
+        var screenshotBrightness: [String: Double] = [:]
 
         for appearance in ["light", "dark"] {
             app.launchArguments = ["-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
@@ -105,11 +106,8 @@ final class cmuxUITests: XCTestCase {
             ))
             context.draw(pixels, in: CGRect(x: 0, y: 0, width: 1, height: 1))
             let brightness = Double(Int(rgba[0]) + Int(rgba[1]) + Int(rgba[2])) / (3 * 255)
-            if appearance == "light" {
-                XCTAssertGreaterThan(brightness, 0.65, "Use the light Mac Settings capture")
-            } else {
-                XCTAssertLessThan(brightness, 0.35, "Use the dark Mac Settings capture")
-            }
+            screenshotBrightness[appearance] = brightness
+            XCTAssertGreaterThan(brightness, 0.65, "Use the shared Mac Settings capture")
             let before = XCTAttachment(screenshot: app.screenshot())
             before.name = "Fitted pairing page - \(appearance)"
             before.lifetime = .keepAlways
@@ -133,6 +131,12 @@ final class cmuxUITests: XCTestCase {
             XCTAssertEqual(title.frame.minY, pairingTop, accuracy: 2)
             app.terminate()
         }
+        XCTAssertEqual(
+            screenshotBrightness["light"],
+            screenshotBrightness["dark"],
+            accuracy: 0.05,
+            "The instructional screenshot must be identical in both appearances"
+        )
         try testWhatsNewSeparateUpdatesScreenshotCropAndLeadingAlignment()
     }
 

@@ -227,7 +227,7 @@ struct MobileWhatsNewPairingSetupContent: View {
 
                 Text(L10n.string(
                     "mobile.pairingOptInUpdate.requirement",
-                    defaultValue: "Open cmux Settings > Mobile on your Mac and turn on Enable iOS pairing before connecting."
+                    defaultValue: "On your Mac, open Settings > Mobile and turn on Enable iOS pairing."
                 ))
                 .font(layout.detailFont)
                 .foregroundStyle(.secondary)
