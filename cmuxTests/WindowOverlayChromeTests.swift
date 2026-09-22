@@ -1,6 +1,8 @@
 import AppKit
 import Bonsplit
 import CmuxAppKitSupportUI
+import CmuxCommandPalette
+import Foundation
 import SwiftUI
 import Testing
 import WebKit
@@ -160,6 +162,75 @@ struct WindowOverlayChromeTests {
 
         #expect(host.performHitTest(at: point, currentEvent: event, dragPasteboard: pasteboard) === button)
         #expect(host.cmuxHitTest(windowPoint: event.locationInWindow) === button)
+    }
+
+    @Test("Pane swap selection keeps source distinct and commits the hovered target")
+    func paneSwapSelectionCommitsDistinctHoveredTarget() {
+        let sourcePaneID = UUID()
+        let targetPaneID = UUID()
+        var state = PaneSwapSelectionState(sourcePaneID: sourcePaneID)
+
+        #expect(state.targetPaneID == nil)
+        #expect(state.handle(.hover(sourcePaneID)) == .none)
+        #expect(state.targetPaneID == nil)
+        #expect(state.handle(.hover(targetPaneID)) == .none)
+        #expect(state.targetPaneID == targetPaneID)
+        #expect(
+            state.handle(.primaryClick) == .commit(
+                sourcePaneID: sourcePaneID,
+                targetPaneID: targetPaneID
+            )
+        )
+        #expect(state.targetPaneID == nil)
+    }
+
+    @Test(
+        "Pane swap selection cancellation abandons the active target",
+        arguments: [
+            PaneSwapSelectionCancellationReason.escapeKey,
+            .secondaryClick,
+            .abandonedInteraction,
+            .windowDeactivated,
+            .layoutChanged,
+        ]
+    )
+    func paneSwapSelectionCancellation(reason: PaneSwapSelectionCancellationReason) {
+        let sourcePaneID = UUID()
+        let targetPaneID = UUID()
+        var state = PaneSwapSelectionState(sourcePaneID: sourcePaneID)
+
+        _ = state.handle(.hover(targetPaneID))
+        #expect(state.targetPaneID == targetPaneID)
+        #expect(state.handle(.cancel(reason)) == .cancel(reason))
+        #expect(state.targetPaneID == nil)
+    }
+
+    @Test("Swap With Session command is terminal-pane scoped and dismisses before selection")
+    func swapWithSessionCommandPaletteContract() throws {
+        let contribution = try #require(
+            ContentView.commandPaletteViewCommandContributions().first {
+                $0.commandId == "palette.swapWithSession"
+            }
+        )
+
+        var terminalPane = CommandPaletteContextSnapshot()
+        terminalPane.setBool(CommandPaletteContextKeys.panelIsTerminal, true)
+        terminalPane.setBool(CommandPaletteContextKeys.panelHasPane, true)
+        #expect(contribution.when(terminalPane))
+
+        var terminalWithoutPane = CommandPaletteContextSnapshot()
+        terminalWithoutPane.setBool(CommandPaletteContextKeys.panelIsTerminal, true)
+        #expect(!contribution.when(terminalWithoutPane))
+
+        var nonTerminalPane = CommandPaletteContextSnapshot()
+        nonTerminalPane.setBool(CommandPaletteContextKeys.panelHasPane, true)
+        #expect(!contribution.when(nonTerminalPane))
+
+        #expect(
+            ContentView.commandPaletteShouldDismissBeforeRun(
+                forCommandId: "palette.swapWithSession"
+            )
+        )
     }
 
     private func makeWindow() -> NSWindow {

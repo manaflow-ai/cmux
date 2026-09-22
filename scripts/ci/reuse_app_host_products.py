@@ -26,6 +26,7 @@ import time
 import zipfile
 from datetime import datetime
 from pathlib import Path
+from urllib.parse import urlencode
 
 import app_host_test_products as products
 import product_input_identity as product_inputs
@@ -39,6 +40,13 @@ MAX_MEMBER_BYTES = 4 * 1024**3
 MAX_EXPANDED_BYTES = 16 * 1024**3
 MAX_TAR_BYTES = 20 * 1024**3
 MAX_MEMBERS = 200_000
+
+# Producers publish one artifact per run attempt, so the exact artifact name is
+# known before any request. Attempts beyond the third are rare enough that a
+# fourth lookup costs more than the compile it would occasionally avoid.
+LOOKUP_ATTEMPTS = 3
+ARTIFACTS_PER_PAGE = 100
+MAX_CANDIDATES = 6
 
 # Producer events permitted for each consumer event. Pull-request consumers are
 # further restricted to the same pull request; merge groups may adopt an exact
@@ -150,6 +158,45 @@ def pull_request_numbers(run):
             if isinstance(item, dict) and isinstance(item.get("number"), int)}
 
 
+def commit_parents(revision):
+    """Read one commit object's parent revisions from the local checkout.
+
+    `git rev-parse <revision>^2` cannot answer this. The compile admission job
+    checks out at the default fetch depth of one, and a shallow repository
+    grafts its boundary commits as parentless, so every revision walk reports
+    no parents at all. The commit object itself is transferred intact and still
+    names each parent.
+    """
+    header = read("git", "cat-file", "commit", revision).split("\n\n", 1)[0]
+    return [line.split(" ", 1)[1] for line in header.splitlines()
+            if line.startswith("parent ")]
+
+
+def attested_checkout(run, current_revision):
+    """Bind the local checkout to the revision GitHub attests for this run.
+
+    A pull request run checks out `github.sha`, the ephemeral merge of the pull
+    request head into the base, so its checkout is never the run's `head_sha`.
+    That merge commit names the attested head as its second parent, which is
+    what makes the local tree the tested form of that head rather than an
+    unrelated revision. Every other event checks out the attested commit, and
+    those keep requiring it exactly.
+
+    The tree itself is still not taken on trust: `load_consumer` goes on to
+    require the local product-input fingerprint to equal the one recomputed
+    from GitHub's copy of `head_sha`, so a checkout that carries different
+    compiled-product inputs than the attested head cannot adopt its products.
+    """
+    if current_revision == run.get("head_sha"):
+        return True
+    if run.get("event") != "pull_request":
+        return False
+    if not re.fullmatch(r"[0-9a-f]{6,40}", str(current_revision)):
+        return False
+    parents = commit_parents(current_revision)
+    return len(parents) == 2 and parents[1] == run["head_sha"]
+
+
 def trusted_ci_run(run, repository):
     """Require the repository CI workflow and an in-repository event source."""
     head_repository = run.get("head_repository")
@@ -214,7 +261,7 @@ def load_consumer(api, value, current_run, current_attempt, current_revision, re
         if not isinstance(head, str) or not re.fullmatch(r"[0-9a-f]{6,40}", head):
             record_reason(reasons, "consumer_revision_invalid")
             return None
-        if head != current_revision:
+        if not attested_checkout(run, current_revision):
             record_reason(reasons, "consumer_revision_mismatch")
             return None
         if github_product_identity(api, head) != value["product_inputs"]:
@@ -227,34 +274,53 @@ def load_consumer(api, value, current_run, current_attempt, current_revision, re
         return None
 
 
-def select(api, value, current_run, current_attempt, consumer, reasons):
-    """Inspect at most 300 recent artifacts and six matching producers."""
-    prefix = PREFIX + key(value) + "-"
-    candidates = []
-    for page in range(1, 4):
-        batch = api.get(f"actions/artifacts?per_page=100&page={page}")["artifacts"]
-        if not isinstance(batch, list):
-            raise ValueError("invalid artifact listing")
-        candidates.extend(
-            a for a in batch
-            if isinstance(a, dict)
-            and isinstance(a.get("name"), str)
-            and a["name"].startswith(prefix)
-        )
-        if len(candidates) >= 6 or len(batch) < 100:
-            break
-    if not candidates:
-        record_reason(reasons, "no_matching_contract_artifact")
-    for artifact in candidates[:6]:
+def artifact_name(value, attempt):
+    """Name a producer publishes for one product contract and run attempt."""
+    return f"{PREFIX}{key(value)}-{attempt}"
+
+
+def candidates(api, value, reasons):
+    """List this contract's artifacts by exact name, newest first.
+
+    Scanning recent repository artifacts only reaches back as far as artifact
+    churn allows, which is minutes here, while these artifacts are retained for
+    days. Asking for each attempt's exact name instead reaches every retained
+    artifact for this contract in one bounded request per attempt. A failed or
+    malformed listing is a miss for that attempt alone, never an exception.
+    """
+    found = []
+    for attempt in range(1, LOOKUP_ATTEMPTS + 1):
+        name = artifact_name(value, attempt)
+        query = urlencode({"name": name, "per_page": ARTIFACTS_PER_PAGE})
         try:
-            suffix = artifact["name"][len(prefix):]
+            batch = api.get(f"actions/artifacts?{query}")["artifacts"]
+        except (TypeError, AttributeError, ValueError, KeyError, OSError,
+                UnicodeError, subprocess.SubprocessError):
+            record_reason(reasons, "artifact_listing_unavailable")
+            continue
+        if not isinstance(batch, list):
+            record_reason(reasons, "artifact_listing_invalid")
+            continue
+        # Re-check the name locally: candidate enumeration must not depend on
+        # the server honoring the filter.
+        found.extend((attempt, a) for a in batch
+                     if isinstance(a, dict) and a.get("name") == name)
+    # Prefer the most recent artifacts across attempts, so a rerun's earlier
+    # attempt is considered before older runs of the same contract.
+    found.sort(key=lambda item: str(item[1].get("created_at") or ""), reverse=True)
+    return found[:MAX_CANDIDATES]
+
+
+def select(api, value, current_run, current_attempt, consumer, reasons):
+    """Inspect at most six exact-name artifacts and their producers."""
+    matches = candidates(api, value, reasons)
+    if not matches:
+        record_reason(reasons, "no_matching_contract_artifact")
+    for producer_attempt, artifact in matches:
+        try:
             if artifact.get("expired"):
                 record_reason(reasons, "artifact_expired")
                 continue
-            if not suffix.isdecimal():
-                record_reason(reasons, "artifact_attempt_invalid")
-                continue
-            producer_attempt = int(suffix)
             size = artifact.get("size_in_bytes")
             if not isinstance(size, int) or isinstance(size, bool) or size < 0:
                 record_reason(reasons, "artifact_size_invalid")
@@ -274,7 +340,7 @@ def select(api, value, current_run, current_attempt, consumer, reasons):
             # at the latest attempt and would otherwise make prior rerun artifacts
             # look stale even though their attempt-scoped receipt is still valid.
             run = api.get(f"actions/runs/{run_id}/attempts/{producer_attempt}")
-            if str(run.get("run_attempt")) != suffix:
+            if str(run.get("run_attempt")) != str(producer_attempt):
                 record_reason(reasons, "producer_attempt_mismatch")
                 continue
             if not permitted_pair(run, consumer, api.repository):
@@ -302,8 +368,11 @@ def select(api, value, current_run, current_attempt, consumer, reasons):
                     break
             # The compile job must finish successfully; unrelated producer tests
             # may still be running because no test result is reused here.
+            # A reusable workflow reports "<caller job> / <job name>", so this
+            # is "macos / macOS compile admission" when ci.yml reaches the job
+            # through ci-macos.yml. Match the final segment.
             compile_job = next((job for job in jobs
-                                if job.get("name") == "macOS compile admission"
+                                if str(job.get("name") or "").rsplit(" / ", 1)[-1] == "macOS compile admission"
                                 and job.get("status") == "completed"
                                 and job.get("conclusion") == "success"), None)
             if compile_job is None:
