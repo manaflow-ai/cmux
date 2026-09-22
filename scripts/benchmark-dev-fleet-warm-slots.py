@@ -421,6 +421,27 @@ def bytes_under(path: Path) -> int:
     return total
 
 
+def event_journal_paths(path: Path) -> list[Path]:
+    """Return retained telemetry oldest-first, including an archive-only crash state."""
+    if path.is_dir():
+        bases = {
+            candidate if candidate.name == "events.jsonl" else candidate.with_name("events.jsonl")
+            for candidate in path.rglob("events.jsonl*")
+            if candidate.name in {"events.jsonl", "events.jsonl.1"}
+        }
+    else:
+        bases = {path}
+
+    journals: list[Path] = []
+    for current in sorted(bases, key=str):
+        archive = current.with_name(f"{current.name}.1")
+        if archive.exists():
+            journals.append(archive)
+        if current.exists():
+            journals.append(current)
+    return journals
+
+
 def summarize(results: dict[str, Any], elapsed: float, state_root: Path) -> dict[str, Any]:
     tasks: list[dict[str, Any]] = []
     warms: list[dict[str, Any]] = []
@@ -452,7 +473,7 @@ def summarize(results: dict[str, Any], elapsed: float, state_root: Path) -> dict
     warm_seconds = sum(float(row.get("wall_seconds", 0)) for row in warms)
     quarantines = 0
     recovered = 0
-    for events in state_root.rglob("events.jsonl"):
+    for events in event_journal_paths(state_root):
         for line in events.read_text(errors="replace").splitlines():
             try:
                 row = json.loads(line)
@@ -660,13 +681,14 @@ def run_matrix(args: argparse.Namespace) -> dict[str, Any]:
 
 def summarize_events(path: Path) -> dict[str, Any]:
     rows = []
-    for line in path.read_text(errors="replace").splitlines():
-        try:
-            value = json.loads(line)
-        except json.JSONDecodeError:
-            continue
-        if isinstance(value, dict):
-            rows.append(value)
+    for journal in event_journal_paths(path):
+        for line in journal.read_text(errors="replace").splitlines():
+            try:
+                value = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(value, dict):
+                rows.append(value)
     tasks = [row["receipt"] for row in rows if row.get("event") == "task_finished" and isinstance(row.get("receipt"), dict)]
     warms = [row["receipt"] for row in rows if row.get("event") == "warm_finished" and isinstance(row.get("receipt"), dict)]
     exact = sum(row.get("match_class") == "exact" for row in tasks)
