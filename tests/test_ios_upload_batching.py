@@ -308,5 +308,33 @@ class WorkflowWiringTests(unittest.TestCase):
         )
 
 
+class BatchingFailsOpenTests(unittest.TestCase):
+    """A broken batching step must fall back to the decide job, never stop uploads."""
+
+    STEPS = {
+        ".github/workflows/ios-appstore-upload.yml": (
+            "Check out the upload batching policy",
+            "Batch official uploads by commit count and age",
+        ),
+        ".github/workflows/ios-testflight.yml": (
+            "Check out the upload batching policy",
+            "Batch INTERNAL uploads by iOS commit count and age",
+        ),
+    }
+
+    def test_batching_steps_continue_on_error(self):
+        for path, names in self.STEPS.items():
+            workflow = yaml.safe_load((ROOT / path).read_text(encoding="utf-8"))
+            steps = [
+                step
+                for job in workflow["jobs"].values()
+                for step in job.get("steps", [])
+                if step.get("name") in names
+            ]
+            self.assertEqual(sorted(step["name"] for step in steps), sorted(names), path)
+            for step in steps:
+                self.assertIs(step.get("continue-on-error"), True, f"{path}: {step['name']}")
+
+
 if __name__ == "__main__":
     unittest.main()

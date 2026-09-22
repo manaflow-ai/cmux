@@ -429,6 +429,9 @@ jobs:
       # already chose to upload against a known prior upload; manual dispatch
       # and the twice-daily DEMO lane are never batched.
       - name: Check out the upload batching policy
+        # Batching only delays uploads; a failure here must fall back to the
+        # decide job's answer instead of stopping scheduled uploads.
+        continue-on-error: true
         if: >-
           steps.decide.outputs.should_build == 'true' &&
           github.event_name == 'schedule' &&
@@ -448,6 +451,9 @@ jobs:
           sparse-checkout-cone-mode: false
 
       - name: Batch INTERNAL uploads by iOS commit count and age
+        # Batching only delays uploads; a failure here must fall back to the
+        # decide job's answer instead of stopping scheduled uploads.
+        continue-on-error: true
         id: batch
         if: >-
           steps.decide.outputs.should_build == 'true' &&
