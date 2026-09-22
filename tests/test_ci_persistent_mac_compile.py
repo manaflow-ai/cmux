@@ -36,6 +36,12 @@ assert driver_spec.loader is not None
 driver_spec.loader.exec_module(driver)
 
 
+HEAD_SHA = "a" * 40
+SOURCE_SHA = "b" * 40
+SOURCE_PARENT1 = "c" * 40
+SOURCE_TREE = "d" * 40
+
+
 def args(**overrides):
     values = {
         "selector": "pilot",
@@ -46,9 +52,41 @@ def args(**overrides):
         "cohort": "13198,feature/persistent",
         "pr_number": "13198",
         "head_ref": "feature/persistent",
+        "head_sha": HEAD_SHA,
+        "source_sha": SOURCE_SHA,
+        "source_parent1": SOURCE_PARENT1,
+        "source_tree": SOURCE_TREE,
     }
     values.update(overrides)
     return argparse.Namespace(**values)
+
+
+def live_pull_request(**overrides):
+    """The live GitHub observation that matches the request envelope exactly."""
+    payload = {
+        "state": "open",
+        "author_association": "MEMBER",
+        "head": {"sha": HEAD_SHA, "repo": {"full_name": "manaflow-ai/cmux"}},
+        "base": {"sha": SOURCE_PARENT1},
+        "merge_commit_sha": SOURCE_SHA,
+    }
+    payload.update(overrides)
+    return payload
+
+
+class FakeGitHub:
+    """Serves canned `gh api` payloads and records the exact paths requested."""
+
+    def __init__(self, payloads: dict[str, object]):
+        self.payloads = payloads
+        self.paths: list[str] = []
+
+    def api(self, path: str, *, method: str = "GET") -> object:
+        self.paths.append(path)
+        try:
+            return self.payloads[path]
+        except KeyError:  # pragma: no cover - a miss is always a test bug
+            raise AssertionError(f"unexpected API read: {path}") from None
 
 
 class RoutingTests(unittest.TestCase):
@@ -166,6 +204,132 @@ class RoutingTests(unittest.TestCase):
         self.assertFalse(route.valid_budget(121, 480))
         self.assertFalse(route.valid_budget(120, 481))
         self.assertFalse(route.valid_budget(120, 500))
+
+    def test_live_reverification_accepts_only_the_exact_requested_source(self):
+        # The route request artifact is published by the PR-side `changes` job,
+        # so by the time the default-branch router reads it the pull request may
+        # already have moved. `verify_live_request` is the whole defence: it
+        # re-reads the live PR and refuses to spend an owned-Mac allocation on
+        # anything but the exact commit, tree, base and author it was asked for.
+        paths = {
+            f"pulls/{args().pr_number}": live_pull_request(),
+            f"git/commits/{SOURCE_SHA}": {"tree": {"sha": SOURCE_TREE}},
+        }
+        api = FakeGitHub(paths)
+        self.assertEqual(route.verify_live_request(api, args()), (True, "verified"))
+        self.assertEqual(
+            api.paths,
+            [f"pulls/{args().pr_number}", f"git/commits/{SOURCE_SHA}"],
+        )
+
+        # Each stale or untrusted observation names itself, so the hosted
+        # fallback reason in the metrics says which invariant moved.
+        stale = {
+            "pr_closed": live_pull_request(state="closed"),
+            "untrusted_repository": live_pull_request(
+                head={"sha": HEAD_SHA, "repo": {"full_name": "someone/cmux"}}
+            ),
+            "untrusted_author": live_pull_request(author_association="COLLABORATOR"),
+            "head_changed": live_pull_request(
+                head={"sha": "e" * 40, "repo": {"full_name": "manaflow-ai/cmux"}}
+            ),
+            "base_changed": live_pull_request(base={"sha": "f" * 40}),
+            "merge_changed": live_pull_request(merge_commit_sha="0" * 40),
+        }
+        for reason, payload in stale.items():
+            with self.subTest(reason=reason):
+                api = FakeGitHub({f"pulls/{args().pr_number}": payload})
+                self.assertEqual(route.verify_live_request(api, args()), (False, reason))
+                # A refused PR observation never costs a second API read.
+                self.assertEqual(api.paths, [f"pulls/{args().pr_number}"])
+
+        # A merge commit that kept its SHA but not its tree is still stale.
+        api = FakeGitHub(
+            {
+                f"pulls/{args().pr_number}": live_pull_request(),
+                f"git/commits/{SOURCE_SHA}": {"tree": {"sha": "9" * 40}},
+            }
+        )
+        self.assertEqual(route.verify_live_request(api, args()), (False, "tree_changed"))
+
+        for commit in ({}, {"tree": {}}, "not-a-commit"):
+            with self.subTest(commit=commit):
+                api = FakeGitHub(
+                    {
+                        f"pulls/{args().pr_number}": live_pull_request(),
+                        f"git/commits/{SOURCE_SHA}": commit,
+                    }
+                )
+                self.assertEqual(
+                    route.verify_live_request(api, args()), (False, "tree_changed")
+                )
+
+        # An unreadable PR body is a refusal, not a crash and not a pass.
+        for payload in ([], "", None):
+            with self.subTest(payload=payload):
+                api = FakeGitHub({f"pulls/{args().pr_number}": payload})
+                self.assertEqual(
+                    route.verify_live_request(api, args()), (False, "pr_observation_invalid")
+                )
+
+        # Repository comparison is case-insensitive, matching `eligibility`.
+        api = FakeGitHub(
+            {
+                f"pulls/{args().pr_number}": live_pull_request(
+                    head={"sha": HEAD_SHA, "repo": {"full_name": "Manaflow-AI/CMUX"}}
+                ),
+                f"git/commits/{SOURCE_SHA}": {"tree": {"sha": SOURCE_TREE}},
+            }
+        )
+        self.assertEqual(route.verify_live_request(api, args()), (True, "verified"))
+
+    def test_producer_discovery_requires_the_exact_dispatch_title_on_main(self):
+        # The producer is found by its run-name, so a run dispatched from any
+        # other ref, or for any other request, must never be adopted: its
+        # artifact would be a compile of source this router did not verify.
+        request_id = "4242-1"
+        title = f"persistent-mac-compile-{request_id}"
+        listing = "actions/workflows/persistent-macos-compile.yml/runs?event=workflow_dispatch&per_page=50"
+
+        def api_for(runs):
+            return FakeGitHub({listing: {"workflow_runs": runs}})
+
+        self.assertIsNone(route.matching_run(api_for([]), request_id))
+        self.assertIsNone(
+            route.matching_run(
+                api_for([{"id": 1, "display_title": title, "head_branch": "attacker"}]),
+                request_id,
+            )
+        )
+        self.assertIsNone(
+            route.matching_run(
+                api_for(
+                    [
+                        {
+                            "id": 1,
+                            "display_title": "persistent-mac-compile-9999-1",
+                            "head_branch": "main",
+                        }
+                    ]
+                ),
+                request_id,
+            )
+        )
+
+        # A redispatch of the same request adopts the newest run.
+        newest = route.matching_run(
+            api_for(
+                [
+                    {"id": 10, "display_title": title, "head_branch": "main"},
+                    {"id": 30, "display_title": title, "head_branch": "main"},
+                    {"id": 20, "display_title": title, "head_branch": "main"},
+                    {"id": 40, "display_title": title, "head_branch": "topic"},
+                ]
+            ),
+            request_id,
+        )
+        self.assertIsNotNone(newest)
+        self.assertEqual(newest["id"], 30)
 
     def test_output_helpers_record_hosted_fallback_and_persistent_success(self):
         with tempfile.TemporaryDirectory() as directory:

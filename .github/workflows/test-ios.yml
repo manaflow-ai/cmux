@@ -425,7 +425,7 @@ jobs:
         if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.device_family != 'both' && inputs.device_family != matrix.family) }}
         uses: ./.github/actions/cache-restore
         with:
-          backend: ${{ inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND }}
+          backend: ${{ inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND || 'r2' }}
           path: .ci-ios-source-packages
           key: ios-spm-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('.xcode-version') }}-${{ hashFiles('ios/cmux.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
           restore-keys: |
@@ -435,7 +435,7 @@ jobs:
         if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.device_family != 'both' && inputs.device_family != matrix.family) }}
         uses: ./.github/actions/cache-restore
         with:
-          backend: ${{ inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND }}
+          backend: ${{ inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND || 'r2' }}
           path: ${{ runner.temp }}/cmux-ghosttykit-cache
           key: ios-ghosttykit-${{ runner.os }}-${{ runner.arch }}-${{ steps.ghostty-revision.outputs.sha }}-${{ hashFiles('scripts/ghosttykit-checksums.txt') }}
           restore-keys: |
@@ -683,7 +683,7 @@ jobs:
           CI_CACHE_R2_BUCKET: ${{ vars.CI_CACHE_R2_BUCKET }}
         run: |
           set -euo pipefail
-          cache_backend="${{ inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND }}"
+          cache_backend="${{ inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND || 'r2' }}"
           if [[ "$cache_backend" == "r2" && -z "${AWS_ACCESS_KEY_ID:-}" ]]; then
             echo "::error::R2 cache seeding requested but CI_CACHE_R2 credentials are unavailable"
             exit 1
@@ -694,7 +694,7 @@ jobs:
         if: ${{ inputs.seed_cache && github.ref == 'refs/heads/main' && matrix.family == 'iphone' && !(github.event_name == 'workflow_dispatch' && inputs.device_family != 'both' && inputs.device_family != matrix.family) }}
         uses: ./.github/actions/cache-save
         with:
-          backend: ${{ inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND }}
+          backend: ${{ inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND || 'r2' }}
           path: .ci-ios-source-packages
           key: ios-spm-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('.xcode-version') }}-${{ hashFiles('ios/cmux.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
 
@@ -702,7 +702,7 @@ jobs:
         if: ${{ inputs.seed_cache && github.ref == 'refs/heads/main' && matrix.family == 'iphone' && !(github.event_name == 'workflow_dispatch' && inputs.device_family != 'both' && inputs.device_family != matrix.family) }}
         uses: ./.github/actions/cache-save
         with:
-          backend: ${{ inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND }}
+          backend: ${{ inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND || 'r2' }}
           path: ${{ runner.temp }}/cmux-ghosttykit-cache
           key: ios-ghosttykit-${{ runner.os }}-${{ runner.arch }}-${{ steps.ghostty-revision.outputs.sha }}-${{ hashFiles('scripts/ghosttykit-checksums.txt') }}
 
