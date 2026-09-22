@@ -355,6 +355,10 @@ jobs:
         if: ${{ matrix.group == 'release-ios' }}
         run: python3 tests/test_ios_workflow_dispatch_ref.py
 
+      - name: Validate iOS simulator build-once contract
+        if: ${{ matrix.group == 'release-ios' }}
+        run: python3 tests/test_ios_simulator_build_once.py
+
       - name: Validate cmux scheme test configuration
         if: ${{ matrix.group == 'app-host-cache' }}
         run: ./tests/test_ci_scheme_testaction_debug.sh
@@ -461,8 +465,7 @@ jobs:
 
       - name: Validate reusable guard workflow structure
         if: ${{ matrix.group == 'ci' }}
-        run: |
-          python3 tests/test_ci_guard_workflow_structure.py
+        run: python3 tests/test_ci_guard_workflow_structure.py
           python3 tests/test_app_host_test_products.py
           python3 tests/test_reuse_app_host_products.py
           python3 tests/test_ci_product_publication.py

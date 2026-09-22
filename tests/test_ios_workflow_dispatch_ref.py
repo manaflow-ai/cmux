@@ -50,13 +50,13 @@ class IOSWorkflowDispatchRefTests(unittest.TestCase):
         resolved_ref = "ref: ${{ needs.detect-ios-changes.outputs.target_sha }}"
 
         self.assertNotIn("inputs.ref || github.ref", workflow)
-        for job in ("package-conventions-lint", "mobile-core-package", "ios-simulator"):
+        for job in ("package-conventions-lint", "mobile-core-package", "ios-simulator-build", "ios-simulator"):
             with self.subTest(job=job):
                 self.assertIn(resolved_ref, job_block(job))
 
         # The routing job checks out the workflow revision itself; every other
         # checkout is pinned to the one resolved 40-character commit SHA.
-        self.assertEqual(workflow.count(resolved_ref), 3)
+        self.assertEqual(workflow.count(resolved_ref), 4)
 
 
 if __name__ == "__main__":
