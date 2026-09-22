@@ -1656,7 +1656,6 @@
 		C0A710160000000000000002 /* ComputerUseTargetIdentity.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0A710160000000000000001 /* ComputerUseTargetIdentity.swift */; };
 		C0A710130000000000000002 /* ComputerUseUXCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0A710130000000000000001 /* ComputerUseUXCoordinator.swift */; };
 		C0A710120000000000000002 /* ComputerUseUXTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0A710120000000000000001 /* ComputerUseUXTests.swift */; };
-		C0A134180000000000000002 /* ControlHandleOrdinalPersistenceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0A134180000000000000001 /* ControlHandleOrdinalPersistenceTests.swift */; };
 		C0A713010000000000000002 /* ComputerUseWatchTargetActivity.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0A713010000000000000001 /* ComputerUseWatchTargetActivity.swift */; };
 		D1F00A100000000000000002 /* ComputerUseWatchTargetController.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1F00A100000000000000001 /* ComputerUseWatchTargetController.swift */; };
 		C0A710190000000000000002 /* ComputerUseWindowDragRegion.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0A710190000000000000001 /* ComputerUseWindowDragRegion.swift */; };
@@ -5787,7 +5786,6 @@
 		C0A710160000000000000001 /* ComputerUseTargetIdentity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/ComputerUseTargetIdentity.swift; sourceTree = "<group>"; };
 		C0A710130000000000000001 /* ComputerUseUXCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/ComputerUseUXCoordinator.swift; sourceTree = "<group>"; };
 		C0A710120000000000000001 /* ComputerUseUXTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ComputerUseUXTests.swift; sourceTree = "<group>"; };
-		C0A134180000000000000001 /* ControlHandleOrdinalPersistenceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ControlHandleOrdinalPersistenceTests.swift; sourceTree = "<group>"; };
 		C0A713010000000000000001 /* ComputerUseWatchTargetActivity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/ComputerUseWatchTargetActivity.swift; sourceTree = "<group>"; };
 		D1F00A100000000000000001 /* ComputerUseWatchTargetController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/ComputerUseWatchTargetController.swift; sourceTree = "<group>"; };
 		C0A710190000000000000001 /* ComputerUseWindowDragRegion.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/ComputerUseWindowDragRegion.swift; sourceTree = "<group>"; };
@@ -12103,7 +12101,6 @@
 				42092CDB2109E250F7F2A76E /* TabManagerUnitTests.swift */,
 				96063440572D43F6AB2B499D /* CmuxPopoverGroupTests.swift */,
 				C0A710120000000000000001 /* ComputerUseUXTests.swift */,
-				C0A134180000000000000001 /* ControlHandleOrdinalPersistenceTests.swift */,
 				C0A717100000000000000001 /* ExternalWindowSamplingServiceTests.swift */,
 				C0A716950000000000000001 /* ComputerUseOnboardingWindowTests.swift */,
 				C0A716940000000000000001 /* ComputerUseCommandPaletteTests.swift */,
@@ -16600,7 +16597,6 @@
 				C0A716940000000000000002 /* ComputerUseCommandPaletteTests.swift in Sources */,
 				C0A716950000000000000002 /* ComputerUseOnboardingWindowTests.swift in Sources */,
 				C0A710120000000000000002 /* ComputerUseUXTests.swift in Sources */,
-				C0A134180000000000000002 /* ControlHandleOrdinalPersistenceTests.swift in Sources */,
 				B88356000000000000000003 /* ControlledPastePreparationDeadlines.swift in Sources */,
 				B88356000000000000000001 /* ControlledPastePreparationOperation.swift in Sources */,
 				C11538000000000000000001 /* CopyOnlyTextSelectionTests.swift in Sources */,
