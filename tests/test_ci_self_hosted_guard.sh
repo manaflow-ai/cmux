@@ -1510,6 +1510,39 @@ pr_concurrency_cancels_superseded_runs() {
   done
 }
 
+check_macos_preflight_only_runs_for_macos_routes() {
+  local preflight tests
+  preflight="$(awk '
+    /^  linux-preflight:$/ { in_job=1; print; next }
+    in_job && /^  [A-Za-z0-9_-]+:$/ { exit }
+    in_job { print }
+  ' "$CI_FILE")"
+  tests="$(awk '
+    /^  tests:$/ { in_job=1; print; next }
+    in_job && /^  [A-Za-z0-9_-]+:$/ { exit }
+    in_job { print }
+  ' "$CI_FILE")"
+
+  if ! grep -Fq "name: macOS preflight gate (Linux)" <<<"$preflight"; then
+    echo "FAIL: linux-preflight must be labeled by its real purpose: gating macOS from Linux"
+    return 1
+  fi
+  if ! grep -Fq "needs.changes.outputs.macos != 'false'" <<<"$preflight"; then
+    echo "FAIL: macOS preflight must skip PRs that do not route to macOS"
+    return 1
+  fi
+  if grep -Fqx '    if: ${{ always() }}' <<<"$preflight"; then
+    echo "FAIL: macOS preflight must not run unconditionally on every PR"
+    return 1
+  fi
+  if grep -Fq -- '- linux-preflight' <<<"$tests" || grep -Fq 'needs["linux-preflight"]' <<<"$tests"; then
+    echo "FAIL: tests aggregate must not require the macOS-only preflight gate"
+    return 1
+  fi
+
+  echo "PASS: macOS preflight runs only for routed macOS work"
+}
+
 check_pr_macos_workflows_cancel_superseded_runs() {
   # Without a concurrency group a push never cancels the previous run, and on
   # a fixed pool of macOS runners those dead runs queue ahead of live ones.
@@ -1593,4 +1626,5 @@ check_web_db_behavior_tests
 check_web_test_runner_behavior
 check_tmux_terminal_nightly_isolation
 check_pr_macos_workflows_cancel_superseded_runs
+check_macos_preflight_only_runs_for_macos_routes
 check_no_paid_overflow_fallbacks
