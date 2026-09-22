@@ -2889,6 +2889,10 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     /// Subscriptions for panel updates (e.g., browser title changes)
     var panelSubscriptions: [UUID: AnyCancellable] = [:]
     private var agentSessionPanelCallbackIds: Set<UUID> = []
+    /// Terminal pairings belong to the workspace currently owning the agent
+    /// panel. Moving an agent panel drops the old pairing and lets the new
+    /// workspace lazily establish its own terminal on the next command.
+    private var agentSessionPairedTerminalPanelIds: [UUID: UUID] = [:]
 
     /// Aggregate media-device activity across every browser pane in this
     /// workspace (audio / microphone / camera), surfaced to the sidebar
@@ -5154,8 +5158,10 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     func discardAgentSessionPanelSubscription(panelId: UUID, panel: (any Panel)?) {
         if let agentPanel = panel as? AgentSessionPanel {
             agentPanel.onDisplayStateChanged = nil
+            agentPanel.onRunCommand = nil
         }
         agentSessionPanelCallbackIds.remove(panelId)
+        agentSessionPairedTerminalPanelIds.removeValue(forKey: panelId)
     }
 
     func discardBrowserPanelSubscription(panelId _: UUID, panel: (any Panel)?) {
@@ -10446,16 +10452,19 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         return agentPanel
     }
 
+    /// Binds composer command routing to this workspace's current ownership.
     private func installAgentSessionCommandRouting(_ agentPanel: AgentSessionPanel) {
         agentPanel.onRunCommand = { [weak self, weak agentPanel] command in
-            guard let self, let agentPanel else {
+            guard let self, let agentPanel,
+                  self.panels[agentPanel.id] === agentPanel,
+                  agentPanel.workspaceId == self.id else {
                 throw AgentSessionBridgeError.unsupportedTransport("terminal")
             }
             return try self.runAgentSessionCommand(command, for: agentPanel)
         }
     }
 
-    /// Routes composer shell commands to a terminal owned by this agent panel.
+    /// Routes composer shell commands to a terminal owned by this workspace.
     /// The terminal is created once and reused so stateful commands such as `cd`
     /// remain in effect for subsequent commands.
     private func runAgentSessionCommand(
@@ -10463,10 +10472,11 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         for agentPanel: AgentSessionPanel
     ) throws -> [String: Any] {
         let terminalPanel: TerminalPanel?
-        if let pairedTerminalPanelId = agentPanel.pairedTerminalPanelId,
+        if let pairedTerminalPanelId = agentSessionPairedTerminalPanelIds[agentPanel.id],
            let existing = terminalPanel(for: pairedTerminalPanelId) {
             terminalPanel = existing
         } else {
+            agentSessionPairedTerminalPanelIds.removeValue(forKey: agentPanel.id)
             guard let paneId = paneId(forPanelId: agentPanel.id),
                   let created = newTerminalSurface(
                       inPane: paneId,
@@ -10476,7 +10486,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
                   ) else {
                 throw AgentSessionBridgeError.unsupportedTransport("terminal")
             }
-            agentPanel.setPairedTerminalPanelId(created.id)
+            agentSessionPairedTerminalPanelIds[agentPanel.id] = created.id
             terminalPanel = created
         }
 
@@ -10952,6 +10962,13 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         var detached = splitLayout.takeDetachedTransfer(tabId)
         detached?.surfaceMachine = surfaceMachine
         detached?.origin = .workspace(id)
+        if detached != nil, let agentPanel = sourcePanel as? AgentSessionPanel {
+            // A detached panel is between owners. Drop this workspace's command
+            // route immediately; attachDetachedSurface installs the destination
+            // route after ownership has moved.
+            agentPanel.onRunCommand = nil
+            agentSessionPairedTerminalPanelIds.removeValue(forKey: agentPanel.id)
+        }
         if detached == nil {
             (sourcePanel as? any FileContentChangeObservingPanel)?.stopWatchingForFileChanges()
             AgentHibernationController.shared.discardTrackingStateForClosedPanel(
@@ -11189,6 +11206,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             if !agentSessionPanelCallbackIds.contains(agentPanel.id) {
                 installAgentSessionPanelSubscription(agentPanel)
             }
+            installAgentSessionCommandRouting(agentPanel)
         }
         if detached.directoryIsTrustedRemoteReport {
             remoteDirectoryReportPanelIds.insert(detached.panelId); remoteDirectoryTrustRequiredPanelIds.insert(detached.panelId)
