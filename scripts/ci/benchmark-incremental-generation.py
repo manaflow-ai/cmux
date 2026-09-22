@@ -40,7 +40,8 @@ def wipe(path: Path) -> None:
 
 
 def fetch_pair(workspace: Path, base: str, target: str) -> None:
-    run(["git", "fetch", "--no-tags", "--force", "origin", base, target], cwd=workspace)
+    refs = [base] if base == target else [base, target]
+    run(["git", "fetch", "--no-tags", "--force", "origin", *refs], cwd=workspace)
 
 
 def source_fresh(workspace: Path, base: str, target: str, metrics: Path) -> None:
