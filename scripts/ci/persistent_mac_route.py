@@ -116,7 +116,7 @@ def eligibility(args: argparse.Namespace) -> tuple[bool, str]:
         return False, "event_not_pull_request"
     if args.head_repository.casefold() != args.repository.casefold():
         return False, "untrusted_repository"
-    if args.author_association not in {"MEMBER", "OWNER"}:
+    if args.author_association not in {"MEMBER", "OWNER", "COLLABORATOR"}:
         return False, "untrusted_author"
     if selector == "pilot":
         if cohort_match(args.cohort, args.pr_number, args.head_ref):
@@ -145,7 +145,7 @@ def verify_live_request(api: GitHub, args: argparse.Namespace) -> tuple[bool, st
     checks = {
         "pr_closed": pr.get("state") == "open",
         "untrusted_repository": str(head_repo).casefold() == args.repository.casefold(),
-        "untrusted_author": pr.get("author_association") in {"MEMBER", "OWNER"},
+        "untrusted_author": pr.get("author_association") in {"MEMBER", "OWNER", "COLLABORATOR"},
         "head_changed": head.get("sha") == args.head_sha,
         "base_changed": base.get("sha") == args.source_parent1,
         "merge_changed": pr.get("merge_commit_sha") == args.source_sha,

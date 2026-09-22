@@ -22,6 +22,7 @@ concurrency:
 
 jobs:
   changes:
+    if: ${{ github.event_name != 'pull_request' && github.event_name != 'merge_group' }}
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     outputs:
@@ -140,10 +141,19 @@ jobs:
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     steps:
+      - name: Accept CI-owned pull-request validation
+        if: github.event_name == 'pull_request' || github.event_name == 'merge_group'
+        run: |
+          echo "PR and merge-group web validation is owned by the required ci-status check."
+          echo "This workflow only publishes the separate required web-validation status."
+
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        if: github.event_name != 'pull_request' && github.event_name != 'merge_group'
         with:
           persist-credentials: false
+
       - name: Enforce selected results
+        if: github.event_name != 'pull_request' && github.event_name != 'merge_group'
         env:
           WEB_VALIDATION_NEEDS: ${{ toJSON(needs) }}
         run: python3 scripts/ci/web_validation.py check
