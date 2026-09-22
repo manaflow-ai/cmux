@@ -10480,7 +10480,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             guard let paneId = paneId(forPanelId: agentPanel.id),
                   let created = newTerminalSurface(
                       inPane: paneId,
-                      focus: true,
+                      focus: false,
                       workingDirectory: agentPanel.workingDirectory,
                       autoRefreshMetadata: false
                   ) else {
