@@ -3,6 +3,7 @@ import CmuxMobileShellModel
 import CoreTransferable
 import Foundation
 import PhotosUI
+import SwiftUI
 import UniformTypeIdentifiers
 
 /// Copies picked files into app-owned temporary storage for one composer session.
