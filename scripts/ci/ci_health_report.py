@@ -69,7 +69,10 @@ DEFAULT_WINDOW_HOURS = 6
 DEFAULT_MAX_RUN_PAGES = 10
 DEFAULT_MAX_JOB_LISTINGS = 120
 DEFAULT_JOBS_PER_WORKFLOW = 3
-DEFAULT_WINDOW_SLICES = 4
+# 0 means "one slice per hour of the window": this repo creates enough runs
+# per hour that anything coarser walks into the per-query cap below.
+AUTO_WINDOW_SLICES = 0
+MAX_WINDOW_SLICES = 48
 MAX_JOB_PAGES = 2
 MAX_COMMENT_PAGES = 5
 RUNS_PER_PAGE = 100
@@ -151,6 +154,11 @@ def slice_windows(window: Window, count: int) -> list[Window]:
     count = max(1, count)
     step = (window.end - window.start) / count
     return [Window(window.end - step * (index + 1), window.end - step * index) for index in range(count)]
+
+
+def auto_slices(window_hours: int) -> int:
+    """One slice per hour, which keeps each query under the per-query cap here."""
+    return max(1, min(MAX_WINDOW_SLICES, window_hours))
 
 
 @dataclasses.dataclass(frozen=True)
@@ -1237,15 +1245,20 @@ def main(argv: Sequence[str] | None = None) -> int:
         max_run_pages = args.max_run_pages if args.max_run_pages is not None else env_int("MAX_RUN_PAGES", DEFAULT_MAX_RUN_PAGES)
         max_job_listings = args.max_job_listings if args.max_job_listings is not None else env_int("MAX_JOB_LISTINGS", DEFAULT_MAX_JOB_LISTINGS)
         jobs_per_workflow = args.jobs_per_workflow if args.jobs_per_workflow is not None else env_int("JOBS_PER_WORKFLOW", DEFAULT_JOBS_PER_WORKFLOW)
-        window_slices = args.window_slices if args.window_slices is not None else env_int("WINDOW_SLICES", DEFAULT_WINDOW_SLICES)
+        window_slices = args.window_slices if args.window_slices is not None else env_int("WINDOW_SLICES", AUTO_WINDOW_SLICES)
     except ValueError:
         print("ci-health-report: window and cap settings must be integers", file=sys.stderr)
         return 2
     if window_hours < 1 or not 1 <= max_run_pages <= 100 or not 0 <= max_job_listings <= 400:
         print("ci-health-report: window must be >= 1h, run pages 1..100, job listings 0..400", file=sys.stderr)
         return 2
-    if jobs_per_workflow < 1 or not 1 <= window_slices <= 48:
-        print("ci-health-report: jobs per workflow must be >= 1 and window slices 1..48", file=sys.stderr)
+    if window_slices == AUTO_WINDOW_SLICES:
+        window_slices = auto_slices(window_hours)
+    if jobs_per_workflow < 1 or not 1 <= window_slices <= MAX_WINDOW_SLICES:
+        print(
+            f"ci-health-report: jobs per workflow must be >= 1 and window slices 1..{MAX_WINDOW_SLICES}",
+            file=sys.stderr,
+        )
         return 2
 
     github = GitHub(token, args.repo)

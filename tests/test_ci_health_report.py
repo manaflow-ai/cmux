@@ -357,6 +357,13 @@ class SliceTests(unittest.TestCase):
         self.assertEqual(report.slice_windows(CURRENT_WINDOW, 1), [CURRENT_WINDOW])
         self.assertEqual(report.slice_windows(CURRENT_WINDOW, 0), [CURRENT_WINDOW])
 
+    def test_the_default_is_one_slice_per_hour_of_the_window(self):
+        self.assertEqual(report.auto_slices(6), 6)
+        self.assertEqual(report.auto_slices(24), 24)
+        self.assertEqual(report.auto_slices(1), 1)
+        # The cap keeps a long window from turning into hundreds of queries.
+        self.assertEqual(report.auto_slices(500), report.MAX_WINDOW_SLICES)
+
     def test_complete_slices_cover_the_whole_window(self):
         pieces = report.slice_windows(CURRENT_WINDOW, 3)
         results = [report.SliceResult(window=piece, runs=[], capped=False) for piece in pieces]

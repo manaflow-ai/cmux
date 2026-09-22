@@ -85,7 +85,8 @@ whether it is a regression.
 One `created:` query returns at most **1000 runs**, however many pages you ask
 for. On a repo creating thousands of runs a day that silently turns a six-hour
 window into "the newest hour or two", so the report asks for the window in
-equal slices (`CI_HEALTH_WINDOW_SLICES`, default 4) and merges them. A slice
+equal slices (`CI_HEALTH_WINDOW_SLICES`, default one slice per hour of the
+window) and merges them. A slice
 that still hits the cap is reported as truncated: the header then says how many
 hours of the window are actually covered, and the run counts read as rates over
 that covered span rather than as totals for the window. Raise the slice count
@@ -100,7 +101,7 @@ Caps are repository variables, all optional:
 | Variable | Default | What it bounds |
 | --- | ---: | --- |
 | `CI_HEALTH_MAX_RUN_PAGES` | 10 | Pages of 100 runs per slice |
-| `CI_HEALTH_WINDOW_SLICES` | 4 | Slices the window is fetched in (1000-run API cap per slice) |
+| `CI_HEALTH_WINDOW_SLICES` | one per hour | Slices the window is fetched in (1000-run API cap per slice, 48 max) |
 | `CI_HEALTH_MAX_JOB_LISTINGS` | 120 | Runs whose jobs are fetched |
 | `CI_HEALTH_JOBS_PER_WORKFLOW` | 3 | Job listings spent on any one workflow |
 | `CI_HEALTH_REPORT_ISSUE` | unset | Tracking issue; unset means summary only |
