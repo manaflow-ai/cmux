@@ -48,23 +48,28 @@ class ParsingTests(unittest.TestCase):
             calls.append(token)
             return pages[token]
 
-        objects = census.collect("https://r2.example", "cache", lister=lister)
+        objects, complete = census.collect("https://r2.example", "cache", lister=lister)
         self.assertEqual(calls, [None, "t1"])
         self.assertEqual([item["size"] for item in objects], [10, 20])
+        self.assertTrue(complete)
 
     def test_repeated_continuation_token_stops_instead_of_spinning(self):
         def lister(endpoint, bucket, token):
             return page([("v1/macos-arm64/objects/a.tar.zst", 1, days_ago(1))], token="same")
 
-        objects = census.collect("https://r2.example", "cache", lister=lister)
+        objects, complete = census.collect("https://r2.example", "cache", lister=lister)
         # Two passes: the first token is new, the repeat ends the walk.
         self.assertEqual(len(objects), 2)
+        # An early stop must not read as a full census.
+        self.assertFalse(complete)
 
     def test_truncated_page_without_a_token_terminates(self):
         body = page([("v1/macos-arm64/objects/a.tar.zst", 1, days_ago(1))], token="x")
         body = body.replace("<NextContinuationToken>x</NextContinuationToken>", "")
-        _, token = census.parse_page(body)
+        _, token, truncated = census.parse_page(body)
         self.assertIsNone(token)
+        # Truncated with no token: more objects exist that we cannot reach.
+        self.assertTrue(truncated)
 
 
 class SummaryTests(unittest.TestCase):
@@ -107,6 +112,21 @@ class SummaryTests(unittest.TestCase):
         summary = census.summarize(objects, NOW, 30)
         self.assertEqual(summary["objects_without_timestamp"], 1)
         self.assertEqual(summary["reclaim"]["bytes"], 0)
+
+
+    def test_namespace_with_no_readable_timestamp_is_not_reported_as_new(self):
+        # "oldest 0d" would read as brand-new data and understate retention.
+        objects = [{"key": "v1/a-b/objects/x.tar.zst", "size": 500, "last_modified": "not-a-date"}]
+        summary = census.summarize(objects, NOW, None)
+        self.assertIsNone(summary["namespaces"]["v1/a-b"]["oldest_days"])
+        self.assertIn("oldest unknown", census.render(summary))
+
+    def test_an_incomplete_walk_is_labelled_and_not_presented_as_a_census(self):
+        objects = [{"key": "v1/a-b/objects/x.tar.zst", "size": 500, "last_modified": days_ago(1)}]
+        rendered = census.render(census.summarize(objects, NOW, None, False))
+        self.assertIn("INCOMPLETE", rendered)
+        self.assertIn("lower bounds", rendered)
+        self.assertNotIn("INCOMPLETE", census.render(census.summarize(objects, NOW, None, True)))
 
 
 class SafetyTests(unittest.TestCase):

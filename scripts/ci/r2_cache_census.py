@@ -113,8 +113,13 @@ def list_page(endpoint_url: str, bucket: str, token: str | None, *, timeout: int
         return response.read().decode("utf-8")
 
 
-def parse_page(xml_text: str) -> tuple[list[dict], str | None]:
-    """Return this page's objects and the next continuation token, if any."""
+def parse_page(xml_text: str) -> tuple[list[dict], str | None, bool]:
+    """Return this page's objects, the next continuation token, and truncation.
+
+    Truncation is reported separately from the token: a truncated page that
+    carries no token means more objects exist that this walk cannot reach, and
+    silently treating that as the end would under-count the bucket.
+    """
     root = ElementTree.fromstring(xml_text)
     objects = []
     for node in root.findall(f"{S3_NS}Contents"):
@@ -124,9 +129,7 @@ def parse_page(xml_text: str) -> tuple[list[dict], str | None]:
         objects.append({"key": key, "size": size, "last_modified": modified})
     truncated = (root.findtext(f"{S3_NS}IsTruncated") or "false").strip().lower() == "true"
     token = root.findtext(f"{S3_NS}NextContinuationToken") if truncated else None
-    # A truncated page without a token would otherwise loop forever on the
-    # same page; stop instead and report what we counted.
-    return objects, (token or None)
+    return objects, (token or None), truncated
 
 
 def namespace_of(key: str) -> str:
@@ -147,7 +150,8 @@ def age_days(last_modified: str, now: dt.datetime) -> float | None:
     return max(0.0, (now - stamp).total_seconds() / 86400.0)
 
 
-def summarize(objects: list[dict], now: dt.datetime, max_age_days: float | None) -> dict:
+def summarize(objects: list[dict], now: dt.datetime, max_age_days: float | None,
+              complete: bool = True) -> dict:
     namespaces: dict[str, dict] = {}
     total = {"objects": 0, "bytes": 0, "pointers": 0, "archives": 0}
     reclaim = {"objects": 0, "bytes": 0}
@@ -159,7 +163,7 @@ def summarize(objects: list[dict], now: dt.datetime, max_age_days: float | None)
         namespace = namespace_of(key)
         bucket = namespaces.setdefault(
             namespace, {"objects": 0, "bytes": 0, "archives": 0, "pointers": 0,
-                        "reclaim_objects": 0, "reclaim_bytes": 0, "oldest_days": 0.0}
+                        "reclaim_objects": 0, "reclaim_bytes": 0, "oldest_days": None}
         )
         bucket["objects"] += 1
         bucket["bytes"] += size
@@ -178,7 +182,8 @@ def summarize(objects: list[dict], now: dt.datetime, max_age_days: float | None)
         if age is None:
             undated += 1
             continue
-        bucket["oldest_days"] = max(bucket["oldest_days"], age)
+        current_oldest = bucket["oldest_days"]
+        bucket["oldest_days"] = age if current_oldest is None else max(current_oldest, age)
         # Model the rule against archives only: expiring a pointer just costs a
         # restore miss, and pointers are negligible bytes.
         if max_age_days is not None and not is_pointer and age > max_age_days:
@@ -192,6 +197,7 @@ def summarize(objects: list[dict], now: dt.datetime, max_age_days: float | None)
         "reclaim": reclaim if max_age_days is not None else None,
         "max_age_days": max_age_days,
         "objects_without_timestamp": undated,
+        "complete": complete,
         "namespaces": dict(sorted(namespaces.items())),
     }
 
@@ -211,14 +217,19 @@ def plural(count: int, noun: str) -> str:
 
 def render(summary: dict) -> str:
     total = summary["total"]
+    complete = summary.get("complete", True)
     lines = [
-        "CI cache bucket census",
+        "CI cache bucket census" if complete else "CI cache bucket census (INCOMPLETE)",
         f"  objects: {total['objects']} "
         f"({plural(total['archives'], 'archive')}, {plural(total['pointers'], 'pointer')})",
         f"  size:    {human_bytes(total['bytes'])}",
     ]
+    if not complete:
+        # Every number below is a floor. Saying so matters more than the
+        # numbers, because an under-count silently understates the cost.
+        lines.append("  note:    the listing ended early; these totals are lower bounds")
     if summary["objects_without_timestamp"]:
-        lines.append(f"  note:    {summary['objects_without_timestamp']} objects had no readable timestamp")
+        lines.append(f"  note:    {plural(summary['objects_without_timestamp'], 'object')} had no readable timestamp")
     reclaim = summary["reclaim"]
     if reclaim is not None:
         share = (reclaim["bytes"] / total["bytes"] * 100) if total["bytes"] else 0.0
@@ -229,27 +240,32 @@ def render(summary: dict) -> str:
         )
     lines.append("")
     for namespace, row in summary["namespaces"].items():
+        oldest = row["oldest_days"]
+        age = "oldest unknown" if oldest is None else f"oldest {oldest:.0f}d"
         lines.append(
-            f"  {namespace}: {row['objects']} objects, {human_bytes(row['bytes'])}, "
-            f"oldest {row['oldest_days']:.0f}d"
+            f"  {namespace}: {plural(row['objects'], 'object')}, {human_bytes(row['bytes'])}, {age}"
             + (f", reclaimable {human_bytes(row['reclaim_bytes'])}" if reclaim is not None else "")
         )
     return "\n".join(lines)
 
 
-def collect(endpoint_url: str, bucket: str, *, lister=list_page) -> list[dict]:
+def collect(endpoint_url: str, bucket: str, *, lister=list_page) -> tuple[list[dict], bool]:
+    """Walk every page. Returns the objects and whether the walk is complete."""
     objects: list[dict] = []
     token: str | None = None
     seen_tokens: set[str] = set()
     while True:
-        page, token = parse_page(lister(endpoint_url, bucket, token))
+        page, token, truncated = parse_page(lister(endpoint_url, bucket, token))
         objects.extend(page)
         if token is None:
-            return objects
+            # A truncated final page with no token leaves objects unreachable.
+            if truncated:
+                print("warning: listing truncated without a continuation token", file=sys.stderr)
+            return objects, not truncated
         # Defensive: a server repeating a token must not spin this forever.
         if token in seen_tokens:
             print("warning: continuation token repeated; stopping early", file=sys.stderr)
-            return objects
+            return objects, False
         seen_tokens.add(token)
 
 
@@ -266,10 +282,11 @@ def main(argv: list[str] | None = None) -> int:
     if args.max_age_days is not None and args.max_age_days <= 0:
         raise SystemExit("--max-age-days must be positive")
 
-    objects = collect(args.endpoint_url, args.bucket)
-    summary = summarize(objects, dt.datetime.now(dt.timezone.utc), args.max_age_days)
+    objects, complete = collect(args.endpoint_url, args.bucket)
+    summary = summarize(objects, dt.datetime.now(dt.timezone.utc), args.max_age_days, complete)
     print(json.dumps(summary, indent=2) if args.json else render(summary))
-    return 0
+    # A partial walk understates the bucket, so it must not read as success.
+    return 0 if complete else 1
 
 
 if __name__ == "__main__":
