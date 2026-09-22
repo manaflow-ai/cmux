@@ -1,3 +1,4 @@
+import AppKit
 import CmuxTerminalCore
 import Foundation
 
@@ -403,4 +404,301 @@ extension GhosttyNSView {
         ) else { return nil }
         return NotificationScrollRestoreGeometry(c: result)
     }
+}
+
+
+// MARK: - Prompt scroll markers
+
+/// One user-prompt boundary anchored to Ghostty's current absolute row space.
+///
+/// The marker captures the live-bottom viewport when the prompt-submit hook
+/// arrives. Appended output leaves that row stable. If Ghostty later renumbers
+/// bounded scrollback, the row-space revision changes and the marker expires
+/// with the rows it referenced.
+struct TerminalPromptScrollMarker: Equatable, Sendable {
+    let topRow: UInt64
+    let rowSpaceRevision: UInt64
+
+    init?(geometry: NotificationScrollRestoreGeometry) {
+        let scrollbar = geometry.scrollbar
+        let visibleRows = min(scrollbar.total, scrollbar.len)
+        guard visibleRows > 0 else { return nil }
+
+        topRow = scrollbar.total - visibleRows
+        rowSpaceRevision = geometry.rowSpaceRevision
+    }
+
+    /// Position in the scrollable track, where 0 is the oldest reachable
+    /// viewport and 1 is the live bottom.
+    func trackFraction(in geometry: NotificationScrollRestoreGeometry) -> CGFloat? {
+        guard geometry.rowSpaceRevision == rowSpaceRevision else { return nil }
+
+        let scrollbar = geometry.scrollbar
+        let visibleRows = min(scrollbar.total, scrollbar.len)
+        guard visibleRows > 0 else { return nil }
+
+        let lastTopRow = scrollbar.total - visibleRows
+        guard lastTopRow > 0, topRow <= lastTopRow else { return nil }
+        return CGFloat(Double(topRow) / Double(lastTopRow))
+    }
+}
+
+@MainActor
+private final class TerminalPromptScrollMarkerOverlayView: NSView {
+    weak var scroller: NSScroller?
+    var onActivate: ((TerminalPromptScrollMarker) -> Void)?
+
+    private var markers: [TerminalPromptScrollMarker] = []
+    private var geometry: NotificationScrollRestoreGeometry?
+
+    override var isOpaque: Bool { false }
+
+    func update(
+        markers: [TerminalPromptScrollMarker],
+        geometry: NotificationScrollRestoreGeometry?
+    ) {
+        self.markers = markers
+        self.geometry = geometry
+        isHidden = markerEntries().isEmpty
+        needsDisplay = true
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        super.draw(dirtyRect)
+        NSColor.controlAccentColor.setFill()
+        for entry in markerEntries() where entry.rect.intersects(dirtyRect) {
+            NSBezierPath(
+                roundedRect: entry.rect,
+                xRadius: entry.rect.height / 2,
+                yRadius: entry.rect.height / 2
+            ).fill()
+        }
+    }
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        marker(at: point) == nil ? nil : self
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        let point = convert(event.locationInWindow, from: nil)
+        guard let marker = marker(at: point) else { return }
+        onActivate?(marker)
+    }
+
+    private func marker(at point: NSPoint) -> TerminalPromptScrollMarker? {
+        markerEntries()
+            .filter { $0.hitRect.contains(point) }
+            .min { lhs, rhs in
+                abs(lhs.rect.midY - point.y) < abs(rhs.rect.midY - point.y)
+            }?
+            .marker
+    }
+
+    private func markerEntries() -> [
+        (marker: TerminalPromptScrollMarker, rect: NSRect, hitRect: NSRect)
+    ] {
+        guard let geometry else { return [] }
+        return markers.compactMap { marker in
+            guard let rect = markerRect(for: marker, geometry: geometry) else { return nil }
+            return (
+                marker: marker,
+                rect: rect,
+                hitRect: rect.insetBy(dx: -2, dy: -4)
+            )
+        }
+    }
+
+    private func markerRect(
+        for marker: TerminalPromptScrollMarker,
+        geometry: NotificationScrollRestoreGeometry
+    ) -> NSRect? {
+        guard let fraction = marker.trackFraction(in: geometry) else { return nil }
+
+        let slot = scroller?.rect(for: .knobSlot) ?? bounds
+        guard slot.width > 0, slot.height > 0 else { return nil }
+
+        let markerHeight: CGFloat = min(3, slot.height)
+        let markerWidth: CGFloat = max(2, min(slot.width, 8))
+        let centerY = slot.maxY - (fraction * slot.height)
+        let originY = min(
+            max(centerY - markerHeight / 2, slot.minY),
+            slot.maxY - markerHeight
+        )
+
+        return NSRect(
+            x: slot.midX - markerWidth / 2,
+            y: originY,
+            width: markerWidth,
+            height: markerHeight
+        )
+    }
+}
+
+@MainActor
+private final class TerminalPromptScrollMarkerController {
+    private weak var hostedView: GhosttySurfaceScrollView?
+    private let overlay = TerminalPromptScrollMarkerOverlayView(frame: .zero)
+    private var markers: [TerminalPromptScrollMarker] = []
+    private var observers: [NSObjectProtocol] = []
+
+    init(hostedView: GhosttySurfaceScrollView) {
+        self.hostedView = hostedView
+        overlay.onActivate = { [weak self] marker in
+            _ = self?.activate(marker)
+        }
+
+        let center = NotificationCenter.default
+        observers.append(center.addObserver(
+            forName: .ghosttyDidUpdateScrollbar,
+            object: hostedView.surfaceView,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.refreshFromRuntime()
+            }
+        })
+        observers.append(center.addObserver(
+            forName: NSScroller.preferredScrollerStyleDidChangeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.refreshFromRuntime()
+            }
+        })
+
+        attachOverlayIfNeeded()
+    }
+
+    deinit {
+        for observer in observers {
+            NotificationCenter.default.removeObserver(observer)
+        }
+    }
+
+    func recordPromptBoundary() {
+        guard let hostedView,
+              let geometry = hostedView.surfaceView.authoritativeScrollbarGeometry(),
+              let marker = TerminalPromptScrollMarker(geometry: geometry) else { return }
+
+        markers.removeAll { $0.rowSpaceRevision != geometry.rowSpaceRevision }
+        markers.append(marker)
+        refresh(using: geometry)
+    }
+
+    private func refreshFromRuntime() {
+        attachOverlayIfNeeded()
+        guard let hostedView,
+              let geometry = hostedView.surfaceView.authoritativeScrollbarGeometry() else {
+            overlay.update(markers: [], geometry: nil)
+            return
+        }
+        refresh(using: geometry)
+    }
+
+    private func refresh(using geometry: NotificationScrollRestoreGeometry) {
+        let scrollbar = geometry.scrollbar
+        let visibleRows = min(scrollbar.total, scrollbar.len)
+        let lastTopRow = scrollbar.total - visibleRows
+
+        markers.removeAll {
+            $0.rowSpaceRevision != geometry.rowSpaceRevision ||
+            $0.topRow > lastTopRow
+        }
+        attachOverlayIfNeeded()
+        overlay.update(markers: markers, geometry: geometry)
+    }
+
+    private func attachOverlayIfNeeded() {
+        guard let hostedView,
+              let terminalScrollView = hostedView.subviews.compactMap({ $0 as? NSScrollView }).first,
+              let scroller = terminalScrollView.verticalScroller else { return }
+        guard overlay.superview !== scroller else { return }
+
+        overlay.removeFromSuperview()
+        overlay.scroller = scroller
+        overlay.frame = scroller.bounds
+        overlay.autoresizingMask = [.width, .height]
+        scroller.addSubview(overlay)
+    }
+
+    #if DEBUG
+    var markerRowsForTesting: [UInt64] {
+        markers.map(\.topRow)
+    }
+
+    func activateMarkerForTesting(at index: Int) -> Bool {
+        guard markers.indices.contains(index) else { return false }
+        return activate(markers[index])
+    }
+    #endif
+
+    private func activate(_ marker: TerminalPromptScrollMarker) -> Bool {
+        guard let hostedView,
+              let geometry = hostedView.surfaceView.authoritativeScrollbarGeometry(),
+              geometry.rowSpaceRevision == marker.rowSpaceRevision,
+              let row = Int(exactly: marker.topRow) else { return false }
+
+        let scrollbar = geometry.scrollbar
+        let lastTopRow = scrollbar.total - min(scrollbar.total, scrollbar.len)
+        guard marker.topRow <= lastTopRow else { return false }
+
+        hostedView.clearPendingNotificationScrollRestore()
+        let previousIntent = hostedView.prepareExplicitViewportRestore(
+            isAtBottom: marker.topRow >= lastTopRow
+        )
+        guard hostedView.surfaceView.scrollToRow(
+            row,
+            ifRowSpaceRevisionMatches: marker.rowSpaceRevision
+        ) != nil else {
+            hostedView.rollbackExplicitViewportRestore(to: previousIntent)
+            refresh(using: geometry)
+            return false
+        }
+        return true
+    }
+}
+
+@MainActor
+private enum TerminalPromptScrollMarkerControllers {
+    static let table =
+        NSMapTable<GhosttySurfaceScrollView, TerminalPromptScrollMarkerController>
+            .weakToStrongObjects()
+
+    static func controller(
+        for hostedView: GhosttySurfaceScrollView
+    ) -> TerminalPromptScrollMarkerController {
+        if let existing = table.object(forKey: hostedView) {
+            return existing
+        }
+        let controller = TerminalPromptScrollMarkerController(hostedView: hostedView)
+        table.setObject(controller, forKey: hostedView)
+        return controller
+    }
+}
+
+@MainActor
+extension GhosttySurfaceScrollView {
+    /// Records one prompt boundary using the terminal's authoritative row-space
+    /// geometry. Prompt text remains in the existing workspace/session metadata;
+    /// the scrollbar keeps only the row anchor needed for navigation.
+    func recordPromptScrollMarker() {
+        TerminalPromptScrollMarkerControllers
+            .controller(for: self)
+            .recordPromptBoundary()
+    }
+
+    #if DEBUG
+    var promptScrollMarkerRowsForTesting: [UInt64] {
+        TerminalPromptScrollMarkerControllers
+            .controller(for: self)
+            .markerRowsForTesting
+    }
+
+    func activatePromptScrollMarkerForTesting(at index: Int) -> Bool {
+        TerminalPromptScrollMarkerControllers
+            .controller(for: self)
+            .activateMarkerForTesting(at: index)
+    }
+    #endif
 }
