@@ -170,7 +170,17 @@ extension CLINotifyProcessIntegrationRegressionTests {
             environment: vmDevEnvironment(socketPath: socketPath, home: home),
             timeout: 60
         )
-        wait(for: [serverHandled], timeout: 60)
+        // `vm dev` finishes local validation before its first request and
+        // SocketClient connects at that first send, so an invocation the CLI
+        // rejects locally never touches the socket. The mock's "handled"
+        // expectation is only owed once a request was made; on the
+        // no-request path a non-failing bounded wait keeps the fixture from
+        // spending the full timeout and reporting it as a failure.
+        let sawRequest = !log.methods.isEmpty
+        let handled = XCTWaiter.wait(for: [serverHandled], timeout: sawRequest ? 60 : 1)
+        if sawRequest {
+            XCTAssertEqual(handled, .completed, "\(arguments): the mock socket never finished handling the request")
+        }
         XCTAssertFalse(result.timedOut, "\(arguments) timed out: \(result.stderr)")
         return (result, log)
     }
