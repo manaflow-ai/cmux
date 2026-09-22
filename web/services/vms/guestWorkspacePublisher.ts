@@ -150,7 +150,7 @@ RestartSec=1
 NoNewPrivileges=true
 ProtectSystem=strict
 ProtectHome=read-only
-PrivateTmp=true
+PrivateTmp=false
 [Install]
 WantedBy=multi-user.target
 `;
