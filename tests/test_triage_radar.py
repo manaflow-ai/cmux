@@ -18,7 +18,7 @@ def issue(number, title, *, user="reporter", labels=None, body="", comments=0, r
         "number": number,
         "title": title,
         "body": body,
-        "labels": [{"name": value} for value in (labels or ["bug"])],
+        "labels": [{"name": value} for value in (["bug"] if labels is None else labels)],
         "user": {"login": user},
         "comments": comments,
         "reactions": {"total_count": reactions},
@@ -72,6 +72,17 @@ class RegressionTests(unittest.TestCase):
         self.assertGreaterEqual(score, 10)
         self.assertIn("crash/panic", evidence)
         self.assertIn("reproduces on NIGHTLY", evidence)
+
+    def test_meta_issue_body_does_not_create_false_regression(self):
+        report = issue(
+            9,
+            "Backlog reconciliation and synthesis",
+            labels=[],
+            body="Collect older reports mentioning crashes, hangs, data loss, and auth failures.",
+        )
+        score, evidence = MODULE.regression_evidence(report)
+        self.assertEqual(score, 0)
+        self.assertEqual(evidence, [])
 
     def test_fixed_on_nightly_is_deweighted(self):
         report = issue(
