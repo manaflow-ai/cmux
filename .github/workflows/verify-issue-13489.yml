@@ -1,0 +1,288 @@
+name: Verify issue 13489 real Codex persistence
+
+on:
+  push:
+    branches:
+      - chatgpt/verify-13489-real-codex-20260922
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ${{ vars.MACOS_RUNNER_STREAMED_VALIDATION || 'blacksmith-6vcpu-macos-26' }}
+    timeout-minutes: 90
+    env:
+      CMUX_SKIP_ZIG_BUILD: "1"
+      TAG: verify13489
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          submodules: recursive
+          persist-credentials: false
+
+      - name: Select Xcode
+        run: ./scripts/select-ci-xcode.sh
+
+      - name: Install build prerequisites and real Codex
+        run: |
+          set -euo pipefail
+          ./scripts/install-zig-ci.sh
+          ./scripts/download-prebuilt-ghosttykit.sh || ./scripts/ensure-ghosttykit.sh
+          command -v bun >/dev/null 2>&1 || curl -fsSL https://bun.sh/install | bash
+          export PATH="$HOME/.bun/bin:$PATH"
+          bun install -g @openai/codex
+          sudo mkdir -p /usr/local/bin || true
+          sudo ln -sf "$HOME/.bun/bin/codex" /usr/local/bin/codex || ln -sf "$HOME/.bun/bin/codex" /usr/local/bin/codex
+          echo "real codex: $(command -v codex)"
+          codex --version
+
+      - name: Build tagged cmux app
+        run: ./scripts/reload.sh --tag "$TAG" --swift-frontend-workaround
+
+      - name: Exercise persistent install, SessionStart, and UserPromptSubmit in a real cmux pane
+        run: |
+          set -euo pipefail
+          export PATH="$HOME/.bun/bin:/usr/local/bin:$PATH"
+          mkdir -p /tmp/issue13489
+          CODEX_HOME="$HOME/.codex"
+          STATE_DIR="$HOME/.cmuxterm"
+          WORK="$RUNNER_TEMP/issue-13489-work"
+          rm -rf "$CODEX_HOME" "$WORK"
+          mkdir -p "$CODEX_HOME" "$STATE_DIR" "$WORK"
+          rm -f "$STATE_DIR/codex-hook-sessions.json" "$STATE_DIR/codex-turn-ledger.json"
+          git -C "$WORK" init -q
+
+          cat > /tmp/issue13489/fake_model.py <<'PY'
+          import json
+          from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+          from pathlib import Path
+
+          LOG = Path("/tmp/issue13489/model-requests.jsonl")
+
+          class Handler(BaseHTTPRequestHandler):
+              def log_message(self, fmt, *args):
+                  return
+
+              def do_POST(self):
+                  body = self.rfile.read(int(self.headers.get("Content-Length") or 0))
+                  with LOG.open("ab") as fh:
+                      fh.write(body + b"\n")
+                  events = [
+                      ("response.created", {"type": "response.created", "response": {"id": "resp_13489"}}),
+                      ("response.output_item.done", {
+                          "type": "response.output_item.done",
+                          "item": {
+                              "type": "message",
+                              "id": "msg_13489",
+                              "role": "assistant",
+                              "content": [{"type": "output_text", "text": "ok"}],
+                          },
+                      }),
+                      ("response.completed", {
+                          "type": "response.completed",
+                          "response": {
+                              "id": "resp_13489",
+                              "usage": {
+                                  "input_tokens": 1,
+                                  "output_tokens": 1,
+                                  "total_tokens": 2,
+                                  "input_tokens_details": {"cached_tokens": 0},
+                                  "output_tokens_details": {"reasoning_tokens": 0},
+                              },
+                          },
+                      }),
+                  ]
+                  self.send_response(200)
+                  self.send_header("Content-Type", "text/event-stream")
+                  self.end_headers()
+                  for name, payload in events:
+                      self.wfile.write(f"event: {name}\ndata: {json.dumps(payload)}\n\n".encode())
+                  self.wfile.flush()
+
+          ThreadingHTTPServer(("127.0.0.1", 18765), Handler).serve_forever()
+          PY
+          python3 /tmp/issue13489/fake_model.py >/tmp/issue13489/fake-model.log 2>&1 &
+          MODEL_PID=$!
+          trap 'kill "$MODEL_PID" 2>/dev/null || true' EXIT
+          sleep 1
+          kill -0 "$MODEL_PID"
+
+          cat > "$CODEX_HOME/config.toml" <<EOF
+          model = "fake-model"
+          model_provider = "fake"
+
+          [model_providers.fake]
+          name = "fake"
+          base_url = "http://127.0.0.1:18765/v1"
+          wire_api = "responses"
+
+          [projects."$WORK"]
+          trust_level = "trusted"
+          EOF
+
+          DERIVED="$HOME/Library/Developer/Xcode/DerivedData/cmux-$TAG"
+          CLI="$(find "$DERIVED/Build/Products/Debug" -path '*/Contents/Resources/bin/cmux' -type f -perm +111 | head -1)"
+          APP="$(find "$DERIVED/Build/Products/Debug" -maxdepth 1 -name '*.app' -type d | head -1)"
+          test -x "$CLI"
+          test -d "$APP"
+          echo "cmux cli: $CLI"
+          echo "cmux app: $APP"
+          "$CLI" hooks codex install --yes | tee /tmp/issue13489/install.txt
+          echo "=== installed hooks.json ==="
+          cat "$CODEX_HOME/hooks.json"
+          echo "=== installed config.toml ==="
+          cat "$CODEX_HOME/config.toml"
+
+          python3 - "$CODEX_HOME/hooks.json" <<'PY'
+          import json, pathlib, shlex, sys
+          path = pathlib.Path(sys.argv[1])
+          root = json.loads(path.read_text())
+          hooks = root.get("hooks", {})
+          expected = {
+              "SessionStart": "hooks enqueue codex session-start",
+              "UserPromptSubmit": "hooks enqueue codex prompt-submit",
+          }
+          for event, needle in expected.items():
+              groups = hooks.get(event) or []
+              assert len(groups) == 1, (event, groups)
+              handlers = groups[0].get("hooks") or []
+              assert len(handlers) == 1, (event, handlers)
+              command = handlers[0]["command"]
+              parts = shlex.split(command)
+              candidate = pathlib.Path(parts[0]) if parts else pathlib.Path("")
+              body = candidate.read_text() if candidate.is_file() else command
+              assert needle in body, (event, body)
+              assert "CMUX_CODEX_PID" in body or 'agent_pid=' in body, (event, body)
+              print(f"installed {event}: queue admission + PID capture confirmed")
+          PY
+
+          open "$APP"
+          for i in $(seq 1 90); do
+            if CMUX_TAG="$TAG" ./scripts/cmux-debug-cli.sh identify >/tmp/issue13489/identify.txt 2>&1; then
+              break
+            fi
+            sleep 2
+          done
+          CMUX_TAG="$TAG" ./scripts/cmux-debug-cli.sh identify | tee /tmp/issue13489/identify.txt
+
+          CREATE="$(CMUX_TAG="$TAG" ./scripts/cmux-debug-cli.sh new-workspace --name issue-13489 --cwd "$WORK" --command "codex")"
+          printf '%s\n' "$CREATE" | tee /tmp/issue13489/new-workspace.txt
+          WSREF="$(printf '%s\n' "$CREATE" | tr ' ' '\n' | grep '^workspace:' | head -1)"
+          test -n "$WSREF"
+          echo "real Codex pane workspace ref: $WSREF"
+
+          for i in $(seq 1 90); do
+            if python3 - "$STATE_DIR/codex-hook-sessions.json" <<'PY'
+          import json, pathlib, sys
+          p = pathlib.Path(sys.argv[1])
+          if not p.exists():
+              raise SystemExit(1)
+          sessions = json.loads(p.read_text()).get("sessions", {})
+          raise SystemExit(0 if sessions else 1)
+          PY
+            then
+              break
+            fi
+            sleep 1
+          done
+
+          python3 - "$STATE_DIR/codex-hook-sessions.json" /tmp/issue13489/start-record.json <<'PY'
+          import json, pathlib, sys
+          store = pathlib.Path(sys.argv[1])
+          assert store.exists(), f"missing {store}"
+          data = json.loads(store.read_text())
+          sessions = data.get("sessions", {})
+          assert sessions, data
+          sid, record = max(sessions.items(), key=lambda item: item[1].get("updatedAt", 0))
+          assert record.get("workspaceId"), record
+          assert record.get("surfaceId"), record
+          assert record.get("pid"), record
+          pathlib.Path(sys.argv[2]).write_text(json.dumps({"sessionId": sid, **record}, indent=2, sort_keys=True))
+          print("=== persisted after real Codex SessionStart ===")
+          print(json.dumps({"sessionId": sid, **record}, indent=2, sort_keys=True))
+          PY
+
+          PID="$(python3 -c 'import json; print(json.load(open("/tmp/issue13489/start-record.json"))["pid"])')"
+          WORKSPACE_ID="$(python3 -c 'import json; print(json.load(open("/tmp/issue13489/start-record.json"))["workspaceId"])')"
+          SURFACE_ID="$(python3 -c 'import json; print(json.load(open("/tmp/issue13489/start-record.json"))["surfaceId"])')"
+          kill -0 "$PID"
+          echo "=== persisted PID is live ==="
+          ps -p "$PID" -o pid=,ppid=,tty=,command= | tee /tmp/issue13489/persisted-pid.txt
+          echo "=== cmux pane topology for persisted workspace ==="
+          CMUX_TAG="$TAG" ./scripts/cmux-debug-cli.sh --json list-panes --workspace "$WORKSPACE_ID" | tee /tmp/issue13489/panes.json
+          CMUX_TAG="$TAG" ./scripts/cmux-debug-cli.sh --json list-pane-surfaces --workspace "$WORKSPACE_ID" | tee /tmp/issue13489/surfaces.json
+          grep -F "$SURFACE_ID" /tmp/issue13489/surfaces.json
+
+          echo "=== real Codex pane before prompt ==="
+          CMUX_TAG="$TAG" ./scripts/cmux-debug-cli.sh read-screen --workspace "$WSREF" | tee /tmp/issue13489/screen-before-prompt.txt
+
+          BEFORE_UPDATED="$(python3 -c 'import json; print(json.load(open("/tmp/issue13489/start-record.json")).get("updatedAt", 0))')"
+          CMUX_TAG="$TAG" ./scripts/cmux-debug-cli.sh send --workspace "$WSREF" "reply with the word ok"
+          CMUX_TAG="$TAG" ./scripts/cmux-debug-cli.sh send-key --workspace "$WSREF" enter
+
+          for i in $(seq 1 90); do
+            if [ -s /tmp/issue13489/model-requests.jsonl ] && python3 - "$STATE_DIR/codex-hook-sessions.json" "$BEFORE_UPDATED" <<'PY'
+          import json, pathlib, sys
+          p = pathlib.Path(sys.argv[1])
+          before = float(sys.argv[2])
+          if not p.exists():
+              raise SystemExit(1)
+          sessions = json.loads(p.read_text()).get("sessions", {})
+          newest = max((r.get("updatedAt", 0) for r in sessions.values()), default=0)
+          raise SystemExit(0 if newest > before else 1)
+          PY
+            then
+              break
+            fi
+            sleep 1
+          done
+
+          python3 - "$STATE_DIR/codex-hook-sessions.json" "$BEFORE_UPDATED" <<'PY'
+          import json, pathlib, sys
+          p = pathlib.Path(sys.argv[1])
+          before = float(sys.argv[2])
+          data = json.loads(p.read_text())
+          sessions = data.get("sessions", {})
+          assert sessions, data
+          sid, record = max(sessions.items(), key=lambda item: item[1].get("updatedAt", 0))
+          assert record.get("updatedAt", 0) > before, (before, record)
+          print("=== persisted after real Codex UserPromptSubmit ===")
+          print(json.dumps({"sessionId": sid, **record}, indent=2, sort_keys=True))
+          PY
+
+          test -s /tmp/issue13489/model-requests.jsonl
+          echo "=== fake model request received from the real Codex pane ==="
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          lines = Path("/tmp/issue13489/model-requests.jsonl").read_text().splitlines()
+          body = json.loads(lines[-1])
+          text = json.dumps(body)
+          assert "reply with the word ok" in text, text
+          print(json.dumps(body, indent=2, sort_keys=True))
+          PY
+
+          for i in $(seq 1 30); do
+            CMUX_TAG="$TAG" ./scripts/cmux-debug-cli.sh read-screen --workspace "$WSREF" > /tmp/issue13489/screen-after-prompt.txt || true
+            grep -qi 'ok' /tmp/issue13489/screen-after-prompt.txt && break
+            sleep 1
+          done
+          echo "=== real Codex pane after prompt ==="
+          cat /tmp/issue13489/screen-after-prompt.txt
+          grep -qi 'ok' /tmp/issue13489/screen-after-prompt.txt
+
+          echo "=== final codex-hook-sessions.json ==="
+          cat "$STATE_DIR/codex-hook-sessions.json"
+          echo "=== final codex-turn-ledger.json ==="
+          cat "$STATE_DIR/codex-turn-ledger.json"
+
+      - name: Upload verification evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: issue-13489-real-codex-verification
+          path: /tmp/issue13489
+          if-no-files-found: warn
+          retention-days: 7
