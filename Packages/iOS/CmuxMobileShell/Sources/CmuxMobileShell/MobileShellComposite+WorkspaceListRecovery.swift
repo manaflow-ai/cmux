@@ -67,6 +67,29 @@ extension MobileShellComposite {
             && workspaceListConnectionStatus == .connected
     }
 
+    /// Whether a complete, connected workspace snapshot is available for the
+    /// exact Mac app instance that produced a push payload. This remains true
+    /// for an authoritative empty workspace list, so deletion can be reported.
+    public func isWorkspaceListAuthoritative(
+        forMacDeviceID macDeviceID: String?,
+        instanceTag: String?
+    ) -> Bool {
+        let key: MacPairingKey
+        if let macDeviceID, !macDeviceID.isEmpty {
+            key = MacPairingKey(macDeviceID: macDeviceID, instanceTag: instanceTag)
+        } else {
+            guard instanceTag?.isEmpty != false else { return false }
+            key = .anonymousForeground
+        }
+        guard let state = workspacesByMac[key],
+              state.status == .connected,
+              state.workspaceSnapshotIsAuthoritative else { return false }
+        // Foreground snapshots also require the aggregate recovery gates. A
+        // secondary Mac owns its own connected snapshot and remains authoritative
+        // while the foreground transport is reconnecting.
+        return key != foregroundMacKey || workspaceListIsAuthoritative
+    }
+
     /// UI reconnect entry for a specific workspace's Mac (status pill, toast
     /// Reconnect action). Unlike ``reconnectOrRefresh()``, which gates on the
     /// AGGREGATE ``workspaceListConnectionStatus`` (a healthy secondary Mac

@@ -467,6 +467,75 @@ def test_reader_ignores_lookalike_text_and_accepts_github_yaml_shapes() -> None:
     assert failures == [] and len(edges) == 1, (edges, failures)
 
 
+MANUAL_REF_RESOLVER = WORKFLOWS_DIR / "resolve-dispatch-ref.yml"
+MANUAL_REF_TARGETS = {
+    "ios-screenshots.yml": {
+        "screenshots": "ref: ${{ needs.resolve-ref.outputs.sha }}",
+    },
+    "iroh-release-gate.yml": {
+        "tailscale-version-skew": "ref: ${{ needs.resolve-ref.outputs.sha }}",
+        "simulator-e2e": "ref: ${{ needs.resolve-ref.outputs.sha }}",
+    },
+    "reload-build.yml": {
+        "build": "ref: ${{ needs.resolve-ref.outputs.sha }}",
+    },
+    "test-depot.yml": {
+        "tests": "ref: ${{ needs.resolve-ref.outputs.sha }}",
+    },
+    "test-e2e.yml": {
+        "e2e": "ref: ${{ needs.resolve-ref.outputs.sha }}",
+    },
+}
+
+
+def _workflow_job_block(workflow: str, name: str) -> str:
+    marker = f"  {name}:\n"
+    start = workflow.index(marker)
+    match = re.search(r"(?m)^  [A-Za-z0-9_-]+:\n", workflow[start + len(marker) :])
+    if match is None:
+        return workflow[start:]
+    return workflow[start : start + len(marker) + match.start()]
+
+
+def test_shared_manual_ref_resolver_normalizes_to_full_sha() -> None:
+    resolver = MANUAL_REF_RESOLVER.read_text(encoding="utf-8")
+
+    assert "workflow_call:" in resolver
+    assert "contents: read" in resolver
+    assert "blacksmith-4vcpu-ubuntu-2404" in resolver
+    assert "REQUESTED_REF: ${{ inputs.ref }}" in resolver
+    assert "DEFAULT_SHA: ${{ github.sha }}" in resolver
+    assert 'urllib.parse.quote(requested_ref, safe="")' in resolver
+    assert 'f"https://api.github.com/repos/{repository}/commits/{encoded_ref}"' in resolver
+    assert r'^[0-9a-f]{40}$' in resolver
+    assert "value: ${{ jobs.resolve.outputs.sha }}" in resolver
+
+
+def test_manual_macos_workflows_resolve_before_checkout() -> None:
+    resolver_call = "uses: ./.github/workflows/resolve-dispatch-ref.yml"
+
+    for filename, jobs in MANUAL_REF_TARGETS.items():
+        workflow = (WORKFLOWS_DIR / filename).read_text(encoding="utf-8")
+        assert resolver_call in workflow, filename
+        assert "ref: ${{ inputs.ref }}" in _workflow_job_block(workflow, "resolve-ref"), filename
+        assert "short SHA" in workflow, filename
+        for job, resolved_ref in jobs.items():
+            block = _workflow_job_block(workflow, job)
+            assert "resolve-ref" in block, (filename, job)
+            assert resolved_ref in block, (filename, job)
+        assert "ref: ${{ inputs.ref || github.ref }}" not in workflow, filename
+
+    perf = (WORKFLOWS_DIR / "perf-activation.yml").read_text(encoding="utf-8")
+    activation_changes = _workflow_job_block(perf, "activation_changes")
+    benchmark = _workflow_job_block(perf, "activation-session-benchmark")
+    assert resolver_call in perf
+    assert "needs: resolve-ref" in activation_changes
+    assert "target_sha: ${{ needs.resolve-ref.outputs.sha }}" in activation_changes
+    assert "needs: activation_changes" in benchmark
+    assert "ref: ${{ needs.activation_changes.outputs.target_sha }}" in benchmark
+    assert "ref: ${{ inputs.ref || github.ref }}" not in perf
+
+
 def test_repository_workflows_stay_within_their_callers_grants() -> None:
     result = run_cli(WORKFLOWS_DIR, default=REPOSITORY_DEFAULT_WORKFLOW_PERMISSIONS)
 
