@@ -231,7 +231,7 @@ class IncrementalGenerationCanaryTests(unittest.TestCase):
         self.assertIn("CI_CACHE_R2_PUBLIC_URL: ${{ vars.CI_CACHE_R2_PUBLIC_URL }}", workflow)
         self.assertIn("- fresh-normalized-restored-dd", workflow)
         self.assertIn("Normalize fresh B mtimes from Git blob IDs", workflow)
-        self.assertIn("branches:\\n      - exp/incremental-state-canary-20260921", workflow)
+        self.assertIn("branches:\n      - exp/incremental-state-canary-20260921", workflow)
         self.assertNotIn("pull_request:", workflow)
         self.assertNotIn("merge_group:", workflow)
     def test_archive_refuses_dirty_seed(self) -> None:
