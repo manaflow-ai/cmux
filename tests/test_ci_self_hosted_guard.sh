@@ -366,13 +366,40 @@ check_runtime_regressions_collapsed() {
 
     in_job && /restore-app-host-test-product.sh/ { saw_shared_product=1 }
     in_job && /scripts\/ci\/run-display-ui-regressions\.sh/ { saw_ui_script=1 }
-    in_job && /kill -9 "\$VDISPLAY_PID"/ { saw_force_kill=1 }
-    in_job && /scripts\/ci\/virtual-display-lock\.sh reap-strays/ { saw_reap_strays=1 }
+    in_job && /scripts\/ci\/virtual-display\.sh start/ { saw_display_start=1 }
+    in_job && /scripts\/ci\/virtual-display\.sh stop/ { saw_display_stop=1 }
     in_job && /timeout-minutes:[[:space:]]*75/ { saw_timeout=1 }
 
-    END { exit !(saw_shared_product && saw_ui_script && saw_force_kill && saw_reap_strays && saw_timeout) }
+    END { exit !(saw_shared_product && saw_ui_script && saw_display_start && saw_display_stop && saw_timeout) }
   ' "$CI_MACOS_FILE"; then
-    echo "FAIL: tests-build-and-lag must restore the shared product, run display UI regressions from that DerivedData, and clean virtual displays before releasing the lock"
+    echo "FAIL: tests-build-and-lag must restore the shared product, run display UI regressions from that DerivedData, and create and stop its virtual display through scripts/ci/virtual-display.sh"
+    exit 1
+  fi
+
+  # The app-host shards need the same display: without one, no window goes key
+  # and every terminal-focus test times out on the runner, not the code.
+  if ! awk '
+    /^  app-host-unit-tests:/ { in_job=1; next }
+    in_job && /^  [^[:space:]#][^:]*:[[:space:]]*(#.*)?$/ { in_job=0 }
+    in_job && /scripts\/ci\/virtual-display\.sh start/ { saw_display_start=1 }
+    in_job && /scripts\/ci\/virtual-display\.sh stop/ { saw_display_stop=1 }
+    END { exit !(saw_display_start && saw_display_stop) }
+  ' "$CI_MACOS_FILE"; then
+    echo "FAIL: app-host-unit-tests must create and stop a virtual display through scripts/ci/virtual-display.sh"
+    exit 1
+  fi
+
+  # A stop that only releases the lock would leave the helper alive holding the
+  # display, so the next job on a persistent runner inherits it.
+  if ! awk '
+    /^stop_display\(\) \{/ { in_func=1; next }
+    in_func && /^\}/ { in_func=0 }
+    in_func && /kill -9 "\$VDISPLAY_PID"/ { saw_force_kill=1 }
+    in_func && /virtual-display-lock\.sh reap-strays/ { saw_reap=1 }
+    in_func && /virtual-display-lock\.sh release/ { saw_release=saw_force_kill && saw_reap }
+    END { exit !saw_release }
+  ' scripts/ci/virtual-display.sh; then
+    echo "FAIL: virtual-display.sh stop must force-kill the helper and reap strays before releasing the lock"
     exit 1
   fi
 
