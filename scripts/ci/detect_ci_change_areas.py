@@ -423,15 +423,8 @@ def is_swift_package_input(path: str) -> bool:
     pinned toolchain) are excluded on purpose: they make the selector pick
     every package, which is the sweep this routing exists to avoid.
     """
-    if path.startswith(SWIFT_PACKAGE_ROOT_PREFIX):
-        return True
     select = _select_package_tests()
-    if select is None:
-        return False
-    prefixes = tuple(
-        sorted({prefix for prefixes in select.EXTRA_INPUTS.values() for prefix in prefixes})
-    )
-    return bool(prefixes) and path.startswith(prefixes)
+    return select is not None and select.is_routed_input(path)
 
 
 def swift_package_test_selection(paths: Iterable[str]) -> tuple[str, ...]:

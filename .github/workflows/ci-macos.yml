@@ -2470,6 +2470,7 @@ jobs:
         id: select
         env:
           EVENT_NAME: ${{ github.event_name }}
+          FULL_SUITE: ${{ inputs.full_suite }}
         run: |
           set -euo pipefail
           PACKAGES=(
@@ -2517,8 +2518,18 @@ jobs:
             if grep -qE '^vendor/bonsplit(/|$)' "$changed" || grep -qxF '.github/workflows/ci.yml' "$changed"; then
               echo "bonsplit=true" >> "$GITHUB_OUTPUT"
             fi
-            python3 scripts/ci/select_package_tests.py --changed-files "$changed" "${PACKAGES[@]}" > "$selected"
+            selection_args=(--changed-files "$changed")
+            if [ "$FULL_SUITE" != "true" ]; then
+              # Match the router's candidate filtering even for mixed PRs.
+              # A package edit plus a workflow edit must not become a full sweep.
+              selection_args+=(--routed-inputs-only)
+            fi
+            python3 scripts/ci/select_package_tests.py "${selection_args[@]}" "${PACKAGES[@]}" > "$selected"
           else
+            if [ "$FULL_SUITE" != "true" ]; then
+              echo "::error::Diff unavailable for targeted package tests; refusing a full sweep."
+              exit 1
+            fi
             echo "Diff unavailable; running every package."
             echo "bonsplit=true" >> "$GITHUB_OUTPUT"
             printf '%s\n' "${PACKAGES[@]}" > "$selected"
