@@ -2296,14 +2296,25 @@ jobs:
           set -euo pipefail
           cli_home="$RUNNER_TEMP/cmux-cli-tests-home"
           rm -rf "$cli_home"
-          mkdir -p "$cli_home"
-          echo "HOME=$cli_home" >> "$GITHUB_ENV"
+          mkdir -p "$cli_home/.config"
+          echo "CMUX_CLI_TESTS_HOME=$cli_home" >> "$GITHUB_ENV"
 
       - name: Run CLI product tests
         run: |
           set -euo pipefail
           test_log="$RUNNER_TEMP/cmux-cli-product-tests.log"
-          bash scripts/ci/run-and-capture.sh "$test_log" \
+          # xcodebuild forwards only TEST_RUNNER_-prefixed variables into the
+          # test process, so a bare HOME in the job environment reaches
+          # xcodebuild and stops there. CFFIXED_USER_HOME has to travel with
+          # it: Foundation resolves NSHomeDirectory() through getpwuid unless
+          # that is set, so HOME alone still leaves every fixture reading the
+          # runner's real home between reused self-hosted runs.
+          env \
+            "TEST_RUNNER_HOME=$CMUX_CLI_TESTS_HOME" \
+            "TEST_RUNNER_CFFIXED_USER_HOME=$CMUX_CLI_TESTS_HOME" \
+            "TEST_RUNNER_XDG_CONFIG_HOME=$CMUX_CLI_TESTS_HOME/.config" \
+            "TEST_RUNNER_SSH_AUTH_SOCK=" \
+            bash scripts/ci/run-and-capture.sh "$test_log" \
             xcodebuild test-without-building \
             -xctestrun "$CMUX_CLI_TESTS_XCTESTRUN" \
             -destination "platform=macOS" \
