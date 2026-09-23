@@ -370,7 +370,7 @@ def producer_for(api, artifact: dict, value: dict, current_run: str, current_att
         if len(batch) < 100:
             break
     if not any(
-        job.get("name") == "release-build"
+        job.get("name") in {"release-build", "macos / release-build"}
         and job.get("status") == "completed"
         and job.get("conclusion") == "success"
         for job in jobs
