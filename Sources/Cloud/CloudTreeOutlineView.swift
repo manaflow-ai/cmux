@@ -16,13 +16,15 @@ struct CloudTreeOutlineView: NSViewRepresentable {
     let localWorkspaces: [CloudTreeLocalWorkspace]
     /// Machine id to terminal ids with a notification this Mac has not read.
     var unreadTerminalIDs: [String: Set<String>] = [:]
+    /// Whether This Mac leads the tree, and whether every sidebar workspace is a row (the Cloud tab) or only those with a terminal.
+    var includesLocalMachine: Bool = CloudTreeNodeBuilder.includesLocalMachine
+    var includesEmptyLocalWorkspaces: Bool = false
     let machineActions: MachineRowActions
     let nodeActions: CloudTreeNodeActions
     let expansionStore: CloudTreeExpansionStore
     var organizationStore: CloudSidebarOrganizationStore? = nil
     var organizationState = CloudSidebarOrganizationState()
-    /// The visual preset the rows render in (the debug gallery pins one per
-    /// column; the live panel passes the stored choice).
+    /// The visual preset the rows render in (the debug gallery pins one per column; the live panel passes the stored choice).
     var style: CloudTreeStyle = CloudTreeStyleStore.current
     /// Fires when a row drag starts (true) and ends (false); the panel freezes catalog
     /// re-reads while a drag is in flight.
@@ -46,9 +48,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             machineActions: machineActions,
             nodeActions: nodeActions,
             expansionStore: expansionStore, organization: organizationStore,
-            tabDragTransferRegistry: { [tabDragTransferRegistry] in
-                tabDragTransferRegistry ?? AppDelegate.shared?.tabDragTransferRegistry
-            }
+            tabDragTransferRegistry: { [tabDragTransferRegistry] in tabDragTransferRegistry ?? AppDelegate.shared?.tabDragTransferRegistry }
         )
     }
     func makeNSView(context: Context) -> CloudTreeContainerView {
@@ -70,6 +70,8 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             localWorkspaces: localWorkspaces,
             unreadTerminalIDs: unreadTerminalIDs,
             pinnedMachineIDs: Set(machines.filter(\.isPinned).map(\.id)),
+            includeLocalMachine: includesLocalMachine,
+            includeEmptyLocalWorkspaces: includesEmptyLocalWorkspaces,
             source: source,
             devicesSection: devicesSection
         ))
@@ -414,9 +416,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             return cell
         }
 
-        func outlineView(_ outlineView: NSOutlineView, rowViewForItem item: Any) -> NSTableRowView? {
-            CloudTreeRowView()
-        }
+        func outlineView(_ outlineView: NSOutlineView, rowViewForItem item: Any) -> NSTableRowView? { CloudTreeRowView() }
 
         func outlineView(_ outlineView: NSOutlineView, heightOfRowByItem item: Any) -> CGFloat {
             CloudTreeRowHeight(style: style).height(of: item, in: outlineView)

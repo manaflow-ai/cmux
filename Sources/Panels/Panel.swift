@@ -19,6 +19,7 @@ public enum PanelType: String, Codable, CaseIterable, Sendable {
     case cloudVMLoading
     case mobilePairing
     case accountSignIn
+    case settings
 
     public init(from decoder: Decoder) throws {
         let container = try decoder.singleValueContainer()
@@ -55,14 +56,9 @@ public enum PanelType: String, Codable, CaseIterable, Sendable {
             self = .cloudVMLoading
             return
         }
-        if rawValue.lowercased() == Self.mobilePairing.rawValue.lowercased() {
-            self = .mobilePairing
-            return
-        }
-        if rawValue.lowercased() == Self.accountSignIn.rawValue.lowercased() {
-            self = .accountSignIn
-            return
-        }
+        if rawValue.lowercased() == Self.mobilePairing.rawValue.lowercased() { self = .mobilePairing; return }
+        if rawValue.lowercased() == Self.accountSignIn.rawValue.lowercased() { self = .accountSignIn; return }
+        if rawValue.lowercased() == Self.settings.rawValue.lowercased() { self = .settings; return }
         throw DecodingError.dataCorruptedError(
             in: container,
             debugDescription: "Unknown panel type: \(rawValue)"

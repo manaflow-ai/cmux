@@ -15,6 +15,25 @@ struct InternalFlagRowSnapshot: Identifiable, Equatable {
         overrideValue = flags.overrideValue(for: definition)
     }
 
+    static func matches(query: String, title: String, key: String, description: String) -> Bool {
+        let haystack = "\(title) \(key) \(description)".folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
+        return query
+            .folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
+            .split(whereSeparator: { $0.isWhitespace || $0.isPunctuation })
+            .allSatisfy { token in
+                haystack.contains(token)
+            }
+    }
+
+    func matches(query: String) -> Bool {
+        Self.matches(
+            query: query,
+            title: definition.title,
+            key: definition.key,
+            description: definition.flagDescription
+        )
+    }
+
     var overrideNote: String? {
         if !resolution.allowsLocalOverride {
             return String(

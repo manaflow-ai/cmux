@@ -232,7 +232,8 @@ struct MachinesPanelView: View {
         // `includesLocalMachine` is off); deciding it here from the raw
         // catalog previously left a blank panel for a signed-in account with
         // no machines, because the catalog's This Mac entry counted as a row
-        // the tree never drew.
+        // the tree never drew. This panel always shows This Mac, matching the
+        // outline's `includesLocalMachine: true` below.
         if includesCloud && includesDevices && viewModel.hasLoadedOnce && viewModel.machines.isEmpty && viewModel.lastErrorDescription != nil {
             VStack(spacing: 0) {
                 cloudMachinesUnavailableNotice
@@ -242,6 +243,7 @@ struct MachinesPanelView: View {
             machines: includesCloud ? viewModel.machines : [],
             pendingCreates: includesCloud ? viewModel.pendingCreates : [],
             snapshot: treeSnapshot,
+            includeLocalMachine: true,
             source: treeSource
         ) {
             emptyState
@@ -600,6 +602,8 @@ struct MachinesPanelView: View {
             snapshot: treeSnapshot,
             localWorkspaces: viewModel.localWorkspaces,
             unreadTerminalIDs: viewModel.unreadTerminalIDs,
+            includesLocalMachine: true,
+            includesEmptyLocalWorkspaces: true,
             machineActions: machineActions,
             nodeActions: nodeActions,
             expansionStore: expansionStore, organizationStore: SurfaceCatalog.shared.sidebarOrganization, organizationState: SurfaceCatalog.shared.sidebarOrganization.state,

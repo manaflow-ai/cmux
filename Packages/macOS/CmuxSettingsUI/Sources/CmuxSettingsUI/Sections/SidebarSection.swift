@@ -12,6 +12,7 @@ public struct SidebarSection: View {
     @State private var tasks = MainActorTaskStore<String>()
     @State private var matchTerminal: DefaultsValueModel<Bool>
     @State var hideAll: DefaultsValueModel<Bool>
+    @State private var showCloudButton: DefaultsValueModel<Bool>
     @State private var wrapTitles: DefaultsValueModel<Bool>
     @State private var showDesc: DefaultsValueModel<Bool>
     @State private var workspaceDescriptionHex: DefaultsValueModel<String>
@@ -43,6 +44,7 @@ public struct SidebarSection: View {
         _sidebarFont = State(initialValue: hostActions.sidebarFontSize())
         _matchTerminal = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebarAppearance.matchTerminalBackground))
         _hideAll = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.hideAllDetails))
+        _showCloudButton = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.showCloudButton))
         _wrapTitles = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.wrapWorkspaceTitles))
         _showDesc = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.showWorkspaceDescription))
         _workspaceDescriptionHex = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.workspaceDescriptionColorHex))
@@ -87,6 +89,7 @@ public struct SidebarSection: View {
         let models: [any SettingObservationStarting] = [
             matchTerminal,
             hideAll,
+            showCloudButton,
             wrapTitles,
             showDesc,
             workspaceDescriptionHex,
@@ -265,9 +268,16 @@ public struct SidebarSection: View {
                     ? String(localized: "settings.app.hideAllSidebarDetails.subtitleOn", defaultValue: "Show only the workspace title row. Overrides the detail toggles below.")
                     : String(localized: "settings.app.hideAllSidebarDetails.subtitleOff", defaultValue: "Show secondary workspace details as controlled by the toggles below.")
             ) {
-                Toggle("", isOn: Binding(get: { hideAll.current }, set: { hideAll.set($0) }))
-                    .labelsHidden()
-                    .controlSize(.small)
+                Toggle("", isOn: Binding(get: { hideAll.current }, set: { hideAll.set($0) })).labelsHidden().controlSize(.small)
+            }
+            SettingsCardDivider()
+
+            SettingsCardRow(
+                configurationReview: .json("sidebar.showCloudButton"),
+                String(localized: "settings.app.showCloudButton", defaultValue: "Show Cloud Button in Sidebar"),
+                subtitle: String(localized: "settings.app.showCloudButton.subtitle", defaultValue: "Show the Cloud button in the sidebar footer. It opens the Cloud tab, and its right-click menu can hide it.")
+            ) {
+                Toggle("", isOn: Binding(get: { showCloudButton.current }, set: { showCloudButton.set($0) })).labelsHidden().controlSize(.small)
             }
             SettingsCardDivider()
 
@@ -278,9 +288,7 @@ public struct SidebarSection: View {
                     ? String(localized: "settings.app.wrapWorkspaceTitles.subtitleOn", defaultValue: "Long workspace titles can use as many lines as they need.")
                     : String(localized: "settings.app.wrapWorkspaceTitles.subtitleOff", defaultValue: "Workspace titles stay on one line and truncate at the end.")
             ) {
-                Toggle("", isOn: Binding(get: { wrapTitles.current }, set: { wrapTitles.set($0) }))
-                    .labelsHidden()
-                    .controlSize(.small)
+                Toggle("", isOn: Binding(get: { wrapTitles.current }, set: { wrapTitles.set($0) })).labelsHidden().controlSize(.small)
             }
             SettingsCardDivider()
 
@@ -289,9 +297,7 @@ public struct SidebarSection: View {
                 String(localized: "settings.app.showWorkspaceDescription", defaultValue: "Show Workspace Description in Sidebar"),
                 subtitle: String(localized: "settings.app.showWorkspaceDescription.subtitle", defaultValue: "Display custom workspace descriptions below the workspace title.")
             ) {
-                Toggle("", isOn: Binding(get: { showDesc.current }, set: { showDesc.set($0) }))
-                    .labelsHidden()
-                    .controlSize(.small)
+                Toggle("", isOn: Binding(get: { showDesc.current }, set: { showDesc.set($0) })).labelsHidden().controlSize(.small)
             }
             .disabled(hideAll.current)
             SettingsCardDivider()
@@ -368,9 +374,7 @@ public struct SidebarSection: View {
                     ? String(localized: "settings.app.pathLastSegmentOnly.subtitleOn", defaultValue: "Show as much of the trailing path as fits; shorter forms are prefixed with …/.")
                     : String(localized: "settings.app.pathLastSegmentOnly.subtitleOff", defaultValue: "Render full paths abbreviated with ~/.")
             ) {
-                Toggle("", isOn: Binding(get: { pathLastOnly.current }, set: { pathLastOnly.set($0) }))
-                    .labelsHidden()
-                    .controlSize(.small)
+                Toggle("", isOn: Binding(get: { pathLastOnly.current }, set: { pathLastOnly.set($0) })).labelsHidden().controlSize(.small)
             }
             .disabled(hideAll.current)
             SettingsCardDivider()
@@ -380,9 +384,7 @@ public struct SidebarSection: View {
                 String(localized: "settings.app.showNotificationMessage", defaultValue: "Show Notification Message in Sidebar"),
                 subtitle: String(localized: "settings.app.showNotificationMessage.subtitle", defaultValue: "Display the latest notification message below the workspace title.")
             ) {
-                Toggle("", isOn: Binding(get: { showNotification.current }, set: { showNotification.set($0) }))
-                    .labelsHidden()
-                    .controlSize(.small)
+                Toggle("", isOn: Binding(get: { showNotification.current }, set: { showNotification.set($0) })).labelsHidden().controlSize(.small)
             }
             .disabled(hideAll.current)
             SettingsCardDivider()
@@ -395,9 +397,7 @@ public struct SidebarSection: View {
                 String(localized: "settings.app.showBranchDirectory", defaultValue: "Show Branch + Directory in Sidebar"),
                 subtitle: String(localized: "settings.app.showBranchDirectory.subtitle", defaultValue: "Display git branches, Cloud machine info, and working directories.")
             ) {
-                Toggle("", isOn: Binding(get: { showBranchDir.current }, set: { showBranchDir.set($0) }))
-                    .labelsHidden()
-                    .controlSize(.small)
+                Toggle("", isOn: Binding(get: { showBranchDir.current }, set: { showBranchDir.set($0) })).labelsHidden().controlSize(.small)
             }
             .disabled(hideAll.current)
             SettingsCardDivider()
@@ -407,9 +407,7 @@ public struct SidebarSection: View {
                 String(localized: "settings.app.showPullRequests", defaultValue: "Show Pull Requests in Sidebar"),
                 subtitle: String(localized: "settings.app.showPullRequests.subtitle", defaultValue: "Display review items (PR/MR/etc.) with status and number.")
             ) {
-                Toggle("", isOn: Binding(get: { showPR.current }, set: { showPR.set($0) }))
-                    .labelsHidden()
-                    .controlSize(.small)
+                Toggle("", isOn: Binding(get: { showPR.current }, set: { showPR.set($0) })).labelsHidden().controlSize(.small)
             }
             .disabled(hideAll.current)
             SettingsCardDivider()
@@ -419,9 +417,7 @@ public struct SidebarSection: View {
                 String(localized: "settings.app.watchGitStatus", defaultValue: "Watch Git Status in Sidebar"),
                 subtitle: String(localized: "settings.app.watchGitStatus.subtitle", defaultValue: "Update sidebar branch and PR metadata from repository file changes without polling git.")
             ) {
-                Toggle("", isOn: Binding(get: { watchGit.current }, set: { watchGit.set($0) }))
-                    .labelsHidden()
-                    .controlSize(.small)
+                Toggle("", isOn: Binding(get: { watchGit.current }, set: { watchGit.set($0) })).labelsHidden().controlSize(.small)
             }
             .disabled(hideAll.current)
             SettingsCardDivider()
@@ -431,9 +427,7 @@ public struct SidebarSection: View {
                 String(localized: "settings.app.makeSidebarPullRequestClickable", defaultValue: "Make Sidebar PR Clickable"),
                 subtitle: String(localized: "settings.app.makeSidebarPullRequestClickable.subtitle", defaultValue: "Review items stay visible as plain text, and clicks in that area select the workspace row.")
             ) {
-                Toggle("", isOn: Binding(get: { prClickable.current }, set: { prClickable.set($0) }))
-                    .labelsHidden()
-                    .controlSize(.small)
+                Toggle("", isOn: Binding(get: { prClickable.current }, set: { prClickable.set($0) })).labelsHidden().controlSize(.small)
                     .accessibilityIdentifier("SettingsSidebarPullRequestClickableToggle")
             }
             .disabled(hideAll.current || !showPR.current)
@@ -444,9 +438,7 @@ public struct SidebarSection: View {
                 String(localized: "settings.app.openSidebarPRLinks", defaultValue: "Open Sidebar PR Links in cmux Browser"),
                 subtitle: prLinksSubtitle(prVisible: showPR.current, prClickable: prClickable.current, openInCmux: prLinks.current)
             ) {
-                Toggle("", isOn: Binding(get: { prLinks.current }, set: { prLinks.set($0) }))
-                    .labelsHidden()
-                    .controlSize(.small)
+                Toggle("", isOn: Binding(get: { prLinks.current }, set: { prLinks.set($0) })).labelsHidden().controlSize(.small)
             }
             .disabled(hideAll.current || !showPR.current || !prClickable.current)
             SettingsCardDivider()
@@ -458,9 +450,7 @@ public struct SidebarSection: View {
                     ? String(localized: "settings.app.openSidebarPortLinks.subtitleOn", defaultValue: "Port clicks open inside cmux browser.")
                     : String(localized: "settings.app.openSidebarPortLinks.subtitleOff", defaultValue: "Port clicks open in your default browser.")
             ) {
-                Toggle("", isOn: Binding(get: { portLinks.current }, set: { portLinks.set($0) }))
-                    .labelsHidden()
-                    .controlSize(.small)
+                Toggle("", isOn: Binding(get: { portLinks.current }, set: { portLinks.set($0) })).labelsHidden().controlSize(.small)
             }
             .disabled(hideAll.current)
             SettingsCardDivider()
@@ -470,9 +460,7 @@ public struct SidebarSection: View {
                 String(localized: "settings.app.showSSH", defaultValue: "Show SSH in Sidebar"),
                 subtitle: String(localized: "settings.app.showSSH.subtitle", defaultValue: "Display the SSH target for remote workspaces in its own row.")
             ) {
-                Toggle("", isOn: Binding(get: { showSSH.current }, set: { showSSH.set($0) }))
-                    .labelsHidden()
-                    .controlSize(.small)
+                Toggle("", isOn: Binding(get: { showSSH.current }, set: { showSSH.set($0) })).labelsHidden().controlSize(.small)
             }
             .disabled(hideAll.current)
             SettingsCardDivider()
@@ -482,9 +470,7 @@ public struct SidebarSection: View {
                 String(localized: "settings.app.showPorts", defaultValue: "Show Listening Ports in Sidebar"),
                 subtitle: String(localized: "settings.app.showPorts.subtitle", defaultValue: "Display detected listening ports for the active workspace.")
             ) {
-                Toggle("", isOn: Binding(get: { showPorts.current }, set: { showPorts.set($0) }))
-                    .labelsHidden()
-                    .controlSize(.small)
+                Toggle("", isOn: Binding(get: { showPorts.current }, set: { showPorts.set($0) })).labelsHidden().controlSize(.small)
             }
             .disabled(hideAll.current)
             SettingsCardDivider()
@@ -494,9 +480,7 @@ public struct SidebarSection: View {
                 String(localized: "settings.app.showLog", defaultValue: "Show Latest Log in Sidebar"),
                 subtitle: String(localized: "settings.app.showLog.subtitle", defaultValue: "Display the latest imperative log/status message.")
             ) {
-                Toggle("", isOn: Binding(get: { showLog.current }, set: { showLog.set($0) }))
-                    .labelsHidden()
-                    .controlSize(.small)
+                Toggle("", isOn: Binding(get: { showLog.current }, set: { showLog.set($0) })).labelsHidden().controlSize(.small)
             }
             .disabled(hideAll.current)
             SettingsCardDivider()
@@ -506,9 +490,7 @@ public struct SidebarSection: View {
                 String(localized: "settings.app.showProgress", defaultValue: "Show Progress in Sidebar"),
                 subtitle: String(localized: "settings.app.showProgress.subtitle", defaultValue: "Display the built-in progress bar from set_progress.")
             ) {
-                Toggle("", isOn: Binding(get: { showProgress.current }, set: { showProgress.set($0) }))
-                    .labelsHidden()
-                    .controlSize(.small)
+                Toggle("", isOn: Binding(get: { showProgress.current }, set: { showProgress.set($0) })).labelsHidden().controlSize(.small)
             }
             .disabled(hideAll.current)
             SettingsCardDivider()
@@ -520,9 +502,7 @@ public struct SidebarSection: View {
                 String(localized: "settings.app.showMetadata", defaultValue: "Show Custom Metadata in Sidebar"),
                 subtitle: String(localized: "settings.app.showMetadata.subtitle", defaultValue: "Display custom metadata from report_meta/set_status and report_meta_block.")
             ) {
-                Toggle("", isOn: Binding(get: { showMetadata.current }, set: { showMetadata.set($0) }))
-                    .labelsHidden()
-                    .controlSize(.small)
+                Toggle("", isOn: Binding(get: { showMetadata.current }, set: { showMetadata.set($0) })).labelsHidden().controlSize(.small)
             }
             .disabled(hideAll.current)
         }

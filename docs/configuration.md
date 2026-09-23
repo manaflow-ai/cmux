@@ -137,6 +137,18 @@ agents resume from their saved session exactly as routine Agent Hibernation does
 
 Enable routine hibernation from the command palette (`⌘⇧P` -> Enable Agent Hibernation), from **Settings > Terminal > Agent Hibernation**, or with `cmux agent-hibernation on`.
 
+## `sidebar.showCloudButton`
+
+Shows the Cloud button in the left sidebar footer, next to Help. It opens the right sidebar's Cloud tab, which lists this Mac's workspaces ahead of every Cloud machine. Right-click the button and choose **Hide Cloud Button** to turn this off; **Settings > Sidebar > Show Cloud Button in Sidebar** turns it back on. Default: `true`. The button also requires the Cloud Machines beta.
+
+```json
+{
+  "sidebar": {
+    "showCloudButton": true
+  }
+}
+```
+
 ## `sidebar.showAgentActivity`
 
 Shows a loading spinner on sidebar workspace rows that currently have running coding agents or active manual loaders (`cmux workspace loading on`).

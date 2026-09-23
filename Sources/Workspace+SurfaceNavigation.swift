@@ -213,6 +213,7 @@ extension Workspace {
             return SurfaceKind.mobilePairing.rawValue
         case .accountSignIn:
             return SurfaceKind.accountSignIn.rawValue
+        case .settings: return SurfaceKind.settings.rawValue
         }
     }
 

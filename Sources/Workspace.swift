@@ -846,7 +846,7 @@ extension Workspace {
             return nil
         case .mobilePairing:
             return nil
-        case .accountSignIn:
+        case .accountSignIn, .settings:
             return nil
         }
         return SessionPanelSnapshot(
@@ -2365,7 +2365,7 @@ extension Workspace {
             return nil
         case .mobilePairing:
             return nil
-        case .accountSignIn:
+        case .accountSignIn, .settings:
             return nil
         }
     }
