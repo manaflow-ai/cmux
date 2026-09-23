@@ -874,6 +874,9 @@ jobs:
             -destination "platform=iOS Simulator,id=$SIMULATOR_ID"
           )
           if [ -n "${TEST_FILTER:-}" ]; then
+            # Verification branch: retain XCTest screenshots/video without the
+            # ten-minute sysdiagnose collection after a failed UI assertion.
+            XCODEBUILD_ARGS+=(-collect-test-diagnostics never)
             if [[ "$TEST_FILTER" != cmuxUITests/* ]]; then
               # Keep focused package assertions bounded on virtualized iOS
               # runners; failed sysdiagnose collection can otherwise take 10m.
