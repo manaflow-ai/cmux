@@ -10062,7 +10062,7 @@ fn retains_exited_terminal(mux: &Mux, surface: &crate::Surface) -> bool {
     let Some(terminal) = surface.terminal_public_id() else { return false };
     mux.resolve_terminal(terminal.as_str()).ok().flatten().is_some_and(|resolved| {
         resolved.terminal.on_exit == crate::workspace_registry::TerminalOnExit::Keep
-            && resolved.surface == Some(surface.id)
+            && surface_has_view_placement(mux, surface.id)
     })
 }
 
@@ -19689,6 +19689,41 @@ mod tests {
             let surface = mux.surface(id).unwrap();
             assert!(surface.is_dead());
             surface.with_terminal(|terminal| terminal.vt_write(b"finished-agent-output"));
+            // A terminal may appear in several tabs. The resolver returns one
+            // placement, but every retained view must remain attachable.
+            let id = if policy == TerminalOnExit::Keep {
+                let terminal = surface.terminal_public_id().unwrap().clone();
+                let pane = mux.with_state(|state| {
+                    state.resource_indexes.pane_ids[&state.pane_of(id).unwrap()].to_string()
+                });
+                let selectors = crate::ResourceSelectors {
+                    machine: Some("current".into()),
+                    session: Some("current".into()),
+                    ..Default::default()
+                };
+                mux.resource_project_terminal_selected(
+                    crate::ResourceSelectors {
+                        terminal: Some(terminal.to_string()),
+                        ..selectors.clone()
+                    },
+                    crate::ResourceSelectors { pane: Some(pane), ..selectors },
+                    usize::MAX,
+                    None,
+                    None,
+                    &WorkspaceMutation::local("retained-output-projection"),
+                )
+                .unwrap();
+                mux.with_state(|state| {
+                    state
+                        .placements_of_content(&crate::resource::ContentPublicId::Terminal(terminal))
+                        .iter()
+                        .copied()
+                        .find(|placement| *placement != id)
+                        .unwrap()
+                })
+            } else {
+                id
+            };
             let (writer, outbound) = captured_writer();
             let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
             let attached = handle_command(
