@@ -6,11 +6,6 @@ import UIKit
 final class WorkspaceNavigationBarController: UIViewController {
     let bar = UINavigationBar()
     private let item = UINavigationItem()
-    private let titleLeadingSpacer: UIBarButtonItem = {
-        let spacer = UIBarButtonItem(barButtonSystemItem: .fixedSpace, target: nil, action: nil)
-        spacer.width = 4
-        return spacer
-    }()
     private let titleHost = UIHostingController(rootView: AnyView(EmptyView()))
     private lazy var titleCapsule = WorkspaceNavigationTitleView(host: titleHost)
     private var controls: [WorkspaceNavigationBar.Item.ID: HostedControl] = [:]
@@ -76,6 +71,11 @@ final class WorkspaceNavigationBarController: UIViewController {
                 .environment(\.self, environment)
                 .buttonStyle(.plain)
                 .frame(minWidth: minimumWidth, minHeight: 36)
+                // UIKit's standard leading item gap is 16 points. The base
+                // toolbar leaves 20 points after the 52 point back island;
+                // reserve that extra four points in the item itself so the
+                // button's visible glass remains 52 points wide.
+                .padding(.trailing, value.id == .back ? 4 : 0)
                 .fixedSize())
             if let control = controls[value.id] {
                 control.host.rootView = content
@@ -105,11 +105,10 @@ final class WorkspaceNavigationBarController: UIViewController {
         let nextTrailingIDs = trailingItems.map(\.id)
         if leadingIDs != nextLeadingIDs {
             leadingIDs = nextLeadingIDs
-            var buttons = leadingIDs.compactMap { controls[$0]?.button }
-            if leadingIDs.contains(.back) {
-                buttons.append(titleLeadingSpacer)
-            }
-            item.setLeftBarButtonItems(buttons, animated: false)
+            item.setLeftBarButtonItems(
+                leadingIDs.compactMap { controls[$0]?.button },
+                animated: false
+            )
         }
         if trailingIDs != nextTrailingIDs {
             trailingIDs = nextTrailingIDs

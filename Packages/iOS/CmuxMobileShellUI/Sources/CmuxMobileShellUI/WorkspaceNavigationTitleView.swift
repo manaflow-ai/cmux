@@ -40,7 +40,10 @@ final class WorkspaceNavigationTitleView: UIView {
 
     override var intrinsicContentSize: CGSize {
         let content = host.view.intrinsicContentSize
-        return CGSize(width: content.width + 5, height: 44)
+        // Match the compact base toolbar's 151 point title island while
+        // leaving UINavigationBar free to compress it when the trailing
+        // cluster needs more room.
+        return CGSize(width: max(0, content.width - 1), height: 44)
     }
 
     override func sizeThatFits(_ size: CGSize) -> CGSize {
@@ -53,7 +56,7 @@ final class WorkspaceNavigationTitleView: UIView {
         if #unavailable(iOS 26.0) {
             capsule.layer.cornerRadius = bounds.height / 2
         }
-        let inset = min(0, bounds.width / 2)
+        let inset = min(3, bounds.width / 2)
         host.view.frame = bounds.insetBy(dx: inset, dy: 0)
     }
 }
