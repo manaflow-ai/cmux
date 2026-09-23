@@ -573,11 +573,40 @@ func isMinimalModeTitlebarControlHit(window: NSWindow, locationInWindow: NSPoint
     return MinimalModeTitlebarControlHitRegionRegistry.containsWindowPoint(locationInWindow, in: window)
 }
 
+extension UserDefaults {
+    /// Moves a value stored under a legacy key to its replacement key, unless
+    /// the replacement already holds a value. The legacy key is always cleared.
+    func moveValue(fromLegacyKey legacyKey: String, to key: String) {
+        guard let legacyValue = object(forKey: legacyKey) else { return }
+        if object(forKey: key) == nil {
+            set(legacyValue, forKey: key)
+        }
+        removeObject(forKey: legacyKey)
+    }
+}
+
 enum MinimalModeTitlebarDebugSettings {
-    static let leftControlsLeadingInsetKey = "titlebarDebug.leftControlsLeadingInset"
-    static let leftControlsTopInsetKey = "titlebarDebug.leftControlsTopInset"
-    static let trafficLightTabBarInsetKey = "titlebarDebug.trafficLightTabBarInset"
-    static let trafficLightTitlebarLeadingInsetKey = "titlebarDebug.trafficLightTitlebarLeadingInset"
+    // ContentView and VerticalTabsSidebar read these through @AppStorage. A
+    // dotted key makes @AppStorage re-evaluate its view on every write to the
+    // suite, so the keys must stay flat (#13930).
+    static let leftControlsLeadingInsetKey = "titlebarDebugLeftControlsLeadingInset"
+    static let leftControlsTopInsetKey = "titlebarDebugLeftControlsTopInset"
+    static let trafficLightTabBarInsetKey = "titlebarDebugTrafficLightTabBarInset"
+    static let trafficLightTitlebarLeadingInsetKey = "titlebarDebugTrafficLightTitlebarLeadingInset"
+
+    /// Dotted keys these settings used before #13930, mapped to their replacements.
+    static let legacyDottedKeys: [(legacy: String, current: String)] = [
+        ("titlebarDebug.leftControlsLeadingInset", leftControlsLeadingInsetKey),
+        ("titlebarDebug.leftControlsTopInset", leftControlsTopInsetKey),
+        ("titlebarDebug.trafficLightTabBarInset", trafficLightTabBarInsetKey),
+        ("titlebarDebug.trafficLightTitlebarLeadingInset", trafficLightTitlebarLeadingInsetKey)
+    ]
+
+    static func migrateLegacyDottedKeys(defaults: UserDefaults = .standard) {
+        for pair in legacyDottedKeys {
+            defaults.moveValue(fromLegacyKey: pair.legacy, to: pair.current)
+        }
+    }
 
     static let defaultLeftControlsLeadingInset = 72.0
     static let defaultLeftControlsTopInset = 2.0

@@ -307,6 +307,32 @@ final class WorkspaceContentViewVisibilityTests {
     }
 
     @Test
+    func testLegacyDottedChromeKeysMigrateWithoutOverwritingNewValues() throws {
+        let suiteName = "WorkspaceContentViewVisibilityTests.Migration.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defaults.removePersistentDomain(forName: suiteName)
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        defaults.set("cmux.sidebar.files", forKey: CmuxExtensionSidebarSelection.legacyDottedDefaultsKey)
+        defaults.set(44.5, forKey: "titlebarDebug.leftControlsLeadingInset")
+        defaults.set(6.5, forKey: "titlebarDebug.leftControlsTopInset")
+        defaults.set(91.0, forKey: MinimalModeTitlebarDebugSettings.leftControlsTopInsetKey)
+
+        CmuxExtensionSidebarSelection.migrateLegacyDottedKey(defaults: defaults)
+        MinimalModeTitlebarDebugSettings.migrateLegacyDottedKeys(defaults: defaults)
+
+        #expect(defaults.string(forKey: CmuxExtensionSidebarSelection.defaultsKey) == "cmux.sidebar.files")
+        #expect(defaults.double(forKey: MinimalModeTitlebarDebugSettings.leftControlsLeadingInsetKey) == 44.5)
+        #expect(
+            defaults.double(forKey: MinimalModeTitlebarDebugSettings.leftControlsTopInsetKey) == 91.0,
+            "A value already under the new key wins over the legacy one."
+        )
+        #expect(defaults.object(forKey: CmuxExtensionSidebarSelection.legacyDottedDefaultsKey) == nil)
+        #expect(defaults.object(forKey: "titlebarDebug.leftControlsLeadingInset") == nil)
+        #expect(defaults.object(forKey: "titlebarDebug.leftControlsTopInset") == nil)
+    }
+
+    @Test
     @MainActor
     func testUnreadChangeUpdatesOnlyAffectedSidebarRow() async throws {
         _ = NSApplication.shared

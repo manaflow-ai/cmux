@@ -10874,7 +10874,12 @@ private enum SidebarFontSizeProvider {
 }
 
 enum CmuxExtensionSidebarSelection {
-    static let defaultsKey = "cmuxExtensionSidebar.providerId"
+    // ContentView and VerticalTabsSidebar read this through @AppStorage. A
+    // dotted key makes @AppStorage re-evaluate its view on every write to the
+    // suite, so the key must stay flat (#13930).
+    static let defaultsKey = "cmuxExtensionSidebarProviderId"
+    /// The dotted key the selection used before #13930.
+    static let legacyDottedDefaultsKey = "cmuxExtensionSidebar.providerId"
     static let selectedExtensionNameDefaultsKey = "cmuxExtensionSidebar.selectedExtensionName"
     static let defaultProviderId = CmuxSidebarProviderDescriptor.defaultWorkspacesID
     static let hostedExtensionsProviderId = "cmux.sidebar.extensions"
@@ -11117,6 +11122,10 @@ enum CmuxExtensionSidebarSelection {
 
     static func setProviderId(_ providerId: String, defaults: UserDefaults = .standard) {
         defaults.set(providerId, forKey: defaultsKey)
+    }
+
+    static func migrateLegacyDottedKey(defaults: UserDefaults = .standard) {
+        defaults.moveValue(fromLegacyKey: legacyDottedDefaultsKey, to: defaultsKey)
     }
 
     @MainActor

@@ -295,6 +295,8 @@ struct cmuxApp: App {
             StartupBreadcrumbLog.append("app.init.keychainMigration.complete")
         }
         migrateSidebarAppearanceDefaultsIfNeeded(defaults: defaults)
+        MinimalModeTitlebarDebugSettings.migrateLegacyDottedKeys(defaults: defaults)
+        CmuxExtensionSidebarSelection.migrateLegacyDottedKey(defaults: defaults)
         StartupBreadcrumbLog.append("app.init.sidebarDefaults.migrated")
 
         // UI tests need AppDelegate wiring even if SwiftUI appearance callbacks are skipped.
