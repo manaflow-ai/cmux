@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import re
 import subprocess
 import sys
 import tempfile
@@ -24,15 +25,7 @@ RESOLVER = ROOT / "scripts" / "ci" / "resolve_runners.py"
 REAL_MAP = ROOT / ".github" / "runners.json"
 REUSABLE_WORKFLOW = ROOT / ".github" / "workflows" / "resolve-runners.yml"
 PROOF_WORKFLOW = ROOT / ".github" / "workflows" / "ios-app-store.yml"
-CORE_CI_WORKFLOWS = (
-    ROOT / ".github" / "workflows" / "ci.yml",
-    ROOT / ".github" / "workflows" / "ci-guards.yml",
-    ROOT / ".github" / "workflows" / "cmux-browser.yml",
-    ROOT / ".github" / "workflows" / "remote-daemon.yml",
-    ROOT / ".github" / "workflows" / "cli-pipe-regressions.yml",
-    ROOT / ".github" / "workflows" / "ci-web.yml",
-    ROOT / ".github" / "workflows" / "ci-macos.yml",
-)
+WORKFLOWS = ROOT / ".github" / "workflows"
 FORK_LINUX_BRANCH = "github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04'"
 FORK_MACOS_BRANCH = "github.repository_owner != 'manaflow-ai' && 'macos-15'"
 
@@ -73,6 +66,16 @@ def write_map(document: object) -> Path:
         else:
             json.dump(document, handle)
     return Path(handle.name)
+
+def pull_request_workflows() -> list[Path]:
+    """Every workflow whose top-level on: block includes pull_request."""
+    result = []
+    for path in sorted(WORKFLOWS.glob("*.y*ml")):
+        text = path.read_text(encoding="utf-8")
+        if re.search(r"(?m)^  pull_request:\s*(?:$|\[|\{)", text):
+            result.append(path)
+    return result
+
 
 
 class FleetSelectionTests(unittest.TestCase):
@@ -285,31 +288,53 @@ class WiringTests(unittest.TestCase):
         )
 
 
-    def test_the_normal_ci_graph_is_zero_configuration_on_a_fork(self) -> None:
-        """Every variable-routed core job must have a hosted fork branch.
-
-        A personal fork has no Blacksmith installation and no repository
-        variables. A blacksmith-* label there does not fail; it queues forever.
-        Keep the upstream branch byte-for-byte configurable, but make the
-        non-manaflow-ai branch self-contained.
-        """
+    def test_every_pull_request_workflow_is_zero_configuration_on_a_fork(self) -> None:
+        """A fork PR must never require an organization-only runner provider."""
+        workflows = pull_request_workflows()
+        self.assertTrue(workflows)
         saw_linux = 0
         saw_macos = 0
-        for path in CORE_CI_WORKFLOWS:
+
+        for path in workflows:
             text = path.read_text(encoding="utf-8")
             for number, line in enumerate(text.splitlines(), start=1):
                 if "runs-on:" not in line:
                     continue
+
+                # A few trust-boundary workflows already route pull_request
+                # directly to a GitHub-hosted image while using the repository
+                # pool for push/main. That is equivalent to the owner branch.
+                pr_linux = bool(
+                    re.search(
+                        r"github\.event_name == 'pull_request'.*'ubuntu-[^']+'",
+                        line,
+                    )
+                )
+                pr_macos = bool(
+                    re.search(
+                        r"github\.event_name == 'pull_request'.*'macos-[^']+'",
+                        line,
+                    )
+                )
+                hosted_linux = FORK_LINUX_BRANCH in line or pr_linux
+                hosted_macos = FORK_MACOS_BRANCH in line or pr_macos
+
                 with self.subTest(workflow=path.name, line=number):
                     if "vars.LINUX_RUNNER" in line:
                         saw_linux += 1
-                        self.assertIn(FORK_LINUX_BRANCH, line)
+                        self.assertTrue(
+                            hosted_linux,
+                            f"{path.name}:{number} has no GitHub-hosted Linux fork branch",
+                        )
                     if "vars.MACOS_RUNNER" in line:
                         saw_macos += 1
-                        self.assertIn(FORK_MACOS_BRANCH, line)
+                        self.assertTrue(
+                            hosted_macos,
+                            f"{path.name}:{number} has no GitHub-hosted macOS fork branch",
+                        )
                     if "blacksmith-" in line:
                         self.assertTrue(
-                            FORK_LINUX_BRANCH in line or FORK_MACOS_BRANCH in line,
+                            hosted_linux or hosted_macos,
                             f"{path.name}:{number} can queue forever in a fork: {line.strip()}",
                         )
 
