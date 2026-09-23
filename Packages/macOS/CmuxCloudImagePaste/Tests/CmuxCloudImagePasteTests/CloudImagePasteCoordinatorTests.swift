@@ -2,11 +2,6 @@ import Foundation
 import CmuxCloudImagePaste
 import Testing
 
-#if canImport(cmux_DEV)
-@testable import cmux_DEV
-#elseif canImport(cmux)
-@testable import cmux
-#endif
 
 @Suite("Cloud image transfer behavior", .timeLimit(.minutes(1))) @MainActor
 struct CloudImagePasteCoordinatorTests {
