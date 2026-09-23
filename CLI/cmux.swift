@@ -3452,8 +3452,10 @@ final class SocketClient {
             return
         }
 
-        Darwin.close(socketFD)
-        socketFD = -1
+        // Use the full cleanup, not a bare descriptor close: a retry must not
+        // inherit lastConfiguredReceiveTimeout from the failed socket, or the
+        // next connect would skip SO_RCVTIMEO on the fresh descriptor.
+        close()
         throw SocketConnectError(
             targetDescription: "socket at \(path)",
             errnoValue: connectErrno
@@ -3941,7 +3943,9 @@ final class SocketClient {
         lastConfiguredReceiveTimeout = timeout
     }
 
-    private func configureResponseReceiveTimeout(_ timeout: TimeInterval) throws {
+    /// Internal (not `private`) so regression tests can drive the typed
+    /// failure through the wrapper on an unconnected socket.
+    func configureResponseReceiveTimeout(_ timeout: TimeInterval) throws {
         if let lastConfiguredReceiveTimeout,
            abs(lastConfiguredReceiveTimeout - timeout) <= Self.receiveTimeoutReconfigurationToleranceSeconds {
             return

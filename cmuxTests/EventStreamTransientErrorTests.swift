@@ -37,4 +37,24 @@ struct EventStreamTransientErrorTests {
         let error = CLIError(message: "Invalid event stream frame: not json")
         #expect(!CMUXCLI(args: []).isTransientEventStreamError(error))
     }
+
+    @Test
+    func configureResponseReceiveTimeoutPreservesTheTypedFailure() {
+        // Drive the real wrapper on an unconnected socket: the setsockopt
+        // fails (EBADF), configureReceiveTimeout throws the typed
+        // failure, and configureResponseReceiveTimeout must rethrow it
+        // instead of collapsing it into the untyped "Socket read error".
+        let client = SocketClient(path: "/nonexistent/cmux-event-stream-test.sock")
+        defer { client.close() }
+
+        do {
+            try client.configureResponseReceiveTimeout(1)
+            Issue.record("expected the receive-timeout configuration to fail on an unconnected socket")
+        } catch let error as CLIError {
+            #expect(error.socketFailureKind == .receiveTimeoutConfiguration)
+            #expect(CMUXCLI(args: []).isTransientEventStreamError(error))
+        } catch {
+            Issue.record("unexpected untyped error: \(error)")
+        }
+    }
 }
