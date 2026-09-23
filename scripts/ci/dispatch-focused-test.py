@@ -22,6 +22,9 @@ RUN_DISCOVERY_ATTEMPTS = 12
 RUN_DISCOVERY_TIMEOUT_SECONDS = 60.0
 PRIOR_ATTEMPT_LIMIT = 100
 PRIOR_ATTEMPT_TIMEOUT_SECONDS = 30.0
+# Statuses GitHub reports before a run has a conclusion. Anything else,
+# including a missing status, is not treated as occupying a runner.
+UNFINISHED = frozenset({"queued", "in_progress", "waiting", "requested", "pending"})
 RUNNERS = (
     "auto",
     "blacksmith-6vcpu-macos-15",
@@ -144,41 +147,88 @@ def recent_dispatches() -> list[dict]:
         runs = json.loads(payload)
     except json.JSONDecodeError:
         return []
+    if not isinstance(runs, list):
+        return []
     return [run for run in runs if isinstance(run, dict)]
 
 
-def run_selectors(title: str, runner: str | None = None) -> list[str]:
-    """The selectors a run name carries, or nothing if it is not a match.
+def parse_run_name(title: str) -> tuple[list[str], str, str] | None:
+    """Split "<selectors> on <runner> @ <ref> [<dispatch id>]" into its parts.
 
-    A batched dispatch names several selectors before " on ", so callers match
-    membership rather than a prefix. Otherwise batching would silently bypass
-    these guards for every selector it carried. An explicitly requested runner
-    also has to match: a result from macOS 15 does not answer a question asked
-    about macOS 26.
+    The dispatch id is optional: a run started from the GitHub UI, or by any
+    tool that does not pass one, still names its selectors, runner and ref.
+    Requiring the trailing "[" hid exactly the runs whose compile these guards
+    exist to protect, because a run with the same ref and filter shares this
+    workflow's concurrency group whether or not a dispatcher labelled it.
     """
     head, separator, remainder = title.partition(" on ")
     if not separator:
-        return []
-    if runner not in (None, "auto") and not remainder.startswith(f"{runner} @ "):
-        return []
-    return [part.strip() for part in head.split(",")]
+        return None
+    runner, separator, remainder = remainder.partition(" @ ")
+    if not separator:
+        return None
+    ref = remainder.split(" [", 1)[0].strip()
+    return [part.strip() for part in head.split(",")], runner.strip(), ref
+
+
+def default_runner() -> str | None:
+    """The label `runner: auto` resolves to, or None when it cannot be known.
+
+    The workflow reads `vars.MACOS_RUNNER_TESTS` and falls back to a literal
+    written beside it, so the answer lives half in the repository's variables
+    and half in the workflow definition. Read both rather than hard-coding
+    either: the literal moves when the default pool moves, and the variable
+    overrides it without touching the workflow.
+
+    Returning None means "cannot tell", and every caller treats that as a
+    reason to dispatch normally rather than to act on a runner it guessed.
+    """
+    try:
+        payload = output(
+            "gh", "variable", "list", "--repo", REPO, "--json", "name,value",
+            timeout=PRIOR_ATTEMPT_TIMEOUT_SECONDS,
+        )
+        variables = json.loads(payload)
+    except (subprocess.SubprocessError, OSError, ValueError, json.JSONDecodeError):
+        return None
+    if not isinstance(variables, list):
+        return None
+    for entry in variables:
+        if isinstance(entry, dict) and entry.get("name") == "MACOS_RUNNER_TESTS":
+            value = str(entry.get("value", "")).strip()
+            if value:
+                return value
+            break
+    try:
+        workflow = (ROOT / ".github/workflows" / WORKFLOW).read_text()
+    except OSError:
+        return None
+    literal = re.search(
+        r"vars\.MACOS_RUNNER_TESTS \|\| '([^']+)'", workflow
+    )
+    return literal.group(1) if literal else None
 
 
 def attempts(
     runs: list[dict], commit: str, selector: str, runner: str | None = None
 ) -> list[dict]:
-    """Runs of this selector at this exact commit and runner, newest first.
+    """Runs of this selector at this exact commit, newest first.
 
-    The run name carries the whole dispatch identity --
-    "<selector> on <runner> @ <commit> [<dispatch id>]" -- so attempts are
-    findable without recording any local state.
+    `runner` narrows to one pool. None means every pool, which is what the
+    repeat guard wants: a red result is usually a property of the commit.
     """
-    marker = f" @ {commit} ["
-    return [
-        run for run in runs
-        if marker in str(run.get("displayTitle", ""))
-        and selector in run_selectors(str(run.get("displayTitle", "")), runner)
-    ]
+    found = []
+    for run in runs:
+        parsed = parse_run_name(str(run.get("displayTitle", "")))
+        if parsed is None:
+            continue
+        selectors, run_runner, ref = parsed
+        if ref != commit or selector not in selectors:
+            continue
+        if runner is not None and run_runner != runner:
+            continue
+        found.append(run)
+    return found
 
 
 def prior_attempts(
@@ -188,8 +238,10 @@ def prior_attempts(
 
     A focused run compiles the tree before it runs anything, so a red result is
     often a property of the commit and runner, not of the attempt. Preserve
-    the existing broad guard for the default/auto runner, but a failure on
-    macOS 15 must not block an explicitly requested macOS 26 verification.
+    the existing broad guard for the default/auto runner, but a failure on one
+    macOS generation must not block a verification explicitly asked of another
+    -- in either direction, since which generation `auto` means is a
+    repository variable and has moved before.
     Re-dispatching the same selector/SHA/runner can reprint the same failure.
     """
     return [
@@ -199,7 +251,7 @@ def prior_attempts(
 
 
 def live_attempts(
-    runs: list[dict], commit: str, selector: str, runner: str | None = None
+    runs: list[dict], commit: str, selector: str, runner: str
 ) -> list[dict]:
     """Attempts GitHub has accepted that have not reported a conclusion yet.
 
@@ -210,11 +262,25 @@ def live_attempts(
     only overlaps -- a different batch naming one of the same selectors -- does
     not collide, and instead pays a second full compile of identical source to
     answer a question already in flight.
+
+    `runner` is required and exact. A run on another pool shares neither the
+    concurrency group nor the question: reusing its result would report macOS
+    15's answer to someone who asked about macOS 26.
     """
     return [
         run for run in attempts(runs, commit, selector, runner)
-        if run.get("status") != "completed"
+        if str(run.get("status", "")) in UNFINISHED
     ]
+
+
+def watchable(run: dict) -> bool:
+    """Whether this history entry carries enough to point a caller at the run.
+
+    An entry without an id or a URL cannot be attached to or named, and these
+    guards never become a gate: a caller that cannot be redirected is dispatched.
+    """
+    return (isinstance(run.get("databaseId"), int)
+            and bool(str(run.get("url", "")).strip()))
 
 
 def find_run(
@@ -289,7 +355,8 @@ def main() -> int:
     parser.add_argument(
         "--force",
         action="store_true",
-        help="dispatch even if this selector already failed at this commit",
+        help="dispatch even if this selector already failed at this commit, "
+        "or is already running there",
     )
     args = parser.parse_args()
     for entry in args.test_filter:
@@ -326,46 +393,59 @@ def main() -> int:
 
     if not args.force:
         history = recent_dispatches()
+        # Which pool this dispatch will actually land on. None means the
+        # answer could not be established, and the in-flight guards below stay
+        # silent rather than compare against a runner they guessed.
+        runner = args.runner if args.runner not in (None, "auto") else default_runner()
 
-        # An identical dispatch is already answering this exact question.
-        # Attach to it instead of cancelling it: the concurrency group keyed on
-        # runner/ref/test_filter would kill the run mid-compile and start the
-        # same compile again from cold.
-        requested = set(args.test_filter)
-        running = [
-            run for run in history
-            if run.get("status") != "completed"
-            and f" @ {commit} [" in str(run.get("displayTitle", ""))
-            and set(run_selectors(str(run.get("displayTitle", "")), args.runner)) == requested
-        ]
-        if running:
-            live = running[0]
-            print(
-                f"{test_filter} is already {live.get('status')} at {commit}; "
-                "reusing that run instead of dispatching.",
-                flush=True,
-            )
-            print(f"Run: {live['url']}", flush=True)
-            if args.wait:
-                return subprocess.run([
-                    "gh", "run", "watch", "--repo", REPO, str(live["databaseId"]),
-                    "--exit-status",
-                ], cwd=ROOT).returncode
-            return 0
+        if runner is not None:
+            # An identical dispatch is already answering this exact question on
+            # this exact pool. Attach to it instead of cancelling it: the
+            # concurrency group keyed on runner/ref/test_filter would kill the
+            # run mid-compile and start the same compile again from cold.
+            requested = set(args.test_filter)
+            running = [
+                run for run in history
+                if str(run.get("status", "")) in UNFINISHED
+                and watchable(run)
+                and (parsed := parse_run_name(str(run.get("displayTitle", "")))) is not None
+                and parsed[2] == commit
+                and parsed[1] == runner
+                and set(parsed[0]) == requested
+            ]
+            if running:
+                live = running[0]
+                print(
+                    f"{test_filter} is already {live['status']} at {commit} "
+                    f"on {runner}; reusing that run instead of dispatching.",
+                    flush=True,
+                )
+                print(f"Run: {live['url']}", flush=True)
+                if args.wait:
+                    return subprocess.run([
+                        "gh", "run", "watch", "--repo", REPO, str(live["databaseId"]),
+                        "--exit-status",
+                    ], cwd=ROOT).returncode
+                return 0
 
         # Refuse per entry: one already-red selector makes the whole batch a
         # reprint of a known failure, and the compile it would pay for is shared.
         for entry in args.test_filter:
-            live = live_attempts(history, commit, entry, args.runner)
+            live = [run for run in live_attempts(history, commit, entry, runner)
+                    if watchable(run)] if runner is not None else []
             if live:
                 raise ValueError(
-                    f"{entry} is already {live[0].get('status')} at {commit} in "
-                    f"{live[0]['url']}, under a different batch of selectors. "
-                    "Dispatching now would compile identical source a second "
-                    "time to answer a question already in flight. Read that run, "
-                    "or pass --force to dispatch anyway."
+                    f"{entry} is already {live[0]['status']} at {commit} on "
+                    f"{runner}, in {live[0]['url']}, under a different set of "
+                    "selectors. Dispatching now would compile identical source "
+                    "a second time to answer a question already in flight. Wait "
+                    "for that run, dispatch the remaining selectors on their "
+                    "own, or pass --force."
                 )
-            earlier = prior_attempts(history, commit, entry, args.runner)
+            earlier = prior_attempts(
+                history, commit, entry,
+                args.runner if args.runner not in (None, "auto") else None,
+            )
             failures = [run for run in earlier if run.get("conclusion") == "failure"]
             if failures and not any(run.get("conclusion") == "success" for run in earlier):
                 latest = failures[0]
