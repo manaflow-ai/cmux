@@ -670,8 +670,18 @@ final class SharedLiveAgentIndex {
             // that waiter then returns to an empty queue. Returning here would
             // break this method's contract -- the queued validation must be
             // applied before it returns -- so callers could read stale fork
-            // availability. The live-index branch below already waits this way;
-            // this branch was the only exit that did not.
+            // availability.
+            //
+            // This is a symptom fix, not the root cause. The root cause is that
+            // the tail restart in `applyPendingForkValidations` lacks the
+            // `!resumedWaiters` guard its in-loop sibling has, so it can resume
+            // a waiter and then immediately race it. Guarding it there is the
+            // real repair, but the obvious form can strand a pending request
+            // when the resumed waiter's task is cancelled right after resuming,
+            // so it needs its own change. The live-index branch below has the
+            // same hole when `didReload` is true -- `reload()` runs
+            // `applyPendingForkValidations` internally, so the same steal can
+            // happen and that path returns without waiting.
             await waitForForkValidationRequestCompletions(pendingRequestIDsOwnedByRequest)
             return
         }
