@@ -83,13 +83,6 @@ struct SimulatorPanelVisibilityTests {
         try await waitUntil { await client.discoveryCount > 0 }
         #expect(await client.discoveryCount == 1)
         await client.emit(.status(.streaming))
-        // `receive(.frameTransport:)` drops the descriptor unless `frameIsVisible`
-        // is already true, and nothing re-sends it. Wait for the coordinator to
-        // announce publication — the signal that flips that flag — instead of
-        // emitting into a window where the drop is silent and permanent.
-        try await waitUntil {
-            await client.messages.contains(.setFramebufferPublishing(true))
-        }
         await client.emit(.frameTransport(SimulatorFrameTransportDescriptor(
             sharedMemoryName: "/cmux-test-frame",
             width: 4,
