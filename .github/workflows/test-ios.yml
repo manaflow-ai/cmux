@@ -64,7 +64,7 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: ${{ inputs.ref || github.ref }}
-          fetch-depth: 0
+          fetch-depth: ${{ github.event_name == 'workflow_dispatch' && 1 || 0 }}
           persist-credentials: false
           submodules: false
 
@@ -532,7 +532,18 @@ jobs:
             # non-UI iOS tests.
             XCODEBUILD_ARGS+=(-skip-testing:cmuxUITests)
           fi
-          XCODEBUILD_ARGS+=(test)
+          XCODEBUILD_ARGS+=(
+            ARCHS=arm64
+            ONLY_ACTIVE_ARCH=YES
+            SWIFT_ENABLE_BATCH_MODE=NO
+            SWIFT_ENABLE_EXPLICIT_MODULES=NO
+            SWIFT_COMPILATION_MODE=wholemodule
+            SWIFT_OPTIMIZATION_LEVEL=-O
+            DEBUG_INFORMATION_FORMAT=
+            GCC_GENERATE_DEBUGGING_SYMBOLS=NO
+            'OTHER_SWIFT_FLAGS=$(inherited) -Xllvm -aarch64-enable-global-isel-at-O=-1 -Xfrontend -disable-sending-args-and-results-with-region-based-isolation'
+            test
+          )
           selected_tests_passed_despite_xcodebuild_status() {
             local log_path="$1"
             # The negative grep must catch BOTH XCTest failure output and Swift
