@@ -45,15 +45,26 @@ RUNS_ON = re.compile(r"^\s*runs-on:\s*(.+?)\s*$")
 # land on the free Blacksmith fallback.
 PAID_OVERFLOW_GATE = "CI_PAID_MACOS_OVERFLOW"
 
-# Runner variables that have held a WarpBuild label. Each selects a lane that
-# runs on every push to main or in the merge queue, where nobody is watching a
-# check name closely enough to notice the pool changed under it.
-PAID_CAPABLE_RUNNER_VARS = (
-    "MACOS_RUNNER_15",
-    "MACOS_RUNNER_DISPLAY",
-    "MACOS_RUNNER_DUAL_XCODE",
-    "MACOS_RUNNER_26_RELEASE",
-    "MACOS_RUNNER_26_NIGHTLY_BUILD",
+# Runner variables that have held a WarpBuild label, and the free label each
+# must fall back to (the "Intended steady state" in docs/ci-runners.md). Each
+# selects a lane that runs on every push to main or in the merge queue, where
+# nobody is watching a check name closely enough to notice the pool changed
+# under it. The fallback is pinned because a gate with the wrong literal moves
+# the lane silently: the nightly builder once fell back to 6vcpu, half its
+# intended 12.
+PAID_CAPABLE_RUNNER_VARS = {
+    "MACOS_RUNNER_15": "blacksmith-6vcpu-macos-15",
+    "MACOS_RUNNER_DISPLAY": "blacksmith-6vcpu-macos-15",
+    "MACOS_RUNNER_DUAL_XCODE": "blacksmith-6vcpu-macos-15",
+    "MACOS_RUNNER_26_RELEASE": "blacksmith-6vcpu-macos-26",
+    "MACOS_RUNNER_26_NIGHTLY_BUILD": "blacksmith-12vcpu-macos-26",
+}
+
+# The gate as it must appear immediately before the read. The lookbehind keeps
+# `inputs.CI_PAID_MACOS_OVERFLOW == '1' && ` from passing for the repository's
+# own flag.
+PAID_OVERFLOW_GATE_PREFIX = re.compile(
+    rf"(?<![\w.])vars\.{PAID_OVERFLOW_GATE} == '1' && $"
 )
 
 
@@ -149,16 +160,23 @@ def check_paid_overflow_gate(path: Path, errors: list[str]) -> None:
     for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
         if line.lstrip().startswith("#"):
             continue
-        for name in PAID_CAPABLE_RUNNER_VARS:
+        for name, free_label in PAID_CAPABLE_RUNNER_VARS.items():
             for read in re.finditer(rf"vars\.{name}\b", line):
-                if line[: read.start()].endswith(f"{PAID_OVERFLOW_GATE} == '1' && "):
+                if not PAID_OVERFLOW_GATE_PREFIX.search(line[: read.start()]):
+                    errors.append(
+                        f"{path.name}:{number}: vars.{name} is read without the "
+                        f"paid overflow gate. It can hold a metered WarpBuild "
+                        f"label, so write `vars.{PAID_OVERFLOW_GATE} == '1' && "
+                        f"vars.{name} || '{free_label}'`"
+                    )
                     continue
-                errors.append(
-                    f"{path.name}:{number}: vars.{name} is read without the paid "
-                    f"overflow gate. It can hold a metered WarpBuild label, so "
-                    f"write `vars.{PAID_OVERFLOW_GATE} == '1' && vars.{name} || "
-                    f"'<blacksmith label>'`"
-                )
+                fallback = re.match(r"\s*\|\|\s*'([^']+)'", line[read.end():])
+                if fallback is None or fallback.group(1) != free_label:
+                    actual = fallback.group(1) if fallback else "nothing"
+                    errors.append(
+                        f"{path.name}:{number}: gated vars.{name} falls back to "
+                        f"{actual!r}, but its free steady state is {free_label!r}"
+                    )
 
 
 def main() -> int:

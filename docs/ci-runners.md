@@ -347,7 +347,11 @@ Leave `MACOS_RUNNER_PR` and `MACOS_RUNNER_TESTS` unset in either recipe.
 They exist to hold the pull-request and manual test lanes on Blacksmith
 independently of whatever the pool above is set to.
 
-Restore the self-hosted pool with explicit labels:
+Restore the self-hosted pool with explicit labels. The gate above applies
+here too: `MACOS_RUNNER_15`, `MACOS_RUNNER_DISPLAY` and the other gated
+variables are read only when `CI_PAID_MACOS_OVERFLOW=1`, so Tart needs that
+flag set even though Tart is free. Without it, these values are ignored and
+every lane stays on its Blacksmith fallback, with no error.
 
 ```bash
 gh variable set MACOS_RUNNER_15         --repo manaflow-ai/cmux -b tart-macos-15
