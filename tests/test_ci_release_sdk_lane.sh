@@ -70,7 +70,7 @@ if ! grep -Fq "actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef35013
 fi
 
 swift_package_section="$(job_section "$CI_FILE" "swift-package-tests")"
-if [[ "$swift_package_section" != *'runs-on: ${{ vars.MACOS_RUNNER_DUAL_XCODE || '\''blacksmith-6vcpu-macos-15'\'' }}'* ]]; then
+if [[ "$swift_package_section" != *'runs-on: ${{ github.event_name == '\''pull_request'\'' && (vars.MACOS_RUNNER_PR || '\''blacksmith-6vcpu-macos-15'\'') || vars.MACOS_RUNNER_DUAL_XCODE || '\''blacksmith-6vcpu-macos-15'\'' }}'* ]]; then
   echo "FAIL: CI swift-package-tests must use the dual-Xcode runner lane" >&2
   exit 1
 fi

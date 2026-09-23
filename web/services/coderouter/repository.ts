@@ -25,6 +25,7 @@ import {
 } from "./types";
 
 import { accountAccessPredicate, scopedSessionKey, type CoderouterAccountAccess } from "./accountAccess";
+import { signVmAuthorization, verifyVmAuthorization, type VmAuthorizationClaims } from "./vmAuthorization";
 
 const ROUTE_TOKEN_LIFETIME_MS = 30 * 24 * 60 * 60 * 1_000;
 const VAULT_LEASE_MS = 30_000;
@@ -82,6 +83,31 @@ export async function issueRouteToken(
     tokenHash: routeTokenHash(token),
     label,
     vmId: options?.vmId ?? null,
+    expiresAt,
+  });
+  return { token, expiresAt };
+}
+
+/** Issue a signed, VM-bound token. The hash is still persisted so revocation
+ * remains immediate during key rotation and VM teardown. */
+export async function issueVmAuthorizationToken(
+  teamId: string,
+  stackUserId: string,
+  vmId: string,
+): Promise<{ token: string; expiresAt: Date }> {
+  const expiresAt = new Date(Date.now() + ROUTE_TOKEN_LIFETIME_MS);
+  const token = await signVmAuthorization({
+    vmId,
+    teamId,
+    ownerId: stackUserId,
+    expiresAt,
+  });
+  await cloudDb().insert(coderouterRouteTokens).values({
+    teamId,
+    stackUserId,
+    tokenHash: routeTokenHash(token),
+    label: "vm-signed",
+    vmId,
     expiresAt,
   });
   return { token, expiresAt };
@@ -172,7 +198,10 @@ export async function authenticateRouteToken(
   token: string,
   now = new Date(),
 ): Promise<RouteTokenPrincipal | null> {
-  if (!ROUTE_TOKEN_PATTERN.test(token)) return null;
+  if (!ROUTE_TOKEN_PATTERN.test(token)) {
+    const claims = await verifyVmAuthorization(token, now);
+    return claims ? await authenticateVmAuthorization(token, claims, now) : null;
+  }
   const [row] = await cloudDb()
     .update(coderouterRouteTokens)
     .set({ lastUsedAt: now })
@@ -193,9 +222,32 @@ export async function authenticateRouteToken(
   const [vm] = await cloudDb().select({ poolId: cloudVms.coderouterPoolId })
     .from(cloudVms)
     .innerJoin(coderouterPools, and(eq(coderouterPools.id, cloudVms.coderouterPoolId), eq(coderouterPools.teamId, cloudVms.ownerTeamId)))
-    .where(and(eq(cloudVms.id, row.vmId), eq(cloudVms.ownerTeamId, row.teamId),
-      sql`${cloudVms.status} in ('provisioning', 'running', 'paused')`)).limit(1);
+    .where(and(eq(cloudVms.id, row.vmId), eq(cloudVms.ownerTeamId, row.teamId), sql`${cloudVms.status} in ('provisioning', 'running', 'paused')`)).limit(1);
   return vm ? { ...row, poolId: vm.poolId } : null;
+}
+
+/** Claims must come from verifyVmAuthorization. One read enforces immediate
+ * revocation, token/VM/owner binding, current pool and live VM ownership. */
+async function authenticateVmAuthorization(
+  token: string,
+  claims: VmAuthorizationClaims,
+  now = new Date(),
+): Promise<RouteTokenPrincipal | null> {
+  const [row] = await cloudDb().select({ poolId: cloudVms.coderouterPoolId })
+    .from(coderouterRouteTokens)
+    .innerJoin(cloudVms, eq(cloudVms.id, coderouterRouteTokens.vmId))
+    .innerJoin(coderouterPools, and(eq(coderouterPools.id, cloudVms.coderouterPoolId), eq(coderouterPools.teamId, cloudVms.ownerTeamId)))
+    .where(and(
+      eq(coderouterRouteTokens.tokenHash, routeTokenHash(token)),
+      eq(coderouterRouteTokens.teamId, claims.team_id),
+      eq(coderouterRouteTokens.stackUserId, claims.owner_id),
+      eq(coderouterRouteTokens.vmId, claims.vm_id),
+      gt(coderouterRouteTokens.expiresAt, now),
+      isNull(coderouterRouteTokens.revokedAt),
+      eq(cloudVms.ownerTeamId, claims.team_id),
+      sql`${cloudVms.status} in ('provisioning', 'running', 'paused')`,
+    )).limit(1);
+  return row ? { teamId: claims.team_id, stackUserId: claims.owner_id, vmId: claims.vm_id, poolId: row.poolId } : null;
 }
 
 export type CoderouterApiKeySummary = {

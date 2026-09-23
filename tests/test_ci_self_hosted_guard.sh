@@ -3,7 +3,9 @@
 # Ensures paid CI jobs use a paid macOS runner (Blacksmith or WarpBuild, routed
 # through the MACOS_RUNNER_15 / MACOS_RUNNER_26 repo variables), never a free
 # GitHub-hosted runner. Flip Blacksmith<->Warp by editing those repo variables;
-# see docs/ci-runners.md.
+# see docs/ci-runners.md. The one sanctioned free lane is MACOS_RUNNER_BACKGROUND,
+# whose fallback is GitHub-hosted macos-15 and whose members must stay off the
+# pull request and merge path (check_background_macos_lane).
 # Fork PRs are gated by GitHub's built-in "Require approval for outside
 # collaborators" setting, so workflow-level fork guards are not needed.
 set -euo pipefail
@@ -157,7 +159,7 @@ check_e2e_runner_fallbacks() {
   if ! awk '
     /^[[:space:]]*- name: Validate Tart canary identity$/ { in_tart_step=1; next }
     in_tart_step && /^      - / { in_tart_step=0; in_runner_reject=0; in_marker_reject=0 }
-    in_tart_step && /startsWith\(\(!inputs\.runner \|\| inputs\.runner == '\''auto'\''\) && \(vars\.MACOS_RUNNER_15 \|\| '\''blacksmith-6vcpu-macos-15'\''\) \|\| inputs\.runner, '\''tart-'\''\)/ { saw_effective_runner=1 }
+    in_tart_step && /startsWith\(\(!inputs\.runner \|\| inputs\.runner == '\''auto'\''\) && \(vars\.MACOS_RUNNER_[A-Z0-9_]+ \|\| '\''blacksmith-6vcpu-macos-15'\''\) \|\| inputs\.runner, '\''tart-'\''\)/ { saw_effective_runner=1 }
     in_tart_step && /REQUESTED_RUNNER:.*inputs\.runner/ { saw_requested_runner=1 }
     in_tart_step && /RUNNER_CONTEXT_NAME: \$\{\{ runner\.name \}\}/ { saw_runner_context=1 }
     in_tart_step && /tart-cmux-\*/ { saw_runner_pattern=1 }
@@ -177,6 +179,17 @@ check_e2e_runner_fallbacks() {
 
   if grep -Eq "^[[:space:]]*continue-on-error:" "$E2E_FILE"; then
     echo "FAIL: test-e2e.yml must not mask E2E setup or test failures with continue-on-error"
+    exit 1
+  fi
+
+  # The Tart identity gate, the run name and the SwiftPM cache key all decide
+  # things about "the runner this job uses". If any of them reads a different
+  # repository variable than runs-on, the gate can be skipped on a Tart VM, or
+  # demanded on a runner that is not one.
+  runner_vars="$(grep -oE "vars\.MACOS_RUNNER_[A-Z0-9_]+" "$E2E_FILE" | sort -u)"
+  if [ "$(printf '%s\n' "$runner_vars" | grep -c .)" -ne 1 ]; then
+    echo "FAIL: test-e2e.yml must select its runner from one variable, found:"
+    printf '  %s\n' $runner_vars
     exit 1
   fi
 
@@ -253,7 +266,7 @@ check_release_helper_artifact_from_package_lane() {
     /^  swift-package-tests:/ { in_job=1; next }
     in_job && /^  [^[:space:]#][^:]*:[[:space:]]*(#.*)?$/ { in_job=0 }
 
-    in_job && /runs-on:[[:space:]]*\$\{\{ vars\.MACOS_RUNNER_DUAL_XCODE \|\| '\''blacksmith-6vcpu-macos-15'\'' \}\}/ { saw_dual_runner=1 }
+    in_job && /runs-on:[[:space:]]*\$\{\{ github\.event_name == '\''pull_request'\'' && \(vars\.MACOS_RUNNER_PR \|\| '\''blacksmith-6vcpu-macos-15'\''\) \|\| vars\.MACOS_RUNNER_DUAL_XCODE \|\| '\''blacksmith-6vcpu-macos-15'\'' \}\}/ { saw_dual_runner=1 }
     in_job && /timeout-minutes:[[:space:]]*40/ { saw_timeout=1 }
     in_job && /CMUX_CI_HELPER_XCODE_APP:/ { saw_helper_xcode_env=1 }
     in_job && /- name: Select helper Xcode/ { saw_helper_select=1; next }
@@ -1082,7 +1095,9 @@ check_no_bare_github_hosted_runners() {
   # Every product CI job must route its runner through a repo variable (LINUX_RUNNER,
   # MACOS_RUNNER_*) so the Blacksmith<->Warp / Blacksmith<->macos-26 overflow
   # switch is a single repo-variable flip with no PR. A bare GitHub-hosted
-  # label (ubuntu-*, macos-NN) cannot be redirected, so it is forbidden.
+  # label (ubuntu-*, macos-NN) cannot be redirected, so it is forbidden. A
+  # GitHub-hosted macOS label may appear only as the MACOS_RUNNER_BACKGROUND
+  # fallback; check_background_macos_lane enforces that.
   # The CLA policy guard is a separate immutable control-plane job and is
   # intentionally exempted below because it must never honor a repository
   # variable or self-hosted runner override.
@@ -1289,6 +1304,110 @@ check_persistent_compile_lane() {
   echo "PASS: persistent compile producer is dispatch-only, credential-minimized, pinned, and cohort-gated"
 }
 
+# Print a job's CMUX_CI_XCODE_APP / CMUX_CI_REQUIRED_MACOS_SDK_MAJOR pins, so the
+# owned Mac and the hosted job that revalidates its product can be compared.
+persistent_compile_toolchain_pin() {
+  local file="$1" job="$2"
+  awk -v want="  ${job}:" '
+    $0 == want { in_job=1; next }
+    in_job && /^  [A-Za-z0-9_-]+:/ { exit }
+    in_job && /^    env:$/ { in_env=1; next }
+    in_env && /^    [A-Za-z0-9_-]+:/ { exit }
+    in_env && /^      (CMUX_CI_XCODE_APP|CMUX_CI_REQUIRED_MACOS_SDK_MAJOR):/ {
+      line=$0
+      sub(/^      /, "", line)
+      print line
+    }
+  ' "$file" | sort
+}
+
+check_persistent_compile_owned_mac_occupancy() {
+  # The owned Mac is one runner behind one workflow-restricted group, so its
+  # capacity is bounded by how long a single job may hold it. Three invariants
+  # keep that bound real; none of them is enforced anywhere else.
+  local concurrency_block group_line
+  concurrency_block="$(awk '
+    /^concurrency:/ { in_block=1; next }
+    in_block && /^[^[:space:]#]/ { exit }
+    in_block && NF { print }
+  ' "$PERSISTENT_COMPILE_FILE")"
+  if [ -z "$concurrency_block" ]; then
+    echo "FAIL: persistent compile producer must declare a top-level concurrency group"
+    echo "      Without one, every push to a pull request queues another owned-Mac run."
+    exit 1
+  fi
+
+  # 1. One in-flight producer per pull request. Keyed on anything coarser and
+  #    two PRs serialize behind each other; keyed on anything finer (the run id,
+  #    the head sha) and a six-push burst parks six compiles on one machine,
+  #    each of which the hosted job has already given up waiting for.
+  group_line="$(printf '%s\n' "$concurrency_block" | awk '/^[[:space:]]+group:/ { print; exit }')"
+  if ! printf '%s\n' "$group_line" | grep -Fq 'inputs.pr_number'; then
+    echo "FAIL: persistent compile producer concurrency group must be keyed on inputs.pr_number"
+    printf 'group=%s\n' "$group_line"
+    exit 1
+  fi
+  if ! printf '%s\n' "$concurrency_block" | grep -Eq '^[[:space:]]+cancel-in-progress:[[:space:]]*true[[:space:]]*$'; then
+    echo "FAIL: persistent compile producer must cancel a superseded run for the same pull request"
+    echo "      A stale compile holds the owned Mac while the hosted job it was for has already fallen back."
+    exit 1
+  fi
+
+  # 2. A bounded compile. The workflow default is 360 minutes; a wedged
+  #    xcodebuild would hold the only owned runner for six hours, during which
+  #    every routed PR reports producer_not_ready and compiles hosted anyway.
+  local timeout
+  timeout="$(awk '
+    /^  compile:$/ { in_job=1; next }
+    in_job && /^  [A-Za-z0-9_-]+:/ { exit }
+    in_job && /^    timeout-minutes:[[:space:]]*[0-9]+[[:space:]]*$/ {
+      line=$0
+      sub(/^[^0-9]*/, "", line)
+      sub(/[^0-9]*$/, "", line)
+      print line
+      exit
+    }
+  ' "$PERSISTENT_COMPILE_FILE")"
+  if [ -z "$timeout" ]; then
+    echo "FAIL: persistent compile producer's compile job must set an explicit timeout-minutes"
+    exit 1
+  fi
+  # The hosted observer gives up after CI_PERSISTENT_MAC_EXECUTION_SECONDS
+  # (480s default, 600s ceiling); a producer allowed to run far past that only
+  # occupies the machine. 45 leaves headroom for a cold-reset compile.
+  if [ "$timeout" -lt 1 ] || [ "$timeout" -gt 45 ]; then
+    echo "FAIL: persistent compile timeout-minutes must be between 1 and 45, got $timeout"
+    echo "      An unbounded compile holds the single owned runner long after the hosted job stopped waiting."
+    exit 1
+  fi
+
+  # 3. The producer builds with the same toolchain the hosted job revalidates
+  #    against. Drift is not a correctness hole -- hosted revalidation refuses
+  #    an Xcode/SDK mismatch -- but every producer run then burns an owned-Mac
+  #    allocation to produce an artifact that is certain to be rejected.
+  local producer_pin hosted_pin
+  producer_pin="$(persistent_compile_toolchain_pin "$PERSISTENT_COMPILE_FILE" compile)"
+  hosted_pin="$(persistent_compile_toolchain_pin "$CI_MACOS_FILE" macos-compile-admission)"
+  if [ "$(printf '%s\n' "$producer_pin" | grep -c .)" -ne 2 ]; then
+    echo "FAIL: could not read both toolchain pins from the persistent compile producer"
+    printf 'producer=%s\n' "$producer_pin"
+    exit 1
+  fi
+  if [ "$(printf '%s\n' "$hosted_pin" | grep -c .)" -ne 2 ]; then
+    echo "FAIL: could not read both toolchain pins from macos-compile-admission"
+    printf 'hosted=%s\n' "$hosted_pin"
+    exit 1
+  fi
+  if [ "$producer_pin" != "$hosted_pin" ]; then
+    echo "FAIL: owned-Mac producer and hosted macOS compile admission pin different toolchains."
+    echo "      Hosted revalidation rejects the mismatch, so every producer run is wasted owned-Mac time."
+    printf 'producer:\n%s\nhosted:\n%s\n' "$producer_pin" "$hosted_pin"
+    exit 1
+  fi
+
+  echo "PASS: owned-Mac occupancy is bounded to one timed compile per pull request on the hosted toolchain"
+}
+
 check_persistent_compile_router() {
   if [ ! -f "$PERSISTENT_ROUTER_FILE" ]; then
     echo "FAIL: default-branch persistent Mac router workflow is missing"
@@ -1301,9 +1420,9 @@ check_persistent_compile_router() {
     in_on && /^[^[:space:]]/ { exit }
     in_on && NF { print }
   ' "$PERSISTENT_ROUTER_FILE")"
-  expected_trigger=$'  workflow_run:\n    workflows: [CI]\n    types: [in_progress]'
+  expected_trigger=$'  workflow_run:\n    workflows: [CI]\n    types: [requested]'
   if [ "$trigger_block" != "$expected_trigger" ]; then
-    echo "FAIL: persistent Mac router must contain only workflow_run(in_progress) for CI"
+    echo "FAIL: persistent Mac router must contain only workflow_run(requested) for CI"
     exit 1
   fi
 
@@ -1397,8 +1516,14 @@ check_persistent_compile_router() {
   fi
 
   observer_step="$(printf '%s\n' "$admission_block" | awk '
-    /^      - name: Observe persistent Mac compile candidate$/ { in_step=1; print; next }
-    in_step && /^      - name:/ { exit }
+    !finished && /^      - name: Observe persistent Mac compile candidate$/ { in_step=1; print; next }
+    in_step && /^      - name:/ {
+      # Keep consuming the block after the step ends. Exiting awk early can
+      # SIGPIPE the upstream printf while pipefail is active.
+      in_step=0
+      finished=1
+      next
+    }
     in_step { print }
   ')"
   if [ -z "$observer_step" ]; then
@@ -1428,6 +1553,7 @@ check_cla_guard_runner
 check_no_bare_github_hosted_runners
 check_no_self_hosted_fleet_runners
 check_persistent_compile_lane
+check_persistent_compile_owned_mac_occupancy
 check_persistent_compile_router
 check_macos_runner "$CI_MACOS_FILE" "app-host-unit-tests"
 check_macos_runner "$CI_MACOS_FILE" "macos-compile-admission"
@@ -1436,7 +1562,7 @@ check_macos_runner "$CI_MACOS_FILE" "release-build"
 check_release_build_runner_disk_capacity
 check_display_runner_identity_guard "$CI_MACOS_FILE" "tests-build-and-lag"
 
-# build-ghosttykit.yml
+# build-ghosttykit.yml (routed through the MACOS_RUNNER_BACKGROUND repo var)
 check_macos_runner "$GHOSTTYKIT_FILE" "build-ghosttykit"
 
 # ci-macos-compat.yml (matrix.os routed through the MACOS_RUNNER_* repo vars)
@@ -1627,6 +1753,121 @@ check_no_paid_overflow_fallbacks() {
   echo "PASS: no workflow falls back to a Warp runner"
 }
 
+background_lane_blocking_events() {
+  # Prints the triggers that would put a workflow on a merge or pull request
+  # critical path, for the mapping, list and scalar forms of `on:`.
+  # workflow_call counts because a caller may be a pull request workflow.
+  awk '
+    /^["\047]?on["\047]?:/ {
+      in_on=1
+      line=$0
+      sub(/^["\047]?on["\047]?:[[:space:]]*/, "", line)
+      gsub(/[][,]/, " ", line)
+      n=split(line, words, /[[:space:]]+/)
+      for (i=1; i<=n; i++) if (words[i] ~ /^(pull_request(_target)?|merge_group|workflow_call)$/) print words[i]
+      next
+    }
+    in_on && /^[^[:space:]#]/ { in_on=0 }
+    in_on && /^  (- )?(pull_request(_target)?|merge_group|workflow_call):?[[:space:]]*$/ {
+      event=$0
+      gsub(/[-:[:space:]]/, "", event)
+      print event
+    }
+  ' "$1" | sort -u
+}
+
+strip_background_lane_expr() {
+  awk -v e="vars.MACOS_RUNNER_BACKGROUND || 'macos-15'" '{
+    while ((i = index($0, e)) > 0) $0 = substr($0, 1, i - 1) substr($0, i + length(e))
+    print
+  }'
+}
+
+check_background_macos_lane() {
+  # MACOS_RUNNER_BACKGROUND is the only place a free GitHub-hosted macOS label
+  # may appear: as that variable's in-workflow fallback. The lane moves
+  # non-urgent macOS work (dispatch-only, post-merge, on-demand packaging) off
+  # the shared macOS pool that pull requests queue on. Unset, the variable
+  # resolves to the fallback; an admin can repoint the whole lane with one
+  # variable edit. macos-26 is not allowed: the self-hosted fleet carries it.
+  local lane_expr="vars.MACOS_RUNNER_BACKGROUND || 'macos-15'"
+  local hosted_mac='(^|[^A-Za-z0-9_-])macos-(latest|[0-9]+)(-(intel|large|xlarge|arm64))?([^A-Za-z0-9_-]|$)'
+  # Pre-existing OS-version compatibility legs that need a specific hosted
+  # image (macOS 14, Intel) that no paid provider offers. Exact lines only.
+  local -a hosted_exceptions=(
+    "ci-macos-compat.yml:          - os: macos-14"
+    "ci-macos-compat.yml:          - os: macos-15-intel"
+    "relay-publish-npm.yml:          - os: macos-14"
+  )
+  local failed=0 probe
+
+  # Self-test: bare or other-variable hosted labels are caught; the lane
+  # fallback and paid/fleet labels are not.
+  for probe in "runs-on: \${{ vars.X || 'macos-15' }}" 'runs-on: macos-15' '- macos-latest' \
+               "macos_runner: \${{ inputs.r || 'macos-26' }}" '      os: macos-15-xlarge' \
+               "runs-on: \${{ vars.MACOS_RUNNER_BACKGROUND || 'macos-14' }}"; do
+    if ! printf '%s\n' "$probe" | strip_background_lane_expr | grep -Eq "$hosted_mac"; then
+      echo "FAIL: background-lane guard self-test missed a GitHub-hosted macOS label: $probe"
+      exit 1
+    fi
+  done
+  for probe in "runs-on: \${{ $lane_expr }}" \
+               "macos_runner: \${{ inputs.macos_runner || $lane_expr }}" \
+               "runs-on: \${{ vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15' }}" \
+               '- warp-macos-15-arm64-6x' '- tart-macos-15'; do
+    if printf '%s\n' "$probe" | strip_background_lane_expr | grep -Eq "$hosted_mac"; then
+      echo "FAIL: background-lane guard self-test flagged an allowed runner: $probe"
+      exit 1
+    fi
+  done
+
+  # 1. GitHub-hosted macOS labels in runner-selection positions appear only as
+  #    the background lane fallback or an exact compatibility-leg exception.
+  local line file content rel exception allowed
+  while IFS= read -r line; do
+    file="${line%%:*}"
+    content="${line#*:*:}"
+    rel="$(basename "$file")"
+    printf '%s\n' "$content" | strip_background_lane_expr | grep -Eq "$hosted_mac" || continue
+    allowed=0
+    for exception in "${hosted_exceptions[@]}"; do
+      if [[ "$rel:$content" == "$exception" ]]; then allowed=1; break; fi
+    done
+    [[ "$allowed" -eq 1 ]] && continue
+    echo "FAIL: GitHub-hosted macOS label outside the background lane: ${line#"$ROOT_DIR"/}"
+    echo "      Use \${{ $lane_expr }} for non-urgent work, or a MACOS_RUNNER_* variable with a Blacksmith fallback."
+    failed=1
+  done < <(grep -rnE "(runs-on:|[[:space:]](os|runner|macos_runner):[[:space:]]|^[[:space:]]*-[[:space:]]+[A-Za-z0-9._-]+[[:space:]]*$)" "$ROOT_DIR/.github/workflows")
+
+  # 2. Every reference carries exactly the hosted fallback, so an unset
+  #    variable (and every fork) lands on free capacity, never Warp.
+  # 3. Members stay off the pull request and merge critical path.
+  local ref_count expr_count events
+  while IFS= read -r file; do
+    [ -n "$file" ] || continue
+    ref_count="$({ grep -o 'vars\.MACOS_RUNNER_BACKGROUND' "$file" || true; } | wc -l | tr -d ' ')"
+    expr_count="$({ grep -oF "$lane_expr" "$file" || true; } | wc -l | tr -d ' ')"
+    if [[ "$ref_count" != "$expr_count" ]]; then
+      echo "FAIL: $(basename "$file") references vars.MACOS_RUNNER_BACKGROUND without the fallback || 'macos-15'"
+      failed=1
+    fi
+    if ! grep -qE '^["\047]?on["\047]?:' "$file"; then
+      echo "FAIL: $(basename "$file") uses the background macOS lane but its on: block is unreadable"
+      failed=1
+      continue
+    fi
+    events="$(background_lane_blocking_events "$file" | tr '\n' ' ')"
+    if [[ -n "$events" ]]; then
+      echo "FAIL: $(basename "$file") uses the background macOS lane but triggers on: $events"
+      echo "      The background lane is for dispatch-only, scheduled and post-merge work."
+      failed=1
+    fi
+  done < <(grep -rlF 'vars.MACOS_RUNNER_BACKGROUND' "$ROOT_DIR/.github/workflows" || true)
+
+  [ "$failed" -eq 0 ] || exit 1
+  echo "PASS: GitHub-hosted macOS labels appear only as the MACOS_RUNNER_BACKGROUND fallback on non-blocking workflows"
+}
+
 check_dmg_signing_uses_build_keychain
 check_create_dmg_uses_run_local_npm_prefix
 check_gui_smoke_unsupported_launch_handling
@@ -1638,3 +1879,4 @@ check_tmux_terminal_nightly_isolation
 check_pr_macos_workflows_cancel_superseded_runs
 check_ios_only_tests_stay_under_ios
 check_no_paid_overflow_fallbacks
+check_background_macos_lane

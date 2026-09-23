@@ -25,6 +25,13 @@ PRODUCT_CI_INPUTS = frozenset({
     "scripts/ci/sanitize-xcode-source-packages-cache.py",
 })
 
+# workers/ is Cloudflare Worker source and stays out of product identity, with
+# one exception. cmux.xcodeproj's "Build Plain Text Paste Worker" phase declares
+# workers/cmux-paste-text/main.m as an input and compiles it into the app-host
+# bundle as bin/cmux-paste-text-worker, which cmuxTests loads and executes.
+# Changing it changes product bytes, so it has to invalidate reuse.
+PRODUCT_WORKER_PREFIXES = ("workers/cmux-paste-text/",)
+
 REQUIRED_PRODUCT_JOB_ENV_KEYS = frozenset({
     "CMUX_CI_XCODE_APP",
     "CMUX_CI_REQUIRED_MACOS_SDK_MAJOR",
@@ -94,9 +101,13 @@ def reaches_product(path: str) -> bool:
         return False
     if path in PRODUCT_CI_INPUTS:
         return True
+    if path.startswith(PRODUCT_WORKER_PREFIXES):
+        return True
     if path.startswith("scripts/ci/"):
         return False
-    if path.startswith((".github/", "tests/", "tests_v2/", "docs/", "design/", "plans/", "ios/", "web/", "cmux-tui/")):
+    if path.startswith((".github/", "tests/", "tests_v2/", "docs/", "design/", "plans/", "ios/", "web/", "workers/", "config/iroh/", "cmux-tui/")):
+        return False
+    if path in {".vercelignore", "vercel.json"}:
         return False
     if path.startswith("webviews/") and not path.startswith("webviews/src/agent-session/"):
         return False

@@ -6,7 +6,9 @@ from __future__ import annotations
 import argparse
 import importlib.util
 import json
+import os
 from pathlib import Path
+import re
 import tempfile
 import unittest
 from unittest import mock
@@ -34,6 +36,12 @@ assert driver_spec.loader is not None
 driver_spec.loader.exec_module(driver)
 
 
+HEAD_SHA = "a" * 40
+SOURCE_SHA = "b" * 40
+SOURCE_PARENT1 = "c" * 40
+SOURCE_TREE = "d" * 40
+
+
 def args(**overrides):
     values = {
         "selector": "pilot",
@@ -44,9 +52,41 @@ def args(**overrides):
         "cohort": "13198,feature/persistent",
         "pr_number": "13198",
         "head_ref": "feature/persistent",
+        "head_sha": HEAD_SHA,
+        "source_sha": SOURCE_SHA,
+        "source_parent1": SOURCE_PARENT1,
+        "source_tree": SOURCE_TREE,
     }
     values.update(overrides)
     return argparse.Namespace(**values)
+
+
+def live_pull_request(**overrides):
+    """The live GitHub observation that matches the request envelope exactly."""
+    payload = {
+        "state": "open",
+        "author_association": "MEMBER",
+        "head": {"sha": HEAD_SHA, "repo": {"full_name": "manaflow-ai/cmux"}},
+        "base": {"sha": SOURCE_PARENT1},
+        "merge_commit_sha": SOURCE_SHA,
+    }
+    payload.update(overrides)
+    return payload
+
+
+class FakeGitHub:
+    """Serves canned `gh api` payloads and records the exact paths requested."""
+
+    def __init__(self, payloads: dict[str, object]):
+        self.payloads = payloads
+        self.paths: list[str] = []
+
+    def api(self, path: str, *, method: str = "GET") -> object:
+        self.paths.append(path)
+        try:
+            return self.payloads[path]
+        except KeyError:  # pragma: no cover - a miss is always a test bug
+            raise AssertionError(f"unexpected API read: {path}") from None
 
 
 class RoutingTests(unittest.TestCase):
@@ -126,9 +166,11 @@ class RoutingTests(unittest.TestCase):
 
     def test_only_trusted_same_repository_maintainers_are_eligible(self):
         self.assertEqual(route.eligibility(args()), (True, "pilot"))
+        self.assertEqual(route.eligibility(args(author_association="OWNER")), (True, "pilot"))
+        # COLLABORATOR routes no further than the producer would admit it.
         self.assertEqual(
             route.eligibility(args(author_association="COLLABORATOR")),
-            (True, "pilot"),
+            (False, "untrusted_author"),
         )
         self.assertEqual(
             route.eligibility(args(head_repository="someone/cmux")),
@@ -162,6 +204,132 @@ class RoutingTests(unittest.TestCase):
         self.assertFalse(route.valid_budget(121, 480))
         self.assertFalse(route.valid_budget(120, 481))
         self.assertFalse(route.valid_budget(120, 500))
+
+    def test_live_reverification_accepts_only_the_exact_requested_source(self):
+        # The route request artifact is published by the PR-side `changes` job,
+        # so by the time the default-branch router reads it the pull request may
+        # already have moved. `verify_live_request` is the whole defence: it
+        # re-reads the live PR and refuses to spend an owned-Mac allocation on
+        # anything but the exact commit, tree, base and author it was asked for.
+        paths = {
+            f"pulls/{args().pr_number}": live_pull_request(),
+            f"git/commits/{SOURCE_SHA}": {"tree": {"sha": SOURCE_TREE}},
+        }
+        api = FakeGitHub(paths)
+        self.assertEqual(route.verify_live_request(api, args()), (True, "verified"))
+        self.assertEqual(
+            api.paths,
+            [f"pulls/{args().pr_number}", f"git/commits/{SOURCE_SHA}"],
+        )
+
+        # Each stale or untrusted observation names itself, so the hosted
+        # fallback reason in the metrics says which invariant moved.
+        stale = {
+            "pr_closed": live_pull_request(state="closed"),
+            "untrusted_repository": live_pull_request(
+                head={"sha": HEAD_SHA, "repo": {"full_name": "someone/cmux"}}
+            ),
+            "untrusted_author": live_pull_request(author_association="COLLABORATOR"),
+            "head_changed": live_pull_request(
+                head={"sha": "e" * 40, "repo": {"full_name": "manaflow-ai/cmux"}}
+            ),
+            "base_changed": live_pull_request(base={"sha": "f" * 40}),
+            "merge_changed": live_pull_request(merge_commit_sha="0" * 40),
+        }
+        for reason, payload in stale.items():
+            with self.subTest(reason=reason):
+                api = FakeGitHub({f"pulls/{args().pr_number}": payload})
+                self.assertEqual(route.verify_live_request(api, args()), (False, reason))
+                # A refused PR observation never costs a second API read.
+                self.assertEqual(api.paths, [f"pulls/{args().pr_number}"])
+
+        # A merge commit that kept its SHA but not its tree is still stale.
+        api = FakeGitHub(
+            {
+                f"pulls/{args().pr_number}": live_pull_request(),
+                f"git/commits/{SOURCE_SHA}": {"tree": {"sha": "9" * 40}},
+            }
+        )
+        self.assertEqual(route.verify_live_request(api, args()), (False, "tree_changed"))
+
+        for commit in ({}, {"tree": {}}, "not-a-commit"):
+            with self.subTest(commit=commit):
+                api = FakeGitHub(
+                    {
+                        f"pulls/{args().pr_number}": live_pull_request(),
+                        f"git/commits/{SOURCE_SHA}": commit,
+                    }
+                )
+                self.assertEqual(
+                    route.verify_live_request(api, args()), (False, "tree_changed")
+                )
+
+        # An unreadable PR body is a refusal, not a crash and not a pass.
+        for payload in ([], "", None):
+            with self.subTest(payload=payload):
+                api = FakeGitHub({f"pulls/{args().pr_number}": payload})
+                self.assertEqual(
+                    route.verify_live_request(api, args()), (False, "pr_observation_invalid")
+                )
+
+        # Repository comparison is case-insensitive, matching `eligibility`.
+        api = FakeGitHub(
+            {
+                f"pulls/{args().pr_number}": live_pull_request(
+                    head={"sha": HEAD_SHA, "repo": {"full_name": "Manaflow-AI/CMUX"}}
+                ),
+                f"git/commits/{SOURCE_SHA}": {"tree": {"sha": SOURCE_TREE}},
+            }
+        )
+        self.assertEqual(route.verify_live_request(api, args()), (True, "verified"))
+
+    def test_producer_discovery_requires_the_exact_dispatch_title_on_main(self):
+        # The producer is found by its run-name, so a run dispatched from any
+        # other ref, or for any other request, must never be adopted: its
+        # artifact would be a compile of source this router did not verify.
+        request_id = "4242-1"
+        title = f"persistent-mac-compile-{request_id}"
+        listing = "actions/workflows/persistent-macos-compile.yml/runs?event=workflow_dispatch&per_page=50"
+
+        def api_for(runs):
+            return FakeGitHub({listing: {"workflow_runs": runs}})
+
+        self.assertIsNone(route.matching_run(api_for([]), request_id))
+        self.assertIsNone(
+            route.matching_run(
+                api_for([{"id": 1, "display_title": title, "head_branch": "attacker"}]),
+                request_id,
+            )
+        )
+        self.assertIsNone(
+            route.matching_run(
+                api_for(
+                    [
+                        {
+                            "id": 1,
+                            "display_title": "persistent-mac-compile-9999-1",
+                            "head_branch": "main",
+                        }
+                    ]
+                ),
+                request_id,
+            )
+        )
+
+        # A redispatch of the same request adopts the newest run.
+        newest = route.matching_run(
+            api_for(
+                [
+                    {"id": 10, "display_title": title, "head_branch": "main"},
+                    {"id": 30, "display_title": title, "head_branch": "main"},
+                    {"id": 20, "display_title": title, "head_branch": "main"},
+                    {"id": 40, "display_title": title, "head_branch": "topic"},
+                ]
+            ),
+            request_id,
+        )
+        self.assertIsNotNone(newest)
+        self.assertEqual(newest["id"], 30)
 
     def test_output_helpers_record_hosted_fallback_and_persistent_success(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -218,6 +386,128 @@ class StateRetentionTests(unittest.TestCase):
             self.assertEqual(remaining[0].name, old[-1].name)
             self.assertTrue(unrelated.is_dir())
 
+    @staticmethod
+    def _cache_generation(root: Path, index: int, mtime: int) -> Path:
+        """A fake Glaeda cache generation: a 64-hex key holding a DerivedData tree."""
+        path = root / f"{index:064x}"
+        (path / "derived_data" / "Build" / "Products" / "Debug").mkdir(parents=True)
+        (path / "derived_data" / "cmux-build.log").write_text(str(index))
+        os.utime(path, ns=(mtime, mtime))
+        return path
+
+    def test_cache_pruning_keeps_the_current_and_most_recent_generations(self):
+        with tempfile.TemporaryDirectory() as directory:
+            project = Path(directory)
+            cache = project / ".glaeda" / "apple-build" / "cache"
+            cache.mkdir(parents=True)
+            # index 0 is oldest, index 5 newest; the current run uses the oldest,
+            # which must survive precisely because it is the one in use.
+            generations = [
+                self._cache_generation(cache, index, 1_000_000_000 + index)
+                for index in range(6)
+            ]
+            current = generations[0]
+            # Neither of these is a cache key, so neither may ever be a candidate.
+            stray_file = cache / "README"
+            stray_file.write_text("not a generation")
+            stray_dir = cache / "scratch"
+            stray_dir.mkdir()
+
+            pruned = driver.prune_cache_generations(project, keep_key=current.name)
+
+            survivors = {path.name for path in cache.iterdir()}
+            expected = {
+                current.name,
+                generations[-1].name,
+                generations[-2].name,
+                stray_file.name,
+                stray_dir.name,
+            }
+            self.assertEqual(survivors, expected)
+            self.assertEqual(
+                sorted(pruned),
+                sorted(path.name for path in generations[1:-2]),
+            )
+            self.assertTrue((current / "derived_data" / "cmux-build.log").is_file())
+            self.assertEqual(
+                len(survivors) - 2, driver.CACHE_RETAINED_GENERATIONS
+            )
+
+    def test_cache_pruning_never_evicts_the_generation_in_use(self):
+        """Even as the least recently used generation, the current key survives."""
+        with tempfile.TemporaryDirectory() as directory:
+            project = Path(directory)
+            cache = project / ".glaeda" / "apple-build" / "cache"
+            cache.mkdir(parents=True)
+            generations = [
+                self._cache_generation(cache, index, 1_000_000_000 + index)
+                for index in range(driver.CACHE_RETAINED_GENERATIONS + 2)
+            ]
+            oldest = generations[0]
+
+            driver.prune_cache_generations(project, keep_key=oldest.name)
+
+            self.assertTrue(oldest.is_dir())
+            self.assertTrue((oldest / "derived_data" / "cmux-build.log").is_file())
+
+    def test_cache_pruning_is_a_noop_below_the_retention_bound(self):
+        with tempfile.TemporaryDirectory() as directory:
+            project = Path(directory)
+            cache = project / ".glaeda" / "apple-build" / "cache"
+            cache.mkdir(parents=True)
+            generations = [
+                self._cache_generation(cache, index, 1_000_000_000 + index)
+                for index in range(driver.CACHE_RETAINED_GENERATIONS)
+            ]
+
+            self.assertEqual(
+                driver.prune_cache_generations(project, keep_key=generations[0].name), []
+            )
+            self.assertEqual(
+                {path.name for path in cache.iterdir()},
+                {path.name for path in generations},
+            )
+
+    def test_cache_pruning_tolerates_an_absent_cache_root(self):
+        with tempfile.TemporaryDirectory() as directory:
+            self.assertEqual(driver.prune_cache_generations(Path(directory)), [])
+
+    def test_cache_pruning_unlinks_generation_symlinks_without_following_them(self):
+        with tempfile.TemporaryDirectory() as directory:
+            project = Path(directory)
+            cache = project / ".glaeda" / "apple-build" / "cache"
+            cache.mkdir(parents=True)
+            outside = project / "outside"
+            (outside / "derived_data").mkdir(parents=True)
+            (outside / "derived_data" / "treasure").write_text("keep me")
+            # Oldest entry is a symlink out of the cache root.
+            link = cache / f"{0:064x}"
+            link.symlink_to(outside, target_is_directory=True)
+            os.utime(link, ns=(1_000_000_000, 1_000_000_000), follow_symlinks=False)
+            newer = [
+                self._cache_generation(cache, index, 1_000_000_100 + index)
+                for index in range(1, driver.CACHE_RETAINED_GENERATIONS + 2)
+            ]
+
+            pruned = driver.prune_cache_generations(project, keep_key=newer[-1].name)
+
+            self.assertIn(link.name, pruned)
+            self.assertFalse(link.is_symlink())
+            self.assertTrue((outside / "derived_data" / "treasure").is_file())
+
+    def test_driver_prunes_cache_generations_after_a_verified_compile(self):
+        source = DRIVER.read_text()
+        prune = source.index("    pruned_cache_generations = prune_cache_generations(")
+        self.assertIn("os.utime(resolved_cache)", source[:prune])
+        # Eviction must follow every check that proves the current generation.
+        for guard in (
+            'raise Refusal("Glaeda cache locator escaped the project cache root")',
+            'raise Refusal("Glaeda DerivedData escaped the admitted cache generation")',
+            'raise Refusal("native compile completed without the admission log/products")',
+        ):
+            self.assertLess(source.index(guard), prune)
+        self.assertIn('"pruned_cache_generations": pruned_cache_generations', source)
+
 
 class WorkflowContractTests(unittest.TestCase):
     @classmethod
@@ -228,6 +518,56 @@ class WorkflowContractTests(unittest.TestCase):
         cls.router = ROUTER.read_text()
         cls.driver = DRIVER.read_text()
         cls.profile = json.loads(PROFILE.read_text())
+
+    @staticmethod
+    def _python_association_set(source: str) -> set[str]:
+        """Every Python set literal of author associations found in `source`."""
+        found: list[set[str]] = []
+        for literal in re.findall(r"\{[^{}]*\}", source):
+            names = re.findall(r"\"([A-Z][A-Z_]+)\"", literal)
+            if "MEMBER" in names or "OWNER" in names or "COLLABORATOR" in names:
+                found.append(set(names))
+        if not found:
+            raise AssertionError("no author-association set literal found")
+        if any(names != found[0] for names in found):
+            raise AssertionError(f"author-association sets disagree within one file: {found}")
+        return found[0]
+
+    @staticmethod
+    def _workflow_gate_association_set(gate: str) -> set[str]:
+        """Associations admitted by a `github.event.pull_request` workflow gate."""
+        names = set(
+            re.findall(r"github\.event\.pull_request\.author_association == '([A-Z_]+)'", gate)
+        )
+        if not names:
+            raise AssertionError("no author-association gate found")
+        return names
+
+    def test_every_author_association_gate_matches_the_producer(self):
+        """The producer refuses anything it is not shown; no gate ahead of it may be wider.
+
+        A routing gate wider than the producer's `authorize` job still fails
+        safe, but it dispatches a producer that is certain to refuse -- wasting
+        an owned-Mac allocation and reporting producer_failure instead of
+        falling straight through to the hosted path. Each set below is derived
+        from its own source file so the four cannot drift apart again.
+        """
+        producer_gate = self.producer.split("  authorize:", 1)[1].split("\n  compile:", 1)[0]
+        producer = self._python_association_set(producer_gate)
+        self.assertTrue(producer, "producer admitted no author association")
+
+        router_script = self._python_association_set(ROUTE.read_text())
+        self.assertEqual(router_script, producer)
+        self.assertEqual(set(route.TRUSTED_AUTHOR_ASSOCIATIONS), producer)
+
+        request_gate = self.ci.split("      - name: Publish persistent Mac route request", 1)[1]
+        request_gate = request_gate.split("\n        env:", 1)[0]
+        self.assertEqual(self._workflow_gate_association_set(request_gate), producer)
+
+        observe_gate = self.macos_ci.split(
+            "      - name: Observe persistent Mac compile candidate", 1
+        )[1].split("\n        env:", 1)[0]
+        self.assertEqual(self._workflow_gate_association_set(observe_gate), producer)
 
     def test_producer_is_manual_dedicated_and_credential_minimized(self):
         self.assertIn("  workflow_dispatch:", self.producer)
@@ -250,11 +590,36 @@ class WorkflowContractTests(unittest.TestCase):
     def test_dispatch_authority_is_default_branch_only(self):
         self.assertIn("  workflow_run:", self.router)
         self.assertIn("    workflows: [CI]", self.router)
-        self.assertIn("    types: [in_progress]", self.router)
+        # `requested` fires once per CI run. `in_progress` fires again for every
+        # CI job that starts, and each of those notifications created a router
+        # run that the job condition then skipped. Match the whole trigger block,
+        # so `types: [requested, in_progress]` cannot satisfy this.
+        self.assertIn(
+            "on:\n  workflow_run:\n    workflows: [CI]\n    types: [requested]\n",
+            self.router,
+        )
+        self.assertNotIn("in_progress]", self.router)
         self.assertIn("\npermissions: {}\n", self.router)
         self.assertIn("      actions: write", self.router)
         self.assertIn("          ref: main", self.router)
         self.assertIn("persistent-mac-route-request-", self.router)
+        # Attaching at `requested` means the wait starts before CI has a job, so
+        # it has to outlast CI's queue and end on its own when CI finishes
+        # without publishing a request.
+        self.assertIn("deadline=$(( $(date +%s) + 600 ))", self.router)
+        self.assertIn('if [ "$status" = "completed" ]; then', self.router)
+        # The wait and the bounded compile that follows it both have to fit
+        # inside the job, or the router is killed after dispatching an owned Mac.
+        self.assertIn("    timeout-minutes: 25", self.router)
+        # One `requested` notification is the only one: a transient API error
+        # must not end the route.
+        self.assertIn('per_page=100" 2>/dev/null || true)', self.router)
+        # A fork can never satisfy the request envelope, so it must not hold a
+        # runner for the length of the wait.
+        self.assertIn(
+            "github.event.workflow_run.head_repository.full_name == github.repository",
+            self.router,
+        )
         self.assertNotIn("actions: write", self.ci)
         admission = self.macos_ci.split("  macos-compile-admission:", 1)[1].split(
             "  app-host-unit-tests:", 1
@@ -278,7 +643,7 @@ class WorkflowContractTests(unittest.TestCase):
         self.assertIn("github.event.pull_request.head.repo.full_name == github.repository", admission)
         self.assertIn("github.event.pull_request.author_association == 'MEMBER'", admission)
         self.assertIn("github.event.pull_request.author_association == 'OWNER'", admission)
-        self.assertIn("github.event.pull_request.author_association == 'COLLABORATOR'", admission)
+        self.assertNotIn("github.event.pull_request.author_association == 'COLLABORATOR'", admission)
         self.assertNotIn("- persistent-mac-compile-route", admission)
         self.assertIn("steps.persistent-restore.outputs.hit != 'true'", admission)
         self.assertIn("actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131", admission)
@@ -312,6 +677,47 @@ class WorkflowContractTests(unittest.TestCase):
         self.assertNotIn(
             '(number("ROUTE_WALL_SECONDS") or 0.0) + (number("ADMISSION_SECONDS") or 0.0)',
             admission,
+        )
+
+    def _admission_step(self, name: str) -> str:
+        admission = self.macos_ci.split("  macos-compile-admission:", 1)[1].split(
+            "  app-host-unit-tests:", 1
+        )[0]
+        start = admission.index(f"      - name: {name}")
+        return admission[start:].split("\n      - name:", 1)[0]
+
+    def test_refused_persistent_product_leaves_no_bytes_for_the_fallback_compile(self):
+        """A refused product must not become the fallback compile's input.
+
+        Every identity check in this step runs *after* the archive has been expanded
+        into `CMUX_COMPILE_ADMISSION_DERIVED_DATA` and relocated by
+        `app_host_test_products.py restore`. The step is `continue-on-error`, and the
+        compile steps that replace it are gated only on
+        `steps.persistent-restore.outputs.hit != 'true'` -- they run in that same
+        DerivedData. So a refusal that leaves the tree in place hands unvalidated
+        producer output to the compile that was supposed to replace it.
+
+        `reuse_app_host_products.py` already states this rule for the artifact path
+        ("a miss never leaves partial products in DerivedData") and removes the tree
+        on any error. The owned-Mac path needs the same property, and it needs it
+        armed before the first byte is written rather than on individual error paths.
+        """
+        step = self._admission_step("Revalidate persistent Mac compile product")
+        self.assertIn("continue-on-error: true", step)
+        self.assertIn('rm -rf "$CMUX_COMPILE_ADMISSION_DERIVED_DATA"', step)
+        self.assertLess(
+            step.index("trap "),
+            step.index('tar -xzf "$archive"'),
+            "cleanup must be armed before anything is extracted",
+        )
+        # The cleanup must key off this step reaching its own success, not off the
+        # shell merely exiting: `set -e` aborts inside the identity checks exit
+        # non-zero, but so would a later unrelated failure after a genuine hit.
+        self.assertIn("revalidated=true", step)
+        self.assertLess(
+            step.index("revalidated=true"),
+            step.index('echo "hit=true"'),
+            "success must be recorded before the hit is published",
         )
 
     def test_persistent_product_revalidation_retains_admission_checks(self):
