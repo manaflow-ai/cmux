@@ -1,16 +1,29 @@
 #!/usr/bin/env python3
-"""Classify a PR diff into CI areas that should run."""
+"""Classify a PR diff from the declarative CI area table."""
 
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import re
 import subprocess
 import sys
 from dataclasses import dataclass
+from functools import lru_cache
 from pathlib import Path
 from typing import Iterable, Optional
+
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+AREA_TABLE_PATH = REPO_ROOT / ".github" / "ci-areas.yml"
+AREA_NAMES = (
+    "force_all",
+    "macos",
+    "web",
+    "agent_session_web",
+    "release_build",
+)
 
 
 @dataclass(frozen=True)
@@ -21,7 +34,7 @@ class ChangeAreas:
     release_build: bool
 
     @classmethod
-    def all(cls) -> ChangeAreas:
+    def all(cls) -> "ChangeAreas":
         return cls(macos=True, web=True, agent_session_web=True, release_build=True)
 
     def as_output_lines(self) -> list[str]:
@@ -31,6 +44,13 @@ class ChangeAreas:
             f"agent_session_web={bool_output(self.agent_session_web)}",
             f"release_build={bool_output(self.release_build)}",
         ]
+
+
+@dataclass(frozen=True)
+class AreaRule:
+    default: bool
+    include: tuple[str, ...]
+    neutral: tuple[str, ...]
 
 
 def bool_output(value: bool) -> str:
@@ -44,343 +64,181 @@ def normalize_path(path: str) -> str:
     return normalized
 
 
-CI_WORKFLOW_PATH = ".github/workflows/ci.yml"
-GUARD_WORKFLOW_PATH = ".github/workflows/ci-guards.yml"
-WEB_WORKFLOW_PATH = ".github/workflows/ci-web.yml"
-MACOS_WORKFLOW_PATH = ".github/workflows/ci-macos.yml"
+def load_area_table(path: Optional[Path] = None) -> dict[str, AreaRule]:
+    """Read the repository's intentionally small, dependency-free YAML subset."""
+    table_path = path or AREA_TABLE_PATH
+    raw: dict[str, dict[str, object]] = {}
+    version: Optional[int] = None
+    area: Optional[str] = None
+    list_name: Optional[str] = None
 
-
-def is_other_workflow_config(path: str) -> bool:
-    # ci.yml's macOS and web jobs read no other workflow file. An edit to one is
-    # checked by the reusable guard workflow and by that workflow's own triggers.
-    if path == CI_WORKFLOW_PATH:
-        return False
-    return path.startswith(".github/workflows/") or path == ".github/actionlint.yaml"
-
-
-CI_CONTROL_PLANE_ONLY = frozenset({
-    "scripts/ci/persistent_mac_route.py",
-    "scripts/ci/web_validation.py",
-})
-
-CI_MACOS_TEST_PRODUCT_INPUTS = frozenset({
-    "scripts/ci/app_host_test_products.py",
-    "scripts/ci/compile-app-host-test-product.sh",
-    "scripts/ci/product_input_identity.py",
-    "scripts/ci/restore-app-host-test-product.sh",
-    "scripts/ci/reuse_app_host_products.py",
-    "scripts/ci/sanitize-xcode-source-packages-cache.py",
-})
-
-
-def forces_all_areas(path: str) -> bool:
-    # Unknown direct CI implementation files remain fail-open. Narrow only
-    # explicitly-owned control-plane helpers whose product-area semantics are
-    # covered by a dedicated lane.
-    direct_ci_python = (
-        path.startswith("scripts/ci/")
-        and path.endswith(".py")
-        and "/" not in path[len("scripts/ci/") :]
-    )
-    if (
-        direct_ci_python
-        and path not in CI_CONTROL_PLANE_ONLY
-        and path not in CI_MACOS_TEST_PRODUCT_INPUTS
+    for number, source_line in enumerate(
+        table_path.read_text(encoding="utf-8").splitlines(), start=1
     ):
-        return True
-    return path in {
-        CI_WORKFLOW_PATH,
-        "tests/test_ci_change_areas.py",
-    }
-
-
-_TEST_REFERENCE_RE = re.compile(r"tests/[A-Za-z0-9_./-]*")
-_CI_GUARD_PROFILE_MARKER = "scripts/ci/cmux_workload_profile.py run cmux.ci.guard"
-_CI_GUARD_ENTRYPOINT = "scripts/ci/workloads/ci-guard.sh"
-
-
-def is_plainly_linux_runner(runs_on: str) -> bool:
-    # Anything else counts as macOS: a matrix or needs expression, a list or
-    # group on the following lines, or a label this does not recognize.
-    value = runs_on.strip()
-    if not value or re.search(r"macos|matrix\.|needs\.|inputs\.", value, re.IGNORECASE):
-        return False
-    return bool(re.search(r"LINUX_RUNNER|LINUX_ARM64_RUNNER|ubuntu", value))
-
-
-_JOB_SPLIT_RE = re.compile(r"(?m)^  (?=[A-Za-z0-9_-]+:\s*$)")
-
-# `changes` routes every other job and `ci-status` is the required gate, so an
-# edit to either always runs every area.
-_ROUTING_JOBS = frozenset({"changes", "ci-status"})
-
-
-def split_workflow_jobs(workflow: str) -> Optional[tuple[str, dict[str, str]]]:
-    """Return the text before `jobs:` and each job's block, or None if unreadable."""
-    preamble, found, body = workflow.partition("\njobs:\n")
-    if not found:
-        return None
-    jobs: dict[str, str] = {}
-    for block in _JOB_SPLIT_RE.split(body):
-        name, _, _ = block.partition(":")
-        if not block.strip():
+        line = source_line.rstrip()
+        if not line or line.lstrip().startswith("#"):
             continue
-        if not re.fullmatch(r"[A-Za-z0-9_-]+", name) or name in jobs:
-            return None
-        jobs[name] = block
-    return (preamble, jobs) if jobs else None
-
-
-def job_is_plainly_linux(block: str) -> bool:
-    runs_on = re.search(r"(?m)^    runs-on:[ \t]*(.*)$", block)
-    return bool(runs_on) and is_plainly_linux_runner(runs_on.group(1))
-
-
-def ci_workflow_change_is_linux_only(base: str, head: str) -> bool:
-    """True when base and head ci.yml differ only in jobs that run on Linux.
-
-    Triggers, env, permissions and concurrency live before `jobs:` and reach
-    every job, so any change there is not Linux-only. Unreadable input and an
-    unchanged file are not Linux-only either, so the caller fails open.
-    """
-    base_parts = split_workflow_jobs(base)
-    head_parts = split_workflow_jobs(head)
-    if base_parts is None or head_parts is None:
-        return False
-    (base_preamble, base_jobs), (head_preamble, head_jobs) = base_parts, head_parts
-    if base_preamble != head_preamble:
-        return False
-    changed = {
-        name
-        for name in base_jobs.keys() | head_jobs.keys()
-        if base_jobs.get(name) != head_jobs.get(name)
-    }
-    if not changed or changed & _ROUTING_JOBS:
-        return False
-    return all(
-        job_is_plainly_linux(jobs[name])
-        for name in changed
-        for jobs in (base_jobs, head_jobs)
-        if name in jobs
-    )
-
-
-def macos_job_test_references(
-    workflow: str,
-    indirect_guard_references: frozenset[str] = frozenset(),
-) -> Optional[tuple[frozenset[str], frozenset[str]]]:
-    """Return the tests/ paths ci.yml names in non-Linux jobs and in all jobs.
-
-    A macOS job that runs tests through a glob yields the glob's literal prefix.
-    Returns None when the jobs cannot be read, so the caller fails open.
-    """
-    _, found, body = workflow.partition("\njobs:\n")
-    if not found:
-        return None
-    macos: set[str] = set()
-    everywhere: set[str] = set()
-    jobs = 0
-    for block in re.split(r"(?m)^  (?=[A-Za-z0-9_-]+:\s*$)", body):
-        runs_on = re.search(r"(?m)^    runs-on:[ \t]*(.*)$", block)
-        if not runs_on:
+        if line.startswith("version:"):
+            if line != "version: 1" or version is not None:
+                raise ValueError(f"{table_path}:{number}: expected one 'version: 1'")
+            version = 1
+            area = None
+            list_name = None
             continue
-        jobs += 1
-        references = set(_TEST_REFERENCE_RE.findall(block))
-        if _CI_GUARD_PROFILE_MARKER in block:
-            references |= set(indirect_guard_references)
-        everywhere |= references
-        if not is_plainly_linux_runner(runs_on.group(1)):
-            macos |= references
-    if jobs == 0:
-        return None
-    return frozenset(macos), frozenset(everywhere)
+        if not line.startswith(" ") and line.endswith(":"):
+            area = line[:-1]
+            if area not in AREA_NAMES or area in raw:
+                raise ValueError(f"{table_path}:{number}: unknown or duplicate area {area!r}")
+            raw[area] = {"include": [], "neutral": []}
+            list_name = None
+            continue
+        if area is None:
+            raise ValueError(f"{table_path}:{number}: entry outside an area")
+        if line.startswith("  default: "):
+            value = line[len("  default: "):]
+            if value not in {"run", "skip"} or "default" in raw[area]:
+                raise ValueError(f"{table_path}:{number}: default must be run or skip")
+            raw[area]["default"] = value == "run"
+            list_name = None
+            continue
+        if line in {"  include:", "  neutral:"}:
+            list_name = line.strip()[:-1]
+            continue
+        if line.startswith("    - ") and list_name is not None:
+            try:
+                pattern = json.loads(line[len("    - "):])
+            except json.JSONDecodeError as error:
+                raise ValueError(
+                    f"{table_path}:{number}: patterns must be double-quoted strings"
+                ) from error
+            if not isinstance(pattern, str) or not pattern:
+                raise ValueError(f"{table_path}:{number}: empty or non-string pattern")
+            values = raw[area][list_name]
+            assert isinstance(values, list)
+            if pattern in values:
+                raise ValueError(f"{table_path}:{number}: duplicate pattern {pattern!r}")
+            values.append(pattern)
+            continue
+        raise ValueError(f"{table_path}:{number}: unsupported table syntax: {line!r}")
 
+    if version != 1 or set(raw) != set(AREA_NAMES):
+        raise ValueError(f"{table_path}: expected version 1 and areas {AREA_NAMES!r}")
 
-def load_macos_job_test_references() -> Optional[tuple[frozenset[str], frozenset[str]]]:
-    macos: set[str] = set()
-    everywhere: set[str] = set()
-    try:
-        guard_entrypoint = Path(_CI_GUARD_ENTRYPOINT).read_text(encoding="utf-8")
-        indirect_guard_references = frozenset(
-            _TEST_REFERENCE_RE.findall(guard_entrypoint)
+    parsed: dict[str, AreaRule] = {}
+    for name in AREA_NAMES:
+        data = raw[name]
+        if "default" not in data:
+            raise ValueError(f"{table_path}: area {name!r} is missing default")
+        parsed[name] = AreaRule(
+            default=bool(data["default"]),
+            include=tuple(data["include"]),
+            neutral=tuple(data["neutral"]),
         )
-        if not indirect_guard_references:
-            return None
-        for workflow_path in (CI_WORKFLOW_PATH, GUARD_WORKFLOW_PATH, WEB_WORKFLOW_PATH, MACOS_WORKFLOW_PATH):
-            references = macos_job_test_references(
-                Path(workflow_path).read_text(encoding="utf-8"),
-                indirect_guard_references,
-            )
-            if references is None:
-                return None
-            workflow_macos, workflow_everywhere = references
-            macos.update(workflow_macos)
-            everywhere.update(workflow_everywhere)
-    except OSError:
-        return None
-    return frozenset(macos), frozenset(everywhere)
+    return parsed
 
 
-def is_guard_only_test(path: str, references: Optional[tuple[frozenset[str], frozenset[str]]]) -> bool:
-    # A tests/ file is macOS-neutral only when a CI workflow names it and every
-    # job that names it runs on Linux. An unnamed file may be imported by a test a
-    # macOS job runs, so it stays macOS-relevant.
-    if references is None or not path.startswith("tests/"):
+@lru_cache(maxsize=None)
+def _glob_regex(pattern: str) -> re.Pattern[str]:
+    regex = ["^"]
+    index = 0
+    while index < len(pattern):
+        if pattern.startswith("**/", index):
+            regex.append("(?:.*/)?")
+            index += 3
+            continue
+        if pattern.startswith("**", index):
+            regex.append(".*")
+            index += 2
+            continue
+        char = pattern[index]
+        if char == "*":
+            regex.append("[^/]*")
+        elif char == "?":
+            regex.append("[^/]")
+        else:
+            regex.append(re.escape(char))
+        index += 1
+    regex.append("$")
+    return re.compile("".join(regex))
+
+
+def path_matches(pattern: str, path: str) -> bool:
+    return _glob_regex(pattern).fullmatch(path) is not None
+
+
+def _matches(patterns: tuple[str, ...], path: str) -> bool:
+    return any(path_matches(pattern, path) for pattern in patterns)
+
+
+def rule_runs(rule: AreaRule, path: str) -> bool:
+    if _matches(rule.include, path):
+        return True
+    if _matches(rule.neutral, path):
         return False
-    macos, everywhere = references
-    if path not in everywhere:
+    return rule.default
+
+
+def _force_all(table: dict[str, AreaRule], path: str) -> bool:
+    rule = table["force_all"]
+    # Known dedicated control-plane helpers are explicit exceptions to the
+    # broad scripts/ci/** fail-open rule. Unknown CI helpers still force all.
+    if _matches(rule.neutral, path):
         return False
-    return not any(path.startswith(reference) for reference in macos)
+    if _matches(rule.include, path):
+        return True
+    return rule.default
 
 
 def is_web_change(path: str) -> bool:
-    if path.startswith(
-        (
-            "web/",
-            "webviews/",
-            "Resources/agent-session-react/",
-            "Resources/agent-session-solid/",
-            "Resources/markdown-viewer/",
-            "config/",
-            "workers/",
-        )
-    ):
-        return True
-    if path == "CHANGELOG.md":
-        return True
-    return path in {
-        "package.json",
-        "bun.lock",
-        "biome.json",
-        ".vercelignore",
-        "vercel.json",
-        "bunfig.toml",
-        ".npmrc",
-        ".github/workflows/web-validation.yml",
-        "scripts/ci/web_validation.py",
-        "tests/test_web_validation.py",
-        "scripts/build-agent-session-web.sh",
-        "scripts/build-webviews-app.sh",
-        "scripts/check-webviews-react-compiler.mjs",
-    }
+    path = normalize_path(path)
+    table = load_area_table()
+    return _force_all(table, path) or rule_runs(table["web"], path)
 
 
 def is_agent_session_web_change(path: str) -> bool:
-    if path.startswith(
-        (
-            "webviews/src/agent-session/",
-            "Resources/agent-session-react/",
-            "Resources/agent-session-solid/",
-        )
-    ):
-        return True
-    return path in {
-        "package.json",
-        "bun.lock",
-        "webviews/package.json",
-        "webviews/bun.lock",
-        "scripts/build-agent-session-web.sh",
-        "Resources/markdown-viewer/marked.min.js",
-    }
-
-
-def is_macos_neutral(path: str) -> bool:
-    if path in CI_CONTROL_PLANE_ONLY:
-        return True
-    # `cmux-tui/` is the standalone cmux-tui Rust project, gated by its own
-    # workflow. Packages/iOS stays macOS-relevant because the desktop app
-    # links CmuxMobileRPC, CmuxMobileTransport, and their package dependencies.
-    if path.startswith(
-        (
-            "docs/",
-            "design/",
-            "plans/",
-            "ios/",
-            "web/",
-            "webviews/",
-            "cmux-tui/",
-        )
-    ):
-        return True
-    if path == "README.md" or (path.startswith("README.") and path.endswith(".md")):
-        return True
-    # Agent instructions at any depth, and skill documentation. The app bundles
-    # skills/cmux-cua as a folder resource, and skill scripts and manifests are
-    # executable inputs, so only Markdown outside that folder is neutral.
-    if path.rsplit("/", 1)[-1] in {"CLAUDE.md", "AGENTS.md"}:
-        return True
-    return path.startswith("skills/") and path.endswith(".md") and not path.startswith("skills/cmux-cua/")
+    path = normalize_path(path)
+    table = load_area_table()
+    return _force_all(table, path) or rule_runs(table["agent_session_web"], path)
 
 
 def is_macos_change(path: str) -> bool:
-    if path.startswith("webviews/src/agent-session/"):
-        return True
-    if path == "docs/cli-contract.md":
-        return True
-    if path in {"package.json", "bun.lock", "biome.json"}:
-        return True
-    if path.startswith(("Resources/agent-session-react/", "Resources/agent-session-solid/")):
-        return True
-    return not is_macos_neutral(path)
+    path = normalize_path(path)
+    table = load_area_table()
+    return _force_all(table, path) or rule_runs(table["macos"], path)
 
 
-_PACKAGE_TESTS_RE = re.compile(r"Packages/[^/]+/[^/]+/Tests/")
+def is_macos_neutral(path: str) -> bool:
+    return not is_macos_change(path)
 
 
 def is_test_only_source(path: str) -> bool:
-    # The Release app builds only the cmux target, so test sources cannot reach
-    # it. A new test file also edits project.pbxproj, which is not matched here.
-    return path.startswith(("cmuxTests/", "cmuxUITests/")) or bool(_PACKAGE_TESTS_RE.match(path))
+    path = normalize_path(path)
+    table = load_area_table()
+    return is_macos_change(path) and not rule_runs(table["release_build"], path)
 
 
-def classify_files(paths: Iterable[str], *, ci_workflow_linux_only: bool = False) -> ChangeAreas:
+def classify_files(paths: Iterable[str]) -> ChangeAreas:
+    table = load_area_table()
     macos = False
     web = False
     agent_session_web = False
     release_build = False
-    test_references = load_macos_job_test_references()
 
     for raw_path in paths:
         path = normalize_path(raw_path)
         if not path:
             continue
-        if path == CI_WORKFLOW_PATH and ci_workflow_linux_only:
-            continue
-        if forces_all_areas(path):
-            macos = True
-            web = True
-            agent_session_web = True
+        if _force_all(table, path):
+            return ChangeAreas.all()
+
+        path_macos = rule_runs(table["macos"], path)
+        macos = macos or path_macos
+        web = web or rule_runs(table["web"], path)
+        agent_session_web = (
+            agent_session_web or rule_runs(table["agent_session_web"], path)
+        )
+        if path_macos and rule_runs(table["release_build"], path):
             release_build = True
-            continue
-        if path in CI_MACOS_TEST_PRODUCT_INPUTS:
-            # These helpers own the reusable Debug/test product and its
-            # admission/restore contract. Exercise macOS admission/consumption,
-            # but they cannot affect the web deployment or Release app bytes.
-            macos = True
-            continue
-        if path == MACOS_WORKFLOW_PATH:
-            # A reusable macOS workflow edit must exercise every hosted Mac job
-            # body it owns, including the Release check.
-            macos = True
-            release_build = True
-            continue
-        if path == WEB_WORKFLOW_PATH:
-            # A reusable web workflow edit must exercise every job body it owns.
-            web = True
-            agent_session_web = True
-            continue
-        # Web validation's own inputs still select its checks in CI, even when
-        # the path is a workflow or guard that is neutral for macOS.
-        if is_web_change(path):
-            web = True
-        if is_other_workflow_config(path) or is_guard_only_test(path, test_references):
-            continue
-        if is_agent_session_web_change(path):
-            agent_session_web = True
-        if is_macos_change(path):
-            macos = True
-            if not is_test_only_source(path):
-                release_build = True
 
     return ChangeAreas(
         macos=macos,
@@ -390,21 +248,10 @@ def classify_files(paths: Iterable[str], *, ci_workflow_linux_only: bool = False
     )
 
 
-def ci_workflow_linux_only(base_path: Optional[Path]) -> bool:
-    if base_path is None:
-        return False
-    try:
-        base = base_path.read_text(encoding="utf-8")
-        head = Path(CI_WORKFLOW_PATH).read_text(encoding="utf-8")
-    except OSError:
-        return False
-    linux_only = ci_workflow_change_is_linux_only(base, head)
-    print(f"ci.yml changed; only Linux jobs differ: {bool_output(linux_only)}")
-    return linux_only
-
-
 def run_git(args: list[str]) -> str:
-    return subprocess.check_output(["git", *args], text=True, stderr=subprocess.STDOUT).strip()
+    return subprocess.check_output(
+        ["git", *args], text=True, stderr=subprocess.STDOUT
+    ).strip()
 
 
 def changed_files(base_sha: str, head_sha: str) -> list[str]:
@@ -430,11 +277,6 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         "--github-output",
         default=os.environ.get("GITHUB_OUTPUT"),
         help="Path to append GitHub Actions step outputs to.",
-    )
-    parser.add_argument(
-        "--ci-workflow-base",
-        type=Path,
-        help="The base revision of ci.yml, to compare its jobs with the checked-out one.",
     )
     parser.add_argument(
         "--files-from",
@@ -463,7 +305,7 @@ def main(argv: list[str]) -> int:
                 raise RuntimeError("pull_request event is missing base/head SHA")
             files = changed_files(args.base_sha, args.head_sha)
         if files:
-            areas = classify_files(files, ci_workflow_linux_only=ci_workflow_linux_only(args.ci_workflow_base))
+            areas = classify_files(files)
         else:
             areas = ChangeAreas.all()
             print("PR diff is empty; running all CI areas.")

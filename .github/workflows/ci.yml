@@ -110,17 +110,10 @@ jobs:
           }
 
           if [ "$EVENT_NAME" = "pull_request" ] || [ "$EVENT_NAME" = "merge_group" ]; then
-            # Checkout depth 2 contains the synthetic merge commit and its
-            # base parent, even when base/head histories are shallow boundaries.
-            # The event's base SHA is where the pull request last synced. Once
-            # main moves on it is outside this checkout, and a diff from it
-            # would also count everything main gained since. The merge commit's
-            # first parent is the base it was actually built on.
             if git rev-parse -q --verify "$MERGE_SHA^2" > /dev/null; then
               BASE_SHA="$(git rev-parse "$MERGE_SHA^1")"
             fi
-            # Keep both sides of renames visible to path-based guard routing.
-            # A guarded file moved into docs/ must still run its owning checks.
+            # Keep both sides of renames visible to path-based routing.
             if ! git diff --no-renames --name-only "$BASE_SHA" "$MERGE_SHA" > /tmp/cmux-ci-changed-files.txt; then
               echo "Could not compute PR diff; running all CI areas." >&2
               emit_all_areas
@@ -133,41 +126,26 @@ jobs:
               exit 0
             fi
 
-            # A provenance-only PR gets the cheap Linux guard and avoids
-            # queuing the unrelated macOS/web/Go suites. Keep this exception
-            # narrow: an unrelated workflow edit or source/configuration file
-            # opts back into normal routing below. The workflow edit is allowed
-            # only when this PR also contains one of the explicit provenance
-            # inputs, so this guard's own wiring does not queue unrelated app
-            # suites.
             ghosttykit_guard_only=true
             has_ghosttykit_guard_file=false
             ci_router_changed=false
-            ci_workflow_changed=false
             while IFS= read -r changed_file; do
               case "$changed_file" in
                 ghostty|scripts/download-prebuilt-ghosttykit.sh|scripts/validate-xcframework-archive.py|scripts/ghosttykit-checksums.txt|tests/test_ci_ghosttykit_release_check.sh)
                   has_ghosttykit_guard_file=true
                   ;;
-                tests/test_ci_change_areas.py)
-                  ci_router_changed=true
-                  ;;
-                scripts/ci/detect_ci_change_areas.py)
+                .github/workflows/ci.yml|.github/ci-areas.yml|tests/test_ci_change_areas.py|scripts/ci/detect_ci_change_areas.py)
                   ci_router_changed=true
                   ghosttykit_guard_only=false
                   ;;
                 scripts/ci/app_host_test_products.py|scripts/ci/compile-app-host-test-product.sh|scripts/ci/product_input_identity.py|scripts/ci/restore-app-host-test-product.sh|scripts/ci/reuse_app_host_products.py|scripts/ci/sanitize-xcode-source-packages-cache.py|scripts/ci/persistent_mac_route.py|scripts/ci/web_validation.py)
-                  # These have explicit owning lanes and names that cannot
-                  # shadow Python stdlib imports used by the router.
+                  # Known CI helpers have explicit ownership in the area table
+                  # and names that cannot shadow Python stdlib imports.
                   ghosttykit_guard_only=false
                   ;;
-                .github/workflows/ci.yml)
-                  ci_workflow_changed=true
-                  ;;
                 scripts/ci/*)
-                  # Unknown scripts/ci files fail open before invoking the
-                  # PR-controlled Python detector. A new file here could
-                  # otherwise shadow a stdlib import (for example subprocess.py).
+                  # Unknown CI implementation files fail open before executing
+                  # PR-controlled Python. This also prevents import shadowing.
                   ci_router_changed=true
                   ghosttykit_guard_only=false
                   ;;
@@ -176,6 +154,7 @@ jobs:
                   ;;
               esac
             done < /tmp/cmux-ci-changed-files.txt
+
             if [ "$ghosttykit_guard_only" = true ] && [ "$has_ghosttykit_guard_file" = true ]; then
               echo "GhosttyKit provenance-only PR; running the release guard."
               {
@@ -187,45 +166,21 @@ jobs:
               exit 0
             fi
 
-            # This guard lives in workflow YAML, before the PR-editable detector
-            # runs. Router/workflow edits must fail open even if a PR breaks the
-            # detector's own self-change classification.
+            # This check runs from workflow YAML before PR-controlled routing
+            # code. Router/table/caller edits therefore fail open even when the
+            # candidate detector is malformed.
             if [ "$ci_router_changed" = true ]; then
               echo "CI router changed; running all CI areas."
               emit_all_areas
               exit 0
             fi
 
-            # The detector is unchanged here, so it may judge a ci.yml edit: only
-            # an edit confined to Linux jobs skips macOS, and anything it cannot
-            # read runs every area.
-            workflow_base_args=()
-            if [ "$ci_workflow_changed" = true ]; then
-              if ! git show "$BASE_SHA:.github/workflows/ci.yml" > /tmp/cmux-ci-base-workflow.yml; then
-                echo "Could not read the base ci.yml; running all CI areas." >&2
-                emit_all_areas
-                exit 0
-              fi
-              workflow_base_args=(--ci-workflow-base /tmp/cmux-ci-base-workflow.yml)
-            fi
-
-            python3 scripts/ci/detect_ci_change_areas.py \
-              --event-name "$EVENT_NAME" \
-              --files-from /tmp/cmux-ci-changed-files.txt \
-              ${workflow_base_args[@]+"${workflow_base_args[@]}"}
+            python3 scripts/ci/detect_ci_change_areas.py               --event-name "$EVENT_NAME"               --files-from /tmp/cmux-ci-changed-files.txt
             exit 0
           fi
 
-          python3 scripts/ci/detect_ci_change_areas.py \
-            --event-name "$EVENT_NAME" \
-            --base-sha "$BASE_SHA" \
-            --head-sha "$HEAD_SHA"
+          python3 scripts/ci/detect_ci_change_areas.py             --event-name "$EVENT_NAME"             --base-sha "$BASE_SHA"             --head-sha "$HEAD_SHA"
 
-      # Compile admission runs on every routed push. The rest of the macOS suite
-      # runs on merge groups and dispatches always, and on pull requests unless
-      # the repository variable CI_PULL_REQUEST_SUITE is "compile-only". Under
-      # that policy the "full-ci" label opts one pull request back in. Labels are
-      # read live so a re-run sees a label added after the push.
       - name: Choose the macOS suite for this run
         id: suite
         env:
@@ -254,7 +209,7 @@ jobs:
           if [ -f /tmp/cmux-ci-changed-files.txt ]; then
             while IFS= read -r path; do
               case "$path" in
-                .github/workflows/ci.yml|scripts/ci/detect_ci_change_areas.py|scripts/ci/detect_linux_guard_changes.py|tests/test_ci_change_areas.py|tests/test_ci_linux_guard_routing.py)
+                .github/workflows/ci.yml|.github/ci-areas.yml|scripts/ci/detect_ci_change_areas.py|scripts/ci/detect_linux_guard_changes.py|tests/test_ci_change_areas.py|tests/test_ci_linux_guard_routing.py)
                   for route in linux_guard_tests linux_guard_history linux_guard_cli linux_guard_source ghosttykit_release; do
                     echo "$route=true" >> "$GITHUB_OUTPUT"
                   done
