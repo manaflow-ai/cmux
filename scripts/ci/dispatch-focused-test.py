@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 from contextlib import contextmanager
+import importlib.util
 import json
 from pathlib import Path
 import re
@@ -36,8 +37,54 @@ RUNNERS = (
 )
 SELECTOR = re.compile(
     r"(?:(?:cmuxTests|cmuxUITests)/)?"
-    r"[A-Za-z_][A-Za-z0-9_]*(?:/[A-Za-z_][A-Za-z0-9_]*(?:\(\))?)?"
+    r"[A-Za-z_][A-Za-z0-9_]*(?:/[A-Za-z_][A-Za-z0-9_]*"
+    # Swift Testing names a method with its call suffix, and a parameterized
+    # one with its argument labels: method(), method(label:), method(_:_:).
+    r"(?:\((?:[A-Za-z_][A-Za-z0-9_]*:)*\))?)?"
 )
+
+
+def _load_selectors():
+    spec = importlib.util.spec_from_file_location(
+        "focused_test_selectors", Path(__file__).resolve().parent / "focused_test_selectors.py"
+    )
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(module)
+    return module
+
+
+selectors = _load_selectors()
+
+
+def normalize_entry(entry: str, root: Path = ROOT) -> tuple[str, str | None]:
+    """Give a cmuxTests method selector the call suffix its declaration needs.
+
+    `Suite/method` matches no Swift Testing test: xcodebuild runs nothing and
+    reports success. The workflow resolves selectors against the built test
+    inventory before running and fails a selector that executed nothing, but
+    both happen after a full compile. Reading the suite's source here catches
+    the common case before spending one.
+
+    Only a declaration found in the local checkout changes the entry. A name
+    this checkout does not declare passes through unchanged, because --ref may
+    name a revision where it exists; the workflow remains the authority.
+    """
+    if not entry.startswith("cmuxTests/"):
+        return entry, None
+    parts = entry.split("/")
+    if len(parts) != 3:
+        return entry, None
+    declared = selectors.source_inventory(root, parts[1])
+    if not declared:
+        return entry, None
+    try:
+        return selectors.resolve_selector(declared, entry)
+    except selectors.UnknownSelector:
+        return entry, (
+            f"{entry} is not declared in this checkout's {parts[1]}; dispatching "
+            "it unchanged. The workflow fails it if it matches no built test."
+        )
 
 
 def positive_integer(value: str) -> int:
@@ -343,6 +390,8 @@ def main() -> int:
         "test_filter",
         nargs="+",
         help="cmuxTests/Suite[/method] or cmuxUITests/Class[/method]; bare names target UI tests. "
+        "A Swift Testing method takes its call suffix, Suite/method() or Suite/method(label:); "
+        "one this checkout declares gets it added. "
         "Pass several to run them against one compile; they must share a target.",
     )
     parser.add_argument("--ref", help="remote branch, tag, or SHA; default: clean local HEAD, already pushed")
@@ -361,7 +410,21 @@ def main() -> int:
     args = parser.parse_args()
     for entry in args.test_filter:
         if not SELECTOR.fullmatch(entry):
-            parser.error("test_filter must name one suite or method, optionally prefixed with cmuxTests/ or cmuxUITests/")
+            parser.error(
+                "test_filter must name one suite or method, optionally prefixed "
+                "with cmuxTests/ or cmuxUITests/; a Swift Testing method takes "
+                "its call suffix, Suite/method() or Suite/method(label:)"
+            )
+    normalized = []
+    for entry in args.test_filter:
+        try:
+            value, note = normalize_entry(entry)
+        except selectors.AmbiguousSelector as error:
+            parser.error(str(error))
+        if note:
+            print(f"note: {note}", file=sys.stderr, flush=True)
+        normalized.append(value)
+    args.test_filter = normalized
     if len(set(args.test_filter)) != len(args.test_filter):
         parser.error("test_filter entries must be unique")
     # One dispatch compiles once and runs one scheme, so a batch cannot span
