@@ -579,14 +579,14 @@ def test_standalone_routes_preserve_missing_empty_and_owned_diffs() -> None:
     script = workflow_job_step_script("changes", "Route standalone project workflows")
     script = script.replace("/tmp/cmux-ci-changed-files.txt", '"$CHANGED_FILES"')
     cases = (
-        (None, "true", "true"),
-        ("", "false", "false"),
-        ("README.md\n", "false", "false"),
-        (".github/workflows/ci.yml\n", "true", "true"),
-        ("cmux-browser/src/main.ts\n", "true", "false"),
-        ("daemon/remote/main.go\n", "false", "true"),
+        (None, "true", "true", "true"),
+        ("", "false", "false", "false"),
+        ("README.md\n", "false", "false", "false"),
+        (".github/workflows/ci.yml\n", "true", "true", "true"),
+        ("cmux-browser/src/main.ts\n", "true", "false", "false"),
+        ("daemon/remote/main.go\n", "false", "true", "false"),
     )
-    for contents, browser, daemon in cases:
+    for contents, browser, daemon, wrapper in cases:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             changed = root / "changed.txt"
@@ -595,7 +595,7 @@ def test_standalone_routes_preserve_missing_empty_and_owned_diffs() -> None:
             output = root / "output.txt"
             subprocess.run(["bash", "-c", script], check=True, capture_output=True,
                            env={**os.environ, "CHANGED_FILES": str(changed), "GITHUB_OUTPUT": str(output)})
-            assert output.read_text().splitlines() == [f"browser={browser}", f"remote_daemon={daemon}", f"remote_daemon_native={daemon}"]
+            assert output.read_text().splitlines() == [f"claude_wrapper={wrapper}", f"browser={browser}", f"remote_daemon={daemon}", f"remote_daemon_native={daemon}"]
 
 
 def test_publishing_changes_keep_daemon_linux_checks_without_native_rerun() -> None:
@@ -3822,12 +3822,16 @@ def test_product_restore_receipt_binds_immutable_product_identity() -> None:
         assert field in script
 
 
-def test_compiled_product_source_order_is_local_peer_r2_github() -> None:
+def test_compiled_product_source_order_is_local_peer_r2_parallel_github() -> None:
     for job_name in ("app-host-unit-tests", "tests-build-and-lag"):
         block = workflow_job_block(job_name, MACOS_WORKFLOW)
         assert block.index("Try node-local compiled product cache") < block.index("Try trusted fleet peer artifact source")
         assert block.index("Try trusted fleet peer artifact source") < block.index("Try shared R2 artifact transport")
-        assert block.index("Try shared R2 artifact transport") < block.index("Download compiled app-host test product")
+        assert block.index("Try shared R2 artifact transport") < block.index("Try parallel GitHub artifact transport")
+        assert block.index("Try parallel GitHub artifact transport") < block.index("Download compiled app-host test product")
+        download = block[block.index("      - name: Download compiled app-host test product"):]
+        download = download[:download.index("\n      - name:", 1)]
+        assert "steps.parallel-products.outputs.hit != 'true'" in download, job_name
 
 
 def test_r2_transport_is_an_explicit_optional_remote_broker() -> None:
@@ -4312,6 +4316,110 @@ def test_trusted_router_reads_new_guard_tests_from_the_pr_head() -> None:
             os.environ.pop(module.HEAD_TEST_REFERENCE_ROOT_ENV, None)
             if previous is not None:
                 os.environ[module.HEAD_TEST_REFERENCE_ROOT_ENV] = previous
+
+
+def test_claude_wrapper_inputs_use_standalone_lane_without_native_compile() -> None:
+    for paths in (["Resources/bin/cmux-claude-wrapper"],
+                  ["tests/test_claude_wrapper_hooks.py"],
+                  ["Resources/bin/cmux-claude-wrapper", "tests/test_claude_wrapper_hooks.py"]):
+        areas = module.classify_files(paths)
+        assert not areas.macos and not areas.cli and not areas.release_build and not areas.swift_packages, (paths, areas)
+        assert module.classify_files([*paths, "Sources/AppDelegate.swift"]).macos
+    assert module.classify_files(["Resources/bin/cmux-unknown-wrapper"]).macos
+
+
+def test_claude_wrapper_scope_executes_workflow_shell() -> None:
+    workflow = yaml.safe_load(CI_WORKFLOW.read_text(encoding="utf-8"))
+    script = next(step["run"] for step in workflow["jobs"]["changes"]["steps"] if step.get("id") == "standalone")
+    for paths, expected in (
+        (["Resources/bin/cmux-claude-wrapper"], "true"),
+        (["tests/test_claude_wrapper_hooks.py"], "true"),
+        (["tests/node_runtime.py"], "true"),
+        (["scripts/ci/run_python_test_lane.py"], "true"),
+        (["scripts/ci/test_execution_registry.py"], "true"),
+        (["tests/test-execution.toml"], "true"),
+        ([".github/workflows/ci.yml"], "true"),
+        (["Resources/bin/cmux-claude-wrapper", "Sources/AppDelegate.swift"], "true"),
+        (["Sources/AppDelegate.swift"], "false"),
+        (["docs/example.md"], "false"),
+        ([], "false"),
+        (None, "true"),
+    ):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            changed = root / "changed.txt"
+            if paths is not None:
+                changed.write_text("\n".join(paths) + "\n")
+            output = root / "output.txt"
+            run = subprocess.run(["bash", "-c", script.replace("/tmp/cmux-ci-changed-files.txt", str(changed))],
+                                 env={**os.environ, "GITHUB_OUTPUT": str(output)}, capture_output=True, text=True)
+            assert run.returncode == 0, run.stderr
+            assert f"claude_wrapper={expected}" in output.read_text().splitlines(), (paths, output.read_text())
+
+
+def test_claude_wrapper_job_runs_without_full_suite_or_app_compile() -> None:
+    workflow = yaml.safe_load(CI_WORKFLOW.read_text(encoding="utf-8"))
+    condition = workflow["jobs"]["claude-wrapper"]["if"].strip()[3:-2].strip()
+    for wrapper, macos, full_suite, expected in (
+        ("true", "false", "false", True),
+        ("true", "true", "false", True),
+        ("false", "true", "true", True),
+        ("false", "true", "false", False),
+        ("false", "false", "true", False),
+    ):
+        outputs = {"claude_wrapper": wrapper, "macos": macos, "full_suite": full_suite}
+        expression = re.sub(r"needs\.changes\.outputs\.([a-z_]+)", lambda m: repr(outputs[m.group(1)]), condition)
+        expression = re.sub(r"needs\.[a-z-]+\.result", repr("success"), expression)
+        expression = expression.replace("!cancelled()", "True").replace("&&", " and ").replace("||", " or ")
+        assert eval(expression, {"__builtins__": {}}, {}) is expected, (outputs, condition)
+
+
+def test_ci_status_requires_successful_claude_wrapper_execution_when_routed() -> None:
+    workflow = yaml.safe_load(CI_WORKFLOW.read_text(encoding="utf-8"))
+    job = workflow["jobs"]["ci-status"]
+    script = next(step["run"] for step in job["steps"] if step.get("name") == "Check routed CI jobs")
+    for route in ({"claude_wrapper": "true", "macos": "false", "full_suite": "false"},
+                  {"claude_wrapper": "false", "macos": "true", "full_suite": "true"}):
+        for result in ("success", "failure", "skipped", "cancelled", "missing"):
+            needs = {name: {"result": "skipped"} for name in job["needs"]}
+            needs["changes"] = {"result": "success", "outputs": route}
+            if "claude-wrapper" in needs:
+                if result == "missing":
+                    needs.pop("claude-wrapper")
+                else:
+                    needs["claude-wrapper"]["result"] = result
+            run = subprocess.run(["bash", "-c", script], env={**os.environ, "CI_NEEDS": json.dumps(needs)},
+                                 capture_output=True, text=True)
+            assert (run.returncode == 0) == (result == "success"), (route, result, run.stdout, run.stderr)
+    needs = {name: {"result": "skipped"} for name in job["needs"]}
+    needs["changes"] = {"result": "success", "outputs": {"claude_wrapper": "false", "macos": "false", "full_suite": "false"}}
+    run = subprocess.run(["bash", "-c", script], env={**os.environ, "CI_NEEDS": json.dumps(needs)}, capture_output=True, text=True)
+    assert run.returncode == 0, run.stderr
+
+
+def test_claude_wrapper_has_one_independent_registry_execution() -> None:
+    runner = ROOT / "scripts/ci/run_python_test_lane.py"
+    dedicated = subprocess.run([sys.executable, str(runner), "--lane", "macos-claude-wrapper", "--list"], capture_output=True, text=True)
+    assert dedicated.returncode == 0, dedicated.stderr
+    assert dedicated.stdout.splitlines() == ["tests/test_claude_wrapper_hooks.py"]
+    app_host = subprocess.run([sys.executable, str(runner), "--lane", "macos-cli-no-socket", "--list"], capture_output=True, text=True)
+    assert app_host.returncode == 0, app_host.stderr
+    assert "tests/test_claude_wrapper_hooks.py" not in app_host.stdout.splitlines()
+
+
+def test_claude_wrapper_job_rejects_missing_node_before_legacy_skip() -> None:
+    workflow = yaml.safe_load(CI_WORKFLOW.read_text(encoding="utf-8"))
+    job = workflow["jobs"]["claude-wrapper"]
+    script = next(step["run"] for step in job["steps"] if step.get("name") == "Run standalone Claude wrapper regressions")
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        marker = root / "python-ran"
+        python = root / "python3"
+        python.write_text("#!/bin/sh\n: > \"$MARKER\"\nexit 0\n")
+        python.chmod(0o755)
+        run = subprocess.run(["/bin/bash", "-c", script], env={"PATH": str(root), "MARKER": str(marker)}, capture_output=True, text=True)
+        assert run.returncode != 0, run.stdout
+        assert not marker.exists(), "Node preflight must fail before the legacy test could report SKIP"
 
 
 if __name__ == "__main__":
