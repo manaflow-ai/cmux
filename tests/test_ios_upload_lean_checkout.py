@@ -101,7 +101,7 @@ else:
 
     def test_public_retry_assignment_precedes_irrelevant_change_skip(self):
         output = self.decision([{"filename": "web/page.tsx"}], retry=True)
-        self.assertEqual(output, {"upload": "false", "retry_build_number": "12345"})
+        self.assertEqual(output, {"last_upload_sha": "base", "upload": "false", "retry_build_number": "12345"})
 
     def test_public_preserves_build_inputs(self):
         for path in ["ios/cmuxPackage/Package.swift", "Packages/macOS/CmuxPhonePush/Package.swift",

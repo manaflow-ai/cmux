@@ -2,6 +2,9 @@ name: iOS TestFlight (cmux.app)
 
 on:
   # Upload the official bundle for internal testing. App Review remains manual.
+  # Hourly polls batch main: they upload once IOS_APPSTORE_MIN_COMMITS
+  # (default 10) commits are pending or the oldest is
+  # IOS_APPSTORE_MAX_AGE_MINUTES (default 360) old.
   schedule:
     - cron: "17 * * * *"
   workflow_dispatch:
@@ -28,7 +31,8 @@ jobs:
     if: github.ref == 'refs/heads/main'
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     outputs:
-      upload: ${{ steps.decide.outputs.upload }}
+      # The batch step, when it runs, has the last word on scheduled polls.
+      upload: ${{ steps.batch.outputs.upload || steps.decide.outputs.upload }}
       retry_build_number: ${{ steps.decide.outputs.retry_build_number }}
     steps:
       - name: Skip an unchanged scheduled revision
@@ -45,6 +49,7 @@ jobs:
             # Successful runs can be skipped polls: use durable upload evidence
             # as the diff base, never advance it merely because a poll succeeded.
             LAST_UPLOAD_SHA="$(gh api "repos/$REPOSITORY/actions/artifacts?name=cmux-app-testflight-upload&per_page=100" --jq '[.artifacts[] | select(.expired == false and .workflow_run.head_branch == "main")] | max_by(.created_at) | .workflow_run.head_sha // ""' 2>/dev/null || true)"
+            echo "last_upload_sha=$LAST_UPLOAD_SHA" >> "$GITHUB_OUTPUT"
             if [ "$LAST_SHA" = "$HEAD_SHA" ] && [ "$LAST_UPLOAD_SHA" = "$HEAD_SHA" ]; then
               echo 'upload=false' >> "$GITHUB_OUTPUT"
               echo 'Latest main already reached official internal TestFlight.' >> "$GITHUB_STEP_SUMMARY"
@@ -124,6 +129,63 @@ jobs:
             rm -f "$COMPARE_FILE"
           fi
           echo 'upload=true' >> "$GITHUB_OUTPUT"
+
+      # Batch scheduled polls: on a busy day nearly every hourly poll finds new
+      # main commits, and each upload is a cold Release archive on the macOS
+      # pool PR CI shares. Runs only when the rules above already chose to
+      # upload against a known prior upload; manual dispatch is never batched.
+      # Count only inputs accepted by the conservative public path filter.
+      - name: Check out the upload batching policy
+        # Batching only delays uploads; a failure here must fall back to the
+        # decide job's answer instead of stopping scheduled uploads.
+        continue-on-error: true
+        if: >-
+          steps.decide.outputs.upload == 'true' &&
+          github.event_name == 'schedule' &&
+          steps.decide.outputs.last_upload_sha != ''
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          # Commits and trees only: the batch counts first-parent commits,
+          # which never needs file contents.
+          fetch-depth: 1
+          filter: blob:none
+          sparse-checkout: |
+            ios/scripts/fetch-testflight-notes-history.sh
+            scripts/ci/ios_upload_batch_decision.py
+          sparse-checkout-cone-mode: false
+
+      - name: Batch official uploads by commit count and age
+        # See the INTERNAL lane: bound the history deepen the same way the upload
+        # job already bounds this script.
+        timeout-minutes: 5
+        # Batching only delays uploads; a failure here must fall back to the
+        # decide job's answer instead of stopping scheduled uploads.
+        continue-on-error: true
+        id: batch
+        if: >-
+          steps.decide.outputs.upload == 'true' &&
+          github.event_name == 'schedule' &&
+          steps.decide.outputs.last_upload_sha != ''
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          LAST_UPLOAD_SHA: ${{ steps.decide.outputs.last_upload_sha }}
+          MIN_COMMITS: ${{ vars.IOS_APPSTORE_MIN_COMMITS }}
+          MAX_AGE_MINUTES: ${{ vars.IOS_APPSTORE_MAX_AGE_MINUTES }}
+        run: |
+          set -euo pipefail
+          ./ios/scripts/fetch-testflight-notes-history.sh "$LAST_UPLOAD_SHA"
+          python3 scripts/ci/ios_upload_batch_decision.py \
+            --event "$EVENT_NAME" \
+            --base "$LAST_UPLOAD_SHA" \
+            --min-commits "$MIN_COMMITS" \
+            --max-age-minutes "$MAX_AGE_MINUTES" \
+            --public-path-filter \
+            --default-min-commits 10 \
+            --default-max-age-minutes 360 \
+            --output-name upload \
+            --github-output "$GITHUB_OUTPUT" \
+            --summary "$GITHUB_STEP_SUMMARY"
 
   upload:
     name: Upload to App Store Connect (com.cmux.app)
