@@ -133,8 +133,14 @@
     }
     scope.effects = [];
     for (const id of scope.nodes) {
+      const nodeHandlers = handlers[id];
       delete handlers[id];
       pushOp({ op: "remove", id });
+      // Native onDisappear arrives after this handler is gone. Clear the
+      // owning sidebar's signal here when JS removes an active list.
+      if (nodeHandlers && nodeHandlers.dragActive && nodeHandlers.dragChange) {
+        nodeHandlers.dragChange(null);
+      }
     }
     scope.nodes = [];
   }
@@ -469,7 +475,11 @@
     const payload = json ? JSON.parse(json) : null;
     if (event === "tap" && nodeHandlers.tap) nodeHandlers.tap(payload);
     if (event === "move" && nodeHandlers.move) nodeHandlers.move(payload.id, payload.index, payload);
-    if (event === "dragChange" && nodeHandlers.dragChange) nodeHandlers.dragChange(payload && payload.id !== undefined ? payload : null);
+    if (event === "dragChange" && nodeHandlers.dragChange) {
+      const state = payload && payload.id !== undefined ? payload : null;
+      nodeHandlers.dragActive = state !== null;
+      nodeHandlers.dragChange(state);
+    }
     if (event === "doubletap" && nodeHandlers.doubletap) nodeHandlers.doubletap(payload);
     if (event === "submit" && nodeHandlers.submit) nodeHandlers.submit(payload ? payload.text : "");
     if (event === "cancel" && nodeHandlers.cancel) nodeHandlers.cancel(payload);
