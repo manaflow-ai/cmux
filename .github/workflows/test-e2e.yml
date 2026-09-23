@@ -792,22 +792,37 @@ jobs:
             fi
           } >> "$GITHUB_STEP_SUMMARY"
 
+      - name: Check the selected revision against main
+        id: revision-on-main
+        continue-on-error: true
+        if: ${{ always() && !cancelled() && steps.compilation-cache-key.outcome == 'success' }}
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          contained="$(python3 scripts/ci/revision_on_main.py)"
+          echo "contained=$contained" >> "$GITHUB_OUTPUT"
+          echo "Selected revision contained in main: $contained"
+
       - name: Bound E2E compilation cache
         id: compilation-cache-bound
         continue-on-error: true
         if: ${{ always() && !cancelled() && steps.compilation-cache-key.outcome == 'success' }}
         env:
           WORKFLOW_REF: ${{ github.ref }}
-          WORKFLOW_SHA: ${{ github.sha }}
           TEST_OUTCOME: ${{ steps.tests.outcome }}
+          REVISION_ON_MAIN: ${{ steps.revision-on-main.outputs.contained }}
         run: |
           set -euo pipefail
           echo "save=false" >> "$GITHUB_OUTPUT"
-          # A dispatch can execute any selected revision. Only the exact main
-          # workflow revision may seed caches that later selected refs restore.
+          # A dispatch can execute any selected revision, so only code main
+          # already contains may seed caches that later selected refs restore.
+          # Requiring the selected revision to equal the workflow SHA also
+          # expressed that, but no dispatcher passes main's tip, so the cache
+          # never gained an entry.
           if [ "$WORKFLOW_REF" != refs/heads/main ] \
-            || [[ ! "$WORKFLOW_SHA" =~ ^[0-9a-f]{40}$ ]] \
-            || [ "$TEST_REF" != "$WORKFLOW_SHA" ] \
+            || [[ ! "$TEST_REF" =~ ^[0-9a-f]{40}$ ]] \
+            || [ "${REVISION_ON_MAIN:-false}" != true ] \
             || [ "$TEST_OUTCOME" != success ]; then
             echo "E2E compilation cache is read-only for this selected revision/result"
             exit 0

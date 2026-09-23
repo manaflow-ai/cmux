@@ -189,6 +189,7 @@ allowed = {
     ("compilation-cache-restore", "Restore E2E compilation cache", "actions/cache/restore"),
     (None, "Save E2E compilation cache", "actions/cache/save"),
     ("compilation-cache-bound", "Bound E2E compilation cache", ""),
+    ("revision-on-main", "Check the selected revision against main", ""),
 }
 for job_id, job in document["jobs"].items():
     if "continue-on-error" in job:
