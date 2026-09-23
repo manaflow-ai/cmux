@@ -1911,39 +1911,12 @@ final class cmuxUITests: XCTestCase {
 
     @MainActor
     func testComputerPickerSelectionSurvivesAppRelaunch() async throws {
-        let server = try MobileSyncMockHostServer(macAppVersion: "0.64.25")
-        let port = try await server.start()
-        defer { server.stop() }
-
-        let app = launchApp(mockData: true, environment: [
-            "CMUX_UITEST_ATTACH_URL": try attachURL(port: port).absoluteString,
-        ], launchArguments: [
-            "-dev.cmux.mobile.connectionMethod.v1", "tailscale",
+        let app = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_COMPUTER_PICKER_PERSISTENCE": "1",
         ])
         defer { app.terminate() }
 
         func picker() throws -> XCUIElement {
-            waitForWorkspaceShell(in: app)
-            let whatsNewSheet = app.collectionViews["MobileWhatsNewSheet"].firstMatch
-            if whatsNewSheet.waitForExistence(timeout: 4) {
-                // The sheet identifier is inherited by its footer on iOS 26.
-                // Finish every page rather than tapping the obscured toolbar.
-                let continueButton = app.buttons.matching(
-                    NSPredicate(format: "label == %@", "Continue")
-                ).firstMatch
-                for _ in 0..<4 where whatsNewSheet.exists {
-                    _ = try XCTUnwrap(
-                        continueButton.waitForExistence(timeout: 4) ? continueButton : nil
-                    )
-                    continueButton.tap()
-                }
-                _ = try XCTUnwrap(
-                    whatsNewSheet.waitForNonExistence(timeout: 5) ? true : nil,
-                    "Finish the launch sheet before using the picker behind it"
-                )
-            }
-            let back = app.buttons["MobileWorkspaceBackButton"]
-            if back.exists { tap(back, in: app) }
             let picker = app.buttons["MobileWorkspaceMacPicker"]
             return try XCTUnwrap(
                 picker.waitForExistence(timeout: 15) ? picker : nil,
@@ -1985,7 +1958,7 @@ final class cmuxUITests: XCTestCase {
         try openPicker()
         let computer = app.buttons.matching(NSPredicate(
             format: "identifier BEGINSWITH %@",
-            "MobileWorkspaceMacPickerMachine-ui-test-mac"
+            "MobileWorkspaceMacPickerMachine-picker-mac"
         )).firstMatch
         _ = try XCTUnwrap(
             computer.waitForExistence(timeout: 5) ? computer : nil,
@@ -1995,11 +1968,15 @@ final class cmuxUITests: XCTestCase {
         XCTAssertNotEqual(computerName, "All Computers")
         tapMenuItem(computer, in: app)
         try expectTitle(computerName)
+        XCTAssertTrue(app.buttons["MobileWorkspaceRow-workspace-main"].exists)
+        XCTAssertFalse(app.buttons["MobileWorkspaceRow-workspace-other"].exists)
         capture("computer-selected-before-termination")
 
         app.terminate()
         app.launch()
         try expectTitle(computerName)
+        XCTAssertTrue(app.buttons["MobileWorkspaceRow-workspace-main"].exists)
+        XCTAssertFalse(app.buttons["MobileWorkspaceRow-workspace-other"].exists)
         capture("computer-restored-after-relaunch")
 
         try openPicker()
@@ -2010,6 +1987,8 @@ final class cmuxUITests: XCTestCase {
         app.terminate()
         app.launch()
         try expectTitle("All Computers")
+        XCTAssertTrue(app.buttons["MobileWorkspaceRow-workspace-main"].exists)
+        XCTAssertTrue(app.buttons["MobileWorkspaceRow-workspace-other"].exists)
         capture("all-computers-restored-after-relaunch")
     }
 
@@ -10708,7 +10687,6 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
     private let taskModelsByProvider: [String: [(id: String, displayName: String)]]
     private let holdsTaskModelResponse: Bool
     private let macInstanceTag: String
-    private let macAppVersion: String
     private var readyContinuation: CheckedContinuation<UInt16, Error>?
     private var connections: [NWConnection] = []
     private var selectedWorkspaceID = "workspace-main"
@@ -10796,8 +10774,7 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
         advertisesCaffeineControl: Bool = false,
         taskModelsByProvider: [String: [(id: String, displayName: String)]] = [:],
         holdsTaskModelResponse: Bool = false,
-        macInstanceTag: String = mockHostInstanceTag(),
-        macAppVersion: String = "0.64.23"
+        macInstanceTag: String = mockHostInstanceTag()
     ) throws {
         listener = try NWListener(using: .tcp, on: .any)
         self.createdWorkspaceTerminalDelay = createdWorkspaceTerminalDelay
@@ -10812,7 +10789,6 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
         self.taskModelsByProvider = taskModelsByProvider
         self.holdsTaskModelResponse = holdsTaskModelResponse
         self.macInstanceTag = macInstanceTag
-        self.macAppVersion = macAppVersion
         appendMainTerminals(count: additionalMainTerminalCount)
         // Optionally replace the selected terminal's content (used by the
         // color-band render test so the bands stream on attach without a flaky
@@ -11438,7 +11414,7 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
             "mac_client_namespace": macInstanceTag == "dev"
                 ? "mac:com.cmuxterm.app.debug"
                 : "mac:com.cmuxterm.app.debug.\(macInstanceTag)",
-            "mac_app_version": macAppVersion,
+            "mac_app_version": "0.64.23",
             "routes": [],
             "terminal_fidelity": "render_grid",
             "capabilities": capabilities,
