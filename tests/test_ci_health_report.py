@@ -16,6 +16,7 @@ import importlib.util
 import json
 import sys
 import unittest
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -265,6 +266,31 @@ class WastePatternTests(unittest.TestCase):
         jobs, minutes = report.fork_runs_without_cache(self.rows)
         self.assertEqual(jobs, 1)
         self.assertAlmostEqual(minutes, 60.0)
+
+    def test_paid_runner_minutes_counts_only_metered_labels(self):
+        # Blacksmith and GitHub-hosted labels are free to this repository, so a
+        # report that totals them alongside Warp hides the only line that costs
+        # money. Free labels must contribute nothing.
+        free = [r for r in self.rows if not r.label.startswith("warp-")]
+        jobs, minutes, breakdown = report.paid_runner_minutes(free)
+        self.assertEqual((jobs, minutes, breakdown), (0, 0.0, []))
+
+    def test_paid_runner_minutes_totals_and_splits_by_label(self):
+        sample = self.rows[0]
+        rows = [
+            replace(sample, label="warp-macos-15-arm64-6x", minutes=10.0),
+            replace(sample, label="warp-macos-15-arm64-6x", minutes=5.0),
+            replace(sample, label="warp-macos-26-arm64-12x", minutes=20.0),
+            replace(sample, label="blacksmith-6vcpu-macos-26", minutes=99.0),
+        ]
+        jobs, minutes, breakdown = report.paid_runner_minutes(rows)
+        self.assertEqual(jobs, 3)
+        self.assertAlmostEqual(minutes, 35.0)
+        # Ordered by minutes descending, so the costliest lane reads first.
+        self.assertEqual(
+            breakdown,
+            [("warp-macos-26-arm64-12x", 1, 20.0), ("warp-macos-15-arm64-6x", 2, 15.0)],
+        )
 
 
 class SamplingTests(unittest.TestCase):
