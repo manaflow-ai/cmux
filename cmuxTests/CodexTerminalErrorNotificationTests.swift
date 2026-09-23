@@ -63,10 +63,17 @@ struct CodexTerminalErrorNotificationTests {
         #expect(!result.timedOut, "\(result.stderr)")
         #expect(result.status == 0, "\(result.stderr)")
         #expect(
-            server.commands.contains { command in
-                command.contains(
-                    "notify_target \(workspaceID) \(surfaceID) Codex|Error|Selected model is at capacity. Please try a different model."
-                )
+            AgentJournalAppendCapture.captures(in: server.commands).contains { capture in
+                guard capture.kind == "agent.error.reported",
+                      capture.workspaceId == workspaceID,
+                      capture.surfaceId == surfaceID,
+                      let attention = capture.draft["attention"] as? [String: Any],
+                      let notification = attention["notification"] as? [String: Any] else {
+                    return false
+                }
+                return notification["title"] as? String == "Codex" &&
+                    notification["subtitle"] as? String == "Error" &&
+                    notification["body"] as? String == "Selected model is at capacity. Please try a different model."
             },
             "Expected the nested terminal error to notify, saw \(server.commands)"
         )

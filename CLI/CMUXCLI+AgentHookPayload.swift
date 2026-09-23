@@ -96,6 +96,15 @@ extension CMUXCLI {
             }
         }
 
+        // The message keys above are capped at 240 characters, so a consumer
+        // reading the compacted payload cannot tell a long prompt from a short
+        // one. Carry the submitted length alongside it. An integer exposes no
+        // prompt text, so this stays inside the same redaction boundary.
+        for key in Self.hookMessageLengthKeys where compact[key] != nil {
+            guard let raw = object[key] as? String else { continue }
+            compact["\(key)_length"] = raw.count
+        }
+
         if let toolInput = object["tool_input"] as? [String: Any] {
             var compactToolInput: [String: Any] = [:]
             for key in ["file_path", "command", "pattern", "description", "query", "plan", "planFilePath"] {
@@ -180,6 +189,10 @@ extension CMUXCLI {
 
         return compact
     }
+
+    /// Message-bearing keys whose true length is published beside the
+    /// truncated value. Mirrors `promptMessageKeys` in WorkspacePromptSubmit.
+    static let hookMessageLengthKeys = ["prompt", "text", "message", "body"]
 
     private func claudeHookCompactFieldLimit(for key: String) -> Int {
         switch key {

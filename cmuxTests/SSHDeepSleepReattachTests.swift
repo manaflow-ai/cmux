@@ -254,14 +254,18 @@ struct SSHDeepSleepReattachTests {
     @Test func confirmedCloudPTYExitRestartsWithInheritedCustomIdentity() throws {
         let workspace = Workspace()
         let initialPanel = try #require(workspace.focusedTerminalPanel)
-        workspace.configureRemoteConnection(Self.persistentCloudConfiguration(), autoConnect: false)
         let customSessionID = "cloud-custom-session"
+        // Once the workspace is Cloud-owned, a split carrying a launch override
+        // such as a custom PTY identity fails closed instead of spawning a
+        // local PTY (#13098). Create the custom-identity pane first; what this
+        // test pins is that identity surviving the confirmed exit and restart.
         let panel = try #require(workspace.newTerminalSplit(
             from: initialPanel.id,
             orientation: .horizontal,
             focus: false,
             remotePTYSessionID: customSessionID
         ))
+        workspace.configureRemoteConnection(Self.persistentCloudConfiguration(), autoConnect: false)
         #expect(panel.surface.respawnAdditionalEnvironment["CMUX_REMOTE_PTY_SESSION_ID"] == customSessionID)
         #expect(workspace.remotePTYSessionIDsByPanelId[panel.id] == customSessionID)
 

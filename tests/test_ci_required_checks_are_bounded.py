@@ -26,6 +26,8 @@ from pathlib import Path
 
 import yaml
 
+from test_web_complexity_trusted_workflow import REQUIRED_CHECK, validate_metadata_routing
+
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOWS = ROOT / ".github/workflows"
@@ -81,8 +83,29 @@ def reachable(roots: set[Path], workflows: dict[Path, dict]) -> set[Path]:
     return seen
 
 
-def context_of(job_id: str, job: dict) -> str:
-    return job.get("name") or job_id
+def context_of(job_id: str, job: dict, path: Path, workflow: dict) -> str:
+    name = job.get("name") or job_id
+    if path.name == "web-complexity-trusted.yml" and job_id == "complexity" and "${{" in name:
+        # Interpret only the validated routing contract. Unknown expressions
+        # must remain unmatched instead of silently dropping timeout coverage.
+        try:
+            validate_metadata_routing(workflow)
+        except (AssertionError, KeyError, TypeError):
+            return name
+        return REQUIRED_CHECK
+    if path.name == "cla-policy-guard.yml" and job_id == "validate":
+        from test_cla_guard_metadata_routing import (
+            REQUIRED_CHECK as CLA_REQUIRED_CHECK,
+            validate_metadata_routing as validate_cla_metadata_routing,
+        )
+        try:
+            validate_cla_metadata_routing(workflow)
+        except (AssertionError, KeyError, TypeError) as error:
+            if "${{" in str(name) or "if" in job:
+                raise ValueError("CLA metadata route violates its condition/name contract") from error
+        else:
+            return CLA_REQUIRED_CHECK
+    return name
 
 
 def main() -> int:
@@ -90,14 +113,18 @@ def main() -> int:
     failures: list[str] = []
 
     # Which workflows own a required check, by what their jobs are called.
-    owners: dict[str, Path] = {}
+    owners: dict[str, set[Path]] = {}
     for path, workflow in workflows.items():
         for job_id, job in (workflow.get("jobs") or {}).items():
             if not isinstance(job, dict):
                 continue
-            context = context_of(job_id, job)
+            try:
+                context = context_of(job_id, job, path, workflow)
+            except ValueError as error:
+                failures.append(f"{path.name}:{job_id}: {error}")
+                continue
             if context in REQUIRED_CONTEXTS:
-                owners[context] = path
+                owners.setdefault(context, set()).add(path)
 
     unmatched = [c for c in REQUIRED_CONTEXTS if c not in owners]
     if unmatched:
@@ -106,7 +133,8 @@ def main() -> int:
             f"drifted apart: {', '.join(unmatched)}"
         )
 
-    for path in sorted(reachable(set(owners.values()), workflows)):
+    required_workflows = {path for paths in owners.values() for path in paths}
+    for path in sorted(reachable(required_workflows, workflows)):
         for job_id, job in (workflows[path].get("jobs") or {}).items():
             if not isinstance(job, dict) or "uses" in job:
                 continue
