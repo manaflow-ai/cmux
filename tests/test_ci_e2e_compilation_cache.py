@@ -70,6 +70,7 @@ class E2ECompilationCache(unittest.TestCase):
         self.assertNotEqual(original, self.prepare()['fingerprint'])
 
     def test_both_test_targets_enable_cache_without_changing_selectors(self):
+        self.assertEqual(step('Install zig')['if'], "${{ steps.filter.outputs.target == 'cmuxUITests' }}")
         values = self.prepare()
         script = step('Run selected tests')['run']
         start = script.index('if [ "$TEST_TARGET" = "cmuxTests" ]; then')
@@ -89,6 +90,35 @@ class E2ECompilationCache(unittest.TestCase):
                 self.assertIn('COMPILATION_CACHE_CAS_PATH=' + values['CMUX_E2E_COMPILATION_CACHE'], args)
                 self.assertIn('-only-testing:' + target + '/Focused', args)
                 self.assertEqual(args[-1], 'test')
+                self.assertEqual('CMUX_SKIP_ZIG_BUILD=1' in args, target == 'cmuxTests')
+
+    def test_unit_helper_skip_uses_clang_without_invoking_zig(self):
+        zig = self.root / 'bin' / 'zig'
+        zig.write_text('#!/bin/sh\necho unexpected-zig-invocation >&2\nexit 99\n')
+        zig.chmod(0o755)
+        xcrun = self.root / 'bin' / 'xcrun'
+        xcrun.write_text('''#!/bin/sh
+test "$1" = clang || exit 98
+while [ "$#" -gt 0 ]; do
+  if [ "$1" = -o ]; then
+    shift
+    printf 'fixture-clang-output' > "$1"
+    exit 0
+  fi
+  shift
+done
+exit 97
+''')
+        xcrun.chmod(0o755)
+        output = self.root / 'ghostty-helper'
+        result = subprocess.run([
+            'bash', str(ROOT / 'scripts/build-ghostty-cli-helper.sh'),
+            '--target', 'aarch64-macos', '--output', str(output),
+        ], env=dict(self.env, CMUX_SKIP_ZIG_BUILD='1', ZIG_REQUIRED='0.0.0'),
+            text=True, capture_output=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(output.read_text(), 'fixture-clang-output')
+        self.assertIn('Skipping zig CLI helper build', result.stdout)
 
     def test_cleanup_removes_only_owned_paths(self):
         values = self.prepare()

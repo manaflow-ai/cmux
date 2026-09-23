@@ -242,6 +242,7 @@ jobs:
           ./scripts/download-prebuilt-ghosttykit.sh
 
       - name: Install zig
+        if: ${{ steps.filter.outputs.target == 'cmuxUITests' }}
         run: |
           ./scripts/install-zig-ci.sh
 
