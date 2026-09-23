@@ -91,6 +91,14 @@ CI_CONTROL_PLANE_ONLY = frozenset({
     "scripts/ci/web_validation.py",
 })
 
+# Publishing consumes finished products. These exact helpers never run in PR
+# compile/test lanes. Validate publishing through its guards/release workflows.
+CI_PUBLISHING_ONLY = frozenset({
+    "scripts/ci/download-run-artifact.py",
+    "scripts/prebuild_sparkle_deltas.sh",
+    "scripts/sparkle_generate_appcast.sh",
+})
+
 CI_MACOS_ADMISSION_CONTROL_INPUTS = frozenset({
     "scripts/ci/build_input_fingerprint.py",
     "scripts/ci/find_admitted_build.py",
@@ -119,6 +127,7 @@ def forces_all_areas(path: str) -> bool:
     if (
         direct_ci_python
         and path not in CI_CONTROL_PLANE_ONLY
+        and path not in CI_PUBLISHING_ONLY
         and path not in CI_MACOS_ADMISSION_CONTROL_INPUTS
         and path not in CI_MACOS_TEST_PRODUCT_INPUTS
     ):
@@ -931,7 +940,7 @@ def is_macos_neutral(
     path: str,
     macos_ios_packages: Optional[frozenset[str]],
 ) -> bool:
-    if path in CI_CONTROL_PLANE_ONLY:
+    if path in CI_CONTROL_PLANE_ONLY or path in CI_PUBLISHING_ONLY:
         return True
     # Review configuration is not a build input. Keep this exact: unknown
     # policy files retain native coverage, and Linux guards still validate PRs.
