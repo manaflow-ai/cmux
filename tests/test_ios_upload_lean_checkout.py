@@ -51,7 +51,7 @@ def run_text(step):
 
 
 class PublicUploadDecisionTests(unittest.TestCase):
-    def decision(self, files=None, event="schedule", baseline="base", broken=False):
+    def decision(self, files=None, event="schedule", baseline="base", broken=False, retry=False):
         import json
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -59,15 +59,23 @@ class PublicUploadDecisionTests(unittest.TestCase):
             fake.write_text("#!/usr/bin/env python3\n" + r"""
 import json, os, sys
 args = ' '.join(sys.argv[1:])
+if 'compare/' in args and '/compare/' + os.environ['BASE'] + '...head' not in args:
+    raise SystemExit('wrong upload comparison baseline')
 if 'compare/' in args:
     if os.environ['BROKEN'] == '1': sys.exit(1)
     print(json.dumps({'status': 'ahead', 'files': json.loads(os.environ['FILES'])}))
 elif '/artifacts?' in args:
     print(os.environ['BASE'])
+elif '/runs/123/artifacts' in args:
+    print('456')
+elif sys.argv[1:3] == ['run', 'download']:
+    from pathlib import Path
+    target = Path(sys.argv[sys.argv.index('--dir') + 1])
+    (target / 'upload.json').write_text(json.dumps({'sha': 'head', 'app_id': '6783338052', 'build_number': '12345'}))
 elif 'status=success' in args:
     print('previous-skipped-run')
 elif 'status=completed' in args:
-    pass
+    if os.environ['RETRY'] == '1': print('123')
 else:
     raise SystemExit('unexpected API: ' + args)
 """)
@@ -79,7 +87,7 @@ else:
                 env={**os.environ, "PATH": str(root) + os.pathsep + os.environ["PATH"],
                      "GITHUB_OUTPUT": str(output), "GITHUB_STEP_SUMMARY": str(summary),
                      "RUNNER_TEMP": str(root), "REPOSITORY": "test/repo", "HEAD_SHA": "head",
-                     "EVENT_NAME": event, "BASE": baseline, "BROKEN": str(int(broken)),
+                     "EVENT_NAME": event, "BASE": baseline, "BROKEN": str(int(broken)), "RETRY": str(int(retry)),
                      "FILES": json.dumps(files if files is not None else [])},
                 capture_output=True, text=True,
             )
@@ -90,6 +98,10 @@ else:
         for path in ["web/app/page.tsx", "docs/guide.md", "tests/test_ci.py", ".github/workflows/ci.yml"]:
             with self.subTest(path=path):
                 self.assertEqual(self.decision([{"filename": path}])["upload"], "false")
+
+    def test_public_retry_assignment_precedes_irrelevant_change_skip(self):
+        output = self.decision([{"filename": "web/page.tsx"}], retry=True)
+        self.assertEqual(output, {"upload": "false", "retry_build_number": "12345"})
 
     def test_public_preserves_build_inputs(self):
         for path in ["ios/cmuxPackage/Package.swift", "Packages/macOS/CmuxPhonePush/Package.swift",
