@@ -5025,6 +5025,14 @@ final class WorkspaceTerminalFocusRecoveryTests: XCTestCase {
             await AppKitTestEventPump().startSurface(rightPanel.surface)
             leftPanel.hostedView.reconcileGeometryNow()
             rightPanel.hostedView.reconcileGeometryNow()
+            // The split parks the left view in reparent-focus suppression until the
+            // workspace's next layout attempt. On macOS 26 that attempt can land after
+            // the selection below, which then swallows the feedback under test.
+            workspace.debugAttemptEventDrivenLayoutFollowUpForTesting()
+            XCTAssertFalse(
+                workspace.debugHasPendingReparentFocusSuppressionsForTesting(),
+                "Expected the split's reparent-focus suppression to settle before selection"
+            )
             appDelegate.noteMainPanelKeyboardFocusIntent(
                 workspaceId: workspace.id, panelId: leftPanel.id, in: window
             )
