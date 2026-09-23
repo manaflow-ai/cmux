@@ -213,7 +213,14 @@ class CanonicalRecipeTests(unittest.TestCase):
                                         capture_output=True, text=True)
                 self.assertEqual(result.returncode, 0, result.stderr)
             records = [json.loads(line) for line in calls.read_text().splitlines()]
-            self.assertEqual(len(records), 5)
+            # -version, -resolvePackageDependencies, then one build per scheme.
+            # cmux-numeric-locale reuses the cmux-unit product instead of being
+            # built again, so the loop covers two schemes rather than three;
+            # tests/test_app_host_test_products.py holds them equivalent.
+            built = [args[args.index('-scheme') + 1] for _, args in records
+                     if 'build-for-testing' in args]
+            self.assertEqual(built, ['cmux', 'cmux-unit'])
+            self.assertEqual(len(records), 4)
             for cwd, args in records:
                 self.assertEqual(cwd, str(root / "src"))
                 if '-clonedSourcePackagesDirPath' in args:
