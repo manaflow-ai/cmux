@@ -15,9 +15,13 @@ final class CloudTuiManualIOInputRouter: @unchecked Sendable {
     private let queue: DispatchQueue
     private let commandBuilder: CloudTuiManualIOCommand
     private var connection: CloudTuiManualIOConnection?
-    private var pendingLines: [Data] = []
-    private let pendingByteLimit = 256 * 1024
-    private var pendingByteCount = 0
+    private var pendingLines: [(line: Data, reservations: [CloudTuiManualIOReservation])] = []
+    private var capacityTask: Task<Void, Never>?
+    private let inputChunkByteLimit = 16 * 1024
+    private var inputBytes = Data()
+    private var inputReservations: [CloudTuiManualIOReservation] = []
+    private var inputFlushScheduled = false
+    private let admission = CloudTuiManualIOAdmission()
 
     init(
         surfaceID: UInt64,
@@ -37,6 +41,8 @@ final class CloudTuiManualIOInputRouter: @unchecked Sendable {
             guard self.surfaceID != surfaceID else { return }
             let previousSurfaceID = self.surfaceID
             self.surfaceID = surfaceID
+            inputBytes.removeAll(keepingCapacity: true)
+            inputReservations.removeAll(keepingCapacity: true)
             if previousSurfaceID == 0, connection == nil {
                 // The first authenticated attachment resolves an unknown target.
                 // Retain early input, in order, for that exact initial binding.
@@ -52,27 +58,57 @@ final class CloudTuiManualIOInputRouter: @unchecked Sendable {
             // them is safer than delivering input to a reused surface slot;
             // subsequent keystrokes are encoded for the new ID.
             pendingLines.removeAll(keepingCapacity: true)
-            pendingByteCount = 0
         }
     }
 
     /// Rebinds pending input to a newly connected transport.
     func setConnection(_ connection: CloudTuiManualIOConnection?) {
         queue.async { [self, connection] in
+            if connection != nil, !admission.reopen() { return }
+            capacityTask?.cancel()
             self.connection = connection
-            guard let connection else { return }
-            for line in pendingLines { connection.send(line: line) }
-            pendingLines.removeAll(keepingCapacity: true)
-            pendingByteCount = 0
+            if let connection {
+                let capacityChanges = connection.inputCapacity
+                capacityTask = Task { [weak self] in
+                    for await _ in capacityChanges {
+                        guard !Task.isCancelled, let self else { return }
+                        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+                            self.queue.async { [weak self, weak connection] in
+                                defer { continuation.resume() }
+                                guard let self, let connection, self.connection === connection else { return }
+                                self.flushPendingLines()
+                            }
+                        }
+                    }
+                }
+            }
+            flushPendingLines()
+            flushInputBytes()
         }
+    }
+
+    private func flushPendingLines() {
+        guard connection != nil else { return }
+        var handedOff = 0
+        for pending in pendingLines {
+            guard handOff(pending.line) else { break }
+            handedOff += 1
+        }
+        // Only false is known not to have been retained. Replaying a true
+        // handoff after a transport failure could duplicate remote input.
+        pendingLines.removeFirst(handedOff)
     }
 
     /// Stops delivery and discards queued bytes during permanent pane teardown.
     func invalidate() {
+        admission.invalidate()
         queue.async { [self] in
+            capacityTask?.cancel()
+            capacityTask = nil
             connection = nil
+            inputBytes.removeAll(keepingCapacity: false)
+            inputReservations.removeAll(keepingCapacity: false)
             pendingLines.removeAll(keepingCapacity: false)
-            pendingByteCount = 0
         }
     }
 
@@ -91,45 +127,94 @@ final class CloudTuiManualIOInputRouter: @unchecked Sendable {
     }
 
     /// Enqueues one manual input event.
-    func send(_ input: TerminalManualInput) {
+    /// Returns whether callback capacity was reserved, not whether input arrived.
+    @discardableResult
+    func send(_ input: TerminalManualInput) -> Bool {
+        let cost: Int
+        switch input {
+        case .bytes(let bytes): cost = bytes.count
+        case .namedKey(let name): cost = name.utf8.count
+        }
+        // Reserve a conservative framing allowance before retaining raw input:
+        // JSON may escape every base64 slash, and each chunk has a small header.
+        guard cost <= 256 * 1024 else { return false }
+        let framedCost: Int
+        switch input {
+        case .bytes:
+            framedCost = ((cost + 2) / 3) * 8 + (cost / inputChunkByteLimit + 1) * 128
+        case .namedKey:
+            framedCost = cost * 6 + 128
+        }
+        switch admission.reserve(cost, framedBytes: framedCost) {
+        case .closed: return false
+        case .rejected: return false
+        case .reserved: break
+        }
         // Keep base64/JSON work off Ghostty's synchronous I/O callback. The
         // callback only copies the already-owned Sendable value and enqueues it
         // on this serial transport lane.
-        queue.async { [self, input] in
-            let command: [String: Any]
+        let reservation = CloudTuiManualIOReservation(
+            admission: admission, bytes: cost, framedBytes: framedCost
+        )
+        queue.async { [self, input, reservation] in
             switch input {
             case .bytes(let bytes):
                 guard !bytes.isEmpty else { return }
-                // Request id zero is reserved for untracked input frames. The
-                // mirror session uses positive ids for handshake/resize state,
-                // so an input acknowledgement can never be mistaken for one
-                // of its state-machine responses.
-                command = commandBuilder.input(
-                    surfaceID: surfaceID,
-                    bytes: bytes,
-                    requestID: 0
-                )
+                var offset = bytes.startIndex
+                while offset < bytes.endIndex {
+                    let end = bytes.index(offset, offsetBy: min(
+                        inputChunkByteLimit - inputBytes.count,
+                        bytes.distance(from: offset, to: bytes.endIndex)
+                    ))
+                    inputReservations.append(reservation)
+                    inputBytes.append(bytes[offset..<end])
+                    offset = end
+                    if inputBytes.count == inputChunkByteLimit { flushInputBytes() }
+                }
+                guard !inputFlushScheduled else { return }
+                inputFlushScheduled = true
+                // One queue turn collects already-enqueued keystrokes. No
+                // timer delays an isolated key, and the 16 KiB chunk bound
+                // prevents a paste from becoming an oversized JSON command.
+                queue.async { [self] in
+                    inputFlushScheduled = false
+                    flushInputBytes()
+                }
             case .namedKey(let name):
                 guard let key = Self.protocolKeyName(for: name) else { return }
-                command = commandBuilder.namedKey(
+                flushInputBytes()
+                sendCommand(commandBuilder.namedKey(
                     surfaceID: surfaceID,
                     key: key,
                     requestID: 0
-                )
+                ), reservations: [reservation])
             }
-            guard let line = commandBuilder.line(command) else { return }
-            if let connection {
-                connection.send(line: line)
-                return
-            }
-            guard pendingByteCount + line.count <= pendingByteLimit else {
-                pendingLines.removeAll(keepingCapacity: true)
-                pendingByteCount = 0
-                return
-            }
-            pendingLines.append(line)
-            pendingByteCount += line.count
         }
+        return true
+    }
+
+    private func flushInputBytes() {
+        guard !inputBytes.isEmpty else { return }
+        // Zero remains outside the mirror's handshake/geometry request IDs.
+        sendCommand(
+            commandBuilder.input(surfaceID: surfaceID, bytes: inputBytes, requestID: 0),
+            reservations: inputReservations
+        )
+        inputBytes.removeAll(keepingCapacity: true)
+        inputReservations.removeAll(keepingCapacity: true)
+    }
+
+    private func sendCommand(_ command: [String: Any], reservations: [CloudTuiManualIOReservation]) {
+        guard let line = commandBuilder.line(command) else { return }
+        // The reservations bound both raw callbacks and their encoded pending
+        // commands. Never discard an already-admitted command after framing.
+        pendingLines.append((line: line, reservations: reservations))
+        flushPendingLines()
+    }
+
+    /// False retains known-unsent input until capacity returns or a new binding arrives.
+    private func handOff(_ line: Data) -> Bool {
+        connection?.sendInput(line: line) == true
     }
 
     private static func protocolKeyName(for name: String) -> String? {
