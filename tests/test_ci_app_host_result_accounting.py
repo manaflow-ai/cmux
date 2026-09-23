@@ -185,6 +185,46 @@ def test_missing_selected_test_result_never_passes() -> None:
     ]
 
 
+def test_incomplete_run_still_names_the_failures_it_recorded() -> None:
+    """A shard with one missing result must still report what actually failed.
+
+    On main's full suite at f3d204a462 all six app-host shards returned at the
+    incompleteness gate, so not one RATCHET_NEW_FAILURE line was printed across
+    the whole run even though the logs carried real assertion failures. A red
+    suite that names no regression cannot tell anyone whether a fix landed.
+    """
+    passed, messages = accounting.check_run(
+        inventory={"FooTests/testOne()", "BarTests/testTwo()", "BazTests/testThree()"},
+        selectors=["FooTests", "BarTests", "BazTests"],
+        results={
+            "FooTests/testOne()": "Failed",
+            "BazTests/testThree()": "Failed",
+        },
+        known={"BazTests/testThree()": "known on main"},
+        log_text="",
+        xcode_status=65,
+    )
+    assert passed is False
+    assert "typed xcresult is incomplete: 1 selected Test Case(s) have no terminal result" in messages
+    assert "missing typed test result: BarTests/testTwo()" in messages
+    assert "RATCHET_NEW_FAILURE FooTests/testOne()" in messages
+    assert "RATCHET_KNOWN_FAILURE BazTests/testThree()" in messages
+    assert "recorded verdicts: 1 new, 1 known-main; typed test cases: 2" in messages
+
+
+def test_incomplete_run_without_failures_adds_no_ratchet_noise() -> None:
+    passed, messages = accounting.check_run(
+        inventory={"FooTests/testOne()", "BarTests/testTwo()"},
+        selectors=["FooTests", "BarTests"],
+        results={"FooTests/testOne()": "Passed"},
+        known={},
+        log_text="",
+        xcode_status=0,
+    )
+    assert passed is False
+    assert not [m for m in messages if m.startswith("RATCHET_")]
+
+
 def test_partial_suite_result_never_passes() -> None:
     passed, messages = accounting.check_run(
         inventory={"FooTests/testOne()", "FooTests/testTwo()"},
