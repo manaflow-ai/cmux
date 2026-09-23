@@ -2681,6 +2681,9 @@
 		C0F674600000000000000001 /* RemoteShellCWDRelayTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0F674600000000000000002 /* RemoteShellCWDRelayTests.swift */; };
 		8126B1C2D3E4F5061728394A /* RemoteShellPromptRelayTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8126A1B2C3D4E5F60718293A /* RemoteShellPromptRelayTests.swift */; };
 		E4321000E4321000E4321001 /* RemoteShellSessionParsing.swift in Sources */ = {isa = PBXBuildFile; fileRef = E4321000E4321000E4321002 /* RemoteShellSessionParsing.swift */; };
+		D13E724228D245BEAFE2DE25 /* RemoteTerminalFilePreviewCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 88410B4BA02D436F9E9EA011 /* RemoteTerminalFilePreviewCoordinator.swift */; };
+		13D7D586AED542A9929DC7D1 /* RemoteTerminalFilePreviewLoader.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8D05A466503491394B00AD6 /* RemoteTerminalFilePreviewLoader.swift */; };
+		DC72F9033CB70D1AE85CED63 /* RemoteTerminalFilePreviewLoaderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3DA852F1CB2FA6F0F34FC1D6 /* RemoteTerminalFilePreviewLoaderTests.swift */; };
 		D7AB12048000000000000008 /* RemoteTerminalWorkingDirectoryResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7AB12048000000000000009 /* RemoteTerminalWorkingDirectoryResolver.swift */; };
 		0A17C0DE0A17C0DE0A17C002 /* RemoteTmuxAttachOutcome.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A17C0DE0A17C0DE0A17C001 /* RemoteTmuxAttachOutcome.swift */; };
 		740600000000000000000011 /* RemoteTmuxAttachWindowTarget.swift in Sources */ = {isa = PBXBuildFile; fileRef = 740600000000000000000010 /* RemoteTmuxAttachWindowTarget.swift */; };
@@ -6791,6 +6794,9 @@
 		C0F674600000000000000002 /* RemoteShellCWDRelayTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteShellCWDRelayTests.swift; sourceTree = "<group>"; };
 		8126A1B2C3D4E5F60718293A /* RemoteShellPromptRelayTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteShellPromptRelayTests.swift; sourceTree = "<group>"; };
 		E4321000E4321000E4321002 /* RemoteShellSessionParsing.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteShellSessionParsing.swift; sourceTree = "<group>"; };
+		88410B4BA02D436F9E9EA011 /* RemoteTerminalFilePreviewCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteTerminalFilePreviewCoordinator.swift; sourceTree = "<group>"; };
+		B8D05A466503491394B00AD6 /* RemoteTerminalFilePreviewLoader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteTerminalFilePreviewLoader.swift; sourceTree = "<group>"; };
+		3DA852F1CB2FA6F0F34FC1D6 /* RemoteTerminalFilePreviewLoaderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "RemoteTerminalFilePreviewLoaderTests.swift"; sourceTree = "<group>"; };
 		D7AB12048000000000000009 /* RemoteTerminalWorkingDirectoryResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteTerminalWorkingDirectoryResolver.swift; sourceTree = "<group>"; };
 		0A17C0DE0A17C0DE0A17C001 /* RemoteTmuxAttachOutcome.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteTmuxAttachOutcome.swift; sourceTree = "<group>"; };
 		740600000000000000000010 /* RemoteTmuxAttachWindowTarget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteTmuxAttachWindowTarget.swift; sourceTree = "<group>"; };
@@ -9890,6 +9896,8 @@
 				859110000000000000000004 /* DockSplitStore+TerminalLinkOpening.swift */,
 				859110000000000000000006 /* TerminalLinkOpenContainer.swift */,
 				859110000000000000000008 /* TerminalLinkOpenCoordinator.swift */,
+				88410B4BA02D436F9E9EA011 /* RemoteTerminalFilePreviewCoordinator.swift */,
+				B8D05A466503491394B00AD6 /* RemoteTerminalFilePreviewLoader.swift */,
 				C86270000000000000000002 /* TerminalHTMLFileBrowserAction.swift */,
 				85911000000000000000000A /* TerminalLinkOpenRequest.swift */,
 				D86862000000000000000002 /* TerminalWorkingDirectoryResolver.swift */,
@@ -12450,6 +12458,7 @@
 				C51600000000000000000002 /* CLIExecInheritedSignalStateTests.swift */,
 				C0DE5A100000000000000002 /* KeyboardShortcutSavedLayoutTemplateTests.swift */,
 				C0DE31410000000000000104 /* DebugEventLogSerializedAppendTests.swift */,
+				3DA852F1CB2FA6F0F34FC1D6 /* RemoteTerminalFilePreviewLoaderTests.swift */,
 			);
 			path = cmuxTests;
 			sourceTree = "<group>";
@@ -14769,6 +14778,8 @@
 				797800020000000000000001 /* RemoteSessionPowerObserver.swift in Sources */,
 				EE30D6000000000000000006 /* RemoteSessionStrings+App.swift in Sources */,
 				E4321000E4321000E4321001 /* RemoteShellSessionParsing.swift in Sources */,
+				D13E724228D245BEAFE2DE25 /* RemoteTerminalFilePreviewCoordinator.swift in Sources */,
+				13D7D586AED542A9929DC7D1 /* RemoteTerminalFilePreviewLoader.swift in Sources */,
 				D7AB12048000000000000008 /* RemoteTerminalWorkingDirectoryResolver.swift in Sources */,
 				0A17C0DE0A17C0DE0A17C002 /* RemoteTmuxAttachOutcome.swift in Sources */,
 				740600000000000000000011 /* RemoteTmuxAttachWindowTarget.swift in Sources */,
@@ -16846,6 +16857,7 @@
 				C12813000000000000000111 /* RemoteSessionParkedReconnectTests.swift in Sources */,
 				C0F674600000000000000001 /* RemoteShellCWDRelayTests.swift in Sources */,
 				8126B1C2D3E4F5061728394A /* RemoteShellPromptRelayTests.swift in Sources */,
+				DC72F9033CB70D1AE85CED63 /* RemoteTerminalFilePreviewLoaderTests.swift in Sources */,
 				0A17C0DE0A17C0DE0A17C004 /* RemoteTmuxAuthTests.swift in Sources */,
 				B8E2A4C1D5F3096871A2B4A1 /* RemoteTmuxBonsplitImpositionRenderTests.swift in Sources */,
 				5F5553CA5553CA5553CA0001 /* RemoteTmuxCapabilitiesTests.swift in Sources */,

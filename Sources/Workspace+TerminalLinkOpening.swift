@@ -22,6 +22,15 @@ extension Workspace: TerminalLinkOpenContainer {
         )
     }
 
+    func deferRemoteTerminalFileLinkOpen(sourcePanelId: UUID, rawValue: String) -> Bool {
+        guard remoteConfiguration?.transport == .ssh,
+              let target = surfaceOwnershipTarget(for: sourcePanelId),
+              isRemoteTerminalSurface(target.surfaceID),
+              let panel = terminalPanel(for: target.surfaceID) else { return false }
+        _ = panel.hostedView.openRemoteFilePreview(tokens: [rawValue])
+        return true
+    }
+
     func cloudTerminalLinkTarget(url: URL, sourcePanelId: UUID) -> CloudTerminalLinkTarget? {
         guard let target = surfaceOwnershipTarget(for: sourcePanelId),
               let resource = SurfaceCatalog.shared.resource(forPanel: target.surfaceID)
