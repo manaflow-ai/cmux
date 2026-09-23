@@ -80,13 +80,10 @@ class IOSSimulatorWorkflowTests(unittest.TestCase):
     def test_focused_family_and_package_only_routing(self) -> None:
         producer = job_block("ios-simulator-build")
         consumer = job_block("ios-simulator")
-        matrix = 'format(\'["{0}"]\', inputs.device_family)'
 
         self.assertIn("inputs.swift_package == ''", producer)
         self.assertIn("inputs.swift_package == ''", consumer)
-        self.assertIn("inputs.device_family != 'both'", consumer)
-        self.assertIn(matrix, consumer)
-        self.assertIn('["iphone","ipad"]', consumer)
+        self.assertIn("fromJSON(needs.detect-ios-changes.outputs.device_families)", consumer)
 
     def test_compatibility_runtime_identity_and_cleanup_are_preserved(self) -> None:
         producer = job_block("ios-simulator-build")

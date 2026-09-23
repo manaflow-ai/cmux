@@ -233,6 +233,106 @@ struct ComputerUseUXTests {
             directCaptureReady: true))
     }
 
+    @Test @MainActor
+    func settingsHostActionsRoutePermissionRequestsToRequiredOnboardingAction() {
+        var presentations: [ComputerUseOnboardingWindowController.StartingPoint] = []
+        let actions = HostSettingsActions(
+            configFileURL: FileManager.default.temporaryDirectory
+                .appendingPathComponent("cmux-settings-\(UUID().uuidString).json"),
+            computerUseRuntimeService: ComputerUseRuntimeService(),
+            runComputerUseOnboardingAction: { startingPoint in
+                presentations.append(startingPoint)
+            }
+        )
+
+        actions.requestComputerUseAccessibility()
+        actions.requestComputerUseScreenRecording()
+
+        #expect(presentations == [.accessibility, .screenRecording])
+    }
+
+    @Test(.timeLimit(.minutes(1))) @MainActor
+    func grantedPermissionsResumeIncompleteSetupFromSettingsRefresh() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(
+                "cmux-cua-granted-settings-\(UUID().uuidString)",
+                isDirectory: true
+            )
+        let home = root.appendingPathComponent("home", isDirectory: true)
+        let sockets = URL(fileURLWithPath: "/tmp", isDirectory: true)
+            .appendingPathComponent(
+                "cmux-cu-granted-\(UUID().uuidString.prefix(8))",
+                isDirectory: true
+            )
+        defer {
+            try? FileManager.default.removeItem(at: root)
+            try? FileManager.default.removeItem(at: sockets)
+        }
+        try FileManager.default.createDirectory(
+            at: home,
+            withIntermediateDirectories: true
+        )
+        try FileManager.default.createDirectory(
+            at: sockets,
+            withIntermediateDirectories: true
+        )
+        let paths = ComputerUseRuntimePaths(
+            homeDirectoryURL: home,
+            socketRootDirectoryURL: sockets,
+            userIdentifier: getuid(),
+            environment: ["CMUX_TAG": "granted-settings"],
+            authenticationToken: "granted-settings-token"
+        )
+        let runtime = ComputerUseRuntimeService(
+            bundle: Bundle(for: NSApplication.self),
+            paths: paths
+        )
+        defer { runtime.stopForTermination() }
+        #expect(runtime.prepareRuntimeForLaunch())
+        await runtime.setEnabled(true)
+
+        let responder = try UnixSocketResponder(
+            path: paths.daemonSocketURL.path,
+            response: #"{\"ok\":true,\"result\":{\"structuredContent\":{\"accessibility\":true,\"screen_recording\":true,\"source\":{\"attribution\":\"helper-daemon\"}}}}"#
+        )
+        defer { responder.stop() }
+
+        var presentations: [
+            ComputerUseOnboardingWindowController.StartingPoint
+        ] = []
+        let actions = HostSettingsActions(
+            configFileURL: root.appendingPathComponent("cmux.json"),
+            computerUseRuntimeService: runtime,
+            runComputerUseOnboardingAction: { startingPoint in
+                presentations.append(startingPoint)
+            }
+        )
+
+        await actions.refreshComputerUsePermissions()
+
+        #expect(runtime.permissionStatusIsKnown)
+        #expect(runtime.status().accessibility)
+        #expect(runtime.status().screenRecording)
+        #expect(
+            presentations == [.screenRecording],
+            "granted TCC permissions must resume the final capture verification"
+        )
+
+        runtime.onboardingWasPresented()
+        await actions.refreshComputerUsePermissions()
+        #expect(
+            presentations == [.screenRecording, .screenRecording],
+            "dismissed incomplete onboarding must resume when Settings refreshes again"
+        )
+
+        runtime.onboardingWasCompleted()
+        await actions.refreshComputerUsePermissions()
+        #expect(
+            presentations == [.screenRecording, .screenRecording],
+            "completed onboarding runtime state must remain quiet"
+        )
+    }
+
     @Test func computerUseRuntimePermissionReadinessRequiresExplicitCompletion() {
         var phase = ComputerUseRuntimePermissionPhase.disabled(
             onboardingComplete: false
