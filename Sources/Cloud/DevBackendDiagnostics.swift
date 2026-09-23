@@ -16,6 +16,7 @@ actor DevBackendDiagnostics {
     }
     private struct Batch: Encodable { let version = 1; let events: [Event] }
     private struct Receipt: Decodable { let eventIds: [String] }
+    struct RejectedBatch: Error, Sendable { let status: Int }
     typealias Sender = @Sendable ([Event]) async throws -> Void
 
     static let shared = DevBackendDiagnostics(
@@ -106,9 +107,13 @@ actor DevBackendDiagnostics {
             let batch = Array(entries.prefix(20))
             do {
                 try await sender(batch)
-                let ids = Set(batch.map(\.eventId))
-                entries.removeAll { ids.contains($0.eventId) }
-                persist()
+                remove(batch)
+            } catch let rejection as RejectedBatch {
+                if batch.count == 1 {
+                    reject(batch, status: rejection.status)
+                } else if await isolateRejectedBatch(batch) == false {
+                    return false
+                }
             } catch {
                 logger.notice("Development diagnostics retained pending=\(self.entries.count)")
                 return false
@@ -116,6 +121,31 @@ actor DevBackendDiagnostics {
         }
         persist()
         return entries.isEmpty
+    }
+
+    private func isolateRejectedBatch(_ batch: [Event]) async -> Bool {
+        for event in batch {
+            do {
+                try await sender([event])
+                remove([event])
+            } catch let rejection as RejectedBatch {
+                reject([event], status: rejection.status)
+            } catch {
+                return false
+            }
+        }
+        return true
+    }
+
+    private func remove(_ batch: [Event]) {
+        let ids = Set(batch.map(\.eventId))
+        entries.removeAll { ids.contains($0.eventId) }
+        persist()
+    }
+
+    private func reject(_ batch: [Event], status: Int) {
+        logger.error("Development diagnostic permanently rejected status=\(status) count=\(batch.count)")
+        remove(batch)
     }
 
     var pendingCount: Int { load(); return entries.count }
@@ -158,7 +188,9 @@ actor DevBackendDiagnostics {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try JSONEncoder().encode(Batch(events: events))
         let (data, response) = try await (session ?? uploadSession).data(for: request)
-        guard (response as? HTTPURLResponse)?.statusCode == 202,
+        guard let response = response as? HTTPURLResponse else { throw URLError(.badServerResponse) }
+        if [400, 409, 413, 415, 422].contains(response.statusCode) { throw RejectedBatch(status: response.statusCode) }
+        guard response.statusCode == 202,
               Set(try JSONDecoder().decode(Receipt.self, from: data).eventIds) == Set(events.map(\.eventId)) else {
             throw URLError(.badServerResponse)
         }

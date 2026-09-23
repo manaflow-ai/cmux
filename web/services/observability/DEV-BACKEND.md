@@ -16,7 +16,8 @@ included in the app or event. Submitted tag/revision fields are untrusted
 operational observations, not authenticated identities.
 
 The route returns an event-ID receipt only after Axiom acknowledges the full
-batch. Ambiguous delivery may repeat an event; deduplicate `event_id` in
+batch. Permanent client rejections are isolated to single records, so an
+invalid retained event cannot block valid events behind it. Ambiguous delivery may repeat an event; deduplicate `event_id` in
 queries. `record_type == "dev_backend_app_outcome"` distinguishes these app
 reports from legacy external monitor records.
 
