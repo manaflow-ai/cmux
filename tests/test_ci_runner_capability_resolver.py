@@ -24,6 +24,17 @@ RESOLVER = ROOT / "scripts" / "ci" / "resolve_runners.py"
 REAL_MAP = ROOT / ".github" / "runners.json"
 REUSABLE_WORKFLOW = ROOT / ".github" / "workflows" / "resolve-runners.yml"
 PROOF_WORKFLOW = ROOT / ".github" / "workflows" / "ios-app-store.yml"
+CORE_CI_WORKFLOWS = (
+    ROOT / ".github" / "workflows" / "ci.yml",
+    ROOT / ".github" / "workflows" / "ci-guards.yml",
+    ROOT / ".github" / "workflows" / "cmux-browser.yml",
+    ROOT / ".github" / "workflows" / "remote-daemon.yml",
+    ROOT / ".github" / "workflows" / "cli-pipe-regressions.yml",
+    ROOT / ".github" / "workflows" / "ci-web.yml",
+    ROOT / ".github" / "workflows" / "ci-macos.yml",
+)
+FORK_LINUX_BRANCH = "github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04'"
+FORK_MACOS_BRANCH = "github.repository_owner != 'manaflow-ai' && 'macos-15'"
 
 spec = importlib.util.spec_from_file_location("resolve_runners", RESOLVER)
 assert spec and spec.loader
@@ -273,6 +284,37 @@ class WiringTests(unittest.TestCase):
             "a fork cannot reach the resolver if the resolver itself queues on Blacksmith",
         )
 
+
+    def test_the_normal_ci_graph_is_zero_configuration_on_a_fork(self) -> None:
+        """Every variable-routed core job must have a hosted fork branch.
+
+        A personal fork has no Blacksmith installation and no repository
+        variables. A blacksmith-* label there does not fail; it queues forever.
+        Keep the upstream branch byte-for-byte configurable, but make the
+        non-manaflow-ai branch self-contained.
+        """
+        saw_linux = 0
+        saw_macos = 0
+        for path in CORE_CI_WORKFLOWS:
+            text = path.read_text(encoding="utf-8")
+            for number, line in enumerate(text.splitlines(), start=1):
+                if "runs-on:" not in line:
+                    continue
+                with self.subTest(workflow=path.name, line=number):
+                    if "vars.LINUX_RUNNER" in line:
+                        saw_linux += 1
+                        self.assertIn(FORK_LINUX_BRANCH, line)
+                    if "vars.MACOS_RUNNER" in line:
+                        saw_macos += 1
+                        self.assertIn(FORK_MACOS_BRANCH, line)
+                    if "blacksmith-" in line:
+                        self.assertTrue(
+                            FORK_LINUX_BRANCH in line or FORK_MACOS_BRANCH in line,
+                            f"{path.name}:{number} can queue forever in a fork: {line.strip()}",
+                        )
+
+        self.assertGreater(saw_linux, 0)
+        self.assertGreater(saw_macos, 0)
 
     def test_the_proof_of_concept_names_a_declared_capability(self) -> None:
         text = PROOF_WORKFLOW.read_text(encoding="utf-8")
