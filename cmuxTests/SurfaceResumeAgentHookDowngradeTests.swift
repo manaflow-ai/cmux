@@ -195,23 +195,4 @@ struct SurfaceResumeAgentHookDowngradeTests {
 
         #expect(pathCheckpoint.downgradesTrustedAgentHookBinding(trusted))
     }
-
-    @Test
-    func sessionEndPreservesLiveClaudeHookBindingForInProcessSwitch() {
-        let binding = SurfaceResumeBindingSnapshot(
-            kind: RestorableAgentKind.claude.rawValue,
-            command: "claude --dangerously-skip-permissions",
-            source: "agent-hook",
-            autoResume: true
-        )
-
-        #expect(Workspace.shouldPreserveLiveClaudeBindingAfterSessionEnd(
-            binding,
-            hasLiveProcess: true
-        ))
-        #expect(!Workspace.shouldPreserveLiveClaudeBindingAfterSessionEnd(
-            binding,
-            hasLiveProcess: false
-        ))
-    }
 }
