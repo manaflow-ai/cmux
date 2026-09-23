@@ -1095,6 +1095,11 @@
           "default": true,
           "description": "Show custom workspace descriptions in the sidebar."
         },
+        "workspaceDescriptionColor": {
+          "$ref": "#/$defs/colorHexOrNull",
+          "default": null,
+          "description": "Override the workspace description text color in the sidebar."
+        },
         "beta": {
           "type": "object",
           "additionalProperties": false,

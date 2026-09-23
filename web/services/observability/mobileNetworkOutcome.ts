@@ -6,6 +6,7 @@ export const MAX_MOBILE_NETWORK_OUTCOME_REQUEST_BYTES = 64 * 1_024;
 export const MAX_MOBILE_NETWORK_OUTCOME_BATCH_EVENTS = 100;
 
 const EVENT_NAME = "ios_connectivity_latency";
+const TASK_MODEL_EVENT_NAME = "ios_task_model_discovery";
 const TERMINAL_WINDOW_EVENT_NAME = "ios_terminal_latency_window";
 const TERMINAL_ANOMALY_EVENT_NAME = "ios_terminal_latency_anomaly";
 const RUNTIME_ROLE = "mobileClient";
@@ -56,6 +57,7 @@ const allowedPropertyKeys = new Set([
   "input_failed_count", "histogram_version", "input_to_output_histogram", "input_to_visible_histogram", "render_histogram",
   "duration_ms", "threshold_ms", "stage",
   "trace_id", "operation", "terminal_phase",
+  "model_count", "phase", "attempt", "retry_delay_ms", "stop_reason", "correlation_id",
 ]);
 
 export type MobileNetworkOutcome = {
@@ -134,7 +136,27 @@ export type MobileTerminalLatencyAnomaly = {
   readonly deviceModel?: string;
 };
 
-export type MobileObservabilityEvent = MobileNetworkOutcome | MobileTerminalLatencyWindow | MobileTerminalLatencyAnomaly;
+export type MobileTaskModelDiscovery = {
+  readonly timestamp: string;
+  readonly outcome: "success" | "failure";
+  readonly durationMs: number;
+  readonly modelCount: number;
+  readonly correlationId?: number;
+  readonly discoveryPhase?: "retry_scheduled" | "retry_stopped";
+  readonly attempt?: number;
+  readonly retryDelayMs?: number;
+  readonly stopReason?: "unsupported" | "disabled" | "authorizationRequired" | "accountMismatch" | "invalidRequest" | "providerUnavailable" | "cancelled";
+  readonly failure?: string;
+  readonly platform?: "ios";
+  readonly clientChannel?: "dev" | "nightly" | "production" | "unknown";
+  readonly appVersion?: string;
+  readonly buildNumber?: string;
+  readonly bundleIdentifier?: string;
+  readonly osVersion?: string;
+  readonly deviceModel?: string;
+};
+
+export type MobileObservabilityEvent = MobileNetworkOutcome | MobileTerminalLatencyWindow | MobileTerminalLatencyAnomaly | MobileTaskModelDiscovery;
 
 export function parseMobileNetworkOutcome(candidate: unknown): MobileNetworkOutcome | null {
   if (!isRecord(candidate) || candidate.event !== EVENT_NAME || !isRecord(candidate.properties)) return null;
@@ -239,9 +261,83 @@ export function parseMobileTerminalLatencyAnomaly(candidate: unknown): MobileTer
 }
 
 export function parseMobileObservabilityEvent(candidate: unknown): MobileObservabilityEvent | null {
-  return parseMobileNetworkOutcome(candidate)
+  return parseMobileTaskModelDiscovery(candidate)
+    ?? parseMobileNetworkOutcome(candidate)
     ?? parseMobileTerminalLatencyWindow(candidate)
     ?? parseMobileTerminalLatencyAnomaly(candidate);
+}
+
+type MobileTaskModelDiscoveryPayload = Pick<MobileTaskModelDiscovery, "outcome" | "durationMs" | "modelCount" | "correlationId" | "failure">;
+type MobileTaskModelRetryMetadata = Pick<MobileTaskModelDiscovery, "discoveryPhase" | "attempt" | "retryDelayMs" | "stopReason">;
+
+const taskModelRetryPhases = new Set(["retry_scheduled", "retry_stopped"]);
+const taskModelStopReasons = new Set([
+  "unsupported", "disabled", "authorizationRequired", "accountMismatch",
+  "invalidRequest", "providerUnavailable", "cancelled",
+]);
+
+function parseMobileTaskModelDiscoveryPayload(
+  properties: Record<string, unknown>,
+): MobileTaskModelDiscoveryPayload | null {
+  if (properties.operation !== "model_list") return null;
+  if (properties.outcome !== "success" && properties.outcome !== "failure") return null;
+  const durationMs = unsignedInteger(properties.duration_ms);
+  const modelCount = unsignedInteger(properties.model_count);
+  const correlationId = properties.correlation_id === undefined
+    ? undefined
+    : unsignedInteger(properties.correlation_id);
+  const failure = optionalSetValue(properties.failure, failures);
+  if (durationMs === null || modelCount === null || correlationId === null || failure === false) return null;
+  if (properties.outcome === "failure" && typeof failure !== "string") return null;
+  return {
+    outcome: properties.outcome,
+    durationMs,
+    modelCount,
+    ...(typeof correlationId === "number" ? { correlationId } : {}),
+    ...(typeof failure === "string" ? { failure } : {}),
+  };
+}
+
+function parseMobileTaskModelRetryMetadata(
+  properties: Record<string, unknown>,
+): MobileTaskModelRetryMetadata | null {
+  const phase = optionalSetValue(properties.phase, taskModelRetryPhases) as
+    | MobileTaskModelDiscovery["discoveryPhase"] | false | undefined;
+  const attempt = properties.attempt === undefined ? undefined : unsignedInteger(properties.attempt);
+  const retryDelayMs = properties.retry_delay_ms === undefined ? undefined : unsignedInteger(properties.retry_delay_ms);
+  const stopReason = optionalSetValue(properties.stop_reason, taskModelStopReasons) as
+    | MobileTaskModelDiscovery["stopReason"] | false | undefined;
+  if (phase === false || stopReason === false || attempt === null || retryDelayMs === null) return null;
+  if (phase === "retry_scheduled" && (attempt === undefined || retryDelayMs === undefined)) return null;
+  if (phase === "retry_stopped" && typeof stopReason !== "string") return null;
+  if (phase === undefined && (attempt !== undefined || retryDelayMs !== undefined || stopReason !== undefined)) return null;
+  return {
+    ...(typeof phase === "string" ? { discoveryPhase: phase } : {}),
+    ...(typeof attempt === "number" ? { attempt } : {}),
+    ...(typeof retryDelayMs === "number" ? { retryDelayMs } : {}),
+    ...(typeof stopReason === "string" ? { stopReason } : {}),
+  };
+}
+
+export function parseMobileTaskModelDiscovery(candidate: unknown): MobileTaskModelDiscovery | null {
+  if (!isRecord(candidate) || candidate.event !== TASK_MODEL_EVENT_NAME || !isRecord(candidate.properties)) return null;
+  if (!validTimestamp(candidate.timestamp) || !validProperties(candidate.properties)) return null;
+  const payload = parseMobileTaskModelDiscoveryPayload(candidate.properties);
+  const metadata = parseMetadata(candidate.properties);
+  const retryMetadata = parseMobileTaskModelRetryMetadata(candidate.properties);
+  if (!payload || !metadata || !retryMetadata) return null;
+  return {
+    timestamp: candidate.timestamp,
+    ...payload,
+    ...retryMetadata,
+    ...(metadata.platform ? { platform: metadata.platform } : {}),
+    ...(metadata.clientChannel ? { clientChannel: metadata.clientChannel } : {}),
+    ...(metadata.appVersion ? { appVersion: metadata.appVersion } : {}),
+    ...(metadata.buildNumber ? { buildNumber: metadata.buildNumber } : {}),
+    ...(metadata.bundleIdentifier ? { bundleIdentifier: metadata.bundleIdentifier } : {}),
+    ...(metadata.osVersion ? { osVersion: metadata.osVersion } : {}),
+    ...(metadata.deviceModel ? { deviceModel: metadata.deviceModel } : {}),
+  };
 }
 
 type CoreObservation = Pick<MobileNetworkOutcome, "phase" | "outcome" | "durationMs" | "userUsable" | "failure" | "transport" | "population" | "attemptId" | "terminalReady" | "eventCode" | "eventCodeRaw" | "eventSurface" | "eventA" | "eventB" | "eventC" | "cancellationReason">;
@@ -335,7 +431,7 @@ function parseMetadata(properties: Record<string, unknown>): Metadata | null {
   const osVersion = optionalMachineString(properties.os_version);
   const deviceModel = optionalMachineString(properties.device_model, true);
   const traceId = optionalTraceID(properties.trace_id);
-  const operation = optionalSetValue(properties.operation, new Set(["replay", "artifactScan", "artifactList"]));
+  const operation = optionalSetValue(properties.operation, new Set(["replay", "artifactScan", "artifactList", "model_list"]));
   const terminalPhase = optionalSetValue(properties.terminal_phase, new Set([
     "applied", "failed", "discarded",
   ]));
@@ -415,6 +511,43 @@ export async function emitMobileObservabilityEvents(
   batch: readonly MobileObservabilityEvent[],
 ): Promise<void> {
   await Promise.all(batch.map((observation) => {
+    if ("modelCount" in observation) {
+      return withSpan(
+        "cmux-mobile-network",
+        "cmux.mobile.task.model_discovery",
+        {
+          "cmux.subsystem": "mobile-network",
+          "cmux.runtime": "ios",
+          "cmux.user_id": userId,
+          "cmux.mobile.event": "task_model_discovery",
+          "cmux.mobile.outcome": observation.outcome,
+          "cmux.mobile.duration_ms": observation.durationMs,
+          "cmux.mobile.model_count": observation.modelCount,
+          "cmux.mobile.correlation_id": observation.correlationId,
+          "cmux.mobile.discovery_phase": observation.discoveryPhase,
+          "cmux.mobile.attempt": observation.attempt,
+          "cmux.mobile.retry_delay_ms": observation.retryDelayMs,
+          "cmux.mobile.stop_reason": observation.stopReason,
+          "cmux.mobile.failure": observation.failure,
+          "cmux.mobile.occurred_at": observation.timestamp,
+          "cmux.mobile.platform": observation.platform,
+          "cmux.client.channel": observation.clientChannel,
+          "cmux.mobile.app_version": observation.appVersion,
+          "cmux.mobile.build_number": observation.buildNumber,
+          "cmux.mobile.bundle_identifier": observation.bundleIdentifier,
+          "cmux.mobile.os_version": observation.osVersion,
+          "cmux.mobile.device_model": observation.deviceModel,
+        },
+        (span) => {
+          if (observation.outcome === "failure") {
+            span.setStatus({
+              code: SpanStatusCode.ERROR,
+              message: observation.failure ?? "task_model_discovery:failure",
+            });
+          }
+        },
+      );
+    }
     if ("phase" in observation) {
       return emitMobileNetworkOutcomes(userId, [observation]);
     }
