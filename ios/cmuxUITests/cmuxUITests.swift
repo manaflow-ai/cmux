@@ -6097,6 +6097,29 @@ final class cmuxUITests: XCTestCase {
 
         XCTAssertFalse(app.buttons["MobileTaskComposerWorkspaceGroup"].exists)
         tap(app.buttons["MobileTaskComposerDestinationPicker"], in: app)
+        let stackWorkspace = app.descendants(matching: .any)[
+            "MobileTaskComposerDestinationWorkspace-workspace-stack-preview"
+        ].firstMatch
+        XCTAssertTrue(stackWorkspace.waitForExistence(timeout: 3))
+        tap(stackWorkspace, in: app)
+        var previousPaneFrame: CGRect?
+        for index in 0..<3 {
+            let stackPane = app.buttons[
+                "MobileTaskComposerDestinationPane-workspace-stack-preview-pane-stack-\(index)"
+            ]
+            XCTAssertTrue(stackPane.waitForExistence(timeout: 3))
+            XCTAssertGreaterThanOrEqual(stackPane.frame.height, 44)
+            if let previousPaneFrame {
+                XCTAssertGreaterThanOrEqual(stackPane.frame.minY - previousPaneFrame.maxY, 4)
+            }
+            previousPaneFrame = stackPane.frame
+        }
+        let stackScreenshot = XCTAttachment(screenshot: app.screenshot())
+        stackScreenshot.name = "Unequal stacked panes with long titles"
+        stackScreenshot.lifetime = .keepAlways
+        add(stackScreenshot)
+        tap(stackWorkspace, in: app)
+
         let workspace = app.descendants(matching: .any)[
             "MobileTaskComposerDestinationWorkspace-workspace-pane-preview"
         ].firstMatch
