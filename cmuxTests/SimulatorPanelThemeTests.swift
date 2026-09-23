@@ -15,7 +15,7 @@ import Testing
 @Suite("Simulator panel visibility", .serialized)
 struct SimulatorPanelVisibilityTests {
     @Test("Mobile demand starts a hidden Simulator panel")
-    func mobileDemandStartsHiddenPanel() async {
+    func mobileDemandStartsHiddenPanel() async throws {
         let client = SimulatorThemePaneClient(devices: [])
         let panel = SimulatorPanel(client: client)
         let consumerID = UUID()
@@ -26,11 +26,7 @@ struct SimulatorPanelVisibilityTests {
 
         panel.setMobileFrameDemand(true, consumerID: consumerID)
 
-        let discoveryDeadline = ContinuousClock().now.advanced(by: .seconds(10))
-        while ContinuousClock().now < discoveryDeadline {
-            if await client.discoveryCount > 0 { break }
-            await Task.yield()
-        }
+        try await waitUntil { await client.discoveryCount > 0 }
         #expect(await client.discoveryCount == 1)
     }
 
@@ -84,13 +80,16 @@ struct SimulatorPanelVisibilityTests {
         defer { window.orderOut(nil) }
         settle(root)
 
-        let discoveryDeadline = ContinuousClock().now.advanced(by: .seconds(10))
-        while ContinuousClock().now < discoveryDeadline {
-            if await client.discoveryCount > 0 { break }
-            await Task.yield()
-        }
+        try await waitUntil { await client.discoveryCount > 0 }
         #expect(await client.discoveryCount == 1)
         await client.emit(.status(.streaming))
+        // `receive(.frameTransport:)` drops the descriptor unless `frameIsVisible`
+        // is already true, and nothing re-sends it. Wait for the coordinator to
+        // announce publication — the signal that flips that flag — instead of
+        // emitting into a window where the drop is silent and permanent.
+        try await waitUntil {
+            await client.messages.contains(.setFramebufferPublishing(true))
+        }
         await client.emit(.frameTransport(SimulatorFrameTransportDescriptor(
             sharedMemoryName: "/cmux-test-frame",
             width: 4,
@@ -99,11 +98,7 @@ struct SimulatorPanelVisibilityTests {
             slotCount: 2,
             sharedMemoryByteCount: 256
         )))
-        let frameTransportDeadline = ContinuousClock().now.advanced(by: .seconds(10))
-        while ContinuousClock().now < frameTransportDeadline {
-            if panel.coordinator.frameTransport != nil { break }
-            await Task.yield()
-        }
+        try await waitUntil { panel.coordinator.frameTransport != nil }
         #expect(panel.coordinator.frameTransport != nil)
 
         firstHost?.removeFromSuperview()
@@ -152,6 +147,25 @@ struct SimulatorPanelVisibilityTests {
             view.displayIfNeeded()
             RunLoop.main.run(until: Date().addingTimeInterval(0.01))
         }
+    }
+
+    /// Polls `condition` until it holds, then requires it at the deadline.
+    ///
+    /// A fixed yield count is an implicit bound that tightens under CI load, so
+    /// it fails on correct code on a busy runner. Requiring the predicate here
+    /// rather than at each call site means a wait that runs out reports itself
+    /// instead of falling through into a weaker downstream assertion.
+    private func waitUntil(
+        timeout: Duration = .seconds(10),
+        sourceLocation: SourceLocation = #_sourceLocation,
+        _ condition: () async -> Bool
+    ) async throws {
+        let deadline = ContinuousClock.now + timeout
+        while ContinuousClock.now < deadline {
+            if await condition() { return }
+            try await Task.sleep(for: .milliseconds(5))
+        }
+        try #require(await condition(), sourceLocation: sourceLocation)
     }
 }
 

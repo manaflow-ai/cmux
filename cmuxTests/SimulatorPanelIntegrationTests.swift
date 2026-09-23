@@ -175,11 +175,7 @@ struct SimulatorPanelIntegrationTests {
         let firstCoordinator = panel.coordinator
 
         flags.setOverride(false, for: simulatorFlag)
-        let firstStopDeadline = ContinuousClock().now.advanced(by: .seconds(10))
-        while ContinuousClock().now < firstStopDeadline {
-            if await firstClient.stopCount != 0 { break }
-            await Task.yield()
-        }
+        try await waitUntil { await firstClient.stopCount != 0 }
 
         #expect(await firstClient.stopCount == 1)
         flags.setOverride(true, for: simulatorFlag)
@@ -190,18 +186,14 @@ struct SimulatorPanelIntegrationTests {
         #expect(await secondClient.discoveryCount == 0)
 
         await firstClient.releaseStop()
-        let secondDiscoveryDeadline = ContinuousClock().now.advanced(by: .seconds(10))
-        while ContinuousClock().now < secondDiscoveryDeadline {
-            if await secondClient.discoveryCount != 0 { break }
-            await Task.yield()
-        }
+        try await waitUntil { await secondClient.discoveryCount != 0 }
         #expect(panel.coordinator !== firstCoordinator)
         #expect(panel.isFeatureReady)
         #expect(await secondClient.discoveryCount == 1)
     }
 
     @Test("Awaitable close does not finish before worker rollback")
-    func awaitableCloseWaitsForWorkerRollback() async {
+    func awaitableCloseWaitsForWorkerRollback() async throws {
         let client = SimulatorFeatureFlagPaneClient(blockStop: true)
         let panel = SimulatorPanel(client: client)
         let completion = SimulatorCloseCompletionProbe()
@@ -210,11 +202,7 @@ struct SimulatorPanelIntegrationTests {
             await completion.markCompleted()
         }
 
-        let stopDeadline = ContinuousClock().now.advanced(by: .seconds(10))
-        while ContinuousClock().now < stopDeadline {
-            if await client.stopCount != 0 { break }
-            await Task.yield()
-        }
+        try await waitUntil { await client.stopCount != 0 }
 
         #expect(await client.stopCount == 1)
         #expect(!(await completion.isCompleted))
@@ -225,7 +213,7 @@ struct SimulatorPanelIntegrationTests {
     }
 
     @Test("Application termination retains cleanup after a closed panel deallocates")
-    func applicationTerminationRetainsOrphanedClose() async {
+    func applicationTerminationRetainsOrphanedClose() async throws {
         let client = SimulatorFeatureFlagPaneClient(blockStop: true)
         weak var releasedPanel: SimulatorPanel?
         do {
@@ -233,11 +221,7 @@ struct SimulatorPanelIntegrationTests {
             releasedPanel = panel
             panel.close()
         }
-        let stopDeadline = ContinuousClock().now.advanced(by: .seconds(10))
-        while ContinuousClock().now < stopDeadline {
-            if await client.stopCount != 0 { break }
-            await Task.yield()
-        }
+        try await waitUntil { await client.stopCount != 0 }
 
         #expect(await client.stopCount == 1)
         #expect(releasedPanel == nil)
@@ -258,7 +242,7 @@ struct SimulatorPanelIntegrationTests {
     }
 
     @Test("Cancelling application termination restores the live Simulator panel")
-    func cancelledApplicationTerminationRestoresPanel() async {
+    func cancelledApplicationTerminationRestoresPanel() async throws {
         let flags = CmuxFeatureFlags.shared
         let simulatorFlag = CmuxFeatureFlags.simulatorFlag
         let previousOverride = flags.overrideValue(for: simulatorFlag)
@@ -271,19 +255,11 @@ struct SimulatorPanelIntegrationTests {
         let panel = SimulatorPanel(clientFactory: { clients.removeFirst() })
         defer { panel.close() }
         panel.setVisibleInUI(true)
-        let firstDiscoveryDeadline = ContinuousClock().now.advanced(by: .seconds(10))
-        while ContinuousClock().now < firstDiscoveryDeadline {
-            if await firstClient.discoveryCount != 0 { break }
-            await Task.yield()
-        }
+        try await waitUntil { await firstClient.discoveryCount != 0 }
         let firstCoordinator = panel.coordinator
 
         let cleanupTasks = SimulatorPanel.beginApplicationTerminationCleanup()
-        let firstStopDeadline = ContinuousClock().now.advanced(by: .seconds(10))
-        while ContinuousClock().now < firstStopDeadline {
-            if await firstClient.stopCount != 0 { break }
-            await Task.yield()
-        }
+        try await waitUntil { await firstClient.stopCount != 0 }
         #expect(await firstClient.stopCount == 1)
 
         SimulatorPanel.cancelApplicationTerminationCleanup()
@@ -291,15 +267,11 @@ struct SimulatorPanelIntegrationTests {
         for task in cleanupTasks {
             await task.value
         }
-        let replacementDeadline = ContinuousClock().now.advanced(by: .seconds(10))
-        while ContinuousClock().now < replacementDeadline {
+        try await waitUntil {
             let replacementStarted = await secondClient.discoveryCount == 1
-            if panel.isFeatureReady,
-               panel.coordinator !== firstCoordinator,
-               replacementStarted {
-                break
-            }
-            await Task.yield()
+            return panel.isFeatureReady
+                && panel.coordinator !== firstCoordinator
+                && replacementStarted
         }
 
         #expect(panel.isFeatureReady)
@@ -822,6 +794,25 @@ struct SimulatorPanelIntegrationTests {
         #expect(try simulatorForegroundApplicationResultPayload(
             .foregroundApplication(nil)
         ) == .object(["application": .null]))
+    }
+
+    /// Polls `condition` until it holds, then requires it at the deadline.
+    ///
+    /// A fixed yield count is an implicit bound that tightens under CI load, so
+    /// it fails on correct code on a busy runner. Requiring the predicate here
+    /// rather than at each call site means a wait that runs out reports itself
+    /// instead of falling through into a weaker downstream assertion.
+    private func waitUntil(
+        timeout: Duration = .seconds(10),
+        sourceLocation: SourceLocation = #_sourceLocation,
+        _ condition: () async -> Bool
+    ) async throws {
+        let deadline = ContinuousClock.now + timeout
+        while ContinuousClock.now < deadline {
+            if await condition() { return }
+            try await Task.sleep(for: .milliseconds(5))
+        }
+        try #require(await condition(), sourceLocation: sourceLocation)
     }
 }
 
