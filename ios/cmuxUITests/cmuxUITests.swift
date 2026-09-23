@@ -8607,7 +8607,7 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(bar.waitForExistence(timeout: 4), "Workspace details must use a native navigation bar", file: file, line: line)
         var controls: [XCUIElement] = []
         for identifier in ["MobileSplitSidebarToggle", "MobileWorkspaceBackButton"] {
-            if app.buttons[identifier].exists { controls.append(app.buttons[identifier]) }
+            if bar.buttons[identifier].exists { controls.append(bar.buttons[identifier]) }
         }
         controls.append(workspaceTitleElement(in: app))
         if includesAlternateScreen { controls.append(app.buttons["MobileTerminalAltScreenNoticeButton"]) }
