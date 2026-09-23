@@ -1296,8 +1296,21 @@ def test_subcommand_cache_expires_for_unchanged_launchers(failures: list[str]) -
         home.mkdir()
         env["HOME"] = str(home)
         wrapper = tmp / "cmux.app/Contents/Resources/bin/cmux-claude-wrapper"
+        # Perl's test-only preload replaces the clock imported by the wrapper;
+        # alarms and filesystem timestamps retain their real behavior.
+        (tmp / "CmuxTestClock.pm").write_text(
+            'package CmuxTestClock;\n'
+            'use Time::HiRes ();\n'
+            'BEGIN { no warnings "redefine"; '
+            '*Time::HiRes::time = sub () { 0 + $ENV{FAKE_CLAUDE_CLOCK} }; }\n'
+            '1;\n',
+            encoding="utf-8",
+        )
+        epoch = 1_800_000_000
+        env["PERL5LIB"] = str(tmp)
+        env["PERL5OPT"] = "-MCmuxTestClock"
+        env["FAKE_CLAUDE_CLOCK"] = str(epoch)
         env["FAKE_REAL_HELP_OUTPUT"] = "Commands:\n  future-first  Old downstream command\n"
-        started = int(time.time())
         proc = subprocess.run([str(wrapper), "future-first"], cwd=tmp, env=env,
                               capture_output=True, text=True, timeout=15)
         expect(proc.returncode == 0 and read_lines(Path(env["FAKE_REAL_ARGS_LOG"])) == ["future-first"],
@@ -1308,11 +1321,10 @@ def test_subcommand_cache_expires_for_unchanged_launchers(failures: list[str]) -
             return
         cached = cache_files[0].read_text().splitlines()
         expires = int(cached[1])
-        expect(started < expires <= int(time.time()) + 3600,
+        expect(expires == epoch + 3600,
                f"expiry: successful discovery is not bounded to one hour: {expires}", failures)
-        # Age the runtime cache without waiting an hour or changing the launcher.
-        cached[1] = str(started - 1)
-        cache_files[0].write_text("\n".join(cached) + "\n")
+        # Advance the clock without changing either the launcher or its cache.
+        env["FAKE_CLAUDE_CLOCK"] = str(epoch + 3601)
         env["FAKE_REAL_HELP_OUTPUT"] = "Commands:\n  future-second  Updated downstream command\n"
 
     code, argv, _, stderr, *_ = run_wrapper(
