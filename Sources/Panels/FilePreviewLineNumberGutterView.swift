@@ -21,7 +21,25 @@ final class FilePreviewLineNumberGutterView: NSRulerView {
     var drawsEditorBackground = true {
         didSet { applySurfaceFill() }
     }
+    /// Git markers for the file. A tracked file reserves the stripe column
+    /// even without changes, so the first edit never shifts the text.
+    var gitMarkers = FilePreviewGitGutterMarkers.untracked {
+        didSet {
+            guard gitMarkers != oldValue else { return }
+            updateRuleThickness(for: (clientView as? NSTextView)?.font)
+            needsDisplay = true
+        }
+    }
     private static let horizontalPadding: CGFloat = 10
+    /// Width of a change stripe.
+    private static let changeStripeWidth: CGFloat = 3
+    /// Gap between the line number and the stripe.
+    private static let changeStripeGap: CGFloat = 3
+    /// Extra ruler width reserved while the file is tracked.
+    ///
+    /// Drawing positions derive from the label's trailing edge, so this
+    /// reservation and the drawn stripe cannot drift apart.
+    private static var changeStripeInset: CGFloat { changeStripeWidth + changeStripeGap }
 
     private var lineIndex = FilePreviewLineIndex(string: "")
     /// Set when edits were skipped (ruler hidden) and the index must be
@@ -136,7 +154,8 @@ final class FilePreviewLineNumberGutterView: NSRulerView {
         let labelWidth = (String(repeating: "8", count: digits) as NSString).size(
             withAttributes: [.font: font]
         ).width
-        let nextThickness = ceil(labelWidth) + Self.horizontalPadding
+        let stripeInset = gitMarkers.isTracked ? Self.changeStripeInset : 0
+        let nextThickness = ceil(labelWidth) + Self.horizontalPadding + stripeInset
         if abs(ruleThickness - nextThickness) > 0.5 {
             ruleThickness = nextThickness
         }
@@ -199,12 +218,21 @@ final class FilePreviewLineNumberGutterView: NSRulerView {
             let lineNumber = self.lineIndex.lineNumber(
                 containingUTF16Offset: characterRange.location
             )
-            guard self.lineIndex.offset(forLine: lineNumber) == characterRange.location else {
-                return
-            }
+            let fragmentY = usedRect.minY + textView.textContainerOrigin.y
+            let startsLine = self.lineIndex.offset(forLine: lineNumber) == characterRange.location
+            // Paint every fragment of a wrapped line so the stripe stays continuous.
+            self.drawGitChangeStripe(
+                for: lineNumber,
+                atTextViewY: fragmentY,
+                height: usedRect.height,
+                in: textView,
+                font: font,
+                startsLine: startsLine
+            )
+            guard startsLine else { return }
             self.drawLineNumber(
                 lineNumber,
-                atTextViewY: usedRect.minY + textView.textContainerOrigin.y,
+                atTextViewY: fragmentY,
                 height: usedRect.height,
                 in: textView,
                 font: font,
@@ -219,10 +247,19 @@ final class FilePreviewLineNumberGutterView: NSRulerView {
             // An empty document has a valid logical line but no glyph fragment
             // for TextKit to enumerate. Paint its first line directly without
             // asking `lineFragmentRect` for an invalid glyph.
+            let emptyLineHeight = textView.font?.boundingRectForFont.height ?? 16
+            self.drawGitChangeStripe(
+                for: 1,
+                atTextViewY: textView.textContainerOrigin.y,
+                height: emptyLineHeight,
+                in: textView,
+                font: font,
+                startsLine: true
+            )
             self.drawLineNumber(
                 1,
                 atTextViewY: textView.textContainerOrigin.y,
-                height: textView.font?.boundingRectForFont.height ?? 16,
+                height: emptyLineHeight,
                 in: textView,
                 font: font,
                 paragraphStyle: paragraphStyle,
@@ -270,6 +307,14 @@ final class FilePreviewLineNumberGutterView: NSRulerView {
                     height: max(trailingRect.height, fallbackHeight)
                 )
                 if NSIntersectsRect(visibleTrailingRect, viewRect) {
+                    self.drawGitChangeStripe(
+                        for: lineCount,
+                        atTextViewY: y,
+                        height: max(trailingRect.height, fallbackHeight),
+                        in: textView,
+                        font: font,
+                        startsLine: true
+                    )
                     self.drawLineNumber(
                         lineCount,
                         atTextViewY: y,
@@ -307,11 +352,12 @@ final class FilePreviewLineNumberGutterView: NSRulerView {
     ) {
         let documentPoint = NSPoint(x: 0, y: y)
         let rulerPoint = convert(documentPoint, from: textView)
+        let lineHeight = max(height, font.capHeight + 4)
         let labelRect = NSRect(
             x: 4,
             y: rulerPoint.y,
-            width: max(0, ruleThickness - 10),
-            height: max(height, font.capHeight + 4)
+            width: labelTrailingEdge - 4,
+            height: lineHeight
         )
         let color = currentLine == lineNumber
             ? tokenTheme.gutterCurrentLineColor
@@ -322,5 +368,73 @@ final class FilePreviewLineNumberGutterView: NSRulerView {
             .paragraphStyle: paragraphStyle
         ]
         NSString(string: String(lineNumber)).draw(in: labelRect, withAttributes: attributes)
+    }
+
+    /// Paints a git change marker at the trailing edge of the line number.
+    ///
+    /// - Added and modified lines get a full-height stripe.
+    /// - Removed draws a short marker across the line's top edge.
+    /// - RemovedAtEnd draws it across the line's bottom edge.
+    /// - Edge markers draw only on the first fragment of a wrapped line.
+    private func drawGitChangeStripe(
+        for lineNumber: Int,
+        atTextViewY y: CGFloat,
+        height: CGFloat,
+        in textView: NSTextView,
+        font: NSFont,
+        startsLine: Bool
+    ) {
+        guard let change = gitMarkers.changes[lineNumber] else { return }
+        let rulerPoint = convert(NSPoint(x: 0, y: y), from: textView)
+        let stripeHeight = max(height, font.capHeight + 4)
+        let x = labelTrailingEdge + Self.changeStripeGap
+        switch change {
+        case .added, .modified:
+            let color = change == .added
+                ? tokenTheme.gitAddedColor
+                : tokenTheme.gitModifiedColor
+            color.setFill()
+            NSRect(
+                x: x,
+                y: rulerPoint.y,
+                width: Self.changeStripeWidth,
+                height: stripeHeight
+            ).fill()
+        case .removed, .removedAtEnd:
+            guard startsLine else { return }
+            tokenTheme.gitDeletedColor.setFill()
+            let markerHeight = Self.changeStripeWidth
+            let markerY = change == .removed
+                ? rulerPoint.y - markerHeight / 2
+                : rulerPoint.y + stripeHeight - markerHeight / 2
+            nudgedIntoBounds(NSRect(
+                x: x - Self.changeStripeGap,
+                y: markerY,
+                width: Self.changeStripeWidth + Self.changeStripeGap,
+                height: markerHeight
+            )).fill()
+        }
+    }
+
+    /// X coordinate where the line-number label ends.
+    ///
+    /// For an untracked file the stripe width is released and the label keeps its original frame.
+    private var labelTrailingEdge: CGFloat {
+        let stripeInset = gitMarkers.isTracked ? Self.changeStripeInset : 0
+        return 4 + max(0, ruleThickness - Self.horizontalPadding - stripeInset)
+    }
+
+    /// Moves an edge marker that crosses the view bounds back inside,
+    ///
+    /// so deletion markers on the first and last visible lines are not clipped in half.
+    private func nudgedIntoBounds(_ rect: NSRect) -> NSRect {
+        guard rect.height <= bounds.height else { return rect }
+        var nudged = rect
+        if nudged.minY < bounds.minY {
+            nudged.origin.y = bounds.minY
+        } else if nudged.maxY > bounds.maxY {
+            nudged.origin.y = bounds.maxY - nudged.height
+        }
+        return nudged
     }
 }

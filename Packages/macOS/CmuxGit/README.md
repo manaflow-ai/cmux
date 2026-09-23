@@ -35,6 +35,16 @@ base (or `HEAD` on the default branch), and returns aggregate totals, a capped
 file list, or a bounded unified diff. Its summary cache is actor-isolated and
 expires entries after 15 seconds by repository root.
 
+`SystemGitHeadContentReader` conforms to `GitHeadContentReading` and returns a
+file's bytes as committed at `HEAD`, plus the repository paths whose changes
+can move that content: `HEAD`, `index`, the checked-out branch's loose ref,
+`packed-refs`, and `reftable`. It reads `HEAD` rather than the merge base, which is what an
+editor gutter needs, and returns bytes so the caller decodes them with the
+working copy's encoding. Symbolic links resolve to their target, then
+`git cat-file blob HEAD:./name` runs from the file's directory, so no
+repository-root lookup is needed and no textconv filter applies. Untracked
+files, files outside a repository, and content over 2 MiB return `nil`.
+
 ## Usage
 
 ```swift
@@ -57,6 +67,10 @@ let stat = try await changes.fileStat(
     path: "Resources/preview.png",
     revision: .current
 )
+let head: any GitHeadContentReading = SystemGitHeadContentReader()
+let base = await head.headContent(forFile: "/repo/Sources/App.swift")
+let watched = await head.watchedPaths(forFile: "/repo/Sources/App.swift")
+
 let firstChunk = try await changes.fileFetch(
     forDirectory: checkoutPath,
     path: "Resources/preview.png",
@@ -88,6 +102,9 @@ throwaway repositories under `FileManager.temporaryDirectory` and invoke real
 Git commands with a scratch `HOME` and system/global config disabled. Content
 tests use the same fixture to verify changed-path authorization, rename/base
 selection, stable base materialization, chunk limits, slices, and EOF metadata.
+`SystemGitHeadContentReader` tests use the same fixture and inject a small
+content budget to cover the size limit. Consumers depend on
+`GitHeadContentReading` and substitute a fixed-content fake.
 
 ```swift
 let fixture = try GitRepositoryFixture()
