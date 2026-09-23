@@ -3,21 +3,24 @@
 A job says what it needs. `.github/runners.json` says which label answers that
 need on whichever repository the run is happening in.
 
-This is foundation only. One workflow is wired to it
-(`ios-app-store.yml`); the other call sites still read `vars.MACOS_RUNNER_*`
-and [`ci-runners.md`](ci-runners.md) remains the live contract for them.
-[PR #14010](https://github.com/manaflow-ai/cmux/pull/14010) argues the general
-case for capability routing; this is the translation layer that proposal calls
-irreducible, built small enough to use.
+This change has two layers. The capability map and
+`resolve-runners.yml` are the long-term translation layer; `ios-app-store.yml`
+is the first direct consumer. The normal `CI` call graph also gets an immediate
+compatibility bridge: every variable-routed `runs-on` short-circuits
+non-`manaflow-ai` owners to GitHub-hosted Linux or macOS before repository
+variables are consulted. That makes ordinary fork CI usable now while the
+remaining specialized workflows migrate to capability keys.
+
+[`ci-runners.md`](ci-runners.md) remains the live contract for upstream lane
+and capacity policy.
 
 ## What a fork gets
 
-A fork of cmux cannot run macOS or Linux CI today. Blacksmith is an
-organization-level GitHub App, so a fork on a personal account has no
-Blacksmith access — and a `blacksmith-*` label there does not fail. The job
-sits `queued` indefinitely and holds the workflow's concurrency group while it
-waits. The workaround has been hand-setting eight repository variables on the
-fork.
+Before this change, a fork of cmux could not run the normal macOS or Linux CI
+without hand-configuring runner variables. Blacksmith is an organization-level
+GitHub App, so a fork on a personal account has no Blacksmith access — and a
+`blacksmith-*` label there does not fail. The job sits `queued` indefinitely
+and holds the workflow's concurrency group while it waits.
 
 With the map in the tree, the repository owner selects the fleet:
 
@@ -28,7 +31,16 @@ resolve_runners: fleet=hosted (owner some-personal-account is not a mapped owner
 ```
 
 Zero configuration. `owners` lists `manaflow-ai: blacksmith`; every other owner
-falls to `default_fleet`, which is the free GitHub-hosted fleet.
+falls to `default_fleet`, which is the free GitHub-hosted fleet. The resolver
+job itself uses the same principle for its bootstrap runner, so it can start in
+a personal fork before the map exists.
+
+The normal `CI` workflow does not wait for every job to be converted to
+`needs.runners.outputs.map`: its direct jobs and reusable core workflows
+(`ci-guards`, `ci-web`, `ci-macos`, `remote-daemon`, and
+`cli-pipe-regressions`) contain an explicit non-`manaflow-ai` GitHub-hosted
+branch. `tests/test_ci_runner_capability_resolver.py` walks that core graph and
+fails if a variable-routed job can reach Blacksmith on a fork.
 
 The hosted fleet is a working fleet, not an identical one. GitHub publishes no
 macOS 26 image, so `macos_26`, `macos_26_ios` and `macos_26_large` all resolve
