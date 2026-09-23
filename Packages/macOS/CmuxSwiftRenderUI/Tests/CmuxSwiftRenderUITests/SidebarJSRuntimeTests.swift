@@ -166,6 +166,28 @@ struct SidebarJSRuntimeTests {
         #expect(runtime.errorMessage == nil)
     }
 
+    @Test func removingReorderableClearsFeedbackOutsideItsScope() throws {
+        let runtime = SidebarJSRuntime()
+        #expect(runtime.start(source: """
+        const [drag, setDrag] = signal(null);
+        sidebar(() => VStack({}, [
+            Text(() => drag() ? drag().id : "idle"),
+            ForEach({ items: () => data.sections() ?? ["one"] }, () =>
+                Reorderable({ items: ["a", "b"], onDragChange: setDrag }, w => Text(w)))
+        ]))
+        """))
+        let root = try #require(runtime.store.rootId)
+        let children = try #require(runtime.store.node(root)?.children)
+        let list = try #require(runtime.store.node(children[1])?.children.first)
+        runtime.dispatchEvent(nodeId: list, event: "dragChange", payload: [
+            "id": "a", "index": 1, "side": "above", "block": false,
+        ])
+        #expect(runtime.store.node(children[0])?.string("text") == "a")
+        runtime.updateData(key: "sections", value: .array([]))
+        #expect(runtime.store.node(children[0])?.string("text") == "idle")
+        #expect(runtime.errorMessage == nil)
+    }
+
     @Test func contextMenuAttachesAsMenuChild() async {
         let runtime = SidebarJSRuntime()
         var captured: [ActionCommand] = []
