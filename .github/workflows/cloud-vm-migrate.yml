@@ -1,5 +1,13 @@
 name: Cloud VM DB migration
 
+# Runs on demand (workflow_dispatch) and on every push to main that adds or
+# changes a migration. Vercel deploys main on each push, so a migration that
+# waited for a manual dispatch left production serving code against a schema
+# without the tables it needs (2026-09-21: every Cloud create answered 503
+# `vm_cloud_state_unavailable` because `cloud_runtimes` had never been created,
+# and device-token reads failed on missing columns for days). A push applies
+# staging first; the production job then waits for the cloud-vm-production
+# environment's required reviewers, so production still gets a human approval.
 on:
   workflow_dispatch:
     inputs:
@@ -14,6 +22,10 @@ on:
         required: false
         default: false
         type: boolean
+  push:
+    branches: [main]
+    paths:
+      - web/db/migrations/**
 
 permissions:
   contents: read
@@ -36,7 +48,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          ref: ${{ inputs.target == 'production' && 'refs/heads/main' || github.sha }}
+          ref: ${{ github.event_name == 'push' && github.sha || (inputs.target == 'production' && 'refs/heads/main' || github.sha) }}
       - name: Pin migration source
         id: source
         run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
@@ -53,7 +65,7 @@ jobs:
         run: bun run cloud-vm:preflight -- .
 
   migrate-staging:
-    if: ${{ inputs.target == 'staging' || inputs.target == 'production' }}
+    if: ${{ github.event_name == 'push' || inputs.target == 'staging' || inputs.target == 'production' }}
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     needs: preflight
     environment: cloud-vm-staging
@@ -95,7 +107,7 @@ jobs:
         run: bun run cloud-vm:cleanup-iroh -- staging --apply
 
   migrate-production:
-    if: ${{ inputs.target == 'production' }}
+    if: ${{ github.event_name == 'push' || inputs.target == 'production' }}
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     needs: [preflight, migrate-staging]
     environment: cloud-vm-production
