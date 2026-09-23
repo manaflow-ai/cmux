@@ -1,6 +1,7 @@
 //! Pure projection of mux resources into configurable native sidebar trees.
 
 use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
 
 use cmux_tui_core::{PaneId, SurfaceId, WorkspaceId};
 
@@ -34,6 +35,17 @@ pub(crate) enum ProjectionTarget {
     },
 }
 
+impl ProjectionTarget {
+    fn same_resource(self, other: Self) -> bool {
+        match (self, other) {
+            (Self::Workspace { id: lhs, .. }, Self::Workspace { id: rhs, .. }) => lhs == rhs,
+            (Self::Pane { pane: lhs, .. }, Self::Pane { pane: rhs, .. }) => lhs == rhs,
+            (Self::Surface { surface: lhs, .. }, Self::Surface { surface: rhs, .. }) => lhs == rhs,
+            _ => false,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct ProjectionRow {
     pub resource: SidebarResourceKind,
@@ -52,23 +64,128 @@ pub(crate) struct ProjectionRailState {
     /// Selected resource-row index. Action selection is tracked separately so
     /// live resource insertions cannot retarget a pinned action.
     pub selected: usize,
+    /// Stable identity for the selected resource row across live reordering.
+    pub selected_target: Option<ProjectionTarget>,
     pub selected_action: Option<usize>,
     pub scroll: usize,
     pub footer_scroll: usize,
     pub follow_selection: bool,
     pub collapsed: HashSet<ProjectionBranch>,
+    /// Revision for row-affecting presentation state in this rail.
+    pub rows_generation: u64,
 }
 
 impl Default for ProjectionRailState {
     fn default() -> Self {
         Self {
             selected: 0,
+            selected_target: None,
             selected_action: None,
             scroll: 0,
             footer_scroll: 0,
             follow_selection: true,
             collapsed: HashSet::new(),
+            rows_generation: 0,
         }
+    }
+}
+
+impl ProjectionRailState {
+    /// Keep action selection valid when the current view changes its actions.
+    /// An unavailable action remains in action mode until navigation chooses a
+    /// new item, so input cannot fall through to a resource row.
+    pub(crate) fn reconcile_action_selection(&mut self, action_count: usize) {
+        if let Some(index) = self.selected_action
+            && let Some(last) = action_count.checked_sub(1)
+        {
+            self.selected_action = Some(index.min(last));
+        }
+    }
+
+    /// Keep resource selection attached to its target when rows reorder.
+    pub(crate) fn reconcile_selection(&mut self, rows: &[ProjectionRow]) {
+        if self.selected_action.is_some() {
+            return;
+        }
+        if let Some(target) = self.selected_target
+            && let Some(index) = rows
+                .iter()
+                .position(|row| row.target == target)
+                .or_else(|| rows.iter().position(|row| row.target.same_resource(target)))
+        {
+            self.selected = index;
+            return;
+        }
+        self.selected = self.selected.min(rows.len().saturating_sub(1));
+        self.selected_target = rows.get(self.selected).map(|row| row.target);
+    }
+}
+
+/// Revisions that determine whether a projection row list is still valid.
+/// Tree and agent revisions come from the session snapshots, while the
+/// sidebar revision covers presentation state such as selection and collapse.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct ProjectionRevision {
+    pub tree_workspace: u64,
+    pub tree_pane: Option<u64>,
+    /// Agent changes affect only views that include the Agents resource.
+    pub agents: Option<u64>,
+    /// Workspace selection affects flat views that need a workspace context.
+    pub selected_workspace: usize,
+    /// Selection and focus changes that affect every projection view.
+    pub sidebar: u64,
+    /// Collapse changes are scoped to the projection rail being rendered.
+    pub rail: u64,
+}
+
+struct CachedProjectionRows {
+    revision: ProjectionRevision,
+    rows: Arc<[ProjectionRow]>,
+}
+
+#[derive(Default)]
+pub(crate) struct ProjectionRowsCache {
+    entries: HashMap<String, CachedProjectionRows>,
+}
+
+impl ProjectionRowsCache {
+    /// Remove all rows so the next lookup rebuilds every view.
+    pub(crate) fn invalidate(&mut self) {
+        self.entries.clear();
+    }
+
+    /// Return rows for a matching view and revision without cloning row data.
+    pub(crate) fn get(
+        &self,
+        view_id: &str,
+        revision: &ProjectionRevision,
+    ) -> Option<Arc<[ProjectionRow]>> {
+        let cached = self.entries.get(view_id)?;
+        (cached.revision == *revision).then(|| Arc::clone(&cached.rows))
+    }
+
+    /// Reuse rows for a matching revision, or build and cache a new list.
+    pub(crate) fn get_or_build(
+        &mut self,
+        view_id: &str,
+        revision: &ProjectionRevision,
+        build: impl FnOnce() -> Vec<ProjectionRow>,
+    ) -> Arc<[ProjectionRow]> {
+        if let Some(rows) = self.get(view_id, revision) {
+            return rows;
+        }
+        let rows = build();
+        let rows = Arc::<[ProjectionRow]>::from(rows);
+        self.entries.insert(
+            view_id.to_string(),
+            CachedProjectionRows { revision: *revision, rows: Arc::clone(&rows) },
+        );
+        rows
+    }
+
+    #[cfg(test)]
+    pub(crate) fn revision_for(&self, view_id: &str) -> Option<ProjectionRevision> {
+        self.entries.get(view_id).map(|entry| entry.revision)
     }
 }
 
@@ -92,6 +209,34 @@ pub(crate) fn rows(
     let mut rows = Vec::with_capacity(tree.workspaces().len());
     let agents_by_surface: HashMap<SurfaceId, &AgentInfo> =
         agents.iter().map(|agent| (agent.surface, agent)).collect();
+    let agent_order = if spec.includes(SidebarResourceKind::Agents) {
+        let mut order = agents
+            .iter()
+            .map(|agent| (agent.surface, (agent_attention(&agent.state), agent.updated_at_ms)))
+            .collect::<HashMap<_, _>>();
+        let mut indexed = tree
+            .workspaces()
+            .iter()
+            .flat_map(|workspace| workspace.screens.iter())
+            .flat_map(|screen| screen.panes.iter())
+            .flat_map(|pane| pane.tabs.iter())
+            .enumerate()
+            .filter_map(|(index, tab)| {
+                order.remove(&tab.surface).map(|(attention, updated_at_ms)| {
+                    (u8::MAX - attention, u64::MAX - updated_at_ms, index, tab.surface)
+                })
+            })
+            .collect::<Vec<_>>();
+        indexed.sort_unstable_by_key(|&(attention, recency, index, _)| (attention, recency, index));
+        indexed.into_iter().map(|(_, _, _, surface)| surface).collect::<Vec<_>>()
+    } else {
+        Vec::new()
+    };
+    let agent_order_index = agent_order
+        .iter()
+        .enumerate()
+        .map(|(index, surface)| (*surface, index))
+        .collect::<HashMap<_, _>>();
     append_level(
         &mut rows,
         &spec.levels,
@@ -99,10 +244,22 @@ pub(crate) fn rows(
         None,
         tree,
         &agents_by_surface,
+        &agent_order_index,
         selected_workspace.min(tree.workspaces().len().saturating_sub(1)),
         collapsed,
     );
     rows
+}
+
+/// Return the herdr-style attention rank used by agent rows. Higher values
+/// sort first, while the original tree order breaks ties.
+fn agent_attention(state: &str) -> u8 {
+    match state {
+        "blocked" => 4,
+        "idle" => 3,
+        "working" => 2,
+        _ => 0,
+    }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -113,6 +270,7 @@ fn append_level(
     context: Option<ProjectionContext>,
     tree: &TreeView,
     agents: &HashMap<SurfaceId, &AgentInfo>,
+    agent_order_index: &HashMap<SurfaceId, usize>,
     selected_workspace: usize,
     collapsed: &HashSet<ProjectionBranch>,
 ) {
@@ -150,6 +308,7 @@ fn append_level(
                         }),
                         tree,
                         agents,
+                        agent_order_index,
                         selected_workspace,
                         collapsed,
                     );
@@ -201,6 +360,7 @@ fn append_level(
                             }),
                             tree,
                             agents,
+                            agent_order_index,
                             selected_workspace,
                             collapsed,
                         );
@@ -210,6 +370,7 @@ fn append_level(
         }
         SidebarResourceKind::Tabs | SidebarResourceKind::Agents => {
             let agent_only = resource == SidebarResourceKind::Agents;
+            let mut agent_entries = Vec::<(SurfaceId, ProjectionRow)>::new();
             let workspace_index = context.map_or(selected_workspace, |context| context.workspace);
             let Some(workspace) = tree.workspaces().get(workspace_index) else { return };
             for (screen_index, screen) in workspace.screens.iter().enumerate() {
@@ -246,7 +407,7 @@ fn append_level(
                         } else {
                             pane.short_id.clone()
                         };
-                        output.push(ProjectionRow {
+                        let row = ProjectionRow {
                             resource,
                             depth: depth as u16,
                             name,
@@ -268,9 +429,20 @@ fn append_level(
                                 surface: tab.surface,
                                 agent: agent_only,
                             },
-                        });
+                        };
+                        if agent_only {
+                            agent_entries.push((tab.surface, row));
+                        } else {
+                            output.push(row);
+                        }
                     }
                 }
+            }
+            if agent_only {
+                agent_entries.sort_by_key(|(surface, _)| {
+                    agent_order_index.get(surface).copied().unwrap_or(usize::MAX)
+                });
+                output.extend(agent_entries.into_iter().map(|(_, row)| row));
             }
         }
     }
@@ -280,6 +452,7 @@ fn append_level(
 mod tests {
     use super::*;
     use cmux_tui_core::{Node, SurfaceKind};
+    use std::sync::Arc;
 
     use crate::session::tree::{PaneView, ScreenView, TabView, WorkspaceView};
 
@@ -429,5 +602,194 @@ mod tests {
     fn flat_agent_view_is_empty_when_no_agents_are_running() {
         let rows = rows(&spec(vec![SidebarResourceKind::Agents]), &tree(), &[], 0, &HashSet::new());
         assert!(rows.is_empty());
+    }
+
+    #[test]
+    fn agent_view_orders_blocked_before_working_then_by_recency() {
+        let mut tree = tree();
+        tree.workspaces_mut()[0].screens[0].panes[0].tabs.push(tab(6, "new blocked"));
+        let agents = vec![
+            AgentInfo {
+                surface: 4,
+                state: "working".into(),
+                source: "hook".into(),
+                session: None,
+                updated_at_ms: 20,
+            },
+            AgentInfo {
+                surface: 5,
+                state: "blocked".into(),
+                source: "hook".into(),
+                session: None,
+                updated_at_ms: 1,
+            },
+            AgentInfo {
+                surface: 6,
+                state: "blocked".into(),
+                source: "hook".into(),
+                session: None,
+                updated_at_ms: 30,
+            },
+        ];
+        let rows =
+            rows(&spec(vec![SidebarResourceKind::Agents]), &tree, &agents, 0, &HashSet::new());
+
+        assert_eq!(
+            rows.iter().map(|row| row.target).collect::<Vec<_>>(),
+            vec![
+                ProjectionTarget::Surface {
+                    workspace: 0,
+                    screen: 0,
+                    pane: 3,
+                    index: 2,
+                    surface: 6,
+                    agent: true,
+                },
+                ProjectionTarget::Surface {
+                    workspace: 0,
+                    screen: 0,
+                    pane: 3,
+                    index: 1,
+                    surface: 5,
+                    agent: true,
+                },
+                ProjectionTarget::Surface {
+                    workspace: 0,
+                    screen: 0,
+                    pane: 3,
+                    index: 0,
+                    surface: 4,
+                    agent: true,
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn projection_selection_follows_target_when_agent_rows_reorder() {
+        let mut tree = tree();
+        tree.workspaces_mut()[0].screens[0].panes[0].tabs.push(tab(6, "new blocked"));
+        let agents = |states: [(&str, u64); 3]| {
+            [4, 5, 6]
+                .into_iter()
+                .zip(states)
+                .map(|(surface, (state, updated_at_ms))| AgentInfo {
+                    surface,
+                    state: state.into(),
+                    source: "hook".into(),
+                    session: None,
+                    updated_at_ms,
+                })
+                .collect::<Vec<_>>()
+        };
+        let spec = spec(vec![SidebarResourceKind::Agents]);
+        let initial = rows(
+            &spec,
+            &tree,
+            &agents([("working", 30), ("working", 20), ("working", 10)]),
+            0,
+            &HashSet::new(),
+        );
+        let mut state = ProjectionRailState { selected: 1, ..Default::default() };
+        state.reconcile_selection(&initial);
+
+        let mut moved_tree = tree.clone();
+        moved_tree.workspaces_mut()[0].screens[0].panes[0].tabs.insert(0, tab(7, "moved before"));
+        let reordered = rows(
+            &spec,
+            &moved_tree,
+            &agents([("blocked", 1), ("working", 20), ("blocked", 40)]),
+            0,
+            &HashSet::new(),
+        );
+        state.reconcile_selection(&reordered);
+        assert_eq!(state.selected, 2);
+        assert!(reordered[state.selected].target.same_resource(initial[1].target));
+    }
+
+    #[test]
+    fn projection_cache_reuses_rows_until_revision_changes() {
+        let tree = tree();
+        let view = spec(vec![SidebarResourceKind::Workspaces, SidebarResourceKind::Tabs]);
+        let collapsed = HashSet::new();
+        let revision = ProjectionRevision {
+            tree_workspace: tree.workspace_revision,
+            tree_pane: tree.pane_revision,
+            agents: Some(3),
+            selected_workspace: 0,
+            sidebar: 7,
+            rail: 0,
+        };
+        let mut cache = ProjectionRowsCache::default();
+        let mut builds = 0;
+        let first = cache.get_or_build("tabs", &revision, || {
+            builds += 1;
+            rows(&view, &tree, &[], 0, &collapsed)
+        });
+        let second = cache.get_or_build("tabs", &revision, || {
+            builds += 1;
+            rows(&view, &tree, &[], 0, &collapsed)
+        });
+
+        assert_eq!(first, second);
+        assert!(Arc::ptr_eq(&first, &second));
+        assert!(cache.get("tabs", &revision).is_some_and(|rows| Arc::ptr_eq(&rows, &first)));
+        assert_eq!(builds, 1);
+
+        let changed = ProjectionRevision { sidebar: 8, ..revision };
+        let third = cache.get_or_build("tabs", &changed, || {
+            builds += 1;
+            rows(&view, &tree, &[], 0, &collapsed)
+        });
+        assert_eq!(third, first);
+        assert!(!Arc::ptr_eq(&third, &first));
+        assert_eq!(builds, 2);
+    }
+
+    #[test]
+    fn projection_cache_invalidate_forces_a_rebuild() {
+        let revision = ProjectionRevision {
+            tree_workspace: 1,
+            tree_pane: Some(2),
+            agents: None,
+            selected_workspace: 0,
+            sidebar: 3,
+            rail: 4,
+        };
+        let mut cache = ProjectionRowsCache::default();
+        let mut builds = 0;
+        let first = cache.get_or_build("view", &revision, || {
+            builds += 1;
+            vec![ProjectionRow {
+                resource: SidebarResourceKind::Workspaces,
+                depth: 0,
+                name: "first".into(),
+                subtitle: String::new(),
+                agent_state: None,
+                active: false,
+                branch: None,
+                expanded: false,
+                target: ProjectionTarget::Workspace { index: 0, id: 1 },
+            }]
+        });
+        cache.invalidate();
+        let second = cache.get_or_build("view", &revision, || {
+            builds += 1;
+            vec![ProjectionRow {
+                resource: SidebarResourceKind::Workspaces,
+                depth: 0,
+                name: "second".into(),
+                subtitle: String::new(),
+                agent_state: None,
+                active: false,
+                branch: None,
+                expanded: false,
+                target: ProjectionTarget::Workspace { index: 0, id: 1 },
+            }]
+        });
+
+        assert_eq!(builds, 2);
+        assert_eq!(second[0].name, "second");
+        assert!(!Arc::ptr_eq(&first, &second));
     }
 }
