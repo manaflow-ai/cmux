@@ -202,7 +202,7 @@ export async function enqueueLegacyPhoneReply(
 }
 
 /** Pending, unexpired replies for one Mac, oldest first (typing order). */
-export async function listPhoneReplies(
+export async function listLegacyPhoneReplies(
   storage: LegacyPhoneReplyStorage,
   macDeviceId: string,
   nowMs: number,
@@ -213,7 +213,7 @@ export async function listPhoneReplies(
 
 /** Remove acknowledged replies. Unknown ids are a no-op (already expired or
  * acked by a previous sweep), so the Mac can ack the same batch twice safely. */
-export async function ackPhoneReplies(
+export async function ackLegacyPhoneReplies(
   storage: LegacyPhoneReplyStorage,
   replyIds: string[],
   nowMs: number,
