@@ -91,6 +91,41 @@ struct TerminalEventDeliveryLatencyTests {
     }
 
     @Test
+    func unknownTransportStatusDoesNotReplaceConnection() async throws {
+        let clock = TestClock()
+        let router = LivenessHostRouter()
+        let box = TransportBox()
+        let store = try await makeConnectedStore(
+            router: router, box: box, clock: clock,
+            probeTimeoutNanoseconds: 50_000_000,
+            observesTransportLiveness: false
+        )
+        defer { Task { await router.releaseAllHeld() } }
+        try #require(await router.waitForCount(of: "mobile.events.subscribe", atLeast: 1))
+        try #require(try await pollUntil { store.terminalEventSubscriptionIsValidated })
+        let originalClient = try #require(store.remoteClient)
+        let originalGeneration = store.connectionGeneration
+        let originalListener = try #require(store.debugTerminalEventListenerIDForTesting)
+        #expect(await originalClient.isTransportClosed() == nil)
+        await router.setHoldSubscribe(true)
+        await router.holdProbeRequest(number: 1)
+        await router.holdProbeRequest(number: 2)
+
+        clock.advance(by: 10)
+        store.debugRunRenderGridLivenessCheckForTesting()
+        await store.debugWaitForRenderGridLivenessCheckForTesting()
+        store.debugRunRenderGridLivenessCheckForTesting()
+        await store.debugWaitForRenderGridLivenessCheckForTesting()
+
+        #expect(store.debugTerminalEventListenerIDForTesting != originalListener,
+                "sustained silence should still repair the output reader")
+        #expect(store.remoteClient === originalClient)
+        #expect(store.connectionGeneration == originalGeneration)
+        #expect(store.connectionState == .connected,
+                "missing native status is not positive evidence of a dead connection")
+    }
+
+    @Test
     func slowProbeExtendsGraceAndDeliveryCancelsSuspicion() async throws {
         let clock = TestClock()
         let router = LivenessHostRouter()

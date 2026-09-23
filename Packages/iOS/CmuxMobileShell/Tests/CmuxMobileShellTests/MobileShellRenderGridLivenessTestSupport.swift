@@ -827,6 +827,7 @@ struct LivenessTransportFactory: CmxByteTransportFactory {
     let router: LivenessHostRouter
     let box: TransportBox
     var closeGate: LivenessTransportCloseGate?
+    var observesTransportLiveness = true
 
     func makeTransport(for route: CmxAttachRoute) throws -> any CmxByteTransport {
         let transport = LivenessTransport(
@@ -834,6 +835,9 @@ struct LivenessTransportFactory: CmxByteTransportFactory {
             closeGate: closeGate
         )
         box.set(transport)
+        if !observesTransportLiveness {
+            return UnobservedLivenessTransport(base: transport)
+        }
         return transport
     }
 }
@@ -1057,11 +1061,15 @@ func makeConnectedStore(
     box: TransportBox,
     clock: TestClock,
     probeTimeoutNanoseconds: UInt64 = 200_000_000,
+    observesTransportLiveness: Bool = true,
     inputAckRetryClock: any Clock<Duration> = ContinuousClock(),
     controlPlaneSchedulingClock: any Clock<Duration> = ContinuousClock()
 ) async throws -> MobileShellComposite {
     let runtime = LivenessTestRuntime(
-        transportFactory: LivenessTransportFactory(router: router, box: box),
+        transportFactory: LivenessTransportFactory(
+            router: router, box: box,
+            observesTransportLiveness: observesTransportLiveness
+        ),
         now: { clock.now },
         livenessProbeTimeoutNanoseconds: probeTimeoutNanoseconds
     )
