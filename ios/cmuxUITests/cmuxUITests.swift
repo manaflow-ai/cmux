@@ -8413,10 +8413,21 @@ final class cmuxUITests: XCTestCase {
     @MainActor
     private func openSelectedWorkspaceIfNeeded(_ app: XCUIApplication) throws {
         grantNotificationAuthorizationIfRequested()
-        let whatsNewContinue = app.buttons["MobileWhatsNewSheet"].firstMatch
-        if whatsNewContinue.waitForExistence(timeout: 4) {
-            tap(whatsNewContinue, in: app)
-            XCTAssertTrue(whatsNewContinue.waitForNonExistence(timeout: 4))
+        let whatsNewSheet = app.collectionViews["MobileWhatsNewSheet"].firstMatch
+        if whatsNewSheet.waitForExistence(timeout: 4) {
+            // On iOS 26 the sheet identifier can be inherited by its footer.
+            // Continue advances a page, so finish the range before opening a workspace.
+            let continueButton = app.buttons.matching(
+                NSPredicate(format: "label == %@", "Continue")
+            ).firstMatch
+            for _ in 0..<8 where whatsNewSheet.exists {
+                let button = try XCTUnwrap(continueButton.waitForExistence(timeout: 4) ? continueButton : nil)
+                tap(button, in: app)
+            }
+            _ = try XCTUnwrap(
+                whatsNewSheet.waitForNonExistence(timeout: 5) ? true : nil,
+                "Dismiss What's New before checking the workspace toolbar"
+            )
         }
         if app.otherElements["MobileTerminalSurface"].waitForExistence(timeout: 8) {
             return
@@ -8604,7 +8615,10 @@ final class cmuxUITests: XCTestCase {
         line: UInt = #line
     ) {
         let bar = app.navigationBars["MobileWorkspaceNavigationBar"]
-        XCTAssertTrue(bar.waitForExistence(timeout: 4), "Workspace details must use a native navigation bar", file: file, line: line)
+        guard bar.waitForExistence(timeout: 4) else {
+            XCTFail("Workspace details must use a native navigation bar", file: file, line: line)
+            return
+        }
         var controls: [XCUIElement] = []
         for identifier in ["MobileSplitSidebarToggle", "MobileWorkspaceBackButton"] {
             if bar.buttons[identifier].exists { controls.append(bar.buttons[identifier]) }
@@ -8614,10 +8628,10 @@ final class cmuxUITests: XCTestCase {
         if includesChanges { controls.append(app.buttons["MobileChangesButton"]) }
         controls.append(app.buttons["MobileTerminalDropdown"])
         let fits = NSPredicate { _, _ in
+            guard controls.allSatisfy({ $0.exists && $0.isHittable }) else { return false }
             let barFrame = bar.frame.insetBy(dx: -1, dy: -1)
             let frames = controls.map(\.frame)
-            return controls.allSatisfy { $0.exists && $0.isHittable }
-                && frames.allSatisfy { !$0.isEmpty && barFrame.contains($0) }
+            return frames.allSatisfy { !$0.isEmpty && barFrame.contains($0) }
                 && zip(frames, frames.dropFirst()).allSatisfy { $0.0.maxX <= $0.1.minX }
         }
         XCTAssertEqual(
