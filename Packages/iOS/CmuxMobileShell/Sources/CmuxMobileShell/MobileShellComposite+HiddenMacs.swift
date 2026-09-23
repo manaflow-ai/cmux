@@ -283,15 +283,15 @@ extension MobileShellComposite {
                     macDeviceID: candidate.deviceID,
                     instanceTag: candidate.instanceTag
                 )
-                let pairingID = MobilePairedMac.pairingID(
-                    macDeviceID: identity.macDeviceID,
+                let canonicalDeviceID = cmxCanonicalDeviceID(candidate.deviceID)
+                let canonicalPairingID = MobilePairedMac.pairingID(
+                    macDeviceID: canonicalDeviceID,
                     instanceTag: identity.instanceTag
                 )
-                let canonicalDeviceID = identity.macDeviceID
-                let recoveryID = recoveryIDs.contains(pairingID)
-                    ? pairingID
+                let recoveryID = recoveryIDs.contains(canonicalPairingID)
+                    ? canonicalPairingID
                     : (recoveryIDs.contains(canonicalDeviceID) ? canonicalDeviceID : nil)
-                guard let recoveryID, seen.insert(pairingID).inserted else { continue }
+                guard let recoveryID, seen.insert(canonicalPairingID).inserted else { continue }
                 guard let pairedMacStore else {
                     recoveryIDs.remove(recoveryID)
                     consumed.insert(recoveryID)
@@ -300,7 +300,7 @@ extension MobileShellComposite {
                 }
                 do {
                     try await pairedMacStore.upsert(
-                        macDeviceID: identity.macDeviceID,
+                        macDeviceID: canonicalDeviceID,
                         displayName: candidate.displayName,
                         routes: candidate.routes,
                         instanceTag: identity.instanceTag,
