@@ -958,14 +958,14 @@ final class TerminalCmdClickUITests: XCTestCase {
             "workspace_id": workspaceID, "surface_id": terminalID, "text": terminalCommand + "\n"
         ])
         XCTAssertTrue(waitForCondition(timeout: 15) {
-            guard let result = try? self.sshPreviewRPC("surface.read_text", socketPath: socketPath, params: [
+            guard let result = self.sshPreviewRPCResultIfAvailable("surface.read_text", socketPath: socketPath, params: [
                 "workspace_id": workspaceID, "surface_id": terminalID
             ]), let text = result["text"] as? String else { return false }
             return text.components(separatedBy: transcriptMarker).count > 10
         }, "Expected actual SSH output before clicking the path")
         _ = try runCommand(action: "cmd_click_token")
         XCTAssertTrue(waitForCondition(timeout: 20) {
-            guard let result = try? self.sshPreviewRPC("surface.list", socketPath: socketPath, params: ["workspace_id": workspaceID]),
+            guard let result = self.sshPreviewRPCResultIfAvailable("surface.list", socketPath: socketPath, params: ["workspace_id": workspaceID]),
                   let surfaces = result["surfaces"] as? [[String: Any]] else { return false }
             return surfaces.contains { $0["type"] as? String == "filepreview" }
         }, "Expected Cmd-click in the SSH terminal to create a file preview")
@@ -996,6 +996,17 @@ final class TerminalCmdClickUITests: XCTestCase {
             throw NSError(domain: "SSHPreviewFixture", code: Int(process.terminationStatus))
         }
         return String(decoding: data, as: UTF8.self)
+    }
+
+    private func sshPreviewRPCResultIfAvailable(
+        _ method: String,
+        socketPath: String,
+        params: [String: Any] = [:]
+    ) -> [String: Any]? {
+        guard let response = controlSocketJSONViaNetcat([
+            "id": UUID().uuidString, "method": method, "params": params
+        ], socketPath: socketPath), response["error"] == nil else { return nil }
+        return response["result"] as? [String: Any]
     }
 
     private func sshPreviewRPC(
