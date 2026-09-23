@@ -30,14 +30,15 @@ function validate(tag) {
   ]);
 }
 
-function resolveDevAPIBaseURL(fallback, override = "") {
+function resolveDevAPIBaseURL(fallback, override = "", backendOverride = "") {
   return run("bash", [
     "-c",
-    'source "$1"; CMUX_DEV_API_BASE_URL="$3" cmux_attach_resolve_dev_api_base_url "$2"',
+    'source "$1"; CMUX_DEV_API_BASE_URL="$3" CMUX_DEV_BACKEND_URL="$4" cmux_attach_resolve_dev_api_base_url "$2"',
     "mobile-attach-test",
     validator,
     fallback,
     override,
+    backendOverride,
   ]);
 }
 
@@ -458,6 +459,26 @@ test("shared dev API origin accepts an explicit trusted backend", () => {
   );
   assert.equal(result.status, 0, result.stderr);
   assert.equal(result.stdout, "https://cmux-staging.vercel.app");
+});
+
+test("shared dev API origin accepts the hq backend alias", () => {
+  const result = resolveDevAPIBaseURL(
+    "http://localhost:4123",
+    "",
+    "https://cmux-dev-backend-1.tail137216.ts.net:4405/",
+  );
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(result.stdout, "https://cmux-dev-backend-1.tail137216.ts.net:4405/");
+});
+
+test("explicit API origin wins over the hq backend alias", () => {
+  const result = resolveDevAPIBaseURL(
+    "http://localhost:4123",
+    "https://api.example.test/",
+    "https://backend.example.test/",
+  );
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(result.stdout, "https://api.example.test/");
 });
 
 test("tagged stale-socket cleanup removes only the exact Unix socket", async () => {

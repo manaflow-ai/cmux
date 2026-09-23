@@ -11,6 +11,7 @@ import { addCoderouterBreadcrumb, reportCoderouterFailure } from "../../../../..
 import { vmEdgeAliasDomain, vmReflectionAliasDomain } from "../../../../../services/coderouter/vmGuestEnv";
 import { reflectionHasDesktop, reflectionPayload, type ReflectionContext } from "../../../../../services/vms/reflection";
 import { listOwnerLiveVms, loadReflectionOwner } from "../../../../../services/vms/reflectionStore";
+import { POST as publishWorkspaceSnapshot } from "../../workspace-snapshot/route";
 import {
   requireVmPrincipal,
   vmPrincipalFailureResponse,
@@ -32,6 +33,7 @@ const ROUTE_TOKEN_FAILURES: ReadonlySet<VmPrincipalFailure> = new Set([
 type RouteContext = { params: Promise<{ path?: string[] }> };
 
 export const GET = coderouterControlRoute<RouteContext>("vm_reflection", "/api/vm/reflection", handleGet);
+export const POST = coderouterControlRoute("vm_reflection", "/api/vm/reflection/workspace-snapshot", publishWorkspaceSnapshot);
 
 async function handleGet(request: Request, context?: RouteContext): Promise<Response> {
   const auth = await requireVmPrincipal(request);

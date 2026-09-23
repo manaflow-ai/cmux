@@ -14,7 +14,7 @@ export interface EndpointOwnership {
 /** No directory read or credential renewal traverses this adapter. */
 /** Shared ownership adapter. The configured URL is the existing production Postgres database. */
 export class PlanetScaleOwnership implements EndpointOwnership {
-  constructor(private readonly databaseURL: string, private readonly environment: string, private readonly projectId: string) {
+  constructor(private readonly databaseURL: string, private readonly environment: string, private readonly projectId: string, private readonly hyperdrive = false) {
     const url = new URL(databaseURL);
     if (url.protocol !== "postgresql:" && url.protocol !== "postgres:") throw new Error("Ownership database requires PostgreSQL");
   }
@@ -25,8 +25,9 @@ export class PlanetScaleOwnership implements EndpointOwnership {
     const identityHash = await identityKey(device);
     const userScopeHash = await hash(canonicalJSON({ environment: identity.environment, projectId: identity.projectId, userId: identity.userId }));
     const connection = postgres(this.databaseURL, {
-      max: 1, prepare: false, connect_timeout: 5, idle_timeout: 1,
-      ssl: { rejectUnauthorized: true },
+      max: 1, prepare: true, fetch_types: false, connect_timeout: 5, idle_timeout: 1,
+      // Hyperdrive owns origin TLS and pooling. Only direct connections set TLS here.
+      ...(this.hyperdrive ? {} : { ssl: { rejectUnauthorized: true } }),
     });
     const db = drizzle(connection);
     try {

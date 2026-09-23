@@ -18,6 +18,7 @@ import { announceFreestyleNetwork } from "./freestyleNetworkAnnouncement";
 import { freestyleRequestFetch } from "./freestyleRequestTiming";
 import { currentVmRequestContext } from "../requestContext";
 import { guestResourceReporterInstallCommand } from "../guestResourceReporter";
+import { guestWorkspacePublisherInstallCommand } from "../guestWorkspacePublisher";
 import {
   ProviderError,
   type AttachTransport,
@@ -1468,6 +1469,7 @@ export class FreestyleProvider implements VMProvider {
               this.ensureGuestCli(vm, vmId, false),
               this.ensureAgentHooks(vm, vmId),
               this.ensureResourceReporter(vm, vmId),
+              this.ensureWorkspacePublisher(vm, vmId),
             ]);
             if (cli.status === "rejected") throw cli.reason;
           }
@@ -1659,6 +1661,7 @@ export class FreestyleProvider implements VMProvider {
     const healthy = await this.execResult(vm, freestyleDaemonSettledCommand(), DAEMON_SETTLE_TIMEOUT_MS + EXEC_OVERHEAD_TIMEOUT_MS);
     if (healthy?.exitCode === 0) {
       await this.ensureAgentHooks(vm, vmId);
+      await this.ensureWorkspacePublisher(vm, vmId);
       return;
     }
     const source = await this.deps.resolveDaemonSource("freestyle");
@@ -1675,6 +1678,7 @@ export class FreestyleProvider implements VMProvider {
     // (and with it the hooks); a resumed machine lands here while its
     // supervisor re-keys the daemon. Same idempotent check as the healthy path.
     await this.ensureAgentHooks(vm, vmId);
+    await this.ensureWorkspacePublisher(vm, vmId);
   }
 
   /**
@@ -1719,6 +1723,11 @@ export class FreestyleProvider implements VMProvider {
     }
   }
 
+  /** Workspace state is product data, so installation is part of attach readiness. */
+  private async ensureWorkspacePublisher(vm: Vm, vmId: string): Promise<void> {
+    await this.execOrThrow(vm, vmId, guestWorkspacePublisherInstallCommand(), 10_000);
+  }
+
   private async ensureGuestCli(vm: Vm, vmId: string, installReporter = true): Promise<void> {
     const expected = createHash("sha256").update(GUEST_CMUX_SHIM).digest("hex");
     const current = await this.execResult(vm, `test "$(sha256sum '${GUEST_CMUX_SHIM_PATH}' 2>/dev/null | cut -d ' ' -f 1)" = '${expected}' && ${guestBrowserReadyCommand} && ${guestCliDistributionCommand(true)}`);
@@ -1735,6 +1744,7 @@ export class FreestyleProvider implements VMProvider {
     const [cli] = await Promise.allSettled([
       this.installGuestCliFiles(vm, vmId, promptIdentity),
       this.ensureResourceReporter(vm, vmId),
+      this.ensureWorkspacePublisher(vm, vmId),
     ]);
     if (cli.status === "rejected") throw cli.reason;
   }

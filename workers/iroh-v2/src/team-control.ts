@@ -15,6 +15,8 @@ import type { UsageOperation } from "./storage/user-usage";
 import { unwrap } from "./user-usage-object";
 import { observe } from "./observability";
 import { DashboardControl } from "./dashboard-control";
+import { PostgresWorkspaceProductStore, type WorkspaceProductStore } from "./workspaces/productStore";
+import { VmChangedRequestSchema, WorkspacePublishRequestSchema } from "./contracts/workspaces";
 
 const SessionSchema = z.strictObject({
   sessionId: identifier, identity: IdentitySchema, endpointId: endpointID, identityGeneration: revision,
@@ -49,6 +51,8 @@ export class TeamControl extends DurableObject<Environment> {
 
   async fetch(request: Request): Promise<Response> {
     if (new URL(request.url).pathname === "/dashboard/socket") return this.dashboard.fetch(request);
+    if (new URL(request.url).pathname === "/workspace/publish") return this.publishWorkspace(request);
+    if (new URL(request.url).pathname === "/vm/changed") return this.publishVmChanged(request);
     let requestId = "unidentified";
     try {
       const incoming = await readInternalRequest(request);
@@ -87,6 +91,43 @@ export class TeamControl extends DurableObject<Environment> {
       const failure = publicError(error);
       observe(this.ctx, this.env, { event: "iroh.team.failure", environment: this.env.ENVIRONMENT, requestId, code: failure.code, status: failure.status, retryable: failure.retryable });
       return httpFailure(error, requestId);
+    }
+  }
+
+  private async publishWorkspace(request: Request): Promise<Response> {
+    if (request.method !== "POST" || !this.env.WORKSPACE_PUBLISHER_SECRET
+      || request.headers.get("x-cmux-workspace-publisher-secret") !== this.env.WORKSPACE_PUBLISHER_SECRET) {
+      return new Response(JSON.stringify({ error: "unauthorized" }), { status: 401, headers: { "content-type": "application/json" } });
+    }
+    try {
+      const input = WorkspacePublishRequestSchema.parse(await request.json());
+      const store = this.broker(input.teamId).dependencies.workspace;
+      if (!store) return new Response(JSON.stringify({ error: "upstream_unavailable" }), { status: 503, headers: { "content-type": "application/json" } });
+      const write = await store.put(input, { allowRevisionJump: true });
+      if (write.changed) {
+        this.scheduleChanges({ response: { schemaId: "operation.completed.v1", requestId: "workspace-publish", revision: 0 }, workspaceChanged: { vmId: input.vmId, generation: input.generation, revision: write.state.revision } }, input.teamId);
+      }
+      return new Response(JSON.stringify({ changed: write.changed, ...write.state }), { headers: { "content-type": "application/json" } });
+    } catch (error) {
+      const status = error instanceof OperationError ? error.status : 400;
+      return new Response(JSON.stringify({ error: error instanceof OperationError ? error.code : "invalid_request" }), { status, headers: { "content-type": "application/json" } });
+    }
+  }
+
+  private async publishVmChanged(request: Request): Promise<Response> {
+    if (request.method !== "POST" || !this.env.WORKSPACE_PUBLISHER_SECRET
+      || request.headers.get("x-cmux-workspace-publisher-secret") !== this.env.WORKSPACE_PUBLISHER_SECRET) {
+      return new Response(JSON.stringify({ error: "unauthorized" }), { status: 401, headers: { "content-type": "application/json" } });
+    }
+    try {
+      const input = VmChangedRequestSchema.parse(await request.json());
+      this.scheduleChanges({
+        response: { schemaId: "operation.completed.v1", requestId: "vm-changed", revision: 0 },
+        vmChanged: input,
+      }, input.teamId);
+      return new Response(JSON.stringify({ changed: true }), { headers: { "content-type": "application/json" } });
+    } catch {
+      return new Response(JSON.stringify({ error: "invalid_request" }), { status: 400, headers: { "content-type": "application/json" } });
     }
   }
 
@@ -168,6 +209,7 @@ export class TeamControl extends DurableObject<Environment> {
     let broker = this.brokers.get(teamId);
     if (!broker) {
       const services = runtime(this.env);
+      const workspace = this.workspaceProductStore();
       broker = new TeamBroker({
         store: new TeamStore(this.ctx.storage, { ...scope, teamId }, { initialize: false }),
         ownership: services.ownership, relays: services.relays, now: () => Math.floor(Date.now() / 1000),
@@ -176,10 +218,17 @@ export class TeamControl extends DurableObject<Environment> {
         verifyStack: (token, identity, now) => services.stack.verify(token, identity, now),
         canManageTeam: authority => services.stack.canManageTeam(authority),
         verifyTeamMember: (teamId, userId) => services.stack.verifyTeamMember(teamId, userId),
+        ...(workspace ? { workspace } : {}),
       });
       this.brokers.set(teamId, broker);
     }
     return broker;
+  }
+
+  /** Test subclasses may provide an in-memory store without changing production routing. */
+  protected workspaceProductStore(): WorkspaceProductStore | undefined {
+    const binding = this.env.HYPERDRIVE_CONNECTED_WORKSPACES;
+    return binding ? new PostgresWorkspaceProductStore(binding.connectionString) : undefined;
   }
 
   private user(userId: string) {
@@ -231,9 +280,14 @@ export class TeamControl extends DurableObject<Environment> {
   }
 
   private scheduleChanges(result: BrokerResult, teamId: string) {
-    if (result.changed) this.ctx.waitUntil(Promise.all([
-      this.broadcast(teamId, result.changed), this.dashboard.broadcast(teamId, result.changed.revision),
-    ]).catch(() => {
+    const tasks: Promise<void>[] = [];
+    if (result.changed) tasks.push(this.broadcast(teamId, result.changed), this.dashboard.broadcast(teamId, result.changed.revision));
+    if (result.workspaceChanged) tasks.push(
+      this.broadcastWorkspace(teamId, result.workspaceChanged),
+      this.dashboard.broadcastWorkspace(teamId, result.workspaceChanged),
+    );
+    if (result.vmChanged) tasks.push(this.dashboard.broadcastVm(teamId, result.vmChanged));
+    if (tasks.length) this.ctx.waitUntil(Promise.all(tasks).catch(() => {
       observe(this.ctx, this.env, { event: "iroh.directory.delivery_failed", environment: this.env.ENVIRONMENT });
     }));
   }
@@ -258,6 +312,19 @@ export class TeamControl extends DurableObject<Environment> {
           }
           await this.send(ws, { schemaId: "directory.changed.v1", teamId, revision: change.revision });
         }
+      }).catch(() => { this.close(ws, "slow_consumer"); })));
+    }
+  }
+
+  private async broadcastWorkspace(teamId: string, change: NonNullable<BrokerResult["workspaceChanged"]>) {
+    const sockets = this.ctx.getWebSockets().filter(ws => !this.dashboard.owns(ws));
+    for (let start = 0; start < sockets.length; start += 16) {
+      await Promise.allSettled(sockets.slice(start, start + 16).map(ws => this.enqueue(ws, 0, async () => {
+        const attachment = this.load(ws);
+        if (attachment.closed || attachment.session.expiresAt <= Math.floor(Date.now() / 1000)) return;
+        const broker = this.broker(teamId);
+        broker.requiredDevice(attachment.session);
+        await this.send(ws, { schemaId: "workspace.changed.v1", teamId, ...change });
       }).catch(() => { this.close(ws, "slow_consumer"); })));
     }
   }

@@ -54,6 +54,11 @@ export function DashboardShell({
           label: t("cloudDevices"),
           active: pathname.startsWith("/dashboard/cloud"),
         },
+        {
+          href: "/dashboard/vms",
+          label: t("vms"),
+          active: pathname.startsWith("/dashboard/vms"),
+        },
       ],
     },
     {

@@ -13,7 +13,15 @@ describe("coderouter sign-in privacy", () => {
       "utf8",
     );
     expect(source).toContain("coderouterHost");
-    expect(source).toContain("<MagicLinkSignIn />");
+    expect(source).toContain("ClientMagicLinkSignIn");
+    const clientSource = readFileSync(
+      resolve(
+        fileURLToPath(new URL(".", import.meta.url)),
+        "../app/handler/stack-handler-client.tsx",
+      ),
+      "utf8",
+    );
+    expect(clientSource).toContain("MagicLinkSignIn");
     expect(source).toContain("Drive, Gmail, and Calendar");
   });
 

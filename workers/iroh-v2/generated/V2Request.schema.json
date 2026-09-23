@@ -34,6 +34,15 @@
     },
     {
       "$ref": "https://contracts.cmux.invalid/iroh-v2/V2AcknowledgementRequest.json"
+    },
+    {
+      "$ref": "https://contracts.cmux.invalid/iroh-v2/V2WorkspaceSnapshotRequest.json"
+    },
+    {
+      "$ref": "https://contracts.cmux.invalid/iroh-v2/V2WorkspaceGetRequest.json"
+    },
+    {
+      "$ref": "https://contracts.cmux.invalid/iroh-v2/V2WorkspaceListRequest.json"
     }
   ]
 }

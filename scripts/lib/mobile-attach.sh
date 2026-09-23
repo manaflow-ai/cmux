@@ -16,6 +16,11 @@ cmux_attach_resolve_dev_api_base_url() {
   local fallback="$1"
   if [[ -n "${CMUX_DEV_API_BASE_URL:-}" ]]; then
     printf '%s' "$CMUX_DEV_API_BASE_URL"
+  elif [[ -n "${CMUX_DEV_BACKEND_URL:-}" ]]; then
+    # CMUX_DEV_BACKEND_URL is the hq-owned spelling used by the direct GCP
+    # backend wrapper. Keep it as an alias so a caller cannot silently fall
+    # back to localhost just because it used the backend-oriented name.
+    printf '%s' "$CMUX_DEV_BACKEND_URL"
   else
     printf '%s' "$fallback"
   fi

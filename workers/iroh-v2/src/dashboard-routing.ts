@@ -18,14 +18,14 @@ interface Dependencies {
 export async function routeDashboard(request: Request, services: Dependencies): Promise<Response> {
   let requestId = "unidentified", approvedOrigin: string | null = null;
   const cors = (response: Response): Response => {
-    // Stub responses have immutable headers. Preserve the WebSocket upgrade
-    // itself; browser socket admission is already bound to the checked Origin.
+    // A WebSocket upgrade returned by a Durable Object has immutable headers.
+    // Its Origin was checked before dispatch, and the handshake needs no CORS
+    // decoration. Preserve the upgrade response and its selected protocol.
     if (!approvedOrigin || response.status === 101) return response;
-    const result = new Response(response.body, response);
-    result.headers.set("access-control-allow-origin", approvedOrigin);
-    result.headers.set("vary", "Origin");
-    result.headers.set("cache-control", "no-store");
-    return result;
+    response.headers.set("access-control-allow-origin", approvedOrigin);
+    response.headers.set("vary", "Origin");
+    response.headers.set("cache-control", "no-store");
+    return response;
   };
   try {
     const url = new URL(request.url), origin = request.headers.get("origin");
