@@ -345,6 +345,9 @@ extension TerminalController {
                 switch v2NormalizedToken(rendererRaw) {
                 case "react": rendererKind = .react
                 case "solid": rendererKind = .solid
+                case "claudedesktop", "desktopclaude":
+                    rendererKind = .claudeDesktop
+                    providerID = .claude
                 default: return .invalidRenderer(rawValue: rendererRaw)
                 }
             }
