@@ -20,8 +20,8 @@ is the committer date, which is when the pull request landed on main.
 
 "Relevant" reuses the workflow's own filter: --paths-from-workflow reads the
 `const iosRelevantPaths = [...]` array out of the workflow's decide script, so
-there is a single list. Without it (the official lane has no path filter),
-every commit counts.
+there is a single list. The official lane uses --public-path-filter to skip only known unrelated
+paths, matching its conservative decide gate. Without either filter all commits count.
 
 History comes from the checkout (ios/scripts/fetch-testflight-notes-history.sh
 deepens it to the base), not the REST API. Anything that cannot be read fails
@@ -171,11 +171,26 @@ def first_parent_commits(base: str, head: str = "HEAD", cwd: Optional[Path] = No
     return commits
 
 
-def relevant_commit_times(commits, paths: Optional[Sequence[str]]) -> list[int]:
+def public_path_relevant(path: str) -> bool:
+    """Mirror the public compare gate; parity is exercised against its code."""
+    if not isinstance(path, str) or not path:
+        return True
+    if path.startswith(("web/", "docs/", "tests/", "cmuxTests/")):
+        return False
+    if path.startswith(".github/workflows/"):
+        return path in {
+            ".github/workflows/ios-appstore-upload.yml",
+            ".github/workflows/ios-testflight.yml",
+        }
+    return True
+
+
+def relevant_commit_times(commits, paths: Optional[Sequence[str]], public: bool = False) -> list[int]:
     return [
         committed
         for _sha, committed, files in commits
-        if paths is None or any(touches(name, paths) for name in files)
+        if (any(public_path_relevant(name) for name in files) if public
+            else paths is None or any(touches(name, paths) for name in files))
     ]
 
 
@@ -184,7 +199,9 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     parser.add_argument("--event", required=True)
     parser.add_argument("--base", default="", help="last successfully uploaded main SHA")
     parser.add_argument("--head", default="HEAD")
-    parser.add_argument("--paths-from-workflow", type=Path)
+    filters = parser.add_mutually_exclusive_group()
+    filters.add_argument("--paths-from-workflow", type=Path)
+    filters.add_argument("--public-path-filter", action="store_true")
     parser.add_argument("--min-commits", default="")
     parser.add_argument("--max-age-minutes", default="")
     parser.add_argument("--default-min-commits", type=int, required=True)
@@ -212,13 +229,15 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         if args.paths_from_workflow is not None:
             paths = workflow_path_filter(args.paths_from_workflow.read_text(encoding="utf-8"))
             label = "iOS commits"
+        if args.public_path_filter:
+            label = "iOS commits"
         if args.event == "workflow_dispatch":
             decision = decide(args.event, [], now, thresholds, label)
         elif not args.base:
             decision = Decision(True, "upload: no prior upload to batch against")
         else:
             commits = first_parent_commits(args.base, args.head)
-            decision = decide(args.event, relevant_commit_times(commits, paths), now, thresholds, label)
+            decision = decide(args.event, relevant_commit_times(commits, paths, args.public_path_filter), now, thresholds, label)
     except (OSError, ValueError, LookupError, subprocess.CalledProcessError) as error:
         warn(f"could not batch this upload ({error}); uploading")
         decision = Decision(True, "upload: batching history unavailable (fail open)")
