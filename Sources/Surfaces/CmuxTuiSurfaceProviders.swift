@@ -285,6 +285,8 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         // Callers must use only a graph established by this refresh as mutation
         // evidence, never the retained stale graph.
         var snapshotEstablishedCurrentGraph = false
+        var portScan: Task<[Int]?, Never>?
+        defer { portScan?.cancel() }
         do {
             guard isCurrentRefresh(lifecycle: lifecycle, refresh: generation) else { return false }
             let connected = try await links.connected(machineID: machineID)
@@ -292,16 +294,15 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             guard let link = await links.link(machineID: machineID) else { throw ProviderError.machineAsleep(machineID) }
             guard isCurrentRefresh(lifecycle: lifecycle, refresh: generation) else { return false }
             // The port scan and graph snapshot use independent daemon requests.
-            // Start both after the link is ready, so refresh latency is the slower
-            // request rather than their sum. Each result remains guarded by the
-            // same generation fence before it publishes.
-            async let refreshedPorts = ports(link: link, socketPath: connected.socketPath, force: force, generation: generation, privateAddress: privateAddress, displayPortsOwned: hasDesktop)
-            async let snapshotData = link.run(arguments: CloudTuiRequests.snapshotArguments(socketPath: connected.socketPath))
-            if let refreshedPorts = await refreshedPorts {
-                guard isCurrentRefresh(lifecycle: lifecycle, refresh: generation) else { return false }
-                scannedPorts = refreshedPorts
-                currentPorts = refreshedPorts
+            // Start both after the link is ready. The graph publishes as soon as
+            // the snapshot lands; ports publish when their scan finishes. The
+            // scan runs a guest command and took most of a second on a machine
+            // that had just resumed, which held New Machine's first terminal
+            // back for nothing (it only feeds port-preview rows).
+            portScan = Task { [weak self] in
+                await self?.ports(link: link, socketPath: connected.socketPath, force: force, generation: generation, privateAddress: privateAddress, displayPortsOwned: hasDesktop)
             }
+            async let snapshotData = link.run(arguments: CloudTuiRequests.snapshotArguments(socketPath: connected.socketPath))
             watchChanges(link: link, generation: lifecycle)
             configureGuestURLOpen(link: link, socketPath: connected.socketPath)
             let data = try await snapshotData
@@ -408,6 +409,18 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         }
         guard isCurrentRefresh(lifecycle: lifecycle, refresh: generation) else { return false }
         reprojectRestoredPanes(generation: lifecycle)
+        if let portScan, let refreshedPorts = await portScan.value,
+           isCurrentRefresh(lifecycle: lifecycle, refresh: generation) {
+            if refreshedPorts != currentPorts, let cloudState {
+                currentPorts = refreshedPorts
+                publish(
+                    cloudState,
+                    ports: refreshedPorts,
+                    reconcileTitles: false,
+                    observation: snapshotEstablishedCurrentGraph ? .current : .stale(reason: info.linkError ?? info.linkState.rawValue)
+                )
+            }
+        }
         if let stats = await stats, isCurrentRefresh(lifecycle: lifecycle, refresh: generation) {
             info = info.applyingGauges(stats)
             catalog.updateMachine(info, from: self)

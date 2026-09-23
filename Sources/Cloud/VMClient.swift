@@ -1238,6 +1238,10 @@ actor VMClient {
                 extraHeaders: headers,
                 timeoutSeconds: Self.createTimeoutSeconds
             )
+            #if DEBUG
+            // Per-stage server time for the New Machine critical path.
+            cmuxDebugLog("cloud.vm.create.serverTiming status=\(http.statusCode) \(http.value(forHTTPHeaderField: "Server-Timing") ?? "none")")
+            #endif
             try ensureOK(http, data: data)
             let obj = try decodeJSONObject(data)
             guard let id = obj["id"] as? String,

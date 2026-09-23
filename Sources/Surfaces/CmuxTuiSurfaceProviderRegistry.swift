@@ -142,6 +142,12 @@ final class CmuxTuiSurfaceProviderRegistry {
         if summary.cmuxTuiContract == Self.trustedCarrierContract {
             createdTrustedCarrierIDs.insert(summary.id)
         }
+        // Start the first link and graph read now, while the caller is still
+        // creating its workspace. The open's `ensure_linked` catalog read joins
+        // this pass instead of starting its own after the fact.
+        Task { [weak provider] in
+            _ = await provider?.refreshCurrentGraph(force: false)
+        }
     }
 
     /// The image contract whose daemon serves the trusted private-network

@@ -761,6 +761,7 @@
 		C5616E96DCEC5AD0263BB9A4 /* CloudGuestURLTestContainer.swift in Sources */ = {isa = PBXBuildFile; fileRef = DAA597EF5D62E0147E16DCAF /* CloudGuestURLTestContainer.swift */; };
 		D0110080000000000000000A /* CloudHubConnection.swift in Sources */ = {isa = PBXBuildFile; fileRef = D01100800000000000000009 /* CloudHubConnection.swift */; };
 		E58AA0A516704DF28E795531 /* CloudHubConnector.swift in Sources */ = {isa = PBXBuildFile; fileRef = 03D533A672094C0F8F6B0097 /* CloudHubConnector.swift */; };		7A0CE100000000000000070E /* CloudHubDialing.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A0CE100000000000000070D /* CloudHubDialing.swift */; };
+		052EED2B7B94A277BCD1CEBD /* CloudHubConnectorHedgeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9AD17DD6D0DA4B0877464615 /* CloudHubConnectorHedgeTests.swift */; };
 		7A0CE100000000000000071A /* CloudHubPortForwarder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A0CE1000000000000000719 /* CloudHubPortForwarder.swift */; };
 		7A0CE100000000000000070C /* CloudHubSocketClaim.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A0CE100000000000000070B /* CloudHubSocketClaim.swift */; };
 		12476000000000000000001E /* CloudImagePasteCoordinatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 12477000000000000000001E /* CloudImagePasteCoordinatorTests.swift */; };
@@ -5013,6 +5014,7 @@
 		DAA597EF5D62E0147E16DCAF /* CloudGuestURLTestContainer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudGuestURLTestContainer.swift"; sourceTree = "<group>"; };
 		D01100800000000000000009 /* CloudHubConnection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudHubConnection.swift; sourceTree = "<group>"; };
 		03D533A672094C0F8F6B0097 /* CloudHubConnector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudHubConnector.swift"; sourceTree = "<group>"; };		7A0CE100000000000000070D /* CloudHubDialing.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudHubDialing.swift; sourceTree = "<group>"; };
+		9AD17DD6D0DA4B0877464615 /* CloudHubConnectorHedgeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudHubConnectorHedgeTests.swift"; sourceTree = "<group>"; };
 		7A0CE1000000000000000719 /* CloudHubPortForwarder.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudHubPortForwarder.swift; sourceTree = "<group>"; };
 		7A0CE100000000000000070B /* CloudHubSocketClaim.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudHubSocketClaim.swift; sourceTree = "<group>"; };
 		12477000000000000000001E /* CloudImagePasteCoordinatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudImagePasteCoordinatorTests.swift; sourceTree = "<group>"; };
@@ -12508,6 +12510,7 @@
 				6B7DF8AE123341DEBA066731 /* CloudDisplayCatalogTests.swift */,
 				A6D3896BB28B4549B3D33A83 /* CloudPortAccessLateCoordinatorTests.swift */,
 				C51600000000000000000002 /* CLIExecInheritedSignalStateTests.swift */,
+				9AD17DD6D0DA4B0877464615 /* CloudHubConnectorHedgeTests.swift */,
 			);
 			path = cmuxTests;
 			sourceTree = "<group>";
@@ -16448,6 +16451,7 @@
 				57BC801370636A4E2C1B31B7 /* CloudFileDeliveryTests.swift in Sources */,
 				F7925DA2C43A12723611F26E /* CloudGuestURLRoutingTests.swift in Sources */,
 				C5616E96DCEC5AD0263BB9A4 /* CloudGuestURLTestContainer.swift in Sources */,
+				052EED2B7B94A277BCD1CEBD /* CloudHubConnectorHedgeTests.swift in Sources */,
 				12476000000000000000001E /* CloudImagePasteCoordinatorTests.swift in Sources */,
 				124760000000000000000030 /* CloudImagePasteMirrorIntegrationTests.swift in Sources */,
 				124760000000000000000001 /* CloudImagePasteRoutingTests.swift in Sources */,
