@@ -1,6 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Refuse before tag locks, backend provisioning, dependency setup or cleanup.
+if [[ "${CMUX_LOCAL_BUILD_GUARD_ACTIVE:-0}" == 1 && "${CMUX_ALLOW_LOCAL_XCODEBUILD:-0}" != 1 ]]; then
+  echo "error: local cmux builds are disabled on this host; use cmux-ci build cmux --ref EXACT_SHA --tag DESCRIPTIVE_TAG" >&2
+  exit 2
+fi
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 RELOAD_ORIGINAL_ARGS=("$@")
 # shellcheck source=scripts/lib/mobile-attach.sh
@@ -1634,7 +1640,7 @@ if ! is_positive_integer "$XCODEBUILD_LOCK_CONCURRENCY"; then
   echo "error: xcodebuild lock concurrency must be a positive integer" >&2
   exit 1
 fi
-XCODEBUILD_LOCK_WAIT_SECONDS="${CMUX_XCODEBUILD_LOCK_WAIT_SECONDS:-1800}"
+XCODEBUILD_LOCK_WAIT_SECONDS="${CMUX_XCODEBUILD_LOCK_WAIT_SECONDS:-120}"
 if ! is_positive_integer "$XCODEBUILD_LOCK_WAIT_SECONDS"; then
   echo "error: xcodebuild lock wait timeout must be a positive integer" >&2
   exit 1
@@ -1643,145 +1649,7 @@ fi
 # xcodebuild invocations can trample that daemon, so cap reload.sh builds at
 # five per user while still allowing useful parallel tagged builds.
 XCODEBUILD_STARTED=1
-python3 -c '
-import array
-import fcntl
-import os
-import select
-import signal
-import socket
-import sys
-
-lock_dir = sys.argv[1]
-concurrency = int(sys.argv[2])
-wait_seconds = int(sys.argv[3])
-command = sys.argv[4:]
-
-try:
-    os.makedirs(lock_dir, mode=0o700, exist_ok=True)
-except OSError as exc:
-    raise SystemExit(f"error: create lock dir: {exc}")
-
-def open_slot(slot):
-    lock_path = os.path.join(lock_dir, f"slot-{slot}.lock")
-    try:
-        fd = os.open(lock_path, os.O_CREAT | os.O_RDWR, 0o600)
-    except OSError as exc:
-        raise SystemExit(f"error: open lock slot: {exc}")
-
-    try:
-        os.set_inheritable(fd, True)
-    except OSError as exc:
-        os.close(fd)
-        raise SystemExit(f"error: fcntl lock fd: {exc}")
-    return fd, lock_path
-
-def try_acquire_any_slot():
-    for slot in range(1, concurrency + 1):
-        fd, lock_path = open_slot(slot)
-        try:
-            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-            return fd, slot, lock_path
-        except BlockingIOError:
-            os.close(fd)
-        except OSError as exc:
-            os.close(fd)
-            raise SystemExit(f"error: flock: {exc}")
-    return None, None, None
-
-def stop_waiters(children):
-    for pid in children:
-        try:
-            os.kill(pid, signal.SIGTERM)
-        except ProcessLookupError:
-            pass
-        except OSError:
-            pass
-    for pid in children:
-        try:
-            os.waitpid(pid, 0)
-        except ChildProcessError:
-            pass
-        except OSError:
-            pass
-
-def wait_for_any_slot():
-    parent_sock, child_sock = socket.socketpair()
-    children = []
-    try:
-        for slot in range(1, concurrency + 1):
-            pid = os.fork()
-            if pid == 0:
-                try:
-                    parent_sock.close()
-                    fd, _ = open_slot(slot)
-                    fcntl.flock(fd, fcntl.LOCK_EX)
-                    payload = array.array("i", [fd])
-                    child_sock.sendmsg(
-                        [f"{slot}".encode()],
-                        [(socket.SOL_SOCKET, socket.SCM_RIGHTS, payload)],
-                    )
-                except BaseException:
-                    os._exit(1)
-                os._exit(0)
-            children.append(pid)
-        child_sock.close()
-
-        ready, _, _ = select.select([parent_sock], [], [], wait_seconds)
-        if not ready:
-            raise SystemExit(
-                f"error: timed out waiting for xcodebuild slot after {wait_seconds}s; "
-                "check for stuck xcodebuild processes"
-            )
-
-        msg, ancdata, _, _ = parent_sock.recvmsg(
-            16,
-            socket.CMSG_LEN(array.array("i").itemsize),
-        )
-        received = array.array("i")
-        for level, ctype, data in ancdata:
-            if level == socket.SOL_SOCKET and ctype == socket.SCM_RIGHTS:
-                received.frombytes(data[: array.array("i").itemsize])
-        if not received:
-            raise SystemExit("error: failed to receive xcodebuild lock slot")
-        fd = received[0]
-        os.set_inheritable(fd, True)
-        try:
-            slot = int(msg.decode())
-        except ValueError:
-            slot = 0
-        lock_path = os.path.join(lock_dir, f"slot-{slot}.lock")
-        return fd, slot, lock_path
-    finally:
-        stop_waiters(children)
-        parent_sock.close()
-        try:
-            child_sock.close()
-        except OSError:
-            pass
-
-fd, slot, lock_path = try_acquire_any_slot()
-if fd is None:
-    msg = (
-        f"==> xcodebuild concurrency limit reached ({concurrency}); "
-        "waiting for the next available slot...\n"
-    )
-    # reload.sh saves the original stderr on fd 4 before redirecting to the
-    # log file. Surface the wait notice to the terminal so the user knows
-    # they are queued, not hung. Fall back to stderr (the log) if fd 4 is
-    # unavailable (e.g. when this script is run standalone).
-    try:
-        os.write(4, msg.encode())
-    except OSError:
-        sys.stderr.write(msg)
-        sys.stderr.flush()
-    fd, slot, lock_path = wait_for_any_slot()
-
-try:
-    os.execvp(command[0], command)
-except OSError as exc:
-    raise SystemExit(f"error: exec: {exc}")
-' "$XCODEBUILD_LOCK_DIR" "$XCODEBUILD_LOCK_CONCURRENCY" "$XCODEBUILD_LOCK_WAIT_SECONDS" xcodebuild "${XCODEBUILD_ARGS[@]}"
+python3 "$SCRIPT_DIR/lib/xcodebuild-slot.py" "$XCODEBUILD_LOCK_DIR" "$XCODEBUILD_LOCK_CONCURRENCY" "$XCODEBUILD_LOCK_WAIT_SECONDS" xcodebuild "${XCODEBUILD_ARGS[@]}"
 sleep 0.2
 if LC_ALL=C grep -q 'BUILD INTERRUPTED' "$RELOAD_LOG"; then
   echo "error: xcodebuild reported ** BUILD INTERRUPTED **; refusing to reuse DerivedData app artifacts" >&2
