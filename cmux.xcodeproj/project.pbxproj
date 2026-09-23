@@ -1608,6 +1608,7 @@
 		D96290010000000000000001 /* CodexResumeBindingVerificationRegressionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D96290020000000000000001 /* CodexResumeBindingVerificationRegressionTests.swift */; };
 		C8711C000000000000000002 /* CodexRolloutIdentity.swift in Sources */ = {isa = PBXBuildFile; fileRef = C8711C000000000000000001 /* CodexRolloutIdentity.swift */; };
 		C8711D000000000000000002 /* CodexRolloutIdentityResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = C8711D000000000000000001 /* CodexRolloutIdentityResolver.swift */; };
+		E6227020943E2260565D992D /* CodexSessionStartDeadTurnTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7E3FFB9B84F6DE45250D5D5 /* CodexSessionStartDeadTurnTests.swift */; };
 		C0DECAFE0000000000000001 /* CodexTeamsApprovalBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DECAFE0000000000000002 /* CodexTeamsApprovalBridge.swift */; };
 		C0DECAFE0000000000000003 /* CodexTeamsApprovalBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DECAFE0000000000000002 /* CodexTeamsApprovalBridge.swift */; };
 		C0DEBACC0000000000000001 /* CodexTeamsAppServerFixture.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEBACC0000000000000004 /* CodexTeamsAppServerFixture.swift */; };
@@ -5766,6 +5767,7 @@
 		D96290020000000000000001 /* CodexResumeBindingVerificationRegressionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexResumeBindingVerificationRegressionTests.swift; sourceTree = "<group>"; };
 		C8711C000000000000000001 /* CodexRolloutIdentity.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CodexRolloutIdentity.swift; sourceTree = "<group>"; };
 		C8711D000000000000000001 /* CodexRolloutIdentityResolver.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CodexRolloutIdentityResolver.swift; sourceTree = "<group>"; };
+		C7E3FFB9B84F6DE45250D5D5 /* CodexSessionStartDeadTurnTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CodexSessionStartDeadTurnTests.swift"; sourceTree = "<group>"; };
 		C0DECAFE0000000000000002 /* CodexTeamsApprovalBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexTeamsApprovalBridge.swift; sourceTree = "<group>"; };
 		C0DEBACC0000000000000004 /* CodexTeamsAppServerFixture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexTeamsAppServerFixture.swift; sourceTree = "<group>"; };
 		A10240020000000000000001 /* CodexTeamsAppServerProcess.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexTeamsAppServerProcess.swift; sourceTree = "<group>"; };
@@ -12544,6 +12546,7 @@
 				1ABECB16C9B3F79933C712B5 /* CLILegacyCodexRestoreLeaseTests.swift */,
 				D96D0A50A9C2220332A4B28A /* DeferredAdmissionTestOwner.swift */,
 				511EAB11A81C099E4F5A8ECF /* DeferredAgentResumeAdmissionOwnerTests.swift */,
+				C7E3FFB9B84F6DE45250D5D5 /* CodexSessionStartDeadTurnTests.swift */,
 			);
 			path = cmuxTests;
 			sourceTree = "<group>";
@@ -16682,6 +16685,7 @@
 				256E3FBC057F233E8849DF79 /* CodexRestoreHookEvidenceTests.swift in Sources */,
 				7FF4F2EA73F8883D21912965 /* CodexRestoreOwnerGenerationTests.swift in Sources */,
 				D96290010000000000000001 /* CodexResumeBindingVerificationRegressionTests.swift in Sources */,
+				E6227020943E2260565D992D /* CodexSessionStartDeadTurnTests.swift in Sources */,
 				C0DECAFE0000000000000003 /* CodexTeamsApprovalBridge.swift in Sources */,
 				C0DEBACC0000000000000001 /* CodexTeamsAppServerFixture.swift in Sources */,
 				A10240040000000000000001 /* CodexTeamsAppServerProcessTests.swift in Sources */,
