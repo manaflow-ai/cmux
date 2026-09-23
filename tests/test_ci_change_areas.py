@@ -509,6 +509,24 @@ def test_agent_instructions_and_skill_docs_skip_expensive_areas() -> None:
     )
 
 
+def test_contributor_prose_skips_expensive_areas() -> None:
+    assert_areas(
+        ["STYLE.md", "CONTRIBUTING.md", ".github/pull_request_template.md"],
+        macos=False,
+        web=False,
+    )
+    # The Release build is the expensive half of the waste: a writing-guidance
+    # edit used to select a universal app build.
+    assert module.classify_files(["STYLE.md"]).release_build is False
+
+
+def test_bundled_root_markdown_still_runs_macos() -> None:
+    # THIRD_PARTY_LICENSES.md is root Markdown like the files above, but it
+    # ships in Resources/ and AboutLicenseContent.swift reads it, so it is a
+    # real product input. This is the boundary the prose carveout must not cross.
+    assert_areas(["THIRD_PARTY_LICENSES.md"], macos=True, web=False)
+
+
 def test_bundled_and_executable_skill_files_run_macos() -> None:
     # The app bundles skills/cmux-cua as a folder resource.
     assert_areas(["skills/cmux-cua/SKILL.md"], macos=True, web=False)
