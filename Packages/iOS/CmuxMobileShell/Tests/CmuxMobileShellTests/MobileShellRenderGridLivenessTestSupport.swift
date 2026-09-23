@@ -844,6 +844,8 @@ actor LivenessTransport: CmxByteTransport, CmxByteTransportLivenessObserving {
     private var pendingFrames: [Data] = []
     private var receiveWaiters: [CheckedContinuation<Data?, Never>] = []
     private var isClosed = false
+    private var shouldHoldLivenessCheck = false
+    private var heldLivenessCheck: CheckedContinuation<Void, Never>?
 
     init(
         router: LivenessHostRouter,
@@ -934,7 +936,24 @@ actor LivenessTransport: CmxByteTransport, CmxByteTransportLivenessObserving {
     }
 
     func isTransportClosed() async -> Bool {
-        isClosed
+        if shouldHoldLivenessCheck {
+            shouldHoldLivenessCheck = false
+            await withCheckedContinuation { heldLivenessCheck = $0 }
+        }
+        return isClosed
+    }
+
+    func holdNextLivenessCheck() {
+        shouldHoldLivenessCheck = true
+    }
+
+    func hasHeldLivenessCheck() -> Bool {
+        heldLivenessCheck != nil
+    }
+
+    func releaseHeldLivenessCheck() {
+        heldLivenessCheck?.resume()
+        heldLivenessCheck = nil
     }
 
     /// Deliver a frame to the client's read loop. Also used by tests to push
