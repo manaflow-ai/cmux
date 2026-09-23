@@ -18,7 +18,13 @@ import SwiftUI
 final class ReorderDragModel {
     var localOrder: [String]?
 
+    /// The renderer owns only the gesture preview; after settling, items win
+    /// even when a refused command produces no data change.
     func finishSettlement() {
+        localOrder = nil
+        settledId = nil
+        settledIndent = nil
+        projectedIndent = nil
         draggedId = nil
         isSettling = false
         isBlockDrag = false
@@ -39,9 +45,8 @@ final class ReorderDragModel {
     /// while dragging toward a group the row slides to the member indent,
     /// dragging out it slides back. `nil` = no evidence, keep current X.
     var projectedIndent: CGFloat?
-    /// The last drop's row and projected indent, kept after the drag ends so
-    /// the X preview holds until the authoritative data lands (the row's own
-    /// indent prop then matches the projection and the offset becomes zero).
+    /// The dropped row and its projected indent during the settle animation.
+    /// Cleared at settlement even if the authoritative data never changes.
     var settledId: String?
     var settledIndent: CGFloat?
     /// True while an Escape-cancelled drag springs home; gesture events are

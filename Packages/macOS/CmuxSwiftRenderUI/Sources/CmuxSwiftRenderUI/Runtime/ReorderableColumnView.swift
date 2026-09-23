@@ -91,6 +91,16 @@ struct ReorderableColumnView: View {
             }
             if model.draggedId == nil || model.isSettling { model.localOrder = nil }
         }
+        // Explicit same-membership reconciliation for custom optimistic state.
+        // A live gesture keeps its frozen order until settlement finishes.
+        .onChange(of: node.props["resetVersion"]) { _, _ in
+            if model.draggedId == nil || model.isSettling {
+                model.localOrder = nil
+                model.settledId = nil
+                model.settledIndent = nil
+                model.projectedIndent = nil
+            }
+        }
         // Suppress hover washes on every row but the dragged one while a
         // drag is in flight (see SceneBoxStyle).
         .environment(\.sceneDraggedNodeId, model.draggedId)
@@ -324,7 +334,7 @@ struct ReorderableColumnView: View {
         } completion: {
             model.finishSettlement()
         }
-        // Hold the X preview past the settle: the offset formula
+        // Hold the X preview through the settle: the offset formula
         // (projected - own indent prop) self-zeroes when the authoritative
         // data updates the row's indent, so there is never a horizontal jump.
         model.settledId = childId

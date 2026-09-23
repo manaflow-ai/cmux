@@ -37,6 +37,43 @@ struct SidebarJSRuntimeTests {
         #expect(presentation.settledIndent == nil)
     }
 
+    @Test func resetVersionChangesWithoutRemountingRows() throws {
+        let runtime = SidebarJSRuntime()
+        #expect(runtime.start(source: """
+        sidebar(() => Reorderable({
+            items: [{id: "anchor"}, {id: "member"}],
+            key: w => w.id,
+            resetVersion: () => data.version() ?? 0,
+        }, w => Text(() => w().id)))
+        """))
+        let root = try #require(runtime.store.rootId.flatMap { runtime.store.node($0) })
+        let original = root.children
+        runtime.updateData(key: "version", value: .int(1))
+        #expect(root.double("resetVersion") == 1)
+        #expect(root.children == original)
+        #expect(original.allSatisfy { runtime.store.node($0) != nil })
+    }
+
+    @Test func acceptedDropUsesNewItemsAfterSettlement() throws {
+        let runtime = SidebarJSRuntime()
+        #expect(runtime.start(source: """
+        const [items, setItems] = signal(["a", "b"]);
+        sidebar(() => Reorderable({
+            items, key: w => w,
+            onMove: () => setItems(["b", "a"]),
+        }, w => Text(w)))
+        """))
+        let root = try #require(runtime.store.rootId.flatMap { runtime.store.node($0) })
+        let accepted = Array(root.children.reversed())
+        let presentation = ReorderDragModel()
+        presentation.localOrder = accepted
+        presentation.draggedId = accepted[0]
+        presentation.isSettling = true
+        runtime.dispatchEvent(nodeId: root.id, event: "move", payload: ["id": "b", "index": 0])
+        presentation.finishSettlement()
+        #expect((presentation.localOrder ?? root.children) == accepted)
+    }
+
     @Test func buildsRetainedScene() {
         let runtime = SidebarJSRuntime()
         let ok = runtime.start(source: """

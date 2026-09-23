@@ -210,12 +210,12 @@ public final class WorkspaceReorderCoordinator<Tab: WorkspaceTabRepresenting> {
     /// out-of-range index, or a clamp that still moves the row, is not a
     /// refusal.
     public func isRefusedWorkspacePlacement(tabId: UUID, toIndex targetIndex: Int) -> Bool {
+        guard model.tabs.indices.contains(targetIndex) else { return false }
         guard let plan = workspaceReorderPlan(tabId: tabId, toIndex: targetIndex),
               plan.fromIndex == plan.toIndex else {
             return false
         }
-        let requestedIndex = max(0, min(targetIndex, model.tabs.count - 1))
-        return requestedIndex != plan.fromIndex
+        return targetIndex != plan.fromIndex
     }
 
     /// The before/after-relative form of `isRefusedWorkspacePlacement`.

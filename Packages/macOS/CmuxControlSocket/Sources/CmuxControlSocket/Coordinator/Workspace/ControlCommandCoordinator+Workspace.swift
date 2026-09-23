@@ -333,7 +333,7 @@ extension ControlCommandCoordinator {
             if let index {
                 data["requested_index"] = .int(Int64(index))
             }
-            return .err(code: "rejected", message: "Workspace reorder placement was refused", data: .object(data))
+            return .err(code: "rejected", message: context?.controlWorkspaceStrings().reorderRejected ?? "Workspace reorder placement was refused", data: .object(data))
         }
     }
 
