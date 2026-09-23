@@ -5812,10 +5812,11 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     /// Whether opt-in terminal text-editing gestures are active.
     ///
-    /// Backed by a defaults flag while the Settings UI surface is still
-    /// unwired, so the mode stays off unless a user sets the key explicitly.
+    /// Reads the same defaults key as `terminal.textEditingGestures` in the
+    /// settings catalog, whose default is `false`, so an unset key leaves the
+    /// mode off.
     private var textEditingGesturesEnabled: Bool {
-        UserDefaults.standard.bool(forKey: "cmuxTerminalTextEditingGestures")
+        UserDefaults.standard.bool(forKey: "terminal.textEditingGestures")
     }
 
     /// Maps AppKit modifier flags onto the resolver's platform-neutral set.
