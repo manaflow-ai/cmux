@@ -140,21 +140,23 @@ request both resolve through `MACOS_RUNNER_PR`, so a job reading only
 not on. `check_macos_runner_identity_env_tracks_routing` in
 `tests/test_ci_self_hosted_guard.sh` enforces that.
 
-The normal CI graph has an explicit repository-owner branch before runner
-variables are consulted. On `manaflow-ai/cmux`, existing repository variables
-and their Blacksmith fallbacks behave exactly as above. On every other owner,
-Linux jobs use `ubuntu-24.04` and macOS jobs use `macos-15` from GitHub
-Actions.
+Every workflow exercised by a `pull_request` — including local reusable
+workflows reached through `workflow_call` — has an explicit repository-owner
+branch before runner variables are consulted. On `manaflow-ai/cmux`, existing
+repository variables and their Blacksmith fallbacks behave exactly as above. On
+every other owner, Linux jobs use `ubuntu-24.04` and macOS jobs use
+`macos-15` from GitHub Actions.
 
 That is the fork contract: **a fork needs zero runner variables and zero runner
-provider setup to run the ordinary CI workflow.** Blacksmith is an
+provider setup to run its pull-request workflows.** Blacksmith is an
 organization-level GitHub App; naming a `blacksmith-*` label in a personal
 fork does not produce a useful error, it leaves the job queued indefinitely.
 The fork branch therefore short-circuits before any `MACOS_RUNNER_*` or
 `LINUX_RUNNER` value can select organization-only capacity.
 
-`tests/test_ci_runner_capability_resolver.py` walks the normal CI call graph
-and requires every variable-routed `runs-on` to contain that hosted fork
+`tests/test_ci_runner_capability_resolver.py` discovers every `pull_request`
+workflow, recursively follows its local reusable-workflow calls, and requires
+every variable-routed `runs-on` in that closure to contain a hosted fork
 branch. The upstream branch still keeps literal Blacksmith fallbacks so deleting
 a repository variable cannot silently change `manaflow-ai/cmux` capacity.
 Specialized workflows outside the normal CI graph are migrated separately as
