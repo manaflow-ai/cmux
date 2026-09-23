@@ -376,6 +376,10 @@ path = "tests/test_ci_health_report.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_runner_label_policy.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_linux_guard_routing.py"
 lane = "linux-guard"
 
@@ -496,6 +500,10 @@ path = "tests/test_ios_appstore_lane_identity.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ios_appstore_upload_marker.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ios_selected_test_execution.py"
 lane = "linux-guard"
 
@@ -573,6 +581,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_preflight_trust.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_e2e_warm_derived_data.py"
 lane = "linux-guard"
 
 [[test]]

@@ -104,8 +104,11 @@ final class FakeWorkspaceControlCommandContext: ControlCommandContext {
             closeFailed: "close failed",
             reorderManyMissingOrder: "missing order",
             reorderManyDuplicateWorkspace: "duplicate workspace",
-            reorderManyWorkspaceNotFound: "workspace not found",
-            reorderManyInvalidWorkspace: "invalid workspace",
+            workspaceNotFound: "workspace not found",
+            invalidWorkspaceRef: "invalid workspace",
+            reorderIndexNotAnInteger: "index not an integer",
+            reorderMissingWorkspaceID: "missing workspace_id",
+            reorderTargetRequired: "exactly one target",
             reorderManyTabManagerUnavailable: "tab manager unavailable",
             relayOwnerUnavailable: "relay owner workspace unavailable"
         )

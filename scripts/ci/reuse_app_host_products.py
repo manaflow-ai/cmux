@@ -12,6 +12,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import gzip
+import http.client
 import json
 import math
 import os
@@ -29,6 +30,7 @@ from pathlib import Path
 from urllib.parse import urlencode
 
 import app_host_test_products as products
+import parallel_artifact_download as parallel
 import product_input_identity as product_inputs
 
 RECEIPT = "cmux-product-reuse.json"
@@ -36,12 +38,6 @@ PREFIX = "app-host-products-v1-"
 # Current product archives are ~0.8 GiB compressed. Bound every expansion layer
 # independently, including hardlink copies, with room for the UI product set.
 MAX_ARCHIVE_BYTES = 2 * 1024**3
-# Below this rate a download is losing to the compile it exists to replace, so
-# giving up and compiling is the right answer. Above it, the budget has to
-# cover the largest archive this will accept -- a flat 120 s did not, and an
-# 785 MB product was silently refused after two minutes on every attempt.
-MIN_TRANSFER_BYTES_PER_SECOND = 8 * 1024**2
-DOWNLOAD_TIMEOUT = math.ceil(MAX_ARCHIVE_BYTES / MIN_TRANSFER_BYTES_PER_SECOND)
 MAX_MEMBER_BYTES = 4 * 1024**3
 MAX_EXPANDED_BYTES = 16 * 1024**3
 MAX_TAR_BYTES = 20 * 1024**3
@@ -172,10 +168,13 @@ class GitHub:
     def get(self, path):
         return json.loads(read("gh", "api", f"repos/{self.repository}/{path}"))
 
-    def download(self, artifact_id, target):
-        with target.open("wb") as out:
-            subprocess.run(["gh", "api", f"repos/{self.repository}/actions/artifacts/{artifact_id}/zip"],
-                           stdout=out, check=True, timeout=DOWNLOAD_TIMEOUT)
+    def download(self, artifact_id, target, size):
+        # One connection to the artifact blob sustains about 2 MB/s on the
+        # Blacksmith macOS fleet, so a ~900 MB product took longer than any
+        # budget worth waiting for and every candidate timed out into a
+        # compile. The test job reads the same blob in under a minute over
+        # parallel range requests; this uses that transport.
+        parallel.download_zip(self.repository, artifact_id, target, size)
 
 
 def record_reason(reasons, reason):
@@ -754,8 +753,11 @@ def restore(api, value, derived, current_run, current_identity, current_attempt=
             archive = staging / "artifact.zip"
             transfer_started = time.monotonic()
             try:
-                api.download(artifact["id"], archive)
-            except (OSError, subprocess.SubprocessError):
+                api.download(artifact["id"], archive, artifact["size_in_bytes"])
+            # urllib surfaces a truncated or malformed response as
+            # HTTPException, not OSError; any transport failure is a miss.
+            except (OSError, ValueError, EOFError, http.client.HTTPException,
+                    parallel.TransportError):
                 record_reason(reasons, "artifact_download_error")
                 continue
             transfer_seconds = time.monotonic() - transfer_started

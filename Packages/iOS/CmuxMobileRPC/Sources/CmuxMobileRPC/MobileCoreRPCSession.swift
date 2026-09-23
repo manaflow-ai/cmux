@@ -92,6 +92,33 @@ actor MobileCoreRPCSession {
     private var connectionTask: ConnectingTask?
     private var recordedConnectCancellationAttemptIDs: Set<Int> = []
     private var installedConnectionID: UUID?
+    /// Counts inbound deliveries on the installed transport.
+    ///
+    /// A QUIC path can stop carrying traffic without closing: `receive()`
+    /// never returns and never throws, so `readLoop` cannot tear the
+    /// connection down and every request rides it until its own deadline.
+    /// Comparing this counter across a request's lifetime answers the one
+    /// question that separates "this request is slow" from "this transport is
+    /// dead": did anything at all arrive while it was outstanding.
+    private var inboundDeliveryCount: UInt64 = 0
+    /// Consecutive response timeouts that saw no inbound delivery at all.
+    ///
+    /// One unanswered request is genuinely ambiguous: a host can be slow or
+    /// silent on a single method while its connection is perfectly healthy,
+    /// and `responseTimeoutDoesNotCloseMultiplexedSession` pins that. Two in a
+    /// row without a single byte arriving in between is not ambiguous. Any
+    /// inbound delivery resets this, so the streak only survives a lane that
+    /// has gone completely quiet.
+    private var silentTimeoutStreak = 0
+    /// Increments once per counted silent timeout.
+    ///
+    /// Requests armed before the previous silent timeout belong to the same
+    /// silence window. Six replays fired together and answered by one quiet
+    /// period is one piece of evidence, not six, so only a request armed
+    /// after the last counted timeout may advance the streak.
+    private var silentTimeoutEpoch: UInt64 = 0
+    /// Silent timeouts required before the installed transport is condemned.
+    static let minimumSilentTimeoutsBeforeCondemning = 2
     private var readerTask: Task<Void, Never>?
     /// Watches the complete native connection, separately from the control
     /// lane reader. IROH can close the shared QUIC session without making a
@@ -380,6 +407,10 @@ actor MobileCoreRPCSession {
             return
         }
         isTearingDown = true
+        // Evidence is per connection. A replacement transport must not
+        // inherit a streak accumulated against the one it replaces, or its
+        // first silent timeout condemns it on a single piece of evidence.
+        silentTimeoutStreak = 0
         defer {
             isTearingDown = false
             let waiters = tearDownWaiters
@@ -1038,6 +1069,9 @@ actor MobileCoreRPCSession {
             }
             // Enforce size per decoded frame. A chunk can finish one valid
             // maximum-size frame and also contain bytes from the next frame.
+            inboundDeliveryCount &+= 1
+            // The lane just proved it still carries bytes.
+            silentTimeoutStreak = 0
             buffer.append(chunk)
             do {
                 while !Task.isCancelled, installedConnectionID == connectionID {
@@ -1085,7 +1119,12 @@ actor MobileCoreRPCSession {
         pipelinedContinuation?.resume(returning: .cancelled)
     }
 
-    private func timeoutPendingRequest(requestID: String) async {
+    private func timeoutPendingRequest(
+        requestID: String,
+        armedConnectionID: UUID? = nil,
+        armedInboundCount: UInt64 = 0,
+        armedSilentEpoch: UInt64 = 0
+    ) async {
         let legacyContinuation = pending.removeValue(forKey: requestID)
         let pipelinedSettlement = pipelinedPending.removeValue(
             forKey: requestID
@@ -1094,6 +1133,11 @@ actor MobileCoreRPCSession {
             return
         }
         requestTimeoutTasks.removeValue(forKey: requestID)?.cancel()
+        // A request still sitting in the write queue never reached the wire,
+        // so its expiry says nothing about whether the transport can deliver.
+        // It means the queue is backed up, which the head-of-line handling
+        // below already owns.
+        let reachedTheWire = queuedWriteIDs[requestID] == nil
         var condemnedWriteRequestID = requestID
         if let queuedWriteID = queuedWriteIDs.removeValue(forKey: requestID) {
             cancelledQueuedWriteIDs.insert(queuedWriteID)
@@ -1107,12 +1151,37 @@ actor MobileCoreRPCSession {
                 condemnedWriteRequestID = write.requestID
             }
         }
-        let error: MobileShellConnectionError = if await recycleTransportIfActiveWrite(
+        var error: MobileShellConnectionError = if await recycleTransportIfActiveWrite(
             requestID: condemnedWriteRequestID
         ) {
             .transportWriteTimedOut
         } else {
             .requestTimedOut
+        }
+        // `recycleTransportIfActiveWrite` only condemns a transport whose
+        // *write* is stuck and that already reports itself closed. A path that
+        // black-holes after the write succeeded satisfies neither, so without
+        // this the dead transport stays installed and `ensureConnected` hands
+        // it to the retry, which burns another full deadline. Two of those is
+        // a minute of blank terminal.
+        if case .requestTimedOut = error, reachedTheWire {
+            if transportDeliveredNothing(
+                armedConnectionID: armedConnectionID,
+                armedInboundCount: armedInboundCount
+            ) {
+                // Requests armed before the last counted timeout share its
+                // silence window; they are already represented by it.
+                if armedSilentEpoch == silentTimeoutEpoch {
+                    silentTimeoutEpoch &+= 1
+                    silentTimeoutStreak += 1
+                    if silentTimeoutStreak >= Self.minimumSilentTimeoutsBeforeCondemning {
+                        error = .connectionClosed
+                        await tearDown(error: .connectionClosed)
+                    }
+                }
+            } else {
+                silentTimeoutStreak = 0
+            }
         }
         let settlement = PendingRequestSettlement.response(.failure(error))
         legacyContinuation?.resume(returning: settlement)
@@ -1150,6 +1219,9 @@ actor MobileCoreRPCSession {
         timeoutNanoseconds: UInt64
     ) {
         requestTimeoutTasks[requestID]?.cancel()
+        let armedConnectionID = installedConnectionID
+        let armedInboundCount = inboundDeliveryCount
+        let armedSilentEpoch = silentTimeoutEpoch
         requestTimeoutTasks[requestID] = Task { [weak self, taskTimeout] in
             do {
                 try await taskTimeout.sleep(nanoseconds: timeoutNanoseconds)
@@ -1157,8 +1229,30 @@ actor MobileCoreRPCSession {
                 return
             }
             guard let self else { return }
-            await self.timeoutPendingRequest(requestID: requestID)
+            await self.timeoutPendingRequest(
+                requestID: requestID,
+                armedConnectionID: armedConnectionID,
+                armedInboundCount: armedInboundCount,
+                armedSilentEpoch: armedSilentEpoch
+            )
         }
+    }
+
+    /// Whether a timed-out request proves its transport can no longer deliver.
+    ///
+    /// Only a transport that delivered *nothing* for the whole life of the
+    /// request is condemned. If anything arrived (another response, an event
+    /// frame, a terminal delta) the lane is demonstrably alive and this one
+    /// request was merely slow, so the request fails alone. Requires the same
+    /// installed connection throughout: a timeout belonging to a connection
+    /// that has already been replaced says nothing about the current one.
+    private func transportDeliveredNothing(
+        armedConnectionID: UUID?,
+        armedInboundCount: UInt64
+    ) -> Bool {
+        guard let armedConnectionID,
+              installedConnectionID == armedConnectionID else { return false }
+        return inboundDeliveryCount == armedInboundCount
     }
 
     func settlePendingRequest(
