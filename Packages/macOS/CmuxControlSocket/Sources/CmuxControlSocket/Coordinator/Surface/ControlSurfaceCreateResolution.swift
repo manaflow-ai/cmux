@@ -14,7 +14,7 @@ public enum ControlSurfaceCreateResolution: Sendable, Equatable {
     /// "Invalid provider (codex|claude|opencode)", `data: {"provider": …}`).
     case invalidProvider(rawValue: String)
     /// The agent-session `renderer` token was invalid (legacy `invalid_params` /
-    /// "Invalid renderer (react|solid)", `data: {"renderer": …}`).
+    /// "Invalid renderer (react|solid|claude-desktop)", `data: {"renderer": …}`).
     case invalidRenderer(rawValue: String)
     /// The `placement` was present but not one of `workspace|dock`
     /// (`invalid_params`, `data: {"placement": rawValue}`). Carries the raw value.
