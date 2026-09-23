@@ -5014,7 +5014,7 @@ final class ZshShellIntegrationHandoffTests: XCTestCase {
             .deletingLastPathComponent()
             .deletingLastPathComponent()
         let cmuxZdotdir = repoRoot.appendingPathComponent("Resources/shell-integration")
-        let ghosttyResources = repoRoot.appendingPathComponent("ghostty/src")
+        let ghosttyResources = try GhosttyShellIntegrationTestResources.resolve(repositoryRoot: repoRoot)
 
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/bin/zsh")
@@ -5116,7 +5116,7 @@ final class ZshShellIntegrationHandoffTests: XCTestCase {
             .deletingLastPathComponent()
             .deletingLastPathComponent()
         let cmuxZdotdir = repoRoot.appendingPathComponent("Resources/shell-integration")
-        let ghosttyResources = repoRoot.appendingPathComponent("ghostty/src")
+        let ghosttyResources = try GhosttyShellIntegrationTestResources.resolve(repositoryRoot: repoRoot)
         let readyPath = root.appendingPathComponent("ready", isDirectory: false)
         let outputPath = root.appendingPathComponent("output.log", isDirectory: false)
 
