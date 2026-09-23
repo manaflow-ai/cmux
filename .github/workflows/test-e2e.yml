@@ -347,8 +347,8 @@ jobs:
           # Cache entries include absolute compiler paths. Keep these stable
           # within a runner pool, but never reuse old assembled test products.
           workspace_path="$(cd "$GITHUB_WORKSPACE" && pwd -P)"
-          DERIVED_DATA_PATH="$workspace_path/.ci-e2e-derived-data"
-          CACHE_PATH="$workspace_path/.ci-e2e-compilation-cache"
+          DERIVED_DATA_PATH="$workspace_path/DerivedData/cmux-e2e"
+          CACHE_PATH="$workspace_path/DerivedData/cmux-e2e-compilation-cache"
           rm -rf -- "$DERIVED_DATA_PATH" "$CACHE_PATH"
           mkdir -p "$DERIVED_DATA_PATH" "$CACHE_PATH"
           echo "CMUX_DERIVED_DATA_PATH=$DERIVED_DATA_PATH" >> "$GITHUB_ENV"
@@ -374,7 +374,7 @@ jobs:
         run: |
           set -euo pipefail
           workspace_path="$(cd "$GITHUB_WORKSPACE" && pwd -P)"
-          if [ "$CMUX_E2E_COMPILATION_CACHE" != "$workspace_path/.ci-e2e-compilation-cache" ]; then
+          if [ "$CMUX_E2E_COMPILATION_CACHE" != "$workspace_path/DerivedData/cmux-e2e-compilation-cache" ]; then
             echo "::error::refusing to clear an unowned compilation cache"
             exit 1
           fi
@@ -834,11 +834,11 @@ jobs:
           derived_data_path="${CMUX_DERIVED_DATA_PATH:-}"
           cache_path="${CMUX_E2E_COMPILATION_CACHE:-}"
           case "$cache_path" in
-            "$workspace_path/.ci-e2e-compilation-cache"|"") ;;
+            "$workspace_path/DerivedData/cmux-e2e-compilation-cache"|"") ;;
             *) echo "::error::refusing to remove unowned compilation cache: $cache_path"; exit 1 ;;
           esac
           case "$derived_data_path" in
-            "$workspace_path/.ci-e2e-derived-data")
+            "$workspace_path/DerivedData/cmux-e2e")
               rm -rf -- "$derived_data_path"
               if [ -n "$cache_path" ]; then rm -rf -- "$cache_path"; fi
               ;;
