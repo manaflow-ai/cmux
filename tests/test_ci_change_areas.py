@@ -961,6 +961,50 @@ def test_other_workflow_changes_skip_macos_and_web() -> None:
     )
 
 
+def test_linux_registry_changes_skip_native_but_preserve_native_changes() -> None:
+    base = 'version = 1\n[[test]]\npath = "tests/native.py"\nlane = "macos-shell"\n'
+    guard = '\n[[test]]\npath = "tests/guard.py"\nlane = "linux-guard"\n'
+    assert module.test_registry_change_is_linux_only(base, base + guard)
+    assert module.test_registry_change_is_linux_only(base + guard, base)
+    assert module.test_registry_change_is_linux_only(base, base + '\n# comment\n')
+    for candidate in (
+        base.replace('macos-shell', 'linux-guard'),
+        base.replace('native.py', 'other.py'),
+        base + 'requirements = ["fish"]\n',
+        base.replace('version = 1', 'version = 2'),
+        'invalid TOML',
+        base + guard + guard,
+    ):
+        assert not module.test_registry_change_is_linux_only(base, candidate), candidate
+    assert not module.test_registry_change_is_linux_only('invalid TOML', base)
+
+
+def test_registry_cli_uses_base_and_keeps_mixed_product_changes() -> None:
+    base = 'version = 1\n[[test]]\npath = "tests/native.py"\nlane = "macos-shell"\n'
+    with tempfile.TemporaryDirectory() as temp_dir:
+        root = Path(temp_dir)
+        (root / 'tests').mkdir()
+        head = root / 'tests/test-execution.toml'
+        head.write_text(base + '\n[[test]]\npath = "tests/guard.py"\nlane = "linux-guard"\n')
+        before = root / 'base.toml'
+        before.write_text(base)
+        files = root / 'files.txt'
+        files.write_text('tests/test-execution.toml\n')
+        env = {**os.environ, 'CMUX_CI_HEAD_TEST_REFERENCE_ROOT': str(root)}
+        command = [sys.executable, str(HELPER), '--event-name', 'pull_request',
+                   '--files-from', str(files), '--test-registry-base', str(before)]
+        result = subprocess.run(command, env=env, capture_output=True, text=True, check=True)
+        assert 'macos=false' in result.stdout, result.stdout
+        assert 'release_build=false' in result.stdout, result.stdout
+        files.write_text('tests/test-execution.toml\nSources/AppDelegate.swift\n')
+        result = subprocess.run(command, env=env, capture_output=True, text=True, check=True)
+        assert 'macos=true' in result.stdout, result.stdout
+        before.unlink()
+        files.write_text('tests/test-execution.toml\n')
+        result = subprocess.run(command, env=env, capture_output=True, text=True, check=True)
+        assert 'macos=true' in result.stdout, result.stdout
+
+
 def test_guard_only_tests_skip_macos() -> None:
     # Referenced only by Linux jobs in the CI caller or reusable guard workflow.
     assert_areas(["tests/test_ci_self_hosted_guard.sh"], macos=False, web=False)
