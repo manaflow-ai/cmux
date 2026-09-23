@@ -1284,7 +1284,7 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
     let previewRevisionState = FilePreviewRevision()
     private let textContentRevisionState = FilePreviewRevision()
     private var gitDiffTracker: FilePreviewGitDiffTracker?
-    /// 파일 감시를 끈 패널은 git 조회도 하지 않음
+    /// Panels created without a file watcher also skip git lookups.
     private let tracksGitLineChanges: Bool
 
     let nativeViewSessions = FilePreviewNativeViewSessions()
@@ -1369,10 +1369,10 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
         }
     }
 
-    /// git 변경 거터 표시 시작
+    /// Starts tracking git line changes for the gutter.
     ///
-    /// 1. 거터가 없는 이미지와 PDF 와 미디어 미리보기는 git 실행 자체를 건너뜀
-    /// 2. 인덱스 관찰로 커밋과 스테이징 이후 기준을 다시 읽음
+    /// - Image, PDF, and media previews have no gutter and never run git.
+    /// - An index watch reloads the base after commits and staging.
     private func startTrackingGitLineChanges() {
         guard tracksGitLineChanges, !isClosed, previewMode == .text else { return }
         guard gitDiffTracker == nil else { return }
@@ -1391,9 +1391,9 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
         applyGitLineChanges([:])
     }
 
-    /// 거터 표시 갱신
+    /// Publishes new gutter markers.
     ///
-    /// 개정 번호를 올려 렌더러가 키 입력마다 사전을 비교하지 않게 함
+    /// Bumps a revision so the editor never compares marker sets on each keystroke.
     private func applyGitLineChanges(_ changes: [Int: FilePreviewGitLineChange]) {
         guard gitLineChanges != changes else { return }
         gitLineChanges = changes

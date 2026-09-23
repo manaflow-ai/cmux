@@ -464,7 +464,7 @@ struct FilePreviewCodeViewTests {
         scrollView.documentView = textView
         let gutter = FilePreviewLineNumberGutterView(scrollView: scrollView, orientation: .verticalRuler)
         textView.string = String(repeating: "line\n", count: 12)
-        // 폭 재계산이 두 경로로 갈리지 않도록 관찰자와 같은 폰트를 사용
+        // Use the text view's font so both thickness paths measure the same font.
         gutter.reloadLineIndex(from: textView.string, textFont: textView.font)
         let plainThickness = gutter.ruleThickness
 

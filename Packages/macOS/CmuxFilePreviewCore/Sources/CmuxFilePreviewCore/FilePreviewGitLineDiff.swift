@@ -1,28 +1,28 @@
 import Foundation
 
-/// 거터 한 줄에 칠할 git 변경 종류
+/// The git change painted beside one gutter line.
 public enum FilePreviewGitLineChange: Sendable, Equatable {
-    case added // base 에 없던 줄
-    case modified // base 의 줄을 대체한 줄
-    case removed // 이 줄 바로 위에서 base 의 줄이 사라짐
-    case removedAtEnd // 이 줄 아래에서 base 의 줄이 사라짐
+    case added // Line absent from the base.
+    case modified // Line that replaced base lines.
+    case removed // Base lines were deleted just above this line.
+    case removedAtEnd // Base lines were deleted below this last line.
 }
 
-/// 작업 중 버퍼와 git base 내용의 줄 단위 비교
+/// Line-level comparison between the working buffer and its git base.
 ///
-/// 1. 결과 키는 현재 버퍼의 1-based 줄 번호
-/// 2. 삭제는 자체 줄이 없으므로 살아남은 이웃 줄에 부착
-/// 3. 삽입과 삭제가 맞물린 구간은 modified
-/// 4. 한계를 넘는 입력은 빈 결과
+/// - Result keys are 1-based line numbers in the current buffer.
+/// - Deletions have no line of their own, so they attach to a surviving neighbor.
+/// - A run that both inserts and deletes is reported as modified.
+/// - Inputs over the budgets produce no markers.
 public enum FilePreviewGitLineDiff {
-    /// 비교를 포기하는 줄 수 상한
+    /// Line count above which diffing is skipped.
     public static let maximumLineCount = 20_000
-    /// 비교를 포기하는 UTF-8 바이트 상한
+    /// UTF-8 byte count above which diffing is skipped.
     public static let maximumByteCount = 2 * 1024 * 1024
 
-    /// base 대비 현재 버퍼의 변경 줄 계산
+    /// Returns the changed lines of `current` relative to `base`.
     ///
-    /// 메인 스레드 밖에서 호출
+    /// Call off the main thread.
     public static func changes(
         base: String,
         current: String
@@ -54,10 +54,10 @@ public enum FilePreviewGitLineDiff {
         )
     }
 
-    /// 두 수열을 나란히 걸으며 변경 구간을 모아 표시
+    /// Walks both sequences in step and marks each change run.
     ///
-    /// 삭제 오프셋은 base 좌표이고 삽입 오프셋은 현재 좌표라 같은 걸음에서
-    /// 소비해야 두 좌표계가 어긋나지 않음
+    /// Removal offsets index the base and insertion offsets index the current
+    /// buffer, so both must be consumed in the same walk to stay aligned.
     private static func markers(
         baseLineCount: Int,
         currentLineCount: Int,
@@ -103,12 +103,12 @@ public enum FilePreviewGitLineDiff {
         return result
     }
 
-    /// 변경 구간 하나를 표시로 환산
+    /// Converts one change run into markers.
     ///
-    /// 1. 삽입만 있으면 added
-    /// 2. 삽입과 삭제가 함께면 삽입 줄 전부 modified
-    /// 3. 삭제만 있으면 뒤따르는 줄에 removed
-    /// 4. 뒤따르는 줄이 없으면 마지막 줄에 removedAtEnd
+    /// - Insertions only: every inserted line is added.
+    /// - Insertions and removals: every inserted line is modified.
+    /// - Removals only: the following line is marked removed.
+    /// - Removals at the end: the last line is marked removedAtEnd.
     private static func flush(
         removalCount: Int,
         insertedLines: [Int],
@@ -131,10 +131,10 @@ public enum FilePreviewGitLineDiff {
         }
     }
 
-    /// 개행으로 분리
+    /// Splits text into lines.
     ///
-    /// 끝 개행이 만드는 빈 꼬리는 제거해 git 의 줄 세기와 일치시킴
-    /// CRLF 의 캐리지 리턴도 제거해 줄바꿈 표기 차이를 변경으로 오인하지 않음
+    /// Drops the empty tail after a final newline to match git's line count,
+    /// and strips CR so CRLF versus LF does not read as a change.
     private static func lines(of text: String) -> [String] {
         guard !text.isEmpty else { return [] }
         var result = text.components(separatedBy: "\n")

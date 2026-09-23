@@ -25,7 +25,7 @@ struct TokenPaletteTests {
         #expect(TokenPalette.cmuxLight.gitAdded.hexString == "#1A7F37")
         #expect(TokenPalette.cmuxLight.gitModified.hexString == "#0969DA")
         #expect(TokenPalette.cmuxLight.gitDeleted.hexString == "#CF222E")
-        // 수정 색이 희미해 놓치던 문제를 막기 위해 세 색은 서로 달라야 함
+        // A faint modified color is easy to miss, so all three must differ.
         for palette in [TokenPalette.cmuxDark, TokenPalette.cmuxLight] {
             #expect(palette.gitAdded != palette.gitModified)
             #expect(palette.gitModified != palette.gitDeleted)

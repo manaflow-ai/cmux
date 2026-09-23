@@ -173,7 +173,7 @@ struct FilePreviewTextEditor<PanelModel>: NSViewRepresentable where PanelModel: 
         } else {
             context.coordinator.cancelHighlight()
         }
-        // 키 입력마다 사전을 비교하지 않도록 개정 번호가 오를 때만 반영
+        // Apply only when the revision advances, keeping marker comparison off the typing path.
         if panelChanged
             || context.coordinator.lastAppliedGitLineChangesRevision != panel.gitLineChangesRevision {
             context.coordinator.lastAppliedGitLineChangesRevision = panel.gitLineChangesRevision
@@ -182,9 +182,9 @@ struct FilePreviewTextEditor<PanelModel>: NSViewRepresentable where PanelModel: 
         Self.refreshChrome(on: scrollView, textView: textView)
     }
 
-    /// git 변경 줄을 거터로 전달
+    /// Hands git line changes to the gutter.
     ///
-    /// 줄 번호가 꺼져 있으면 거터 자체가 숨겨지므로 표시도 함께 사라짐
+    /// When line numbers are off the ruler is hidden, so the markers hide with it.
     static func applyGitLineChanges(
         _ changes: [Int: FilePreviewGitLineChange],
         to scrollView: NSScrollView

@@ -21,7 +21,7 @@ final class FilePreviewLineNumberGutterView: NSRulerView {
     var drawsEditorBackground = true {
         didSet { applySurfaceFill() }
     }
-    /// git 변경 줄. 키는 1-based 줄 번호
+    /// Git line changes keyed by 1-based line number.
     var gitLineChanges: [Int: FilePreviewGitLineChange] = [:] {
         didSet {
             guard gitLineChanges != oldValue else { return }
@@ -30,14 +30,14 @@ final class FilePreviewLineNumberGutterView: NSRulerView {
         }
     }
     private static let horizontalPadding: CGFloat = 10
-    /// 변경 스트라이프 두께
+    /// Width of a change stripe.
     private static let changeStripeWidth: CGFloat = 3
-    /// 스트라이프와 줄 번호 사이 여백
+    /// Gap between the line number and the stripe.
     private static let changeStripeGap: CGFloat = 3
-    /// 변경 표시가 있을 때 줄 번호 오른쪽에 추가로 확보하는 폭
+    /// Extra ruler width reserved while any change is shown.
     ///
-    /// 그리기 좌표는 줄 번호 라벨의 오른쪽 끝에서 직접 계산하므로
-    /// 이 값과 실제 위치가 어긋날 수 없음
+    /// Drawing positions derive from the label's trailing edge, so this
+    /// reservation and the drawn stripe cannot drift apart.
     private static var changeStripeInset: CGFloat { changeStripeWidth + changeStripeGap }
 
     private var lineIndex = FilePreviewLineIndex(string: "")
@@ -219,7 +219,7 @@ final class FilePreviewLineNumberGutterView: NSRulerView {
             )
             let fragmentY = usedRect.minY + textView.textContainerOrigin.y
             let startsLine = self.lineIndex.offset(forLine: lineNumber) == characterRange.location
-            // 줄바꿈된 줄은 조각마다 스트라이프를 이어 그려야 변경 구간이 끊기지 않음
+            // Paint every fragment of a wrapped line so the stripe stays continuous.
             self.drawGitChangeStripe(
                 for: lineNumber,
                 atTextViewY: fragmentY,
@@ -369,12 +369,12 @@ final class FilePreviewLineNumberGutterView: NSRulerView {
         NSString(string: String(lineNumber)).draw(in: labelRect, withAttributes: attributes)
     }
 
-    /// 줄 번호 오른쪽 가장자리에 변경 표시
+    /// Paints a git change marker at the trailing edge of the line number.
     ///
-    /// 1. added 와 modified 는 줄 높이 전체 스트라이프
-    /// 2. removed 는 줄 위 경계에 걸친 짧은 마커
-    /// 3. removedAtEnd 는 줄 아래 경계에 걸친 짧은 마커
-    /// 4. 경계 마커는 줄바꿈된 줄의 첫 조각에만 그림
+    /// - Added and modified lines get a full-height stripe.
+    /// - Removed draws a short marker across the line's top edge.
+    /// - RemovedAtEnd draws it across the line's bottom edge.
+    /// - Edge markers draw only on the first fragment of a wrapped line.
     private func drawGitChangeStripe(
         for lineNumber: Int,
         atTextViewY y: CGFloat,
@@ -415,17 +415,17 @@ final class FilePreviewLineNumberGutterView: NSRulerView {
         }
     }
 
-    /// 줄 번호 라벨이 끝나는 x 좌표
+    /// X coordinate where the line-number label ends.
     ///
-    /// 변경 표시가 없으면 스트라이프 폭을 되돌려 라벨이 원래 자리를 씀
+    /// Without changes the stripe width is released and the label keeps its original frame.
     private var labelTrailingEdge: CGFloat {
         let stripeInset = gitLineChanges.isEmpty ? 0 : Self.changeStripeInset
         return 4 + max(0, ruleThickness - Self.horizontalPadding - stripeInset)
     }
 
-    /// 뷰 경계를 넘어선 경계 마커를 안쪽으로 밀어 넣음
+    /// Moves an edge marker that crosses the view bounds back inside,
     ///
-    /// 화면 첫 줄과 마지막 줄의 삭제 마커가 절반만 보이던 문제 대응
+    /// so deletion markers on the first and last visible lines are not clipped in half.
     private func nudgedIntoBounds(_ rect: NSRect) -> NSRect {
         guard rect.height <= bounds.height else { return rect }
         var nudged = rect

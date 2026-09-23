@@ -2,14 +2,14 @@ import CmuxFilePreviewCore
 import CmuxGit
 import Foundation
 
-/// 파일 에디터 거터가 칠할 git 변경 줄을 유지
+/// Keeps the git line changes that the File Preview gutter paints.
 ///
-/// 1. 기준 내용은 HEAD 커밋
-/// 2. 버퍼 변경은 디바운스 후 계산해 타이핑 경로를 막지 않음
-/// 3. 커밋과 스테이징은 인덱스 관찰로 감지해 기준을 다시 읽음
+/// - The base is the HEAD commit.
+/// - Buffer edits are debounced and diffed off the main actor, keeping typing unblocked.
+/// - Commits and staging are detected through the index and reload the base.
 @MainActor
 final class FilePreviewGitDiffTracker {
-    /// 연속 타이핑을 한 번의 계산으로 묶는 간격
+    /// Coalesces a burst of keystrokes into one diff.
     private static let recomputeDebounce = Duration.milliseconds(150)
 
     private let filePath: String
@@ -20,11 +20,11 @@ final class FilePreviewGitDiffTracker {
     private var latestText = ""
     private var baseTask: Task<Void, Never>?
     private var recomputeTask: Task<Void, Never>?
-    /// 늦게 끝난 계산이 최신 결과를 덮어쓰지 못하게 하는 세대 번호
+    /// Prevents a late diff from overwriting a newer result.
     private var recomputeGeneration = 0
     private var indexObservationID: UUID?
     private weak var indexCoordinator: FileContentChangeCoordinator?
-    /// 이전 coordinator 로 향하던 관찰 설치를 무효화하는 세대 번호
+    /// Invalidates a pending index watch aimed at a previous coordinator.
     private var indexWatchGeneration = 0
 
     private(set) var changes: [Int: FilePreviewGitLineChange] = [:]
@@ -39,9 +39,9 @@ final class FilePreviewGitDiffTracker {
         self.onChange = onChange
     }
 
-    /// 인덱스 변경 관찰 시작
+    /// Starts watching the repository index.
     ///
-    /// 저장소 밖 파일은 인덱스가 없어 관찰하지 않음
+    /// Files outside a repository have no index and are not watched.
     func startWatchingIndex(using coordinator: FileContentChangeCoordinator) {
         stopWatchingIndex()
         let reader = reader
@@ -69,7 +69,7 @@ final class FilePreviewGitDiffTracker {
         indexCoordinator = nil
     }
 
-    /// HEAD 기준 내용을 다시 읽고 표시 갱신
+    /// Rereads the HEAD base and recomputes the markers.
     func refreshBase() {
         baseTask?.cancel()
         let reader = reader
@@ -82,9 +82,9 @@ final class FilePreviewGitDiffTracker {
         }
     }
 
-    /// 편집 버퍼 반영
+    /// Records the latest buffer text.
     ///
-    /// 기준이 아직 없으면 계산을 건너뛰어 첫 로드 중 깜빡임 방지
+    /// Skips diffing until a base exists, avoiding a flash during the first load.
     func update(currentText: String) {
         latestText = currentText
         guard baseContent != nil else { return }
@@ -104,9 +104,9 @@ final class FilePreviewGitDiffTracker {
         recompute(debounced: false)
     }
 
-    /// 표시 재계산
+    /// Recomputes the markers.
     ///
-    /// 기준이 없으면 추적되지 않는 파일이므로 표시를 비움
+    /// A missing base means the file is untracked, so the markers are cleared.
     private func recompute(debounced: Bool) {
         recomputeTask?.cancel()
         recomputeGeneration += 1

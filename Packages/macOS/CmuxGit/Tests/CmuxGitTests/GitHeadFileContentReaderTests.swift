@@ -96,7 +96,7 @@ struct GitHeadFileContentReaderTests {
             forFile: fixture.root.appendingPathComponent("tracked.txt").path
         )
 
-        // 임시 디렉터리는 /var 와 /private/var 두 표기가 섞이므로 둘 다 해석해 비교
+        // Temporary paths mix /var and /private/var, so resolve both sides first.
         let resolvedRoot = fixture.root.resolvingSymlinksInPath().path
         let resolvedIndexPath = indexPath.map {
             URL(fileURLWithPath: $0).resolvingSymlinksInPath().path

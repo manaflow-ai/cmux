@@ -1,14 +1,14 @@
 import Foundation
 
-/// HEAD 커밋에 담긴 파일 내용 조회
+/// Reads a file's content as committed at HEAD.
 ///
-/// 파일 에디터 거터가 작업 중 버퍼와 비교할 기준을 얻는 용도
-/// 추적되지 않는 파일과 저장소 밖 파일은 nil
+/// File Preview uses this as the base its gutter compares the buffer against.
+/// Untracked files and files outside a repository return nil.
 public struct GitHeadFileContentReader: Sendable {
-    /// 기준 내용으로 받아들이는 UTF-8 바이트 상한
+    /// Largest HEAD content, in UTF-8 bytes, accepted as a base.
     public static let maximumContentByteCount = 2 * 1024 * 1024
 
-    /// 열린 에디터 수만큼 큐가 늘지 않도록 모든 reader 가 공유
+    /// Shared by every reader so open editors do not each allocate a queue.
     private static let blockingGitQueue = DispatchQueue(
         label: "com.cmux.git-head-content",
         qos: .utility,
@@ -25,11 +25,11 @@ public struct GitHeadFileContentReader: Sendable {
         self.runner = runner
     }
 
-    /// HEAD 기준 파일 내용
+    /// Returns the HEAD content of the file at `absolutePath`.
     ///
-    /// 1. 파일의 부모 디렉터리에서 실행해 저장소 루트 계산 생략
-    /// 2. 경로는 `HEAD:./이름` 형태라 pathspec 이 cwd 에 묶임
-    /// 3. 실패와 상한 초과는 모두 nil
+    /// - Runs from the file's directory, so no repository-root lookup is needed.
+    /// - `HEAD:./name` keeps the pathspec relative to that directory.
+    /// - Any failure or oversized content returns nil.
     public func headContent(forFile absolutePath: String) async -> String? {
         guard let location = Self.location(ofFile: absolutePath) else { return nil }
         guard let output = await run(
@@ -41,9 +41,9 @@ public struct GitHeadFileContentReader: Sendable {
         return String(decoding: output, as: UTF8.self)
     }
 
-    /// 파일이 속한 저장소의 인덱스 경로
+    /// Returns the index path of the repository that owns the file.
     ///
-    /// 커밋과 스테이징 이후 기준 내용을 다시 읽어야 할 시점을 알기 위한 관찰 대상
+    /// Watching it tells callers when a commit or stage invalidates the base.
     public func indexPath(forFile absolutePath: String) async -> String? {
         guard let location = Self.location(ofFile: absolutePath) else { return nil }
         guard let output = await run(
@@ -59,9 +59,9 @@ public struct GitHeadFileContentReader: Sendable {
             .path
     }
 
-    /// 종료 코드 0 인 실행의 표준 출력
+    /// Standard output of a run that exited with status 0.
     ///
-    /// 잘린 출력은 기준으로 삼을 수 없으므로 nil
+    /// Truncated output cannot serve as a base, so it returns nil.
     private func run(
         arguments: [String],
         in directory: URL,
@@ -84,9 +84,9 @@ public struct GitHeadFileContentReader: Sendable {
         return result.output
     }
 
-    /// 실행 디렉터리와 pathspec 이름으로 분해
+    /// Splits a path into the run directory and the pathspec name.
     ///
-    /// 상대 경로와 상위 참조 이름은 cwd 밖을 가리킬 수 있어 거부
+    /// Relative paths and `.` or `..` names could escape the directory, so they are rejected.
     private static func location(ofFile absolutePath: String) -> (directory: URL, name: String)? {
         guard absolutePath.hasPrefix("/") else { return nil }
         let url = URL(fileURLWithPath: absolutePath)
