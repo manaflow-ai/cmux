@@ -610,6 +610,7 @@ jobs:
           XCODEBUILD_ARGS=(
             -workspace ios/cmux.xcworkspace
             -scheme cmux-ios
+            -collect-test-diagnostics never
             -destination "platform=iOS Simulator,id=$SIMULATOR_ID"
             -derivedDataPath "$IOS_DERIVED_DATA"
             -clonedSourcePackagesDirPath "$IOS_SPM_CACHE"
