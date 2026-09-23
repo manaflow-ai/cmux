@@ -84,17 +84,15 @@ public final class TerminalPredictionCenter {
         redrawHandlers[surfaceID] = redraw
     }
 
-    /// nonisolated so a surface's `deinit`, which cannot hop, can release it.
-    /// Buffered output is dropped immediately; the engine follows on the main
-    /// actor, where nothing else can observe it in between.
-    nonisolated public func unregister(surfaceID: UUID) {
+    /// Stops predicting for a surface whose runtime is gone.
+    ///
+    /// Called from the byte-tee `dropSurface` hook rather than from the view,
+    /// because every path that frees a runtime surface (teardown, hibernation,
+    /// stale-pointer quarantine, model deinit) already goes through it, and
+    /// the view only holds the surface weakly. Synchronous, so a surface
+    /// recreated in the same turn re-registers after this, not before.
+    public func unregister(surfaceID: UUID) {
         inbox.forget(surfaceID: surfaceID)
-        Task { @MainActor [weak self] in
-            self?.releaseEngine(surfaceID: surfaceID)
-        }
-    }
-
-    private func releaseEngine(surfaceID: UUID) {
         engines.removeValue(forKey: surfaceID)
         redrawHandlers.removeValue(forKey: surfaceID)
         expiryTasks.removeValue(forKey: surfaceID)?.cancel()

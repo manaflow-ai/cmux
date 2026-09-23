@@ -4247,8 +4247,11 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     private func predictedEchoStyle() -> TerminalPredictionOverlayView.Style? {
         guard cellSize.width > 0, cellSize.height > 0 else { return nil }
+        let app = GhosttyApp.shared
+        // The applied percent, not the stored one: the overlay has to match
+        // the font Ghostty is rendering right now.
         let configuration = GhosttyConfig.loadForCmux(
-            globalFontMagnificationPercent: GlobalFontMagnification.storedPercent
+            globalFontMagnificationPercent: app.appliedGlobalFontMagnificationPercent
         )
         // Only printable ASCII is ever predicted, so the configured family
         // always carries the glyph and no fallback chain is involved.
@@ -4256,9 +4259,11 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             ?? NSFont.monospacedSystemFont(ofSize: configuration.fontSize, weight: .regular)
         return TerminalPredictionOverlayView.Style(
             font: font,
-            foreground: GhosttyApp.shared.defaultForegroundColor,
-            background: GhosttyApp.shared.defaultBackgroundColor,
-            cursor: GhosttyApp.shared.defaultCursorColor,
+            foreground: app.defaultForegroundColor,
+            // An OSC 11 override from the remote repaints this surface's
+            // background, so the cell behind a glyph has to use it too.
+            background: backgroundColor ?? app.defaultBackgroundColor,
+            cursor: app.defaultCursorColor,
             // `GHOSTTY_ACTION_CELL_SIZE` reports backing pixels; the overlay
             // lays out in points alongside `ghostty_surface_ime_point`.
             cellSize: convertFromBacking(cellSize)
@@ -9133,9 +9138,6 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         discardPendingPasteAfterSurfaceReady()
         keyboardCopyModeRenderedFrameDemandRelease?()
         predictedEchoRenderedFrameDemandRelease?()
-        if let surfaceID = terminalSurface?.id {
-            TerminalPredictionCenter.shared.unregister(surfaceID: surfaceID)
-        }
         selectionAccessibilitySignal.finish()
         if titleUpdateSurfaceKey != nil {
             titleUpdateIngress.retireCurrentAttachment()
