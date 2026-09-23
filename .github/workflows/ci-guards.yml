@@ -122,6 +122,10 @@ jobs:
         if: ${{ matrix.group == 'preflight' }}
         run: python3 tests/test_docs_deploy_auth_guard.py
 
+      - name: Validate web complexity scan scoping
+        if: ${{ matrix.group == 'preflight' }}
+        run: python3 tests/test_web_complexity_scope.py
+
       - name: Validate reload shared DerivedData default
         if: ${{ matrix.group == 'preflight' }}
         run: ./tests/test_reload_shared_derived_data.sh
