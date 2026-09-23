@@ -23,7 +23,7 @@ gh variable list --repo manaflow-ai/cmux
 | `LINUX_RUNNER` | every Linux job (`ci.yml` web/typecheck/db, presence, cloud-vm, nightly/ios decide jobs, claude, homebrew, tmux fuzz) | `blacksmith-4vcpu-ubuntu-2404` | `blacksmith-4vcpu-ubuntu-2404` |
 | `LINUX_ARM64_RUNNER` | native ARM64 package entrypoint verification | `ubuntu-24.04-arm` | `ubuntu-24.04-arm` |
 | `MACOS_RUNNER_15` | the macOS 15 default: `macos-compile-admission`, `app-host-unit-tests`, nightly helper and test-cache jobs | `blacksmith-6vcpu-macos-15` | `blacksmith-6vcpu-macos-15` |
-| `MACOS_RUNNER_PR` | **pull-request** macOS jobs only, in `ci-macos.yml`, `cli-pipe-regressions.yml` and `terminal-hang-diagnostics.yml` | unset (see "Lanes" below) | `blacksmith-6vcpu-macos-15` |
+| `MACOS_RUNNER_PR` | **pull-request** macOS jobs only, in `ci-macos.yml`, `cli-pipe-regressions.yml`, `terminal-hang-diagnostics.yml`, `ci.yml` (`claude-wrapper`) and `nightly.yml` (`refresh-test-compilation-cache`) | unset (see "Lanes" below) | `blacksmith-6vcpu-macos-15` |
 | `MACOS_RUNNER_TESTS` | the manual test-debugging lanes: `test-e2e.yml` and `test-depot.yml` | unset (see "Lanes" below) | `blacksmith-6vcpu-macos-26` for `test-e2e.yml`, `blacksmith-6vcpu-macos-15` for `test-depot.yml` |
 | `MACOS_RUNNER_DUAL_XCODE` | `swift-package-tests` (SDK 15 release helper, then SDK 26 package tests) on **every** event, pull requests included | `blacksmith-6vcpu-macos-15` | `blacksmith-6vcpu-macos-15` |
 | `MACOS_RUNNER_26` | macOS 26 compatibility jobs and nightly sign/notarize | `blacksmith-6vcpu-macos-26` | `blacksmith-6vcpu-macos-26` |
@@ -32,8 +32,19 @@ gh variable list --repo manaflow-ai/cmux
 | `MACOS_RUNNER_DISPLAY` | macOS GUI, XCUITest, and virtual-display tests (`tests-build-and-lag`) | `blacksmith-6vcpu-macos-15` | `blacksmith-6vcpu-macos-15` |
 | `MACOS_RUNNER_IOS` | iOS simulator tests + TestFlight upload (`test-ios.yml`, `ios-testflight.yml`) | `blacksmith-6vcpu-macos-26` | `blacksmith-6vcpu-macos-26` |
 | `MACOS_RUNNER_STREAMED_VALIDATION` | `ios-streamed-validate.yml`, `iroh-release-gate.yml` streamed validation | `blacksmith-6vcpu-macos-15` | `blacksmith-6vcpu-macos-26` and `blacksmith-6vcpu-macos-15` respectively |
-| `CMUX_CI_XCODE_APP_PR` | the Xcode pin for the same **pull-request** macOS jobs that read `MACOS_RUNNER_PR` | unset (see "Lanes" below) | `CMUX_CI_XCODE_APP_MACOS_15` |
 | `MACOS_RUNNER_BACKGROUND` | non-urgent macOS work only: `build-ghosttykit`, the macOS legs of `cmux-tui-artifacts` (post-merge) and `cmux-tui-nightly` (on demand). See "Background lane" below | unset | `macos-15` (GitHub-hosted, free) |
+
+The pull-request lane also has a toolchain variable, set together with
+`MACOS_RUNNER_PR`:
+
+| Variable | Used by | Intended steady state | Falls back to |
+| --- | --- | --- | --- |
+| `CMUX_CI_XCODE_APP_PR` | the Xcode pin of the pull-request jobs that *select a pinned Xcode*: `macos-compile-admission`, `app-host-unit-tests`, `tests-build-and-lag`, `cli-pipe-regressions`, the `nightly.yml` cache seed, the owned-Mac producer, and `ci.yml`'s pull-request build-input fingerprint | unset (see "Lanes" below) | `CMUX_CI_XCODE_APP_MACOS_15` |
+
+Not every job on the pool reads it. `ci.yml`'s `claude-wrapper` never selects an
+Xcode, and the two `terminal-hang-diagnostics.yml` jobs run
+`scripts/select-ci-xcode.sh` with no pin at all, so they auto-select the newest
+stable Xcode on whichever image they land on.
 
 ## Lanes
 
@@ -50,6 +61,9 @@ the same cost profile or the same urgency.
 - **Manual test debugging** (`test-e2e.yml`, `test-depot.yml`) resolves through
   `MACOS_RUNNER_TESTS`, and deliberately does **not** follow `MACOS_RUNNER_15`.
   Re-running one test to chase a flake should never reach for paid capacity.
+  Both fallbacks stay on Blacksmith for that reason; `test-e2e.yml` falls back
+  to macOS 26 because the macOS 15 pool's queue-to-start p90 was 83 min against
+  1.0 min on 26, measured over 60 dispatches on 2026-09-22/23.
 
 `MACOS_RUNNER_PR` does not move a lane on its own. The two images carry
 different Xcodes -- the `macos-15` image ships `/Applications/Xcode_26.3.app`
@@ -71,8 +85,13 @@ Unsetting both returns the lane to `blacksmith-6vcpu-macos-15` and Xcode 26.3.
 `MACOS_RUNNER_PR`. It builds the Release Ghostty CLI helper against an
 SDK 15 Xcode -- it pins `CMUX_CI_REQUIRED_MACOS_SDK_MAJOR=15` for that step
 and then asserts `HELPER_SDK_VERSION == 15.*` -- and only the `macos-15`
-image carries an SDK 15 Xcode. Zig 0.15.2 also cannot link that helper on
-macOS 26, which is why `release.yml` builds it on macOS 15 too. So it stays
+image carries an SDK 15 Xcode. That pin dates from Zig 0.15.2, whose MachO
+linker could not resolve `libSystem` against an Xcode 26.4+ SDK
+(ziglang/zig#31658, fixed by #31673 in Zig 0.16.0); the Ghostty submodule has
+required 0.16.0 since 2026-09-17 and `install-zig-ci.sh` reads the version from
+that manifest, so the original reason is probably gone. The SDK 15 assertion is
+what still holds the job, and it has not been retested on a macos-26 image. So
+it stays
 on `MACOS_RUNNER_DUAL_XCODE` on every event, and the dual-Xcode guard in
 `tests/test_ci_self_hosted_guard.sh` fails if it ever reads
 `MACOS_RUNNER_PR`.
@@ -86,11 +105,10 @@ products and hosted revalidation rejects a toolchain mismatch. Before enabling
 `CI_PERSISTENT_MAC_COMPILE`, the owned Mac has to carry whatever Xcode the
 pull-request lane currently pins;
 `check_persistent_compile_owned_mac_occupancy` in
-`tests/test_ci_self_hosted_guard.sh` compares the two pins after reducing both
-to their pull-request branch.
-  Both fallbacks stay on Blacksmith for that reason; `test-e2e.yml` falls back
-  to macOS 26 because the macOS 15 pool's queue-to-start p90 was 83 min against
-  1.0 min on 26, measured over 60 dispatches on 2026-09-22/23.
+`tests/test_ci_self_hosted_guard.sh` reduces the hosted job's conditional to its
+pull-request branch before comparing, and separately requires the producer to
+name the lane directly: that file is `workflow_dispatch`-only, so a conditional
+on `github.event_name` there would never take the branch being compared.
 
 `MACOS_RUNNER_PR` and `MACOS_RUNNER_TESTS` are escape hatches: leaving them
 unset is the intended state, and setting one overrides just that lane without

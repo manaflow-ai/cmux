@@ -1331,12 +1331,18 @@ check_persistent_compile_lane() {
 # owned Mac and the hosted job that revalidates its product can be compared.
 #
 # The hosted job routes its pin through the pull-request lane, so its value is a
-# `github.event_name == 'pull_request' && (PR) || (default)` conditional while
+# `github.event_name == 'pull_request' && (PR) || (default)` conditional, while
 # the dispatch-only producer names the pull-request branch directly. Only the
-# owned Mac's products are ever consumed on a pull request, so both sides are
-# reduced to that branch before comparison: the check stays a real equality of
-# the toolchain the producer builds with and the one admission revalidates, and
-# a lane edit that moved only one of them would still fail here.
+# hosted side is reduced to that branch before comparison.
+#
+# The producer is deliberately NOT normalized. persistent-macos-compile.yml is
+# workflow_dispatch-only, so `github.event_name == 'pull_request'` is never true
+# there: reducing it to its pull-request branch would compare a string it can
+# never evaluate, and a producer pinned to `... || CMUX_CI_XCODE_APP_MACOS_26`
+# would match a hosted job revalidating against 26.3 while resolving to 26.5 on
+# every dispatch. That is exactly the wasted owned-Mac allocation invariant 3
+# exists to prevent, so the producer must name the lane directly and is checked
+# for that literal shape below.
 persistent_compile_toolchain_pin() {
   local file="$1" job="$2"
   awk -v want="  ${job}:" '
@@ -1357,9 +1363,12 @@ PR_LANE = re.compile(
     r"\$\{\{\s*github\.event_name == .pull_request.\s*&&\s*\((?P<pr>.+?)\)\s*\|\|.+?\}\}"
 )
 
+normalize = len(sys.argv) > 1 and sys.argv[1] == "--pr-lane"
 for line in sys.stdin:
-    sys.stdout.write(PR_LANE.sub(lambda m: "${{ " + m.group("pr").strip() + " }}", line))
-' | sort
+    if normalize:
+        line = PR_LANE.sub(lambda m: "${{ " + m.group("pr").strip() + " }}", line)
+    sys.stdout.write(line)
+' ${3:+--pr-lane} | sort
 }
 
 check_persistent_compile_owned_mac_occupancy() {
@@ -1428,7 +1437,18 @@ check_persistent_compile_owned_mac_occupancy() {
   #    allocation to produce an artifact that is certain to be rejected.
   local producer_pin hosted_pin
   producer_pin="$(persistent_compile_toolchain_pin "$PERSISTENT_COMPILE_FILE" compile)"
-  hosted_pin="$(persistent_compile_toolchain_pin "$CI_MACOS_FILE" macos-compile-admission)"
+  hosted_pin="$(persistent_compile_toolchain_pin "$CI_MACOS_FILE" macos-compile-admission --pr-lane)"
+  # The producer names the lane directly; anything else (a conditional, or a
+  # different default) would survive the equality below while resolving to a
+  # toolchain the hosted job rejects.
+  if [ "$producer_pin" != "CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: \"26\"
+CMUX_CI_XCODE_APP: \${{ vars.CMUX_CI_XCODE_APP_PR || vars.CMUX_CI_XCODE_APP_MACOS_15 }}" ]; then
+    echo "FAIL: the owned-Mac producer must pin the pull-request lane directly"
+    echo "      persistent-macos-compile.yml is workflow_dispatch-only, so a conditional"
+    echo "      on github.event_name there never takes its pull-request branch."
+    printf 'producer:\n%s\n' "$producer_pin"
+    exit 1
+  fi
   if [ "$(printf '%s\n' "$producer_pin" | grep -c .)" -ne 2 ]; then
     echo "FAIL: could not read both toolchain pins from the persistent compile producer"
     printf 'producer=%s\n' "$producer_pin"
