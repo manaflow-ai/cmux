@@ -1161,6 +1161,13 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// transition geometry instead of crossing through an intermediate grid.
     private var keyboardGeometryTargetPrepared = false
     private var keyboardTargetGeometryReportPending = false
+    /// Last-good pixels held above the Metal layer while a keyboard target
+    /// changes the alternate-screen grid. The PTY resize and the local layer
+    /// resize are asynchronous, so keeping one immutable image visible until
+    /// the target render presents prevents a torn old-grid frame from being
+    /// stretched by Core Animation.
+    private var keyboardTransitionPresentationOverlay: CALayer?
+    private var keyboardTransitionPresentationTarget: TerminalViewportSnapshot?
     private var keyboardVisible = false
     /// Height the persistent bottom toolbar reserves in the terminal grid. The
     /// toolbar is constrained to ``UIView/keyboardLayoutGuide`` and the viewport
@@ -1329,6 +1336,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         committedKeyboardHeight = next
         keyboardGeometryTargetPrepared = true
         keyboardTargetGeometryReportPending = true
+        installKeyboardTransitionPresentationOverlayIfNeeded()
         MobileDebugLog.anchormux(
             "kb.geometry.prepare (Int(committedKeyboardHeight)) alt=\(hostedAltScreenActive ? 1 : 0)"
         )
@@ -1344,6 +1352,68 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         alignSettledKeyboardRenderToViewportTop()
         setNeedsGeometrySync()
         publishSettledKeyboardViewportImmediately = true
+    }
+
+    /// Captures the currently presented Metal surface before changing its
+    /// bounds. The image is stretched only for the short target handoff, which
+    /// keeps the TUI's four edges attached to the visible viewport while its
+    /// real grid redraws at the announced size.
+    private func installKeyboardTransitionPresentationOverlayIfNeeded() {
+        guard keyboardTransitionPresentationOverlay == nil else { return }
+        let renderer = (layer.sublayers ?? []).first(where: isGhosttyRendererLayer)
+        let contents = renderer?.presentation()?.contents ?? renderer?.contents
+        guard let image = copyVerifiedReplayCGImage(from: contents) else { return }
+        let overlay = CALayer()
+        overlay.name = "cmux.keyboardTransitionPresentation"
+        overlay.contents = image
+        overlay.contentsGravity = .resize
+        overlay.contentsScale = renderer?.contentsScale ?? preferredScreenScale
+        overlay.zPosition = 1_900
+        overlay.actions = [
+            "bounds": NSNull(),
+            "contents": NSNull(),
+            "frame": NSNull(),
+            "opacity": NSNull(),
+            "position": NSNull(),
+        ]
+        layer.addSublayer(overlay)
+        keyboardTransitionPresentationOverlay = overlay
+        updateKeyboardTransitionPresentationOverlayFrame()
+        MobileDebugLog.anchormux("kb.presentation.freeze")
+    }
+
+    private func updateKeyboardTransitionPresentationOverlayFrame() {
+        guard let overlay = keyboardTransitionPresentationOverlay else { return }
+        let snapshot = viewportSnapshot()
+        keyboardTransitionPresentationTarget = snapshot
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        overlay.frame = snapshot.layoutViewportRect
+        CATransaction.commit()
+    }
+
+    private func clearKeyboardTransitionPresentationOverlayIfReady() {
+        guard let overlay = keyboardTransitionPresentationOverlay,
+              let target = keyboardTransitionPresentationTarget,
+              viewportSnapshot() == target,
+              let renderer = (layer.sublayers ?? []).first(where: isGhosttyRendererLayer),
+              renderer.contents != nil else { return }
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        overlay.removeFromSuperlayer()
+        CATransaction.commit()
+        keyboardTransitionPresentationOverlay = nil
+        keyboardTransitionPresentationTarget = nil
+        MobileDebugLog.anchormux("kb.presentation.reveal")
+    }
+
+    private func clearKeyboardTransitionPresentationOverlay() {
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        keyboardTransitionPresentationOverlay?.removeFromSuperlayer()
+        CATransaction.commit()
+        keyboardTransitionPresentationOverlay = nil
+        keyboardTransitionPresentationTarget = nil
     }
 
     @discardableResult
@@ -1388,6 +1458,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     private func alignSettledKeyboardRenderToViewportTop() {
         guard !lastRenderRect.isEmpty else { return }
         let snapshot = viewportSnapshot()
+        updateKeyboardTransitionPresentationOverlayFrame()
         let aligned = CGRect(
             x: lastRenderRect.minX,
             y: snapshot.layoutViewportRect.minY,
@@ -1996,6 +2067,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     private func layoutRenderedTerminalForCurrentViewport(using snapshot: TerminalViewportSnapshot) {
         snapshotFallbackView.frame = snapshot.layoutViewportRect
         layoutVerifiedReplayFrozenPresentation(viewportRect: snapshot.layoutViewportRect)
+        updateKeyboardTransitionPresentationOverlayFrame()
         guard !lastRenderRect.isEmpty else { return }
         let renderRect = snapshot.renderRect(forRenderSize: lastRenderRect.size)
         guard renderRect != lastRenderRect else { return }
@@ -3987,6 +4059,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// and resume; only ``prepareForDismantle()`` marks the surface dead.
     private func prepareForReuseAfterDetach() {
         clearVerifiedReplayPresentation()
+        clearKeyboardTransitionPresentationOverlay()
         visibleArtifactCountTask?.cancel()
         visibleArtifactCountTask = nil
         visibleArtifactCountSettleFrames = nil
@@ -4819,6 +4892,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         if presented && (hasAppliedOutput || submission.kind == .verifiedReplay) {
             surfaceHasReceivedOutput = true
             snapshotFallbackView.isHidden = true
+            clearKeyboardTransitionPresentationOverlayIfReady()
         }
         #if DEBUG
         if let surfaceID = hostSurfaceID {

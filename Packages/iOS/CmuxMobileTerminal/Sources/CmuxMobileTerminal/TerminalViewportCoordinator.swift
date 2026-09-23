@@ -10,10 +10,10 @@ import CoreGraphics
 /// so every participant consumes the same viewport for a frame.
 ///
 /// Primary-screen terminals keep their keyboard-independent grid. Alternate-
-/// screen terminals provide a settled keyboard height so the grid itself ends
+/// screen terminals provide the keyboard target height so the grid itself ends
 /// at the fully visible dock seam. The host still translates the full-height
-/// surface during the UIKit transition; only the committed snapshot changes
-/// after that transition completes.
+/// surface during the UIKit transition while the surface holds one last-good
+/// frame until the target grid presents.
 struct TerminalViewportCoordinator {
     func snapshot(inputs: TerminalViewportInputs) -> TerminalViewportSnapshot {
         let bounds = CGSize(
