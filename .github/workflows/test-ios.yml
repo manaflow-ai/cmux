@@ -1,4 +1,7 @@
 name: iOS simulator tests
+run-name: >-
+  iOS tests · ${{ inputs.ref || github.ref_name }} · ${{ inputs.swift_package || 'simulator' }} ·
+  ${{ inputs.test_filter || 'full suite' }} · ${{ inputs.device_family || 'both' }} · iOS ${{ inputs.ios_version || 'default' }}
 
 on:
   # Temporarily manual-only beginning 2026-07-13 to pause automatic CI.
@@ -79,7 +82,19 @@ jobs:
       should_run: ${{ steps.detect.outputs.should_run }}
       should_lint: ${{ steps.detect.outputs.should_lint }}
       target_sha: ${{ steps.target.outputs.sha }}
+      device_families: ${{ steps.families.outputs.json }}
     steps:
+      - name: Select requested simulator families
+        id: families
+        env:
+          DEVICE_FAMILY: ${{ inputs.device_family }}
+        run: |
+          case "${DEVICE_FAMILY:-both}" in
+            both) echo 'json=["iphone","ipad"]' >> "$GITHUB_OUTPUT" ;;
+            iphone|ipad) printf 'json=["%s"]\n' "$DEVICE_FAMILY" >> "$GITHUB_OUTPUT" ;;
+            *) echo "::error::Unsupported simulator device family" >&2; exit 1 ;;
+          esac
+
       - name: Checkout workflow revision
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -355,10 +370,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        family: [iphone, ipad]
+        family: ${{ fromJSON(needs.detect-ios-changes.outputs.device_families) }}
     steps:
       - name: Validate Tart runner identity
-        if: ${{ startsWith((!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_IOS || 'blacksmith-6vcpu-macos-26') || inputs.runner, 'tart-') && !(github.event_name == 'workflow_dispatch' && inputs.device_family != 'both' && inputs.device_family != matrix.family) }}
+        if: ${{ startsWith((!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_IOS || 'blacksmith-6vcpu-macos-26') || inputs.runner, 'tart-') }}
         env:
           RUNNER_CONTEXT_NAME: ${{ runner.name }}
         run: |
@@ -372,13 +387,7 @@ jobs:
             exit 1
           }
 
-      - name: Skip unrequested family
-        if: ${{ github.event_name == 'workflow_dispatch' && inputs.device_family != 'both' && inputs.device_family != matrix.family }}
-        run: |
-          echo "Skipping ${{ matrix.family }}"
-
       - name: Checkout
-        if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.device_family != 'both' && inputs.device_family != matrix.family) }}
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: ${{ needs.detect-ios-changes.outputs.target_sha }}
@@ -386,7 +395,6 @@ jobs:
           submodules: recursive
 
       - name: Select Xcode
-        if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.device_family != 'both' && inputs.device_family != matrix.family) }}
         run: |
           set -euo pipefail
           if [ -d "/Applications/Xcode.app/Contents/Developer" ]; then
@@ -404,16 +412,13 @@ jobs:
           xcodebuild -version
 
       - name: Install zig
-        if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.device_family != 'both' && inputs.device_family != matrix.family) }}
         run: ./scripts/install-zig-ci.sh
 
       - name: Capture Ghostty revision
-        if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.device_family != 'both' && inputs.device_family != matrix.family) }}
         id: ghostty-revision
         run: echo "sha=$(git -C ghostty rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
       - name: Prepare shared iOS cache paths
-        if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.device_family != 'both' && inputs.device_family != matrix.family) }}
         run: |
           set -euo pipefail
           echo "IOS_SPM_CACHE=$PWD/.ci-ios-source-packages" >> "$GITHUB_ENV"
@@ -422,7 +427,6 @@ jobs:
       # PR and ordinary manual runs restore only. The explicit main-only seed
       # path below keeps cache writes out of feature branches and fork runs.
       - name: Restore iOS SwiftPM cache
-        if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.device_family != 'both' && inputs.device_family != matrix.family) }}
         uses: ./.github/actions/cache-restore
         with:
           backend: ${{ inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND || 'r2' }}
@@ -432,7 +436,6 @@ jobs:
             ios-spm-${{ runner.os }}-${{ runner.arch }}-
 
       - name: Restore iOS GhosttyKit cache
-        if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.device_family != 'both' && inputs.device_family != matrix.family) }}
         uses: ./.github/actions/cache-restore
         with:
           backend: ${{ inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND || 'r2' }}
@@ -442,11 +445,9 @@ jobs:
             ios-ghosttykit-${{ runner.os }}-${{ runner.arch }}-
 
       - name: Sanitize iOS SwiftPM cache
-        if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.device_family != 'both' && inputs.device_family != matrix.family) }}
         run: python3 scripts/ci/sanitize-xcode-source-packages-cache.py "$IOS_SPM_CACHE"
 
       - name: Ensure iOS simulator runtime
-        if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.device_family != 'both' && inputs.device_family != matrix.family) }}
         env:
           IOS_VERSION: ${{ inputs.ios_version }}
         run: |
@@ -476,7 +477,6 @@ jobs:
           xcrun simctl list runtimes available | grep -Eq '\biOS\b'
 
       - name: Provision GhosttyKit
-        if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.device_family != 'both' && inputs.device_family != matrix.family) }}
         run: |
           # Downloads the prebuilt GhosttyKit.xcframework pinned in
           # scripts/ghosttykit-checksums.txt for the current ghostty SHA, or
@@ -485,7 +485,6 @@ jobs:
           ./scripts/ensure-ghosttykit.sh
 
       - name: Pick simulator
-        if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.device_family != 'both' && inputs.device_family != matrix.family) }}
         env:
           DEVICE_FAMILY: ${{ matrix.family }}
           IOS_VERSION: ${{ inputs.ios_version }}
@@ -581,7 +580,6 @@ jobs:
           cat "$SIMULATOR_ENV" >> "$GITHUB_ENV"
 
       - name: Prepare iOS build paths
-        if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.device_family != 'both' && inputs.device_family != matrix.family) }}
         env:
           DEVICE_FAMILY: ${{ matrix.family }}
         run: |
@@ -592,7 +590,6 @@ jobs:
           echo "IOS_DERIVED_DATA=$IOS_DERIVED_DATA" >> "$GITHUB_ENV"
 
       - name: Resolve packages
-        if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.device_family != 'both' && inputs.device_family != matrix.family) }}
         run: |
           xcodebuild -workspace ios/cmux.xcworkspace \
             -scheme cmux-ios \
@@ -602,7 +599,6 @@ jobs:
             -resolvePackageDependencies
 
       - name: Run iOS simulator tests
-        if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.device_family != 'both' && inputs.device_family != matrix.family) }}
         env:
           TEST_FILTER: ${{ inputs.test_filter }}
         run: |
@@ -675,7 +671,7 @@ jobs:
           done
 
       - name: Seed iOS caches from main
-        if: ${{ inputs.seed_cache && github.ref == 'refs/heads/main' && matrix.family == 'iphone' && !(github.event_name == 'workflow_dispatch' && inputs.device_family != 'both' && inputs.device_family != matrix.family) }}
+        if: ${{ inputs.seed_cache && github.ref == 'refs/heads/main' && matrix.family == 'iphone' }}
         env:
           AWS_ACCESS_KEY_ID: ${{ (inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND) == 'r2' && secrets.CI_CACHE_R2_ACCESS_KEY_ID || '' }}
           AWS_SECRET_ACCESS_KEY: ${{ (inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND) == 'r2' && secrets.CI_CACHE_R2_SECRET_ACCESS_KEY || '' }}
@@ -691,7 +687,7 @@ jobs:
           echo "Seeding iOS caches through $cache_backend"
 
       - name: Save iOS SwiftPM cache
-        if: ${{ inputs.seed_cache && github.ref == 'refs/heads/main' && matrix.family == 'iphone' && !(github.event_name == 'workflow_dispatch' && inputs.device_family != 'both' && inputs.device_family != matrix.family) }}
+        if: ${{ inputs.seed_cache && github.ref == 'refs/heads/main' && matrix.family == 'iphone' }}
         uses: ./.github/actions/cache-save
         with:
           backend: ${{ inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND || 'r2' }}
@@ -699,7 +695,7 @@ jobs:
           key: ios-spm-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('.xcode-version') }}-${{ hashFiles('ios/cmux.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
 
       - name: Save iOS GhosttyKit cache
-        if: ${{ inputs.seed_cache && github.ref == 'refs/heads/main' && matrix.family == 'iphone' && !(github.event_name == 'workflow_dispatch' && inputs.device_family != 'both' && inputs.device_family != matrix.family) }}
+        if: ${{ inputs.seed_cache && github.ref == 'refs/heads/main' && matrix.family == 'iphone' }}
         uses: ./.github/actions/cache-save
         with:
           backend: ${{ inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND || 'r2' }}
