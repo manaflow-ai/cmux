@@ -4206,47 +4206,64 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     /// Repositions the predicted-echo overlay against the live cursor, and
-    /// holds rendered-frame delivery only while something is drawn.
+    /// holds rendered-frame delivery only while the engine holds glyphs.
     func syncPredictionOverlay() {
         guard let surfaceID = terminalSurface?.id else {
             hidePredictionOverlay()
             return
         }
         let glyphs = TerminalPredictionCenter.shared.expiring(surfaceID: surfaceID)
-        guard !glyphs.isEmpty,
-              let surface,
-              let style = predictedEchoStyle() else {
+        guard !glyphs.isEmpty, let surface else {
             hidePredictionOverlay()
             return
         }
+        // From here on the engine is holding glyphs, so presented frames keep
+        // flowing even while nothing is drawn: they are what retires a held
+        // confirmation, and what re-shows the run when it fits again.
+        setPredictedEchoRenderedFrameTrackingActive(true)
+        // Scrolled back, the user is reading history and the prompt is off
+        // screen or somewhere a glyph would only obscure.
+        if let scrollbar, scrollbar.offset + scrollbar.len < scrollbar.total {
+            predictionOverlayView.withdraw()
+            return
+        }
+        // Viewport-relative cursor cell, in points. `ghostty_surface_ime_point`
+        // is not usable here: it places the active-screen cursor without
+        // regard to the viewport and does not report the column count.
+        var metrics = ghostty_surface_grid_metrics_s()
+        guard ghostty_surface_grid_metrics(surface, &metrics),
+              metrics.cursor_in_viewport,
+              metrics.cell_width.isFinite, metrics.cell_width > 0,
+              metrics.cell_height.isFinite, metrics.cell_height > 0,
+              metrics.padding_left.isFinite, metrics.padding_top.isFinite else {
+            predictionOverlayView.withdraw()
+            return
+        }
+        let style = predictedEchoStyle(
+            cellSize: CGSize(width: metrics.cell_width, height: metrics.cell_height)
+        )
 
-        var x: Double = 0
-        var y: Double = 0
-        var width: Double = 0
-        var height: Double = 0
-        ghostty_surface_ime_point(surface, &x, &y, &width, &height)
-        // Ghostty reports the cursor cell's horizontal midpoint and bottom edge
-        // (`Surface.imePoint`) in a top-left origin space; this view is not
-        // flipped, so the bottom edge becomes the frame origin's y.
+        let cursorTop = metrics.padding_top + Double(metrics.cursor_row) * metrics.cell_height
+        // Ghostty's grid is top-left origin; this view is not flipped, so the
+        // cursor cell's bottom edge becomes the frame origin's y.
         predictionOverlayView.present(
             glyphs: glyphs,
+            cursorColumn: Int(metrics.cursor_column),
+            columns: Int(metrics.columns),
             style: style,
             cursorOrigin: CGPoint(
-                x: x - style.cellSize.width / 2,
-                y: bounds.height - y
+                x: metrics.padding_left + Double(metrics.cursor_column) * metrics.cell_width,
+                y: bounds.height - (cursorTop + metrics.cell_height)
             )
         )
-        setPredictedEchoRenderedFrameTrackingActive(true)
     }
 
     private func hidePredictionOverlay() {
-        predictionOverlayView.isHidden = true
-        predictionOverlayView.glyphs = []
+        predictionOverlayView.withdraw()
         setPredictedEchoRenderedFrameTrackingActive(false)
     }
 
-    private func predictedEchoStyle() -> TerminalPredictionOverlayView.Style? {
-        guard cellSize.width > 0, cellSize.height > 0 else { return nil }
+    private func predictedEchoStyle(cellSize: CGSize) -> TerminalPredictionOverlayView.Style {
         let app = GhosttyApp.shared
         // The applied percent, not the stored one: the overlay has to match
         // the font Ghostty is rendering right now.
@@ -4264,9 +4281,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             // background, so the cell behind a glyph has to use it too.
             background: backgroundColor ?? app.defaultBackgroundColor,
             cursor: app.defaultCursorColor,
-            // `GHOSTTY_ACTION_CELL_SIZE` reports backing pixels; the overlay
-            // lays out in points alongside `ghostty_surface_ime_point`.
-            cellSize: convertFromBacking(cellSize)
+            cellSize: cellSize
         )
     }
 

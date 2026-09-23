@@ -37,8 +37,8 @@ public final class TerminalPredictionOverlayView: NSView {
         didSet { if style != oldValue { needsDisplay = true } }
     }
 
-    public var glyphs: [PredictedGlyph] = [] {
-        didSet { needsDisplay = true }
+    public var layout: PredictionOverlayLayout? {
+        didSet { if layout != oldValue { needsDisplay = true } }
     }
 
     public override var isFlipped: Bool { true }
@@ -57,7 +57,7 @@ public final class TerminalPredictionOverlayView: NSView {
     public override func hitTest(_ point: NSPoint) -> NSView? { nil }
 
     public override func draw(_ dirtyRect: NSRect) {
-        guard let style, !glyphs.isEmpty else { return }
+        guard let style, let layout else { return }
         let attributes: [NSAttributedString.Key: Any] = [
             .font: style.font,
             .foregroundColor: style.foreground,
@@ -66,14 +66,15 @@ public final class TerminalPredictionOverlayView: NSView {
             .underlineStyle: NSUnderlineStyle.single.rawValue,
         ]
 
-        for (index, glyph) in glyphs.enumerated() {
+        // Laid out by offset, not by position in the list: a keystroke typed
+        // before the run armed is not drawn but still owns its cell.
+        for glyph in layout.glyphs {
             let cell = CGRect(
-                x: CGFloat(index) * style.cellSize.width,
+                x: CGFloat(glyph.offset - layout.leadingOffset) * style.cellSize.width,
                 y: 0,
                 width: style.cellSize.width,
                 height: style.cellSize.height
             )
-            guard cell.maxX <= bounds.width else { break }
 
             style.background.setFill()
             cell.fill()
@@ -91,45 +92,58 @@ public final class TerminalPredictionOverlayView: NSView {
 
         // A caret where typing continues, because ghostty's own cursor is still
         // painted under the first predicted cell.
-        let caret = CGRect(
-            x: CGFloat(glyphs.count) * style.cellSize.width,
-            y: 0,
-            width: 1,
-            height: style.cellSize.height
-        )
-        if caret.maxX <= bounds.width {
+        if let caretOffset = layout.caretOffset {
             style.cursor.setFill()
-            caret.fill()
+            CGRect(
+                x: CGFloat(caretOffset - layout.leadingOffset) * style.cellSize.width,
+                y: 0,
+                width: 1,
+                height: style.cellSize.height
+            ).fill()
         }
     }
 
     /// Positions the run and shows or hides it in one step.
     ///
     /// - Parameters:
-    ///   - glyphs: What to draw, left to right from the cursor.
+    ///   - glyphs: What to draw, offsets measured from the live cursor.
+    ///   - cursorColumn: The live cursor's column on screen.
+    ///   - columns: The grid's column count, so the run stops at the margin.
     ///   - cursorOrigin: The cursor cell's frame origin (bottom-left) in the
     ///     host view's coordinates, already converted out of ghostty's
     ///     top-left space.
+    /// - Returns: Whether anything is drawn.
+    @discardableResult
     public func present(
         glyphs: [PredictedGlyph],
+        cursorColumn: Int,
+        columns: Int,
         style: Style,
         cursorOrigin: CGPoint
-    ) {
-        guard !glyphs.isEmpty else {
-            self.glyphs = []
-            isHidden = true
-            return
+    ) -> Bool {
+        guard let layout = PredictionOverlayLayout(
+            glyphs: glyphs,
+            cursorColumn: cursorColumn,
+            columns: columns
+        ) else {
+            withdraw()
+            return false
         }
         self.style = style
-        self.glyphs = glyphs
-        // One extra cell of width so the caret after the run has somewhere to
-        // land.
+        self.layout = layout
         frame = CGRect(
-            x: cursorOrigin.x,
+            x: cursorOrigin.x + CGFloat(layout.leadingOffset) * style.cellSize.width,
             y: cursorOrigin.y,
-            width: CGFloat(glyphs.count + 1) * style.cellSize.width,
+            width: CGFloat(layout.cellCount) * style.cellSize.width,
             height: style.cellSize.height
         )
         isHidden = false
+        return true
+    }
+
+    /// Hides the run and forgets it.
+    public func withdraw() {
+        layout = nil
+        isHidden = true
     }
 }
