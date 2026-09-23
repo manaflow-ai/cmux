@@ -1734,11 +1734,14 @@ def run_detect_step_for_paths(
     script = detect_step_script(workflow_path)
     with tempfile.TemporaryDirectory() as temp_dir:
         repo = Path(temp_dir)
+        git_env = os.environ.copy()
+        for name in ("GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE"):
+            git_env.pop(name, None)
         # Parallel local checkouts must not share the workflow's fixed /tmp files.
         script = script.replace("/tmp/cmux-ci-", str(repo / "cmux-ci-"))
-        subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
-        subprocess.run(["git", "config", "user.email", "ci@example.test"], cwd=repo, check=True)
-        subprocess.run(["git", "config", "user.name", "CI Test"], cwd=repo, check=True)
+        subprocess.run(["git", "init", "-q"], cwd=repo, env=git_env, check=True)
+        subprocess.run(["git", "config", "user.email", "ci@example.test"], cwd=repo, env=git_env, check=True)
+        subprocess.run(["git", "config", "user.name", "CI Test"], cwd=repo, env=git_env, check=True)
         helper_copy = repo / "scripts" / "ci" / "detect_ci_change_areas.py"
         helper_copy.parent.mkdir(parents=True, exist_ok=True)
         helper_copy.write_text(HELPER.read_text(encoding="utf-8"), encoding="utf-8")
@@ -1764,24 +1767,24 @@ def run_detect_step_for_paths(
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_text(content, encoding="utf-8")
         (repo / "base.txt").write_text("base\n", encoding="utf-8")
-        subprocess.run(["git", "add", "."], cwd=repo, check=True)
-        subprocess.run(["git", "commit", "-q", "-m", "base"], cwd=repo, check=True)
-        base_sha = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=repo, text=True).strip()
+        subprocess.run(["git", "add", "."], cwd=repo, env=git_env, check=True)
+        subprocess.run(["git", "commit", "-q", "-m", "base"], cwd=repo, env=git_env, check=True)
+        base_sha = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=repo, env=git_env, text=True).strip()
 
         if paths:
             for path in paths:
                 target = repo / path
                 target.parent.mkdir(parents=True, exist_ok=True)
                 target.write_text((head_files or {}).get(path, "changed\n"), encoding="utf-8")
-            subprocess.run(["git", "add", "."], cwd=repo, check=True)
-            subprocess.run(["git", "commit", "-q", "-m", "head"], cwd=repo, check=True)
-            head_sha = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=repo, text=True).strip()
+            subprocess.run(["git", "add", "."], cwd=repo, env=git_env, check=True)
+            subprocess.run(["git", "commit", "-q", "-m", "head"], cwd=repo, env=git_env, check=True)
+            head_sha = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=repo, env=git_env, text=True).strip()
         else:
             head_sha = base_sha
 
         output_path = repo / "github-output.txt"
         env = {
-            **os.environ,
+            **git_env,
             "EVENT_NAME": "pull_request",
             "BASE_SHA": base_sha,
             "HEAD_SHA": head_sha,

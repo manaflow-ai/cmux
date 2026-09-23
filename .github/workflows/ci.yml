@@ -331,7 +331,7 @@ jobs:
                 python3 scripts/ci/detect_ci_change_areas.py \
                   --event-name "$EVENT_NAME" \
                   --files-from "$product_files" \
-                  "${registry_base_args[@]}" \
+                  ${registry_base_args[@]+"${registry_base_args[@]}"} \
                   --github-output "$trusted_areas"
               )
               if [ "$cli_call_site_changed" = true ]; then
@@ -358,7 +358,7 @@ jobs:
             python3 scripts/ci/detect_ci_change_areas.py \
               --event-name "$EVENT_NAME" \
               --files-from /tmp/cmux-ci-changed-files.txt \
-              "${registry_base_args[@]}" \
+              ${registry_base_args[@]+"${registry_base_args[@]}"} \
               ${workflow_base_args[@]+"${workflow_base_args[@]}"}
             exit 0
           fi
