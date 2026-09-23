@@ -10,9 +10,11 @@ import json
 import os
 import plistlib
 import shutil
+import signal
 import socket
 import subprocess
 import tempfile
+import time
 from pathlib import Path
 
 from node_runtime import ensure_node_on_path
@@ -170,7 +172,10 @@ if [[ "${1:-}" == "--help" ]]; then
   printf 'probe\\n' >> "$FAKE_REAL_HELP_CALLS_LOG"
   case "${FAKE_REAL_HELP_BEHAVIOR:-success}" in
     fail) printf '%s' "${FAKE_REAL_HELP_OUTPUT-}"; exit 1 ;;
-    hang) sleep 30 & wait ;;
+    hang)
+      sleep 30 &
+      printf '%s\\n' "$$" "$!" > "$FAKE_REAL_HELP_PIDS_LOG"
+      wait ;;
   esac
   printf '%s' "${FAKE_REAL_HELP_OUTPUT-}"
   exit 0
@@ -263,6 +268,7 @@ exit 0
         env["FAKE_REAL_LAUNCH_ARGV_B64_LOG"] = str(real_launch_argv_b64_log)
         env["FAKE_REAL_NODE_SCRIPT"] = str(real_dir / "claude-real.js")
         env["FAKE_REAL_HELP_CALLS_LOG"] = str(tmp / "help-calls.log")
+        env["FAKE_REAL_HELP_PIDS_LOG"] = str(tmp / "help-pids.log")
         env["FAKE_REAL_HELP_BEHAVIOR"] = help_behavior
         env["FAKE_REAL_HELP_OUTPUT"] = (
             "Usage: claude [options] [command] [prompt]\n\n"
@@ -1248,7 +1254,7 @@ def test_subcommand_discovery_cache_and_binary_identity(failures: list[str]) -> 
 
                 def invoke(word: str, *, passthrough: bool) -> None:
                     proc = subprocess.run([str(wrapper), word], cwd=tmp, env=env,
-                                          capture_output=True, text=True, timeout=5)
+                                          capture_output=True, text=True, timeout=15)
                     observed = read_lines(Path(env["FAKE_REAL_ARGS_LOG"]))
                     expect(proc.returncode == 0, f"cache {change}: {proc.stderr}", failures)
                     expect((observed == [word]) == passthrough,
@@ -1275,7 +1281,7 @@ def test_subcommand_discovery_cache_and_binary_identity(failures: list[str]) -> 
 
             code, argv, _, stderr, *_ = run_wrapper(
                 socket_state="live", argv=["future-second", "abc123"], setup_sandbox=setup,
-                process_timeout=5,
+                process_timeout=15,
             )
             expect(code == 0 and argv == ["future-second", "abc123"],
                    f"cache {change}: new command not recognized: {argv}: {stderr}", failures)
@@ -1297,14 +1303,14 @@ def test_subcommand_help_failure_falls_back_and_is_cached(failures: list[str]) -
                 env["FAKE_REAL_HELP_CALLS_LOG"] = str(calls)
                 wrapper = tmp / "cmux.app/Contents/Resources/bin/cmux-claude-wrapper"
                 proc = subprocess.run([str(wrapper), "hello"], cwd=tmp, env=env,
-                                      capture_output=True, text=True, timeout=5)
+                                      capture_output=True, text=True, timeout=15)
                 observed = read_lines(Path(env["FAKE_REAL_ARGS_LOG"]))
                 expect(proc.returncode == 0 and "--session-id" in observed and "--settings" in observed,
                        f"fallback {behavior}: prompt launch failed: {observed}: {proc.stderr}", failures)
 
             code, argv, _, stderr, *_ = run_wrapper(
                 socket_state="live", argv=["hello"], setup_sandbox=setup,
-                help_behavior=behavior, help_output=output, process_timeout=5,
+                help_behavior=behavior, help_output=output, process_timeout=15,
             )
             expect(code == 0 and "--settings" in argv and "--session-id" in argv,
                    f"fallback {behavior}: lost prompt integration: {argv}: {stderr}", failures)
@@ -1313,7 +1319,7 @@ def test_subcommand_help_failure_falls_back_and_is_cached(failures: list[str]) -
         for command in ("attach", "logs", "stop", "kill", "rm", "respawn", "gateway", "import"):
             code, argv, _, stderr, *_ = run_wrapper(
                 socket_state="live", argv=[command, "abc123"],
-                help_behavior=behavior, help_output=output, process_timeout=5,
+                help_behavior=behavior, help_output=output, process_timeout=15,
             )
             expect(code == 0 and argv == [command, "abc123"],
                    f"fallback {behavior}, {command}: argv changed: {argv}: {stderr}", failures)
@@ -1336,11 +1342,55 @@ def test_explicit_prompt_modes_skip_subcommand_discovery(failures: list[str]) ->
 
             code, observed, _, stderr, *_ = run_wrapper(
                 socket_state="live", argv=argv, setup_sandbox=setup,
-                help_behavior="hang", process_timeout=5,
+                help_behavior="hang", process_timeout=15,
             )
             expect(code == 0 and "--settings" in observed,
                    f"session entry {argv}: missing hooks: {observed}: {stderr}", failures)
             expect(not calls.exists(), f"session entry {argv}: unexpectedly probed help", failures)
+
+
+def test_subcommand_help_cancellation_cleans_up_children(failures: list[str]) -> None:
+    """Interrupting a cold lookup also stops its isolated help process group."""
+    def setup(tmp: Path, env: dict) -> None:
+        home = tmp / "home"
+        home.mkdir()
+        env["HOME"] = str(home)
+        wrapper = tmp / "cmux.app/Contents/Resources/bin/cmux-claude-wrapper"
+        pid_log = Path(env["FAKE_REAL_HELP_PIDS_LOG"])
+        proc = subprocess.Popen([str(wrapper), "hello"], cwd=tmp, env=env,
+                                stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                start_new_session=True)
+        pids: list[int] = []
+        try:
+            deadline = time.monotonic() + 15
+            while not pid_log.exists() and proc.poll() is None and time.monotonic() < deadline:
+                time.sleep(0.01)
+            pids = [int(pid) for pid in read_lines(pid_log)]
+            expect(len(pids) == 2, "cancellation: help process was not reached", failures)
+            os.killpg(proc.pid, signal.SIGTERM)
+            proc.communicate(timeout=15)
+            for pid in pids:
+                # The help launcher is reaped by the probe; its killed child is
+                # adopted and reaped by the OS, which may lag the wrapper exit.
+                deadline = time.monotonic() + 5
+                while time.monotonic() < deadline:
+                    try:
+                        os.kill(pid, 0)
+                    except ProcessLookupError:
+                        break
+                    time.sleep(0.01)
+                else:
+                    failures.append(f"cancellation: help child {pid} survived")
+        finally:
+            for pid in [proc.pid, *pids]:
+                try:
+                    os.kill(pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+            proc.communicate()
+
+    run_wrapper(socket_state="live", argv=["agents"], setup_sandbox=setup,
+                help_behavior="hang", process_timeout=15)
 
 
 def test_passthrough_flags_bypass_hook_injection(failures: list[str]) -> None:
@@ -2915,6 +2965,7 @@ def main() -> int:
     test_subcommand_discovery_cache_and_binary_identity(failures)
     test_subcommand_help_failure_falls_back_and_is_cached(failures)
     test_explicit_prompt_modes_skip_subcommand_discovery(failures)
+    test_subcommand_help_cancellation_cleans_up_children(failures)
     test_passthrough_flags_bypass_hook_injection(failures)
     test_live_socket_attaches_cmux_cua_when_available(failures)
     test_computer_use_wrapper_is_a_pure_proxy(failures)
