@@ -197,7 +197,7 @@ struct TerminalViewportSpacingTests {
         // full width that makes the Mac send an unrenderable extra column.
         #expect(harness.view.columnReportContainerWidth(currentWidth: 402) == 393)
         #expect(harness.view.columnReportContainerWidth(currentWidth: 393) == 393)
-        let overlayWidth = harness.view.traitCollection.userInterfaceIdiom == .phone ? 393.0 : 300.0
+        let overlayWidth: CGFloat = harness.view.traitCollection.userInterfaceIdiom == .phone ? 393 : 300
         #expect(harness.view.columnReportContainerWidth(currentWidth: 300) == overlayWidth)
     }
 
