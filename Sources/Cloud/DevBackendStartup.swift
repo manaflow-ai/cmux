@@ -14,11 +14,15 @@ final class DevBackendStartup {
 
     init(endpoint: URL? = nil, session: URLSession = .shared,
          diagnosticsEnvironment: [String: String] = ProcessInfo.processInfo.environment,
-         emit: @escaping @Sendable (DevBackendDiagnostics.Event) async -> Void = { await DevBackendDiagnostics.shared.record($0) }) {
+         emit: @escaping @Sendable (DevBackendDiagnostics.Event) async -> Void = DevBackendStartup.emitDiagnostics) {
         self.configuredEndpoint = endpoint ?? Self.endpoint
         self.diagnosticsEnvironment = diagnosticsEnvironment
         self.session = session
         self.emit = emit
+    }
+
+    private nonisolated static func emitDiagnostics(_ event: DevBackendDiagnostics.Event) async {
+        await DevBackendDiagnostics.shared.record(event)
     }
 
     private enum StreamError: Error { case http(Int) }
