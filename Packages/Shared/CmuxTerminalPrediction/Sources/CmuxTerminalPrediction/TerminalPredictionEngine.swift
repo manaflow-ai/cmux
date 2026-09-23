@@ -72,6 +72,21 @@ public struct TerminalPredictionEngine: Sendable {
     /// Round trip from keystroke to echo, smoothed. `nil` until the first echo.
     public var observedEchoLatency: Duration? { smoothedEchoLatency }
 
+    /// When the oldest glyph on screen ages out, or `nil` when none is.
+    ///
+    /// Nothing renders a terminal that has gone quiet, so the host has to set
+    /// a timer for this; otherwise a prediction made just before the link died
+    /// would stay drawn until the user typed again.
+    public var nextExpiry: PredictionInstant? {
+        entries.compactMap { entry -> PredictionInstant? in
+            guard entry.isDisplayed else { return nil }
+            if let confirmedAt = entry.confirmedAt {
+                return confirmedAt + configuration.confirmationHold
+            }
+            return entry.typedAt + configuration.speculativeLifetime
+        }.min()
+    }
+
     public func status(at now: PredictionInstant) -> Status {
         guard isEnabled else { return .disabled }
         if isAlternateScreen { return .alternateScreen }

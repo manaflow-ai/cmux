@@ -28,6 +28,9 @@ public final class TerminalPredictionCenter {
     private var redrawHandlers: [UUID: @MainActor () -> Void] = [:]
     private var isEnabled = false
 
+    /// Fires at the earliest moment a drawn glyph ages out. A terminal that
+    /// has gone quiet renders no frames, so nothing else would withdraw it.
+    private var expiryTasks: [UUID: Task<Void, Never>] = [:]
     private var settingObserver: (any NSObjectProtocol)?
     private var settingKey: String?
     private var settingDefaults: UserDefaults?
@@ -94,6 +97,32 @@ public final class TerminalPredictionCenter {
     private func releaseEngine(surfaceID: UUID) {
         engines.removeValue(forKey: surfaceID)
         redrawHandlers.removeValue(forKey: surfaceID)
+        expiryTasks.removeValue(forKey: surfaceID)?.cancel()
+    }
+
+    /// Re-arms the withdrawal deadline for whatever is currently drawn.
+    private func scheduleExpiry(surfaceID: UUID) {
+        expiryTasks.removeValue(forKey: surfaceID)?.cancel()
+        guard let deadline = engines[surfaceID]?.nextExpiry else { return }
+        let delay = deadline - now
+        guard delay > .zero else {
+            withdrawExpired(surfaceID: surfaceID)
+            return
+        }
+        expiryTasks[surfaceID] = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: delay)
+            guard !Task.isCancelled else { return }
+            self?.withdrawExpired(surfaceID: surfaceID)
+        }
+    }
+
+    private func withdrawExpired(surfaceID: UUID) {
+        expiryTasks.removeValue(forKey: surfaceID)
+        guard engines[surfaceID] != nil else { return }
+        if engines[surfaceID]?.tick(at: now) == true {
+            redrawHandlers[surfaceID]?()
+        }
+        scheduleExpiry(surfaceID: surfaceID)
     }
 
     /// Applies the user setting. Turning it off withdraws everything already
@@ -125,6 +154,7 @@ public final class TerminalPredictionCenter {
         if engines[surfaceID]?.typed(printableASCII: byte, at: now) == true {
             redrawHandlers[surfaceID]?()
         }
+        scheduleExpiry(surfaceID: surfaceID)
     }
 
     /// Raw PTY output, from libghostty's tee on the IO read thread.
@@ -156,6 +186,7 @@ public final class TerminalPredictionCenter {
                 ) == true || changed
             }
             if changed { redrawHandlers[surfaceID]?() }
+            scheduleExpiry(surfaceID: surfaceID)
         }
     }
 
@@ -165,6 +196,7 @@ public final class TerminalPredictionCenter {
         if engines[surfaceID]?.presentedFrame(at: now) == true {
             redrawHandlers[surfaceID]?()
         }
+        scheduleExpiry(surfaceID: surfaceID)
     }
 
     /// Withdraws anything that has aged out. Called from the draw path, so a

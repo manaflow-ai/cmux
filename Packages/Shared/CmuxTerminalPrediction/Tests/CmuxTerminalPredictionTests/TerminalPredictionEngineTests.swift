@@ -261,3 +261,42 @@ struct TerminalPredictionEngineTests {
         #expect(session.engine.glyphs.first?.standing == .confirmed)
     }
 }
+
+extension TerminalPredictionEngineTests {
+    @Test func nothingDrawnMeansNoDeadlineToWatch() {
+        var session = armedSession()
+        #expect(session.engine.nextExpiry == nil)
+
+        session.type("s")
+        #expect(session.engine.nextExpiry != nil)
+
+        session.remote("x")
+        #expect(session.engine.nextExpiry == nil)
+    }
+
+    @Test func theDeadlineIsTheOldestGlyphAndMovesInOnConfirmation() {
+        var session = armedSession()
+        session.type("s", after: .milliseconds(10))
+        let typedAt = session.clock
+        session.type("t", after: .milliseconds(10))
+
+        // The speculative lifetime of the first glyph, not the second.
+        #expect(session.engine.nextExpiry == typedAt + .milliseconds(1500))
+
+        session.remote("s", after: .milliseconds(70))
+        // A confirmed glyph waits on the shorter presentation hold instead.
+        #expect(session.engine.nextExpiry == session.clock + .milliseconds(120))
+    }
+
+    @Test func aGlyphTheHostNeverTicksStillHasADeadlineToTickAt() throws {
+        // The case this exists for: the link dies mid-line, so no output and
+        // no frame ever arrives to drive a withdrawal.
+        var session = armedSession()
+        session.type("s")
+        let deadline = try #require(session.engine.nextExpiry)
+
+        session.clock = deadline + .milliseconds(1)
+        session.engine.tick(at: session.clock)
+        #expect(session.drawn == "")
+    }
+}
