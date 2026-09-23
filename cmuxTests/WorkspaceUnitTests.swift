@@ -5076,6 +5076,18 @@ final class WorkspaceTerminalFocusRecoveryTests: XCTestCase {
                 focusTransactionId: transactionId
             )
             FocusSurfaceBroadcaster.shared.flush()
+            let dulSurface = surfaceView(in: leftPanel.hostedView)
+            print("DULDIAG after-apply fr=\(String(describing: window.firstResponder)) leftIsFR=\(leftPanel.hostedView.isSurfaceViewFirstResponder()) visible=\(leftPanel.hostedView.isVisibleInUI) portalVisible=\(leftPanel.hostedView.debugPortalVisibleInUI) hidden=\(leftPanel.hostedView.isHiddenOrHasHiddenAncestor) surfHidden=\(dulSurface?.isHiddenOrHasHiddenAncestor ?? true) bounds=\(dulSurface?.bounds ?? .zero) hostWindow=\(leftPanel.hostedView.window === window) surfWindow=\(dulSurface?.window === window) focusedPanel=\(workspace.focusedPanelId == leftPanel.id) allows=\(appDelegate.allowsTerminalKeyboardFocus(workspaceId: workspace.id, panelId: leftPanel.id, in: window)) count=\(firstResponderFeedbackCount)")
+            _ = await AppKitTestEventPump().waitUntil(timeout: .milliseconds(300)) { false }
+            print("DULDIAG after-pump fr=\(String(describing: window.firstResponder)) leftIsFR=\(leftPanel.hostedView.isSurfaceViewFirstResponder()) visible=\(leftPanel.hostedView.isVisibleInUI) bounds=\(dulSurface?.bounds ?? .zero) count=\(firstResponderFeedbackCount) notif=\(sawFirstResponderNotification)")
+            if firstResponderFeedbackCount == 0, let dulSurface {
+                window.makeFirstResponder(nil)
+                let r = window.makeFirstResponder(dulSurface)
+                print("DULDIAG control-direct result=\(r) fr=\(String(describing: window.firstResponder)) count=\(firstResponderFeedbackCount) notif=\(sawFirstResponderNotification)")
+                window.makeFirstResponder(nil)
+                firstResponderFeedbackCount = 0
+                sawFirstResponderNotification = false
+            }
 
             // Selection applies focus through the AppKit event queue.  Drain the
             // queue before inspecting callbacks so this assertion observes the
