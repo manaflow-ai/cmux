@@ -504,8 +504,8 @@ jobs:
           tar -cf - -C "$CMUX_DERIVED_DATA_PATH" --exclude ./Logs --exclude ./Index.noindex . | gzip -1 > "$archive"
           bytes="$(wc -c < "$archive" | tr -d ' ')"
           echo "DerivedData archive: $bytes bytes"
-          if [ "$bytes" -gt $((12 * 1024 * 1024 * 1024)) ]; then
-            echo "::warning::DerivedData archive exceeds 12 GiB; not publishing"
+          if [ "$bytes" -gt $((8 * 1024 * 1024 * 1024)) ]; then
+            echo "::warning::DerivedData archive exceeds the 8 GiB transport limit; not publishing"
             exit 0
           fi
           echo "bytes=$bytes" >> "$GITHUB_OUTPUT"
