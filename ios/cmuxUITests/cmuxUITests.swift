@@ -1917,6 +1917,24 @@ final class cmuxUITests: XCTestCase {
         defer { app.terminate() }
 
         func picker() throws -> XCUIElement {
+            let whatsNewSheet = app.collectionViews["MobileWhatsNewSheet"].firstMatch
+            if whatsNewSheet.waitForExistence(timeout: 4) {
+                // The sheet identifier is inherited by its footer on iOS 26.
+                // Finish every page rather than tapping the obscured toolbar.
+                let continueButton = app.buttons.matching(
+                    NSPredicate(format: "label == %@", "Continue")
+                ).firstMatch
+                for _ in 0..<4 where whatsNewSheet.exists {
+                    _ = try XCTUnwrap(
+                        continueButton.waitForExistence(timeout: 4) ? continueButton : nil
+                    )
+                    continueButton.tap()
+                }
+                _ = try XCTUnwrap(
+                    whatsNewSheet.waitForNonExistence(timeout: 5) ? true : nil,
+                    "Finish the launch sheet before using the picker behind it"
+                )
+            }
             let picker = app.buttons["MobileWorkspaceMacPicker"]
             return try XCTUnwrap(
                 picker.waitForExistence(timeout: 15) ? picker : nil,
