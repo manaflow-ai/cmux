@@ -2715,7 +2715,7 @@ jobs:
 
       - name: Record Release Ghostty helper identity
         id: ghostty-helper-identity
-        if: ${{ inputs.release_build == 'true' }}
+        if: ${{ inputs.full_suite == 'true' && inputs.release_build == 'true' }}
         run: |
           set -euo pipefail
           helper=ghostty-cli-helper/ghostty
