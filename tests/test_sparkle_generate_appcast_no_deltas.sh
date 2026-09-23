@@ -11,7 +11,7 @@
 # (macOS /bin/bash 3.2 reproduces the bug; bash 4.4+ never did) and require a
 # signed appcast to land at the requested output path. The source-build path
 # (unpinned Sparkle versions) is covered through fake git/xcodebuild; the
-# pinned-release path through SPARKLE_TOOLS_DIR.
+# pinned release download/checksum/extraction path through fake tools.
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
@@ -88,6 +88,45 @@ exit 1
 BD
 chmod +x "$FAKE_BIN"/* "$FAKE_TOOLS"/*
 
+# Isolate the pinned download path from source builds and tools injection.
+PINNED_BIN="$TMP_DIR/pinned-bin"
+mkdir -p "$PINNED_BIN"
+cat > "$PINNED_BIN/curl" <<'CURL'
+#!/usr/bin/env bash
+set -euo pipefail
+out=""
+while [ $# -gt 0 ]; do
+  case "$1" in -o) out="$2"; shift;; esac
+  url="$1"
+  shift
+done
+[ "$url" = "https://github.com/sparkle-project/Sparkle/releases/download/2.8.1/Sparkle-2.8.1.tar.xz" ]
+[ -n "$out" ]
+printf fixture-tarball > "$out"
+echo download >> "$CMUX_TEST_PINNED_CALLS"
+CURL
+cat > "$PINNED_BIN/shasum" <<'SHA'
+#!/usr/bin/env bash
+set -euo pipefail
+[ "$1" = -a ] && [ "$2" = 256 ]
+[ "$(cat "$3")" = fixture-tarball ]
+echo checksum >> "$CMUX_TEST_PINNED_CALLS"
+printf '%s  %s\n' "${CMUX_TEST_PINNED_SHA:-5cddb7695674ef7704268f38eccaee80e3accbf19e61c1689efff5b6116d85be}" "$3"
+SHA
+cat > "$PINNED_BIN/tar" <<'TAR'
+#!/usr/bin/env bash
+set -euo pipefail
+[ "$1" = -xf ] && [ "$3" = -C ] && [ "$5" = ./bin ]
+[ "$(cat "$2")" = fixture-tarball ]
+mkdir -p "$4/bin"
+cp "$CMUX_TEST_FAKE_TOOLS/"* "$4/bin/"
+echo extract >> "$CMUX_TEST_PINNED_CALLS"
+TAR
+for command in git xcodebuild; do
+  printf '#!/usr/bin/env bash\necho "unexpected source build" >&2\nexit 99\n' > "$PINNED_BIN/$command"
+done
+chmod +x "$PINNED_BIN/"*
+
 run_script() {
   local bash_bin="$1" out="$2"
   shift 2
@@ -135,11 +174,24 @@ for bash_bin in "${candidates[@]}"; do
   fi
   [ -s "$out_dir/appcast-deltas.xml" ] || fail "bash $version: no appcast written on the delta path"
   paste -sd' ' "$TMP_DIR/argv.log" | grep -q -- "--maximum-deltas 1 " || fail "bash $version: --maximum-deltas 1 not passed with previous archives: $(paste -sd' ' "$TMP_DIR/argv.log")"
-  # Pinned-release path: tools come from SPARKLE_TOOLS_DIR, never a source build.
+  # Explicit tools-directory injection remains a separate supported path.
   if ! run_script "$bash_bin" "$out_dir/appcast-tools.xml" env SPARKLE_TOOLS_DIR="$FAKE_TOOLS" SPARKLE_PREVIOUS_ARCHIVES_DIR="$TMP_DIR/previous" SPARKLE_MAXIMUM_DELTAS=1 PATH="/usr/bin:/bin" >"$out_dir/run-tools.log" 2>&1; then
     fail "bash $version: script failed with SPARKLE_TOOLS_DIR: $(tail -n 5 "$out_dir/run-tools.log")"
   fi
   grep -q 'sparkle:edSignature' "$out_dir/appcast-tools.xml" || fail "bash $version: SPARKLE_TOOLS_DIR appcast lacks sparkle:edSignature"
+  pinned_calls="$out_dir/pinned-calls"
+  : > "$pinned_calls"
+  if ! run_script "$bash_bin" "$out_dir/appcast-pinned.xml" env -u SPARKLE_TOOLS_DIR -u SPARKLE_PREVIOUS_ARCHIVES_DIR SPARKLE_VERSION=2.8.1 CMUX_TEST_PINNED_CALLS="$pinned_calls" PATH="$PINNED_BIN:$PATH" >"$out_dir/run-pinned.log" 2>&1; then
+    fail "bash $version: pinned download path failed: $(tail -n 5 "$out_dir/run-pinned.log")"
+  fi
+  [ "$(paste -sd, "$pinned_calls")" = download,checksum,extract ] || fail "pinned tools did not download, verify, then extract"
+  grep -q 'sparkle:edSignature' "$out_dir/appcast-pinned.xml" || fail "pinned download path produced no signed appcast"
+  : > "$pinned_calls"
+  if run_script "$bash_bin" "$out_dir/appcast-bad-checksum.xml" env -u SPARKLE_TOOLS_DIR -u SPARKLE_PREVIOUS_ARCHIVES_DIR SPARKLE_VERSION=2.8.1 CMUX_TEST_PINNED_SHA=bad CMUX_TEST_PINNED_CALLS="$pinned_calls" PATH="$PINNED_BIN:$PATH" >"$out_dir/run-bad-checksum.log" 2>&1; then
+    fail "bash $version: mismatched pinned tarball checksum was accepted"
+  fi
+  [ "$(paste -sd, "$pinned_calls")" = download,checksum ] || fail "mismatched pinned tarball was extracted"
+  [ ! -e "$out_dir/appcast-bad-checksum.xml" ] || fail "mismatched pinned tarball produced an appcast"
   [ ! -e "$TMP_DIR/binary-delta-called" ] || fail "BinaryDelta ran for unmountable fixtures"
   echo "ok: bash $version generates a signed appcast with and without previous archives"
 done
