@@ -74,8 +74,8 @@ struct TerminalAlternateScreenViewportTests {
     }
 
     @MainActor
-    @Test("alternate-screen keyboard sizing commits after completion and opt-out restores full height")
-    func surfaceCommitsAfterKeyboardCompletion() throws {
+    @Test("alternate-screen keyboard sizing uses the announced target and opt-out restores full height")
+    func surfaceCommitsAnnouncedKeyboardTarget() throws {
         let delegate = AlternateScreenViewportDelegate()
         let view = GhosttySurfaceView(runtime: try GhosttyRuntime.shared(), delegate: delegate, fontSize: 10)
         defer { view.prepareForDismantle() }
@@ -85,7 +85,7 @@ struct TerminalAlternateScreenViewportTests {
         let fullHeight = view.terminalViewportRect.height
         view.setHostedKeyboardTransitionActive(true)
         view.setHostedKeyboardState(height: 300, isVisible: true)
-        #expect(view.terminalViewportRect.height == fullHeight)
+        #expect(view.terminalViewportRect.height == fullHeight - 300)
         view.setHostedKeyboardTransitionActive(false)
         #expect(view.terminalViewportRect.height == fullHeight - 300)
         #expect(view.hostedScrollTopRevealBudget == 0)

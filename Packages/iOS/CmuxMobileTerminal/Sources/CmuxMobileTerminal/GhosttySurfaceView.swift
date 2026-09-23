@@ -1155,6 +1155,12 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// observes an intermediate height while UIKit is moving the keyboard.
     private var committedKeyboardHeight: CGFloat = 0
     private var keyboardTransitionActiveForGeometry = false
+    /// True after the keyboard will-frame target has been committed to the
+    /// alternate-screen geometry fence. The target is known before UIKit
+    /// starts animating, so the local surface and the PTY report can use one
+    /// transition geometry instead of crossing through an intermediate grid.
+    private var keyboardGeometryTargetPrepared = false
+    private var keyboardTargetGeometryReportPending = false
     private var keyboardVisible = false
     /// Height the persistent bottom toolbar reserves in the terminal grid. The
     /// toolbar is constrained to ``UIView/keyboardLayoutGuide`` and the viewport
@@ -1284,7 +1290,9 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         )
         keyboardHeight = nextHeight
         layoutBottomDock(using: viewportSnapshot())
-        if !keyboardTransitionActiveForGeometry {
+        if keyboardTransitionActiveForGeometry, alternateScreenSizingEnabled {
+            prepareHostedKeyboardGeometryTarget()
+        } else if !keyboardTransitionActiveForGeometry {
             commitHostedKeyboardGeometryIfNeeded()
         }
     }
@@ -1296,12 +1304,46 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     func setHostedKeyboardTransitionActive(_ active: Bool) {
         let wasActive = keyboardTransitionActiveForGeometry
         keyboardTransitionActiveForGeometry = active
+        if active {
+            keyboardGeometryTargetPrepared = false
+            keyboardTargetGeometryReportPending = false
+            publishSettledKeyboardViewportImmediately = false
+        }
         if !active {
             let committed = commitHostedKeyboardGeometryIfNeeded()
-            if wasActive, committed, alternateScreenSizingEnabled {
+            if wasActive,
+               (committed || keyboardTargetGeometryReportPending),
+               alternateScreenSizingEnabled {
                 publishSettledKeyboardViewportImmediately = true
             }
         }
+    }
+
+    /// Commits the final keyboard target as soon as UIKit announces it. This
+    /// is the transaction boundary shared by the pane animation, the local
+    /// Ghostty grid, and the eventual Mac PTY resize. The target is already
+    /// the expected end state, so no intermediate TUI size is exposed.
+    private func prepareHostedKeyboardGeometryTarget() {
+        let next = max(0, keyboardHeight)
+        guard abs(next - committedKeyboardHeight) > 0.25 else { return }
+        committedKeyboardHeight = next
+        keyboardGeometryTargetPrepared = true
+        keyboardTargetGeometryReportPending = true
+        MobileDebugLog.anchormux(
+            "kb.geometry.prepare (Int(committedKeyboardHeight)) alt=\(hostedAltScreenActive ? 1 : 0)"
+        )
+        if let effectiveGrid {
+            MobileDebugLog.anchormux(
+                "kb.geometry.clearEffectiveGrid \(effectiveGrid.cols)x\(effectiveGrid.rows)"
+            )
+            self.effectiveGrid = nil
+        }
+        resetAlternateScreenGeometryFence()
+        alternateScreenGeometryFence.commitTransitionTarget(viewportSnapshot())
+        layoutRenderedTerminalForCurrentViewport()
+        alignSettledKeyboardRenderToViewportTop()
+        setNeedsGeometrySync()
+        publishSettledKeyboardViewportImmediately = true
     }
 
     @discardableResult
@@ -1310,6 +1352,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             ? max(0, keyboardHeight)
             : 0
         guard abs(next - committedKeyboardHeight) > 0.25 else { return false }
+        keyboardGeometryTargetPrepared = false
         committedKeyboardHeight = next
         MobileDebugLog.anchormux(
             "kb.geometry.commit \(Int(committedKeyboardHeight)) alt=\(hostedAltScreenActive ? 1 : 0)"
@@ -1329,6 +1372,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             self.effectiveGrid = nil
         }
         resetAlternateScreenGeometryFence()
+        alternateScreenGeometryFence.commitTransitionTarget(viewportSnapshot())
         layoutRenderedTerminalForCurrentViewport()
         alignSettledKeyboardRenderToViewportTop()
         setNeedsGeometrySync()
@@ -1477,6 +1521,13 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     }
 
     var hostedKeyboardHeight: CGFloat { keyboardHeight }
+
+    /// Whether the current keyboard leg already committed its announced final
+    /// alternate-screen target. The host uses this to avoid holding the pane
+    /// on the old grid while the target grid is already being rendered.
+    var hostedKeyboardGeometryTargetPrepared: Bool {
+        keyboardGeometryTargetPrepared
+    }
 
     var hostedChromeHidden: Bool { chromeHidden }
 
@@ -4894,6 +4945,9 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
 
     private func shouldDeferAlternateScreenGeometry() -> Bool {
         guard alternateScreenSizingEnabled else { return false }
+        if keyboardTransitionActiveForGeometry, keyboardGeometryTargetPrepared {
+            return false
+        }
         return !alternateScreenGeometryFence.sample(
             viewportSnapshot(),
             transitionActive: alternateScreenGeometryTransitionActive
@@ -5486,7 +5540,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         let canPublishSettledKeyboardViewport =
             publishSettledKeyboardViewportImmediately
             && alternateScreenSizingEnabled
-            && !keyboardTransitionActiveForGeometry
+            && (!keyboardTransitionActiveForGeometry || keyboardTargetGeometryReportPending)
             && viewportSnapshot() == snapshot
         guard shouldReportNaturalSize, reportGrid.columns > 0, reportGrid.rows > 0 else {
             if canPublishSettledKeyboardViewport, !shouldReportNaturalSize {
@@ -5497,6 +5551,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         lastReportedSize = reportGrid
         if canPublishSettledKeyboardViewport {
             publishSettledKeyboardViewportImmediately = false
+            keyboardTargetGeometryReportPending = false
             publishViewportReport(reportGrid, reason: "keyboard_settled")
             return
         }

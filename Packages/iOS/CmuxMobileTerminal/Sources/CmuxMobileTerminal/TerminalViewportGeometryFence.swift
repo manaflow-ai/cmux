@@ -18,6 +18,16 @@ struct TerminalViewportGeometryFence {
         invalidateCandidate()
     }
 
+    /// Commits the final geometry predicted by the owner of an active
+    /// transition. UIKit already gives us the keyboard's target frame in the
+    /// will-change notification, so alternate-screen rendering can use that
+    /// exact target while the keyboard animates instead of displaying a pane
+    /// at one size with a TUI grid at another.
+    mutating func commitTransitionTarget(_ snapshot: TerminalViewportSnapshot) {
+        committed = snapshot
+        invalidateCandidate()
+    }
+
     mutating func sample(_ snapshot: TerminalViewportSnapshot, transitionActive: Bool) -> Bool {
         guard !transitionActive else {
             invalidateCandidate()

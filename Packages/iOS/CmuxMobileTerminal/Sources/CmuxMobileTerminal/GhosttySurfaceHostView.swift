@@ -496,8 +496,9 @@ public final class GhosttySurfaceHostView: UIView {
             // lands mid-leg through the content cap's own short ease.
             surfaceView.refreshHostedContentBottomNow()
         }
-        // Keep the previous alternate-screen grid while UIKit animates. The
-        // surface commits this leg only from the completion below.
+        // Announce the final alternate-screen grid before UIKit animates. The
+        // surface uses that target while the pane moves, then confirms it from
+        // the completion below.
         surfaceView.setHostedKeyboardTransitionActive(true)
         surfaceView.setHostedKeyboardState(
             height: targetHeight,
@@ -522,6 +523,7 @@ public final class GhosttySurfaceHostView: UIView {
         let generation = keyboardTransitionGeneration
         if surfaceView.hostedAltScreenActive,
            !surfaceView.useLegacyTerminalSizing,
+           !surfaceView.hostedKeyboardGeometryTargetPrepared,
            targetHeight + 0.5 < previousKeyboardHeight {
             holdPresentationForAlternateScreenKeyboardHide()
         } else {
