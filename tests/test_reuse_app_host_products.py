@@ -249,8 +249,8 @@ class ReuseProducts(TestProductHandoff):
         )
 
         changed_recipe = mutate_admission(
-            "scripts/ci/compile-app-host-test-product.sh build \\",
-            "scripts/ci/compile-app-host-test-product.sh build --changed \\",
+            "scripts/ci/compile-app-host-test-product.sh canonical-build \\",
+            "scripts/ci/compile-app-host-test-product.sh canonical-build --changed \\",
         )
         self.assertNotEqual(
             base_identity,
@@ -273,6 +273,8 @@ class ReuseProducts(TestProductHandoff):
             "config/iroh/managed-relay-catalog.json",
             "vercel.json",
             ".vercelignore",
+            "cmux-browser/src/main.ts",
+            "daemon/remote/cmd/cmuxd-remote/cli.go",
         ):
             self.assertFalse(identity.reaches_product(path), path)
         self.assertTrue(identity.reaches_product("config/IrohRelayPolicyProduction.xcconfig"))
@@ -425,14 +427,17 @@ class ReuseProducts(TestProductHandoff):
             git("init", "-q", "-b", "main", ".")
             git("commit", "-q", "--allow-empty", "-m", "base")
             self.base_revision = git("rev-parse", "HEAD")
-            git("checkout", "-q", "-b", "head")
+            # Not "head": on a case-insensitive filesystem refs/heads/head and
+            # .git/HEAD are the same path, so every later "head" argument is an
+            # ambiguous refname and these tests cannot run on macOS at all.
+            git("checkout", "-q", "-b", "pull-request-head")
             git("commit", "-q", "--allow-empty", "-m", "pull request head")
             self.head_revision = git("rev-parse", "HEAD")
             git("checkout", "-q", "main")
-            git("merge", "-q", "--no-ff", "head", "-m", "merge pull request")
+            git("merge", "-q", "--no-ff", "pull-request-head", "-m", "merge pull request")
             # The same two commits merged the other way, leaving the pull
             # request head in the first-parent position.
-            git("checkout", "-q", "-b", "reversed", "head")
+            git("checkout", "-q", "-b", "reversed", "pull-request-head")
             git("merge", "-q", "--no-ff", "main", "-m", "merge base")
         checkout = root / branch
         git("clone", "-q", "--depth", "1", "--branch", branch, "--no-local",
@@ -465,7 +470,7 @@ class ReuseProducts(TestProductHandoff):
             # merged into it, not the pull request merged for testing.
             ("reversed", "head_revision"),
             # A non-merge checkout still has to be the attested commit itself.
-            ("head", "base_revision"),
+            ("pull-request-head", "base_revision"),
         )
         for branch, attribute in cases:
             with self.subTest(branch=branch):

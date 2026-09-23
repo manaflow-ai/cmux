@@ -578,7 +578,8 @@ enum CloudTreeNodeBuilder {
         let projectionIndex = LocalProjectionIndex(snapshot: snapshot, unreadTerminalIDs: unreadTerminalIDs)
         let resourceNodeBuilder = CloudTreeMachineResourceNodeBuilder()
         var identities = adoptedOperationIDs
-        for operation in pendingCreates where !operation.request.isBaseSetup {
+        for operation in pendingCreates where !operation.request.isBaseSetup &&
+            (operation.isRunning || operation.isReconciling) {
             if let id = operation.createdMachineID ?? operation.reconcilingMachineID, identities[id] == nil {
                 identities[id] = operation.id
             }
@@ -600,9 +601,8 @@ enum CloudTreeNodeBuilder {
             nodes.append(CloudTreeNode(id: nodeID(pendingCreate: operation.id), kind: .pendingMachine(operation)))
         }
         let infoByMachine = Dictionary(snapshot.machines.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
-        let failedIDs = Set(pendingCreates.filter { !$0.request.isBaseSetup && $0.failureOutput != nil }.compactMap(\.createdMachineID))
-        var seen = failedIDs
-        for machine in machines where !failedIDs.contains(machine.id) {
+        var seen = Set<String>()
+        for machine in machines {
             seen.insert(machine.id)
             let info = infoByMachine[.cloud(machine.id)]
             let stableID = identities[machine.id].map { nodeID(pendingCreate: $0) }
