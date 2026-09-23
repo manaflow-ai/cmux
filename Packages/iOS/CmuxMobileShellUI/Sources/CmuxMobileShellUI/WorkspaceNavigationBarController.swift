@@ -8,7 +8,14 @@ final class WorkspaceNavigationBarController: UIViewController {
     private let item = UINavigationItem()
     private let titleHost = UIHostingController(rootView: AnyView(EmptyView()))
     private lazy var titleCapsule = WorkspaceNavigationTitleView(host: titleHost)
-    private let trailingGroup = UIBarButtonItemGroup(barButtonItems: [], representativeItem: nil)
+    // This is a fixed UIKit group because these actions are part of the
+    // workspace detail chrome, rather than user-customizable navigation
+    // content. A nil representative deliberately keeps each action visible;
+    // the titleView is the compressible part of this bar.
+    private let trailingGroup = UIBarButtonItemGroup.fixedGroup(
+        withRepresentativeItem: nil,
+        items: []
+    )
     private var controls: [WorkspaceNavigationBar.Item.ID: HostedControl] = [:]
     private var leadingIDs: [WorkspaceNavigationBar.Item.ID] = []
     private var trailingIDs: [WorkspaceNavigationBar.Item.ID] = []
@@ -19,6 +26,7 @@ final class WorkspaceNavigationBarController: UIViewController {
         bar.accessibilityIdentifier = "MobileWorkspaceNavigationBar"
         bar.translatesAutoresizingMaskIntoConstraints = false
         bar.tintColor = .label
+        bar.prefersLargeTitles = false
         let appearance = UINavigationBarAppearance()
         appearance.configureWithTransparentBackground()
         bar.standardAppearance = appearance
@@ -34,6 +42,7 @@ final class WorkspaceNavigationBarController: UIViewController {
         ])
 
         addChild(titleHost)
+        item.largeTitleDisplayMode = .never
         item.titleView = titleCapsule
         // Unlike trailingItemGroups, this group cannot move into More.
         // Every new essential action must join this group so UIKit includes
