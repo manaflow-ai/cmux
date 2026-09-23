@@ -804,6 +804,10 @@ path = "tests/test_cmux_settings_supported_paths.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_settings_configuration_review_paths.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_codex_feed_hooks.py"
 lane = "legacy"
 
