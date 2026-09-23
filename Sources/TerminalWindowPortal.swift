@@ -5,9 +5,8 @@ import CmuxAppKitSupportUI
 import CmuxFoundation
 import CmuxTerminal
 import CmuxTerminalCore
-#if DEBUG
+import CmuxControlSocket
 import Bonsplit
-#endif
 
 private var cmuxWindowTerminalPortalKey: UInt8 = 0
 private var cmuxWindowTerminalPortalCloseObserverKey: UInt8 = 0
@@ -633,6 +632,305 @@ private final class SplitDividerOverlayView: NSView {
     }
 }
 
+enum PaneSwapSelectionCancellationReason: Equatable {
+    case escapeKey
+    case secondaryClick
+    case abandonedInteraction
+    case windowDeactivated
+    case layoutChanged
+}
+
+enum PaneSwapSelectionEvent: Equatable {
+    case hover(UUID?)
+    case primaryClick
+    case cancel(PaneSwapSelectionCancellationReason)
+}
+
+enum PaneSwapSelectionEffect: Equatable {
+    case none
+    case commit(sourcePaneID: UUID, targetPaneID: UUID)
+    case cancel(PaneSwapSelectionCancellationReason)
+}
+
+struct PaneSwapSelectionState: Equatable {
+    let sourcePaneID: UUID
+    private(set) var targetPaneID: UUID?
+
+    init(sourcePaneID: UUID) {
+        self.sourcePaneID = sourcePaneID
+    }
+
+    mutating func handle(_ event: PaneSwapSelectionEvent) -> PaneSwapSelectionEffect {
+        switch event {
+        case .hover(let paneID):
+            targetPaneID = paneID == sourcePaneID ? nil : paneID
+            return .none
+        case .primaryClick:
+            guard let targetPaneID else { return .none }
+            self.targetPaneID = nil
+            return .commit(sourcePaneID: sourcePaneID, targetPaneID: targetPaneID)
+        case .cancel(let reason):
+            targetPaneID = nil
+            return .cancel(reason)
+        }
+    }
+}
+
+private struct PaneSwapSelectionCandidate {
+    let paneID: UUID
+    let frame: NSRect
+}
+
+private final class PaneSwapSelectionOverlayView: NSView {
+    var candidateAtWindowPoint: ((NSPoint) -> PaneSwapSelectionCandidate?)?
+    var onEffect: ((PaneSwapSelectionEffect) -> Void)?
+
+    private(set) var state: PaneSwapSelectionState?
+    private var sourceFrame: NSRect = .zero
+    private var targetFrame: NSRect?
+    private var trackingArea: NSTrackingArea?
+
+    override var isOpaque: Bool { false }
+    override var acceptsFirstResponder: Bool { true }
+
+    deinit {
+        if let trackingArea {
+            removeTrackingArea(trackingArea)
+        }
+    }
+
+    override func updateTrackingAreas() {
+        if let trackingArea {
+            removeTrackingArea(trackingArea)
+        }
+        let next = NSTrackingArea(
+            rect: .zero,
+            options: [.inVisibleRect, .activeInKeyWindow, .mouseMoved, .mouseEnteredAndExited],
+            owner: self,
+            userInfo: nil
+        )
+        addTrackingArea(next)
+        trackingArea = next
+        super.updateTrackingAreas()
+    }
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        isHidden ? nil : self
+    }
+
+    func begin(sourcePaneID: UUID, sourceFrame: NSRect) {
+        state = PaneSwapSelectionState(sourcePaneID: sourcePaneID)
+        self.sourceFrame = sourceFrame
+        targetFrame = nil
+        isHidden = false
+        needsDisplay = true
+        updateTrackingAreas()
+    }
+
+    func end() {
+        state = nil
+        targetFrame = nil
+        isHidden = true
+        needsDisplay = true
+    }
+
+    override func mouseMoved(with event: NSEvent) {
+        updateTarget(with: event)
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        guard var state else { return }
+        _ = state.handle(.hover(nil))
+        self.state = state
+        targetFrame = nil
+        needsDisplay = true
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        updateTarget(with: event)
+        guard var state else { return }
+        let effect = state.handle(.primaryClick)
+        self.state = state
+        if effect != .none {
+            onEffect?(effect)
+        }
+    }
+
+    override func rightMouseDown(with event: NSEvent) {
+        cancel(.secondaryClick)
+    }
+
+    override func keyDown(with event: NSEvent) {
+        if event.keyCode == 53 {
+            cancel(.escapeKey)
+            return
+        }
+        super.keyDown(with: event)
+    }
+
+    override func cancelOperation(_ sender: Any?) {
+        cancel(.escapeKey)
+    }
+
+    override func resignFirstResponder() -> Bool {
+        let didResign = super.resignFirstResponder()
+        if didResign, state != nil {
+            cancel(.abandonedInteraction)
+        }
+        return didResign
+    }
+
+    private func updateTarget(with event: NSEvent) {
+        guard var state else { return }
+        let candidate = candidateAtWindowPoint?(event.locationInWindow)
+        _ = state.handle(.hover(candidate?.paneID))
+        self.state = state
+        targetFrame = state.targetPaneID == candidate?.paneID ? candidate?.frame : nil
+        needsDisplay = true
+    }
+
+    private func cancel(_ reason: PaneSwapSelectionCancellationReason) {
+        guard var state else { return }
+        let effect = state.handle(.cancel(reason))
+        self.state = state
+        onEffect?(effect)
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        super.draw(dirtyRect)
+        guard state != nil else { return }
+
+        drawHighlight(
+            frame: sourceFrame,
+            color: .controlAccentColor,
+            title: CmuxPaneSwapStrings().source,
+            dirtyRect: dirtyRect
+        )
+        if let targetFrame {
+            drawHighlight(
+                frame: targetFrame,
+                color: .systemGreen,
+                title: CmuxPaneSwapStrings().swapHere,
+                dirtyRect: dirtyRect
+            )
+        }
+    }
+
+    private func drawHighlight(
+        frame: NSRect,
+        color: NSColor,
+        title: String,
+        dirtyRect: NSRect
+    ) {
+        let rect = frame.insetBy(dx: 4, dy: 4)
+        guard !rect.isEmpty, rect.intersects(dirtyRect) else { return }
+
+        NSGraphicsContext.saveGraphicsState()
+        defer { NSGraphicsContext.restoreGraphicsState() }
+
+        let path = NSBezierPath(roundedRect: rect, xRadius: 8, yRadius: 8)
+        color.withAlphaComponent(0.16).setFill()
+        path.fill()
+        color.withAlphaComponent(0.95).setStroke()
+        path.lineWidth = 2
+        path.stroke()
+
+        let attributes: [NSAttributedString.Key: Any] = [
+            .font: NSFont.systemFont(ofSize: 12, weight: .semibold),
+            .foregroundColor: NSColor.white,
+        ]
+        let labelSize = (title as NSString).size(withAttributes: attributes)
+        let badgeRect = NSRect(
+            x: rect.minX + 8,
+            y: rect.minY + 8,
+            width: labelSize.width + 16,
+            height: labelSize.height + 8
+        )
+        color.withAlphaComponent(0.95).setFill()
+        NSBezierPath(roundedRect: badgeRect, xRadius: 6, yRadius: 6).fill()
+        (title as NSString).draw(
+            at: NSPoint(x: badgeRect.minX + 8, y: badgeRect.minY + 4),
+            withAttributes: attributes
+        )
+    }
+}
+
+@MainActor
+struct PaneSwapSelectionController {
+    func canBegin(from terminalSurface: TerminalSurface?) -> Bool {
+        guard let terminalSurface,
+              let workspace = terminalSurface.owningWorkspace(),
+              let sourcePaneID = workspace.paneId(forPanelId: terminalSurface.id)?.id else {
+            return false
+        }
+        return canBegin(workspace: workspace, sourcePaneID: sourcePaneID)
+    }
+
+    @discardableResult
+    func begin(from terminalSurface: TerminalSurface?, in window: NSWindow?) -> Bool {
+        guard let terminalSurface,
+              let workspace = terminalSurface.owningWorkspace(),
+              let sourcePaneID = workspace.paneId(forPanelId: terminalSurface.id)?.id,
+              let window else {
+            return false
+        }
+        return begin(workspace: workspace, sourcePaneID: sourcePaneID, in: window)
+    }
+
+    @discardableResult
+    func beginFocused(in tabManager: TabManager) -> Bool {
+        guard let workspace = tabManager.selectedWorkspace,
+              let panelID = workspace.focusedPanelId,
+              workspace.terminalPanel(for: panelID) != nil,
+              let sourcePaneID = workspace.paneId(forPanelId: panelID)?.id,
+              let window = tabManager.window else {
+            return false
+        }
+        return begin(workspace: workspace, sourcePaneID: sourcePaneID, in: window)
+    }
+
+    @discardableResult
+    func commit(sourcePaneID: UUID, targetPaneID: UUID) -> Bool {
+        let resolution = TerminalController.shared.controlPaneSwap(
+            sourcePaneID: sourcePaneID,
+            targetPaneID: targetPaneID,
+            requestedFocus: false
+        )
+        if case .swapped = resolution {
+            return true
+        }
+        NSSound.beep()
+        return false
+    }
+
+    private func canBegin(workspace: Workspace, sourcePaneID: UUID) -> Bool {
+        guard workspace.remoteTmuxControlPane(paneID: sourcePaneID) == nil else {
+            return false
+        }
+
+        return workspace.bonsplitController.allPaneIds.contains { paneID in
+            guard paneID.id != sourcePaneID,
+                  workspace.remoteTmuxControlPane(paneID: paneID.id) == nil,
+                  let selectedTab = workspace.bonsplitController.selectedTab(inPane: paneID),
+                  let panelID = workspace.panelIdFromSurfaceId(selectedTab.id) else {
+                return false
+            }
+            return workspace.terminalPanel(for: panelID) != nil
+        }
+    }
+
+    private func begin(workspace: Workspace, sourcePaneID: UUID, in window: NSWindow) -> Bool {
+        guard canBegin(workspace: workspace, sourcePaneID: sourcePaneID) else {
+            return false
+        }
+        return TerminalWindowPortalRegistry.beginPaneSwapSelection(
+            sourceWorkspaceID: workspace.id,
+            sourcePaneID: sourcePaneID,
+            in: window
+        )
+    }
+}
+
 @MainActor
 final class WindowTerminalPortal: NSObject {
 #if DEBUG
@@ -655,7 +953,11 @@ final class WindowTerminalPortal: NSObject {
     weak var window: NSWindow?
     let hostView = WindowTerminalHostView(frame: .zero)
     private let dividerOverlayView = SplitDividerOverlayView(frame: .zero)
+    private let paneSwapOverlayView = PaneSwapSelectionOverlayView(frame: .zero)
     private let chromeComposition = AppWindowChromeComposition()
+    private var paneSwapSelectionObservers: [NSObjectProtocol] = []
+    private var paneSwapSourceWorkspaceID: UUID?
+    private weak var paneSwapPreviousFirstResponder: NSResponder?
     private weak var installedContainerView: NSView?
     weak var installedReferenceView: NSView?
     private var referenceGeometryObservers: [NSObjectProtocol] = []
@@ -731,6 +1033,9 @@ final class WindowTerminalPortal: NSObject {
         for observer in referenceGeometryObservers {
             NotificationCenter.default.removeObserver(observer)
         }
+        for observer in paneSwapSelectionObservers {
+            NotificationCenter.default.removeObserver(observer)
+        }
         // Adoption clears each hosted view's autoresizing mask (see bind) and
         // detach restores the saved one. A portal that dies without tearDown()
         // /detachHostedView never restores them, so a surviving hosted view is
@@ -761,6 +1066,15 @@ final class WindowTerminalPortal: NSObject {
         hostView.autoresizingMask = [.width, .height]
         dividerOverlayView.translatesAutoresizingMaskIntoConstraints = true
         dividerOverlayView.autoresizingMask = [.width, .height]
+        paneSwapOverlayView.translatesAutoresizingMaskIntoConstraints = true
+        paneSwapOverlayView.autoresizingMask = [.width, .height]
+        paneSwapOverlayView.isHidden = true
+        paneSwapOverlayView.candidateAtWindowPoint = { [weak self] point in
+            self?.paneSwapSelectionCandidate(atWindowPoint: point)
+        }
+        paneSwapOverlayView.onEffect = { [weak self] effect in
+            self?.handlePaneSwapSelectionEffect(effect)
+        }
         installGeometryObservers(for: window)
         _ = ensureInstalled(syncLayout: syncLayout)
     }
@@ -1217,14 +1531,24 @@ final class WindowTerminalPortal: NSObject {
         if dividerOverlayView.superview !== hostView {
             dividerOverlayView.frame = hostView.bounds
             hostView.addSubview(dividerOverlayView, positioned: .above, relativeTo: nil)
-        } else if hostView.subviews.last !== dividerOverlayView {
-            hostView.addSubview(dividerOverlayView, positioned: .above, relativeTo: nil)
         }
 
         if !Self.rectApproximatelyEqual(dividerOverlayView.frame, hostView.bounds) {
             dividerOverlayView.frame = hostView.bounds
         }
         dividerOverlayView.needsDisplay = true
+
+        if paneSwapOverlayView.superview !== hostView {
+            paneSwapOverlayView.frame = hostView.bounds
+            hostView.addSubview(paneSwapOverlayView, positioned: .above, relativeTo: dividerOverlayView)
+        } else if hostView.subviews.last !== paneSwapOverlayView {
+            hostView.addSubview(paneSwapOverlayView, positioned: .above, relativeTo: nil)
+        }
+
+        if !Self.rectApproximatelyEqual(paneSwapOverlayView.frame, hostView.bounds) {
+            paneSwapOverlayView.frame = hostView.bounds
+        }
+        paneSwapOverlayView.needsDisplay = true
     }
 
     @discardableResult
@@ -2410,6 +2734,7 @@ final class WindowTerminalPortal: NSObject {
     }
 
     func tearDown() {
+        endPaneSwapSelection(restoreResponder: false)
         removeGeometryObservers()
         for hostedId in Array(entriesByHostedId.keys) {
             detachHostedView(withId: hostedId)
@@ -2421,6 +2746,163 @@ final class WindowTerminalPortal: NSObject {
         hostView.removeFromSuperview()
         installedContainerView = nil
         installedReferenceView = nil
+    }
+
+    @discardableResult
+    func beginPaneSwapSelection(sourceWorkspaceID: UUID, sourcePaneID: UUID) -> Bool {
+        endPaneSwapSelection(restoreResponder: true)
+        guard let window,
+              ensureInstalled(),
+              let source = hostedPanePresentation(
+                workspaceID: sourceWorkspaceID,
+                paneID: sourcePaneID
+              ) else {
+            return false
+        }
+
+        paneSwapSourceWorkspaceID = sourceWorkspaceID
+        paneSwapPreviousFirstResponder = window.firstResponder ?? source.responder
+        paneSwapOverlayView.begin(sourcePaneID: sourcePaneID, sourceFrame: source.frame)
+        installPaneSwapSelectionObservers(for: window)
+        ensureDividerOverlayOnTop()
+
+        guard window.makeFirstResponder(paneSwapOverlayView) else {
+            endPaneSwapSelection(restoreResponder: true)
+            return false
+        }
+        return true
+    }
+
+    private func installPaneSwapSelectionObservers(for window: NSWindow) {
+        removePaneSwapSelectionObservers()
+        let center = NotificationCenter.default
+        paneSwapSelectionObservers.append(center.addObserver(
+            forName: NSWindow.didResignKeyNotification,
+            object: window,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.cancelPaneSwapSelection(.windowDeactivated)
+            }
+        })
+        paneSwapSelectionObservers.append(center.addObserver(
+            forName: NSApplication.didResignActiveNotification,
+            object: NSApp,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.cancelPaneSwapSelection(.windowDeactivated)
+            }
+        })
+        paneSwapSelectionObservers.append(center.addObserver(
+            forName: NSWindow.didResizeNotification,
+            object: window,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.cancelPaneSwapSelection(.layoutChanged)
+            }
+        })
+        paneSwapSelectionObservers.append(center.addObserver(
+            forName: NSSplitView.didResizeSubviewsNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self, weak window] notification in
+            MainActor.assumeIsolated {
+                guard let splitView = notification.object as? NSSplitView,
+                      splitView.window === window else {
+                    return
+                }
+                self?.cancelPaneSwapSelection(.layoutChanged)
+            }
+        })
+    }
+
+    private func removePaneSwapSelectionObservers() {
+        for observer in paneSwapSelectionObservers {
+            NotificationCenter.default.removeObserver(observer)
+        }
+        paneSwapSelectionObservers.removeAll(keepingCapacity: false)
+    }
+
+    private func cancelPaneSwapSelection(_ reason: PaneSwapSelectionCancellationReason) {
+        guard var state = paneSwapOverlayView.state else { return }
+        let effect = state.handle(.cancel(reason))
+        handlePaneSwapSelectionEffect(effect)
+    }
+
+    private func handlePaneSwapSelectionEffect(_ effect: PaneSwapSelectionEffect) {
+        switch effect {
+        case .none:
+            break
+        case .cancel(let reason):
+            endPaneSwapSelection(restoreResponder: reason != .abandonedInteraction)
+        case .commit(let sourcePaneID, let targetPaneID):
+            endPaneSwapSelection(restoreResponder: true)
+            _ = PaneSwapSelectionController().commit(
+                sourcePaneID: sourcePaneID,
+                targetPaneID: targetPaneID
+            )
+        }
+    }
+
+    private func endPaneSwapSelection(restoreResponder: Bool) {
+        let previousFirstResponder = paneSwapPreviousFirstResponder
+        paneSwapPreviousFirstResponder = nil
+        paneSwapSourceWorkspaceID = nil
+        removePaneSwapSelectionObservers()
+        paneSwapOverlayView.end()
+
+        if restoreResponder,
+           let window,
+           let previousFirstResponder {
+            _ = window.makeFirstResponder(previousFirstResponder)
+        }
+    }
+
+    private func hostedPanePresentation(
+        workspaceID: UUID,
+        paneID: UUID
+    ) -> (frame: NSRect, responder: NSResponder?)? {
+        for subview in hostView.subviews.reversed() {
+            guard let hostedView = subview as? GhosttySurfaceScrollView,
+                  let entry = entriesByHostedId[ObjectIdentifier(hostedView)],
+                  entry.visibleInUI,
+                  !hostedView.isHidden,
+                  let identity = paneIdentity(for: hostedView),
+                  identity.workspaceID == workspaceID,
+                  identity.paneID == paneID else {
+                continue
+            }
+
+            let center = NSPoint(x: hostedView.bounds.midX, y: hostedView.bounds.midY)
+            return (
+                frame: hostedView.frame,
+                responder: hostedView.terminalViewForDrop(at: center)
+            )
+        }
+        return nil
+    }
+
+    private func paneSwapSelectionCandidate(atWindowPoint windowPoint: NSPoint) -> PaneSwapSelectionCandidate? {
+        guard let sourceWorkspaceID = paneSwapSourceWorkspaceID,
+              let hit = hostedScrollViewAtWindowPoint(windowPoint),
+              let identity = paneIdentity(for: hit.view),
+              identity.workspaceID == sourceWorkspaceID else {
+            return nil
+        }
+        return PaneSwapSelectionCandidate(paneID: identity.paneID, frame: hit.view.frame)
+    }
+
+    private func paneIdentity(for hostedView: GhosttySurfaceScrollView) -> (workspaceID: UUID, paneID: UUID)? {
+        let center = NSPoint(x: hostedView.bounds.midX, y: hostedView.bounds.midY)
+        guard let terminalView = hostedView.terminalViewForDrop(at: center),
+              let terminalSurface = terminalView.terminalSurface,
+              let workspace = terminalSurface.owningWorkspace(),
+              let paneID = workspace.paneId(forPanelId: terminalSurface.id)?.id else {
+            return nil
+        }
+        return (workspace.id, paneID)
     }
 
     private func hostedScrollViewAtWindowPoint(_ windowPoint: NSPoint) -> (view: GhosttySurfaceScrollView, point: NSPoint)? {
@@ -2666,6 +3148,18 @@ enum TerminalWindowPortalRegistry {
             return existing
         }
         return portalsByWindowId[ObjectIdentifier(window)]
+    }
+
+    @discardableResult
+    static func beginPaneSwapSelection(
+        sourceWorkspaceID: UUID,
+        sourcePaneID: UUID,
+        in window: NSWindow
+    ) -> Bool {
+        portal(for: window).beginPaneSwapSelection(
+            sourceWorkspaceID: sourceWorkspaceID,
+            sourcePaneID: sourcePaneID
+        )
     }
 
     static func bind(

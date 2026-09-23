@@ -11,7 +11,12 @@ permissions: {}
 
 jobs:
   validate:
-    name: CLA policy guard
+    # Known title/body-only edits use a separate ignored name. A skipped job
+    # must never replace the required verdict already recorded for this head.
+    # Base changes and unknown edited payloads still validate the policy.
+    # The trusted validator pins this condition and name as one contract.
+    name: ${{ github.event_name == 'pull_request_target' && github.event.action == 'edited' && !github.event.changes.base && (github.event.changes.body || github.event.changes.title) && 'CLA policy guard metadata (ignored)' || 'CLA policy guard' }}
+    if: ${{ !(github.event_name == 'pull_request_target' && github.event.action == 'edited' && !github.event.changes.base && (github.event.changes.body || github.event.changes.title)) }}
     # This control-plane workflow parses attacker-controlled YAML and shell
     # bytes. Use a GitHub-hosted ephemeral runner; a repository variable must
     # not be able to redirect it to a persistent or contributor-controlled
