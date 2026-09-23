@@ -16,6 +16,7 @@ import importlib.util
 import json
 import sys
 import unittest
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -266,6 +267,50 @@ class WastePatternTests(unittest.TestCase):
         self.assertEqual(jobs, 1)
         self.assertAlmostEqual(minutes, 60.0)
 
+    def test_paid_runner_minutes_counts_only_metered_labels(self):
+        # Blacksmith and GitHub-hosted labels are free to this repository, so a
+        # report that totals them alongside Warp hides the only line that costs
+        # money. Free labels must contribute nothing.
+        free = [r for r in self.rows if not r.label.startswith("warp-")]
+        jobs, minutes, breakdown = report.paid_runner_minutes(free)
+        self.assertEqual((jobs, minutes, breakdown), (0, 0.0, []))
+
+    def test_every_metered_provider_prefix_is_counted(self):
+        # Depot is a paid provider too -- permitted by the self-hosted guard and
+        # documented alongside Warp. A warp-only check would total zero and print
+        # "none in the window" the moment a variable is pinned to it, which is
+        # the exact silent drift this line exists to catch.
+        sample = self.rows[0]
+        rows = [
+            replace(sample, label="warp-macos-15-arm64-6x", minutes=4.0),
+            replace(sample, label="depot-macos-latest", minutes=6.0),
+            replace(sample, label="blacksmith-4vcpu-ubuntu-2404", minutes=90.0),
+        ]
+        jobs, minutes, breakdown = report.paid_runner_minutes(rows)
+        self.assertEqual(jobs, 2)
+        self.assertAlmostEqual(minutes, 10.0)
+        self.assertEqual(
+            breakdown,
+            [("depot-macos-latest", 1, 6.0), ("warp-macos-15-arm64-6x", 1, 4.0)],
+        )
+
+    def test_paid_runner_minutes_totals_and_splits_by_label(self):
+        sample = self.rows[0]
+        rows = [
+            replace(sample, label="warp-macos-15-arm64-6x", minutes=10.0),
+            replace(sample, label="warp-macos-15-arm64-6x", minutes=5.0),
+            replace(sample, label="warp-macos-26-arm64-12x", minutes=20.0),
+            replace(sample, label="blacksmith-6vcpu-macos-26", minutes=99.0),
+        ]
+        jobs, minutes, breakdown = report.paid_runner_minutes(rows)
+        self.assertEqual(jobs, 3)
+        self.assertAlmostEqual(minutes, 35.0)
+        # Ordered by minutes descending, so the costliest lane reads first.
+        self.assertEqual(
+            breakdown,
+            [("warp-macos-26-arm64-12x", 1, 20.0), ("warp-macos-15-arm64-6x", 2, 15.0)],
+        )
+
 
 class SamplingTests(unittest.TestCase):
     def setUp(self) -> None:
@@ -435,6 +480,10 @@ class RenderTests(unittest.TestCase):
         self.assertIn("macOS / app-host tests", self.text)
         self.assertIn("Reruns of an unchanged tree", self.text)
         self.assertIn("Fork pull requests (no cache access):", self.text)
+        # Without this the whole render block can be deleted and every test
+        # still passes: the accumulator is covered, the rendering was not.
+        self.assertIn("Paid runner capacity", self.text)
+
 
     def test_partial_data_is_announced_instead_of_failing(self):
         partial = metrics_from(load("window.json"), CURRENT_WINDOW, partial=("rate limited on runs",))
