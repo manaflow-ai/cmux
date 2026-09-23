@@ -277,7 +277,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         if hasDesktop, catalog.authoritativeSnapshot.resources(on: machine).isEmpty {
             catalog.replaceResources([desktopDisplayResource()], on: machine, info: info, from: self)
         }
-        async let stats = try? client.stats(id: machineID)
+        let statsRead = Task { try? await client.stats(id: machineID) }
         var linkState: SurfaceLinkState = .connected
         var linkError: String?
         // A decoded snapshot is not automatically an authorization boundary. It
@@ -286,7 +286,16 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         // evidence, never the retained stale graph.
         var snapshotEstablishedCurrentGraph = false
         var portScan: Task<[Int]?, Never>?
-        defer { portScan?.cancel() }
+        // Stats and the port scan never gate this pass: joined readers (a
+        // New Machine open's `ensure_linked`) wait for the pass, not for them.
+        // They are cancelled only when the pass ends before handing them off.
+        var handedOffFollowUps = false
+        defer {
+            if !handedOffFollowUps {
+                statsRead.cancel()
+                portScan?.cancel()
+            }
+        }
         do {
             guard isCurrentRefresh(lifecycle: lifecycle, refresh: generation) else { return false }
             let connected = try await links.connected(machineID: machineID)
@@ -409,21 +418,24 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         }
         guard isCurrentRefresh(lifecycle: lifecycle, refresh: generation) else { return false }
         reprojectRestoredPanes(generation: lifecycle)
-        if let portScan, let refreshedPorts = await portScan.value,
-           isCurrentRefresh(lifecycle: lifecycle, refresh: generation) {
-            if refreshedPorts != currentPorts, let cloudState {
-                currentPorts = refreshedPorts
-                publish(
-                    cloudState,
-                    ports: refreshedPorts,
-                    reconcileTitles: false,
-                    observation: snapshotEstablishedCurrentGraph ? .current : .stale(reason: info.linkError ?? info.linkState.rawValue)
-                )
+        handedOffFollowUps = true
+        let publishedPorts = currentPorts
+        let observation: CloudVMStateObservation = snapshotEstablishedCurrentGraph
+            ? .current
+            : .stale(reason: info.linkError ?? info.linkState.rawValue)
+        Task { [weak self, portScan] in
+            if let portScan, let refreshedPorts = await portScan.value,
+               let self, self.isCurrentRefresh(lifecycle: lifecycle, refresh: generation),
+               refreshedPorts != publishedPorts, let cloudState = self.cloudState {
+                self.publish(cloudState, ports: refreshedPorts, reconcileTitles: false, observation: observation)
             }
         }
-        if let stats = await stats, isCurrentRefresh(lifecycle: lifecycle, refresh: generation) {
-            info = info.applyingGauges(stats)
-            catalog.updateMachine(info, from: self)
+        Task { [weak self] in
+            if let stats = await statsRead.value,
+               let self, self.isCurrentRefresh(lifecycle: lifecycle, refresh: generation) {
+                self.info = self.info.applyingGauges(stats)
+                self.catalog.updateMachine(self.info, from: self)
+            }
         }
         return snapshotEstablishedCurrentGraph
     }

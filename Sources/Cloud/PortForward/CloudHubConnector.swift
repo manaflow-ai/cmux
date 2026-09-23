@@ -18,11 +18,11 @@ struct CloudHubConnector: Sendable {
     /// A cancellable head start for the preferred family, driven by the injected clock.
     var fallbackDelay: Duration = .milliseconds(250)
     /// How often a still-unanswered address gets another, independent attempt.
-    var redialInterval: Duration = .milliseconds(200)
+    var redialInterval: Duration = .milliseconds(50)
     /// Redial rounds after the first. The fresh-machine window is well under a
     /// second; after 3 s the in-flight attempts ride normal retransmits, so a
     /// blackholed family never holds more than this many sockets per address.
-    var maxRedials: Int = 15
+    var maxRedials: Int = 60
     var clock: any Clock<Duration> = ContinuousClock()
 
     #if compiler(>=6.2)
