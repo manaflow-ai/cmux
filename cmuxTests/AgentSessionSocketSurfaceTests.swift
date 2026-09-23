@@ -50,6 +50,28 @@ struct AgentSessionSocketSurfaceTests {
     }
 
     @Test
+    func testClaudeDesktopRendererAlwaysUsesClaudeProvider() throws {
+        let manager = TabManager()
+        let workspace = try #require(manager.selectedWorkspace)
+        let paneId = try #require(workspace.bonsplitController.focusedPaneId)
+
+        let panel = try #require(
+            workspace.newAgentSessionSurface(
+                inPane: paneId,
+                providerID: .codex,
+                rendererKind: .claudeDesktop,
+                workingDirectory: nil,
+                focus: false
+            )
+        )
+
+        expectEqual(panel.panelType, .agentSession)
+        expectEqual(panel.rendererKind, .claudeDesktop)
+        expectEqual(panel.initialProviderID, .claude)
+        expectEqual(panel.currentProviderID, .claude)
+    }
+
+    @Test
     func testMovedAgentSessionRebindsTerminalCommandRoutingToDestinationWorkspace() throws {
         let source = Workspace()
         let destination = Workspace()
