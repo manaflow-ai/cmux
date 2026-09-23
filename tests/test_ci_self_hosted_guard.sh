@@ -159,7 +159,7 @@ check_e2e_runner_fallbacks() {
   if ! awk '
     /^[[:space:]]*- name: Validate Tart canary identity$/ { in_tart_step=1; next }
     in_tart_step && /^      - / { in_tart_step=0; in_runner_reject=0; in_marker_reject=0 }
-    in_tart_step && /startsWith\(\(!inputs\.runner \|\| inputs\.runner == '\''auto'\''\) && \(vars\.MACOS_RUNNER_[A-Z0-9_]+ \|\| '\''blacksmith-6vcpu-macos-15'\''\) \|\| inputs\.runner, '\''tart-'\''\)/ { saw_effective_runner=1 }
+    in_tart_step && /startsWith\(\(!inputs\.runner \|\| inputs\.runner == '\''auto'\''\) && \(vars\.MACOS_RUNNER_[A-Z0-9_]+ \|\| '\''blacksmith-6vcpu-macos-[0-9]+'\''\) \|\| inputs\.runner, '\''tart-'\''\)/ { saw_effective_runner=1 }
     in_tart_step && /REQUESTED_RUNNER:.*inputs\.runner/ { saw_requested_runner=1 }
     in_tart_step && /RUNNER_CONTEXT_NAME: \$\{\{ runner\.name \}\}/ { saw_runner_context=1 }
     in_tart_step && /tart-cmux-\*/ { saw_runner_pattern=1 }
