@@ -1591,6 +1591,8 @@ def run_detect_step_for_paths(
     script = detect_step_script(workflow_path)
     with tempfile.TemporaryDirectory() as temp_dir:
         repo = Path(temp_dir)
+        # Parallel local checkouts must not share the workflow's fixed /tmp files.
+        script = script.replace("/tmp/cmux-ci-", str(repo / "cmux-ci-"))
         subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
         subprocess.run(["git", "config", "user.email", "ci@example.test"], cwd=repo, check=True)
         subprocess.run(["git", "config", "user.name", "CI Test"], cwd=repo, check=True)
