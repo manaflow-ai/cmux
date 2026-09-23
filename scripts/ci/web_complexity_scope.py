@@ -55,6 +55,7 @@ POLICY_FILES = frozenset(
         ".github/workflows/web-complexity-trusted.yml",
         ".github/workflows/web-complexity.yml",
         "scripts/ci/web_complexity_scope.py",
+        "scripts/ci/scope-web-complexity.py",
     }
 )
 

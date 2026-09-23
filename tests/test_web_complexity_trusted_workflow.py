@@ -80,9 +80,12 @@ def validate_scope_python(scope_run: str) -> None:
     }
     assert ast.literal_eval(assignments["policy"]) == {
         b".github/workflows/web-complexity-trusted.yml",
+        b".github/workflows/web-complexity.yml",
         b"scripts/ci/scope-web-complexity.py",
+        b"scripts/ci/web_complexity_scope.py",
         b"web/.oxlintrc.json",
         b"web/bun.lock",
+        b"web/bunfig.toml",
         b"web/package.json",
         b"web/oxlint-complexity-baseline.txt",
         b"web/scripts/check-complexity.mjs",
@@ -403,6 +406,7 @@ def test_scope_cases() -> None:
         ".github/workflows/web-complexity.yml",
         ".github/workflows/web-complexity-trusted.yml",
         "scripts/ci/scope-web-complexity.py",
+        "scripts/ci/web_complexity_scope.py",
         "web/.oxlintrc.json",
         "web/bun.lock",
         "web/package.json",
