@@ -219,33 +219,35 @@ jobs:
           : > "$GITHUB_WORKSPACE/trusted/.bunfig-empty.toml"
 
       # A stale branch still carries old copies of trusted files that main has
-      # since updated, and those copies never land. When none of the branch's
-      # commits touch those files, merge the head into its base (git merge-tree
-      # follows renames the way the real merge does) so the checker can judge
-      # the trusted files in that merge. The history is fetched without file
-      # contents; a failed fetch, a touched trusted file or a conflicted merge
-      # leaves the checker comparing the head strictly.
+      # since updated, and those copies never land. Squash and merge-commit
+      # landings both produce the merge of the head into its base, so merge it
+      # the same way (git merge-tree follows renames and criss-cross history)
+      # and let the checker judge the trusted files in that merge. A rebase
+      # merge replays commits one by one instead, so while the repository
+      # allows it the check stays strict. The history is fetched without file
+      # contents; any failure or a conflicted merge also stays strict.
       - name: Merge pull request into its base for the trusted-file check
         id: merge
         if: github.event_name == 'pull_request_target' && steps.scope.outputs.run == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
+          # The GraphQL variables are literal; gh substitutes them, not the shell.
+          # shellcheck disable=SC2016
+          rebase_allowed="$(gh api graphql -f owner="${GITHUB_REPOSITORY%%/*}" -f name="${GITHUB_REPOSITORY#*/}" \
+            -f query='query($owner: String!, $name: String!) { repository(owner: $owner, name: $name) { rebaseMergeAllowed } }' \
+            --jq '.data.repository.rebaseMergeAllowed' || true)"
+          if [[ "$rebase_allowed" != "false" ]]; then
+            echo "Rebase merging is allowed (or unknown); comparing trusted files strictly."
+            exit 0
+          fi
           merge_repo="$RUNNER_TEMP/merge.git"
           upstream="https://github.com/${GITHUB_REPOSITORY}.git"
           if ! git clone -q --bare --filter=blob:none --no-tags --single-branch --branch main "$upstream" "$merge_repo" ||
             ! git -C "$merge_repo" cat-file -e "${TRUSTED_SHA}^{commit}" ||
             ! git -C "$merge_repo" -c protocol.version=2 fetch -q --no-tags --filter=blob:none "$upstream" "$CANDIDATE_SHA"; then
             echo "Merge unavailable; comparing trusted files strictly."
-            exit 0
-          fi
-          # A rebase merge replays each commit, so commits that change a trusted
-          # file and change it back can land a change the net merge hides.
-          # Only a branch whose commits never touch the trusted files is judged
-          # by its merge; a merge commit counts against every parent.
-          if ! touched="$(git -C "$merge_repo" log -m --full-history --format=%H "$TRUSTED_SHA..$CANDIDATE_SHA" -- \
-            scripts/ci/scope-web-complexity.py web/scripts/check-complexity.mjs .github/workflows/web-complexity-trusted.yml)" ||
-            [[ -n "$touched" ]]; then
-            echo "The pull request's commits touch a trusted file; comparing trusted files strictly."
             exit 0
           fi
           if ! merge_output="$(git -C "$merge_repo" merge-tree --write-tree "$TRUSTED_SHA" "$CANDIDATE_SHA")"; then
