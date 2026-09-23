@@ -1013,3 +1013,7 @@ lane = "linux-guard"
 [[test]]
 path = "tests/test_ci_main_full_suite.py"
 lane = "linux-guard"
+
+[[test]]
+path = "tests/test_issue_13766_terminal_history.py"
+lane = "macos-shell"
