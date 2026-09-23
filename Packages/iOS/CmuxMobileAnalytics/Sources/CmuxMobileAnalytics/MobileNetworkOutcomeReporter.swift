@@ -274,7 +274,7 @@ public final class MobileNetworkOutcomeReporter: Sendable {
         case .selectedPathChanged:
             guard let rawPath = event.a,
                   Self.pathName(rawPath) != nil else { return nil }
-            operation = "selected"
+            operation = "snapshot"
             pathRaw = rawPath
         default:
             return nil

@@ -556,6 +556,8 @@ public final class DiagnosticLog: Sendable {
         private var filled = 0
         private var totalProcessed = 0
         private var selectedPathKind: DiagnosticPathKind?
+        private var selectedPathSurface: UInt32?
+        private var selectedPathSession: Int?
         private let capacity: Int
         private let buildStamp: String
         private let role: DiagnosticRuntimeRole
@@ -588,8 +590,12 @@ public final class DiagnosticLog: Sendable {
             totalProcessed += 1
             if event.code == .selectedPathChanged,
                let nextPathKind = event.diagnosticPathKind {
-                guard nextPathKind != selectedPathKind else { return false }
+                guard nextPathKind != selectedPathKind
+                    || event.surface != selectedPathSurface
+                    || event.c != selectedPathSession else { return false }
                 selectedPathKind = nextPathKind
+                selectedPathSurface = event.surface
+                selectedPathSession = event.c
             }
             slots[head] = event
             head = (head + 1) % capacity
@@ -613,6 +619,8 @@ public final class DiagnosticLog: Sendable {
             filled = 0
             totalProcessed = 0
             selectedPathKind = nil
+            selectedPathSurface = nil
+            selectedPathSession = nil
             self.anchorWallNanos = anchorWallNanos
             self.anchorMonotonicNanos = anchorMonotonicNanos
         }

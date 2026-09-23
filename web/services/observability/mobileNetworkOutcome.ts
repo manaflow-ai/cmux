@@ -45,7 +45,7 @@ const cancellationReasons = new Set([
 ]);
 const taskModelProviders = new Set(["claude", "codex", "opencode"]);
 const taskModelSources = new Set(["discovered", "backend", "augmented", "fallback"]);
-const irohPathOperations = new Set(["opened", "closed", "selected", "lagged"]);
+const irohPathOperations = new Set(["opened", "closed", "selected", "lagged", "snapshot"]);
 const irohPathKinds = new Set(["unknown", "direct", "relay", "private_network", "loopback"]);
 const irohPathEventCodes = new Set(["selectedPathChanged", "transportPathEvent"]);
 const metadataOperations = new Set(["replay", "artifactScan", "artifactList", "model_list"]);
@@ -120,7 +120,7 @@ export type MobileNetworkOutcome = {
 
 export type MobileIrohPathEvent = {
   readonly timestamp: string;
-  readonly operation: "opened" | "closed" | "selected" | "lagged";
+  readonly operation: "opened" | "closed" | "selected" | "lagged" | "snapshot";
   readonly path: "unknown" | "direct" | "relay" | "private_network" | "loopback";
   readonly transport: "iroh";
   readonly eventCode: "selectedPathChanged" | "transportPathEvent";
@@ -719,6 +719,7 @@ export async function emitMobileObservabilityEvents(
           "cmux.runtime": "ios",
           "cmux.user_id": userId,
           "cmux.mobile.event": "iroh_path",
+          "cmux.observation.source": "client",
           "cmux.mobile.transport": observation.transport,
           "cmux.mobile.path_operation": observation.operation,
           "cmux.mobile.path": observation.path,
