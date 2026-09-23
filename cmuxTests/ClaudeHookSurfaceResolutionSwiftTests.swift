@@ -119,6 +119,43 @@ struct ClaudeHookSurfaceResolutionSwiftTests {
         #expect(request["surface_id"] as? String == context.surfaceId)
     }
 
+    @Test func claudeResumedSessionStartsIdleAndRestorable() throws {
+        let context = try makeClaudeHookContext(name: "claude-resumed-session-start")
+        defer { context.cleanup() }
+        let sessionId = "claude-resumed-session-start-session"
+        let serverHandled = startClaudeSurfaceResolutionServer(
+            context: context,
+            surfaces: [(context.surfaceId, "surface:1", true)],
+            ttyName: "ttys-claude-resumed-session-start",
+            ttySurfaceId: context.surfaceId
+        )
+        let environment = [
+            "HOME": context.root.path,
+            "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+            "CMUX_SOCKET_PATH": context.socketPath,
+            "CMUX_WORKSPACE_ID": context.workspaceId,
+            "CMUX_SURFACE_ID": context.surfaceId,
+            "CMUX_CLI_SENTRY_DISABLED": "1",
+            "CMUX_CLAUDE_HOOK_SENTRY_DISABLED": "1",
+            "CMUX_CLAUDE_HOOK_STATE_PATH": context.root.appendingPathComponent("claude-hook-sessions.json").path,
+        ]
+        let result = runProcess(
+            executablePath: context.cliPath,
+            arguments: ["hooks", "claude", "session-start"],
+            environment: environment,
+            standardInput: #"{"session_id":"\(sessionId)","source":"resume","cwd":"\(context.root.path)","hook_event_name":"SessionStart"}"#,
+            timeout: 5
+        )
+        #expect(serverHandled.wait(timeout: .now() + 5) == .success)
+        assertSuccessfulHook(result)
+        let data = try Data(contentsOf: context.root.appendingPathComponent("claude-hook-sessions.json"))
+        let store = try #require(try JSONSerialization.jsonObject(with: data) as? [String: Any])
+        let sessions = try #require(store["sessions"] as? [String: Any])
+        let record = try #require(sessions[sessionId] as? [String: Any])
+        #expect(record["isRestorable"] as? Bool == true)
+        #expect(record["agentLifecycle"] as? String == "idle")
+    }
+
     @Test func claudeSessionStartOverridesLeakedEnvWorkspaceAndSurfaceWithTTYBinding() throws {
         let context = try makeClaudeHookContext(name: "claude-leaked-workspace")
         defer { context.cleanup() }
