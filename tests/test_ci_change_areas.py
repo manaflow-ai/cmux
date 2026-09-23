@@ -1081,6 +1081,7 @@ def run_detect_step_for_ci_workflow_edit(base: str, head: str) -> tuple[subproce
     script = detect_step_script()
     with tempfile.TemporaryDirectory() as temp_dir:
         repo = Path(temp_dir)
+        runner_temp = Path(temp_dir) / "runner-temp"
         subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
         subprocess.run(["git", "config", "user.email", "ci@example.test"], cwd=repo, check=True)
         subprocess.run(["git", "config", "user.name", "CI Test"], cwd=repo, check=True)
@@ -1104,6 +1105,10 @@ def run_detect_step_for_ci_workflow_edit(base: str, head: str) -> tuple[subproce
             "HEAD_SHA": head_sha,
             "MERGE_SHA": head_sha,
             "GITHUB_OUTPUT": str(output_path),
+            # The trusted base router lays its checkout out under $RUNNER_TEMP,
+            # and the step runs under `set -u`. GitHub sets it; a local run
+            # does not, so without this the suite only passes inside CI.
+            "RUNNER_TEMP": os.environ.get("RUNNER_TEMP") or str(runner_temp),
         }
         result = subprocess.run(
             ["bash", "-c", script], cwd=repo, env=env, text=True,
@@ -1544,6 +1549,7 @@ def run_detect_step_for_paths(
     script = detect_step_script(workflow_path)
     with tempfile.TemporaryDirectory() as temp_dir:
         repo = Path(temp_dir)
+        runner_temp = Path(temp_dir) / "runner-temp"
         subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
         subprocess.run(["git", "config", "user.email", "ci@example.test"], cwd=repo, check=True)
         subprocess.run(["git", "config", "user.name", "CI Test"], cwd=repo, check=True)
@@ -1588,6 +1594,10 @@ def run_detect_step_for_paths(
             "HEAD_SHA": head_sha,
             "MERGE_SHA": head_sha,
             "GITHUB_OUTPUT": str(output_path),
+            # The trusted base router lays its checkout out under $RUNNER_TEMP,
+            # and the step runs under `set -u`. GitHub sets it; a local run
+            # does not, so without this the suite only passes inside CI.
+            "RUNNER_TEMP": os.environ.get("RUNNER_TEMP") or str(runner_temp),
         }
         result = subprocess.run(
             ["bash", "-c", script],
@@ -1656,6 +1666,7 @@ def test_workflow_diff_failure_runs_all_areas() -> None:
     script = detect_step_script()
     with tempfile.TemporaryDirectory() as temp_dir:
         repo = Path(temp_dir)
+        runner_temp = Path(temp_dir) / "runner-temp"
         output_path = repo / "github-output.txt"
         env = {
             **os.environ,
@@ -1664,6 +1675,10 @@ def test_workflow_diff_failure_runs_all_areas() -> None:
             "HEAD_SHA": "missing-head",
             "MERGE_SHA": "missing-merge",
             "GITHUB_OUTPUT": str(output_path),
+            # The trusted base router lays its checkout out under $RUNNER_TEMP,
+            # and the step runs under `set -u`. GitHub sets it; a local run
+            # does not, so without this the suite only passes inside CI.
+            "RUNNER_TEMP": os.environ.get("RUNNER_TEMP") or str(runner_temp),
         }
         result = subprocess.run(
             ["bash", "-c", script],
@@ -1689,6 +1704,7 @@ def run_detect_step_on_shallow_synthetic_merge(*, stale_event_base: bool) -> tup
     script = detect_step_script()
     with tempfile.TemporaryDirectory() as temp_dir:
         root = Path(temp_dir)
+        runner_temp = Path(temp_dir) / "runner-temp"
         source = root / "source"
         shallow = root / "shallow"
         source.mkdir()
@@ -1757,6 +1773,10 @@ def run_detect_step_on_shallow_synthetic_merge(*, stale_event_base: bool) -> tup
                 "HEAD_SHA": head_sha,
                 "MERGE_SHA": merge_sha,
                 "GITHUB_OUTPUT": str(output_path),
+                # The trusted base router lays its checkout out under $RUNNER_TEMP,
+                # and the step runs under `set -u`. GitHub sets it; a local run
+                # does not, so without this the suite only passes inside CI.
+                "RUNNER_TEMP": os.environ.get("RUNNER_TEMP") or str(runner_temp),
             },
             text=True,
             stdout=subprocess.PIPE,
@@ -2764,6 +2784,41 @@ def test_only_pull_requests_under_the_compile_only_policy_skip_the_suite() -> No
     assert wants_full_suite("pull_request", "full", []) is True
     for event in ("merge_group", "workflow_dispatch", "push"):
         assert wants_full_suite(event, "compile-only", []) is True
+
+
+def test_a_skipped_suite_is_refused_when_only_the_suite_could_judge_the_diff() -> None:
+    sys.path.insert(0, str(ROOT / "scripts/ci"))
+    from choose_ci_suite import coverage_gap
+
+    tests_diff = ["cmuxTests/WorkspaceUnitTests.swift"]
+
+    # Compile admission builds the bundle and stops, so a test-only change is
+    # unobserved when the suite is skipped.
+    assert coverage_gap("pull_request", False, tests_diff, []) is True
+    assert coverage_gap("pull_request", False, ["cmuxUITests/A.swift"], []) is True
+    # Running the suite is the whole point; there is nothing to refuse.
+    assert coverage_gap("pull_request", True, tests_diff, []) is False
+    # Product sources still compile, which is what the policy claims to check.
+    assert coverage_gap("pull_request", False, ["Sources/A.swift"], []) is False
+    assert coverage_gap("pull_request", False, ["web/app/page.tsx"], []) is False
+    # The skip may be deliberate, but it has to be recorded on the pull request.
+    assert coverage_gap("pull_request", False, tests_diff, ["no-full-ci"]) is False
+    # An unreadable diff must not be the reason a change goes unobserved.
+    assert coverage_gap("pull_request", False, None, []) is True
+    # Only pull requests take the cheap path at all.
+    for event in ("merge_group", "workflow_dispatch", "push"):
+        assert coverage_gap(event, False, tests_diff, []) is False
+
+
+def test_ci_status_requires_the_suite_coverage_gate() -> None:
+    block = workflow_job_block("ci-status")
+    assert "      - suite-coverage" in block
+
+    gate = workflow_job_block("suite-coverage")
+    assert "needs.changes.outputs.coverage_gap == 'true'" in gate
+    # A Linux job, so refusing a run never costs a macOS runner.
+    assert "vars.LINUX_RUNNER" in gate
+    assert "exit 1" in gate
 
 
 def test_suite_labels_are_read_from_the_run_event_snapshot() -> None:
