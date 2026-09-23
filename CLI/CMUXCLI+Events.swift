@@ -164,6 +164,12 @@ extension CMUXCLI {
 
     func isTransientEventStreamError(_ error: Error) -> Bool {
         if let cliError = error as? CLIError {
+            // A receive-timeout configuration failure is a transport-level
+            // hiccup (typed, not message-matched, so event *content* that
+            // merely mentions errno strings can never be mistaken for it).
+            if cliError.socketFailureKind == .receiveTimeoutConfiguration {
+                return true
+            }
             let message = cliError.message.lowercased()
             let transientMarkers = [
                 "socket not found",
@@ -173,8 +179,6 @@ extension CMUXCLI {
                 "timed out waiting for event stream frame",
                 "stream request timed out",
                 "failed to write stream request",
-                "failed to configure socket receive timeout",
-                "errno 22",
                 "broken pipe",
                 "connection reset",
                 "connection refused",

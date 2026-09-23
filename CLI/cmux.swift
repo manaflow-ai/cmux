@@ -3933,7 +3933,10 @@ final class SocketClient {
         guard result == 0 else {
             let errorCode = errno
             let reason = String(cString: strerror(errorCode))
-            throw CLIError(message: "Failed to configure socket receive timeout (\(reason), errno \(errorCode))")
+            throw CLIError(
+                message: "Failed to configure socket receive timeout (\(reason), errno \(errorCode))",
+                socketFailureKind: .receiveTimeoutConfiguration
+            )
         }
         lastConfiguredReceiveTimeout = timeout
     }

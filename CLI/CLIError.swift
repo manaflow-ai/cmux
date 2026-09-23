@@ -7,6 +7,8 @@ struct CLIError: Error, CustomStringConvertible {
         case pathTypeConflict
         case pathOwnershipConflict
         case startupTimeout
+        /// The socket's receive timeout could not be configured.
+        case receiveTimeoutConfiguration
     }
 
     let message: String
