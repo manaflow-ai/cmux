@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+import os
+import json
 import subprocess
 import tempfile
 import unittest
@@ -155,6 +157,46 @@ class CanonicalRootMaterializationTests(unittest.TestCase):
         result = self.run_script(workspace=bare, root=self.base / "canon2")
         self.assertNotEqual(result.returncode, 0)
         self.assertIn(".git", result.stderr)
+
+
+class CanonicalRecipeTests(unittest.TestCase):
+    def test_resolve_build_and_fingerprint_use_canonical_paths(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            workspace = base / "runner-layout" / "checkout"
+            workspace.mkdir(parents=True)
+            (workspace / ".git").mkdir()
+            bin_dir = base / "bin"
+            bin_dir.mkdir()
+            calls = base / "calls.jsonl"
+            xcode = bin_dir / "xcodebuild"
+            xcode.write_text("#!/usr/bin/env python3\n" +
+                "import os,sys,json,pathlib\n" +
+                "with open(os.environ['CALLS'], 'a') as f: f.write(json.dumps([os.getcwd(),sys.argv[1:]])+'\\n')\n" +
+                "if '-version' in sys.argv: print('Xcode 26.3')\n" +
+                "if '-resolvePackageDependencies' in sys.argv:\n" +
+                " p=pathlib.Path(sys.argv[sys.argv.index('-clonedSourcePackagesDirPath')+1])\n" +
+                " for a in ['sparkle/Sparkle/Sparkle.xcframework','sentry-cocoa/Sentry/Sentry.xcframework']: (p/'artifacts'/a).mkdir(parents=True,exist_ok=True)\n")
+            xcode.chmod(0o755)
+            root = base / "canonical"
+            env = dict(os.environ, PATH=f"{bin_dir}:" + os.environ['PATH'], CALLS=str(calls),
+                       CMUX_CI_CANONICAL_ROOT=str(root))
+            derived = str(root / "derived-data-compile-admission")
+            packages = str(workspace / ".ci-source-packages")
+            for args in [("canonical-fingerprint", derived),
+                         ("canonical-resolve", derived, packages),
+                         ("canonical-build", derived, packages, str(root / "cas"))]:
+                result = subprocess.run([str(SCRIPT), *args], cwd=workspace, env=env,
+                                        capture_output=True, text=True)
+                self.assertEqual(result.returncode, 0, result.stderr)
+            records = [json.loads(line) for line in calls.read_text().splitlines()]
+            self.assertEqual(len(records), 5)
+            for cwd, args in records:
+                self.assertEqual(cwd, str(root / "src"))
+                if '-clonedSourcePackagesDirPath' in args:
+                    self.assertEqual(args[args.index('-clonedSourcePackagesDirPath')+1],
+                                     str(root / 'src' / '.ci-source-packages'))
+                    self.assertEqual(args[args.index('-derivedDataPath')+1], derived)
 
 
 if __name__ == "__main__":
