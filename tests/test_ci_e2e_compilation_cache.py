@@ -154,6 +154,29 @@ class E2ECompilationCache(unittest.TestCase):
         self.assertNotEqual(rejected.returncode, 0)
         self.assertTrue(product.exists())
 
+    def test_failure_guard_only_allows_optional_compilation_cache_steps(self):
+        guard = (ROOT / 'tests/test_ci_self_hosted_guard.sh').read_text()
+        start = guard.index('check_e2e_runner_fallbacks() {')
+        end = guard.index('\ncheck_ios_tart_canary()', start)
+        invoke = guard[start:end] + '\ncheck_e2e_runner_fallbacks\n'
+        workflow = (ROOT / '.github/workflows/test-e2e.yml').read_text()
+        candidate = self.root / 'workflow.yml'
+        for text, succeeds in (
+            (workflow, True),
+            (workflow.replace('      - name: Run selected tests\n',
+                              '      - name: Run selected tests\n        continue-on-error: true\n'), False),
+            (workflow.replace('      - name: Select Xcode\n',
+                              '      - name: Select Xcode\n        continue-on-error: true\n'), False),
+            (workflow.replace('  e2e:\n', '  e2e:\n    continue-on-error: true\n'), False),
+            (workflow.replace('        id: compilation-cache-restore\n',
+                              '        id: unrelated-setup\n'), False),
+        ):
+            candidate.write_text(text)
+            result = subprocess.run(['bash', '-eu', '-c', invoke],
+                env=dict(self.env, E2E_FILE=str(candidate)), capture_output=True, text=True)
+            self.assertEqual(result.returncode == 0, succeeds, result.stdout + result.stderr)
+
+
 
 
 if __name__ == '__main__':
