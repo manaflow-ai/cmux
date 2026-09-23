@@ -129,7 +129,10 @@ enum SSHFishProcessRunner {
         let timedOut = exitSignal.wait(timeout: .now() + timeout) == .timedOut
         if timedOut {
             process.terminate()
-            _ = exitSignal.wait(timeout: .now() + 1)
+            if exitSignal.wait(timeout: .now() + 1) == .timedOut {
+                kill(process.processIdentifier, SIGKILL)
+                exitSignal.wait()
+            }
         }
 
         // A backgrounded grandchild (an SSH control master, for one) inherits
