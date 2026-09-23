@@ -214,4 +214,6 @@ each push and deleted when the pull request closes
 only the `[previews]` bindings in `wrangler.toml`: the development Stack project,
 staging web, and no production secrets. Point a dev build at it with
 `CMUX_PRESENCE_BASE_URL`, exactly like an isolated dev Worker. Fork pull requests
-get no Preview.
+get no Preview. `ALLOWED_EMAIL_DOMAINS = "manaflow.ai"` restricts a Preview to
+Stack users with a verified `@manaflow.ai` primary email; every other token gets
+401. Production does not set it.

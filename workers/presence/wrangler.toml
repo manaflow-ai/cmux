@@ -71,6 +71,9 @@ custom_domain = true
 STACK_PROJECT_ID = "454ecd03-1db2-4050-845e-4ce5b0cd9895"
 STACK_PUBLISHABLE_CLIENT_KEY = "pck_xb63160bwe9699vtxfzfj6emmxpafg5mkjrtp6ehzxv5g"
 CMUX_WEB_BASE_URL = "https://cmux-staging.vercel.app"
+# Only cmux team members (verified @manaflow.ai Stack email) authenticate on a
+# Preview. Production leaves this unset.
+ALLOWED_EMAIL_DOMAINS = "manaflow.ai"
 
 [[previews.durable_objects.bindings]]
 name = "TEAM_PRESENCE"
