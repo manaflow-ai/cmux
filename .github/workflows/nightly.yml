@@ -1788,7 +1788,8 @@ jobs:
           # Use the refs API rather than receive-pack. A Git push rejects the
           # whole ref when this candidate changed a workflow file because the
           # Actions token has no `workflows` permission; updating the exact ref
-          # through the contents API does not grant or bypass workflow edits.
+          # through the Git refs API keeps the ref update separate from that
+          # receive-pack workflow-file check and does not grant workflow edits.
           # The helper retries only transient API/network failures and reads the
           # ref back before this job can report publication complete.
           python3 scripts/ci/update-release-tag.py \
