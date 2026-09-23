@@ -216,6 +216,69 @@ class IOSSimulatorProductTests(unittest.TestCase):
         self.assertIn(str(self.consumer), targets[0]["TestHostPath"])
         self.assertIn(str(self.consumer), targets[0]["TestBundlePath"])
 
+    def configure_platform_test_host(self) -> Path:
+        relative = Path("Platforms/iPhoneSimulator.platform/Developer/Library/Xcode/Agents/xctest")
+        for identity in (self.producer_identity, self.consumer_identity):
+            runner = Path(identity["developer"]) / relative
+            runner.parent.mkdir(parents=True, exist_ok=True)
+            runner.write_bytes(b"fixture XCTest runner")
+            runner.chmod(0o755)
+        manifest = next((self.stage / "Build" / "Products").glob("*.xctestrun"))
+        value = plistlib.loads(manifest.read_bytes())
+        target = next(self.product.targets(value))
+        target["TestHostPath"] = "__PLATFORMS__/iPhoneSimulator.platform/Developer/Library/Xcode/Agents/xctest"
+        manifest.write_bytes(plistlib.dumps(value))
+        return Path(self.consumer_identity["developer"]) / relative
+
+    def test_platform_xctest_host_survives_stamp_and_consumer_relocation(self) -> None:
+        self.configure_platform_test_host()
+        self.stamp_and_copy()
+        self.product.identity = lambda: dict(self.consumer_identity)
+        self.product.restore(self.consumer)
+        manifest = next((self.consumer / "Build" / "Products").glob("*.xctestrun"))
+        target = next(self.product.targets(plistlib.loads(manifest.read_bytes())))
+        self.assertEqual(
+            target["TestHostPath"],
+            "__PLATFORMS__/iPhoneSimulator.platform/Developer/Library/Xcode/Agents/xctest",
+        )
+        self.assertIn(str(self.consumer), target["TestBundlePath"])
+
+    def test_platform_runner_must_exist_on_consumer(self) -> None:
+        runner = self.configure_platform_test_host()
+        self.stamp_and_copy()
+        runner.unlink()
+        self.product.identity = lambda: dict(self.consumer_identity)
+        with self.assertRaisesRegex(ValueError, "missing or non-executable platform test host"):
+            self.product.restore(self.consumer)
+
+    def test_platform_runner_must_be_executable_on_producer(self) -> None:
+        self.configure_platform_test_host()
+        runner = Path(self.producer_identity["developer"]) / "Platforms/iPhoneSimulator.platform/Developer/Library/Xcode/Agents/xctest"
+        runner.chmod(0o644)
+        self.product.identity = lambda: dict(self.producer_identity)
+        with self.assertRaisesRegex(ValueError, "missing or non-executable platform test host"):
+            self.product.stamp(self.stage, self.source)
+
+    def test_platform_host_exception_does_not_allow_other_paths(self) -> None:
+        self.configure_platform_test_host()
+        manifest = next((self.stage / "Build" / "Products").glob("*.xctestrun"))
+        original = manifest.read_bytes()
+        self.product.identity = lambda: dict(self.producer_identity)
+        for field, path in (
+            ("TestHostPath", "__PLATFORMS__/iPhoneOS.platform/Developer/Library/Xcode/Agents/xctest"),
+            ("TestHostPath", "__PLATFORMS__/iPhoneSimulator.platform/Developer/Library/Xcode/Agents/other"),
+            ("TestHostPath", "__PLATFORMS__/../Library/Xcode/Agents/xctest"),
+            ("TestHostPath", "/tmp/external-test-host"),
+            ("TestBundlePath", "__PLATFORMS__/iPhoneSimulator.platform/Developer/Library/Xcode/Agents/xctest"),
+            ("UITargetAppPath", "__PLATFORMS__/iPhoneSimulator.platform/Developer/Library/Xcode/Agents/xctest"),
+        ):
+            with self.subTest(field=field, path=path):
+                value = plistlib.loads(original)
+                next(self.product.targets(value))[field] = path
+                manifest.write_bytes(plistlib.dumps(value))
+                with self.assertRaisesRegex(ValueError, "unscoped test"):
+                    self.product.stamp(self.stage, self.source)
+
     def test_corrupt_product_fails_closed(self) -> None:
         self.stamp_and_copy()
         test_binary = self.consumer / "Build" / "Products" / "Debug-iphonesimulator" / "cmuxTests.xctest" / "cmuxTests"
