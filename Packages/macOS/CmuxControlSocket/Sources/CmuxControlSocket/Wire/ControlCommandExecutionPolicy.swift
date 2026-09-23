@@ -201,6 +201,8 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         // compositor before falling back to AppKit. Keep that wait on the
         // socket worker so WebKit-backed panels can render on the main actor.
         "debug.window.screenshot",
+        // The development readiness stream awaits network I/O.
+        "debug.dev_backend.check",
         // debug.sidebar.simulate_drag intentionally runs on the socket worker
         // so its Thread.sleep between drag-state ticks doesn't block the main
         // actor (which still owns the SidebarDragState mutations via

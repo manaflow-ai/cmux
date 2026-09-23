@@ -1985,7 +1985,8 @@ class TerminalController {
             // its worker case above is compiled out; the Release main lane
             // answers method_not_found for debug verbs, so mirror that reply
             // instead of the internal-error backstop below.
-            if request.method == "debug.sidebar.simulate_drag"
+            if request.method == "debug.dev_backend.check"
+                || request.method == "debug.sidebar.simulate_drag"
                 || request.method == "debug.window.screenshot"
                 || request.method == "debug.mobile.transport.disconnect"
                 || request.method == "debug.cloudtree.gallery" {
