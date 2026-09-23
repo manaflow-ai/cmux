@@ -16109,6 +16109,12 @@ class TerminalController {
 
         terminalTarget.forceRefresh(reason: "mobileHost.terminalPaste")
 
+        if submitted,
+           let rawEventID = v2String(params, "feed_event_id"),
+           let eventID = UUID(uuidString: rawEventID) {
+            _ = FeedCoordinator.shared.store?.recordTerminalReply(eventID, text: text)
+        }
+
         #if DEBUG
         cmuxDebugLog(
             "mobile.terminal.paste workspace=\(resolved.workspace.id.uuidString.prefix(8)) surface=\(surfaceId.uuidString.prefix(8)) chars=\(text.count) submitted=\(submitted ? 1 : 0)"

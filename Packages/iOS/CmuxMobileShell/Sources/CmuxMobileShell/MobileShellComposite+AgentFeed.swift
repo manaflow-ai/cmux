@@ -455,6 +455,9 @@ extension MobileShellComposite {
                     "surface_id": surfaceID,
                     "text": trimmed,
                     "submit_key": "return",
+                    // The Mac records this against the durable Feed item,
+                    // rather than guessing from the terminal surface.
+                    "feed_event_id": item.itemID,
                 ]
             )
             let responseData = try await target.client.sendRequest(request)
@@ -745,7 +748,11 @@ extension MobileShellComposite {
                 limitedToUTF8Bytes: mobileShellAgentFeedMetadataByteLimit
             ),
             context: context,
-            connectionStatus: connectionStatus
+            connectionStatus: connectionStatus,
+            userReply: agentFeedNormalizedText(
+                wire.replyText,
+                limitedToUTF8Bytes: mobileShellAgentFeedPrimaryTextByteLimit
+            )
         )
     }
 

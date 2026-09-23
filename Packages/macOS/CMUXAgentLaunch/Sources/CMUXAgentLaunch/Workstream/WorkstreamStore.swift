@@ -96,10 +96,15 @@ public final class WorkstreamStore {
 
     public func start() async {
         if let persistence {
-            if let page = try? await persistence.loadPage(limit: min(initialLoadLimit, ringCapacity)) {
-                items = page.items.map(normalizedWorkstreamItem)
-                hasMorePersistedItems = page.hasMoreBefore
-                oldestLoadedPersistenceOffset = page.startOffset
+            if let loaded = try? await persistence.loadLatest(limit: min(initialLoadLimit, ringCapacity)) {
+                items = loaded.map(normalizedWorkstreamItem)
+                if let page = try? await persistence.loadPage(limit: min(initialLoadLimit, ringCapacity)) {
+                    hasMorePersistedItems = page.hasMoreBefore
+                    oldestLoadedPersistenceOffset = page.startOffset
+                } else {
+                    hasMorePersistedItems = false
+                    oldestLoadedPersistenceOffset = nil
+                }
                 rebuildContextIndex()
                 bumpRevision()
             }
@@ -159,11 +164,7 @@ public final class WorkstreamStore {
         insert(item)
         updateContextIndex(with: item)
         bumpRevision()
-        if let persistence {
-            Task { [persistence, item] in
-                try? await persistence.append(item)
-            }
-        }
+        persist(item)
     }
 
     // MARK: - Actions
@@ -184,6 +185,7 @@ public final class WorkstreamStore {
         let now = clock()
         items[idx].status = .resolved(decision, at: now)
         items[idx].updatedAt = now
+        persist(items[idx])
         bumpRevision()
     }
 
@@ -194,7 +196,24 @@ public final class WorkstreamStore {
         let now = clock()
         items[idx].status = .expired(at: now)
         items[idx].updatedAt = now
+        persist(items[idx])
         bumpRevision()
+    }
+
+    /// Records a terminal free-text reply against the exact feed event UUID.
+    /// The item UUID is the concise identity sent by the phone with its paste
+    /// request, so the acknowledgement survives relaunches and refreshes.
+    @discardableResult
+    public func recordTerminalReply(_ itemId: UUID, text: String) -> Bool {
+        guard let idx = items.firstIndex(where: { $0.id == itemId }), !text.isEmpty else {
+            return false
+        }
+        let now = clock()
+        items[idx].reply = WorkstreamReply(text: text, createdAt: now)
+        items[idx].updatedAt = now
+        persist(items[idx])
+        bumpRevision()
+        return true
     }
 
     /// Marks every still-pending item created before `threshold` as
@@ -207,6 +226,7 @@ public final class WorkstreamStore {
             if now.timeIntervalSince(items[idx].createdAt) > threshold {
                 items[idx].status = .expired(at: now)
                 items[idx].updatedAt = now
+                persist(items[idx])
                 didExpireItem = true
             }
         }
@@ -220,6 +240,13 @@ public final class WorkstreamStore {
     private func bumpRevision() {
         revision += 1
         onRevisionChange?(revision)
+    }
+
+    private func persist(_ item: WorkstreamItem) {
+        guard let persistence else { return }
+        Task { [persistence, item] in
+            try? await persistence.append(item)
+        }
     }
 
     private func insert(_ item: WorkstreamItem) {
@@ -282,6 +309,7 @@ public final class WorkstreamStore {
                   items[idx].ppid == ppid else { continue }
             items[idx].status = .expired(at: now)
             items[idx].updatedAt = now
+            persist(items[idx])
             didExpireItem = true
         }
         if didExpireItem {
@@ -306,6 +334,7 @@ public final class WorkstreamStore {
             if !isProcessAlive(ppid) {
                 items[idx].status = .expired(at: now)
                 items[idx].updatedAt = now
+                persist(items[idx])
                 didExpireItem = true
             }
         }

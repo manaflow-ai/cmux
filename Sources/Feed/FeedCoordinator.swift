@@ -81,6 +81,19 @@ final class FeedCoordinator: @unchecked Sendable {
 
     private init() {}
 
+    /// Combines the two durable inputs to the mobile Feed into one monotonic
+    /// revision. The high and low 32-bit lanes preserve independent changes,
+    /// so a notification update cannot be hidden behind a larger workstream
+    /// revision (or vice versa).
+    static func combinedMobileFeedRevision(
+        workstream: Int,
+        notifications: Int
+    ) -> Int {
+        let high = UInt64(max(0, workstream)) & 0xFFFF_FFFF
+        let low = UInt64(max(0, notifications)) & 0xFFFF_FFFF
+        return Int(bitPattern: (high << 32) | low)
+    }
+
     /// Must be called once at app launch to install the store.
     @MainActor
     func install(
@@ -102,7 +115,13 @@ final class FeedCoordinator: @unchecked Sendable {
         store.onRevisionChange = { revision in
             MobileHostService.emitEvent(
                 topic: "feed.changed",
-                payload: ["revision": revision]
+                payload: [
+                    "revision": Self.combinedMobileFeedRevision(
+                        workstream: revision,
+                        notifications: TerminalNotificationStore.shared
+                            .notificationFeedHistory.revision
+                    )
+                ]
             )
         }
         NotificationCenter.default.post(name: Self.storeInstalledNotification, object: self)

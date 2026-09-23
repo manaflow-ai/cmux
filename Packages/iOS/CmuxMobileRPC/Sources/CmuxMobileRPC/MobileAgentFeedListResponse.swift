@@ -101,6 +101,8 @@ public struct MobileAgentFeedListItem: Decodable, Equatable, Sendable {
     public let context: MobileAgentFeedListContext?
     public let fullTextPreview: String?
     public let fullTextTruncated: Bool
+    /// Durable terminal reply associated with this exact event id.
+    public let replyText: String?
 
     private enum CodingKeys: String, CodingKey {
         case id
@@ -131,6 +133,7 @@ public struct MobileAgentFeedListItem: Decodable, Equatable, Sendable {
         case context
         case fullTextPreview = "full_text_preview"
         case fullTextTruncated = "full_text_truncated"
+        case replyText = "reply_text"
     }
 
     public init(
@@ -161,7 +164,8 @@ public struct MobileAgentFeedListItem: Decodable, Equatable, Sendable {
         surfaceTitle: String? = nil,
         context: MobileAgentFeedListContext? = nil,
         fullTextPreview: String? = nil,
-        fullTextTruncated: Bool = false
+        fullTextTruncated: Bool = false,
+        replyText: String? = nil
     ) {
         self.id = id
         self.workstreamID = workstreamID
@@ -191,6 +195,7 @@ public struct MobileAgentFeedListItem: Decodable, Equatable, Sendable {
         self.context = context
         self.fullTextPreview = fullTextPreview
         self.fullTextTruncated = fullTextTruncated
+        self.replyText = replyText
     }
 
     public init(from decoder: any Decoder) throws {
@@ -226,6 +231,7 @@ public struct MobileAgentFeedListItem: Decodable, Equatable, Sendable {
         context = try container.decodeIfPresent(MobileAgentFeedListContext.self, forKey: .context)
         fullTextPreview = try container.decodeIfPresent(String.self, forKey: .fullTextPreview)
         fullTextTruncated = try container.decodeIfPresent(Bool.self, forKey: .fullTextTruncated) ?? false
+        replyText = try container.decodeIfPresent(String.self, forKey: .replyText)
     }
 
     /// The wire carries ISO8601 timestamps (the Mac side encodes with

@@ -40,6 +40,31 @@ struct WorkstreamStoreTests {
         }
     }
 
+    @Test("Resolution and terminal replies survive a store restart")
+    func durableMutationsRoundTrip() async throws {
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-workstream-mutations-\(UUID().uuidString).jsonl")
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        let persistence = WorkstreamPersistence(fileURL: tmp)
+        let first = WorkstreamStore(persistence: persistence, ringCapacity: 10)
+        first.ingest(.permission("durable", requestId: "r1"))
+        let id = try #require(first.items.first?.id)
+        first.markResolved(id, decision: .permission(.once))
+        #expect(first.recordTerminalReply(id, text: "continue"))
+        try await Task.sleep(for: .milliseconds(50))
+
+        let second = WorkstreamStore(persistence: persistence, ringCapacity: 10)
+        await second.start()
+        let restored = try #require(second.items.first)
+        #expect(restored.id == id)
+        #expect(restored.reply?.text == "continue")
+        if case .resolved(.permission(.once), _) = restored.status {
+            // expected
+        } else {
+            Issue.record("expected resolved decision after restart")
+        }
+    }
+
     @Test("Ring buffer evicts oldest items past capacity")
     func ringEviction() {
         let store = WorkstreamStore(ringCapacity: 3)
