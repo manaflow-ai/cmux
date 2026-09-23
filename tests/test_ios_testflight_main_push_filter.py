@@ -16,6 +16,7 @@ IOS_PATHS = (
     "ios/**",
     "Packages/iOS/**",
     "Packages/Shared/**",
+    "Packages/macOS/CmuxPhonePush/**",
     "Sources/Mobile/**",
     "vendor/stack-auth-swift-sdk-prerelease/**",
     "ghostty",
