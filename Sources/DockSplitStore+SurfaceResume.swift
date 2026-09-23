@@ -102,7 +102,7 @@ extension DockSplitStore {
         if let restorableAgent = binding.managedRestorableAgentSnapshot(
             replacing: previousRestorableAgent
         ) {
-            restoredAgentLifecycle.setSnapshot(restorableAgent, panelId: panelId)
+            restoredAgentLifecycle.acceptHookSnapshot(restorableAgent, panelId: panelId)
             restoredAgentLifecycle.invalidatedFingerprintsByPanelId.removeValue(forKey: panelId)
         }
         surfaceResumeBindingsByPanelId[panelId] = binding
