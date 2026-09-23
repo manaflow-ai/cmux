@@ -157,6 +157,23 @@ import Testing
         await service.stop()
     }
 
+    @Test func recoveryEnrollmentDoesNotRestoreUnrelatedAuthorityEarly() async throws {
+        let backend = V2TestBackend(now: now, holdRegistration: true)
+        var revoked = V2CachedState(identity: device().identity)
+        revoked.device = V2DeviceRecord(descriptor: device(), deviceRecordID: "device-record", revision: 2, revoked: true)
+        revoked.authorityRevoked = true
+        revoked.authorityRevocationRecoverable = true
+        let service = try service(backend: backend, store: V2TestStateStore(revoked))
+        await service.start()
+        let socket = await backend.waitForSocket()
+        await socket.waitForHeldRegistration()
+        await #expect(throws: V2ControlFailure.stopped) { try await service.refreshRelayCredentials() }
+        #expect(await service.snapshot().cache.relayCredentials.isEmpty)
+        try await socket.releaseRegistration()
+        _ = try await ready(service)
+        await service.stop()
+    }
+
     @Test func unavailableSocketUsesOnlyTheVersionedHTTPRecoveryRoutes() async throws {
         let backend = V2TestBackend(now: now)
         await backend.disableSockets()

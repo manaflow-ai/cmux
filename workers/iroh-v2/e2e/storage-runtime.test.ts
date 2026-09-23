@@ -52,6 +52,11 @@ test("workerd SQLite persists registration and keeps one challenge/receipt slot"
 });
 
 test("an administrator revocation cannot be undone by a pending enrollment", async () => {
+  const isolated = (await mf.getDurableObjectNamespace("STORAGE")).getByName("admin-recovery");
+  const post = async (path: string, body: unknown) => {
+    const response = await isolated.fetch(`https://storage.test${path}`, { method: "POST", body: JSON.stringify(body) });
+    return { status: response.status, body: await response.json() as any };
+  };
   const device = { ...descriptor, identity: { ...identity, deviceId: "admin-revoked" }, endpointId: "9".repeat(64) };
   const issue = { challengeId: "admin-initial", nonceHash: "admin-nonce", payloadHash: "admin-payload", expiresAt: 4000, issuedAt: 2000 };
   expect((await post("/issue", { identity: device.identity, issue })).status).toBe(200);
@@ -62,7 +67,7 @@ test("an administrator revocation cannot be undone by a pending enrollment", asy
   expect((await post("/revoke", { deviceRecordId: registered.body.device.deviceRecordId, now: 2002, actorUserId: "administrator" })).status).toBe(200);
   const result = await post("/register", { input: { ...input, challengeId: "pending-recovery", requestId: "pending-recovery", requestHash: "pending-hash", now: 2003 } });
   expect(result.status).toBe(500);
-  expect(result.body.error).toContain("device_revoked");
+  expect(result.body.code).toBe("device_revoked");
 });
 
 test("failed enrollment leaves its challenge available for retry", async () => {
