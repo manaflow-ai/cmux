@@ -317,7 +317,7 @@ public struct PhonePushPeerKeyStore {
     private let storage: any PhonePushSharedStateStorage
 
     public init(storage: (any PhonePushSharedStateStorage)? = nil) {
-        self.storage = storage ?? PhonePushSharedState.defaultStorage()
+        self.storage = storage ?? Bundle.main.phonePushSharedStateStorage
     }
 
     public func pin(_ descriptor: PhonePushPeerDescriptor, for tuple: PhonePushDeviceTuple) {
@@ -404,7 +404,7 @@ public struct PhonePushActiveAccountStore {
         storage: (any PhonePushSharedStateStorage)? = nil
     ) {
         self.bundle = bundle
-        self.storage = storage ?? PhonePushSharedState.defaultStorage(bundle: bundle)
+        self.storage = storage ?? bundle.phonePushSharedStateStorage
     }
 
     private var hostBundleIdentifier: String? {

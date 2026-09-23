@@ -17,13 +17,13 @@ public protocol PhonePushSharedStateStorage {
     func keys(withPrefix prefix: String) -> [String]
 }
 
-public enum PhonePushSharedState {
-    /// The keychain on iOS; the Mac has no extension and keeps its existing
-    /// process-local defaults.
-    public static func defaultStorage(bundle: Bundle = .main) -> any PhonePushSharedStateStorage {
+extension Bundle {
+    /// The keychain on iOS, scoped by this bundle's host access group; the
+    /// Mac has no extension and keeps its existing process-local defaults.
+    public var phonePushSharedStateStorage: any PhonePushSharedStateStorage {
         #if os(iOS)
         PhonePushKeychainStateStorage(
-            accessGroup: PhonePushKeychainStateStorage.accessGroup(in: bundle)
+            accessGroup: PhonePushKeychainStateStorage.accessGroup(in: self)
         )
         #else
         PhonePushUserDefaultsStateStorage(defaults: .standard)
