@@ -12,6 +12,7 @@ import Testing
 @MainActor
 final class CloudDesktopOpenFixture {
     let app: VaultPaneAppFixture
+    let window: NSWindow
     let catalog: SurfaceCatalog
     let provider: CloudDesktopOpenTestProvider
     let owner: Workspace
@@ -43,6 +44,10 @@ final class CloudDesktopOpenFixture {
 
     init(ownerID: String = "desktop-a", hasRemoteView: Bool = true) throws {
         app = try VaultPaneAppFixture()
+        window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 640, height: 480),
+            styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.identifier = NSUserInterfaceItemIdentifier("cmux.main.\(app.windowID.uuidString)")
         owner = app.workspace
         other = app.manager.addWorkspace(title: "workspace-1", select: false)
         owner.cloudVMBinding = WorkspaceCloudVMBinding(vmID: ownerID, isBase: false, remoteWorkspaceID: "ws-same")
@@ -62,6 +67,23 @@ final class CloudDesktopOpenFixture {
         var info = provider.info
         info.remoteWorkspaces = [remote]
         catalog.replaceResources([display], on: provider.machine, info: info)
+        // Explicit pane destinations route through the window registry, even
+        // though this fixture never displays or focuses its task-owned window.
+        let context = try #require(app.appDelegate.mainWindowContexts.values.first { $0.windowId == app.windowID })
+        context.window = window
+        Attachment.record("""
+            identity-source: task-owned Cloud Desktop fixture
+            machine: \(provider.machine)
+            window: \(app.windowID)
+            owner-local-workspace: \(owner.id)
+            owner-machine: \(owner.cloudVMBinding?.vmID ?? "none")
+            owner-remote-workspace: \(owner.cloudVMBinding?.remoteWorkspaceID ?? "none")
+            other-local-workspace: \(other.id)
+            other-machine: \(other.cloudVMBinding?.vmID ?? "none")
+            other-remote-workspace: \(other.cloudVMBinding?.remoteWorkspaceID ?? "none")
+            display-resource: \(display.id)
+            display-remote-tab: \(display.remoteViews?.first?.tabID ?? "none")
+            """, named: "cloud-desktop-identities.txt")
     }
 
     func poolNode() throws -> CloudTreeNode {
@@ -128,6 +150,10 @@ final class CloudDesktopOpenFixture {
     func drop(_ row: CloudTreeNode, into workspace: Workspace) async throws {
         let group = try #require(row.dragGroup)
         let pane = try #require(workspace.bonsplitController.allPaneIds.first)
+        let route = try #require(TerminalController.shared.v2LocatePane(pane.id))
+        try #require(route.windowId == app.windowID && route.tabManager === app.manager)
+        try #require(route.workspace === workspace && route.paneId == pane)
+        try #require(workspace.selectedPanelForPaneDrop(in: pane) != nil)
         let expected = catalog.projections(of: display.id).count + 1
         let committed = CloudLinkFirstValue<Bool>()
         let catalog = catalog
@@ -139,7 +165,7 @@ final class CloudDesktopOpenFixture {
                 }
             }
         defer { NotificationCenter.default.removeObserver(token) }
-        #expect(workspace.handleSurfaceResourceDrop(group: group,
+        try #require(workspace.handleSurfaceResourceDrop(group: group,
             destination: .split(targetPane: pane, orientation: .vertical, insertFirst: false), catalog: catalog))
         _ = await committed.result
     }
@@ -149,6 +175,8 @@ final class CloudDesktopOpenFixture {
         catalog.unregister(machine: provider.machine)
         app.manager.tabs.forEach { $0.teardownAllPanels() }
         app.tearDown()
+        app.appDelegate.forgetRecoverableMainWindowRoute(windowId: app.windowID)
+        window.close()
         defaults.removePersistentDomain(forName: defaultsName)
     }
 }
