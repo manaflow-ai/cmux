@@ -7,6 +7,7 @@ struct CLISSHPTYResizeInputTests {
     @Test
     func attachReportsPTYSizeChangeBeforeForwardingInput() throws {
         let cliPath = try bundledCLIPath()
+        let cliVersion = try BundledCLITestSupport.appVersion(cliPath: cliPath)
         let socketPath = makeSocketPath("sshptyinputresize")
         var listenerFD = try bindUnixSocket(at: socketPath)
         let bridge = try bindLoopbackTCP()
@@ -51,7 +52,7 @@ struct CLISSHPTYResizeInputTests {
                     id: id,
                     ok: true,
                     result: [
-                        "host": "127.0.0.1", "daemon_version": BundledCLITestSupport.appVersion,
+                        "host": "127.0.0.1", "daemon_version": cliVersion,
                         "port": bridge.port,
                         "token": token,
                         "session_id": sessionId,

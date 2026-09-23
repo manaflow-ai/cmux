@@ -7,6 +7,25 @@ import XCTest
 /// has no app host, so it resolves it from `CMUX_CLI_PATH` or relative to the
 /// built products directory the bundle itself was copied into.
 enum BundledCLITestSupport {
+    /// The daemon handshake must match the CLI under test, not the xctest host.
+    static func appVersion(cliPath: String) throws -> String {
+        let result = CLIHookProcessRunner.run(
+            executablePath: cliPath,
+            arguments: ["--version"],
+            environment: [:],
+            timeout: 10
+        )
+        let fields = result.stdout.split(whereSeparator: { $0.isWhitespace })
+        guard !result.timedOut, result.status == 0,
+              fields.count >= 2, fields[0] == "cmux",
+              fields[1].first?.isNumber == true else {
+            throw NSError(domain: "cmux.tests", code: 3, userInfo: [
+                NSLocalizedDescriptionKey: "Cannot read CLI version: \(result.stdout) \(result.stderr)",
+            ])
+        }
+        return String(fields[1])
+    }
+
     /// Path to the bundled `cmux` CLI under test.
     ///
     /// Resolution order:
