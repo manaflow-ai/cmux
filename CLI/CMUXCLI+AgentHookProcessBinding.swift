@@ -8,10 +8,12 @@ extension CMUXCLI {
         workspaceId: String?,
         surfaceId: String?,
         agentPid: Int,
+        relayOrigin: Bool,
         client: SocketClient,
         deadline: Date
     ) -> (workspaceId: String, surfaceId: String)? {
-        if client.isRelayBacked,
+        let isRemoteHook = relayOrigin || client.isRelayBacked
+        if isRemoteHook,
            let workspaceRaw = workspaceId?.trimmingCharacters(in: .whitespacesAndNewlines),
            let surfaceRaw = surfaceId?.trimmingCharacters(in: .whitespacesAndNewlines),
            UUID(uuidString: workspaceRaw) != nil,
@@ -42,7 +44,7 @@ extension CMUXCLI {
         }
         // A relay hook's PID and TTY belong to the remote host. Never ask the
         // local process table or ambient local TTY to choose its destination.
-        guard !client.isRelayBacked else { return nil }
+        guard !isRemoteHook else { return nil }
         guard let binding = resolveAgentHookProcessBinding(
             pid: agentPid > 0 ? agentPid : nil,
             resolution: .controllingTTY,

@@ -39572,6 +39572,7 @@ export default CMUXSessionRestore;
                workspaceId: feedWorkspaceId(rawObject: stdinObj, fallback: env["CMUX_WORKSPACE_ID"]),
                surfaceId: firstString(in: stdinObj, keys: ["surface_id", "surfaceId"]) ?? normalizedHookValue(env["CMUX_SURFACE_ID"]),
                agentPid: agentPid,
+               relayOrigin: env[agentHookRelayOriginEnvironmentKey] == "1",
                client: activeClient,
                deadline: Date.now.addingTimeInterval(
                    Self.feedAttentionSendReserveSeconds
