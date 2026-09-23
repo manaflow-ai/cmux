@@ -1711,8 +1711,19 @@ _cmux_preexec() {
     _cmux_start_git_head_watch
 }
 
+# Run after startup files and zsh's initial global-history load. fc -p gives
+# this shell a fresh history list, then reads only its persisted surface file.
+_cmux_initialize_terminal_history() {
+    [[ -n "${CMUX_HISTORY_FILE:-}" && -z "${_CMUX_HISTORY_INITIALIZED:-}" ]] || return 0
+    builtin fc -p "$CMUX_HISTORY_FILE" "${HISTSIZE:-2000}" "${SAVEHIST:-2000}" || return
+    (( SAVEHIST > 0 )) || SAVEHIST=2000
+    setopt inc_append_history
+    typeset -g _CMUX_HISTORY_INITIALIZED=1
+}
+
 _cmux_precmd() {
     local last_status=$?
+    _cmux_initialize_terminal_history
     # Ghostty integration can initialize after this file, so retry its job-table
     # guards when each prompt begins.
     _cmux_patch_ghostty_job_table_guard

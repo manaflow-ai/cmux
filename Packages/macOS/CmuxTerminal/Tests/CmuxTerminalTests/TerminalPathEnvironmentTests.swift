@@ -36,7 +36,7 @@ struct TerminalPathEnvironmentTests {
             protectedKeys: &protectedKeys
         )
 
-        #expect(environment["HISTFILE"] == TerminalSurface.terminalHistoryFileURL(surfaceID: surfaceID).path)
-        #expect(protectedKeys.contains("HISTFILE"))
+        #expect(environment["CMUX_HISTORY_FILE"] == TerminalSurface.terminalHistoryFileURL(surfaceID: surfaceID).path)
+        #expect(protectedKeys.contains("CMUX_HISTORY_FILE"))
     }
 }

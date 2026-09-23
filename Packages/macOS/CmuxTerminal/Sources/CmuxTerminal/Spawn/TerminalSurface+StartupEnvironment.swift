@@ -93,10 +93,11 @@ extension TerminalSurface {
         let historyURL = terminalHistoryFileURL(surfaceID: context.surfaceId)
         try? FileManager.default.createDirectory(
             at: historyURL.deletingLastPathComponent(),
-            withIntermediateDirectories: true
+            withIntermediateDirectories: true,
+            attributes: [.posixPermissions: 0o700]
         )
-        environment["HISTFILE"] = historyURL.path
-        protectedKeys.insert("HISTFILE")
+        environment["CMUX_HISTORY_FILE"] = historyURL.path
+        protectedKeys.insert("CMUX_HISTORY_FILE")
     }
 
     /// Applies the sidebar git/PR watch flags and protects them.

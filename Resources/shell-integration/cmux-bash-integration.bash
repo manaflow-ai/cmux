@@ -1618,6 +1618,16 @@ _cmux_bash_preexec_hook_subshell() {
 
 _cmux_prompt_command() {
     local last_status=$?
+    if [[ -n "${CMUX_HISTORY_FILE:-}" && -z "${_CMUX_HISTORY_INITIALIZED:-}" ]]; then
+        HISTFILE="$CMUX_HISTORY_FILE"
+        history -c
+        [[ ! -r "$HISTFILE" ]] || history -r "$HISTFILE"
+        shopt -s histappend
+        _CMUX_HISTORY_INITIALIZED=1
+    fi
+    if [[ -n "${_CMUX_HISTORY_INITIALIZED:-}" ]]; then
+        history -a
+    fi
     _cmux_tmux_sync_cmux_environment
 
     local cmux_has_unix_socket=0
