@@ -551,60 +551,6 @@ final class SavingTextView: NSTextView {
         }
     }
 
-    override func keyDown(with event: NSEvent) {
-        guard UserDefaults.standard.bool(forKey: "filePreviewVimKeys"),
-              event.modifierFlags.intersection(.deviceIndependentFlagsMask).subtracting([.shift, .control]).isEmpty,
-              let characters = event.charactersIgnoringModifiers,
-              let key = characters.first else {
-            super.keyDown(with: event)
-            return
-        }
-        let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-        if key.isNumber, modifiers.isEmpty {
-            pendingVimCount = min(999, pendingVimCount * 10 + Int(String(key))!)
-            return
-        }
-        let count = max(1, pendingVimCount)
-        pendingVimCount = 0
-        let wasPendingVimGo = pendingVimGo
-        let page = enclosingScrollView?.contentView.bounds.height ?? bounds.height
-        if event.characters == "G", modifiers.isEmpty {
-            scrollVimTo(.greatestFiniteMagnitude)
-            pendingVimGo = false
-            return
-        }
-        switch (key, modifiers.contains(.control)) {
-        case ("j", false): moveVimLines(count)
-        case ("k", false): moveVimLines(-count)
-        case ("d", true): scrollVim(by: page * 0.5 * CGFloat(count))
-        case ("u", true): scrollVim(by: -page * 0.5 * CGFloat(count))
-        case ("f", true): scrollVim(by: page * CGFloat(count))
-        case ("b", true): scrollVim(by: -page * CGFloat(count))
-        case ("g", false):
-            if wasPendingVimGo { scrollVimTo(0) } else { pendingVimGo = true; return }
-        default:
-            pendingVimGo = false
-            super.keyDown(with: event)
-            return
-        }
-        pendingVimGo = false
-    }
-
-    private var pendingVimCount = 0
-    private var pendingVimGo = false
-    private func moveVimLines(_ lines: Int) { scrollVim(by: CGFloat(lines) * (font?.pointSize ?? 13) * 1.35) }
-    private func scrollVim(by delta: CGFloat) {
-        guard let clip = enclosingScrollView?.contentView else { return }
-        clip.scroll(to: clip.constrainBoundsRect(NSRect(origin: CGPoint(x: clip.bounds.origin.x, y: clip.bounds.origin.y + delta), size: clip.bounds.size)).origin)
-        enclosingScrollView?.reflectScrolledClipView(clip)
-    }
-    private func scrollVimTo(_ y: CGFloat) {
-        guard let clip = enclosingScrollView?.contentView else { return }
-        let target = y == .greatestFiniteMagnitude ? max(0, bounds.height - clip.bounds.height) : 0
-        clip.scroll(to: clip.constrainBoundsRect(NSRect(origin: CGPoint(x: clip.bounds.origin.x, y: target), size: clip.bounds.size)).origin)
-        enclosingScrollView?.reflectScrolledClipView(clip)
-    }
-
     @discardableResult
     func zoomPreviewFontIn() -> Bool {
         adjustPreviewFontSize(by: FilePreviewInteraction.zoomStep)
