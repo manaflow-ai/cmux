@@ -428,7 +428,8 @@ struct AgentRestoreLiveOwnerAdmissionTests {
         defer { dock.closeAllPanels() }
         let dockPanel = TerminalPanel(workspaceId: dock.workspaceId)
         dock.panels[dockPanel.id] = dockPanel
-        let panelID = useDock ? dockPanel.id : try #require(workspace.focusedPanelId)
+        let workspacePanelID = try #require(workspace.focusedPanelId)
+        let panelID = useDock ? dockPanel.id : workspacePanelID
         let lifecycle = useDock ? dock.restoredAgentLifecycle : workspace.restoredAgentLifecycle
         var binding = SurfaceResumeBindingSnapshot(
             kind: "claude",
