@@ -26,6 +26,17 @@ import Testing
         )
     }
 
+    @Test func regularPortraitUsesThePortraitCap() {
+        #expect(
+            WorkspaceDetailToolbarTitleSizing.maximumTitleWidth(
+                horizontalSizeClass: .regular,
+                verticalSizeClass: .regular,
+                leadingItemCount: 1,
+                trailingItemCount: 1
+            ) == WorkspaceDetailToolbarTitleSizing.regularPortraitMaximum
+        )
+    }
+
     @Test func regularLandscapeUsesTheLandscapeCap() {
         #expect(
             WorkspaceDetailToolbarTitleSizing.maximumTitleWidth(
