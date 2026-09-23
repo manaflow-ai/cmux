@@ -46,6 +46,8 @@ jobs:
     needs: web-subarea-scope
     if: ${{ inputs.web == 'true' && needs.web-subarea-scope.outputs.typecheck == 'true' }}
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    # Matches the 10-minute siblings in this workflow.
+    timeout-minutes: 10
     defaults:
       run:
         working-directory: web
@@ -194,6 +196,8 @@ jobs:
     needs: web-subarea-scope
     if: ${{ inputs.web == 'true' && needs.web-subarea-scope.outputs.react_apps == 'true' }}
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    # Matches the 10-minute siblings in this workflow.
+    timeout-minutes: 10
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -271,6 +275,8 @@ jobs:
     needs: web-subarea-scope
     if: ${{ inputs.web == 'true' && needs.web-subarea-scope.outputs.db == 'true' }}
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    # Matches web-production-build and diff-sidecar-check, the other 15s here.
+    timeout-minutes: 15
     defaults:
       run:
         working-directory: web

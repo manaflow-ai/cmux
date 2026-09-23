@@ -2767,6 +2767,41 @@ def test_only_pull_requests_under_the_compile_only_policy_skip_the_suite() -> No
         assert wants_full_suite(event, "compile-only", []) is True
 
 
+def test_a_skipped_suite_is_refused_when_only_the_suite_could_judge_the_diff() -> None:
+    sys.path.insert(0, str(ROOT / "scripts/ci"))
+    from choose_ci_suite import coverage_gap
+
+    tests_diff = ["cmuxTests/WorkspaceUnitTests.swift"]
+
+    # Compile admission builds the bundle and stops, so a test-only change is
+    # unobserved when the suite is skipped.
+    assert coverage_gap("pull_request", False, tests_diff, []) is True
+    assert coverage_gap("pull_request", False, ["cmuxUITests/A.swift"], []) is True
+    # Running the suite is the whole point; there is nothing to refuse.
+    assert coverage_gap("pull_request", True, tests_diff, []) is False
+    # Product sources still compile, which is what the policy claims to check.
+    assert coverage_gap("pull_request", False, ["Sources/A.swift"], []) is False
+    assert coverage_gap("pull_request", False, ["web/app/page.tsx"], []) is False
+    # The skip may be deliberate, but it has to be recorded on the pull request.
+    assert coverage_gap("pull_request", False, tests_diff, ["no-full-ci"]) is False
+    # An unreadable diff must not be the reason a change goes unobserved.
+    assert coverage_gap("pull_request", False, None, []) is True
+    # Only pull requests take the cheap path at all.
+    for event in ("merge_group", "workflow_dispatch", "push"):
+        assert coverage_gap(event, False, tests_diff, []) is False
+
+
+def test_ci_status_requires_the_suite_coverage_gate() -> None:
+    block = workflow_job_block("ci-status")
+    assert "      - suite-coverage" in block
+
+    gate = workflow_job_block("suite-coverage")
+    assert "needs.changes.outputs.coverage_gap == 'true'" in gate
+    # A Linux job, so refusing a run never costs a macOS runner.
+    assert "vars.LINUX_RUNNER" in gate
+    assert "exit 1" in gate
+
+
 def test_suite_labels_are_read_from_the_run_event_snapshot() -> None:
     sys.path.insert(0, str(ROOT / "scripts/ci"))
     from choose_ci_suite import labels_from_event
