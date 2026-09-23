@@ -93,7 +93,7 @@ class ProductPublicationTests(unittest.TestCase):
                 consumers.append(name)
                 self.assertFalse(condition(job["if"], full_suite="false"), name)
                 self.assertTrue(condition(job["if"], full_suite="true"), name)
-        self.assertEqual(set(consumers), {"app-host-unit-tests", "tests-build-and-lag"})
+        self.assertEqual(set(consumers), {"app-host-unit-tests", "cli-product-tests", "tests-build-and-lag"})
         for name in consumers:
             self.assertNotIn("reuse-products", str(self.workflow["jobs"][name]["if"]))
 
