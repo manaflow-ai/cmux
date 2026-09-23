@@ -43,37 +43,54 @@ enum CLIHookProcessRunner {
         // the same global pool used to drain the child's output.
         process.terminationHandler = { _ in exitSignal.signal() }
 
+        // A child may exit or be killed while its stdin writer is blocked.
+        // Suppress SIGPIPE on this descriptor only, leaving the test process
+        // and spawned CLI signal dispositions unchanged.
+        if let stdinPipe,
+           fcntl(stdinPipe.fileHandleForWriting.fileDescriptor, F_SETNOSIGPIPE, 1) == -1 {
+            return Result(status: -1, stdout: "", stderr: "Cannot suppress stdin SIGPIPE: \(errno)", timedOut: false)
+        }
+
         do {
             try process.run()
         } catch {
             return Result(status: -1, stdout: "", stderr: String(describing: error), timedOut: false)
         }
-        if let standardInput, let stdinPipe {
-            stdinPipe.fileHandleForWriting.write(Data(standardInput.utf8))
-            try? stdinPipe.fileHandleForWriting.close()
-        }
-
         let outputLock = NSLock()
         var stdoutData = Data()
         var stderrData = Data()
-        let outputGroup = DispatchGroup()
+        let ioGroup = DispatchGroup()
 
-        outputGroup.enter()
+        ioGroup.enter()
         DispatchQueue.global(qos: .utility).async {
             let data = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
             outputLock.lock()
             stdoutData = data
             outputLock.unlock()
-            outputGroup.leave()
+            ioGroup.leave()
         }
 
-        outputGroup.enter()
+        ioGroup.enter()
         DispatchQueue.global(qos: .utility).async {
             let data = stderrPipe.fileHandleForReading.readDataToEndOfFile()
             outputLock.lock()
             stderrData = data
             outputLock.unlock()
-            outputGroup.leave()
+            ioGroup.leave()
+        }
+
+        // Start input only after both drains exist: a child can fill either
+        // output pipe before it reads a large input. The writer shares the
+        // lifecycle group so timeout termination also releases blocked writes.
+        if let standardInput, let stdinPipe {
+            ioGroup.enter()
+            DispatchQueue.global(qos: .utility).async {
+                defer {
+                    try? stdinPipe.fileHandleForWriting.close()
+                    ioGroup.leave()
+                }
+                try? stdinPipe.fileHandleForWriting.write(contentsOf: Data(standardInput.utf8))
+            }
         }
 
         let timedOut = exitSignal.wait(timeout: .now() + timeout) == .timedOut
@@ -85,7 +102,7 @@ enum CLIHookProcessRunner {
             }
         }
 
-        _ = outputGroup.wait(timeout: .now() + 2)
+        _ = ioGroup.wait(timeout: .now() + 2)
 
         outputLock.lock()
         let finalStdoutData = stdoutData
