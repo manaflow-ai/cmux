@@ -99,12 +99,9 @@ def merge_group_check_names() -> dict[str, list[str]]:
             if "merge_group" in condition and "!=" in condition:
                 continue
             name = str(job.get("name", job_id))
-            if path.name == "web-complexity-trusted.yml" and job_id == "complexity" and "${{" in name:
-                # This routing contract requires the metadata predicate to start
-                # with event_name == pull_request_target. On merge_group it is
-                # false, so the job runs with the required name. Validate the
-                # entire contract before interpreting this one dynamic name;
-                # changed/unknown expressions must not satisfy the queue guard.
+            if path.name == "web-complexity-trusted.yml" and job_id == "complexity":
+                # The required workflow must publish its literal verdict on
+                # every event, including metadata edits and merge groups.
                 try:
                     validate_metadata_routing(document)
                 except (AssertionError, KeyError, TypeError):
@@ -167,15 +164,13 @@ class MergeGroupCheckNamesTests(unittest.TestCase):
                 with contextlib.redirect_stdout(io.StringIO()):
                     return main()
 
-    def test_dynamic_name_reports_required_check_for_merge_group(self) -> None:
-        """Dynamic metadata routing must retain the required merge-group name."""
+    def test_stable_name_reports_required_check_for_merge_group(self) -> None:
+        """The real verdict must retain the required merge-group name."""
         self.assertEqual(self.validate(self.workflow), 0)
 
     def test_wrong_merge_group_name_is_rejected(self) -> None:
         """A changed required check name must fail validation."""
-        self.workflow["jobs"]["complexity"]["name"] = self.workflow["jobs"]["complexity"]["name"].replace(
-            "'Web complexity'", "'Wrong required name'"
-        )
+        self.workflow["jobs"]["complexity"]["name"] = "Wrong required name"
         self.assertEqual(self.validate(self.workflow), 1)
 
     def test_missing_merge_group_trigger_is_rejected(self) -> None:
@@ -184,11 +179,9 @@ class MergeGroupCheckNamesTests(unittest.TestCase):
         events.pop("merge_group")
         self.assertEqual(self.validate(self.workflow), 1)
 
-    def test_metadata_cannot_use_required_name(self) -> None:
-        """Metadata-only edits must not publish under the required check name."""
-        self.workflow["jobs"]["complexity"]["name"] = self.workflow["jobs"]["complexity"]["name"].replace(
-            "'Web complexity metadata (ignored)'", "'Web complexity'"
-        )
+    def test_metadata_cannot_skip_required_verdict(self) -> None:
+        """Metadata edits must execute the check, not publish skipped success."""
+        self.workflow["jobs"]["complexity"]["if"] = "github.event.action != 'edited'"
         self.assertEqual(self.validate(self.workflow), 1)
 
     def test_duplicate_required_name_is_rejected(self) -> None:

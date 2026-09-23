@@ -237,6 +237,14 @@ struct SurfaceSocketCommandTests {
             let betaKey = RightSidebarBetaFeatureSettings.cloudMachinesEnabledKey
             let previousBeta = UserDefaults.standard.object(forKey: betaKey)
             let app = try VaultPaneAppFixture()
+            // `vm.workspace_new` admits its optimistic local workspace through the
+            // active main window before it asks the provider for anything; a
+            // context without a window is pruned and the call is cancelled. Bind
+            // a bare window the way the shortcut tests do.
+            let window = NSWindow(contentRect: .zero, styleMask: [.titled], backing: .buffered, defer: false)
+            window.identifier = NSUserInterfaceItemIdentifier("cmux.main.\(app.windowID.uuidString)")
+            app.appDelegate.mainWindowContexts.values.first { $0.windowId == app.windowID }?.window = window
+            defer { withExtendedLifetime(window) {} }
             defer {
                 app.tearDown()
                 TerminalController.shared.setActiveTabManager(previousManager)
@@ -552,7 +560,10 @@ struct SurfaceSocketCommandTests {
 
             let response = try await Self.call("vm.workspace_new", ["id": fixture.machineID, "name": "feature"])
             #expect(fixture.provider.mutations.first == "workspace create feature")
-            #expect(fixture.provider.refreshes == 0, "creation consumes its receipt without a blocking snapshot")
+            // This fake answers like an older daemon: its receipt carries no
+            // starter terminal, so creation takes exactly one snapshot to look
+            // for one before creating the starter (CloudWorkspaceCreationCoordinator).
+            #expect(fixture.provider.refreshes == 1, "a receipt without a starter costs one snapshot, not a re-sync per step")
             try #require(fixture.provider.createdTerminals.count == 1)
             #expect(fixture.provider.createdTerminals[0].remoteWorkspaceID == "ws_created")
             if response["ok"] as? Bool == true {

@@ -69,6 +69,19 @@ final class CloudSidebarRenameFixture {
         try await catalog.cloudRenameCoordinator.enqueue(key: .workspace(machine: machine, id: "barrier"), pendingName: "") {}.value
     }
 
+    @discardableResult
+    func agentName(_ name: String) -> Bool {
+        guard let context = catalog.cloudAgentNameContext(workspaceID: workspace.id, panelID: panelID) else { return false }
+        return catalog.submitCloudPanelRename(
+            workspace: workspace, panelID: panelID, title: name, source: .auto, context: context
+        ) == true
+    }
+
+    @discardableResult
+    func userName(_ name: String) -> Bool {
+        catalog.submitCloudPanelRename(workspace: workspace, panelID: panelID, title: name, source: .user) == true
+    }
+
     func assertParity(_ title: String, workspaceName: String = "Fixture workspace") throws {
         let native = try #require(workspace.surfaceIdFromPanelId(panelID))
         #expect(workspace.bonsplitController.tab(native)?.title == title)

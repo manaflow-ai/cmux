@@ -318,13 +318,13 @@ import Testing
         let historicalAlias = paired(
             id: "mac-before-rename",
             displayName: "Old Name",
-            instanceTag: "old-tag",
+            instanceTag: "renamed-tag",
             seenAt: .distantPast
         )
         let currentIdentity = paired(
             id: "mac-after-rename",
             displayName: "New Name",
-            instanceTag: "new-tag",
+            instanceTag: "renamed-tag",
             seenAt: Date()
         )
         let shell = MobileShellComposite(
@@ -343,7 +343,7 @@ import Testing
             Self.snapshot([
                 Self.instance(
                     deviceID: historicalAlias.macDeviceID,
-                    tag: "old-tag",
+                    tag: "renamed-tag",
                     online: true
                 ),
             ]),
@@ -394,13 +394,13 @@ import Testing
         let historicalAlias = paired(
             id: "mac-auth-before-rename",
             displayName: "Old Name",
-            instanceTag: "old-tag",
+            instanceTag: "renamed-tag",
             seenAt: .distantPast
         )
         let currentIdentity = paired(
             id: "mac-auth-after-rename",
             displayName: "New Name",
-            instanceTag: "new-tag",
+            instanceTag: "renamed-tag",
             seenAt: Date()
         )
         let pairedStore = DelayedTeamPairedMacStore(
@@ -473,7 +473,7 @@ import Testing
             isActive: false,
             stackUserID: "user-1",
             teamID: "team-1",
-            instanceTag: "old-aggregate-tag"
+            instanceTag: "aggregate-tag"
         )
         let currentIdentity = MobilePairedMac(
             macDeviceID: "mac-aggregate-after-rename",
@@ -484,7 +484,7 @@ import Testing
             isActive: false,
             stackUserID: "user-1",
             teamID: "team-1",
-            instanceTag: "new-aggregate-tag"
+            instanceTag: "aggregate-tag"
         )
         let pairedStore = DelayedTeamPairedMacStore(
             recordsByTeam: [
@@ -1401,6 +1401,7 @@ import Testing
             )
         }
         store.foregroundMacDeviceID = focused.macDeviceID
+        store.activeMacInstanceTag = focused.instanceTag
         store.activeRoute = focusedRoute
 
         let candidates = store.secondaryAggregationCandidateMacs(
@@ -3621,7 +3622,10 @@ import Testing
             probeTimeoutNanoseconds: 1_000_000_000
         )
         let macDeviceID = try #require(shell.foregroundMacDeviceID)
-        let connection = try #require(shell.connections[macDeviceID])
+        let connection = try #require(shell.connections[MacPairingKey(
+            macDeviceID: macDeviceID,
+            instanceTag: shell.activeMacInstanceTag
+        )])
         let initialSubscribeCount =
             await router.count(of: "mobile.events.subscribe")
         await router.delaySubscribeRequest(
