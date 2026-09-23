@@ -3,8 +3,8 @@ import Testing
 
 @Suite(.serialized)
 struct CLILegacyCodexRestoreLeaseTests {
-    @Test("A legacy Codex command reaches exec with a held conversation lease")
-    func legacyLaunchHoldsLease() throws {
+    @Test("A legacy Codex command reaches exec with a held conversation lease", arguments: [false, true])
+    func legacyLaunchHoldsLease(plannerFallback: Bool) throws {
         let runner = CMUXCLIErrorOutputRegressionTests()
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("cmux-legacy-lease-\(UUID().uuidString)")
         let home = root.appendingPathComponent("account")
@@ -31,13 +31,22 @@ struct CLILegacyCodexRestoreLeaseTests {
         """
         try probe.write(to: executable, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: executable.path)
+        var record: [String: Any] = [
+            "kind": "codex", "mode": "resumeAgent", "checkpoint_id": session,
+            "source": "session-snapshot", "working_directory": root.path,
+            "environment": ["CODEX_HOME": home.path],
+            "legacy_command": "'\(executable.path)' resume '\(session)' --model 'legacy model'"
+        ]
+        if plannerFallback {
+            // A captured management command cannot be resumed. The legacy
+            // conversation command is the only valid continuation in this record.
+            record["launch_command"] = [
+                "launcher": "codexTeams", "executable_path": "cmux",
+                "arguments": ["cmux", "codex-teams", "login"]
+            ]
+        }
         let payload = try JSONSerialization.data(withJSONObject: [
-            "ok": true, "result": ["restore_record": [
-                "kind": "codex", "mode": "resumeAgent", "checkpoint_id": session,
-                "source": "session-snapshot", "working_directory": root.path,
-                "environment": ["CODEX_HOME": home.path],
-                "legacy_command": "'\(executable.path)' resume '\(session)' --model 'legacy model'"
-            ]]
+            "ok": true, "result": ["restore_record": record]
         ])
         let socket = "/tmp/cmux-legacy-lease-\(UUID().uuidString.prefix(8)).sock"
         let responder = try UnixSocketResponder(path: socket, response: String(decoding: payload, as: UTF8.self))

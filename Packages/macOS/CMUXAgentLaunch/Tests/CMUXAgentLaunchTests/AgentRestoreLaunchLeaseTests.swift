@@ -15,6 +15,9 @@ struct AgentRestoreLaunchLeaseTests {
         #expect(try first.tryAcquire())
         #expect(try !second.tryAcquire())
         first.release()
+        // A parallel fork can retain a close-on-exec descriptor until exec.
+        // Await the kernel release, just as a contending CLI does.
+        try second.acquireAfterOwnerExit()
         #expect(try second.tryAcquire())
     }
 
@@ -91,11 +94,13 @@ struct AgentRestoreLaunchLeaseTests {
         defer { try? FileManager.default.removeItem(at: directory) }
         let session = UUID().uuidString
         let lease = try AgentRestoreLaunchLease(directory: directory, account: "/codex", sessionID: session)
-        #expect(try lease.tryAcquire())
         let path = try #require(FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil).first)
         let agent = try spawnAgentStandIn(leasePath: path.path)
 
-        // Model the watcher's descriptor: it owns the lock once the launcher's copy closes.
+        // Start with an unlocked inode. Releasing a prior lock and immediately
+        // reacquiring on a different descriptor races parallel tests' fork/exec:
+        // their pre-exec children can briefly retain the old open description.
+        // The separate transfer test exercises the actual gap-free handoff.
         let watcherLease = open(path.path, O_RDONLY | O_CLOEXEC)
         #expect(watcherLease >= 0)
         lease.release()
