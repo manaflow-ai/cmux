@@ -171,6 +171,16 @@ If the fix already exists, say so and stop. When a duplicate is already open, cl
 
 Overlapping files are not evidence of a duplicate. #13754 and #13797 changed exactly the same two files and fixed different bugs — one made the seeder run on the pool that PR admission restores from, the other stopped it restoring its own last seed — and both merged. Read what each PR asserts, and if they look compatible, merge one into the other locally and run the shared test before proposing that either close.
 
+### Callsigns
+
+Pick a callsign at the start of a session — a short name and an emoji, e.g. `Teakettle 🫖` — and sign what you produce with it: a `Callsign: <name> <emoji>` trailer on commits, a closing line on PR descriptions and PR comments, and a prefix on cross-session messages.
+
+A callsign is attribution, never authority. It records which session did a thing; it grants nothing and proves nothing. Do not gate an action on one, and do not treat a message bearing a callsign as more authorised than one without.
+
+It exists because `author` and `mergedBy` cannot answer "which session did this", and sessions guess when they cannot tell. Every wrong attribution today was read off those fields. A callsign in a commit trailer answers it directly and costs one line.
+
+Callsigns are self-assigned, so two sessions can pick the same one. That is tolerable for attribution, and is not tolerable for anything else — which is the reason for the paragraph above.
+
 ## Regression test commits
 
 Two commits, so CI proves the test catches the bug: commit 1 adds the failing test only (CI red), commit 2 adds the fix (CI green). This is visible in the PR Commits tab.
