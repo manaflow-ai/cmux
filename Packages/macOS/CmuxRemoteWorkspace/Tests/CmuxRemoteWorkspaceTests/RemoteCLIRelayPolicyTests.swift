@@ -154,6 +154,27 @@ struct RemoteCLIRelayPolicyTests {
         }
     }
 
+    /// `workspace.reorder` reorders the local sidebar, which a remote session
+    /// has no business doing, so it has never had a relay parameter contract.
+    /// Its error payload now echoes the caller's own workspace refs; pin the
+    /// denial so that stays unreachable from a relay.
+    @Test("workspace.reorder is denied through a relay", arguments: [
+        #"{"id":"p5r","method":"workspace.reorder","params":{"workspace_id":"workspace:1","index":0}}"#,
+        #"{"id":"p5r","method":"workspace.reorder","params":{"workspace_id":"workspace:1","before_workspace_id":"workspace:2"}}"#,
+        #"{"id":"p5r","method":"workspace.reorder","params":{"workspace_id":"workspace:1","after_workspace_id":"workspace:2"}}"#,
+    ])
+    func deniesWorkspaceReorder(commandLine: String) throws {
+        try withServer { port, unixServer in
+            let exchange = try runPolicyRelayExchange(
+                port: port,
+                relayID: relayID,
+                tokenHex: tokenHex,
+                commandLine: commandLine
+            )
+            expectDenial(exchange, unixServer, "workspace.reorder")
+        }
+    }
+
     @Test("non-JSON command lines are denied")
     func deniesNonJSONCommandLine() throws {
         try withServer { port, unixServer in
