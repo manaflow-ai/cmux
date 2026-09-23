@@ -14,6 +14,7 @@ import sys
 import tempfile
 import textwrap
 from pathlib import Path
+from unittest.mock import patch
 
 import yaml
 
@@ -1799,6 +1800,23 @@ def run_detect_step_for_paths(
             check=True,
         )
         return result, output_path.read_text(encoding="utf-8").splitlines()
+
+
+def test_detect_step_ignores_inherited_git_location() -> None:
+    # Each Git location override must be ignored, including the custom index
+    # that otherwise silently redirects writes outside the fixture repository.
+    with tempfile.TemporaryDirectory() as foreign_dir:
+        foreign = Path(foreign_dir)
+        for variable, value in {
+            "GIT_DIR": str(foreign / "not-a-repository"),
+            "GIT_WORK_TREE": str(foreign / "missing-worktree"),
+            "GIT_INDEX_FILE": str(foreign / "foreign-index"),
+        }.items():
+            with patch.dict(os.environ, {variable: value}):
+                result, outputs = run_detect_step_for_paths(["Sources/AppDelegate.swift"])
+            assert result.returncode == 0, result.stderr
+            assert "macos=true" in outputs, outputs
+            assert not Path(value).exists(), f"fixture wrote through {variable}"
 
 
 def test_workflow_registry_diff_reaches_normal_and_trusted_router() -> None:
