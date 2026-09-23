@@ -63,10 +63,10 @@ Ordered by blast radius times likelihood.
 
 | # | Where | Duplicates | On drift | Who it fails | Derivable |
 | --- | --- | --- | --- | --- | --- |
-| 1 | `tests/test_ci_merge_queue_required_checks.py:20-26` `REQUIRED_CHECKS` | GitHub branch-protection settings, which are not in the tree | an admin adds a required check, nobody edits the tuple, the guard passes and queue entries hang forever | **everyone**, with no red check anywhere — the only signal is a stuck merge queue | No. Source of truth is the GitHub API |
-| 2 | `.github/workflows/merge-group-fail-fast.yml:17` | the `name:` of `merge-group-policy-checks.yml` | renaming it silently stops fail-fast; the workflow just never triggers | **everyone** (queue latency), detected by nobody | Partially. `workflow_run` requires the literal display name, but a test can pin it against the producer's `name:` (#13793) |
+| 1 | `scripts/ci/required_status_checks.py` `REQUIRED_CHECKS` | the `required_status_checks` rule of the `main` ruleset, which is not in the tree | an admin adds a required check, nobody edits the tuple, the guard passes and every pull request waits on a context nothing produces | **everyone**, with no red check anywhere | Not derivable, but **reconcilable** — implemented, see below |
+| 2 | `.github/workflows/merge-group-fail-fast.yml:17` | the `name:` of `merge-group-policy-checks.yml` | renaming it silently stops fail-fast; the workflow just never triggers | **everyone** (queue latency), detected by nobody | Partially. `workflow_run` requires the literal display name, but a test can pin it against the producer's `name:`; #13793 proposes identifying the producer by file instead |
 | 3 | `tests/test-execution.toml` | every `tests/test_*.py` on disk | an unregistered test fails validation; a duplicated entry is `registered more than once` | everyone, until #13745 lands | Partially. Discovery is derivable; the lane assignment is a judgment |
-| 4 | `.github/workflows/ci-artifact-transport.yml:4-40` | its own `pull_request.paths` list, written again under `push.paths` | **already drifted**: 21 paths on pull requests, 12 on push. Nine files are guarded on pull requests and not on main | **everyone**, silently — main can regress with no signal | Yes. One list, or a guard that the two agree |
+| 4 | `.github/workflows/ci-artifact-transport.yml:4-40` | its own `pull_request.paths` list, written again under `push.paths` | previously drifted: nine files were guarded on pull requests and not on main | **everyone**, silently — main can regress with no signal | Yes — **implemented** in #13789; parity guard and explicit exemptions |
 | 5 | `scripts/ci/detect_linux_guard_changes.py` `WORKFLOW_TEST_INPUTS`, `CLI_INPUTS`, `HISTORY_INPUTS` | what each guard job's steps run in `ci-guards.yml` | a renamed step leaves the path routed to a guard that no longer reads it; also stale the expensive way (31 of 137 paths named) | offending PR, then silent under-coverage | Yes — **implemented**, see below |
 | 6 | `.github/workflows/ci.yml:341-345,218` bash `case` lists | `workflow_guard_groups.ROUTING_POLICY_PATHS` (a third and fourth copy) | a routing-policy file missing from one copy takes the wrong fast path | offending PR | Yes. The router already owns the set |
 | 7 | `.github/workflows/ci.yml:434-437` hard-coded `linux_guard_test_groups=[...]` JSON | `workflow_guard_groups.GROUPS` | a new group is added to `GROUPS` and a policy-only PR still routes the old eleven | offending PR (a structure test catches the reverse direction) | Yes |
@@ -116,16 +116,21 @@ paths twice and is currently in sync — the not-yet-drifted twin of row 4.
   to `ci-macos.yml` and the list did not follow, so it checked one step and
   reported success while 31 went unscanned. It now asks the directory, and an
   empty result is an error.
+- **Row 1 — reconcile the required checks against GitHub** (#13791). The entry
+  above said this needed `administration: read`, which PR CI must not have.
+  That is true of `branches/main/protection`, and not of the rulesets endpoint
+  `repos/:owner/:repo/rules/branches/main`, which returns the same contexts to
+  an ordinary read — on this public repository it answers with no token at all.
+  `.github/workflows/required-checks-drift.yml` reconciles `REQUIRED_CHECKS`
+  against that endpoint every six hours, and separately checks that each
+  required context actually reported on recently merged pull request heads,
+  which catches the other direction: a renamed job leaves a required name that
+  nothing produces, and settings and tree still agree with each other. Every
+  unreadable or unrecognised response is a failure, not a skip.
 
-## Not implemented, and what it would take
-
-- **Row 1 (required checks) and row 2 (workflow display names).** The source of
-  truth is GitHub, not the tree. A periodic job with `repos/:owner/:repo/branches/main/protection`
-  could reconcile the tuple against the live setting and open an issue on
-  mismatch; it needs a token with `administration: read`, which PR CI must not have.
 - **Row 4 (`ci-artifact-transport.yml` push/pull_request drift).** Implemented
   in #13789. The cost estimate here was wrong: syncing was measured at 11 of
-  the last 67 merges (~16%), not "nearly every push", and the expensive Worker
+  67 merges sampled on 2026-09-22 (~16%), not "nearly every push", and the expensive Worker
   half stays gated behind `steps.worker.outputs.run`. The `pull_request` list
   was the correct one — four of the seven test files the job runs appeared only
   there, including one that asserts on `ci-macos.yml`'s contents while a push
@@ -134,6 +139,20 @@ paths twice and is currently in sync — the not-yet-drifted twin of row 4.
   written down: `web-complexity.yml` diverges deliberately, because syncing it
   would let a PR editing that workflow self-queue a job running
   contributor-controlled install scripts.
+
+## Not implemented, and what it would take
+
+- **Row 2 (workflow display names).** The trigger names
+  `merge-group-policy-checks.yml` by its display name; its later CI lookup
+  already uses the stable workflow file path. The producer's checked-in
+  `name:` can guard the trigger against drift. #13793 proposes removing the
+  display-name dependency by checking the triggering workflow's file identity.
+- **Row 1's remaining gap.** The reconciliation reads rulesets. Classic branch
+  protection, if anyone ever configures it on top, contributes required
+  contexts through an endpoint that answers 404 to a non-admin token whether
+  or not it is configured, so those contexts would stay invisible. Repository
+  rulesets are the only mechanism in use today (`repos/:owner/:repo/rulesets`
+  lists four, and `branches/main/protection` is 404).
 - **Rows 6, 7 and 8 (ci.yml's bash path lists and group JSON).** The correct
   shape is for the step to call the router instead of re-deciding in bash, but
   the step deliberately runs *before* trusting candidate Python — that is the

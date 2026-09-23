@@ -679,6 +679,47 @@ class WorkflowContractTests(unittest.TestCase):
             admission,
         )
 
+    def _admission_step(self, name: str) -> str:
+        admission = self.macos_ci.split("  macos-compile-admission:", 1)[1].split(
+            "  app-host-unit-tests:", 1
+        )[0]
+        start = admission.index(f"      - name: {name}")
+        return admission[start:].split("\n      - name:", 1)[0]
+
+    def test_refused_persistent_product_leaves_no_bytes_for_the_fallback_compile(self):
+        """A refused product must not become the fallback compile's input.
+
+        Every identity check in this step runs *after* the archive has been expanded
+        into `CMUX_COMPILE_ADMISSION_DERIVED_DATA` and relocated by
+        `app_host_test_products.py restore`. The step is `continue-on-error`, and the
+        compile steps that replace it are gated only on
+        `steps.persistent-restore.outputs.hit != 'true'` -- they run in that same
+        DerivedData. So a refusal that leaves the tree in place hands unvalidated
+        producer output to the compile that was supposed to replace it.
+
+        `reuse_app_host_products.py` already states this rule for the artifact path
+        ("a miss never leaves partial products in DerivedData") and removes the tree
+        on any error. The owned-Mac path needs the same property, and it needs it
+        armed before the first byte is written rather than on individual error paths.
+        """
+        step = self._admission_step("Revalidate persistent Mac compile product")
+        self.assertIn("continue-on-error: true", step)
+        self.assertIn('rm -rf "$CMUX_COMPILE_ADMISSION_DERIVED_DATA"', step)
+        self.assertLess(
+            step.index("trap "),
+            step.index('tar -xzf "$archive"'),
+            "cleanup must be armed before anything is extracted",
+        )
+        # The cleanup must key off this step reaching its own success, not off the
+        # shell merely exiting: `set -e` aborts inside the identity checks exit
+        # non-zero, but so would a later unrelated failure after a genuine hit.
+        self.assertIn("revalidated=true", step)
+        self.assertLess(
+            step.index("revalidated=true"),
+            step.index('echo "hit=true"'),
+            "success must be recorded before the hit is published",
+        )
+
     def test_persistent_product_revalidation_retains_admission_checks(self):
         admission = self.macos_ci.split("  macos-compile-admission:", 1)[1].split(
             "  app-host-unit-tests:", 1

@@ -9,6 +9,15 @@ on:
       full_suite:
         required: true
         type: string
+      # Path-derived selection for the swift-package-tests lane, so a pull
+      # request that changes a Swift package still executes that package's
+      # tests under the compile-only suite policy. Optional and defaulted:
+      # a caller (or a trusted base router) that predates this input leaves it
+      # empty, which reads as "not routed" everywhere below.
+      swift_packages:
+        required: false
+        default: ""
+        type: string
       product_artifacts:
         required: false
         default: "layered"
@@ -79,7 +88,10 @@ jobs:
       CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_15 }}
       CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
       CMUX_SKIP_ZIG_BUILD: "1"
-      CMUX_PRODUCT_RUNNER: ${{ vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15' }}
+      # Part of the compiled product contract, so it has to name the pool this
+      # job actually ran on: two pools lay the workspace out differently, and a
+      # product built under one cannot be relocated into the other.
+      CMUX_PRODUCT_RUNNER: ${{ github.event_name == 'pull_request' && (vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15') || vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15' }}
     steps:
       - name: Reject stale pull request rerun
         if: ${{ github.event_name == 'pull_request' }}
@@ -189,7 +201,13 @@ jobs:
               check=True, text=True, capture_output=True,
           )
           jobs = json.loads(result.stdout).get("jobs", [])
-          matches = [job for job in jobs if job.get("name") == "macOS compile admission"]
+          # A reusable workflow prefixes its jobs with the caller's job id, so the
+          # reported name is "macos / macOS compile admission" on every real run.
+          matches = [
+              job
+              for job in jobs
+              if str(job.get("name") or "").rsplit(" / ", 1)[-1] == "macOS compile admission"
+          ]
           if len(matches) != 1:
               raise SystemExit(f"expected one admission job, found {len(matches)}")
           job = matches[0]
@@ -320,6 +338,17 @@ jobs:
           }
           [ "$(git rev-parse 'HEAD^{tree}')" = "$EXPECTED_SOURCE_TREE" ]
 
+          # Every identity check below runs after the archive is expanded here, and
+          # the fallback compile runs in this same DerivedData. A refused product
+          # must not become that compile's input, so arm the cleanup before the
+          # first byte is written and keep it until this step's own success.
+          revalidated=false
+          cleanup() {
+            [ "$revalidated" = true ] && return 0
+            rm -rf "$CMUX_COMPILE_ADMISSION_DERIVED_DATA"
+          }
+          trap cleanup EXIT
+
           archive="$(find "$RUNNER_TEMP/persistent-mac-compile" -type f -name 'persistent-mac-compile.tar.gz' -print -quit)"
           [ -n "$archive" ] && [ -f "$archive" ]
           mkdir -p "$CMUX_COMPILE_ADMISSION_DERIVED_DATA"
@@ -393,6 +422,7 @@ jobs:
           )
           PY
 
+          revalidated=true
           {
             echo "hit=true"
             echo "classification=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["classification"])' "$metrics")"
@@ -500,6 +530,7 @@ jobs:
           python3 scripts/ci/build_metrics.py "${args[@]}"
 
       - name: Upload Xcode build metrics receipt
+        id: upload-build-metrics
         if: always() && !cancelled() && steps.build-metrics.outcome == 'success'
         continue-on-error: true
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -833,6 +864,7 @@ jobs:
           PY
 
       - name: Upload compile admission metrics
+        id: upload-admission-metrics
         if: always() && !cancelled() && steps.admission-metrics.outputs.path != ''
         continue-on-error: true
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -842,6 +874,45 @@ jobs:
           if-no-files-found: error
           retention-days: 14
           compression-level: 0
+
+      - name: Report evidence collection outcomes
+        if: ${{ always() }}
+        env:
+          EVIDENCE_OUTCOMES: >-
+            upload-admission-metrics=${{ steps.upload-admission-metrics.outcome }}
+            upload-build-metrics=${{ steps.upload-build-metrics.outcome }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import os
+
+          rows = []
+          for entry in os.environ["EVIDENCE_OUTCOMES"].split():
+              label, _, outcome = entry.partition("=")
+              # An empty outcome means the step never ran, which is the same
+              # thing as skipped for this purpose.
+              rows.append((label, outcome or "skipped"))
+
+          # A green job skips every evidence step by design, so stay silent
+          # rather than adding a section to every summary in the repository.
+          if any(outcome != "skipped" for _, outcome in rows):
+              summary = os.environ.get("GITHUB_STEP_SUMMARY")
+              if summary:
+                  with open(summary, "a", encoding="utf-8") as handle:
+                      handle.write("### Evidence collection\n\n")
+                      for label, outcome in rows:
+                          handle.write(f"- {label}: `{outcome}`\n")
+                      handle.write("\n")
+
+          # Annotations go to stdout, where the runner reads them, and surface
+          # at the top of the run instead of inside a step nobody opens.
+          for label, outcome in rows:
+              if outcome == "failure":
+                  print(
+                      f"::warning title=Evidence not captured::{label} failed, "
+                      "so its evidence does not exist for this job"
+                  )
+          PY
 
       - name: Seed node-local compiled product cache
         if: steps.publish-products.outputs.publish == 'true'
@@ -1520,6 +1591,7 @@ jobs:
           done
 
       - name: Collect RemoteTmuxMirror crash diagnostics
+        id: collect-mirror-diagnostics
         if: ${{ failure() && steps.remote-tmux-mirror.outcome == 'failure' }}
         continue-on-error: true
         shell: bash
@@ -1575,6 +1647,7 @@ jobs:
           find "$diagnostics" -type f -print || true
 
       - name: Upload RemoteTmuxMirror crash diagnostics
+        id: upload-mirror-diagnostics
         if: ${{ failure() && steps.remote-tmux-mirror.outcome == 'failure' }}
         continue-on-error: true
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -2298,6 +2371,7 @@ jobs:
           CMUX_CLI_BIN="$CLI_BIN" python3 scripts/ci/run_python_test_lane.py --lane macos-cli-no-socket-post-fish
 
       - name: Collect app-host failure diagnostics
+        id: collect-app-host-diagnostics
         if: ${{ failure() || cancelled() }}
         continue-on-error: true
         shell: bash
@@ -2372,6 +2446,7 @@ jobs:
           find "$diagnostics" -type f -print | sort || true
 
       - name: Upload app-host failure diagnostics
+        id: upload-app-host-diagnostics
         if: ${{ failure() || cancelled() }}
         continue-on-error: true
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -2380,6 +2455,47 @@ jobs:
           path: ${{ runner.temp }}/cmux-app-host-diagnostics-shard-${{ matrix.shard }}-run-${{ github.run_attempt }}
           if-no-files-found: warn
           retention-days: 7
+
+      - name: Report evidence collection outcomes
+        if: ${{ always() }}
+        env:
+          EVIDENCE_OUTCOMES: >-
+            collect-mirror-diagnostics=${{ steps.collect-mirror-diagnostics.outcome }}
+            upload-mirror-diagnostics=${{ steps.upload-mirror-diagnostics.outcome }}
+            collect-app-host-diagnostics=${{ steps.collect-app-host-diagnostics.outcome }}
+            upload-app-host-diagnostics=${{ steps.upload-app-host-diagnostics.outcome }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import os
+
+          rows = []
+          for entry in os.environ["EVIDENCE_OUTCOMES"].split():
+              label, _, outcome = entry.partition("=")
+              # An empty outcome means the step never ran, which is the same
+              # thing as skipped for this purpose.
+              rows.append((label, outcome or "skipped"))
+
+          # A green job skips every evidence step by design, so stay silent
+          # rather than adding a section to every summary in the repository.
+          if any(outcome != "skipped" for _, outcome in rows):
+              summary = os.environ.get("GITHUB_STEP_SUMMARY")
+              if summary:
+                  with open(summary, "a", encoding="utf-8") as handle:
+                      handle.write("### Evidence collection\n\n")
+                      for label, outcome in rows:
+                          handle.write(f"- {label}: `{outcome}`\n")
+                      handle.write("\n")
+
+          # Annotations go to stdout, where the runner reads them, and surface
+          # at the top of the run instead of inside a step nobody opens.
+          for label, outcome in rows:
+              if outcome == "failure":
+                  print(
+                      f"::warning title=Evidence not captured::{label} failed, "
+                      "so its evidence does not exist for this job"
+                  )
+          PY
 
       - name: Clean up isolated app-host home
         if: ${{ always() }}
@@ -2407,7 +2523,14 @@ jobs:
     # jobs that legitimately skip (web/go/agent-session paths), and that
     # transitive skip otherwise marks every macOS job skipped even when
     # linux-preflight itself succeeds. Require the direct needs explicitly.
-    if: ${{ inputs.macos == 'true' && inputs.full_suite == 'true' }}
+    # Two reasons to run: the full suite, or a change the router attributed to
+    # a Swift package. The second is deliberately independent of inputs.macos:
+    # Packages/iOS packages outside the desktop product's closure are
+    # macOS-neutral for the app build yet still own tests this lane runs.
+    # The job narrows itself to the affected packages in "Select package
+    # tests", so the routed case costs one runner and a short build, not the
+    # full 33-package sweep.
+    if: ${{ (inputs.macos == 'true' && inputs.full_suite == 'true') || inputs.swift_packages == 'true' }}
     outputs:
       release_archs: ${{ steps.release-archs.outputs.archs }}
     # Build the release helper with SDK 15, then run package tests with SDK 26.
@@ -2442,6 +2565,7 @@ jobs:
         id: select
         env:
           EVENT_NAME: ${{ github.event_name }}
+          FULL_SUITE: ${{ inputs.full_suite }}
         run: |
           set -euo pipefail
           PACKAGES=(
@@ -2489,8 +2613,18 @@ jobs:
             if grep -qE '^vendor/bonsplit(/|$)' "$changed" || grep -qxF '.github/workflows/ci.yml' "$changed"; then
               echo "bonsplit=true" >> "$GITHUB_OUTPUT"
             fi
-            python3 scripts/ci/select_package_tests.py --changed-files "$changed" "${PACKAGES[@]}" > "$selected"
+            selection_args=(--changed-files "$changed")
+            if [ "$FULL_SUITE" != "true" ]; then
+              # Match the router's candidate filtering even for mixed PRs.
+              # A package edit plus a workflow edit must not become a full sweep.
+              selection_args+=(--routed-inputs-only)
+            fi
+            python3 scripts/ci/select_package_tests.py "${selection_args[@]}" "${PACKAGES[@]}" > "$selected"
           else
+            if [ "$FULL_SUITE" != "true" ]; then
+              echo "::error::Diff unavailable for targeted package tests; refusing a full sweep."
+              exit 1
+            fi
             echo "Diff unavailable; running every package."
             echo "bonsplit=true" >> "$GITHUB_OUTPUT"
             printf '%s\n' "${PACKAGES[@]}" > "$selected"
@@ -2516,7 +2650,7 @@ jobs:
       # still builds the shipped universal app independently of this policy.
       - name: Resolve Release check architectures
         id: release-archs
-        if: ${{ inputs.release_build == 'true' }}
+        if: ${{ inputs.full_suite == 'true' && inputs.release_build == 'true' }}
         env:
           REQUESTED_ARCHS: ${{ inputs.release_archs != 'default' && inputs.release_archs || vars.CI_RELEASE_BUILD_ARCHS }}
         run: |
@@ -2528,7 +2662,7 @@ jobs:
       # Only release-build consumes this artifact. Package/app-host tests use
       # the prebuilt GhosttyKit framework and do not need the Release CLI.
       - name: Select helper Xcode
-        if: ${{ inputs.release_build == 'true' }}
+        if: ${{ inputs.full_suite == 'true' && inputs.release_build == 'true' }}
         run: |
           set -euo pipefail
           CMUX_CI_XCODE_APP="$CMUX_CI_HELPER_XCODE_APP" \
@@ -2536,11 +2670,11 @@ jobs:
             ./scripts/select-ci-xcode.sh
 
       - name: Install zig
-        if: ${{ inputs.release_build == 'true' }}
+        if: ${{ inputs.full_suite == 'true' && inputs.release_build == 'true' }}
         run: ./scripts/install-zig-ci.sh
 
       - name: Cache Zig packages
-        if: ${{ inputs.release_build == 'true' }}
+        if: ${{ inputs.full_suite == 'true' && inputs.release_build == 'true' }}
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.cache/zig
@@ -2548,7 +2682,7 @@ jobs:
           restore-keys: zig-packages-
 
       - name: Build Release Ghostty CLI helper
-        if: ${{ inputs.release_build == 'true' }}
+        if: ${{ inputs.full_suite == 'true' && inputs.release_build == 'true' }}
         env:
           RELEASE_ARCHS: ${{ steps.release-archs.outputs.archs }}
         run: |
@@ -2577,7 +2711,7 @@ jobs:
           done
 
       - name: Upload Release Ghostty CLI helper
-        if: ${{ inputs.release_build == 'true' }}
+        if: ${{ inputs.full_suite == 'true' && inputs.release_build == 'true' }}
         id: upload-ghostty-cli-helper
         continue-on-error: true
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -2588,7 +2722,7 @@ jobs:
           retention-days: 1
 
       - name: Retry Release Ghostty CLI helper upload
-        if: ${{ inputs.release_build == 'true' && steps.upload-ghostty-cli-helper.outcome == 'failure' }}
+        if: ${{ inputs.full_suite == 'true' && inputs.release_build == 'true' && steps.upload-ghostty-cli-helper.outcome == 'failure' }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: cmux-ghostty-cli-helper
@@ -2651,9 +2785,9 @@ jobs:
           output="$(swift test --package-path vendor/bonsplit 2>&1)" || test_status=$?
           printf '%s\n' "$output"
           if [ "$test_status" -ne 0 ] \
-            && printf '%s\n' "$output" | grep -Fq 'Build complete!' \
-            && printf '%s\n' "$output" | grep -Eq 'Exited with unexpected signal code [56]([^0-9]|$)' \
-            && ! printf '%s\n' "$output" | grep -Eq '^(Test Suite|Test Case|◇ |↳ |✔ |✘ )'; then
+            && grep -Fq 'Build complete!' <<<"$output" \
+            && grep -Eq 'Exited with unexpected signal code [56]([^0-9]|$)' <<<"$output" \
+            && ! grep -Eq '^(Test Suite|Test Case|◇ |↳ |✔ |✘ )' <<<"$output"; then
             echo "Test runner crashed at startup (runner flake); retrying Bonsplit once."
             test_status=0
             output="$(swift test --package-path vendor/bonsplit 2>&1)" || test_status=$?
@@ -2662,6 +2796,7 @@ jobs:
           if [ "$test_status" -ne 0 ]; then
             exit "$test_status"
           fi
+          printf '%s\n' "$output" | python3 scripts/ci/require_swift_test_execution.py --log /dev/stdin
 
       - name: Run Swift package unit tests
         env:
@@ -2731,13 +2866,18 @@ jobs:
               output="$(swift test "${swift_test_args[@]}" 2>&1)" || test_status=$?
               printf '%s\n' "$output"
               if [ "$test_status" -ne 0 ]; then
-                if printf '%s\n' "$output" | grep -Eq 'Test run with [0-9]+ tests( in [0-9]+ suites)? passed' \
-                  && ! printf '%s\n' "$output" | grep -Eq 'with [1-9][0-9]* failures?' \
-                  && ! printf '%s\n' "$output" | grep -v 'unexpected binary' | grep -Eq '(^|[^a-zA-Z])error:'; then
+                if [ "$test_status" -eq 1 ] \
+                  && grep -Eq 'error:.*unexpected binary' <<<"$output" \
+                  && python3 scripts/ci/require_swift_test_execution.py --log /dev/stdin <<<"$output" \
+                  && ! grep -Eq 'with [1-9][0-9]* failures?' <<<"$output" \
+                  && ! grep -Fq 'Exited with unexpected signal code' <<<"$output" \
+                  && ! grep -Eq '(^|[^a-zA-Z])error:' <<<"$(grep -v 'unexpected binary' <<<"$output")"; then
                   echo "Tolerated cosmetic GhosttyKit binaryTarget diagnostic; all tests passed."
                 else
                   exit "$test_status"
                 fi
+              else
+                printf '%s\n' "$output" | python3 scripts/ci/require_swift_test_execution.py --log /dev/stdin
               fi
               ;;
             *)
@@ -2750,9 +2890,9 @@ jobs:
               output="$(swift test "${swift_test_args[@]}" 2>&1)" || test_status=$?
               printf '%s\n' "$output"
               if [ "$test_status" -ne 0 ] \
-                && printf '%s\n' "$output" | grep -Fq 'Build complete!' \
-                && printf '%s\n' "$output" | grep -Eq 'Exited with unexpected signal code [56]([^0-9]|$)' \
-                && ! printf '%s\n' "$output" | grep -Eq '^(Test Suite|Test Case|◇ |↳ |✔ |✘ )'; then
+                && grep -Fq 'Build complete!' <<<"$output" \
+                && grep -Eq 'Exited with unexpected signal code [56]([^0-9]|$)' <<<"$output" \
+                && ! grep -Eq '^(Test Suite|Test Case|◇ |↳ |✔ |✘ )' <<<"$output"; then
                 echo "Test runner crashed at startup (runner flake); retrying $pkg once."
                 test_status=0
                 output="$(swift test "${swift_test_args[@]}" 2>&1)" || test_status=$?
@@ -2761,10 +2901,64 @@ jobs:
               if [ "$test_status" -ne 0 ]; then
                 exit "$test_status"
               fi
+              printf '%s\n' "$output" | python3 scripts/ci/require_swift_test_execution.py --log /dev/stdin
               ;;
             esac
             echo "::endgroup::"
           done < "$selected"
+
+      # A package test runner that dies on a signal prints one line from
+      # SwiftPM ("Exited with unexpected signal code N") and nothing else: no
+      # faulting address, no thread, no frames. That is why the only tool this
+      # job has ever had for a crash is a retry whose signal list has to be
+      # guessed at. macOS already wrote the report; collect it so the next
+      # crash is diagnosed from a backtrace instead of from the signal number.
+      - name: Collect test runner crash reports
+        if: ${{ failure() }}
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -uo pipefail
+          reports="$RUNNER_TEMP/package-test-crash-reports"
+          mkdir -p "$reports"
+          found=0
+          for dir in "$HOME/Library/Logs/DiagnosticReports" /Library/Logs/DiagnosticReports; do
+            [ -d "$dir" ] || continue
+            # Only this job's own crashes: reports written since the runner
+            # started this workspace, from SwiftPM test runners and swift-*
+            # tools. -newer keeps an unrelated report from an earlier job out.
+            while IFS= read -r report; do
+              case "$(basename "$report")" in
+                *PackageTests*|*xctest*|*swift-testing*|*swift*)
+                  cp "$report" "$reports/" 2>/dev/null && found=$((found + 1))
+                  ;;
+              esac
+            done < <(find "$dir" -maxdepth 1 -type f \( -name '*.ips' -o -name '*.crash' \) -newer "$GITHUB_WORKSPACE/.git" 2>/dev/null)
+          done
+          if [ "$found" -eq 0 ]; then
+            echo "No matching crash report found. A signal the kernel does not report (for example a runner-initiated kill) leaves none."
+            exit 0
+          fi
+          echo "Collected $found crash report(s)."
+          for report in "$reports"/*; do
+            echo "::group::$(basename "$report")"
+            # The .ips header is one JSON line followed by the payload; print
+            # enough to identify the signal, the faulting address and the
+            # crashing thread's frames without dumping every loaded image.
+            head -c 20000 "$report"
+            echo
+            echo "::endgroup::"
+          done
+
+      - name: Upload test runner crash reports
+        if: ${{ failure() }}
+        continue-on-error: true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: swift-package-tests-crash-reports-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/package-test-crash-reports
+          if-no-files-found: ignore
+          retention-days: 7
 
   tests-build-and-lag:
     permissions:
@@ -2793,7 +2987,7 @@ jobs:
     steps:
       - name: Validate display runner identity
         env:
-          REQUESTED_RUNNER: ${{ vars.MACOS_RUNNER_DISPLAY || 'blacksmith-6vcpu-macos-15' }}
+          REQUESTED_RUNNER: ${{ github.event_name == 'pull_request' && (vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15') || vars.MACOS_RUNNER_DISPLAY || 'blacksmith-6vcpu-macos-15' }}
           RUNNER_CONTEXT_NAME: ${{ runner.name }}
         run: |
           set -euo pipefail
@@ -3395,17 +3589,24 @@ jobs:
           # same reading the macos-compile-admission job condition uses.
           if inputs.get("compile_admitted") == "":
               inputs["compile_admitted"] = "false"
-          for route in ("macos", "full_suite", "compile_admitted", "release_build"):
+          # A caller that predates the swift_packages input leaves it unset or
+          # empty, which reads as "the package lane was not separately routed".
+          if inputs.get("swift_packages", "") == "":
+              inputs["swift_packages"] = "false"
+          for route in ("macos", "full_suite", "compile_admitted", "release_build", "swift_packages"):
               if inputs.get(route) not in {"true", "false"}:
                   print(f"invalid route {route}={inputs.get(route)!r}", file=sys.stderr)
                   sys.exit(1)
 
           macos = inputs["macos"] == "true"
           full_suite = inputs["full_suite"] == "true"
+          # The package lane is routed from changed paths, so it is required
+          # whenever the router selected it even under the compile-only suite.
+          swift_packages = inputs["swift_packages"] == "true"
           required = {
               "macos-compile-admission": macos and inputs["compile_admitted"] != "true",
               "app-host-unit-tests": macos and full_suite,
-              "swift-package-tests": macos and full_suite,
+              "swift-package-tests": (macos and full_suite) or swift_packages,
               "tests-build-and-lag": macos and full_suite,
               "release-admission": macos and full_suite and inputs["release_build"] == "true",
               "release-build": macos and full_suite and inputs["release_build"] == "true",
