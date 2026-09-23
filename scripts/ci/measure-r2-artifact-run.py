@@ -15,6 +15,11 @@ CONSUMERS = {"tests-build-and-lag", *(f"app-host unit tests ({index}/6)" for ind
 MARKERS = ("CMUX_TEST_PRODUCT_TRANSFER ", "CMUX_R2_ARTIFACT_ATTEMPT ", "CMUX_TEST_PRODUCT_RESTORE ")
 
 
+def job_name(job: dict) -> str:
+    """Accept the current macos reusable caller and historical inline jobs."""
+    return str(job.get("name") or "").removeprefix("macos / ")
+
+
 def gh_json(path: str) -> dict:
     raw = subprocess.check_output(["gh", "api", f"repos/{REPOSITORY}/{path}"], text=True, timeout=30)
     value = json.loads(raw)
@@ -75,8 +80,8 @@ def elapsed_seconds(start: object, end: object) -> float | None:
 
 
 def summarize(run: dict, jobs: list[dict], records_by_job: dict[int, list[dict]]) -> dict:
-    producer = next((job for job in jobs if job.get("name") == PRODUCER), None)
-    consumers = [job for job in jobs if job.get("name") in CONSUMERS]
+    producer = next((job for job in jobs if job_name(job) == PRODUCER), None)
+    consumers = [job for job in jobs if job_name(job) in CONSUMERS]
     consumers.sort(key=lambda job: str(job.get("name")))
 
     producer_ready = None
@@ -165,7 +170,7 @@ def summarize(run: dict, jobs: list[dict], records_by_job: dict[int, list[dict]]
         "conclusion": run.get("conclusion"),
         "consumer_count": len(consumers),
         "expected_consumer_count": len(CONSUMERS),
-        "complete_consumer_set": {job.get("name") for job in consumers} == CONSUMERS,
+        "complete_consumer_set": {job_name(job) for job in consumers} == CONSUMERS,
         "producer_to_last_consumer_seconds": (
             round((last_completed - producer_started).total_seconds(), 3)
             if last_completed is not None and producer_started is not None else None
@@ -195,7 +200,7 @@ def collect(run_id: int) -> dict:
     jobs = jobs_for_run(run_id)
     records = {}
     for job in jobs:
-        if job.get("name") not in CONSUMERS or not isinstance(job.get("id"), int):
+        if job_name(job) not in CONSUMERS or not isinstance(job.get("id"), int):
             continue
         try:
             records[job["id"]] = marker_records(log_for_job(run_id, job["id"]))
