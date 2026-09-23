@@ -57,7 +57,13 @@ collision_output="$(CMUX_DEV_BACKEND_MODE=local "$RELOAD" --tag probe --name "cm
 collision_status=$?
 set -e
 [[ "$collision_status" -ne 0 ]] || fail "--build-only accepted a source/tag bundle name collision"
-[[ "$collision_output" == *"--build-only cannot use --name 'cmux DEV'"* ]] \
-  || fail "collision refusal did not explain the protected bundle name"
-echo "PASS: --build-only rejects a name override that aliases the running tagged bundle"
+if [[ "${CMUX_LOCAL_BUILD_GUARD_ACTIVE:-0}" == 1 && "${CMUX_ALLOW_LOCAL_XCODEBUILD:-0}" != 1 ]]; then
+  [[ "$collision_output" == *"local cmux builds are disabled"* ]] \
+    || fail "guarded host did not refuse before build-only validation"
+  echo "PASS: local guard rejects reload before bundle collision can occur"
+else
+  [[ "$collision_output" == *"--build-only cannot use --name 'cmux DEV'"* ]] \
+    || fail "collision refusal did not explain the protected bundle name"
+  echo "PASS: --build-only rejects a name override that aliases the running tagged bundle"
+fi
 
