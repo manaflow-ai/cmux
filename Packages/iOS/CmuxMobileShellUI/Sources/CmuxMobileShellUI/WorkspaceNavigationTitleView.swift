@@ -39,13 +39,12 @@ final class WorkspaceNavigationTitleView: UIView {
     }
 
     override var intrinsicContentSize: CGSize {
-        let content = host.sizeThatFits(in: UIView.layoutFittingExpandedSize)
+        let content = host.view.intrinsicContentSize
         return CGSize(width: content.width + 20, height: 44)
     }
 
     override func sizeThatFits(_ size: CGSize) -> CGSize {
-        let ideal = intrinsicContentSize
-        return CGSize(width: min(ideal.width, max(0, size.width)), height: min(ideal.height, size.height))
+        intrinsicContentSize
     }
 
     override func layoutSubviews() {

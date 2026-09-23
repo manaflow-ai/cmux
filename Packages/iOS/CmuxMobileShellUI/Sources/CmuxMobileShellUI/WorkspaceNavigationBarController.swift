@@ -33,9 +33,10 @@ final class WorkspaceNavigationBarController: UIViewController {
             bar.bottomAnchor.constraint(equalTo: view.bottomAnchor),
         ])
 
+        titleHost.sizingOptions = .intrinsicContentSize
+        titleHost.safeAreaRegions = []
         addChild(titleHost)
         item.largeTitleDisplayMode = .never
-        item.titleView = titleCapsule
         bar.setItems([item], animated: false)
         titleHost.didMove(toParent: self)
     }
@@ -50,6 +51,12 @@ final class WorkspaceNavigationBarController: UIViewController {
         overrideUserInterfaceStyle = environment.colorScheme == .dark ? .dark : .light
         titleHost.rootView = AnyView(title.environment(\.self, environment).buttonStyle(.plain))
         titleCapsule.invalidateIntrinsicContentSize()
+        // A custom title must have a natural size before the bar resizes it.
+        // The bar owns the final frame between the leading and trailing items.
+        titleCapsule.frame.size = titleCapsule.intrinsicContentSize
+        if item.titleView !== titleCapsule {
+            item.titleView = titleCapsule
+        }
         titleCapsule.setNeedsLayout()
 
         var addedHosts: [UIHostingController<AnyView>] = []
@@ -57,20 +64,28 @@ final class WorkspaceNavigationBarController: UIViewController {
             let content = AnyView(value.content
                 .environment(\.self, environment)
                 .buttonStyle(.plain)
-                .frame(minWidth: 30, minHeight: 44))
+                .frame(minWidth: 30, minHeight: 36)
+                .fixedSize())
             if let control = controls[value.id] {
                 control.host.rootView = content
                 control.host.view.invalidateIntrinsicContentSize()
+                control.width.constant = control.host.sizeThatFits(in: UIView.layoutFittingExpandedSize).width
             } else {
                 let host = UIHostingController(rootView: content)
                 host.sizingOptions = .intrinsicContentSize
+                host.safeAreaRegions = []
                 addChild(host)
                 addedHosts.append(host)
                 host.view.backgroundColor = .clear
                 host.view.setContentHuggingPriority(.required, for: .horizontal)
                 host.view.setContentCompressionResistancePriority(.required, for: .horizontal)
+                host.view.translatesAutoresizingMaskIntoConstraints = false
+                let width = host.view.widthAnchor.constraint(
+                    equalToConstant: host.sizeThatFits(in: UIView.layoutFittingExpandedSize).width
+                )
+                width.isActive = true
                 let button = UIBarButtonItem(customView: host.view)
-                controls[value.id] = HostedControl(host: host, button: button)
+                controls[value.id] = HostedControl(host: host, button: button, width: width)
                 // The bar installs the custom view when its item array updates.
             }
         }
@@ -107,6 +122,7 @@ final class WorkspaceNavigationBarController: UIViewController {
     private struct HostedControl {
         let host: UIHostingController<AnyView>
         let button: UIBarButtonItem
+        let width: NSLayoutConstraint
     }
 }
 
