@@ -1910,6 +1910,74 @@ final class cmuxUITests: XCTestCase {
     }
 
     @MainActor
+    func testComputerPickerSelectionSurvivesAppRelaunch() async throws {
+        let server = try MobileSyncMockHostServer()
+        let port = try await server.start()
+        defer { server.stop() }
+
+        let app = launchApp(mockData: true, environment: [
+            "CMUX_UITEST_ATTACH_URL": try attachURL(port: port).absoluteString,
+        ])
+        defer { app.terminate() }
+
+        func picker() -> XCUIElement {
+            waitForWorkspaceShell(in: app)
+            let back = app.buttons["MobileWorkspaceBackButton"]
+            if back.exists { tap(back, in: app) }
+            let picker = app.buttons["MobileWorkspaceMacPicker"]
+            XCTAssertTrue(picker.waitForExistence(timeout: 15))
+            return picker
+        }
+
+        func expectTitle(_ title: String) {
+            let control = picker()
+            let restored = XCTNSPredicateExpectation(
+                predicate: NSPredicate(format: "label == %@", title),
+                object: control
+            )
+            XCTAssertEqual(XCTWaiter.wait(for: [restored], timeout: 15), .completed)
+        }
+
+        func capture(_ name: String) {
+            let attachment = XCTAttachment(screenshot: app.screenshot())
+            attachment.name = name
+            attachment.lifetime = .keepAlways
+            add(attachment)
+        }
+
+        // Start through the real picker, without seeding its saved preference.
+        tap(picker(), in: app)
+        tapMenuItem(app.buttons["MobileWorkspaceMacPickerAll"], in: app)
+        expectTitle("All Computers")
+        tap(picker(), in: app)
+        let computer = app.buttons.matching(NSPredicate(
+            format: "identifier BEGINSWITH %@",
+            "MobileWorkspaceMacPickerMachine-ui-test-mac"
+        )).firstMatch
+        XCTAssertTrue(computer.waitForExistence(timeout: 5))
+        let computerName = computer.label
+        XCTAssertNotEqual(computerName, "All Computers")
+        tapMenuItem(computer, in: app)
+        expectTitle(computerName)
+        capture("computer-selected-before-termination")
+
+        app.terminate()
+        app.launch()
+        expectTitle(computerName)
+        capture("computer-restored-after-relaunch")
+
+        tap(picker(), in: app)
+        tapMenuItem(app.buttons["MobileWorkspaceMacPickerAll"], in: app)
+        expectTitle("All Computers")
+        capture("all-computers-selected-before-termination")
+
+        app.terminate()
+        app.launch()
+        expectTitle("All Computers")
+        capture("all-computers-restored-after-relaunch")
+    }
+
+    @MainActor
     func testWorkspaceMacPickerUsesComputerCopyAndAnnouncesConnectionStatus() throws {
         let app = launchApp(mockData: false, environment: [
             "CMUX_UITEST_WORKSPACE_LIST_PREVIEW": "1",
