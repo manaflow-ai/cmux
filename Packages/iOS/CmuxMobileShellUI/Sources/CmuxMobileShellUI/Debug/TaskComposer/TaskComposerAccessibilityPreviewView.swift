@@ -125,7 +125,7 @@ public struct TaskComposerAccessibilityPreviewView: View {
             isSignedIn: true,
             workspaces: presentsOpenDirectory
                 ? [Self.openDirectoryWorkspace]
-                : [Self.previewPaneWorkspace],
+                : [Self.previewPaneWorkspace, Self.previewStackWorkspace],
             taskTemplateStore: templateStore,
             taskModelCatalogClient: catalogClient
         )
@@ -389,6 +389,29 @@ public struct TaskComposerAccessibilityPreviewView: View {
                 selectedSurfaceID: "surface-pane-preview-right"
             ),
         ]
+    )
+
+    private static let previewStackWorkspace = MobileWorkspacePreview(
+        id: "workspace-stack-preview",
+        macDeviceID: previewMac.macDeviceID,
+        name: "Picker Stack",
+        terminals: [],
+        surfaces: (0..<3).map { index in
+            MobileSurfacePreview(
+                id: .init(rawValue: "surface-stack-\(index)"),
+                kind: .terminal,
+                title: "developer@MacBook-Pro:~/Dev/project/worktrees/task-composer"
+            )
+        },
+        panes: (0..<3).map { index in
+            MobilePanePreview(
+                id: .init(rawValue: "pane-stack-\(index)"),
+                frame: .init(x: 0, y: Double(index) / 4, width: 1, height: index == 2 ? 0.5 : 0.25),
+                surfaceIDs: [.init(rawValue: "surface-stack-\(index)")],
+                selectedSurfaceID: .init(rawValue: "surface-stack-\(index)"),
+                isFocused: index == 0
+            )
+        }
     )
 
     @MainActor

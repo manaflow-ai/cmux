@@ -208,14 +208,16 @@ struct TaskComposerDestinationPicker: View {
                     } label: {
                         VStack(spacing: 3) {
                             Image(systemName: pane.isFocused ? "scope" : "rectangle")
-                                .font(.caption2)
+                                .font(.system(size: 11, weight: .regular))
                             Text(surfaceTitle(for: pane, workspace: workspace))
-                                .font(.caption2.weight(.semibold))
-                                .lineLimit(2)
+                                .font(.system(size: 11, weight: .semibold))
+                                .lineLimit(1)
+                                .minimumScaleFactor(0.75)
                                 .multilineTextAlignment(.center)
                         }
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 5)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        .padding(4)
                         .background(
                             pane.id == selectedPaneID && workspace.rpcWorkspaceID == selectedWorkspaceID
                                 ? Color.accentColor.opacity(0.28)
