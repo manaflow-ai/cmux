@@ -477,6 +477,13 @@ final class SavingTextView: NSTextView {
 
     weak var panel: (any FilePreviewTextEditingPanel)?
     private var vimController: FilePreviewVimController?
+    // NSTextView undo bypasses shouldChangeText and isEditable. Route focused
+    // preview undo to an empty manager while retaining its editing history.
+    private let readOnlyUndoManager = UndoManager()
+
+    override var undoManager: UndoManager? {
+        vimController == nil ? super.undoManager : readOnlyUndoManager
+    }
 
     func updateVimNavigation(enabled: Bool) {
         isEditable = !enabled
