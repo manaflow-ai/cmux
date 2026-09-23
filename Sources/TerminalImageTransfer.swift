@@ -443,10 +443,21 @@ enum TerminalImageTransferPlanner {
         pasteboardService: TerminalPasteboardService
     ) -> TerminalImageTransferPreparedContent? {
         let urls = fileURLs(from: pasteboard)
-        // Finder adds image previews to file selections. Preserve the original
-        // files without decoding those previews for either paste or drop.
-        // Folder, web, and expired URLs can still accompany actual image copies.
-        guard !urls.isEmpty, urls.allSatisfy(isRemoteUploadableFileURL) else { return nil }
+        // A promised file URL identifies the Finder selection, including a
+        // folder whose icon is also advertised as image data. Ordinary image
+        // copies can carry auxiliary folder URLs, so only promises give folders
+        // precedence over pixels. Remote directory-upload policy stays separate.
+        let hasPromisedFiles = PasteboardFileURLReader.hasPromisedFileURLType(
+            pasteboard.types ?? []
+        )
+        guard !urls.isEmpty, urls.allSatisfy({ url in
+            if isRemoteUploadableFileURL(url) { return true }
+            guard hasPromisedFiles, url.isFileURL,
+                  let values = try? url.resourceValues(forKeys: [.isDirectoryKey]) else {
+                return false
+            }
+            return values.isDirectory == true
+        }) else { return nil }
         guard let durableURLs = pasteboardService.durableDroppedFileURLs(
             urls,
             sourceIsTransient: PasteboardFileURLReader.hasPromisedFileURLType(pasteboard.types ?? [])
