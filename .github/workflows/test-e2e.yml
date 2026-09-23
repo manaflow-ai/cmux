@@ -675,8 +675,8 @@ jobs:
           # Only a destination for the restored product: this job runs
           # test-without-building and compiles nothing, so there is no
           # compilation cache here to key, seed or discard.
-          workspace_path="$(cd "$GITHUB_WORKSPACE" && pwd -P)"
-          DERIVED_DATA_PATH="$workspace_path/DerivedData/cmux-e2e"
+          runner_temp="$(cd "$RUNNER_TEMP" && pwd -P)"
+          DERIVED_DATA_PATH="$runner_temp/cmux-e2e"
           rm -rf -- "$DERIVED_DATA_PATH"
           mkdir -p "$DERIVED_DATA_PATH"
           echo "CMUX_DERIVED_DATA_PATH=$DERIVED_DATA_PATH" >> "$GITHUB_ENV"
@@ -1092,15 +1092,15 @@ jobs:
         if: always()
         run: |
           set -euo pipefail
-          workspace_path="$(cd "$GITHUB_WORKSPACE" && pwd -P)"
+          runner_temp="$(cd "$RUNNER_TEMP" && pwd -P)"
           derived_data_path="${CMUX_DERIVED_DATA_PATH:-}"
           cache_path="${CMUX_E2E_COMPILATION_CACHE:-}"
           case "$cache_path" in
-            "$workspace_path/DerivedData/cmux-e2e-compilation-cache"|"") ;;
+            "") ;;
             *) echo "::error::refusing to remove unowned compilation cache: $cache_path"; exit 1 ;;
           esac
           case "$derived_data_path" in
-            "$workspace_path/DerivedData/cmux-e2e")
+            "$runner_temp/cmux-e2e")
               rm -rf -- "$derived_data_path"
               if [ -n "$cache_path" ]; then rm -rf -- "$cache_path"; fi
               ;;
