@@ -35,6 +35,41 @@ Both builds use the agent auth profile and the same backend. Use distinct tags
 for simultaneous workloads. Relay-only mode prevents same-host Simulator
 loopback connectivity from bypassing the managed Iroh relay.
 
+## Verify path selection
+
+The Iroh connection subscribes to both the native path-event stream and the
+selected-path snapshot stream. The diagnostic ring records each opened, closed,
+selected, and lagged edge, plus the selected route class observed when a
+connection starts or migrates. Consecutive duplicate selected snapshots are
+collapsed, while lifecycle edges are retained even when two edges use the same
+route class.
+
+The mobile Axiom bridge emits one `ios_iroh_path_event` for each retained event.
+Its bounded fields are `operation` (`opened`, `closed`, `selected`, or
+`lagged`), `path` (`relay`, `direct`, `private_network`, `loopback`, or
+`unknown`), `transport` (`iroh`), `event_surface` (peer alias), and `event_c`
+(the process-local session ID). It never sends an address, relay URL, endpoint
+ID, or payload. Filter this event in Axiom and group by `event_surface` and
+`event_c`, then order by timestamp to see a user's route sequence.
+
+Run the release gate in each mode when a path-selection change needs live
+evidence:
+
+```sh
+scripts/run-iroh-release-gate.sh --mode automatic --tag <tag> --report-output /tmp/iroh-automatic.json
+scripts/run-iroh-release-gate.sh --mode relay-only --tag <tag> --report-output /tmp/iroh-relay.json
+scripts/run-iroh-release-gate.sh --mode direct-only --tag <tag> --report-output /tmp/iroh-direct.json
+scripts/run-iroh-release-gate.sh --mode private-path --tag <tag> --report-output /tmp/iroh-private.json
+```
+
+Automatic mode should show Iroh opening a relay path and may later show a
+selected direct or private-network path after admission. Relay-only should keep
+the selected class at `relay`. Direct-only disables relay dialing and should
+show a direct or private-network selected class. Private-path proves the
+broker-authorized private route with relays disabled. A selected path is Iroh's
+current choice; it is not a promise that every candidate was usable or that
+the path remains fastest after a network change.
+
 ## Keep coverage current
 
 Every PR touching mobile connectivity, authentication, lifecycle, workspace

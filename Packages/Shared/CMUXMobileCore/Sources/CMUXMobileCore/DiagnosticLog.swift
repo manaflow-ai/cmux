@@ -168,7 +168,9 @@ public final class DiagnosticLog: Sendable {
     /// `.bufferingNewest`), never the caller. Repeated
     /// ``DiagnosticEventCode/selectedPathChanged`` values for the same redacted
     /// path class are consumed but not retained, so observer wakeups cannot be
-    /// mistaken for transport changes.
+    /// mistaken for transport changes. Individual
+    /// ``DiagnosticEventCode/transportPathEvent`` lifecycle edges are retained,
+    /// including opened and selected events for the same path class.
     ///
     /// - Parameter event: The event to record.
     public nonisolated func record(_ event: DiagnosticEvent) {
@@ -584,7 +586,8 @@ public final class DiagnosticLog: Sendable {
         @discardableResult
         func append(_ event: DiagnosticEvent) -> Bool {
             totalProcessed += 1
-            if let nextPathKind = event.diagnosticPathKind {
+            if event.code == .selectedPathChanged,
+               let nextPathKind = event.diagnosticPathKind {
                 guard nextPathKind != selectedPathKind else { return false }
                 selectedPathKind = nextPathKind
             }
