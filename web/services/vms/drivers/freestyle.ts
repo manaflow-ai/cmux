@@ -1318,18 +1318,23 @@ export class FreestyleProvider implements VMProvider {
       spanAttributes(vmId, "open_cmux_remote"),
       async (span) => {
         try {
-          // Attach is pure metadata: no provider read and no guest exec. See
-          // NO-WORK INVARIANT at the top of this file before adding either.
+          // Attach never runs guest work (NO-WORK INVARIANT at the top of this
+          // file). A snapshot-v2 row carries its private addresses, so attach
+          // is pure metadata. A row from before this contract was recorded
+          // still gets the same answer: every image baked since 2026-09-06
+          // (#12042) serves the trusted listener, and an older one fails at
+          // connect instead of being healed here. Only a row that never
+          // recorded its addresses pays one provider read; the workflow then
+          // persists them, so it happens once per machine.
           const persisted = freestyleRouteAddressesFromMetadata(options?.providerMetadata);
-          if (options?.providerMetadata?.cmuxTuiContract !== "snapshot-v2" || !persisted) {
-            throw new ProviderError("freestyle", `VM ${vmId} does not carry the snapshot-v2 trusted-carrier contract`);
-          }
-          const route = freestyleCmuxRemoteRoute(persisted, vmId);
+          const routeAddresses = persisted ?? await this.deps.client().vms.ref(vmId).data();
+          span.setAttribute("cmux.vm.cmux_tui_contract", String(options?.providerMetadata?.cmuxTuiContract ?? "none"));
+          const route = freestyleCmuxRemoteRoute(routeAddresses, vmId);
           const token = `cmux-freestyle-route-${randomBytes(32).toString("hex")}`;
           const expiresAtUnix = Math.floor(Date.now() / 1000) + ROUTE_TOKEN_TTL_SECONDS;
-          const addresses = freestyleNetworkAddressMetadata(persisted);
-          span.setAttribute("cmux.vm.network.private", true);
-          span.setAttribute("cmux.vm.route.source", "row");
+          const addresses = freestyleNetworkAddressMetadata(routeAddresses);
+          span.setAttribute("cmux.vm.network.private", (routeAddresses.vpcs ?? routeAddresses.networks ?? []).length > 0);
+          span.setAttribute("cmux.vm.route.source", persisted ? "row" : "provider");
           span.setAttribute("cmux.vm.cmux_remote.healed", false);
           span.setAttribute("cmux.vm.cmux_remote.invited", false);
           const networkAddresses = {

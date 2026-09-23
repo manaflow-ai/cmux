@@ -723,6 +723,42 @@ describe("Freestyle openCmuxRemote: snapshot-v2 fast path", () => {
     expect(endpoint).toMatchObject({ route: "ws://10.4.0.7:1337/v1/link", trustedCarrier: true });
     expect(commands).toEqual([]);
   });
+
+  test("a machine created before the contract was recorded still attaches, with no guest work", async () => {
+    const commands: string[] = [];
+    let reads = 0;
+    const vm = {
+      data: async () => { reads += 1; return {}; },
+      exec: async ({ command }: { command: string }) => { commands.push(command); return { statusCode: 0, stdout: "", stderr: "" }; },
+    };
+    const client = { vms: { ref: () => vm } } as unknown as Freestyle;
+    const provider = new FreestyleProvider({ client: () => client });
+    const endpoint = await provider.openCmuxRemote(VM_ID, {
+      providerMetadata: { networkIpv4: "10.4.0.8" },
+    });
+    expect(endpoint).toMatchObject({ route: "ws://10.4.0.8:1337/v1/link", trustedCarrier: true });
+    expect(reads).toBe(0);
+    expect(commands).toEqual([]);
+  });
+
+  test("a row without recorded addresses reads them once from the provider and never execs", async () => {
+    const commands: string[] = [];
+    let reads = 0;
+    const vm = {
+      data: async () => { reads += 1; return { vpcs: [{ ipv4: "10.4.0.9", ipv6: "fd00:4::9" }] }; },
+      exec: async ({ command }: { command: string }) => { commands.push(command); return { statusCode: 0, stdout: "", stderr: "" }; },
+    };
+    const client = { vms: { ref: () => vm } } as unknown as Freestyle;
+    const provider = new FreestyleProvider({ client: () => client });
+    const endpoint = await provider.openCmuxRemote(VM_ID, { providerMetadata: {} });
+    expect(endpoint).toMatchObject({
+      route: "ws://10.4.0.9:1337/v1/link",
+      trustedCarrier: true,
+      networkAddresses: { ipv4: "10.4.0.9", ipv6: "fd00:4::9" },
+    });
+    expect(reads).toBe(1);
+    expect(commands).toEqual([]);
+  });
 });
 
 describe("Freestyle port open: the private address, the desktop healed", () => {
