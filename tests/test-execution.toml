@@ -500,6 +500,10 @@ path = "tests/test_ios_appstore_lane_identity.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ios_appstore_upload_marker.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ios_selected_test_execution.py"
 lane = "linux-guard"
 

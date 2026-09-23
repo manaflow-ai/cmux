@@ -557,6 +557,10 @@ jobs:
         if: ${{ matrix.group == 'release-ios' }}
         run: python3 tests/test_ios_appstore_lane_identity.py
 
+      - name: Validate the cmux.app upload marker follows the receipt
+        if: ${{ matrix.group == 'release-ios' }}
+        run: python3 tests/test_ios_appstore_upload_marker.py
+
       - name: Validate TestFlight upload argument expansion
         if: ${{ matrix.group == 'release-ios' }}
         run: python3 tests/test_ios_upload_array_expansion.py
