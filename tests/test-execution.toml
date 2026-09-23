@@ -651,6 +651,10 @@ path = "tests/test_ci_cache_restore_receipt.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_parallel_artifact_transport.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_r2_artifact.py"
 lane = "linux-guard"
 
