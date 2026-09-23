@@ -2,8 +2,8 @@
 import SwiftUI
 import UIKit
 
-/// UINavigationBar proposes the space remaining between its button groups.
-/// This view accepts that width, then gives the same bounds to the title menu.
+/// UINavigationBar assigns the title's frame between its button groups.
+/// This view gives its hosted menu the same bounds, allowing text to truncate.
 /// There is deliberately no minimum title width or screen/size-class estimate.
 @MainActor
 final class WorkspaceNavigationTitleView: UIView {

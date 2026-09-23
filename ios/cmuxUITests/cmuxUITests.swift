@@ -7526,6 +7526,7 @@ final class cmuxUITests: XCTestCase {
             XCUIDevice.shared.orientation = .portrait
             let app = launchWorkspaceDetailDelayedTerminalPreviewApp(environment: [
                 "CMUX_UITEST_WORKSPACE_TOOLBAR_COMPARISON": "1",
+                "CMUX_UITEST_WORKSPACE_TOOLBAR_UNREAD": "1",
                 "CMUX_UITEST_WORKSPACE_DETAIL_LONG_TITLE": scenario == "reference" ? "0" : "1",
                 "CMUX_UITEST_WORKSPACE_TOOLBAR_ALT_SCREEN": scenario == "alternate-screen" ? "1" : "0",
             ])
@@ -7534,12 +7535,20 @@ final class cmuxUITests: XCTestCase {
             try XCTUnwrap(app.buttons["MobileChangesButton"].waitForExistence(timeout: 8) ? true : nil)
             // Capture before assertions so a visual regression still leaves usable evidence.
             captureWorkspaceToolbarPresentation(in: app, name: "\(scenario)-portrait")
+            if app.navigationBars["MobileWorkspaceNavigationBar"].exists {
+                assertNativeWorkspaceToolbarFits(in: app, includesChanges: true,
+                                                 includesAlternateScreen: scenario == "alternate-screen")
+            }
             tap(surface, in: app)
             XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 4))
             captureWorkspaceToolbarPresentation(in: app, name: "\(scenario)-keyboard")
             XCUIDevice.shared.orientation = .landscapeLeft
             RunLoop.current.run(until: Date().addingTimeInterval(1))
             captureWorkspaceToolbarPresentation(in: app, name: "\(scenario)-landscape")
+            if app.navigationBars["MobileWorkspaceNavigationBar"].exists {
+                assertNativeWorkspaceToolbarFits(in: app, includesChanges: true,
+                                                 includesAlternateScreen: scenario == "alternate-screen")
+            }
             XCUIDevice.shared.orientation = .portrait
             RunLoop.current.run(until: Date().addingTimeInterval(1))
             let picker = app.buttons["MobileTerminalDropdown"]
