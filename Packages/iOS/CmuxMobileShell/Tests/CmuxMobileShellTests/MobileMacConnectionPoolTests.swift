@@ -2791,6 +2791,7 @@ import Testing
             instanceTag: "stable",
             displayName: "Granted Mac"
         )
+        await router.setMacAppVersion("0.64.25")
         let factory = KindRecordingTransportFactory(
             router: router,
             box: TransportBox()
@@ -2805,9 +2806,26 @@ import Testing
             isSignedIn: true,
         )
 
+        let pairingID = MobilePairedMac.pairingID(
+            macDeviceID: "granted-mac",
+            instanceTag: "stable"
+        )
+        shell.macListAuthState.applyPolicyMinimumSupportedMacVersions(
+            stable: "0.64.23",
+            nightly: nil
+        )
+        shell.noteMacVersionUpdateRequired(
+            for: "granted-mac",
+            instanceTag: "stable"
+        )
+
         switch await shell.makeSecondaryClient(for: mac) {
         case let .connected(handle):
             #expect(handle.storedInstanceTag == "stable")
+            #expect(!shell.macVersionUpdateRequiredPairingIDs.contains(pairingID))
+            #expect(shell.macListAuthState.compatibilityEntry(
+                pairingID: pairingID
+            ).appVersion == "0.64.25")
             await handle.client.disconnect()
         case .transientFailure:
             Issue.record("granted Tailscale secondary failed transiently")

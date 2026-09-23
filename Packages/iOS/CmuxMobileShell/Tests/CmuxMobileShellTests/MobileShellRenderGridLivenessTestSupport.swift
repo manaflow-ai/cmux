@@ -87,6 +87,7 @@ actor LivenessHostRouter {
     private var macInstanceTag: String? = "default"
     private var macClientNamespace: String? = "mac:com.cmuxterm.app.debug"
     private var macDisplayName: String? = "Test Mac"
+    private var macAppVersion: String?
     private var workspaceListResponseHook: (@Sendable () -> Void)?
     private var workspaceIDs = ["live-workspace"]
     private var workspaceListTitles: [String] = []
@@ -312,6 +313,10 @@ actor LivenessHostRouter {
         macInstanceTag = instanceTag
         macClientNamespace = clientNamespace
         macDisplayName = displayName
+    }
+
+    func setMacAppVersion(_ version: String?) {
+        macAppVersion = version
     }
 
     func omitNextHostStatusIdentities(count: Int = 1) {
@@ -597,6 +602,7 @@ actor LivenessHostRouter {
                 }
                 if let macDisplayName { result["mac_display_name"] = macDisplayName }
             }
+            if let macAppVersion { result["mac_app_version"] = macAppVersion }
             return try? Self.resultFrame(id: id, result: result)
         case "mobile.events.subscribe":
             subscribeRequestCount += 1
