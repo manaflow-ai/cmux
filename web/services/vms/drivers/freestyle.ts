@@ -114,7 +114,9 @@ import {
 // images without `cmuxTuiContract: "snapshot-v2"` are refused on purpose;
 // do not reintroduce create- or attach-time healing to support them.
 // Explicit user operations (`exec`, `resize`, file push/pull) are separate
-// and stay.
+// and stay. The one sanctioned guest exec around create is the prompt-name
+// push in workflows.ts (schedulePromptIdentityPush): display-only, run after
+// the response, never awaited by create. Do not add anything else to it.
 //
 // The coderouter model plane is edge-injected: the create carries an inline
 // `tls` rule for the coderouter host whose transform overwrites `authorization`

@@ -153,6 +153,28 @@ def seed_terminal(ready, directory):
         tui("terminal", terminal, "keys", "ctrl+c", "--quiet")
 
 
+# The bake leaves this default in vm-name. A clone's real name arrives either
+# from the reflection fetch below or from the control plane writing vm-name
+# directly (the same writer a rename uses, run once after create). The latter
+# is the only path that reaches a private dev backend, so a name that appears
+# in the file must also trigger the one-time prompt refresh.
+BAKED_NAME = "cmux"
+
+
+def watch_local_name(directory, ready, timeout=600.0):
+    target = directory / "vm-name"
+    deadline = time.monotonic() + timeout
+    while not ready.is_set() and time.monotonic() < deadline:
+        try:
+            value = target.read_text().strip()
+        except OSError:
+            value = ""
+        if value != BAKED_NAME and NAME.fullmatch(value) is not None:
+            ready.set()
+            return
+        time.sleep(0.2)
+
+
 def walk(value):
     if isinstance(value, dict):
         yield value
@@ -171,6 +193,8 @@ def main():
     args = parser.parse_args()
     ready = threading.Event()
     threading.Thread(target=seed_terminal, args=(ready, args.directory), daemon=True).start()
+    if not args.once:
+        threading.Thread(target=watch_local_name, args=(args.directory, ready), daemon=True).start()
     delay = 1
     while True:
         try:

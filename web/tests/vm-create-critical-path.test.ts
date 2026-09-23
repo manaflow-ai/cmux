@@ -78,8 +78,13 @@ function fakeRepo(input: {
 function fakeProviders(input: {
   readonly onCreate?: () => Effect.Effect<void>;
   readonly fail?: boolean;
+  readonly execs?: string[];
 }): VmProviderGatewayShape {
   return {
+    exec: (_provider: string, _vmId: string, command: string) => Effect.sync(() => {
+      input.execs?.push(command);
+      return { exitCode: 0, stdout: "", stderr: "" };
+    }),
     create: () =>
       (input.onCreate?.() ?? Effect.void).pipe(Effect.andThen(input.fail
         ? Effect.fail(new VmProviderOperationError({ provider: "freestyle", operation: "create", cause: new Error("boom") }))
@@ -151,9 +156,25 @@ describe("createVm critical path", () => {
     );
     expect(created.providerVmId).toBe("provider-vm-fast");
     expect(types(events)).toEqual(["vm.create.requested"]);
-    expect(deferred).toHaveLength(1);
-    await Effect.runPromise(deferred[0]!);
+    // vm.created and the prompt name push both run after the response.
+    expect(deferred).toHaveLength(2);
+    for (const work of deferred) await Effect.runPromise(work);
     expect(types(events)).toEqual(["vm.create.requested", "vm.created"]);
+  });
+
+  test("the prompt name is pushed into the guest only after the response", async () => {
+    const execs: string[] = [];
+    const deferred: Effect.Effect<void>[] = [];
+    await Effect.runPromise(
+      createVm({ ...createInput, deferAfterResponse: (work) => deferred.push(work) }).pipe(
+        Effect.provide(layer(fakeRepo({ events: [] }), fakeProviders({ execs }))),
+      ),
+    );
+    // Nothing runs in the guest before create returns.
+    expect(execs).toEqual([]);
+    for (const work of deferred) await Effect.runPromise(work);
+    expect(execs).toHaveLength(1);
+    expect(execs[0]).toContain("vm-name");
   });
 
   test("a provider failure records its failure row after the requested row", async () => {

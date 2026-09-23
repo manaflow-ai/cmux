@@ -807,9 +807,46 @@ export function createVm(input: CreateVmInput): Effect.Effect<VmEntry, VmWorkflo
     } else {
       yield* recordCreateSuccessEvents(repo, input, running);
     }
+    yield* schedulePromptIdentityPush(providers, running, input.deferAfterResponse);
 
     return vmEntryFromRow(running);
   });
+}
+
+/**
+ * Publishes a new machine's prompt name (`cmux@<slug>`) into the guest once,
+ * after the create response, with the same command a rename uses.
+ *
+ * The guest also pulls its name from https://reflection.cmux.internal/name
+ * through the Freestyle edge, but the edge can only reach a public origin: a
+ * private backend (every tailnet dev stack) never answers it, so dev machines
+ * kept the baked `cmux@cmux`. This push is the path that works everywhere.
+ * It is never on New Machine's critical path (NO-WORK INVARIANT in
+ * drivers/freestyle.ts): it runs after the response when the route provides
+ * the hook, detached otherwise, and a failure leaves reflection to publish
+ * the name. cmux-prompt-sync redraws the prompt when the name file changes.
+ */
+function schedulePromptIdentityPush(
+  providers: VmProviderGatewayShape,
+  row: CloudVmRow,
+  defer: ((work: Effect.Effect<void>) => void) | undefined,
+): Effect.Effect<void> {
+  const providerVmId = row.providerVmId;
+  if (!providerVmId || row.status !== "running") return Effect.void;
+  const push = Effect.suspend(() =>
+    providers.exec(row.provider, providerVmId, guestPromptInstallCommand(vmPromptIdentity(row)), {
+      timeoutMs: 10_000,
+      providerMetadata: row.providerMetadata,
+    })
+  ).pipe(
+    Effect.flatMap((result) => result.exitCode === 0 ? Effect.void : Effect.fail(new Error(`prompt push exited ${result.exitCode}`))),
+    Effect.catchAllCause((cause) => Effect.logWarning("Cloud prompt push deferred to reflection", { vmId: row.id, cause })),
+  );
+  if (defer) {
+    defer(push);
+    return Effect.void;
+  }
+  return Effect.asVoid(Effect.forkDaemon(push));
 }
 
 /**
@@ -1106,6 +1143,7 @@ function finishBaseCreate(
     );
 
     yield* recordCreateSuccessEvents(repo, { ...input, idempotencyKey, origin: "base" }, running);
+    yield* schedulePromptIdentityPush(providers, running, undefined);
     yield* repo.recordUsageEvent({
       userId: input.userId,
       billingTeamId: input.billingTeamId,
