@@ -56,6 +56,31 @@ def triggers(workflow: dict) -> set[str]:
     return set(on or ())
 
 
+
+def reachable(roots: set[Path], workflows: dict[Path, dict]) -> set[Path]:
+    """Required-check workflows plus the local reusable ones they call.
+
+    ci.yml delegates whole areas through `uses: ./.github/workflows/...`.
+    Those jobs run under ci.yml's run and gate ci-status exactly like its own
+    jobs do, so a bound is worth just as much there. They are easy to miss
+    because a reusable workflow has no runs of its own to look at.
+    """
+    seen: set[Path] = set()
+    queue = list(roots)
+    while queue:
+        path = queue.pop()
+        if path in seen or path not in workflows:
+            continue
+        seen.add(path)
+        for job in (workflows[path].get("jobs") or {}).values():
+            if not isinstance(job, dict):
+                continue
+            uses = job.get("uses", "")
+            if isinstance(uses, str) and uses.startswith("./.github/workflows/"):
+                queue.append(ROOT / uses.removeprefix("./"))
+    return seen
+
+
 def context_of(job_id: str, job: dict) -> str:
     return job.get("name") or job_id
 
@@ -81,7 +106,7 @@ def main() -> int:
             f"drifted apart: {', '.join(unmatched)}"
         )
 
-    for path in sorted(set(owners.values())):
+    for path in sorted(reachable(set(owners.values()), workflows)):
         for job_id, job in (workflows[path].get("jobs") or {}).items():
             if not isinstance(job, dict) or "uses" in job:
                 continue
