@@ -1,3 +1,4 @@
+import CmuxMobileShellModel
 import CmuxMobilePairedMac
 import Foundation
 import SwiftUI
