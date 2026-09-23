@@ -846,6 +846,10 @@ jobs:
         id: simulator-tests
         env:
           TEST_FILTER: ${{ inputs.test_filter }}
+          # Bounds one xcodebuild invocation. Generous against the ~2 minutes
+          # the non-UI suite actually takes, and well under the job's 35-minute
+          # ceiling so a wedge still leaves room for the steps after this one.
+          XCODEBUILD_TIMEOUT_SECONDS: "900"
         run: |
           set -euo pipefail
           started_ns="$(python3 -c 'import time; print(time.monotonic_ns())')"
@@ -899,7 +903,14 @@ jobs:
             xcrun simctl erase "$SIMULATOR_ID"
             xcrun simctl boot "$SIMULATOR_ID" >/dev/null 2>&1 || true
             xcrun simctl bootstatus "$SIMULATOR_ID" -b
-            if xcodebuild "${XCODEBUILD_ARGS[@]}" -resultBundlePath "$RESULT_PATH" 2>&1 | tee "$LOG_PATH"; then
+            # xctest can wedge in teardown once the run is over: it waits on a
+            # process termination that never lands, emits nothing further, and
+            # the only bound left is the job ceiling (#13918). Bound the
+            # invocation so that becomes a non-zero exit this loop can classify
+            # -- the cleanup-failure check below already knows how to tolerate a
+            # bad exit whose selected tests passed.
+            if scripts/blacksmith-bounded-command.sh "$XCODEBUILD_TIMEOUT_SECONDS" \
+              xcodebuild "${XCODEBUILD_ARGS[@]}" -resultBundlePath "$RESULT_PATH" 2>&1 | tee "$LOG_PATH"; then
               ./scripts/ci/require_selected_test_execution.sh \
                 "$LOG_PATH" \
                 "${TEST_FILTER:-}"
