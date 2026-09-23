@@ -430,28 +430,70 @@ private final class ClaudeDesktopWindowSession {
         self.accessibilityObserver = nil
     }
 
-    private func refreshExternalWindow() {
-        guard let applicationElement else { return }
+    @discardableResult
+    private func refreshExternalWindow() -> Bool {
+        guard let applicationElement,
+              let preferredWindow = preferredExternalWindow(applicationElement) else {
+            return false
+        }
+        externalWindow = preferredWindow
+        return true
+    }
 
+    private func preferredExternalWindow(_ applicationElement: AXUIElement) -> AXUIElement? {
+        let windows = axWindows(applicationElement)
+        let standardWindows = windows.filter {
+            axString($0, kAXSubroleAttribute) == kAXStandardWindowSubrole
+        }
+        return (standardWindows.isEmpty ? windows : standardWindows)
+            .max { lhs, rhs in
+                let lhsSize = axSize(lhs)
+                let rhsSize = axSize(rhs)
+                return lhsSize.width * lhsSize.height < rhsSize.width * rhsSize.height
+            }
+    }
+
+    private func copiedAXValue(
+        _ element: AXUIElement,
+        attribute: String
+    ) -> AnyObject? {
         var value: CFTypeRef?
         let result = AXUIElementCopyAttributeValue(
-            applicationElement,
-            kAXWindowsAttribute as CFString,
+            element,
+            attribute as CFString,
             &value
         )
-        guard result == .success,
-              let windows = value as? [AXUIElement],
-              let firstWindow = windows.first else {
-            return
-        }
+        guard result == .success else { return nil }
+        return value
+    }
 
-        if externalWindow == nil {
-            externalWindow = firstWindow
-            applyPresentation(
-                activateIfFocused: shouldBeFocused,
-                raiseWindow: true
-            )
+    private func axWindows(_ applicationElement: AXUIElement) -> [AXUIElement] {
+        guard let values = copiedAXValue(
+            applicationElement,
+            attribute: kAXWindowsAttribute
+        ) as? [AnyObject] else {
+            return []
         }
+        return values.compactMap {
+            unsafeBitCast($0, to: AXUIElement?.self)
+        }
+    }
+
+    private func axString(_ element: AXUIElement, _ attribute: String) -> String? {
+        copiedAXValue(element, attribute: attribute) as? String
+    }
+
+    private func axSize(_ element: AXUIElement) -> CGSize {
+        guard let value = copiedAXValue(element, attribute: kAXSizeAttribute) else {
+            return .zero
+        }
+        var size = CGSize.zero
+        AXValueGetValue(
+            unsafeBitCast(value, to: AXValue.self),
+            .cgSize,
+            &size
+        )
+        return size
     }
 
     private func applyPresentation(
@@ -469,14 +511,16 @@ private final class ClaudeDesktopWindowSession {
 
         guard let targetFrame else { return }
         if externalWindow == nil {
-            refreshExternalWindow()
+            _ = refreshExternalWindow()
         }
         guard let externalWindow else { return }
 
         if !setExternalWindowFrame(targetFrame, window: externalWindow) {
             self.externalWindow = nil
-            refreshExternalWindow()
-            guard let replacementWindow = self.externalWindow else { return }
+            guard refreshExternalWindow(),
+                  let replacementWindow = self.externalWindow else {
+                return
+            }
             _ = setExternalWindowFrame(targetFrame, window: replacementWindow)
         }
 
@@ -527,7 +571,11 @@ private final class ClaudeDesktopWindowSession {
             .fromOpaque(refcon)
             .takeUnretainedValue()
         Task { @MainActor in
-            session.refreshExternalWindow()
+            _ = session.refreshExternalWindow()
+            session.applyPresentation(
+                activateIfFocused: session.shouldBeFocused,
+                raiseWindow: true
+            )
         }
     }
 
