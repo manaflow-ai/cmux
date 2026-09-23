@@ -1,3 +1,4 @@
+import CmuxFoundation
 import SwiftUI
 
 /// An unread badge in the leading identity column, followed by an optional pin.
