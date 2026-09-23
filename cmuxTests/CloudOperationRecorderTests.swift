@@ -279,13 +279,16 @@ private actor CapturedCloudDiagnostics: CloudTelemetrySending {
         let file = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString).appendingPathComponent("outbox.json")
         defer { try? FileManager.default.removeItem(at: file.deletingLastPathComponent()) }
         let event = try #require(DevBackendDiagnostics.event(outcome: "unreachable", startedAt: Date(), durationMs: 1, attempt: 0, environment: ["CMUX_TAG":"deadline-test"]))
+        let failure = DevBackendSendFailure()
         let queue = DevBackendDiagnostics(queueURL: file, enabled: true, automaticallyFlush: false, sender: {
-            try await DevBackendDiagnostics.send($0, session: session, endpoint: endpoint)
+            do { try await DevBackendDiagnostics.send($0, session: session, endpoint: endpoint) }
+            catch { await failure.capture(error); throw error }
         })
         await queue.record(event)
         let start = ContinuousClock.now
         #expect(await queue.flushOnce() == false)
         #expect(start.duration(to: .now) < .seconds(10))
+        #expect(await failure.code == URLError.timedOut.rawValue)
         #expect(await queue.pendingCount == 1)
     }
 
@@ -317,6 +320,11 @@ private actor CapturedCloudDiagnostics: CloudTelemetrySending {
 private actor DevBackendDiagnosticCapture {
     var events: [DevBackendDiagnostics.Event] = []
     func capture(_ values: [DevBackendDiagnostics.Event]) { events += values }
+}
+
+private actor DevBackendSendFailure {
+    var code: Int?
+    func capture(_ error: Error) { code = (error as? URLError)?.code.rawValue }
 }
 
 private final class LegacyDevBackendProtocol: URLProtocol {

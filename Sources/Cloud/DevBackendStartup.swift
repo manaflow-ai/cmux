@@ -7,13 +7,16 @@ import Observation
 final class DevBackendStartup {
     private(set) var status: Status?
     private(set) var attempt = 0
+    private let diagnosticsEnvironment: [String: String]
     private let session: URLSession
     private let configuredEndpoint: URL?
     private let emit: @Sendable (DevBackendDiagnostics.Event) async -> Void
 
     init(endpoint: URL? = nil, session: URLSession = .shared,
+         diagnosticsEnvironment: [String: String] = ProcessInfo.processInfo.environment,
          emit: @escaping @Sendable (DevBackendDiagnostics.Event) async -> Void = { await DevBackendDiagnostics.shared.record($0) }) {
         self.configuredEndpoint = endpoint ?? Self.endpoint
+        self.diagnosticsEnvironment = diagnosticsEnvironment
         self.session = session
         self.emit = emit
     }
@@ -66,7 +69,7 @@ final class DevBackendStartup {
             let httpStatus: Int?
             if let failure = error as? StreamError, case let .http(code) = failure { httpStatus = code } else { httpStatus = nil }
             if let event = DevBackendDiagnostics.event(outcome: outcome, startedAt: startedAt, durationMs: milliseconds,
-                                                       attempt: attempt, errorNumber: (error as? URLError)?.code.rawValue, httpStatus: httpStatus) {
+                                                       attempt: attempt, errorNumber: (error as? URLError)?.code.rawValue, httpStatus: httpStatus, environment: diagnosticsEnvironment) {
                 await emit(event)
             }
         }
@@ -79,9 +82,8 @@ final class DevBackendStartup {
                 await report("startup_failed")
             } else if status?.isReady == true {
                 await report("ready")
-            } else {
-                await report("invalid_response", error: StreamError.http(404))
             }
+            // A nil status is the supported legacy 404 fallback, not a failed stream.
         } catch is CancellationError {
             return
         } catch let error as URLError where error.code == .timedOut {

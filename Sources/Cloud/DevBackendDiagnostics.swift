@@ -43,7 +43,7 @@ actor DevBackendDiagnostics {
     private var uploadTask: Task<Void, Never>?
     private var flushing = false
 
-    init(queueURL: URL, enabled: Bool, automaticallyFlush: Bool = true, sender: @escaping Sender = send) {
+    init(queueURL: URL, enabled: Bool, automaticallyFlush: Bool = true, sender: @escaping Sender = { try await DevBackendDiagnostics.send($0) }) {
         self.queueURL = queueURL
         self.enabled = enabled
         self.automaticallyFlush = automaticallyFlush
@@ -138,15 +138,26 @@ actor DevBackendDiagnostics {
 
     private static var nowMs: Int64 { Int64(Date().timeIntervalSince1970 * 1000) }
 
-    private static func send(_ events: [Event]) async throws {
+    private static let uploadSession = makeUploadSession()
+
+    static func makeUploadSession(resourceTimeout: TimeInterval = 20) -> URLSession {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.timeoutIntervalForRequest = 15
+        configuration.timeoutIntervalForResource = resourceTimeout
+        configuration.httpShouldSetCookies = false
+        return URLSession(configuration: configuration)
+    }
+
+    static func send(_ events: [Event], session: URLSession? = nil,
+                     endpoint: URL = URL(string: "https://cmux.com/api/observability/dev-backend")!) async throws {
         // Public, fixed-schema ingress is independent of sign-in and GCP.
         // Ingestion credentials stay on the server, never in the app bundle.
-        var request = URLRequest(url: URL(string: "https://cmux.com/api/observability/dev-backend")!)
+        var request = URLRequest(url: endpoint)
         request.httpMethod = "POST"
         request.timeoutInterval = 15
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try JSONEncoder().encode(Batch(events: events))
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await (session ?? uploadSession).data(for: request)
         guard (response as? HTTPURLResponse)?.statusCode == 202,
               Set(try JSONDecoder().decode(Receipt.self, from: data).eventIds) == Set(events.map(\.eventId)) else {
             throw URLError(.badServerResponse)
