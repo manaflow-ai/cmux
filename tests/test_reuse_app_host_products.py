@@ -847,6 +847,37 @@ class ReuseProducts(TestProductHandoff):
         self.assertFalse(self.restore_reuse())
         self.assertFalse(self.consumer.exists())
 
+    def test_the_download_budget_is_derived_from_the_archive_ceiling(self):
+        # A flat 120 s budget against a 2 GiB ceiling meant any product past
+        # roughly 700 MB timed out, recorded a miss, and compiled instead --
+        # invisibly, because a miss looks exactly like a normal build. The
+        # budget has to come from the ceiling, not from a literal that ages
+        # out the next time the product grows.
+        seen = {}
+
+        def capture(args, **kwargs):
+            seen.update(kwargs)
+            return subprocess.CompletedProcess(args, 0)
+
+        target = self.producer.parent / "probe.zip"
+        with mock.patch.object(reuse.subprocess, "run", side_effect=capture):
+            reuse.GitHub("manaflow-ai/cmux").download(42, target)
+        self.assertEqual(seen.get("timeout"), reuse.DOWNLOAD_TIMEOUT)
+        self.assertGreaterEqual(
+            reuse.DOWNLOAD_TIMEOUT * reuse.MIN_TRANSFER_BYTES_PER_SECOND,
+            reuse.MAX_ARCHIVE_BYTES,
+        )
+
+    def test_a_download_that_runs_out_of_time_is_a_miss_not_a_crash(self):
+        with mock.patch.object(
+            type(self.api), "download",
+            side_effect=subprocess.TimeoutExpired("gh", reuse.DOWNLOAD_TIMEOUT),
+        ):
+            report = {}
+            self.assertFalse(self.restore_reuse(report=report))
+        self.assertIn("artifact_download_error", report["miss_reasons"])
+        self.assertFalse(self.consumer.exists())
+
     def test_each_event_is_trusted_only_from_its_own_workflow(self):
         for event, path, trusted in (
             ("pull_request", ".github/workflows/ci.yml", True),
