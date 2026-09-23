@@ -33,6 +33,12 @@ public struct SidebarCatalogSection: SettingCatalogSection {
         userDefaultsKey: "sidebarShowWorkspaceDescription"
     )
 
+    public let workspaceDescriptionColorHex = DefaultsKey<String>(
+        id: "sidebar.workspaceDescriptionColor",
+        defaultValue: "",
+        userDefaultsKey: "sidebarWorkspaceDescriptionColorHex"
+    )
+
     /// Bool-backed to match the legacy in-app store. The on-disk key
     /// `sidebarBranchVerticalLayout` is written as a Bool by every
     /// shipped cmux build; using an enum here would silently revert

@@ -2,11 +2,6 @@ internal import CmuxMobileRPC
 public import CmuxMobileShellModel
 import Foundation
 
-private enum MobileTaskModelRefreshEvent: Sendable {
-    case host(MobileTaskModelListResult?)
-    case backend(MobileTaskModelListResult?)
-}
-
 private struct MobileTaskModelRequestContext {
     enum Owner {
         case foreground(generation: UUID)
@@ -149,17 +144,10 @@ extension MobileShellComposite {
                     context = replacement
                     continue
                 }
-                if isCurrentTaskModelRequestContext(
-                    context,
-                    macDeviceID: macDeviceID,
-                    instanceTag: instanceTag
-                ), case .foreground(let generation) = context.owner {
-                    handleMacAvailabilityFailureIfCurrent(
-                        after: error,
-                        expectedClient: context.client,
-                        expectedGeneration: generation
-                    )
-                }
+                // Model discovery is a read-only optional capability probe.
+                // Its deadline or transport failure must not mark the whole
+                // Mac unavailable; the connection lifecycle owns that state
+                // and will publish a new refresh identity when it recovers.
                 throw error
             }
         }
@@ -379,38 +367,94 @@ extension MobileShellComposite {
         macDeviceID: String,
         instanceTag: String?,
         didUpdate: (@MainActor (MobileTaskModelListResult) -> Void)? = nil
-    ) async {
-        await refreshTaskModels(
+    ) async -> MobileTaskModelRefreshOutcome {
+        let startedAt = appDiagnosticNow()
+        recordAppEvent(
+            .taskModelListLoadStarted,
+            correlationID: macDeviceID
+        )
+        let outcome = await refreshTaskModels(
             provider: provider,
             macDeviceID: macDeviceID,
             instanceTag: instanceTag,
             hostResultLoader: { [weak self] in
-                guard let self else { return nil }
+                guard let self else {
+                    return MobileTaskModelHostRefreshResult(
+                        result: nil,
+                        outcome: .stopped(.cancelled)
+                    )
+                }
                 do {
-                    return try await self.fetchTaskModels(
-                        provider: provider,
-                        macDeviceID: macDeviceID,
-                        instanceTag: instanceTag
+                    let result = try await self.fetchTaskModels(
+                            provider: provider,
+                            macDeviceID: macDeviceID,
+                            instanceTag: instanceTag
+                        )
+                    let outcome: MobileTaskModelRefreshOutcome
+                    switch result.error {
+                    case .providerUnavailable:
+                        outcome = .stopped(.providerUnavailable)
+                    case .queryFailed:
+                        outcome = .retry(.endpointUnavailable)
+                    case .hostUnavailable:
+                        outcome = .retry(.hostUnreachable)
+                    case nil:
+                        outcome = result.models.isEmpty && result.defaultModel == nil
+                            ? .retry(.unknown)
+                            : .succeeded
+                    }
+                    return MobileTaskModelHostRefreshResult(
+                        result: result,
+                        outcome: outcome
                     )
                 } catch {
-                    return MobileTaskModelListResult(
-                        models: [],
-                        source: .fallback,
-                        error: .hostUnavailable
+                    let outcome = MobileTaskModelRefreshOutcome(classifying: error)
+                    return MobileTaskModelHostRefreshResult(
+                        result: MobileTaskModelListResult(
+                            models: [],
+                            source: .fallback,
+                            error: .hostUnavailable
+                        ),
+                        outcome: outcome
                     )
                 }
             },
             didUpdate: didUpdate
         )
+        let result = discoveredTaskModelResult(
+            provider: provider,
+            macDeviceID: macDeviceID,
+            instanceTag: instanceTag
+        )
+        if case .succeeded = outcome,
+           let result,
+           result.error == nil,
+           (!result.models.isEmpty || result.defaultModel != nil) {
+            recordAppEvent(
+                .taskModelListLoadSucceeded,
+                correlationID: macDeviceID,
+                startedAt: startedAt,
+                count: result.models.count
+            )
+        } else if outcome != .stopped(.cancelled) {
+            recordAppEvent(
+                .taskModelListLoadFailed,
+                correlationID: macDeviceID,
+                startedAt: startedAt,
+                failure: outcome.diagnosticFailure,
+                count: result?.models.count ?? 0
+            )
+        }
+        return outcome
     }
 
     private func refreshTaskModels(
         provider: MobileTaskAgentProvider,
         macDeviceID: String,
         instanceTag: String? = nil,
-        hostResultLoader: @escaping @Sendable () async -> MobileTaskModelListResult?,
+        hostResultLoader: @escaping @Sendable () async -> MobileTaskModelHostRefreshResult,
         didUpdate: (@MainActor (MobileTaskModelListResult) -> Void)? = nil
-    ) async {
+    ) async -> MobileTaskModelRefreshOutcome {
         let key = MobileTaskModelCacheKey(
             macDeviceID: macDeviceID,
             instanceTag: instanceTag,
@@ -418,7 +462,9 @@ extension MobileShellComposite {
         )
         let catalogClient = taskModelCatalogClient
         var hostFailure: MobileTaskModelListResult?
+        var hostOutcome: MobileTaskModelHostRefreshResult?
         var backendResult: MobileTaskModelListResult?
+        var refreshOutcome: MobileTaskModelRefreshOutcome?
         await withTaskGroup(of: MobileTaskModelRefreshEvent.self) { group in
             group.addTask {
                 .host(await hostResultLoader())
@@ -433,28 +479,40 @@ extension MobileShellComposite {
                     return
                 }
                 switch event {
-                case .host(let result):
-                    guard let result else {
+                case .host(let outcome):
+                    guard let result = outcome.result else {
+                        hostOutcome = outcome
                         continue
                     }
-                    if let error = result.error {
+                    if result.error != nil {
+                        hostOutcome = outcome
                         hostFailure = result
                         if let backendResult, backendResult.error == nil {
-                            let visibleResult = resultWithError(
-                                backendResult,
-                                with: error
+                            // The backend catalog is usable while transient
+                            // host discovery is unavailable. Preserve a
+                            // permanent provider error so the agent picker
+                            // explains why these fallback models cannot run.
+                            let fallback = MobileTaskModelListResult(
+                                models: backendResult.models,
+                                source: backendResult.source,
+                                defaultModel: backendResult.defaultModel,
+                                error: outcome.outcome == .stopped(.providerUnavailable)
+                                    ? .providerUnavailable
+                                    : nil
                             )
-                            self.cacheTaskModels(visibleResult, for: key)
-                            didUpdate?(visibleResult)
+                            self.cacheTaskModels(fallback, for: key)
+                            didUpdate?(fallback)
                         }
                         continue
                     }
                     guard result.source == .discovered,
                           !result.models.isEmpty || result.defaultModel != nil else {
+                        hostOutcome = outcome
                         continue
                     }
                     cacheTaskModels(result, for: key)
                     didUpdate?(result)
+                    refreshOutcome = .succeeded
                     group.cancelAll()
                     return
                 case .backend(let models):
@@ -463,13 +521,17 @@ extension MobileShellComposite {
                           taskModelCache[key]?.result.source != .discovered else {
                         continue
                     }
-                    let visibleResult = resultWithError(
-                        result,
-                        with: hostFailure?.error
+                    backendResult = result
+                    let fallback = MobileTaskModelListResult(
+                        models: result.models,
+                        source: result.source,
+                        defaultModel: result.defaultModel,
+                        error: hostOutcome?.outcome == .stopped(.providerUnavailable)
+                            ? .providerUnavailable
+                            : nil
                     )
-                    backendResult = visibleResult
-                    cacheTaskModels(visibleResult, for: key)
-                    didUpdate?(visibleResult)
+                    cacheTaskModels(fallback, for: key)
+                    didUpdate?(fallback)
                 }
             }
             if let hostFailure, backendResult == nil {
@@ -477,19 +539,10 @@ extension MobileShellComposite {
                 didUpdate?(hostFailure)
             }
         }
-    }
-
-    private func resultWithError(
-        _ result: MobileTaskModelListResult,
-        with error: MobileTaskModelListError?
-    ) -> MobileTaskModelListResult {
-        guard let error else { return result }
-        return MobileTaskModelListResult(
-            models: result.models,
-            source: result.source,
-            defaultModel: result.defaultModel,
-            error: error
-        )
+        if Task.isCancelled {
+            return .stopped(.cancelled)
+        }
+        return refreshOutcome ?? hostOutcome?.outcome ?? .retry(.unknown)
     }
 
     /// Applies the source-priority policy through an injectable host result.

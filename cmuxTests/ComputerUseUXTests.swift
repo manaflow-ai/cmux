@@ -233,6 +233,24 @@ struct ComputerUseUXTests {
             directCaptureReady: true))
     }
 
+    @Test @MainActor
+    func settingsHostActionsRoutePermissionRequestsToRequiredOnboardingAction() {
+        var presentations: [ComputerUseOnboardingWindowController.StartingPoint] = []
+        let actions = HostSettingsActions(
+            configFileURL: FileManager.default.temporaryDirectory
+                .appendingPathComponent("cmux-settings-\(UUID().uuidString).json"),
+            computerUseRuntimeService: ComputerUseRuntimeService(),
+            runComputerUseOnboardingAction: { startingPoint in
+                presentations.append(startingPoint)
+            }
+        )
+
+        actions.requestComputerUseAccessibility()
+        actions.requestComputerUseScreenRecording()
+
+        #expect(presentations == [.accessibility, .screenRecording])
+    }
+
     @Test(.timeLimit(.minutes(1))) @MainActor
     func grantedPermissionsResumeIncompleteSetupFromSettingsRefresh() async throws {
         let root = FileManager.default.temporaryDirectory
@@ -275,7 +293,7 @@ struct ComputerUseUXTests {
 
         let responder = try UnixSocketResponder(
             path: paths.daemonSocketURL.path,
-            response: #"{\"ok\":true,\"result\":{\"structuredContent\":{\"accessibility\":true,\"screen_recording\":true,\"source\":{\"attribution\":\"helper-daemon\"}}}}"#
+            response: #"{"ok":true,"result":{"structuredContent":{"accessibility":true,"screen_recording":true,"source":{"attribution":"helper-daemon"}}}}"#
         )
         defer { responder.stop() }
 
@@ -284,11 +302,11 @@ struct ComputerUseUXTests {
         ] = []
         let actions = HostSettingsActions(
             configFileURL: root.appendingPathComponent("cmux.json"),
-            computerUseRuntimeService: runtime
+            computerUseRuntimeService: runtime,
+            runComputerUseOnboardingAction: { startingPoint in
+                presentations.append(startingPoint)
+            }
         )
-        actions.setRunComputerUseOnboardingAction { startingPoint in
-            presentations.append(startingPoint)
-        }
 
         await actions.refreshComputerUsePermissions()
 

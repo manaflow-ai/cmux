@@ -182,6 +182,16 @@ public struct UITestConfig {
         )
     }
 
+    /// Whether the deterministic push-tab navigation fixture is enabled.
+    /// DEBUG-only so the fixture never becomes a production entry point.
+    public static var pushTabNavigationPreviewEnabled: Bool {
+        #if DEBUG
+        return ProcessInfo.processInfo.environment["CMUX_UITEST_PUSH_TAB_NAVIGATION_PREVIEW"] == "1"
+        #else
+        return false
+        #endif
+    }
+
     /// Resolves the push-readiness preview fixture from explicit process inputs.
     public static func pushReadinessPreviewState(
         from env: [String: String],

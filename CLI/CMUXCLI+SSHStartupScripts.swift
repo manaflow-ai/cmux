@@ -130,7 +130,13 @@ extension CMUXCLI {
             "      if {[string length $cmux_buffer] > 0} { send_user -- $cmux_buffer }",
             "      cmux_relay_session",
             "    }",
-            "    eof { set status [wait]; exit [lindex $status 3] }",
+            // A session that authenticates and ends inside this window still
+            // owes the user its output: flush what expect buffered before exiting.
+            "    eof {",
+            "      catch { send_user -- $expect_out(buffer) }",
+            "      set status [wait]",
+            "      exit [lindex $status 3]",
+            "    }",
             "  }",
             "}",
             "expect {",
@@ -217,7 +223,13 @@ extension CMUXCLI {
             "      if {[string length $cmux_buffer] > 0} { send_user -- $cmux_buffer }",
             "      cmux_relay_session",
             "    }",
-            "    eof { set status [wait]; exit [lindex $status 3] }",
+            // A session that authenticates and ends inside this window still
+            // owes the user its output: flush what expect buffered before exiting.
+            "    eof {",
+            "      catch { send_user -- $expect_out(buffer) }",
+            "      set status [wait]",
+            "      exit [lindex $status 3]",
+            "    }",
             "  }",
             "}",
             "expect {",
