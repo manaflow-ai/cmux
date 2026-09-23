@@ -92,10 +92,17 @@ struct WindowOverlayChromeTests {
         let content = try #require(window.contentView)
         let browserAnchor = try #require(find("overlay.browser", in: content))
         let terminalAnchor = try #require(find("overlay.terminal", in: content))
+        let glassEffect = WindowGlassEffect()
         if useGlass {
-            WindowGlassEffect().apply(to: window)
+            glassEffect.apply(to: window)
         }
-        let windowRoot = window.contentView
+        let windowRoot = try #require(window.contentView)
+        if useGlass && glassEffect.isAvailable {
+            #expect(windowRoot !== content)
+            #expect(glassEffect.originalContentView(for: window) === content)
+        } else {
+            #expect(windowRoot === content)
+        }
         let browser = WindowBrowserPortal(window: window)
         let terminal = WindowTerminalPortal(window: window)
         defer { browser.tearDown(); terminal.tearDown() }
@@ -110,11 +117,7 @@ struct WindowOverlayChromeTests {
             browser.synchronizeWebViewForAnchor(browserAnchor)
             terminal.synchronizeHostedViewForAnchor(terminalAnchor)
             let root = try #require(window.contentView)
-            if useGlass {
-                #expect(root !== windowRoot)
-            } else {
-                #expect(root === windowRoot)
-            }
+            #expect(root === windowRoot, "Portals must preserve the root installed before they bind.")
             #expect(webView.window === window)
             let browserFrame = browserAnchor.convert(browserAnchor.bounds, to: nil)
             let browserPoint = NSPoint(x: browserFrame.midX, y: browserFrame.midY)

@@ -55,6 +55,6 @@ extension Workspace {
                 remoteTabID: record.remoteTabID
             )
         }
-        SurfaceCatalog.shared.restore(remapped, workspaceID: id)
+        SurfaceCatalog.shared.restore(remapped, workspaceID: id, restoringWorkspace: self)
     }
 }
