@@ -579,14 +579,14 @@ def test_standalone_routes_preserve_missing_empty_and_owned_diffs() -> None:
     script = workflow_job_step_script("changes", "Route standalone project workflows")
     script = script.replace("/tmp/cmux-ci-changed-files.txt", '"$CHANGED_FILES"')
     cases = (
-        (None, "true", "true"),
-        ("", "false", "false"),
-        ("README.md\n", "false", "false"),
-        (".github/workflows/ci.yml\n", "true", "true"),
-        ("cmux-browser/src/main.ts\n", "true", "false"),
-        ("daemon/remote/main.go\n", "false", "true"),
+        (None, "true", "true", "true"),
+        ("", "false", "false", "false"),
+        ("README.md\n", "false", "false", "false"),
+        (".github/workflows/ci.yml\n", "true", "true", "true"),
+        ("cmux-browser/src/main.ts\n", "true", "false", "false"),
+        ("daemon/remote/main.go\n", "false", "true", "false"),
     )
-    for contents, browser, daemon in cases:
+    for contents, browser, daemon, wrapper in cases:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             changed = root / "changed.txt"
@@ -595,7 +595,7 @@ def test_standalone_routes_preserve_missing_empty_and_owned_diffs() -> None:
             output = root / "output.txt"
             subprocess.run(["bash", "-c", script], check=True, capture_output=True,
                            env={**os.environ, "CHANGED_FILES": str(changed), "GITHUB_OUTPUT": str(output)})
-            assert output.read_text().splitlines() == [f"browser={browser}", f"remote_daemon={daemon}", f"remote_daemon_native={daemon}"]
+            assert output.read_text().splitlines() == [f"claude_wrapper={wrapper}", f"browser={browser}", f"remote_daemon={daemon}", f"remote_daemon_native={daemon}"]
 
 
 def test_publishing_changes_keep_daemon_linux_checks_without_native_rerun() -> None:
