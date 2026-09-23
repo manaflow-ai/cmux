@@ -81,10 +81,19 @@ public final class TerminalPredictionCenter {
         redrawHandlers[surfaceID] = redraw
     }
 
-    public func unregister(surfaceID: UUID) {
+    /// nonisolated so a surface's `deinit`, which cannot hop, can release it.
+    /// Buffered output is dropped immediately; the engine follows on the main
+    /// actor, where nothing else can observe it in between.
+    nonisolated public func unregister(surfaceID: UUID) {
+        inbox.forget(surfaceID: surfaceID)
+        Task { @MainActor [weak self] in
+            self?.releaseEngine(surfaceID: surfaceID)
+        }
+    }
+
+    private func releaseEngine(surfaceID: UUID) {
         engines.removeValue(forKey: surfaceID)
         redrawHandlers.removeValue(forKey: surfaceID)
-        inbox.forget(surfaceID: surfaceID)
     }
 
     /// Applies the user setting. Turning it off withdraws everything already

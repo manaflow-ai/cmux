@@ -4244,7 +4244,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private func predictedEchoStyle() -> TerminalPredictionOverlayView.Style? {
         guard cellSize.width > 0, cellSize.height > 0 else { return nil }
         let configuration = GhosttyConfig.loadForCmux(
-            globalFontMagnificationPercent: appliedGlobalFontMagnificationPercent
+            globalFontMagnificationPercent: GlobalFontMagnification.storedPercent
         )
         // Only printable ASCII is ever predicted, so the configured family
         // always carries the glyph and no fallback chain is involved.
@@ -4252,9 +4252,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             ?? NSFont.monospacedSystemFont(ofSize: configuration.fontSize, weight: .regular)
         return TerminalPredictionOverlayView.Style(
             font: font,
-            foreground: defaultForegroundColor,
-            background: defaultBackgroundColor,
-            cursor: defaultCursorColor,
+            foreground: GhosttyApp.shared.defaultForegroundColor,
+            background: GhosttyApp.shared.defaultBackgroundColor,
+            cursor: GhosttyApp.shared.defaultCursorColor,
             cellSize: cellSize
         )
     }
