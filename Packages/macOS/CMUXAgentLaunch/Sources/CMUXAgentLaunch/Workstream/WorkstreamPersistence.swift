@@ -74,19 +74,16 @@ public actor WorkstreamPersistence {
             return []
         }
         let data = try Data(contentsOf: fileURL)
-        var latestByID: [UUID: WorkstreamItem] = [:]
-        for line in data.split(separator: 0x0A) {
+        var latestByID: [UUID: (sequence: Int, item: WorkstreamItem)] = [:]
+        for (sequence, line) in data.split(separator: 0x0A).enumerated() {
             guard let item = try? decoder.decode(WorkstreamItem.self, from: Data(line)) else {
                 continue
             }
-            latestByID[item.id] = item
+            latestByID[item.id] = (sequence, item)
         }
         return latestByID.values
-            .sorted {
-                if $0.createdAt != $1.createdAt { return $0.createdAt < $1.createdAt }
-                if $0.updatedAt != $1.updatedAt { return $0.updatedAt < $1.updatedAt }
-                return $0.id.uuidString < $1.id.uuidString
-            }
+            .sorted { $0.sequence < $1.sequence }
+            .map(\.item)
             .suffix(limit)
             .map { $0 }
     }
