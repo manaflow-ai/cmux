@@ -183,6 +183,16 @@ class FocusedLauncherTests(unittest.TestCase):
             "url": "https://github.com/manaflow-ai/cmux/actions/runs/555",
         }])
 
+    def _live(self, *, selector="cmuxTests/ExampleTests", commit=HEAD, runner="mac",
+              status="in_progress"):
+        return json.dumps([{
+            "databaseId": 777,
+            "displayTitle": f"{selector} on {runner} @ {commit} [deadbeef]",
+            "conclusion": None,
+            "status": status,
+            "url": "https://github.com/manaflow-ai/cmux/actions/runs/777",
+        }])
+
     def test_failure_on_another_runner_allows_explicit_runner_proof(self):
         result = self.launch(
             "cmuxTests/ExampleTests", "--runner", "blacksmith-6vcpu-macos-26",
@@ -267,6 +277,91 @@ class FocusedLauncherTests(unittest.TestCase):
             LAUNCHER_PRIOR_RUNS=self._prior("failure", commit="c" * 40),
         )
         self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_identical_run_in_flight_is_reused_instead_of_dispatched(self):
+        # Dispatching here would match the workflow's concurrency group and
+        # cancel the run already compiling, restarting that compile from cold.
+        result = self.launch(
+            "cmuxTests/ExampleTests", LAUNCHER_PRIOR_RUNS=self._live()
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("actions/runs/777", result.stdout)
+        self.assertFalse((self.root / "dispatch.json").exists(), "must not dispatch")
+
+    def test_queued_identical_run_is_reused(self):
+        result = self.launch(
+            "cmuxTests/ExampleTests",
+            LAUNCHER_PRIOR_RUNS=self._live(status="queued"),
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertFalse((self.root / "dispatch.json").exists(), "must not dispatch")
+
+    def test_reused_run_is_watched_and_reports_its_result(self):
+        result = self.launch(
+            "cmuxTests/ExampleTests", "--wait",
+            LAUNCHER_PRIOR_RUNS=self._live(), LAUNCHER_WATCH_STATUS="1",
+        )
+        self.assertEqual(result.returncode, 1)
+        self.assertIn(["run", "watch", "--repo", "manaflow-ai/cmux", "777", "--exit-status"],
+                      self.calls())
+        self.assertFalse((self.root / "dispatch.json").exists(), "must not dispatch")
+
+    def test_identical_batch_in_flight_is_reused_regardless_of_order(self):
+        live = self._live(selector="cmuxTests/ExampleTests,cmuxTests/AlphaTests")
+        result = self.launch(
+            "cmuxTests/AlphaTests", "cmuxTests/ExampleTests",
+            LAUNCHER_PRIOR_RUNS=live,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertFalse((self.root / "dispatch.json").exists(), "must not dispatch")
+
+    def test_overlapping_in_flight_batch_is_refused_rather_than_duplicated(self):
+        # A different batch does not share the concurrency group, so this would
+        # pay a second full compile of identical source for an answer already
+        # in flight. There is no single run to attach to, so refuse instead.
+        live = self._live(selector="cmuxTests/ExampleTests,cmuxTests/OtherTests")
+        result = self.launch("cmuxTests/ExampleTests", LAUNCHER_PRIOR_RUNS=live)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("already in_progress", result.stderr)
+        self.assertIn("actions/runs/777", result.stderr)
+        self.assertFalse((self.root / "dispatch.json").exists(), "must not dispatch")
+
+    def test_force_dispatches_over_an_in_flight_run(self):
+        result = self.launch(
+            "cmuxTests/ExampleTests", "--force", LAUNCHER_PRIOR_RUNS=self._live()
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.dispatch()["test_filter"], "cmuxTests/ExampleTests")
+
+    def test_in_flight_run_at_a_different_commit_does_not_block(self):
+        result = self.launch(
+            "cmuxTests/ExampleTests",
+            LAUNCHER_PRIOR_RUNS=self._live(commit="c" * 40),
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.dispatch()["ref"], HEAD)
+
+    def test_in_flight_run_on_another_runner_does_not_block_explicit_runner(self):
+        result = self.launch(
+            "cmuxTests/ExampleTests", "--runner", "blacksmith-6vcpu-macos-26",
+            LAUNCHER_PRIOR_RUNS=self._live(runner="blacksmith-6vcpu-macos-15"),
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.dispatch()["runner"], "blacksmith-6vcpu-macos-26")
+
+    def test_one_history_read_serves_every_selector_in_a_batch(self):
+        # The guards used to re-list runs once per entry, spending shared
+        # GitHub API budget to receive the same page back.
+        result = self.launch(
+            "cmuxTests/AlphaTests", "cmuxTests/ExampleTests",
+            LAUNCHER_PRIOR_RUNS="[]",
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        guard_reads = [
+            call for call in self.calls()
+            if call[:2] == ["run", "list"] and any("conclusion" in arg for arg in call)
+        ]
+        self.assertEqual(len(guard_reads), 1, guard_reads)
 
 
 
