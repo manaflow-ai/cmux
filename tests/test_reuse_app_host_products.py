@@ -5,6 +5,7 @@ import hashlib
 import io
 import json
 import os
+import re
 from unittest import mock
 import shutil
 import sys
@@ -937,6 +938,22 @@ class ReuseProducts(TestProductHandoff):
                     self.assertFalse(self.restore_reuse(report=report))
                 self.assertIn("artifact_download_error", report["miss_reasons"])
                 self.assertFalse(self.consumer.exists())
+
+    def test_product_archives_carry_no_appledouble_entries(self):
+        # macOS tar adds Build/._Products for Xcode's xattrs unless
+        # COPYFILE_DISABLE is set; unpack() rejects that as an unscoped path,
+        # so every product packed without it was a silent miss.
+        root = Path(__file__).resolve().parents[1] / ".github/workflows"
+        packers = [
+            (path.name, line.strip())
+            for path in sorted(root.glob("*.yml"))
+            for line in path.read_text().splitlines()
+            if re.search(r"\btar -c\w*\b.*\bBuild/Products\b", line)
+        ]
+        self.assertTrue(packers)
+        for name, line in packers:
+            with self.subTest(workflow=name):
+                self.assertTrue(line.startswith("COPYFILE_DISABLE=1 tar "), line)
 
     def test_each_event_is_trusted_only_from_its_own_workflow(self):
         for event, path, trusted in (
