@@ -24,6 +24,7 @@ describe("terminal replay stall telemetry", () => {
       surface_blank: true,
       barrier_active: true,
       replay_attempt: 1,
+      app_foreground: true,
       ...properties,
     },
   });
@@ -47,6 +48,12 @@ describe("terminal replay stall telemetry", () => {
     );
     expect(absent).not.toBeNull();
     expect(absent?.surfaceBlank).toBeUndefined();
+  });
+
+  test("carries whether the stall was on screen or across suspension", () => {
+    expect(parseMobileNetworkOutcome(stall())?.appForeground).toBe(true);
+    expect(parseMobileNetworkOutcome(stall({ app_foreground: false }))?.appForeground).toBe(false);
+    expect(parseMobileNetworkOutcome(stall({ app_foreground: "yes" }))).toBeNull();
   });
 
   test("rejects a non-boolean blank flag and an unknown trigger", () => {

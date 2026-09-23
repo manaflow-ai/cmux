@@ -24,6 +24,14 @@ public final class MobileTerminalTraceReporter: Sendable {
         var starts: [UInt64: Start] = [:]
         var windowStart: UInt64 = 0
         var emittedInWindow = 0
+        /// Whether the app was in the foreground when the phase was recorded.
+        ///
+        /// A suspended app runs no code, so an operation that spans
+        /// suspension accrues wall-clock time it never spent waiting on
+        /// screen. Without this flag a stall of a few foreground seconds and
+        /// one that sat in a pocket for an hour are indistinguishable in
+        /// Axiom, and any percentile over the mix is meaningless.
+        var isForeground = true
     }
 
     private final class StateStore: @unchecked Sendable {
@@ -47,6 +55,10 @@ public final class MobileTerminalTraceReporter: Sendable {
             }
         }
 
+        func setForeground(_ active: Bool) {
+            queue.async { [self] in state.isForeground = active }
+        }
+
         func drain() async {
             await withCheckedContinuation { continuation in
                 queue.async { continuation.resume() }
@@ -61,6 +73,7 @@ public final class MobileTerminalTraceReporter: Sendable {
         let durationMilliseconds: UInt32
         let outcome: String
         let replayContext: MobileTerminalReplayTraceContext?
+        let isForeground: Bool
     }
 
     private let emitter: any AnalyticsEmitting
@@ -79,6 +92,12 @@ public final class MobileTerminalTraceReporter: Sendable {
         state.enqueue(event) { observation in
             emitter.capture(Self.eventName, Self.properties(for: observation))
         }
+    }
+
+    /// Records the app lifecycle edge so each emitted row says whether its
+    /// elapsed time was spent on screen.
+    public func setForeground(_ active: Bool) {
+        state.setForeground(active)
     }
 
     public func flush() async {
@@ -127,7 +146,8 @@ public final class MobileTerminalTraceReporter: Sendable {
                 durationMilliseconds: duration,
                 outcome: "stalled",
                 replayContext: event.c.flatMap(MobileTerminalReplayTraceContext.init(encoded:))
-                    ?? start?.replayContext
+                    ?? start?.replayContext,
+                isForeground: state.isForeground
             )
         }
         guard phase == .applied || phase == .failed || phase == .discarded else { return nil }
@@ -149,7 +169,8 @@ public final class MobileTerminalTraceReporter: Sendable {
             terminalPhase: phase,
             durationMilliseconds: duration,
             outcome: outcome,
-            replayContext: start?.replayContext
+            replayContext: start?.replayContext,
+            isForeground: state.isForeground
         )
     }
 
@@ -173,6 +194,7 @@ public final class MobileTerminalTraceReporter: Sendable {
             "trace_id": .string(observation.traceID.stringValue),
             "operation": .string(String(describing: observation.operation)),
             "terminal_phase": .string(String(describing: observation.terminalPhase)),
+            "app_foreground": .bool(observation.isForeground),
         ]
         if let context = observation.replayContext {
             properties["replay_trigger"] = .string(String(describing: context.trigger))

@@ -101,6 +101,31 @@ struct MobileTerminalTraceStallTests {
         #expect((await uploader.uploadedEvents).isEmpty)
     }
 
+    /// A stall that accrued its time while the app was suspended is not a
+    /// blank screen anyone saw. Mixing the two makes every percentile in
+    /// Axiom meaningless, so each row has to say which it was.
+    @Test func stallRowsRecordWhetherTheAppWasOnScreen() async {
+        let (reporter, uploader) = makeReporter()
+        let context = MobileTerminalReplayTraceContext(
+            trigger: .outputReset, surfaceIsBlank: true, barrierActive: true, attempt: 0
+        )
+        let onScreen = DiagnosticTerminalTraceID(rawValue: 0xB1B0)!
+        reporter.ingest(event(.started, at: 1_000_000_000, trace: onScreen, c: context.encoded))
+        reporter.ingest(event(.stalled, at: 6_000_000_000, trace: onScreen, ms: 5_000, c: context.encoded))
+        await reporter.flush()
+        #expect((await uploader.uploadedEvents).last?.properties["app_foreground"] == .bool(true))
+
+        reporter.setForeground(false)
+        let suspended = DiagnosticTerminalTraceID(rawValue: 0xB1B1)!
+        reporter.ingest(event(.started, at: 7_000_000_000, trace: suspended, c: context.encoded))
+        reporter.ingest(event(.stalled, at: 67_000_000_000, trace: suspended, ms: 60_000, c: context.encoded))
+        await reporter.flush()
+        let values = await uploader.uploadedEvents
+        #expect(values.count == 2)
+        #expect(values.last?.properties["app_foreground"] == .bool(false))
+        #expect(values.last?.properties["duration_ms"] == .int(60_000))
+    }
+
     @Test func stallWithoutAnElapsedMagnitudeIsDropped() async {
         let (reporter, uploader) = makeReporter()
         let trace = DiagnosticTerminalTraceID(rawValue: 0xB1A7)!

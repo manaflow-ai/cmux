@@ -57,7 +57,7 @@ const allowedPropertyKeys = new Set([
   "input_failed_count", "histogram_version", "input_to_output_histogram", "input_to_visible_histogram", "render_histogram",
   "duration_ms", "threshold_ms", "stage",
   "trace_id", "operation", "terminal_phase",
-  "replay_trigger", "surface_blank", "barrier_active", "replay_attempt",
+  "replay_trigger", "surface_blank", "barrier_active", "replay_attempt", "app_foreground",
   "model_count", "phase", "attempt", "retry_delay_ms", "stop_reason", "correlation_id",
 ]);
 
@@ -99,6 +99,12 @@ export type MobileNetworkOutcome = {
   readonly barrierActive?: boolean;
   /** Zero-based retry index within the replay episode. */
   readonly replayAttempt?: number;
+  /**
+   * Whether the app was on screen when this phase was recorded. A suspended
+   * app runs no code, so elapsed time that spans suspension was never spent
+   * waiting on screen; percentiles that mix the two are meaningless.
+   */
+  readonly appForeground?: boolean;
 };
 
 export type MobileTerminalLatencyWindow = {
@@ -350,7 +356,7 @@ export function parseMobileTaskModelDiscovery(candidate: unknown): MobileTaskMod
 }
 
 type CoreObservation = Pick<MobileNetworkOutcome, "phase" | "outcome" | "durationMs" | "userUsable" | "failure" | "transport" | "population" | "attemptId" | "terminalReady" | "eventCode" | "eventCodeRaw" | "eventSurface" | "eventA" | "eventB" | "eventC" | "cancellationReason">;
-type Metadata = Pick<MobileNetworkOutcome, "platform" | "clientChannel" | "appVersion" | "buildNumber" | "bundleIdentifier" | "osVersion" | "deviceModel" | "traceId" | "operation" | "terminalPhase" | "replayTrigger" | "surfaceBlank" | "barrierActive" | "replayAttempt">;
+type Metadata = Pick<MobileNetworkOutcome, "platform" | "clientChannel" | "appVersion" | "buildNumber" | "bundleIdentifier" | "osVersion" | "deviceModel" | "traceId" | "operation" | "terminalPhase" | "replayTrigger" | "surfaceBlank" | "barrierActive" | "replayAttempt" | "appForeground">;
 
 /** Mirrors `MobileTerminalReplayTrigger` in CMUXMobileCore. */
 const replayTriggers = new Set([
@@ -441,18 +447,20 @@ function parseInitialConnectionFields(
 /// keep that function under the repository complexity limit.
 function parseReplayContextFields(
   properties: Record<string, unknown>,
-): Pick<Metadata, "replayTrigger" | "surfaceBlank" | "barrierActive" | "replayAttempt"> | null {
+): Pick<Metadata, "replayTrigger" | "surfaceBlank" | "barrierActive" | "replayAttempt" | "appForeground"> | null {
   const replayTrigger = optionalSetValue(properties.replay_trigger, replayTriggers);
   const surfaceBlank = optionalBoolean(properties.surface_blank);
   const barrierActive = optionalBoolean(properties.barrier_active);
+  const appForeground = optionalBoolean(properties.app_foreground);
   const replayAttempt = optionalDiagnosticInteger(properties.replay_attempt, 0xff);
   if (replayTrigger === false || replayAttempt === false) return null;
-  if (surfaceBlank === null || barrierActive === null) return null;
+  if (surfaceBlank === null || barrierActive === null || appForeground === null) return null;
   return {
     ...(typeof replayTrigger === "string" ? { replayTrigger } : {}),
     ...(typeof surfaceBlank === "boolean" ? { surfaceBlank } : {}),
     ...(typeof barrierActive === "boolean" ? { barrierActive } : {}),
     ...(typeof replayAttempt === "number" ? { replayAttempt } : {}),
+    ...(typeof appForeground === "boolean" ? { appForeground } : {}),
   };
 }
 
@@ -536,6 +544,7 @@ export async function emitMobileNetworkOutcomes(
       "cmux.mobile.surface_blank": observation.surfaceBlank,
       "cmux.mobile.barrier_active": observation.barrierActive,
       "cmux.mobile.replay_attempt": observation.replayAttempt,
+      "cmux.mobile.app_foreground": observation.appForeground,
     },
     (span) => {
       if (observation.outcome === "failure" || observation.outcome === "timeout") {
