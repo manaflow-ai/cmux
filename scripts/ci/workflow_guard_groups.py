@@ -25,6 +25,10 @@ GUARD_JOB = "workflow-guard-tests"
 # A path a step runs directly, such as `python3 tests/x.py` or `./scripts/y.sh`.
 DIRECT_PATH = re.compile(r"(?:\./)?((?:tests(?:_v2)?|scripts|ios/tests)/[A-Za-z0-9_./-]+)")
 GROUP_CONDITION = re.compile(r"\$\{\{ matrix\.group == '([^']+)' \}\}")
+# A guard job gates itself on the route that selects it, so the workflow also
+# names which route owns which job.
+ROUTE_CONDITION = re.compile(r"\$\{\{ inputs\.([A-Za-z0-9_]+) == 'true' \}\}")
+JOB_HEADER = re.compile(r"  ([A-Za-z0-9_-]+):\s*$")
 
 GROUPS = (
     "preflight",
@@ -44,6 +48,13 @@ GROUPS = (
 # imports, a working-directory, a submodule). Paths a step runs directly are
 # derived from ci-guards.yml by direct_path_owners() and need no entry here.
 PATH_OWNERS = {
+    ".github/workflows/ci-health-report.yml": frozenset(("ci",)),
+    ".github/workflows/ci-queue-janitor.yml": frozenset(("ci",)),
+    ".github/workflows/required-checks-drift.yml": frozenset(("ci",)),
+    # Many groups load the two reusable workflows with yaml.safe_load rather
+    # than naming them in a `run:`, so every group observes an edit to them.
+    ".github/workflows/ci-macos.yml": frozenset(GROUPS),
+    ".github/workflows/ci-web.yml": frozenset(GROUPS),
     ".github/workflows/web-complexity.yml": frozenset(("ci",)),
     ".github/workflows/web-complexity-trusted.yml": frozenset(("ci",)),
     ".github/review-fabric-policy.json": frozenset(("preflight",)),
@@ -52,22 +63,35 @@ PATH_OWNERS = {
     ".github/workflows/ios-testflight.yml": frozenset(("preflight", "ci", "release-ios")),
     "agent-chat/test/claude-environment.test.ts": frozenset(("preflight",)),
     "ghostty": frozenset(("release-tooling",)),
+    "ios/scripts/fetch-testflight-notes-history.sh": frozenset(("release-ios",)),
     "ios/scripts/upload-testflight.sh": frozenset(("release-ios",)),
     "scripts/ci/app_host_test_products.py": frozenset(("preflight",)),
     "scripts/ci/build_input_fingerprint.py": frozenset(("preflight",)),
     "scripts/ci/build_graph_health.py": frozenset(("preflight",)),
     "scripts/ci/compile-app-host-test-product.sh": frozenset(("preflight",)),
     "scripts/ci/find_admitted_build.py": frozenset(("preflight",)),
+    "scripts/ci/ios_upload_batch_decision.py": frozenset(("release-ios",)),
+    "scripts/ci/peer_product_source.py": frozenset(("preflight",)),
     "scripts/ci/persistent_mac_route.py": frozenset(("preflight",)),
     "scripts/ci/product_input_identity.py": frozenset(("preflight",)),
+    "scripts/ci/ci_health_report.py": frozenset(("ci",)),
+    "scripts/ci/queue_janitor.py": frozenset(("ci",)),
+    "scripts/ci/required_status_checks.py": frozenset(("ci",)),
     "scripts/ci/restore-app-host-test-product.sh": frozenset(("preflight",)),
     "scripts/ci/reuse_app_host_products.py": frozenset(("preflight",)),
+    "scripts/ci/run_python_test_lane.py": frozenset(("preflight",)),
     "scripts/ci/sanitize-xcode-source-packages-cache.py": frozenset(("preflight",)),
+    # detect_ci_change_areas.py imports this to decide the swift-package-tests
+    # route, so the ci group's router tests observe an edit to it even though
+    # no guard step names it in a `run:`.
+    "scripts/ci/select_package_tests.py": frozenset(("ci",)),
     "scripts/ci/swift_incremental_diagnostics.py": frozenset(("preflight",)),
+    "scripts/ci/test_execution_registry.py": frozenset(("preflight",)),
     "skills/cmux-cloud-vm/SKILL.md": frozenset(("preflight",)),
     "skills/cmux-cloud-vm/references/agent-workflows.md": frozenset(("preflight",)),
     "skills/cmux-cloud-vm/references/commands.md": frozenset(("preflight",)),
     "skills/cmux-cloud-vm/references/guest.md": frozenset(("preflight",)),
+    "tests/test-execution.toml": frozenset(("preflight",)),
 }
 
 # Changes here can alter which required work runs. They always exercise every
@@ -117,29 +141,51 @@ def _indent(line: str) -> int:
     return len(line) - len(line.lstrip(" "))
 
 
-def guard_steps(text: str) -> tuple[dict[str, str], ...]:
-    """Return the scalar fields of each workflow-guard-tests step.
-
-    The router runs on the runner's bare python3, which has no PyYAML, so this
-    reads the one job with a small line scanner. The guard tests check that it
-    agrees with yaml.safe_load on the real workflow.
-    """
+def _job_body(text: str, job_name: str) -> list[str]:
     lines = text.splitlines()
     try:
-        start = lines.index(f"  {GUARD_JOB}:") + 1
+        start = lines.index(f"  {job_name}:") + 1
     except ValueError as error:
-        raise GuardWorkflowError(f"job {GUARD_JOB} not found") from error
+        raise GuardWorkflowError(f"job {job_name} not found") from error
     end = next(
         (index for index in range(start, len(lines))
          if lines[index].strip() and _indent(lines[index]) <= 2
          and not lines[index].lstrip().startswith("#")),
         len(lines),
     )
-    job = lines[start:end]
+    return lines[start:end]
+
+
+def job_names(text: str) -> tuple[str, ...]:
+    """Every top-level job in the guard workflow, in file order."""
+    _, marker, body = text.partition("\njobs:\n")
+    if not marker:
+        raise GuardWorkflowError("workflow has no jobs: block")
+    names: list[str] = []
+    for line in body.splitlines():
+        match = JOB_HEADER.fullmatch(line)
+        if match is None:
+            continue
+        if match.group(1) in names:
+            raise GuardWorkflowError(f"duplicate job {match.group(1)!r}")
+        names.append(match.group(1))
+    if not names:
+        raise GuardWorkflowError("workflow declares no jobs")
+    return tuple(names)
+
+
+def job_steps(text: str, job_name: str = GUARD_JOB) -> tuple[dict[str, str], ...]:
+    """Return the scalar fields of each step in one job.
+
+    The router runs on the runner's bare python3, which has no PyYAML, so this
+    reads the job with a small line scanner. The guard tests check that it
+    agrees with yaml.safe_load on the real workflow.
+    """
+    job = _job_body(text, job_name)
     try:
         steps_at = next(index for index, line in enumerate(job) if line.rstrip() == "    steps:")
     except StopIteration as error:
-        raise GuardWorkflowError(f"{GUARD_JOB} has no steps") from error
+        raise GuardWorkflowError(f"{job_name} has no steps") from error
 
     steps: list[dict[str, str]] = []
     current: dict[str, str] | None = None
@@ -155,9 +201,9 @@ def guard_steps(text: str) -> tuple[dict[str, str], ...]:
             steps.append(current)
             line = "        " + line[len("      - "):]
         elif _indent(line) < 8:
-            raise GuardWorkflowError(f"unexpected line in {GUARD_JOB} steps: {line!r}")
+            raise GuardWorkflowError(f"unexpected line in {job_name} steps: {line!r}")
         if current is None:
-            raise GuardWorkflowError(f"{GUARD_JOB} step content before the first step")
+            raise GuardWorkflowError(f"{job_name} step content before the first step")
         index += 1
         if _indent(line) != 8:
             continue  # nested mapping such as `with:` values
@@ -177,8 +223,13 @@ def guard_steps(text: str) -> tuple[dict[str, str], ...]:
         else:
             current[key] = _unquote(value)
     if not steps:
-        raise GuardWorkflowError(f"{GUARD_JOB} has no steps")
+        raise GuardWorkflowError(f"{job_name} has no steps")
     return tuple(steps)
+
+
+def guard_steps(text: str) -> tuple[dict[str, str], ...]:
+    """The workflow-guard-tests steps."""
+    return job_steps(text, GUARD_JOB)
 
 
 def step_owners(text: str) -> dict[str, str]:
@@ -205,6 +256,41 @@ def direct_path_owners(text: str) -> dict[str, frozenset[str]]:
         for path in DIRECT_PATH.findall(step.get("run", "")):
             owners.setdefault(path, set()).add(match.group(1))
     return {path: frozenset(groups) for path, groups in owners.items()}
+
+
+def job_route(text: str, job_name: str) -> str | None:
+    """The workflow input that gates a job, from its own top-level `if:`."""
+    for line in _job_body(text, job_name):
+        if _indent(line) != 4:
+            continue
+        key, separator, value = line.strip().partition(":")
+        if key == "if" and separator:
+            match = ROUTE_CONDITION.fullmatch(_unquote(value))
+            return match.group(1) if match else None
+        if not separator:
+            continue
+    return None
+
+
+def route_direct_paths(text: str) -> dict[str, frozenset[str]]:
+    """Map each guard route to the paths its job's steps run directly.
+
+    A guard job names the route that selects it (`if: inputs.<route> ==
+    'true'`) and names the tests and scripts it runs. Both halves of "which
+    diffs does this guard observe" therefore already live in ci-guards.yml,
+    and the router reads them instead of keeping a parallel copy.
+    """
+    routes: dict[str, set[str]] = {}
+    for job_name in job_names(text):
+        route = job_route(text, job_name)
+        if route is None:
+            continue
+        paths = routes.setdefault(route, set())
+        for step in job_steps(text, job_name):
+            paths.update(DIRECT_PATH.findall(step.get("run", "")))
+    if not routes:
+        raise GuardWorkflowError("no job is gated on a workflow input")
+    return {route: frozenset(paths) for route, paths in routes.items()}
 
 
 @lru_cache(maxsize=1)

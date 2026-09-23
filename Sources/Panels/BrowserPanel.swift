@@ -2426,7 +2426,7 @@ final class BrowserPanel: Panel, ObservableObject {
     }
     var reactGrabMessageHandler: ReactGrabMessageHandler?
     var sslTrustBypassMessageHandler: BrowserSSLTrustBypassMessageHandler?
-    var sameDocumentNavigationMessageHandler: BrowserSameDocumentNavigationMessageHandler?
+    var sameDocumentNavigationMessageHandler: BrowserSameDocumentNavigationMessageHandler?; var documentReadyMessageHandler: BrowserDocumentReadyMessageHandler?
     /// Whether the live page currently has any actively-playing `<video>` or
     /// `<audio>` element, in the main frame or any iframe, reported by the
     /// injected media-playback hook. Keeps an actively-playing pane alive in the
@@ -2629,8 +2629,7 @@ final class BrowserPanel: Panel, ObservableObject {
     }
 
     func webViewLifecycleTopPayload(now: Date = Date()) -> [String: Any] {
-        let discardBlockers = hiddenWebViewDiscardBlockers()
-        return [
+        let discardBlockers = hiddenWebViewDiscardBlockers(); var payload: [String: Any] = [
             "state": webViewLifecycleState.rawValue,
             "visible_in_ui": isWebViewVisibleInUI,
             "should_render": shouldRenderWebView,
@@ -2651,6 +2650,7 @@ final class BrowserPanel: Panel, ObservableObject {
                 now: now
             )
         ]
+        payload["automation_readiness"] = browserAutomationReadinessPayload(); return payload
     }
 
     func refreshWebViewLifecycleState() {
@@ -3048,6 +3048,7 @@ final class BrowserPanel: Panel, ObservableObject {
         configuration.userContentController.addUserScript(
             BrowserSameDocumentNavigationMessageHandler.userScript
         )
+        configuration.userContentController.addUserScript(BrowserDocumentReadyMessageHandler.userScript)
         // Keep browser console/error/dialog telemetry active from document start on every navigation.
         // Main frame only — injecting into cross-origin iframes causes CAPTCHA providers
         // (reCAPTCHA, hCaptcha, Cloudflare Turnstile) to detect the overridden console.*
@@ -3183,8 +3184,7 @@ final class BrowserPanel: Panel, ObservableObject {
         webView.cmuxDownloadDelegate = downloadDelegate
         webView.navigationDelegate = navigationDelegate
         webView.uiDelegate = uiDelegate
-        setupObservers(for: webView)
-        setupSameDocumentNavigationMessageHandler(for: webView)
+        setupObservers(for: webView); setupSameDocumentNavigationMessageHandler(for: webView); setupDocumentReadyMessageHandler(for: webView)
         setupReactGrabMessageHandler(for: webView)
         designModeController.install(on: webView)
         setupSSLTrustBypassMessageHandler(for: webView)
@@ -4628,7 +4628,7 @@ final class BrowserPanel: Panel, ObservableObject {
             forName: BrowserSameDocumentNavigationMessageHandler.name,
             contentWorld: BrowserSameDocumentNavigationMessageHandler.contentWorld
         )
-        sameDocumentNavigationMessageHandler = nil
+        sameDocumentNavigationMessageHandler = nil; tearDownDocumentReadyMessageHandler(from: webView)
         resetMediaPlaybackTracking()
         setMediaActivity(isUsingMicrophone: false, isUsingCamera: false, reason: "media_capture_changed")
         webViewCancellables.removeAll()
