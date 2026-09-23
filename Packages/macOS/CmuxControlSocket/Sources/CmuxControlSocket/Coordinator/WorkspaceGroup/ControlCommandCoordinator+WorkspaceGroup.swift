@@ -359,9 +359,32 @@ extension ControlCommandCoordinator {
         guard let gid = uuid(params, "group_id") else {
             return .err(code: "invalid_params", message: "Missing or invalid group_id", data: nil)
         }
-        // Accept "hex": null to clear the override, or omit it entirely.
-        let hex: String? = rawString(params, "hex").map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-        let normalized: String? = (hex?.isEmpty == false) ? hex : nil
+        // `hex` is the canonical key and `color` its alias (mirrors the
+        // `custom_color` response field callers naturally echo). Accept
+        // "hex"/"color": null to clear the override, or omit it entirely.
+        let rawColor: String?
+        if params["hex"] != nil {
+            rawColor = rawString(params, "hex")
+        } else if params["color"] != nil {
+            rawColor = rawString(params, "color")
+        } else {
+            rawColor = nil
+        }
+        let trimmedColor = rawColor.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+        let normalized: String?
+        if let trimmedColor, !trimmedColor.isEmpty {
+            guard Self.isValidHexColor(trimmedColor) else {
+                let key = params["hex"] != nil ? "hex" : "color"
+                return .err(
+                    code: "invalid_params",
+                    message: "color must be a hex string like #RRGGBB",
+                    data: .object([key: .string(trimmedColor)])
+                )
+            }
+            normalized = trimmedColor
+        } else {
+            normalized = nil
+        }
         guard let ok = context?.controlSetWorkspaceGroupColor(
             routing: routingSelectors(params), groupID: gid, hex: normalized
         ) else {
@@ -377,7 +400,17 @@ extension ControlCommandCoordinator {
         guard let gid = uuid(params, "group_id") else {
             return .err(code: "invalid_params", message: "Missing or invalid group_id", data: nil)
         }
-        let symbol: String? = rawString(params, "symbol").map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+        // `symbol` is the canonical key and `icon` its alias (mirrors the
+        // `icon_symbol` response field callers naturally echo).
+        let rawSymbol: String?
+        if params["symbol"] != nil {
+            rawSymbol = rawString(params, "symbol")
+        } else if params["icon"] != nil {
+            rawSymbol = rawString(params, "icon")
+        } else {
+            rawSymbol = nil
+        }
+        let symbol = rawSymbol.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
         let normalized: String? = (symbol?.isEmpty == false) ? symbol : nil
         guard let result = context?.controlSetWorkspaceGroupIcon(
             routing: routingSelectors(params), groupID: gid, symbol: normalized
@@ -438,6 +471,14 @@ extension ControlCommandCoordinator {
     }
 
     // MARK: - Local helpers
+
+    /// Whether `value` is a hex color (`#RGB`, `#RGBA`, `#RRGGBB`, or
+    /// `#RRGGBBAA`). Named colors are rejected so the caller learns the value
+    /// was not applied instead of silently clearing the override.
+    static func isValidHexColor(_ value: String) -> Bool {
+        guard value.first == "#", value.count >= 4, value.count <= 9 else { return false }
+        return value.dropFirst().allSatisfy { $0.isHexDigit }
+    }
 
 
     /// The localized workspace-group error strings, resolved by the app
