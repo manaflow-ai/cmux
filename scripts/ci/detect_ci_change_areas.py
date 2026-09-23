@@ -134,6 +134,7 @@ CI_MACOS_TEST_PRODUCT_INPUTS = frozenset({
     "scripts/ci/app_host_test_products.py",
     "scripts/ci/app_host_layer_transport.py",
     "scripts/ci/parallel_artifact_download.py",
+    "scripts/ci/canonical-build-root.sh",
     "scripts/ci/compile-app-host-test-product.sh",
     "scripts/ci/product_input_identity.py",
     "scripts/ci/peer_product_source.py",

@@ -240,9 +240,13 @@ jobs:
       - name: Prepare isolated admission DerivedData
         run: |
           set -euo pipefail
-          echo "CMUX_COMPILE_ADMISSION_DERIVED_DATA=$RUNNER_TEMP/cmux-derived-data-compile-admission" >> "$GITHUB_ENV"
+          # Fixed paths survive across jobs on persistent runners. Clear them
+          # before any trusted product/cache restoration.
+          root="${CMUX_CI_CANONICAL_ROOT:-/private/tmp/cmux-ci}"
+          rm -rf "$root/derived-data-compile-admission" "$root/compile-admission-cas"
+          echo "CMUX_COMPILE_ADMISSION_DERIVED_DATA=${CMUX_CI_CANONICAL_ROOT:-/private/tmp/cmux-ci}/derived-data-compile-admission" >> "$GITHUB_ENV"
           # Outside DerivedData: the resolve step below recreates that directory.
-          echo "CMUX_COMPILE_ADMISSION_CAS=$RUNNER_TEMP/cmux-compile-admission-cas" >> "$GITHUB_ENV"
+          echo "CMUX_COMPILE_ADMISSION_CAS=${CMUX_CI_CANONICAL_ROOT:-/private/tmp/cmux-ci}/compile-admission-cas" >> "$GITHUB_ENV"
 
       - name: Select Xcode
         run: ./scripts/select-ci-xcode.sh
@@ -484,7 +488,7 @@ jobs:
           set -euo pipefail
           started="$(python3 -c 'import time; print(time.monotonic())')"
           rm -rf "$CMUX_COMPILE_ADMISSION_DERIVED_DATA"
-          scripts/ci/compile-app-host-test-product.sh resolve \
+          scripts/ci/compile-app-host-test-product.sh canonical-resolve \
             "$CMUX_COMPILE_ADMISSION_DERIVED_DATA" "$PWD/.ci-source-packages"
           finished="$(python3 -c 'import time; print(time.monotonic())')"
           seconds="$(python3 -c 'import sys; print(round(float(sys.argv[2])-float(sys.argv[1]), 6))' "$started" "$finished")"
@@ -495,7 +499,7 @@ jobs:
         id: compilation-cache-key
         run: |
           set -euo pipefail
-          echo "fingerprint=$(scripts/ci/compile-app-host-test-product.sh fingerprint "$CMUX_COMPILE_ADMISSION_DERIVED_DATA")" >> "$GITHUB_OUTPUT"
+          echo "fingerprint=$(scripts/ci/compile-app-host-test-product.sh canonical-fingerprint "$CMUX_COMPILE_ADMISSION_DERIVED_DATA")" >> "$GITHUB_OUTPUT"
 
       # Read-only on purpose: nightly.yml `refresh-test-compilation-cache` is the
       # only writer. A cache saved here would be scoped to this pull request and
@@ -516,7 +520,7 @@ jobs:
         run: |
           set -uo pipefail
           started="$(python3 -c 'import time; print(time.monotonic())')"
-          scripts/ci/compile-app-host-test-product.sh build \
+          scripts/ci/compile-app-host-test-product.sh canonical-build \
             "$CMUX_COMPILE_ADMISSION_DERIVED_DATA" \
             "$PWD/.ci-source-packages" \
             "$CMUX_COMPILE_ADMISSION_CAS" \
@@ -638,6 +642,12 @@ jobs:
         if: steps.publish-products.outputs.publish == 'true'
         run: |
           set -euo pipefail
+          # Fresh manifests embed the canonical checkout. Stamp that producer
+          # before relocating into this job's workspace for reuse and consumers.
+          if [ "${{ steps.reuse-products.outputs.hit }}" != true ] && [ "${{ steps.persistent-restore.outputs.hit }}" != true ]; then
+            (cd "${CMUX_CI_CANONICAL_ROOT:-/private/tmp/cmux-ci}/src" && python3 scripts/ci/app_host_test_products.py stamp "$CMUX_COMPILE_ADMISSION_DERIVED_DATA")
+            python3 scripts/ci/app_host_test_products.py restore "$CMUX_COMPILE_ADMISSION_DERIVED_DATA"
+          fi
           python3 scripts/ci/app_host_test_products.py stamp "$CMUX_COMPILE_ADMISSION_DERIVED_DATA"
           python3 scripts/ci/reuse_app_host_products.py seal "$CMUX_COMPILE_ADMISSION_DERIVED_DATA"
           archive="$RUNNER_TEMP/app-host-products.tar.gz"
