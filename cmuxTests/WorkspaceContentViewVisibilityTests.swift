@@ -288,6 +288,24 @@ final class WorkspaceContentViewVisibilityTests {
         )
     }
 
+    /// `@AppStorage` observes a key containing `.` through a suite-wide change
+    /// signal instead of per-key KVO, so every unrelated `UserDefaults` write
+    /// re-evaluates the view that reads it. ContentView and VerticalTabsSidebar
+    /// read these keys through `@AppStorage`, so none of them may be dotted.
+    @Test
+    func testChromeHeavyAppStorageKeysAreNotDotted() {
+        let keys = [
+            MinimalModeTitlebarDebugSettings.leftControlsLeadingInsetKey,
+            MinimalModeTitlebarDebugSettings.leftControlsTopInsetKey,
+            MinimalModeTitlebarDebugSettings.trafficLightTabBarInsetKey,
+            MinimalModeTitlebarDebugSettings.trafficLightTitlebarLeadingInsetKey,
+            CmuxExtensionSidebarSelection.defaultsKey,
+        ]
+        for key in keys {
+            #expect(!key.contains("."), "Dotted @AppStorage key \(key) re-renders its view on every UserDefaults write.")
+        }
+    }
+
     @Test
     @MainActor
     func testUnreadChangeUpdatesOnlyAffectedSidebarRow() async throws {
