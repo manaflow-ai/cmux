@@ -91,3 +91,24 @@ Not landed, with reasons:
   that is a cost decision for the owner.
 - Bake still pins daemon 01dc721, not this PR's head; no reference-plugin
   install step exists in the bake.
+
+### Update 2026-09-23 (tag pr-13299-vm-startup-v9, fastboot5 snapshots)
+
+Click to terminal pane, dev backend :4319, 6 runs, Mac load average 80-280:
+1.34-1.57 s CLI total (create 0.58-0.89 s, after create 0.66-0.75 s).
+Raw floor (Freestyle SDK from this Mac, no cmux): 0.63-1.09 s (n=5).
+
+Fixed since v7: provider refresh no longer waits on stats/port scan; hub
+redial every 50 ms; first link to a trusted receipt skips POST
+/attach-endpoint; clone boot starts the daemon before re-keying and prompt
+sync; dev gateway serves ready backends during background revalidation and
+revalidates with a TCP connect (hq PR 561; the "/" render probe stalled the
+Next dev event loop 0.3-0.9 s and showed up as ~300 ms in begin_create).
+
+Remaining blocks (one run): Freestyle create 491 ms (server side, from
+us-central1); VM ready 320 ms after the response (daemon cold start ~200 ms);
+link up to first graph data 226 ms; link handshake 81 ms. The first terminal
+is created on each clone, not carried in the snapshot. Reliable <1 s needs
+the warm daemon with per-clone identity rotation plus a receipt-based first
+pane. VM delete holds DB transactions across provider calls, which stalls a
+concurrent create's begin_create by 170-340 ms.
