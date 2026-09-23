@@ -67,7 +67,7 @@ def main() -> int:
         for step in job["steps"]
         if step.get("name") == "Checkout trusted policy revision"
     )
-    expected_fetch_depth = "${{ github.event_name == 'push' && 0 || 1 }}"
+    expected_fetch_depth = "${{ github.event_name != 'push' && 1 || 0 }}"
     if trusted_checkout.get("with", {}).get("fetch-depth") != expected_fetch_depth:
         print(
             "FAIL: trusted policy checkout must stay shallow on PR/merge-group runs "
