@@ -93,10 +93,11 @@ enum CLIHookProcessRunner {
             }
         }
 
-        let timedOut = exitSignal.wait(timeout: .now() + timeout) == .timedOut
+        // Termination callbacks may lag behind the actual process exit.
+        let timedOut = exitSignal.wait(timeout: .now() + timeout) == .timedOut && process.isRunning
         if timedOut {
             process.terminate()
-            if exitSignal.wait(timeout: .now() + 1) == .timedOut {
+            if exitSignal.wait(timeout: .now() + 1) == .timedOut && process.isRunning {
                 kill(process.processIdentifier, SIGKILL)
                 _ = exitSignal.wait(timeout: .now() + 1)
             }

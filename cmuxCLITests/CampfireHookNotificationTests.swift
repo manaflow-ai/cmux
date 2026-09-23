@@ -305,47 +305,18 @@ struct CampfireHookNotificationTests {
         standardInput: String,
         timeout: TimeInterval
     ) -> ProcessRunResult {
-        let process = Process()
-        let stdoutPipe = Pipe()
-        let stderrPipe = Pipe()
-        let stdinPipe = Pipe()
-        process.executableURL = URL(fileURLWithPath: executablePath)
-        process.arguments = arguments
-        process.environment = environment
-        process.standardInput = stdinPipe
-        process.standardOutput = stdoutPipe
-        process.standardError = stderrPipe
-
-        do {
-            try process.run()
-        } catch {
-            return ProcessRunResult(status: -1, stdout: "", stderr: String(describing: error), timedOut: false)
-        }
-        stdinPipe.fileHandleForWriting.write(Data(standardInput.utf8))
-        try? stdinPipe.fileHandleForWriting.close()
-
-        let exitSignal = DispatchSemaphore(value: 0)
-        DispatchQueue.global(qos: .userInitiated).async {
-            process.waitUntilExit()
-            exitSignal.signal()
-        }
-
-        let timedOut = exitSignal.wait(timeout: .now() + timeout) == .timedOut
-        if timedOut {
-            process.terminate()
-            if exitSignal.wait(timeout: .now() + 1) == .timedOut {
-                kill(process.processIdentifier, SIGKILL)
-                _ = exitSignal.wait(timeout: .now() + 1)
-            }
-        }
-
-        let stdout = String(data: stdoutPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
-        let stderr = String(data: stderrPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+        let result = CLIHookProcessRunner.run(
+            executablePath: executablePath,
+            arguments: arguments,
+            environment: environment,
+            standardInput: standardInput,
+            timeout: timeout
+        )
         return ProcessRunResult(
-            status: process.isRunning ? SIGKILL : process.terminationStatus,
-            stdout: stdout,
-            stderr: stderr,
-            timedOut: timedOut
+            status: result.status,
+            stdout: result.stdout,
+            stderr: result.stderr,
+            timedOut: result.timedOut
         )
     }
 
