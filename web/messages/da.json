@@ -1434,6 +1434,7 @@
       "restartNew": "Opret et nyt workspace (standard)"
     },
     "keyboardShortcuts": {
+      "fileEditorWordWrap": "Slå linjeombrydning i fileditoren til eller fra (Option+Z).",
       "title": "Tastaturgenveje",
       "description": "Alle tastaturgenveje tilgængelige i cmux, grupperet efter kategori.",
       "metaDescription": "Alle cmux-tastaturgenveje til workspaces, surfaces, opdelte paneler, browser, notifikationer, søgning og vindueshåndtering på macOS.",

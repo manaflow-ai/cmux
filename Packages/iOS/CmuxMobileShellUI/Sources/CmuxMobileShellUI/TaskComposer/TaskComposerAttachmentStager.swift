@@ -187,6 +187,12 @@ enum PhotoLibraryTransferError: Error {
 }
 
 private final class PhotoLibraryTransferRace: @unchecked Sendable {
+    // `start` must store the continuation inside the synchronous
+    // `withCheckedThrowingContinuation` closure, and `cancel` runs in the
+    // synchronous `onCancel:` of `withTaskCancellationHandler`. Neither can
+    // await, so an actor would force both through a detached Task and lose the
+    // ordering that keeps a resume from racing the store. Carve-out: the race
+    // is settled by `didFinish` under this lock, which resumes exactly once.
     private let lock = NSLock()
     private var continuation: CheckedContinuation<ImportedPhotoLibraryFile?, Error>?
     private var transferTask: Task<Void, Never>?
@@ -266,24 +272,26 @@ private final class PhotoLibraryTransferRace: @unchecked Sendable {
     }
 }
 
-/// Loads a Photos library asset with a bounded wait. iCloud-backed assets can
-/// otherwise leave a composer staging task waiting indefinitely when the
-/// network transfer stalls.
-func loadImportedPhotoLibraryFile(
-    _ item: PhotosPickerItem,
-    timeout: Duration = .seconds(60)
-) async throws -> ImportedPhotoLibraryFile? {
-    let race = PhotoLibraryTransferRace()
-    return try await withTaskCancellationHandler(operation: {
-        try await withCheckedThrowingContinuation { continuation in
-            race.start(
-                item: item,
-                timeout: timeout,
-                continuation: continuation
-            )
-        }
-    }, onCancel: {
-        race.cancel()
-    })
+extension ImportedPhotoLibraryFile {
+    /// Loads a Photos library asset with a bounded wait. iCloud-backed assets can
+    /// otherwise leave a composer staging task waiting indefinitely when the
+    /// network transfer stalls.
+    static func load(
+        _ item: PhotosPickerItem,
+        timeout: Duration = .seconds(60)
+    ) async throws -> ImportedPhotoLibraryFile? {
+        let race = PhotoLibraryTransferRace()
+        return try await withTaskCancellationHandler(operation: {
+            try await withCheckedThrowingContinuation { continuation in
+                race.start(
+                    item: item,
+                    timeout: timeout,
+                    continuation: continuation
+                )
+            }
+        }, onCancel: {
+            race.cancel()
+        })
+    }
 }
 #endif

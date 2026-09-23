@@ -1,5 +1,7 @@
 # cmux Customization Examples
 
+Use `cmux docs workflows` for the human-readable index or `cmux docs workflows --json` for the machine-readable catalog. This file holds the concrete recipes referenced by that catalog.
+
 Merge only the relevant top-level keys into the file named above each block. Unlabeled JSON targets `cmux.json`. Preserve unrelated sections, then run `cmux reload-config`. Prefer project-local `.cmux/cmux.json` for team workflows and global `~/.config/cmux/cmux.json` for personal preferences.
 
 ## Worktree Agents
