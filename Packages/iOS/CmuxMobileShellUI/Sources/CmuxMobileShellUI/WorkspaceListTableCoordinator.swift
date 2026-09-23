@@ -84,6 +84,10 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDataSource,
     private var lastDecelerationFrameTime: CFTimeInterval?
     private var decelerationFrames = 0
     private var decelerationHitches = 0
+    /// Main-thread work since the previous deceleration frame, attributed to
+    /// hitches so a missed frame names what ran in it.
+    private var cellConfigurationsSinceFrame = 0
+    private var reconcilesSinceFrame = 0
     #endif
     /// The row whose swipe controls UIKit is presenting.
     private var editedItemID: String?
@@ -168,6 +172,9 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDataSource,
     // MARK: Reconciliation
 
     private func reconcile(in tableView: UITableView) {
+        #if DEBUG
+        reconcilesSinceFrame += 1
+        #endif
         let target = targetRows(in: tableView)
         let plan = WorkspaceListUpdatePlan(
             renderedIDs: renderedItems.map(\.id),
@@ -577,6 +584,9 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDataSource,
         if let cell = cell as? WorkspaceListTableCell {
             cell.item = item
             cell.renderedModel = model
+            #if DEBUG
+            cellConfigurationsSinceFrame += 1
+            #endif
         }
         cell.backgroundColor = .clear
         cell.contentView.backgroundColor = .clear
@@ -805,11 +815,13 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDataSource,
                 if now - last > frame * 2.5 {
                     decelerationHitches += 1
                     MobileDebugLog.anchormux(
-                        "workspace-list.decel-hitch gap_ms=\(Int((now - last) * 1000)) frames=\(decelerationFrames) hitches=\(decelerationHitches)"
+                        "workspace-list.decel-hitch gap_ms=\(Int((now - last) * 1000)) configured=\(cellConfigurationsSinceFrame) reconciles=\(reconcilesSinceFrame) frames=\(decelerationFrames) hitches=\(decelerationHitches)"
                     )
                 }
             }
             lastDecelerationFrameTime = now
+            cellConfigurationsSinceFrame = 0
+            reconcilesSinceFrame = 0
         } else {
             lastDecelerationFrameTime = nil
         }
