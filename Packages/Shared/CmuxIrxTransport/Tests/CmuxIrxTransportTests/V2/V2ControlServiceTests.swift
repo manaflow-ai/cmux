@@ -273,6 +273,25 @@ import Testing
         await service.stop()
     }
 
+    @Test(arguments: [false, true])
+    func mixedVersionPaginationRequiresRulesOnEveryPage(firstPageOmits: Bool) async throws {
+        let rule = "cmux.mac-peer-inbound.v1"
+        let pages: [[String]?] = [nil, nil, firstPageOmits ? nil : [rule], firstPageOmits ? [rule] : nil]
+        let backend = V2TestBackend(now: now, directoryPageRules: pages)
+        let store = V2TestStateStore()
+        let service = try service(backend: backend, store: store)
+        await service.start()
+        _ = try await ready(service)
+        let socket = await backend.currentSocket()
+        await socket.changeDirectoryDuringPagination()
+        let directory = try await service.refreshDirectory()
+        #expect(directory.revision == 3)
+        #expect(directory.devices.count == 2)
+        #expect(directory.rules == nil)
+        #expect(await store.state?.directory?.rules == nil)
+        await service.stop()
+    }
+
     @Test func directoryChangeDuringPersistenceIsDrainedBeforeSyncFinishes() async throws {
         let backend = V2TestBackend(now: now)
         let store = V2TestStateStore()
