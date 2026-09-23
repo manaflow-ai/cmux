@@ -12,6 +12,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import gzip
+import http.client
 import json
 import math
 import os
@@ -753,7 +754,10 @@ def restore(api, value, derived, current_run, current_identity, current_attempt=
             transfer_started = time.monotonic()
             try:
                 api.download(artifact["id"], archive, artifact["size_in_bytes"])
-            except (OSError, parallel.TransportError):
+            # urllib surfaces a truncated or malformed response as
+            # HTTPException, not OSError; any transport failure is a miss.
+            except (OSError, ValueError, EOFError, http.client.HTTPException,
+                    parallel.TransportError):
                 record_reason(reasons, "artifact_download_error")
                 continue
             transfer_seconds = time.monotonic() - transfer_started

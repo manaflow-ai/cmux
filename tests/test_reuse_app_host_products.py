@@ -931,7 +931,10 @@ class ReuseProducts(TestProductHandoff):
 
     def test_a_failed_transfer_is_a_miss_not_a_crash(self):
         for error in (reuse.parallel.TransportError("parallel download deadline exceeded"),
-                      OSError("connection reset")):
+                      OSError("connection reset"),
+                      reuse.http.client.IncompleteRead(b"partial"),
+                      EOFError("stream ended"),
+                      ValueError("size must be positive")):
             with self.subTest(error=type(error).__name__):
                 with mock.patch.object(type(self.api), "download", side_effect=error):
                     report = {}
