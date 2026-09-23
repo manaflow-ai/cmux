@@ -2189,6 +2189,7 @@
 		110437021104370211043702 /* LiveAgentSessionOwnerObservation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 110437011104370111043701 /* LiveAgentSessionOwnerObservation.swift */; };
 		110439021104390211043902 /* LiveAgentSessionOwnerSessionKey.swift in Sources */ = {isa = PBXBuildFile; fileRef = 110439011104390111043901 /* LiveAgentSessionOwnerSessionKey.swift */; };
 		D10799020000000000000001 /* LiveTabDragCapabilityResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = D10799010000000000000001 /* LiveTabDragCapabilityResolver.swift */; };
+		DB326399C791DD70E9D6997A /* LiveWorkspaceFixture.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7B507A66B0F521925687F2ED /* LiveWorkspaceFixture.swift */; };
 		DA7A10CA710E000000000003 /* Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = DA7A10CA710E000000000001 /* Localizable.xcstrings */; };
 		8F3CFE9C065FF1BD53D150CF /* LocalSurfaceProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1EDD243C7C87A2AB78B12BAD /* LocalSurfaceProvider.swift */; };
 		540A9F26DCDFD0C16B257D6F /* LocalSurfaceProviderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 64C68B378B6071B213B4AA57 /* LocalSurfaceProviderTests.swift */; };
@@ -6310,6 +6311,7 @@
 		110437011104370111043701 /* LiveAgentSessionOwnerObservation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveAgentSessionOwnerObservation.swift; sourceTree = "<group>"; };
 		110439011104390111043901 /* LiveAgentSessionOwnerSessionKey.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveAgentSessionOwnerSessionKey.swift; sourceTree = "<group>"; };
 		D10799010000000000000001 /* LiveTabDragCapabilityResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveTabDragCapabilityResolver.swift; sourceTree = "<group>"; };
+		7B507A66B0F521925687F2ED /* LiveWorkspaceFixture.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LiveWorkspaceFixture.swift; sourceTree = "<group>"; };
 		DA7A10CA710E000000000001 /* Localizable.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = Localizable.xcstrings; sourceTree = "<group>"; };
 		1EDD243C7C87A2AB78B12BAD /* LocalSurfaceProvider.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LocalSurfaceProvider.swift; sourceTree = "<group>"; };
 		64C68B378B6071B213B4AA57 /* LocalSurfaceProviderTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LocalSurfaceProviderTests.swift; sourceTree = "<group>"; };
@@ -12013,6 +12015,7 @@
 				F3E5958FB85E4B97957D4F73 /* CloudSidebarSurfaceRegressionTests.swift */,
 				9EFB28A7B5DF48ED8EF9CFB6 /* CloudDirectoryLifecycleTests.swift */,
 				FFC7BA3C7C834D20B3173D36 /* CloudDirectoryTestFixture.swift */,
+				7B507A66B0F521925687F2ED /* LiveWorkspaceFixture.swift */,
 				64C68B378B6071B213B4AA57 /* LocalSurfaceProviderTests.swift */,
 				BC427A4C642EBC36E600FA7F /* CmuxTuiSurfaceProviderTests.swift */,
 				F8FED5F6485C390988555CDA /* CloudFileDeliveryTests.swift */,
@@ -16721,6 +16724,7 @@
 				8582A1000000000000000002 /* KimiResumeReviewRegressionTests.swift in Sources */,
 				87C609D63F03597AC12C8B0A /* LastSurfaceClosePreferenceTests.swift in Sources */,
 				9492CAFE0000000000000002 /* LastTerminalChildExitRecoveryTests.swift in Sources */,
+				DB326399C791DD70E9D6997A /* LiveWorkspaceFixture.swift in Sources */,
 				540A9F26DCDFD0C16B257D6F /* LocalSurfaceProviderTests.swift in Sources */,
 				C11218000000000000000010 /* LocalTmuxCommandBuilder.swift in Sources */,
 				C11218000000000000000011 /* LocalTmuxProcessRunner.swift in Sources */,

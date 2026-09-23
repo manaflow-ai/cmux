@@ -187,7 +187,7 @@ import SwiftUI
         let failure = try #require(workspace.cloudMaterializationFailures[panelID])
         #expect(panelID == pendingPanelID)
         #expect(workspace.cloudPendingCreations[panelID]?.machine == machine)
-        #expect(failure.detail == error.errorDescription)
+        #expect(failure.detail == CloudDiagnosticFailure.classify(error).label)
         #expect(presentation.showsReconnectButton)
         let operation = try #require(recorder.operations.first)
         #expect(operation.operation == .terminal)
@@ -255,6 +255,13 @@ import SwiftUI
             await Task.yield()
         }
         let overlay = try #require(card())
+        let layoutDeadline = ContinuousClock.now + .seconds(3)
+        while (overlay.frame.width <= 100 || overlay.frame.height <= 50), ContinuousClock.now < layoutDeadline {
+            window.displayIfNeeded()
+            target.container.layoutSubtreeIfNeeded()
+            overlay.layoutSubtreeIfNeeded()
+            await Task.yield()
+        }
         #expect(overlay.frame.width > 100 && overlay.frame.height > 50)
         let terminalFrame = target.container.convert(source.hostedView.bounds, from: source.hostedView)
         #expect(abs(overlay.frame.midX - terminalFrame.midX) < 2)

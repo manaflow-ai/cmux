@@ -147,6 +147,8 @@ extension Workspace {
         isLoading: Bool,
         index: Int? = nil
     ) throws -> UUID {
+        let previousPane = bonsplitController.focusedPaneId
+        let previousTab = previousPane.flatMap { bonsplitController.selectedTab(inPane: $0)?.id }
         panels[panel.id] = panel
         panelTitles[panel.id] = Self.cloudManualMirrorTabTitle
         guard let tab = bonsplitController.createTab(
@@ -175,7 +177,12 @@ extension Workspace {
         panel.surface.flushPendingManualSizeReportIfAttached()
         if focus {
             focusPanel(panel.id)
-        } else {
+        } else if let previousPane {
+            // Creating a tab can select its target pane as a Bonsplit side
+            // effect. A non-focused projection must preserve the caller's
+            // active pane/tab so layout admission cannot steal keyboard focus.
+            bonsplitController.focusPane(previousPane)
+            if let previousTab { bonsplitController.selectTab(previousTab) }
             panel.unfocus()
         }
         return panel.id
