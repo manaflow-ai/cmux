@@ -2180,10 +2180,28 @@ final class TabManagerCloseCurrentPanelTests: XCTestCase {
             appDelegate.notificationStore = originalNotificationStore
         }
 
+        // A workspace's LAST surface is not closed by the shortcut at all: with
+        // the close-on-last-surface preference enabled (its default) the close
+        // is escalated to the window-close path, which a window-less test
+        // TabManager cannot perform, so nothing closes and nothing is cleared.
+        // Give the workspace a second surface so the shortcut closes the
+        // surface itself, which is what this test is about.
         guard let workspace = manager.selectedWorkspace,
-              let initialPanelId = workspace.focusedPanelId else {
-            XCTFail("Expected selected workspace and focused panel")
+              let paneId = workspace.bonsplitController.focusedPaneId,
+              let initialPanelId = workspace.focusedPanelId,
+              let initialTerminalPanel = workspace.terminalPanel(for: initialPanelId),
+              workspace.newTerminalSurface(inPane: paneId, focus: false) != nil else {
+            XCTFail("Expected workspace with two terminal surfaces")
             return
+        }
+        workspace.focusPanel(initialPanelId)
+        // Close confirmation is orthogonal to notification clearing, and the
+        // ambient warn-before-closing default would otherwise decide whether
+        // the surface closes at all.
+        initialTerminalPanel.surface.setNeedsConfirmCloseOverrideForTesting(false)
+        manager.confirmCloseHandler = { _, _, _ in
+            XCTFail("Close confirmation must not be required for this surface")
+            return false
         }
 
         store.addNotification(
@@ -2199,6 +2217,7 @@ final class TabManagerCloseCurrentPanelTests: XCTestCase {
         drainMainQueue()
         drainMainQueue()
 
+        XCTAssertNil(workspace.panels[initialPanelId])
         XCTAssertFalse(store.hasUnreadNotification(forTabId: workspace.id, surfaceId: initialPanelId))
     }
 
