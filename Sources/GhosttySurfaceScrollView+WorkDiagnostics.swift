@@ -2,6 +2,14 @@ import CMUXMobileCore
 import Foundation
 
 extension GhosttySurfaceScrollView {
+    /// Returns whether revealing a portal needs the fallback synchronous refresh.
+    /// A renderer that already presented a frame is already paintable; asking
+    /// Ghostty to refresh it again during workspace selection can block the main
+    /// thread while a remote surface drains its current frame.
+    static func shouldScheduleVisibilityRevealRefresh(rendererPresented: Bool) -> Bool {
+        !rendererPresented
+    }
+
     /// Request an immediate terminal redraw after geometry updates so stale IOSurface
     /// contents do not remain stretched during live resize churn.
     func refreshSurfaceNow(reason: String, transition: TerminalWorkContext.Transition) {
