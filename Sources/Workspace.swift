@@ -1989,8 +1989,9 @@ extension Workspace {
                     "kind=\(restorableAgent.kind.rawValue) session=\(sessionPreview) " +
                     "hasLaunch=\(restorableAgent.launchCommand == nil ? 0 : 1) " +
                     "launchArgc=\(launchArgc) hasResume=\(restoredAgentResumeLaunch == nil ? 0 : 1) " +
-                    "autoResume=\(autoResumeAgentSessions ? 1 : 0) typedStartup=\(restoredStartupInput == nil ? 0 : 1) " +
-                    "replayScrollback=\(shouldReplayScrollback ? 1 : 0)"
+                    "autoResume=\(autoResumeAgentSessions ? 1 : 0) savedWasRunning=\(snapshot.terminal?.wasAgentRunning == true ? 1 : 0) " +
+                    "restoreIndexUnavailable=\(restoreIndexUnavailable ? 1 : 0) startupBlocked=\(restoreStartupBlocked ? 1 : 0) " +
+                    "typedStartup=\(restoredStartupInput == nil ? 0 : 1) replayScrollback=\(shouldReplayScrollback ? 1 : 0)"
                 )
             }
             if let resumeBinding {
@@ -1998,6 +1999,7 @@ extension Workspace {
                     "session.restore.surfaceResume panel=\(snapshot.id.uuidString.prefix(5)) " +
                     "kind=\(resumeBinding.kind ?? "unknown") source=\(resumeBinding.source ?? "unknown") " +
                     "hasLaunch=\(restoredBindingLaunch == nil ? 0 : 1) " +
+                    "savedWasRunning=\(snapshot.terminal?.wasAgentRunning == true ? 1 : 0) " +
                     "replayScrollback=\(shouldReplayScrollback ? 1 : 0)"
                 )
             }
