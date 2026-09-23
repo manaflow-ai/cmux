@@ -18,7 +18,6 @@ final class RightSidebarChromeHeightUITests: XCTestCase {
         app.launchArguments += ["-rightSidebar.beta.dock.enabled", "YES"]
         app.launch()
         defer { app.terminate() }
-
         if app.state == .runningBackground {
             app.activate()
         }
@@ -40,7 +39,8 @@ final class RightSidebarChromeHeightUITests: XCTestCase {
         let sessionsButton = app.buttons["RightSidebarModeButton.sessions"]
         XCTAssertTrue(sessionsButton.waitForExistence(timeout: 5))
         sessionsButton.click()
-
+        let reloadButton = app.buttons["SessionIndexReloadButton"]
+        XCTAssertTrue(reloadButton.waitForExistence(timeout: 5) && reloadButton.label == "Reload Vault", "Expected an accessible Vault reload control in the sessions mode")
         guard let geometry = waitForJSONNumber("rightSidebarSecondaryBarWidth", greaterThan: 1, atPath: dataPath, timeout: 5),
               let modeBarHeight = Double(geometry["rightSidebarModeBarHeight"] ?? ""),
               let secondaryBarHeight = Double(geometry["rightSidebarSecondaryBarHeight"] ?? "") else {
