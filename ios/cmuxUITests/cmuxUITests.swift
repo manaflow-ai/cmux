@@ -25,6 +25,9 @@ final class cmuxUITests: XCTestCase {
         let all = app.buttons["All"]
         XCTAssertTrue(all.exists)
         let initialX = all.frame.minX
+        let scopePicker = app.segmentedControls.firstMatch
+        XCTAssertTrue(scopePicker.exists)
+        XCTAssertEqual(scroller.frame.minX, scopePicker.frame.minX - 16, accuracy: 1)
         // A resting content inset is allowed; the viewport itself must reach
         // the sheet edge rather than sharing that inset.
         XCTAssertEqual(initialX - scroller.frame.minX, 16, accuracy: 1)
