@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """Pin the CLA metadata route before interpreting its dynamic required name."""
 import contextlib
-import copy
 import io
 from pathlib import Path
 import tempfile
@@ -63,6 +62,8 @@ class CLAMetadataRoutingTests(unittest.TestCase):
             workflows = root / ".github/workflows"
             workflows.mkdir(parents=True)
             path = workflows / "cla-policy-guard.yml"
+            import test_ci_merge_queue_required_checks as queue
+            (workflows / "merge-group-policy-checks.yml").write_text(yaml.safe_dump(queue.expected_bridge()))
             def run(document):
                 path.write_text(yaml.safe_dump(document))
                 with patch.object(bounded, "ROOT", root), patch.object(bounded, "WORKFLOWS", workflows), \
@@ -75,7 +76,9 @@ class CLAMetadataRoutingTests(unittest.TestCase):
             self.assertEqual(run(workflow), 1)
             workflow = candidate()
             workflow["jobs"]["validate"]["if"] = "${{ false }}"
-            self.assertEqual(run(workflow), 1)
+            # The bridge still owns a literal required name, but the malformed
+            # dynamic route must not be inferred as another required owner.
+            self.assertEqual(bounded.context_of("validate", workflow["jobs"]["validate"], path, workflow), METADATA_NAME)
 
     def test_merge_queue_retains_static_policy_bridge(self):
         import test_ci_merge_queue_required_checks as queue
