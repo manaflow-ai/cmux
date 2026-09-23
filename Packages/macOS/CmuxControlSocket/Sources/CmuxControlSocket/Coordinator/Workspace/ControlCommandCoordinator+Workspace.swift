@@ -274,10 +274,13 @@ extension ControlCommandCoordinator {
     private func isWorkspaceReferenceShaped(_ raw: String) -> Bool {
         if UUID(uuidString: raw) != nil { return true }
         guard let colon = raw.firstIndex(of: ":") else { return false }
-        let kind = raw[raw.startIndex..<colon]
+        let kind = String(raw[raw.startIndex..<colon])
         let ordinal = raw[raw.index(after: colon)...]
-        return !kind.isEmpty
-            && kind.allSatisfy { $0.isLetter || $0 == "_" }
+        // Refs are minted from `ControlHandleKind` raw values, lowercase, and
+        // looked up exactly; only the `tab:` alias is lowercased first. Any
+        // other prefix could never have resolved.
+        let knownKind = ControlHandleKind(rawValue: kind) != nil || kind.lowercased() == "tab"
+        return knownKind
             && !ordinal.isEmpty
             && ordinal.allSatisfy { $0.isASCII && $0.isNumber }
     }
