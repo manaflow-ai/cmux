@@ -1,0 +1,154 @@
+# Temporary experiment. Not for merge. Measures Release compile variants on the
+# nightly build runner class without publishing anything.
+name: exp-compile-profile
+on:
+  push:
+    branches: [exp-fix-measure]
+permissions:
+  contents: read
+jobs:
+  compile:
+    runs-on: warp-macos-26-arm64-12x
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {name: fix-wmo-universal, patch: "", archs: "arm64 x86_64", mode: wholemodule, batch: "YES"}
+          - {name: fix-perfile-arm64, patch: "", archs: "arm64", mode: singlefile, batch: "NO"}
+    env:
+      CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_26 }}
+      CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          submodules: recursive
+      - run: ./scripts/select-ci-xcode.sh
+      - name: Patch ContentView
+        if: matrix.patch != ''
+        env:
+          PATCH: ${{ matrix.patch }}
+        run: |
+          python3 - <<'PY'
+          import os
+          p = 'Sources/ContentView.swift'
+          lines = open(p).read().split('\n')
+          pat = os.environ['PATCH']
+          hit = 0
+          for i, l in enumerate(lines):
+              if (pat == 'BODY' and l == '    var body: some View {' and hit == 0) or (pat != 'BODY' and l.strip().startswith(pat)):
+                  lines[i] = l[:len(l) - len(l.lstrip())] + '@_optimize(none) ' + l.lstrip()
+                  hit += 1
+          assert hit == 1, hit
+          open(p, 'w').write('\n'.join(lines))
+          PY
+          git diff --stat
+      - run: |
+          ./scripts/install-rust-ci.sh
+          ./scripts/download-prebuilt-ghosttykit.sh
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: '1.26.x'
+          cache: false
+      - name: Resolve packages
+        run: xcodebuild -resolvePackageDependencies -scheme cmux -clonedSourcePackagesDirPath .spm-cache >/dev/null
+      - name: Build
+        run: |
+          set -euo pipefail
+          sysctl -n hw.ncpu hw.memsize
+          mkdir -p "$RUNNER_TEMP/stats"
+          start=$(date +%s)
+          mkdir -p "$RUNNER_TEMP/samples"
+          (
+            while true; do
+              sleep 45
+              ps -Ao pid=,etime=,args= | grep '[s]wift-frontend' | while read -r pid etime rest; do
+                secs=$(echo "$etime" | awk -F'[-:]' '{n=NF; s=$n+($(n-1))*60; if(n>2)s+=$(n-2)*3600; print s}')
+                if [ "$secs" -gt 150 ]; then
+                  echo "LONG pid=$pid secs=$secs args=$(echo "$rest" | cut -c1-300)"
+                  for r in $(echo "$rest" | tr ' ' '\n' | grep '^@'); do grep -A1 -- '-primary-file' "${r#@}" 2>/dev/null | head -4 | sed "s/^/  resp /"; done
+                  sample "$pid" 3 -file "$RUNNER_TEMP/samples/${pid}-${secs}.txt" >/dev/null 2>&1 || true
+                fi
+              done
+            done
+          ) &
+          sampler=$!
+          set +e
+          ./scripts/ci/run-xcodebuild-with-diagnostics.sh -- \
+            env CMUX_SKIP_ZIG_BUILD=1 xcodebuild -scheme cmux -configuration Release -derivedDataPath build-universal \
+            -destination 'generic/platform=macOS' \
+            -clonedSourcePackagesDirPath .spm-cache \
+            -showBuildTimingSummary \
+            ARCHS="${{ matrix.archs }}" ONLY_ACTIVE_ARCH=NO \
+            SWIFT_COMPILATION_MODE=${{ matrix.mode }} \
+            OTHER_SWIFT_FLAGS='$(inherited) -stats-output-dir '"$RUNNER_TEMP/stats"'' SWIFT_ENABLE_BATCH_MODE=${{ matrix.batch }} \
+            COMPILATION_CACHE_ENABLE_CACHING=NO \
+            COMPILER_INDEX_STORE_ENABLE=NO \
+            CODE_SIGNING_ALLOWED=NO build > "$RUNNER_TEMP/xcodebuild.log" 2>&1
+          rc=$?
+          kill $sampler 2>/dev/null || true
+          set -e
+          echo "xcodebuild rc=$rc wall=$(( $(date +%s) - start ))s"
+          grep -A40 "Build Timing Summary" "$RUNNER_TEMP/xcodebuild.log" | grep '|' || true
+          tail -30 "$RUNNER_TEMP/xcodebuild.log"
+          ls "$RUNNER_TEMP/stats" | wc -l
+          exit $rc
+      - name: ContentView object function sizes
+        if: always()
+        run: |
+          o=$(find build-universal -name 'ContentView.o' -path '*cmux.build*' | head -1)
+          echo "object: $o"; ls -l "$o"
+          mkdir -p "$RUNNER_TEMP/obj" && cp "$o" "$RUNNER_TEMP/obj/"
+          nm -n --defined-only "$o" | awk '$2 ~ /[tT]/' > "$RUNNER_TEMP/obj/syms.txt"
+          size -m "$o" | head -20
+          python3 - "$RUNNER_TEMP/obj/syms.txt" "$o" <<'PY'
+          import subprocess, sys
+          rows = [l.split(None, 2) for l in open(sys.argv[1])]
+          end = int(subprocess.run(['otool', '-l', sys.argv[2]], capture_output=True, text=True).stdout.split('sectname __text')[1].split('size ')[1].split()[0], 16)
+          out = []
+          for a, b in zip(rows, rows[1:] + [[hex(end)[2:], 'X', 'END']]):
+              out.append((int(b[0], 16) - int(a[0], 16), a[2].strip()))
+          out.sort(reverse=True)
+          names = [n for _, n in out[:40]]
+          dem = subprocess.run(['swift', 'demangle', '--simplified'], input='\n'.join(names), capture_output=True, text=True).stdout.split('\n')
+          for (s, n), d in zip(out[:40], dem):
+              print(s, d[:220])
+          PY
+      - name: Summarize frontend stats
+        if: always()
+        run: |
+          python3 - "$RUNNER_TEMP/stats" <<'PY'
+          import json, os, sys, collections
+          d = sys.argv[1]
+          rows = []
+          for f in os.listdir(d):
+              try:
+                  j = json.load(open(os.path.join(d, f)))
+              except Exception:
+                  continue
+              wall = {k: v for k, v in j.items() if k.endswith('.wall')}
+              top = max(wall.items(), key=lambda kv: kv[1]) if wall else (None, 0)
+              rows.append((top[1], f, wall))
+          rows.sort(reverse=True)
+          for t, f, wall in rows[:8]:
+              print(f"== {t:9.1f}s {f}")
+              for k, v in sorted(wall.items(), key=lambda kv: -kv[1])[:25]:
+                  print(f"   {v:9.1f} {k}")
+          PY
+      - name: Top type-check offenders
+        if: false
+        run: |
+          grep -E '^[0-9]+\.[0-9]+ms\s' "$RUNNER_TEMP/xcodebuild.log" | sort -rn | awk '!seen[$0]++' | head -150 || true
+          echo "total ms over 50ms:"; grep -E '^[0-9]+\.[0-9]+ms\s' "$RUNNER_TEMP/xcodebuild.log" | awk '{t+=$1} END {print t}'
+          echo "total ms all:"; grep -oE '^[0-9]+\.[0-9]+ms' "$RUNNER_TEMP/xcodebuild.log" | awk '{t+=$1} END {print t}'
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: exp-${{ matrix.name }}
+          path: |
+            ${{ runner.temp }}/stats
+            ${{ runner.temp }}/xcodebuild.log
+            ${{ runner.temp }}/samples
+            ${{ runner.temp }}/obj
+          retention-days: 5
