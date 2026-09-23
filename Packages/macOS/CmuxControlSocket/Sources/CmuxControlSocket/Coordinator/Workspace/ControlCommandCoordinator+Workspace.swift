@@ -473,11 +473,17 @@ extension ControlCommandCoordinator {
                 // The registry forgets a ref when its workspace closes, so a
                 // stale `workspace:7` lands here too. It named something once:
                 // report it gone, as `workspace.reorder` does for the same ref.
+                // The id keys stay present, as `null`, so this reply has the
+                // same shape as the `.workspaceNotFound` one below.
                 if isWorkspaceReferenceShaped(raw) {
                     return .err(
                         code: "not_found",
                         message: strings?.workspaceNotFound ?? "",
-                        data: .object(["workspace": .string(raw)])
+                        data: .object([
+                            "workspace": .string(raw),
+                            "workspace_id": .null,
+                            "workspace_ref": .null,
+                        ])
                     )
                 }
                 return .err(

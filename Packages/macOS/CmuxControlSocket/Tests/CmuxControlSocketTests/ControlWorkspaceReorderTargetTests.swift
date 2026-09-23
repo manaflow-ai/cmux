@@ -306,4 +306,22 @@ struct ControlWorkspaceReorderTargetTests {
         withExtendedLifetime((singleContext, manyContext)) {}
     }
 
+    /// A stale ref through `workspace.reorder_many` echoes the caller's value
+    /// and keeps the id keys its UUID `not_found` reply carries, as `null`.
+    @Test func reorderManyStaleRefEchoesTheRef() throws {
+        let context = FakeWorkspaceControlCommandContext()
+        let coordinator = ControlCommandCoordinator(context: context)
+        let result = coordinator.handle(ControlRequest(id: .int(1), method: "workspace.reorder_many", params: [
+            "workspace_ids": .array([.string("workspace:999999")]), "dry_run": .bool(true)
+        ]))
+        guard case .err(let code, _, .object(let data))? = result else {
+            Issue.record("A stale ref must fail with a payload")
+            return
+        }
+        #expect(code == "not_found")
+        #expect(data["workspace"] == .string("workspace:999999"))
+        #expect(data["workspace_id"] == .null)
+        #expect(data["workspace_ref"] == .null)
+    }
+
 }
