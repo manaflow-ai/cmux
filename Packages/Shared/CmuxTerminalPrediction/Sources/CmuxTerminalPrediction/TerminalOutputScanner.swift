@@ -7,7 +7,8 @@
 public enum TerminalOutputSignal: Sendable, Equatable {
     /// A byte that prints at the cursor and advances it one cell.
     case printable(UInt8)
-    /// Changes styling or host state but no grid content: SGR and OSC.
+    /// Changes styling or host state but no grid content: SGR, and the
+    /// string sequences (OSC, DCS, APC, PM, SOS) whatever their payload.
     case ignorable
     /// Entered (`true`) or left (`false`) the alternate screen.
     case alternateScreen(Bool)
@@ -23,6 +24,17 @@ public enum TerminalOutputSignal: Sendable, Equatable {
 /// re-synchronising, because a sequence cut in half must not read as two
 /// disruptive events and withdraw a correct prediction.
 public struct TerminalOutputScanner: Sendable {
+    /// The string sequences: a payload of arbitrary bytes, none of which
+    /// reach the grid, running to a terminator.
+    private enum ControlString: Sendable, Equatable {
+        /// OSC, which also ends at BEL.
+        case operatingSystemCommand
+        /// DCS, SOS, PM and APC (`ESC P`, `ESC X`, `ESC ^`, `ESC _`), which end
+        /// only at ST. Ghostty passes BEL through as payload here, so ending
+        /// on it would read the rest of, say, a sixel image as printed text.
+        case other
+    }
+
     private enum State: Sendable, Equatable {
         case ground
         case escape
@@ -30,10 +42,11 @@ public struct TerminalOutputScanner: Sendable {
         /// live in `parameters`, not here, so collecting one is an in-place
         /// append rather than a copy of everything collected so far.
         case controlSequence
-        /// Operating system command, running to BEL or ST.
-        case operatingSystemCommand
-        /// Saw ESC inside an OSC: the next byte decides ST versus a new escape.
-        case operatingSystemCommandEscape
+        /// Inside a string sequence, terminator pending.
+        case controlString(ControlString)
+        /// Saw ESC inside a string sequence: the next byte decides whether it
+        /// was ST.
+        case controlStringEscape(ControlString)
     }
 
     private var state: State = .ground
@@ -80,7 +93,10 @@ public struct TerminalOutputScanner: Sendable {
                 parametersOverflowed = false
                 return nil
             case UInt8(ascii: "]"):
-                state = .operatingSystemCommand
+                state = .controlString(.operatingSystemCommand)
+                return nil
+            case UInt8(ascii: "P"), UInt8(ascii: "X"), UInt8(ascii: "^"), UInt8(ascii: "_"):
+                state = .controlString(.other)
                 return nil
             default:
                 state = .ground
@@ -105,23 +121,31 @@ public struct TerminalOutputScanner: Sendable {
                 final: byte
             )
 
-        case .operatingSystemCommand:
-            if byte == 0x07 {
+        case .controlString(let kind):
+            switch byte {
+            case 0x07 where kind == .operatingSystemCommand:
                 state = .ground
                 return .ignorable
+            case 0x18, 0x1A:
+                // CAN and SUB abort the sequence and are executed as controls.
+                state = .ground
+                return .disruptive
+            case 0x1B:
+                state = .controlStringEscape(kind)
+                return nil
+            default:
+                return nil
             }
-            if byte == 0x1B {
-                state = .operatingSystemCommandEscape
-            }
-            return nil
 
-        case .operatingSystemCommandEscape:
+        case .controlStringEscape(let kind):
             if byte == UInt8(ascii: "\\") {
                 state = .ground
                 return .ignorable
             }
-            // Not a string terminator, so the OSC is still running.
-            state = .operatingSystemCommand
+            // Not a string terminator, so the sequence is still running.
+            // tmux passthrough relies on this: it doubles every ESC inside
+            // its DCS payload.
+            state = .controlString(kind)
             return nil
         }
     }

@@ -34,6 +34,31 @@ struct TerminalOutputScannerTests {
         #expect(scan("\u{1B}]0;title\u{1B}x more\u{7}") == [.ignorable])
     }
 
+    @Test func deviceControlAndApplicationStringsAreIgnorable() {
+        // Their payload is printable ASCII that never reaches the grid; read
+        // as printed text it would contradict a correct prediction.
+        #expect(scan("\u{1B}P+q544e\u{1B}\\") == [.ignorable])
+        #expect(scan("\u{1B}_Gf=100,a=T;AAAA\u{1B}\\") == [.ignorable])
+        #expect(scan("\u{1B}^private\u{1B}\\") == [.ignorable])
+        #expect(scan("\u{1B}Xstart of string\u{1B}\\x") == [.ignorable, .printable(0x78)])
+    }
+
+    @Test func onlyStringTerminatorEndsADeviceControlString() {
+        // BEL is payload here, unlike in an OSC.
+        #expect(scan("\u{1B}Pq#0;2;0;0;0\u{7}#0!7~\u{1B}\\") == [.ignorable])
+        // tmux passthrough doubles each ESC inside its DCS.
+        #expect(scan("\u{1B}Ptmux;\u{1B}\u{1B}]0;title\u{7}\u{1B}\\") == [.ignorable])
+    }
+
+    @Test func aDeviceControlStringSplitAcrossChunksIsStillOneSignal() {
+        #expect(scan(["\u{1B}_Gi=1;", "AAAA", "\u{1B}", "\\x"]) == [.ignorable, .printable(0x78)])
+    }
+
+    @Test func cancelAbortsAStringSequence() {
+        #expect(scan("\u{1B}Pabc\u{18}x") == [.disruptive, .printable(0x78)])
+        #expect(scan("\u{1B}]0;abc\u{1A}x") == [.disruptive, .printable(0x78)])
+    }
+
     @Test func alternateScreenModesAreRecognisedInEveryForm() {
         #expect(scan("\u{1B}[?1049h") == [.alternateScreen(true)])
         #expect(scan("\u{1B}[?1049l") == [.alternateScreen(false)])
