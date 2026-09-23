@@ -64,7 +64,7 @@ async function firstReachable(ip: string, deadlineMs = 30_000): Promise<number |
       void probe(ip).then((ok) => {
         if (ok && !settled) { settled = true; clearInterval(tick); resolve(at); }
       });
-    }, 100);
+    }, 50);
   });
 }
 
