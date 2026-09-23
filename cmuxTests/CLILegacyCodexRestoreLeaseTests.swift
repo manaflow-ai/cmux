@@ -3,8 +3,11 @@ import Testing
 
 @Suite(.serialized)
 struct CLILegacyCodexRestoreLeaseTests {
-    @Test("A legacy Codex command reaches exec with a held conversation lease", arguments: [false, true])
-    func legacyLaunchHoldsLease(plannerFallback: Bool) throws {
+    @Test("Legacy execution preserves mode and protects resumed conversations", arguments: [
+        ("resumeAgent", false, true), ("resumeAgent", true, true),
+        ("direct", false, false), ("relaunchAgent", false, false)
+    ])
+    func legacyLaunchHoldsLease(mode: String, plannerFallback: Bool, expectsLease: Bool) throws {
         let runner = CMUXCLIErrorOutputRegressionTests()
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("cmux-legacy-lease-\(UUID().uuidString)")
         let home = root.appendingPathComponent("account")
@@ -32,7 +35,7 @@ struct CLILegacyCodexRestoreLeaseTests {
         try probe.write(to: executable, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: executable.path)
         var record: [String: Any] = [
-            "kind": "codex", "mode": "resumeAgent", "checkpoint_id": session,
+            "kind": "codex", "mode": mode, "checkpoint_id": session,
             "source": "session-snapshot", "working_directory": root.path,
             "environment": ["CODEX_HOME": home.path],
             "legacy_command": "'\(executable.path)' resume '\(session)' --model 'legacy model'"
@@ -62,7 +65,7 @@ struct CLILegacyCodexRestoreLeaseTests {
         )
         try #require(!result.timedOut && result.status == 0, Comment(rawValue: result.diagnostics))
         let value = try #require(JSONSerialization.jsonObject(with: Data(result.stdout.utf8)) as? [String: Any])
-        #expect(value["held"] as? Bool == true, Comment(rawValue: result.diagnostics))
+        #expect(value["held"] as? Bool == expectsLease, Comment(rawValue: result.diagnostics))
         #expect(value["home"] as? String == home.path)
         #expect((value["argv"] as? [String])?.contains("legacy model") == true)
     }
