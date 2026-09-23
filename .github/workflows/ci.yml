@@ -54,6 +54,7 @@ jobs:
       cli: ${{ steps.detect.outputs.cli }}
       browser: ${{ steps.standalone.outputs.browser }}
       remote_daemon: ${{ steps.standalone.outputs.remote_daemon }}
+      remote_daemon_native: ${{ steps.standalone.outputs.remote_daemon_native }}
       # Empty until the base revision of the router knows this area, so the
       # consumers below read a missing value as "not routed".
       swift_packages: ${{ steps.detect.outputs.swift_packages || 'false' }}
@@ -378,6 +379,7 @@ jobs:
           set -euo pipefail
           browser=false
           remote_daemon=false
+          remote_daemon_native=false
           if [ -f /tmp/cmux-ci-changed-files.txt ]; then
             while IFS= read -r path; do
               case "$path" in
@@ -385,11 +387,18 @@ jobs:
                   # The caller owns both reusable jobs' conditions and targets.
                   browser=true
                   remote_daemon=true
+                  remote_daemon_native=true
                   ;;
                 cmux-browser/*|.github/workflows/cmux-browser.yml)
                   browser=true
                   ;;
-                daemon/remote/*|scripts/*remote_daemon*|scripts/release_asset_guard*|tests/*remote_daemon*|.github/workflows/remote-daemon.yml|.github/workflows/release.yml|.github/workflows/nightly.yml)
+                daemon/remote/*|scripts/*remote_daemon*|scripts/release_asset_guard*|tests/*remote_daemon*|.github/workflows/remote-daemon.yml)
+                  remote_daemon=true
+                  remote_daemon_native=true
+                  ;;
+                .github/workflows/release.yml|.github/workflows/nightly.yml)
+                  # Packaging contracts run on Linux; unchanged Go code does
+                  # not need another native build on the shared Mac pool.
                   remote_daemon=true
                   ;;
               esac
@@ -397,10 +406,12 @@ jobs:
           else
             browser=true
             remote_daemon=true
+            remote_daemon_native=true
           fi
           {
             echo "browser=$browser"
             echo "remote_daemon=$remote_daemon"
+            echo "remote_daemon_native=$remote_daemon_native"
           } >> "$GITHUB_OUTPUT"
 
       # Compile admission runs on every routed push. The rest of the macOS suite
@@ -769,6 +780,8 @@ jobs:
       contents: read
       pull-requests: read
     uses: ./.github/workflows/remote-daemon.yml
+    with:
+      native_tests: ${{ needs.changes.outputs.remote_daemon_native == 'true' || contains(github.event.pull_request.labels.*.name, 'full-ci') }}
 
   cli:
     needs: [changes, static-preflight]
