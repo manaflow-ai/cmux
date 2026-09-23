@@ -16,12 +16,15 @@ final class WorkspaceNavigationTitleView: UIView {
             let glass = UIGlassEffect(style: .regular)
             glass.isInteractive = true
             capsule = UIVisualEffectView(effect: glass)
-            capsule.cornerConfiguration = .capsule()
         } else {
             capsule = UIVisualEffectView(effect: UIBlurEffect(style: .systemThinMaterial))
-            capsule.clipsToBounds = true
         }
         super.init(frame: .zero)
+        if #available(iOS 26.0, *) {
+            capsule.cornerConfiguration = .capsule()
+        } else {
+            capsule.clipsToBounds = true
+        }
         setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         setContentHuggingPriority(.defaultLow, for: .horizontal)
         addSubview(capsule)

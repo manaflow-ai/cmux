@@ -1,4 +1,5 @@
 #if os(iOS)
+import CmuxMobileSupport
 import SwiftUI
 
 extension WorkspaceDetailView {
