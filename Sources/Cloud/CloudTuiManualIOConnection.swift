@@ -1,6 +1,46 @@
 import Darwin
 import Foundation
 
+/// Reserves memory before dispatch captures a payload. The minimum charge also
+/// bounds the number of small queued work items. Reservations live until the
+/// payload is released, including while a socket write is blocked.
+final class CloudTuiManualIOAdmission: @unchecked Sendable {
+    private let lock = NSLock()
+    private let byteLimit: Int
+    private var reservedBytes = 0
+    private var closed = false
+
+    init(byteLimit: Int = 256 * 1024) {
+        self.byteLimit = byteLimit
+    }
+
+    func reserve(_ byteCount: Int) -> Bool {
+        lock.withLock {
+            let charge = max(64, byteCount)
+            guard !closed, charge <= byteLimit - reservedBytes else { return false }
+            reservedBytes += charge
+            return true
+        }
+    }
+
+    func release(_ byteCount: Int) {
+        lock.withLock { reservedBytes = max(0, reservedBytes - max(64, byteCount)) }
+    }
+
+    var isClosed: Bool { lock.withLock { closed } }
+
+    /// Returns true exactly once so rejection cannot enqueue unlimited closes.
+    @discardableResult
+    func invalidate() -> Bool {
+        lock.withLock {
+            guard !closed else { return false }
+            closed = true
+            reservedBytes = 0
+            return true
+        }
+    }
+}
+
 /// A long-lived JSON-lines connection to one local cmux-tui session socket.
 ///
 /// The connection is a transport primitive: it forwards commands and publishes
@@ -45,7 +85,7 @@ final class CloudTuiManualIOConnection: @unchecked Sendable {
     private var pendingWrites: [Data] = []
     private var pendingWriteOffset = 0
     private var pendingWriteBytes = 0
-    private let pendingWriteByteLimit = 256 * 1024
+    private let writeAdmission = CloudTuiManualIOAdmission()
     private var closed = false
 
     init(
@@ -125,26 +165,31 @@ final class CloudTuiManualIOConnection: @unchecked Sendable {
 
     /// Enqueues an already framed JSON line. Used by the input router so it can
     /// preserve ordering while a connection is being rebound.
-    func send(line: Data) {
+    @discardableResult
+    func send(line: Data) -> Bool {
+        guard !line.isEmpty else { return false }
+        guard writeAdmission.reserve(line.count) else {
+            // Reject before the dispatch closure can retain the bytes. A lost
+            // command requires a fresh attachment rather than silent truncation.
+            close()
+            return false
+        }
         queue.async { [self, line] in
-            guard !closed, descriptor >= 0 else { return }
-            guard pendingWriteBytes + line.count <= pendingWriteByteLimit else {
-                // Commands are small and ordered. If a peer stops accepting
-                // them for long enough to exhaust this bound, dropping one
-                // command would be worse than restarting the attachment with
-                // a fresh replay, so close and let the owner reconnect.
-                closeLocked()
+            guard !closed, !writeAdmission.isClosed, descriptor >= 0 else {
+                writeAdmission.release(line.count)
                 return
             }
             pendingWrites.append(line)
             pendingWriteBytes += line.count
             flushWritesLocked()
         }
+        return true
     }
 
     /// Closes only this attachment connection. The remote terminal session stays
     /// owned by cmux-tui and can be attached again later.
     func close() {
+        guard writeAdmission.invalidate() else { return }
         queue.async { [self] in
             closeLocked()
         }
@@ -331,6 +376,7 @@ final class CloudTuiManualIOConnection: @unchecked Sendable {
                 pendingWriteOffset += result
                 pendingWriteBytes -= result
                 if pendingWriteOffset == first.count {
+                    writeAdmission.release(first.count)
                     pendingWrites.removeFirst()
                     pendingWriteOffset = 0
                 }
@@ -362,6 +408,7 @@ final class CloudTuiManualIOConnection: @unchecked Sendable {
     private func closeLocked() {
         guard !closed else { return }
         closed = true
+        writeAdmission.invalidate()
         isConnected = false
         pendingLine.removeAll(keepingCapacity: false)
         pendingLineSearchOffset = 0
