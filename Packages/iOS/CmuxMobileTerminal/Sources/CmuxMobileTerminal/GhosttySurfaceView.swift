@@ -1397,7 +1397,9 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
               let target = keyboardTransitionPresentationTarget,
               viewportSnapshot() == target,
               let renderer = (layer.sublayers ?? []).first(where: isGhosttyRendererLayer),
-              renderer.contents != nil else { return }
+              let identity = verifiedReplayRendererIdentity(from: renderer.contents),
+              abs(CGFloat(identity.pixelWidth) - renderer.bounds.width * renderer.contentsScale) < 2,
+              abs(CGFloat(identity.pixelHeight) - renderer.bounds.height * renderer.contentsScale) < 2 else { return }
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         overlay.removeFromSuperlayer()
