@@ -3,11 +3,6 @@ import Bonsplit
 import Foundation
 import Testing
 
-#if canImport(cmux_DEV)
-@testable import cmux_DEV
-#elseif canImport(cmux)
-@testable import cmux
-#endif
 
 /// Deterministic seedable RNG (SplitMix64): every failure reproduces from
 /// the seed + trial printed in the assertion message.
