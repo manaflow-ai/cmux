@@ -147,7 +147,7 @@ struct CloudTreeCompactLayoutTests {
             let cell = try #require(outline.view(atColumn: 0, row: outline.row(forItem: node), makeIfNecessary: true))
             let ink = try inkColumns(in: cell)
             try #require(ink.runs.count >= 2)
-            return CGFloat(ink.runs[1].lowerBound) / ink.scale
+            return try titleStart(in: ink, style: style, percent: percent)
         }
         // Sections insets the whole machine identity 6pt inside its band.
         // Preserve that decoration while comparing the shared icon column.
@@ -239,6 +239,22 @@ struct CloudTreeCompactLayoutTests {
         let icon = pinned ? 1 : 0
         try #require(ink.runs.count > icon + 1, "Expected visible icon and title ink")
         return CGFloat(ink.runs[icon + 1].lowerBound - ink.runs[icon].upperBound) / ink.scale
+    }
+
+    /// Resolved AppKit symbols can create extra ink runs before the title (for
+    /// example, the monochrome ledger glyph at 75%). Select the first run at
+    /// the layout's expected title column instead of assuming it is always
+    /// the second run in the raster.
+    private func titleStart(
+        in ink: (runs: [Range<Int>], scale: CGFloat), style: CloudTreeStyle, percent: Int
+    ) throws -> CGFloat {
+        let scale = CGFloat(percent) / 100
+        let iconColumn = GlobalFontMagnification.scaledSize(
+            max(style.iconSlot, style.iconSize) + style.iconGap, percent: percent
+        ) + (style.machineBand ? 6 : 0)
+        let minimum = max(0, iconColumn - (1.5 * scale))
+        let run = try #require(ink.runs.first { CGFloat($0.lowerBound) / ink.scale >= minimum })
+        return CGFloat(run.lowerBound) / ink.scale
     }
 
     private func inkColumns(in view: NSView) throws -> (runs: [Range<Int>], scale: CGFloat) {
