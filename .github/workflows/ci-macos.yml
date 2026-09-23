@@ -941,7 +941,7 @@ jobs:
     # transitive skip otherwise marks every macOS job skipped even when
     # linux-preflight itself succeeds. Require the direct needs explicitly.
     if: ${{ !cancelled() && needs.macos-compile-admission.result == 'success' && inputs.macos == 'true' && inputs.full_suite == 'true' }}
-    name: app-host unit tests (${{ matrix.shard }}/6)
+    name: app-host unit tests (${{ matrix.shard }}/7)
     # App-host XCTest needs a runner that can broker testmanagerd control
     # sessions, so route through the shared MACOS_RUNNER_15 var like the other
     # macOS jobs. The fallback is what fork pull requests get, because
@@ -954,7 +954,7 @@ jobs:
       # only needs a verdict, and the first failure already is one.
       fail-fast: ${{ github.event_name == 'merge_group' }}
       matrix:
-        shard: [1, 2, 3, 4, 5, 6]
+        shard: [1, 2, 3, 4, 5, 6, 7]
     env:
       CMUX_NODE_PRODUCT_CACHE_ROOT: ${{ vars.CMUX_NODE_PRODUCT_CACHE_ROOT }}
       CMUX_NODE_PRODUCT_CACHE_MAX_BYTES: ${{ vars.CMUX_NODE_PRODUCT_CACHE_MAX_BYTES }}
@@ -969,15 +969,15 @@ jobs:
       CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_15 }}
       CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
       CMUX_SKIP_ZIG_BUILD: "1"
-      # Strict steps run outside the batch, in four groups on four workers.
-      # CMUX_APP_HOST_RESERVED_WALL_SECONDS is each group's measured wall time,
-      # so the batch gives those workers less and every shard ends together.
-      # Update both when a group moves or grows.
-      CMUX_APP_HOST_GLOBAL_SEARCH_SHARD: "1"
+      # Global search owns a seventh consumer because its serialized container
+      # takes about eight minutes; it skips the broad batches entirely. The
+      # remaining strict groups share workers with broad batches, so reserve
+      # their measured wall time when packing those six workers.
+      CMUX_APP_HOST_GLOBAL_SEARCH_SHARD: "7"
       CMUX_APP_HOST_CLI_REGRESSION_SHARD: "4"
       CMUX_APP_HOST_FOCUSED_REGRESSION_B_SHARD: "5"
       CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD: "6"
-      CMUX_APP_HOST_RESERVED_WALL_SECONDS: "1=474 4=235 5=320 6=284"
+      CMUX_APP_HOST_RESERVED_WALL_SECONDS: "4=235 5=213 6=235"
       # Four-way packing now exceeds the app-host's memory budget as the suite
       # grows: a shard can crash around 1,000 UI tests and poison the remaining
       # selectors. Six-way packing keeps each broad shard near 13 minutes of
@@ -1020,7 +1020,6 @@ jobs:
         continue-on-error: true
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          submodules: recursive
           persist-credentials: false
 
       # WarpBuild can lose GitHub DNS on an otherwise healthy runner. Retry the
@@ -1032,7 +1031,6 @@ jobs:
         continue-on-error: true
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          submodules: recursive
           persist-credentials: false
 
       - name: Diagnose checkout network failure
@@ -1066,38 +1064,6 @@ jobs:
         run: |
           set -euo pipefail
           ./scripts/select-ci-xcode.sh
-
-      - name: Capture Ghostty revision
-        id: ghostty-revision
-        run: |
-          echo "sha=$(git -C ghostty rev-parse HEAD)" >> "$GITHUB_OUTPUT"
-
-      - name: Cache GhosttyKit.xcframework
-        id: cache-ghosttykit
-        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
-        with:
-          path: GhosttyKit.xcframework
-          key: ghosttykit-sentry-off-v1-${{ steps.ghostty-revision.outputs.sha }}
-
-      - name: Download pre-built GhosttyKit.xcframework
-        if: steps.cache-ghosttykit.outputs.cache-hit != 'true'
-        run: |
-          ./scripts/download-prebuilt-ghosttykit.sh
-
-      - name: Install Rust
-        run: |
-          ./scripts/install-rust-ci.sh
-
-      - name: Cache Swift packages
-        uses: ./.github/actions/cache-restore
-        with:
-          backend: ${{ inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND || 'r2' }}
-          path: .ci-source-packages
-          key: spm-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
-          restore-keys: spm-
-
-      - name: Sanitize Swift package cache
-        run: python3 scripts/ci/sanitize-xcode-source-packages-cache.py .ci-source-packages
 
       - name: Prepare isolated DerivedData
         run: |
@@ -1161,8 +1127,21 @@ jobs:
           ARTIFACT_PROVIDER_DIGEST: ${{ needs.macos-compile-admission.outputs.artifact_digest }}
         run: python3 scripts/ci/restore-r2-artifact.py
 
-      - name: Download compiled app-host test product
+      # Same exact-ID GitHub artifact, read over parallel range requests. The
+      # single-stream download-artifact path sustained ~2 MB/s on Blacksmith
+      # macOS (7-10 min per consumer); it stays below as the fallback.
+      - name: Try parallel GitHub artifact transport
+        id: parallel-products
         if: steps.node-products.outputs.hit != 'true' && steps.peer-products.outputs.hit != 'true' && steps.restore-layers.outputs.hit != 'true' && steps.r2-products.outputs.hit != 'true'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_ID: ${{ needs.macos-compile-admission.outputs.artifact_id }}
+          ARTIFACT_PROVIDER_DIGEST: ${{ needs.macos-compile-admission.outputs.artifact_digest }}
+        run: python3 scripts/ci/parallel_artifact_download.py
+
+      - name: Download compiled app-host test product
+        if: steps.node-products.outputs.hit != 'true' && steps.peer-products.outputs.hit != 'true' && steps.restore-layers.outputs.hit != 'true' && steps.r2-products.outputs.hit != 'true' && steps.parallel-products.outputs.hit != 'true'
         uses: ./.github/actions/download-test-product
         with:
           artifact-id: ${{ needs.macos-compile-admission.outputs.artifact_id }}
@@ -1186,6 +1165,8 @@ jobs:
           CMUX_PEER_PRODUCT_TRANSFER_SECONDS: ${{ steps.peer-products.outputs.transfer_seconds }}
           CMUX_PEER_PRODUCT_BYTES: ${{ steps.peer-products.outputs.bytes_transferred }}
           CMUX_R2_PRODUCT_HIT: ${{ steps.r2-products.outputs.hit }}
+          CMUX_PARALLEL_PRODUCT_HIT: ${{ steps.parallel-products.outputs.hit }}
+          CMUX_PARALLEL_PRODUCT_TRANSFER_SECONDS: ${{ steps.parallel-products.outputs.transfer_seconds }}
           CMUX_ARTIFACT_R2_RESULT: ${{ steps.r2-products.outputs.r2_result }}
         run: scripts/ci/restore-app-host-test-product.sh
 
@@ -1210,73 +1191,6 @@ jobs:
       - name: Prepare isolated app-host home
         id: prepare-app-host-home
         run: scripts/ci/prepare-app-host-home.sh
-
-      - name: Resolve Swift packages
-        run: |
-          set -euo pipefail
-          SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
-          mkdir -p "$SOURCE_PACKAGES_DIR"
-          resolve_log="$RUNNER_TEMP/cmux-swiftpm-resolve-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-shard-${{ matrix.shard }}.log"
-
-          for attempt in 1 2 3; do
-            set +e
-            xcodebuild -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
-              -derivedDataPath "$CMUX_DERIVED_DATA_PATH" \
-              -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
-              -resolvePackageDependencies 2>&1 | tee "$resolve_log"
-            resolve_status="${PIPESTATUS[0]}"
-            set -e
-
-            if [ "$resolve_status" -eq 0 ]; then
-              # Guard against a stale/poisoned Swift-package cache: a restored
-              # .ci-source-packages can make resolve report success without the
-              # binary artifacts (Sparkle/Sentry) actually present, which then
-              # fails the build. Verify they materialized; if not, clear and retry.
-              if [ -d "$SOURCE_PACKAGES_DIR/artifacts/sparkle/Sparkle/Sparkle.xcframework" ] && [ -d "$SOURCE_PACKAGES_DIR/artifacts/sentry-cocoa/Sentry/Sentry.xcframework" ]; then
-                exit 0
-              fi
-              echo "Resolve succeeded but binary artifacts are missing (stale cache); clearing and retrying" >&2
-              rm -rf "$SOURCE_PACKAGES_DIR"  # whole dir — resolve will not re-materialize artifacts into a partial tree
-            fi
-
-            # SwiftPM stores binary download destinations under the runner's
-            # global cache even when clonedSourcePackagesDirPath is isolated.
-            # A reused runner can leave the Iroh archive destination behind;
-            # SwiftPM then reports "already exists in file system" on every
-            # retry. Clear both resolver layers only for that cache collision,
-            # while preserving other failures for diagnosis.
-            if [ "$resolve_status" -ne 0 ] && grep -Fq "already exists in file system" "$resolve_log"; then
-              echo "SwiftPM artifact cache collision detected; clearing resolver caches before retry" >&2
-              rm -rf "$HOME/Library/Caches/org.swift.swiftpm"
-              mkdir -p "$HOME/Library/Caches/org.swift.swiftpm"
-              rm -rf "$SOURCE_PACKAGES_DIR"
-              mkdir -p "$SOURCE_PACKAGES_DIR"
-            fi
-
-            # Keep the existing three-attempt policy, but record resolver
-            # state when a package attempt fails so provider incidents are
-            # distinguishable from SwiftPM or cache defects.
-            scripts/ci/capture-network-diagnostics.sh || true
-            if [ "$attempt" -eq 3 ]; then
-              echo "Failed to resolve Swift packages after 3 attempts" >&2
-              exit 1
-            fi
-            echo "Package resolution failed on attempt $attempt, retrying..."
-            sleep $((attempt * 5))
-          done
-
-      - name: Restage package frameworks after resolution
-        run: |
-          set -euo pipefail
-          products="$CMUX_DERIVED_DATA_PATH/Build/Products/Debug"
-          if [ -L "$products/PackageFrameworks" ]; then
-            rm "$products/PackageFrameworks"
-          fi
-          mkdir -p "$products/PackageFrameworks"
-          framework_source="$(find "$products" -type d -name 'CmuxAgentJournal*_PackageProduct.framework' -print -quit 2>/dev/null || true)"
-          test -n "$framework_source"
-          rsync -aL "$(dirname "$framework_source")/" "$products/PackageFrameworks/"
-          test -f "$products/PackageFrameworks/CmuxAgentJournal_27B6EF8727F6C277_PackageProduct.framework/Versions/A/CmuxAgentJournal_27B6EF8727F6C277_PackageProduct"
 
       - name: Enumerate built app-host tests
         run: |
@@ -1312,22 +1226,6 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
-      - name: Run Ghostty split-theme appearance regression
-        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
-        run: |
-          set -euo pipefail
-          DERIVED_DATA_PATH="${RUNNER_TEMP:-/tmp}/cmux-terminal-core-split-theme"
-          rm -rf "$DERIVED_DATA_PATH"
-          (
-            cd Packages/macOS/CmuxTerminalCore
-            xcodebuild \
-              -scheme CmuxTerminalCore-Package \
-              -destination "platform=macOS" \
-              -derivedDataPath "$DERIVED_DATA_PATH" \
-              build-for-testing
-          )
-          xcrun xctest "$DERIVED_DATA_PATH/Build/Products/Debug/CmuxTerminalCoreTests.xctest"
-
       - name: Enable XCTest automation mode
         run: |
           set -euo pipefail
@@ -1340,29 +1238,6 @@ jobs:
           else
             echo "::warning::Passwordless sudo unavailable; XCTest will use its default automation-mode setup"
           fi
-
-      - name: Run main window zoom placement regressions
-        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
-        run: |
-          # The bulk app-host classifier tolerates ordinary assertion failures.
-          # Window placement regressions must fail the shard directly while
-          # reusing the compile-admission product.
-          set -euo pipefail
-          test_log="$RUNNER_TEMP/cmux-main-window-zoom-placement.txt"
-          bash scripts/ci/run-and-capture.sh "$test_log" \
-            scripts/ci/run-in-console-session.sh \
-            env CMUX_TAG=main-window-zoom-placement \
-            scripts/ci/run-app-host-xcodebuild.sh \
-            -xctestrun "$CMUX_APP_HOST_XCTESTRUN" \
-            -destination "platform=macOS" \
-            -only-testing:cmuxTests/MainWindowZoomPlacementTests \
-            CMUX_SKIP_ZIG_BUILD=1 \
-            -test-timeouts-enabled YES \
-            -default-test-execution-time-allowance 60 \
-            -maximum-test-execution-time-allowance 60 \
-            test-without-building
-          scripts/ci/require_selected_test_execution.sh \
-            "$test_log" cmuxTests/MainWindowZoomPlacementTests
 
       - name: Run My Devices regressions
         if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
@@ -1397,86 +1272,6 @@ jobs:
             -only-testing:cmuxTests/SurfaceMachineIDDeviceEncodingTests \
             test-without-building
 
-      - name: Run bundled command PATH regression
-        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
-        run: |
-          # The tolerant full-suite step accepts ordinary Swift Testing failures.
-          # Keep the shell-resolution integration test non-tolerant so losing
-          # cmux's bundled commands from PATH cannot pass a shard.
-          set -euo pipefail
-          if ! command -v fish >/dev/null 2>&1; then
-            HOMEBREW_NO_AUTO_UPDATE=1 brew install fish
-          fi
-          command -v fish >/dev/null 2>&1
-          scripts/ci/run-in-console-session.sh \
-            scripts/ci/run-app-host-xcodebuild.sh \
-            -xctestrun "$CMUX_APP_HOST_XCTESTRUN" \
-            -destination "platform=macOS" \
-            CMUX_SKIP_ZIG_BUILD=1 \
-            -only-testing:cmuxTests/CmuxBundledBinPathIntegrationTests \
-            test-without-building
-
-      - name: Run agent chat transcript lifecycle regressions
-        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
-        run: |
-          # Swift Testing assertion failures are tolerated in the full sharded
-          # app-host suite. Keep hook-driven transcript resolution on a
-          # non-tolerant focused invocation so Feed ingress cannot regain an
-          # unbounded recursive filesystem scan.
-          set -euo pipefail
-          for suite in \
-            AgentChatSessionRegistryLifecycleReviewRegressionTests \
-            AgentChatFallbackTranscriptResolutionCoordinatorTests
-          do
-            scripts/ci/run-in-console-session.sh \
-              scripts/ci/run-app-host-xcodebuild.sh \
-              -xctestrun "$CMUX_APP_HOST_XCTESTRUN" \
-              -destination "platform=macOS" \
-              CMUX_SKIP_ZIG_BUILD=1 \
-              -only-testing:"cmuxTests/$suite" \
-              test-without-building
-          done
-
-      - name: Run agent resume binding regressions
-        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
-        run: |
-          # Swift Testing assertion failures are tolerated in the full sharded
-          # app-host suite. Keep the resume-binding ownership rules on a
-          # non-tolerant focused invocation so a same-session agent-hook write
-          # or a TUI prompt mark cannot regain the ability to demote a live
-          # agent's automatic resume (#12084).
-          set -euo pipefail
-          for suite in \
-            SurfaceResumeAgentHookDowngradeTests \
-            RestoredAgentShellActivityLivenessTests \
-            RestoreAdmissionRetryPolicyTests \
-            LiveAgentIndexRelevantChurnTests
-          do
-            scripts/ci/run-in-console-session.sh \
-              scripts/ci/run-app-host-xcodebuild.sh \
-              -xctestrun "$CMUX_APP_HOST_XCTESTRUN" \
-              -destination "platform=macOS" \
-              CMUX_SKIP_ZIG_BUILD=1 \
-              -only-testing:"cmuxTests/$suite" \
-              test-without-building
-          done
-
-      - name: Run browser runtime viewport regression
-        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
-        run: |
-          # The tolerant full-suite step can accept ordinary assertion failures
-          # when XCTest reports "0 unexpected". Keep the real-WKWebView DOM
-          # viewport check non-tolerant so a layout-only screenshot workaround
-          # cannot make this regression appear green.
-          set -euo pipefail
-          scripts/ci/run-in-console-session.sh \
-            scripts/ci/run-app-host-xcodebuild.sh \
-            -xctestrun "$CMUX_APP_HOST_XCTESTRUN" \
-            -destination "platform=macOS" \
-            CMUX_SKIP_ZIG_BUILD=1 \
-            -only-testing:cmuxTests/BrowserViewportRuntimeTests \
-            test-without-building
-
       - name: Run five-tab renderer memory regression
         if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
         run: |
@@ -1491,43 +1286,6 @@ jobs:
             -destination "platform=macOS" \
             CMUX_SKIP_ZIG_BUILD=1 \
             -only-testing:cmuxTests/GhosttySurfaceOverlayTests/testFiveTabRendererFootprintReturnsToOneRendererTargetAcrossHideRevealCycles \
-            test-without-building
-
-      - name: Run PTY spawn starvation regressions
-        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
-        run: |
-          # The tolerant full-suite step can accept ordinary assertion
-          # failures. Keep the issue #9769 coverage — background-prime work
-          # must exclude never-startable surfaces, and `cmux send` must
-          # surface queued delivery — on a non-tolerant focused invocation.
-          set -euo pipefail
-          scripts/ci/run-in-console-session.sh \
-            scripts/ci/run-app-host-xcodebuild.sh \
-            -xctestrun "$CMUX_APP_HOST_XCTESTRUN" \
-            -destination "platform=macOS" \
-            CMUX_SKIP_ZIG_BUILD=1 \
-            -only-testing:cmuxTests/BackgroundPrimeStartableSurfaceTests \
-            -only-testing:cmuxTests/CLISendQueuedOutputTests \
-            test-without-building
-
-      - name: Run notification routing regressions
-        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
-        run: |
-          # The tolerant full-suite step can accept assertion failures or stop
-          # after an app-host crash before this suite runs. Keep notification
-          # move/clear causality coverage on a non-tolerant focused invocation.
-          set -euo pipefail
-          scripts/ci/run-in-console-session.sh \
-            scripts/ci/run-app-host-xcodebuild.sh \
-            -xctestrun "$CMUX_APP_HOST_XCTESTRUN" \
-            -destination "platform=macOS" \
-            CMUX_SKIP_ZIG_BUILD=1 \
-            -only-testing:cmuxTests/DockNotificationAttentionTests \
-            -only-testing:cmuxTests/ClaudeHookLifecycleCleanupTests \
-            -only-testing:cmuxTests/ClaudeHookLiveDeliveryTargetTests \
-            -only-testing:cmuxTests/ClaudeHookPIDAuthenticationTests \
-            -only-testing:cmuxTests/HostSettingsShortcutNotificationTests \
-            -only-testing:cmuxTests/PhonePushPresenceGateTests \
             test-without-building
 
       - name: Run Pi Feed ownership regressions
@@ -1659,90 +1417,6 @@ jobs:
           if-no-files-found: ignore
           retention-days: 7
 
-      - name: Run browser system proxy mirror regression
-        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_B_SHARD) }}
-        run: |
-          # Focused gate for https://github.com/manaflow-ai/cmux/issues/5888.
-          # The full "Run unit tests" step tolerates app-host crashes by
-          # parsing only the last test summary, so suites that run late can
-          # otherwise be skipped by an app-host abort that still reports
-          # "(0 unexpected)". Keep this targeted only-testing invocation as a
-          # non-tolerant guard for the system proxy mirror regression.
-          set -euo pipefail
-          scripts/ci/run-in-console-session.sh \
-            scripts/ci/run-app-host-xcodebuild.sh \
-            -xctestrun "$CMUX_APP_HOST_XCTESTRUN" \
-            -destination "platform=macOS" \
-            CMUX_SKIP_ZIG_BUILD=1 \
-            -only-testing:cmuxTests/BrowserSystemProxyMirrorTests \
-            test-without-building
-
-      - name: Run Cloud notification dismiss parity regression
-        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_B_SHARD) }}
-        run: |
-          # Focused gate for https://github.com/manaflow-ai/cmux/issues/13000.
-          # The tolerant full-suite step accepts ordinary Swift Testing
-          # failures, so keep the one-read-state contract between the local
-          # store, the left sidebar, and the Cloud tree on a non-tolerant
-          # only-testing invocation.
-          set -euo pipefail
-          scripts/ci/run-in-console-session.sh \
-            scripts/ci/run-app-host-xcodebuild.sh \
-            -xctestrun "$CMUX_APP_HOST_XCTESTRUN" \
-            -destination "platform=macOS" \
-            CMUX_SKIP_ZIG_BUILD=1 \
-            -only-testing:cmuxTests/CloudNotificationDismissParityTests \
-            test-without-building
-
-      - name: Run agent restore admission regression
-        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_B_SHARD) }}
-        run: |
-          # Focused gate for https://github.com/manaflow-ai/cmux/issues/12158.
-          # The tolerant full-suite step accepts ordinary Swift Testing
-          # failures, so keep restore admission under hook-store churn, the
-          # per-kind store completeness rule, and the surviving-owner notice
-          # on a non-tolerant only-testing invocation.
-          set -euo pipefail
-          scripts/ci/run-in-console-session.sh \
-            scripts/ci/run-app-host-xcodebuild.sh \
-            -xctestrun "$CMUX_APP_HOST_XCTESTRUN" \
-            -destination "platform=macOS" \
-            CMUX_SKIP_ZIG_BUILD=1 \
-            -only-testing:cmuxTests/AgentRestoreLiveOwnerAdmissionTests \
-            test-without-building
-
-      - name: Run Option/Alt sided-modifier regression
-        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_B_SHARD) }}
-        run: |
-          set -euo pipefail
-          scripts/ci/run-in-console-session.sh \
-            scripts/ci/run-app-host-xcodebuild.sh \
-            -xctestrun "$CMUX_APP_HOST_XCTESTRUN" \
-            -destination "platform=macOS" \
-            CMUX_SKIP_ZIG_BUILD=1 \
-            -only-testing:cmuxTests/GhosttyOptionAsAltModsTests \
-            test-without-building
-
-      - name: Run ssh-session-attach anchor regression
-        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_B_SHARD) }}
-        run: |
-          # Focused gate for https://github.com/manaflow-ai/cmux/issues/7367.
-          # The full "Run unit tests" step tolerates any xcodebuild failure
-          # whose last test summary reports "(0 unexpected)", and test
-          # assertion failures never increment the unexpected count on these
-          # runners — so a failing regression assertion in the sharded run
-          # cannot turn the shard red. Keep this targeted only-testing
-          # invocation as a non-tolerant guard for the ssh-session-attach
-          # split-anchor regression.
-          set -euo pipefail
-          scripts/ci/run-in-console-session.sh \
-            scripts/ci/run-app-host-xcodebuild.sh \
-            -xctestrun "$CMUX_APP_HOST_XCTESTRUN" \
-            -destination "platform=macOS" \
-            CMUX_SKIP_ZIG_BUILD=1 \
-            -only-testing:cmuxTests/CLISSHSessionAttachAnchorTests \
-            test-without-building
-
       - name: Run focused browser regressions
         if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_B_SHARD) }}
         run: |
@@ -1810,20 +1484,6 @@ jobs:
             -destination "platform=macOS" \
             CMUX_SKIP_ZIG_BUILD=1 \
             -only-testing:cmuxTests/SocketACLReloadRegressionTests \
-            test-without-building
-
-      - name: Run notification scroll restoration regression
-        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_B_SHARD) }}
-        run: |
-          set -euo pipefail
-          scripts/ci/run-in-console-session.sh \
-            scripts/ci/run-app-host-xcodebuild.sh \
-            -xctestrun "$CMUX_APP_HOST_XCTESTRUN" \
-            -destination "platform=macOS" \
-            CMUX_SKIP_ZIG_BUILD=1 \
-            -only-testing:cmuxTests/NotificationRowSnapshotBoundaryTests \
-            -only-testing:cmuxTests/NotificationScrollRestoreLifecycleTests \
-            -only-testing:cmuxTests/NotificationScrollRestoreRecoveryTests \
             test-without-building
 
       - name: Run terminal creation interactive-shell CLI regression
@@ -1899,22 +1559,6 @@ jobs:
             -destination "platform=macOS" \
             CMUX_SKIP_ZIG_BUILD=1 \
             -only-testing:cmuxTests/SidebarWorkspaceSwitchLayoutFaultTests \
-            test-without-building
-
-      - name: Run Cloud workspace rename surface parity regression
-        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_B_SHARD) }}
-        run: |
-          # The tolerant full-suite step can accept Swift Testing assertion
-          # failures when XCTest reports "0 unexpected". Keep #12986's
-          # three-surface name parity non-tolerant so a local title cache can
-          # never again outlive the accepted daemon name on one surface.
-          set -euo pipefail
-          scripts/ci/run-in-console-session.sh \
-            scripts/ci/run-app-host-xcodebuild.sh \
-            -xctestrun "$CMUX_APP_HOST_XCTESTRUN" \
-            -destination "platform=macOS" \
-            CMUX_SKIP_ZIG_BUILD=1 \
-            -only-testing:cmuxTests/CloudWorkspaceRenameSurfaceParityTests \
             test-without-building
 
       - name: Run terminal portal visibility regressions
@@ -2027,6 +1671,7 @@ jobs:
           done
 
       - name: Run unit tests
+        if: ${{ matrix.shard != fromJSON(env.CMUX_APP_HOST_GLOBAL_SEARCH_SHARD) }}
         run: |
           set -euo pipefail
           PHYSICAL_SHARD="${{ matrix.shard }}"
@@ -2072,6 +1717,19 @@ jobs:
             if [ "${#only_testing_args[@]}" -eq 0 ]; then
               echo "No selectors generated for app-host unit-test batch ${logical_shard}/${LOGICAL_SHARD_TOTAL}"
               return 1
+            fi
+
+            # CmuxBundledBinPathIntegrationTests includes fish-specific coverage
+            # that is enabled only when fish exists. Install it only on the
+            # worker/batch that actually owns that selector.
+            if grep -Fq 'CmuxBundledBinPathIntegrationTests' "$shard_args"; then
+              if ! command -v fish >/dev/null 2>&1; then
+                HOMEBREW_NO_AUTO_UPDATE=1 brew install fish
+              fi
+              command -v fish >/dev/null 2>&1 || {
+                echo "fish is required for CmuxBundledBinPathIntegrationTests" >&2
+                return 1
+              }
             fi
 
             echo "Running app-host unit-test batch ${logical_shard}/${LOGICAL_SHARD_TOTAL}, execution ${execution_attempt}"
@@ -2210,33 +1868,6 @@ jobs:
           set -e
           collect_unit_test_output
 
-          # Retry package resolution only when the failed execution contains no
-          # evidence that tests began. This recovery can never replace a test
-          # verdict from the first execution.
-          if [ "$EXIT_CODE" -ne 0 ] \
-            && grep -q "Could not resolve package dependencies" "$TEST_OUTPUT"; then
-            set +e
-            python3 scripts/ci/classify-app-host-test-output.py "$TEST_OUTPUT" --retry-safe
-            RETRY_SAFE=$?
-            set -e
-            if [ "$RETRY_SAFE" -eq 0 ]; then
-              echo "SwiftPM package resolution failed before tests; clearing caches and retrying once"
-              rm -rf ~/Library/Caches/org.swift.swiftpm
-              mkdir -p ~/Library/Caches/org.swift.swiftpm
-              xcodebuild -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
-                -derivedDataPath "$CMUX_DERIVED_DATA_PATH" \
-                -clonedSourcePackagesDirPath "$PWD/.ci-source-packages" \
-                -resolvePackageDependencies
-              set +e
-              run_unit_tests 2
-              EXIT_CODE=$?
-              set -e
-              collect_unit_test_output
-            else
-              echo "Preserving first execution failure; SwiftPM retry blocked after test execution evidence"
-            fi
-          fi
-
           if [ "$EXIT_CODE" -ne 0 ]; then
             echo "App-host unit-test batch failed with status ${EXIT_CODE}"
             exit "$EXIT_CODE"
@@ -2246,8 +1877,7 @@ jobs:
         if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_CLI_REGRESSION_SHARD) }}
         run: |
           set -euo pipefail
-          CMUX_SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages" \
-            ./tests/test_bundled_ghostty_theme_picker_helper.sh
+          ./tests/test_bundled_ghostty_theme_picker_helper.sh
 
       - name: Set up Bun for Pi extension dispatch regression
         if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_CLI_REGRESSION_SHARD) }}
@@ -3117,8 +2747,21 @@ jobs:
           ARTIFACT_PROVIDER_DIGEST: ${{ needs.macos-compile-admission.outputs.artifact_digest }}
         run: python3 scripts/ci/restore-r2-artifact.py
 
-      - name: Download compiled app-host test product
+      # Same exact-ID GitHub artifact, read over parallel range requests. The
+      # single-stream download-artifact path sustained ~2 MB/s on Blacksmith
+      # macOS (7-10 min per consumer); it stays below as the fallback.
+      - name: Try parallel GitHub artifact transport
+        id: parallel-products
         if: steps.node-products.outputs.hit != 'true' && steps.peer-products.outputs.hit != 'true' && steps.restore-layers.outputs.hit != 'true' && steps.r2-products.outputs.hit != 'true'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_ID: ${{ needs.macos-compile-admission.outputs.artifact_id }}
+          ARTIFACT_PROVIDER_DIGEST: ${{ needs.macos-compile-admission.outputs.artifact_digest }}
+        run: python3 scripts/ci/parallel_artifact_download.py
+
+      - name: Download compiled app-host test product
+        if: steps.node-products.outputs.hit != 'true' && steps.peer-products.outputs.hit != 'true' && steps.restore-layers.outputs.hit != 'true' && steps.r2-products.outputs.hit != 'true' && steps.parallel-products.outputs.hit != 'true'
         uses: ./.github/actions/download-test-product
         with:
           artifact-id: ${{ needs.macos-compile-admission.outputs.artifact_id }}
@@ -3142,6 +2785,8 @@ jobs:
           CMUX_PEER_PRODUCT_TRANSFER_SECONDS: ${{ steps.peer-products.outputs.transfer_seconds }}
           CMUX_PEER_PRODUCT_BYTES: ${{ steps.peer-products.outputs.bytes_transferred }}
           CMUX_R2_PRODUCT_HIT: ${{ steps.r2-products.outputs.hit }}
+          CMUX_PARALLEL_PRODUCT_HIT: ${{ steps.parallel-products.outputs.hit }}
+          CMUX_PARALLEL_PRODUCT_TRANSFER_SECONDS: ${{ steps.parallel-products.outputs.transfer_seconds }}
           CMUX_ARTIFACT_R2_RESULT: ${{ steps.r2-products.outputs.r2_result }}
         run: scripts/ci/restore-app-host-test-product.sh
 

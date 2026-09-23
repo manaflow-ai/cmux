@@ -20,9 +20,14 @@ extension CloudWorkspaceRenameService {
             if owner.panelCustomTitles[projection.panelID] != nil,
                (owner.panelCustomTitleSources[projection.panelID] ?? .user) == .user { return false }
         }
-        let accepted = catalog.pendingCloudRenameName(for: .tab(machine: resource.machine, id: tabID))
-            ?? resource.remoteViews?.first(where: { $0.tabID == tabID })?.name ?? ""
-        return accepted.isEmpty || (workspace.panelCustomTitleSources[panelID] == .auto
-            && workspace.panelCustomTitles[panelID] == accepted)
+        let pending = catalog.pendingCloudRenameName(for: .tab(machine: resource.machine, id: tabID))
+        let accepted = pending ?? resource.remoteViews?.first(where: { $0.tabID == tabID })?.name ?? ""
+        if accepted.isEmpty { return true }
+        // An accepted name reconciles locally as `.remote`, so the daemon's
+        // name authority says whether an agent owns it and may replace it.
+        if pending == nil, let tab = catalog.cloudStates[resource.machine]?.lookupIndex.tab(id: tabID),
+           tab.name == accepted, tab.nameAuthority?.source == .auto { return true }
+        return workspace.panelCustomTitleSources[panelID] == .auto
+            && workspace.panelCustomTitles[panelID] == accepted
     }
 }

@@ -1956,11 +1956,16 @@ final class BrowserDeveloperToolsConfigurationTests: XCTestCase {
     ) throws -> NSColor {
         let terminal = try XCTUnwrap(terminalColor.usingColorSpace(.sRGB))
         // Match `GhosttyBackgroundTheme.resolvedColor`, which resolves semantic
-        // window colors against Ghostty's terminal appearance. Reading the
-        // ambient AppKit color would make this assertion host-appearance dependent.
+        // window colors against Ghostty's effective terminal color scheme rather
+        // than the ambient AppKit appearance. That scheme is itself host-dependent
+        // (light on a fresh CI host), so read the same preference the product
+        // consults instead of assuming dark.
         let base = try XCTUnwrap(
             WindowAppearanceSnapshot
-                .resolvedColor(.windowBackgroundColor, for: .dark)
+                .resolvedColor(
+                    .windowBackgroundColor,
+                    for: GhosttyApp.shared.effectiveTerminalColorSchemePreference == .dark ? .dark : .light
+                )
                 .usingColorSpace(.sRGB)
         )
         return NSColor(

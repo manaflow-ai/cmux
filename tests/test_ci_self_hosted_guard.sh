@@ -220,17 +220,17 @@ check_ios_tart_canary() {
     echo "FAIL: test-ios.yml must expose the Tart iOS canary runner"
     exit 1
   fi
-  if [[ "$(grep -c 'tart-ios resolved to unexpected runner' "$IOS_FILE")" -ne 2 ]] ||
-     [[ "$(grep -c 'tart-ios runner is missing the immutable VM identity marker' "$IOS_FILE")" -ne 2 ]]; then
-    echo "FAIL: both macOS iOS test jobs must fail closed on Tart identity mismatch"
+  if [[ "$(grep -c 'tart-ios resolved to unexpected runner' "$IOS_FILE")" -ne 3 ]] ||
+     [[ "$(grep -c 'tart-ios runner is missing the immutable VM identity marker' "$IOS_FILE")" -ne 3 ]]; then
+    echo "FAIL: all macOS iOS test jobs must fail closed on Tart identity mismatch"
     exit 1
   fi
-  if [[ "$(grep -Fc "runs-on: \${{ (!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_IOS || 'blacksmith-6vcpu-macos-26') || inputs.runner }}" "$IOS_FILE")" -ne 2 ]]; then
-    echo "FAIL: both macOS iOS test jobs must honor the dispatch runner override"
+  if [[ "$(grep -Fc "runs-on: \${{ (!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_IOS || 'blacksmith-6vcpu-macos-26') || inputs.runner }}" "$IOS_FILE")" -ne 3 ]]; then
+    echo "FAIL: all macOS iOS test jobs must honor the dispatch runner override"
     exit 1
   fi
-  if [[ "$(grep -Fc "startsWith((!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_IOS || 'blacksmith-6vcpu-macos-26') || inputs.runner, 'tart-')" "$IOS_FILE")" -ne 2 ]]; then
-    echo "FAIL: both macOS iOS test jobs must validate Tart identity for explicit and repo-variable routing"
+  if [[ "$(grep -Fc "startsWith((!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_IOS || 'blacksmith-6vcpu-macos-26') || inputs.runner, 'tart-')" "$IOS_FILE")" -ne 3 ]]; then
+    echo "FAIL: all macOS iOS test jobs must validate Tart identity for explicit and repo-variable routing"
     exit 1
   fi
   echo "PASS: test-ios.yml exposes the guarded Tart iOS canary"
@@ -1626,8 +1626,8 @@ pr_workflow_events() {
 
 pr_concurrency_cancels_superseded_runs() {
   # The group must be the same for every push to one pull request, and
-  # cancel-in-progress must be true for every pull request event the workflow
-  # triggers on.
+  # cancel-in-progress must be true for new source pushes. Label-only events
+  # may preserve a running compile so full-ci escalation can reuse it.
   local file="$1" event
   local events group_key
   events="$(pr_workflow_events "$file")"
@@ -1654,6 +1654,10 @@ pr_concurrency_cancels_superseded_runs() {
         sub(/^[[:space:]]+cancel-in-progress:[[:space:]]*/, "", value)
         sub(/[[:space:]]+$/, "", value)
         if (value == "${{ github.event_name == \047" ENVIRON["EVENT"] "\047 }}") ok=1
+        # Recognize only the CI workflow label exception: synchronize still
+        # cancels the old head. Extra clauses could suppress that cancellation.
+        if (ENVIRON["EVENT"] == "pull_request" &&
+            value == "${{ github.event_name == \047pull_request\047 && github.event.action != \047labeled\047 && github.event.action != \047unlabeled\047 }}") ok=1
       }
       END { exit !ok }
     ' "$file" || return 1
@@ -1717,6 +1721,11 @@ check_pr_macos_workflows_cancel_superseded_runs() {
   done <<'CASES'
 on:\n  pull_request:~ci-${{ github.ref }}~true~accept
 on: pull_request~ci-${{ github.ref }}~${{ github.event_name == 'pull_request' }}~accept
+on: pull_request~ci-${{ github.ref }}~${{ github.event_name == 'pull_request' && github.event.action != 'labeled' && github.event.action != 'unlabeled' }}~accept
+on: pull_request~ci-${{ github.ref }}~${{ github.event_name == 'pull_request' && github.event.action != 'synchronize' }}~reject
+on: pull_request~ci-${{ github.ref }}~${{ github.event_name == 'pull_request' && github.event.action != 'labeled' && github.event.action != 'unlabeled' && false }}~reject
+on: pull_request~ci-${{ github.ref }}~${{ github.event_name == 'push' && github.event.action != 'labeled' && github.event.action != 'unlabeled' }}~reject
+on: pull_request_target~ci-${{ github.event.pull_request.number }}~${{ github.event_name == 'pull_request' && github.event.action != 'labeled' && github.event.action != 'unlabeled' }}~reject
 on: [push, pull_request]~ci-${{ github.event.pull_request.number || github.run_id }}~${{ github.event_name == 'pull_request' }}~accept
 on:\n  pull_request_target:~ci-${{ github.event.pull_request.number }}~${{ github.event_name == 'pull_request_target' }}~accept
 on:\n  pull_request_target:~ci-${{ github.ref }}~true~reject
