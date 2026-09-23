@@ -74,19 +74,70 @@ extension AppDelegate {
         // run-loop turns, and a contended CI runner can take several of them;
         // the pump's one-second default expires before the window goes key.
         guard await AppKitTestEventPump().waitUntil(timeout: .seconds(10), {
-            panel.hostedView.uiWindow === window
-                && panel.hostedView.surfaceView.window === window
-                && panel.hostedView.bounds.width > 1
-                && panel.hostedView.bounds.height > 1
-                && panel.hostedView.surfaceView.bounds.width > 1
-                && panel.hostedView.surfaceView.bounds.height > 1
-                && window.isKeyWindow
-        }) else { return false }
+            terminalFocusPreconditions(panel, in: window).allSatisfy(\.holds)
+        }) else {
+            reportUnmetTerminalFocusConditions(
+                "window never became ready within 10s",
+                terminalFocusPreconditions(panel, in: window)
+            )
+            return false
+        }
         noteMainPanelKeyboardFocusIntent(workspaceId: workspace.id, panelId: panel.id, in: window)
         workspace.focusPanel(panel.id, focusIntent: .terminal(.surface))
-        return window.makeFirstResponder(panel.hostedView.surfaceView)
-            && window.firstResponder === panel.hostedView.surfaceView
-            && allowsTerminalKeyboardFocus(workspaceId: workspace.id, panelId: panel.id, in: window)
+
+        let surfaceView = panel.hostedView.surfaceView
+        guard window.makeFirstResponder(surfaceView) else {
+            reportRefusedTerminalFocus("makeFirstResponder(surfaceView) returned false")
+            return false
+        }
+        guard window.firstResponder === surfaceView else {
+            reportRefusedTerminalFocus("window.firstResponder is not the surface view")
+            return false
+        }
+        guard allowsTerminalKeyboardFocus(
+            workspaceId: workspace.id, panelId: panel.id, in: window
+        ) else {
+            reportRefusedTerminalFocus("allowsTerminalKeyboardFocus denied the panel")
+            return false
+        }
+        return true
+    }
+
+    /// The window conditions ``focusTerminalForTesting(_:workspace:in:)`` waits
+    /// for, named individually.
+    ///
+    /// A timeout used to surface as a bare `false`, which told a CI log nothing
+    /// about which of seven conditions never held — the reason focus timeouts
+    /// here have been hard to act on. Naming them keeps the wait's semantics
+    /// identical while making a failure say what it was still waiting for.
+    private func terminalFocusPreconditions(
+        _ panel: TerminalPanel,
+        in window: NSWindow
+    ) -> [(name: String, holds: Bool)] {
+        let hosted = panel.hostedView
+        return [
+            ("hostedView.uiWindow === window", hosted.uiWindow === window),
+            ("surfaceView.window === window", hosted.surfaceView.window === window),
+            ("hostedView.bounds.width > 1", hosted.bounds.width > 1),
+            ("hostedView.bounds.height > 1", hosted.bounds.height > 1),
+            ("surfaceView.bounds.width > 1", hosted.surfaceView.bounds.width > 1),
+            ("surfaceView.bounds.height > 1", hosted.surfaceView.bounds.height > 1),
+            ("window.isKeyWindow", window.isKeyWindow),
+        ]
+    }
+
+    /// Prints the conditions that did not hold, so the failure names its cause.
+    private func reportUnmetTerminalFocusConditions(
+        _ summary: String,
+        _ conditions: [(name: String, holds: Bool)]
+    ) {
+        let unmet = conditions.filter { !$0.holds }.map(\.name).joined(separator: ", ")
+        print("focusTerminalForTesting: \(summary); unmet: [\(unmet)]")
+    }
+
+    /// Prints why first-responder acquisition was refused.
+    private func reportRefusedTerminalFocus(_ reason: String) {
+        print("focusTerminalForTesting: \(reason)")
     }
 
     @discardableResult
