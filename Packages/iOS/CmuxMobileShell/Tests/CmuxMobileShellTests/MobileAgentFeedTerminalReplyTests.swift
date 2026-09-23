@@ -11,18 +11,18 @@ struct MobileAgentFeedTerminalReplyTests {
     @Test("Event navigation uses the row target and rejects deleted tabs")
     func eventNavigation() async throws {
         let store = try await makeRoutingConnectedStore(router: RoutingHostRouter())
-        store.workspaces = [MobileWorkspacePreview(
+        store.replaceForegroundWorkspaceState([MobileWorkspacePreview(
             id: .init(rawValue: "agent-workspace"), macDeviceID: "test-mac",
             name: "Event workspace", terminals: [MobileTerminalPreview(id: .init(rawValue: "agent-surface"), name: "Agent")]
-        )]
+        )])
         let row = try item(in: store)
         #expect(await store.openAgentFeedDestination(row, openTab: true))
-        #expect(store.deeplinkWorkspaceNavigationRequest?.workspaceID.rawValue == "agent-workspace")
+        #expect(store.deeplinkWorkspaceNavigationRequest?.workspaceID == store.workspaces.first?.id)
         _ = store.consumeDeeplinkWorkspaceNavigationRequest()
-        store.workspaces = [MobileWorkspacePreview(
+        store.replaceForegroundWorkspaceState([MobileWorkspacePreview(
             id: .init(rawValue: "agent-workspace"), macDeviceID: "test-mac",
             name: "Event workspace", terminals: []
-        )]
+        )])
         #expect(!(await store.openAgentFeedDestination(row, openTab: true)))
         #expect(store.deeplinkWorkspaceNavigationRequest == nil)
         #expect(await store.openAgentFeedDestination(row, openTab: false))

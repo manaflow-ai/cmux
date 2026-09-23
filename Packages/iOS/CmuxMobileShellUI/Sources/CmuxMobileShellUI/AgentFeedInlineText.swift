@@ -119,6 +119,11 @@ final class AgentFeedInlineTextView: UIView {
         moreButton.isHidden = !needsExpansion
         measuredSize = textView.sizeThatFits(CGSize(width: width, height: .greatestFiniteMagnitude))
         measuredSize.width = width
+        if needsExpansion {
+            // Keep the inline button's 44-point hit target inside this view,
+            // including a one-line preview shortened by the Mac.
+            measuredSize.height = max(44, measuredSize.height + max(0, (44 - font.lineHeight) / 2))
+        }
         return measuredSize
     }
 
