@@ -1,7 +1,7 @@
 // Self-discovery for a process inside a Cloud VM: which machine am I, and
 // which machines does my team have. The guest has no Stack token; it reaches
 // this through the Freestyle TLS edge, which injects the route token bound to
-// the machine's `cloud_vms` row plus `x-cmux-vm-id`. That binding is the only
+// the machine's signed authorization claims. That binding is the only
 // credential, so a forged header or an unbound `cr` CLI token is refused.
 import {
   authenticateRequestRouteToken,

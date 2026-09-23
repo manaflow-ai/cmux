@@ -851,6 +851,12 @@ extension MobileShellComposite {
                     macDeviceID: pairedMacDeviceID,
                     grantRoutes: legacyTailscaleRoutes
                 )
+                : nil,
+            legacyTailscaleCompatibility: resolvedMethod == .automatic
+                ? Self.TailscaleRouteRequirement(
+                    macDeviceID: pairedMacDeviceID,
+                    grantRoutes: legacyTailscaleRoutes
+                )
                 : nil
         )
         if methodPinnedCandidates != nil {
