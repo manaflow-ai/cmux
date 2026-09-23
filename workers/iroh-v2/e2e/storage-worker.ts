@@ -59,8 +59,8 @@ export class StorageTestDO {
       if (path === "/authority/observe") return Response.json({ revision: this.team.observeAuthority(body.userId, body.verifiedAt, body.expiresAt, body.now) });
       if (path === "/authority/get") return Response.json(this.team.getAuthority(body.userId));
       if (path === "/audit/fill") {
-        const db = drizzle((this.team.storage));
-        db.run(sql.raw(`WITH RECURSIVE "seed"("n") AS (SELECT 1 UNION ALL SELECT "n" + 1 FROM "seed" WHERE "n" < 65536) INSERT INTO "authority_audit" ("event_type", "actor_user_id", "target_id", "revision", "created_at", "detail_json") SELECT 'seed', 'audit-test', 'seed-' || "n", "n", "n", '{}' FROM "seed"`));
+      const db = drizzle((this.team.storage));
+        db.run(sql.raw(`WITH RECURSIVE "seed"("n") AS (SELECT (SELECT count(*) + 1 FROM "authority_audit") UNION ALL SELECT "n" + 1 FROM "seed" WHERE "n" < 65536) INSERT INTO "authority_audit" ("event_type", "actor_user_id", "target_id", "revision", "created_at", "detail_json") SELECT 'seed', 'audit-test', 'seed-' || "n", "n", "n", '{}' FROM "seed" WHERE "n" <= 65536`));
         return Response.json({ ok: true });
       }
       if (path === "/audit/count") {

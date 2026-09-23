@@ -9,6 +9,7 @@ const authority = {
   userId: "user",
   verifiedAt: 1000,
 } as const;
+const directoryRequest = { schemaId: "directory.request.v1", requestId: "directory" } as const;
 
 function fixture() {
   let member = true;
@@ -51,17 +52,16 @@ function fixture() {
   };
 }
 
-test("dashboard rechecks membership and current management rights", async () => {
+test("dashboard uses current management rights after demotion", async () => {
   const fixtureValue = fixture();
-  const request = { schemaId: "directory.request.v1", requestId: "directory" } as const;
 
-  const first = await fixtureValue.broker.executeDashboard(fixtureValue.session, request);
+  const first = await fixtureValue.broker.executeDashboard(fixtureValue.session, directoryRequest);
   expect(first.response.schemaId).toBe("dashboard.directory.v1");
   expect(fixtureValue.managerArguments.at(-1)).toBe(true);
 
   fixtureValue.demote();
   const afterDemotion = await fixtureValue.broker.executeDashboard(fixtureValue.session, {
-    ...request,
+    ...directoryRequest,
     requestId: "after-demotion",
   });
   expect(afterDemotion.response.schemaId).toBe("dashboard.directory.v1");
@@ -70,9 +70,13 @@ test("dashboard rechecks membership and current management rights", async () => 
   }
   expect(fixtureValue.managerArguments.at(-1)).toBe(false);
 
+});
+
+test("dashboard rejects a removed member even with an old ticket", async () => {
+  const fixtureValue = fixture();
   fixtureValue.removeMember();
   await expect(fixtureValue.broker.executeDashboard(fixtureValue.session, {
-    ...request,
-    requestId: "after-removal",
+    ...directoryRequest,
+    requestId: "removed-member",
   })).rejects.toMatchObject({ code: "team_access_revoked" });
 });
