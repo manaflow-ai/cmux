@@ -167,6 +167,7 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
     func update(configuration next: WorkspaceListTable, in tableView: UITableView) {
         var next = next
         next.emptyStateLayoutChanged = configuration.emptyStateLayoutChanged
+        next = stabilizedLiveOrderConfiguration(next)
         guard !isDragSessionActive else {
             // UIKit owns the lifted source cell until its drop animator
             // completes. Reloading or structurally updating the table during
@@ -190,6 +191,39 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
         #if DEBUG
         scheduleReleaseGateRows(in: tableView)
         #endif
+    }
+
+    /// Recent Activity is a payload presentation policy, not a reason to move
+    /// rows while the user is reading the list. The authoritative SwiftUI
+    /// projection may rank a workspace differently after every notification,
+    /// but UIKit keeps its current order until a non-activity order input
+    /// changes. This makes activity updates equivalent to visible cell
+    /// reconfiguration and removes batch updates from the live scroll path.
+    private func stabilizedLiveOrderConfiguration(
+        _ next: WorkspaceListTable
+    ) -> WorkspaceListTable {
+        guard
+            next.preservesItemOrderDuringLiveUpdates,
+            let previous = previousConfiguration,
+            previous.preservesItemOrderDuringLiveUpdates,
+            previous.presentationOrderIdentity == next.presentationOrderIdentity,
+            !appliedItems.isEmpty,
+            next.items != appliedItems,
+            sameItemIdentitySet(next.items, appliedItems)
+        else { return next }
+
+        var stabilized = next
+        let nextByID = Dictionary(uniqueKeysWithValues: next.items.map { ($0.id, $0) })
+        stabilized.items = appliedItems.compactMap { nextByID[$0.id] }
+        return stabilized
+    }
+
+    private func sameItemIdentitySet(
+        _ lhs: [WorkspaceListTableItem],
+        _ rhs: [WorkspaceListTableItem]
+    ) -> Bool {
+        lhs.count == rhs.count
+            && Set(lhs.map(\.id)) == Set(rhs.map(\.id))
     }
 
     func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
@@ -342,9 +376,13 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
                       visibleIndexPaths.contains(indexPath) else { return nil }
                 return indexPath
             }
-            if !changedIndexPaths.isEmpty {
-                UIView.performWithoutAnimation {
-                    tableView.reconfigureRows(at: changedIndexPaths)
+            UIView.performWithoutAnimation {
+                for indexPath in changedIndexPaths {
+                    guard let item = dataSource.itemIdentifier(for: indexPath),
+                          let cell = tableView.cellForRow(at: indexPath) else { continue }
+                    // Updating an existing content configuration needs no
+                    // UITableView update transaction when its height is stable.
+                    configure(cell, for: configuredItemsByID[item.id] ?? item)
                 }
             }
             #if DEBUG
@@ -385,8 +423,10 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
             if !reloadPaths.isEmpty {
                 tableView.reloadRows(at: reloadPaths, with: .none)
             }
-            if !reconfigurePaths.isEmpty {
-                tableView.reconfigureRows(at: reconfigurePaths)
+            for indexPath in reconfigurePaths {
+                guard let item = dataSource.itemIdentifier(for: indexPath),
+                      let cell = tableView.cellForRow(at: indexPath) else { continue }
+                configure(cell, for: configuredItemsByID[item.id] ?? item)
             }
             if let viewportAnchor {
                 tableView.layoutIfNeeded()
@@ -754,11 +794,20 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
         return exact
     }
 
-    #if DEBUG
     func tableView(_ tableView: UITableView, willDisplay cell: UITableViewCell, forRowAt indexPath: IndexPath) {
+        // UIKit may retain or prefetch a cell while it is offscreen. It need
+        // not dequeue it again before display, so bind the current payload here.
+        if let item = dataSource?.itemIdentifier(for: indexPath) {
+            UIView.performWithoutAnimation {
+                configure(cell, for: configuredItemsByID[item.id] ?? item)
+            }
+        }
+        #if DEBUG
         scheduleReleaseGateRows(in: tableView)
+        #endif
     }
 
+    #if DEBUG
     private func scheduleReleaseGateRows(in tableView: UITableView) {
         guard let probe = releaseGateUIProbe, probe.awaitsVisibleRows, releaseGateRowTask == nil else { return }
         releaseGateRowTask = Task { @MainActor [weak self, weak tableView] in

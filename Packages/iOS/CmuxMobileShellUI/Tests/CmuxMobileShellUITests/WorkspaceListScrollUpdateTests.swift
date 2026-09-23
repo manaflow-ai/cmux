@@ -164,6 +164,63 @@ import UIKit
         )
     }
 
+    @Test func recentActivityPayloadKeepsTheNativeOrderStable() throws {
+        let first = preview(
+            id: "workspace-1",
+            activityAt: Date(timeIntervalSinceReferenceDate: 790_000_020)
+        )
+        let second = preview(
+            id: "workspace-2",
+            activityAt: Date(timeIntervalSinceReferenceDate: 790_000_019)
+        )
+        var initial = configuration(workspaces: [first, second])
+        initial.preservesItemOrderDuringLiveUpdates = true
+        initial.presentationOrderIdentity = ["workspace-1", "workspace-2"]
+        let replacementTable = makeTableView()
+        replacementTable.contentInsetAdjustmentBehavior = .never
+        replacementTable.estimatedRowHeight = 0
+        replacementTable.rowHeight = 44
+        let replacementHost = UIViewController()
+        replacementHost.view = replacementTable
+        let replacementWindow = UIWindow(frame: replacementTable.frame)
+        replacementWindow.rootViewController = replacementHost
+        replacementWindow.isHidden = false
+        let replacementCoordinator = WorkspaceListTableCoordinator(configuration: initial)
+        replacementCoordinator.attach(to: replacementTable)
+        replacementWindow.layoutIfNeeded()
+        replacementTable.layoutIfNeeded()
+
+        let firstCell = try #require(replacementTable.cellForRow(at: IndexPath(row: 0, section: 0)))
+        let secondCell = try #require(replacementTable.cellForRow(at: IndexPath(row: 1, section: 0)))
+        var updatedSecond = second
+        updatedSecond.lastActivityAt = first.lastActivityAt?.addingTimeInterval(60)
+        var next = configuration(workspaces: [first, updatedSecond])
+        next.items = [
+            .workspace(updatedSecond.id, indented: false),
+            .workspace(first.id, indented: false),
+        ]
+        next.preservesItemOrderDuringLiveUpdates = true
+        next.presentationOrderIdentity = initial.presentationOrderIdentity
+        replacementCoordinator.update(configuration: next, in: replacementTable)
+        replacementTable.layoutIfNeeded()
+
+        #expect(
+            replacementCoordinator.lastPayloadApplyRoute
+                == .reconfiguredInPlace(["workspace.workspace-2"])
+        )
+        #expect(replacementCoordinator.configuration.items == initial.items)
+        #expect(replacementTable.cellForRow(at: IndexPath(row: 0, section: 0)) === firstCell)
+        #expect(replacementTable.cellForRow(at: IndexPath(row: 1, section: 0)) === secondCell)
+
+        // An explicit source-order change still reaches the native table.
+        next.presentationOrderIdentity.reverse()
+        replacementCoordinator.update(configuration: next, in: replacementTable)
+        #expect(replacementCoordinator.lastPayloadApplyRoute == .tableBatchUpdate)
+        #expect(replacementCoordinator.configuration.items == next.items)
+        replacementWindow.isHidden = true
+        replacementWindow.rootViewController = nil
+    }
+
     @Test(arguments: [0, 5, 39])
     func insertionKeepsVisibleRowAtSameScreenPosition(insertionIndex: Int) throws {
         let workspaces = viewportWorkspaces()
@@ -298,7 +355,7 @@ import UIKit
         table.estimatedRowHeight = 0
         table.estimatedSectionHeaderHeight = 0
         table.estimatedSectionFooterHeight = 0
-        table.rowHeight = UITableView.automaticDimension
+        table.rowHeight = 44
         let coordinator = WorkspaceListTableCoordinator(configuration: configuration(workspaces: workspaces))
         let host = UIViewController()
         host.view = table

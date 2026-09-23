@@ -141,6 +141,8 @@ extension WorkspaceListView {
         }
         return WorkspaceListTable(
             items: workspaceTableItems(groupedItems: groupedItems),
+            preservesItemOrderDuringLiveUpdates: appliesRecencySort,
+            presentationOrderIdentity: workspaceTablePresentationOrderIdentity,
             workspacesByID: workspacesByID,
             groupsByID: groupsByID,
             groupUnreadByID: workspaceTableGroupUnreadByID(
@@ -224,6 +226,35 @@ extension WorkspaceListView {
             shouldCancelRefreshOnDisappear: shouldCancelRefreshOnDisappear,
             isRetryOwnerCurrentOnDisappear: isRetryOwnerCurrentOnDisappear
         )
+    }
+
+    /// Inputs that can intentionally change the order of the list. Activity
+    /// timestamps are deliberately absent, so Recent Activity can update row
+    /// payloads without turning every notification into a table move.
+    private var workspaceTablePresentationOrderIdentity: [String] {
+        var identity = workspaces.map { workspace in
+            [
+                "workspace",
+                workspace.id.rawValue,
+                workspace.groupID?.rawValue ?? "",
+                workspace.macDeviceID ?? "",
+                workspace.macInstanceTag ?? "",
+                String(workspace.isPinned),
+            ].joined(separator: "\u{1F}")
+        }
+        identity.append(contentsOf: groups.map { group in
+            [
+                "group",
+                group.id.rawValue,
+                group.anchorWorkspaceID.rawValue,
+                group.macDeviceID ?? "",
+                group.macInstanceTag ?? "",
+                String(group.isPinned),
+                String(group.isCollapsed),
+                String(group.isEmpty),
+            ].joined(separator: "\u{1F}")
+        })
+        return identity
     }
 }
 #endif

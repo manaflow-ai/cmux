@@ -11,12 +11,12 @@ final class WorkspaceListUITableView: UITableView {
 
     override init(frame: CGRect, style: UITableView.Style) {
         super.init(frame: frame, style: style)
-        configureScrollEdgeEffects()
+        configureTable()
     }
 
     required init?(coder: NSCoder) {
         super.init(coder: coder)
-        configureScrollEdgeEffects()
+        configureTable()
     }
 
     override func didMoveToWindow() {
@@ -41,7 +41,10 @@ final class WorkspaceListUITableView: UITableView {
         }
     }
 
-    private func configureScrollEdgeEffects() {
+    private func configureTable() {
+        // Exact heights come from the coordinator. Hosted content invalidation
+        // must not independently resize rows as previews and timestamps change.
+        selfSizingInvalidation = .disabled
         contentInsetAdjustmentBehavior = .automatic
         if #available(iOS 26.0, *) {
             topEdgeEffect.style = .soft
