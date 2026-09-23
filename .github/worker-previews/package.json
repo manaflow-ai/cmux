@@ -1,0 +1,8 @@
+{
+  "name": "cmux-worker-previews",
+  "private": true,
+  "description": "Pinned Wrangler for the Worker Previews workflow. Kept apart from each Worker's own Wrangler so previews never change the production deploy toolchain.",
+  "devDependencies": {
+    "wrangler": "4.132.0"
+  }
+}

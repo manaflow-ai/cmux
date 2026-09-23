@@ -1,0 +1,65 @@
+name: Deploy Worker Preview
+description: >-
+  Deploy one Worker as the Cloudflare Preview `pr-<number>` with the pinned
+  Wrangler in .github/worker-previews and publish its URL. Callers run it only
+  for same-repository pull requests (see .github/workflows/worker-previews.yml).
+
+inputs:
+  worker-dir:
+    description: Directory holding the Worker's wrangler config.
+    required: true
+  cloudflare-api-token:
+    description: Cloudflare API token that may manage Worker Previews.
+    required: true
+  cloudflare-account-id:
+    description: Cloudflare account id.
+    required: true
+
+outputs:
+  url:
+    description: Stable Preview URL for this pull request.
+    value: ${{ steps.deploy.outputs.url }}
+
+runs:
+  using: composite
+  steps:
+    - name: Deploy Preview
+      id: deploy
+      shell: bash
+      env:
+        CLOUDFLARE_API_TOKEN: ${{ inputs.cloudflare-api-token }}
+        CLOUDFLARE_ACCOUNT_ID: ${{ inputs.cloudflare-account-id }}
+        WORKER_DIR: ${{ inputs.worker-dir }}
+        PREVIEW_NAME: pr-${{ github.event.pull_request.number }}
+        HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+      run: |
+        set -euo pipefail
+        if [ -z "$CLOUDFLARE_API_TOKEN" ] || [ -z "$CLOUDFLARE_ACCOUNT_ID" ]; then
+          echo "::error::CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID must be set in the cloudflare-worker-previews environment or the repository."
+          exit 1
+        fi
+        case "$PREVIEW_NAME" in
+          pr-[0-9]*) ;;
+          *) echo "::error::Unexpected preview name '$PREVIEW_NAME'"; exit 1 ;;
+        esac
+        result="$RUNNER_TEMP/worker-preview.json"
+        "$GITHUB_WORKSPACE/.github/worker-previews/node_modules/.bin/wrangler" preview \
+          --cwd "$WORKER_DIR" \
+          --name "$PREVIEW_NAME" \
+          --tag "${HEAD_SHA:0:12}" \
+          --message "$PREVIEW_NAME @ ${HEAD_SHA:0:12}" \
+          --json > "$result"
+        url="$(jq -r '.preview.urls[0] // empty' "$result")"
+        deployment_url="$(jq -r '.deployment.urls[0] // empty' "$result")"
+        if [ -z "$url" ]; then
+          echo "::error::Preview deployed without a URL. Enable preview_urls for this Worker."
+          exit 1
+        fi
+        echo "url=$url" >> "$GITHUB_OUTPUT"
+        {
+          echo "### $(jq -r '.preview.name' "$result") Preview"
+          echo ""
+          echo "- Preview: $url"
+          [ -z "$deployment_url" ] || echo "- This commit: $deployment_url"
+          echo "- Bindings: $(jq -r '.deployment.env // {} | keys | join(", ")' "$result")"
+        } >> "$GITHUB_STEP_SUMMARY"
