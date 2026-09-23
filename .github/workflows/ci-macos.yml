@@ -3722,7 +3722,7 @@ jobs:
           inputs = json.loads(os.environ["MACOS_INPUTS"])
           needs = json.loads(os.environ["MACOS_NEEDS"])
           # The caller leaves compile_admitted unset when its build-input reuse
-          # steps are skipped (full suite) or fail; unset means "compile", the
+          # steps are skipped (full suite or unit-ci) or fail; unset means "compile", the
           # same reading the macos-compile-admission job condition uses.
           if inputs.get("compile_admitted") == "":
               inputs["compile_admitted"] = "false"
@@ -3742,9 +3742,14 @@ jobs:
           # The package lane is routed from changed paths, so it is required
           # whenever the router selected it even under the compile-only suite.
           swift_packages = inputs["swift_packages"] == "true"
+          # `unit-ci` asks for app-host unit tests without the full suite, and
+          # clears suite-coverage on the strength of them, so a skip here must
+          # fail rather than read as a job nobody routed. Empty or missing
+          # means a caller that predates the input.
+          unit_suite = inputs.get("unit_suite", "") == "true"
           required = {
               "macos-compile-admission": (macos or cli) and (inputs["compile_admitted"] != "true" or full_suite or cli),
-              "app-host-unit-tests": macos and full_suite,
+              "app-host-unit-tests": macos and (full_suite or unit_suite),
               "cli-product-tests": cli or (macos and full_suite),
               "swift-package-tests": (macos and full_suite) or swift_packages,
               "tests-build-and-lag": macos and full_suite,
