@@ -17820,6 +17820,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         for app in NSRunningApplication.runningApplications(withBundleIdentifier: bundleId) {
             guard app.processIdentifier != currentPid else { continue }
+            guard Self.isDuplicateApplicationExecutable(
+                app.executableURL,
+                mainExecutableURL: Bundle.main.executableURL
+            ) else { continue }
             terminatedPids.append(String(app.processIdentifier))
             app.terminate()
             if !app.isTerminated {
@@ -17836,15 +17840,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
     }
 
-#if DEBUG
-    static func isDuplicateApplicationExecutableForTesting(
-        _ executableURL: URL,
-        mainExecutableURL: URL
+    /// Rejects helpers that inherit the application bundle identifier.
+    nonisolated static func isDuplicateApplicationExecutable(
+        _ executableURL: URL?,
+        mainExecutableURL: URL?
     ) -> Bool {
-        executableURL.standardizedFileURL.resolvingSymlinksInPath() ==
+        guard let executableURL, let mainExecutableURL else { return false }
+        return executableURL.standardizedFileURL.resolvingSymlinksInPath() ==
             mainExecutableURL.standardizedFileURL.resolvingSymlinksInPath()
     }
-#endif
 
     private func observeDuplicateLaunches() {
         guard let bundleId = Bundle.main.bundleIdentifier else {
@@ -17869,9 +17873,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             guard let app = notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication else { return }
             guard app.bundleIdentifier == bundleId, app.processIdentifier != currentPid else { return }
             guard let executableURL = app.executableURL else { return }
-            guard Self.isDuplicateApplicationExecutableForTesting(
+            guard Self.isDuplicateApplicationExecutable(
                 executableURL,
-                mainExecutableURL: Bundle.main.executableURL ?? URL(fileURLWithPath: "")
+                mainExecutableURL: Bundle.main.executableURL
             ) else {
                 return
             }
