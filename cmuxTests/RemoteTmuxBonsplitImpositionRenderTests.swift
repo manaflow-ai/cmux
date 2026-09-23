@@ -635,7 +635,9 @@ import Testing
             host: RemoteTmuxHost(destination: "parity-\(UUID().uuidString)@host"),
             sessionName: "work"
         )
-        let workspaceId = UUID()
+        let workspace = TerminalPortalTestWorkspace()
+        defer { workspace.tearDown() }
+        let workspaceId = workspace.id
         // Real panels: the parity judgment reads the panes' hosted terminal
         // views, so the fixture needs them mounted through the app's real
         // render chain. The spawn stays paced (no shells launch in a unit
@@ -684,6 +686,7 @@ import Testing
             contentRect: NSRect(x: 0, y: 0, width: 640, height: 480),
             styleMask: [.titled, .closable], backing: .buffered, defer: false
         )
+        workspace.bind(to: window)
         let contentView = try #require(window.contentView)
         hostingView.frame = contentView.bounds
         hostingView.autoresizingMask = [.width, .height]
@@ -716,6 +719,10 @@ import Testing
             planViewMismatch(mirror) == nil,
             "fixture never converged to its own plan: \(planViewMismatch(mirror) ?? "")"
         )
+        try #require(
+            mirror.isEffectivelyVisibleForSizing,
+            "The output-parity judge must observe visible authorized terminal portals"
+        )
         mirror.setNeedsSizingPass()
         try await pump(6)
         try #require(planViewMismatch(mirror) == nil)
@@ -744,14 +751,42 @@ import Testing
             "sizing inputs drifted during the perturbation — this run judged an input change, not the liveness hole"
         )
 
+        // The re-arm budget is bounded per input fixed point, so a failure
+        // reading `rearms=3` is ambiguous: either the recovery passes ran and
+        // failed to impose, or the budget was already spent before the
+        // perturbation and no recovery pass ran at all. Bracket the recovery
+        // window with the DEBUG pass/re-arm counters so the CI message names
+        // which one happened.
+        let rearmsSpentAtPerturbation = mirror.outputParityRearmsSpent
+        let sizingPassesBeforeRecovery = RemoteTmuxSizingDiagnostics.sizingPassCount
+        let parityRearmsBeforeRecovery = RemoteTmuxSizingDiagnostics.parityRearmCount
+
         // A redundant trigger, exactly what the live app keeps delivering at
         // rest (surface samples, geometry echoes). Inputs are unchanged, so
         // today the pass early-returns and the views stay off-plan forever.
         mirror.setNeedsSizingPass()
         try await pump(60, until: { planViewMismatch(mirror) == nil })
+        let sizingPassesDuringRecovery = RemoteTmuxSizingDiagnostics.sizingPassCount
+            - sizingPassesBeforeRecovery
+        let parityRearmsDuringRecovery = RemoteTmuxSizingDiagnostics.parityRearmCount
+            - parityRearmsBeforeRecovery
+        let plannedOuters = mirror.lastPlannedOuterSizes
+            .sorted { $0.key < $1.key }
+            .map { "%\($0.key)=\(Int($0.value.width))x\(Int($0.value.height))" }
+            .joined(separator: " ")
+        // Name the layer that kept the stale geometry: the live split view's
+        // arranged frames (did bonsplit apply the imposition?) and the split
+        // model (is the imposition still set?). planViewMismatch reads the
+        // portal-hosted terminal views, which follow those frames.
+        let arrangedWidths = firstDescendant(ofType: NSSplitView.self, in: hostingView)
+            .map { $0.arrangedSubviews.map { Int($0.frame.width) } } ?? []
+        let splitModel: String = {
+            guard case .split(let split) = mirror.bonsplitController.treeSnapshot() else { return "leaf" }
+            return "pos=\(split.dividerPosition) imposed=\(split.imposedFirstExtent.map { "\($0)" } ?? "nil")"
+        }()
         #expect(
             planViewMismatch(mirror) == nil,
-            "off-plan geometry never re-converged with unchanged inputs: \(planViewMismatch(mirror) ?? "") — the apply terminated off-target and no re-arm edge exists"
+            "off-plan geometry never re-converged: \(planViewMismatch(mirror) ?? ""); arranged=\(arrangedWidths) split=\(splitModel) visible=\(mirror.isEffectivelyVisibleForSizing) drag=\(mirror.bonsplitController.isDividerDragActive) inFlight=\(mirror.dividerResizeInFlight != nil) scheduled=\(mirror.sizingPassScheduled) rearms=\(mirror.outputParityRearmsSpent) rearmsAtPerturbation=\(rearmsSpentAtPerturbation) passesDuringRecovery=\(sizingPassesDuringRecovery) rearmsDuringRecovery=\(parityRearmsDuringRecovery) plan=[\(plannedOuters)] hasCompletedInputs=\(mirror.lastCompletedSizingInputs != nil)"
         )
         withExtendedLifetime(connection) {}
     }
@@ -1611,7 +1646,7 @@ import Testing
     /// settles, and the first settled pass consumes it.
     @Test func parkedReadingSurvivesALiveResizingWindowBound() throws {
         let window = LiveResizeProbeWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 900, height: 700),
+            contentRect: NSRect(x: 0, y: 0, width: 500, height: 360),
             styleMask: [.titled, .closable, .resizable],
             backing: .buffered, defer: false
         )
@@ -1675,7 +1710,7 @@ import Testing
         // The resize ends and the window grows past the reading; the first
         // settled pass consumes it.
         window.liveResizeActive = false
-        window.setContentSize(NSSize(width: 1140, height: 940))
+        window.setContentSize(NSSize(width: 740, height: 560))
         contentView.layoutSubtreeIfNeeded()
         let settled = try #require(mirror.visibleHostingContext()?.contentSize)
         #expect(settled.width >= postResize.width && settled.height >= postResize.height)

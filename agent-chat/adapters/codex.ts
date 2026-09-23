@@ -594,7 +594,7 @@ async function setCodexOption(sess: SessionCtx, id: string, value: OptionValue) 
 }
 
 function emitOptions(sess: SessionCtx) {
-  sess.emit({ kind: "options", options: buildOptions(codexState(sess)), actions: { fork: true } });
+    sess.emit({ kind: "options", options: buildOptions(codexState(sess)), actions: { fork: true, handoff: true } });
 }
 
 function buildOptions(st: CodexState): SessionOption[] {

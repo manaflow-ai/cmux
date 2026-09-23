@@ -29,6 +29,7 @@ from test_codex_feed_hooks import (
     FakeCmuxSocket,
 )
 
+
 EXPECTED_NOTIFY = {
     "kind": "agent.approval.requested", "source": "codex",
     "workspace_id": FAKE_WORKSPACE_ID, "surface_id": FAKE_SURFACE_ID,

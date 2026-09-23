@@ -8,6 +8,66 @@ private struct NetworkOutcomeTestConsent: AnalyticsConsentProviding {
 }
 
 @Suite struct MobileNetworkOutcomeReporterTests {
+    @Test func taskModelRetryEmitsAttemptDelayAndPermanentStopReason() async {
+        let uploader = RecordingAnalyticsUploader()
+        let emitter = AnalyticsEmitter(
+            uploader: uploader,
+            consent: NetworkOutcomeTestConsent(isTelemetryEnabled: true),
+            anonymousID: "local-install"
+        )
+        let reporter = MobileNetworkOutcomeReporter(emitter: emitter)
+        reporter.ingest(DiagnosticEvent(
+            .appFeatureAction, surface: 42, ms: 15_000,
+            a: DiagnosticAppEventKind.taskModelListRetryScheduled.rawValue,
+            b: DiagnosticFailureKind.timedOut.rawValue, c: 8
+        ))
+        reporter.ingest(DiagnosticEvent(
+            .appFeatureAction,
+            a: DiagnosticAppEventKind.taskModelListRetryStopped.rawValue,
+            b: DiagnosticFailureKind.authorizationFailed.rawValue,
+            c: DiagnosticTaskModelRetryStopReason.authorizationRequired.rawValue
+        ))
+        await reporter.flush()
+        let events = await uploader.uploadedEvents
+        #expect(events.count == 2)
+        #expect(events.first?.properties["phase"] == .string("retry_scheduled"))
+        #expect(events.first?.properties["attempt"] == .int(8))
+        #expect(events.first?.properties["duration_ms"] == .int(0))
+        #expect(events.first?.properties["retry_delay_ms"] == .int(15_000))
+        #expect(events.first?.properties["correlation_id"] == .int(42))
+        #expect(events.last?.properties["phase"] == .string("retry_stopped"))
+        #expect(events.last?.properties["stop_reason"] == .string("authorizationRequired"))
+    }
+
+    @Test(arguments: [nil, 0, 3] as [Int?])
+    func taskModelFailureEmitsAxiomDiagnostic(modelCount: Int?) async {
+        let uploader = RecordingAnalyticsUploader()
+        let emitter = AnalyticsEmitter(
+            uploader: uploader,
+            consent: NetworkOutcomeTestConsent(isTelemetryEnabled: true),
+            anonymousID: "local-install"
+        )
+        let reporter = MobileNetworkOutcomeReporter(emitter: emitter)
+
+        reporter.ingest(DiagnosticEvent(
+            code: .appFeatureAction,
+            tNanos: 1_000_000_000,
+            ms: 850,
+            a: DiagnosticAppEventKind.taskModelListLoadFailed.rawValue,
+            b: DiagnosticFailureKind.hostUnreachable.rawValue,
+            c: modelCount
+        ))
+        await reporter.flush()
+
+        let event = await uploader.uploadedEvents.first
+        #expect(event?.name == MobileNetworkOutcomeReporter.taskModelEventName)
+        #expect(event?.properties["operation"] == .string("model_list"))
+        #expect(event?.properties["outcome"] == .string("failure"))
+        #expect(event?.properties["duration_ms"] == .int(850))
+        #expect(event?.properties["model_count"] == .int(modelCount ?? 0))
+        #expect(event?.properties["failure"] == .string("hostUnreachable"))
+    }
+
     @Test func transportDialCompletionEmitsLatencyOnly() async {
         let uploader = RecordingAnalyticsUploader()
         let emitter = AnalyticsEmitter(
@@ -39,7 +99,29 @@ private struct NetworkOutcomeTestConsent: AnalyticsConsentProviding {
         #expect(event?.properties["duration_ms"] == .int(1_250))
         #expect(event?.properties["transport"] == .string("iroh"))
         #expect(event?.properties["failure"] == .string("timedOut"))
-        #expect(event?.properties["event_code"] == nil)
+        #expect(event?.properties["event_code"] == .string("transportDialFailed"))
+        #expect(event?.properties["event_code_raw"] == .int(27))
+        #expect(event?.properties["event_a"] == .int(DiagnosticTransportKind.iroh.rawValue))
+        #expect(event?.properties["event_b"] == .int(DiagnosticFailureKind.timedOut.rawValue))
+        #expect(event?.properties["event_c"] == .int(7))
+    }
+
+    @Test func cancelledDialEmitsLifecycleReasonAndAttemptContext() {
+        let properties = MobileNetworkOutcomeReporter.properties(for: DiagnosticEvent(
+            code: .transportDialCancelled,
+            tNanos: 1,
+            surface: 9,
+            ms: 30_000,
+            a: DiagnosticCancellationReason.requestTimedOut.rawValue,
+            c: 42
+        ))
+
+        #expect(properties?["outcome"] == .string("cancelled"))
+        #expect(properties?["event_code"] == .string("transportDialCancelled"))
+        #expect(properties?["event_surface"] == .int(9))
+        #expect(properties?["event_a"] == .int(DiagnosticCancellationReason.requestTimedOut.rawValue))
+        #expect(properties?["event_c"] == .int(42))
+        #expect(properties?["cancellation_reason"] == .string("requestTimedOut"))
     }
 
     @Test func recoveryUsesMonotonicElapsedTime() async {

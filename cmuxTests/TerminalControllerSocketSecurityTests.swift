@@ -1,5 +1,6 @@
 import AppKit
 import CmuxCore
+import CmuxControlSocket
 import Darwin
 import Foundation
 import Testing
@@ -650,7 +651,7 @@ final class TerminalControllerSocketSecurityTests {
         XCTAssertNil(workspace.remoteConfiguration?.sshProcessEnvironment?["SSH_AUTH_SOCK"])
     }
 
-    @Test func testRemoteConfigureUsesLastForwardAgentOption() throws {
+    @Test func testRemoteConfigureUsesFirstForwardAgentOption() throws {
         let previousAgentSocketPath = getenv("SSH_AUTH_SOCK").map { String(cString: $0) }
         let agentSocketPath = try makeExistingAgentSocketPath()
         setenv("SSH_AUTH_SOCK", agentSocketPath, 1)
@@ -690,9 +691,9 @@ final class TerminalControllerSocketSecurityTests {
         )
 
         XCTAssertEqual(response["ok"] as? Bool, true, "Unexpected JSON-RPC response: \(response)")
-        XCTAssertNil(workspace.remoteConfiguration?.agentSocketPath)
-        XCTAssertNil(workspace.remoteConfiguration?.sshTerminalStartupEnvironment?["SSH_AUTH_SOCK"])
-        XCTAssertNil(workspace.remoteConfiguration?.sshProcessEnvironment?["SSH_AUTH_SOCK"])
+        XCTAssertEqual(workspace.remoteConfiguration?.agentSocketPath, agentSocketPath)
+        XCTAssertEqual(workspace.remoteConfiguration?.sshTerminalStartupEnvironment?["SSH_AUTH_SOCK"], agentSocketPath)
+        XCTAssertEqual(workspace.remoteConfiguration?.sshProcessEnvironment?["SSH_AUTH_SOCK"], agentSocketPath)
     }
 
     @Test func testRemoteConfigureRejectsPersistentDaemonSlotWithoutPreserve() throws {
@@ -815,7 +816,6 @@ final class TerminalControllerSocketSecurityTests {
 
         for method in [
             "mobile.panel.artifact.stat",
-            "mobile.panel.artifact.fetch",
             "mobile.panel.artifact.thumbnail",
         ] {
             let requestLine = try makeV2RequestLine(method: method, params: [:])
@@ -834,6 +834,16 @@ final class TerminalControllerSocketSecurityTests {
             XCTAssertNotEqual(workerError["code"] as? String, "internal_error", method)
             XCTAssertEqual(workerError["code"] as? String, "invalid_params", method)
         }
+
+        // Fetch requires the authenticated mobile RPC execution context; a
+        // local control socket must not bypass artifact-transfer authorization.
+        let fetchEnvelope = try await sendV2RequestAsync(
+            method: "mobile.panel.artifact.fetch",
+            params: [:],
+            to: socketPath
+        )
+        let fetchError = try XCTUnwrap(fetchEnvelope["error"] as? [String: Any])
+        XCTAssertEqual(fetchError["code"] as? String, "method_not_found")
     }
 
     @Test func testV1PingRunsOnWorkerLaneAndStaysMainThreadCallable() async throws {
@@ -1164,7 +1174,8 @@ final class TerminalControllerSocketSecurityTests {
                 "mobile.terminal.viewport",
                 "terminal.viewport",
                 "mobile.panel.artifact.stat",
-                "mobile.panel.artifact.fetch",
+                // fetch is mobile-only (authenticated execution context); the
+                // local socket neither serves nor advertises it.
                 "mobile.panel.artifact.thumbnail",
                 "mobile.events.subscribe",
                 "mobile.events.unsubscribe",
@@ -1292,8 +1303,9 @@ final class TerminalControllerSocketSecurityTests {
         )
         let windowDock = appDelegate.windowDock(forWindowId: windowID)
         let dockPaneID = try #require(windowDock.bonsplitController.allPaneIds.first)
+        let ownedConfiguration = try #require(sourceWorkspace.remoteConfiguration)
         let transfer = try #require(sourceWorkspace.detachSurface(panelId: surfaceID))
-        #expect(transfer.remoteCleanupConfiguration == configuration)
+        #expect(transfer.remoteCleanupConfiguration == ownedConfiguration)
         #expect(
             windowDock.attachDetachedSurface(transfer, inPane: dockPaneID, focus: false)
                 == surfaceID
@@ -2400,5 +2412,77 @@ private final class WorkerLaneReplyBox: @unchecked Sendable {
             throw NSError(domain: NSPOSIXErrorDomain, code: Int(ETIMEDOUT))
         }
         return try result.get()
+    }
+}
+
+
+@Suite("Control handle ordinal persistence")
+struct ControlHandleOrdinalPersistenceTests {
+    @Test func firstUpgradedLaunchLeavesLegacyLowRefsUnknown() throws {
+        let suite = "cmux-control-handle-legacy-floor-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+
+        let store = ControlHandleOrdinalDefaultsStore(defaults: defaults)
+        var registry = store.makeRegistry()
+        let id = UUID()
+
+        #expect(
+            registry.ensureRef(kind: .surface, uuid: id)
+                == "surface:\(ControlHandleOrdinalDefaultsStore.defaultMigrationFloor)"
+        )
+        #expect(registry.uuid(forRef: "surface:1") == nil)
+    }
+
+    @Test func aLaterLaunchStartsOutsideThePriorReservation() throws {
+        let suite = "cmux-control-handle-ordinals-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+
+        let firstStore = ControlHandleOrdinalDefaultsStore(
+            defaults: defaults,
+            migrationFloor: 100,
+            reservationSize: 3
+        )
+        var firstRegistry = firstStore.makeRegistry()
+        let firstID = UUID()
+        let firstRef = firstRegistry.ensureRef(kind: .surface, uuid: firstID)
+        #expect(firstRef == "surface:100")
+
+        let secondStore = ControlHandleOrdinalDefaultsStore(
+            defaults: defaults,
+            migrationFloor: 100,
+            reservationSize: 3
+        )
+        var secondRegistry = secondStore.makeRegistry()
+        let secondID = UUID()
+        let secondRef = secondRegistry.ensureRef(kind: .surface, uuid: secondID)
+
+        #expect(secondRef == "surface:103")
+        #expect(secondRegistry.uuid(forRef: firstRef) == nil)
+        #expect(secondRegistry.uuid(forRef: secondRef) == secondID)
+    }
+
+    @Test func exhaustingAReservationAdvancesTheNextLaunch() throws {
+        let suite = "cmux-control-handle-ordinal-extension-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+
+        let firstStore = ControlHandleOrdinalDefaultsStore(
+            defaults: defaults,
+            migrationFloor: 200,
+            reservationSize: 2
+        )
+        var firstRegistry = firstStore.makeRegistry()
+        #expect(firstRegistry.ensureRef(kind: .surface, uuid: UUID()) == "surface:200")
+        #expect(firstRegistry.ensureRef(kind: .surface, uuid: UUID()) == "surface:201")
+
+        let secondStore = ControlHandleOrdinalDefaultsStore(
+            defaults: defaults,
+            migrationFloor: 200,
+            reservationSize: 2
+        )
+        var secondRegistry = secondStore.makeRegistry()
+        #expect(secondRegistry.ensureRef(kind: .surface, uuid: UUID()) == "surface:204")
     }
 }

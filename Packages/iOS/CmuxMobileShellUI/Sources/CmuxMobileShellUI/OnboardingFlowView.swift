@@ -116,7 +116,7 @@ struct OnboardingFlowView: View {
         case .push:
             OnboardingPushView()
         case .pairing:
-            OnboardingPairingView()
+            OnboardingPairingView(isActive: stage == .pairing)
         case .connect:
             OnboardingConnectionView(
                 phase: connectionPhase,

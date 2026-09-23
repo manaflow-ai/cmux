@@ -270,9 +270,9 @@ final class RemoteTmuxWindowMirror: RemoteTmuxControlPaneMutationOwner {
     /// of the output-parity check in `rearmIfOutputMissedPlan()` and of the
     /// chrome-parity probe in ``handleSizingSample``.
     @ObservationIgnored var lastPlannedOuterSizes: [Int: CGSize] = [:]
-    /// Output-parity re-arm state: how many bounded recovery passes this
-    /// input fixed point has spent, and which fixed point they belong to
-    /// (the counter resets when the completed inputs change). Tracked apart
+    /// Output-parity re-arm state: how many bounded recovery passes the current
+    /// mismatch has spent, and which input fixed point they belong to. The
+    /// counter resets when output parity returns or completed inputs change. Tracked apart
     /// from `lastCompletedSizingInputs` because a re-arm nils that field —
     /// folding the two together would reset the counter on every re-arm and
     /// unbound the loop.

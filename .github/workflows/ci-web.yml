@@ -1,0 +1,429 @@
+name: CI web
+
+on:
+  workflow_call:
+    inputs:
+      web:
+        required: true
+        type: string
+      macos:
+        required: true
+        type: string
+      agent_session_web:
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  web-subarea-scope:
+    if: ${{ inputs.web == 'true' || inputs.macos == 'true' }}
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 5
+    outputs:
+      db: ${{ steps.scope.outputs.db }}
+      diff_sidecar: ${{ steps.scope.outputs.diff_sidecar }}
+      instant: ${{ steps.scope.outputs.instant }}
+      production_build: ${{ steps.scope.outputs.production_build }}
+      react_apps: ${{ steps.scope.outputs.react_apps }}
+      typecheck: ${{ steps.scope.outputs.typecheck }}
+      unit_tests: ${{ steps.scope.outputs.unit_tests }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+
+      - name: Classify web subareas
+        id: scope
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+        run: python3 scripts/ci/web_subareas.py route
+
+  web-typecheck:
+    needs: web-subarea-scope
+    if: ${{ inputs.web == 'true' && needs.web-subarea-scope.outputs.typecheck == 'true' }}
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    # Matches the 10-minute siblings in this workflow.
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.3.14"
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Validate managed relay catalog
+        run: bun tools/generate-managed-iroh-relay-catalog.ts --check
+
+      - name: Typecheck
+        run: |
+          set -o pipefail
+          log="$RUNNER_TEMP/web-typecheck.log"
+          set +e
+          bun run typecheck 2>&1 | tee "$log"
+          status=${PIPESTATUS[0]}
+          set -e
+
+          # The native TypeScript preview compiler can abort on a healthy
+          # runner. Retry that transient compiler crash once, while keeping
+          # real type errors as immediate failures.
+          if [ "$status" -ne 0 ] \
+            && grep -Fq 'Aborted (core dumped)' "$log"; then
+            echo "::warning::native tsgo aborted during web typecheck; retrying once"
+            bun run typecheck
+            exit $?
+          fi
+
+          exit "$status"
+
+  web-production-build:
+    needs: web-subarea-scope
+    if: ${{ inputs.web == 'true' && needs.web-subarea-scope.outputs.production_build == 'true' }}
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.3.14"
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Vercel production build
+        env:
+          RESEND_API_KEY: re_ci_build
+          CMUX_FEEDBACK_FROM_EMAIL: ci@example.test
+          STACK_SECRET_SERVER_KEY: ci-build-only
+          NEXT_PUBLIC_STACK_PROJECT_ID: 00000000-0000-4000-8000-000000000000
+          NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY: ci-build-only
+          DATABASE_URL: postgres://cmux:cmux@127.0.0.1:1/cmux
+          DIRECT_DATABASE_URL: postgres://cmux:cmux@127.0.0.1:1/cmux
+          CMUX_ANALYTICS_TEST_MODE: "1"
+        run: bun run vercel-build
+
+  web-tests:
+    needs: web-subarea-scope
+    if: ${{ inputs.web == 'true' && needs.web-subarea-scope.outputs.unit_tests == 'true' }}
+    name: Web tests (${{ matrix.shard }})
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: ["1/4", "2/4", "3/4", "4/4"]
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.3.14"
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Run web test shard
+        run: ./scripts/run-tests.sh --shard "${{ matrix.shard }}"
+
+  web-instant-navigation:
+    needs: web-subarea-scope
+    if: ${{ inputs.web == 'true' && needs.web-subarea-scope.outputs.instant == 'true' }}
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.3.14"
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Cache Playwright browsers
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-chromium-${{ runner.os }}-${{ hashFiles('web/bun.lock') }}
+
+      - name: Install browser for instant navigation tests
+        run: bunx playwright install --with-deps chromium
+
+      - name: Instant navigation tests
+        env:
+          # web-typecheck is an independent required sibling in the same
+          # reusable workflow, so this browser lane does not launch tsgo again.
+          CMUX_INSTANT_SKIP_TYPECHECK: "1"
+        run: bun run test:instant
+
+  # Checks for in-app React webviews (currently the diff viewer; more cmux React
+  # surfaces will live alongside it).
+
+  react-apps-check:
+    needs: web-subarea-scope
+    if: ${{ inputs.web == 'true' && needs.web-subarea-scope.outputs.react_apps == 'true' }}
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    # Matches the 10-minute siblings in this workflow.
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.3.14"
+
+      - name: Verify generated webviews assets
+        run: ./scripts/build-webviews-app.sh --check
+
+      - name: Verify React Compiler for webviews
+        run: ./scripts/check-webviews-react-compiler.mjs
+
+      - name: Typecheck webviews
+        working-directory: webviews
+        run: bun run typecheck
+
+      - name: Test webviews
+        working-directory: webviews
+        run: bun run test
+
+      - name: Oxlint webviews
+        working-directory: webviews
+        run: bun run lint:ci
+
+      - name: React Doctor
+        working-directory: webviews
+        run: bun run react-doctor:ci
+
+  diff-sidecar-check:
+    # Generated protocol and streaming benchmarks only run for their owned inputs.
+    needs: web-subarea-scope
+    if: ${{ (inputs.macos == 'true' || inputs.web == 'true') && needs.web-subarea-scope.outputs.diff_sidecar == 'true' }}
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Install Rust
+        run: ./scripts/install-rust-ci.sh
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.3.14"
+
+      - name: Install webview dependencies
+        working-directory: webviews
+        run: bun install --frozen-lockfile
+
+      - name: Check Rust sidecar
+        run: |
+          ./scripts/run-diff-sidecar-cargo.sh fmt --manifest-path Native/DiffSidecar/Cargo.toml --all --check
+          ./scripts/run-diff-sidecar-cargo.sh clippy --manifest-path Native/DiffSidecar/Cargo.toml --all-targets --locked --no-default-features -- -D warnings
+          ./scripts/run-diff-sidecar-cargo.sh clippy --manifest-path Native/DiffSidecar/Cargo.toml --all-targets --all-features --locked -- -D warnings
+          ./scripts/run-diff-sidecar-cargo.sh test --manifest-path Native/DiffSidecar/Cargo.toml --all-targets --locked --no-default-features
+          ./scripts/run-diff-sidecar-cargo.sh test --manifest-path Native/DiffSidecar/Cargo.toml --all-targets --all-features --locked
+
+      - name: Verify generated protocol types
+        run: ./scripts/generate-diff-sidecar-types.sh --check
+
+      - name: Enforce diff-viewer performance budgets
+        env:
+          CMUX_DIFF_WEB_BENCH_ITERATIONS: "10"
+        run: ./scripts/benchmark-diff-viewer.sh
+
+  web-db-migrations:
+    needs: web-subarea-scope
+    if: ${{ inputs.web == 'true' && needs.web-subarea-scope.outputs.db == 'true' }}
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    # Matches web-production-build and diff-sidecar-check, the other 15s here.
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: web
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: cmux_test
+          POSTGRES_PASSWORD: cmux
+          POSTGRES_USER: cmux
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U cmux -d cmux_test"
+          --health-interval 1s
+          --health-timeout 5s
+          --health-retries 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.3.14"
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Apply migrations
+        env:
+          DATABASE_URL: postgres://cmux:cmux@localhost:5432/cmux_test
+          DIRECT_DATABASE_URL: postgres://cmux:cmux@localhost:5432/cmux_test
+        run: bunx drizzle-kit migrate --config drizzle.config.ts
+
+      - name: Re-apply migrations
+        env:
+          DATABASE_URL: postgres://cmux:cmux@localhost:5432/cmux_test
+          DIRECT_DATABASE_URL: postgres://cmux:cmux@localhost:5432/cmux_test
+        run: bunx drizzle-kit migrate --config drizzle.config.ts
+
+      - name: Database behavior tests
+        env:
+          CMUX_DB_TEST: "1"
+          DATABASE_URL: postgres://cmux:cmux@localhost:5432/cmux_test
+          DIRECT_DATABASE_URL: postgres://cmux:cmux@localhost:5432/cmux_test
+        run: bun run test:db:behavior
+
+  agent-session-web-resources:
+    if: ${{ inputs.agent_session_web == 'true' }}
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.3.14"
+
+      - name: Build and test Agent Session web resources
+        run: |
+          set -euo pipefail
+          bun install --frozen-lockfile
+          bun run agent-session-web:build
+          bun run agent-session-web:test
+          git diff --exit-code -- Resources/agent-session-react Resources/agent-session-solid
+
+  web-status:
+    name: Web status
+    needs:
+      - web-subarea-scope
+      - web-typecheck
+      - web-production-build
+      - web-tests
+      - web-instant-navigation
+      - react-apps-check
+      - diff-sidecar-check
+      - web-db-migrations
+      - agent-session-web-resources
+    if: ${{ always() }}
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 5
+    steps:
+      - name: Check routed web jobs
+        env:
+          WEB_INPUTS: ${{ toJSON(inputs) }}
+          WEB_NEEDS: ${{ toJSON(needs) }}
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          import sys
+
+          inputs = json.loads(os.environ["WEB_INPUTS"])
+          needs = json.loads(os.environ["WEB_NEEDS"])
+          for route in ("web", "macos", "agent_session_web"):
+              if inputs.get(route) not in {"true", "false"}:
+                  print(f"invalid route {route}={inputs.get(route)!r}", file=sys.stderr)
+                  sys.exit(1)
+
+          scope = needs["web-subarea-scope"]
+          scope_required = inputs["web"] == "true" or inputs["macos"] == "true"
+          if scope_required:
+              if scope["result"] != "success":
+                  print(f"web-subarea-scope: {scope['result']}", file=sys.stderr)
+                  sys.exit(1)
+              subareas = scope.get("outputs", {})
+              for name in ("db", "diff_sidecar", "instant", "production_build", "react_apps", "typecheck", "unit_tests"):
+                  if subareas.get(name) not in {"true", "false"}:
+                      print(f"invalid web subarea {name}={subareas.get(name)!r}", file=sys.stderr)
+                      sys.exit(1)
+          else:
+              subareas = {
+                  "db": "false",
+                  "diff_sidecar": "false",
+                  "instant": "false",
+                  "production_build": "false",
+                  "react_apps": "false",
+                  "typecheck": "false",
+                  "unit_tests": "false",
+              }
+
+          required = {
+              "web-subarea-scope": scope_required,
+              "web-typecheck": inputs["web"] == "true" and subareas["typecheck"] == "true",
+              "web-production-build": inputs["web"] == "true" and subareas["production_build"] == "true",
+              "web-tests": inputs["web"] == "true" and subareas["unit_tests"] == "true",
+              "web-instant-navigation": inputs["web"] == "true" and subareas["instant"] == "true",
+              "react-apps-check": inputs["web"] == "true" and subareas["react_apps"] == "true",
+              "diff-sidecar-check": scope_required and subareas["diff_sidecar"] == "true",
+              "web-db-migrations": inputs["web"] == "true" and subareas["db"] == "true",
+              "agent-session-web-resources": inputs["agent_session_web"] == "true",
+          }
+          bad = {}
+          for job, is_required in sorted(required.items()):
+              result = needs[job]["result"]
+              if is_required:
+                  if result != "success":
+                      bad[job] = result
+              elif result not in {"success", "skipped"}:
+                  bad[job] = result
+          if bad:
+              for job, result in bad.items():
+                  print(f"{job}: {result}", file=sys.stderr)
+              sys.exit(1)
+          for job, is_required in sorted(required.items()):
+              print(f"{job}: required={str(is_required).lower()} result={needs[job]['result']}")
+          PY

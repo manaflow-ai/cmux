@@ -8,7 +8,8 @@ name: Nightly macOS build
 # only ever advances within its own channel. Everything channel-specific is
 # resolved once in `decide`; every later job reads it from there.
 on:
-  # Publish every changed main revision, while keeping the scheduled cache warm.
+  # Publish changed main revisions, at most once per NIGHTLY_PUSH_MIN_INTERVAL_HOURS
+  # of published-commit age (see `decide`), while keeping the scheduled cache warm.
   # Publish every push to a release-candidate branch as the RC channel.
   push:
     branches:
@@ -20,7 +21,7 @@ on:
   workflow_dispatch:
     inputs:
       force:
-        description: Force a nightly build even if main has no new commits
+        description: Rebuild an already published main commit. Manual runs always bypass the push throttle.
         required: false
         default: false
         type: boolean
@@ -61,7 +62,10 @@ concurrency:
   # group, and a newer tick may replace the older warmup. The daily 08:47 UTC
   # publishing schedule, pushes, manual full runs, fast dogfood runs, and
   # build-only measurements retain their existing serialization rules.
-  group: nightly-build-${{ github.ref_name }}-${{ github.event_name == 'schedule' && github.event.schedule == '17 */6 * * *' && 'cache-seed' || inputs.seed_only && 'cache-seed' || github.event_name == 'workflow_dispatch' && github.event.inputs.build_only == 'true' && format('nightly-measure-{0}', github.run_id) || (github.event_name == 'workflow_dispatch' && github.event.inputs.fast == 'true' && 'fast' || 'full') }}
+  # Keep scheduled and manually requested cache seeds in different groups. A
+  # scheduled tick may replace an older scheduled tick, but must never cancel
+  # an explicit manual refresh that happens to be running at the same time.
+  group: nightly-build-${{ github.ref_name }}-${{ github.event_name == 'schedule' && github.event.schedule == '17 */6 * * *' && 'cache-seed-scheduled' || inputs.seed_only && 'cache-seed-manual' || github.event_name == 'workflow_dispatch' && github.event.inputs.build_only == 'true' && format('nightly-measure-{0}', github.run_id) || (github.event_name == 'workflow_dispatch' && github.event.inputs.fast == 'true' && 'fast' || 'full') }}
   cancel-in-progress: ${{ github.event_name == 'schedule' && github.event.schedule == '17 */6 * * *' }}
 
 permissions:
@@ -71,7 +75,7 @@ permissions:
 
 env:
   CREATE_DMG_VERSION: 8.0.0
-  CI_CACHE_R2_PUBLIC_URL: ${{ vars.CI_CACHE_R2_PUBLIC_URL }}
+  CI_CACHE_R2_PUBLIC_URL: ${{ vars.CI_CACHE_R2_PUBLIC_URL || 'https://ci-cache.cmux.com' }}
 
 jobs:
   decide:
@@ -109,6 +113,9 @@ jobs:
           BUILD_ONLY: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.build_only == 'true' && 'true' || 'false' }}
           SEED_ONLY: ${{ github.event_name == 'workflow_dispatch' && inputs.seed_only && 'true' || 'false' }}
           COLD_CACHE: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.cold_cache == 'true' && 'true' || 'false' }}
+          # Minimum age, in hours, of the commit NIGHTLY last published before
+          # a push to main builds again. `0` restores publish-every-push.
+          PUSH_MIN_INTERVAL_HOURS: ${{ vars.NIGHTLY_PUSH_MIN_INTERVAL_HOURS || '2' }}
         with:
           script: |
             const forceBuild = process.env.FORCE_BUILD === 'true';
@@ -214,8 +221,72 @@ jobs:
             }
 
             const shouldBuild = !seedOnly && (buildOnly || !isMainRef || forceBuild || nightlySha !== headSha);
+
+            // Push throttle. Main merges arrive faster than one nightly takes
+            // to build, sign, and publish (about 45 minutes), so publishing
+            // every push keeps the macOS pipeline busy around the clock and
+            // most builds are replaced within the hour. A push to main skips
+            // while the published commit is younger than the interval. Only
+            // `push` events on main are throttled: RC branches, manual
+            // dispatches, and both schedules decide exactly as before, and the
+            // 08:47 UTC schedule still publishes whatever main HEAD is then.
+            // Any lookup failure builds.
+            const minIntervalHours = Number(process.env.PUSH_MIN_INTERVAL_HOURS);
+            let publishedCommitAgeHours = null;
+            let pushThrottled = false;
+            if (
+              shouldBuild &&
+              context.eventName === 'push' &&
+              isMainRef &&
+              nightlySha &&
+              Number.isFinite(minIntervalHours) &&
+              minIntervalHours > 0
+            ) {
+              try {
+                const published = await github.rest.git.getCommit({
+                  owner,
+                  repo,
+                  commit_sha: nightlySha,
+                });
+                const committedAt = Date.parse(published.data.committer.date);
+                if (Number.isFinite(committedAt)) {
+                  publishedCommitAgeHours = (Date.now() - committedAt) / 3_600_000;
+                  pushThrottled = publishedCommitAgeHours < minIntervalHours;
+                }
+              } catch (error) {
+                core.warning(`Could not read the published ${channelIdentity.releaseTag} commit; building: ${error.message}`);
+              }
+            }
+            // Explain the final app workload separately from the eligibility
+            // outputs: the six-hour schedule only warms caches downstream.
+            const scheduledCacheOnly = context.eventName === 'schedule' &&
+              context.payload?.schedule === '17 */6 * * *';
+            let decisionReason;
+            if (seedOnly) {
+              decisionReason = 'Manual cache-only run: refresh compilation caches without building or publishing an app.';
+            } else if (scheduledCacheOnly) {
+              decisionReason = 'Scheduled cache warmup: refresh compilation caches only. The daily 08:47 UTC schedule is the app catch-up run.';
+            } else if (!shouldBuild) {
+              decisionReason = 'This main commit is already published. Use force=true in Run workflow to rebuild the same commit; manual runs already bypass the push throttle.';
+            } else if (pushThrottled) {
+              decisionReason =
+                `Skipping this push: ${channelIdentity.releaseTag} published ${nightlySha.slice(0, 7)}, ` +
+                `committed ${publishedCommitAgeHours.toFixed(2)}h ago (minimum ${minIntervalHours}h). ` +
+                'A later eligible push or the 08:47 UTC catch-up can publish an updated main revision. Run workflow bypasses this throttle; force is only needed to rebuild an already published commit.';
+            } else if (buildOnly) {
+              decisionReason = 'Manual build-only measurement: build the unsigned app without publishing.';
+            } else if (fastBuild) {
+              decisionReason = 'Manual fast dogfood build: build an arm64 artifact without publishing the Nightly feed.';
+            } else if (context.eventName === 'workflow_dispatch') {
+              decisionReason = 'Manual dispatch bypasses the push throttle; build the selected revision.';
+            } else {
+              decisionReason = 'The selected revision needs an app build and is not push-throttled.';
+            }
+            core.notice(decisionReason);
+
             const shouldPublish = !seedOnly && (isMainRef || isRcRef) && !buildOnly && !fastBuild;
-            core.setOutput('should_build', shouldBuild ? 'true' : 'false');
+            const appBuildSelected = shouldBuild && !pushThrottled && !scheduledCacheOnly;
+            core.setOutput('should_build', shouldBuild && !pushThrottled ? 'true' : 'false');
             core.setOutput('head_sha', headSha);
             core.setOutput('short_sha', headSha.slice(0, 7));
             core.setOutput('should_publish', shouldPublish ? 'true' : 'false');
@@ -226,9 +297,13 @@ jobs:
                 [{data: 'channel', header: true}, channel],
                 [{data: 'build HEAD', header: true}, headSha],
                 [{data: 'nightly tag', header: true}, nightlySha ?? '(missing)'],
+                [{data: 'reason', header: true}, decisionReason],
                 [{data: 'force build', header: true}, String(forceBuild)],
-                [{data: 'should build', header: true}, String(shouldBuild)],
-                [{data: 'should publish', header: true}, String(shouldPublish)],
+                [{data: 'push minimum commit age (hours)', header: true}, Number.isFinite(minIntervalHours) && minIntervalHours > 0 ? String(minIntervalHours) : '(disabled)'],
+                [{data: 'published commit age (hours)', header: true}, publishedCommitAgeHours === null ? '(not checked)' : publishedCommitAgeHours.toFixed(2)],
+                [{data: 'push throttled', header: true}, String(pushThrottled)],
+                [{data: 'app build selected', header: true}, String(appBuildSelected)],
+                [{data: 'publish app this run', header: true}, String(appBuildSelected && shouldPublish)],
                 [{data: 'fast dogfood build', header: true}, String(fastBuild)],
                 [{data: 'build-only measurement', header: true}, String(buildOnly)],
                 [{data: 'cold compilation cache', header: true}, String(coldCache)],
@@ -278,7 +353,7 @@ jobs:
         id: compilation-cache-restore
         uses: ./.github/actions/cache-restore
         with:
-          backend: ${{ inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND }}
+          backend: ${{ inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND || 'r2' }}
           path: build-universal/CompilationCache.noindex
           key: xcode-compilation-release-${{ runner.os }}-${{ runner.arch }}-${{ steps.compilation-cache-key.outputs.toolchain }}-${{ needs.decide.outputs.head_sha }}
           restore-keys: |
@@ -296,7 +371,7 @@ jobs:
         if: steps.compilation-cache-restore.outputs.cache-hit != 'true'
         uses: ./.github/actions/cache-restore
         with:
-          backend: ${{ inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND }}
+          backend: ${{ inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND || 'r2' }}
           path: .spm-cache
           key: spm-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
           restore-keys: spm-
@@ -375,7 +450,7 @@ jobs:
           CI_CACHE_R2_ENDPOINT: ${{ (inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND) == 'r2' && format('https://{0}.r2.cloudflarestorage.com', secrets.CI_CACHE_R2_ACCOUNT_ID) || '' }}
           CI_CACHE_R2_BUCKET: ${{ vars.CI_CACHE_R2_BUCKET }}
         with:
-          backend: ${{ inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND }}
+          backend: ${{ inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND || 'r2' }}
           path: build-universal/CompilationCache.noindex
           key: xcode-compilation-release-${{ runner.os }}-${{ runner.arch }}-${{ steps.compilation-cache-key.outputs.toolchain }}-${{ needs.decide.outputs.head_sha }}
 
@@ -389,7 +464,7 @@ jobs:
           CI_CACHE_R2_ENDPOINT: ${{ (inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND) == 'r2' && format('https://{0}.r2.cloudflarestorage.com', secrets.CI_CACHE_R2_ACCOUNT_ID) || '' }}
           CI_CACHE_R2_BUCKET: ${{ vars.CI_CACHE_R2_BUCKET }}
         with:
-          backend: ${{ inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND }}
+          backend: ${{ inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND || 'r2' }}
           path: .spm-cache
           key: spm-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
 
@@ -402,7 +477,9 @@ jobs:
     if: github.event_name == 'schedule' && github.event.schedule == '17 */6 * * *' || github.event_name == 'workflow_dispatch' && inputs.seed_only
     # Match the admission job's runner and Xcode. The cache key carries the
     # toolchain and the build paths, so a mismatch is a miss, not a wrong hit.
-    runs-on: ${{ vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15' }}
+    # Pull requests are what restore this seed, so track the runner the
+    # admission job picks for `pull_request`, not the merge-queue one.
+    runs-on: ${{ vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15' }}
     timeout-minutes: 75
     env:
       CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_15 }}
@@ -444,13 +521,17 @@ jobs:
 
       - name: Restore test compilation cache
         id: compilation-cache-restore
+        # Exact key only, so the seed is always one clean build. Restoring the
+        # last seed by prefix stacked another build's objects onto the CAS every
+        # run: the primary generation and the upstream it faults from grew 3.5 ->
+        # 5.0 GiB over eight runs, crossed the bound below, and then no run could
+        # save again. A cold build covers all of main, and measured smaller and
+        # faster than a stacked one. Only a re-run of the same revision hits here.
         uses: ./.github/actions/cache-restore
         with:
-          backend: ${{ inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND }}
+          backend: ${{ inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND || 'r2' }}
           path: ${{ env.CMUX_COMPILE_ADMISSION_CAS }}
           key: xcode-compilation-test-${{ runner.os }}-${{ runner.arch }}-${{ steps.compilation-cache-key.outputs.fingerprint }}-${{ needs.decide.outputs.head_sha }}
-          restore-keys: |
-            xcode-compilation-test-${{ runner.os }}-${{ runner.arch }}-${{ steps.compilation-cache-key.outputs.fingerprint }}-
 
       - name: Install compilation dependencies
         if: steps.compilation-cache-restore.outputs.cache-hit != 'true'
@@ -463,7 +544,7 @@ jobs:
         if: steps.compilation-cache-restore.outputs.cache-hit != 'true'
         uses: ./.github/actions/cache-restore
         with:
-          backend: ${{ inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND }}
+          backend: ${{ inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND || 'r2' }}
           path: .ci-source-packages
           key: spm-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
           restore-keys: spm-
@@ -525,7 +606,7 @@ jobs:
           CI_CACHE_R2_ENDPOINT: ${{ (inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND) == 'r2' && format('https://{0}.r2.cloudflarestorage.com', secrets.CI_CACHE_R2_ACCOUNT_ID) || '' }}
           CI_CACHE_R2_BUCKET: ${{ vars.CI_CACHE_R2_BUCKET }}
         with:
-          backend: ${{ inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND }}
+          backend: ${{ inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND || 'r2' }}
           path: ${{ env.CMUX_COMPILE_ADMISSION_CAS }}
           key: xcode-compilation-test-${{ runner.os }}-${{ runner.arch }}-${{ steps.compilation-cache-key.outputs.fingerprint }}-${{ needs.decide.outputs.head_sha }}
 
@@ -539,7 +620,7 @@ jobs:
           CI_CACHE_R2_ENDPOINT: ${{ (inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND) == 'r2' && format('https://{0}.r2.cloudflarestorage.com', secrets.CI_CACHE_R2_ACCOUNT_ID) || '' }}
           CI_CACHE_R2_BUCKET: ${{ vars.CI_CACHE_R2_BUCKET }}
         with:
-          backend: ${{ inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND }}
+          backend: ${{ inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND || 'r2' }}
           path: .ci-source-packages
           key: spm-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
 
@@ -653,7 +734,7 @@ jobs:
         if: needs.decide.outputs.cold_cache != 'true'
         uses: ./.github/actions/cache-restore
         with:
-          backend: ${{ inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND }}
+          backend: ${{ inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND || 'r2' }}
           path: build-universal/CompilationCache.noindex
           key: xcode-compilation-release-${{ runner.os }}-${{ runner.arch }}-${{ steps.compilation-cache-key.outputs.toolchain }}-${{ needs.decide.outputs.head_sha }}
           restore-keys: |
@@ -706,7 +787,7 @@ jobs:
         id: swift-packages-restore
         uses: ./.github/actions/cache-restore
         with:
-          backend: ${{ inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND }}
+          backend: ${{ inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND || 'r2' }}
           path: .spm-cache
           key: spm-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
           restore-keys: spm-
@@ -796,7 +877,7 @@ jobs:
           CI_CACHE_R2_ENDPOINT: ${{ (inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND) == 'r2' && format('https://{0}.r2.cloudflarestorage.com', secrets.CI_CACHE_R2_ACCOUNT_ID) || '' }}
           CI_CACHE_R2_BUCKET: ${{ vars.CI_CACHE_R2_BUCKET }}
         with:
-          backend: ${{ inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND }}
+          backend: ${{ inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND || 'r2' }}
           path: build-universal/CompilationCache.noindex
           key: xcode-compilation-release-${{ runner.os }}-${{ runner.arch }}-${{ steps.compilation-cache-key.outputs.toolchain }}-${{ needs.decide.outputs.head_sha }}
 
@@ -810,7 +891,7 @@ jobs:
           CI_CACHE_R2_ENDPOINT: ${{ (inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND) == 'r2' && format('https://{0}.r2.cloudflarestorage.com', secrets.CI_CACHE_R2_ACCOUNT_ID) || '' }}
           CI_CACHE_R2_BUCKET: ${{ vars.CI_CACHE_R2_BUCKET }}
         with:
-          backend: ${{ inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND }}
+          backend: ${{ inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND || 'r2' }}
           path: .spm-cache
           key: spm-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
 
@@ -929,6 +1010,10 @@ jobs:
     needs: [decide, build-nightly-ghostty-cli-helper, build-nightly-app]
     if: needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') && needs.decide.outputs.build_only != 'true'
     # Sign and notarize on the same macOS 26 lane proven by stable releases.
+    # actions:read lets the parallel artifact download resolve the blob URL.
+    permissions:
+      contents: read
+      actions: read
     runs-on: ${{ needs.decide.outputs.fast_build == 'true' && 'blacksmith-6vcpu-macos-26' || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
     # Start the standalone helper submission early so
     # Apple's first wait overlaps useful work; finish it before the final DMG.
@@ -976,12 +1061,26 @@ jobs:
         with:
           persist-credentials: false
           ref: ${{ needs.decide.outputs.head_sha }}
-          submodules: recursive
+          # Signing reads only this repository's scripts, tests, license and
+          # entitlements. The ghostty, bonsplit and homebrew submodules cost
+          # ~15s of fetch on every variant and are never read here.
+          submodules: false
 
       - name: Select Xcode
         run: ./scripts/select-ci-xcode.sh
 
+      # download-artifact reads the blob over one connection, about 1.8 MB/s
+      # on these runners (140s for this 242 MB archive). Parallel ranges of the
+      # same blob, checked against the artifact's SHA-256, take about 10s.
+      - name: Download unsigned nightly app (parallel)
+        id: unsigned-app-parallel
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/ci/download-run-artifact.py --name cmux-nightly-unsigned-app --out nightly-inputs/app
+
       - name: Download unsigned nightly app
+        if: steps.unsigned-app-parallel.outcome != 'success'
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: cmux-nightly-unsigned-app
@@ -1018,6 +1117,8 @@ jobs:
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.3.14"
 
       - name: Install build deps
         run: |
@@ -1510,6 +1611,7 @@ jobs:
             --name-prefix "${CHANNEL_DMG_PREFIX}-" \
             --keep-builds 100 \
             --max-assets 950 \
+            --best-effort \
             --execute
 
       - name: Publish nightly release assets
@@ -1598,8 +1700,20 @@ jobs:
           # configured" on self-hosted runners) nor overlay a second
           # Authorization header on top of them (which makes GitHub reject the
           # push with `remote: Duplicate header: "Authorization"`).
-          git push "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" \
-            "refs/tags/${CHANNEL_RELEASE_TAG}" --force
+          # GitHub can transiently time out checking workflow permissions on
+          # a tag push. Retrying the same fixed commit is idempotent; never
+          # mark publication complete if all attempts fail.
+          for attempt in 1 2 3; do
+            if git push "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" \
+              "refs/tags/${CHANNEL_RELEASE_TAG}" --force; then
+              break
+            fi
+            if [ "$attempt" -eq 3 ]; then
+              echo "::error::Channel release tag push failed after 3 attempts"
+              exit 1
+            fi
+            sleep "$((attempt * 5))"
+          done
 
   # A nightly that fails on main stalls every NIGHTLY install silently. Keep
   # one open issue per breakage so the failure is visible without watching Actions.

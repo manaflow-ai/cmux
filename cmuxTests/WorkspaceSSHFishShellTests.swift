@@ -1,8 +1,6 @@
 import XCTest
 
 final class WorkspaceSSHFishShellTests: XCTestCase {
-    private struct ProcessRunResult { let status: Int32; let stderr: String; let timedOut: Bool }
-
     private final class MockSocketServerState: @unchecked Sendable {
         private let lock = NSLock(); private(set) var commands: [String] = []
 
@@ -83,7 +81,7 @@ final class WorkspaceSSHFishShellTests: XCTestCase {
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
         environment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
 
-        let result = runProcess(
+        let result = SSHFishProcessRunner.runProcess(
             executablePath: cliPath,
             arguments: [
                 "ssh",
@@ -229,9 +227,11 @@ final class WorkspaceSSHFishShellTests: XCTestCase {
         }
 
         let startupResults = (0..<2).map { _ in
-            runProcess(
+            SSHFishProcessRunner.runProcess(
                 executablePath: "/bin/sh",
-                arguments: ["-c", executableInitialCommand],
+                // Execute the materialized script by path so the fixture does
+                // not re-parse a large reusable command through `sh -c`.
+                arguments: [executableInitialCommand],
                 environment: startupEnvironment,
                 timeout: 5
             )
@@ -327,66 +327,34 @@ final class WorkspaceSSHFishShellTests: XCTestCase {
         }
 
         if startupCommand.contains(systemSSHPath) {
-            return startupCommand.replacingOccurrences(of: systemSSHPath, with: fakeSSHPath)
+            let rewrittenURL = rewriteRoot.appendingPathComponent("startup-with-fake-ssh.sh")
+            let rewrittenCommand = startupCommand.replacingOccurrences(of: systemSSHPath, with: fakeSSHPath)
+            try "#!/bin/sh\n\(rewrittenCommand)\n".write(
+                to: rewrittenURL,
+                atomically: true,
+                encoding: .utf8
+            )
+            try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: rewrittenURL.path)
+            return rewrittenURL.path
         }
 
         if let rewritten = SSHStartupCommandTestSupport.replacingPinnedSSH(
             in: startupCommand, with: fakeSSHPath
         ) {
-            return rewritten
+            let rewrittenURL = rewriteRoot.appendingPathComponent("startup-with-fake-ssh.sh")
+            try "#!/bin/sh\n\(rewritten)\n".write(
+                to: rewrittenURL,
+                atomically: true,
+                encoding: .utf8
+            )
+            try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: rewrittenURL.path)
+            return rewrittenURL.path
         }
 
         throw NSError(
             domain: "WorkspaceSSHFishShellTests",
             code: 2,
             userInfo: [NSLocalizedDescriptionKey: "Generated startup command did not pin (systemSSHPath)"]
-        )
-    }
-
-    private func runProcess(
-        executablePath: String,
-        arguments: [String],
-        environment: [String: String],
-        timeout: TimeInterval
-    ) -> ProcessRunResult {
-        let process = Process()
-        let stdoutPipe = Pipe()
-        let stderrPipe = Pipe()
-        process.executableURL = URL(fileURLWithPath: executablePath)
-        process.arguments = arguments
-        process.environment = environment
-        process.standardInput = FileHandle.nullDevice
-        process.standardOutput = stdoutPipe
-        process.standardError = stderrPipe
-
-        do {
-            try process.run()
-        } catch {
-            return ProcessRunResult(
-                status: -1,
-                stderr: String(describing: error),
-                timedOut: false
-            )
-        }
-
-        let exitSignal = DispatchSemaphore(value: 0)
-        DispatchQueue.global(qos: .userInitiated).async {
-            process.waitUntilExit()
-            exitSignal.signal()
-        }
-
-        let timedOut = exitSignal.wait(timeout: .now() + timeout) == .timedOut
-        if timedOut {
-            process.terminate()
-            _ = exitSignal.wait(timeout: .now() + 1)
-        }
-
-        _ = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
-        let stderr = String(data: stderrPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
-        return ProcessRunResult(
-            status: process.terminationStatus,
-            stderr: stderr,
-            timedOut: timedOut
         )
     }
 
