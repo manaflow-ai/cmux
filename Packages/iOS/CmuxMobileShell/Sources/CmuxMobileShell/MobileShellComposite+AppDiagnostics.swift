@@ -57,6 +57,32 @@ extension MobileShellComposite {
         )
     }
 
+    /// Adds one bounded terminal trace phase to the diagnostic spine, carrying
+    /// the categorical context that decides whether a slow replay is a blank
+    /// screen or merely stale text.
+    ///
+    /// The trace event has one integer payload slot, and this overload spends
+    /// it on ``MobileTerminalReplayTraceContext``. Use it for the phases that
+    /// have no byte count to report (`started` and `stalled`); the phases that
+    /// carry a payload size keep using `detail`.
+    public func recordTerminalTrace(
+        operation: DiagnosticTerminalTraceOperation,
+        phase: DiagnosticTerminalTracePhase,
+        traceID: DiagnosticTerminalTraceID,
+        surfaceID: String? = nil,
+        startedAt: Date? = nil,
+        replayContext: MobileTerminalReplayTraceContext
+    ) {
+        recordTerminalTrace(
+            operation: operation,
+            phase: phase,
+            traceID: traceID,
+            surfaceID: surfaceID,
+            startedAt: startedAt,
+            detail: replayContext.encoded
+        )
+    }
+
     /// Adds one bounded terminal trace phase to the diagnostic spine.
     public func recordTerminalTrace(
         operation: DiagnosticTerminalTraceOperation,
