@@ -6,6 +6,9 @@ import Darwin
 import Foundation
 import Security
 import CmuxFoundation
+import os
+
+nonisolated private let logger = Logger(subsystem: "com.cmuxterm.app", category: "ComputerUseRuntime")
 
 /// The computer use direct screen capture verification exposed to the host application.
 public enum ComputerUseDirectScreenCaptureVerification: Equatable, Sendable {
@@ -925,7 +928,13 @@ public final class ComputerUseRuntimeService {
         guard let bundledHelperAppURL else { return nil }
         let destination = paths.installedHelperAppURL
         let currentCheckTask = Task.detached(priority: .userInitiated) {
-            Self.helperIsCurrent(nested: bundledHelperAppURL, destination: destination)
+            let isCurrent = Self.helperIsCurrent(nested: bundledHelperAppURL, destination: destination)
+            if isCurrent {
+                // A copy staged by an earlier build can still carry the empty
+                // record #13602 wrote; release it in place instead of restaging.
+                _ = try? Self.releaseCopiedHelperFromQuarantine(at: destination)
+            }
+            return isCurrent
         }
         let isCurrent = await withTaskCancellationHandler {
             await currentCheckTask.value
@@ -1838,7 +1847,7 @@ public final class ComputerUseRuntimeService {
         return paths
     }
 
-    nonisolated private static func installHelper(
+    nonisolated static func installHelper(
         nested: URL,
         destination: URL,
         directory: URL
@@ -1872,33 +1881,23 @@ public final class ComputerUseRuntimeService {
         }
     }
 
+    /// Strips `com.apple.quarantine` from a helper copy so LaunchServices
+    /// launches it without the first-open dialog (#13430, #13803). An entry
+    /// that cannot be released is logged and kept: a quarantined helper still
+    /// launches once approved, while a missing helper disables Computer Use.
+    @discardableResult
     nonisolated static func releaseCopiedHelperFromQuarantine(
         at url: URL,
         fileManager: FileManager = .default
-    ) throws {
-        guard !Task.isCancelled else { throw CancellationError() }
-        let values = try url.resourceValues(
-            forKeys: [.isDirectoryKey, .isSymbolicLinkKey]
-        )
-        guard values.isSymbolicLink != true else { return }
-
-        var quarantineValues = URLResourceValues()
-        quarantineValues.quarantineProperties = nil
-        var mutableURL = url
-        try mutableURL.setResourceValues(quarantineValues)
-
-        guard values.isDirectory == true else { return }
-        let children = try fileManager.contentsOfDirectory(
-            at: url,
-            includingPropertiesForKeys: [.isDirectoryKey, .isSymbolicLinkKey],
-            options: []
-        )
-        for child in children {
-            try releaseCopiedHelperFromQuarantine(
-                at: child,
-                fileManager: fileManager
+    ) throws -> ComputerUseHelperQuarantineRelease.Report {
+        let report = try ComputerUseHelperQuarantineRelease(fileManager: fileManager)
+            .release(treeAt: url)
+        for failure in report.failures {
+            logger.error(
+                "Computer Use helper quarantine release failed for \(failure.url.lastPathComponent, privacy: .public) (errno \(failure.code))"
             )
         }
+        return report
     }
 
     nonisolated private static func makeStateAuthenticationKey() -> Data {

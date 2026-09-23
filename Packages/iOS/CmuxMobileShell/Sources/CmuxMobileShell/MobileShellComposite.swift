@@ -6499,8 +6499,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             // A renamed/repaired row may be the currently authenticated
             // identity even though presence still names its historical id.
             // Let physical-route coalescing choose that authoritative row.
+            // The alias set holds bare device ids, so match the build too: an
+            // online sibling build on the same device is not this row's alias.
             let aliasIDs =
                 physicalAliasIDsByCanonicalID[pairingID] ?? [canonicalID]
+            let instanceTag = $0.instanceTag
             return visibleLoadedMacs.contains { candidate in
                 let candidatePairingID = MobilePairedMac.pairingID(
                     macDeviceID: candidate.macDeviceID,
@@ -6508,6 +6511,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 )
                 return exactOnlinePairingIDs.contains(candidatePairingID)
                     && aliasIDs.contains(cmxCanonicalDeviceID(candidate.macDeviceID))
+                    && macInstanceTagAuthority.sameStoredAuthority(
+                        candidate.instanceTag,
+                        instanceTag
+                    )
             }
         }
         // Sibling builds of one physical Mac are distinct aggregation targets,

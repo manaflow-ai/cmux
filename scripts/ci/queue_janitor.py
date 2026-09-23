@@ -14,6 +14,13 @@ this priority order:
      a newer CI run for that PR is already waiting to replace them and the old
      run's compile admission is not mid-flight (ci.yml deliberately lets that
      compile finish so the queued run can reuse its product).
+  d. CI runs whose required ``ci-status`` is already decided against them: an
+     ``app-host unit tests`` shard has concluded ``failure``, so the ``macos``
+     reusable-workflow call cannot report ``success`` or ``skipped`` and no
+     later job can take that back, while sibling macOS jobs still hold the
+     pool. Unlike (a)-(c) the run is current and its remaining output is still
+     readable, so this category is ordered last and never touches a run whose
+     diff changes what the failing shard does.
 
 Draft pull requests are deliberately not a category: a draft can be an active
 integration branch other work depends on, and ci.yml has no ready_for_review
@@ -68,7 +75,29 @@ FULL_SUITE_LABEL = "full-ci"
 COMPILE_ONLY_POLICY = "compile-only"
 COMPILE_ADMISSION_JOB = re.compile(r"(^|/ )macOS compile admission$")
 
-CATEGORY_ORDER = ("experiment", "stale-pr", "label-dropped")
+CATEGORY_ORDER = ("experiment", "stale-pr", "label-dropped", "doomed")
+
+# The shards whose failure decides ci-status. ci-macos.yml shards this six ways
+# and the reusable-call prefix makes the API name "macos / app-host unit tests
+# (3/6)", so match on the substring.
+DOOMED_JOB_NAME = "app-host unit tests"
+
+# How long a shard failure must have stood before the run is a candidate, so a
+# run that just turned red keeps its siblings while someone looks at it.
+DOOMED_GRACE = dt.timedelta(minutes=10)
+
+# The shards' own inputs, read off the app-host-unit-tests job block in
+# ci-macos.yml: the XCTest sources it runs, the scripts that shard, compile,
+# isolate and grade them, the known-failure quarantine list and the workflow
+# that defines the job. A run that changes any of these is an attempt to change
+# what the shard does, and its remaining shards are the result someone is
+# waiting for. Sources/ is deliberately absent: the suite exercises it, but
+# nearly every pull request changes it, and a set matching every pull request
+# is not a rule. JANITOR_OPT_OUT_LABEL covers a fix that lives only there.
+DOOMED_INPUT_PREFIXES = ("cmuxTests/", "scripts/ci/workloads/")
+DOOMED_INPUT_MARKERS = ("app-host", "app_host")
+DOOMED_INPUT_FILES = (".github/workflows/ci-macos.yml", "scripts/ci/cmux_unit_test_shard.py")
+JANITOR_OPT_OUT_LABEL = "no-janitor"
 
 PROTECTED_EVENTS = frozenset({"merge_group", "release", "create", "delete", "deployment", "deployment_status"})
 MAIN_ONLY_EVENTS = frozenset({"schedule", "workflow_dispatch", "repository_dispatch"})
@@ -169,6 +198,10 @@ class MacosUsage:
     running: int = 0
     oldest_queued_at: dt.datetime | None = None
     compile_admission_running: bool = False
+    # The app-host shard whose failure decided ci-status, and when it landed.
+    # Read from the same pass over the run's jobs, at no extra API cost.
+    decided_by: str | None = None
+    decided_at: dt.datetime | None = None
 
     @property
     def held(self) -> int:
@@ -179,10 +212,14 @@ def macos_usage(jobs: Iterable[Mapping[str, Any]]) -> MacosUsage:
     queued = running = 0
     oldest: dt.datetime | None = None
     compiling = False
+    decided_by: str | None = None
+    decided_at: dt.datetime | None = None
+    undated_failure = False
     for job in jobs:
         if not is_macos_job(job):
             continue
         status = job.get("status")
+        name = job.get("name") or ""
         if status in QUEUED_JOB_STATUSES:
             queued += 1
             created = parse_time(job.get("created_at"))
@@ -190,9 +227,43 @@ def macos_usage(jobs: Iterable[Mapping[str, Any]]) -> MacosUsage:
                 oldest = created
         elif status in RUNNING_JOB_STATUSES:
             running += 1
-            if COMPILE_ADMISSION_JOB.search(job.get("name") or ""):
+            if COMPILE_ADMISSION_JOB.search(name):
                 compiling = True
-    return MacosUsage(queued, running, oldest, compiling)
+        elif status == "completed" and DOOMED_JOB_NAME in name:
+            # Job conclusion, never step conclusion: a job whose only failed
+            # steps carry continue-on-error concludes `success`, so reading the
+            # job already excludes tolerated failures.
+            if job.get("conclusion") != "failure":
+                continue
+            finished = parse_time(job.get("completed_at"))
+            if finished is None:
+                undated_failure = True
+            elif decided_at is None or finished < decided_at:
+                decided_by, decided_at = name, finished
+    if undated_failure:
+        # A failure we cannot time cannot clear the grace window; fail closed.
+        decided_by = decided_at = None
+    return MacosUsage(queued, running, oldest, compiling, decided_by, decided_at)
+
+
+def touches_doomed_job_inputs(paths: Iterable[str]) -> bool:
+    for path in paths:
+        if path in DOOMED_INPUT_FILES or path.startswith(DOOMED_INPUT_PREFIXES):
+            return True
+        if any(marker in path for marker in DOOMED_INPUT_MARKERS):
+            return True
+    return False
+
+
+def pr_changed_paths(pr: Mapping[str, Any]) -> list[str] | None:
+    """Changed paths, or None when the diff cannot be read in full."""
+    files = pr.get("files") or {}
+    if (files.get("pageInfo") or {}).get("hasNextPage"):
+        return None
+    nodes = files.get("nodes")
+    if nodes is None:
+        return None
+    return [str(node.get("path")) for node in nodes]
 
 
 def run_head_owner(run: Mapping[str, Any]) -> str:
@@ -270,6 +341,7 @@ def classify(
     *,
     newer_ci_run_waiting: bool,
     pull_request_policy: str,
+    now: dt.datetime,
 ) -> tuple[str, str] | None:
     """Return (category, reason) for a wasteful run, or None to leave it alone."""
     if usage.held == 0 or protected_reason(run):
@@ -306,6 +378,29 @@ def classify(
         created = parse_time(run.get("created_at"))
         if created and had_label_at(pr, FULL_SUITE_LABEL, created) is True:
             return "label-dropped", f"full suite, but PR #{number} no longer has `{FULL_SUITE_LABEL}`"
+
+    # Doomed: ci-status is already decided against this run. Reaching here means
+    # the PR is open and this run is still its current head, so unlike the
+    # categories above the run is live and its remaining shards are readable
+    # output. Everything unknown therefore preserves the run.
+    if (
+        run.get("path") == CI_WORKFLOW_PATH
+        and usage.decided_by
+        and usage.decided_at is not None
+        # A re-run replays a subset of jobs, so an older attempt's failure is
+        # not evidence about this one.
+        and run.get("run_attempt") == 1
+        and now - usage.decided_at >= DOOMED_GRACE
+        and JANITOR_OPT_OUT_LABEL not in pr_labels(pr)
+    ):
+        changed = pr_changed_paths(pr)
+        # An unreadable diff is not evidence that this run is not the fix.
+        if changed is not None and not touches_doomed_job_inputs(changed):
+            return "doomed", (
+                f"ci-status already decided for PR #{number} ({branch}): `{usage.decided_by}` "
+                f"failed {format_age(now - usage.decided_at)} ago, "
+                f"{usage.held} macOS job(s) still held"
+            )
     return None
 
 
@@ -361,6 +456,7 @@ def build_plan(
     threshold: int,
     max_cancels: int,
     pull_request_policy: str,
+    now: dt.datetime,
 ) -> Plan:
     usages = {run["id"]: macos_usage(jobs_by_run.get(run["id"], ())) for run in runs}
     queued = sum(u.queued for u in usages.values())
@@ -376,6 +472,7 @@ def build_plan(
             run, usage, pr,
             newer_ci_run_waiting=newer_ci_run_waiting(run, runs),
             pull_request_policy=pull_request_policy,
+            now=now,
         )
         if verdict:
             candidates.append(Candidate(run, verdict[0], verdict[1], usage))
@@ -420,6 +517,7 @@ PR_FIELDS = """
         number state headRefOid url
         headRepositoryOwner { login }
         labels(first: 50) { nodes { name } }
+        files(first: 100) { pageInfo { hasNextPage } nodes { path } }
         timelineItems(last: 50, itemTypes: [LABELED_EVENT, UNLABELED_EVENT]) {
           nodes {
             __typename
@@ -615,6 +713,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     plan = build_plan(
         runs, jobs_by_run, prs_by_branch,
         threshold=threshold, max_cancels=max_cancels, pull_request_policy=args.pull_request_policy,
+        now=now,
     )
 
     results: dict[int, str] = {}

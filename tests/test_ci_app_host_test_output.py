@@ -391,6 +391,84 @@ class AppHostTestOutputTests(unittest.TestCase):
                 else:
                     self.assertIn("category=pre-test build/setup failure", completed.stdout)
 
+    def test_selected_single_test_passes_its_selector_and_names_its_log(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = pathlib.Path(temporary_directory)
+            fake_ci = root / "scripts/ci"
+            fake_ci.mkdir(parents=True)
+            shutil.copy2(SCRIPT, fake_ci / SCRIPT.name)
+            argv_log = root / "argv.log"
+            fake_runner = fake_ci / "xcodebuild_noninteractive.py"
+            fake_runner.write_text(
+                "#!/usr/bin/env python3\n"
+                "import os, sys\n"
+                "with open(os.environ['ARGV_LOG'], 'a') as log:\n"
+                "    log.write(' '.join(a for a in sys.argv if a.startswith('-only-testing:')) + '\\n')\n"
+                "print('Test run with 1 test in 1 suite passed after 0.01 seconds.')\n",
+                encoding="utf-8",
+            )
+            fake_runner.chmod(0o755)
+            results = root / "results"
+            completed = subprocess.run(
+                ["bash", "-c", TEST_DEPOT_RUN_UNIT_TESTS],
+                cwd=root,
+                env={
+                    **os.environ,
+                    "UNIT_TEST_SUITES": "Foo/testSwift(),Bar/testXC,Baz",
+                    "TEST_RESULTS_ROOT": str(results),
+                    "ARGV_LOG": str(argv_log),
+                },
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+            self.assertEqual(completed.returncode, 0, completed.stderr)
+            self.assertEqual(
+                argv_log.read_text(encoding="utf-8").splitlines(),
+                [
+                    "-only-testing:cmuxTests/Foo/testSwift()",
+                    "-only-testing:cmuxTests/Bar/testXC",
+                    "-only-testing:cmuxTests/Baz",
+                ],
+            )
+            self.assertTrue((results / "Foo.testSwift.log").is_file())
+            self.assertTrue((results / "Bar.testXC.log").is_file())
+            self.assertTrue((results / "Baz.log").is_file())
+
+    def test_selector_rejects_anything_but_suite_or_suite_slash_test(self) -> None:
+        for value in ("Foo/../Bar", "Foo/bar/baz", "Foo;true", "Foo/bar(x)", "/Foo", "Foo/"):
+            with self.subTest(value=value), tempfile.TemporaryDirectory() as temporary_directory:
+                root = pathlib.Path(temporary_directory)
+                fake_ci = root / "scripts/ci"
+                fake_ci.mkdir(parents=True)
+                shutil.copy2(SCRIPT, fake_ci / SCRIPT.name)
+                marker = root / "ran"
+                fake_runner = fake_ci / "xcodebuild_noninteractive.py"
+                fake_runner.write_text(
+                    "#!/usr/bin/env python3\n"
+                    f"open({str(marker)!r}, 'w').close()\n"
+                    "print('Test run with 1 test in 1 suite passed after 0.01 seconds.')\n",
+                    encoding="utf-8",
+                )
+                fake_runner.chmod(0o755)
+                completed = subprocess.run(
+                    ["bash", "-c", TEST_DEPOT_RUN_UNIT_TESTS],
+                    cwd=root,
+                    env={
+                        **os.environ,
+                        "UNIT_TEST_SUITES": value,
+                        "TEST_RESULTS_ROOT": str(root / "results"),
+                    },
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                )
+
+                self.assertNotEqual(completed.returncode, 0)
+                self.assertIn("Invalid unit suite identifier", completed.stdout + completed.stderr)
+                self.assertFalse(marker.exists())
+
     def test_singular_summary_is_supported(self) -> None:
         passed, _ = MODULE.classify("Executed 1 test, with 0 failures (0 unexpected)\n")
 

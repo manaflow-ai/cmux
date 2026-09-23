@@ -1910,6 +1910,107 @@ final class cmuxUITests: XCTestCase {
     }
 
     @MainActor
+    func testComputerPickerSelectionSurvivesAppRelaunch() async throws {
+        let app = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_COMPUTER_PICKER_PERSISTENCE": "1",
+        ])
+        defer { app.terminate() }
+
+        func picker() throws -> XCUIElement {
+            let whatsNewSheet = app.collectionViews["MobileWhatsNewSheet"].firstMatch
+            if whatsNewSheet.waitForExistence(timeout: 4) {
+                // The sheet identifier is inherited by its footer on iOS 26.
+                // Finish every page rather than tapping the obscured toolbar.
+                let continueButton = app.buttons.matching(
+                    NSPredicate(format: "label == %@", "Continue")
+                ).firstMatch
+                for _ in 0..<4 where whatsNewSheet.exists {
+                    _ = try XCTUnwrap(
+                        continueButton.waitForExistence(timeout: 4) ? continueButton : nil
+                    )
+                    continueButton.tap()
+                }
+                _ = try XCTUnwrap(
+                    whatsNewSheet.waitForNonExistence(timeout: 5) ? true : nil,
+                    "Finish the launch sheet before using the picker behind it"
+                )
+            }
+            let picker = app.buttons["MobileWorkspaceMacPicker"]
+            return try XCTUnwrap(
+                picker.waitForExistence(timeout: 15) ? picker : nil,
+                "The production computer picker must appear before interacting"
+            )
+        }
+
+        func expectTitle(_ title: String) throws {
+            let control = try picker()
+            let restored = XCTNSPredicateExpectation(
+                predicate: NSPredicate(format: "label == %@", title),
+                object: control
+            )
+            _ = try XCTUnwrap(
+                XCTWaiter.wait(for: [restored], timeout: 15) == .completed ? control : nil,
+                "Expected picker title \(title), got \(control.label)"
+            )
+        }
+
+        func capture(_ name: String) {
+            let attachment = XCTAttachment(screenshot: app.screenshot())
+            attachment.name = name
+            attachment.lifetime = .keepAlways
+            add(attachment)
+        }
+
+        func openPicker() throws {
+            let control = try picker()
+            control.tap()
+        }
+
+        // Start through the real picker, without seeding its saved preference.
+        try openPicker()
+        let allComputers = try XCTUnwrap(waitForVisibleElement(
+            identifier: "MobileWorkspaceMacPickerAll", in: app, timeout: 5
+        ))
+        tapMenuItem(allComputers, in: app)
+        try expectTitle("All Computers")
+        try openPicker()
+        let computer = app.buttons.matching(NSPredicate(
+            format: "identifier BEGINSWITH %@",
+            "MobileWorkspaceMacPickerMachine-picker-mac"
+        )).firstMatch
+        _ = try XCTUnwrap(
+            computer.waitForExistence(timeout: 5) ? computer : nil,
+            "The computer menu must be open before selecting its Mac"
+        )
+        let computerName = computer.label
+        XCTAssertNotEqual(computerName, "All Computers")
+        tapMenuItem(computer, in: app)
+        try expectTitle(computerName)
+        XCTAssertTrue(app.buttons["MobileWorkspaceRow-workspace-main"].exists)
+        XCTAssertFalse(app.buttons["MobileWorkspaceRow-workspace-other"].exists)
+        capture("computer-selected-before-termination")
+
+        app.terminate()
+        app.launch()
+        try expectTitle(computerName)
+        XCTAssertTrue(app.buttons["MobileWorkspaceRow-workspace-main"].exists)
+        XCTAssertFalse(app.buttons["MobileWorkspaceRow-workspace-other"].exists)
+        capture("computer-restored-after-relaunch")
+
+        try openPicker()
+        tapMenuItem(app.buttons["MobileWorkspaceMacPickerAll"], in: app)
+        try expectTitle("All Computers")
+        capture("all-computers-selected-before-termination")
+
+        app.terminate()
+        app.launch()
+        try expectTitle("All Computers")
+        XCTAssertTrue(app.buttons["MobileWorkspaceRow-workspace-main"].exists)
+        XCTAssertTrue(app.buttons["MobileWorkspaceRow-workspace-other"].exists)
+        capture("all-computers-restored-after-relaunch")
+    }
+
+    @MainActor
     func testWorkspaceMacPickerUsesComputerCopyAndAnnouncesConnectionStatus() throws {
         let app = launchApp(mockData: false, environment: [
             "CMUX_UITEST_WORKSPACE_LIST_PREVIEW": "1",
