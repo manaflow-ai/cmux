@@ -14,6 +14,7 @@ import sys
 from pathlib import Path
 
 RECEIPT = "cmux-ios-test-product.json"
+PLATFORM_XCTEST_HOST = "__PLATFORMS__/iPhoneSimulator.platform/Developer/Library/Xcode/Agents/xctest"
 PACKAGE_RESOLVED = Path("ios/cmux.xcworkspace/xcshareddata/swiftpm/Package.resolved")
 GHOSTTY_CHECKSUMS = Path("scripts/ghosttykit-checksums.txt")
 IDENTITY_KEYS = (
@@ -133,15 +134,27 @@ def expand_path(raw: str, products: Path, host: str = "") -> str:
     return raw.replace("__TESTROOT__", str(products)).replace("__TESTHOST__", host)
 
 
-def validate_manifest(value, products: Path) -> None:
+def validate_manifest(value, products: Path, developer: Path) -> None:
     found = list(targets(value))
     if not found:
         raise ValueError("test manifest contains no test targets")
     root = products.resolve()
     for target in found:
-        host = expand_path(target.get("TestHostPath", ""), products)
+        raw_host = target.get("TestHostPath", "")
+        host = expand_path(raw_host, products)
         candidates: list[tuple[str, str]] = []
-        if host:
+        if raw_host == PLATFORM_XCTEST_HOST:
+            # Unhosted SwiftPM tests use Xcode's platform runner, not an app
+            # inside the product. Preserve the macro for Xcode, but validate
+            # the exact executable in this machine's identity-checked toolchain.
+            developer_root = developer.resolve()
+            runner = (developer_root / "Platforms" / raw_host.removeprefix("__PLATFORMS__/")).resolve()
+            if developer_root not in runner.parents:
+                raise ValueError(f"unscoped platform test host: {runner}")
+            if not runner.is_file() or not os.access(runner, os.X_OK):
+                raise ValueError(f"missing or non-executable platform test host: {runner}")
+            host = str(runner)
+        elif host:
             candidates.append(("host", host))
         bundle = expand_path(target.get("TestBundlePath", ""), products, host)
         candidates.append(("bundle", bundle))
@@ -157,9 +170,11 @@ def validate_manifest(value, products: Path) -> None:
                 raise ValueError(f"missing test {label}: {raw}")
 
 
-def relocate_manifest(manifest: Path, products: Path, replacements: list[tuple[str, str]]) -> None:
+def relocate_manifest(
+    manifest: Path, products: Path, replacements: list[tuple[str, str]], developer: Path
+) -> None:
     value = map_strings(plistlib.loads(manifest.read_bytes()), replacements)
-    validate_manifest(value, products)
+    validate_manifest(value, products, developer)
     manifest.write_bytes(plistlib.dumps(value))
 
 
@@ -167,7 +182,10 @@ def stamp(derived: Path, source_derived: Path) -> None:
     products = derived / "Build" / "Products"
     current = identity()
     manifest = manifests(products)[0]
-    relocate_manifest(manifest, products, [(str(source_derived.resolve()), str(derived.resolve()))])
+    relocate_manifest(
+        manifest, products, [(str(source_derived.resolve()), str(derived.resolve()))],
+        Path(current["developer"]),
+    )
     digest = product_digest(products)
     receipt = {
         "schema": 1,
@@ -206,7 +224,7 @@ def restore(derived: Path) -> None:
         (str(recorded.get("checkout", "")), str(current["checkout"])),
         (str(recorded.get("developer", "")), str(current["developer"])),
     ]
-    relocate_manifest(manifest, products, replacements)
+    relocate_manifest(manifest, products, replacements, Path(current["developer"]))
     github_env = os.environ.get("GITHUB_ENV")
     if github_env:
         with Path(github_env).open("a") as output:
