@@ -144,6 +144,18 @@ class ReleaseProductReuseTests(unittest.TestCase):
         provenance = json.loads((self.consumer / "Build/Products" / reuse.PROVENANCE).read_text())
         self.assertEqual(provenance["artifact_id"], 42)
 
+    def test_reusable_macos_job_name_restores_release_product(self):
+        self.api.job["name"] = "macos / release-build"
+        result = self.restore()
+        self.assertTrue(result["hit"], result)
+        self.assertEqual(result["outcome"], "exact_restore")
+
+    def test_unrelated_reusable_job_name_cannot_authorize_release_product(self):
+        self.api.job["name"] = "untrusted / release-build"
+        result = self.restore()
+        self.assertFalse(result["hit"], result)
+        self.assertFalse((self.consumer / Path(reuse.APP_REL)).exists())
+
     def test_product_digest_ignores_symlink_permission_bits_with_mock_metadata(self):
         app = self.producer / Path(reuse.APP_REL)
         link = app / "Contents/Frameworks/Test.framework/Versions/Current"
