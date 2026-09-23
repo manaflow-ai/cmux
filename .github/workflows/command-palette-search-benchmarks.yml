@@ -1,17 +1,22 @@
-name: command palette search benchmarks nightly
+name: command palette search benchmarks
 
 # The wall-clock command-palette search benchmarks are gated out of the sharded
 # app-host unit suite by CMUX_COMMAND_PALETTE_SEARCH_BENCHMARKS (see
 # skipUnlessCommandPaletteSearchBenchmarksAreEnabled in
-# cmuxTests/CommandPaletteNucleoFixtures.swift). A gate with no scheduled caller
-# is deletion with extra steps: the benchmarks keep compiling and stop running.
-# This workflow is the caller. It runs the one script that owns the gate,
+# cmuxTests/CommandPaletteNucleoFixtures.swift). A gate with no caller at all is
+# deletion with extra steps: the benchmarks keep compiling and stop running.
+# This workflow is that caller -- dispatch-only while automatic CI is paused, so
+# running the benchmarks is a deliberate act rather than a daily cost. It runs
+# the one script that owns the gate,
 # scripts/test-command-palette-nucleo-ffi.sh, which enables the env var and
 # names both benchmark classes; the script's own BENCH assertions fail the job
 # if any gated benchmark silently skipped.
 on:
-  schedule:
-    - cron: "41 9 * * *"
+  # Temporarily manual-only beginning 2026-07-13 to pause automatic CI.
+  # tmux-corpus.yml and perf-activation.yml -- the two closest macOS
+  # benchmark nightlies -- both carry this and have their crons removed.
+  # A new cron here would quietly reverse that reduction, so the gate's
+  # caller is dispatch-only until the pause lifts.
   workflow_dispatch:
     inputs:
       runner:
