@@ -96,6 +96,25 @@ final class CloudDesktopOpenFixture {
         _ = await iterator.next()
     }
 
+    func drop(_ row: CloudTreeNode, into workspace: Workspace) async throws {
+        let group = try #require(row.dragGroup)
+        let pane = try #require(workspace.bonsplitController.allPaneIds.first)
+        let expected = catalog.projections(of: display.id).count + 1
+        let committed = CloudLinkFirstValue<Bool>()
+        let catalog = catalog
+        let resource = display.id
+        let token = NotificationCenter.default.addObserver(forName: SurfaceCatalog.didChangeNotification,
+            object: catalog, queue: .main) { _ in
+                MainActor.assumeIsolated {
+                    if catalog.projections(of: resource).count == expected { committed.resolve(true) }
+                }
+            }
+        defer { NotificationCenter.default.removeObserver(token) }
+        #expect(workspace.handleSurfaceResourceDrop(group: group,
+            destination: .split(targetPane: pane, orientation: .vertical, insertFirst: false), catalog: catalog))
+        _ = await committed.result
+    }
+
     func close() {
         completion.continuation.finish()
         catalog.unregister(machine: provider.machine)
