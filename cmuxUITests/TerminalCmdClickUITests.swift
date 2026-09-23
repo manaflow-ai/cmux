@@ -945,11 +945,9 @@ final class TerminalCmdClickUITests: XCTestCase {
             "port": port, "identity_file": clientKey, "ssh_options": sshOptions,
             "auto_connect": false, "skip_daemon_bootstrap": true, "terminal_startup_command": "ssh"
         ])
-        _ = try sshPreviewRPC("surface.report_pwd", socketPath: socketPath, params: [
-            "workspace_id": workspaceID, "surface_id": terminalID, "path": fixtureDirectoryURL.path
-        ])
         let transcriptMarker = "SSH_TRANSCRIPT_" + UUID().uuidString
-        let remoteCommand = "printf '\\033[2J\\033[H'; i=0; while [ $i -lt 48 ]; do printf '%s\\n' "
+        let remoteDirectory = "'" + fixtureDirectoryURL.path.replacingOccurrences(of: "'", with: "'\\''") + "'"
+        let remoteCommand = "cd \(remoteDirectory) || exit; printf '\\033[2J\\033[H'; i=0; while [ $i -lt 48 ]; do printf '%s\\n' "
             + "'\(fileName)    OtherFile \(transcriptMarker)'; i=$((i+1)); done; exec /bin/cat"
         let terminalArguments = ["/usr/bin/ssh", "-tt"] + Array(sshArgs.dropLast()) + [remoteCommand]
         let terminalCommand = terminalArguments.map { "'" + $0.replacingOccurrences(of: "'", with: "'\\''") + "'" }
@@ -963,6 +961,9 @@ final class TerminalCmdClickUITests: XCTestCase {
             ]), let text = result["text"] as? String else { return false }
             return text.components(separatedBy: transcriptMarker).count > 10
         }, "Expected actual SSH output before clicking the path")
+        _ = try sshPreviewRPC("surface.report_pwd", socketPath: socketPath, params: [
+            "workspace_id": workspaceID, "surface_id": terminalID, "path": fixtureDirectoryURL.path
+        ])
         _ = try runCommand(action: "cmd_click_token")
         XCTAssertTrue(waitForCondition(timeout: 20) {
             guard let result = self.sshPreviewRPCResultIfAvailable("surface.list", socketPath: socketPath, params: ["workspace_id": workspaceID]),
