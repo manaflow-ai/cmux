@@ -500,19 +500,6 @@ struct GhosttyTerminalViewVisibilityPolicyTests {
         anchor.frame.size.width = 360
         TerminalWindowPortalRegistry.scheduleExternalGeometrySynchronize(for: window, forceImmediate: false)
         await flushPortalReconciliationPasses()
-        // Native size publication also waits for AppKit's display/layout
-        // turn. Main-queue barriers alone do not drive that turn in an async test.
-        let clock = ContinuousClock()
-        // The portal's settled commit waits through AppKit's display/layout
-        // turn; hosted CI can need several turns after the anchor write.
-        let deadline = clock.now.advanced(by: .seconds(5))
-        while (try terminalSize()).width >= initialTerminalSize.width,
-              clock.now < deadline {
-            window.displayIfNeeded()
-            panel.hostedView.layoutSubtreeIfNeeded()
-            _ = panel.hostedView.reconcileGeometryNow()
-            await flushPortalReconciliationPasses()
-        }
         #expect(panel.hostedView.frame.width == 360)
         #expect((try terminalSize()).width < initialTerminalSize.width)
         #expect(
