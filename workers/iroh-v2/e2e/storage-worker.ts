@@ -47,6 +47,7 @@ export class StorageTestDO {
       }
       if (path === "/validate") { this.team.validateRegistrationChallenge(body.input); return Response.json({ ok: true }); }
       if (path === "/register") return Response.json(this.team.commitRegistration(body.input));
+      if (path === "/device") return Response.json(this.team.getDeviceByRecordId(body.deviceRecordId));
       if (path === "/receipt") return Response.json(this.team.findRegistrationReceipt(body.identity, body.requestId, body.requestHash));
       if (path === "/proof") { this.team.consumeDeviceProof(body.input); return Response.json({ ok: true }); }
       if (path === "/revoke") { return Response.json({ revision: this.team.revokeDevice(body.deviceRecordId, body.now, body.actorUserId) }); }
@@ -58,6 +59,26 @@ export class StorageTestDO {
       if (path === "/revision") return Response.json({ revision: this.team.readRevision() });
       if (path === "/authority/observe") return Response.json({ revision: this.team.observeAuthority(body.userId, body.verifiedAt, body.expiresAt, body.now) });
       if (path === "/authority/get") return Response.json(this.team.getAuthority(body.userId));
+      if (path === "/audit/fill") {
+        const db = drizzle((this.team.storage));
+        db.run(sql.raw(`WITH RECURSIVE "seed"("n") AS (SELECT (SELECT count(*) + 1 FROM "authority_audit") UNION ALL SELECT "n" + 1 FROM "seed" WHERE "n" < 65536) INSERT INTO "authority_audit" ("event_type", "actor_user_id", "target_id", "revision", "created_at", "detail_json") SELECT 'seed', 'audit-test', 'seed-' || "n", "n", "n", '{}' FROM "seed" WHERE "n" <= 65536`));
+        return Response.json({ ok: true });
+      }
+      if (path === "/audit/count") {
+        const db = drizzle((this.team.storage));
+        return Response.json(db.get<{ count: number }>(sql`SELECT count(*) AS "count" FROM "authority_audit"`));
+      }
+      if (path === "/audit/usage") {
+        const db = drizzle((this.team.storage));
+        return Response.json(db.get<{ count: number }>(sql`SELECT "row_count" AS "count" FROM "authority_audit_usage" WHERE "id" = 1`));
+      }
+      if (path === "/audit/first") {
+        const db = drizzle((this.team.storage));
+        return Response.json(db.get<{ targetId: string }>(sql`SELECT "target_id" AS "targetId" FROM "authority_audit" ORDER BY "id" LIMIT 1`));
+      }
+      if (path === "/preferences") {
+        return Response.json({ revision: this.team.updateRelayPreferences(body.relayURLs, body.expectedRevision, body.actorUserId ?? "audit-test", body.now) });
+      }
       return new Response("not found", { status: 404 });
     } catch (error) {
       const code = error instanceof Error ? error.message : "unknown";
@@ -83,11 +104,24 @@ export class MigrationProbeDO {
           if (mode === "gap") db.run(sql`DELETE FROM "schema_history" WHERE "version" = 3`);
           else if (mode === "future") db.run(sql`INSERT INTO "schema_history" ("version", "hash", "applied_at") VALUES (99, 'future', 1)`);
           else if (mode === "wrong-hash") db.run(sql`UPDATE "schema_history" SET "hash" = 'wrong' WHERE "version" = 1`);
+          else if (mode === "wrong-audit-hash") db.run(sql`UPDATE "schema_history" SET "hash" = 'wrong' WHERE "version" = 7`);
           else if (mode === "failed-upgrade") {
             db.run(sql`DELETE FROM "schema_history" WHERE "version" = 5`);
             db.run(sql.raw(`DROP TABLE IF EXISTS "user_authority"`));
             db.run(sql.raw(`CREATE VIEW "user_authority" AS SELECT 1 AS "user_id", 1 AS "verified_at", 1 AS "expires_at"`));
           } else throw new Error("unknown corruption mode");
+          return Response.json({ ok: true });
+        }
+        case "/downgrade-audit": {
+          // Recreate the v6 on-disk shape so the append-only v7 migration is
+          // exercised against the version currently deployed in production.
+          db.run(sql`INSERT INTO "authority_audit" ("event_type", "actor_user_id", "target_id", "revision", "created_at", "detail_json") VALUES ('seed', 'migration-test', 'seed-1', 1, 1, '{}'), ('seed', 'migration-test', 'seed-2', 2, 2, '{}')`);
+          db.run(sql`DELETE FROM "schema_history" WHERE "version" = 7`);
+          db.run(sql.raw(`DROP TRIGGER "authority_audit_insert_count"`));
+          db.run(sql.raw(`DROP TRIGGER "authority_audit_delete_count"`));
+          db.run(sql.raw(`DROP TABLE "authority_audit_usage"`));
+          db.run(sql.raw(`DROP TRIGGER "authority_audit_limit_guard"`));
+          db.run(sql.raw(`CREATE TRIGGER "authority_audit_limit_guard" BEFORE INSERT ON "authority_audit" WHEN (SELECT count(*) FROM "authority_audit") >= 65536 BEGIN SELECT RAISE(ABORT, 'audit_limit'); END`));
           return Response.json({ ok: true });
         }
         case "/migrate":
@@ -96,7 +130,8 @@ export class MigrationProbeDO {
         case "/inspect": {
           const history = db.all(sql`SELECT "version", "hash" FROM "schema_history" ORDER BY "version"`);
           const objects = db.all(sql`SELECT "name", "type" FROM "sqlite_master" WHERE "name" = 'user_authority'`);
-          return Response.json({ history, objects });
+          const auditUsage = db.get(sql`SELECT "row_count" FROM "authority_audit_usage" WHERE "id" = 1`);
+          return Response.json({ history, objects, auditUsage });
         }
         default: return new Response("not found", { status: 404 });
       }

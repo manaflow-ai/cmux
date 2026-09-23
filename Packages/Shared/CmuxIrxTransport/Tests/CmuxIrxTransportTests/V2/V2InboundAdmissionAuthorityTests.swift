@@ -70,6 +70,24 @@ struct V2InboundAdmissionAuthorityTests {
         #expect(authority.nextExpiration == nil)
     }
 
+    @Test(arguments: [V2Platform.mac, .ios])
+    func knowingAnEndpointIDNeverReplacesPermission(platform: V2Platform) throws {
+        let authority = try authority(V2AdmissionTestClock(wall: timestamp))
+        let record = V2DeviceRecord(descriptor: device(key: "b", deviceID: "peer", platform: platform),
+            deviceRecordID: "peer-record", revision: 1, revoked: false)
+        _ = authority.restore(cache(outbound: [record]))
+        #expect(throws: IrxAdmissionDenied(code: .invalidGrant)) {
+            try authority.judgment()(nil, record.descriptor.endpointID)
+        }
+        let permission = V2InboundPeerPermission(device: record, permissionExpiresAt: timestamp + 100)
+        _ = authority.apply(snapshot(cache(peers: [permission], revision: 2, outbound: [record]), sequence: 1))
+        #expect(try authority.judgment()(nil, record.descriptor.endpointID).deviceID == "peer")
+        _ = authority.apply(snapshot(cache(peers: [], revision: 3, outbound: [record]), sequence: 2))
+        #expect(throws: IrxAdmissionDenied(code: .invalidGrant)) {
+            try authority.judgment()(nil, record.descriptor.endpointID)
+        }
+    }
+
     @Test func anotherCacheFormatCannotEstablishOrPreserveAuthority() throws {
         let valid = cache(peers: [peer()])
         var object = try #require(JSONSerialization.jsonObject(with: JSONEncoder().encode(valid)) as? [String: Any])

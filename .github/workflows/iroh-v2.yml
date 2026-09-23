@@ -39,7 +39,7 @@ jobs:
       - name: Run control-service, compatibility and admission regressions
         run: >-
           swift test --package-path Packages/Shared/CmuxIrxTransport
-          --filter 'V2URLSessionSocketTests|V2ControlServiceTests|V2DirectoryCompatibilityTests|V2InboundAdmissionAuthorityTests|IrxMacPeerAuthorizationTests'
+          --filter 'V2URLSessionSocketTests|V2ControlServiceTests|V2DirectoryCompatibilityTests|V2FileStateStoreTests|V2KeychainStoreTests|V2InstallationIDStoreTests|IrxJournalTests|V2InboundAdmissionAuthorityTests|IrxMacPeerAuthorizationTests'
 
   backend:
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}

@@ -18,7 +18,10 @@ actor MobileIrohV2LocalPathStore {
 
     func load(identity: V2Identity) throws -> [Path] {
         let url = try file(identity)
+        try protectStorage()
         guard files.fileExists(atPath: url.path) else { return [] }
+        try files.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
+        try excludeFromBackup(url)
         return try JSONDecoder().decode([Path].self, from: Data(contentsOf: url))
     }
 
@@ -42,9 +45,31 @@ actor MobileIrohV2LocalPathStore {
     }
 
     private func save(_ paths: [Path], identity: V2Identity) throws {
-        try files.createDirectory(at: root, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+        try protectStorage(createIfMissing: true)
         let url = try file(identity)
         try JSONEncoder().encode(paths).write(to: url, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
+        try files.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
+        try excludeFromBackup(url)
+    }
+
+    private func protectStorage(createIfMissing: Bool = false) throws {
+        if createIfMissing {
+            try files.createDirectory(
+                at: root,
+                withIntermediateDirectories: true,
+                attributes: [.posixPermissions: 0o700]
+            )
+        }
+        guard files.fileExists(atPath: root.path) else { return }
+        try files.setAttributes([.posixPermissions: 0o700], ofItemAtPath: root.path)
+        try excludeFromBackup(root)
+    }
+
+    private func excludeFromBackup(_ url: URL) throws {
+        var values = URLResourceValues()
+        values.isExcludedFromBackup = true
+        var protectedURL = url
+        try protectedURL.setResourceValues(values)
     }
     private func file(_ identity: V2Identity) throws -> URL {
         let digest = SHA256.hash(data: try V2WireSigningCodec().encode(identity)).map { String(format: "%02x", $0) }.joined()
