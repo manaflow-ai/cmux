@@ -574,10 +574,13 @@ func isMinimalModeTitlebarControlHit(window: NSWindow, locationInWindow: NSPoint
 }
 
 enum MinimalModeTitlebarDebugSettings {
-    static let leftControlsLeadingInsetKey = "titlebarDebug.leftControlsLeadingInset"
-    static let leftControlsTopInsetKey = "titlebarDebug.leftControlsTopInset"
-    static let trafficLightTabBarInsetKey = "titlebarDebug.trafficLightTabBarInset"
-    static let trafficLightTitlebarLeadingInsetKey = "titlebarDebug.trafficLightTitlebarLeadingInset"
+    // No "." in these keys: ContentView and VerticalTabsSidebar read them through
+    // @AppStorage, and SwiftUI re-evaluated every view holding a dotted
+    // @AppStorage key when an unrelated key changed (#13930).
+    static let leftControlsLeadingInsetKey = "titlebarDebugLeftControlsLeadingInset"
+    static let leftControlsTopInsetKey = "titlebarDebugLeftControlsTopInset"
+    static let trafficLightTabBarInsetKey = "titlebarDebugTrafficLightTabBarInset"
+    static let trafficLightTitlebarLeadingInsetKey = "titlebarDebugTrafficLightTitlebarLeadingInset"
 
     static let defaultLeftControlsLeadingInset = 72.0
     static let defaultLeftControlsTopInset = 2.0
@@ -656,6 +659,24 @@ enum MinimalModeTitlebarDebugSettings {
             trafficLightTabBarLeadingInset: Double(trafficLightTabBarLeadingInset(defaults: defaults)),
             trafficLightTitlebarLeadingInset: Double(trafficLightTitlebarLeadingInset(defaults: defaults))
         )
+    }
+
+    /// Moves values saved under the dotted keys these settings used before #13930.
+    /// A value already stored under the new key wins; the legacy key is removed.
+    static func migrateLegacyKeysIfNeeded(defaults: UserDefaults = .standard) {
+        let legacyKeys = [
+            ("titlebarDebug.leftControlsLeadingInset", leftControlsLeadingInsetKey),
+            ("titlebarDebug.leftControlsTopInset", leftControlsTopInsetKey),
+            ("titlebarDebug.trafficLightTabBarInset", trafficLightTabBarInsetKey),
+            ("titlebarDebug.trafficLightTitlebarLeadingInset", trafficLightTitlebarLeadingInsetKey),
+        ]
+        for (legacyKey, key) in legacyKeys {
+            guard let value = defaults.object(forKey: legacyKey) else { continue }
+            defaults.removeObject(forKey: legacyKey)
+            if defaults.object(forKey: key) == nil {
+                defaults.set(value, forKey: key)
+            }
+        }
     }
 
     private static func storedDouble(
