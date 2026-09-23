@@ -1,4 +1,4 @@
-import { registerOTel } from "@vercel/otel";
+import { OTLPHttpJsonTraceExporter, registerOTel } from "@vercel/otel";
 import { DependencySpanProcessor } from "./services/observability/dependencies";
 import { buildCmuxTraceSampler } from "./services/observability/sampler";
 import {
@@ -6,9 +6,33 @@ import {
   shouldSendCoderouterSentryEvent,
 } from "./services/sentry";
 
+/**
+ * OTLP/HTTP span export to Axiom (https://axiom.co/docs/send-data/opentelemetry).
+ * Gated on AXIOM_TOKEN + AXIOM_DATASET: with either absent, registerOTel keeps
+ * its default exporter behavior and nothing changes. The VM control plane's
+ * spans (withAuthedVmApiRoute / withVmSpan) carry per-stage create timings as
+ * `cmux.vm.timing.<stage>_ms` attributes, so create latency is analyzable in
+ * Axiom per stage.
+ */
+function axiomTraceExporter(): OTLPHttpJsonTraceExporter | undefined {
+  const token = process.env.AXIOM_TOKEN?.trim();
+  const dataset = process.env.AXIOM_DATASET?.trim();
+  if (!token || !dataset) return undefined;
+  const domain = process.env.AXIOM_DOMAIN?.trim() || "api.axiom.co";
+  return new OTLPHttpJsonTraceExporter({
+    url: `https://${domain}/v1/traces`,
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "X-Axiom-Dataset": dataset,
+    },
+  });
+}
+
 export async function register() {
+  const traceExporter = axiomTraceExporter();
   registerOTel({
     serviceName: process.env.OTEL_SERVICE_NAME ?? "cmux-web",
+    ...(traceExporter ? { traceExporter } : {}),
     // Keep 100% of Cloud VM traces, sample the rest (CMUX_OTEL_BASE_SAMPLE_RATIO,
     // default 2%). The unsampled firehose measured ~4M spans/15min in production.
     traceSampler: buildCmuxTraceSampler(),

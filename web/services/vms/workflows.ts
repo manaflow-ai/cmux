@@ -96,7 +96,7 @@ import { GO_PAUSE_INTENT_KEY, pauseGoVm } from "./goPause";
 import { networkSlugForUser, privateNetworkUnavailableReason, resolveOwnerNetwork } from "./privateNetwork";
 import { isProviderIdentityNotFoundError, isProviderNotFoundError } from "./providerErrors";
 import { VmProviderGateway, VmProviderGatewayLive, type VmProviderGatewayShape } from "./providerGateway";
-import { withVmProductAnalytics } from "./productAnalytics";
+import { captureVmWakeCompleted, withVmProductAnalytics } from "./productAnalytics";
 import {
   PROVIDER_CREATE_UNAVAILABLE_FAILURE_CODE,
   VmRepository,
@@ -2500,6 +2500,7 @@ function recordResumeUsageEvent(
   repo: VmRepositoryShape,
   vm: CloudVmRow,
   resumeSource: VmResumeSource,
+  durationMs?: number,
 ): Effect.Effect<void, never> {
   return repo.recordUsageEvent({
     userId: vm.userId,
@@ -2509,8 +2510,31 @@ function recordResumeUsageEvent(
     eventType: "vm.resumed",
     provider: vm.provider,
     imageId: vm.imageId,
-    metadata: { source: resumeSource },
+    metadata: {
+      source: resumeSource,
+      ...(typeof durationMs === "number" ? { durationMs: Math.round(durationMs) } : {}),
+    },
   }).pipe(Effect.catchAll(() => Effect.void));
+}
+
+/** Fire-and-forget wake analytics; timing side effect kept out of Effect land. */
+function reportWakeCompleted(
+  vm: CloudVmRow,
+  resumeSource: VmResumeSource,
+  startedAtMs: number,
+  reserved: boolean,
+): Effect.Effect<number, never> {
+  return Effect.sync(() => {
+    const durationMs = performance.now() - startedAtMs;
+    captureVmWakeCompleted({
+      userId: vm.userId,
+      provider: vm.provider,
+      source: resumeSource,
+      durationMs,
+      reserved,
+    });
+    return durationMs;
+  });
 }
 
 // Active-limit note: the control-plane-owned paused-row resume path is
@@ -2625,6 +2649,7 @@ function preflightResumeIfSuspended(
     if (status !== "paused") return false;
 
     const reserved = yield* reservePausedResumeIfTeam(repo, vm, providerVmId, options.maxActiveVms);
+    const wakeStartedAtMs = yield* Effect.sync(() => performance.now());
     yield* resumeUntilRunning(providers, vm, providerVmId).pipe(
       Effect.tapError(() => rollbackPausedResumeReservation(repo, vm, providerVmId, reserved)),
     );
@@ -2637,7 +2662,8 @@ function preflightResumeIfSuspended(
     ).pipe(
       Effect.tapError(() => rollbackPausedResumeReservation(repo, vm, providerVmId, reserved)),
     );
-    if (reserved) yield* recordResumeUsageEvent(repo, vm, resumeSource);
+    const wakeDurationMs = yield* reportWakeCompleted(vm, resumeSource, wakeStartedAtMs, reserved);
+    if (reserved) yield* recordResumeUsageEvent(repo, vm, resumeSource, wakeDurationMs);
     return true;
   });
 }
@@ -2677,6 +2703,7 @@ function withResumeOnSuspendedAfterFailure<A>(
         }
 
         const reserved = yield* reservePausedResumeIfTeam(repo, vm, providerVmId, maxActiveVms);
+        const wakeStartedAtMs = yield* Effect.sync(() => performance.now());
         yield* resumeUntilRunning(providers, vm, providerVmId).pipe(
           Effect.tapError(() => rollbackPausedResumeReservation(repo, vm, providerVmId, reserved)),
           Effect.catchAll(() => Effect.fail(originalError)),
@@ -2684,7 +2711,8 @@ function withResumeOnSuspendedAfterFailure<A>(
         yield* recordRunningTransition(repo, providers, vm, providerVmId, originalError).pipe(
           Effect.tapError(() => rollbackPausedResumeReservation(repo, vm, providerVmId, reserved)),
         );
-        if (reserved) yield* recordResumeUsageEvent(repo, vm, resumeSource);
+        const wakeDurationMs = yield* reportWakeCompleted(vm, resumeSource, wakeStartedAtMs, reserved);
+        if (reserved) yield* recordResumeUsageEvent(repo, vm, resumeSource, wakeDurationMs);
         return yield* op;
       });
     }),

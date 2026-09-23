@@ -1,5 +1,7 @@
 # Cloud VMs service
 
+Telemetry configuration and event mapping: [TELEMETRY.md](./TELEMETRY.md).
+
 Backend for `cmux vm new/ls/rm/exec/attach` and the sidebar Cloud VM surface. Stack Auth gates every public route. Provider API keys stay server-side. Every managed machine session uses the cmux-tui remote daemon (transport `cmux-remote`). The legacy `cmuxd-remote` WebSocket PTY is gone. Freestyle still exposes a scoped SSH proxy for provider-level diagnostics, but that unmanaged path does not carry cmux workspace, tab, or revision state.
 
 ## Layout

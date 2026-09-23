@@ -84,6 +84,7 @@ const METADATA_PICKERS: Record<VmLedgerEventType, MetadataPicker> = {
   "vm.attach": (m) => ({
     transport: str(m.transport) ?? "unknown",
     invited: bool(m.invited),
+    reattach: m.requestedSessionId != null,
   }),
   "vm.exec": (m) => ({
     exit_code: int(m.exitCode),
@@ -95,6 +96,7 @@ const METADATA_PICKERS: Record<VmLedgerEventType, MetadataPicker> = {
   }),
   "vm.resumed": (m) => ({
     source: str(m.source) ?? "unknown",
+    duration_ms: int(m.durationMs),
   }),
   "vm.paused": (m) => ({
     source: enumValue(m.source, ["user", "go_hours_limit"]) ?? "unknown",
@@ -178,6 +180,7 @@ export function captureVmProductEvent(
   input: VmUsageEventInput,
   dependencies: Partial<ServerEventDependencies> = {},
 ): void {
+  if ((dependencies.env ?? process.env).CMUX_VM_ANALYTICS_DISABLED === "1") return;
   const event = vmProductEventFromLedger(input, dependencies.now?.() ?? new Date());
   if (!event) return;
   void captureServerEvent(event, dependencies);
@@ -245,4 +248,103 @@ function enumValue<const Value extends string>(
   return typeof value === "string" && (allowed as readonly string[]).includes(value)
     ? (value as Value)
     : undefined;
+}
+
+// Signals that are not already covered by cloud_vm_request/cloud_vm_provision
+// or the successful ledger-write decorator. Inputs below are explicit allowlists.
+function captureVmSupplementalEvent(
+  input: ServerEventInput,
+  dependencies: Partial<ServerEventDependencies> = {},
+): void {
+  const env = dependencies.env ?? process.env;
+  if (env.CMUX_VM_ANALYTICS_DISABLED === "1") return;
+  try {
+    void captureServerEvent(input, {
+      ...dependencies,
+      env: env.CMUX_VM_ANALYTICS_FORCE === "1"
+        ? { ...env, CMUX_SERVER_ANALYTICS_FORCE: "1" }
+        : env,
+    }).catch(() => undefined);
+  } catch {
+    // Product analytics must never fail a VM operation.
+  }
+}
+
+/**
+ * Paywall funnel: a provisioning verb hit the active-VM limit. On free plans
+ * the response doubles as the upgrade prompt (`upgrade_shown`).
+ */
+export function captureVmLimitHit(
+  input: {
+    readonly userId: string;
+    readonly planId: string;
+    readonly limit: number;
+    readonly upgradeShown: boolean;
+    readonly phase?: string;
+  },
+  options: Partial<ServerEventDependencies> = {},
+): void {
+  void captureVmSupplementalEvent(
+    {
+      event: "vm.limit_hit",
+      distinctId: input.userId,
+      properties: {
+        plan_id: input.planId,
+        limit: input.limit,
+        upgrade_shown: input.upgradeShown,
+        ...(input.phase ? { phase: input.phase } : {}),
+      },
+    },
+    options,
+  );
+}
+
+/**
+ * Workflow-layer: a suspended VM was woken by a user-facing verb. Captured for
+ * every control-plane resume (the persisted `vm.resumed` usage event is only
+ * recorded for reserved team resumes), so wake latency is measurable per
+ * provider and per triggering verb.
+ */
+export function captureVmWakeCompleted(
+  input: {
+    readonly userId: string;
+    readonly provider: string;
+    readonly source: string;
+    readonly durationMs: number;
+    readonly reserved: boolean;
+  },
+  options: Partial<ServerEventDependencies> = {},
+): void {
+  void captureVmSupplementalEvent(
+    {
+      event: "vm.wake.completed",
+      distinctId: input.userId,
+      properties: {
+        provider: input.provider,
+        source: input.source,
+        duration_ms: Math.round(input.durationMs),
+        reserved: input.reserved,
+      },
+    },
+    options,
+  );
+}
+
+/** Route-layer: a port open that produced a cmux desktop (noVNC) wrapper URL. */
+export function captureVmDesktopOpened(
+  input: {
+    readonly userId: string;
+    readonly port: number;
+    readonly wrapped: boolean;
+  },
+  options: Partial<ServerEventDependencies> = {},
+): void {
+  void captureVmSupplementalEvent(
+    {
+      event: "vm.desktop.opened",
+      distinctId: input.userId,
+      properties: { port: input.port, wrapped: input.wrapped },
+    },
+    options,
+  );
 }

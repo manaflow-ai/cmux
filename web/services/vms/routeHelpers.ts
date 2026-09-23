@@ -37,6 +37,7 @@ import {
   type VmSnapshotNotFoundError,
   type VmWorkflowError,
 } from "./errors";
+import { captureVmLimitHit } from "./productAnalytics";
 import { recordSpanTiming } from "./timings";
 import { authProviderErrorResponse } from "./authErrors";
 import { goCapacityConstraint } from "./goUsage";
@@ -48,6 +49,7 @@ import {
 } from "./observability";
 import {
   annotateVmRequestBilling,
+  currentVmRequestContext,
   runWithVmRequestContext,
   vmClientIdentityFromRequest,
   vmIdFromRequestPath,
@@ -158,6 +160,7 @@ export async function withAuthedVmApiRoute(
         recordSpanTiming(span, "auth", authDurationMs);
         if (!user) return finalize(unauthorized());
         requestContext.userId = user.id;
+        span.setAttribute("enduser.id", user.id);
         requestContext.operationId = cloudOperationId(request.headers.get("x-cmux-operation-id"));
         if (requestContext.operationId && !isPolledVmOperation(operation)) {
           requestContext.progress = new CloudOperationProgress(user.id, requestContext.operationId);
@@ -550,6 +553,14 @@ export async function vmActiveLimitExceededResponse(input: {
   readonly locale?: Locale;
 }): Promise<Response> {
   const paid = isPaidVmPlan(input.planId);
+  const context = currentVmRequestContext();
+  if (context?.userId) captureVmLimitHit({
+    userId: context.userId,
+    planId: input.planId,
+    limit: input.limit,
+    upgradeShown: !paid,
+    phase: input.phase ?? context.operation,
+  });
   if (input.planId === "go") return goLimitResponse("active", input.locale ?? "en");
   const plural = input.limit === 1 ? "" : "s";
   if (paid) {
