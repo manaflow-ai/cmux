@@ -548,7 +548,9 @@ exit 1
             test_socket = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
             test_socket.bind(str(socket_path))
         try:
-            env = os.environ.copy()
+            # A test launched inside cmux must not inherit the real app's
+            # runtime paths or capabilities into this synthetic installation.
+            env = {key: value for key, value in os.environ.items() if not key.startswith("CMUX_")}
             sandbox_home = tmp / "home"
             sandbox_home.mkdir()
             codex_home = sandbox_home / ".codex"

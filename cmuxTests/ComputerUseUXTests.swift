@@ -2510,7 +2510,7 @@ struct ComputerUseUXTests {
         #expect((computerUseProperties["showInMenuBar"] as? [String: Any])?["type"] as? String == "boolean")
     }
 
-    @Test func generatedAgentShimReadsComputerUseAuthorityOnEveryLaunch() throws {
+    @Test func generatedAgentShimAllowsFirstUseButPreservesExplicitKillSwitch() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-cua-live-setting-\(UUID().uuidString)", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: root) }
@@ -2533,9 +2533,13 @@ struct ComputerUseUXTests {
         ))
         let shim = try #require(shimSet.shims.first { $0.commandName == "claude" })
 
-        // Setting disabled -> shim forces the disable regardless of inherited env.
+        // Settings-off still attaches the provider so an explicit functional
+        // request can open first-use setup. It is not the user kill switch.
         try "0\n".write(to: settingURL, atomically: true, encoding: .utf8)
         try runShim(at: shim.executablePath, logURL: logURL, inheritedDisabled: "0")
+        #expect(try String(contentsOf: logURL, encoding: .utf8) == "0")
+
+        try runShim(at: shim.executablePath, logURL: logURL, inheritedDisabled: "1")
         #expect(try String(contentsOf: logURL, encoding: .utf8) == "1")
 
         // A terminal spawned while the app setting was disabled must observe a

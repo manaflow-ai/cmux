@@ -1057,8 +1057,8 @@ struct CLIClaudeHookTimeoutRegressionTests {
         })
     }
 
-    @Test("Relay feed fallbacks omit synthetic process identity")
-    func relayFeedFallbackOmitsSyntheticProcessIdentity() throws {
+    @Test("Relay feed fallbacks require a live surface without local process identity", arguments: [true, false])
+    func relayFeedFallbackOmitsSyntheticProcessIdentity(hasLiveSurface: Bool) throws {
         let cliPath = try BundledCLITestSupport.bundledCLIPath(for: BundledCLILinkageTests.self)
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(
             "cmux-relay-feed-fallback-\(UUID().uuidString)",
@@ -1077,7 +1077,9 @@ struct CLIClaudeHookTimeoutRegressionTests {
         startCodexHookMockSocketServerAccepting(
             listenerFD: listenerFD,
             commands: capturedCommands,
-            surfaceId: "22222222-2222-2222-2222-222222222222",
+            surfaceId: hasLiveSurface
+                ? "22222222-2222-2222-2222-222222222222"
+                : "33333333-3333-3333-3333-333333333333",
             connectionLimit: 8
         )
         let result = runCodexHookProcess(
@@ -1094,6 +1096,7 @@ struct CLIClaudeHookTimeoutRegressionTests {
                 "CMUX_WORKSPACE_ID": "11111111-1111-1111-1111-111111111111",
                 "CMUX_SURFACE_ID": "22222222-2222-2222-2222-222222222222",
                 "CMUX_GEMINI_PID": "8535",
+                "CMUX_CLI_TTY_NAME": "ttys-local-collision",
                 "CMUX_AGENT_HOOK_RELAY_ORIGIN": "1",
                 "CMUX_CLI_SENTRY_DISABLED": "1",
             ],
@@ -1104,6 +1107,15 @@ struct CLIClaudeHookTimeoutRegressionTests {
         #expect(result.status == 0, Comment(rawValue: result.stderr))
 
         let requests = capturedCommands.snapshot().compactMap(codexHookJSONObject)
+        #expect(!requests.contains { $0["method"] as? String == "system.top" })
+        #expect(!requests.contains { $0["method"] as? String == "debug.terminals" })
+        #expect(requests.filter {
+            $0["method"] as? String == "agent.resolve_delivery_target"
+        }.allSatisfy { ($0["params"] as? [String: Any])?["pid"] == nil })
+        guard hasLiveSurface else {
+            #expect(!requests.contains { $0["method"] as? String == "feed.push" })
+            return
+        }
         let feedPush = try #require(requests.first {
             $0["method"] as? String == "feed.push"
         })
@@ -1121,6 +1133,8 @@ struct CLIClaudeHookTimeoutRegressionTests {
         )
         #expect(event["session_id"] as? String == expectedWorkstreamId)
         #expect(event["_ppid"] == nil)
+        #expect(event["workspace_id"] as? String == "11111111-1111-1111-1111-111111111111")
+        #expect(event["surface_id"] as? String == "22222222-2222-2222-2222-222222222222")
     }
 
     @Test("Relay-origin Codex stop ignores local transcript path collisions")

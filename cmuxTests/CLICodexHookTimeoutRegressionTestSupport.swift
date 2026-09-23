@@ -213,6 +213,7 @@ func codexHookMockSocketResponse(
                 ok: true,
                 result: [
                     "source": "pid",
+                    "pid_resolution": params?["pid_resolution"] as? String ?? "corroborated",
                     "workspace_id": processBinding.workspaceID,
                     "surface_id": processBinding.surfaceID,
                 ]
