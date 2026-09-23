@@ -100,7 +100,9 @@ struct CloudWorkspaceLiveProjectionTests {
 
     @Test("Opening a port in a bound Cloud workspace survives reconciliation and follows local moves")
     func openedPortSurvivesReconciliation() async throws {
-        let local = UUID(), other = UUID(), viewer = UUID()
+        let live = LiveWorkspaceFixture()
+        defer { live.tearDown() }
+        let local = live.id(), other = live.id(), viewer = UUID()
         let bindings = [
             local: WorkspaceCloudVMBinding(vmID: machine.rawValue, isBase: false, remoteWorkspaceID: "a"),
             other: WorkspaceCloudVMBinding(vmID: machine.rawValue, isBase: false, remoteWorkspaceID: "b")
@@ -110,7 +112,7 @@ struct CloudWorkspaceLiveProjectionTests {
             bindings: { bindings }, close: { closed.append($0) }
         ))
         let placement = CloudPlacementCoordinator(binding: { bindings[$0] })
-        let catalog = SurfaceCatalog(cloudPlacementCoordinator: placement, cloudWorkspaceProjectionCoordinator: coordinator)
+        let catalog = SurfaceCatalog(live: live, cloudPlacementCoordinator: placement, cloudWorkspaceProjectionCoordinator: coordinator)
         let provider = CloudPlacementTestProvider(machine: machine)
         catalog.register(provider)
         let port = CmuxTuiSnapshotParser.portBrowser(machine: machine, port: 6969)
@@ -142,7 +144,9 @@ struct CloudWorkspaceLiveProjectionTests {
 
     @Test("Existing native workspaces follow create, cross-workspace move, one-view close and reconnect")
     func followsLiveMembership() async throws {
-        let a = UUID(), b = UUID()
+        let live = LiveWorkspaceFixture()
+        defer { live.tearDown() }
+        let a = live.id(), b = live.id()
         let bindings = [a: WorkspaceCloudVMBinding(vmID: machine.rawValue, isBase: false, remoteWorkspaceID: "a"),
                         b: WorkspaceCloudVMBinding(vmID: machine.rawValue, isBase: false, remoteWorkspaceID: "b")]
         var closed: [SurfaceProjection] = []
@@ -150,7 +154,7 @@ struct CloudWorkspaceLiveProjectionTests {
         let coordinator = CloudWorkspaceProjectionCoordinator(environment: .init(
             bindings: { bindings }, close: { closed.append($0) }, applyLayout: { id, layout, _ in layouts[id] = layout }
         ))
-        let catalog = SurfaceCatalog(cloudPlacementCoordinator: CloudPlacementCoordinator(binding: { bindings[$0] }),
+        let catalog = SurfaceCatalog(live: live, cloudPlacementCoordinator: CloudPlacementCoordinator(binding: { bindings[$0] }),
                                      cloudWorkspaceProjectionCoordinator: coordinator)
         let provider = CloudPlacementTestProvider(machine: machine)
         catalog.register(provider)
@@ -217,7 +221,9 @@ struct CloudWorkspaceLiveProjectionTests {
 
     @Test("Opening one remote terminal repeatedly reuses its exact local projection")
     func openingOneTerminalRepeatedlyReusesProjection() async throws {
-        let workspaceID = UUID()
+        let live = LiveWorkspaceFixture()
+        defer { live.tearDown() }
+        let workspaceID = live.id()
         let remoteWorkspace = SurfaceRemoteWorkspace(
             id: "remote-main", name: "main", index: 0, focused: true
         )
@@ -233,7 +239,7 @@ struct CloudWorkspaceLiveProjectionTests {
             agent: nil, remoteWorkspace: remoteWorkspace,
             remoteViews: [remoteView], port: nil, url: nil
         )
-        let catalog = SurfaceCatalog()
+        let catalog = SurfaceCatalog(live: live)
         catalog.register(CloudPlacementTestProvider(machine: machine))
         catalog.upsert(resource)
 
@@ -256,11 +262,13 @@ struct CloudWorkspaceLiveProjectionTests {
 
     @Test("Lifecycle cancellation is not retained as a projection failure")
     func cancelledMaterializationIsNotAnError() async throws {
-        let local = UUID()
+        let live = LiveWorkspaceFixture()
+        defer { live.tearDown() }
+        let local = live.id()
         let coordinator = CloudWorkspaceProjectionCoordinator(environment: .init(bindings: {
             [local: WorkspaceCloudVMBinding(vmID: machine.rawValue, isBase: false, remoteWorkspaceID: "a")]
         }))
-        let catalog = SurfaceCatalog(cloudWorkspaceProjectionCoordinator: coordinator)
+        let catalog = SurfaceCatalog(live: live, cloudWorkspaceProjectionCoordinator: coordinator)
         let provider = CloudPlacementTestProvider(machine: machine)
         provider.beforeMaterialization = { throw CancellationError() }
         catalog.register(provider)
@@ -272,10 +280,12 @@ struct CloudWorkspaceLiveProjectionTests {
 
     @Test("Reconnect does not recreate an explicitly closed daemon view")
     func reconnectDoesNotUndoRemoteClose() async throws {
-        let local = UUID()
+        let live = LiveWorkspaceFixture()
+        defer { live.tearDown() }
+        let local = live.id()
         let binding = WorkspaceCloudVMBinding(vmID: machine.rawValue, isBase: false, remoteWorkspaceID: "a")
         let coordinator = CloudWorkspaceProjectionCoordinator(environment: .init(bindings: { [local: binding] }))
-        let catalog = SurfaceCatalog(cloudPlacementCoordinator: CloudPlacementCoordinator(binding: { _ in binding }),
+        let catalog = SurfaceCatalog(live: live, cloudPlacementCoordinator: CloudPlacementCoordinator(binding: { _ in binding }),
                                      cloudWorkspaceProjectionCoordinator: coordinator)
         catalog.register(CloudPlacementTestProvider(machine: machine))
         install(try graph(["first": "a"], revision: 1), catalog: catalog)
@@ -296,10 +306,12 @@ struct CloudWorkspaceLiveProjectionTests {
 
     @Test("An acknowledged local close cannot be reopened by a lagging graph")
     func localCloseReceipt() async throws {
-        let local = UUID()
+        let live = LiveWorkspaceFixture()
+        defer { live.tearDown() }
+        let local = live.id()
         let binding = WorkspaceCloudVMBinding(vmID: machine.rawValue, isBase: false, remoteWorkspaceID: "a")
         let coordinator = CloudWorkspaceProjectionCoordinator(environment: .init(bindings: { [local: binding] }))
-        let catalog = SurfaceCatalog(cloudPlacementCoordinator: CloudPlacementCoordinator(binding: { _ in binding }),
+        let catalog = SurfaceCatalog(live: live, cloudPlacementCoordinator: CloudPlacementCoordinator(binding: { _ in binding }),
                                      cloudWorkspaceProjectionCoordinator: coordinator)
         let provider = CloudPlacementTestProvider(machine: machine)
         catalog.register(provider)
@@ -320,9 +332,11 @@ struct CloudWorkspaceLiveProjectionTests {
 
     @Test("A projection waiting for its Cloud resource remains in the next session snapshot")
     func pendingProjectionPersistsAcrossAutosave() throws {
-        let catalog = SurfaceCatalog()
+        let live = LiveWorkspaceFixture()
+        defer { live.tearDown() }
+        let catalog = SurfaceCatalog(live: live)
         let panel = UUID()
-        let workspace = UUID()
+        let workspace = live.id()
         let resource = SurfaceResourceID(machine: machine, kind: .terminal, key: "term_waiting")
         let record = SurfaceProjectionRecord(
             panelID: panel,
@@ -339,8 +353,10 @@ struct CloudWorkspaceLiveProjectionTests {
 
     @Test("A pending projection has one owner and cannot be resurrected after close or replacement")
     func pendingProjectionOwnershipIsUnique() throws {
-        let catalog = SurfaceCatalog()
-        let firstWorkspace = UUID(), secondWorkspace = UUID(), panel = UUID()
+        let live = LiveWorkspaceFixture()
+        defer { live.tearDown() }
+        let catalog = SurfaceCatalog(live: live)
+        let firstWorkspace = live.id(), secondWorkspace = live.id(), panel = UUID()
         let first = SurfaceProjectionRecord(
             panelID: panel,
             resource: SurfaceResourceID(machine: machine, kind: .terminal, key: "term_first"),
