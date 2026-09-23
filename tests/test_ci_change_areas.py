@@ -2671,10 +2671,15 @@ def test_macos_workflow_call_starts_after_cheap_static_gate() -> None:
     assert "      - linux-preflight" not in caller
     assert "uses: ./.github/workflows/ci-macos.yml" in caller
     assert "needs.changes.outputs.macos != 'false'" in caller
-    assert "needs.changes.outputs.full_suite == 'true' || needs.changes.outputs.compile_admitted != 'true'" in caller
+    assert (
+        "needs.changes.outputs.full_suite == 'true' "
+        "|| needs.changes.outputs.unit_suite == 'true' "
+        "|| needs.changes.outputs.compile_admitted != 'true'"
+    ) in caller
     for route in (
         "macos",
         "full_suite",
+        "unit_suite",
         "compile_admitted",
         "release_build",
         "source_identity_valid",
@@ -3395,6 +3400,127 @@ def test_a_skipped_suite_is_refused_when_only_the_suite_could_judge_the_diff() -
     # Only pull requests take the cheap path at all.
     for event in ("merge_group", "workflow_dispatch", "push"):
         assert coverage_gap(event, False, tests_diff, []) is False
+
+
+def test_unit_ci_asks_for_the_unit_tests_without_the_expensive_lanes() -> None:
+    sys.path.insert(0, str(ROOT / "scripts/ci"))
+    from choose_ci_suite import wants_unit_suite
+
+    # The full suite already runs them, so it implies the cheaper tier.
+    assert wants_unit_suite("pull_request", "compile-only", ["full-ci"]) is True
+    assert wants_unit_suite("pull_request", "compile-only", ["unit-ci"]) is True
+    assert wants_unit_suite("pull_request", "compile-only", []) is False
+    # Unreadable labels keep the full suite, which includes the unit tests.
+    assert wants_unit_suite("pull_request", "compile-only", None) is True
+    for event in ("merge_group", "workflow_dispatch", "push"):
+        assert wants_unit_suite(event, "compile-only", []) is True
+
+
+
+def test_a_cmux_tests_diff_selects_the_unit_tests_without_a_label() -> None:
+    sys.path.insert(0, str(ROOT / "scripts/ci"))
+    from choose_ci_suite import coverage_gap, wants_unit_suite
+
+    tests_diff = ["cmuxTests/WorkspaceUnitTests.swift", "Sources/Workspace.swift"]
+    # The diff already says which job can judge it; no label is needed.
+    assert wants_unit_suite("pull_request", "compile-only", [], tests_diff) is True
+    assert (
+        coverage_gap(
+            "pull_request",
+            False,
+            tests_diff,
+            [],
+            unit_suite=wants_unit_suite("pull_request", "compile-only", [], tests_diff),
+        )
+        is False
+    )
+    # A diff outside cmuxTests/ keeps the cheap path.
+    assert wants_unit_suite("pull_request", "compile-only", [], ["Sources/Workspace.swift"]) is False
+    # cmuxUITests/ is not run by this job, so it does not select it, and the
+    # gap it leaves is still refused.
+    ui_diff = ["cmuxUITests/LaunchUITests.swift"]
+    assert wants_unit_suite("pull_request", "compile-only", [], ui_diff) is False
+    assert coverage_gap("pull_request", False, ui_diff, [], unit_suite=False) is True
+    # An unreadable diff runs the unit tests rather than guessing.
+    assert wants_unit_suite("pull_request", "compile-only", [], None) is True
+
+def test_the_unit_tier_closes_only_the_gap_its_job_can_judge() -> None:
+    sys.path.insert(0, str(ROOT / "scripts/ci"))
+    from choose_ci_suite import coverage_gap
+
+    tests_diff = ["cmuxTests/WorkspaceUnitTests.swift"]
+    ui_diff = ["cmuxUITests/LaunchUITests.swift"]
+
+    # `app-host unit tests` executes cmuxTests/, so asking for it observes
+    # the diff and there is nothing left to refuse.
+    assert coverage_gap("pull_request", False, tests_diff, ["unit-ci"], unit_suite=True) is False
+    # No pull request job runs cmuxUITests/, so the cheap tier cannot clear it.
+    assert coverage_gap("pull_request", False, ui_diff, ["unit-ci"], unit_suite=True) is True
+    assert (
+        coverage_gap("pull_request", False, tests_diff + ui_diff, ["unit-ci"], unit_suite=True)
+        is True
+    )
+    # An unreadable diff is never cleared by the cheap tier either.
+    assert coverage_gap("pull_request", False, None, ["unit-ci"], unit_suite=True) is True
+    # Default stays exactly as before for every caller that does not pass it.
+    assert coverage_gap("pull_request", False, tests_diff, []) is True
+
+
+def test_the_unit_tier_is_routed_end_to_end() -> None:
+    caller = CI_WORKFLOW.read_text(encoding="utf-8")
+    assert "      unit_suite: ${{ steps.suite.outputs.unit_suite }}" in caller
+    assert "      unit_suite: ${{ needs.changes.outputs.unit_suite }}" in caller
+
+    # The macOS workflow must be reachable for a unit-ci run whose compile was
+    # already admitted, or the label would route nothing.
+    macos_call = workflow_job_block("macos")
+    assert "needs.changes.outputs.unit_suite == 'true'" in macos_call
+
+    called = MACOS_WORKFLOW.read_text(encoding="utf-8")
+    assert "      unit_suite:" in called
+
+    # The cheap tier runs the unit tests and nothing else.
+    unit_gate = workflow_job_block("app-host-unit-tests", MACOS_WORKFLOW)
+    assert "inputs.unit_suite == 'true'" in unit_gate
+    for job in ("tests-build-and-lag", "release-admission", "release-build"):
+        assert "inputs.unit_suite" not in workflow_job_block(job, MACOS_WORKFLOW), job
+
+
+def test_a_unit_ci_run_still_requires_the_macos_workflow_to_pass() -> None:
+    # The tests job restates the macos `if:` as a result contract; a routed
+    # unit-ci run that skipped macOS must not read as legitimately unrouted.
+    gate = workflow_job_block("tests")
+    assert 'unit_suite = outputs.get("unit_suite") == "true"' in gate
+    assert "unit_suite" in gate.split("macos_work_required")[1].split(")")[0]
+
+
+def test_a_unit_ci_run_cannot_pass_with_the_unit_tests_skipped() -> None:
+    # unit-ci clears suite-coverage, so the app-host tests it asked for are the
+    # only thing that judges the diff. Reusing an earlier run's compile skips
+    # compile admission, and app-host hangs off admission succeeding -- the
+    # usual label-after-first-push run would go green having run nothing.
+    for step in (
+        "Skip compile when build inputs are unchanged",
+        "Look for an earlier run that compiled these inputs",
+    ):
+        condition = workflow_step_block("changes", step)
+        assert "steps.suite.outputs.unit_suite != 'true'" in condition, step
+
+    # And the status fails closed if the job the label asked for still skipped.
+    inputs = {
+        "macos": "true",
+        "full_suite": "false",
+        "unit_suite": "true",
+        "compile_admitted": "true",
+        "release_build": "false",
+        "source_identity_valid": "true",
+        "source_tree": "tree",
+        "source_parent1": "parent",
+    }
+    skipped = dict.fromkeys(MACOS_JOBS, "skipped")
+    assert run_macos_status(inputs=inputs, results=skipped).returncode != 0
+    ran = {**skipped, "app-host-unit-tests": "success"}
+    assert run_macos_status(inputs=inputs, results=ran).returncode == 0
 
 
 def test_ci_status_requires_the_suite_coverage_gate() -> None:
