@@ -408,6 +408,10 @@ jobs:
           python3 tests/test_run_e2e.py
           python3 tests/test_ci_e2e_compilation_cache.py
 
+      - name: Validate manual macOS package cache recovery
+        if: ${{ matrix.group == 'app-host-execution' }}
+        run: python3 tests/test_ci_manual_macos_package_cache.py
+
       - name: Validate app-host xcodebuild retry guard
         if: ${{ matrix.group == 'app-host-execution' }}
         run: ./tests/test_ci_app_host_xcodebuild_retry.sh
