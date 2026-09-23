@@ -5029,6 +5029,19 @@ final class WorkspaceTerminalFocusRecoveryTests: XCTestCase {
                 workspaceId: workspace.id, panelId: leftPanel.id, in: window
             )
 
+            // newTerminalSplit suppresses the old (left) view's first-responder
+            // feedback until the workspace's async layout follow-up clears it, so
+            // selecting the left pane inside that window is swallowed by design.
+            // Let the split settle first, as the fixture's run-loop drain did
+            // when this test landed (#8843).
+            let splitSettled = await AppKitTestEventPump().waitUntil(timeout: .seconds(5)) {
+                !leftPanel.hostedView.isSuppressingReparentFocusForLayoutFollowUp()
+            }
+            XCTAssertTrue(
+                splitSettled,
+                "Expected the split's reparent focus suppression to clear after its layout follow-up"
+            )
+
             var firstResponderFeedbackCount = 0
             leftPanel.hostedView.setFocusHandler {
                 firstResponderFeedbackCount += 1
