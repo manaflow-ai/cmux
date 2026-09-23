@@ -17836,6 +17836,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
     }
 
+#if DEBUG
+    static func isDuplicateApplicationExecutableForTesting(
+        _ executableURL: URL,
+        mainExecutableURL: URL,
+        embeddedCLIURL: URL
+    ) -> Bool {
+        executableURL.standardizedFileURL.resolvingSymlinksInPath() ==
+            mainExecutableURL.standardizedFileURL.resolvingSymlinksInPath()
+    }
+#endif
+
     private func observeDuplicateLaunches() {
         guard let bundleId = Bundle.main.bundleIdentifier else {
             StartupBreadcrumbLog.append("singleInstance.observe.skip", fields: ["reason": "missingBundleId"])
@@ -17862,10 +17873,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             guard self != nil else { return }
             guard let app = notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication else { return }
             guard app.bundleIdentifier == bundleId, app.processIdentifier != currentPid else { return }
-            if let executableURL = app.executableURL?
-                   .standardizedFileURL
-                   .resolvingSymlinksInPath(),
-               executableURL == embeddedCLIURL {
+            guard let executableURL = app.executableURL else { return }
+            let normalizedExecutableURL = executableURL.standardizedFileURL.resolvingSymlinksInPath()
+            guard normalizedExecutableURL == Bundle.main.executableURL?.standardizedFileURL.resolvingSymlinksInPath() else {
                 return
             }
 
