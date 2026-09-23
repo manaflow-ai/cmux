@@ -81,7 +81,7 @@ class TerminalHistoryTests(unittest.TestCase):
                     pass
         return False
 
-    def write_startup(self, shell, directory, lines):
+    def write_startup(self, shell, directory, lines, integration_enabled=True):
         name = Path(shell).name
         integration = ROOT / 'Resources/shell-integration' / (
             'cmux-zsh-integration.zsh' if name == 'zsh' else 'cmux-bash-integration.bash'
@@ -89,7 +89,8 @@ class TerminalHistoryTests(unittest.TestCase):
         startup = directory / ('.zshrc' if name == 'zsh' else 'bashrc')
         startup.write_text(
             ''.join(f'{line}\n' for line in lines)
-            + f'PS1="PROBE> "\nsource "{integration}"\n'
+            + 'PS1="PROBE> "\n'
+            + (f'source "{integration}"\n' if integration_enabled else '')
         )
 
     def global_startup(self, shell, directory, extra=()):
@@ -171,19 +172,25 @@ class TerminalHistoryTests(unittest.TestCase):
                 self.assertEqual(shared.count('echo OTHER_TERMINAL'), 1, shared)
 
     def test_zsh_unset_savehist_is_not_persisted(self):
-        # With HISTFILE set but SAVEHIST unset, stock zsh writes nothing to
-        # disk; the surface file must not start persisting commands.
+        # macOS's native session hooks can save global history even with
+        # SAVEHIST unset. Match that baseline; cmux must add no persistence.
         with tempfile.TemporaryDirectory(prefix='cmux13766-savehist-') as temp:
             directory = Path(temp)
             global_history = directory / 'global'
-            self.write_startup('/bin/zsh', directory, [
+            lines = [
                 f'HISTFILE="{global_history}"', 'HISTSIZE=2000', 'unset SAVEHIST',
-            ])
+            ]
+            self.write_startup('/bin/zsh', directory, lines, integration_enabled=False)
             self.run_shell('/bin/zsh', directory, 'private', [b'echo PRIVATE_13766\n'], exit_cleanly=True)
-            surface = directory / 'private'
-            recorded = surface.read_bytes() if surface.exists() else b''
-            self.assertNotIn(b'PRIVATE_13766', recorded)
-            self.assertFalse(global_history.exists())
+            baseline = global_history.read_bytes() if global_history.exists() else b''
+            if global_history.exists():
+                global_history.unlink()
+            self.write_startup('/bin/zsh', directory, lines)
+            self.run_shell('/bin/zsh', directory, 'private', [b'echo PRIVATE_13766\n'], exit_cleanly=True)
+            self.assertFalse((directory / 'private').exists())
+            recorded = global_history.read_bytes() if global_history.exists() else b''
+            self.assertEqual(recorded, baseline)
+
 
 
 if __name__ == '__main__':
