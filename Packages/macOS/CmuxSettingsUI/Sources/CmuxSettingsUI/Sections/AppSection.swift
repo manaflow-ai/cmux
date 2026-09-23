@@ -789,7 +789,7 @@ public struct AppSection: View {
                     hostActions: hostActions,
                     agents: soundAgents
                 )
-                .frame(minWidth: 510, maxWidth: .infinity, alignment: .leading)
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
             SettingsCardDivider()
 

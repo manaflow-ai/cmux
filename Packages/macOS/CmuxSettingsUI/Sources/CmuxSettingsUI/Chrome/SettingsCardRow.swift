@@ -74,7 +74,10 @@ public struct SettingsCardRow<Trailing: View>: View {
     }
 
     public var body: some View {
-        HStack(alignment: verticalAlignment, spacing: 12) {
+        SettingsCardRowLayout(
+            verticalAlignment: verticalAlignment,
+            trailingFillsWidth: trailingFillsWidth
+        ) {
             VStack(alignment: .leading, spacing: subtitle == nil ? 0 : 3) {
                 Text(title)
                     .cmuxFont(size: 13, weight: .medium)
@@ -94,7 +97,6 @@ public struct SettingsCardRow<Trailing: View>: View {
                     trailing
                 }
             }
-            .layoutPriority(1)
             .frame(
                 maxWidth: trailingFillsWidth ? .infinity : nil,
                 alignment: .leading
@@ -104,5 +106,93 @@ public struct SettingsCardRow<Trailing: View>: View {
         .padding(.vertical, 9)
         .frame(maxWidth: .infinity, alignment: .leading)
         .settingsSearchAnchors(searchAnchorIDs)
+    }
+}
+
+/// Places a card row's title and control side by side, or stacks the control
+/// under the title when the row is too narrow for both. Settings can render in
+/// a narrow workspace pane, and a side-by-side row wider than its card pushed
+/// the whole page past the pane's edge. One layout with the same two subviews
+/// (not `ViewThatFits`) keeps each control's identity and state when the pane
+/// is resized across the threshold.
+struct SettingsCardRowLayout: Layout {
+    let verticalAlignment: VerticalAlignment
+    let trailingFillsWidth: Bool
+    var spacing: CGFloat = 12
+    var stackedSpacing: CGFloat = 8
+    /// Title width a row keeps beside its control before it stacks.
+    static let minimumTitleWidth: CGFloat = 160
+
+    private struct Arrangement {
+        let isStacked: Bool
+        let titleWidth: CGFloat
+        let controlWidth: CGFloat
+    }
+
+    private func arrangement(width: CGFloat?, subviews: Subviews) -> Arrangement {
+        let title = subviews[0]
+        let control = subviews[1]
+        let titleIdeal = title.sizeThatFits(.unspecified).width
+        let controlIdeal = control.sizeThatFits(.unspecified).width
+        let controlMinimum = control.sizeThatFits(ProposedViewSize(width: 0, height: nil)).width
+        guard let width, width.isFinite else {
+            return Arrangement(isStacked: false, titleWidth: titleIdeal, controlWidth: controlIdeal)
+        }
+        let titleComfort = min(titleIdeal, Self.minimumTitleWidth)
+        let controlNeed = trailingFillsWidth ? controlMinimum : controlIdeal
+        if controlNeed + spacing + titleComfort > width {
+            let controlWidth = trailingFillsWidth ? width : min(controlIdeal, width)
+            return Arrangement(isStacked: true, titleWidth: width, controlWidth: max(controlWidth, controlMinimum))
+        }
+        let controlWidth = trailingFillsWidth ? width - spacing - titleComfort : controlIdeal
+        return Arrangement(isStacked: false, titleWidth: width - spacing - controlWidth, controlWidth: controlWidth)
+    }
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        guard subviews.count == 2 else { return .zero }
+        let layout = arrangement(width: proposal.width, subviews: subviews)
+        let titleHeight = subviews[0].sizeThatFits(ProposedViewSize(width: layout.titleWidth, height: nil)).height
+        let controlHeight = subviews[1].sizeThatFits(ProposedViewSize(width: layout.controlWidth, height: nil)).height
+        if layout.isStacked {
+            return CGSize(
+                width: max(layout.titleWidth, layout.controlWidth),
+                height: titleHeight + stackedSpacing + controlHeight
+            )
+        }
+        return CGSize(
+            width: layout.titleWidth + spacing + layout.controlWidth,
+            height: max(titleHeight, controlHeight)
+        )
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        guard subviews.count == 2 else { return }
+        let layout = arrangement(width: bounds.width, subviews: subviews)
+        let titleProposal = ProposedViewSize(width: layout.titleWidth, height: nil)
+        let controlProposal = ProposedViewSize(width: layout.controlWidth, height: nil)
+        let titleHeight = subviews[0].sizeThatFits(titleProposal).height
+        let controlHeight = subviews[1].sizeThatFits(controlProposal).height
+        if layout.isStacked {
+            subviews[0].place(at: CGPoint(x: bounds.minX, y: bounds.minY), anchor: .topLeading, proposal: titleProposal)
+            subviews[1].place(
+                at: CGPoint(x: bounds.minX, y: bounds.minY + titleHeight + stackedSpacing),
+                anchor: .topLeading,
+                proposal: controlProposal
+            )
+            return
+        }
+        func originY(_ height: CGFloat) -> CGFloat {
+            switch verticalAlignment {
+            case .top: return bounds.minY
+            case .bottom: return bounds.maxY - height
+            default: return bounds.midY - height / 2
+            }
+        }
+        subviews[0].place(at: CGPoint(x: bounds.minX, y: originY(titleHeight)), anchor: .topLeading, proposal: titleProposal)
+        subviews[1].place(
+            at: CGPoint(x: bounds.maxX - layout.controlWidth, y: originY(controlHeight)),
+            anchor: .topLeading,
+            proposal: controlProposal
+        )
     }
 }
