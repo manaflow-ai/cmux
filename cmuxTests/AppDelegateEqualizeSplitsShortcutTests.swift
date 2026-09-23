@@ -367,6 +367,30 @@ private func waitWhileSuspended(
     }
 }
 
+/// Finishes any configuration reload still fanning out to surfaces.
+///
+/// A reload commits synchronously but completes after its bounded surface
+/// fanout, which `TerminalConfigurationApplyScheduler` drives through
+/// main-actor tasks. A nested `RunLoop.main.run` inside a synchronous
+/// main-actor test cannot execute those tasks, so reload cases must suspend
+/// instead. A reload issued here merges with any queued one, and its
+/// completion runs only after the shared coordinator has finished them.
+@MainActor
+private func settleConfigurationReload(
+    _ app: GhosttyApp
+) async {
+    let settled = expectation(
+        description: "earlier configuration reload settled"
+    )
+    app.reloadConfiguration(
+        source: "test.settleConfigurationReload",
+        reloadSettingsFromFile: false
+    ) {
+        settled.fulfill()
+    }
+    await waitWhileSuspended(for: [settled], timeout: 5)
+}
+
 @MainActor
 private extension TabManager {
     @discardableResult
@@ -5499,11 +5523,20 @@ final class AppDelegateEqualizeSplitsShortcutTests {
 
     @Test
     func testFullConfigurationReloadStagesAppearanceUntilConfigurationCommit()
-        throws {
+        async throws {
 #if DEBUG
         let app = GhosttyApp.shared
+        await settleConfigurationReload(app)
         let originalProfile =
             GhosttyStartupAppearancePreviewState.profile
+        // An idle reload commits synchronously. Hold one transaction in its
+        // surface fanout so the staged reload below is queued behind it. It
+        // reloads the unchanged configuration, so the appearance captured
+        // next is still the one to restore.
+        app.reloadConfiguration(
+            source: "test.stageAppearance.active",
+            reloadSettingsFromFile: false
+        )
         let originalBackgroundHex =
             app.defaultBackgroundColor.hexString()
         let targetProfile: GhosttyStartupAppearancePreviewProfile =
@@ -5528,33 +5561,6 @@ final class AppDelegateEqualizeSplitsShortcutTests {
         ) { _ in
             reloadCompleted.fulfill()
         }
-        defer {
-            NotificationCenter.default.removeObserver(observer)
-            GhosttyStartupAppearancePreviewState.profile =
-                originalProfile
-            GhosttyConfig.invalidateLoadCache()
-
-            let restoreCompleted = expectation(
-                description: "original appearance restored"
-            )
-            let restoreObserver =
-                NotificationCenter.default.addObserver(
-                    forName: .ghosttyConfigDidReload,
-                    object: nil,
-                    queue: .main
-                ) { _ in
-                    restoreCompleted.fulfill()
-                }
-            app.reloadConfiguration(
-                source: "test.restoreStagedAppearance",
-                reloadSettingsFromFile: false
-            )
-            wait(for: [restoreCompleted], timeout: 5)
-            NotificationCenter.default.removeObserver(
-                restoreObserver
-            )
-            withExtendedLifetime(retainedPanels) {}
-        }
 
         GhosttyStartupAppearancePreviewState.profile =
             targetProfile
@@ -5568,14 +5574,36 @@ final class AppDelegateEqualizeSplitsShortcutTests {
         XCTAssertEqual(
             app.defaultBackgroundColor.hexString(),
             originalBackgroundHex,
-            "A pending full reload must not publish its new background before the matching Ghostty config commits"
+            "A full reload queued behind an active transaction must not publish its new background before its own Ghostty config commits"
         )
-        wait(for: [reloadCompleted], timeout: 5)
+        await waitWhileSuspended(
+            for: [reloadCompleted],
+            timeout: 5
+        )
         XCTAssertNotEqual(
             app.defaultBackgroundColor.hexString(),
             originalBackgroundHex,
             "The staged appearance must publish when the full configuration commits"
         )
+
+        NotificationCenter.default.removeObserver(observer)
+        GhosttyStartupAppearancePreviewState.profile =
+            originalProfile
+        GhosttyConfig.invalidateLoadCache()
+        let restoreCompleted = expectation(
+            description: "original appearance restored"
+        )
+        app.reloadConfiguration(
+            source: "test.restoreStagedAppearance",
+            reloadSettingsFromFile: false
+        ) {
+            restoreCompleted.fulfill()
+        }
+        await waitWhileSuspended(
+            for: [restoreCompleted],
+            timeout: 5
+        )
+        withExtendedLifetime(retainedPanels) {}
 #else
         throw XCTSkip("Startup appearance previews require DEBUG")
 #endif
@@ -5583,9 +5611,10 @@ final class AppDelegateEqualizeSplitsShortcutTests {
 
     @Test
     func testConfigurationReloadRemainsActiveUntilAsyncReconciliationCompletes()
-        throws {
+        async throws {
 #if DEBUG
         let app = GhosttyApp.shared
+        await settleConfigurationReload(app)
         let retainedPanels = (0..<16).map { _ in
             TerminalPanel(
                 workspaceId: UUID(),
@@ -5607,7 +5636,10 @@ final class AppDelegateEqualizeSplitsShortcutTests {
             app.isConfigurationReloadActive,
             "Appearance synchronization must stay deferred while incremental reconciliation is pending"
         )
-        wait(for: [reloadCompleted], timeout: 5)
+        await waitWhileSuspended(
+            for: [reloadCompleted],
+            timeout: 5
+        )
         XCTAssertFalse(app.isConfigurationReloadActive)
         withExtendedLifetime(retainedPanels) {}
 #else
@@ -5701,9 +5733,10 @@ final class AppDelegateEqualizeSplitsShortcutTests {
 
     @Test
     func testConfigurationReloadQueuesRequestDuringAsyncReconciliation()
-        throws {
+        async throws {
 #if DEBUG
         let app = GhosttyApp.shared
+        await settleConfigurationReload(app)
         let retainedPanels = (0..<16).map { _ in
             TerminalPanel(
                 workspaceId: UUID(),
@@ -5742,7 +5775,7 @@ final class AppDelegateEqualizeSplitsShortcutTests {
             secondCompletionGeneration,
             "A request queued during reconciliation must not report success against the active transaction"
         )
-        wait(
+        await waitWhileSuspended(
             for: [
                 firstReloadCompleted,
                 secondReloadCompleted
@@ -6227,11 +6260,12 @@ final class AppDelegateEqualizeSplitsShortcutTests {
     }
 
     @Test
-    func testGhosttyAppConfigUpdateWaitsForFontBarrier() {
+    func testGhosttyAppConfigUpdateWaitsForFontBarrier() async {
         guard let appDelegate = AppDelegate.shared else {
             XCTFail("Expected AppDelegate.shared")
             return
         }
+        await settleConfigurationReload(GhosttyApp.shared)
         let manager = TabManager()
         guard let workspace = manager.selectedWorkspace,
               let panelId = workspace.focusedPanelId,
@@ -6280,12 +6314,16 @@ final class AppDelegateEqualizeSplitsShortcutTests {
         XCTAssertEqual(applyAttemptCount, 2)
 
         var didUpdateGhosttyAppConfig = false
+        let configUpdated = expectation(
+            description: "ghostty app config update published"
+        )
         let observer = NotificationCenter.default.addObserver(
             forName: .ghosttyConfigDidReload,
             object: nil,
             queue: .main
         ) { _ in
             didUpdateGhosttyAppConfig = true
+            configUpdated.fulfill()
         }
         defer {
             NotificationCenter.default.removeObserver(observer)
@@ -6305,6 +6343,10 @@ final class AppDelegateEqualizeSplitsShortcutTests {
             scheduler.fire(at: 2)
         }
         XCTAssertEqual(applyAttemptCount, 3)
+        // Releasing the barrier commits the app configuration; the reload
+        // notification is published after its bounded surface fanout, which
+        // runs on later main-actor turns.
+        await waitWhileSuspended(for: [configUpdated], timeout: 5)
         XCTAssertTrue(didUpdateGhosttyAppConfig)
     }
 
