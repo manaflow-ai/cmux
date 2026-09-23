@@ -33,6 +33,7 @@ extension WorkspaceDetailView {
         let cluster = HStack(spacing: 15) {
             if altScreenNoticeIsVisible {
                 AltScreenNoticeButton { displaySettings.showAltScreenNotice = false }
+                    .frame(width: 41, height: 36)
             }
             if workspaceChangesAreAvailable {
                 WorkspaceChangesToolbarButton(
@@ -41,8 +42,10 @@ extension WorkspaceDetailView {
                     action: openWorkspaceChanges
                 )
                 .environment(\.colorScheme, store.activeTerminalTheme.terminalColorScheme)
+                .frame(width: 55, height: 36)
             }
             terminalPickerToolbarButton
+                .frame(width: 42, height: 36)
         }
         .buttonStyle(.plain)
         .padding(.horizontal, 8)
