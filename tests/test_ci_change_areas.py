@@ -4367,9 +4367,32 @@ def test_reuse_lookups_match_the_job_name_github_actually_reports() -> None:
     assert not admission_job_name(None)
 
     reuse = (ROOT / "scripts/ci/reuse_app_host_products.py").read_text(encoding="utf-8")
-    assert '.rsplit(" / ", 1)[-1] == "macOS compile admission"' in reuse, (
+    assert '.rsplit(" / ", 1)[-1] == compile_name' in reuse, (
         "reuse_app_host_products.py must match the final segment of the job name"
     )
+    # Each trusted producer workflow names the job that has to have compiled.
+    sys.path.insert(0, str(ROOT / "scripts/ci"))
+    import reuse_app_host_products
+
+    assert reuse_app_host_products.COMPILE_JOBS[".github/workflows/ci.yml"][0] == ADMISSION_JOB, (
+        "reuse_app_host_products.py must look for ci.yml's admission job by its real name"
+    )
+    # A run reports its caller as `path`, so ci.yml's producer job is defined
+    # in the reusable workflow it calls rather than in ci.yml itself.
+    definitions = {
+        ".github/workflows/ci.yml": ".github/workflows/ci-macos.yml",
+        ".github/workflows/test-e2e.yml": ".github/workflows/test-e2e.yml",
+    }
+    for path, (job_name, step_name) in reuse_app_host_products.COMPILE_JOBS.items():
+        workflow = yaml.safe_load((ROOT / definitions[path]).read_text(encoding="utf-8"))
+        producer = next(
+            (job for job in workflow["jobs"].values()
+             if job.get("name", "") == job_name), None,
+        ) or workflow["jobs"].get(job_name)
+        assert producer is not None, f"{path} has no job named {job_name!r}"
+        assert any(step.get("name") == step_name for step in producer["steps"]), (
+            f"{path} job {job_name!r} has no step named {step_name!r}"
+        )
 
 
 

@@ -192,6 +192,7 @@ allowed = {
     ("build", None, "Save E2E compilation cache", "actions/cache/save"),
     ("build", "compilation-cache-bound", "Bound E2E compilation cache", ""),
     ("build", "revision-on-main", "Check the selected revision against main", ""),
+    ("build", "reuse", "Reuse a compiled product instead of building one", ""),
     ("test", "parallel-product", "Read the compiled test product over parallel range requests", ""),
 }
 for job_id, job in document["jobs"].items():
