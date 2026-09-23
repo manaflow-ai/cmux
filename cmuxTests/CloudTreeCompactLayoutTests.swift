@@ -145,7 +145,23 @@ struct CloudTreeCompactLayoutTests {
         let outline = try #require(fixture.coordinator.outlineView)
         let starts = try nodes.map { node in
             let cell = try #require(outline.view(atColumn: 0, row: outline.row(forItem: node), makeIfNecessary: true))
-            return try titleStart(in: cell)
+            let ink = try inkColumns(in: cell)
+            // A hollow glyph can contain several disconnected ink-column runs.
+            // Locate title ink beyond the rendered icon, rather than assuming
+            // the second run belongs to the title.
+            let iconBounds = try #require(
+                descendants(of: cell).compactMap { view -> CGRect? in
+                    guard view is CmuxResolvedIconImageView else { return nil }
+                    return cell.convert(view.bounds, from: view)
+                }.min(by: { $0.minX < $1.minX }),
+                "Expected an appearance-resolved row icon"
+            )
+            #expect(iconBounds.width > 0)
+            let titleRun = try #require(
+                ink.runs.first { CGFloat($0.lowerBound) / ink.scale >= iconBounds.maxX },
+                "Expected title ink after the row icon"
+            )
+            return CGFloat(titleRun.lowerBound) / ink.scale
         }
         // Sections insets the whole machine identity 6pt inside its band.
         // Preserve that decoration while comparing the shared icon column.
@@ -237,22 +253,6 @@ struct CloudTreeCompactLayoutTests {
         let icon = pinned ? 1 : 0
         try #require(ink.runs.count > icon + 1, "Expected visible icon and title ink")
         return CGFloat(ink.runs[icon + 1].lowerBound - ink.runs[icon].upperBound) / ink.scale
-    }
-
-    /// A glyph may contain several disconnected ink runs. Locate title ink
-    /// beyond the actual leading AppKit icon, independent of the expected
-    /// title position, symbol shape, font scale, or machine-band inset.
-    private func titleStart(in view: NSView) throws -> CGFloat {
-        let ink = try inkColumns(in: view)
-        let host = try #require(view.subviews.first { $0 is CloudTreePassthroughHostingView })
-        let icons = descendants(of: host).compactMap { $0 as? CmuxResolvedIconImageView }
-        let icon = try #require(icons.min {
-            view.convert($0.bounds, from: $0).minX < view.convert($1.bounds, from: $1).minX
-        })
-        let iconFrame = view.convert(icon.bounds, from: icon)
-        #expect(iconFrame.width > 0)
-        let run = try #require(ink.runs.first { CGFloat($0.lowerBound) / ink.scale >= iconFrame.maxX })
-        return CGFloat(run.lowerBound) / ink.scale
     }
 
     private func inkColumns(in view: NSView) throws -> (runs: [Range<Int>], scale: CGFloat) {

@@ -1035,5 +1035,17 @@ path = "tests/test_ci_main_full_suite.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_nightly_tag_push.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_cla_guard_metadata_routing.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ios_simulator_build_once.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_web_complexity_scope.py"
 lane = "linux-guard"

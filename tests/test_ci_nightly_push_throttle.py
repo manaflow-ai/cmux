@@ -23,7 +23,12 @@ Date.now = () => scenario.nowMs;
 const outputs = {};
 const notices = [];
 const warnings = [];
-const summary = new Proxy({}, { get: () => () => summary });
+const tables = [];
+const summary = {
+  addHeading: () => summary,
+  addTable: (rows) => { tables.push(rows); return summary; },
+  write: () => summary,
+};
 const core = {
   setOutput: (k, v) => { outputs[k] = v; },
   notice: (m) => notices.push(m),
@@ -34,6 +39,7 @@ const context = {
   ref: scenario.ref,
   sha: scenario.headSha,
   eventName: scenario.eventName,
+  payload: { schedule: scenario.schedule },
   repo: { owner: 'manaflow-ai', repo: 'cmux' },
 };
 const notFound = () => Object.assign(new Error('Not Found'), { status: 404 });
@@ -52,7 +58,7 @@ const github = { rest: { git: {
 const run = new Function('github', 'context', 'core', 'process',
   `return (async () => {\n${scenario.script}\n})();`);
 run(github, context, core, process).then(() => {
-  console.log(JSON.stringify({ outputs, notices, warnings }));
+  console.log(JSON.stringify({ outputs, notices, warnings, tables }));
 }).catch((e) => { console.error(e); process.exit(1); });
 """
 
@@ -85,6 +91,7 @@ def run_decide(
     tag_age_hours: float = 0.5,
     interval: str = "2",
     get_commit_fails: bool = False,
+    schedule: str = "47 8 * * *",
     extra_env=None,
 ):
     env = {
@@ -105,6 +112,7 @@ def run_decide(
                 "tagSha": tag_sha,
                 "tagAgeHours": tag_age_hours,
                 "getCommitFails": get_commit_fails,
+                "schedule": schedule,
             }
         ),
     }
@@ -121,6 +129,48 @@ def run_decide(
 
 def should_build(result) -> bool:
     return result["outputs"]["should_build"] == "true"
+
+
+def summary_values(result) -> dict:
+    return {row[0]["data"]: row[1] for row in result["tables"][0]}
+
+
+def test_decision_summary_distinguishes_push_throttle_from_manual_build() -> None:
+    push = run_decide(event="push", tag_age_hours=0.5)
+    assert summary_values(push)["app build selected"] == "false"
+    assert summary_values(push)["publish app this run"] == "false"
+    assert summary_values(push)["push minimum commit age (hours)"] == "2"
+    assert "Skipping this push" in summary_values(push)["reason"]
+    manual = run_decide(event="workflow_dispatch", tag_age_hours=0.5)
+    assert should_build(manual)
+    assert summary_values(manual)["app build selected"] == "true"
+    assert "bypasses the push throttle" in summary_values(manual)["reason"]
+
+
+def test_manual_same_commit_explains_force_without_changing_the_guard() -> None:
+    same = run_decide(event="workflow_dispatch", tag_sha=HEAD_SHA)
+    assert not should_build(same)
+    assert "already published" in summary_values(same)["reason"]
+    assert "force=true" in same["notices"][0]
+    forced = run_decide(event="workflow_dispatch", tag_sha=HEAD_SHA,
+                        extra_env={"FORCE_BUILD": "true"})
+    assert should_build(forced)
+    assert summary_values(forced)["app build selected"] == "true"
+
+
+def test_cache_only_modes_explain_why_no_app_is_built() -> None:
+    seed = run_decide(event="workflow_dispatch", extra_env={"SEED_ONLY": "true"})
+    assert not should_build(seed)
+    assert "cache-only" in summary_values(seed)["reason"]
+    warm = run_decide(event="schedule", schedule="17 */6 * * *")
+    # Keep the existing output: downstream schedule conditions own routing.
+    assert should_build(warm)
+    assert warm["outputs"]["should_publish"] == "true"
+    assert summary_values(warm)["app build selected"] == "false"
+    assert summary_values(warm)["publish app this run"] == "false"
+    assert "cache warmup" in summary_values(warm)["reason"]
+    daily = run_decide(event="schedule", schedule="47 8 * * *")
+    assert summary_values(daily)["app build selected"] == "true"
 
 
 def test_default_interval_is_two_hours_and_overridable() -> None:

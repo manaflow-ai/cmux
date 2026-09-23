@@ -176,7 +176,12 @@ struct QuitConfirmationAlertPresenterTests {
         // and leaves two usable, non-overlapping controls.
         alert.window.displayIfNeeded()
         alert.window.contentView?.layoutSubtreeIfNeeded()
-        let buttonFrames = alert.buttons.map(\.frame)
+        // Compare alignment rects, not raw frames: where NSAlert stacks the
+        // buttons, each bezel button's frame carries transparent padding
+        // outside its visible control (e.g. frame (-6,-6,240,40) around a
+        // 228x28 control), so adjacent frames legitimately overlap in that
+        // padding while the controls themselves stay separated.
+        let buttonFrames = alert.buttons.map { $0.alignmentRect(forFrame: $0.frame) }
         #expect(buttonFrames.count == 2)
         #expect(alert.didLayoutWhileHidden)
         #expect(buttonFrames.allSatisfy { $0.width > 0 && $0.height > 0 })

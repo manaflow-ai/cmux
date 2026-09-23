@@ -73,8 +73,28 @@ jobs:
           [[ -f trusted/web/scripts/check-complexity.mjs ]]
           [[ -f trusted/web/oxlint-complexity-baseline.txt ]]
 
+      - name: Check complete current-base API scope
+        id: api_scope
+        if: github.event_name == 'pull_request_target'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CHANGED_FILES: ${{ github.event.pull_request.changed_files }}
+        run: |
+          set -euo pipefail
+          if [[ ! -f "$GITHUB_WORKSPACE/trusted/scripts/ci/web_complexity_scope.py" ]]; then
+            echo "scan=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if ! gh api "repos/${GITHUB_REPOSITORY}/compare/${TRUSTED_SHA}...${CANDIDATE_SHA}" > "$RUNNER_TEMP/complexity-compare.json"; then
+            echo "scan=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          python3 "$GITHUB_WORKSPACE/trusted/scripts/ci/web_complexity_scope.py" \
+            --compare-json "$RUNNER_TEMP/complexity-compare.json" \
+            --trusted-base "$TRUSTED_SHA" --expected-count "$CHANGED_FILES" >> "$GITHUB_OUTPUT"
+
       - name: Checkout pull-request or merge-group source
-        if: github.event_name != 'push'
+        if: github.event_name != 'push' && steps.api_scope.outputs.scan != 'false'
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           repository: ${{ env.CANDIDATE_REPOSITORY }}
@@ -85,7 +105,7 @@ jobs:
 
       - name: Select complexity work before installing Bun
         id: scope
-        if: github.event_name != 'push'
+        if: github.event_name != 'push' && steps.api_scope.outputs.scan != 'false'
         env:
           UPSTREAM_REPOSITORY: ${{ github.repository }}
         run: |
