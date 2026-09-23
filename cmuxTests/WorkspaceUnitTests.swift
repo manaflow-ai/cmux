@@ -5238,7 +5238,7 @@ final class WorkspaceTerminalFocusRecoveryTests: XCTestCase {
                 firstResponderNotifications.append("\(surface)(tx=\(transaction))")
             }
             defer { NotificationCenter.default.removeObserver(firstResponderRecorderToken) }
-            func recordFocusState(_ step: String) {
+            @MainActor func recordFocusState(_ step: String) {
                 focusTrace.record(step, state: splitFocusState(
                     window: window, workspace: workspace, appDelegate: appDelegate,
                     left: leftPanel, right: rightPanel
