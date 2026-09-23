@@ -47,6 +47,18 @@ class ReplayTimes(unittest.TestCase):
         self.assertGreater(self.mtime("cmuxTests/AppTests.swift"), BUILD_TIME_NS)
         self.assertGreater(self.mtime("cmuxTests/NewTests.swift"), BUILD_TIME_NS)
 
+    def test_a_changed_input_unpacked_with_an_old_time_is_still_rebuilt(self):
+        recorded = warm.record(self.producer)
+        # An archive-extracted file (GhosttyKit, SwiftPM binaries) keeps the
+        # archive's time, which can predate the producer's build.
+        header = self.consumer / "Sources/App.swift"
+        header.write_text("let app = 2\n")
+        os.utime(header, ns=(BUILD_TIME_NS - 10**12, BUILD_TIME_NS - 10**12))
+
+        warm.replay(self.consumer, recorded)
+
+        self.assertGreater(self.mtime("Sources/App.swift"), BUILD_TIME_NS)
+
     def test_build_outputs_and_git_metadata_are_not_inputs(self):
         recorded = warm.record(self.producer)
         self.assertEqual(sorted(recorded), ["Sources/App.swift", "cmuxTests/AppTests.swift"])
@@ -85,6 +97,12 @@ class ArchiveBounds(unittest.TestCase):
             with self.assertRaises(ValueError):
                 warm.extract(archive, destination)
         self.assertEqual(list(destination.iterdir()), [])
+
+    def test_an_absolute_link_inside_derived_data_is_accepted(self):
+        destination = Path(tempfile.mkdtemp())
+        target = str(destination / "Build/Products/Debug/PackageFrameworks")
+        warm.extract(self.archive("Build/Products/link", link=target), destination)
+        self.assertTrue((destination / "Build/Products/link").is_symlink())
 
     def test_a_contained_archive_extracts(self):
         destination = Path(tempfile.mkdtemp())

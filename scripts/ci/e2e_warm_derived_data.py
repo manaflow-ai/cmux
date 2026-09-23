@@ -14,8 +14,10 @@ Xcode decides what to rebuild from modification times, and a fresh checkout
 stamps every file with the checkout time. `record` writes the content digest
 and modification time of every build input before a compile. `replay` restores
 the recorded time only onto files whose content is byte-identical, so an
-unchanged file looks as old as the build that consumed it and a changed file
-keeps its checkout time and is rebuilt. Correctness never depends on how close
+unchanged file looks as old as the build that consumed it, and stamps every
+other file with the current time. A changed file cannot keep an old time: files
+unpacked from an archive (GhosttyKit, SwiftPM binary artifacts) carry the
+archive's times, which may predate the producer's build. Correctness never depends on how close
 the adopted DerivedData is to this revision; distance only costs compile time.
 
 `restore` adopts the newest DerivedData archive for KEY that a `main` run of
@@ -41,6 +43,8 @@ PREFIX = "e2e-derived-data-v1-"
 # Never walk into build outputs or git metadata: they are not inputs, and
 # DerivedData lives inside the workspace on every runner pool.
 SKIPPED_DIRECTORIES = frozenset({".git", "DerivedData"})
+# Beyond this a download loses to the compile it replaces.
+MAX_ARTIFACT_BYTES = 12 * 1024**3
 
 
 def digest(path: Path) -> str:
@@ -73,6 +77,7 @@ def replay(workspace: Path, recorded: dict[str, list]) -> tuple[int, int]:
     for relative, path in inputs(workspace):
         entry = recorded.get(relative)
         if entry is None or entry[0] != digest(path):
+            os.utime(path)
             changed += 1
             continue
         os.utime(path, ns=(entry[1], entry[1]))
@@ -109,10 +114,19 @@ def extract(archive: Path, destination: Path) -> None:
             if destination.resolve() not in target.parents and target != destination.resolve():
                 raise ValueError(f"archive member escapes DerivedData: {member.name}")
             if member.issym() or member.islnk():
+                # Xcode links within DerivedData, sometimes by absolute path;
+                # the key pins that path, so it is the same on both sides.
                 link = Path(member.linkname)
-                if link.is_absolute() or ".." in link.parts:
+                base = destination if member.islnk() or link.is_absolute() else target.parent
+                resolved = (base / link).resolve()
+                if destination.resolve() not in resolved.parents and resolved != destination.resolve():
                     raise ValueError(f"archive link escapes DerivedData: {member.name}")
-        bundle.extractall(destination)
+        if hasattr(tarfile, "tar_filter"):
+            # Every member and link target is bounded above. The default
+            # `data` filter would also refuse Xcode's absolute in-tree links.
+            bundle.extractall(destination, filter="tar")
+        else:
+            bundle.extractall(destination)
 
 
 def restore(workspace: Path, derived: Path, key: str) -> dict[str, object]:
@@ -120,6 +134,8 @@ def restore(workspace: Path, derived: Path, key: str) -> dict[str, object]:
     artifact = newest(repository, key)
     if artifact is None:
         return {"hit": "false", "reason": "no-main-derived-data"}
+    if int(artifact.get("size_in_bytes") or 0) > MAX_ARTIFACT_BYTES:
+        return {"hit": "false", "reason": "derived-data-too-large"}
     with tempfile.TemporaryDirectory() as staging:
         bundle = Path(staging, "artifact.zip")
         with bundle.open("wb") as stream:
@@ -154,7 +170,7 @@ def main(argv: list[str]) -> int:
         derived = Path(argv[3])
         try:
             result = restore(Path(argv[2]).resolve(), derived, argv[4])
-        except (OSError, ValueError, KeyError, subprocess.CalledProcessError, zipfile.BadZipFile, tarfile.TarError) as error:
+        except Exception as error:  # noqa: BLE001 - every failure means a cold build
             # A half-extracted DerivedData is worse than none: start cold.
             shutil.rmtree(derived, ignore_errors=True)
             derived.mkdir(parents=True, exist_ok=True)

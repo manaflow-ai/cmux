@@ -194,6 +194,7 @@ allowed = {
     ("build", "revision-on-main", "Check the selected revision against main", ""),
     ("build", "reuse", "Reuse a compiled product instead of building one", ""),
     ("build", "warm", "Adopt main's DerivedData", ""),
+    ("build", "record-inputs", "Record build input times", ""),
     ("build", "warm-package", "Package DerivedData for later builds", ""),
     ("build", None, "Publish DerivedData for later builds", "actions/upload-artifact"),
     ("test", "parallel-product", "Read the compiled test product over parallel range requests", ""),

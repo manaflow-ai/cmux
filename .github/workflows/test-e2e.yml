@@ -388,13 +388,21 @@ jobs:
         id: warm
         if: ${{ steps.reuse.outputs.hit != 'true' }}
         continue-on-error: true
+        timeout-minutes: 10
         env:
           GH_TOKEN: ${{ github.token }}
           WARM_KEY: ${{ steps.compilation-cache-key.outputs.fingerprint }}
-        run: python3 scripts/ci/e2e_warm_derived_data.py restore "$GITHUB_WORKSPACE" "$CMUX_DERIVED_DATA_PATH" "$WARM_KEY"
+        run: |
+          set -euo pipefail
+          # A fresh checkout gives every file a new inode; without this the
+          # build system reruns every task whose inputs merely moved.
+          defaults write com.apple.dt.XCBuild IgnoreFileSystemDeviceInodeChanges -bool YES
+          python3 scripts/ci/e2e_warm_derived_data.py restore "$GITHUB_WORKSPACE" "$CMUX_DERIVED_DATA_PATH" "$WARM_KEY"
 
       - name: Record build input times
+        id: record-inputs
         if: ${{ steps.reuse.outputs.hit != 'true' }}
+        continue-on-error: true
         run: python3 scripts/ci/e2e_warm_derived_data.py record "$GITHUB_WORKSPACE" "$CMUX_DERIVED_DATA_PATH/cmux-e2e-input-mtimes.json"
 
       - name: Build the app-host and UI test product
@@ -489,7 +497,7 @@ jobs:
       - name: Package DerivedData for later builds
         id: warm-package
         continue-on-error: true
-        if: ${{ !cancelled() && github.ref == 'refs/heads/main' && steps.compile.outcome == 'success' && steps.revision-on-main.outputs.contained == 'true' }}
+        if: ${{ !cancelled() && github.ref == 'refs/heads/main' && steps.compile.outcome == 'success' && steps.record-inputs.outcome == 'success' && steps.revision-on-main.outputs.contained == 'true' }}
         run: |
           set -euo pipefail
           archive="$RUNNER_TEMP/derived-data.tar.gz"
