@@ -199,27 +199,29 @@ extension MobileShellComposite {
     /// removed, so this marker cannot leak a revoked route through backup.
     private func rememberForgottenMacRecovery(
         for computer: MobileHiddenComputer,
-        accountID: String
+        accountID: String,
+        deletedScopes: [MobilePairedMacExactScope] = []
     ) {
         guard !accountID.isEmpty else { return }
         var ids = forgottenMacRecoveryIDs(accountID: accountID)
-        ids.insert(
-            computer.instanceTag.map {
+        let recoveryIDs = deletedScopes.isEmpty
+            ? [computer.instanceTag.map {
                 MobilePairedMac.pairingID(
                     macDeviceID: computer.macDeviceID,
                     instanceTag: $0
                 )
-            } ?? cmxCanonicalDeviceID(computer.macDeviceID)
-        )
-        if forgottenMacRecoveryInFlightScope != nil {
-            forgottenMacRecoveryIDsRememberedDuringInFlight.insert(
-                computer.instanceTag.map {
-                    MobilePairedMac.pairingID(
-                        macDeviceID: computer.macDeviceID,
-                        instanceTag: $0
-                    )
-                } ?? cmxCanonicalDeviceID(computer.macDeviceID)
-            )
+            } ?? cmxCanonicalDeviceID(computer.macDeviceID)]
+            : deletedScopes.map {
+                MobilePairedMac.pairingID(
+                    macDeviceID: $0.macDeviceID,
+                    instanceTag: $0.instanceTag
+                )
+            }
+        ids.formUnion(recoveryIDs)
+        if let inFlightScope = forgottenMacRecoveryInFlightScope,
+           inFlightScope.userID == accountID {
+            forgottenMacRecoveryIDsRememberedDuringInFlight[accountID, default: []]
+                .formUnion(recoveryIDs)
         }
         saveForgottenMacRecoveryIDs(ids, accountID: accountID)
     }
@@ -319,7 +321,13 @@ extension MobileShellComposite {
                 }
             }
             let currentRecoveryIDs = forgottenMacRecoveryIDs(accountID: currentScope.userID)
-            let newlyRemembered = forgottenMacRecoveryIDsRememberedDuringInFlight
+            guard await isScopeCurrent(currentScope) else {
+                guard let rerun = finishForgottenMacRecovery() else { return }
+                request = rerun
+                continue
+            }
+            let newlyRemembered =
+                forgottenMacRecoveryIDsRememberedDuringInFlight[currentScope.userID] ?? []
             saveForgottenMacRecoveryIDs(
                 currentRecoveryIDs.subtracting(consumed.subtracting(newlyRemembered)),
                 accountID: currentScope.userID
@@ -406,7 +414,7 @@ extension MobileShellComposite {
         // one sequential backup request per row, and a device can carry up to
         // the discovery snapshot's 256 bindings. Rows owned by other accounts
         // keep their bindings (the revoke was account-pinned) and stay.
-        let cleaned = await deleteStoredPairedMacRows(
+        let deletion = await deleteStoredPairedMacRows(
             for: computer,
             pinnedAccountID: computer.stackUserID ?? scope.userID,
             displayScope: scope
@@ -419,10 +427,11 @@ extension MobileShellComposite {
         // refresh's rowless-marker migration would see those markers as
         // rowless and clear them, so the hidden entry the user retries from
         // would vanish while a failed sibling keeps its revoked binding.
-        if cleaned {
+        if deletion.cleaned {
             rememberForgottenMacRecovery(
                 for: computer,
-                accountID: scope.userID
+                accountID: scope.userID,
+                deletedScopes: deletion.deletedScopes
             )
             await refreshAfterForget(displayScope: scope)
             await recoverForgottenMacsFromDirectory(
@@ -431,12 +440,12 @@ extension MobileShellComposite {
             )
         }
         recordAppEvent(
-            cleaned ? .computerForgetSucceeded : .computerForgetFailed,
+            deletion.cleaned ? .computerForgetSucceeded : .computerForgetFailed,
             correlationID: computer.id,
             startedAt: startedAt,
-            failure: cleaned ? nil : .unknown
+            failure: deletion.cleaned ? nil : .unknown
         )
-        return cleaned
+        return deletion.cleaned
     }
 
     /// The single post-forget refresh: reload the paired list and registry and
@@ -472,14 +481,14 @@ extension MobileShellComposite {
         for computer: MobileHiddenComputer,
         pinnedAccountID: String,
         displayScope: MobileShellScopeSnapshot
-    ) async -> Bool {
+    ) async -> (cleaned: Bool, deletedScopes: [MobilePairedMacExactScope]) {
         guard let pairedMacStore else {
             await clearHiddenMacDeviceID(
                 computer.macDeviceID,
                 instanceTag: computer.instanceTag,
                 scope: displayScope
             )
-            return true
+            return (true, [])
         }
         let primary = MobilePairedMacExactScope(
             macDeviceID: computer.macDeviceID,
@@ -504,7 +513,7 @@ extension MobileShellComposite {
             hiddenMacsLog.error(
                 "forget hidden computer sibling enumeration failed: \(String(describing: error), privacy: .private)"
             )
-            return false
+            return (false, [])
         }
         for row in rows
         where row.stackUserID == pinnedAccountID
@@ -595,14 +604,14 @@ extension MobileShellComposite {
                     }
                 }
             }
-            return false
+            return (false, [])
         }
         // Cleared only after the rows are gone, so a still-online Mac that
         // re-registers is not re-hidden by a stale marker.
         for scope in scopes {
             await clearForgottenRowMarkers(scope: scope, displayScope: displayScope)
         }
-        return true
+        return (true, scopes)
     }
 
     /// Clears one deleted row's hidden markers. Markers are stored per

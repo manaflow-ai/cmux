@@ -101,6 +101,17 @@ private final class RecoveryDirectoryStub: MobileIrohMacDiscovering {
                         stackUserID: "user-1",
                         teamID: "team-a"
                     ),
+                    MobilePairedMac(
+                        macDeviceID: macID,
+                        displayName: "Nightly Mac",
+                        routes: [],
+                        createdAt: Date(timeIntervalSince1970: 1),
+                        lastSeenAt: Date(timeIntervalSince1970: 2),
+                        isActive: false,
+                        stackUserID: "user-1",
+                        teamID: "team-a",
+                        instanceTag: "nightly"
+                    ),
                 ],
             ],
             blockedTeams: []
@@ -130,6 +141,13 @@ private final class RecoveryDirectoryStub: MobileIrohMacDiscovering {
                 routes: [route],
                 lastSeenAt: Date(timeIntervalSince1970: 10)
             ),
+            MobileDiscoveredIrohMac(
+                deviceID: macID,
+                displayName: "Recovered Nightly Mac",
+                instanceTag: "nightly",
+                routes: [route],
+                lastSeenAt: Date(timeIntervalSince1970: 10)
+            ),
         ]
         let discovery = RecoveryDirectoryStub(candidates: [])
         let forget = RecoveryForgetStub()
@@ -145,8 +163,14 @@ private final class RecoveryDirectoryStub: MobileIrohMacDiscovering {
         )
 
         await shell.loadPairedMacs()
+        let beforeForget = try await pairedStore.loadAllInstances(
+            macDeviceID: macID,
+            stackUserID: "user-1"
+        )
+        #expect(beforeForget.count == 2)
+        #expect(Set(beforeForget.map(\.instanceTag)) == Set([nil, "nightly"]))
         await shell.hideMac(macDeviceID: macID)
-        let hidden = try #require(shell.hiddenComputers.first)
+        let hidden = try #require(shell.hiddenComputers.first { $0.instanceTag == nil })
 
         #expect(await shell.forgetHiddenComputer(hidden))
         #expect(forget.forgottenIDs == [macID])
@@ -156,6 +180,13 @@ private final class RecoveryDirectoryStub: MobileIrohMacDiscovering {
             teamID: "team-a"
         )
         #expect(afterForget.isEmpty)
+        let rememberedIDs = try #require(
+            defaults.array(forKey: "cmux.mobile.forgottenMacRecovery.user-1") as? [String]
+        )
+        #expect(Set(rememberedIDs) == Set([
+            MobilePairedMac.pairingID(macDeviceID: macID, instanceTag: nil),
+            MobilePairedMac.pairingID(macDeviceID: macID, instanceTag: "nightly"),
+        ]))
 
         // The Mac can publish after the revoke's immediate refresh. The
         // directory update path must consume the durable recovery identity.
@@ -173,11 +204,14 @@ private final class RecoveryDirectoryStub: MobileIrohMacDiscovering {
             stackUserID: "user-1",
             teamID: "team-a"
         )
-        #expect(recovered.count == 1)
-        #expect(recovered.first?.macDeviceID == macID)
-        #expect(recovered.first?.displayName == "Recovered Mac")
-        #expect(shell.pairedMacs.count == 1)
-        #expect(shell.pairedMacs.first?.macDeviceID == macID)
+        #expect(recovered.count == 2)
+        let recoveredStable = try #require(recovered.first { $0.instanceTag == nil })
+        let recoveredNightly = try #require(recovered.first { $0.instanceTag == "nightly" })
+        #expect(recoveredStable.macDeviceID == macID)
+        #expect(recoveredStable.displayName == "Recovered Mac")
+        #expect(recoveredNightly.macDeviceID == macID)
+        #expect(recoveredNightly.displayName == "Recovered Nightly Mac")
+        #expect(shell.pairedMacs.count == 2)
     }
 
     @Test func preservesASecondForgetWhileRecoveryDirectoryFetchIsInFlight() async throws {

@@ -3659,7 +3659,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     @ObservationIgnored var hiddenMacDeviceIDsByScope: [String: Set<String>] = [:]
     @ObservationIgnored var forgottenMacRecoveryInFlightScope: MobileShellScopeSnapshot?
     @ObservationIgnored var forgottenMacRecoveryRerun: ForgottenMacRecoveryRerun?
-    @ObservationIgnored var forgottenMacRecoveryIDsRememberedDuringInFlight: Set<String> = []
+    @ObservationIgnored var forgottenMacRecoveryIDsRememberedDuringInFlight: [String: Set<String>] = [:]
     /// Row-backed hidden entries for the current account/team.
     public internal(set) var hiddenComputers: [MobileHiddenComputer] = []
     /// True when the current account/team scope has at least one hidden computer.
