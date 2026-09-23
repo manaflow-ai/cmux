@@ -420,8 +420,8 @@ struct AgentRestoreLiveOwnerAdmissionTests {
         )?.processLiveness != .running)
     }
 
-    @Test("A replacement Claude hook session clears only the old completion", arguments: [false, true])
-    func replacementClaudeHookSessionClearsCompletion(useDock: Bool) throws {
+    @Test("A replacement Claude hook session clears only the old completion", arguments: [false, true], [false, true])
+    func replacementClaudeHookSessionClearsCompletion(useDock: Bool, snapshotless: Bool) throws {
         let workspace = Workspace()
         defer { workspace.teardownAllPanels() }
         let dock = DockSplitStore(workspaceId: UUID(), baseDirectoryProvider: { nil })
@@ -451,8 +451,13 @@ struct AgentRestoreLiveOwnerAdmissionTests {
         #expect(lifecycle.resumeStatesByPanelId[panelID] == .completedAgentExit)
         #expect(publish())
         #expect(lifecycle.resumeStatesByPanelId[panelID] == .completedAgentExit)
+        if snapshotless {
+            lifecycle.setSnapshot(nil, panelId: panelID)
+            #expect(publish())
+            #expect(lifecycle.resumeStatesByPanelId[panelID] == .completedAgentExit)
+            lifecycle.setSnapshot(nil, panelId: panelID)
+        }
         binding.checkpointId = "new-session"
-        binding.command = "claude --resume new-session"
         #expect(publish())
         #expect(lifecycle.resumeStatesByPanelId[panelID] != .completedAgentExit)
         #expect(lifecycle.completedGeneration(panelId: panelID) == nil)
