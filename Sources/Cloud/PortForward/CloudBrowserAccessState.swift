@@ -59,7 +59,6 @@ final class CloudBrowserAccessState {
         trace("route_adopted")
     }
 
-    func routeDidConfigure() { observeRoute() }
     func retainResource(_ resource: SurfaceResourceID) { resourceID = resource }
 
     private func observeRoute() {
@@ -277,8 +276,11 @@ final class CloudBrowserAccessState {
     }
 
     func didCancel(navigationID: ObjectIdentifier? = nil) {
-        guard model != nil, !loaded, navigationURL != nil,
+        guard model != nil, !loaded,
               navigationID == nil || navigationID == activeNavigationID else { return }
+        // Stop also applies while the shared route is still connecting. Other
+        // projections can keep that route alive without restarting this pane.
+        observationGeneration &+= 1
         connectionDeadline.cancel()
         error = String(localized: "cloud.display.connectionCancelled", defaultValue: "The Cloud page connection was cancelled. Retry to connect.")
         hasCommittedNavigation = false
