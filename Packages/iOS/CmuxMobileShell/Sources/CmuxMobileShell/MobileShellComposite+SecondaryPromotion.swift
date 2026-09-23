@@ -133,6 +133,7 @@ extension MobileShellComposite {
             ticket: connection.ticket,
             storedInstanceTag: connection.storedInstanceTag,
             authenticatedInstanceTag: connection.authenticatedInstanceTag,
+            authenticatedMacAppVersion: connection.authenticatedMacAppVersion,
             supportedHostCapabilities: connection.supportedHostCapabilities,
             actionCapabilities: connection.actionCapabilities,
             displayName: connection.displayName
@@ -665,7 +666,7 @@ extension MobileShellComposite {
         let liveConnectionGeneration = adoptPooledRemoteClient(sub.client)
         activeTicket = sub.ticket
         activeMacInstanceTag = sub.authenticatedInstanceTag ?? sub.storedInstanceTag
-        authenticatedMacAppVersion = sub.ticket.macAppVersion
+        authenticatedMacAppVersion = sub.authenticatedMacAppVersion
         // The foreground refetches this feed under the bare device key; the
         // pairing-keyed source would otherwise linger as stale offline rows,
         // and a sibling switch must not reuse the old build's device-keyed
@@ -707,6 +708,7 @@ extension MobileShellComposite {
             displayName: displayName ?? connectedHostName,
             storedInstanceTag: sub.storedInstanceTag,
             authenticatedInstanceTag: sub.authenticatedInstanceTag,
+            authenticatedMacAppVersion: sub.authenticatedMacAppVersion,
             supportedHostCapabilities: sub.supportedHostCapabilities,
             actionCapabilities: sub.actionCapabilities
         )
@@ -744,11 +746,11 @@ extension MobileShellComposite {
         // Promotion reuses the live client without a fresh `mobile.host.status`
         // probe, so the previous foreground Mac's update hint would otherwise
         // survive the switch. Recompute against this Mac's capabilities; the
-        // version comes from the just-assigned ticket (nil hides the hint
-        // rather than showing the wrong Mac's).
+        // version comes from the promoted authenticated subscription (nil hides
+        // the hint rather than showing the wrong Mac's).
         refreshMacUpdateHint(
             capabilities: sub.supportedHostCapabilities,
-            statusMacAppVersion: nil,
+            statusMacAppVersion: sub.authenticatedMacAppVersion,
             macDeviceID: macID
         )
         // Move selection across the Mac ownership boundary before `activeRoute`
@@ -769,6 +771,12 @@ extension MobileShellComposite {
             await sub.client.disconnectAndWaitForTransportDrain()
             return .unavailable
         }
+        recordAuthenticatedMacVersion(
+            for: macID,
+            instanceTag: activeMacInstanceTag,
+            appVersion: sub.authenticatedMacAppVersion
+        )
+        clearPairingError()
         // Establish the foreground listener before fetching the snapshot that
         // focus will publish. This closes the control-unsubscribe/terminal-
         // subscribe gap for legacy Macs that have no state-sync cursor repair.

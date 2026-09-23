@@ -111,6 +111,8 @@ extension MobileShellComposite {
             storedInstanceTag: subscription.storedInstanceTag,
             authenticatedInstanceTag:
                 subscription.authenticatedInstanceTag,
+            authenticatedMacAppVersion:
+                subscription.authenticatedMacAppVersion,
             supportedHostCapabilities:
                 subscription.supportedHostCapabilities,
             actionCapabilities: subscription.actionCapabilities
@@ -135,6 +137,7 @@ extension MobileShellComposite {
         )
         activeTicket = subscription.ticket
         activeMacInstanceTag = promotedInstanceTag
+        authenticatedMacAppVersion = subscription.authenticatedMacAppVersion
         connectedHostName = displayName
             ?? placeholderHostName(
                 for: subscription.ticket,
@@ -156,7 +159,7 @@ extension MobileShellComposite {
         )
         refreshMacUpdateHint(
             capabilities: subscription.supportedHostCapabilities,
-            statusMacAppVersion: nil,
+            statusMacAppVersion: subscription.authenticatedMacAppVersion,
             macDeviceID: macDeviceID
         )
         selectWorkspaceOnCurrentForegroundMac()
@@ -164,6 +167,14 @@ extension MobileShellComposite {
         activeRoute = subscription.route
         connectionState = .connected
         markMacConnectionHealthy()
+        revalidateActiveMacCompatibilityPolicy()
+        guard connectionState == .connected else { return false }
+        recordAuthenticatedMacVersion(
+            for: macDeviceID,
+            instanceTag: activeMacInstanceTag,
+            appVersion: subscription.authenticatedMacAppVersion
+        )
+        clearPairingError()
 
         if let previousConnection, let demotedSubscription {
             if let previousForegroundID,

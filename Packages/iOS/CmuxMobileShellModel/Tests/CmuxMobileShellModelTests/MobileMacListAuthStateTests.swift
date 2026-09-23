@@ -5,6 +5,46 @@ import Testing
 @MainActor
 struct MobileMacListAuthStateTests {
     @Test
+    func authenticatedVersionOverridesStaleDirectoryVersion() {
+        let state = MobileMacListAuthState()
+        let pairingID = "physical-device\u{1F}default"
+        state.applyPolicyMinimumSupportedMacVersions(
+            stable: "0.64.23",
+            nightly: nil
+        )
+        let staleDirectory: [
+            MobileMacListAuthState.Identity: MobileMacListAuthState.Entry
+        ] = [
+            .init(pairingID: pairingID, endpointIDHex: "stable-peer"):
+                .init(
+                    status: "active",
+                    revoked: false,
+                    isFresh: true,
+                    appVersion: "0.64.22",
+                    releaseTrack: "stable"
+                ),
+        ]
+        state.replace(entriesByIdentity: staleDirectory)
+
+        #expect(state.compatibilityEntry(pairingID: pairingID).isOutdated)
+
+        state.recordAuthenticatedVersion(
+            pairingID: pairingID,
+            appVersion: "0.64.25",
+            releaseTrack: "stable"
+        )
+
+        let authenticated = state.compatibilityEntry(pairingID: pairingID)
+        #expect(authenticated.appVersion == "0.64.25")
+        #expect(authenticated.isFresh)
+        #expect(!authenticated.isOutdated)
+
+        state.clear()
+        state.replace(entriesByIdentity: staleDirectory)
+        #expect(state.compatibilityEntry(pairingID: pairingID).isOutdated)
+    }
+
+    @Test
     func stableAndNightlyUseDistinctPairingIDs() {
             let state = MobileMacListAuthState()
             let stable = MobileMacListAuthState.Entry(status: "active", revoked: false, isFresh: true, appVersion: "0.64.22", releaseTrack: "stable")

@@ -35,6 +35,34 @@ Both builds use the agent auth profile and the same backend. Use distinct tags
 for simultaneous workloads. Relay-only mode prevents same-host Simulator
 loopback connectivity from bypassing the managed Iroh relay.
 
+## Mac version boundary recovery
+
+Run this additional scenario when changing the iOS Mac-version gate or pooled
+reconnect path. It is not part of the recurring basic or stress workload: those
+workloads keep the Mac build fixed for their full window.
+
+1. Use one saved pairing and the same account throughout. Start with a Mac
+   build below the iOS build's applicable Stable or Nightly minimum. Attempt
+   to connect from the iOS app and verify that the update-required guidance
+   names the applicable minimum and the connection is refused.
+2. Update and reopen that same Mac app instance to a build at or above the
+   minimum. Keep its device identity, release track, account, and saved phone
+   pairing unchanged. Confirm the new Mac process reports its installed version
+   in authenticated `mobile.host.status`.
+3. Reconnect from the iOS app without deleting or recreating the pairing.
+   Verify that the old update-required warning and pairing error disappear,
+   the connection remains established, and a terminal input/output transaction
+   succeeds. Switch focus away and back when another paired Mac is available
+   to exercise a pooled secondary connection as well as a fresh dial.
+4. Record the iOS and both Mac build versions, applicable minimum, route,
+   whether the pooled switch ran, final connection state, and terminal result.
+   A reconnect that succeeds only after re-pairing, or a warning that remains
+   after successful authentication, fails this scenario.
+
+Until an isolated Simulator run and a physical-iPhone run complete, this
+scenario is specified coverage rather than verification evidence. The recurring
+workloads alone do not establish this version transition.
+
 ## Keep coverage current
 
 Every PR touching mobile connectivity, authentication, lifecycle, workspace

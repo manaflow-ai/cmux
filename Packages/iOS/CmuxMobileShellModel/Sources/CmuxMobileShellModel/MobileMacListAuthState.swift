@@ -107,6 +107,9 @@ public final class MobileMacListAuthState {
     private var policyMinimumSupportedMacVersion: String?
     private var policyMinimumSupportedNightlyMacVersion: String?
     private var hasPolicyMinimumSupportedMacVersion = false
+    /// Live authenticated status is newer than a cached directory snapshot.
+    /// Keep that positive evidence until the account boundary clears it.
+    private var authenticatedVersionsByPairingID: [String: (version: String, releaseTrack: String)] = [:]
 
     public init() {}
 
@@ -153,6 +156,7 @@ public final class MobileMacListAuthState {
 
     public func clear() {
         entriesByIdentity = [:]
+        authenticatedVersionsByPairingID = [:]
         minimumSupportedMacVersion = hasPolicyMinimumSupportedMacVersion
             ? policyMinimumSupportedMacVersion : nil
         minimumSupportedNightlyMacVersion = hasPolicyMinimumSupportedMacVersion
@@ -189,9 +193,27 @@ public final class MobileMacListAuthState {
             ?? Entry(status: "unknown", revoked: false, isFresh: false)
         let instance = CmxMacAppInstanceIdentity(id: pairingID)
         result.releaseTrack = instance.instanceTag == "nightly" ? "nightly" : "stable"
+        if let authenticated = authenticatedVersionsByPairingID[pairingID] {
+            result.appVersion = authenticated.version
+            result.releaseTrack = authenticated.releaseTrack
+            result.isFresh = true
+        }
         result.minimumSupportedVersion = minimumSupportedMacVersion
         result.minimumSupportedNightlyVersion = minimumSupportedNightlyMacVersion
         return result
+    }
+
+    /// Records the version from an authenticated live host-status response.
+    /// This overlays an older cached directory value for the same app instance
+    /// without changing admission, which continues to evaluate each live status.
+    public func recordAuthenticatedVersion(
+        pairingID: String,
+        appVersion: String,
+        releaseTrack: String
+    ) {
+        let version = appVersion.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !pairingID.isEmpty, !version.isEmpty else { return }
+        authenticatedVersionsByPairingID[pairingID] = (version, releaseTrack)
     }
 
     private func uniqueEntry(matching matches: (Identity) -> Bool) -> Entry? {

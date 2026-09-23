@@ -814,6 +814,10 @@ extension MobileShellComposite {
         ifStillCurrent: (() -> Bool)? = nil
     ) async -> StoredMacReconnectOutcome {
         guard ifStillCurrent?() ?? true else { return .superseded }
+        // This attempt will authenticate the installed Mac build again. Do not
+        // keep presenting a terminal warning from an earlier, older process
+        // while its replacement is being evaluated.
+        clearPairingError()
         // The caller's freshly loaded row is authoritative for the method:
         // during startup restore the published `pairedMacs` list backing the
         // by-ID resolver is not loaded yet and would silently fall back to

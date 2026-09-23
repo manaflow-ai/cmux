@@ -110,7 +110,7 @@ import Testing
         subscription.cancel()
     }
 
-    @Test func promotionTransfersAuthenticatedTagFromSecondaryClient() async throws {
+    @Test func promotionTransfersAuthenticatedIdentityFromSecondaryClient() async throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -137,7 +137,7 @@ import Testing
             macDeviceID: "mac-a",
             displayName: "Studio A",
             routes: [route],
-            instanceTag: "feature-a",
+            instanceTag: "default",
             markActive: true,
             stackUserID: "user-1",
             teamID: "team-a",
@@ -145,10 +145,12 @@ import Testing
         )
         let router = LivenessHostRouter()
         await router.setHostIdentity(
-            deviceID: nil,
-            instanceTag: nil,
-            displayName: nil
+            deviceID: "mac-b",
+            instanceTag: "default",
+            displayName: "Studio B",
+            clientNamespace: "mac:com.cmuxterm.app"
         )
+        await router.setMacAppVersion("0.64.25")
         let runtime = LivenessTestRuntime(
             transportFactory: LivenessTransportFactory(router: router, box: TransportBox()),
             now: { Date() }
@@ -167,6 +169,7 @@ import Testing
             ticket: ticket,
             allowsStackAuthFallback: true
         )
+        #expect(ticket.macAppVersion == nil)
         let foregroundTicket = try CmxAttachTicket(
             workspaceID: "foreground-workspace",
             terminalID: "foreground-terminal",
@@ -186,27 +189,39 @@ import Testing
             isSignedIn: true,
             connectionState: .connected,
             pairedMacStore: pairedStore,
+            buildCompatibilityPolicy: .official,
             identityProvider: StaticIdentityProvider(userID: "user-1"),
             teamIDProvider: { "team-a" },
             reachability: AlwaysOnlineReachability(),
             pairingHintDefaults: UserDefaults(
                 suiteName: "secondary-authority-\(UUID().uuidString)"
-            )!
+            )!,
+            feedbackStampProvider: {
+                MobileFeedbackStamp(
+                    buildType: .internal,
+                    appVersion: "1.0.4",
+                    appBuild: "20260922000000",
+                    bundleIdentifier: "com.cmux.app.internal",
+                    osVersion: "iOS",
+                    deviceModel: "test"
+                )
+            }
         )
         shell.foregroundMacDeviceID = "mac-a"
-        shell.activeMacInstanceTag = "feature-a"
+        shell.activeMacInstanceTag = "default"
         shell.activeTicket = foregroundTicket
         shell.activeRoute = route
         shell.connectedHostName = "Studio A"
         shell.remoteClient = foregroundClient
-        shell.connections[MacPairingKey(macDeviceID: "mac-a", instanceTag: "feature-a")] = MacConnection(
+        shell.connections[MacPairingKey(macDeviceID: "mac-a", instanceTag: "default")] = MacConnection(
             macDeviceID: "mac-a",
             ticket: foregroundTicket,
             route: route,
             client: foregroundClient,
             generation: UUID(),
             displayName: "Studio A",
-            instanceTag: "feature-a",
+            instanceTag: "default",
+            authenticatedMacAppVersion: "0.64.24",
             supportedHostCapabilities: ["terminal.render_grid.v1"],
             actionCapabilities: .none
         )
@@ -216,7 +231,8 @@ import Testing
             route: route,
             ticket: ticket,
             storedInstanceTag: nil,
-            authenticatedInstanceTag: "feature-b",
+            authenticatedInstanceTag: "default",
+            authenticatedMacAppVersion: "0.64.25",
             supportedHostCapabilities: ["terminal.render_grid.v1"],
             actionCapabilities: .none
         )
@@ -228,15 +244,21 @@ import Testing
         #expect(await shell.promoteSecondaryToForeground("mac-b".pairingKey,
             switchAttemptID: switchAttemptID
         ))
-        #expect(shell.activeMacInstanceTag == "feature-b")
+        #expect(shell.activeMacInstanceTag == "default")
         #expect(shell.foregroundMacDeviceID == "mac-b")
+        #expect(shell.authenticatedMacAppVersion == "0.64.25")
         #expect(shell.connectionState == .connected)
-        #expect(shell.secondaryMacSubscriptions[MacPairingKey(macDeviceID: "mac-a", instanceTag: "feature-a")]?.client === foregroundClient)
+        let demoted = shell.secondaryMacSubscriptions[
+            MacPairingKey(macDeviceID: "mac-a", instanceTag: "default")
+        ]
+        #expect(demoted?.client === foregroundClient)
+        #expect(demoted?.authenticatedMacAppVersion == "0.64.24")
         #expect(shell.liveMacConnections.map(\.macDeviceID) == ["mac-b", "mac-a"])
         #expect(shell.liveMacConnections.map(\.role) == [.focused, .control])
         let promotedConnection = try #require(shell.connections["mac-b"])
         #expect(promotedConnection.storedInstanceTag == nil)
-        #expect(promotedConnection.authenticatedInstanceTag == "feature-b")
+        #expect(promotedConnection.authenticatedInstanceTag == "default")
+        #expect(promotedConnection.authenticatedMacAppVersion == "0.64.25")
         #expect(await shell.canRetainFocusedConnectionInControlPool(
             promotedConnection
         ))

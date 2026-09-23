@@ -5007,7 +5007,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         ) {
         case .allowed:
             authenticatedMacAppVersion = macAppVersion
-            clearMacVersionUpdateRequired(for: resolvedTicket.macDeviceID, instanceTag: resolvedTag)
+            recordAuthenticatedMacVersion(
+                for: resolvedTicket.macDeviceID,
+                instanceTag: resolvedTag,
+                appVersion: macAppVersion
+            )
             break
         case .buildIncompatible:
             rejectForegroundHostIdentity(client: client, reason: "build_incompatible")
@@ -5672,6 +5676,30 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             await disconnectSecondaryClientAndDrain(client)
             return .permanentFailure
         }
+        let authenticatedTag = macInstanceTagAuthority.normalize(status.macInstanceTag)
+        switch authenticatedMacBuildAdmission(
+            instanceTag: authenticatedTag,
+            clientNamespace: status.macClientNamespace,
+            macAppVersion: status.macAppVersion,
+            client: client
+        ) {
+        case .allowed:
+            recordAuthenticatedMacVersion(
+                for: mac.macDeviceID,
+                instanceTag: authenticatedTag ?? mac.instanceTag,
+                appVersion: status.macAppVersion
+            )
+        case .buildIncompatible:
+            await disconnectSecondaryClientAndDrain(client)
+            return .permanentFailure
+        case .macAppVersionTooOld:
+            noteMacVersionUpdateRequired(
+                for: mac.macDeviceID,
+                instanceTag: authenticatedTag ?? mac.instanceTag
+            )
+            await disconnectSecondaryClientAndDrain(client)
+            return .permanentFailure
+        }
         await exchangePhonePushKeyIfConfigured(client: client, status: status)
         let capabilities = Set(status.capabilities)
         if !capabilities.contains("events.v1") {
@@ -5687,6 +5715,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             authenticatedInstanceTag: macInstanceTagAuthority.normalize(
                 status.macInstanceTag
             ),
+            authenticatedMacAppVersion: status.macAppVersion,
             supportedHostCapabilities: capabilities,
             actionCapabilities: Self.workspaceActionCapabilities(
                 from: capabilities,
@@ -6928,6 +6957,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             ticket: handle.ticket,
             storedInstanceTag: handle.storedInstanceTag,
             authenticatedInstanceTag: handle.authenticatedInstanceTag,
+            authenticatedMacAppVersion: handle.authenticatedMacAppVersion,
             supportedHostCapabilities: handle.supportedHostCapabilities,
             actionCapabilities: handle.actionCapabilities,
             displayName: mac.displayName
@@ -8548,6 +8578,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 authenticatedInstanceTag:
                     activeMacInstanceTag
                         ?? connection.authenticatedInstanceTag,
+                authenticatedMacAppVersion:
+                    authenticatedMacAppVersion
+                        ?? connection.authenticatedMacAppVersion,
                 supportedHostCapabilities: supportedHostCapabilities,
                 actionCapabilities: Self.workspaceActionCapabilities(
                     from: supportedHostCapabilities,
@@ -8577,6 +8610,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 generation: connectionGeneration,
                 displayName: connectedHostName,
                 instanceTag: activeMacInstanceTag,
+                authenticatedMacAppVersion: authenticatedMacAppVersion,
                 supportedHostCapabilities: supportedHostCapabilities,
                 actionCapabilities: Self.workspaceActionCapabilities(
                     from: supportedHostCapabilities,
@@ -10504,9 +10538,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     ) {
                     case .allowed:
                         authenticatedMacAppVersion = status.macAppVersion
-                        clearMacVersionUpdateRequired(
+                        recordAuthenticatedMacVersion(
                             for: status.macDeviceID ?? ticket.macDeviceID,
-                            instanceTag: reportedInstanceTag
+                            instanceTag: reportedInstanceTag,
+                            appVersion: status.macAppVersion
                         )
                         break
                     case .buildIncompatible:
@@ -10829,6 +10864,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                             generation: liveConnectionGeneration,
                             displayName: connectedHostName,
                             instanceTag: activeMacInstanceTag,
+                            authenticatedMacAppVersion: status.macAppVersion,
                             supportedHostCapabilities: authenticatedCapabilities,
                             actionCapabilities: Self.workspaceActionCapabilities(
                                 from: authenticatedCapabilities,
@@ -11907,7 +11943,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
     /// Clear the error and its guidance together (never bare `connectionError
     /// = nil`) so guidance cannot linger under a cleared headline.
-    private func clearPairingError() {
+    func clearPairingError() {
         connectionError = nil
         connectionErrorGuidance = nil
         pendingMacVersionGateViolation = nil
@@ -11945,11 +11981,29 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         macVersionUpdateRequiredPairingIDs.insert(pairingID)
     }
 
-    private func clearMacVersionUpdateRequired(for macDeviceID: String?, instanceTag: String?) {
+    func clearMacVersionUpdateRequired(for macDeviceID: String?, instanceTag: String?) {
         guard let macDeviceID else { return }
         let pairingID = MobilePairedMac.pairingID(macDeviceID: macDeviceID, instanceTag: instanceTag)
         guard !pairingID.isEmpty else { return }
         macVersionUpdateRequiredPairingIDs.remove(pairingID)
+    }
+
+    func recordAuthenticatedMacVersion(
+        for macDeviceID: String,
+        instanceTag: String?,
+        appVersion: String?
+    ) {
+        let pairingID = MobilePairedMac.pairingID(
+            macDeviceID: macDeviceID,
+            instanceTag: instanceTag
+        )
+        clearMacVersionUpdateRequired(for: macDeviceID, instanceTag: instanceTag)
+        guard let appVersion else { return }
+        macListAuthState.recordAuthenticatedVersion(
+            pairingID: pairingID,
+            appVersion: appVersion,
+            releaseTrack: instanceTag == "nightly" ? "nightly" : "stable"
+        )
     }
 
     /// The running app's marketing version, driving Mac version-gate tier
