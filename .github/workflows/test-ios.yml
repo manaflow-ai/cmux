@@ -333,10 +333,14 @@ jobs:
           # iOS shell replay/liveness regressions live in this package target.
           # Keep them under the iOS package gate so PR CI enforces the mobile
           # terminal mirror behavior without relying on local-only SwiftPM runs.
-          args=(--package-path Packages/iOS/CmuxMobileShell)
-          if [ -n "${FOCUSED_SWIFT_PACKAGE:-}" ]; then
-            args+=(--no-parallel)
-          fi
+          # This suite's waits are wall-clock bound (#8143), so swift-testing's
+          # default parallelism starves them: the same 1060 tests take over 12
+          # minutes and report ~161 failures in parallel, against 65 seconds and
+          # 17 failures serially on the same commit. The 10-minute job budget
+          # then kills the step, which reports as `cancelled` rather than a
+          # failure, so none of it surfaced. Run it serially until the waits
+          # themselves are fixed.
+          args=(--package-path Packages/iOS/CmuxMobileShell --no-parallel)
           if [ -n "${SWIFT_TEST_FILTER:-}" ]; then
             args+=(--filter "$SWIFT_TEST_FILTER")
           fi
@@ -846,6 +850,10 @@ jobs:
         id: simulator-tests
         env:
           TEST_FILTER: ${{ inputs.test_filter }}
+          # Bounds one xcodebuild invocation. Generous against the ~2 minutes
+          # the non-UI suite actually takes, and well under the job's 35-minute
+          # ceiling so a wedge still leaves room for the steps after this one.
+          XCODEBUILD_TIMEOUT_SECONDS: "900"
         run: |
           set -euo pipefail
           started_ns="$(python3 -c 'import time; print(time.monotonic_ns())')"
@@ -899,7 +907,14 @@ jobs:
             xcrun simctl erase "$SIMULATOR_ID"
             xcrun simctl boot "$SIMULATOR_ID" >/dev/null 2>&1 || true
             xcrun simctl bootstatus "$SIMULATOR_ID" -b
-            if xcodebuild "${XCODEBUILD_ARGS[@]}" -resultBundlePath "$RESULT_PATH" 2>&1 | tee "$LOG_PATH"; then
+            # xctest can wedge in teardown once the run is over: it waits on a
+            # process termination that never lands, emits nothing further, and
+            # the only bound left is the job ceiling (#13918). Bound the
+            # invocation so that becomes a non-zero exit this loop can classify
+            # -- the cleanup-failure check below already knows how to tolerate a
+            # bad exit whose selected tests passed.
+            if scripts/blacksmith-bounded-command.sh "$XCODEBUILD_TIMEOUT_SECONDS" \
+              xcodebuild "${XCODEBUILD_ARGS[@]}" -resultBundlePath "$RESULT_PATH" 2>&1 | tee "$LOG_PATH"; then
               ./scripts/ci/require_selected_test_execution.sh \
                 "$LOG_PATH" \
                 "${TEST_FILTER:-}"
