@@ -91,8 +91,7 @@ linker could not resolve `libSystem` against an Xcode 26.4+ SDK
 required 0.16.0 since 2026-09-17 and `install-zig-ci.sh` reads the version from
 that manifest, so the original reason is probably gone. The SDK 15 assertion is
 what still holds the job, and it has not been retested on a macos-26 image. So
-it stays
-on `MACOS_RUNNER_DUAL_XCODE` on every event, and the dual-Xcode guard in
+it stays on `MACOS_RUNNER_DUAL_XCODE` on every event, and the dual-Xcode guard in
 `tests/test_ci_self_hosted_guard.sh` fails if it ever reads
 `MACOS_RUNNER_PR`.
 `test_macos_jobs_use_lane_specific_xcode_pin_vars` in

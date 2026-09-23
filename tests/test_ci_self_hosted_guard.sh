@@ -1438,6 +1438,11 @@ check_persistent_compile_owned_mac_occupancy() {
   local producer_pin hosted_pin
   producer_pin="$(persistent_compile_toolchain_pin "$PERSISTENT_COMPILE_FILE" compile)"
   hosted_pin="$(persistent_compile_toolchain_pin "$CI_MACOS_FILE" macos-compile-admission --pr-lane)"
+  if [ "$(printf '%s\n' "$producer_pin" | grep -c .)" -ne 2 ]; then
+    echo "FAIL: could not read both toolchain pins from the persistent compile producer"
+    printf 'producer=%s\n' "$producer_pin"
+    exit 1
+  fi
   # The producer names the lane directly; anything else (a conditional, or a
   # different default) would survive the equality below while resolving to a
   # toolchain the hosted job rejects.
@@ -1447,11 +1452,6 @@ CMUX_CI_XCODE_APP: \${{ vars.CMUX_CI_XCODE_APP_PR || vars.CMUX_CI_XCODE_APP_MACO
     echo "      persistent-macos-compile.yml is workflow_dispatch-only, so a conditional"
     echo "      on github.event_name there never takes its pull-request branch."
     printf 'producer:\n%s\n' "$producer_pin"
-    exit 1
-  fi
-  if [ "$(printf '%s\n' "$producer_pin" | grep -c .)" -ne 2 ]; then
-    echo "FAIL: could not read both toolchain pins from the persistent compile producer"
-    printf 'producer=%s\n' "$producer_pin"
     exit 1
   fi
   if [ "$(printf '%s\n' "$hosted_pin" | grep -c .)" -ne 2 ]; then
