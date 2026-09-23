@@ -375,7 +375,11 @@ public struct CMUXMobileRootScene: View {
     private var content: some View {
         #if os(iOS)
         #if DEBUG
-        if UITestConfig.taskComposerPreviewEnabled {
+        if ProcessInfo.processInfo.environment["CMUX_UITEST_FEED_FULL_TEXT_PREVIEW"] == "1" {
+            AgentFeedFullTextPreviewView(
+                failsOnce: ProcessInfo.processInfo.environment["CMUX_UITEST_FEED_FULL_TEXT_FAIL_ONCE"] == "1"
+            )
+        } else if UITestConfig.taskComposerPreviewEnabled {
             TaskComposerAccessibilityPreviewView()
         } else if UITestConfig.notificationFeedPreviewEnabled {
             NotificationFeedPreviewView()

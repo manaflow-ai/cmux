@@ -12,6 +12,37 @@ final class cmuxUITests: XCTestCase {
     }
 
     @MainActor
+    func testFeedFullTextReadingAndRetry() {
+        let app = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_FEED_FULL_TEXT_PREVIEW": "1",
+            "CMUX_UITEST_FEED_FULL_TEXT_FAIL_ONCE": "1",
+        ])
+        defer { app.terminate() }
+        let open = app.buttons["MobileAgentFeedFullText-full-text-preview"]
+        XCTAssertTrue(open.waitForExistence(timeout: 10))
+        let before = XCTAttachment(screenshot: app.screenshot())
+        before.name = "feed-full-text-entry"
+        before.lifetime = .keepAlways
+        add(before)
+        open.tap()
+        let retry = app.buttons["Try again"]
+        XCTAssertTrue(retry.waitForExistence(timeout: 5))
+        retry.tap()
+        let body = app.staticTexts["MobileAgentFeedFullTextBody"]
+        XCTAssertTrue(body.waitForExistence(timeout: 5))
+        XCTAssertTrue(body.label.contains("FINAL PARAGRAPH: The complete response ends here."))
+        XCTAssertTrue(body.label.contains("👩🏽‍💻"))
+        for _ in 0..<8 { app.scrollViews.firstMatch.swipeUp() }
+        let after = XCTAttachment(screenshot: app.screenshot())
+        after.name = "feed-full-text-final-paragraph"
+        after.lifetime = .keepAlways
+        add(after)
+        app.buttons["MobileAgentFeedFullTextClose"].tap()
+        XCTAssertTrue(open.waitForExistence(timeout: 5))
+        XCTAssertTrue(open.isHittable)
+    }
+
+    @MainActor
     func testDeveloperSettingsReplaysWhatsNewRange() throws {
         let app = launchApp(
             mockData: false,
