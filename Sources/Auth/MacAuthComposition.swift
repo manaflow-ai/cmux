@@ -261,7 +261,11 @@ struct MacAuthComposition {
         // still need deterministic sign-in. Requiring an explicit credentials
         // file keeps this opt-in and prevents ordinary production launches
         // from discovering or accepting ambient credentials.
-        return environment["CMUX_AUTH_CREDENTIALS_FILE"] != nil
+        guard let credentialsFile = environment["CMUX_AUTH_CREDENTIALS_FILE"]?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+            !credentialsFile.isEmpty
+        else { return false }
+        return true
     }
 
     nonisolated static let storedStackProjectIDKey = "cmux.auth.stackProjectID"
