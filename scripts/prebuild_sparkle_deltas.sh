@@ -134,7 +134,7 @@ while IFS= read -r entry; do
   ) &
   pids+=("$!")
   outputs+=("$delta")
-done < <(printf '%s\n' "${candidates[@]}" | sort -rn | head -n "$MAX_DELTAS")
+done < <(printf '%s\n' "${candidates[@]}" | sort -rn | awk '!seen[$1]++' | head -n "$MAX_DELTAS")
 
 built=0
 for index in ${pids[@]+"${!pids[@]}"}; do
