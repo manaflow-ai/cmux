@@ -19,6 +19,19 @@ struct WorkspaceSSHFishProcessDrainTests {
     }
 
     @Test
+    func timeoutKillsChildThatIgnoresTermination() {
+        let result = SSHFishProcessRunner.runProcess(
+            executablePath: "/bin/sh",
+            arguments: ["-c", "trap '' TERM; printf ready >&2; exec /bin/sleep 60"],
+            environment: ProcessInfo.processInfo.environment,
+            timeout: 5
+        )
+        #expect(result.timedOut)
+        #expect(result.status == SIGKILL)
+        #expect(result.stderr == "ready")
+    }
+
+    @Test
     func inheritedWriterDoesNotHoldReturnUntilEOF() throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-fish-drain-\(UUID().uuidString)")
@@ -33,18 +46,19 @@ struct WorkspaceSSHFishProcessDrainTests {
         }
         var environment = ProcessInfo.processInfo.environment
         environment["CMUX_DRAIN_PID_FILE"] = pidFile.path
-        let start = ContinuousClock.now
         let result = SSHFishProcessRunner.runProcess(
             executablePath: "/bin/sh",
             arguments: ["-c", "/bin/sleep 15 & echo $! > \"$CMUX_DRAIN_PID_FILE\"; printf parent-exited >&2"],
             environment: environment,
             timeout: 5
         )
-        #expect(start.duration(to: .now) < .seconds(8))
         #expect(!result.timedOut)
         #expect(result.status == 0)
         #expect(result.stderr == "parent-exited")
-        #expect(FileManager.default.fileExists(atPath: pidFile.path))
+        let raw = try String(contentsOf: pidFile, encoding: .utf8)
+        let pid = try #require(Int32(raw.trimmingCharacters(in: .whitespacesAndNewlines)))
+        // Returning while the writer is alive proves we did not wait for EOF.
+        #expect(kill(pid, 0) == 0)
     }
 }
 
