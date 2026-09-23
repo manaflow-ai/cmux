@@ -982,6 +982,7 @@ jobs:
           PY
 
   suite-coverage:
+    timeout-minutes: 5
     # Compile admission builds the test bundle and stops, so a pull request
     # that edits cmuxTests/ and skips the full suite runs none of the code it
     # changed. The policy that allows the skip is written for a merge queue
