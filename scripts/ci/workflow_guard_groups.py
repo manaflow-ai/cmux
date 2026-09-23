@@ -48,7 +48,9 @@ GROUPS = (
 # imports, a working-directory, a submodule). Paths a step runs directly are
 # derived from ci-guards.yml by direct_path_owners() and need no entry here.
 PATH_OWNERS = {
+    ".github/workflows/ci-health-report.yml": frozenset(("ci",)),
     ".github/workflows/ci-queue-janitor.yml": frozenset(("ci",)),
+    ".github/workflows/required-checks-drift.yml": frozenset(("ci",)),
     # Many groups load the two reusable workflows with yaml.safe_load rather
     # than naming them in a `run:`, so every group observes an edit to them.
     ".github/workflows/ci-macos.yml": frozenset(GROUPS),
@@ -72,11 +74,17 @@ PATH_OWNERS = {
     "scripts/ci/peer_product_source.py": frozenset(("preflight",)),
     "scripts/ci/persistent_mac_route.py": frozenset(("preflight",)),
     "scripts/ci/product_input_identity.py": frozenset(("preflight",)),
+    "scripts/ci/ci_health_report.py": frozenset(("ci",)),
     "scripts/ci/queue_janitor.py": frozenset(("ci",)),
+    "scripts/ci/required_status_checks.py": frozenset(("ci",)),
     "scripts/ci/restore-app-host-test-product.sh": frozenset(("preflight",)),
     "scripts/ci/reuse_app_host_products.py": frozenset(("preflight",)),
     "scripts/ci/run_python_test_lane.py": frozenset(("preflight",)),
     "scripts/ci/sanitize-xcode-source-packages-cache.py": frozenset(("preflight",)),
+    # detect_ci_change_areas.py imports this to decide the swift-package-tests
+    # route, so the ci group's router tests observe an edit to it even though
+    # no guard step names it in a `run:`.
+    "scripts/ci/select_package_tests.py": frozenset(("ci",)),
     "scripts/ci/swift_incremental_diagnostics.py": frozenset(("preflight",)),
     "scripts/ci/test_execution_registry.py": frozenset(("preflight",)),
     "skills/cmux-cloud-vm/SKILL.md": frozenset(("preflight",)),
