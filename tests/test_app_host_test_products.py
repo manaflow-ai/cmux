@@ -88,6 +88,14 @@ class TestProductHandoff(unittest.TestCase):
         root = HELPER.parents[2]
         schemes = root / "cmux.xcodeproj/xcshareddata/xcschemes"
 
+        def element_signature(element):
+            return (
+                element.tag,
+                tuple(sorted(element.attrib.items())),
+                (element.text or "").strip(),
+                tuple(element_signature(child) for child in element),
+            )
+
         def signature(name):
             tree = ET.parse(schemes / f"{name}.xcscheme")
             scheme = tree.getroot()
@@ -138,10 +146,7 @@ class TestProductHandoff(unittest.TestCase):
             )
             return {
                 "buildables": buildables,
-                "test_action": tuple(
-                    test.attrib.get(key)
-                    for key in ("buildConfiguration", "selectedDebuggerIdentifier", "selectedLauncherIdentifier", "shouldUseLaunchSchemeArgsEnv")
-                ),
+                "test_action": element_signature(test),
                 "testables": testables,
                 "macro": tuple(
                     macro.attrib.get(key)
