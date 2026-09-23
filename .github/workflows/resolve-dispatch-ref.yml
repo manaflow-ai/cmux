@@ -1,0 +1,69 @@
+name: Resolve manual workflow ref
+
+on:
+  workflow_call:
+    inputs:
+      ref:
+        description: Branch, tag, full SHA, or short SHA to resolve
+        required: false
+        type: string
+        default: ""
+    outputs:
+      sha:
+        description: Resolved 40-character commit SHA
+        value: ${{ jobs.resolve.outputs.sha }}
+
+permissions:
+  contents: read
+
+jobs:
+  resolve:
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 2
+    outputs:
+      sha: ${{ steps.resolve.outputs.sha }}
+    steps:
+      - name: Resolve requested revision
+        id: resolve
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          REQUESTED_REF: ${{ inputs.ref }}
+          DEFAULT_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          target_sha="$DEFAULT_SHA"
+          if [ -n "$REQUESTED_REF" ]; then
+            target_sha="$(python3 - "$GITHUB_REPOSITORY" "$REQUESTED_REF" <<'PY'
+          import json
+          import os
+          import sys
+          import urllib.parse
+          import urllib.request
+
+          repository, requested_ref = sys.argv[1:3]
+          encoded_ref = urllib.parse.quote(requested_ref, safe="")
+          request = urllib.request.Request(
+              f"https://api.github.com/repos/{repository}/commits/{encoded_ref}",
+              headers={
+                  "Accept": "application/vnd.github+json",
+                  "Authorization": f"Bearer {os.environ['GITHUB_TOKEN']}",
+                  "X-GitHub-Api-Version": "2022-11-28",
+              },
+          )
+          try:
+              with urllib.request.urlopen(request, timeout=20) as response:
+                  payload = json.load(response)
+          except Exception as error:
+              raise SystemExit(
+                  f"unable to resolve requested revision ({type(error).__name__})"
+              ) from None
+          print(payload["sha"])
+          PY
+          )"
+          fi
+          if [[ ! "$target_sha" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::Resolved revision is not a full commit SHA" >&2
+            exit 1
+          fi
+          echo "sha=$target_sha" >> "$GITHUB_OUTPUT"
+          echo "Resolved workflow revision: $target_sha"

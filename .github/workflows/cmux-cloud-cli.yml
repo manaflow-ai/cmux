@@ -1,0 +1,40 @@
+name: Cloud CLI
+on:
+  pull_request:
+    paths:
+      - "cmux-tui/crates/cmux-cloud-cli/**"
+      - "cmux-tui/Cargo.*"
+      - ".github/workflows/cmux-cloud-cli.yml"
+  push:
+    branches: [main]
+    paths:
+      - "cmux-tui/crates/cmux-cloud-cli/**"
+      - "cmux-tui/Cargo.*"
+      - ".github/workflows/cmux-cloud-cli.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: cmux-cloud-cli-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  test:
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup-cmux-tui-rust
+      - working-directory: cmux-tui
+        run: |
+          cargo fmt -p cmux-cloud-cli --check
+          cargo clippy -p cmux-cloud-cli --locked --all-targets -- -D warnings
+          cargo test -p cmux-cloud-cli --locked
+          rustup target add x86_64-unknown-linux-musl
+          cargo build -p cmux-cloud-cli --release --locked --target x86_64-unknown-linux-musl
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: cmux-cloud-cli-${{ github.event.pull_request.head.sha || github.sha }}
+          path: cmux-tui/target/x86_64-unknown-linux-musl/release/cmux-cloud-cli
+          if-no-files-found: error

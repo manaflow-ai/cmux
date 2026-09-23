@@ -6,6 +6,7 @@ import CmuxMobileSupport
 import Foundation
 import PhotosUI
 import SwiftUI
+import UniformTypeIdentifiers
 
 extension TaskComposerSheet {
     var showsAttachmentButton: Bool {
@@ -172,19 +173,7 @@ extension TaskComposerSheet {
                 guard !Task.isCancelled else { return }
                 do {
                     store.recordAppEvent(.attachmentPreparationStarted)
-                    guard let imported = try await item.loadTransferable(
-                        type: ImportedImageFile.self
-                    ) else {
-                        throw TaskComposerAttachmentStager.StagingError.imageRejected
-                    }
-                    defer {
-                        try? FileManager.default.removeItem(at: imported.url)
-                    }
-                    let attachment = try await TaskComposerAttachmentStager()
-                        .stageImage(
-                            at: imported.url,
-                            originalFileName: imported.originalFileName
-                        )
+                    let attachment = try await stagePhotoPickerItem(item)
                     guard !Task.isCancelled else {
                         try? FileManager.default.removeItem(
                             at: attachment.localStagedFileURL
@@ -213,6 +202,39 @@ extension TaskComposerSheet {
                     )
                 }
             }
+        }
+    }
+
+    private func stagePhotoPickerItem(
+        _ item: PhotosPickerItem
+    ) async throws -> TaskComposerAttachment {
+        guard let imported = try await loadImportedPhotoLibraryFile(item) else {
+            throw TaskComposerAttachmentStager.StagingError.unreadableFile
+        }
+        defer {
+            try? FileManager.default.removeItem(at: imported.url)
+        }
+
+        let stager = TaskComposerAttachmentStager()
+        guard imported.kind == .image else {
+            return try await stager.stageFile(
+                at: imported.url,
+                originalFileName: imported.originalFileName
+            )
+        }
+        do {
+            return try await stager.stageImage(
+                at: imported.url,
+                originalFileName: imported.originalFileName
+            )
+        } catch TaskComposerAttachmentStager.StagingError.imageRejected {
+            // Keep the original image when it cannot be downsampled into the
+            // image budget. It still goes through the general attachment size
+            // gate below.
+            return try await stager.stageFile(
+                at: imported.url,
+                originalFileName: imported.originalFileName
+            )
         }
     }
 

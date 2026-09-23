@@ -49,9 +49,9 @@ base ref to include committed branch changes since its merge-base with HEAD.
 `--affected` with `--swift-changed` to also parse changed Swift files, or use
 `--only` instead when you want to choose checks yourself.
 
-Selection covers the eight checks below. Each checker declares its file inputs
+Selection covers the ten checks below. Each checker declares its file inputs
 in `CHECK_INPUTS` in `scripts/verify-local.py`; update those declarations when a
-checker gains dependencies. Unknown paths select all eight checks. Known prose
+checker gains dependencies. Unknown paths select all ten checks. Known prose
 changes omit unrelated checks, while feature-flag expiry policy always runs
 because its result depends on today's date. This does not select native tests
 or the separate CI workflow guards.
@@ -110,7 +110,7 @@ on PATH and runs `-frontend -parse -swift-version 5 -D DEBUG -enable-bare-slash-
 It does not resolve imports, expand macros, typecheck, compile, execute tests, or
 validate every conditional-compilation configuration. Use the intended toolchain;
 parsing with a newer compiler does not prove compatibility with an older one.
-The default Linux CI recipe remains the eight portable checks below.
+The default Linux CI recipe remains the ten portable checks below.
 
 Receipts record the parser version, exact argv, selected-file hashes before and
 after, selection origin/resolved base, and a separate `parsing` result. Missing
@@ -135,13 +135,15 @@ it does not assert that the entire CI checkout equals the PR head.
 | `localization` | macOS localization parity |
 | `project-tests` | Five project normalizer unit tests at the demonstrated revision; counts are read from each execution |
 | `project` | Xcode project version pin and normalization |
+| `config-schema` | Embedded cmux.json schema matches its source |
+| `test-wiring-sync` | Test-wiring synchronization tool regression suite |
 | `launch-policy` | Generated Claude launch policy is current |
 | `test-wiring` | Every Swift test file belongs to the Xcode test target |
 | `package-groups` | Workspace Swift package grouping |
 | `feature-flags` | Flag names, ownership, expiry, defaults, single evaluation and retired keys |
 
 Each failure prints a bounded diagnostic tail and an exact `--only` rerun command.
-The default runs all eight checks so one pass reveals independent failures.
+The default runs all ten checks so one pass reveals independent failures.
 `--only` runs the named subset and says which checks actually ran; it does not
 infer affected tests from a diff. `--repo` targets another checkout. Each check
 has a 60-second deadline, adjustable with `--timeout`; Ctrl-C stops the active
@@ -165,7 +167,7 @@ It records each command's status, exit code, script/output hashes, duration,
 source observations and available test counts. Raw logs, environment variables
 and checkout paths are not copied into it. Human diagnostics remain local to
 this invocation. The committed `tests/fixtures/verification_receipt/examples/preflight.json`
-is a real full local run: eight passing checks and five executed normalizer tests,
+is a historical full local run: eight passing checks and five executed normalizer tests,
 with dirty-source qualification. It is one observation, not a performance benchmark.
 
 | Field | Meaning |

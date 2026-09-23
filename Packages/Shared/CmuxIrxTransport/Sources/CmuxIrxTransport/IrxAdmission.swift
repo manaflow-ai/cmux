@@ -42,16 +42,18 @@ public struct IrxAdmissionDenied: Error, Equatable, Sendable {
 public typealias IrxGrantJudgment =
     @Sendable (_ grantJWS: String?, _ remoteEndpointIDHex: String) throws -> IrxAdmittedPeerInfo
 
-public enum IrxAdmission {
+public struct IrxAdmission: Sendable {
+    public init() {}
+
     /// Admission must resolve fast or fail loud; nothing here touches the
     /// network beyond the connection itself.
-    public static let deadline: Duration = .seconds(5)
+    public let deadline: Duration = .seconds(5)
 
     /// Client half: open the control lane, send the hello (grantless in
     /// list-auth mode; the optional grant exists only for legacy dialects),
     /// await the admit. A denial arrives as the connection's own termination
     /// and is rethrown with its parsed code.
-    public static func performClient(
+    public func performClient(
         connection: IrxConnection,
         grantJWS: String? = nil,
         journal: IrxJournal
@@ -75,7 +77,7 @@ public enum IrxAdmission {
         }
     }
 
-    private static func clientExchange(
+    private func clientExchange(
         connection: IrxConnection,
         grantJWS: String?,
         journal: IrxJournal
@@ -149,7 +151,7 @@ public enum IrxAdmission {
     /// judge the grant against the TLS key, admit or terminate with the
     /// denial code. On success the remote's lane credit is raised and the
     /// admit frame commits the session.
-    public static func performServer(
+    public func performServer(
         connection: IrxConnection,
         judgment: IrxGrantJudgment,
         journal: IrxJournal
@@ -182,7 +184,7 @@ public enum IrxAdmission {
                 await connection.close(code: .admissionTimeout, origin: .local)
                 return nil
             }
-            guard let hello, hello.proto == IrxProtocol.alpn else {
+            guard let hello, hello.proto == IrxProtocol().alpn else {
                 journal.record("admission", "rejected", ["code": IrxCloseCode.protocolMismatch.rawValue])
                 await connection.close(code: .protocolMismatch, origin: .local)
                 return nil

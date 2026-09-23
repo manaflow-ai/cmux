@@ -27,6 +27,11 @@ elif args[:2] == ["workflow", "run"]:
     fields = dict(arg.split("=", 1) for arg in args if "=" in arg)
     (root / "dispatch.json").write_text(json.dumps(fields))
 elif args[:2] == ["run", "list"]:
+    if "conclusion" in " ".join(args):
+        # The pre-dispatch repeat guard asks for conclusions; the post-dispatch
+        # correlation does not. Key on that rather than on call ordering.
+        print(os.environ.get("LAUNCHER_PRIOR_RUNS", "[]"))
+        sys.exit(0)
     fields = json.loads((root / "dispatch.json").read_text())
     print(json.dumps([
         {"databaseId": 999, "displayTitle": "someone else's newer run", "url": "https://github.com/manaflow-ai/cmux/actions/runs/999"},
@@ -118,11 +123,103 @@ class FocusedLauncherTests(unittest.TestCase):
                 self.assertNotEqual(self.launch(selector).returncode, 0)
         self.assertFalse((self.root / "dispatch.json").exists())
 
+    def test_batched_filters_dispatch_one_run_against_one_compile(self):
+        result = self.launch("cmuxTests/AlphaTests", "cmuxTests/BetaTests")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        # One dispatch, one comma-joined filter: the workflow expands it into
+        # several -only-testing: flags and compiles once.
+        self.assertEqual(self.dispatch()["test_filter"], "cmuxTests/AlphaTests,cmuxTests/BetaTests")
+        self.assertEqual(self.dispatch()["ref"], HEAD)
+        self.assertEqual(self.dispatch()["record_video"], "false")
+
+    def test_batched_ui_filters_keep_video_recording(self):
+        result = self.launch("cmuxUITests/AlphaUITests", "BetaUITests")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.dispatch()["test_filter"], "cmuxUITests/AlphaUITests,BetaUITests")
+        self.assertEqual(self.dispatch()["record_video"], "true")
+
+    def test_rejects_batches_that_mix_targets_or_repeat_entries(self):
+        for entries in (
+            ("cmuxTests/AlphaTests", "cmuxUITests/BetaUITests"),
+            ("cmuxTests/AlphaTests", "BetaUITests"),
+            ("cmuxTests/AlphaTests", "cmuxTests/AlphaTests"),
+            ("cmuxTests/AlphaTests", "cmuxTests/"),
+        ):
+            with self.subTest(entries=entries):
+                self.assertNotEqual(self.launch(*entries).returncode, 0)
+        self.assertFalse((self.root / "dispatch.json").exists())
+
     def test_rejects_invalid_or_missing_options(self):
         for args in (("--timeout", "0"), ("--timeout", "bad"), ("--ref",), ("--unknown",)):
             with self.subTest(args=args):
                 self.assertNotEqual(self.launch("ExampleTests", *args).returncode, 0)
         self.assertFalse((self.root / "dispatch.json").exists())
+    def _prior(self, conclusion, *, selector="cmuxTests/ExampleTests", commit=HEAD):
+        return json.dumps([{
+            "displayTitle": f"{selector} on mac @ {commit} [deadbeef]",
+            "conclusion": conclusion,
+            "status": "completed",
+            "url": "https://github.com/manaflow-ai/cmux/actions/runs/555",
+        }])
+
+    def test_repeat_of_a_failed_selector_at_the_same_commit_is_refused(self):
+        result = self.launch(
+            "cmuxTests/ExampleTests", LAUNCHER_PRIOR_RUNS=self._prior("failure")
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("already failed", result.stderr)
+        self.assertIn("actions/runs/555", result.stderr)
+        self.assertFalse((self.root / "dispatch.json").exists(), "must not dispatch")
+
+    def test_batch_is_refused_when_any_entry_already_failed(self):
+        # The batch shares one compile, so a single known-red selector makes
+        # the whole dispatch a reprint of an answer we already have.
+        result = self.launch(
+            "cmuxTests/AlphaTests", "cmuxTests/ExampleTests",
+            LAUNCHER_PRIOR_RUNS=self._prior("failure"),
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("cmuxTests/ExampleTests already failed", result.stderr)
+        self.assertFalse((self.root / "dispatch.json").exists(), "must not dispatch")
+
+    def test_an_earlier_batch_counts_as_a_prior_attempt_for_each_entry(self):
+        # A prior run named several selectors before " on ". Matching only a
+        # title prefix would let batching bypass the guard entirely.
+        prior = self._prior("failure", selector="cmuxTests/AlphaTests,cmuxTests/ExampleTests")
+        result = self.launch("cmuxTests/ExampleTests", LAUNCHER_PRIOR_RUNS=prior)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("already failed", result.stderr)
+        self.assertFalse((self.root / "dispatch.json").exists(), "must not dispatch")
+
+    def test_force_dispatches_despite_an_earlier_failure(self):
+        result = self.launch(
+            "cmuxTests/ExampleTests", "--force",
+            LAUNCHER_PRIOR_RUNS=self._prior("failure"),
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.dispatch()["test_filter"], "cmuxTests/ExampleTests")
+
+    def test_earlier_success_does_not_block_a_repeat(self):
+        result = self.launch(
+            "cmuxTests/ExampleTests", LAUNCHER_PRIOR_RUNS=self._prior("success")
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_failure_of_a_different_selector_does_not_block(self):
+        result = self.launch(
+            "cmuxTests/ExampleTests",
+            LAUNCHER_PRIOR_RUNS=self._prior("failure", selector="cmuxTests/OtherTests"),
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_failure_at_a_different_commit_does_not_block(self):
+        result = self.launch(
+            "cmuxTests/ExampleTests",
+            LAUNCHER_PRIOR_RUNS=self._prior("failure", commit="c" * 40),
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+
 
 
 class RunDiscoveryTests(unittest.TestCase):

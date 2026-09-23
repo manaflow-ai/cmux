@@ -1,5 +1,7 @@
 # Contributing to cmux
 
+For issues, RFCs, pull requests, and progress updates, follow the short [writing guide](STYLE.md).
+
 Start with the [verification ladder](docs/contributor-verification.md) to choose the
 smallest useful check for your change. It includes a local path that does not require
 maintainer runner access or shared backend credentials.

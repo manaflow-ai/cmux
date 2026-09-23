@@ -44,23 +44,21 @@ def cli(repo, *args):
 class PreflightTests(unittest.TestCase):
     def test_real_wiring_failure_then_repair_without_native_execution(self):
         with repo_fixture() as repo:
-            shutil.copyfile(ROOT / "scripts/lint-pbxproj-test-wiring.sh", repo / "scripts/lint-pbxproj-test-wiring.sh")
-            (repo / "scripts/lint-pbxproj-test-wiring.sh").chmod(0o755)
-            shutil.copyfile(ROOT / "tests/test_ci_pbxproj_test_wiring.sh", repo / "tests/test_ci_pbxproj_test_wiring.sh")
+            for name in ("lint-pbxproj-test-wiring.sh", "sync-test-wiring",
+                         "sync_test_wiring.py", "normalize-pbxproj.py"):
+                shutil.copy2(ROOT / "scripts" / name, repo / "scripts" / name)
+            for name in ("test_ci_pbxproj_test_wiring.sh", "test_sync_test_wiring.py"):
+                shutil.copy2(ROOT / "tests" / name, repo / "tests" / name)
+            shutil.copytree(ROOT / "tests/fixtures/pbxproj-test-wiring",
+                            repo / "tests/fixtures/pbxproj-test-wiring")
             (repo / "cmuxTests").mkdir()
-            (repo / "cmuxTests/UnwiredTests.swift").write_text("import Testing\n@Test func example() {}\n")
+            (repo / "cmuxTests/ExistingTests.swift").write_text("import Testing\n")
             (repo / "cmux.xcodeproj").mkdir()
             project = repo / "cmux.xcodeproj/project.pbxproj"
-            project.write_text('''AAAA000000000000000000T1 /* cmuxTests */ = {
- isa = PBXNativeTarget;
- buildPhases = (AAAA000000000000000000S1 /* Sources */,);
-};
-AAAA000000000000000000S1 /* Sources */ = {
- isa = PBXSourcesBuildPhase;
- files = (
- );
-};
-''')
+            shutil.copyfile(ROOT / "tests/fixtures/pbxproj-test-wiring/base.pbxproj", project)
+            sync = [str(repo / "scripts/sync-test-wiring"), "--repo-root", str(repo)]
+            subprocess.run(sync, check=True, capture_output=True, text=True)
+            (repo / "cmuxTests/UnwiredTests.swift").write_text("import Testing\n@Test func example() {}\n")
             with tempfile.TemporaryDirectory() as receipts:
                 evidence = Path(receipts) / "receipt.json"
                 failed = cli(repo, "--only", "test-wiring", "--receipt", str(evidence))
@@ -72,7 +70,7 @@ AAAA000000000000000000S1 /* Sources */ = {
                 self.assertEqual(result["evidence"]["executions"][0]["argv"],
                                  ["bash", "tests/test_ci_pbxproj_test_wiring.sh"])
                 self.assertEqual(verify.receipt.check(result, "typechecking")["status"], "skipped")
-                project.write_text(project.read_text().replace(" files = (", " files = (\n /* UnwiredTests.swift in Sources */"))
+                subprocess.run(sync, check=True, capture_output=True, text=True)
                 fixed = cli(repo, "--only", "test-wiring", "--receipt", str(evidence))
                 self.assertEqual(fixed.returncode, 0, fixed.stdout + fixed.stderr)
                 result = json.loads(evidence.read_text())
@@ -378,7 +376,24 @@ class AffectedChecksTests(unittest.TestCase):
         with repo_fixture() as repo:
             (repo / "scripts/normalize-pbxproj.py").write_text("# changed helper")
             selected, _ = verify.affected_checks(repo, "HEAD")
-            self.assertEqual(selected, ["project-tests", "project", "feature-flags"])
+            self.assertEqual(selected, ["project-tests", "project", "test-wiring-sync", "feature-flags"])
+
+    def test_current_ci_schema_and_sync_inputs_select_their_checks(self):
+        for path, expected in (
+            ("web/data/cmux.schema.json", "config-schema"),
+            ("Packages/macOS/CmuxFoundation/Sources/CmuxFoundation/ConfigValidation/CmuxConfigSchema.generated.swift", "config-schema"),
+            ("scripts/sync-test-wiring", "test-wiring-sync"),
+            ("scripts/sync_test_wiring.py", "test-wiring-sync"),
+            ("tests/fixtures/pbxproj-test-wiring/new.pbxproj", "test-wiring-sync"),
+        ):
+            with self.subTest(path=path), repo_fixture() as repo:
+                target = repo / path
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_text("changed")
+                selected, evidence = verify.affected_checks(repo, "HEAD")
+                self.assertIn(expected, selected)
+                self.assertIn(path, evidence["reasons"][expected])
+                self.assertEqual(evidence["fallback_paths"], [])
 
     def test_configuration_and_generated_outputs_are_dependencies(self):
         with repo_fixture() as repo:

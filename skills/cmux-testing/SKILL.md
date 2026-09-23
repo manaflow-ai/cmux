@@ -44,6 +44,8 @@ membership in `cmux.xcodeproj/project.pbxproj`. Add through Xcode or follow a wi
 sibling, then run the wiring check above: an unwired file can otherwise produce
 a misleading zero-test pass.
 
+After creating, renaming, or deleting a direct `cmuxTests/*.swift` file, run `./scripts/sync-test-wiring`. It deterministically reconciles the `PBXFileReference`, `PBXBuildFile`, `cmuxTests` group child, and `cmuxTests` Sources membership; `--check` performs the same validation without writing. Foreign target membership is rejected with an explicit diagnostic. The `workflow-guard-tests` CI job still runs `./scripts/lint-pbxproj-test-wiring.sh` as a defensive Sources-phase guard.
+
 ## Test quality
 
 - Exercise observable behavior through unit, integration, CLI or end-to-end paths.

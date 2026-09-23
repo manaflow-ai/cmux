@@ -63,7 +63,7 @@ extension SurfaceCatalog {
         }
         // Upgrade legacy projections before admitting the name. No display text
         // participates in either identity resolution or the remote payload.
-        if workspace.cloudVMBinding?.remoteWorkspaceID != target.remoteWorkspaceID {
+        if target.machine.cloudMachineID != nil, workspace.cloudVMBinding?.remoteWorkspaceID != target.remoteWorkspaceID {
             let previous = workspace.cloudVMBinding
             workspace.cloudVMBinding = WorkspaceCloudVMBinding(
                 vmID: target.machine.rawValue,

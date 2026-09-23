@@ -6,17 +6,29 @@ struct CloudVMLoadingPanelView: View {
     @ObservedObject var panel: CloudVMLoadingPanel
 
     var body: some View {
-        if let operation = MachineCreateCoordinator.shared.operations.first(where: { $0.request.reservedWorkspaceID == panel.workspaceId }) {
-            MachineCreateLoadingContent(operation: operation, actions: .bound(coordinator: .shared))
-        } else {
-            baseContent
+        TimelineView(.periodic(from: panel.startedAt, by: 1)) { context in
+            let elapsedSeconds = max(0, Int(context.date.timeIntervalSince(panel.startedAt).rounded(.down)))
+            if let operation = MachineCreateCoordinator.shared.operations.first(where: { $0.request.reservedWorkspaceID == panel.workspaceId }) {
+                MachineCreateLoadingContent(
+                    operation: operation,
+                    actions: .bound(coordinator: .shared),
+                    elapsedSeconds: max(0, Int(context.date.timeIntervalSince(operation.startedAt).rounded(.down)))
+                )
+            } else if panel.isLoading {
+                // Base opens already reserve the destination workspace and the
+                // Machines panel owns the optimistic progress state. Keep this
+                // pane visually quiet until the real Cloud terminal adopts it;
+                // the old full-pane “Opening Cloud VM” card made an optimistic
+                // workspace look blocked and duplicated the sidebar status.
+                Color(nsColor: GhosttyApp.shared.defaultBackgroundColor)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                baseContent(elapsedSeconds: elapsedSeconds)
+            }
         }
     }
 
-    private var baseContent: some View {
-        let schedule: PeriodicTimelineSchedule = .periodic(from: panel.startedAt, by: 1)
-        return TimelineView(schedule) { context in
-            let elapsedSeconds = max(0, Int(context.date.timeIntervalSince(panel.startedAt).rounded(.down)))
+    private func baseContent(elapsedSeconds: Int) -> some View {
             VStack(spacing: 14) {
                 switch panel.phase {
                 case .loading(let loadingHeadline):
@@ -86,7 +98,6 @@ struct CloudVMLoadingPanelView: View {
             .padding(32)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(Color(nsColor: GhosttyApp.shared.defaultBackgroundColor))
-        }
     }
 }
 

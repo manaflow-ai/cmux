@@ -24,4 +24,10 @@ if [[ -z "$CURRENT_HOOKS" ]]; then
 fi
 git config core.hooksPath scripts/git-hooks
 chmod +x scripts/git-hooks/*
-echo "==> Git hooks installed: pre-commit project normalization only."
+echo "==> Git hooks installed (core.hooksPath = scripts/git-hooks)."
+
+# Merge drivers named by .gitattributes have to be defined per clone; git will
+# not run a driver it cannot resolve, it just falls back to the default one.
+git config merge.xcstrings.name "Xcode string catalog (key-wise three-way merge)"
+git config merge.xcstrings.driver "python3 scripts/merge-xcstrings.py %O %A %B %P"
+echo "==> .xcstrings merge driver installed (merge.xcstrings.driver)."

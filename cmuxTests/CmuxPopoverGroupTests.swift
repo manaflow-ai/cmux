@@ -5,6 +5,36 @@ import Testing
 @MainActor
 @Suite
 struct CmuxPopoverGroupTests {
+    @Test func groupedPickerCanOptIntoNativeOpeningAnimation() {
+        #expect(
+            CmuxPopoverPresentationAnimation.enabled.animates(
+                isGrouped: true,
+                reduceMotion: false
+            )
+        )
+    }
+
+    @Test func groupedPopoverDefaultsToImmediateOpening() {
+        #expect(
+            !CmuxPopoverPresentationAnimation.automatic.animates(
+                isGrouped: true,
+                reduceMotion: false
+            )
+        )
+    }
+
+    @Test(arguments: [
+        CmuxPopoverPresentationAnimation.automatic,
+        .enabled,
+        .disabled
+    ])
+    func reduceMotionDisablesEveryOpeningAnimation(
+        animation: CmuxPopoverPresentationAnimation
+    ) {
+        #expect(!animation.animates(isGrouped: false, reduceMotion: true))
+        #expect(!animation.animates(isGrouped: true, reduceMotion: true))
+    }
+
     @Test func clicksInsideEitherMenuKeepBothOpen() {
         let group = CmuxPopoverGroup()
         let parent = UUID()

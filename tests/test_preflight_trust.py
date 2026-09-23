@@ -52,6 +52,16 @@ class PreflightTrustTests(unittest.TestCase):
         subprocess.run(["bash", "scripts/install-git-hooks.sh"], cwd=self.repo,
                        env=self.env, check=True, capture_output=True)
 
+    def test_hook_installation_has_no_candidate_code_runner(self):
+        """The installed hook set must never execute code from a pushed tree."""
+        self.assertFalse((SOURCE / "scripts/git-hooks/pre-push").exists())
+        self.assertFalse((SOURCE / "scripts/verify-push.py").exists())
+        self.assertFalse((self.repo / "scripts/git-hooks/pre-push").exists())
+        self.assertEqual(
+            self.git("config", "--get", "core.hooksPath").stdout.strip(),
+            "scripts/git-hooks",
+        )
+
     def git(self, *args, check=True):
         return subprocess.run(["git", "-C", str(self.repo), *args], env=self.env,
                               text=True, capture_output=True, check=check)

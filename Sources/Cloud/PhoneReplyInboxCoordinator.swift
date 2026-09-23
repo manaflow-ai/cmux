@@ -257,18 +257,18 @@ final class PhoneReplyInboxCoordinator {
         }
         let identity: PhonePushKeyMaterial
         do {
-            identity = try PhonePushKeyStore.current(
+            identity = try PhonePushKeyMaterial.current(
                 bundleID: Bundle.main.bundleIdentifier ?? "cmux"
             )
         } catch {
             return .retryable
         }
-        guard let sender = PhonePushPeerKeyStore.pinnedDescriptor(for: encryptedPayload.tuple) else {
+        guard let sender = PhonePushPeerKeyStore().pinnedDescriptor(for: encryptedPayload.tuple) else {
             return .retryable
         }
         let data: Data
         do {
-            data = try PhonePushCrypto.decrypt(
+            data = try PhonePushCrypto().decrypt(
                 envelope: encryptedPayload,
                 tuple: encryptedPayload.tuple,
                 recipientInstallationID: identity.installationID,
@@ -283,7 +283,7 @@ final class PhoneReplyInboxCoordinator {
         guard let result = try? JSONDecoder().decode(DecryptedReply.self, from: data),
               result.replyId == reply.replyId,
               result.accountID == accountID else { return .permanentFailure }
-        guard PhonePushReplyFreshness.accepts(
+        guard PhonePushReplyFreshness().accepts(
             issuedAt: result.issuedAtEpochSeconds,
             expiresAt: result.expiresAtEpochSeconds,
             now: now().timeIntervalSince1970

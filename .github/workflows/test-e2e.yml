@@ -1,15 +1,15 @@
 name: E2E test with video recording
-run-name: ${{ inputs.test_filter }} on ${{ (!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15') || inputs.runner }} @ ${{ inputs.ref || github.ref_name }}${{ inputs.dispatch_id != '' && format(' [{0}]', inputs.dispatch_id) || '' }}
+run-name: ${{ inputs.test_filter }} on ${{ (!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_TESTS || 'blacksmith-6vcpu-macos-15') || inputs.runner }} @ ${{ inputs.ref || github.ref_name }}${{ inputs.dispatch_id != '' && format(' [{0}]', inputs.dispatch_id) || '' }}
 
 on:
   workflow_dispatch:
     inputs:
       ref:
-        description: Branch or SHA to test
+        description: Branch, tag, full SHA, or short SHA to test
         required: false
         default: ""
       test_filter:
-        description: "Test class or class/method; optionally target-qualified as cmuxUITests/Class or cmuxTests/Class"
+        description: "Test class or class/method, or a comma-separated list sharing one target; optionally target-qualified as cmuxUITests/Class or cmuxTests/Class"
         required: true
       dispatch_id:
         description: "Optional caller-generated id echoed into the run name so dispatchers can resolve their exact run"
@@ -29,7 +29,7 @@ on:
         default: true
         type: boolean
       runner:
-        description: "Runner OS (auto follows MACOS_RUNNER_15; tart-* choices use isolated VMs)"
+        description: "Runner OS (auto follows MACOS_RUNNER_TESTS; tart-* choices use isolated VMs)"
         required: false
         default: "auto"
         type: choice
@@ -38,27 +38,39 @@ on:
           - blacksmith-6vcpu-macos-15
           - blacksmith-6vcpu-macos-26
           - blacksmith-6vcpu-macos-latest
-          - warp-macos-15-arm64-6x
           - tart-canary
           - tart-dual
           - tart-small
 
 concurrency:
-  group: e2e-${{ (!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15') || inputs.runner }}-${{ inputs.ref || github.ref_name }}-${{ inputs.test_filter }}
+  group: e2e-${{ (!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_TESTS || 'blacksmith-6vcpu-macos-15') || inputs.runner }}-${{ inputs.ref || github.ref_name }}-${{ inputs.test_filter }}
   cancel-in-progress: true
 
+# This lane checks out and compiles a dispatcher-chosen ref, so it should hold
+# the narrowest token that still works. It reads the repository, downloads a
+# public GhosttyKit release over plain curl, and uploads its own artifacts;
+# none of that needs a writable token.
+permissions:
+  contents: read
+
 jobs:
+  resolve-ref:
+    uses: ./.github/workflows/resolve-dispatch-ref.yml
+    with:
+      ref: ${{ inputs.ref }}
+
   e2e:
-    runs-on: ${{ (!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15') || inputs.runner }}
+    needs: resolve-ref
+    runs-on: ${{ (!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_TESTS || 'blacksmith-6vcpu-macos-15') || inputs.runner }}
     timeout-minutes: ${{ fromJSON(inputs.job_timeout || '20') }}
     env:
-      TEST_REF: ${{ inputs.ref || github.ref }}
+      TEST_REF: ${{ needs.resolve-ref.outputs.sha }}
       CMUX_CI_MAX_MACOS_SDK_MAJOR: "26"
     steps:
       - name: Validate Tart canary identity
-        if: ${{ startsWith((!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15') || inputs.runner, 'tart-') }}
+        if: ${{ startsWith((!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_TESTS || 'blacksmith-6vcpu-macos-15') || inputs.runner, 'tart-') }}
         env:
-          REQUESTED_RUNNER: ${{ (!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15') || inputs.runner }}
+          REQUESTED_RUNNER: ${{ (!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_TESTS || 'blacksmith-6vcpu-macos-15') || inputs.runner }}
           RUNNER_CONTEXT_NAME: ${{ runner.name }}
         run: |
           set -euo pipefail
@@ -89,7 +101,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          ref: ${{ inputs.ref || github.ref }}
+          ref: ${{ needs.resolve-ref.outputs.sha }}
           submodules: recursive
 
       - name: Capture SHA
@@ -109,35 +121,91 @@ jobs:
             exit 1
           fi
 
+          # A comma-separated list runs several selectors against one compile.
+          # Dispatchers chasing one flake routinely fire several filters at the
+          # same commit seconds apart, and each of those runs paid its own cold
+          # build of identical source.
+          # A trailing field is never visited by the split loop below, so
+          # "cmuxTests/AlphaTests," would otherwise pass as a single selector
+          # instead of failing the empty-entry check.
           case "$raw_filter" in
-            cmuxTests/*)
-              test_target="cmuxTests"
-              normalized_filter="${raw_filter#cmuxTests/}"
-              ;;
-            cmuxUITests/*)
-              test_target="cmuxUITests"
-              normalized_filter="${raw_filter#cmuxUITests/}"
-              ;;
-            *)
-              # Back-compat: bare Class or Class/method continues to target UI tests.
-              test_target="cmuxUITests"
-              normalized_filter="$raw_filter"
-              ;;
-          esac
-
-          if [ -z "$normalized_filter" ]; then
-            echo "::error::test_filter '$raw_filter' is missing a class or class/method after '$test_target/'"
-            exit 1
-          fi
-
-          case "$normalized_filter" in
-            /*|*//*)
-              echo "::error::test_filter '$raw_filter' is not a valid class or class/method selector"
+            ,*|*,)
+              echo "::error::test_filter '$raw_filter' has a leading or trailing comma"
               exit 1
               ;;
           esac
 
-          test_selector="$test_target/$normalized_filter"
+          selectors=""
+          filters=""
+          test_target=""
+          count=0
+          rest="$raw_filter"
+          while [ -n "$rest" ]; do
+            case "$rest" in
+              *,*) entry="${rest%%,*}"; rest="${rest#*,}" ;;
+              *) entry="$rest"; rest="" ;;
+            esac
+            # Tolerate spaces after commas without accepting interior spaces.
+            entry="${entry# }"
+            entry="${entry% }"
+            if [ -z "$entry" ]; then
+              echo "::error::test_filter '$raw_filter' has an empty entry"
+              exit 1
+            fi
+
+            case "$entry" in
+              cmuxTests/*)
+                entry_target="cmuxTests"
+                entry_filter="${entry#cmuxTests/}"
+                ;;
+              cmuxUITests/*)
+                entry_target="cmuxUITests"
+                entry_filter="${entry#cmuxUITests/}"
+                ;;
+              *)
+                # Back-compat: bare Class or Class/method continues to target UI tests.
+                entry_target="cmuxUITests"
+                entry_filter="$entry"
+                ;;
+            esac
+
+            if [ -z "$entry_filter" ]; then
+              echo "::error::test_filter entry '$entry' is missing a class or class/method after '$entry_target/'"
+              exit 1
+            fi
+
+            case "$entry_filter" in
+              /*|*//*|*\ *)
+                echo "::error::test_filter entry '$entry' is not a valid class or class/method selector"
+                exit 1
+                ;;
+            esac
+
+            if [ -z "$test_target" ]; then
+              test_target="$entry_target"
+            elif [ "$test_target" != "$entry_target" ]; then
+              # One xcodebuild invocation runs one scheme. Mixing targets would
+              # need two, which is a larger change than batching one burst.
+              echo "::error::test_filter may not mix cmuxTests and cmuxUITests entries: '$raw_filter'"
+              exit 1
+            fi
+
+            case ",$selectors," in
+              *",$entry_target/$entry_filter,"*)
+                echo "::error::test_filter repeats '$entry_target/$entry_filter'"
+                exit 1
+                ;;
+            esac
+
+            selectors="${selectors:+$selectors,}$entry_target/$entry_filter"
+            filters="${filters:+$filters,}$entry_filter"
+            count=$((count + 1))
+          done
+
+          # The first entry keeps the single-selector outputs meaningful for
+          # steps that still reason about one filter.
+          normalized_filter="${filters%%,*}"
+          test_selector="${selectors%%,*}"
           record_video_effective="false"
           if [ "$test_target" = "cmuxUITests" ] && [ "$RECORD_VIDEO_INPUT" = "true" ]; then
             record_video_effective="true"
@@ -147,12 +215,14 @@ jobs:
             echo "target=$test_target"
             echo "filter=$normalized_filter"
             echo "selector=$test_selector"
+            echo "selectors=$selectors"
+            echo "count=$count"
             echo "record_video=$record_video_effective"
           } >> "$GITHUB_OUTPUT"
 
           echo "Requested filter: $raw_filter"
           echo "Resolved target: $test_target"
-          echo "Resolved selector: $test_selector"
+          echo "Resolved selectors ($count): $selectors"
 
       - name: Select Xcode
         run: |
@@ -162,7 +232,7 @@ jobs:
       - name: Setup Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
-          bun-version: latest
+          bun-version: "1.3.14"
 
       - name: Download pre-built GhosttyKit.xcframework
         env:
@@ -172,6 +242,7 @@ jobs:
           ./scripts/download-prebuilt-ghosttykit.sh
 
       - name: Install zig
+        if: ${{ steps.filter.outputs.target == 'cmuxUITests' }}
         run: |
           ./scripts/install-zig-ci.sh
 
@@ -271,19 +342,53 @@ jobs:
           fi
 
       - name: Prepare isolated DerivedData
+        id: compilation-cache-key
         run: |
           set -euo pipefail
-          DERIVED_DATA_PATH="${RUNNER_TEMP}/cmux-derived-data-e2e-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
-          rm -rf "$DERIVED_DATA_PATH"
-          mkdir -p "$DERIVED_DATA_PATH"
+          # Cache entries include absolute compiler paths. Keep these stable
+          # within a runner pool, but never reuse old assembled test products.
+          workspace_path="$(cd "$GITHUB_WORKSPACE" && pwd -P)"
+          DERIVED_DATA_PATH="$workspace_path/DerivedData/cmux-e2e"
+          CACHE_PATH="$workspace_path/DerivedData/cmux-e2e-compilation-cache"
+          rm -rf -- "$DERIVED_DATA_PATH" "$CACHE_PATH"
+          mkdir -p "$DERIVED_DATA_PATH" "$CACHE_PATH"
           echo "CMUX_DERIVED_DATA_PATH=$DERIVED_DATA_PATH" >> "$GITHUB_ENV"
+          echo "CMUX_E2E_COMPILATION_CACHE=$CACHE_PATH" >> "$GITHUB_ENV"
+          fingerprint="$({
+            echo e2e-compilation-v1
+            xcodebuild -version
+            printf 'workspace=%s\nderived-data=%s\ncas=%s\n' "$workspace_path" "$DERIVED_DATA_PATH" "$CACHE_PATH"
+          } | shasum -a 256 | awk '{print $1}')"
+          echo "fingerprint=$fingerprint" >> "$GITHUB_OUTPUT"
+
+      - name: Restore E2E compilation cache
+        id: compilation-cache-restore
+        continue-on-error: true
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ${{ env.CMUX_E2E_COMPILATION_CACHE }}
+          key: e2e-compilation-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.filter.outputs.target }}-${{ steps.compilation-cache-key.outputs.fingerprint }}-${{ env.TEST_REF }}
+          restore-keys: e2e-compilation-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.filter.outputs.target }}-${{ steps.compilation-cache-key.outputs.fingerprint }}-
+
+      - name: Discard incomplete E2E compilation cache
+        if: ${{ steps.compilation-cache-restore.outcome == 'failure' }}
+        run: |
+          set -euo pipefail
+          workspace_path="$(cd "$GITHUB_WORKSPACE" && pwd -P)"
+          if [ "$CMUX_E2E_COMPILATION_CACHE" != "$workspace_path/DerivedData/cmux-e2e-compilation-cache" ]; then
+            echo "::error::refusing to clear an unowned compilation cache"
+            exit 1
+          fi
+          rm -rf -- "$CMUX_E2E_COMPILATION_CACHE"
+          mkdir -p "$CMUX_E2E_COMPILATION_CACHE"
+          echo "::warning::E2E cache restore failed; compiling with an empty cache"
 
       - name: Cache Swift packages
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: .ci-source-packages
-          key: spm-${{ (!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15') || inputs.runner }}-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
-          restore-keys: spm-${{ (!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15') || inputs.runner }}-
+          key: spm-${{ (!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_TESTS || 'blacksmith-6vcpu-macos-15') || inputs.runner }}-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
+          restore-keys: spm-${{ (!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_TESTS || 'blacksmith-6vcpu-macos-15') || inputs.runner }}-
 
       - name: Sanitize Swift package cache
         run: python3 scripts/ci/sanitize-xcode-source-packages-cache.py .ci-source-packages
@@ -320,6 +425,8 @@ jobs:
           TEST_FILTER: ${{ inputs.test_filter }}
           TEST_TARGET: ${{ steps.filter.outputs.target }}
           TEST_SELECTOR: ${{ steps.filter.outputs.selector }}
+          TEST_SELECTORS: ${{ steps.filter.outputs.selectors }}
+          TEST_SELECTOR_COUNT: ${{ steps.filter.outputs.count }}
           NORMALIZED_FILTER: ${{ steps.filter.outputs.filter }}
           TEST_TIMEOUT: ${{ inputs.test_timeout || '120' }}
           RECORD_VIDEO: ${{ steps.filter.outputs.record_video }}
@@ -330,10 +437,20 @@ jobs:
         run: |
           set -euo pipefail
           SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
-          ONLY_TESTING="-only-testing:$TEST_SELECTOR"
+          # One -only-testing: per selector. xcodebuild unions repeated flags,
+          # so a batch of filters runs against a single compile.
+          ONLY_TESTING=()
+          rest="$TEST_SELECTORS"
+          while [ -n "$rest" ]; do
+            case "$rest" in
+              *,*) entry="${rest%%,*}"; rest="${rest#*,}" ;;
+              *) entry="$rest"; rest="" ;;
+            esac
+            ONLY_TESTING+=("-only-testing:$entry")
+          done
           DISPLAY_ENV_PREFIX=()
 
-          if [ "$TEST_TARGET" = "cmuxUITests" ] && [ "$NORMALIZED_FILTER" = "DisplayResolutionRegressionUITests" ]; then
+          if [ "$TEST_SELECTOR_COUNT" = "1" ] && [ "$TEST_TARGET" = "cmuxUITests" ] && [ "$NORMALIZED_FILTER" = "DisplayResolutionRegressionUITests" ]; then
             HELPER_PATH="/tmp/create-virtual-display"
             MANIFEST_PATH="/tmp/cmux-ui-test-display-harness.json"
 
@@ -438,8 +555,11 @@ jobs:
               -disableAutomaticPackageResolution
               -destination "platform=macOS"
               -maximum-test-execution-time-allowance "$TEST_TIMEOUT"
-              "$ONLY_TESTING"
+              "${ONLY_TESTING[@]}"
               CMUX_SKIP_ZIG_BUILD=1
+              COMPILATION_CACHE_ENABLE_CACHING=YES
+              "COMPILATION_CACHE_CAS_PATH=$CMUX_E2E_COMPILATION_CACHE"
+              COMPILATION_CACHE_LIMIT_SIZE=5368709120
               test
             )
           else
@@ -450,17 +570,21 @@ jobs:
               -disableAutomaticPackageResolution
               -destination "platform=macOS"
               -maximum-test-execution-time-allowance "$TEST_TIMEOUT"
-              "$ONLY_TESTING"
+              "${ONLY_TESTING[@]}"
+              COMPILATION_CACHE_ENABLE_CACHING=YES
+              "COMPILATION_CACHE_CAS_PATH=$CMUX_E2E_COMPILATION_CACHE"
+              COMPILATION_CACHE_LIMIT_SIZE=5368709120
               test
             )
           fi
 
           set +e
-          # Stream xcodebuild output into the live job log (and a file for the
-          # summary parsing below). The previous buffered capture lost all
-          # build/test output whenever the job hit its timeout mid-run.
-          "${RUN_XCODEBUILD[@]}" "${XCODEBUILD_CMD[@]}" 2>&1 | tee /tmp/xcodebuild-e2e.log
-          EXIT_CODE=${PIPESTATUS[0]}
+          # Keep the tested command on a regular file descriptor. The capture
+          # helper owns the live log tail, so a detached test descendant cannot
+          # keep this job alive after xcodebuild exits.
+          bash scripts/ci/run-and-capture.sh /tmp/xcodebuild-e2e.log \
+            "${RUN_XCODEBUILD[@]}" "${XCODEBUILD_CMD[@]}"
+          EXIT_CODE=$?
           set -e
           OUTPUT=$(cat /tmp/xcodebuild-e2e.log)
 
@@ -483,6 +607,36 @@ jobs:
               echo "EOFOUT"
             } >> "$GITHUB_OUTPUT"
             exit 1
+          fi
+
+          # That guard proves some tests ran, never which ones, so name each
+          # requested suite in the log as well. This is advisory on purpose.
+          #
+          # Three output shapes reach this log and only two are matchable:
+          #   XCTest              Test Suite 'Name' started
+          #   swift-testing bare  Suite Name started.
+          #   swift-testing named Suite "A Display Name" started.
+          # A @Suite("...") display name is not the identifier that
+          # -only-testing: takes, and 293 of the 821 suites in cmuxTests carry
+          # one. Failing on an unmatched name would turn those green runs red,
+          # so report and let require_selected_test_execution.sh above own the
+          # pass/fail decision.
+          missing_suites=""
+          rest="$TEST_SELECTORS"
+          while [ -n "$rest" ]; do
+            case "$rest" in
+              *,*) entry="${rest%%,*}"; rest="${rest#*,}" ;;
+              *) entry="$rest"; rest="" ;;
+            esac
+            suite="${entry#*/}"
+            suite="${suite%%/*}"
+            if ! grep -Eq "(Test Suite '${suite}')|(Suite \"${suite}\")|(^[^A-Za-z0-9_]*Suite ${suite}[ .])" \
+              /tmp/xcodebuild-e2e.log; then
+              missing_suites="${missing_suites:+$missing_suites, }$entry"
+            fi
+          done
+          if [ -n "$missing_suites" ]; then
+            echo "::warning::Not named in the log (a @Suite display name never is): $missing_suites"
           fi
 
           echo "Executed tests for $TEST_SELECTOR: $EXECUTED_TESTS"
@@ -632,14 +786,62 @@ jobs:
             fi
           } >> "$GITHUB_STEP_SUMMARY"
 
+      - name: Bound E2E compilation cache
+        id: compilation-cache-bound
+        continue-on-error: true
+        if: ${{ always() && !cancelled() && steps.compilation-cache-key.outcome == 'success' }}
+        env:
+          WORKFLOW_REF: ${{ github.ref }}
+          WORKFLOW_SHA: ${{ github.sha }}
+          TEST_OUTCOME: ${{ steps.tests.outcome }}
+        run: |
+          set -euo pipefail
+          echo "save=false" >> "$GITHUB_OUTPUT"
+          # A dispatch can execute any selected revision. Only the exact main
+          # workflow revision may seed caches that later selected refs restore.
+          if [ "$WORKFLOW_REF" != refs/heads/main ] \
+            || [[ ! "$WORKFLOW_SHA" =~ ^[0-9a-f]{40}$ ]] \
+            || [ "$TEST_REF" != "$WORKFLOW_SHA" ] \
+            || [ "$TEST_OUTCOME" != success ]; then
+            echo "E2E compilation cache is read-only for this selected revision/result"
+            exit 0
+          fi
+          cache_path="$CMUX_E2E_COMPILATION_CACHE"
+          if [ ! -d "$cache_path" ] || [ -z "$(find "$cache_path" -type f -print -quit)" ]; then
+            echo "E2E compilation cache is empty; skipping save"
+            exit 0
+          fi
+          cache_kib="$(du -sk "$cache_path" | awk '{print $1}')"
+          echo "E2E compilation cache size: $cache_kib KiB"
+          if [ "$cache_kib" -gt $((5 * 1024 * 1024)) ]; then
+            echo "::warning::E2E compilation cache exceeds 5 GiB; skipping save"
+            exit 0
+          fi
+          echo "save=true" >> "$GITHUB_OUTPUT"
+
+      - name: Save E2E compilation cache
+        continue-on-error: true
+        if: ${{ always() && !cancelled() && steps.compilation-cache-bound.outputs.save == 'true' && steps.compilation-cache-restore.outputs.cache-hit != 'true' }}
+        uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ${{ env.CMUX_E2E_COMPILATION_CACHE }}
+          key: e2e-compilation-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.filter.outputs.target }}-${{ steps.compilation-cache-key.outputs.fingerprint }}-${{ env.TEST_REF }}
+
       - name: Clean owned DerivedData
         if: always()
         run: |
           set -euo pipefail
+          workspace_path="$(cd "$GITHUB_WORKSPACE" && pwd -P)"
           derived_data_path="${CMUX_DERIVED_DATA_PATH:-}"
+          cache_path="${CMUX_E2E_COMPILATION_CACHE:-}"
+          case "$cache_path" in
+            "$workspace_path/DerivedData/cmux-e2e-compilation-cache"|"") ;;
+            *) echo "::error::refusing to remove unowned compilation cache: $cache_path"; exit 1 ;;
+          esac
           case "$derived_data_path" in
-            "$RUNNER_TEMP"/cmux-derived-data-e2e-*)
+            "$workspace_path/DerivedData/cmux-e2e")
               rm -rf -- "$derived_data_path"
+              if [ -n "$cache_path" ]; then rm -rf -- "$cache_path"; fi
               ;;
             "")
               echo "DerivedData was not prepared; nothing to clean"
