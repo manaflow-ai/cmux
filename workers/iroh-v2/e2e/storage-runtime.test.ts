@@ -131,6 +131,13 @@ test("authority lease accepts newer verification and ignores stale updates", asy
   expect((await post("/authority/observe", { userId: "authority-user", verifiedAt: 3000, expiresAt: 6600, now: 6600 })).status).toBe(500);
 });
 
+test("audit retention keeps revocation available at the bounded history limit", async () => {
+  expect((await post("/audit/fill", {})).status).toBe(200);
+  expect((await post("/audit/count", {})).body.count).toBe(65536);
+  expect((await post("/revoke", { deviceRecordId: "revocation-target", now: 7000, actorUserId: "audit-test" })).status).toBe(200);
+  expect((await post("/audit/count", {})).body.count).toBe(65536);
+});
+
 test("SQLite state survives a workerd restart", async () => {
   await mf.dispose();
   mf = new Miniflare({ ...convertV4MiniflareOptions({ rootPath: workerRoot, resourcePersistencePath: persistencePath, scriptPath: "worker.js", modules: true, durableObjects: { STORAGE: { className: "StorageTestDO", useSQLite: true }, MIGRATION: { className: "MigrationProbeDO", useSQLite: true } }, compatibilityDate: "2025-01-01" }), verbose: true });

@@ -58,6 +58,15 @@ export class StorageTestDO {
       if (path === "/revision") return Response.json({ revision: this.team.readRevision() });
       if (path === "/authority/observe") return Response.json({ revision: this.team.observeAuthority(body.userId, body.verifiedAt, body.expiresAt, body.now) });
       if (path === "/authority/get") return Response.json(this.team.getAuthority(body.userId));
+      if (path === "/audit/fill") {
+        const db = drizzle((this.team.storage));
+        db.run(sql.raw(`WITH RECURSIVE "seed"("n") AS (SELECT 1 UNION ALL SELECT "n" + 1 FROM "seed" WHERE "n" < 65536) INSERT INTO "authority_audit" ("event_type", "actor_user_id", "target_id", "revision", "created_at", "detail_json") SELECT 'seed', 'audit-test', 'seed-' || "n", "n", "n", '{}' FROM "seed"`));
+        return Response.json({ ok: true });
+      }
+      if (path === "/audit/count") {
+        const db = drizzle((this.team.storage));
+        return Response.json(db.get<{ count: number }>(sql`SELECT count(*) AS "count" FROM "authority_audit"`));
+      }
       return new Response("not found", { status: 404 });
     } catch (error) {
       const code = error instanceof Error ? error.message : "unknown";
