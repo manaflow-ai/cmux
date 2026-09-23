@@ -1753,41 +1753,49 @@ check_macos_runner_identity_env_tracks_routing() {
   # Require every MACOS_RUNNER-bearing env value in ci-macos.yml to be the same
   # expression as its own job's `runs-on`, so a future routing change cannot
   # move a job without moving what that job reports about itself.
-  # `set -e` aborts the guard if awk itself fails, so a parse error can never
-  # read as a pass.
+  # Parse YAML so mapping order, quoting, and folded scalars cannot hide an
+  # identity value. A parser failure aborts under set -e rather than passing.
   local mismatches
-  mismatches="$(awk '
-    function expr(line,   b, e) {
-      b = index(line, "${{")
-      if (b == 0) return ""
-      line = substr(line, b + 3)
-      e = index(line, "}}")
-      if (e == 0) return ""
-      line = substr(line, 1, e - 1)
-      gsub(/^[ \t]+|[ \t]+$/, "", line)
-      return line
-    }
-    /^  [^ \t#][^:]*:[ \t]*(#.*)?$/ {
-      job = $0
-      sub(/:[ \t]*(#.*)?$/, "", job)
-      sub(/^[ \t]+/, "", job)
-      runs_on = ""
-      next
-    }
-    /^[ \t]*runs-on:/ {
-      if (runs_on == "") runs_on = expr($0)
-      next
-    }
-    /vars\.MACOS_RUNNER/ && /^[ \t]*[A-Z_]+:[ \t]*\$\{\{/ {
-      key = $0
-      sub(/:.*$/, "", key)
-      sub(/^[ \t]+/, "", key)
-      value = expr($0)
-      if (value != runs_on) {
-        printf "%s: %s\n  env value %s\n  runs-on   %s\n", job, key, value, runs_on
-      }
-    }
-  ' "$CI_MACOS_FILE")"
+  mismatches="$(python3 - "$CI_MACOS_FILE" <<'PYTHON'
+import sys
+from pathlib import Path
+import yaml
+
+
+def mismatched_identities(document):
+    for job_id, job in document.get("jobs", {}).items():
+        runs_on = job.get("runs-on")
+        scopes = [("job", job)]
+        scopes.extend((f"step {index}", step) for index, step in enumerate(job.get("steps", [])))
+        for scope, owner in scopes:
+            for key, value in (owner.get("env") or {}).items():
+                if isinstance(value, str) and "vars.MACOS_RUNNER" in value and value != runs_on:
+                    yield f"{job_id}/{scope}: {key}\n  env value {value}\n  runs-on   {runs_on}"
+
+
+# Exercise forms the line-based guard missed: env before runs-on, quoted keys
+# containing digits, folded scalars, and both job-level and step-level env.
+fixture = yaml.safe_load("""
+jobs:
+  example:
+    env:
+      'RUNNER2': >-
+        ${{ vars.MACOS_RUNNER }}
+    steps:
+      - env:
+          'STEP_RUNNER2': '${{ vars.MACOS_RUNNER }}'
+    runs-on: >-
+      ${{ vars.MACOS_RUNNER }}
+""")
+assert not list(mismatched_identities(fixture))
+fixture["jobs"]["example"]["runs-on"] = "${{ vars.MACOS_RUNNER_PR }}"
+assert len(list(mismatched_identities(fixture))) == 2
+fixture["jobs"]["example"].pop("runs-on")
+assert len(list(mismatched_identities(fixture))) == 2
+
+print("\n".join(mismatched_identities(yaml.safe_load(Path(sys.argv[1]).read_text()))))
+PYTHON
+)"
   if [ -n "$mismatches" ]; then
     echo "FAIL: a macOS runner env value in ci-macos.yml does not match its job's runs-on,"
     echo "      so it names the wrong pool on pull requests (see docs/ci-runners.md)"
