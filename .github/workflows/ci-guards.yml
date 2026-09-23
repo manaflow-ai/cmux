@@ -79,6 +79,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_app_host_guard_structure.py
 
+      - name: Validate feature flag linter scope
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_lint_feature_flags_scope.py
+
       - name: Validate canonical compile cache build root
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_canonical_build_root.py
@@ -122,6 +126,31 @@ jobs:
         if: ${{ matrix.group == 'preflight' }}
         run: python3 tests/test_docs_deploy_auth_guard.py
 
+      - name: Validate web complexity scan scoping
+        if: ${{ matrix.group == 'preflight' }}
+        run: python3 tests/test_web_complexity_scope.py
+
+      - name: Validate iOS package conventions for this change
+        if: ${{ matrix.group == 'preflight' }}
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
+        run: |
+          set -euo pipefail
+          python3 tests/test_ci_ios_conventions_diff.py
+          # The conventions lint scans the whole repository, so gating a PR on
+          # it directly turns every open PR red whenever main carries one
+          # unrelated violation (#10409). Judge the change instead: report only
+          # violations absent from the base. Skipped outside PR/merge-group,
+          # where there is no base to compare against.
+          if [ -n "${BASE_SHA:-}" ]; then
+            if ! git cat-file -e "$BASE_SHA^{commit}" 2>/dev/null; then
+              git fetch --no-tags --depth=1 origin "$BASE_SHA"
+            fi
+            ./scripts/ci/lint-ios-conventions-diff.sh "$BASE_SHA"
+          else
+            echo "No base revision for this event; conventions diff skipped."
+          fi
+
       - name: Validate reload shared DerivedData default
         if: ${{ matrix.group == 'preflight' }}
         run: ./tests/test_reload_shared_derived_data.sh
@@ -129,6 +158,10 @@ jobs:
       - name: Validate sidebar extension point generation
         if: ${{ matrix.group == 'preflight' }}
         run: python3 tests/test_write_sidebar_extension_point.py
+
+      - name: Validate settings rows advertise supported cmux.json paths
+        if: ${{ matrix.group == 'preflight' }}
+        run: python3 tests/test_settings_configuration_review_paths.py
 
       - name: Validate Localizable.xcstrings catalog structure
         if: ${{ matrix.group == 'preflight' }}
@@ -314,6 +347,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_workflow_guards_are_wired.py
 
+      - name: Validate CLA metadata routing
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_cla_guard_metadata_routing.py
+
       - name: Validate required checks are bounded
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_required_checks_are_bounded.py
@@ -404,7 +441,13 @@ jobs:
 
       - name: Validate focused test launcher
         if: ${{ matrix.group == 'app-host-execution' }}
-        run: python3 tests/test_run_e2e.py
+        run: |
+          python3 tests/test_run_e2e.py
+          python3 tests/test_ci_e2e_compilation_cache.py
+
+      - name: Validate manual macOS package cache recovery
+        if: ${{ matrix.group == 'app-host-execution' }}
+        run: python3 tests/test_ci_manual_macos_package_cache.py
 
       - name: Validate app-host xcodebuild retry guard
         if: ${{ matrix.group == 'app-host-execution' }}
@@ -429,6 +472,10 @@ jobs:
       - name: Validate app-host failure census
         if: ${{ matrix.group == 'app-host-process' }}
         run: python3 tests/test_ci_app_host_failure_census.py
+
+      - name: Validate app-host verdict replay
+        if: ${{ matrix.group == 'app-host-process' }}
+        run: python3 tests/test_ci_replay_app_host_verdict.py
 
       - name: Validate app-host result ratchet
         if: ${{ matrix.group == 'app-host-process' }}
@@ -538,6 +585,10 @@ jobs:
         if: ${{ matrix.group == 'release-ios' }}
         run: python3 tests/test_ios_workflow_dispatch_ref.py
 
+      - name: Validate iOS simulator build-once contract
+        if: ${{ matrix.group == 'release-ios' }}
+        run: python3 tests/test_ios_simulator_build_once.py
+
       - name: Validate cmux scheme test configuration
         if: ${{ matrix.group == 'app-host-cache' }}
         run: ./tests/test_ci_scheme_testaction_debug.sh
@@ -592,6 +643,10 @@ jobs:
         if: ${{ matrix.group == 'release-notary' }}
         run: ./tests/test_ci_nightly_tag_push_auth.sh
 
+      - name: Validate nightly tag push retries
+        if: ${{ matrix.group == 'release-notary' }}
+        run: python3 tests/test_nightly_tag_push.py
+
       - name: Validate nightly Xcode selection
         if: ${{ matrix.group == 'release-notary' }}
         run: ./tests/test_ci_nightly_xcode_selection.sh
@@ -618,7 +673,9 @@ jobs:
 
       - name: Validate nightly push throttle
         if: ${{ matrix.group == 'release-notary' }}
-        run: python3 tests/test_ci_nightly_push_throttle.py
+        run: |
+          python3 tests/test_ci_nightly_push_throttle.py
+          python3 tests/test_ci_helper_prebuild_lifecycle.py
 
       - name: Validate test compilation cache seeding
         if: ${{ matrix.group == 'quality-sharding' }}

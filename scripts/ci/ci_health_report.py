@@ -553,6 +553,46 @@ def unchanged_tree_reruns(
     return repeated
 
 
+# Third-party providers this repo pays per minute. Depot is permitted by
+# `tests/test_ci_self_hosted_guard.sh` and documented alongside Warp, so a
+# single-prefix check would total zero and report "none in the window" the
+# moment a variable is pinned to it -- exactly the silent drift this measures.
+PAID_RUNNER_PREFIXES = ("warp-", "depot-")
+
+
+def paid_runner_minutes(
+    rows: Iterable[JobRow],
+) -> tuple[int, float, list[tuple[str, int, float]]]:
+    """Jobs that ran on metered capacity, and the minutes they billed.
+
+    WarpBuild and Depot bill this repository per minute, at roughly double
+    the rate on 12-vCPU labels. Blacksmith is sponsored for this organization
+    and GitHub-hosted runners are free on a public repo, so neither shows up
+    on an invoice today. The runner label is the only place that difference is
+    visible, so a lane that drifts onto metered capacity reads as an ordinary
+    row in the tables above and nobody notices until somebody reads a bill.
+
+    docs/ci-runners.md records an intended steady state for every
+    MACOS_RUNNER_* variable. Minutes here that are not a deliberate, temporary
+    overflow mean a variable has drifted away from that steady state.
+    """
+    per_label: dict[str, tuple[int, float]] = {}
+    jobs = 0
+    minutes = 0.0
+    for row in rows:
+        if not row.label.startswith(PAID_RUNNER_PREFIXES):
+            continue
+        jobs += 1
+        minutes += row.minutes
+        label_jobs, label_minutes = per_label.get(row.label, (0, 0.0))
+        per_label[row.label] = (label_jobs + 1, label_minutes + row.minutes)
+    breakdown = sorted(
+        ((label, n, m) for label, (n, m) in per_label.items()),
+        key=lambda item: -item[2],
+    )
+    return jobs, minutes, breakdown
+
+
 def fork_runs_without_cache(rows: Iterable[JobRow]) -> tuple[int, float]:
     """Jobs from forks and the minutes they spent.
 
@@ -1001,6 +1041,25 @@ def render_report(
             )
     else:
         lines.append("_None in the window._")
+    lines.append("")
+
+    paid_jobs, paid_minutes, paid_breakdown = paid_runner_minutes(current.rows)
+    if paid_jobs:
+        detail = ", ".join(
+            f"{_escape(label)} {n} job(s)/{m:.0f} min" for label, n, m in paid_breakdown
+        )
+        lines.append(
+            f"**Paid runner capacity:** {paid_jobs} sampled job(s), "
+            f"{paid_minutes:.0f} runner minutes — {detail}. These are the metered "
+            "third-party labels; Blacksmith is sponsored for this organization and "
+            "GitHub-hosted runners are free on a public repo. Check these against the "
+            "intended steady state in `docs/ci-runners.md`; a lane that is not "
+            "deliberate overflow should be moved back."
+        )
+    else:
+        lines.append(
+            "**Paid runner capacity:** none in the window."
+        )
     lines.append("")
 
     fork_jobs, fork_minutes = fork_runs_without_cache(current.rows)

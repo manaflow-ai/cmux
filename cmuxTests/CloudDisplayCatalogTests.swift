@@ -24,7 +24,7 @@ struct CloudDisplayCatalogTests {
     func creationRetryKeepsRequestIdentity() async throws {
         var creates: [String] = []
         let service = CloudDisplayCoordinator { command, _ in
-            if command.contains(" list") { return .init(exitCode: 0, stdout: initial, stderr: "") }
+            if !Self.isCreate(command) { return .init(exitCode: 0, stdout: initial, stderr: "") }
             creates.append(command)
             if creates.count == 1 { throw URLError(.networkConnectionLost) }
             return .init(exitCode: 0, stdout: created, stderr: "")
@@ -43,14 +43,14 @@ struct CloudDisplayCatalogTests {
         let started = CloudLinkFirstValue<Bool>()
         let response = CloudLinkFirstValue<Bool>()
         let service = CloudDisplayCoordinator { command, _ in
-            if command.contains(" list") { return .init(exitCode: 0, stdout: initial, stderr: "") }
+            if !Self.isCreate(command) { return .init(exitCode: 0, stdout: initial, stderr: "") }
             started.resolve(true)
             _ = await response.result
             return .init(exitCode: 0, stdout: created, stderr: "")
         }
         await service.refresh()
         let operation = Task { try await service.create() }
-        _ = await started.result
+        try #require(await Self.guestExecStarted(started, before: operation))
         service.stop()
         response.resolve(true)
         do { _ = try await operation.value; Issue.record("Retired creation succeeded") } catch {}
@@ -97,23 +97,21 @@ struct CloudDisplayCatalogTests {
     }
 
     @Test("Cancelling display creation cancels the guest exec")
-    func cancelledCreationCancelsGuestExec() async {
+    func cancelledCreationCancelsGuestExec() async throws {
         let started = CloudLinkFirstValue<Bool>()
         let cancelled = CloudLinkFirstValue<Bool>()
+        // Never resolved: the exec stays in flight until its task is cancelled.
+        let reply = CloudLinkFirstValue<Bool>()
         let service = CloudDisplayCoordinator { command, _ in
-            if command.contains(" list") { return .init(exitCode: 0, stdout: initial, stderr: "") }
+            if !Self.isCreate(command) { return .init(exitCode: 0, stdout: initial, stderr: "") }
             started.resolve(true)
-            do {
-                try await Task.sleep(for: .seconds(60))
-            } catch {
-                cancelled.resolve(true)
-                throw error
-            }
-            return .init(exitCode: 0, stdout: created, stderr: "")
+            _ = await reply.result
+            cancelled.resolve(Task.isCancelled)
+            throw CancellationError()
         }
         await service.refresh()
         let operation = Task { try await service.create() }
-        _ = await started.result
+        try #require(await Self.guestExecStarted(started, before: operation))
         operation.cancel()
         #expect(await cancelled.result == true)
         do { _ = try await operation.value } catch {}
@@ -192,6 +190,91 @@ struct CloudDisplayCatalogTests {
         let second = try #require(resources.first { $0.id == pointer.id })
         #expect(second.port == 6902 && second.url == pool[1].url)
         #expect(second.remoteViews == pointer.remoteViews)
+    }
+
+    @Test("Guest-created displays survive the next daemon publish and display delta")
+    func createdDisplaysSurviveDaemonPublish() async throws {
+        let machine = SurfaceMachineID.cloud("display-publish")
+        let coordinator = CloudDisplayCoordinator { command, _ in
+            .init(exitCode: 0, stdout: Self.isCreate(command) ? created : initial, stderr: "")
+        }
+        var summary = VMSummary(id: "display-publish", provider: "freestyle", status: "running", image: "cmux-devbox", createdAt: 0, base: nil)
+        summary.kind = .desktop
+        summary.addressIPv4 = "10.0.0.7"
+        let catalog = SurfaceCatalog()
+        let provider = CmuxTuiSurfaceProvider(
+            summary: summary,
+            links: CloudMachineLinkManager(clientURL: nil, hostThemeColors: { nil }),
+            catalog: catalog,
+            displayCoordinator: coordinator
+        )
+        catalog.register(provider)
+        defer { catalog.unregister(machine: machine) }
+        await provider.refreshDisplays()
+        let second = try await provider.createDisplay()
+        #expect(second.id == SurfaceResourceID(machine: machine, kind: .display, key: "display:2"))
+
+        func displayPorts() -> [String: Int?] {
+            Dictionary(uniqueKeysWithValues: catalog.snapshot.resources(on: machine)
+                .filter { $0.kind == .display }
+                .map { ($0.id.key, $0.port) })
+        }
+        #expect(displayPorts() == ["display:1": 6901, "display:2": 6902])
+
+        // A daemon graph carries no display tabs; the guest catalog still owns both screens.
+        let state = try #require(CmuxTuiSnapshotParser.state(fromSnapshot: [
+            "cursor": ["generation": "daemon", "revision": "1"],
+            "workspaces": [["id": "ws_main", "name": "main", "focused": true]],
+            "screens": [["id": "screen", "workspace_id": "ws_main"]],
+            "panes": [["id": "pane", "screen_id": "screen"]],
+            "tabs": [["id": "tab_0", "pane_id": "pane", "content_kind": "terminal", "content_id": "term_0", "focused": true]],
+            "terminals": [["id": "term_0", "title": "bash", "lifecycle": "running"]],
+            "browsers": [], "agents": []
+        ], machine: machine))
+        #expect(provider.installSnapshotIfNewer(state))
+        provider.publish(state, ports: [])
+        #expect(displayPorts() == ["display:1": 6901, "display:2": 6902], "a full publish keeps every guest display")
+
+        provider.publishDelta(
+            state,
+            impact: CloudVMStateDeltaImpact(resourceIDs: [second.id], requiresFullResourceRebuild: false),
+            ports: [],
+            reconcileTitles: false
+        )
+        #expect(displayPorts() == ["display:1": 6901, "display:2": 6902], "a delta touching display 2 keeps its target")
+        #expect(catalog.resources[second.id]?.url?.contains(":6902/") == true)
+    }
+
+    /// Waits until the fake guest exec starts creating, or answers false when
+    /// `operation` finishes first. `create()` can fail before it reaches the
+    /// exec (a fake that no longer recognizes the create command, for example),
+    /// and awaiting `started` alone then parks the test until the suite time
+    /// limit, which relaunches the whole app host.
+    private static func guestExecStarted(
+        _ started: CloudLinkFirstValue<Bool>,
+        before operation: Task<CloudGuestDisplaySnapshot, any Error>
+    ) async -> Bool {
+        Task {
+            _ = await operation.result
+            started.resolve(false)
+        }
+        return await started.result == true
+    }
+
+    /// Every guest command first runs `list` as a readiness probe (#13196,
+    /// 178d35e5da), so only the final action line tells a creation apart.
+    private static func isCreate(_ command: String) -> Bool {
+        command.contains("\"$path\" create --request-id ")
+    }
+
+    @Test("Every guest command probes readiness; only creation carries a request ID")
+    func guestCommandShape() {
+        let request = UUID()
+        let create = CloudGuestDisplayScript.command(action: "create", requestID: request)
+        let list = CloudGuestDisplayScript.command(action: "list")
+        #expect(create.contains("\"$path\" list > /dev/null 2>&1 || exit 1"))
+        #expect(create.contains("\"$path\" create --request-id \(request.uuidString.lowercased())"))
+        #expect(Self.isCreate(create) && !Self.isCreate(list))
     }
 
     private func decode(_ raw: String) throws -> CloudGuestDisplaySnapshot {

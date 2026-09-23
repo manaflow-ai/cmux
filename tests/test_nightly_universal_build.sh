@@ -90,7 +90,7 @@ if ! awk '
   in_refresh && /^  [a-zA-Z0-9_-]+:/ { in_refresh=0 }
   in_refresh && /timeout-minutes: 90/ { saw_cold_build_timeout=1 }
   in_refresh && /if: github\.event_name == '\''schedule'\'' && github\.event\.schedule == '\''17 \*\/6 \* \* \*'\''/ { saw_schedule_gate=1 }
-  in_refresh && /runs-on: \$\{\{ vars\.MACOS_RUNNER_26_RELEASE/ { saw_release_runner=1 }
+  in_refresh && /runs-on: \$\{\{ .*vars\.MACOS_RUNNER_26_RELEASE/ { saw_release_runner=1 }
   in_refresh && /CMUX_CI_XCODE_APP_MACOS_26/ { saw_release_xcode=1 }
   in_refresh && /select-ci-xcode\.sh/ { saw_xcode_selection=1 }
   in_refresh && /^      - name: Restore Xcode compilation cache/ { saw_lookup=1 }
@@ -545,9 +545,11 @@ fi
 # A measurement run always builds the production universal workload: it must
 # not depend on the nightly tag (a build-only dispatch on main would otherwise
 # skip when the tag already matches HEAD) and must ignore the fast arm64 path.
+# Match the expression, not its declaration keyword, so that rebinding
+# shouldBuild later in `decide` does not read as a change to this contract.
 for expected in \
-  "const shouldBuild = !seedOnly && (buildOnly || !isMainRef || forceBuild || nightlySha !== headSha);" \
-  "const fastBuild = !buildOnly && process.env.FAST_BUILD === 'true';"; do
+  "shouldBuild = !seedOnly && (buildOnly || !isMainRef || forceBuild || nightlySha !== headSha);" \
+  "fastBuild = !buildOnly && process.env.FAST_BUILD === 'true';"; do
   if ! grep -Fq "$expected" "$WORKFLOW_FILE"; then
     echo "FAIL: build_only must always build the universal app: $expected"
     exit 1

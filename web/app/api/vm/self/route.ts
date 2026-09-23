@@ -29,8 +29,8 @@ export async function GET(request: Request): Promise<Response> {
       { status: 401, headers: JSON_HEADERS },
     );
   }
-  const { teamId, vmId } = auth.identity;
-  if (vmId === null) {
+  const { teamId, vmId, machine } = auth.identity;
+  if (vmId === null || machine === "chatmux") {
     return Response.json(
       {
         error: "vm_bound_token_required",

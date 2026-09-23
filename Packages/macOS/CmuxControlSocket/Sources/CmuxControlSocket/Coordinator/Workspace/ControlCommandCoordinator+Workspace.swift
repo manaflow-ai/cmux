@@ -273,8 +273,11 @@ extension ControlCommandCoordinator {
         let afterID = uuid(params, "after_workspace_id")
         let dryRun = bool(params, "dry_run") ?? false
 
-        let targetCount = (index != nil ? 1 : 0) + (beforeID != nil ? 1 : 0) + (afterID != nil ? 1 : 0)
-        if targetCount != 1 {
+        // Count supplied selectors, not resolved identities. An unknown ref
+        // must neither look like a missing target nor hide a conflicting one.
+        let targetCount = ["index", "before_workspace_id", "after_workspace_id"]
+            .filter { hasNonNull(params, $0) }.count
+        if targetCount != 1 || (hasNonNull(params, "index") && index == nil) {
             return .err(
                 code: "invalid_params",
                 message: "Specify exactly one target: index, before_workspace_id, or after_workspace_id",
@@ -282,14 +285,20 @@ extension ControlCommandCoordinator {
             )
         }
 
-        let resolution = context?.controlReorderWorkspace(
-            routing: routingSelectors(params),
-            workspaceID: workspaceID,
-            toIndex: index,
-            beforeWorkspaceID: beforeID,
-            afterWorkspaceID: afterID,
-            dryRun: dryRun
-        ) ?? .notFound
+        let resolution: ControlWorkspaceReorderResolution
+        if (hasNonNull(params, "before_workspace_id") && beforeID == nil)
+            || (hasNonNull(params, "after_workspace_id") && afterID == nil) {
+            resolution = .notFound
+        } else {
+            resolution = context?.controlReorderWorkspace(
+                routing: routingSelectors(params),
+                workspaceID: workspaceID,
+                toIndex: index,
+                beforeWorkspaceID: beforeID,
+                afterWorkspaceID: afterID,
+                dryRun: dryRun
+            ) ?? .notFound
+        }
         switch resolution {
         case .notFound:
             return .err(code: "not_found", message: "Workspace not found", data: .object([

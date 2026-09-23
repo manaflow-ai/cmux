@@ -28,6 +28,7 @@ extension CmuxSettingsFileStore {
         "app.reorderOnNotification",
         "app.sendAnonymousTelemetry",
         "app.confirmQuit",
+        "app.globalFontMagnification",
         "app.warnBeforeQuit",
         "app.warnBeforeClosingTab",
         "app.warnBeforeClosingTabXButton",
@@ -153,5 +154,6 @@ extension CmuxSettingsFileStore {
         "fileEditor.tabWidth",
         "fileExplorer.doubleClickAction",
         "shortcuts.bindings",
+        "shortcuts.showModifierHoldHints",
     ]
 }

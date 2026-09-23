@@ -1,11 +1,11 @@
 #if os(iOS)
 import UIKit
 
-/// A horizontal task-composer scroll view whose content dissolves from the
+/// A horizontal pill scroll view whose content dissolves from the
 /// adjacent fixed controls into its bounded viewport. The mask follows
 /// finger-driven content offsets from `layoutSubviews`, the same UIKit-owned
 /// approach used by the terminal accessory bar.
-final class TaskComposerEdgeFadeScrollView: UIScrollView {
+final class HorizontalEdgeFadeScrollView: UIScrollView {
     nonisolated static let fadeWidth: CGFloat = 24
 
     private let fadeMask: CAGradientLayer = {

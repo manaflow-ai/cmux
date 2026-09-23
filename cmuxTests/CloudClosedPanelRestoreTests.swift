@@ -14,7 +14,7 @@ import Testing
 struct CloudClosedPanelRestoreTests {
     @Test("Foreign and unowned displays cannot restore into a Cloud workspace", arguments: ["a", "b"])
     func rejectsDisplayRestoreBeforeLayoutMutation(owner: String) throws {
-        try withManager { manager in
+        try withManager(registeredWithApp: true) { manager in
             let workspace = manager.addWorkspace(initialSurface: .browser, autoWelcomeIfNeeded: false)
             workspace.cloudVMBinding = WorkspaceCloudVMBinding(vmID: owner, isBase: false)
             let panelID = try #require(workspace.focusedPanelId)
@@ -48,7 +48,7 @@ struct CloudClosedPanelRestoreTests {
 
     @Test("Restoring a Cloud terminal reserves a manual mirror instead of a local shell")
     func cloudTerminalRestoreDoesNotBrieflyBecomeLocal() throws {
-        try withManager { manager in
+        try withManager(registeredWithApp: true) { manager in
             let workspace = manager.addWorkspace(initialSurface: .terminal, autoWelcomeIfNeeded: false)
             let oldID = try #require(workspace.focusedPanelId)
             let resource = SurfaceResourceID(machine: .cloud(UUID().uuidString), kind: .terminal, key: "terminal-restore")
@@ -65,7 +65,7 @@ struct CloudClosedPanelRestoreTests {
 
     @Test("Closing a deferred Cloud browser keeps the last pane empty until reopen")
     func deferredBrowserReopensWithoutTerminal() throws {
-        try withManager { manager in
+        try withManager(registeredWithApp: true) { manager in
             let workspace = manager.addWorkspace(initialSurface: .browser, autoWelcomeIfNeeded: false)
             let browserID = try #require(workspace.focusedPanelId)
             let resource = SurfaceResourceID(machine: .cloud(UUID().uuidString), kind: .browser, key: "browser-1")
@@ -217,7 +217,7 @@ struct CloudClosedPanelRestoreTests {
         }
     }
 
-    private func withManager(_ body: (TabManager) throws -> Void) throws {
+    private func withManager(registeredWithApp: Bool = false, _ body: (TabManager) throws -> Void) throws {
         let suite = "CloudClosedPanelRestoreTests.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suite))
         defaults.set(false, forKey: "closeWorkspaceOnLastSurfaceShortcut")
@@ -236,6 +236,8 @@ struct CloudClosedPanelRestoreTests {
             ClosedItemHistoryStore.shared.removeAll()
             defaults.removePersistentDomain(forName: suite)
         }
-        try body(manager)
+        guard registeredWithApp else { return try body(manager) }
+        // `SurfaceCatalog.shared` restores projections only into a workspace the app resolves.
+        try LiveWorkspaceFixture.withAppRegistration(of: manager) { try body(manager) }
     }
 }
