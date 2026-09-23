@@ -326,6 +326,17 @@ jobs:
           }
           [ "$(git rev-parse 'HEAD^{tree}')" = "$EXPECTED_SOURCE_TREE" ]
 
+          # Every identity check below runs after the archive is expanded here, and
+          # the fallback compile runs in this same DerivedData. A refused product
+          # must not become that compile's input, so arm the cleanup before the
+          # first byte is written and keep it until this step's own success.
+          revalidated=false
+          cleanup() {
+            [ "$revalidated" = true ] && return 0
+            rm -rf "$CMUX_COMPILE_ADMISSION_DERIVED_DATA"
+          }
+          trap cleanup EXIT
+
           archive="$(find "$RUNNER_TEMP/persistent-mac-compile" -type f -name 'persistent-mac-compile.tar.gz' -print -quit)"
           [ -n "$archive" ] && [ -f "$archive" ]
           mkdir -p "$CMUX_COMPILE_ADMISSION_DERIVED_DATA"
@@ -399,6 +410,7 @@ jobs:
           )
           PY
 
+          revalidated=true
           {
             echo "hit=true"
             echo "classification=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["classification"])' "$metrics")"
