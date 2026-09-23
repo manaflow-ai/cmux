@@ -89,6 +89,32 @@ def is_other_workflow_config(path: str) -> bool:
 CI_CONTROL_PLANE_ONLY = frozenset({
     "scripts/ci/persistent_mac_route.py",
     "scripts/ci/web_validation.py",
+    # Operational helpers: janitors, census and reporting, registry validation,
+    # R2 canaries, build diagnostics. No workflow runs any of them on a macOS
+    # runner -- directly or through a wrapper script or composite action -- and
+    # none is read by the Xcode product. Their own Linux guards still route
+    # independently of the macOS area. Editing one used to buy a universal
+    # Release build.
+    #
+    # test_execution_registry.py is deliberately NOT here: run_python_test_lane.py
+    # imports it and ci-macos.yml runs that on a Mac, which is the same reason
+    # cache_restore_receipt.py and xcodebuild_noninteractive.py stay out.
+    "scripts/ci/app_host_failure_census.py",
+    "scripts/ci/build_graph_health.py",
+    "scripts/ci/cleanup-stale-runs.py",
+    "scripts/ci/cmux_workload_profile.py",
+    "scripts/ci/notify-indexnow.py",
+    "scripts/ci/queue_janitor.py",
+    "scripts/ci/r2-canary-cloudflare.py",
+    "scripts/ci/r2_cache_census.py",
+    "scripts/ci/swift_incremental_diagnostics.py",
+    "scripts/ci/triage-radar.py",
+    "scripts/ci/validate_test_execution_registry.py",
+    "scripts/ci/verify-r2-canary.py",
+    # ci-web.yml's subarea router. It keeps the web area below -- editing it
+    # selects every web subarea through the helper's own ALL_SUBAREA_INPUTS --
+    # but it never reaches a macOS build.
+    "scripts/ci/web_subareas.py",
 })
 
 # Publishing consumes finished products. These exact helpers never run in PR
@@ -106,6 +132,8 @@ CI_MACOS_ADMISSION_CONTROL_INPUTS = frozenset({
 
 CI_MACOS_TEST_PRODUCT_INPUTS = frozenset({
     "scripts/ci/app_host_test_products.py",
+    "scripts/ci/app_host_layer_transport.py",
+    "scripts/ci/parallel_artifact_download.py",
     "scripts/ci/compile-app-host-test-product.sh",
     "scripts/ci/product_input_identity.py",
     "scripts/ci/peer_product_source.py",
@@ -538,6 +566,7 @@ def is_web_change(path: str) -> bool:
         ".npmrc",
         ".github/workflows/web-validation.yml",
         "scripts/ci/web_validation.py",
+        "scripts/ci/web_subareas.py",
         "tests/test_web_validation.py",
         "scripts/build-agent-session-web.sh",
         "scripts/build-webviews-app.sh",
@@ -973,6 +1002,17 @@ def is_macos_neutral(
     # skills/cmux-cua as a folder resource, and skill scripts and manifests are
     # executable inputs, so only Markdown outside that folder is neutral.
     if path.rsplit("/", 1)[-1] in {"CLAUDE.md", "AGENTS.md"}:
+        return True
+    # Contributor-facing prose. These are read by people, never by a build:
+    # none is a bundle resource or an Xcode input. Keep this an exact list --
+    # THIRD_PARTY_LICENSES.md is also root Markdown, but it ships in
+    # Resources/ and is read by AboutLicenseContent.swift, so it stays
+    # macOS-relevant.
+    if path in {
+        "STYLE.md",
+        "CONTRIBUTING.md",
+        ".github/pull_request_template.md",
+    }:
         return True
 
     if (
