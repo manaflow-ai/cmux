@@ -29,6 +29,7 @@ def test_quality_groups_are_parallel_and_owned() -> None:
         "Validate bash shell integration job control": "quality-determinism",
         "Validate focused Dock shortcut routing guard": "quality-determinism",
         "Validate bash prompt bootstrap composes with user PROMPT_COMMAND (starship)": "quality-determinism",
+        "Validate errno is captured before Swift test assertions": "quality-determinism",
         "Validate test determinism gate": "quality-determinism",
     }
     steps = job["steps"]
