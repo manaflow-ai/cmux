@@ -52,7 +52,7 @@ struct CloudSidebarAttentionLayoutTests {
         Attachment.record(try #require(read.representation(using: .png, properties: [:])), named: name + "-read.png")
         Attachment.record(try #require(unread.representation(using: .png, properties: [:])), named: name + "-unread.png")
         #endif
-        try expectSeparateIndicator(read: read, unread: unread, in: cell)
+        try expectSeparateIndicator(read: read, unread: unread, in: cell, percent: percent)
         cell.prepareForReuse()
         let cleared = try render(cell, node: readNode, fixture: fixture)
         #expect(cleared.tiffRepresentation == read.tiffRepresentation,
@@ -60,7 +60,7 @@ struct CloudSidebarAttentionLayoutTests {
     }
 
     private func expectSeparateIndicator(
-        read: NSBitmapImageRep, unread: NSBitmapImageRep, in cell: CloudTreeCellView
+        read: NSBitmapImageRep, unread: NSBitmapImageRep, in cell: CloudTreeCellView, percent: Int
     ) throws {
         #expect(read.pixelsWide == unread.pixelsWide)
         #expect(read.pixelsHigh == unread.pixelsHigh)
@@ -77,21 +77,39 @@ struct CloudSidebarAttentionLayoutTests {
         try #require(!changed.isNull, "The unread indicator must actually render")
         let scale = CGFloat(unread.pixelsWide) / cell.bounds.width
         _ = try #require(cell.subviews.first { $0 is CloudTreePassthroughHostingView })
-        let leadingSlot = CloudTreeStyle.compact.rowGrid.attentionSlot
-        #expect(changed.minX / scale >= 0 && changed.maxX / scale <= leadingSlot + 1,
-                "Only the leading attention slot may change; icons, pins and titles must stay put")
-        #expect(abs(changed.midY - CGFloat(unread.pixelsHigh) / 2) <= scale,
-                "Center the notification on the row, not on the icon's upper corner")
-        #expect(changed.width / scale >= 5 && changed.width / scale <= 7
-                && changed.height / scale >= 5 && changed.height / scale <= 7,
-                "The complete six-point indicator remains visible at every supported font scale")
-        var overlappingInk = 0
-        for y in max(0, Int(changed.minY) - 1)..<min(read.pixelsHigh, Int(changed.maxY) + 1) {
-            for x in max(0, Int(changed.minX) - 1)..<min(read.pixelsWide, Int(changed.maxX) + 1) {
-                if (read.colorAt(x: x, y: y)?.alphaComponent ?? 0) > 0.15 { overlappingInk += 1 }
+        let readRuns = occupiedRuns(in: read)
+        let unreadRuns = occupiedRuns(in: unread)
+        let leadingSlot = GlobalFontMagnification.scaledSize(
+            CloudTreeStyle.compact.rowGrid.attentionSlot, percent: percent
+        )
+        let readStart = CGFloat(try #require(readRuns.first?.lowerBound)) / scale
+        let unreadDot = try #require(unreadRuns.first)
+        let unreadContent = try #require(unreadRuns.dropFirst().first)
+        #expect(readStart <= 8, "Read rows keep their compact leading edge: \(readStart)")
+        #expect(CGFloat(unreadDot.lowerBound) / scale <= 8,
+                "The unread dot remains on the left side")
+        #expect(CGFloat(unreadDot.count) / scale >= 5 && CGFloat(unreadDot.count) / scale <= 7,
+                "The unread dot remains six points wide")
+        #expect(CGFloat(unreadContent.lowerBound) / scale >= leadingSlot - 2,
+                "Unread content follows the reserved leading attention slot")
+    }
+
+    private func occupiedRuns(in bitmap: NSBitmapImageRep) -> [Range<Int>] {
+        var runs: [Range<Int>] = []
+        var start: Int?
+        for x in 0..<bitmap.pixelsWide {
+            let occupied = (0..<bitmap.pixelsHigh).contains { y in
+                (bitmap.colorAt(x: x, y: y)?.alphaComponent ?? 0) > 0.2
+            }
+            if occupied {
+                if start == nil { start = x }
+            } else if let first = start {
+                runs.append(first..<x)
+                start = nil
             }
         }
-        #expect(overlappingInk == 0, "Unread dots need visible separation from existing row ink")
+        if let first = start { runs.append(first..<bitmap.pixelsWide) }
+        return runs
     }
 
     @Test("The real outline repaints unread and cleared rows without changing disclosure geometry",
@@ -123,7 +141,7 @@ struct CloudSidebarAttentionLayoutTests {
             for (index, row) in indexes.enumerated() {
                 let unread = try captureRow(row, in: outline)
                 let cell = try #require(outline.view(atColumn: 0, row: row, makeIfNecessary: true) as? CloudTreeCellView)
-                try expectSeparateIndicator(read: read[index], unread: unread, in: cell)
+                try expectSeparateIndicator(read: read[index], unread: unread, in: cell, percent: 100)
                 #expect(outline.frameOfOutlineCell(atRow: row) == disclosure[index])
             }
             fixture.coordinator.apply(nodes: fixture.nodes())

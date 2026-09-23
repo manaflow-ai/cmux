@@ -75,25 +75,27 @@ struct CloudSidebarPinGeometryTests {
 
     @Test("Pin reserves space before content at narrow and wide widths", arguments: [100.0, 320.0], [75, 100, 150, 200])
     func leadingPin(width: Double, percent: Int) throws {
-        let unpinned = try contentBounds(width: width, pinned: false, percent: percent)
-        let pinned = try contentBounds(width: width, pinned: true, percent: percent)
+        let unpinned = try contentBounds(width: width, pinned: false, percent: percent, unread: false)
+        let pinned = try contentBounds(width: width, pinned: true, percent: percent, unread: false)
         #expect(pinned.minX > unpinned.minX + 4, "The pin must precede the identity instead of consuming its trailing edge")
         #expect(abs(pinned.maxX - unpinned.maxX) <= 1, "Trailing alignment must not move when pinning")
     }
 
-    @Test("Read rows reserve the leading attention column without shifting on unread changes",
+    @Test("Read rows stay compact and unread rows reserve the leading attention column",
           arguments: [75, 100, 150, 200])
     func attentionSlotPrecedesContent(percent: Int) throws {
-        let bounds = try contentBounds(width: 220, pinned: false, percent: percent)
-        let slot = CloudTreeStyle.compact.rowGrid.attentionSlot
-        #expect(bounds.minX >= slot && bounds.minX <= slot + 4,
-                "The unread slot must stay in the leading identity grid: \(bounds.minX)")
+        let read = try contentBounds(width: 220, pinned: false, percent: percent, unread: false)
+        let unread = try contentBounds(width: 220, pinned: false, percent: percent, unread: true)
+        let slot = GlobalFontMagnification.scaledSize(CloudTreeStyle.compact.rowGrid.attentionSlot, percent: percent)
+        #expect(read.minX <= 1, "Read rows must not reserve an empty leading gutter: \(read.minX)")
+        #expect(unread.minX >= slot + 1,
+                "Unread content must follow the leading attention slot: \(unread.minX), \(slot)")
     }
 
     @Test("Pin geometry follows the same magnification as row text")
     func pinMagnification() throws {
-        let small = try contentBounds(width: 140, pinned: true, percent: 75)
-        let large = try contentBounds(width: 140, pinned: true, percent: 200)
+        let small = try contentBounds(width: 140, pinned: true, percent: 75, unread: false)
+        let large = try contentBounds(width: 140, pinned: true, percent: 200, unread: false)
         #expect(large.minX > small.minX + 4)
         #expect(abs(large.maxX - small.maxX) <= 1)
     }
@@ -219,9 +221,10 @@ struct CloudSidebarPinGeometryTests {
         return bounds
     }
 
-    private func contentBounds(width: Double, pinned: Bool, percent: Int) throws -> CGRect {
-        let host = NSHostingView(rootView: Color.blue
-            .modifier(CloudSidebarRowDecoration(isPinned: pinned, showsAttentionSlot: true, hasUnreadNotification: false))
+    private func contentBounds(width: Double, pinned: Bool, percent: Int, unread: Bool) throws -> CGRect {
+        let host = NSHostingView(rootView: Text("content")
+            .foregroundStyle(.green)
+            .modifier(CloudSidebarRowDecoration(isPinned: pinned, showsAttentionSlot: true, hasUnreadNotification: unread))
             .environment(\.cmuxGlobalFontMagnificationPercent, percent))
         host.frame = NSRect(x: 0, y: 0, width: width, height: 28)
         let window = NSWindow(contentRect: host.frame, styleMask: [], backing: .buffered, defer: false)
@@ -233,7 +236,8 @@ struct CloudSidebarPinGeometryTests {
         var xs: [Int] = []
         for x in 0..<bitmap.pixelsWide {
             let color = try #require(bitmap.colorAt(x: x, y: bitmap.pixelsHigh / 2)?.usingColorSpace(.deviceRGB))
-            if color.blueComponent > color.redComponent + 0.3 { xs.append(x) }
+            if color.greenComponent > color.redComponent + 0.15,
+               color.greenComponent > color.blueComponent + 0.15 { xs.append(x) }
         }
         let scale = Double(bitmap.pixelsWide) / width
         let left = Double(try #require(xs.min())) / scale

@@ -8,6 +8,7 @@ struct CloudSidebarRowDecoration: ViewModifier {
     let showsAttentionSlot: Bool
     let hasUnreadNotification: Bool
     var attentionSlot: CGFloat = CloudTreeStyle.compact.rowGrid.attentionSlot
+    @Environment(\.cmuxGlobalFontMagnificationPercent) private var magnification
 
     func body(content: Content) -> some View {
         // Reserve the attention column even when the row is read. This keeps
@@ -23,7 +24,7 @@ struct CloudSidebarRowDecoration: ViewModifier {
                     .accessibilityLabel(String(localized: "cloudTree.organization.unread", defaultValue: "Unread notification"))
                     .help(hasUnreadNotification
                         ? String(localized: "cloudTree.organization.unread", defaultValue: "Unread notification") : "")
-                    .frame(width: attentionSlot)
+                    .frame(width: GlobalFontMagnification.scaledSize(attentionSlot, percent: magnification))
                     .allowsHitTesting(false)
             }
             if isPinned {

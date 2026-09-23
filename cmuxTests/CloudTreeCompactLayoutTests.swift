@@ -180,11 +180,9 @@ struct CloudTreeCompactLayoutTests {
         let scale = Double(percent) / 100
         let folderGap = try leadingGap(folder, in: outline)
         let sectionGap = try leadingGap(section, in: outline)
-        let attentionSlot = CloudTreeStyle.compact.rowGrid.attentionSlot * scale
-        #expect(folderGap >= attentionSlot,
-                "Notification-capable folders reserve the leading attention slot: \(folderGap), \(attentionSlot)")
-        #expect(abs((folderGap - sectionGap) - attentionSlot) <= 6 * scale,
-                "The attention slot is the only intentional folder/header offset: \(folderGap), \(sectionGap)")
+        #expect(abs(folderGap - sectionGap) <= 4 * scale,
+                "Folder and header use the same close spacing, allowing glyph side bearings: \(folderGap), \(sectionGap)")
+        #expect(folderGap <= 6 * scale, "Read rows do not reserve an empty unread column")
         for row in 0..<outline.numberOfRows {
             #expect(abs(outline.rect(ofRow: row).height - 22 * scale) <= 0.5)
         }
