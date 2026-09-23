@@ -10,6 +10,22 @@ import Testing
 @MainActor
 @Suite(.serialized)
 struct FilePreviewVimNavigationTests {
+    @Test func readOnlyModeBlocksUndoWithoutDiscardingEditingHistory() throws {
+        let view = SavingTextView.makeFilePreviewTextView()
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 300, height: 200), styleMask: .borderless, backing: .buffered, defer: false)
+        window.contentView = view
+        view.string = "original"
+        view.insertText("changed", replacementRange: NSRange(location: 0, length: 0))
+        #expect(view.undoManager?.canUndo == true)
+        view.updateVimNavigation(enabled: true)
+        view.undoManager?.undo()
+        #expect(view.string == "changedoriginal")
+        #expect(view.undoManager?.canUndo == false)
+        view.updateVimNavigation(enabled: false)
+        view.undoManager?.undo()
+        #expect(view.string == "original")
+    }
+
     @Test func configuredPreviewMovesWithoutEditing() throws {
         let defaults = UserDefaults.standard
         let previous = defaults.object(forKey: "filePreviewVimKeys")
