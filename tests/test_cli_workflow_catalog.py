@@ -126,13 +126,14 @@ def paired(left: list, right: list):
 
 
 def check_localized_field(original, localized, label: str) -> None:
-    require(original != localized, f"{label}: untranslated")
     if isinstance(original, list):
         for original_item, localized_item in paired(original, localized):
             if original_item in {"codex", "claude"}:
                 require(original_item == localized_item, f"{label}: executable name changed")
             else:
                 require(original_item != localized_item, f"{label}: untranslated item")
+    else:
+        require(original != localized, f"{label}: untranslated")
 
 
 def check_localized_catalog(cli_path: str) -> None:
