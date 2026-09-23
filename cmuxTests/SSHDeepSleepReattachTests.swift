@@ -361,7 +361,12 @@ struct SSHDeepSleepReattachTests {
                 sessionID: "ssh-test-session",
                 foregroundAuth: Self.foregroundAuth()
             ).replacingOccurrences(of: "/usr/bin/ssh", with: fakeSSH.path),
-            environment: environment
+            environment: environment,
+            // Every attach attempt spawns uuidgen, the fake ssh, cmux and
+            // sleep, so the full budget costs ~4.5 s on an idle runner and
+            // more under shard load. The deadline only bounds a hang; it
+            // scales with the attempts the case expects to run.
+            timeout: max(5, Double(expectedSleepCount + 1) * 2)
         )
 
         #expect(!result.timedOut, Comment(rawValue: result.stderr))
@@ -527,7 +532,11 @@ struct SSHDeepSleepReattachTests {
         try (lines.joined(separator: "\n") + "\n").write(to: url, atomically: true, encoding: .utf8)
     }
 
-    private static func runProcess(command: String, environment: [String: String]) -> ProcessRunResult {
+    private static func runProcess(
+        command: String,
+        environment: [String: String],
+        timeout: TimeInterval = 5
+    ) -> ProcessRunResult {
         let process = Process()
         let stderrPipe = Pipe()
         process.executableURL = URL(fileURLWithPath: "/bin/sh")
@@ -546,7 +555,7 @@ struct SSHDeepSleepReattachTests {
             process.waitUntilExit()
             exitSignal.signal()
         }
-        let timedOut = exitSignal.wait(timeout: .now() + 5) == .timedOut
+        let timedOut = exitSignal.wait(timeout: .now() + timeout) == .timedOut
         if timedOut {
             process.terminate()
             _ = exitSignal.wait(timeout: .now() + 1)
