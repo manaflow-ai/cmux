@@ -25,6 +25,8 @@ GUARD_WORKFLOW = ROOT / ".github" / "workflows" / "ci-guards.yml"
 WEB_WORKFLOW = ROOT / ".github" / "workflows" / "ci-web.yml"
 MACOS_WORKFLOW = ROOT / ".github" / "workflows" / "ci-macos.yml"
 WEB_VALIDATION_WORKFLOW = ROOT / ".github" / "workflows" / "web-validation.yml"
+BROWSER_WORKFLOW = ROOT / ".github" / "workflows" / "cmux-browser.yml"
+REMOTE_DAEMON_WORKFLOW = ROOT / ".github" / "workflows" / "remote-daemon.yml"
 GUARD_JOBS = (
     "workflow-guard-tests",
     "workflow-guard-history",
@@ -537,6 +539,101 @@ def test_web_only_runs_web_without_macos() -> None:
 
 def test_macos_config_stays_macos_relevant() -> None:
     assert_areas(["config/IrohRelayPolicyProduction.xcconfig"], macos=True, web=True)
+
+
+def test_standalone_browser_and_remote_daemon_skip_app_host_macos() -> None:
+    browser_area = module.classify_files(["cmux-browser/src/main.ts"])
+    assert browser_area.macos is False
+    assert browser_area.release_build is False
+
+    daemon_area = module.classify_files(["daemon/remote/cmd/cmuxd-remote/cli.go"])
+    assert daemon_area.macos is False
+    assert daemon_area.release_build is False
+
+
+def test_required_ci_owns_standalone_browser_and_remote_daemon_pr_validation() -> None:
+    changes = workflow_job_block("changes")
+    assert "browser: ${{ steps.standalone.outputs.browser }}" in changes
+    assert "remote_daemon: ${{ steps.standalone.outputs.remote_daemon }}" in changes
+    route = workflow_job_step_script("changes", "Route standalone project workflows")
+    assert "cmux-browser/*|.github/workflows/cmux-browser.yml" in route
+    assert "daemon/remote/*|scripts/*remote_daemon*" in route
+
+    browser_job = workflow_job_block("browser")
+    assert "uses: ./.github/workflows/cmux-browser.yml" in browser_job
+    daemon_job = workflow_job_block("remote-daemon")
+    assert "uses: ./.github/workflows/remote-daemon.yml" in daemon_job
+
+    browser_text = BROWSER_WORKFLOW.read_text(encoding="utf-8")
+    assert "  workflow_call:" in browser_text
+    assert "  pull_request:" not in browser_text
+    assert "group: cmux-browser-${{ github.ref }}" in browser_text
+    remote_text = REMOTE_DAEMON_WORKFLOW.read_text(encoding="utf-8")
+    assert "  workflow_call:" in remote_text
+    assert "  pull_request:" not in remote_text
+    assert "      - name: Reject stale pull request rerun" in remote_text
+
+
+def test_standalone_routes_preserve_missing_empty_and_owned_diffs() -> None:
+    script = workflow_job_step_script("changes", "Route standalone project workflows")
+    script = script.replace("/tmp/cmux-ci-changed-files.txt", '"$CHANGED_FILES"')
+    cases = (
+        (None, "true", "true"),
+        ("", "false", "false"),
+        ("README.md\n", "false", "false"),
+        (".github/workflows/ci.yml\n", "true", "true"),
+        ("cmux-browser/src/main.ts\n", "true", "false"),
+        ("daemon/remote/main.go\n", "false", "true"),
+    )
+    for contents, browser, daemon in cases:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            changed = root / "changed.txt"
+            if contents is not None:
+                changed.write_text(contents)
+            output = root / "output.txt"
+            subprocess.run(["bash", "-c", script], check=True, capture_output=True,
+                           env={**os.environ, "CHANGED_FILES": str(changed), "GITHUB_OUTPUT": str(output)})
+            assert output.read_text().splitlines() == [f"browser={browser}", f"remote_daemon={daemon}"]
+
+
+def test_diff_failure_does_not_look_like_a_known_empty_standalone_diff() -> None:
+    detector = detect_step_script().replace("/tmp/cmux-ci-changed-files.txt", '"$CHANGED_FILES"')
+    route = workflow_job_step_script("changes", "Route standalone project workflows")
+    route = route.replace("/tmp/cmux-ci-changed-files.txt", '"$CHANGED_FILES"')
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        git = root / "git"
+        git.write_text("#!/bin/sh\nexit 1\n")
+        git.chmod(0o755)
+        changed = root / "changed.txt"
+        output = root / "output.txt"
+        env = {**os.environ, "PATH": str(root) + os.pathsep + os.environ["PATH"],
+               "EVENT_NAME": "pull_request", "BASE_SHA": "missing", "MERGE_SHA": "missing",
+               "CHANGED_FILES": str(changed), "GITHUB_OUTPUT": str(output)}
+        subprocess.run(["bash", "-c", detector], env=env, capture_output=True, check=True)
+        assert not changed.exists(), "failed git diff must not leave its truncated output behind"
+        subprocess.run(["bash", "-c", route], env=env, capture_output=True, check=True)
+        assert output.read_text().splitlines()[-2:] == ["browser=true", "remote_daemon=true"]
+
+
+def test_remote_daemon_rejects_stale_heads_before_allocating_macos() -> None:
+    jobs = yaml.safe_load(REMOTE_DAEMON_WORKFLOW.read_text())["jobs"]
+    admission = jobs["remote-daemon-admission"]
+    assert "LINUX_RUNNER" in admission["runs-on"]
+    assert jobs["remote-daemon-macos-tests"]["needs"] == "remote-daemon-admission"
+    script = admission["steps"][0]["run"]
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        gh = root / "gh"
+        gh.write_text('#!/bin/sh\n[ "$CURRENT_HEAD" != unavailable ] || exit 1\nprintf "%s\\n" "$CURRENT_HEAD"\n')
+        gh.chmod(0o755)
+        for current, expected in (("head", 0), ("newer-head", 1), ("unavailable", 0)):
+            env = {**os.environ, "PATH": str(root) + os.pathsep + os.environ["PATH"],
+                   "GITHUB_REPOSITORY": "example/repo", "PR_NUMBER": "1",
+                   "RUN_HEAD_SHA": "head", "CURRENT_HEAD": current}
+            result = subprocess.run(["bash", "-c", script], env=env, capture_output=True)
+            assert result.returncode == expected, (current, result.stderr)
 
 
 def test_cmux_tui_only_skips_macos() -> None:
@@ -2227,6 +2324,8 @@ def test_ci_status_job_accepts_skipped_routed_jobs() -> None:
         "changes",
         "static-preflight",
         "guards",
+        "browser",
+        "remote-daemon",
         "cli",
         "web",
         "linux-preflight",

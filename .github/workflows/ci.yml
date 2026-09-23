@@ -52,6 +52,8 @@ jobs:
     outputs:
       macos: ${{ steps.detect.outputs.macos }}
       cli: ${{ steps.detect.outputs.cli }}
+      browser: ${{ steps.standalone.outputs.browser }}
+      remote_daemon: ${{ steps.standalone.outputs.remote_daemon }}
       # Empty until the base revision of the router knows this area, so the
       # consumers below read a missing value as "not routed".
       swift_packages: ${{ steps.detect.outputs.swift_packages || 'false' }}
@@ -139,6 +141,8 @@ jobs:
             # Keep both sides of renames visible to path-based guard routing.
             # A guarded file moved into docs/ must still run its owning checks.
             if ! git diff --no-renames --name-only "$BASE_SHA" "$MERGE_SHA" > /tmp/cmux-ci-changed-files.txt; then
+              # Absence means unavailable; an existing empty file means a known empty diff.
+              rm -f /tmp/cmux-ci-changed-files.txt
               echo "Could not compute PR diff; running all CI areas." >&2
               emit_all_areas
               exit 0
@@ -350,6 +354,37 @@ jobs:
             --event-name "$EVENT_NAME" \
             --base-sha "$BASE_SHA" \
             --head-sha "$HEAD_SHA"
+
+      - name: Route standalone project workflows
+        id: standalone
+        run: |
+          set -euo pipefail
+          browser=false
+          remote_daemon=false
+          if [ -f /tmp/cmux-ci-changed-files.txt ]; then
+            while IFS= read -r path; do
+              case "$path" in
+                .github/workflows/ci.yml)
+                  # The caller owns both reusable jobs' conditions and targets.
+                  browser=true
+                  remote_daemon=true
+                  ;;
+                cmux-browser/*|.github/workflows/cmux-browser.yml)
+                  browser=true
+                  ;;
+                daemon/remote/*|scripts/*remote_daemon*|scripts/release_asset_guard*|tests/*remote_daemon*|.github/workflows/remote-daemon.yml|.github/workflows/release.yml|.github/workflows/nightly.yml)
+                  remote_daemon=true
+                  ;;
+              esac
+            done < /tmp/cmux-ci-changed-files.txt
+          else
+            browser=true
+            remote_daemon=true
+          fi
+          {
+            echo "browser=$browser"
+            echo "remote_daemon=$remote_daemon"
+          } >> "$GITHUB_OUTPUT"
 
       # Compile admission runs on every routed push. The rest of the macOS suite
       # runs on merge groups and dispatches always, and on pull requests unless
@@ -700,6 +735,19 @@ jobs:
           GHOSTTYKIT_DOWNLOAD_RETRY_DELAY: "1"
         run: ./scripts/download-prebuilt-ghosttykit.sh --verify-only
 
+  browser:
+    needs: [changes, static-preflight]
+    if: ${{ needs.changes.outputs.browser == 'true' }}
+    uses: ./.github/workflows/cmux-browser.yml
+
+  remote-daemon:
+    needs: [changes, static-preflight]
+    if: ${{ needs.changes.outputs.remote_daemon == 'true' }}
+    permissions:
+      contents: read
+      pull-requests: read
+    uses: ./.github/workflows/remote-daemon.yml
+
   cli:
     needs: [changes, static-preflight]
     if: ${{ needs.changes.outputs.cli == 'true' }}
@@ -995,6 +1043,8 @@ jobs:
       - static-preflight
       - guards
       - ghosttykit-release-check
+      - browser
+      - remote-daemon
       - cli
       - web
       - linux-preflight
