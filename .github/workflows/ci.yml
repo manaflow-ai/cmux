@@ -573,7 +573,9 @@ jobs:
       # compile. Each pull request run publishes its build-input fingerprint as
       # an artifact name, and a compile-only run whose fingerprint an earlier run
       # of the same in-org branch already compiled skips compile admission. Runs
-      # with the full suite always compile, because the shards need the product.
+      # with the full suite or unit-ci always compile, because the app-host
+      # shards need the product and only run behind a compile admission that
+      # succeeded in this run.
       # The artifact name carries the run attempt, so a pass only vouches for the
       # fingerprint published in its own attempt. These steps are an optimization:
       # any of them failing leaves compile_admitted unset, which compiles.
@@ -596,7 +598,7 @@ jobs:
       - name: Skip compile when build inputs are unchanged
         id: unchanged_inputs
         continue-on-error: true
-        if: ${{ steps.inputs.outputs.fingerprint != '' && steps.suite.outputs.full_suite == 'false' }}
+        if: ${{ steps.inputs.outputs.fingerprint != '' && steps.suite.outputs.full_suite == 'false' && steps.suite.outputs.unit_suite != 'true' }}
         env:
           # Both steps are pull-request-only, and the xcode= extra exists so the
           # fingerprint moves when the pinned toolchain does. Read the same lane
@@ -635,7 +637,7 @@ jobs:
       - name: Look for an earlier run that compiled these inputs
         id: admitted
         continue-on-error: true
-        if: ${{ steps.inputs.outputs.fingerprint != '' && steps.suite.outputs.full_suite == 'false' && steps.unchanged_inputs.outputs.compile_admitted != 'true' }}
+        if: ${{ steps.inputs.outputs.fingerprint != '' && steps.suite.outputs.full_suite == 'false' && steps.suite.outputs.unit_suite != 'true' && steps.unchanged_inputs.outputs.compile_admitted != 'true' }}
         env:
           GH_TOKEN: ${{ github.token }}
           BRANCH: ${{ github.head_ref }}
