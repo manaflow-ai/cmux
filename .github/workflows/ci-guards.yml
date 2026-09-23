@@ -79,6 +79,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_app_host_guard_structure.py
 
+      - name: Validate feature flag linter scope
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_lint_feature_flags_scope.py
+
       - name: Validate canonical compile cache build root
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_canonical_build_root.py
