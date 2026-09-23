@@ -38,5 +38,7 @@ struct TerminalPathEnvironmentTests {
 
         #expect(environment["CMUX_HISTORY_FILE"] == TerminalSurface.terminalHistoryFileURL(surfaceID: surfaceID).path)
         #expect(protectedKeys.contains("CMUX_HISTORY_FILE"))
+        #expect(TerminalSurface.terminalHistoryFileURL(surfaceID: surfaceID).lastPathComponent == "surface-AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE.history")
+        #expect(TerminalSurface.terminalHistoryFileURL(surfaceID: surfaceID) != TerminalSurface.terminalHistoryFileURL(surfaceID: UUID()))
     }
 }
