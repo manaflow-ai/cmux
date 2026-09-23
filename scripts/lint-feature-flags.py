@@ -30,9 +30,7 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
 WEB_REGISTRY_REL = "web/app/lib/feature-flags.ts"
-SWIFT_REGISTRY_REL = "Sources/FeatureFlags.swift"
 WEB_REGISTRY = REPO / WEB_REGISTRY_REL
-SWIFT_REGISTRY = REPO / SWIFT_REGISTRY_REL
 RETIRED = REPO / "scripts/retired-feature-flags.txt"
 
 NAME_RE = re.compile(r"^[a-z0-9]+(-[a-z0-9]+)*-(release|experiment|permission)$")
@@ -59,7 +57,22 @@ def parse_web_registry(text: str) -> list[dict]:
     return flags
 
 
-def parse_swift_registry(text: str) -> list[dict]:
+def swift_registry_files() -> list[str]:
+    """Every Swift file that declares a flag, not one hardcoded path.
+
+    A FLAG( comment outside the single hardcoded registry used to be invisible:
+    the flag was silently exempt from every rule below, including the zombie
+    reviewBy check it was relying on.
+    """
+    out = subprocess.run(
+        ["git", "grep", "-l", "--untracked", "--fixed-strings", "FLAG(key:", "--",
+         "Sources", "Packages", "CLI", "ios", ":!*node_modules*"],
+        cwd=REPO, capture_output=True, text=True,
+    )
+    return sorted({line.strip() for line in out.stdout.splitlines() if line.strip()})
+
+
+def parse_swift_registry(text: str, source: str) -> list[dict]:
     flags = []
     for m in re.finditer(r"FLAG\(([^)]*)\)", text, re.S):
         body = re.sub(r"\n\s*//\s*", " ", m.group(1))
@@ -72,7 +85,7 @@ def parse_swift_registry(text: str) -> list[dict]:
             "owner": fields.get("owner"),
             "reviewBy": fields.get("reviewBy"),
             "hasDefault": "defaultWhenUnavailable" in fields,
-            "source": SWIFT_REGISTRY_REL,
+            "source": source,
         })
     return flags
 
@@ -91,8 +104,11 @@ def main() -> int:
     flags: list[dict] = []
     if WEB_REGISTRY.exists():
         flags += parse_web_registry(WEB_REGISTRY.read_text())
-    if SWIFT_REGISTRY.exists():
-        flags += parse_swift_registry(SWIFT_REGISTRY.read_text())
+    swift_registries = swift_registry_files()
+    for rel in swift_registries:
+        path = REPO / rel
+        if path.exists():
+            flags += parse_swift_registry(path.read_text(), rel)
 
     if not flags:
         print("lint-feature-flags: no flags declared")
@@ -101,7 +117,7 @@ def main() -> int:
     today = datetime.date.today()
     seen: dict[str, str] = {}
     # git grep returns repo-relative paths.
-    registries = {WEB_REGISTRY_REL, SWIFT_REGISTRY_REL}
+    registries = {WEB_REGISTRY_REL, *swift_registries}
 
     retired = set()
     if RETIRED.exists():
