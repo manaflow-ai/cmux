@@ -213,7 +213,12 @@ struct WindowKeyDownReplayGuardTests {
         return previousMenu
     }
 
-    private func installResponderChainUndoMenu() -> NSMenu? {
+    /// Installs a main menu whose Cmd+Z item sends `undo:`. With no `target`
+    /// the action resolves through `NSApp.keyWindow`'s responder chain, which
+    /// is nil whenever the headless test host is not the active app. Pass the
+    /// editable responder as `target` when the test must observe the menu
+    /// delivering Undo rather than AppKit's app-activation state.
+    private func installResponderChainUndoMenu(target: AnyObject? = nil) -> NSMenu? {
         let previousMenu = NSApp.mainMenu
         let menu = NSMenu(title: "Main")
         let undoItem = NSMenuItem(
@@ -221,6 +226,7 @@ struct WindowKeyDownReplayGuardTests {
             action: #selector(EditableUndoProbeTextView.undo(_:)),
             keyEquivalent: "z"
         )
+        undoItem.target = target
         undoItem.keyEquivalentModifierMask = [.command]
         menu.addItem(undoItem)
         NSApp.mainMenu = menu
@@ -425,14 +431,17 @@ struct WindowKeyDownReplayGuardTests {
         _ = NSApplication.shared
         AppDelegate.installWindowResponderSwizzlesForTesting()
 
-        let previousMenu = installResponderChainUndoMenu()
-        defer { NSApp.mainMenu = previousMenu }
-
         let (window, terminal, textView) = makeWindowWithTerminalHostedEditableResponder()
         defer {
             window.orderOut(nil)
             window.close()
         }
+        // Target the editable responder directly: a nil-targeted menu action
+        // needs NSApp.keyWindow, which the inactive headless host never has.
+        // The contract under test is cmux's routing (the menu handles Cmd+Z
+        // and the terminal sees no menu miss), not AppKit target resolution.
+        let previousMenu = installResponderChainUndoMenu(target: textView)
+        defer { NSApp.mainMenu = previousMenu }
 
         window.makeKeyAndOrderFront(nil)
         #expect(window.makeFirstResponder(textView))

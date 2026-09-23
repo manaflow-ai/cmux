@@ -71,7 +71,10 @@ struct WorkspaceTerminalFocusRecoverySwiftTests {
             surfaceView.frame = NSRect(x: 0, y: 0, width: 0, height: 0)
             #expect(window.makeFirstResponder(surfaceView))
             _ = await AppKitTestEventPump().waitUntil { panel.hostedView.isSurfaceViewFirstResponder() }
-            #expect(panel.hostedView.isSurfaceViewFirstResponder())
+            #expect(
+                panel.hostedView.isSurfaceViewFirstResponder(),
+                "\(terminalFocusGateSummary(panel: panel, workspace: workspace, in: window))"
+            )
             #expect(panel.hostedView.debugRenderStats().desiredFocus)
             #expect(
                 !panel.surface.debugDesiredFocusState(),
@@ -234,7 +237,10 @@ struct WorkspaceTerminalFocusRecoverySwiftTests {
 
             #expect(window.makeFirstResponder(surfaceView))
             _ = await AppKitTestEventPump().waitUntil { panel.hostedView.isSurfaceViewFirstResponder() }
-            #expect(panel.hostedView.isSurfaceViewFirstResponder())
+            #expect(
+                panel.hostedView.isSurfaceViewFirstResponder(),
+                "\(terminalFocusGateSummary(panel: panel, workspace: workspace, in: window))"
+            )
             panel.surface.setFocus(false)
             #expect(!panel.surface.debugDesiredFocusState())
 
@@ -322,7 +328,10 @@ struct WorkspaceTerminalFocusRecoverySwiftTests {
             await AppKitTestEventPump().drain()
 
             _ = await AppKitTestEventPump().waitUntil { panel.hostedView.isSurfaceViewFirstResponder() }
-            #expect(panel.hostedView.isSurfaceViewFirstResponder())
+            #expect(
+                panel.hostedView.isSurfaceViewFirstResponder(),
+                "\(terminalFocusGateSummary(panel: panel, workspace: workspace, in: window))"
+            )
             #expect(panel.hostedView.debugRenderStats().desiredFocus)
             #expect(
                 !panel.surface.debugDesiredFocusState(),
@@ -410,7 +419,10 @@ struct WorkspaceTerminalFocusRecoverySwiftTests {
             await AppKitTestEventPump().drain()
 
             _ = await AppKitTestEventPump().waitUntil { panel.hostedView.isSurfaceViewFirstResponder() }
-            #expect(panel.hostedView.isSurfaceViewFirstResponder())
+            #expect(
+                panel.hostedView.isSurfaceViewFirstResponder(),
+                "\(terminalFocusGateSummary(panel: panel, workspace: workspace, in: window))"
+            )
             #expect(
                 !panel.surface.debugDesiredFocusState(),
                 "Find terminal restore must not drop hidden/tiny focus recovery before Ghostty focus is reapplied"

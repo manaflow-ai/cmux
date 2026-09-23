@@ -5087,7 +5087,8 @@ final class WorkspaceTerminalFocusRecoveryTests: XCTestCase {
             }
             XCTAssertTrue(
                 firstResponderFeedbackObserved,
-                "Expected AppKit first-responder focus to feed back through workspace.focusPanel"
+                "Expected AppKit first-responder focus to feed back through workspace.focusPanel; "
+                    + terminalFocusGateSummary(panel: leftPanel, workspace: workspace, in: window)
             )
 
             XCTAssertGreaterThan(

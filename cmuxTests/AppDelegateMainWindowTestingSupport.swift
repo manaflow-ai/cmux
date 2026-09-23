@@ -163,3 +163,43 @@ extension AppDelegate {
 final class KeyStatusTestWindow: NSWindow {
     override var isKeyWindow: Bool { true }
 }
+
+/// One-line snapshot of every gate an automatic terminal first-responder apply
+/// consults (`applyFirstResponderIfNeeded` / `ensureFocus`), for focus-test
+/// failure messages. A focus test that fails with only "not first responder"
+/// cannot say which gate refused; this names it.
+@MainActor
+func terminalFocusGateSummary(
+    panel: TerminalPanel,
+    workspace: Workspace,
+    in window: NSWindow
+) -> String {
+    let appDelegate = AppDelegate.shared
+    let hostedView = panel.hostedView
+    let surfaceView = hostedView.surfaceView
+    let owner = appDelegate?.tabManagerFor(tabId: workspace.id)
+    return [
+        "appDelegate=\(appDelegate.map { String(describing: ObjectIdentifier($0)) } ?? "nil")",
+        "portalAuthorized=\(Workspace.portalRenderingEnabled(for: workspace.id))",
+        "ownerSelected=\(owner?.selectedTabId == workspace.id)",
+        "registeredWindow=\(appDelegate?.contextForMainWindow(window) != nil)",
+        // The apply's own key-window guard, and the process state behind it.
+        // `focusTerminalForTesting` now activates the host (87a70165b5b), which
+        // is process-wide and sticky, so these say whether this test saw key
+        // status for real or only through `KeyStatusTestWindow`'s override.
+        "windowIsKey=\(window.isKeyWindow)",
+        "appActive=\(NSApp.isActive)",
+        "visibleInUI=\(hostedView.debugPortalVisibleInUI)",
+        "active=\(hostedView.debugPortalActive)",
+        "hostHidden=\(hostedView.isHiddenOrHasHiddenAncestor)",
+        "surfaceHidden=\(surfaceView.isHiddenOrHasHiddenAncestor)",
+        "hostBounds=\(hostedView.bounds.size)",
+        "surfaceBounds=\(surfaceView.bounds.size)",
+        "uiWindowIsTestWindow=\(hostedView.uiWindow === window)",
+        "surfaceWindowIsTestWindow=\(surfaceView.window === window)",
+        "inputTarget=\(workspace.isFocusedTerminalInputSurface(panel.id))",
+        "keyboardFocusAllowed=\(appDelegate?.allowsTerminalKeyboardFocus(workspaceId: workspace.id, panelId: panel.id, in: window) ?? true)",
+        "paletteVisible=\(appDelegate?.isCommandPaletteEffectivelyVisible(for: window) ?? false)",
+        "firstResponder=\(window.firstResponder.map { String(describing: type(of: $0)) } ?? "nil")",
+    ].joined(separator: " ")
+}
