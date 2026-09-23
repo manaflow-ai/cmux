@@ -82,11 +82,6 @@ class ApprovedLabelsPass(unittest.TestCase):
             "warp-macos-15-arm64-6x",
             "ubuntu-24.04-arm",
             "macos-15",
-            # Tart pools are banned from workflow text so that moving onto
-            # Tart stays a variable change; as a value they are configuration.
-            "tart-macos-15",
-            "tart-gui",
-            "tart-ios",
         ):
             with self.subTest(label=label):
                 self.assertIsNone(forbidden_reason(label))
@@ -105,6 +100,7 @@ class ForbiddenLabelsAreCaught(unittest.TestCase):
 
     def test_fleet_and_self_hosted_labels(self) -> None:
         for label in (
+            "tart-macos-15",
             "cmux-persistent-compile",
             "macfleet",
             "mac-mini-3",
@@ -112,9 +108,6 @@ class ForbiddenLabelsAreCaught(unittest.TestCase):
         ):
             with self.subTest(label=label):
                 self.assertIsNotNone(forbidden_reason(label))
-
-    def test_a_tart_pool_does_not_launder_what_sits_beside_it(self) -> None:
-        self.assertIsNotNone(forbidden_reason("tart-macos-15,self-hosted"))
 
     def test_an_approved_label_does_not_mask_a_forbidden_one(self) -> None:
         # Stripping the allow-list first is what lets blacksmith-6vcpu-macos-26

@@ -83,24 +83,15 @@ def _patterns() -> tuple[str, str, str]:
     )
 
 
-# A whole value naming one Tart VM pool. The guard forbids these in workflow
-# text precisely so that moving a lane onto Tart stays a variable change
-# (test-ios.yml branches on a `tart-` MACOS_RUNNER_IOS, and docs/ci-runners.md
-# carries the restore recipe), so as a variable value it is configuration, not
-# drift.
-VARIABLE_ONLY_LABEL = re.compile(r"tart-[a-z0-9-]+")
-
-
 def forbidden_reason(label: str) -> str | None:
     """Why this runner label is not allowed, or None when it is fine.
 
-    Mirrors the guard, except that a Tart pool is allowed (see
-    VARIABLE_ONLY_LABEL): strip the approved cloud labels first, then look
+    Mirrors the guard exactly: strip the approved cloud labels first, then look
     for a forbidden pattern in what is left. Stripping first is what lets
     `blacksmith-6vcpu-macos-26` through while `warp-macos-26-arm64-12x` is
     caught, even though both contain `macos-26`.
     """
-    if not label or VARIABLE_ONLY_LABEL.fullmatch(label):
+    if not label:
         return None
     fleet, allowed, selfhosted = _patterns()
     remainder = re.sub(f"({allowed})", "", label)
