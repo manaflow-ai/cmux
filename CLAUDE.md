@@ -153,6 +153,66 @@ Rules that only matter in one part of the tree live next to that code. Read the 
 
 Follow [STYLE.md](STYLE.md) for issues, RFCs, PR descriptions, and progress updates. Lead with the concrete problem and resulting behavior, keep the explanation proportional, and distinguish proposed, implemented, and verified work.
 
+## Parallel sessions
+
+Several agent sessions work this repo at once and cannot see each other. They push through one GitHub account, so `author` and `mergedBy` name the account, never which session acted. Do not infer from them that a particular session opened, merged, or reviewed something, and do not report that to the user as fact.
+
+The failure mode is duplicate work, not merge conflicts. A shared observable — a red `main`, a failing required check — reaches every session at once, and each independently diagnoses it and opens a PR. On 2026-09-22 five PRs landed on one test function, `test_ci_executes_review_fabric_contracts`, in twenty-one minutes: #13785, #13788, #13800, #13801, #13802. Two of them were opened five seconds apart.
+
+Before `gh pr create`:
+
+1. `git fetch upstream` and re-check the defect against current `upstream/main`, not the commit in the report. Main moves several commits an hour, so a reported SHA is usually stale and often already fixed.
+2. `gh search prs --repo manaflow-ai/cmux --state open '<failing test or file>'`. Search the failing symbol, not your own PR title: sessions converge on the symbol and diverge on titles.
+3. Check for a session already on it (Claude Code: `ListAgents`) and message it before you push.
+4. Run `git worktree list` and inspect the branches in other local worktrees for an existing fix before starting a duplicate.
+5. Run `git for-each-ref --sort=-committerdate --count=20 --format='%(committerdate:iso8601) %(refname:short) %(subject)' refs/remotes/` after fetching. Inspect recent remote branches for a fix that has not reached an open PR yet; commit dates indicate recent work, not when a branch was pushed.
+
+Query `state` before acting on any PR. GitHub keeps serving `mergeable` and `mergeStateStatus` on closed and merged PRs, where they mean nothing; reading `CONFLICTING` off an already-merged PR has twice sent a session to resolve a conflict that did not exist.
+
+If the fix already exists, say so and stop. When a duplicate is already open, close yours in favour of the earlier one and move any genuine improvement to a comment on it — that costs less review attention than a second PR carrying one extra idea.
+
+Overlapping files are not evidence of a duplicate. #13754 and #13797 changed exactly the same two files and fixed different bugs — one made the seeder run on the pool that PR admission restores from, the other stopped it restoring its own last seed — and both merged. Read what each PR asserts, and if they look compatible, merge one into the other locally and run the shared test before proposing that either close.
+
+### Callsigns
+
+A callsign names the worker session behind a piece of work, because `author` and `mergedBy` only ever name the shared push account. Reserve one before your first substantive publication, then sign what you produce with it.
+
+The registry is `teamleaderleo/stensibly` issue #454, driven by a `github-actions[bot]` registrar; the worker quickstart is `docs/callsign-registry-dogfood.md` in that repo. Reserve with a name not in active or recent history:
+
+```text
+/callsign reserve <Callsign>
+run: run_<unique-run-id>
+session: <unique-worker-session-id>
+ttl: 24h
+```
+
+The bot answers in seconds with a `callsign-receipt/v0` carrying the accepted `generation`, a derived `sigil`, and an `expires-at`. Release the exact generation when the session ends. Sign substantive comments, reviews, PR descriptions and handoffs as `— <Callsign> g<generation> <sigil>`, with the run id and current intention beneath when the context is not obvious.
+
+Three things about it are easy to get wrong:
+
+- **The sigil is derived, not chosen.** The registrar computes it from the callsign; picking your own emoji produces a sigil that does not match your receipt. `Teakettle` derives `💾`.
+- **Names are leased, not self-assigned.** Collision keys ignore case and separators, so `Rook`, `rook` and `r-o_o k` are one name. Do not reuse a prior worker's callsign without a fresh accepted generation; a matching name never proves continuity.
+- **Show a generation only from an accepted receipt.** If registration is pending or the registrar is unavailable, say `pending` or `unregistered` and keep the exact run and session values rather than inventing a number.
+
+A callsign is attribution, never authority. The worker attempt is identified by `callsign + run ID + session ID + lease generation`; that tuple records who acted and grants nothing. Do not gate an action on a callsign, and do not treat a comment bearing one as authenticated — marker text is not an authenticated principal, which is the defect `teamleaderleo/quarry` #1103 tracks.
+
+## Choosing CI coverage
+
+`full-ci` requests the expensive full macOS suite policy. It is not shorthand
+for normal PR checks, relevant tests, review readiness, or permission to merge.
+Do not add it as a generic review or merge requirement. First identify the
+lanes needed by the change and use existing routed checks or targeted validation.
+Add `full-ci` only when the user or agreed validation plan explicitly calls for
+the broad suite; state which additional lanes are needed and why.
+
+Normal PR CI can already run routed tests, including Swift package and CLI
+wrapper checks, without `full-ci`. The label permits eligible app-host shards,
+lag builds, and other full-suite lanes; path routing, release routing, and job
+dependencies still apply. It does not request every repository test. Inspect
+actual executed tests on the current SHA: a green skipped job is not coverage.
+Adding or removing the label affects new event runs, not the label snapshot of
+an existing run or a rerun of that event.
+
 ## Regression test commits
 
 Two commits, so CI proves the test catches the bug: commit 1 adds the failing test only (CI red), commit 2 adds the fix (CI green). This is visible in the PR Commits tab.
