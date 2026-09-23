@@ -10055,11 +10055,21 @@ fn get_surface(mux: &Mux, id: SurfaceId) -> anyhow::Result<Arc<crate::Surface>> 
         .ok_or_else(|| anyhow::anyhow!("unknown surface {id}"))
 }
 
+fn retains_exited_terminal(mux: &Mux, surface: &crate::Surface) -> bool {
+    if surface.kind() != SurfaceKind::Pty || !surface.is_dead() {
+        return false;
+    }
+    let Some(terminal) = surface.terminal_public_id() else { return false };
+    mux.resolve_terminal(terminal.as_str()).ok().flatten().is_some_and(|resolved| {
+        resolved.terminal.on_exit == crate::workspace_registry::TerminalOnExit::Keep
+            && resolved.surface == Some(surface.id)
+    })
+}
+
 fn detached_surface_message(mux: &Mux, id: SurfaceId) -> Value {
     // A finite final replay ends its stream without removing the retained
     // terminal. Tell clients to keep that mirror until topology removes it.
-    let retained = mux.surface(id).is_some_and(|surface| surface.is_dead())
-        && surface_has_view_placement(mux, id);
+    let retained = mux.surface(id).is_some_and(|surface| retains_exited_terminal(mux, &surface));
     json!({"event": "detached", "surface": id, "retained": retained})
 }
 
@@ -12907,11 +12917,7 @@ fn handle_command_with_cancellation(
             // operation, so do not apply the live-child guard used by input.
             let surface = mux
                 .surface(surface_id)
-                .filter(|surface| {
-                    !surface.is_dead()
-                        || (surface.kind() == SurfaceKind::Pty
-                            && surface_has_view_placement(mux, surface_id))
-                })
+                .filter(|surface| !surface.is_dead() || retains_exited_terminal(mux, surface))
                 .ok_or_else(|| anyhow::anyhow!("unknown surface {surface_id}"))?;
             match (expected_generation, expected_terminal_id) {
                 (Some(generation), Some(terminal)) => {
@@ -19663,7 +19669,13 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn retained_exited_terminal_socket_attach_preserves_output() {
-        for mode in ["bytes", "render"] {
+        use crate::workspace_registry::TerminalOnExit;
+        for (mode, policy) in [
+            ("bytes", TerminalOnExit::Keep),
+            ("render", TerminalOnExit::Keep),
+            ("bytes", TerminalOnExit::Close),
+            ("render", TerminalOnExit::Close),
+        ] {
             let mux = test_mux();
             let workspace = mux.create_empty_workspace(None, None, None).unwrap();
             let id = mux
@@ -19671,7 +19683,7 @@ mod tests {
                     "00000000000040008000000000013290",
                     "10000000000040008000000000013290",
                     &workspace.key,
-                    crate::workspace_registry::TerminalOnExit::Keep,
+                    policy,
                 )
                 .unwrap();
             let surface = mux.surface(id).unwrap();
@@ -19679,7 +19691,7 @@ mod tests {
             surface.with_terminal(|terminal| terminal.vt_write(b"finished-agent-output"));
             let (writer, outbound) = captured_writer();
             let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
-            handle_command(
+            let attached = handle_command(
                 &mux,
                 client,
                 Command::AttachSurface {
@@ -19691,8 +19703,14 @@ mod tests {
                     expected_terminal_id: None,
                 },
                 &writer,
-            )
-            .expect("retained output must remain attachable after child exit");
+            );
+            if policy == TerminalOnExit::Close {
+                assert!(attached.unwrap_err().to_string().contains("unknown surface"));
+                disconnect_client(&mux, client, false);
+                mux.shutdown();
+                continue;
+            }
+            attached.expect("retained output must remain attachable after child exit");
             let initial = pop_json(&outbound);
             if mode == "bytes" {
                 assert_eq!(initial["event"], "vt-state");
