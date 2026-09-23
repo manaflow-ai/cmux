@@ -301,7 +301,18 @@ extension ControlCommandCoordinator {
         if let unresolvable = supplied.first(where: { uuid(params, $0.key) == nil }) {
             return failure(param: unresolvable.key, value: unresolvable.raw, id: nil)
         }
-        if let live = workspaceReorderLiveIDs(params),
+        // With no relative target, `supplied` holds only the subject, so the
+        // list read cannot distinguish anything: the branch below and the
+        // fallback return byte-identical payloads. Skip it. That is the only
+        // shape the sidebar sends (`SwiftViewInterpreter` defaults `Reorderable`
+        // to workspace_id + index), and `controlWorkspaceList` bridges a remote
+        // status payload and formats timestamps for every workspace on the main
+        // actor, so this is the difference between one wasted full list read per
+        // failed drop and none.
+        let hasRelativeTarget = hasNonNull(params, "before_workspace_id")
+            || hasNonNull(params, "after_workspace_id")
+        if hasRelativeTarget,
+           let live = workspaceReorderLiveIDs(params),
            let absent = supplied.first(where: { entry in
                guard let id = uuid(params, entry.key) else { return false }
                return !live.contains(id)
