@@ -1,4 +1,5 @@
 import CmuxCore
+import CMUXDebugLog
 import Darwin
 import AppKit
 import CmuxFoundation
@@ -5068,6 +5069,26 @@ final class WorkspaceTerminalFocusRecoveryTests: XCTestCase {
             }
             defer { NotificationCenter.default.removeObserver(firstResponderToken) }
 
+            func diagSnapshot(_ label: String) -> String {
+                let hv = leftPanel.hostedView
+                let fr = window.firstResponder
+                var frChain: [String] = []
+                var cur: NSView? = fr as? NSView
+                while let v = cur, frChain.count < 6 { frChain.append(String(describing: type(of: v))); cur = v.superview }
+                return "DIAG[\(label)] fr=\(fr.map { String(describing: type(of: $0)) } ?? "nil") frChain=\(frChain) " +
+                    "frInLeft=\((fr as? NSView)?.isDescendant(of: hv) ?? false) " +
+                    "frInRight=\((fr as? NSView)?.isDescendant(of: rightPanel.hostedView) ?? false) " +
+                    "isKey=\(window.isKeyWindow) surfUIWin=\(leftPanel.surface.uiWindow === window) " +
+                    "hvWin=\(hv.window === window) hvUIWin=\(hv.uiWindow === window) " +
+                    "active=\(hv.debugRenderStats().isActive) live=\(leftPanel.surface.hasLiveSurface) " +
+                    "hidden=\(hv.isHiddenOrHasHiddenAncestor) bounds=\(hv.bounds.size) " +
+                    "selTab=\(manager.selectedTabId == workspace.id) focused=\(workspace.focusedPanelId == leftPanel.id) " +
+                    "inputTarget=\(workspace.isFocusedTerminalInputSurface(leftPanel.id)) " +
+                    "allows=\(appDelegate.allowsTerminalKeyboardFocus(workspaceId: workspace.id, panelId: leftPanel.id, in: window)) " +
+                    "tmFor=\(appDelegate.tabManagerFor(tabId: workspace.id) === manager) shared=\(AppDelegate.shared === appDelegate) " +
+                    "count=\(firstResponderFeedbackCount) sawFR=\(sawFirstResponderNotification)"
+            }
+            print(diagSnapshot("before"))
             let transactionId = UUID()
             window.makeFirstResponder(nil)
             workspace.applyTabSelection(
@@ -5084,6 +5105,12 @@ final class WorkspaceTerminalFocusRecoveryTests: XCTestCase {
                 timeout: .seconds(5)
             ) {
                 firstResponderFeedbackCount > 0
+            }
+            print(diagSnapshot("after"))
+            if !firstResponderFeedbackObserved {
+                CMUXDebugLog.DebugEventLog.shared.dump()
+                let logText = (try? String(contentsOfFile: CMUXDebugLog.DebugEventLog.currentLogPath(), encoding: .utf8)) ?? "<no log>"
+                for line in logText.split(separator: "\n").suffix(150) { print("DIAGLOG \(line)") }
             }
             XCTAssertTrue(
                 firstResponderFeedbackObserved,
