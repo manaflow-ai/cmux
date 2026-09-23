@@ -723,6 +723,11 @@ extension MobileShellComposite {
                 wire.reason,
                 limitedToUTF8Bytes: mobileShellAgentFeedSecondaryTextByteLimit
             ),
+            fullTextPreview: agentFeedNormalizedText(
+                wire.fullTextPreview, limitedToUTF8Bytes: mobileShellAgentFeedPrimaryTextByteLimit
+            ),
+            fullTextTruncated: wire.fullTextTruncated
+                || (wire.fullTextPreview?.utf8.count ?? 0) > mobileShellAgentFeedPrimaryTextByteLimit,
             remoteWorkspaceID: agentFeedNormalizedText(
                 wire.workspaceID,
                 limitedToUTF8Bytes: mobileShellAgentFeedIdentifierByteLimit
@@ -909,5 +914,38 @@ extension MobileShellComposite {
             endIndex = nextIndex
         }
         return String(value[..<endIndex])
+    }
+}
+
+
+extension CMUXMobileShellStore {
+    /// Resolve against the exact owner after any connection switch. A deleted
+    /// terminal must never open a different tab or a sibling app instance.
+    public func openAgentFeedDestination(_ item: MobileAgentFeedItem, openTab: Bool) async -> Bool {
+        guard let remoteWorkspaceID = item.remoteWorkspaceID else { return false }
+        let owner = MacPairingKey(macDeviceID: item.macDeviceID, instanceTag: item.macInstanceTag)
+        let foreground = foregroundMacDeviceID.map {
+            MacPairingKey(macDeviceID: $0, instanceTag: activeMacInstanceTag)
+        }
+        if foreground != owner {
+            guard await switchToMac(macDeviceID: item.macDeviceID, instanceTag: item.macInstanceTag) else {
+                return false
+            }
+        }
+        guard !Task.isCancelled,
+              let foregroundMacDeviceID,
+              MacPairingKey(macDeviceID: foregroundMacDeviceID, instanceTag: activeMacInstanceTag) == owner,
+              let destination = workspaceID(matchingRemoteWorkspaceID: remoteWorkspaceID,
+                                            macDeviceID: item.macDeviceID, instanceTag: item.macInstanceTag) else {
+            return false
+        }
+        if openTab {
+            guard let surfaceID = item.remoteSurfaceID,
+                  workspace(destination, containsSurfaceID: surfaceID) else { return false }
+            selectedWorkspaceID = destination
+            selectTerminal(MobileTerminalPreview.ID(rawValue: surfaceID))
+        }
+        navigateToWorkspaceForDeeplink(destination)
+        return true
     }
 }

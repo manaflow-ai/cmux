@@ -22,6 +22,9 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(open.waitForExistence(timeout: 10))
         XCTAssertEqual(open.label, "See more")
         XCTAssertFalse(app.buttons["MobileAgentFeedFullText-short-text-preview"].exists)
+        for identifier in ["MobileWorkspaceSettingsMenu", "MobileWorkspaceMacPicker", "MobileWorkspaceDevicesButton"] {
+            XCTAssertTrue(app.buttons[identifier].exists, identifier)
+        }
         let before = XCTAttachment(screenshot: app.screenshot())
         before.name = "feed-full-text-entry"
         before.lifetime = .keepAlways
@@ -42,6 +45,24 @@ final class cmuxUITests: XCTestCase {
         app.buttons["MobileAgentFeedFullTextClose"].tap()
         XCTAssertTrue(open.waitForExistence(timeout: 5))
         XCTAssertTrue(open.isHittable)
+        let shortText = app.textViews.matching(NSPredicate(format: "label == %@", "Stopped.")).firstMatch
+        XCTAssertTrue(shortText.exists)
+        shortText.press(forDuration: 1)
+        XCTAssertTrue(app.buttons["Open workspace"].waitForExistence(timeout: 3))
+        app.buttons["Open tab"].tap()
+        XCTAssertTrue(app.staticTexts["Opened preview tab"].waitForExistence(timeout: 3))
+        app.navigationBars.buttons.firstMatch.tap()
+        app.tabBars.buttons["Search"].tap()
+        let search = app.searchFields["Search Feed"]
+        XCTAssertTrue(search.waitForExistence(timeout: 3))
+        search.tap()
+        search.typeText("Stopped")
+        XCTAssertTrue(shortText.waitForExistence(timeout: 3))
+        XCTAssertFalse(open.exists)
+        let scopedSearch = XCTAttachment(screenshot: app.screenshot())
+        scopedSearch.name = "feed-scoped-search-and-toolbar"
+        scopedSearch.lifetime = .keepAlways
+        add(scopedSearch)
     }
 
     @MainActor

@@ -3,6 +3,17 @@ import Foundation
 import Testing
 
 @Suite struct MobileAgentFeedItemTests {
+    @Test func searchMatchesContentContextAndOwnerWithoutCaseSensitivity() {
+        let row = MobileAgentFeedItem(
+            macDeviceID: "mac", macDisplayName: "Studio", itemID: "stop", workstreamID: "session",
+            source: "codex", kind: .stop, status: .telemetry, createdAt: .now, updatedAt: .now,
+            stopReason: "Deployed café update", workspaceTitle: "Website",
+            context: MobileAgentFeedContext(lastUserMessage: "Fix the header"), connectionStatus: .connected
+        )
+        for query in ["CODEX", "studio", "website", "header", "cafe"] { #expect(row.matchesFeedSearch(query)) }
+        #expect(!row.matchesFeedSearch("unrelated"))
+    }
+
     private func makeItem(
         kind: MobileAgentFeedItemKind,
         status: MobileAgentFeedItemStatus,

@@ -18,6 +18,7 @@ struct AgentFeedView: View {
     let pendingTerminalReplyItemIDs: Set<MobileAgentFeedItemID>
     let refreshesOnAppear: Bool
     let actions: AgentFeedActions
+    var searchText: String = ""
     @State private var filter: AgentFeedFilter = .all
     @State private var now = Date()
     @State private var composeContext: AgentFeedComposeContext?
@@ -38,7 +39,9 @@ struct AgentFeedView: View {
         // own prompts stay out even when an older Mac still sends them (a
         // prompt shows as the quoted context line under agent rows instead);
         // failed tool results are notable and stay visible.
+        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
         let notable = items.filter { item in
+            guard query.isEmpty || item.matchesFeedSearch(query) else { return false }
             switch item.kind {
             case .toolUse, .userPrompt:
                 return false
@@ -75,8 +78,7 @@ struct AgentFeedView: View {
                 feedList
             }
         }
-        // The Feed carries no navigation title: the timeline itself is the
-        // header, and the toolbar hosts only the filter menu.
+        // The shell supplies the shared computer and settings toolbar.
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 AgentFeedFilterMenu(
@@ -103,8 +105,13 @@ struct AgentFeedView: View {
         List {
             Section {
                 if visibleItems.isEmpty {
-                    AgentFeedEmptyView(filter: filter)
-                        .listRowSeparator(.hidden)
+                    if !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        ContentUnavailableView.search(text: searchText)
+                            .listRowSeparator(.hidden)
+                    } else {
+                        AgentFeedEmptyView(filter: filter)
+                            .listRowSeparator(.hidden)
+                    }
                 } else {
                     ForEach(visibleItems, id: \.id) { item in
                         AgentFeedRow(

@@ -12,6 +12,9 @@ struct AgentFeedStoreView: View {
     let pendingReplyRequestIDs: Set<String>
     let pendingTerminalReplyItemIDs: Set<MobileAgentFeedItemID>
 
+    @State private var showsNavigationFailure = false
+    @Bindable var searchCoordinator: MobilePrimarySearchCoordinator
+
     var body: some View {
         AgentFeedView(
             items: items,
@@ -19,8 +22,16 @@ struct AgentFeedStoreView: View {
             pendingReplyRequestIDs: pendingReplyRequestIDs,
             pendingTerminalReplyItemIDs: pendingTerminalReplyItemIDs,
             refreshesOnAppear: true,
-            actions: actions
+            actions: actions,
+            searchText: searchCoordinator.searchDestinationText(for: .feed)
         )
+        .alert(String(localized: "mobile.agentFeed.openFailed.title", defaultValue: "Couldn’t open event", bundle: .module),
+               isPresented: $showsNavigationFailure) {
+            Button(String(localized: "mobile.agentFeed.fullText.close", defaultValue: "Close", bundle: .module), role: .cancel) {}
+        } message: {
+            Text(String(localized: "mobile.agentFeed.openFailed.message",
+                        defaultValue: "The event’s computer, workspace, or tab is no longer available.", bundle: .module))
+        }
     }
 
     private var actions: AgentFeedActions {
@@ -37,6 +48,12 @@ struct AgentFeedStoreView: View {
             },
             terminalReply: { item, text in
                 Task { await store.submitAgentFeedTerminalReply(item, text: text) }
+            },
+            openWorkspace: { item in
+                Task { showsNavigationFailure = !(await store.openAgentFeedDestination(item, openTab: false)) }
+            },
+            openTab: { item in
+                Task { showsNavigationFailure = !(await store.openAgentFeedDestination(item, openTab: true)) }
             },
             loadFullText: { item in
                 try await store.loadAgentFeedFullText(item)

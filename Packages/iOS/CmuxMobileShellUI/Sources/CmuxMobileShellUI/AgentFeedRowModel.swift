@@ -186,6 +186,9 @@ struct AgentFeedRowPresentation: Equatable, Sendable {
     }
 
     private static func outputText(for item: MobileAgentFeedItem) -> String? {
+        if item.kind != .toolResult, let preview = normalized(item.fullTextPreview) {
+            return preview
+        }
         switch item.kind {
         case .permissionRequest:
             return normalized(item.context?.assistantPreamble)

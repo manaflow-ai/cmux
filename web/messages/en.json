@@ -5730,5 +5730,21 @@
     "organization": "Organization",
     "personalAccount": "personal account",
     "switchAccountButton": "Use a different account"
+  },
+  "mobile": {
+    "agentFeed": {
+      "fullText": {
+        "seeMore": "See more"
+      },
+      "search": {
+        "placeholder": "Search Feed"
+      },
+      "openWorkspace": "Open workspace",
+      "openTab": "Open tab",
+      "openFailed": {
+        "title": "Couldn’t open event",
+        "message": "The event’s computer, workspace, or tab is no longer available."
+      }
+    }
   }
 }

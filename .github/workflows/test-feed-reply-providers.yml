@@ -39,6 +39,7 @@ jobs:
         run: |
           swift test --package-path Packages/iOS/CmuxMobileShell --filter MobileAgentFeedTerminalReplyTests
           swift test --package-path Packages/iOS/CmuxMobileRPC --filter MobileCoreRPCNotificationFeedAuthTests
+          swift test --package-path Packages/iOS/CmuxMobileShellModel --filter MobileAgentFeedItemTests
   verify:
     if: ${{ !inputs.full_text_only }}
     runs-on: blacksmith-6vcpu-macos-26

@@ -169,6 +169,12 @@ extension TerminalController {
                 dict["context"] = contextDict
             }
         }
+        // Reading metadata is independent of layout truncation on the phone.
+        // Keep a canonical preview so the row and the reader describe the same text.
+        let readingText = item.fullText
+        let readingPreview = Self.mobileFeedString(readingText, limitedToUTF8Bytes: 8_000)
+        dict["full_text_preview"] = readingPreview
+        dict["full_text_truncated"] = readingPreview != readingText
         return dict
     }
 

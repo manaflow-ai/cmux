@@ -439,6 +439,7 @@ struct WorkspaceShellView: View {
         } feed: {
             NavigationStack {
                 agentFeedStoreView(for: presentation)
+                    .toolbar { rootToolbarContent }
             }
         } notifications: {
             NavigationStack(path: $notificationNavigationPath) {
@@ -527,6 +528,8 @@ struct WorkspaceShellView: View {
                                 createWorkspaceGroupAction: createWorkspaceGroupFromSearchClosure
                             )
                         }
+                    case .feed:
+                        agentFeedStoreView(for: presentation)
                     case .notifications:
                         NotificationFeedStoreView(
                             store: store,
@@ -997,6 +1000,8 @@ struct WorkspaceShellView: View {
         .searchScopes(splitSearchScope, activation: .onSearchPresentation) {
             Text(L10n.string("mobile.tabs.workspaces", defaultValue: "Workspaces"))
                 .tag(MobilePrimarySearchScope.workspaces)
+            Text(L10n.string("mobile.tabs.feed", defaultValue: "Feed"))
+                .tag(MobilePrimarySearchScope.feed)
             Text(L10n.string("mobile.tabs.notifications", defaultValue: "Notifications"))
                 .tag(MobilePrimarySearchScope.notifications)
         }
@@ -1198,6 +1203,8 @@ struct WorkspaceShellView: View {
 
     private var splitSearchPrompt: Text {
         switch splitSearchFieldScope {
+        case .feed:
+            Text(L10n.string("mobile.agentFeed.search.placeholder", defaultValue: "Search Feed"))
         case .workspaces:
             Text(
                 L10n.string(
@@ -1395,7 +1402,13 @@ struct WorkspaceShellView: View {
             notificationUnreadCount: notificationUnreadCount,
             notificationFeedStatus: store.notificationFeedStatus(scopedTo: selectedMachineIDs),
             selectedNotificationFeedMacDeviceIDs: selectedMachineIDs,
-            agentFeedItems: store.agentFeedItems,
+            agentFeedItems: store.agentFeedItems.filter { item in
+                guard let selectedMachineIDs else { return true }
+                return selectedMachineIDs.contains(item.macDeviceID)
+                    || selectedMachineIDs.contains(MobilePairedMac.pairingID(
+                        macDeviceID: item.macDeviceID, instanceTag: item.macInstanceTag
+                    ))
+            },
             agentFeedStatus: store.agentFeedStatus,
             agentFeedNeedsInputCount: store.agentFeedNeedsInputCount,
             agentFeedPendingReplyRequestIDs: store.agentFeedPendingReplyRequestIDs,
@@ -1414,7 +1427,8 @@ struct WorkspaceShellView: View {
             items: presentation.agentFeedItems,
             status: presentation.agentFeedStatus,
             pendingReplyRequestIDs: presentation.agentFeedPendingReplyRequestIDs,
-            pendingTerminalReplyItemIDs: presentation.agentFeedPendingTerminalReplyItemIDs
+            pendingTerminalReplyItemIDs: presentation.agentFeedPendingTerminalReplyItemIDs,
+            searchCoordinator: primarySearchCoordinator
         )
     }
 
@@ -1637,6 +1651,7 @@ struct WorkspaceShellView: View {
         switch primarySearchCoordinator.scope {
         case .workspaces: .workspaces
         case .notifications: .notifications
+        case .feed: .feed
         }
     }
 

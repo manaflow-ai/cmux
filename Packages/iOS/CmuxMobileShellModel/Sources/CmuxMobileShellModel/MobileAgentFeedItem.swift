@@ -192,6 +192,8 @@ public struct MobileAgentFeedItem: Identifiable, Equatable, Sendable {
     public let text: String?
     /// The stop reason for turn-complete rows, when the agent gave one.
     public let stopReason: String?
+    public let fullTextPreview: String?
+    public let fullTextTruncated: Bool
     /// The Mac-local workspace identifier to route replies to, when resolved.
     public let remoteWorkspaceID: String?
     /// The Mac-local pane or terminal-surface identifier, when resolved.
@@ -250,6 +252,8 @@ public struct MobileAgentFeedItem: Identifiable, Equatable, Sendable {
         questions: [MobileAgentFeedQuestion] = [],
         text: String? = nil,
         stopReason: String? = nil,
+        fullTextPreview: String? = nil,
+        fullTextTruncated: Bool = false,
         remoteWorkspaceID: String? = nil,
         remoteSurfaceID: String? = nil,
         workspaceTitle: String? = nil,
@@ -287,6 +291,8 @@ public struct MobileAgentFeedItem: Identifiable, Equatable, Sendable {
         self.questions = questions
         self.text = text
         self.stopReason = stopReason
+        self.fullTextPreview = fullTextPreview
+        self.fullTextTruncated = fullTextTruncated
         self.remoteWorkspaceID = remoteWorkspaceID
         self.remoteSurfaceID = remoteSurfaceID
         self.workspaceTitle = workspaceTitle
@@ -329,6 +335,8 @@ public struct MobileAgentFeedItem: Identifiable, Equatable, Sendable {
             questions: questions,
             text: text,
             stopReason: stopReason,
+            fullTextPreview: fullTextPreview,
+            fullTextTruncated: fullTextTruncated,
             remoteWorkspaceID: remoteWorkspaceID,
             remoteSurfaceID: remoteSurfaceID,
             workspaceTitle: workspaceTitle,
@@ -338,5 +346,19 @@ public struct MobileAgentFeedItem: Identifiable, Equatable, Sendable {
             userReply: userReply ?? self.userReply,
             triagedNeedsInput: triagedNeedsInput ?? self.triagedNeedsInput
         )
+    }
+}
+
+public extension MobileAgentFeedItem {
+    /// Search the retained preview and its visible context, without fetching every full message.
+    func matchesFeedSearch(_ query: String) -> Bool {
+        let fields = [source, macDisplayName, title, workspaceTitle, surfaceTitle,
+                      text, stopReason, fullTextPreview, plan, planSummary, toolName, toolInput, toolResult,
+                      context?.lastUserMessage, context?.assistantPreamble, userReply]
+        return fields.contains { $0?.localizedStandardContains(query) == true }
+            || questions.contains { question in
+                question.prompt.localizedStandardContains(query)
+                    || question.header?.localizedStandardContains(query) == true
+            }
     }
 }

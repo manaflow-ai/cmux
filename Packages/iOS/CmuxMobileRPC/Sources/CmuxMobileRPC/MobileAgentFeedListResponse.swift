@@ -99,6 +99,8 @@ public struct MobileAgentFeedListItem: Decodable, Equatable, Sendable {
     public let surfaceTitle: String?
     /// Nearby conversation context carried with the item.
     public let context: MobileAgentFeedListContext?
+    public let fullTextPreview: String?
+    public let fullTextTruncated: Bool
 
     private enum CodingKeys: String, CodingKey {
         case id
@@ -127,6 +129,8 @@ public struct MobileAgentFeedListItem: Decodable, Equatable, Sendable {
         case workspaceTitle = "workspace_title"
         case surfaceTitle = "surface_title"
         case context
+        case fullTextPreview = "full_text_preview"
+        case fullTextTruncated = "full_text_truncated"
     }
 
     public init(
@@ -155,7 +159,9 @@ public struct MobileAgentFeedListItem: Decodable, Equatable, Sendable {
         surfaceID: String? = nil,
         workspaceTitle: String? = nil,
         surfaceTitle: String? = nil,
-        context: MobileAgentFeedListContext? = nil
+        context: MobileAgentFeedListContext? = nil,
+        fullTextPreview: String? = nil,
+        fullTextTruncated: Bool = false
     ) {
         self.id = id
         self.workstreamID = workstreamID
@@ -183,6 +189,8 @@ public struct MobileAgentFeedListItem: Decodable, Equatable, Sendable {
         self.workspaceTitle = workspaceTitle
         self.surfaceTitle = surfaceTitle
         self.context = context
+        self.fullTextPreview = fullTextPreview
+        self.fullTextTruncated = fullTextTruncated
     }
 
     public init(from decoder: any Decoder) throws {
@@ -216,6 +224,8 @@ public struct MobileAgentFeedListItem: Decodable, Equatable, Sendable {
         workspaceTitle = try container.decodeIfPresent(String.self, forKey: .workspaceTitle)
         surfaceTitle = try container.decodeIfPresent(String.self, forKey: .surfaceTitle)
         context = try container.decodeIfPresent(MobileAgentFeedListContext.self, forKey: .context)
+        fullTextPreview = try container.decodeIfPresent(String.self, forKey: .fullTextPreview)
+        fullTextTruncated = try container.decodeIfPresent(Bool.self, forKey: .fullTextTruncated) ?? false
     }
 
     /// The wire carries ISO8601 timestamps (the Mac side encodes with

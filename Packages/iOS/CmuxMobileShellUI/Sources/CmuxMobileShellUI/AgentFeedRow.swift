@@ -12,6 +12,8 @@ struct AgentFeedActions {
     var terminalReply: @MainActor (MobileAgentFeedItem, _ text: String) -> Void = { _, _ in }
     /// Opens the X-style reply composer sheet; rows never host a keyboard.
     var beginCompose: @MainActor (MobileAgentFeedItem, AgentFeedComposeContext.Kind) -> Void = { _, _ in }
+    var openWorkspace: @MainActor (MobileAgentFeedItem) -> Void = { _ in }
+    var openTab: @MainActor (MobileAgentFeedItem) -> Void = { _ in }
     var viewFullText: @MainActor (MobileAgentFeedItem) -> Void = { _ in }
     var loadFullText: @MainActor (MobileAgentFeedItem) async throws -> String = { _ in
         throw URLError(.unsupportedURL)
@@ -104,29 +106,33 @@ struct AgentFeedRow: View, Equatable {
                     quotedMessage(quoted)
                 }
                 if let output = model.presentation.outputText {
-                    Text(verbatim: output)
-                        .font(.subheadline)
-                        .foregroundStyle(.primary)
-                        .lineLimit(8)
-                        .fixedSize(horizontal: false, vertical: true)
+                    AgentFeedInlineText(
+                        text: output,
+                        hasMoreText: model.item.fullTextTruncated,
+                        lineLimit: 8,
+                        itemID: model.item.itemID,
+                        open: { actions.viewFullText(model.item) }
+                    )
                 }
                 if let toolLine = model.presentation.toolLine {
-                    Text(toolLine)
-                        .font(.caption.monospaced())
-                        .foregroundStyle(model.item.toolResultIsError ? .red : .secondary)
-                        .lineLimit(2)
-                }
-                if model.presentation.outputText != nil || model.presentation.toolLine != nil {
-                    Button {
-                        actions.viewFullText(model.item)
-                    } label: {
-                        Text(String(localized: "mobile.agentFeed.fullText.open",
-                                    defaultValue: "View full text", bundle: .module))
-                            .font(.footnote.weight(.medium))
-                            .frame(minHeight: 44, alignment: .leading)
+                    if model.item.kind == .toolResult {
+                        AgentFeedInlineText(
+                            text: toolLine,
+                            hasMoreText: model.item.fullTextTruncated
+                                || model.item.fullTextPreview.map { $0 != toolLine } == true,
+                            lineLimit: 2,
+                            itemID: model.item.itemID,
+                            textStyle: .caption1,
+                            monospaced: true,
+                            color: model.item.toolResultIsError ? .systemRed : .secondaryLabel,
+                            open: { actions.viewFullText(model.item) }
+                        )
+                    } else {
+                        Text(toolLine)
+                            .font(.caption.monospaced())
+                            .foregroundStyle(.secondary)
+                            .lineLimit(2)
                     }
-                    .buttonStyle(.borderless)
-                    .accessibilityIdentifier("MobileAgentFeedFullText-\(model.item.itemID)")
                 }
                 if let resolution = model.presentation.resolutionLabel {
                     resolutionLine(resolution)
@@ -149,6 +155,24 @@ struct AgentFeedRow: View, Equatable {
         }
         .padding(.vertical, 10)
         .accessibilityElement(children: .contain)
+        .contextMenu {
+            if model.item.connectionStatus == .connected, model.item.remoteWorkspaceID != nil {
+                Button {
+                    actions.openWorkspace(model.item)
+                } label: {
+                    Label(String(localized: "mobile.agentFeed.openWorkspace", defaultValue: "Open workspace", bundle: .module),
+                          systemImage: "rectangle.stack")
+                }
+                if model.item.remoteSurfaceID != nil {
+                    Button {
+                        actions.openTab(model.item)
+                    } label: {
+                        Label(String(localized: "mobile.agentFeed.openTab", defaultValue: "Open tab", bundle: .module),
+                              systemImage: "terminal")
+                    }
+                }
+            }
+        }
     }
 
     private var avatar: some View {

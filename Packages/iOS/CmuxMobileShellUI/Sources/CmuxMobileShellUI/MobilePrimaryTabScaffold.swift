@@ -49,11 +49,13 @@ struct MobilePrimaryTabScaffold<
                 TabView(selection: tabSelection) {
                     primaryTabs
 
-                    Tab(value: MobilePrimaryTab.search, role: .search) {
-                        search
-                            .environment(\.mobilePrimarySearchDestination, true)
+                    if selection == .search || selection.searchScope != nil {
+                        Tab(value: MobilePrimaryTab.search, role: .search) {
+                            search
+                                .environment(\.mobilePrimarySearchDestination, true)
+                        }
+                        .accessibilityIdentifier("MobilePrimaryTabSearch")
                     }
-                    .accessibilityIdentifier("MobilePrimaryTabSearch")
                 }
                 .tabViewSearchActivation(.searchTabSelection)
                 .accessibilityIdentifier("MobilePrimaryTabs")
