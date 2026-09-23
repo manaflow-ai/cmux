@@ -1,0 +1,30 @@
+name: Feed full text tests
+on:
+  pull_request:
+    paths:
+      - "**/*Feed*"
+      - "**/*Workstream*"
+      - ".github/workflows/test-feed-full-text.yml"
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Exact source commit
+        required: true
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: blacksmith-6vcpu-macos-26
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: ${{ inputs.ref || github.event.pull_request.head.sha }}
+          submodules: recursive
+          persist-credentials: false
+      - name: Test retained text and UTF-8 pagination
+        run: swift test --package-path Packages/macOS/CMUXAgentLaunch --filter WorkstreamFullTextTests
+      - name: Test mobile reading and authorization
+        run: |
+          swift test --package-path Packages/iOS/CmuxMobileShell --filter MobileAgentFeedTerminalReplyTests
+          swift test --package-path Packages/iOS/CmuxMobileRPC --filter MobileCoreRPCNotificationFeedAuthTests

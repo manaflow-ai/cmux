@@ -38,6 +38,9 @@ struct AgentFeedStoreView: View {
             terminalReply: { item, text in
                 Task { await store.submitAgentFeedTerminalReply(item, text: text) }
             },
+            loadFullText: { item in
+                try await store.loadAgentFeedFullText(item)
+            },
             setNeedsInput: { item, needsInput in
                 store.setAgentFeedItemNeedsInput(item, needsInput)
             },

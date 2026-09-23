@@ -119,7 +119,7 @@ extension MobileHostService {
                 workspaceSelection: workspaceSelection.value,
                 terminalSelection: terminalSelection.value
             )
-        case "feed.list":
+        case "feed.list", "feed.text":
             // Same account-authoritative read model as notification.feed.list
             // below: the workstream feed spans the Mac's workspaces, so an
             // attach ticket neither widens nor narrows it.

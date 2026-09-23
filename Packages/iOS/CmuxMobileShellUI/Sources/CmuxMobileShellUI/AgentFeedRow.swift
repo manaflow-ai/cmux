@@ -12,6 +12,10 @@ struct AgentFeedActions {
     var terminalReply: @MainActor (MobileAgentFeedItem, _ text: String) -> Void = { _, _ in }
     /// Opens the X-style reply composer sheet; rows never host a keyboard.
     var beginCompose: @MainActor (MobileAgentFeedItem, AgentFeedComposeContext.Kind) -> Void = { _, _ in }
+    var viewFullText: @MainActor (MobileAgentFeedItem) -> Void = { _ in }
+    var loadFullText: @MainActor (MobileAgentFeedItem) async throws -> String = { _ in
+        throw URLError(.unsupportedURL)
+    }
     /// Local needs-input triage — the Feed's mark-read/unread analogue.
     var setNeedsInput: @MainActor (MobileAgentFeedItem, Bool) -> Void = { _, _ in }
     var refresh: @MainActor () async -> Void = {}
@@ -100,16 +104,29 @@ struct AgentFeedRow: View, Equatable {
                     quotedMessage(quoted)
                 }
                 if let output = model.presentation.outputText {
-                    AgentFeedRowOutputText(
-                        text: output,
-                        isExpandable: model.presentation.outputIsExpandable
-                    )
+                    Text(verbatim: output)
+                        .font(.subheadline)
+                        .foregroundStyle(.primary)
+                        .lineLimit(8)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
                 if let toolLine = model.presentation.toolLine {
                     Text(toolLine)
                         .font(.caption.monospaced())
                         .foregroundStyle(model.item.toolResultIsError ? .red : .secondary)
                         .lineLimit(2)
+                }
+                if model.presentation.outputText != nil || model.presentation.toolLine != nil {
+                    Button {
+                        actions.viewFullText(model.item)
+                    } label: {
+                        Text(String(localized: "mobile.agentFeed.fullText.open",
+                                    defaultValue: "View full text", bundle: .module))
+                            .font(.footnote.weight(.medium))
+                            .frame(minHeight: 44, alignment: .leading)
+                    }
+                    .buttonStyle(.borderless)
+                    .accessibilityIdentifier("MobileAgentFeedFullText-\(model.item.itemID)")
                 }
                 if let resolution = model.presentation.resolutionLabel {
                     resolutionLine(resolution)
@@ -131,7 +148,7 @@ struct AgentFeedRow: View, Equatable {
             }
         }
         .padding(.vertical, 10)
-        .accessibilityElement(children: .combine)
+        .accessibilityElement(children: .contain)
     }
 
     private var avatar: some View {
@@ -299,46 +316,6 @@ struct AgentFeedRow: View, Equatable {
             return decision.mode == "deny" ? "xmark.circle" : "checkmark.circle"
         case .pending, .telemetry:
             return "checkmark.circle"
-        }
-    }
-}
-
-/// The inline agent output, collapsed past ~600 characters behind a local
-/// "Show more" toggle (plan texts routinely run pages long).
-private struct AgentFeedRowOutputText: View {
-    let text: String
-    let isExpandable: Bool
-    @State private var isExpanded = false
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(text)
-                .font(.subheadline)
-                .foregroundStyle(.primary)
-                .lineLimit(isExpandable && !isExpanded ? 8 : nil)
-                .fixedSize(horizontal: false, vertical: true)
-            if isExpandable {
-                Button {
-                    // No animation: the row grows downward in place, so the
-                    // top of the row never moves while expanding.
-                    isExpanded.toggle()
-                } label: {
-                    Text(isExpanded
-                        ? String(
-                            localized: "mobile.agentFeed.showLess",
-                            defaultValue: "Show less",
-                            bundle: .module
-                        )
-                        : String(
-                            localized: "mobile.agentFeed.showMore",
-                            defaultValue: "Show more",
-                            bundle: .module
-                        ))
-                        .font(.footnote.weight(.medium))
-                }
-                .buttonStyle(.plain)
-                .foregroundStyle(Color.accentColor)
-            }
         }
     }
 }

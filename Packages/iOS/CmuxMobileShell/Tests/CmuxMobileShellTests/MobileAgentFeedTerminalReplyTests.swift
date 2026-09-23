@@ -105,6 +105,47 @@ struct MobileAgentFeedTerminalReplyTests {
         #expect(await router.pastes.count == 1)
     }
 
+    @Test("Full text reading joins all pages from the owning Mac")
+    func readFullText() async throws {
+        let router = RoutingHostRouter()
+        let store = try await makeRoutingConnectedStore(
+            router: router, hostCapabilities: [MobileShellComposite.agentFeedCapability]
+        )
+        let row = try item(in: store)
+        let first = String(repeating: "paragraph\n", count: 1_200)
+        await router.setFeedTextPages([(first, 1, first.utf8.count), ("FINAL 👋", 1, nil)])
+        #expect(try await store.loadAgentFeedFullText(row) == first + "FINAL 👋")
+        let requests = await router.feedTextRequests
+        #expect(requests.count == 2)
+        #expect(requests.first?.itemID == row.itemID)
+        #expect(requests.last?.offset == first.utf8.count)
+        #expect(requests.last?.version == 1)
+    }
+
+    @Test("Changed content and nonadvancing pages fail instead of displaying partial text")
+    func invalidFullTextPage() async throws {
+        let router = RoutingHostRouter()
+        let store = try await makeRoutingConnectedStore(
+            router: router, hostCapabilities: [MobileShellComposite.agentFeedCapability]
+        )
+        let row = try item(in: store)
+        await router.setFeedTextPages([("start", 1, 5), ("different", 2, nil)])
+        await #expect(throws: URLError.self) { try await store.loadAgentFeedFullText(row) }
+        await router.setFeedTextPages([("start", 1, 0)])
+        await #expect(throws: URLError.self) { try await store.loadAgentFeedFullText(row) }
+    }
+
+    @Test("An offline reading target cannot fall back to the selected Mac")
+    func offlineFullText() async throws {
+        let router = RoutingHostRouter()
+        let store = try await makeRoutingConnectedStore(
+            router: router, hostCapabilities: [MobileShellComposite.agentFeedCapability]
+        )
+        let row = try item(in: store, instanceTag: "offline")
+        await #expect(throws: URLError.self) { try await store.loadAgentFeedFullText(row) }
+        #expect(await router.feedTextRequests.isEmpty)
+    }
+
     @Test("An offline tagged owner cannot fall back to another instance")
     func offlineTaggedOwner() async throws {
         let router = RoutingHostRouter()

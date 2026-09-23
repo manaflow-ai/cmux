@@ -61,6 +61,12 @@ actor RoutingHostRouter {
     private(set) var pasteImages: [PasteImageRecord] = []
     private(set) var pastes: [PasteRecord] = []
     private var feedPasteSubmitted = true
+    private var feedTextPages: [(text: String, version: Double, nextOffset: Int?)] = []
+    private(set) var feedTextRequests: [(itemID: String?, offset: Int?, version: Double?)] = []
+
+    func setFeedTextPages(_ pages: [(text: String, version: Double, nextOffset: Int?)]) {
+        feedTextPages = pages
+    }
 
     func setFeedPasteSubmitted(_ submitted: Bool) {
         feedPasteSubmitted = submitted
@@ -258,12 +264,23 @@ actor RoutingHostRouter {
         var uploadTotalBytes: Int?
         var workspaceID: String?
         var submitKey: String?
+        var itemID: String?
+        var feedTextVersion: Double?
     }
 
     func response(_ info: RequestInfo) async -> Data? {
         let method = info.method
         let id = info.id
         switch method {
+        case "feed.text":
+            feedTextRequests.append((info.itemID, info.directoryOffset, info.feedTextVersion))
+            guard !feedTextPages.isEmpty else {
+                return try? Self.resultFrame(id: id, result: ["text": "", "version": 1.0])
+            }
+            let page = feedTextPages.removeFirst()
+            var result: [String: Any] = ["text": page.text, "version": page.version]
+            if let next = page.nextOffset { result["next_offset"] = next }
+            return try? Self.resultFrame(id: id, result: result)
         case "workspace.list", "mobile.workspace.list":
             return try? workspaceListFrame(id: id)
         case "terminal.create":
@@ -632,7 +649,9 @@ private actor RoutingTransport: CmxByteTransport {
                 uploadLast: params?["last"] as? Bool,
                 uploadTotalBytes: params?["total_bytes"] as? Int,
                 workspaceID: params?["workspace_id"] as? String,
-                submitKey: params?["submit_key"] as? String
+                submitKey: params?["submit_key"] as? String,
+                itemID: params?["item_id"] as? String,
+                feedTextVersion: params?["version"] as? Double
             )
             Task { [router, weak self] in
                 guard let response = await router.response(info) else {

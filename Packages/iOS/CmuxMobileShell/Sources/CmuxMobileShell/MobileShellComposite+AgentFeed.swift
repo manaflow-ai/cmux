@@ -16,6 +16,17 @@ nonisolated private let mobileShellAgentFeedSecondaryTextByteLimit = 2_048
 nonisolated private let mobileShellAgentFeedMetadataByteLimit = 512
 nonisolated private let mobileShellAgentFeedMaxItemCount = 400
 
+private struct AgentFeedTextPage: Decodable {
+    let text: String
+    let version: Double
+    let nextOffset: Int?
+
+    enum CodingKeys: String, CodingKey {
+        case text, version
+        case nextOffset = "next_offset"
+    }
+}
+
 private struct AgentFeedStopDuplicateKey: Hashable {
     let macDeviceID: String
     let workstreamID: String
@@ -528,6 +539,39 @@ extension MobileShellComposite {
         guard didResolve else { return }
         agentFeedSnapshotsByMac[ownerKey] = snapshot
         recomputeAgentFeedItems()
+    }
+
+    /// Fetches the retained message from its exact Mac instance on demand.
+    /// Pages are published to the reader only after the entire read succeeds.
+    public func loadAgentFeedFullText(_ item: MobileAgentFeedItem) async throws -> String {
+        let owner = agentFeedOwnerKey(for: item)
+        guard let client = agentFeedClient(for: owner) else { throw URLError(.notConnectedToInternet) }
+        var text = ""
+        var offset = 0
+        var version: Double?
+        repeat {
+            try Task.checkCancellation()
+            guard agentFeedClient(for: owner) === client else { throw URLError(.networkConnectionLost) }
+            var params: [String: Any] = ["item_id": item.itemID, "offset": offset]
+            if let version { params["version"] = version }
+            let request = try MobileCoreRPCClient.requestData(method: "feed.text", params: params)
+            let data = try await client.sendRequest(request)
+            let page = try JSONDecoder().decode(AgentFeedTextPage.self, from: data)
+            try Task.checkCancellation()
+            guard agentFeedClient(for: owner) === client,
+                  version == nil || version == page.version,
+                  page.text.utf8.count <= 16_384,
+                  text.utf8.count + page.text.utf8.count <= 8_388_608 else {
+                throw URLError(.cannotDecodeContentData)
+            }
+            version = page.version
+            text += page.text
+            guard let next = page.nextOffset else { return text }
+            guard next > offset, next == offset + page.text.utf8.count else {
+                throw URLError(.cannotDecodeContentData)
+            }
+            offset = next
+        } while true
     }
 
     // MARK: - Wire mapping

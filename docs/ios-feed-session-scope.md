@@ -2,7 +2,7 @@
 
 This is the living scope record for the Feed work continued in this session. It includes the existing feature carried forward, subsequent user requests, implementation decisions, evidence, and unfinished work. Code being present does not mean the feature has passed a real phone check.
 
-- Updated: 2026-09-16. Installation and authentication observations were refreshed on 2026-09-16; earlier feature-test results retain their original dates.
+- Updated: 2026-09-23. Installation and authentication observations were refreshed on 2026-09-16; earlier feature-test results retain their original dates.
 - Branch: `task-ios-feed-tab`.
 - Initial feature inventory snapshot: `c8ec337d105`. Later changes are recorded below.
 - [Pull request 10218](https://github.com/manaflow-ai/cmux/pull/10218), author: Abdulaziz Albahar (`azooz2003-bit`).
@@ -26,7 +26,7 @@ These capabilities were already on this feature branch when this session continu
 | ID | Capability and current behavior | Status | Evidence / remaining work |
 | --- | --- | --- | --- |
 | F01 | Dedicated iOS Feed tab with a full-width, newest-first timeline across paired Macs; separate Notifications tab. | Built | Ordering and per-Mac state tests pass. Latest phone presentation remains pending. |
-| F02 | Agent identity, relative time, quoted user prompt, assistant output, plans, stop reasons, and failed tool results. Long output supports Show more. | Built | Source inventory; latest visual checks pending. |
+| F02 | Agent identity, relative time, quoted user prompt, assistant output, plans, stop reasons, and failed tool results. Messages offer View full text, opening a selectable reading sheet backed by paged Mac reads. | Built | Source inventory; latest visual checks pending. |
 | F03 | Reduce timeline noise: omit routine tool use, successful tool results, and standalone user prompts. Keep prompts as context; unwrap encoded plan envelopes into readable content. | Built | Source and branch history; mixed-history visual check pending. |
 | F04 | Permission actions: Allow once, Always, Deny, plus All tools and Bypass in an overflow menu. | Built | Uses the existing Mac decision handler. Provider support depends on its native integration; terminal reply tests do not prove permission support. |
 | F05 | Plan actions: approve with the supplied default mode, choose another available mode, deny, or send revision feedback. | Built | Shared Mac decision path; complete visual and provider behavior checks pending. |
@@ -56,6 +56,8 @@ These capabilities were already on this feature branch when this session continu
 | F24 | Refresh rejected personal development credentials through `scripts/setup-team-dev.sh --refresh`, preserving the agent profile and requiring verification before replacement. | Built | Three regression tests pass for successful refresh, rejected credentials, and unavailable sign-in service. Optional password recovery remains available. This session instead used a genuine development server session, so the user did not need to enter credentials or run a command. |
 | F25 | Pull the latest `main` into this branch and reinstall matching Mac/iPhone apps with the Feed work preserved. | Partial | Merged main through `5994f5e3332` in `a496ef635cd`. Refreshed Mac installed; phone archive stamped `874c67d21c6` signed and retained locally. Physical installation and pairing remain blocked by phone availability. Latest simulator attempt failed because of a stale Sentry module cache. |
 
+| F26 | Read the full retained message from a Feed row, with selectable text, scrolling, Close, loading, and retry. New completion hooks retain full text and line breaks across providers. | Built; verification pending | Replaces the length-based Show more toggle with View full text. Reads 16 KiB pages from the exact owning Mac. Existing summaries cannot recover text that was never retained. |
+
 ## Decisions
 
 | ID | Decision | Origin and consequences |
@@ -80,6 +82,10 @@ These capabilities were already on this feature branch when this session continu
 | D17 | Preserve main’s iPhone/iPad navigation structure while adding Feed to each supported destination control. | Merge resolution. Native tabs remain on compact layouts; the existing split-sidebar destination control gains Feed. Existing Feed English/Japanese strings are retained alongside main’s newer translations. |
 
 | D18 | Await the shared terminal submission operation in main’s new macOS notification and relayed-phone reply callers before recording delivery. | Semantic merge repair: the Feed branch made paste/submit asynchronous, so newly merged callers must propagate that contract. Existing partial-paste handling remains unchanged to avoid typing a reply twice. |
+
+| D19 | Keep Feed previews bounded; fetch retained message text only when opened. Never show a partial download as a complete message. | Engineering choice for F26; protects scrolling and transport limits. |
+| D20 | Full-text reads use the same authenticated account boundary as feed.list and retain exact Mac tag ownership. Reads do not open paths or send terminal input; remote SSH relay remains denied. | Engineering choice for F26. |
+| D21 | The reader displays retained content as selectable plain text. Historical summaries and text omitted by a provider cannot be reconstructed. Reads exceeding 8 MiB fail explicitly. | Known limit of F26; no backfill promised. |
 
 ## Provider coverage
 
@@ -164,6 +170,7 @@ These are outstanding parts of existing scope or limits that affect its acceptan
 
 | Date | Change |
 | --- | --- |
+| 2026-09-23 | Added F26 for the full-text request. Implemented a reading sheet, paged reads, provider-neutral completion preservation, all nine locale translations, and focused pagination/routing tests. Updated the worktree to upstream branch head e6b60c29617 before edits. Verification and delivery remain separately tracked. |
 | 2026-09-15 | Created the session inventory from user requests, current source, branch history, and recorded verification. Distinguished implementation from evidence, and recorded remaining installation, pairing, submission, UI, and test gaps. No product scope added or removed. |
 | 2026-09-15 | Investigated the user's inability to connect to the Mac. Confirmed working servers, an installed phone app, and rejected personal credentials; aligned the Mac server configuration and refreshed installation tooling. Added F24 for credential recovery within F20, with D15 and V11–V12 recording the repair and remaining blocker. |
 | 2026-09-15 | Ran the requested tagged dev launcher instead of normal sign-in. The launcher reached the exact Mac but failed the personal account gate; added V14. |

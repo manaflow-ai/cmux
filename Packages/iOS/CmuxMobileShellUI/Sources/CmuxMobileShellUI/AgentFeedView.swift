@@ -21,6 +21,7 @@ struct AgentFeedView: View {
     @State private var filter: AgentFeedFilter = .all
     @State private var now = Date()
     @State private var composeContext: AgentFeedComposeContext?
+    @State private var readingItem: MobileAgentFeedItem?
 
     /// Row actions with the composer hook bound to this view's sheet state.
     private var rowActions: AgentFeedActions {
@@ -28,6 +29,7 @@ struct AgentFeedView: View {
         rowActions.beginCompose = { item, kind in
             composeContext = AgentFeedComposeContext(item: item, kind: kind)
         }
+        rowActions.viewFullText = { readingItem = $0 }
         return rowActions
     }
 
@@ -86,6 +88,9 @@ struct AgentFeedView: View {
         }
         .sheet(item: $composeContext) { context in
             AgentFeedReplyComposer(context: context, actions: actions)
+        }
+        .sheet(item: $readingItem) { item in
+            AgentFeedFullTextView(item: item, load: actions.loadFullText)
         }
         .onAppear {
             now = Date()

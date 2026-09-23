@@ -45,8 +45,6 @@ struct AgentFeedRowPresentation: Equatable, Sendable {
     let provenance: String?
     /// The decision label of a resolved or expired row.
     let resolutionLabel: String?
-    /// Whether the plan text is long enough to collapse behind "Show more".
-    let outputIsExpandable: Bool
     /// A one-line snippet of the message being replied to, quoted next to the
     /// user's recorded reply so the reply references this exact row.
     let replyReferenceSnippet: String?
@@ -65,7 +63,6 @@ struct AgentFeedRowPresentation: Equatable, Sendable {
         headline = AgentFeedRowPresentation.headline(for: item, agentName: agentName)
         let output = AgentFeedRowPresentation.outputText(for: item)
         outputText = output
-        outputIsExpandable = (output?.count ?? 0) > 360
         quotedUserMessage = AgentFeedRowPresentation.quotedUserMessage(for: item)
         toolLine = AgentFeedRowPresentation.toolLine(for: item)
         provenance = AgentFeedRowPresentation.provenance(for: item)

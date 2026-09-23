@@ -13,6 +13,7 @@ extension MobileHostService {
         "dogfood.feedback.submit",
         "feed.exit_plan.reply",
         "feed.list",
+        "feed.text",
         "feed.permission.reply",
         "feed.question.reply",
         "mobile.attach_ticket.create",

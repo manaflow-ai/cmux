@@ -10,6 +10,29 @@ import Foundation
 /// handlers the local control socket uses, so every entrypoint resolves
 /// pending items through `FeedCoordinator.deliverReply`.
 extension TerminalController {
+    /// Reads only retained Feed content on this authenticated Mac. No paths,
+    /// terminal input, or remote-relay access are accepted by this method.
+    func v2MobileFeedText(params: [String: Any]) -> V2CallResult {
+        guard let rawID = params["item_id"] as? String,
+              let id = UUID(uuidString: rawID),
+              let offset = params["offset"] as? Int, offset >= 0 else {
+            return .err(code: "invalid_params", message: "Expected item_id and a nonnegative offset", data: nil)
+        }
+        guard let item = FeedCoordinator.shared.snapshot(pendingOnly: false).first(where: { $0.id == id }) else {
+            return .err(code: "not_found", message: "Feed item is no longer available", data: nil)
+        }
+        let version = item.updatedAt.timeIntervalSinceReferenceDate
+        if offset > 0, (params["version"] as? Double) != version {
+            return .err(code: "stale_item", message: "Feed item changed while reading", data: nil)
+        }
+        guard let page = WorkstreamTextPage(text: item.fullText, offset: offset) else {
+            return .err(code: "invalid_params", message: "Invalid text offset", data: nil)
+        }
+        var result: [String: Any] = ["text": page.text, "version": version]
+        if let next = page.nextOffset { result["next_offset"] = next }
+        return .ok(result)
+    }
+
     private nonisolated static let mobileFeedResponseByteLimit =
         MobileSyncFrameCodec.defaultMaximumFrameByteCount - (64 * 1024)
     private nonisolated static let mobileFeedMaximumItemCount = 200

@@ -15141,6 +15141,8 @@ class TerminalController {
                 params: request.params,
                 responseID: request.id.map { String(describing: $0) }
             )
+        case "feed.text":
+            result = v2MobileFeedText(params: request.params)
         case "feed.permission.reply":
             result = v2FeedPermissionReply(params: request.params)
         case "feed.question.reply":
