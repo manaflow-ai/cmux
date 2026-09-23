@@ -33292,6 +33292,65 @@
         }
       }
     },
+    "foreignWindow.placeholder.shownInOtherPane": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "هذا الحساب مفتوح في جزء آخر. ركّز على هذا الجزء لعرضه هنا."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieses Konto ist in einem anderen Bereich geöffnet. Fokussiere diesen Bereich, um es hier anzuzeigen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This account is open in another pane. Focus this pane to show it here."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esta cuenta está abierta en otro panel. Enfoca este panel para mostrarla aquí."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ce compte est ouvert dans un autre panneau. Activez ce panneau pour l’afficher ici."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このアカウントは別のペインで開いています。このペインにフォーカスするとここに表示されます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 계정은 다른 패널에서 열려 있습니다. 이 패널에 포커스를 맞추면 여기에 표시됩니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此账户已在另一个窗格中打开。聚焦此窗格即可在此处显示。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此帳號已在另一個窗格中開啟。聚焦此窗格即可在此處顯示。"
+          }
+        }
+      }
+    },
     "agentSession.provider.claude": {
       "extractionState": "manual",
       "localizations": {

@@ -2,16 +2,19 @@ import AppKit
 import SwiftUI
 
 struct ForeignWindowSurface: NSViewRepresentable {
-    let surfaceID: UUID
-    let launchConfiguration: ForeignWindowLaunchConfiguration
+    let panelID: UUID
+    let profile: String
+    let registry: ForeignWindowProfileRegistry
     let isFocused: Bool
     let isVisibleInUI: Bool
     let backgroundColor: NSColor
+    let onRequestPanelFocus: () -> Void
 
     func makeNSView(context: Context) -> ForeignWindowHostView {
         ForeignWindowHostView(
-            surfaceID: surfaceID,
-            launchConfiguration: launchConfiguration
+            panelID: panelID,
+            profile: profile,
+            registry: registry
         )
     }
 
@@ -20,6 +23,7 @@ struct ForeignWindowSurface: NSViewRepresentable {
         context: Context
     ) {
         _ = context
+        nsView.onRequestPanelFocus = onRequestPanelFocus
         nsView.update(
             isFocused: isFocused,
             isVisibleInUI: isVisibleInUI,
@@ -32,6 +36,7 @@ struct ForeignWindowSurface: NSViewRepresentable {
         coordinator: ()
     ) {
         _ = coordinator
-        nsView.invalidate()
+        // Detach only; the panel's close path ends the process.
+        nsView.detach()
     }
 }

@@ -55,6 +55,13 @@ final class AgentSessionPanel: Panel {
         self.rendererSession.onProviderIDChanged = { [weak self] providerID in
             self?.setCurrentProviderID(providerID)
         }
+        if rendererKind == .claudeDesktop {
+            // The panel, not its view, keeps the profile's process alive.
+            ClaudeDesktopProfiles.registry.claim(
+                profile: self.desktopProfile,
+                panelID: self.id
+            )
+        }
     }
 
     nonisolated static func title(
@@ -89,6 +96,11 @@ final class AgentSessionPanel: Panel {
 
     func close() {
         rendererSession.close()
+        if rendererKind == .claudeDesktop {
+            // Real close only (moves and re-renders never call this). Ends the
+            // Claude process when no other open panel uses the profile.
+            ClaudeDesktopProfiles.registry.releasePanel(id)
+        }
     }
 
     func updateWorkspaceId(_ newWorkspaceId: UUID) {

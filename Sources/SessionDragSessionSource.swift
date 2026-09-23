@@ -16,6 +16,9 @@ final class SessionDragSessionSource: NSObject, NSDraggingSource {
     private let onFinish: @MainActor (UUID) -> Void
     private var phase: Phase = .active
     private var sourceView: NSView?
+    /// Hides hosted foreign windows while the drag runs so pane drop targets
+    /// under them stay visible and reachable; released in `finishDrag()`.
+    private var foreignWindowYield: ForeignWindowYieldCoordinator.Token?
 
     init(
         dragID: UUID,
@@ -29,6 +32,7 @@ final class SessionDragSessionSource: NSObject, NSDraggingSource {
         self.transferRegistration = transferRegistration
         self.transferRegistry = transferRegistry
         self.onFinish = onFinish
+        self.foreignWindowYield = ForeignWindowYieldCoordinator.shared.beginYield(reason: "session-drag")
     }
 
     func draggingSession(
@@ -69,6 +73,10 @@ final class SessionDragSessionSource: NSObject, NSDraggingSource {
     func finishDrag() {
         guard case .active = phase else { return }
         phase = .finished
+        if let foreignWindowYield {
+            ForeignWindowYieldCoordinator.shared.endYield(foreignWindowYield)
+            self.foreignWindowYield = nil
+        }
         transferRegistry.end(transferRegistration)
         registry.discard(id: dragID)
         onFinish(dragID)

@@ -1621,6 +1621,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         AppearanceSettingsUserDefaultsObserver.shared.startObserving()
         systemAppearanceObserver.startObserving()
         BrowserSystemProxyWatcher.shared.startObserving()
+        ForeignWindowYieldTriggers.shared.start()
         if isRunningUnderXCTest {
             NSApp.setActivationPolicy(.regular)
         } else {

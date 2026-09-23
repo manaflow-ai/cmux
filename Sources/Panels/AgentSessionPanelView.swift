@@ -21,7 +21,8 @@ struct AgentSessionPanelView: View {
                     profile: panel.desktopProfile,
                     isFocused: isFocused,
                     isVisibleInUI: isVisibleInUI,
-                    backgroundColor: appearance.contentBackgroundColor
+                    backgroundColor: appearance.contentBackgroundColor,
+                    onRequestPanelFocus: onRequestPanelFocus
                 )
                 .id(panel.id)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)

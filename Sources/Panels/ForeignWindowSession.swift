@@ -2,8 +2,9 @@ import AppKit
 import ApplicationServices
 import Foundation
 
-// AXObserver requires a C callback; this trampoline only forwards to the
-// main-actor session that owns the external process and its window.
+// AXObserver requires a C callback. The refcon is a +1 reference the session
+// takes when it installs the observer and drops only after removing the
+// observer's run loop source, so the pointer is always valid here.
 private func foreignWindowAXObserverCallback(
     _ observer: AXObserver,
     _ element: AXUIElement,
@@ -12,56 +13,226 @@ private func foreignWindowAXObserverCallback(
 ) {
     _ = observer
     _ = element
-    _ = notification
     guard let refcon else { return }
     let session = Unmanaged<ForeignWindowSession>
         .fromOpaque(refcon)
         .takeUnretainedValue()
-    Task { @MainActor in
-        session.handleAccessibilityWindowCreated()
+    let name = notification as String
+    if Thread.isMainThread {
+        // The source is added to the main run loop, so this is the usual path.
+        MainActor.assumeIsolated {
+            session.handleAccessibilityNotification(name)
+        }
+    } else {
+        Task { @MainActor in
+            session.handleAccessibilityNotification(name)
+        }
     }
 }
 
+/// Owns one external application process (one per profile) and glues its
+/// main window over whichever host rect the registry says is presenting.
+///
+/// AX writes are cross-process IPC, so presentation updates are coalesced to
+/// one apply per main run loop turn and skipped when the target is unchanged.
 @MainActor
-final class ForeignWindowSession {
-    private let surfaceID: UUID
+final class ForeignWindowSession: ForeignWindowProfileSession {
+    private static let frameTolerance: CGFloat = 1
+    /// Snap-back attempts per target rect, so an app that enforces its own
+    /// minimum size cannot put us in a set/notify loop.
+    private static let maximumCorrectionsPerTarget = 3
+    private static let windowNotificationNames: [String] = [
+        kAXMovedNotification,
+        kAXResizedNotification,
+        kAXUIElementDestroyedNotification
+    ]
+
+    private let identifier: String
     private let launchConfiguration: ForeignWindowLaunchConfiguration
     private var launchTask: Task<Void, Never>?
-    private var hasAttemptedLaunch = false
+    private var isLaunchAllowed = true
     private var isInvalidated = false
     private var runningApplication: NSRunningApplication?
     private var applicationElement: AXUIElement?
     private var externalWindow: AXUIElement?
+    private var observedWindow: AXUIElement?
     private var accessibilityObserver: AXObserver?
+    private var observerRefcon: Unmanaged<ForeignWindowSession>?
     private var accessibilityPromptRequested = false
+    private var isAccessibilityTrusted = false
+
     private var targetFrame: CGRect?
     private var shouldBeVisible = false
     private var shouldBeFocused = false
+    private var lastAppliedFrame: CGRect?
+    private var correctionsForTarget = 0
+    private var pendingActivate = false
+    private var pendingRaise = false
+    private var isApplyScheduled = false
+
+    private var yieldObserver: NSObjectProtocol?
+    private var isHiddenForYield = false
+    /// `NSRunningApplication.isHidden` updates asynchronously, so remember
+    /// that we asked for a hide and always pair it with an unhide.
+    private var didRequestHide = false
 
     init(
-        surfaceID: UUID,
+        identifier: String,
         launchConfiguration: ForeignWindowLaunchConfiguration
     ) {
-        self.surfaceID = surfaceID
+        self.identifier = identifier
         self.launchConfiguration = launchConfiguration
+        yieldObserver = NotificationCenter.default.addObserver(
+            forName: ForeignWindowYieldCoordinator.didChangeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.yieldStateDidChange()
+            }
+        }
     }
 
-    func startIfNeeded() {
-        guard !isInvalidated,
-              !hasAttemptedLaunch,
-              launchTask == nil,
-              runningApplication == nil else {
-            if runningApplication != nil {
-                ensureAccessibilityBinding()
+    var isRunning: Bool {
+        guard let runningApplication else { return false }
+        return !runningApplication.isTerminated
+    }
+
+    private var isYielding: Bool {
+        ForeignWindowYieldCoordinator.shared.isYielding
+    }
+
+    func updatePresentation(
+        targetFrame: CGRect?,
+        isVisible: Bool,
+        isFocused: Bool,
+        raiseWindow: Bool
+    ) {
+        guard !isInvalidated else { return }
+        let becameFocused = isFocused && !shouldBeFocused
+        let becameVisible = isVisible && !shouldBeVisible
+        if targetFrame != self.targetFrame {
+            correctionsForTarget = 0
+        }
+        self.targetFrame = targetFrame
+        shouldBeVisible = isVisible
+        shouldBeFocused = isFocused
+        pendingActivate = pendingActivate || becameFocused
+        pendingRaise = pendingRaise || raiseWindow || becameVisible
+        if becameVisible || becameFocused {
+            // Allow one relaunch per explicit show after the user quit the app.
+            isLaunchAllowed = true
+        }
+        scheduleApply()
+    }
+
+    func invalidate() {
+        guard !isInvalidated else { return }
+        isInvalidated = true
+        launchTask?.cancel()
+        launchTask = nil
+        if let yieldObserver {
+            NotificationCenter.default.removeObserver(yieldObserver)
+        }
+        yieldObserver = nil
+        removeAccessibilityObserver()
+        externalWindow = nil
+        applicationElement = nil
+
+        if let runningApplication, !runningApplication.isTerminated {
+            runningApplication.terminate()
+        }
+        runningApplication = nil
+    }
+
+    func handleAccessibilityNotification(_ name: String) {
+        guard !isInvalidated else { return }
+        switch name {
+        case kAXWindowCreatedNotification:
+            guard refreshExternalWindow() else { return }
+            lastAppliedFrame = nil
+            pendingRaise = true
+            pendingActivate = pendingActivate || shouldBeFocused
+            scheduleApply()
+        case kAXUIElementDestroyedNotification:
+            unregisterWindowNotifications()
+            externalWindow = nil
+            lastAppliedFrame = nil
+            if refreshExternalWindow() {
+                pendingRaise = true
+                scheduleApply()
+            }
+        case kAXMovedNotification, kAXResizedNotification:
+            snapBackIfDisplaced()
+        default:
+            break
+        }
+    }
+
+    // MARK: Coalesced apply
+
+    private func scheduleApply() {
+        guard !isApplyScheduled, !isInvalidated else { return }
+        isApplyScheduled = true
+        // The main queue drains in common modes, including event tracking,
+        // so this also runs once per turn during divider drags.
+        DispatchQueue.main.async { [weak self] in
+            MainActor.assumeIsolated {
+                self?.flushPresentation()
+            }
+        }
+    }
+
+    private func flushPresentation() {
+        isApplyScheduled = false
+        guard !isInvalidated else { return }
+        if let runningApplication, runningApplication.isTerminated {
+            handleApplicationTerminated()
+        }
+        guard runningApplication != nil else {
+            if shouldBeVisible {
+                startIfNeeded()
             }
             return
         }
-        hasAttemptedLaunch = true
+        ensureAccessibilityBinding()
+        applyPresentation()
+    }
+
+    private func yieldStateDidChange() {
+        guard !isInvalidated, let runningApplication,
+              !runningApplication.isTerminated else {
+            return
+        }
+        if isYielding {
+            // Hide immediately so floating cmux UI is never covered.
+            if shouldBeVisible {
+                hideApplication(runningApplication)
+                isHiddenForYield = true
+            }
+        } else if isHiddenForYield {
+            isHiddenForYield = false
+            // Restore and re-raise without activating the external app.
+            pendingRaise = true
+            scheduleApply()
+        }
+    }
+
+    // MARK: Launch
+
+    private func startIfNeeded() {
+        guard !isInvalidated,
+              isLaunchAllowed,
+              launchTask == nil,
+              runningApplication == nil else {
+            return
+        }
+        isLaunchAllowed = false
 
         guard let applicationURL = resolveApplicationURL() else {
 #if DEBUG
             cmuxDebugLog(
-                "foreignWindow.appMissing surface=\(surfaceID.uuidString) "
+                "foreignWindow.appMissing id=\(identifier) "
                     + "bundle=\(launchConfiguration.bundleIdentifier)"
             )
 #endif
@@ -92,15 +263,16 @@ final class ForeignWindowSession {
                     return
                 }
                 self.runningApplication = application
-                self.ensureAccessibilityBinding()
-                self.applyPresentation(
-                    activateIfFocused: self.shouldBeFocused,
-                    raiseWindow: true
-                )
+                // Launched with `hides = true`.
+                self.didRequestHide = true
+                self.lastAppliedFrame = nil
+                self.pendingRaise = true
+                self.pendingActivate = self.shouldBeFocused
+                self.scheduleApply()
             } catch {
 #if DEBUG
                 cmuxDebugLog(
-                    "foreignWindow.launchFailed surface=\(self.surfaceID.uuidString) "
+                    "foreignWindow.launchFailed id=\(self.identifier) "
                         + "bundle=\(self.launchConfiguration.bundleIdentifier) "
                         + "error=\(error.localizedDescription)"
                 )
@@ -109,52 +281,17 @@ final class ForeignWindowSession {
         }
     }
 
-    func updatePresentation(
-        targetFrame: CGRect?,
-        isVisible: Bool,
-        isFocused: Bool,
-        raiseWindow: Bool
-    ) {
-        guard !isInvalidated else { return }
-        let becameFocused = isFocused && !shouldBeFocused
-        let becameVisible = isVisible && !shouldBeVisible
-        self.targetFrame = targetFrame
-        shouldBeVisible = isVisible
-        shouldBeFocused = isFocused
-
-        if runningApplication == nil {
-            startIfNeeded()
-            return
-        }
-
-        ensureAccessibilityBinding()
-        applyPresentation(
-            activateIfFocused: becameFocused,
-            raiseWindow: raiseWindow || becameVisible
-        )
-    }
-
-    func invalidate() {
-        guard !isInvalidated else { return }
-        isInvalidated = true
-        launchTask?.cancel()
-        launchTask = nil
+    private func handleApplicationTerminated() {
+#if DEBUG
+        cmuxDebugLog("foreignWindow.appTerminated id=\(identifier)")
+#endif
         removeAccessibilityObserver()
         externalWindow = nil
         applicationElement = nil
-
-        if let runningApplication, !runningApplication.isTerminated {
-            runningApplication.terminate()
-        }
-        self.runningApplication = nil
-    }
-
-    func handleAccessibilityWindowCreated() {
-        guard !isInvalidated, refreshExternalWindow() else { return }
-        applyPresentation(
-            activateIfFocused: shouldBeFocused,
-            raiseWindow: true
-        )
+        runningApplication = nil
+        lastAppliedFrame = nil
+        isHiddenForYield = false
+        didRequestHide = false
     }
 
     private func resolveApplicationURL() -> URL? {
@@ -185,7 +322,7 @@ final class ForeignWindowSession {
             } catch {
 #if DEBUG
                 cmuxDebugLog(
-                    "foreignWindow.directoryCreateFailed surface=\(surfaceID.uuidString) "
+                    "foreignWindow.directoryCreateFailed id=\(identifier) "
                         + "path=\(directoryURL.path) error=\(error.localizedDescription)"
                 )
 #endif
@@ -195,15 +332,20 @@ final class ForeignWindowSession {
         return true
     }
 
+    // MARK: Accessibility binding
+
     private func ensureAccessibilityBinding() {
         guard let runningApplication, !runningApplication.isTerminated else { return }
 
-        let shouldPrompt = !accessibilityPromptRequested
-        let options = [
-            kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: shouldPrompt
-        ] as CFDictionary
-        accessibilityPromptRequested = true
-        guard AXIsProcessTrustedWithOptions(options) else { return }
+        if !isAccessibilityTrusted {
+            let shouldPrompt = !accessibilityPromptRequested
+            let options = [
+                kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: shouldPrompt
+            ] as CFDictionary
+            accessibilityPromptRequested = true
+            isAccessibilityTrusted = AXIsProcessTrustedWithOptions(options)
+            guard isAccessibilityTrusted else { return }
+        }
 
         if applicationElement == nil {
             applicationElement = AXUIElementCreateApplication(
@@ -212,7 +354,9 @@ final class ForeignWindowSession {
         }
 
         installAccessibilityObserverIfNeeded()
-        _ = refreshExternalWindow()
+        if externalWindow == nil {
+            _ = refreshExternalWindow()
+        }
     }
 
     private func installAccessibilityObserverIfNeeded() {
@@ -231,25 +375,26 @@ final class ForeignWindowSession {
         guard createResult == .success, let observer else {
 #if DEBUG
             cmuxDebugLog(
-                "foreignWindow.axObserverCreateFailed surface=\(surfaceID.uuidString) "
+                "foreignWindow.axObserverCreateFailed id=\(identifier) "
                     + "code=\(createResult.rawValue)"
             )
 #endif
             return
         }
 
-        let refcon = Unmanaged.passUnretained(self).toOpaque()
+        let refcon = Unmanaged.passRetained(self)
         let notificationResult = AXObserverAddNotification(
             observer,
             applicationElement,
             kAXWindowCreatedNotification as CFString,
-            refcon
+            refcon.toOpaque()
         )
         guard notificationResult == .success
                 || notificationResult == .notificationAlreadyRegistered else {
+            refcon.release()
 #if DEBUG
             cmuxDebugLog(
-                "foreignWindow.axObserverAddFailed surface=\(surfaceID.uuidString) "
+                "foreignWindow.axObserverAddFailed id=\(identifier) "
                     + "code=\(notificationResult.rawValue)"
             )
 #endif
@@ -257,6 +402,7 @@ final class ForeignWindowSession {
         }
 
         accessibilityObserver = observer
+        observerRefcon = refcon
         CFRunLoopAddSource(
             CFRunLoopGetMain(),
             AXObserverGetRunLoopSource(observer),
@@ -266,12 +412,62 @@ final class ForeignWindowSession {
 
     private func removeAccessibilityObserver() {
         guard let accessibilityObserver else { return }
+        unregisterWindowNotifications()
+        if let applicationElement {
+            _ = AXObserverRemoveNotification(
+                accessibilityObserver,
+                applicationElement,
+                kAXWindowCreatedNotification as CFString
+            )
+        }
         CFRunLoopRemoveSource(
             CFRunLoopGetMain(),
             AXObserverGetRunLoopSource(accessibilityObserver),
             .commonModes
         )
         self.accessibilityObserver = nil
+        // Balance the +1 taken at install only after the source is gone.
+        observerRefcon?.release()
+        observerRefcon = nil
+    }
+
+    private func registerWindowNotifications(_ window: AXUIElement) {
+        if let observedWindow, CFEqual(observedWindow, window) { return }
+        unregisterWindowNotifications()
+        guard let accessibilityObserver, let observerRefcon else { return }
+        for name in Self.windowNotificationNames {
+            let result = AXObserverAddNotification(
+                accessibilityObserver,
+                window,
+                name as CFString,
+                observerRefcon.toOpaque()
+            )
+#if DEBUG
+            if result != .success, result != .notificationAlreadyRegistered {
+                cmuxDebugLog(
+                    "foreignWindow.axWindowObserveFailed id=\(identifier) "
+                        + "name=\(name) code=\(result.rawValue)"
+                )
+            }
+#else
+            _ = result
+#endif
+        }
+        observedWindow = window
+    }
+
+    private func unregisterWindowNotifications() {
+        guard let observedWindow else { return }
+        if let accessibilityObserver {
+            for name in Self.windowNotificationNames {
+                _ = AXObserverRemoveNotification(
+                    accessibilityObserver,
+                    observedWindow,
+                    name as CFString
+                )
+            }
+        }
+        self.observedWindow = nil
     }
 
     @discardableResult
@@ -280,7 +476,13 @@ final class ForeignWindowSession {
               let preferredWindow = preferredExternalWindow(applicationElement) else {
             return false
         }
+        if let externalWindow, CFEqual(externalWindow, preferredWindow) {
+            registerWindowNotifications(preferredWindow)
+            return true
+        }
         externalWindow = preferredWindow
+        lastAppliedFrame = nil
+        registerWindowNotifications(preferredWindow)
         return true
     }
 
@@ -300,16 +502,16 @@ final class ForeignWindowSession {
             }
     }
 
-    private func applyPresentation(
-        activateIfFocused: Bool,
-        raiseWindow: Bool
-    ) {
+    // MARK: Presentation
+
+    private func applyPresentation() {
         guard let runningApplication, !runningApplication.isTerminated else { return }
 
-        guard shouldBeVisible else {
-            if !runningApplication.isHidden {
-                _ = runningApplication.hide()
+        guard shouldBeVisible, !isYielding else {
+            if shouldBeVisible {
+                isHiddenForYield = true
             }
+            hideApplication(runningApplication)
             return
         }
 
@@ -317,34 +519,95 @@ final class ForeignWindowSession {
         if externalWindow == nil {
             _ = refreshExternalWindow()
         }
-        guard let externalWindow else { return }
+        guard let window = externalWindow else { return }
+        // Consume raise/activate only once there is a window to act on; the
+        // window-created notification re-requests them otherwise.
+        let activate = pendingActivate
+        let raise = pendingRaise
+        pendingActivate = false
+        pendingRaise = false
 
-        if !setExternalWindowFrame(targetFrame, window: externalWindow) {
-            self.externalWindow = nil
-            guard refreshExternalWindow(),
-                  let replacementWindow = self.externalWindow else {
-                return
+        if lastAppliedFrame != targetFrame {
+            if setExternalWindowFrame(targetFrame, window: window) {
+                lastAppliedFrame = targetFrame
+            } else {
+                // The window may have been replaced; rebind and retry once.
+                unregisterWindowNotifications()
+                externalWindow = nil
+                guard refreshExternalWindow(),
+                      let replacementWindow = externalWindow,
+                      setExternalWindowFrame(targetFrame, window: replacementWindow) else {
+                    return
+                }
+                lastAppliedFrame = targetFrame
             }
-            _ = setExternalWindowFrame(targetFrame, window: replacementWindow)
         }
 
-        _ = AXUIElementSetAttributeValue(
-            self.externalWindow ?? externalWindow,
-            kAXMinimizedAttribute as CFString,
-            kCFBooleanFalse
-        )
-        if runningApplication.isHidden {
+        guard let boundWindow = externalWindow else { return }
+        if raise {
+            _ = AXUIElementSetAttributeValue(
+                boundWindow,
+                kAXMinimizedAttribute as CFString,
+                kCFBooleanFalse
+            )
+        }
+        if didRequestHide || runningApplication.isHidden {
             _ = runningApplication.unhide()
+            didRequestHide = false
         }
-        if raiseWindow, let window = self.externalWindow {
-            _ = AXUIElementPerformAction(window, kAXRaiseAction as CFString)
+        isHiddenForYield = false
+        if raise {
+            _ = AXUIElementPerformAction(boundWindow, kAXRaiseAction as CFString)
         }
-        if activateIfFocused && shouldBeFocused {
+        if activate && shouldBeFocused {
             _ = runningApplication.activate(options: [.activateAllWindows])
-            if let window = self.externalWindow {
-                _ = AXUIElementPerformAction(window, kAXRaiseAction as CFString)
-            }
+            _ = AXUIElementPerformAction(boundWindow, kAXRaiseAction as CFString)
         }
+    }
+
+    private func hideApplication(_ runningApplication: NSRunningApplication) {
+        if !runningApplication.isHidden {
+            _ = runningApplication.hide()
+        }
+        didRequestHide = true
+    }
+
+    /// Re-applies the target rect when the external window moved or resized
+    /// itself. Our own writes also produce these notifications; by the time
+    /// they arrive the window already sits at the rect we wrote, so they fall
+    /// through the equality check instead of looping.
+    private func snapBackIfDisplaced() {
+        guard shouldBeVisible,
+              !isYielding,
+              let targetFrame,
+              lastAppliedFrame == targetFrame,
+              let window = externalWindow,
+              let currentFrame = axFrame(window) else {
+            return
+        }
+        guard !Self.frame(currentFrame, approximatelyEquals: targetFrame) else {
+            return
+        }
+        guard correctionsForTarget < Self.maximumCorrectionsPerTarget else { return }
+        correctionsForTarget += 1
+#if DEBUG
+        cmuxDebugLog(
+            "foreignWindow.snapBack id=\(identifier) attempt=\(correctionsForTarget) "
+                + "current=\(currentFrame) target=\(targetFrame)"
+        )
+#endif
+        lastAppliedFrame = nil
+        scheduleApply()
+    }
+
+    private static func frame(
+        _ lhs: CGRect,
+        approximatelyEquals rhs: CGRect
+    ) -> Bool {
+        abs(lhs.minX - rhs.minX) <= frameTolerance
+            && abs(lhs.minY - rhs.minY) <= frameTolerance
+            && abs(lhs.width - rhs.width) <= frameTolerance
+            && abs(lhs.height - rhs.height) <= frameTolerance
     }
 
     private func setExternalWindowFrame(
@@ -370,6 +633,8 @@ final class ForeignWindowSession {
         )
         return positionResult == .success && sizeResult == .success
     }
+
+    // MARK: AX reads
 
     private func copiedAXValue(
         _ element: AXUIElement,
@@ -418,5 +683,31 @@ final class ForeignWindowSession {
             &size
         )
         return size
+    }
+
+    private func axFrame(_ element: AXUIElement) -> CGRect? {
+        guard let positionValue = copiedAXValue(
+            element,
+            attribute: kAXPositionAttribute
+        ), let sizeValue = copiedAXValue(
+            element,
+            attribute: kAXSizeAttribute
+        ) else {
+            return nil
+        }
+        var position = CGPoint.zero
+        var size = CGSize.zero
+        guard AXValueGetValue(
+            unsafeBitCast(positionValue, to: AXValue.self),
+            .cgPoint,
+            &position
+        ), AXValueGetValue(
+            unsafeBitCast(sizeValue, to: AXValue.self),
+            .cgSize,
+            &size
+        ) else {
+            return nil
+        }
+        return CGRect(origin: position, size: size)
     }
 }

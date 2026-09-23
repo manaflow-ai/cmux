@@ -1,23 +1,52 @@
 import AppKit
 import Foundation
 
+/// Marks a pane rect for a profile's foreign window. The view leases the
+/// profile from the registry while it exists; it never owns the process, so
+/// SwiftUI teardown (pane moves, split drags, workspace moves) only detaches.
 @MainActor
-final class ForeignWindowHostView: NSView {
-    private let externalSession: ForeignWindowSession
+final class ForeignWindowHostView: NSView, ForeignWindowProfileHost {
+    private static let observedHostWindowNotifications: [Notification.Name] = [
+        NSWindow.didMoveNotification,
+        NSWindow.didResizeNotification,
+        NSWindow.didMiniaturizeNotification,
+        NSWindow.didDeminiaturizeNotification,
+        NSWindow.didChangeScreenNotification,
+        NSWindow.didBecomeKeyNotification
+    ]
+
+    private let hostID = UUID()
+    private let panelID: UUID
+    private let profile: String
+    private let registry: ForeignWindowProfileRegistry
+    private let placeholderLabel: NSTextField
+    private var isAttached = false
+    private var isDetached = false
+    private var isPresenting = false
     private var isFocused = false
     private var isVisibleInUI = false
+    private var lastReportedVisibility = false
     private weak var observedHostWindow: NSWindow?
+    /// Clicking the placeholder focuses this pane, which moves the window here.
+    var onRequestPanelFocus: (() -> Void)?
 
     init(
-        surfaceID: UUID,
-        launchConfiguration: ForeignWindowLaunchConfiguration
+        panelID: UUID,
+        profile: String,
+        registry: ForeignWindowProfileRegistry
     ) {
-        self.externalSession = ForeignWindowSession(
-            surfaceID: surfaceID,
-            launchConfiguration: launchConfiguration
+        self.panelID = panelID
+        self.profile = profile
+        self.registry = registry
+        self.placeholderLabel = NSTextField(
+            wrappingLabelWithString: String(
+                localized: "foreignWindow.placeholder.shownInOtherPane",
+                defaultValue: "This account is open in another pane. Focus this pane to show it here."
+            )
         )
         super.init(frame: .zero)
         wantsLayer = true
+        configurePlaceholder()
         NotificationCenter.default.addObserver(
             self,
             selector: #selector(cmuxApplicationBecameActive(_:)),
@@ -36,12 +65,19 @@ final class ForeignWindowHostView: NSView {
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         installHostWindowObservers()
-        externalSession.startIfNeeded()
         syncPresentation(raiseExternalWindow: isFocused)
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        if !isPresenting {
+            onRequestPanelFocus?()
+        }
+        super.mouseDown(with: event)
     }
 
     override func layout() {
         super.layout()
+        // Cheap: the session coalesces AX writes and skips unchanged rects.
         syncPresentation(raiseExternalWindow: false)
     }
 
@@ -55,36 +91,87 @@ final class ForeignWindowHostView: NSView {
         self.isFocused = isFocused
         self.isVisibleInUI = isVisibleInUI
         layer?.backgroundColor = backgroundColor.cgColor
-        externalSession.startIfNeeded()
         syncPresentation(
             raiseExternalWindow: becameFocused || becameVisible
         )
     }
 
-    func invalidate() {
+    /// View teardown: releases the lease only. The process keeps running
+    /// until its panel is closed.
+    func detach() {
+        guard !isDetached else { return }
+        isDetached = true
         removeHostWindowObservers()
         NotificationCenter.default.removeObserver(
             self,
             name: NSApplication.didBecomeActiveNotification,
             object: NSApp
         )
-        externalSession.invalidate()
+        if isAttached {
+            registry.detach(hostID: hostID)
+            isAttached = false
+        }
+        isPresenting = false
+        onRequestPanelFocus = nil
+    }
+
+    // MARK: ForeignWindowProfileHost
+
+    func foreignWindowProfileHostDidChangePresenting(_ isPresenting: Bool) {
+        self.isPresenting = isPresenting
+        updatePlaceholderVisibility()
+    }
+
+    // MARK: Private
+
+    private func configurePlaceholder() {
+        placeholderLabel.translatesAutoresizingMaskIntoConstraints = false
+        placeholderLabel.alignment = .center
+        placeholderLabel.textColor = .secondaryLabelColor
+        placeholderLabel.font = .systemFont(ofSize: NSFont.systemFontSize)
+        placeholderLabel.isHidden = true
+        addSubview(placeholderLabel)
+        NSLayoutConstraint.activate([
+            placeholderLabel.centerXAnchor.constraint(equalTo: centerXAnchor),
+            placeholderLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
+            placeholderLabel.leadingAnchor.constraint(
+                greaterThanOrEqualTo: leadingAnchor,
+                constant: 16
+            ),
+            placeholderLabel.trailingAnchor.constraint(
+                lessThanOrEqualTo: trailingAnchor,
+                constant: -16
+            )
+        ])
+    }
+
+    private func updatePlaceholderVisibility() {
+        let shouldShowPlaceholder = lastReportedVisibility
+            && isAttached
+            && !isPresenting
+        if placeholderLabel.isHidden == shouldShowPlaceholder {
+            placeholderLabel.isHidden = !shouldShowPlaceholder
+        }
+    }
+
+    private func attachIfNeeded() {
+        guard !isAttached, !isDetached else { return }
+        registry.attach(
+            host: self,
+            hostID: hostID,
+            panelID: panelID,
+            profile: profile
+        )
+        isAttached = true
     }
 
     private func installHostWindowObservers() {
         guard observedHostWindow !== window else { return }
         removeHostWindowObservers()
-        guard let window else { return }
+        guard let window, !isDetached else { return }
         observedHostWindow = window
         let center = NotificationCenter.default
-        for name in [
-            NSWindow.didMoveNotification,
-            NSWindow.didResizeNotification,
-            NSWindow.didMiniaturizeNotification,
-            NSWindow.didDeminiaturizeNotification,
-            NSWindow.didChangeScreenNotification,
-            NSWindow.didBecomeKeyNotification
-        ] {
+        for name in Self.observedHostWindowNotifications {
             center.addObserver(
                 self,
                 selector: #selector(hostWindowChanged(_:)),
@@ -97,14 +184,7 @@ final class ForeignWindowHostView: NSView {
     private func removeHostWindowObservers() {
         guard let observedHostWindow else { return }
         let center = NotificationCenter.default
-        for name in [
-            NSWindow.didMoveNotification,
-            NSWindow.didResizeNotification,
-            NSWindow.didMiniaturizeNotification,
-            NSWindow.didDeminiaturizeNotification,
-            NSWindow.didChangeScreenNotification,
-            NSWindow.didBecomeKeyNotification
-        ] {
+        for name in Self.observedHostWindowNotifications {
             center.removeObserver(
                 self,
                 name: name,
@@ -126,15 +206,20 @@ final class ForeignWindowHostView: NSView {
     }
 
     private func syncPresentation(raiseExternalWindow: Bool) {
+        guard !isDetached else { return }
+        attachIfNeeded()
         let hostWindowVisible = window?.isVisible == true
             && window?.isMiniaturized == false
         let shouldShow = isVisibleInUI && hostWindowVisible
-        externalSession.updatePresentation(
-            targetFrame: shouldShow ? accessibilityScreenFrame() : nil,
+        lastReportedVisibility = shouldShow
+        registry.updateHost(
+            hostID: hostID,
             isVisible: shouldShow,
             isFocused: isFocused,
+            targetFrame: shouldShow ? accessibilityScreenFrame() : nil,
             raiseWindow: raiseExternalWindow
         )
+        updatePlaceholderVisibility()
     }
 
     private func accessibilityScreenFrame() -> CGRect? {
