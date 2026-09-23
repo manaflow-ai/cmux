@@ -14,18 +14,21 @@ import UIKit
 @MainActor
 @Suite struct WorkspaceListSortTests {
     @Test(arguments: MobileWorkspaceSortMode.allCases)
-    func notificationReorderingOnTheMacKeepsTheDisplayedOrder(mode: MobileWorkspaceSortMode) {
+    func notificationReorderingOnTheMacKeepsTheDisplayedOrder(mode: MobileWorkspaceSortMode) async {
+        let store = await shellStore(pairedMacs: [
+            pairedMac(id: "mac-a", name: "Mac A", lastSeenAt: 20),
+        ])
         let first = workspace(id: "first", macDeviceID: "mac-a", activityAt: 200)
         var second = workspace(id: "second", macDeviceID: "mac-a", activityAt: 100)
         func configuration(_ workspaces: [MobileWorkspacePreview]) -> WorkspaceListTable {
-            let view = workspaceListView(workspaces: workspaces, workspaceSortMode: mode)
+            let view = workspaceListView(workspaces: workspaces, store: store, workspaceSortMode: mode)
             return view.workspaceTable(
                 groupedItems: view.groupedListItems,
                 workspacesByID: Dictionary(uniqueKeysWithValues: workspaces.map { ($0.id, $0) })
             )
         }
         let initial = configuration([first, second])
-        let table = UITableView(frame: CGRect(x: 0, y: 0, width: 320, height: 600))
+        let table = WorkspaceListUITableView(frame: CGRect(x: 0, y: 0, width: 320, height: 600), style: .plain)
         let coordinator = WorkspaceListTableCoordinator(configuration: initial)
         coordinator.attach(to: table)
 
