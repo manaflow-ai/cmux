@@ -3466,6 +3466,35 @@ def test_a_unit_ci_run_still_requires_the_macos_workflow_to_pass() -> None:
     assert "unit_suite" in gate.split("macos_work_required")[1].split(")")[0]
 
 
+def test_a_unit_ci_run_cannot_pass_with_the_unit_tests_skipped() -> None:
+    # unit-ci clears suite-coverage, so the app-host tests it asked for are the
+    # only thing that judges the diff. Reusing an earlier run's compile skips
+    # compile admission, and app-host hangs off admission succeeding -- the
+    # usual label-after-first-push run would go green having run nothing.
+    for step in (
+        "Skip compile when build inputs are unchanged",
+        "Look for an earlier run that compiled these inputs",
+    ):
+        condition = workflow_step_block("changes", step)
+        assert "steps.suite.outputs.unit_suite != 'true'" in condition, step
+
+    # And the status fails closed if the job the label asked for still skipped.
+    inputs = {
+        "macos": "true",
+        "full_suite": "false",
+        "unit_suite": "true",
+        "compile_admitted": "true",
+        "release_build": "false",
+        "source_identity_valid": "true",
+        "source_tree": "tree",
+        "source_parent1": "parent",
+    }
+    skipped = dict.fromkeys(MACOS_JOBS, "skipped")
+    assert run_macos_status(inputs=inputs, results=skipped).returncode != 0
+    ran = {**skipped, "app-host-unit-tests": "success"}
+    assert run_macos_status(inputs=inputs, results=ran).returncode == 0
+
+
 def test_ci_status_requires_the_suite_coverage_gate() -> None:
     block = workflow_job_block("ci-status")
     assert "      - suite-coverage" in block
