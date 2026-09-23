@@ -508,8 +508,10 @@ jobs:
           tar -cf - -C "$CMUX_DERIVED_DATA_PATH" --exclude ./Logs --exclude ./Index.noindex . | gzip -1 > "$archive"
           bytes="$(wc -c < "$archive" | tr -d ' ')"
           echo "DerivedData archive: $bytes bytes"
-          if [ "$bytes" -gt $((8 * 1024 * 1024 * 1024)) ]; then
-            echo "::warning::DerivedData archive exceeds the 8 GiB transport limit; not publishing"
+          # upload-artifact wraps the tarball in a ZIP; leave headroom under the
+          # transport's 8 GiB limit so a published archive stays adoptable.
+          if [ "$bytes" -gt $((7 * 1024 * 1024 * 1024 + 512 * 1024 * 1024)) ]; then
+            echo "::warning::DerivedData archive exceeds 7.5 GiB, too close to the 8 GiB transport limit; not publishing"
             exit 0
           fi
           echo "bytes=$bytes" >> "$GITHUB_OUTPUT"
