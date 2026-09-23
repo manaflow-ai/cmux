@@ -221,8 +221,9 @@ extension Workspace {
                     let direction: SurfaceSplitDirection?
                     if case .split(_, _, let requested) = destination { direction = requested }
                     else { direction = splitDirection }
+                    let workingDirectory = await provider.currentWorkingDirectory(of: resource)
                     created = try await layoutProvider.createTerminal(
-                        nearTabID: sourceTabID, splitDirection: direction, request: request
+                        nearTabID: sourceTabID, splitDirection: direction, cwd: workingDirectory, request: request
                     )
                 } else {
                     let workingDirectory: String?
