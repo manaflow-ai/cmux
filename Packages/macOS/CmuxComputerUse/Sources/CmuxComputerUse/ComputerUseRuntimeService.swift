@@ -1838,7 +1838,7 @@ public final class ComputerUseRuntimeService {
         return paths
     }
 
-    nonisolated private static func installHelper(
+    nonisolated static func installHelper(
         nested: URL,
         destination: URL,
         directory: URL
