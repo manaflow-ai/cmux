@@ -106,6 +106,8 @@ CI_MACOS_ADMISSION_CONTROL_INPUTS = frozenset({
 
 CI_MACOS_TEST_PRODUCT_INPUTS = frozenset({
     "scripts/ci/app_host_test_products.py",
+    "scripts/ci/app_host_layer_transport.py",
+    "scripts/ci/parallel_artifact_download.py",
     "scripts/ci/compile-app-host-test-product.sh",
     "scripts/ci/product_input_identity.py",
     "scripts/ci/peer_product_source.py",
@@ -973,6 +975,17 @@ def is_macos_neutral(
     # skills/cmux-cua as a folder resource, and skill scripts and manifests are
     # executable inputs, so only Markdown outside that folder is neutral.
     if path.rsplit("/", 1)[-1] in {"CLAUDE.md", "AGENTS.md"}:
+        return True
+    # Contributor-facing prose. These are read by people, never by a build:
+    # none is a bundle resource or an Xcode input. Keep this an exact list --
+    # THIRD_PARTY_LICENSES.md is also root Markdown, but it ships in
+    # Resources/ and is read by AboutLicenseContent.swift, so it stays
+    # macOS-relevant.
+    if path in {
+        "STYLE.md",
+        "CONTRIBUTING.md",
+        ".github/pull_request_template.md",
+    }:
         return True
 
     if (

@@ -104,6 +104,16 @@ jobs:
       entitlements: ${{ steps.decide.outputs.entitlements }}
       icon_name: ${{ steps.decide.outputs.icon_name }}
     steps:
+      # The build-input check below classifies changed paths with the same
+      # router CI uses, which reads the Xcode project and the package graph.
+      # Only the paths are needed, so one revision of history is enough.
+      - name: Check out the revision under consideration
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+
       - name: Decide whether a nightly build is needed
         id: decide
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
@@ -220,7 +230,74 @@ jobs:
               }
             }
 
-            const shouldBuild = !seedOnly && (buildOnly || !isMainRef || forceBuild || nightlySha !== headSha);
+            let shouldBuild = !seedOnly && (buildOnly || !isMainRef || forceBuild || nightlySha !== headSha);
+            // The six-hour schedule only warms caches downstream, and keeps
+            // its eligibility outputs as they are so that routing still works.
+            // It is named here because the build-input check below leaves it
+            // alone, and it explains the final app workload further down.
+            const scheduledCacheOnly = context.eventName === 'schedule' &&
+              context.payload?.schedule === '17 */6 * * *';
+
+            // A different commit is not a different app. Web, documentation
+            // and CI-only merges land between the changes that can alter app
+            // bytes, and each one otherwise costs a full publishing build, so
+            // compare the paths changed since the published commit rather than
+            // the commit itself. Only a proven-neutral change skips: a partial
+            // comparison, an unknown path, or an API failure builds, force and
+            // manual dispatch never consult this, and the daily catch-up
+            // schedule still publishes main HEAD as a backstop.
+            let unchangedBuildInputs = false;
+            let buildInputReason = null;
+            if (
+              shouldBuild &&
+              isMainRef &&
+              nightlySha &&
+              !forceBuild &&
+              !buildOnly &&
+              // A person asking for this revision by hand gets it, and the
+              // 08:47 UTC catch-up still publishes main HEAD every day. That
+              // keeps one daily build as a backstop, so a path this check
+              // wrongly classifies costs at most a day of staleness.
+              context.eventName !== 'workflow_dispatch' &&
+              context.eventName !== 'schedule'
+            ) {
+              try {
+                const { data } = await github.rest.repos.compareCommitsWithBasehead({
+                  owner,
+                  repo,
+                  basehead: `${nightlySha}...${headSha}`,
+                });
+                // Cumulative since the last published commit, not since the
+                // previous push. A three-dot comparison only spans that whole
+                // gap when the published commit is the merge base. GitHub
+                // caps the file list at 300 entries and paginates commits, so
+                // require a list that is under the cap and a commit count that
+                // matches the total: a partial answer must not read as proof.
+                const files = data.files;
+                if (
+                  data.status === 'ahead' &&
+                  data.merge_base_commit?.sha === nightlySha &&
+                  data.total_commits === data.commits?.length &&
+                  Array.isArray(files) &&
+                  files.length > 0 &&
+                  files.length < 300
+                ) {
+                  const paths = files.flatMap((file) =>
+                    [file.filename, file.previous_filename].filter(Boolean));
+                  const classified = await exec.getExecOutput(
+                    'python3',
+                    ['scripts/ci/nightly_build_inputs.py', '--files-from', '-'],
+                    { input: Buffer.from(`${paths.join('\n')}\n`) },
+                  );
+                  const decision = JSON.parse(classified.stdout.trim());
+                  unchangedBuildInputs = decision.build_inputs_changed === false;
+                  buildInputReason = decision.reason;
+                }
+              } catch (error) {
+                core.warning(`Could not prove the Nightly build inputs unchanged; building: ${error.message}`);
+              }
+            }
+            if (unchangedBuildInputs) shouldBuild = false;
 
             // Push throttle. Main merges arrive faster than one nightly takes
             // to build, sign, and publish (about 45 minutes), so publishing
@@ -257,15 +334,15 @@ jobs:
                 core.warning(`Could not read the published ${channelIdentity.releaseTag} commit; building: ${error.message}`);
               }
             }
-            // Explain the final app workload separately from the eligibility
-            // outputs: the six-hour schedule only warms caches downstream.
-            const scheduledCacheOnly = context.eventName === 'schedule' &&
-              context.payload?.schedule === '17 */6 * * *';
             let decisionReason;
             if (seedOnly) {
               decisionReason = 'Manual cache-only run: refresh compilation caches without building or publishing an app.';
             } else if (scheduledCacheOnly) {
               decisionReason = 'Scheduled cache warmup: refresh compilation caches only. The daily 08:47 UTC schedule is the app catch-up run.';
+            } else if (unchangedBuildInputs) {
+              decisionReason =
+                `Skipping this build: nothing that reaches the app changed since ${nightlySha.slice(0, 7)} ` +
+                `(${buildInputReason}). Use force=true in Run workflow to build this commit anyway.`;
             } else if (!shouldBuild) {
               decisionReason = 'This main commit is already published. Use force=true in Run workflow to rebuild the same commit; manual runs already bypass the push throttle.';
             } else if (pushThrottled) {
@@ -302,6 +379,7 @@ jobs:
                 [{data: 'push minimum commit age (hours)', header: true}, Number.isFinite(minIntervalHours) && minIntervalHours > 0 ? String(minIntervalHours) : '(disabled)'],
                 [{data: 'published commit age (hours)', header: true}, publishedCommitAgeHours === null ? '(not checked)' : publishedCommitAgeHours.toFixed(2)],
                 [{data: 'push throttled', header: true}, String(pushThrottled)],
+                [{data: 'app build inputs changed', header: true}, buildInputReason === null ? '(not checked)' : String(!unchangedBuildInputs)],
                 [{data: 'app build selected', header: true}, String(appBuildSelected)],
                 [{data: 'publish app this run', header: true}, String(appBuildSelected && shouldPublish)],
                 [{data: 'fast dogfood build', header: true}, String(fastBuild)],

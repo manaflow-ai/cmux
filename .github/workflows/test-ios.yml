@@ -201,9 +201,13 @@ jobs:
           ./scripts/lint-ios-package-conventions.sh
 
   mobile-core-package:
-    needs: detect-ios-changes
+    needs: [detect-ios-changes, package-conventions-lint]
     if: >-
-      ${{ needs.detect-ios-changes.outputs.should_run == 'true'
+      ${{ !cancelled() && needs.detect-ios-changes.result == 'success'
+          && needs.detect-ios-changes.outputs.should_run == 'true'
+          && (needs.package-conventions-lint.result == 'success'
+              || (needs.package-conventions-lint.result == 'skipped'
+                  && needs.detect-ios-changes.outputs.should_lint == 'false'))
           && (!(github.event_name == 'workflow_dispatch' && inputs.test_filter != '') || inputs.swift_package != '') }}
     runs-on: ${{ (!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_IOS || 'blacksmith-6vcpu-macos-26') || inputs.runner }}
     # Focused runs build the shell and its macros from a cold SwiftPM cache.
@@ -358,8 +362,16 @@ jobs:
           ./scripts/ci/require_selected_test_execution.sh "$log_path" "${SWIFT_TEST_FILTER:-CmuxMobileShellModel}"
 
   ios-simulator-build:
-    needs: detect-ios-changes
-    if: ${{ needs.detect-ios-changes.outputs.should_run == 'true' && inputs.swift_package == '' }}
+    needs: [detect-ios-changes, package-conventions-lint]
+    # An unrelated lint lane may be skipped. Explicit status checks retain
+    # that route while preventing a failed lint from buying a native build.
+    if: >-
+      ${{ !cancelled() && needs.detect-ios-changes.result == 'success'
+          && needs.detect-ios-changes.outputs.should_run == 'true'
+          && (needs.package-conventions-lint.result == 'success'
+              || (needs.package-conventions-lint.result == 'skipped'
+                  && needs.detect-ios-changes.outputs.should_lint == 'false'))
+          && inputs.swift_package == '' }}
     runs-on: ${{ (!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_IOS || 'blacksmith-6vcpu-macos-26') || inputs.runner }}
     timeout-minutes: 35
     outputs:
@@ -664,7 +676,11 @@ jobs:
     needs:
       - detect-ios-changes
       - ios-simulator-build
-    if: ${{ needs.detect-ios-changes.outputs.should_run == 'true' && inputs.swift_package == '' }}
+    # The producer may succeed with an intentionally skipped lint ancestor.
+    if: >-
+      ${{ !cancelled() && needs.detect-ios-changes.result == 'success'
+          && needs.ios-simulator-build.result == 'success'
+          && needs.detect-ios-changes.outputs.should_run == 'true' && inputs.swift_package == '' }}
     # Runtime-only consumers share the producer's exact Build/Products tree.
     runs-on: ${{ (!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_IOS || 'blacksmith-6vcpu-macos-26') || inputs.runner }}
     timeout-minutes: 35

@@ -1,5 +1,5 @@
 name: E2E test with video recording
-run-name: ${{ inputs.test_filter }} on ${{ (!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_TESTS || 'blacksmith-6vcpu-macos-15') || inputs.runner }} @ ${{ inputs.ref || github.ref_name }}${{ inputs.dispatch_id != '' && format(' [{0}]', inputs.dispatch_id) || '' }}
+run-name: ${{ inputs.test_filter }} on ${{ (!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_TESTS || 'blacksmith-6vcpu-macos-26') || inputs.runner }} @ ${{ inputs.ref || github.ref_name }}${{ inputs.dispatch_id != '' && format(' [{0}]', inputs.dispatch_id) || '' }}
 
 on:
   workflow_dispatch:
@@ -43,7 +43,7 @@ on:
           - tart-small
 
 concurrency:
-  group: e2e-${{ (!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_TESTS || 'blacksmith-6vcpu-macos-15') || inputs.runner }}-${{ inputs.ref || github.ref_name }}-${{ inputs.test_filter }}
+  group: e2e-${{ (!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_TESTS || 'blacksmith-6vcpu-macos-26') || inputs.runner }}-${{ inputs.ref || github.ref_name }}-${{ inputs.test_filter }}
   cancel-in-progress: true
 
 # This lane checks out and compiles a dispatcher-chosen ref, so it should hold
@@ -61,16 +61,16 @@ jobs:
 
   e2e:
     needs: resolve-ref
-    runs-on: ${{ (!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_TESTS || 'blacksmith-6vcpu-macos-15') || inputs.runner }}
+    runs-on: ${{ (!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_TESTS || 'blacksmith-6vcpu-macos-26') || inputs.runner }}
     timeout-minutes: ${{ fromJSON(inputs.job_timeout || '20') }}
     env:
       TEST_REF: ${{ needs.resolve-ref.outputs.sha }}
       CMUX_CI_MAX_MACOS_SDK_MAJOR: "26"
     steps:
       - name: Validate Tart canary identity
-        if: ${{ startsWith((!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_TESTS || 'blacksmith-6vcpu-macos-15') || inputs.runner, 'tart-') }}
+        if: ${{ startsWith((!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_TESTS || 'blacksmith-6vcpu-macos-26') || inputs.runner, 'tart-') }}
         env:
-          REQUESTED_RUNNER: ${{ (!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_TESTS || 'blacksmith-6vcpu-macos-15') || inputs.runner }}
+          REQUESTED_RUNNER: ${{ (!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_TESTS || 'blacksmith-6vcpu-macos-26') || inputs.runner }}
           RUNNER_CONTEXT_NAME: ${{ runner.name }}
         run: |
           set -euo pipefail
@@ -393,8 +393,8 @@ jobs:
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: .ci-source-packages
-          key: spm-${{ (!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_TESTS || 'blacksmith-6vcpu-macos-15') || inputs.runner }}-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
-          restore-keys: spm-${{ (!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_TESTS || 'blacksmith-6vcpu-macos-15') || inputs.runner }}-
+          key: spm-${{ (!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_TESTS || 'blacksmith-6vcpu-macos-26') || inputs.runner }}-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
+          restore-keys: spm-${{ (!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_TESTS || 'blacksmith-6vcpu-macos-26') || inputs.runner }}-
 
       - name: Sanitize Swift package cache
         run: python3 scripts/ci/sanitize-xcode-source-packages-cache.py .ci-source-packages
@@ -792,22 +792,37 @@ jobs:
             fi
           } >> "$GITHUB_STEP_SUMMARY"
 
+      - name: Check the selected revision against main
+        id: revision-on-main
+        continue-on-error: true
+        if: ${{ always() && !cancelled() && steps.compilation-cache-key.outcome == 'success' }}
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          contained="$(python3 scripts/ci/revision_on_main.py)"
+          echo "contained=$contained" >> "$GITHUB_OUTPUT"
+          echo "Selected revision contained in main: $contained"
+
       - name: Bound E2E compilation cache
         id: compilation-cache-bound
         continue-on-error: true
         if: ${{ always() && !cancelled() && steps.compilation-cache-key.outcome == 'success' }}
         env:
           WORKFLOW_REF: ${{ github.ref }}
-          WORKFLOW_SHA: ${{ github.sha }}
           TEST_OUTCOME: ${{ steps.tests.outcome }}
+          REVISION_ON_MAIN: ${{ steps.revision-on-main.outputs.contained }}
         run: |
           set -euo pipefail
           echo "save=false" >> "$GITHUB_OUTPUT"
-          # A dispatch can execute any selected revision. Only the exact main
-          # workflow revision may seed caches that later selected refs restore.
+          # A dispatch can execute any selected revision, so only code main
+          # already contains may seed caches that later selected refs restore.
+          # Requiring the selected revision to equal the workflow SHA also
+          # expressed that, but no dispatcher passes main's tip, so the cache
+          # never gained an entry.
           if [ "$WORKFLOW_REF" != refs/heads/main ] \
-            || [[ ! "$WORKFLOW_SHA" =~ ^[0-9a-f]{40}$ ]] \
-            || [ "$TEST_REF" != "$WORKFLOW_SHA" ] \
+            || [[ ! "$TEST_REF" =~ ^[0-9a-f]{40}$ ]] \
+            || [ "${REVISION_ON_MAIN:-false}" != true ] \
             || [ "$TEST_OUTCOME" != success ]; then
             echo "E2E compilation cache is read-only for this selected revision/result"
             exit 0
