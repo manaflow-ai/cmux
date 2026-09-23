@@ -1,7 +1,40 @@
 public import CMUXMobileCore
 public import Foundation
 
+public import CmuxMobileShellModel
+
 extension MobileShellComposite {
+    /// Records the provider/source metadata for one result made visible to the
+    /// task composer. Counts are aggregate metadata only, never model IDs.
+    public func recordTaskModelResult(
+        provider: MobileTaskAgentProvider,
+        correlationID: String?,
+        result: MobileTaskModelListResult
+    ) {
+        let diagnosticProvider: DiagnosticTaskModelProvider = switch provider {
+        case .claude: .claude
+        case .codex: .codex
+        case .openCode: .openCode
+        }
+        let diagnosticSource: DiagnosticTaskModelSource = switch result.source {
+        case .discovered: .discovered
+        case .backend: .backend
+        case .augmented: .augmented
+        case .fallback: .fallback
+        }
+        var seenModelIDs = Set<String>()
+        let effortCount = result.models.reduce(into: 0) { total, model in
+            guard seenModelIDs.insert(model.id).inserted else { return }
+            total += model.efforts.count
+        } + (result.defaultModel.flatMap { seenModelIDs.insert($0.id).inserted ? $0.efforts.count : nil } ?? 0)
+        diagnosticLog?.recordTaskModelResult(
+            correlationID: correlationID,
+            provider: diagnosticProvider,
+            source: diagnosticSource,
+            effortCount: effortCount
+        )
+    }
+
     /// Emits one privacy-safe product event through the app-wide diagnostic spine.
     ///
     /// `correlationID` is reduced to a process-local integer before admission.
