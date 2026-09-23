@@ -132,8 +132,10 @@ struct WorkstreamPersistenceRotationTests {
         #expect(UInt64(original.count) > cap * 4)
 
         let persistence = WorkstreamPersistence(fileURL: active, maxActiveFileBytes: cap)
+        // The first read answers from the untrimmed file without waiting.
         let recent = try await persistence.loadRecent(limit: 1)
         #expect(recent.map(\.workstreamId) == ["s119"])
+        await persistence.waitForLegacyTrim()
 
         let trimmed = try Data(contentsOf: active)
         #expect(!trimmed.isEmpty)
@@ -151,6 +153,109 @@ struct WorkstreamPersistenceRotationTests {
         #expect(!FileManager.default.fileExists(
             atPath: dir.appendingPathComponent("workstream.1.jsonl").path
         ))
+    }
+
+    @Test("cursors taken before the legacy trim re-anchor into the trimmed file")
+    func cursorsReanchorAfterLegacyTrim() async throws {
+        let dir = try makeTempDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let active = dir.appendingPathComponent("workstream.jsonl")
+        let cap: UInt64 = 4_096
+        let legacyWriter = WorkstreamPersistence(fileURL: active)
+        for i in 0..<120 {
+            try await legacyWriter.append(makeItem(i, padding: i % 7))
+        }
+
+        let release = AsyncStream<Void>.makeStream()
+        let persistence = WorkstreamPersistence(fileURL: active, maxActiveFileBytes: cap)
+        // Hold the trim's swap until both cursors come from the old file.
+        await persistence.setLegacyTrimFinalizeGateForTesting {
+            var iterator = release.stream.makeAsyncIterator()
+            _ = await iterator.next()
+        }
+        let newest = try await persistence.loadPage(limit: 2)
+        #expect(newest.items.map(\.workstreamId) == ["s118", "s119"])
+        let recentCursor = try #require(newest.startCursor)
+        // Far enough back that its rows fall before the kept range.
+        let deep = try await persistence.loadPage(limit: 100)
+        #expect(deep.items.first?.workstreamId == "s20")
+        let deepCursor = try #require(deep.startCursor)
+
+        release.continuation.yield()
+        await persistence.waitForLegacyTrim()
+        #expect(try fileSize(active) <= cap)
+
+        let older = try await persistence.loadPage(endingBefore: recentCursor, limit: 2)
+        #expect(older.items.map(\.workstreamId) == ["s116", "s117"])
+        #expect(older.hasMoreBefore)
+
+        var collected = older.items.map(\.workstreamId)
+        var page = older
+        var guardCount = 0
+        while page.hasMoreBefore, let cursor = page.startCursor, guardCount < 100 {
+            page = try await persistence.loadPage(endingBefore: cursor, limit: 5)
+            collected.insert(contentsOf: page.items.map(\.workstreamId), at: 0)
+            guardCount += 1
+        }
+        let firstIndex = try #require(collected.first.flatMap { Int($0.dropFirst()) })
+        #expect(firstIndex > 20)
+        #expect(collected == (firstIndex..<118).map { "s\($0)" })
+
+        let beforeKept = try await persistence.loadPage(endingBefore: deepCursor, limit: 5)
+        #expect(beforeKept.items.isEmpty)
+        #expect(!beforeKept.hasMoreBefore)
+    }
+
+    @Test("appends made while the legacy trim copies are kept")
+    func appendsDuringLegacyTrimAreKept() async throws {
+        let dir = try makeTempDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let active = dir.appendingPathComponent("workstream.jsonl")
+        let cap: UInt64 = 4_096
+        let legacyWriter = WorkstreamPersistence(fileURL: active)
+        for i in 0..<120 {
+            try await legacyWriter.append(makeItem(i, padding: i % 7))
+        }
+
+        let copied = AsyncStream<Void>.makeStream()
+        let release = AsyncStream<Void>.makeStream()
+        let persistence = WorkstreamPersistence(fileURL: active, maxActiveFileBytes: cap)
+        await persistence.setLegacyTrimFinalizeGateForTesting {
+            copied.continuation.yield()
+            var iterator = release.stream.makeAsyncIterator()
+            _ = await iterator.next()
+        }
+
+        let recent = try await persistence.loadRecent(limit: 1)
+        #expect(recent.map(\.workstreamId) == ["s119"])
+        var copiedIterator = copied.stream.makeAsyncIterator()
+        _ = await copiedIterator.next()
+
+        // The copy snapshot is taken; these land after it.
+        for i in 120..<123 {
+            try await persistence.append(makeItem(i))
+        }
+        release.continuation.yield()
+        await persistence.waitForLegacyTrim()
+
+        // The trimmed file holds the kept tail plus the three appends, and
+        // the oversized original was not rotated whole into `.1`.
+        #expect(!FileManager.default.fileExists(
+            atPath: dir.appendingPathComponent("workstream.1.jsonl").path
+        ))
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let lines = try Data(contentsOf: active).split(separator: 0x0A)
+        let ids = lines.compactMap {
+            try? decoder.decode(WorkstreamItem.self, from: Data($0)).workstreamId
+        }
+        #expect(ids.count == lines.count)
+        #expect(lines.count < 40)
+        #expect(Array(ids.suffix(4)) == ["s119", "s120", "s121", "s122"])
+
+        try await persistence.append(makeItem(123))
+        let loaded = try await persistence.loadRecent(limit: 5)
+        #expect(loaded.map(\.workstreamId) == ["s119", "s120", "s121", "s122", "s123"])
     }
 
     // MARK: - Helpers
