@@ -1,5 +1,6 @@
 import AppKit
 import Foundation
+import XCTest
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -168,6 +169,47 @@ extension AppDelegate {
             manager.finalizeAllWorkspacesForWindowClose()
         })
     }
+}
+
+/// The tab id a portal-rendering fixture must build its surface with, and the
+/// teardown for the context registered to authorize it.
+///
+/// `Workspace.portalRenderingEnabled(for:)` decides whether a surface is ever
+/// really shown, and it resolves two ways that look alike at a call site but
+/// are opposites:
+///
+/// - **No app delegate.** `Workspace+PortalRenderingAuthority.swift:14`
+///   returns `true` before consulting anything, so any id is authorized and a
+///   synthetic one is sound.
+/// - **An app delegate with no selected workspace to borrow.** The authority
+///   is live, `:16-17` returns `false` for an id no manager has selected, and
+///   the surface is never made visible or active. The test then fails on
+///   whatever it was waiting for, several seconds later, with no mention of
+///   the fixture — the timeout the #12414 gate (`a81d39e61f`) taught these
+///   tests to produce.
+///
+/// Collapsing both into one optional is what let the second pass unnoticed, so
+/// this reports the fixture failure where it happens instead of leaving a
+/// symptom for someone to chase.
+@MainActor
+func makeAuthorizedPortalTabId(
+    file: StaticString = #filePath,
+    line: UInt = #line
+) -> (id: UUID, tearDown: @MainActor () -> Void) {
+    guard let appDelegate = AppDelegate.shared else {
+        return (UUID(), {})
+    }
+    guard let registration = appDelegate.registerLivePortalWorkspaceForTesting() else {
+        XCTFail(
+            "Portal rendering authority is live (an app delegate is installed) but this "
+            + "fixture has no selected workspace to borrow, so every tab id it can supply "
+            + "is denied and the surface under test would never be shown.",
+            file: file,
+            line: line
+        )
+        return (UUID(), {})
+    }
+    return registration
 }
 
 /// A window that reports key status the way the focused main window does in
