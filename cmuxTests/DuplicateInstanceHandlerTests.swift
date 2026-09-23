@@ -13,10 +13,12 @@ struct DuplicateInstanceHandlerTests {
     func onlyCmuxExecutableMatches() {
         let app = URL(fileURLWithPath: "/Applications/cmux.app/Contents/MacOS/cmux")
         let cli = URL(fileURLWithPath: "/Applications/cmux.app/Contents/Resources/bin/cmux")
+        #expect(!AppDelegate.isDuplicateApplicationExecutable(nil, mainExecutableURL: app))
+        #expect(!AppDelegate.isDuplicateApplicationExecutable(app, mainExecutableURL: nil))
         let helper = URL(fileURLWithPath: "/usr/bin/osascript")
 
-        #expect(AppDelegate.isDuplicateApplicationExecutableForTesting(app, mainExecutableURL: app))
-        #expect(!AppDelegate.isDuplicateApplicationExecutableForTesting(cli, mainExecutableURL: app))
-        #expect(!AppDelegate.isDuplicateApplicationExecutableForTesting(helper, mainExecutableURL: app))
+        #expect(AppDelegate.isDuplicateApplicationExecutable(app, mainExecutableURL: app))
+        #expect(!AppDelegate.isDuplicateApplicationExecutable(cli, mainExecutableURL: app))
+        #expect(!AppDelegate.isDuplicateApplicationExecutable(helper, mainExecutableURL: app))
     }
 }
