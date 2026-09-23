@@ -31,11 +31,11 @@ def iso(minutes_ago: float) -> str:
 
 
 def make_run(*, event="pull_request", branch="feature", path=".github/workflows/ci.yml", name="CI",
-             status="in_progress", sha="aaa", age=30, owner="manaflow-ai", prs=()):
+             status="in_progress", sha="aaa", age=30, owner="manaflow-ai", prs=(), attempt=1):
     run_id = next(_ids)
     return {
         "id": run_id, "event": event, "head_branch": branch, "path": path, "name": name,
-        "status": status, "head_sha": sha, "created_at": iso(age),
+        "status": status, "head_sha": sha, "created_at": iso(age), "run_attempt": attempt,
         "html_url": f"https://github.com/manaflow-ai/cmux/actions/runs/{run_id}",
         "head_repository": {"full_name": f"{owner}/cmux", "owner": {"login": owner}},
         "pull_requests": [{"number": n} for n in prs],
@@ -51,10 +51,28 @@ def mac_jobs(queued=0, running=0, age=20, running_name="macos / app-host shard")
     return jobs
 
 
-def make_pr(number=1, *, state="OPEN", draft=False, head="aaa", labels=(), owner="manaflow-ai", timeline=()):
+def doomed_jobs(*, queued=2, running=1, conclusion="failure", failed_age=30, name=None,
+                completed_at=True):
+    """macOS jobs for a run whose app-host shard has already concluded."""
+    jobs = mac_jobs(queued=queued, running=running, running_name="macos / app-host unit tests (4/6)")
+    jobs.append({
+        "status": "completed", "labels": [MAC], "created_at": iso(60),
+        "name": name or "macos / app-host unit tests (3/6)",
+        "conclusion": conclusion,
+        "completed_at": iso(failed_age) if completed_at else None,
+    })
+    return jobs
+
+
+def make_pr(number=1, *, state="OPEN", draft=False, head="aaa", labels=(), owner="manaflow-ai", timeline=(),
+            files=("web/app/page.tsx",), files_truncated=False):
     return {
         "number": number, "state": state, "isDraft": draft, "headRefOid": head,
         "headRepositoryOwner": {"login": owner},
+        "files": None if files is None else {
+            "pageInfo": {"hasNextPage": files_truncated},
+            "nodes": [{"path": path} for path in files],
+        },
         "labels": {"nodes": [{"name": name} for name in labels]},
         "timelineItems": {"nodes": [
             {"__typename": kind, "createdAt": iso(age), "label": {"name": label}}
@@ -66,6 +84,7 @@ def make_pr(number=1, *, state="OPEN", draft=False, head="aaa", labels=(), owner
 def plan(runs, jobs, prs=None, *, threshold=6, max_cancels=10, policy="compile-only"):
     return janitor.build_plan(
         runs, jobs, prs or {}, threshold=threshold, max_cancels=max_cancels, pull_request_policy=policy,
+        now=NOW,
     )
 
 
@@ -97,7 +116,7 @@ class ProtectionTests(unittest.TestCase):
                 pr = make_pr(state="CLOSED", draft=True, head="zzz")
                 self.assertIsNone(janitor.classify(
                     run, janitor.macos_usage(mac_jobs(queued=3)), pr,
-                    newer_ci_run_waiting=True, pull_request_policy="compile-only",
+                    newer_ci_run_waiting=True, pull_request_policy="compile-only", now=NOW,
                 ))
 
     def test_protected_runs_count_toward_the_queue_but_are_never_planned(self):
@@ -117,7 +136,7 @@ class ProtectionTests(unittest.TestCase):
 class CategoryTests(unittest.TestCase):
     def classify(self, run, pr=None, *, jobs=None, newer=False, policy="compile-only"):
         usage = janitor.macos_usage(jobs if jobs is not None else mac_jobs(queued=2))
-        return janitor.classify(run, usage, pr, newer_ci_run_waiting=newer, pull_request_policy=policy)
+        return janitor.classify(run, usage, pr, newer_ci_run_waiting=newer, pull_request_policy=policy, now=NOW)
 
     def test_experiment_push(self):
         run = make_run(event="push", branch="exp/incremental-foo", name="Xcode incremental generation canary")
@@ -186,6 +205,147 @@ class CategoryTests(unittest.TestCase):
     def test_stale_draft_is_still_stale(self):
         verdict = self.classify(make_run(), make_pr(draft=True, state="CLOSED"))
         self.assertEqual(verdict[0], "stale-pr")
+
+
+class DoomedCategoryTests(unittest.TestCase):
+    """An `app-host unit tests` shard failure decides ci-status by construction.
+
+    ci-status accepts only `success` or `skipped` from the `macos`
+    reusable-workflow call, so one failed shard fails the required check and no
+    later job takes it back. Across the 299 CI runs created between
+    2026-09-22T06:05Z and 17:00Z, 21 runs had such a failure and ci-status
+    concluded `failure` in all 21.
+    """
+
+    def classify(self, *, jobs=None, pr=None, run=None):
+        return janitor.classify(
+            run or make_run(), janitor.macos_usage(jobs if jobs is not None else doomed_jobs()),
+            pr if pr is not None else make_pr(),
+            newer_ci_run_waiting=False, pull_request_policy="compile-only", now=NOW,
+        )
+
+    def test_failed_shard_with_macos_jobs_still_held_is_doomed(self):
+        verdict = self.classify()
+        self.assertEqual(verdict[0], "doomed")
+        self.assertIn("app-host unit tests (3/6)", verdict[1])
+        self.assertIn("3 macOS job(s) still held", verdict[1])
+        self.assertIn("PR #1 (feature)", verdict[1])
+
+    def test_earliest_failed_shard_is_the_one_reported(self):
+        jobs = doomed_jobs(failed_age=30)
+        jobs.append({"status": "completed", "labels": [MAC], "created_at": iso(60),
+                     "name": "macos / app-host unit tests (5/6)", "conclusion": "failure",
+                     "completed_at": iso(40)})
+        self.assertIn("(5/6)", self.classify(jobs=jobs)[1])
+
+    def test_no_macos_job_left_to_reclaim_is_kept(self):
+        # usage.held == 0 short-circuits every category: cancelling would free
+        # nothing and only destroy the Linux results.
+        self.assertIsNone(self.classify(jobs=doomed_jobs(queued=0, running=0)))
+
+    def test_macos_jobs_held_without_a_shard_failure_are_kept(self):
+        for conclusion in ("success", "skipped", "cancelled"):
+            with self.subTest(conclusion=conclusion):
+                self.assertIsNone(self.classify(jobs=doomed_jobs(conclusion=conclusion)))
+
+    def test_continue_on_error_step_failure_is_kept(self):
+        # The jobs API does not report continue-on-error and does not need to:
+        # a job whose only failed steps tolerate failure concludes `success`,
+        # and ci-status reads the job, not the step.
+        jobs = doomed_jobs(conclusion="success")
+        jobs[-1]["steps"] = [{"name": "Upload xcresults", "conclusion": "failure"}]
+        self.assertIsNone(self.classify(jobs=jobs))
+
+    def test_app_host_job_has_no_job_level_continue_on_error(self):
+        # Job-level continue-on-error is not absorbed by the job conclusion the
+        # test above relies on, so reading a `failure` conclusion as decisive
+        # would stop being sound.
+        macos = (ROOT / ".github/workflows/ci-macos.yml").read_text(encoding="utf-8")
+        block = macos.split("\n  app-host-unit-tests:\n", 1)[1].split("\n  ", 1)[0]
+        self.assertNotIn("\n    continue-on-error", "\n" + block)
+
+    def test_a_run_fixing_the_failing_job_is_kept(self):
+        """The run repairing app-host is the one that most needs its shards.
+
+        Each path is a real diff from a run this rule flagged in the census
+        window: PR #13643 (fix/app-host-green and siblings), #13579, #13427,
+        #13414 and #13615 were all repairing the app-host lane when a shard of
+        their own run failed. Run 35738641571 on `ci-6134-isolate-ssh-fish-hang`
+        was cancelled by hand for exactly this and had to be restarted.
+        """
+        repairs = {
+            "PR #13643 app-host test sources": "cmuxTests/AgentSessionAutoResumeSettingsTests.swift",
+            "PR #13408 the failing regression itself": "cmuxTests/WorkspaceSSHFishShellTests.swift",
+            "PR #13579 shard splitter": "scripts/ci/cmux_unit_test_shard.py",
+            "PR #13579 shard workload": "scripts/ci/workloads/macos-app-host-test-shard.sh",
+            "PR #13427 job definition": ".github/workflows/ci-macos.yml",
+            "PR #13414 test product build": "scripts/ci/compile-app-host-test-product.sh",
+            "quarantine list": "scripts/ci/app-host-known-failures.json",
+        }
+        for name, path in repairs.items():
+            with self.subTest(name=name):
+                pr = make_pr(files=("Sources/AppDelegate.swift", path))
+                self.assertIsNone(self.classify(pr=pr))
+
+    def test_an_unrelated_diff_is_still_doomed(self):
+        # PR #13218 changed nothing the shard consumes, so its remaining macOS
+        # jobs are only holding pool capacity.
+        pr = make_pr(files=("Sources/JSONC.swift", "web/app/page.tsx", "tests/test_jsonc.py"))
+        self.assertEqual(self.classify(pr=pr)[0], "doomed")
+
+    def test_unreadable_diff_is_kept(self):
+        # A diff past the page size, or one GraphQL did not return, cannot show
+        # that a path is absent.
+        self.assertIsNone(self.classify(pr=make_pr(files_truncated=True)))
+        self.assertIsNone(self.classify(pr=make_pr(files=None)))
+
+    def test_opt_out_label_is_honoured(self):
+        # The escape hatch for a fix that lives entirely in product code, which
+        # no path list can distinguish from an ordinary change.
+        self.assertIsNone(self.classify(pr=make_pr(labels=["full-ci", "no-janitor"])))
+
+    def test_recent_failure_waits_out_the_grace_window(self):
+        self.assertIsNone(self.classify(jobs=doomed_jobs(failed_age=5)))
+
+    def test_undated_failure_fails_closed(self):
+        self.assertIsNone(self.classify(jobs=doomed_jobs(completed_at=False)))
+
+    def test_rerun_is_kept(self):
+        self.assertIsNone(self.classify(run=make_run(attempt=2)))
+
+    def test_missing_attempt_fails_closed(self):
+        run = make_run()
+        del run["run_attempt"]
+        self.assertIsNone(self.classify(run=run))
+
+    def test_only_the_ci_workflow(self):
+        run = make_run(path=".github/workflows/ci-macos.yml", name="CI macOS")
+        self.assertIsNone(self.classify(run=run))
+
+    def test_closed_or_superseded_pr_stays_stale_pr(self):
+        # The earlier categories win: they need no diff read and no grace wait.
+        self.assertEqual(self.classify(pr=make_pr(state="MERGED"))[0], "stale-pr")
+        self.assertEqual(self.classify(pr=make_pr(head="bbb"))[0], "stale-pr")
+
+    def test_doomed_is_spent_last_and_under_the_shared_cap(self):
+        main_run, main_jobs = busy_main_push(queued=9)
+        exp = make_run(event="push", branch="exp/a", name="canary")
+        doomed = make_run(branch="feature", sha="aaa")
+        runs = [main_run, exp, doomed]
+        jobs = {main_run["id"]: main_jobs, exp["id"]: mac_jobs(queued=2), doomed["id"]: doomed_jobs()}
+        result = plan(runs, jobs, {"feature": [make_pr()]}, max_cancels=1)
+        self.assertEqual([c.category for c in result.to_cancel()], ["experiment"])
+        skipped = [d for d in result.decisions if d.action == "skip"]
+        self.assertEqual([d.candidate.category for d in skipped], ["doomed"])
+        self.assertIn("per-sweep cap", skipped[0].note)
+
+    def test_doomed_does_not_fire_below_the_queue_threshold(self):
+        # A doomed run is only worth cancelling when its slots are contended.
+        doomed = make_run(branch="feature", sha="aaa")
+        result = plan([doomed], {doomed["id"]: doomed_jobs()}, {"feature": [make_pr()]})
+        self.assertEqual(result.to_cancel(), [])
+        self.assertTrue(all(d.action == "skip" for d in result.decisions))
+        self.assertIn("not over", result.decisions[0].note)
 
 
 class ResolvePullRequestTests(unittest.TestCase):

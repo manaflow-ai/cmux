@@ -1,4 +1,5 @@
 #if os(iOS)
+import CmuxMobileSupport
 import SwiftUI
 
 /// A nonblocking recovery notice for a notification tap waiting on its Mac.

@@ -33,7 +33,7 @@ public struct PushTabNavigationPreviewView: View {
 
     /// Creates the deterministic push-navigation preview fixture.
     @MainActor public init() {
-        _store = State(initialValue: makePushTabNavigationPreviewStore(connectionState: .disconnected))
+        _store = State(initialValue: Self.makePreviewStore(connectionState: .disconnected))
     }
 
     /// Renders the production shell and the fixture controls.
@@ -217,23 +217,23 @@ public struct PushTabNavigationPreviewView: View {
     private var connectedWorkspaces: [MobileWorkspacePreview] {
         [Self.homeWorkspace, Self.docsWorkspace]
     }
-}
 
-@MainActor private func makePushTabNavigationPreviewStore(
-    connectionState: MobileConnectionState
-) -> CMUXMobileShellStore {
-    CMUXMobileShellStore(
-        isSignedIn: true,
-        connectionState: connectionState,
-        pairingCode: "preview",
-        workspaces: [
-            MobileWorkspacePreview(
-                id: "workspace-home",
-                name: "Home",
-                terminals: []
-            )
-        ]
-    )
+    @MainActor private static func makePreviewStore(
+        connectionState: MobileConnectionState
+    ) -> CMUXMobileShellStore {
+        CMUXMobileShellStore(
+            isSignedIn: true,
+            connectionState: connectionState,
+            pairingCode: "preview",
+            workspaces: [
+                MobileWorkspacePreview(
+                    id: "workspace-home",
+                    name: "Home",
+                    terminals: []
+                )
+            ]
+        )
+    }
 }
 
 private extension View {

@@ -185,6 +185,46 @@ def test_missing_selected_test_result_never_passes() -> None:
     ]
 
 
+def test_incomplete_run_still_names_the_failures_it_recorded() -> None:
+    """A shard with one missing result must still report what actually failed.
+
+    On main's full suite at f3d204a462 all six app-host shards returned at the
+    incompleteness gate, so not one RATCHET_NEW_FAILURE line was printed across
+    the whole run even though the logs carried real assertion failures. A red
+    suite that names no regression cannot tell anyone whether a fix landed.
+    """
+    passed, messages = accounting.check_run(
+        inventory={"FooTests/testOne()", "BarTests/testTwo()", "BazTests/testThree()"},
+        selectors=["FooTests", "BarTests", "BazTests"],
+        results={
+            "FooTests/testOne()": "Failed",
+            "BazTests/testThree()": "Failed",
+        },
+        known={"BazTests/testThree()": "known on main"},
+        log_text="",
+        xcode_status=65,
+    )
+    assert passed is False
+    assert "typed xcresult is incomplete: 1 selected Test Case(s) have no terminal result" in messages
+    assert "missing typed test result: BarTests/testTwo()" in messages
+    assert "RATCHET_NEW_FAILURE FooTests/testOne()" in messages
+    assert "RATCHET_KNOWN_FAILURE BazTests/testThree()" in messages
+    assert "recorded verdicts: 1 new, 1 known-main; typed test cases: 2" in messages
+
+
+def test_incomplete_run_without_failures_adds_no_ratchet_noise() -> None:
+    passed, messages = accounting.check_run(
+        inventory={"FooTests/testOne()", "BarTests/testTwo()"},
+        selectors=["FooTests", "BarTests"],
+        results={"FooTests/testOne()": "Passed"},
+        known={},
+        log_text="",
+        xcode_status=0,
+    )
+    assert passed is False
+    assert not [m for m in messages if m.startswith("RATCHET_")]
+
+
 def test_partial_suite_result_never_passes() -> None:
     passed, messages = accounting.check_run(
         inventory={"FooTests/testOne()", "FooTests/testTwo()"},
@@ -243,6 +283,32 @@ def test_restart_or_outer_timeout_is_never_ratcheted_green() -> None:
         )
         assert passed is False
         assert messages[0].startswith("incomplete app-host run:")
+
+
+def test_interrupted_run_still_names_the_failures_it_recorded() -> None:
+    """A restarted app host must not hide the failures recorded before it.
+
+    On main's full suite at 638aaa717 (run 35862070143), shard 4 recorded a
+    failed XCTest case, then reported `app host restarted after test
+    execution` and printed no RATCHET line, so the run never named it.
+    """
+    passed, messages = accounting.check_run(
+        inventory={"FooTests/testBad()", "FooTests/testGood()", "BazTests/testKnown()"},
+        selectors=["FooTests", "BazTests"],
+        results={
+            "FooTests/testBad()": "Failed",
+            "FooTests/testGood()": "Passed",
+            "BazTests/testKnown()": "Failed",
+        },
+        known={"BazTests/testKnown()": "known on main"},
+        log_text="Restarting after unexpected exit, crash, or test timeout\n",
+        xcode_status=65,
+    )
+    assert passed is False
+    assert messages[0] == "incomplete app-host run: app host restarted after test execution"
+    assert "RATCHET_NEW_FAILURE FooTests/testBad()" in messages
+    assert "RATCHET_KNOWN_FAILURE BazTests/testKnown()" in messages
+    assert "recorded verdicts: 1 new, 1 known-main; typed test cases: 3" in messages
 
 
 def _catalog(tests: dict[str, dict[str, object]]) -> dict[str, object]:

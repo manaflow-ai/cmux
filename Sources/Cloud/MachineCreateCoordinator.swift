@@ -34,7 +34,10 @@ final class MachineCreateCoordinator {
         cancelCreatedMachine: { CloudVMActionLauncher.shared.destroyMachineBestEffort($0) },
         cancelOperation: { operation in
             guard let workspaceID = operation.request.presentationWorkspaceID else { return }
-            NewMachineSheetPresenter.closeReservedWorkspace(workspaceID)
+            NewMachineSheetPresenter.closeReservedWorkspace(
+                workspaceID,
+                machineID: operation.createdMachineID ?? operation.reconcilingMachineID
+            )
         }
     )
     static let didChangeNotification = Notification.Name("cmux.machineCreate.didChange")
