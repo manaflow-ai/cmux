@@ -13,6 +13,25 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
         let rank: Int
         let title: String
         let searchableTexts: [String]
+        /// Normalized title, as the engine prepares it.
+        let titleNormalizedText: String
+        /// Normalized title word text excluding symbol-only segments, which is
+        /// the text the engine's title-word ranking term is keyed on.
+        let titleSearchWordText: String
+
+        /// Prepares the title texts once, outside the benchmark timing loops,
+        /// so the reference pipeline can model the engine's title-word term
+        /// without the preparation cost landing on the timed comparison.
+        init(id: String, rank: Int, title: String, searchableTexts: [String]) {
+            self.id = id
+            self.rank = rank
+            self.title = title
+            self.searchableTexts = searchableTexts
+            self.titleNormalizedText = CommandPaletteFuzzyMatcher.normalizeForSearch(title)
+            self.titleSearchWordText = CommandPaletteSearchCorpusEntry(
+                payload: id, rank: rank, title: title, searchableTexts: searchableTexts
+            ).normalizedTitleSearchWordText
+        }
     }
 
     private struct FixtureResult: Equatable {
@@ -213,6 +232,7 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
         query: String
     ) -> [FixtureResult] {
         let queryIsEmpty = query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        let preparedQuery = CommandPaletteFuzzyMatcher.preparedQuery(query)
         let results: [FixtureResult] = queryIsEmpty
             ? entries.map { entry in
                 FixtureResult(id: entry.id, rank: entry.rank, title: entry.title, score: 0, titleMatchIndices: [])
@@ -220,6 +240,7 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
             : entries.compactMap { entry in
                 guard let fuzzyScore = weightedReferenceScore(
                     query: query,
+                    preparedQuery: preparedQuery,
                     entry: entry
                 ) else {
                     return nil
@@ -260,6 +281,7 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
 
     private func weightedReferenceScore(
         query: String,
+        preparedQuery: CommandPaletteFuzzyMatcher.PreparedQuery,
         entry: FixtureEntry
     ) -> Int? {
         guard let fuzzyScore = CommandPaletteFuzzyMatcher.score(
@@ -274,7 +296,36 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
         ) else {
             return fuzzyScore
         }
-        return max(fuzzyScore, titleScore + 2000)
+        return max(
+            fuzzyScore,
+            titleScore + 2000,
+            referenceTitleWordScore(preparedQuery: preparedQuery, entry: entry) ?? Int.min
+        )
+    }
+
+    /// Independently models the engine's title-word ranking term: a query that
+    /// is, or prefixes, a title's search words outranks the same query matched
+    /// fuzzily anywhere in the entry. Reimplemented here rather than called
+    /// through, because a reference pipeline that shared the engine's
+    /// implementation would assert nothing about it.
+    private func referenceTitleWordScore(
+        preparedQuery: CommandPaletteFuzzyMatcher.PreparedQuery,
+        entry: FixtureEntry
+    ) -> Int? {
+        guard !preparedQuery.isEmpty,
+              entry.titleSearchWordText != entry.titleNormalizedText else {
+            return nil
+        }
+        let scaledTitleMatchBonus = 2000 * max(1, preparedQuery.tokens.count)
+        if entry.titleSearchWordText == preparedQuery.normalizedTokenText {
+            return preparedQuery.tokens.reduce(0) { $0 + $1.scoreUpperBound } + scaledTitleMatchBonus
+        }
+        guard entry.titleSearchWordText.hasPrefix(preparedQuery.normalizedTokenText) else {
+            return nil
+        }
+        return preparedQuery.tokens.reduce(0) {
+            $0 + $1.scoreUpperBoundWithoutExactMatch
+        } + scaledTitleMatchBonus
     }
 
     private func benchmarkElapsedMs(operation: () -> Void) -> Double {
