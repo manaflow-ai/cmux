@@ -230,6 +230,26 @@ struct CloudSidebarConsistencyTests {
         #expect(workspace.panelCustomTitleSources[panelID] == .user)
     }
 
+    @Test("Supported Cloud providers resolve their bundled marks")
+    func supportedCloudProviderMarks() {
+        let expected = [
+            "claude": "AgentIcons/Claude", "codex": "AgentIcons/Codex",
+            "opencode": "AgentIcons/OpenCode", "pi": "AgentIcons/Pi",
+            "amp": "AgentIcons/Amp", "cursor": "AgentIcons/Cursor",
+            "gemini": "AgentIcons/Gemini", "kiro": "AgentIcons/Kiro",
+            "copilot": "AgentIcons/Copilot", "codebuddy": "AgentIcons/CodeBuddy",
+            "factory": "AgentIcons/Factory", "qoder": "AgentIcons/Qoder",
+            "kimi": "AgentIcons/Kimi", "ollama": "AgentIcons/Ollama"
+        ]
+        for (provider, asset) in expected {
+            let badge = SurfaceAgentBadge(state: "working", source: "hook", agent: provider)
+            #expect(badge.agent == provider)
+            #expect(CmuxTaskManagerCodingAgentDefinition.builtIns.first(where: { $0.id == provider })?.assetName == asset)
+        }
+        #expect(TerminalTabAgentIconResolver().assetName(forStatusKey: "codex") == "AgentIcons/Codex")
+        #expect(TerminalTabAgentIconResolver().assetName(forStatusKey: "gemini") == "AgentIcons/Gemini")
+    }
+
     @Test("A bound native tab receives canonical names, process titles, and ignores delayed graph callbacks", arguments: [false, true])
     func nativeNameParity(named: Bool) throws {
         let manager = TabManager()

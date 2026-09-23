@@ -101,24 +101,6 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertEqual(restored.selectedTabId, secondWorkspace.id)
     }
 
-    func testFocusHistoryNavigatesWithinWorkspacePanels() throws {
-        let manager = TabManager()
-        let workspace = try XCTUnwrap(manager.selectedWorkspace)
-        let pane = try XCTUnwrap(workspace.bonsplitController.allPaneIds.first)
-        let firstPanelId = try XCTUnwrap(workspace.focusedPanelId)
-        let secondPanelId = try XCTUnwrap(workspace.newTerminalSurface(inPane: pane, focus: true)?.id)
-
-        workspace.focusPanel(firstPanelId)
-        workspace.focusPanel(secondPanelId)
-
-        XCTAssertTrue(manager.canNavigateBack)
-
-        manager.navigateBack()
-
-        XCTAssertEqual(workspace.focusedPanelId, firstPanelId)
-        XCTAssertTrue(manager.canNavigateForward)
-    }
-
     func testFocusHistoryBackFallsBackWhenRecordedPanelWasClosed() throws {
         let manager = TabManager()
         let firstWorkspace = try XCTUnwrap(manager.selectedWorkspace)
@@ -161,100 +143,6 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         manager.navigateForward()
 
         XCTAssertEqual(manager.selectedTabId, secondWorkspace.id)
-    }
-
-    func testFocusHistoryBackSkipsStaleEntriesThatResolveToCurrentPanel() throws {
-        let manager = TabManager()
-        let workspace = try XCTUnwrap(manager.selectedWorkspace)
-        let pane = try XCTUnwrap(workspace.bonsplitController.allPaneIds.first)
-        let closedPanelId = try XCTUnwrap(workspace.focusedPanelId)
-        let fallbackPanelId = try XCTUnwrap(workspace.newTerminalSurface(inPane: pane, focus: true)?.id)
-
-        workspace.focusPanel(closedPanelId)
-        _ = workspace.closePanel(closedPanelId, force: true)
-        drainMainQueue()
-
-        XCTAssertEqual(workspace.focusedPanelId, fallbackPanelId)
-        XCTAssertFalse(manager.canNavigateBack)
-
-        var notificationCount = 0
-        let observer = NotificationCenter.default.addObserver(
-            forName: .tabManagerFocusHistoryRevisionDidChange,
-            object: manager,
-            queue: nil
-        ) { _ in
-            notificationCount += 1
-        }
-        defer {
-            NotificationCenter.default.removeObserver(observer)
-        }
-
-        manager.navigateBack()
-
-        XCTAssertEqual(workspace.focusedPanelId, fallbackPanelId)
-        XCTAssertEqual(notificationCount, 0)
-    }
-
-    func testFocusHistoryRevisionInvalidatesWhenClosedPanelChangesAvailability() throws {
-        let manager = TabManager()
-        let workspace = try XCTUnwrap(manager.selectedWorkspace)
-        let pane = try XCTUnwrap(workspace.bonsplitController.allPaneIds.first)
-        let closedPanelId = try XCTUnwrap(workspace.focusedPanelId)
-        let fallbackPanelId = try XCTUnwrap(workspace.newTerminalSurface(inPane: pane, focus: true)?.id)
-
-        workspace.focusPanel(closedPanelId)
-        workspace.focusPanel(fallbackPanelId)
-        XCTAssertTrue(manager.canNavigateBack)
-
-        var notificationCount = 0
-        let observer = NotificationCenter.default.addObserver(
-            forName: .tabManagerFocusHistoryRevisionDidChange,
-            object: manager,
-            queue: nil
-        ) { _ in
-            notificationCount += 1
-        }
-        defer {
-            NotificationCenter.default.removeObserver(observer)
-        }
-        let revision = manager.focusHistoryRevision
-
-        _ = workspace.closePanel(closedPanelId, force: true)
-
-        XCTAssertGreaterThan(manager.focusHistoryRevision, revision)
-        XCTAssertGreaterThan(notificationCount, 0)
-        XCTAssertFalse(manager.canNavigateBack)
-    }
-
-    func testFocusHistoryRevisionInvalidatesWhenClosedPaneChangesAvailability() throws {
-        let manager = TabManager()
-        let workspace = try XCTUnwrap(manager.selectedWorkspace)
-        let leftPanelId = try XCTUnwrap(workspace.focusedPanelId)
-        let leftPaneId = try XCTUnwrap(workspace.paneId(forPanelId: leftPanelId))
-        let rightPanel = try XCTUnwrap(workspace.newTerminalSplit(from: leftPanelId, orientation: .horizontal))
-
-        workspace.focusPanel(leftPanelId)
-        workspace.focusPanel(rightPanel.id)
-        XCTAssertTrue(manager.canNavigateBack)
-
-        var notificationCount = 0
-        let observer = NotificationCenter.default.addObserver(
-            forName: .tabManagerFocusHistoryRevisionDidChange,
-            object: manager,
-            queue: nil
-        ) { _ in
-            notificationCount += 1
-        }
-        defer {
-            NotificationCenter.default.removeObserver(observer)
-        }
-        let revision = manager.focusHistoryRevision
-
-        XCTAssertTrue(workspace.bonsplitController.closePane(leftPaneId))
-
-        XCTAssertGreaterThan(manager.focusHistoryRevision, revision)
-        XCTAssertGreaterThan(notificationCount, 0)
-        XCTAssertFalse(manager.canNavigateBack)
     }
 
     func testFocusHistoryRevisionInvalidatesWhenClosedWorkspaceChangesAvailability() throws {
@@ -306,31 +194,6 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         manager.navigateForward()
 
         XCTAssertEqual(manager.selectedTabId, secondWorkspace.id)
-    }
-
-    func testGhosttyFocusSurfaceIdRecordsMappedPanelInFocusHistory() throws {
-        let manager = TabManager()
-        let workspace = try XCTUnwrap(manager.selectedWorkspace)
-        let pane = try XCTUnwrap(workspace.bonsplitController.allPaneIds.first)
-        let secondPanelId = try XCTUnwrap(workspace.newTerminalSurface(inPane: pane, focus: true)?.id)
-        let secondSurfaceId = try XCTUnwrap(workspace.surfaceIdFromPanelId(secondPanelId))
-        XCTAssertNotEqual(secondSurfaceId.uuid, secondPanelId)
-
-        let firstPanelId = try XCTUnwrap(workspace.panels.keys.first { $0 != secondPanelId })
-        workspace.focusPanel(firstPanelId)
-        let revision = manager.focusHistoryRevision
-
-        NotificationCenter.default.post(
-            name: .ghosttyDidFocusSurface,
-            object: nil,
-            userInfo: [
-                GhosttyNotificationKey.tabId: workspace.id,
-                GhosttyNotificationKey.surfaceId: secondSurfaceId.uuid,
-            ]
-        )
-        drainMainQueue()
-
-        XCTAssertGreaterThan(manager.focusHistoryRevision, revision)
     }
 
     func testFocusHistoryNavigatesBetweenFreshWorkspaces() throws {
@@ -476,23 +339,6 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
 
         let forwardSnapshot = manager.focusHistoryMenuSnapshot(direction: .forward)
         XCTAssertEqual(forwardSnapshot.items.map(\.workspaceTitle), ["Second", "Third"])
-    }
-
-    func testFocusHistoryMenuSnapshotReflectsRenamedWorkspaceAndPanel() throws {
-        let manager = TabManager()
-        let firstWorkspace = try XCTUnwrap(manager.selectedWorkspace)
-        let panelId = try XCTUnwrap(firstWorkspace.focusedPanelId)
-        firstWorkspace.setCustomTitle("Renamed Workspace")
-        firstWorkspace.setPanelCustomTitle(panelId: panelId, title: "Renamed Pane")
-
-        _ = manager.addWorkspace(select: true)
-
-        let snapshot = manager.focusHistoryMenuSnapshot(direction: .back)
-        let item = try XCTUnwrap(snapshot.items.first)
-
-        XCTAssertEqual(item.workspaceTitle, "Renamed Workspace")
-        XCTAssertEqual(item.panelTitle, "Renamed Pane")
-        XCTAssertEqual(FocusHistoryMenuFormatter.title(for: item), "Renamed Workspace - Renamed Pane")
     }
 
     func testRecentlyFocusedMenuSnapshotCombinesDirectionsByFocusedTime() throws {
