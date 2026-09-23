@@ -3416,6 +3416,34 @@ def test_unit_ci_asks_for_the_unit_tests_without_the_expensive_lanes() -> None:
         assert wants_unit_suite(event, "compile-only", []) is True
 
 
+
+def test_a_cmux_tests_diff_selects_the_unit_tests_without_a_label() -> None:
+    sys.path.insert(0, str(ROOT / "scripts/ci"))
+    from choose_ci_suite import coverage_gap, wants_unit_suite
+
+    tests_diff = ["cmuxTests/WorkspaceUnitTests.swift", "Sources/Workspace.swift"]
+    # The diff already says which job can judge it; no label is needed.
+    assert wants_unit_suite("pull_request", "compile-only", [], tests_diff) is True
+    assert (
+        coverage_gap(
+            "pull_request",
+            False,
+            tests_diff,
+            [],
+            unit_suite=wants_unit_suite("pull_request", "compile-only", [], tests_diff),
+        )
+        is False
+    )
+    # A diff outside cmuxTests/ keeps the cheap path.
+    assert wants_unit_suite("pull_request", "compile-only", [], ["Sources/Workspace.swift"]) is False
+    # cmuxUITests/ is not run by this job, so it does not select it, and the
+    # gap it leaves is still refused.
+    ui_diff = ["cmuxUITests/LaunchUITests.swift"]
+    assert wants_unit_suite("pull_request", "compile-only", [], ui_diff) is False
+    assert coverage_gap("pull_request", False, ui_diff, [], unit_suite=False) is True
+    # An unreadable diff runs the unit tests rather than guessing.
+    assert wants_unit_suite("pull_request", "compile-only", [], None) is True
+
 def test_the_unit_tier_closes_only_the_gap_its_job_can_judge() -> None:
     sys.path.insert(0, str(ROOT / "scripts/ci"))
     from choose_ci_suite import coverage_gap

@@ -1151,11 +1151,11 @@ jobs:
     # that edits cmuxTests/ and skips the full suite runs none of the code it
     # changed. The policy that allows the skip is written for a merge queue
     # that no longer gates main, so refuse the run here instead of reporting
-    # green on a diff nothing observed. A cmuxTests/ diff is judged by
-    # `app-host unit tests` alone, so "unit-ci" clears it without waking the
-    # package, lag and Release lanes; "full-ci" runs everything, and
-    # "no-full-ci" records that skipping it is deliberate. cmuxUITests/ has no
-    # pull request job at all, so only the latter two clear that.
+    # green on a diff nothing observed. A cmuxTests/ diff selects
+    # `app-host unit tests` by itself (choose_ci_suite.py), so it never lands
+    # here. What does is cmuxUITests/, which no pull request job executes, and
+    # a diff that could not be read: "full-ci" runs everything, and
+    # "no-full-ci" records that skipping it is deliberate.
     needs:
       - changes
     if: ${{ !cancelled() && needs.changes.result == 'success' && needs.changes.outputs.coverage_gap == 'true' }}
@@ -1163,17 +1163,13 @@ jobs:
     steps:
       - name: Require the suite that judges this diff
         run: |
-          echo "This pull request changes cmuxTests/ or cmuxUITests/, and this run" >&2
-          echo "skipped the macOS suite, so none of the changed tests executed." >&2
+          echo "This pull request changes cmuxUITests/, or its diff could not be" >&2
+          echo "read, and this run skipped the macOS suite, so nothing observed it." >&2
+          echo "(A cmuxTests/ change runs 'app-host unit tests' automatically.)" >&2
           echo >&2
-          echo "For a cmuxTests/ change, add the 'unit-ci' label to run compile" >&2
-          echo "admission plus 'app-host unit tests' on a fresh run. That job" >&2
-          echo "reads the product admission already built, so it does not wake" >&2
-          echo "the package, lag, release-admission or Release-build lanes." >&2
-          echo >&2
-          echo "cmuxUITests/ has no pull request job that executes it, so those" >&2
-          echo "need the 'full-ci' label to run the suite on a fresh run, or" >&2
-          echo "'no-full-ci' to record that skipping it is deliberate." >&2
+          echo "No pull request job executes cmuxUITests/. Add the 'full-ci' label" >&2
+          echo "to run the suite on a fresh run, or 'no-full-ci' to record that" >&2
+          echo "skipping it is deliberate." >&2
           exit 1
 
   ci-status:
