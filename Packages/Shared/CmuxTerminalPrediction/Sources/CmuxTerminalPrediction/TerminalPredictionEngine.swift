@@ -88,14 +88,26 @@ public struct TerminalPredictionEngine: Sendable {
     /// send to the PTY. Returns whether the drawn overlay changed.
     @discardableResult
     public mutating func typed(_ text: String, at now: PredictionInstant) -> Bool {
+        typed(printableASCII: Self.lonePrintableASCII(text), at: now)
+    }
+
+    /// The byte-level entry point the host uses.
+    ///
+    /// Separate from `typed(_:at:)` because this runs on every keystroke, and
+    /// building a `String` there to immediately reduce it to one byte is an
+    /// allocation on the typing path.
+    ///
+    /// - Parameter byte: The printable ASCII byte this key sends, or `nil` for
+    ///   every other key. `nil` withdraws: editing keys, Return, chords, and
+    ///   anything the key encoder turned into an escape sequence all leave the
+    ///   screen somewhere this does not model, and non-ASCII text can be wide
+    ///   or combining, so its cell count is not one.
+    @discardableResult
+    public mutating func typed(printableASCII byte: UInt8?, at now: PredictionInstant) -> Bool {
         guard isEnabled else { return false }
         expire(at: now)
 
-        // Only a lone printable ASCII character has a knowable effect. Editing
-        // keys, Return, and anything the key encoder turned into an escape
-        // sequence all leave the screen somewhere we are not modelling, and
-        // non-ASCII text can be wide or combining, so its cell count is not one.
-        guard let byte = Self.lonePrintableASCII(text) else {
+        guard let byte, (0x20...0x7E).contains(byte) else {
             return withdrawAll(countingMisprediction: false)
         }
         guard entries.count < configuration.maximumSpeculativeGlyphs else {

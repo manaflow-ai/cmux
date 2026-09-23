@@ -3928,6 +3928,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
            let surface {
             syncKeyboardCopyModeCursorOverlay(surface: surface)
         }
+        if reasons.contains(.predictedEcho), let surfaceID = terminalSurface?.id {
+            TerminalPredictionCenter.shared.presentedFrame(surfaceID: surfaceID)
+            syncPredictionOverlay()
+        }
         if reasons.contains(.notification),
            renderedFrameNotificationDemandIsActive {
             NotificationCenter.default.post(
@@ -3998,6 +4002,11 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private var keyboardCopyModeVisualActive: Bool { keyboardCopyModeSelectionKind != nil }
     private var keyboardCopyModeVisualLineActive: Bool { keyboardCopyModeSelectionKind == .line }
     let keyboardCopyModeCursorOverlayView: NSView = GhosttyFlashOverlayView(frame: .zero)
+    let predictionOverlayView = TerminalPredictionOverlayView(frame: .zero)
+    /// Held only while a prediction is on screen, so an idle surface does not
+    /// pay for rendered-frame delivery it has no use for.
+    private let predictedEchoRenderedFrameDemand = RenderDemandCounter()
+    private var predictedEchoRenderedFrameDemandRelease: (() -> Void)?
     // internal (not fileprivate): witnesses for TerminalSurfaceNativeViewing
     // must match the conforming class's access level.
     var isKeyboardCopyModeActive: Bool { keyboardCopyModeActive }
@@ -4139,6 +4148,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             renderDemand: GhosttyApp.renderedFrameNotificationDemand,
             localRenderDemand: localRenderedFrameNotificationDemand,
             keyboardCopyModeCursorDemand: keyboardCopyModeRenderedFrameDemand,
+            predictedEchoDemand: predictedEchoRenderedFrameDemand,
             receiver: self
         )
         metalLayer.pixelFormat = .bgra8Unorm
@@ -4159,9 +4169,109 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         wantsLayer = true
         layer?.masksToBounds = true
         setupKeyboardCopyModeCursorOverlay()
+        addSubview(predictionOverlayView, positioned: .above, relativeTo: nil)
         installEventMonitor()
         updateTrackingAreas()
         registerForDraggedTypes(Array(Self.dropTypes))
+    }
+
+    /// Feeds the prediction engine the byte this key puts on the PTY.
+    ///
+    /// Runs on every keystroke, so it reads the enabled flag before touching
+    /// anything else and never allocates. Modified keys are rejected here
+    /// rather than in the engine: Ctrl+A arrives carrying text "a", which is a
+    /// chord, not a character.
+    private func recordPredictedEchoInput(_ keyEvent: ghostty_input_key_s) {
+        guard TerminalPredictionCenter.shared.isPredictionEnabled,
+              let surfaceID = terminalSurface?.id else { return }
+        TerminalPredictionCenter.shared.typed(
+            printableASCII: Self.predictedEchoByte(for: keyEvent),
+            surfaceID: surfaceID
+        )
+    }
+
+    /// The single printable byte a key sends, or `nil` when its effect on the
+    /// screen is not knowable.
+    private static func predictedEchoByte(for keyEvent: ghostty_input_key_s) -> UInt8? {
+        let chordMods = GHOSTTY_MODS_CTRL.rawValue
+            | GHOSTTY_MODS_ALT.rawValue
+            | GHOSTTY_MODS_SUPER.rawValue
+        guard keyEvent.mods.rawValue & chordMods == 0 else { return nil }
+        guard let text = keyEvent.text else { return nil }
+        let first = UInt8(bitPattern: text[0])
+        // Exactly one byte: a multi-byte sequence is either non-ASCII or an
+        // encoded key, and neither advances the cursor by one cell.
+        guard first != 0, text[1] == 0 else { return nil }
+        return first
+    }
+
+    /// Repositions the predicted-echo overlay against the live cursor, and
+    /// holds rendered-frame delivery only while something is drawn.
+    func syncPredictionOverlay() {
+        guard let surfaceID = terminalSurface?.id else {
+            hidePredictionOverlay()
+            return
+        }
+        let glyphs = TerminalPredictionCenter.shared.expiring(surfaceID: surfaceID)
+        guard !glyphs.isEmpty,
+              let surface,
+              let appearance = predictedEchoAppearance() else {
+            hidePredictionOverlay()
+            return
+        }
+
+        var x: Double = 0
+        var y: Double = 0
+        var width: Double = 0
+        var height: Double = 0
+        ghostty_surface_ime_point(surface, &x, &y, &width, &height)
+        // Ghostty reports the cursor in a top-left origin space; this view is
+        // not flipped. Matches the conversion in `firstRect(forCharacterRange:)`.
+        predictionOverlayView.present(
+            glyphs: glyphs,
+            appearance: appearance,
+            cursorOrigin: CGPoint(x: x, y: bounds.height - y)
+        )
+        setPredictedEchoRenderedFrameTrackingActive(true)
+    }
+
+    private func hidePredictionOverlay() {
+        predictionOverlayView.isHidden = true
+        predictionOverlayView.glyphs = []
+        setPredictedEchoRenderedFrameTrackingActive(false)
+    }
+
+    private func predictedEchoAppearance() -> TerminalPredictionOverlayView.Appearance? {
+        guard cellSize.width > 0, cellSize.height > 0 else { return nil }
+        let configuration = GhosttyConfig.loadForCmux(
+            globalFontMagnificationPercent: appliedGlobalFontMagnificationPercent
+        )
+        // Only printable ASCII is ever predicted, so the configured family
+        // always carries the glyph and no fallback chain is involved.
+        let font = NSFont(name: configuration.fontFamily, size: configuration.fontSize)
+            ?? NSFont.monospacedSystemFont(ofSize: configuration.fontSize, weight: .regular)
+        return TerminalPredictionOverlayView.Appearance(
+            font: font,
+            foreground: defaultForegroundColor,
+            background: defaultBackgroundColor,
+            cursor: defaultCursorColor,
+            cellSize: cellSize
+        )
+    }
+
+    private func setPredictedEchoRenderedFrameTrackingActive(_ active: Bool) {
+        if active {
+            if predictedEchoRenderedFrameDemandRelease == nil {
+                let retention = predictedEchoRenderedFrameDemand.retain()
+                predictedEchoRenderedFrameDemandRelease = {
+                    retention.release()
+                }
+            }
+            return
+        }
+
+        predictedEchoRenderedFrameDemandRelease?()
+        predictedEchoRenderedFrameDemandRelease = nil
     }
 
     private func setupKeyboardCopyModeCursorOverlay() {
@@ -5428,6 +5538,11 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     func runtimeSurfaceDidBecomeReady() {
+        if let surfaceID = terminalSurface?.id {
+            TerminalPredictionCenter.shared.register(surfaceID: surfaceID) { [weak self] in
+                self?.syncPredictionOverlay()
+            }
+        }
         guard keyboardCopyModeActive, let surface else { return }
         guard initializeKeyboardCopyModeCursor(surface: surface) else {
             setKeyboardCopyModeActive(false)
@@ -6920,6 +7035,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         }
         if handled, keyEvent.action != GHOSTTY_ACTION_RELEASE {
             terminalSurface?.didAcceptExplicitInput()
+            recordPredictedEchoInput(keyEvent)
         }
         return handled
     }
@@ -9010,6 +9126,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         discardPendingExplicitKeyDownEvents()
         discardPendingPasteAfterSurfaceReady()
         keyboardCopyModeRenderedFrameDemandRelease?()
+        predictedEchoRenderedFrameDemandRelease?()
+        if let surfaceID = terminalSurface?.id {
+            TerminalPredictionCenter.shared.unregister(surfaceID: surfaceID)
+        }
         selectionAccessibilitySignal.finish()
         if titleUpdateSurfaceKey != nil {
             titleUpdateIngress.retireCurrentAttachment()

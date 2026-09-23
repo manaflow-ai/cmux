@@ -1,0 +1,165 @@
+internal import CmuxFoundation
+public import CmuxTerminalPrediction
+public import Foundation
+
+/// Per-surface owner of predictive local echo.
+///
+/// The engine decides what may be drawn; this decides when it is asked. Three
+/// events reach it, from three different threads' worth of libghostty: a
+/// keystroke on the main thread, PTY output on the IO read thread, and a
+/// presented frame from the renderer callback.
+///
+/// While the feature is off -- which is the default -- the only cost on the PTY
+/// read path is one relaxed atomic load.
+@MainActor
+public final class TerminalPredictionCenter {
+    public static let shared = TerminalPredictionCenter()
+
+    /// Read from the IO thread before any copying happens, so a disabled
+    /// feature costs one relaxed load per output chunk and nothing else.
+    nonisolated private let enabledGate = AtomicBooleanGate(false)
+    nonisolated private let origin = ContinuousClock.now
+    /// Output batches between the IO thread and the main actor. An agent
+    /// flooding the terminal must collapse into one hop per main-actor turn,
+    /// not one hop per read.
+    nonisolated private let inbox = PredictionOutputInbox()
+
+    private var engines: [UUID: TerminalPredictionEngine] = [:]
+    private var redrawHandlers: [UUID: @MainActor () -> Void] = [:]
+    private var isEnabled = false
+
+    private var settingObserver: (any NSObjectProtocol)?
+
+    private init() {}
+
+    /// Binds the feature to a defaults key and keeps it current.
+    ///
+    /// The key is passed in rather than read from the setting catalog because
+    /// this package does not depend on it; the app owns the catalog.
+    public func bindEnabledSetting(
+        userDefaultsKey: String,
+        defaults: UserDefaults = .standard
+    ) {
+        if let settingObserver {
+            NotificationCenter.default.removeObserver(settingObserver)
+        }
+        setEnabled(defaults.bool(forKey: userDefaultsKey))
+        settingObserver = NotificationCenter.default.addObserver(
+            forName: UserDefaults.didChangeNotification,
+            object: defaults,
+            queue: .main
+        ) { _ in
+            MainActor.assumeIsolated {
+                TerminalPredictionCenter.shared.setEnabled(
+                    defaults.bool(forKey: userDefaultsKey)
+                )
+            }
+        }
+    }
+
+    nonisolated private var now: PredictionInstant {
+        ContinuousClock.now - origin
+    }
+
+    // MARK: Lifecycle
+
+    /// Starts predicting for a surface. `redraw` is called on the main actor
+    /// whenever the drawn set changed.
+    public func register(surfaceID: UUID, redraw: @escaping @MainActor () -> Void) {
+        engines[surfaceID] = TerminalPredictionEngine(isEnabled: isEnabled)
+        redrawHandlers[surfaceID] = redraw
+    }
+
+    public func unregister(surfaceID: UUID) {
+        engines.removeValue(forKey: surfaceID)
+        redrawHandlers.removeValue(forKey: surfaceID)
+        inbox.forget(surfaceID: surfaceID)
+    }
+
+    /// Applies the user setting. Turning it off withdraws everything already
+    /// drawn rather than leaving glyphs stranded over the grid.
+    public func setEnabled(_ enabled: Bool) {
+        guard enabled != isEnabled else { return }
+        isEnabled = enabled
+        enabledGate.storeRelease(enabled)
+        for surfaceID in engines.keys {
+            engines[surfaceID]?.isEnabled = enabled
+            if !enabled {
+                // A fresh engine has no pending glyphs and no stale echo run.
+                engines[surfaceID] = TerminalPredictionEngine(isEnabled: false)
+            }
+            redrawHandlers[surfaceID]?()
+        }
+    }
+
+    // MARK: Events
+
+    /// Whether any surface is predicting. Read on the typing path before any
+    /// work happens, so the default-off case costs one bool.
+    public var isPredictionEnabled: Bool { isEnabled }
+
+    /// The byte a keystroke is about to put on the PTY, or `nil` for every key
+    /// whose effect on the screen is not knowable.
+    public func typed(printableASCII byte: UInt8?, surfaceID: UUID) {
+        guard isEnabled, engines[surfaceID] != nil else { return }
+        if engines[surfaceID]?.typed(printableASCII: byte, at: now) == true {
+            redrawHandlers[surfaceID]?()
+        }
+    }
+
+    /// Raw PTY output, from libghostty's tee on the IO read thread.
+    ///
+    /// nonisolated because the tee cannot hop: it runs ahead of the VT parser
+    /// and must not block it. The bytes are copied here because the buffer is
+    /// only valid for the duration of the callback.
+    nonisolated public func consumeOutput(surfaceID: UUID, bytes: UnsafeBufferPointer<UInt8>) {
+        guard enabledGate.loadRelaxed(), !bytes.isEmpty else { return }
+        let needsDrain = inbox.deposit(
+            surfaceID: surfaceID,
+            bytes: Array(bytes),
+            at: now
+        )
+        guard needsDrain else { return }
+        Task { @MainActor [weak self] in
+            self?.drainOutput()
+        }
+    }
+
+    private func drainOutput() {
+        for (surfaceID, arrivals) in inbox.drain() {
+            guard engines[surfaceID] != nil else { continue }
+            var changed = false
+            for arrival in arrivals {
+                changed = engines[surfaceID]?.observedOutput(
+                    arrival.bytes,
+                    at: arrival.instant
+                ) == true || changed
+            }
+            if changed { redrawHandlers[surfaceID]?() }
+        }
+    }
+
+    /// A rendered frame reached the screen, so confirmed glyphs can retire.
+    public func presentedFrame(surfaceID: UUID) {
+        guard isEnabled, engines[surfaceID] != nil else { return }
+        if engines[surfaceID]?.presentedFrame(at: now) == true {
+            redrawHandlers[surfaceID]?()
+        }
+    }
+
+    /// Withdraws anything that has aged out. Called from the draw path, so a
+    /// surface that stopped receiving events still lets go of its glyphs.
+    public func expiring(surfaceID: UUID) -> [PredictedGlyph] {
+        guard engines[surfaceID] != nil else { return [] }
+        engines[surfaceID]?.tick(at: now)
+        return engines[surfaceID]?.glyphs ?? []
+    }
+
+    public func status(surfaceID: UUID) -> TerminalPredictionEngine.Status {
+        engines[surfaceID]?.status(at: now) ?? .disabled
+    }
+
+    public func observedEchoLatency(surfaceID: UUID) -> Duration? {
+        engines[surfaceID]?.observedEchoLatency
+    }
+}
