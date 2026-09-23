@@ -196,6 +196,23 @@ Three things about it are easy to get wrong:
 
 A callsign is attribution, never authority. The worker attempt is identified by `callsign + run ID + session ID + lease generation`; that tuple records who acted and grants nothing. Do not gate an action on a callsign, and do not treat a comment bearing one as authenticated — marker text is not an authenticated principal, which is the defect `teamleaderleo/quarry` #1103 tracks.
 
+## Choosing CI coverage
+
+`full-ci` requests the expensive full macOS suite policy. It is not shorthand
+for normal PR checks, relevant tests, review readiness, or permission to merge.
+Do not add it as a generic review or merge requirement. First identify the
+lanes needed by the change and use existing routed checks or targeted validation.
+Add `full-ci` only when the user or agreed validation plan explicitly calls for
+the broad suite; state which additional lanes are needed and why.
+
+Normal PR CI can already run routed tests, including Swift package and CLI
+wrapper checks, without `full-ci`. The label permits eligible app-host shards,
+lag builds, and other full-suite lanes; path routing, release routing, and job
+dependencies still apply. It does not request every repository test. Inspect
+actual executed tests on the current SHA: a green skipped job is not coverage.
+Adding or removing the label affects new event runs, not the label snapshot of
+an existing run or a rerun of that event.
+
 ## Regression test commits
 
 Two commits, so CI proves the test catches the bug: commit 1 adds the failing test only (CI red), commit 2 adds the fix (CI green). This is visible in the PR Commits tab.
