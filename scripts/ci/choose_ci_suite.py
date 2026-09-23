@@ -31,10 +31,19 @@ from pathlib import Path
 COMPILE_ONLY_POLICY = "compile-only"
 FULL_SUITE_LABEL = "full-ci"
 SUITE_OPT_OUT_LABEL = "no-full-ci"
+UNIT_SUITE_LABEL = "unit-ci"
 
 # Editing these runs no code under compile admission, which builds the test
 # bundle and stops. Nothing else in a pull request observes them.
-UNJUDGED_BY_COMPILE_PREFIXES = ("cmuxTests/", "cmuxUITests/")
+#
+# They differ in what could observe them. `app-host unit tests` runs cmuxTests/
+# against the product compile admission already built, so asking for that one
+# job is enough to judge a cmuxTests/ diff. No pull request job runs
+# cmuxUITests/ at all -- only the dispatch-only test-e2e lane does -- so those
+# stay unobserved until someone takes the full suite or records the skip.
+UNIT_JUDGED_PREFIXES = ("cmuxTests/",)
+UNJUDGED_BY_ANY_PR_JOB_PREFIXES = ("cmuxUITests/",)
+UNJUDGED_BY_COMPILE_PREFIXES = UNIT_JUDGED_PREFIXES + UNJUDGED_BY_ANY_PR_JOB_PREFIXES
 
 
 def diff_needs_the_suite(paths: Iterable[str] | None) -> bool:
@@ -60,6 +69,20 @@ def wants_full_suite(event_name: str, pull_request_policy: str, labels: Iterable
     if labels is None:
         return True
     return FULL_SUITE_LABEL in {label.strip() for label in labels}
+
+
+def wants_unit_suite(event_name: str, pull_request_policy: str, labels: Iterable[str] | None) -> bool:
+    """True when this run should execute `app-host unit tests`.
+
+    The full suite already includes them, so it implies this. Otherwise the
+    `unit-ci` label asks for compile admission plus that one job, without the
+    package tests, the lag lane, release admission and the Release build the
+    full suite also unlocks. Those cost a paid runner and judge nothing about a
+    change to cmuxTests/.
+    """
+    if wants_full_suite(event_name, pull_request_policy, labels):
+        return True
+    return UNIT_SUITE_LABEL in {label.strip() for label in labels or ()}
 
 
 def labels_from_event(event_path: str | Path) -> list[str] | None:
@@ -95,17 +118,29 @@ def coverage_gap(
     full_suite: bool,
     paths: Iterable[str] | None,
     labels: Iterable[str] | None,
+    unit_suite: bool = False,
 ) -> bool:
     """True when this run skips the only check that could judge its diff.
 
     An explicit opt-out label records the decision on the pull request, which
     is the point: the skip stops being silent.
+
+    `unit_suite` closes the gap only for the paths `app-host unit tests` can
+    actually judge. A cmuxUITests/ diff stays a gap however this run is routed,
+    because no pull request job executes it.
     """
     if full_suite or event_name != "pull_request":
         return False
     if labels is not None and SUITE_OPT_OUT_LABEL in {label.strip() for label in labels}:
         return False
-    return diff_needs_the_suite(paths)
+    if paths is None:
+        return True
+    stripped = [path.strip() for path in paths]
+    if any(path.startswith(UNJUDGED_BY_ANY_PR_JOB_PREFIXES) for path in stripped):
+        return True
+    if unit_suite:
+        return False
+    return any(path.startswith(UNIT_JUDGED_PREFIXES) for path in stripped)
 
 
 def main(argv: list[str]) -> int:
@@ -141,9 +176,11 @@ def main(argv: list[str]) -> int:
             paths = None
 
     full = wants_full_suite(args.event_name, args.pull_request_policy, labels)
-    gap = coverage_gap(args.event_name, full, paths, labels)
+    unit = wants_unit_suite(args.event_name, args.pull_request_policy, labels)
+    gap = coverage_gap(args.event_name, full, paths, labels, unit_suite=unit)
     lines = [
         f"full_suite={'true' if full else 'false'}",
+        f"unit_suite={'true' if unit else 'false'}",
         f"coverage_gap={'true' if gap else 'false'}",
     ]
     for line in lines:
