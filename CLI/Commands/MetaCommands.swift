@@ -65,6 +65,11 @@ struct CapabilitiesCommand: LegacyMetaCommand {
     static let configuration = CommandConfiguration(commandName: "capabilities", helpNames: [])
 }
 
+struct SocketStatusCommand: LegacyMetaCommand {
+    @Argument(parsing: .allUnrecognized) var arguments: [String] = []
+    static let configuration = CommandConfiguration(commandName: "socket-status", helpNames: [])
+}
+
 struct PingCommand: LegacyMetaCommand {
     @Argument(parsing: .allUnrecognized) var arguments: [String] = []
     static let configuration = CommandConfiguration(commandName: "ping", helpNames: [])
