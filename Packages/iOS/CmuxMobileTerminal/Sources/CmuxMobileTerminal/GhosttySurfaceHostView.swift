@@ -212,6 +212,9 @@ public final class GhosttySurfaceHostView: UIView {
 
         surfaceView.translatesAutoresizingMaskIntoConstraints = false
         terminalPresentationView.addSubview(surfaceView)
+        // The clip view never moves with the keyboard, so frozen transition
+        // pixels placed here stay at their on-screen position.
+        surfaceView.hostedTransitionPresentationContainer = terminalClipView
         layer.addSublayer(scrollEdgeFadeLayer)
         // Added before the dock reparents into this host so the dock's
         // chrome always draws above the fade.
