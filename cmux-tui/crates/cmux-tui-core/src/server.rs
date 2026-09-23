@@ -12907,7 +12907,11 @@ fn handle_command_with_cancellation(
             // operation, so do not apply the live-child guard used by input.
             let surface = mux
                 .surface(surface_id)
-                .filter(|surface| !surface.is_dead() || surface_has_view_placement(mux, surface_id))
+                .filter(|surface| {
+                    !surface.is_dead()
+                        || (surface.kind() == SurfaceKind::Pty
+                            && surface_has_view_placement(mux, surface_id))
+                })
                 .ok_or_else(|| anyhow::anyhow!("unknown surface {surface_id}"))?;
             match (expected_generation, expected_terminal_id) {
                 (Some(generation), Some(terminal)) => {
@@ -13165,7 +13169,7 @@ fn handle_command_with_cancellation(
                                     lifecycle.cancel();
                                     if writer.is_open() {
                                         let _ = writer.send_stream_backpressured(
-                                            &detached_surface_message(&mux, surface_id),
+                                            &json!({"event": "detached", "surface": surface_id}),
                                             &outbound_stream,
                                         );
                                     }
