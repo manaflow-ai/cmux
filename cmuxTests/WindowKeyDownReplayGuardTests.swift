@@ -430,6 +430,8 @@ struct WindowKeyDownReplayGuardTests {
         AppDelegate.installWindowResponderSwizzlesForTesting()
 
         let (window, terminal, textView) = makeWindowWithTerminalHostedEditableResponder()
+        // This assertion is about cmux routing ownership. AppKit's nil-target
+        // lookup depends on NSApp.keyWindow, which headless test hosts may lack.
         let previousMenu = installResponderChainUndoMenu(target: textView)
         defer { NSApp.mainMenu = previousMenu }
 
