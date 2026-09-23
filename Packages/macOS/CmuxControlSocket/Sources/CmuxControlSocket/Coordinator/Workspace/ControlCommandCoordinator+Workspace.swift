@@ -268,9 +268,9 @@ extension ControlCommandCoordinator {
     /// Whether a value could ever name a workspace: a UUID, or a minted
     /// `kind:N` handle ref. `uuid(_:_:)` accepts exactly these two spellings,
     /// so anything else is a value the registry was never going to resolve —
-    /// a typo, not an object that went away. `workspace.reorder_many` already
-    /// answers that with `invalid_params`, and this keeps the two methods
-    /// agreeing on the same input.
+    /// a typo, not an object that went away. Both `workspace.reorder` and
+    /// `workspace.reorder_many` split on this, so the two methods agree on the
+    /// same input.
     private func isWorkspaceReferenceShaped(_ raw: String) -> Bool {
         if UUID(uuidString: raw) != nil { return true }
         guard let colon = raw.firstIndex(of: ":") else { return false }
@@ -470,6 +470,16 @@ extension ControlCommandCoordinator {
         workspaceIDs.reserveCapacity(order.count)
         for raw in order {
             guard let workspaceID = uuidAny(.string(raw)) else {
+                // The registry forgets a ref when its workspace closes, so a
+                // stale `workspace:7` lands here too. It named something once:
+                // report it gone, as `workspace.reorder` does for the same ref.
+                if isWorkspaceReferenceShaped(raw) {
+                    return .err(
+                        code: "not_found",
+                        message: strings?.workspaceNotFound ?? "",
+                        data: .object(["workspace": .string(raw)])
+                    )
+                }
                 return .err(
                     code: "invalid_params",
                     message: strings?.invalidWorkspaceRef ?? "",
