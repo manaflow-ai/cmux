@@ -598,6 +598,33 @@ def test_standalone_routes_preserve_missing_empty_and_owned_diffs() -> None:
             assert output.read_text().splitlines() == [f"browser={browser}", f"remote_daemon={daemon}"]
 
 
+def test_publishing_changes_keep_daemon_linux_checks_without_native_rerun() -> None:
+    script = workflow_job_step_script("changes", "Route standalone project workflows")
+    script = script.replace("/tmp/cmux-ci-changed-files.txt", '\"$CHANGED_FILES\"')
+    cases = (
+        (".github/workflows/nightly.yml\nscripts/sparkle_generate_appcast.sh\n", "false"),
+        (".github/workflows/release.yml\n", "false"),
+        (".github/workflows/nightly.yml\ndaemon/remote/main.go\n", "true"),
+        ("daemon/remote/go.mod\n", "true"),
+        ("scripts/build_remote_daemon.sh\n", "true"),
+        ("tests/test_remote_daemon_release_assets.py\n", "true"),
+        (".github/workflows/remote-daemon.yml\n", "true"),
+        (".github/workflows/ci.yml\n", "true"),
+        (None, "true"),
+    )
+    for contents, native in cases:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            changed, output = root / "changed", root / "output"
+            if contents is not None:
+                changed.write_text(contents)
+            subprocess.run(["bash", "-c", script], check=True, capture_output=True,
+                           env={**os.environ, "CHANGED_FILES": str(changed), "GITHUB_OUTPUT": str(output)})
+            values = dict(line.split("=", 1) for line in output.read_text().splitlines())
+            assert values["remote_daemon"] == "true", (contents, values)
+            assert values.get("remote_daemon_native") == native, (contents, values)
+
+
 def test_diff_failure_does_not_look_like_a_known_empty_standalone_diff() -> None:
     detector = detect_step_script().replace("/tmp/cmux-ci-changed-files.txt", '"$CHANGED_FILES"')
     route = workflow_job_step_script("changes", "Route standalone project workflows")
