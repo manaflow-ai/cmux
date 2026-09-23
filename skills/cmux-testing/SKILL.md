@@ -18,7 +18,7 @@ The GitHub PR Commits tab then shows the test genuinely fails without the fix.
 
 Test files in `cmuxTests/` must be wired into `cmux.xcodeproj/project.pbxproj` with a matching `PBXFileReference` and `PBXSourcesBuildPhase` entry. A `.swift` file added without them is silently ignored by Xcode: `xcodebuild test -only-testing:cmuxTests/<TestClass>` and bot reviews both pass with "Executed 0 tests", so the missing wiring is indistinguishable from a clean red/green regression test until a real user hits the bug. Surfaced during https://github.com/manaflow-ai/cmux/issues/4529 against https://github.com/manaflow-ai/cmux/pull/4536.
 
-The `workflow-guard-tests` CI job runs `./scripts/lint-pbxproj-test-wiring.sh`. Add the file through Xcode (drag into the cmuxTests target) or hand-edit the pbxproj entries using a wired sibling such as `cmuxTests/TabManagerUnitTests.swift` as the template.
+After creating, renaming, or deleting a direct `cmuxTests/*.swift` file, run `./scripts/sync-test-wiring`. It deterministically reconciles the `PBXFileReference`, `PBXBuildFile`, `cmuxTests` group child, and `cmuxTests` Sources membership; `--check` performs the same validation without writing. Foreign target membership is rejected with an explicit diagnostic. The `workflow-guard-tests` CI job still runs `./scripts/lint-pbxproj-test-wiring.sh` as a defensive Sources-phase guard.
 
 ## Test quality policy
 

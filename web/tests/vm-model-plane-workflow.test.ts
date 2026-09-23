@@ -37,7 +37,7 @@ import {
 
 const ROW_ID = "00000000-0000-4000-8000-00000000c0de";
 const MATERIALS: VmModelPlaneMaterials = {
-  edgeRules: [{ domain: "coderouter.cmux.internal", destinationHost: "coderouter.dev", headers: { "x-coderouter-route-token": "crt_t", "x-cmux-vm-id": ROW_ID } }],
+  edgeRules: [{ domain: "coderouter.cmux.internal", destinationHost: "coderouter.dev", headers: { "x-cmux-authorization": "Bearer eyJ.signed.token" } }],
 };
 
 type UsageEvent = Parameters<VmRepositoryShape["recordUsageEvent"]>[0];

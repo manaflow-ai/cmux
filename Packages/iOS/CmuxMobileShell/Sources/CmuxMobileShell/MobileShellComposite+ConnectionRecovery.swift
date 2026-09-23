@@ -817,7 +817,7 @@ extension MobileShellComposite {
         // The caller's freshly loaded row is authoritative for the method:
         // during startup restore the published `pairedMacs` list backing the
         // by-ID resolver is not loaded yet and would silently fall back to
-        // the app default, dialing the wrong lane.
+        // automatic, dialing the wrong lane.
         let resolvedMethod = knownPairing.map { connectionMethod(for: $0) }
             ?? connectionMethod(
                 forMacDeviceID: pairedMacDeviceID,
@@ -847,6 +847,12 @@ extension MobileShellComposite {
             supportedKinds: supportedKinds,
             preferNonLoopback: Self.prefersNonLoopbackRoutes,
             tailscaleRequirement: resolvedMethod == .tailscale
+                ? Self.TailscaleRouteRequirement(
+                    macDeviceID: pairedMacDeviceID,
+                    grantRoutes: legacyTailscaleRoutes
+                )
+                : nil,
+            legacyTailscaleCompatibility: resolvedMethod == .automatic
                 ? Self.TailscaleRouteRequirement(
                     macDeviceID: pairedMacDeviceID,
                     grantRoutes: legacyTailscaleRoutes
@@ -883,6 +889,7 @@ extension MobileShellComposite {
                     ticket: ticket,
                     legacyTailscaleRoutes: legacyTailscaleRoutes,
                     directOnlyDialCandidates: methodPinnedCandidates,
+                    resolvedConnectionMethod: resolvedMethod,
                     pairedMacDeviceID: pairedMacDeviceID,
                     instanceTagExpectation: instanceTagExpectation,
                     ifStillCurrent: ifStillCurrent
@@ -1066,13 +1073,13 @@ extension MobileShellComposite {
     /// This is the device tree's tap-to-open for a tag that is not the currently
     /// connected one: it routes through the same ``connectManualHost`` path as
     /// the multi-Mac switcher. The current client remains live while the target
-    /// authenticates and enters the bounded warm pool after a successful
+    /// authenticates and enters the live control session set after a successful
     /// handoff. The device becomes the active paired Mac after success, then the
     /// paired-Mac list refreshes. A no-op when the instance advertises no
     /// reachable route. Failure surfaces through ``connectionError`` like any
     /// other connect.
     ///
-    /// If a full pool or an incomplete terminal handoff retires the previous
+    /// If an incomplete terminal handoff retires the previous
     /// session before the target fails, the previously-active Mac is
     /// reconnected, so a bad target leaves the user where they were.
     /// - Parameters:

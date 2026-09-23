@@ -1,9 +1,19 @@
 import CmuxSettingsUI
 
-/// Settings reads the host admission state and opens setup only on an explicit action.
+/// Settings reads host admission state and resumes capture verification when grants are ready.
 extension HostSettingsActions {
     func refreshComputerUsePermissions() async {
-        _ = await computerUseRuntimeService.refreshHelperStatus()
+        let status = await computerUseRuntimeService.refreshHelperStatus()
+        guard
+            CmuxFeatureFlags.shared.isComputerUseUXEnabled,
+            computerUseRuntimeService.permissionStatusIsKnown,
+            status.accessibility,
+            status.screenRecording,
+            computerUseRuntimeService.onboardingRequiresCompletion
+        else {
+            return
+        }
+        runComputerUseOnboardingAction(.screenRecording)
     }
 
     func computerUseAccessibilityGranted() -> Bool {
