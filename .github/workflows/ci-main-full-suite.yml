@@ -27,6 +27,9 @@ on:
 
 permissions: {}
 
+env:
+  SOURCE_WORKFLOW_PATHS: .github/workflows/ci.yml
+
 jobs:
   dispatch:
     name: Dispatch full-suite CI on main
