@@ -293,7 +293,7 @@ struct ComputerUseUXTests {
 
         let responder = try UnixSocketResponder(
             path: paths.daemonSocketURL.path,
-            response: #"{\"ok\":true,\"result\":{\"structuredContent\":{\"accessibility\":true,\"screen_recording\":true,\"source\":{\"attribution\":\"helper-daemon\"}}}}"#
+            response: #"{"ok":true,"result":{"structuredContent":{"accessibility":true,"screen_recording":true,"source":{"attribution":"helper-daemon"}}}}"#
         )
         defer { responder.stop() }
 

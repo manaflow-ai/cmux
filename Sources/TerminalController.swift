@@ -260,8 +260,20 @@ class TerminalController {
         var sticky: Bool = false
     }
     private static let mobileViewportReportTTL: TimeInterval = 5
+    /// Stability window for a governed cap-to-cap grid change: long enough to
+    /// coalesce the pre/post keyboard-inset double report, short enough that a
+    /// legitimate keyboard resize is not felt as lag.
+    private static let mobileViewportCapApplyStabilityWindow: Duration = .milliseconds(400)
+    /// Stability window for a governed uncap. Deliberately long: an uncap only
+    /// restores the Mac pane after the last phone leaves, so nobody is hurt by
+    /// waiting, and a remount's re-apply of the same grid must arrive inside
+    /// this window (relay round trips inflate that gap to seconds) to cancel
+    /// the clear+re-apply resize flap (issue 13474).
+    private static let mobileViewportUncapApplyStabilityWindow: Duration = .seconds(3)
     private var mobileViewportReportsBySurfaceID: [UUID: [String: MobileViewportReport]] = [:]; private var mobileViewportGenerationsBySurfaceID: [UUID: [String: UInt64]] = [:]
     private var mobileViewportReportCleanupTimersBySurfaceID: [UUID: DispatchSourceTimer] = [:]
+    private var mobileViewportApplyGovernorsBySurfaceID: [UUID: MobileViewportApplyGovernor] = [:]
+    private var mobileViewportGovernorFlushTasksBySurfaceID: [UUID: Task<Void, Never>] = [:]
 #if DEBUG
     private nonisolated static let socketCommandDebugLogEnvironmentKey = "CMUX_DEBUG_SOCKET_COMMAND_LOG"
     private nonisolated static let socketCommandSlowThresholdMs: Double = 500
@@ -6035,6 +6047,7 @@ class TerminalController {
                 _ = tabManager.handlePromptSubmit(
                     workspaceId: workspaceId,
                     message: event.submittedPromptMessage,
+                    submittedLength: event.submittedPromptLength,
                     iMessageModeEnabled: iMessageModeEnabled
                 )
             }
@@ -8568,7 +8581,7 @@ class TerminalController {
                 "workspace_ref": v2Ref(kind: .workspace, uuid: workspaceId),
                 "surface_id": surfaceId.uuidString,
                 "surface_ref": v2Ref(kind: .surface, uuid: surfaceId),
-                "title": browserPanel.pageTitle
+                "title": browserPanel.pageTitle, "automation_readiness": browserPanel.browserAutomationReadinessPayload()
             ])
         }
     }
@@ -15043,16 +15056,24 @@ class TerminalController {
     }
 
     func clearAllMobileViewportReports(reason: String) {
-        guard !mobileViewportReportsBySurfaceID.isEmpty || !mobileViewportGenerationsBySurfaceID.isEmpty || !mobileViewportReportCleanupTimersBySurfaceID.isEmpty else { return }
+        guard !mobileViewportReportsBySurfaceID.isEmpty || !mobileViewportGenerationsBySurfaceID.isEmpty || !mobileViewportReportCleanupTimersBySurfaceID.isEmpty || !mobileViewportApplyGovernorsBySurfaceID.isEmpty else { return }
 
         for timer in mobileViewportReportCleanupTimersBySurfaceID.values {
             timer.cancel()
         }
-        let surfaceIDs = Array(Set(mobileViewportReportsBySurfaceID.keys).union(mobileViewportGenerationsBySurfaceID.keys))
+        // A lifecycle boundary (account change, test reset) bypasses the apply
+        // governor: teardown wants the uncapped size deterministically now,
+        // not after a stability window.
+        let surfaceIDs = Array(
+            Set(mobileViewportReportsBySurfaceID.keys)
+                .union(mobileViewportGenerationsBySurfaceID.keys)
+                .union(mobileViewportApplyGovernorsBySurfaceID.keys)
+        )
         mobileViewportReportsBySurfaceID.removeAll(); mobileViewportGenerationsBySurfaceID.removeAll()
         mobileViewportReportCleanupTimersBySurfaceID.removeAll()
 
         for surfaceID in surfaceIDs {
+            teardownMobileViewportGovernor(surfaceID: surfaceID)
             terminalSocketTarget(surfaceID: surfaceID)?.surface.clearMobileViewportLimit(reason: reason)
         }
     }
@@ -15315,6 +15336,12 @@ class TerminalController {
             }
         }
         recordTrace("host_capture_finished")
+        // Hand the phone the host's own share of this round trip. Without it a
+        // slow replay is unattributable: the phone cannot tell a slow capture
+        // here from a slow or stalled transport between us.
+        payload["host_elapsed_ms"] = Int(
+            (DispatchTime.now().uptimeNanoseconds &- traceStartedAt) / 1_000_000
+        )
         return .ok(payload)
     }
 
@@ -15636,8 +15663,16 @@ class TerminalController {
         // surface): they run `resumeForExplicitInputIfNeeded()` first, waking a
         // hibernated agent terminal the same way local typing does, so a mobile
         // composer submit cannot write into a cold surface.
-        guard terminalTarget.sendText(text) else {
+        let textResult = terminalTarget.sendTextResult(text)
+        switch textResult {
+        case .sent, .queued:
+            break
+        case .inputQueueFull:
+            return .err(code: "input_queue_full", message: Self.terminalInputQueueFullMessage, data: ["surface_id": surfaceId.uuidString])
+        case .surfaceUnavailable:
             return .err(code: "surface_unavailable", message: Self.terminalSurfaceUnavailableMessage, data: ["surface_id": surfaceId.uuidString])
+        case .processExited:
+            return .err(code: "process_exited", message: Self.terminalProcessExitedMessage, data: ["surface_id": surfaceId.uuidString])
         }
 
         // The paste text is already accepted by the surface above. From here on a
@@ -15680,6 +15715,7 @@ class TerminalController {
         var payload: [String: Any] = [
             "workspace_id": resolved.workspace.id.uuidString,
             "surface_id": terminalPanel.id.uuidString,
+            "delivery": textResult == .sent ? "delivered" : "queued",
             "submitted": submitted,
         ]
         if let submitError {
@@ -15758,11 +15794,119 @@ class TerminalController {
               let minRows = reports.values.map(\.rows).min() else {
             return nil
         }
-        return terminalTarget.surface.applyMobileViewportLimit(
-            columns: minColumns,
-            rows: minRows,
+        return governMobileViewportTarget(
+            surfaceID: terminalPanel.id,
+            target: .cap(columns: minColumns, rows: minRows),
             reason: reason
         )
+    }
+
+    /// Route one negotiated mobile viewport target through the surface's apply
+    /// governor so flapping reports cannot resize the PTY (and SIGWINCH the
+    /// foreground TUI) more than once per stability window
+    /// (https://github.com/manaflow-ai/cmux/issues/13474).
+    ///
+    /// - Returns: The grid the replay fence should expect: the fresh fit when
+    ///   the target applies now, otherwise the surface's current live grid
+    ///   (the fence must describe what capture will see now, not the deferred
+    ///   target; a deferred change converges on the phone's next replay).
+    @discardableResult
+    private func governMobileViewportTarget(
+        surfaceID: UUID,
+        target: MobileViewportApplyGovernor.Target,
+        reason: String
+    ) -> (columns: Int, rows: Int)? {
+        var governor = mobileViewportApplyGovernorsBySurfaceID[surfaceID] ?? MobileViewportApplyGovernor()
+        let decision = governor.request(target)
+        mobileViewportApplyGovernorsBySurfaceID[surfaceID] = governor
+        switch decision {
+        case .apply(let target):
+            return performMobileViewportTarget(surfaceID: surfaceID, target: target, reason: reason)
+        case .stage(let target, let scheduleFlush):
+            #if DEBUG
+            cmuxDebugLog(
+                "mobile.viewport.govern stage surface=\(surfaceID.uuidString.prefix(8)) " +
+                "reschedule=\(scheduleFlush ? 1 : 0) reason=\(reason)"
+            )
+            #endif
+            if scheduleFlush {
+                scheduleMobileViewportGovernorFlush(
+                    surfaceID: surfaceID,
+                    window: Self.mobileViewportStabilityWindow(for: target),
+                    reason: reason
+                )
+            }
+            return currentMobileViewportGrid(surfaceID: surfaceID)
+        case .drop:
+            return currentMobileViewportGrid(surfaceID: surfaceID)
+        }
+    }
+
+    private static func mobileViewportStabilityWindow(
+        for target: MobileViewportApplyGovernor.Target
+    ) -> Duration {
+        switch target {
+        case .cap: return mobileViewportCapApplyStabilityWindow
+        case .uncapped: return mobileViewportUncapApplyStabilityWindow
+        }
+    }
+
+    private func performMobileViewportTarget(
+        surfaceID: UUID,
+        target: MobileViewportApplyGovernor.Target,
+        reason: String
+    ) -> (columns: Int, rows: Int)? {
+        guard let surface = terminalSocketTarget(surfaceID: surfaceID)?.surface else { return nil }
+        switch target {
+        case .cap(let columns, let rows):
+            return surface.applyMobileViewportLimit(columns: columns, rows: rows, reason: reason)
+        case .uncapped:
+            surface.clearMobileViewportLimit(reason: reason)
+            return nil
+        }
+    }
+
+    private func currentMobileViewportGrid(surfaceID: UUID) -> (columns: Int, rows: Int)? {
+        guard let surface = terminalSocketTarget(surfaceID: surfaceID)?
+            .surface.liveSurfaceForGhosttyAccess(reason: "mobileViewportGovernor.currentGrid") else {
+            return nil
+        }
+        let size = ghostty_surface_size(surface)
+        return (columns: max(Int(size.columns), 1), rows: max(Int(size.rows), 1))
+    }
+
+    private func scheduleMobileViewportGovernorFlush(
+        surfaceID: UUID,
+        window: Duration,
+        reason: String
+    ) {
+        mobileViewportGovernorFlushTasksBySurfaceID[surfaceID]?.cancel()
+        mobileViewportGovernorFlushTasksBySurfaceID[surfaceID] = Task { @MainActor [weak self] in
+            try? await ContinuousClock().sleep(for: window)
+            guard !Task.isCancelled, let self else { return }
+            self.mobileViewportGovernorFlushTasksBySurfaceID[surfaceID] = nil
+            guard var governor = self.mobileViewportApplyGovernorsBySurfaceID[surfaceID] else { return }
+            let target = governor.flush()
+            self.mobileViewportApplyGovernorsBySurfaceID[surfaceID] = governor
+            guard let target else { return }
+            #if DEBUG
+            cmuxDebugLog(
+                "mobile.viewport.govern flush surface=\(surfaceID.uuidString.prefix(8)) reason=\(reason)"
+            )
+            #endif
+            _ = self.performMobileViewportTarget(surfaceID: surfaceID, target: target, reason: reason)
+            if target == .uncapped {
+                // The surface is back to its uncapped size with nothing
+                // staged; the next cap is a cold attach again.
+                self.mobileViewportApplyGovernorsBySurfaceID[surfaceID] = nil
+            }
+        }
+    }
+
+    private func teardownMobileViewportGovernor(surfaceID: UUID) {
+        mobileViewportGovernorFlushTasksBySurfaceID[surfaceID]?.cancel()
+        mobileViewportGovernorFlushTasksBySurfaceID[surfaceID] = nil
+        mobileViewportApplyGovernorsBySurfaceID[surfaceID] = nil
     }
 
     /// Remove a single client's viewport report for a surface (dedicated
@@ -15783,16 +15927,16 @@ class TerminalController {
             mobileViewportReportsBySurfaceID[surfaceID] = nil
             mobileViewportReportCleanupTimersBySurfaceID[surfaceID]?.cancel()
             mobileViewportReportCleanupTimersBySurfaceID[surfaceID] = nil
-            terminalSocketTarget(surfaceID: surfaceID)?.surface.clearMobileViewportLimit(reason: reason)
+            governMobileViewportTarget(surfaceID: surfaceID, target: .uncapped, reason: reason)
             return nil
         }
         mobileViewportReportsBySurfaceID[surfaceID] = reports
         scheduleMobileViewportReportCleanup(surfaceID: surfaceID, reports: reports)
         if let minColumns = reports.values.map(\.columns).min(),
            let minRows = reports.values.map(\.rows).min() {
-            return terminalSocketTarget(surfaceID: surfaceID)?.surface.applyMobileViewportLimit(
-                columns: minColumns,
-                rows: minRows,
+            return governMobileViewportTarget(
+                surfaceID: surfaceID,
+                target: .cap(columns: minColumns, rows: minRows),
                 reason: reason
             )
         }
@@ -15855,16 +15999,16 @@ class TerminalController {
             mobileViewportReportsBySurfaceID[surfaceID] = nil
             mobileViewportReportCleanupTimersBySurfaceID[surfaceID]?.cancel()
             mobileViewportReportCleanupTimersBySurfaceID[surfaceID] = nil
-            terminalSocketTarget(surfaceID: surfaceID)?.surface.clearMobileViewportLimit(reason: reason)
+            governMobileViewportTarget(surfaceID: surfaceID, target: .uncapped, reason: reason)
             return
         }
 
         mobileViewportReportsBySurfaceID[surfaceID] = reports
         if let minColumns = reports.values.map(\.columns).min(),
            let minRows = reports.values.map(\.rows).min() {
-            _ = terminalSocketTarget(surfaceID: surfaceID)?.surface.applyMobileViewportLimit(
-                columns: minColumns,
-                rows: minRows,
+            governMobileViewportTarget(
+                surfaceID: surfaceID,
+                target: .cap(columns: minColumns, rows: minRows),
                 reason: reason
             )
         }

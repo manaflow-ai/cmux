@@ -206,6 +206,27 @@ public final class DiagnosticLog: Sendable {
         ))
     }
 
+    /// Records the source and effort metadata of one visible task model result.
+    ///
+    /// The fixed integer slots avoid exporting provider names, model IDs, or
+    /// command output. The event's `b` slot is the provider, `c` is the source,
+    /// and `ms` is the total number of efforts exposed by the result.
+    public nonisolated func recordTaskModelResult(
+        correlationID: String?,
+        provider: DiagnosticTaskModelProvider,
+        source: DiagnosticTaskModelSource,
+        effortCount: Int
+    ) {
+        record(DiagnosticEvent(
+            .appFeatureAction,
+            surface: correlation.handle(for: correlationID),
+            ms: UInt32(clamping: max(0, effortCount)),
+            a: DiagnosticAppEventKind.taskModelListResultObserved.rawValue,
+            b: provider.rawValue,
+            c: source.rawValue
+        ))
+    }
+
     /// Records one terminal-operation phase with a per-minute admission cap.
     /// The ring and AppLog still provide their existing bounded retention.
     public nonisolated func recordTerminalTrace(

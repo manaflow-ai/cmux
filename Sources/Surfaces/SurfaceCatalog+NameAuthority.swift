@@ -26,6 +26,13 @@ extension SurfaceCatalog {
         let key = CloudRenameCoordinator.Key.tab(machine: machine, id: tabID)
         let write: Task<Void, Error>
         if source == .auto {
+            guard cloudWorkspaceRenameService.admitsTerminalRename(
+                workspace: workspace,
+                panelID: panelID,
+                resource: resource,
+                source: .auto,
+                catalog: self
+            ) else { return false }
             guard !name.isEmpty, let context,
                   context == cloudAgentNameContext(workspaceID: workspace.id, panelID: panelID),
                   cloudRenameCoordinator.pendingName(for: key) == nil,

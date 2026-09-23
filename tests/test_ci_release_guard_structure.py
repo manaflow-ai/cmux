@@ -48,6 +48,7 @@ def test_release_groups_are_parallel_and_owned() -> None:
         "Validate CI Xcode selection fast path": "release-notary",
         "Validate resumable GitHub release publication": "release-notary",
         "Validate universal nightly workflow": "release-notary",
+        "Validate nightly push throttle": "release-notary",
         "Validate nightly notarization behavior": "release-notary",
         "Validate Sparkle delta finalization": "release-notary",
         "Validate previous nightly build fetch": "release-notary",
