@@ -8710,6 +8710,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             accessibilityDescription: nil
         )
         appendCurrentSurfaceContextMenuItems(to: menu)
+        if appendSnippetsContextMenuItems(to: menu) {
+            menu.addItem(.separator())
+        }
         let resetTerminalItem = menu.addItem(
             withTitle: String(localized: "terminalContextMenu.resetTerminal", defaultValue: "Reset Terminal"),
             action: #selector(resetTerminal(_:)),

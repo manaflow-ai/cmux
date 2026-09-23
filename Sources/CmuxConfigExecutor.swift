@@ -1,5 +1,6 @@
 import AppKit
 import Foundation
+import CmuxTextActions
 
 @MainActor
 struct CmuxConfigExecutor {
@@ -113,6 +114,22 @@ struct CmuxConfigExecutor {
             )
         }
 
+        if let payload = action.action.textPayload {
+            return executeTextAction(
+                payload,
+                confirm: action.confirm ?? false,
+                actionID: action.id,
+                configSourcePath: action.actionSourcePath,
+                globalConfigPath: globalConfigPath,
+                displayTitle: action.title,
+                icon: action.icon,
+                iconSourcePath: action.iconSourcePath,
+                tabManager: tabManager,
+                presentingWindow: presentingWindow,
+                onExecuted: onExecuted
+            )
+        }
+
         guard let command = action.terminalCommand else { return false }
         let target = action.terminalCommandTarget ?? .newTabInCurrentPane
         let targetTerminal = (target == .currentTerminal)
@@ -140,6 +157,112 @@ struct CmuxConfigExecutor {
             }
             onExecuted?()
         }
+    }
+
+    /// `type: "text"` actions paste literal text into the focused terminal.
+    /// Insert-only text bypasses the project trust prompt because nothing
+    /// runs; `submit: true` presses Enter afterwards and is gated exactly like
+    /// a `type: "command"` action targeting the current terminal.
+    @discardableResult
+    static func executeTextAction(
+        _ payload: CmuxTextActionPayload,
+        confirm: Bool,
+        actionID: String,
+        configSourcePath: String?,
+        globalConfigPath: String,
+        displayTitle: String?,
+        icon: CmuxButtonIcon?,
+        iconSourcePath: String?,
+        tabManager: TabManager,
+        presentingWindow: NSWindow?,
+        onExecuted: (() -> Void)?
+    ) -> Bool {
+        guard let targetTerminal = tabManager.selectedWorkspace?.focusedTerminalInputTarget()?.panel else {
+            return false
+        }
+        return deliverTextActionIfAuthorized(
+            payload,
+            confirm: confirm,
+            actionID: actionID,
+            configSourcePath: configSourcePath,
+            globalConfigPath: globalConfigPath,
+            displayTitle: displayTitle,
+            icon: icon,
+            iconSourcePath: iconSourcePath,
+            presentingWindow: presentingWindow
+        ) {
+            guard deliver(payload, to: targetTerminal) else {
+                NSSound.beep()
+                return false
+            }
+            onExecuted?()
+            return true
+        }
+    }
+
+    /// Runs `onAuthorized` immediately for insert-only text and returns its
+    /// delivery result, so callers can tell a refused paste from a success.
+    /// For `submit: true` payloads the callback runs after the project-action
+    /// trust gate and the return value reports authorization only, matching
+    /// `prepareShellInputIfAuthorized`.
+    @discardableResult
+    static func deliverTextActionIfAuthorized(
+        _ payload: CmuxTextActionPayload,
+        confirm: Bool,
+        actionID: String,
+        configSourcePath: String?,
+        globalConfigPath: String,
+        displayTitle: String? = nil,
+        icon: CmuxButtonIcon? = nil,
+        iconSourcePath: String? = nil,
+        presentingWindow: NSWindow? = nil,
+        onAuthorized: @escaping () -> Bool
+    ) -> Bool {
+        guard payload.requiresProjectTrust else {
+            return onAuthorized()
+        }
+        let descriptor = CmuxActionTrustDescriptor(
+            actionID: actionID,
+            kind: "terminalText",
+            command: payload.text,
+            target: CmuxConfigTerminalCommandTarget.currentTerminal.rawValue,
+            workspaceCommand: nil,
+            configPath: configSourcePath.map(canonicalPath),
+            projectRoot: configSourcePath.map { canonicalPath(CmuxButtonIcon.projectRoot(forConfigPath: $0)) },
+            iconFingerprint: icon?.projectLocalImageFingerprint(
+                configSourcePath: iconSourcePath ?? configSourcePath,
+                globalConfigPath: globalConfigPath
+            )
+        )
+        return authorizeProjectActionIfNeeded(
+            descriptor: descriptor,
+            confirm: confirm,
+            configSourcePath: configSourcePath,
+            globalConfigPath: globalConfigPath,
+            displayCommand: payload.text,
+            displayTitle: displayTitle,
+            presentingWindow: presentingWindow
+        ) {
+            _ = onAuthorized()
+        }
+    }
+
+    /// Realises a text payload on a terminal panel: bracketed paste of the
+    /// whole text, then an optional Enter. Stops at the first rejected step
+    /// so a cold surface that refuses the paste never receives a bare Enter
+    /// that could submit unrelated pending input. Returns whether every step
+    /// was accepted.
+    @discardableResult
+    static func deliver(_ payload: CmuxTextActionPayload, to panel: TerminalPanel) -> Bool {
+        for step in payload.deliverySteps {
+            switch step {
+            case .pasteText(let text):
+                guard panel.sendText(text) else { return false }
+            case .namedKey(let keyName):
+                guard panel.sendNamedKey(keyName) else { return false }
+            }
+        }
+        return true
     }
 
     @discardableResult
