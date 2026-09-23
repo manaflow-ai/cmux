@@ -595,7 +595,34 @@ def test_standalone_routes_preserve_missing_empty_and_owned_diffs() -> None:
             output = root / "output.txt"
             subprocess.run(["bash", "-c", script], check=True, capture_output=True,
                            env={**os.environ, "CHANGED_FILES": str(changed), "GITHUB_OUTPUT": str(output)})
-            assert output.read_text().splitlines() == [f"browser={browser}", f"remote_daemon={daemon}"]
+            assert output.read_text().splitlines() == [f"browser={browser}", f"remote_daemon={daemon}", f"remote_daemon_native={daemon}"]
+
+
+def test_publishing_changes_keep_daemon_linux_checks_without_native_rerun() -> None:
+    script = workflow_job_step_script("changes", "Route standalone project workflows")
+    script = script.replace("/tmp/cmux-ci-changed-files.txt", '\"$CHANGED_FILES\"')
+    cases = (
+        (".github/workflows/nightly.yml\nscripts/sparkle_generate_appcast.sh\n", "false"),
+        (".github/workflows/release.yml\n", "false"),
+        (".github/workflows/nightly.yml\ndaemon/remote/main.go\n", "true"),
+        ("daemon/remote/go.mod\n", "true"),
+        ("scripts/build_remote_daemon.sh\n", "true"),
+        ("tests/test_remote_daemon_release_assets.py\n", "true"),
+        (".github/workflows/remote-daemon.yml\n", "true"),
+        (".github/workflows/ci.yml\n", "true"),
+        (None, "true"),
+    )
+    for contents, native in cases:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            changed, output = root / "changed", root / "output"
+            if contents is not None:
+                changed.write_text(contents)
+            subprocess.run(["bash", "-c", script], check=True, capture_output=True,
+                           env={**os.environ, "CHANGED_FILES": str(changed), "GITHUB_OUTPUT": str(output)})
+            values = dict(line.split("=", 1) for line in output.read_text().splitlines())
+            assert values["remote_daemon"] == "true", (contents, values)
+            assert values.get("remote_daemon_native") == native, (contents, values)
 
 
 def test_diff_failure_does_not_look_like_a_known_empty_standalone_diff() -> None:
@@ -615,7 +642,7 @@ def test_diff_failure_does_not_look_like_a_known_empty_standalone_diff() -> None
         subprocess.run(["bash", "-c", detector], env=env, capture_output=True, check=True)
         assert not changed.exists(), "failed git diff must not leave its truncated output behind"
         subprocess.run(["bash", "-c", route], env=env, capture_output=True, check=True)
-        assert output.read_text().splitlines()[-2:] == ["browser=true", "remote_daemon=true"]
+        assert output.read_text().splitlines()[-3:] == ["browser=true", "remote_daemon=true", "remote_daemon_native=true"]
 
 
 def test_remote_daemon_rejects_stale_heads_before_allocating_macos() -> None:
@@ -3304,6 +3331,39 @@ def test_macos_compile_admission_precedes_expensive_shards() -> None:
         for command in app_host_commands
         if command in {"test", "test-without-building"}
     )
+
+
+def test_static_preflight_rejects_stale_embedded_schema_before_native_work() -> None:
+    steps = yaml.safe_load(CI_WORKFLOW.read_text())["jobs"]["static-preflight"]["steps"]
+    scripts = [step["run"] for step in steps if "run" in step]
+    with tempfile.TemporaryDirectory(prefix="cmux-schema-preflight-") as tmp:
+        repo = Path(tmp)
+        # Isolate this gate's schema behavior; unrelated validators succeed.
+        for script in scripts:
+            for name in re.findall(r"(?:python3 |\./)([\w/.-]+\.(?:py|sh))", script):
+                target = repo / name
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_text("#!/usr/bin/env bash\nexit 0\n" if name.endswith(".sh") else "pass\n")
+                target.chmod(0o755)
+        generator = repo / "scripts/generate-cmux-config-schema.py"
+        generator.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(ROOT / "scripts/generate-cmux-config-schema.py", generator)
+        schema = repo / "web/data/cmux.schema.json"
+        schema.parent.mkdir(parents=True)
+        schema.write_text('{"type":"object"}\n')
+        generated = repo / "Packages/macOS/CmuxFoundation/Sources/CmuxFoundation/ConfigValidation"
+        generated.mkdir(parents=True)
+        subprocess.run([sys.executable, str(generator)], cwd=repo, check=True)
+        def run_gate():
+            return subprocess.run(["bash", "-e", "-c", "\n".join(scripts)], cwd=repo,
+                                  capture_output=True, text=True)
+        assert run_gate().returncode == 0
+        schema.write_text('{"type":"object","title":"changed"}\n')
+        stale = run_gate()
+        assert stale.returncode != 0, "stale schema reached native admission"
+        assert "is stale" in stale.stdout
+        subprocess.run([sys.executable, str(generator)], cwd=repo, check=True)
+        assert run_gate().returncode == 0
 
 
 def test_guard_workflow_call_preserves_routes_and_static_gate() -> None:
