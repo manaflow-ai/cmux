@@ -552,6 +552,10 @@ jobs:
         if: ${{ matrix.group == 'release-ios' }}
         run: python3 tests/test_ios_workflow_dispatch_ref.py
 
+      - name: Validate iOS simulator build-once contract
+        if: ${{ matrix.group == 'release-ios' }}
+        run: python3 tests/test_ios_simulator_build_once.py
+
       - name: Validate cmux scheme test configuration
         if: ${{ matrix.group == 'app-host-cache' }}
         run: ./tests/test_ci_scheme_testaction_debug.sh

@@ -220,17 +220,17 @@ check_ios_tart_canary() {
     echo "FAIL: test-ios.yml must expose the Tart iOS canary runner"
     exit 1
   fi
-  if [[ "$(grep -c 'tart-ios resolved to unexpected runner' "$IOS_FILE")" -ne 2 ]] ||
-     [[ "$(grep -c 'tart-ios runner is missing the immutable VM identity marker' "$IOS_FILE")" -ne 2 ]]; then
-    echo "FAIL: both macOS iOS test jobs must fail closed on Tart identity mismatch"
+  if [[ "$(grep -c 'tart-ios resolved to unexpected runner' "$IOS_FILE")" -ne 3 ]] ||
+     [[ "$(grep -c 'tart-ios runner is missing the immutable VM identity marker' "$IOS_FILE")" -ne 3 ]]; then
+    echo "FAIL: all macOS iOS test jobs must fail closed on Tart identity mismatch"
     exit 1
   fi
-  if [[ "$(grep -Fc "runs-on: \${{ (!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_IOS || 'blacksmith-6vcpu-macos-26') || inputs.runner }}" "$IOS_FILE")" -ne 2 ]]; then
-    echo "FAIL: both macOS iOS test jobs must honor the dispatch runner override"
+  if [[ "$(grep -Fc "runs-on: \${{ (!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_IOS || 'blacksmith-6vcpu-macos-26') || inputs.runner }}" "$IOS_FILE")" -ne 3 ]]; then
+    echo "FAIL: all macOS iOS test jobs must honor the dispatch runner override"
     exit 1
   fi
-  if [[ "$(grep -Fc "startsWith((!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_IOS || 'blacksmith-6vcpu-macos-26') || inputs.runner, 'tart-')" "$IOS_FILE")" -ne 2 ]]; then
-    echo "FAIL: both macOS iOS test jobs must validate Tart identity for explicit and repo-variable routing"
+  if [[ "$(grep -Fc "startsWith((!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_IOS || 'blacksmith-6vcpu-macos-26') || inputs.runner, 'tart-')" "$IOS_FILE")" -ne 3 ]]; then
+    echo "FAIL: all macOS iOS test jobs must validate Tart identity for explicit and repo-variable routing"
     exit 1
   fi
   echo "PASS: test-ios.yml exposes the guarded Tart iOS canary"
