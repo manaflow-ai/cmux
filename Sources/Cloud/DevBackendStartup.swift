@@ -11,9 +11,9 @@ final class DevBackendStartup {
     private let configuredEndpoint: URL?
     private let emit: @Sendable (DevBackendDiagnostics.Event) async -> Void
 
-    init(endpoint: URL? = DevBackendStartup.endpoint, session: URLSession = .shared,
+    init(endpoint: URL? = nil, session: URLSession = .shared,
          emit: @escaping @Sendable (DevBackendDiagnostics.Event) async -> Void = { await DevBackendDiagnostics.shared.record($0) }) {
-        self.configuredEndpoint = endpoint
+        self.configuredEndpoint = endpoint ?? Self.endpoint
         self.session = session
         self.emit = emit
     }
