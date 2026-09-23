@@ -43,6 +43,7 @@ actor RoutingHostRouter {
         var text: String
         var workspaceID: String? = nil
         var submitKey: String? = nil
+        var feedEventID: String? = nil
     }
     struct AttachmentUploadRecord: Sendable {
         var fileName: String
@@ -264,6 +265,7 @@ actor RoutingHostRouter {
         var uploadTotalBytes: Int?
         var workspaceID: String?
         var submitKey: String?
+        var feedEventID: String?
         var itemID: String?
         var feedTextVersion: Double?
     }
@@ -470,7 +472,8 @@ actor RoutingHostRouter {
             let text = info.text ?? ""
             pastes.append(PasteRecord(
                 surfaceID: surfaceID, text: text,
-                workspaceID: info.workspaceID, submitKey: info.submitKey
+                workspaceID: info.workspaceID, submitKey: info.submitKey,
+                feedEventID: info.feedEventID
             ))
             return try? Self.resultFrame(
                 id: id,
@@ -650,6 +653,7 @@ private actor RoutingTransport: CmxByteTransport {
                 uploadTotalBytes: params?["total_bytes"] as? Int,
                 workspaceID: params?["workspace_id"] as? String,
                 submitKey: params?["submit_key"] as? String,
+                feedEventID: params?["feed_event_id"] as? String,
                 itemID: params?["item_id"] as? String,
                 feedTextVersion: params?["version"] as? Double
             )

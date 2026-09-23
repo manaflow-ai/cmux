@@ -75,6 +75,7 @@ struct MobileAgentFeedTerminalReplyTests {
         #expect(paste.surfaceID == "agent-surface")
         #expect(paste.text == text)
         #expect(paste.submitKey == "return")
+        #expect(paste.feedEventID == row.itemID)
         #expect(store.agentFeedItems.first?.userReply == text)
         #expect(store.agentFeedPendingTerminalReplyItemIDs.isEmpty)
     }
