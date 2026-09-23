@@ -314,6 +314,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_workflow_guards_are_wired.py
 
+      - name: Validate CLA metadata routing
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_cla_guard_metadata_routing.py
+
       - name: Validate required checks are bounded
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_required_checks_are_bounded.py
