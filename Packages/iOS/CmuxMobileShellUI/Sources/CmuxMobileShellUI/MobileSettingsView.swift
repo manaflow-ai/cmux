@@ -20,6 +20,7 @@ struct MobileSettingsView: View {
     private static let sendAnonymousTelemetryKey = "sendAnonymousTelemetry"
 
     @Environment(AuthCoordinator.self) private var authManager
+    @Environment(\.analyticsClientID) private var analyticsClientID
     @Environment(MobilePushCoordinator.self) private var pushCoordinator
     @Environment(MobileDisplaySettings.self) private var displaySettings
     /// Optional so previews and hosts without the app root still render; the
@@ -56,11 +57,19 @@ struct MobileSettingsView: View {
 
     @Environment(\.dismiss) private var dismiss
     @State private var showingShortcuts = false
+    /// Keeps the picker responsive while Stack Auth persists the selection.
+    /// The coordinator remains the confirmed scope authority; this value is
+    /// cleared when that request finishes or fails.
+    @State private var pendingTeamID: String?
+    @State private var pendingTeamRequestID: UUID?
+    @State private var teamSelectionTask: Task<Void, Never>?
+    @State private var teamSelectionFailed = false
     /// Mirrors ``MobilePushCoordinator/isEnabled`` so the toggle's label/icon
     /// update after the async enable/disable. The coordinator exposes
     /// `isEnabled` as a non-observable `UserDefaults` read, so reading it
     /// directly in `body` would not re-render when it flips.
     @State private var notificationsEnabled = false
+    @State private var didCopySupportInformation = false
 #if DEBUG
     @State private var debugReplyScheduled: Bool?
 #endif
@@ -128,10 +137,20 @@ struct MobileSettingsView: View {
                             systemImage: "person.2"
                         )
                     } footer: {
-                        Text(L10n.string(
-                            "mobile.settings.teamFooter",
-                            defaultValue: "Switches which cmux team's computers and devices this app shows."
-                        ))
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(L10n.string(
+                                "mobile.settings.teamFooter",
+                                defaultValue: "Switches which cmux team's computers and devices this app shows."
+                            ))
+                            if teamSelectionFailed {
+                                Text(L10n.string(
+                                    "mobile.settings.teamSwitchFailed",
+                                    defaultValue: "Could not switch teams. Try again."
+                                ))
+                                .foregroundStyle(.red)
+                                .accessibilityIdentifier("MobileSettingsTeamSwitchError")
+                            }
+                        }
                     }
                 }
 
@@ -532,10 +551,7 @@ struct MobileSettingsView: View {
                     ))
                 }
 
-                MobileSettingsDiagnosticsSection(
-                    store: store,
-                    connectedHostName: connectedHostName
-                )
+                MobileSettingsDiagnosticsSection()
 
                 MobileSettingsLegalSupportSection()
 
@@ -551,6 +567,21 @@ struct MobileSettingsView: View {
                         )
                     }
                     .accessibilityIdentifier("MobileSettingsVersionRow")
+
+                    Button {
+                        copySupportInformation()
+                    } label: {
+                        Label(
+                            didCopySupportInformation
+                                ? L10n.string("mobile.textSheet.copied", defaultValue: "Copied")
+                                : L10n.string(
+                                    "mobile.settings.about.copySupportInfo",
+                                    defaultValue: "Copy Support Information"
+                                ),
+                            systemImage: didCopySupportInformation ? "checkmark" : "doc.on.clipboard"
+                        )
+                    }
+                    .accessibilityIdentifier("MobileSettingsCopySupportInformation")
                 }
             }
             .task {
@@ -616,21 +647,12 @@ struct MobileSettingsView: View {
                 SetupHelpView(highlight: setupHelpHighlight) { showingSetupHelp = false }
             }
         }
-        .onChange(of: connectionMethodStore?.method) { oldMethod, newMethod in
-            guard oldMethod != newMethod, store != nil else { return }
-            let stackUserID = authManager.currentUser?.id
-            Task {
-                _ = await store?.retryActiveMacReconnect(
-                    stackUserID: stackUserID,
-                    force: true
-                )
-            }
-        }
         .accessibilityIdentifier("MobileSettingsView")
         .onAppear {
             diagnosticLog?.recordAppEvent(.settingsOpened)
         }
         .onDisappear {
+            teamSelectionTask?.cancel()
             diagnosticLog?.recordAppEvent(.settingsClosed)
         }
         .onChange(of: sendAnonymousTelemetry) { _, value in
@@ -639,6 +661,37 @@ struct MobileSettingsView: View {
                 .crashReportingConsentChanged,
                 count: value ? 1 : 0
             )
+        }
+    }
+
+    @MainActor
+    private func copySupportInformation() {
+        let version = AppVersionInfo.current()
+        let info = MobileDebugInformation(
+            accountID: authManager.currentUser?.id,
+            installID: analyticsClientID,
+            deviceID: UIDevice.current.identifierForVendor?.uuidString,
+            teamID: authManager.resolvedTeamID,
+            bundleID: Bundle.main.bundleIdentifier,
+            appChannel: MobileBuildType.current().token,
+            appVersion: version.marketingVersion,
+            buildNumber: version.buildNumber,
+            osVersion: UIDevice.current.systemVersion,
+            deviceModel: UIDevice.current.model,
+            connectionState: store.map { state in
+                switch state.connectionState {
+                case .connected: "connected"
+                case .disconnected: "disconnected"
+                }
+            },
+            transport: store?.activeRoute?.kind.rawValue
+        )
+        UIPasteboard.general.string = info.report
+        didCopySupportInformation = true
+        Task { @MainActor in
+            try? await Task.sleep(for: .seconds(2))
+            guard !Task.isCancelled else { return }
+            didCopySupportInformation = false
         }
     }
 
@@ -872,10 +925,32 @@ struct MobileSettingsView: View {
     /// through the shared coordinator action (persisted; observed by the root for the lazy re-scope).
     private var teamSelection: Binding<String?> {
         Binding(
-            get: { authManager.resolvedTeamID },
+            get: { pendingTeamID ?? authManager.resolvedTeamID },
             set: { newValue in
-                if let newValue, newValue != authManager.selectedTeamID {
-                    Task { try? await authManager.selectTeam(id: newValue) }
+                guard let newValue,
+                      newValue != (pendingTeamID ?? authManager.resolvedTeamID) else { return }
+                let requestID = UUID()
+                teamSelectionTask?.cancel()
+                pendingTeamID = newValue
+                pendingTeamRequestID = requestID
+                teamSelectionFailed = false
+                teamSelectionTask = Task { @MainActor in
+                    do {
+                        try await authManager.selectTeam(id: newValue)
+                    } catch is CancellationError {
+                        guard pendingTeamRequestID == requestID else { return }
+                        pendingTeamID = nil
+                        pendingTeamRequestID = nil
+                    } catch {
+                        guard pendingTeamRequestID == requestID else { return }
+                        pendingTeamID = nil
+                        pendingTeamRequestID = nil
+                        teamSelectionFailed = true
+                        return
+                    }
+                    guard pendingTeamRequestID == requestID else { return }
+                    pendingTeamID = nil
+                    pendingTeamRequestID = nil
                 }
             }
         )
@@ -915,19 +990,14 @@ struct MobileSettingsView: View {
 /// (simulator, browser, composer, lifecycle), and the connection diagnostics
 /// cover all connection activity, not one transport.
 private struct MobileSettingsDiagnosticsSection: View {
-    @Environment(AuthCoordinator.self) private var authManager
-    @Environment(\.analyticsClientID) private var analyticsClientID
     @Environment(\.irohSettingsController) private var irohSettingsController
     @Environment(\.mobileDiagnosticLog) private var diagnosticLog
     @Environment(\.mobileAppLog) private var appLog
-    let store: CMUXMobileShellStore?
-    let connectedHostName: String
     @State private var isPreparingExport = false
     @State private var logExportTask: Task<Void, Never>?
     @State private var logExportTaskID: UUID?
     @State private var presentationHost: UIViewController?
     @State private var exportErrorMessage: String?
-    @State private var didCopyDebugInformation = false
     /// Owns the verbose-log toggle and the privacy-scrubbed connection report
     /// that used to live on the Networking screen. `nil` without a controller
     /// (previews, hosts without the app root).
@@ -936,21 +1006,6 @@ private struct MobileSettingsDiagnosticsSection: View {
 
     var body: some View {
         Section {
-            Button {
-                copyDebugInformation()
-            } label: {
-                Label(
-                    didCopyDebugInformation
-                        ? L10n.string("mobile.textSheet.copied", defaultValue: "Copied")
-                        : L10n.string(
-                            "mobile.settings.diagnostics.copyDebugInfo",
-                            defaultValue: "Copy Debug Information"
-                        ),
-                    systemImage: didCopyDebugInformation ? "checkmark" : "doc.on.clipboard"
-                )
-            }
-            .accessibilityIdentifier("MobileSettingsCopyDebugInformation")
-
             if appLog != nil {
                 Button {
                     startLogExport()
@@ -1099,33 +1154,6 @@ private struct MobileSettingsDiagnosticsSection: View {
                 }
             }
             await prepareLogExport()
-        }
-    }
-
-    @MainActor
-    private func copyDebugInformation() {
-        let version = AppVersionInfo.current()
-        let info = MobileDebugInformation(
-            deviceID: UIDevice.current.identifierForVendor?.uuidString,
-            email: authManager.currentUser?.primaryEmail,
-            hexclaveAuthID: authManager.currentUser?.id,
-            teamID: authManager.resolvedTeamID,
-            bundleID: Bundle.main.bundleIdentifier,
-            appVersion: version.marketingVersion,
-            buildNumber: version.buildNumber,
-            osVersion: UIDevice.current.systemVersion,
-            deviceModel: UIDevice.current.model,
-            analyticsClientID: analyticsClientID,
-            connectedHost: connectedHostName.isEmpty ? nil : connectedHostName,
-            connectionState: store.map { String(describing: $0.connectionState) },
-            transport: store?.activeRoute?.kind.rawValue
-        )
-        UIPasteboard.general.string = info.report
-        didCopyDebugInformation = true
-        Task { @MainActor in
-            try? await Task.sleep(for: .seconds(2))
-            guard !Task.isCancelled else { return }
-            didCopyDebugInformation = false
         }
     }
 

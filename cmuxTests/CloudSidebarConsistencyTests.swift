@@ -89,14 +89,16 @@ struct CloudSidebarConsistencyTests {
 
     @Test("Opening a captured sidebar row uses current membership and current workspace name")
     func openingStaleRow() async throws {
-        let catalog = SurfaceCatalog()
+        let live = LiveWorkspaceFixture()
+        defer { live.tearDown() }
+        let catalog = SurfaceCatalog(live: live)
         let provider = CloudPlacementTestProvider(machine: machine)
         catalog.register(provider)
         install(try state(tabs: ["a"]), in: catalog)
         let captured = try catalog.remoteWorkspaceGroup(machine: machine, workspaceID: "ws_main")
         install(try state(revision: 2, name: "Renamed", tabs: ["b", "c"]), in: catalog)
         var titles: [String] = []
-        let workspaceID = UUID()
+        let workspaceID = live.id()
         let host = SurfaceCatalog.NewWorkspaceHost(
             create: { title in titles.append(title); return (workspaceID, nil) },
             paneLookup: { _, _ in "pane" }, closeStarter: { _, _ in }
@@ -111,12 +113,14 @@ struct CloudSidebarConsistencyTests {
 
     @Test("Opening a tab selection does not expand it to the entire Cloud workspace")
     func selectedTabsRemainASelection() async throws {
-        let catalog = SurfaceCatalog()
+        let live = LiveWorkspaceFixture()
+        defer { live.tearDown() }
+        let catalog = SurfaceCatalog(live: live)
         catalog.register(CloudPlacementTestProvider(machine: machine))
         install(try state(), in: catalog)
         let all = try catalog.remoteWorkspaceGroup(machine: machine, workspaceID: "ws_main")
         let selection = SurfaceResourceGroup(title: "Selection", placements: [all.placements[0]], remoteWorkspaceID: "ws_main")
-        let workspaceID = UUID()
+        let workspaceID = live.id()
         let host = SurfaceCatalog.NewWorkspaceHost(
             create: { _ in (workspaceID, nil) }, paneLookup: { _, _ in "pane" }, closeStarter: { _, _ in }
         )

@@ -8,19 +8,7 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 GUARD_WORKFLOW = ROOT / ".github" / "workflows" / "ci-guards.yml"
-EXPECTED_GROUPS = [
-    "preflight",
-    "ci",
-    "app-host-execution",
-    "app-host-process",
-    "app-host-cache",
-    "release-ios",
-    "release-notary",
-    "release-tooling",
-    "quality-sharding",
-    "quality-runtime",
-    "quality-determinism",
-]
+MATRIX_GROUPS = "${{ fromJSON(inputs.linux_guard_test_groups) }}"
 
 
 def workflow_guard_job() -> dict:
@@ -30,7 +18,7 @@ def workflow_guard_job() -> dict:
 
 def test_quality_groups_are_parallel_and_owned() -> None:
     job = workflow_guard_job()
-    assert job["strategy"]["matrix"]["group"] == EXPECTED_GROUPS
+    assert job["strategy"]["matrix"]["group"] == MATRIX_GROUPS
 
     expected = {
         "Validate cmuxTests sharding": "quality-sharding",

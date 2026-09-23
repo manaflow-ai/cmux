@@ -68,6 +68,7 @@ final class cmuxUITests: XCTestCase {
     func testWhatsNewSheetFitsSwipedPageAndMatchesAppearance() throws {
         let app = XCUIApplication()
         defer { app.terminate() }
+        var screenshotBrightness: [String: Double] = [:]
 
         for appearance in ["light", "dark"] {
             app.launchArguments = ["-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
@@ -105,10 +106,11 @@ final class cmuxUITests: XCTestCase {
             ))
             context.draw(pixels, in: CGRect(x: 0, y: 0, width: 1, height: 1))
             let brightness = Double(Int(rgba[0]) + Int(rgba[1]) + Int(rgba[2])) / (3 * 255)
+            screenshotBrightness[appearance] = brightness
             if appearance == "light" {
-                XCTAssertGreaterThan(brightness, 0.65, "Use the light Mac Settings capture")
+                XCTAssertGreaterThan(brightness, 0.65, "Light mode must use the light Settings capture")
             } else {
-                XCTAssertLessThan(brightness, 0.35, "Use the dark Mac Settings capture")
+                XCTAssertLessThan(brightness, 0.35, "Dark mode must use the dark Settings capture")
             }
             let before = XCTAttachment(screenshot: app.screenshot())
             before.name = "Fitted pairing page - \(appearance)"
@@ -133,6 +135,13 @@ final class cmuxUITests: XCTestCase {
             XCTAssertEqual(title.frame.minY, pairingTop, accuracy: 2)
             app.terminate()
         }
+        let lightBrightness = try XCTUnwrap(screenshotBrightness["light"])
+        let darkBrightness = try XCTUnwrap(screenshotBrightness["dark"])
+        XCTAssertGreaterThan(
+            lightBrightness,
+            darkBrightness,
+            "The instructional screenshot must follow the app appearance"
+        )
         try testWhatsNewSeparateUpdatesScreenshotCropAndLeadingAlignment()
     }
 
@@ -156,7 +165,7 @@ final class cmuxUITests: XCTestCase {
             XCTAssertTrue(detail.exists)
             XCTAssertEqual(title.frame.minX, screenshot.frame.minX, accuracy: 2)
             XCTAssertEqual(detail.frame.minX, screenshot.frame.minX, accuracy: 2)
-            XCTAssertEqual(screenshot.frame.width / screenshot.frame.height, 642.0 / 95.0, accuracy: 0.05)
+            XCTAssertEqual(screenshot.frame.width / screenshot.frame.height, 1030.0 / 285.0, accuracy: 0.05)
 
             let request = VNRecognizeTextRequest()
             request.recognitionLevel = .accurate
@@ -1898,6 +1907,107 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["refreshPreservedHalfList=true"].exists)
         XCTAssertTrue(app.staticTexts["allRemoved=true"].exists)
         XCTAssertTrue(app.staticTexts["refreshPreservedEmptyList=true"].exists)
+    }
+
+    @MainActor
+    func testComputerPickerSelectionSurvivesAppRelaunch() async throws {
+        let app = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_COMPUTER_PICKER_PERSISTENCE": "1",
+        ])
+        defer { app.terminate() }
+
+        func picker() throws -> XCUIElement {
+            let whatsNewSheet = app.collectionViews["MobileWhatsNewSheet"].firstMatch
+            if whatsNewSheet.waitForExistence(timeout: 4) {
+                // The sheet identifier is inherited by its footer on iOS 26.
+                // Finish every page rather than tapping the obscured toolbar.
+                let continueButton = app.buttons.matching(
+                    NSPredicate(format: "label == %@", "Continue")
+                ).firstMatch
+                for _ in 0..<4 where whatsNewSheet.exists {
+                    _ = try XCTUnwrap(
+                        continueButton.waitForExistence(timeout: 4) ? continueButton : nil
+                    )
+                    continueButton.tap()
+                }
+                _ = try XCTUnwrap(
+                    whatsNewSheet.waitForNonExistence(timeout: 5) ? true : nil,
+                    "Finish the launch sheet before using the picker behind it"
+                )
+            }
+            let picker = app.buttons["MobileWorkspaceMacPicker"]
+            return try XCTUnwrap(
+                picker.waitForExistence(timeout: 15) ? picker : nil,
+                "The production computer picker must appear before interacting"
+            )
+        }
+
+        func expectTitle(_ title: String) throws {
+            let control = try picker()
+            let restored = XCTNSPredicateExpectation(
+                predicate: NSPredicate(format: "label == %@", title),
+                object: control
+            )
+            _ = try XCTUnwrap(
+                XCTWaiter.wait(for: [restored], timeout: 15) == .completed ? control : nil,
+                "Expected picker title \(title), got \(control.label)"
+            )
+        }
+
+        func capture(_ name: String) {
+            let attachment = XCTAttachment(screenshot: app.screenshot())
+            attachment.name = name
+            attachment.lifetime = .keepAlways
+            add(attachment)
+        }
+
+        func openPicker() throws {
+            let control = try picker()
+            control.tap()
+        }
+
+        // Start through the real picker, without seeding its saved preference.
+        try openPicker()
+        let allComputers = try XCTUnwrap(waitForVisibleElement(
+            identifier: "MobileWorkspaceMacPickerAll", in: app, timeout: 5
+        ))
+        tapMenuItem(allComputers, in: app)
+        try expectTitle("All Computers")
+        try openPicker()
+        let computer = app.buttons.matching(NSPredicate(
+            format: "identifier BEGINSWITH %@",
+            "MobileWorkspaceMacPickerMachine-picker-mac"
+        )).firstMatch
+        _ = try XCTUnwrap(
+            computer.waitForExistence(timeout: 5) ? computer : nil,
+            "The computer menu must be open before selecting its Mac"
+        )
+        let computerName = computer.label
+        XCTAssertNotEqual(computerName, "All Computers")
+        tapMenuItem(computer, in: app)
+        try expectTitle(computerName)
+        XCTAssertTrue(app.buttons["MobileWorkspaceRow-workspace-main"].exists)
+        XCTAssertFalse(app.buttons["MobileWorkspaceRow-workspace-other"].exists)
+        capture("computer-selected-before-termination")
+
+        app.terminate()
+        app.launch()
+        try expectTitle(computerName)
+        XCTAssertTrue(app.buttons["MobileWorkspaceRow-workspace-main"].exists)
+        XCTAssertFalse(app.buttons["MobileWorkspaceRow-workspace-other"].exists)
+        capture("computer-restored-after-relaunch")
+
+        try openPicker()
+        tapMenuItem(app.buttons["MobileWorkspaceMacPickerAll"], in: app)
+        try expectTitle("All Computers")
+        capture("all-computers-selected-before-termination")
+
+        app.terminate()
+        app.launch()
+        try expectTitle("All Computers")
+        XCTAssertTrue(app.buttons["MobileWorkspaceRow-workspace-main"].exists)
+        XCTAssertTrue(app.buttons["MobileWorkspaceRow-workspace-other"].exists)
+        capture("all-computers-restored-after-relaunch")
     }
 
     @MainActor
@@ -4126,6 +4236,71 @@ final class cmuxUITests: XCTestCase {
         }
     }
 
+    /// Drives the production push coordinator through its three user-visible
+    /// states: a parked tap while the Mac is disconnected, selection after the
+    /// connection recovers, and an alert when the target tab is gone.
+    @MainActor
+    func testPushNotificationTapOpensTabAfterReconnectAndAlertsWhenMissing() throws {
+        let app = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_PUSH_TAB_NAVIGATION_PREVIEW": "1",
+        ])
+        defer { app.terminate() }
+
+        let state = app.staticTexts["PushTabNavigationState"]
+        XCTAssertTrue(state.waitForExistence(timeout: 8))
+
+        func capture(_ name: String) {
+            let screenshot = XCTAttachment(screenshot: app.screenshot())
+            screenshot.name = name
+            screenshot.lifetime = .keepAlways
+            add(screenshot)
+        }
+
+        capture("push-tab-deferred-while-disconnected")
+        app.buttons["PushTabTapButton"].tap()
+        XCTAssertTrue(app.staticTexts["Waiting for the Mac connection…"].waitForExistence(timeout: 3))
+
+        app.buttons["PushReconnectButton"].tap()
+        let selection = app.staticTexts["PushTabNavigationSelection"]
+        XCTAssertTrue(selection.waitForExistence(timeout: 5))
+        XCTAssertTrue(
+            NSPredicate(format: "label CONTAINS %@", "Notes")
+                .evaluate(with: selection),
+            "The parked notification tap must open the Notes tab after reconnect."
+        )
+        let terminalPicker = app.buttons["MobileTerminalDropdown"]
+        XCTAssertTrue(
+            terminalPicker.waitForExistence(timeout: 5),
+            "The production workspace detail must be visible after the push tap."
+        )
+        let selectedNotes = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "value == %@", "Notes"),
+            object: terminalPicker
+        )
+        XCTAssertEqual(XCTWaiter.wait(for: [selectedNotes], timeout: 5), .completed)
+        XCTAssertEqual(
+            terminalPicker.value as? String,
+            "Notes",
+            "The production terminal picker must select the pushed Notes tab."
+        )
+        capture("push-tab-opened-after-reconnect")
+
+        app.buttons["PushMissingTabButton"].tap()
+        let alert = app.alerts["Tab unavailable"]
+        XCTAssertTrue(alert.waitForExistence(timeout: 5))
+        XCTAssertTrue(alert.staticTexts["This tab is no longer available on your Mac."].exists)
+        capture("push-tab-unavailable-alert")
+        alert.buttons["OK"].tap()
+        XCTAssertTrue(alert.waitForNonExistence(timeout: 3))
+
+        app.buttons["PushMissingWorkspaceButton"].tap()
+        let workspaceAlert = app.alerts["Tab unavailable"]
+        XCTAssertTrue(workspaceAlert.waitForExistence(timeout: 5))
+        capture("push-workspace-unavailable-alert")
+        workspaceAlert.buttons["OK"].tap()
+        XCTAssertTrue(workspaceAlert.waitForNonExistence(timeout: 3))
+    }
+
     @MainActor
     func testNotificationFeedSearchFiltersNotifications() throws {
         guard #available(iOS 26.0, *) else {
@@ -4362,6 +4537,26 @@ final class cmuxUITests: XCTestCase {
         XCTAssertFalse(exposedTaskComposerToggle)
         XCTAssertFalse(exposedTerminalFilesToggle)
         XCTAssertFalse(exposedBetaFeaturesHeader)
+    }
+
+    @MainActor
+    func testAboutOffersSupportInformationCopy() throws {
+        let app = launchApp(
+            mockData: false,
+            environment: ["CMUX_UITEST_WORKSPACE_LIST_PREVIEW": "1"]
+        )
+        defer { app.terminate() }
+
+        let settings = app.buttons["MobileWorkspaceSettingsMenu"]
+        XCTAssertTrue(settings.waitForExistence(timeout: 8))
+        tap(settings, in: app)
+
+        let supportInformation = app.buttons["MobileSettingsCopySupportInformation"]
+        for _ in 0..<12 where !supportInformation.isHittable {
+            app.swipeUp(velocity: .slow)
+        }
+        XCTAssertTrue(supportInformation.waitForExistence(timeout: 4))
+        XCTAssertTrue(supportInformation.isHittable)
     }
 
     @MainActor
@@ -11746,6 +11941,9 @@ final class IOSSetupRecoveryUITests: XCTestCase {
         primary.tap()
         let pairing = app.descendants(matching: .any)["MobileOnboardingPairingScene"]
         XCTAssertTrue(pairing.waitForExistence(timeout: 5))
+        XCTAssertTrue(app.descendants(matching: .any)[
+            "MobileOnboardingPairingSettingsScreenshot"
+        ].waitForExistence(timeout: 5))
         capture("onboarding-4-enable-completed", in: app)
         record("onboarding-action-result", "Continue advanced Agents → Notifications → Push. Enable Notifications awaited the preview permission callback and advanced to Pairing. This preview does not request OS permission.")
     }
@@ -11789,6 +11987,9 @@ final class IOSSetupRecoveryUITests: XCTestCase {
         app.buttons["MobileOnboardingSecondaryButton"].tap()
         let pairing = app.descendants(matching: .any)["MobileOnboardingPairingScene"]
         XCTAssertTrue(pairing.waitForExistence(timeout: 5))
+        XCTAssertTrue(app.descendants(matching: .any)[
+            "MobileOnboardingPairingSettingsScreenshot"
+        ].waitForExistence(timeout: 5))
         capture("replay-4-not-now-completed", in: app)
         app.buttons["MobileOnboardingBackButton"].tap()
         XCTAssertTrue(app.descendants(matching: .any)[
@@ -11816,6 +12017,8 @@ final class IOSSetupRecoveryUITests: XCTestCase {
         defer { app.terminate() }
         let retry = app.buttons["MobileWorkspaceEmptyRetry"]
         XCTAssertTrue(retry.waitForExistence(timeout: 10))
+        let emptyState = app.descendants(matching: .any)["MobileWorkspaceEmptyState"]
+        XCTAssertTrue(emptyState.exists)
         for attempt in 1...2 {
             retry.tap()
             let finish = app.buttons["MobileWorkspaceListPreviewFinishRefresh"]
@@ -11825,14 +12028,15 @@ final class IOSSetupRecoveryUITests: XCTestCase {
             ]
             XCTAssertTrue(statusLine.waitForExistence(timeout: 5))
             XCTAssertEqual(statusLine.label, "Reconnecting…")
-            XCTAssertFalse(retry.isEnabled)
+            XCTAssertFalse(emptyState.exists)
+            XCTAssertFalse(retry.exists)
             XCTAssertFalse(app.buttons["MobileWorkspaceEmptyRetryCancel"].exists)
             // Emit an empty-list update before the pending refresh completes.
             app.buttons["MobileWorkspaceListPreviewRefresh"].tap()
             XCTAssertTrue(app.descendants(matching: .any)[
                 "MobileWorkspaceListRefreshGeneration-\(attempt * 2 - 1)"
             ].waitForExistence(timeout: 5))
-            XCTAssertFalse(retry.isEnabled)
+            XCTAssertFalse(emptyState.exists)
             XCTAssertTrue(finish.exists)
             capture("retry-\(attempt)-pending-after-list-update", in: app)
             finish.tap()
@@ -11843,6 +12047,7 @@ final class IOSSetupRecoveryUITests: XCTestCase {
             XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(
                 predicate: enabled, object: nil
             )], timeout: 5), .completed)
+            XCTAssertTrue(emptyState.waitForExistence(timeout: 5))
             capture("retry-\(attempt)-completed-after-list-update", in: app)
         }
         record("retry-lifecycle-result", "Retry stayed disabled across an intermediate empty-list update, completed after an explicit fixture signal, and accepted a second retry. No timing delay is used by this fixture.")
