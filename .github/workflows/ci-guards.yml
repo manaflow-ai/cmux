@@ -31,6 +31,8 @@ jobs:
       matrix:
         group: ${{ fromJSON(inputs.linux_guard_test_groups) }}
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    # Its three sibling guard jobs are bounded at 15; 65 recent runs peaked at 0.8 min.
+    timeout-minutes: 15
     # This job executes scripts from the pull request. It needs only read
     # access for checkout, never workflow, issue, or repository write access.
     permissions:
@@ -76,6 +78,10 @@ jobs:
       - name: Validate app-host guard structure
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_app_host_guard_structure.py
+
+      - name: Validate canonical compile cache build root
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_canonical_build_root.py
 
       - name: Validate release guard structure
         if: ${{ matrix.group == 'ci' }}
@@ -279,6 +285,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_queue_janitor.py
 
+      - name: Validate CI health report
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_health_report.py
+
       - name: Validate the trusted web complexity workflow
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_web_complexity_trusted_workflow.py
@@ -286,6 +296,10 @@ jobs:
       - name: Validate every workflow guard is wired
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_workflow_guards_are_wired.py
+
+      - name: Validate required checks are bounded
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_required_checks_are_bounded.py
 
       - name: Validate triage radar scoring
         if: ${{ matrix.group == 'ci' }}
@@ -370,6 +384,10 @@ jobs:
       - name: Validate app-host xcodebuild attempt budget
         if: ${{ matrix.group == 'app-host-execution' }}
         run: ./tests/test_ci_app_host_xcodebuild_attempts.sh
+
+      - name: Validate console-session environment forwarding
+        if: ${{ matrix.group == 'app-host-execution' }}
+        run: python3 tests/test_ci_console_session_env_forwarding.py
 
       - name: Validate notification semantics gates
         if: ${{ matrix.group == 'ci' }}
@@ -474,6 +492,10 @@ jobs:
       - name: Validate the TestFlight archive log is kept on failure
         if: ${{ matrix.group == 'release-ios' }}
         run: python3 tests/test_ios_testflight_archive_log.py
+
+      - name: Validate iOS upload lean checkout
+        if: ${{ matrix.group == 'release-ios' }}
+        run: python3 tests/test_ios_upload_lean_checkout.py
 
       - name: Validate tagged iOS device entitlement fallback
         if: ${{ matrix.group == 'release-ios' }}

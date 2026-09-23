@@ -7,12 +7,15 @@ from __future__ import annotations
 import importlib.util
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
 import tempfile
 import textwrap
 from pathlib import Path
+
+import yaml
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -164,8 +167,177 @@ def test_cli_workflow_inputs_route_the_required_cli_lane() -> None:
         "cmux.xcodeproj/project.pbxproj",
         "Packages/macOS/CmuxFoundation/Sources/CmuxFoundation/Process/AgentPIDProcessIdentity.swift",
         ".github/workflows/cli-pipe-regressions.yml",
+        # Steps of cli-pipe-regressions.yml other than the build.
+        "scripts/select-ci-xcode.sh",
+        "scripts/install-rust-ci.sh",
+        "Native/DiffSidecar/rust-toolchain.toml",
+        "scripts/download-prebuilt-ghosttykit.sh",
+        "scripts/ghosttykit-checksums.txt",
+        "ghostty",
+        "vendor/bonsplit",
+        ".github/actions/cache-restore/action.yml",
+        "scripts/ci/r2-cache.sh",
+        "scripts/ci/cache_restore_receipt.py",
+        "scripts/ci/sanitize-xcode-source-packages-cache.py",
+        # test_cli_config_doctor.py runs this helper.
+        "skills/cmux-settings/scripts/cmux-settings",
     ):
         assert module.classify_files([path]).cli is True, path
+
+
+def test_every_declared_cli_lane_input_exists() -> None:
+    for path in module.CLI_LANE_EXACT_INPUTS:
+        assert (ROOT / path).exists(), path
+    for prefix in module.CLI_LANE_INPUT_PREFIXES:
+        assert (ROOT / prefix).is_dir(), prefix
+
+
+def test_cli_lane_routes_the_cmux_cli_target_closure() -> None:
+    inputs = module.load_cli_target_inputs()
+    assert inputs is not None
+    # Products the cmux-cli target links, so a change to them can break its
+    # build even though the app-host suite would also catch it.
+    assert "Packages/macOS/CmuxCore" in inputs.package_directories
+    assert "Packages/macOS/CmuxFoundation" in inputs.package_directories
+    assert "Packages/Shared/CMUXMobileCore" in inputs.package_directories
+    # Packages no cmux-cli product reaches.
+    assert "Packages/macOS/CmuxTerminal" not in inputs.package_directories
+    assert not any(
+        directory.startswith("Packages/iOS/") for directory in inputs.package_directories
+    )
+
+    assert module.classify_files(["Packages/macOS/CmuxCore/Sources/CmuxCore/Cmux.swift"]).cli is True
+    # Shared app sources the cmux-cli target compiles.
+    assert module.classify_files(["Sources/AutomationRule.swift"]).cli is True
+    # A package's test sources cannot reach the cmux-cli binary.
+    assert module.classify_files([
+        "Packages/macOS/CmuxCore/Tests/CmuxCoreTests/CmuxCoreTests.swift"
+    ]).cli is False
+
+
+def test_cli_lane_routes_stdlib_shadowing_ci_helpers() -> None:
+    # The lane runs `python3 scripts/ci/cache_restore_receipt.py`, which puts
+    # scripts/ci first on sys.path.
+    assert module.classify_files(["scripts/ci/json.py"]).cli is True
+    assert module.classify_files(["scripts/ci/subprocess.py"]).cli is True
+    assert module.classify_files(["scripts/ci/queue_janitor.py"]).cli is False
+
+
+def test_app_and_web_only_changes_skip_the_cli_lane() -> None:
+    for path in (
+        "Sources/AppDelegate.swift",
+        "Packages/macOS/CmuxTerminal/Sources/CmuxTerminal/TerminalEngine.swift",
+        "webviews/src/agent-session/index.tsx",
+        "Resources/Localizable.xcstrings",
+        "docs/ci.md",
+    ):
+        assert module.classify_files([path]).cli is False, path
+
+
+def test_ci_script_only_change_skips_the_cli_lane_but_keeps_linux_guards() -> None:
+    # PR #13721 (ci/queue-janitor) and its neighbours queued the macOS CLI lane
+    # behind the Blacksmith pool for CI work the lane never runs.
+    changed = [
+        ".github/workflows/ci-guards.yml",
+        ".github/workflows/ci-queue-janitor.yml",
+        "scripts/ci/queue_janitor.py",
+        "scripts/ci/workflow_guard_groups.py",
+        "tests/test-execution.toml",
+        "tests/test_ci_queue_janitor.py",
+    ]
+    assert module.classify_files(changed).cli is False
+
+    with tempfile.TemporaryDirectory() as temp_dir:
+        files_path = Path(temp_dir) / "files.txt"
+        files_path.write_text("\n".join(changed) + "\n", encoding="utf-8")
+        result = subprocess.run(
+            [
+                sys.executable,
+                str(ROOT / "scripts/ci/detect_linux_guard_changes.py"),
+                "--event-name",
+                "pull_request",
+                "--macos",
+                "false",
+                "--files-from",
+                str(files_path),
+            ],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+    guards = dict(
+        line.split("=", 1) for line in result.stdout.splitlines() if "=" in line
+    )
+    assert guards["linux_guard_tests"] == "true", result.stdout
+
+
+HANG_WORKFLOW = ROOT / ".github" / "workflows" / "terminal-hang-diagnostics.yml"
+
+
+def hang_diagnostics_paths() -> list[str]:
+    workflow = yaml.safe_load(HANG_WORKFLOW.read_text(encoding="utf-8"))
+    return list(workflow[True]["pull_request"]["paths"])
+
+
+def runs_hang_diagnostics(path: str) -> bool:
+    for pattern in hang_diagnostics_paths():
+        expression = "".join(
+            ".*" if part == "**" else ("[^/]*" if part == "*" else re.escape(part))
+            for part in re.split(r"(\*\*|\*)", pattern)
+        )
+        if re.fullmatch(expression, path):
+            return True
+    return False
+
+
+def test_terminal_sources_the_hang_jobs_build_run_the_diagnostics() -> None:
+    for path in (
+        "Sources/TerminalPortalReconciliationScheduler.swift",
+        "cmuxTests/TerminalPortalReconciliationReentrancyTests.swift",
+        "tests/run_terminal_portal_reconciliation_tests.sh",
+        "Packages/Shared/CMUXMobileCore/Sources/CMUXMobileCore/TerminalWorkInterval.swift",
+        "Packages/Shared/CmuxSentryTelemetry/Sources/CmuxSentryTelemetry/TerminalWorkSentryContext.swift",
+        "cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved",
+        "scripts/select-ci-xcode.sh",
+        "scripts/terminal-hang-release-gate.py",
+        "tests/test_terminal_hang_release_gate.py",
+        ".github/workflows/terminal-hang-diagnostics.yml",
+    ):
+        assert runs_hang_diagnostics(path), path
+
+
+def test_unrelated_app_changes_skip_the_two_macos_hang_diagnostics_jobs() -> None:
+    for path in (
+        "Sources/Workspace.swift",
+        "Sources/AppDelegate.swift",
+        "Sources/GhosttyTerminalView.swift",
+        "Packages/macOS/CmuxTerminal/Sources/CmuxTerminal/TerminalEngine.swift",
+        "Packages/iOS/CmuxMobileTerminal/Sources/CmuxMobileTerminal/Terminal.swift",
+        "web/app/page.tsx",
+    ):
+        assert not runs_hang_diagnostics(path), path
+
+
+def test_hang_diagnostics_paths_cover_every_file_its_jobs_read() -> None:
+    workflow = HANG_WORKFLOW.read_text(encoding="utf-8")
+    jobs = workflow.partition("\njobs:\n")[2]
+    # Keeps the filter honest as the jobs change: every repository file the job
+    # steps name must be routed, and every routed pattern must match something.
+    references = {
+        reference.lstrip("./")
+        for reference in re.findall(r"[\w./+-]+\.(?:swift|sh|py|json|resolved|toml)", jobs)
+    }
+    references |= {
+        f"{package}/Package.swift" for package in re.findall(r"--package-path (\S+)", jobs)
+    }
+    assert "tests/run_terminal_portal_reconciliation_tests.sh" in references
+    for reference in sorted(references):
+        if not (ROOT / reference).exists():
+            continue
+        assert runs_hang_diagnostics(reference), reference
+    for pattern in hang_diagnostics_paths():
+        assert list(ROOT.glob(pattern)), pattern
+    assert "workflow_dispatch:" in workflow
 
 
 def test_release_build_follows_the_other_areas_when_macos_is_skipped_or_forced() -> None:
@@ -740,8 +912,16 @@ def test_macos_test_product_ci_helpers_run_admission_without_web_or_release() ->
         assert actual.release_build is False, (path, actual)
 
 
-def test_unknown_ci_helper_still_fails_open_to_every_area() -> None:
-    assert module.classify_files(["scripts/ci/future_unknown_helper.py"]) == module.ChangeAreas.all()
+def test_unknown_ci_helper_still_fails_open_to_every_area_the_lane_can_reach() -> None:
+    actual = module.classify_files(["scripts/ci/future_unknown_helper.py"])
+    assert actual.macos is True
+    assert actual.web is True
+    assert actual.agent_session_web is True
+    assert actual.release_build is True
+    # cli-pipe-regressions.yml runs no unowned scripts/ci helper, so a new one
+    # cannot change its result unless it shadows an import of a helper the lane
+    # does run; test_cli_lane_routes_stdlib_shadowing_ci_helpers covers that.
+    assert actual.cli is False
 
 
 def test_guard_workflow_and_persistent_router_skip_product_areas() -> None:
@@ -1376,6 +1556,9 @@ def run_detect_step_for_paths(
             WEB_WORKFLOW,
             MACOS_WORKFLOW,
             ROOT / "scripts" / "ci" / "workloads" / "ci-guard.sh",
+            # The trusted base router reads the cmux-cli target from these.
+            ROOT / "cmux.xcodeproj" / "project.pbxproj",
+            *sorted(ROOT.glob("Packages/*/*/Package.swift")),
         ):
             relative = support.relative_to(ROOT)
             target = repo / relative
@@ -1674,6 +1857,73 @@ def test_workflow_only_pr_uses_trusted_base_without_product_work() -> None:
     result, outputs = run_detect_step_for_paths([".github/workflows/ci.yml"])
 
     assert "CI routing-policy-only PR; skipping product-area CI." in result.stdout
+    # This fixture replaces ci.yml with unreadable content, so the CLI lane's
+    # call site cannot be compared and the lane stays routed.
+    assert outputs == [
+        "macos=false",
+        "web=false",
+        "agent_session_web=false",
+        "cli=true",
+        "release_build=false",
+    ]
+
+
+CI_DIFF_BASE_WITH_CLI_LANE = """name: CI
+on:
+  pull_request:
+env:
+  FOO: "1"
+jobs:
+  changes:
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    steps:
+      - run: route
+  workflow-guard-tests:
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    steps:
+      - run: guard
+  cli:
+    needs: [changes]
+    if: ${{ needs.changes.outputs.cli == 'true' }}
+    uses: ./.github/workflows/cli-pipe-regressions.yml
+  ci-status:
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    steps:
+      - run: gate
+"""
+
+
+def test_ci_workflow_edit_to_the_cli_call_site_runs_the_cli_lane() -> None:
+    # The router strips ci.yml before the trusted base classifies the diff, so
+    # the detect step compares the `cli` job itself.
+    for head in (
+        CI_DIFF_BASE_WITH_CLI_LANE.replace(
+            "uses: ./.github/workflows/cli-pipe-regressions.yml",
+            "uses: ./.github/workflows/cli-pipe-regressions.yml\n    secrets: inherit",
+        ),
+        # Triggers and permissions before `jobs:` reach every called workflow.
+        CI_DIFF_BASE_WITH_CLI_LANE.replace(
+            "  pull_request:", "  pull_request:\n  merge_group:"
+        ),
+    ):
+        result, outputs = run_detect_step_for_ci_workflow_edit(
+            CI_DIFF_BASE_WITH_CLI_LANE, head
+        )
+        assert "CLI lane call site changed" in result.stdout, result.stdout
+        assert outputs == [
+            "macos=false",
+            "web=false",
+            "agent_session_web=false",
+            "cli=true",
+            "release_build=false",
+        ], outputs
+
+
+def test_ci_workflow_edit_elsewhere_leaves_the_cli_lane_skipped() -> None:
+    _, outputs = run_detect_step_for_ci_workflow_edit(
+        CI_DIFF_BASE_WITH_CLI_LANE,
+        CI_DIFF_BASE_WITH_CLI_LANE.replace("- run: guard", "- run: guard\n      - run: more"),
+    )
     assert outputs == [
         "macos=false",
         "web=false",
@@ -2514,6 +2764,41 @@ def test_only_pull_requests_under_the_compile_only_policy_skip_the_suite() -> No
     assert wants_full_suite("pull_request", "full", []) is True
     for event in ("merge_group", "workflow_dispatch", "push"):
         assert wants_full_suite(event, "compile-only", []) is True
+
+
+def test_a_skipped_suite_is_refused_when_only_the_suite_could_judge_the_diff() -> None:
+    sys.path.insert(0, str(ROOT / "scripts/ci"))
+    from choose_ci_suite import coverage_gap
+
+    tests_diff = ["cmuxTests/WorkspaceUnitTests.swift"]
+
+    # Compile admission builds the bundle and stops, so a test-only change is
+    # unobserved when the suite is skipped.
+    assert coverage_gap("pull_request", False, tests_diff, []) is True
+    assert coverage_gap("pull_request", False, ["cmuxUITests/A.swift"], []) is True
+    # Running the suite is the whole point; there is nothing to refuse.
+    assert coverage_gap("pull_request", True, tests_diff, []) is False
+    # Product sources still compile, which is what the policy claims to check.
+    assert coverage_gap("pull_request", False, ["Sources/A.swift"], []) is False
+    assert coverage_gap("pull_request", False, ["web/app/page.tsx"], []) is False
+    # The skip may be deliberate, but it has to be recorded on the pull request.
+    assert coverage_gap("pull_request", False, tests_diff, ["no-full-ci"]) is False
+    # An unreadable diff must not be the reason a change goes unobserved.
+    assert coverage_gap("pull_request", False, None, []) is True
+    # Only pull requests take the cheap path at all.
+    for event in ("merge_group", "workflow_dispatch", "push"):
+        assert coverage_gap(event, False, tests_diff, []) is False
+
+
+def test_ci_status_requires_the_suite_coverage_gate() -> None:
+    block = workflow_job_block("ci-status")
+    assert "      - suite-coverage" in block
+
+    gate = workflow_job_block("suite-coverage")
+    assert "needs.changes.outputs.coverage_gap == 'true'" in gate
+    # A Linux job, so refusing a run never costs a macOS runner.
+    assert "vars.LINUX_RUNNER" in gate
+    assert "exit 1" in gate
 
 
 def test_suite_labels_are_read_from_the_run_event_snapshot() -> None:
