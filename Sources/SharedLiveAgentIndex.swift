@@ -663,6 +663,16 @@ final class SharedLiveAgentIndex {
             _ = await applyPendingForkValidations(
                 pendingRequestIDsToRemoveOnCancellation: pendingRequestIDsOwnedByRequest
             )
+            // The pass above may find this caller's request already claimed by
+            // another drainer: the unguarded tail restart in
+            // `applyPendingForkValidations` can spawn a detached refresh that
+            // wins the race against a contention waiter it just resumed, and
+            // that waiter then returns to an empty queue. Returning here would
+            // break this method's contract -- the queued validation must be
+            // applied before it returns -- so callers could read stale fork
+            // availability. The live-index branch below already waits this way;
+            // this branch was the only exit that did not.
+            await waitForForkValidationRequestCompletions(pendingRequestIDsOwnedByRequest)
             return
         }
         let reloadResult = await reloadIfLiveAgentProcessFingerprintChanged(
