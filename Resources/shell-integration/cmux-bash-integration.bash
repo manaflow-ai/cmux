@@ -1628,9 +1628,12 @@ _cmux_prompt_command() {
         _CMUX_HISTORY_INITIALIZED=1
     fi
     if [[ -n "${_CMUX_HISTORY_INITIALIZED:-}" ]]; then
-        # bash 3.2 does not append reliably after clearing its initial history.
-        # This file belongs to this terminal, so persist its bounded list.
-        history -w "$HISTFILE"
+        # Append only this prompt's new entries. A full-list `history -w`
+        # doubled every command, because bash appends the session's entries
+        # again on exit or hangup; `-a` advances that mark instead. bash 3.2
+        # skips `-a` while every entry is from this session, so a first
+        # session there persists at exit/hangup rather than per prompt.
+        history -a "$HISTFILE"
     fi
     _cmux_tmux_sync_cmux_environment
 

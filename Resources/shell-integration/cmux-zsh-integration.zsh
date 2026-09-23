@@ -1717,7 +1717,8 @@ _cmux_preexec() {
 _cmux_initialize_terminal_history() {
     [[ -n "${CMUX_HISTORY_FILE:-}" && -z "${_CMUX_HISTORY_INITIALIZED:-}" \
        && -n "${HISTFILE:-}" && "$HISTFILE" != /dev/null ]] || return 0
-    builtin fc -p "$CMUX_HISTORY_FILE" "${HISTSIZE:-2000}" "${SAVEHIST:-2000}" || return
+    # An unset SAVEHIST means zsh persists nothing; keep that, not a default.
+    builtin fc -p "$CMUX_HISTORY_FILE" "${HISTSIZE:-2000}" "${SAVEHIST:-0}" || return
     setopt inc_append_history
     typeset -g _CMUX_HISTORY_INITIALIZED=1
 }
