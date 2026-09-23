@@ -279,8 +279,8 @@ struct ControlWorkspaceReorderTargetTests {
     /// class without the input changing.
     @Test(arguments: ["potato", "workspace:abc", ""])
     func reorderAgreesWithReorderManyOnUnreadableValues(raw: String) throws {
-        func code(of result: ControlCallResult) -> String? {
-            guard case .err(let code, _, _) = result else { return nil }
+        func code(of result: ControlCallResult?) -> String? {
+            guard case .err(let code, _, _)? = result else { return nil }
             return code
         }
         let single = ControlCommandCoordinator(context: FakeWorkspaceControlCommandContext())
