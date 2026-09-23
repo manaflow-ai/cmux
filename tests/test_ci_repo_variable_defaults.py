@@ -67,6 +67,39 @@ PAID_OVERFLOW_GATE_PREFIX = re.compile(
     rf"(?<![\w.])vars\.{PAID_OVERFLOW_GATE} == '1' && $"
 )
 
+# (workflow, env key) -> why this read of a paid-capable variable is not a
+# runner selection and must NOT carry the gate.
+#
+# The gate answers "should this job run on metered capacity". A read that
+# reports the variable's value is asking a different question, and gating it
+# inverts the answer: with the gate unset, `vars.GATE == '1' && vars.NAME`
+# evaluates to false, so the reporter would see an empty string and conclude
+# the configuration is clean no matter what the variable actually holds. The
+# one place that can see runner values would go blind exactly when it matters.
+GATE_EXEMPT_REPORTING_READS = {
+    ("ci-health-report.yml", "CMUX_CI_RUNNER_VARIABLES"):
+        "reports each runner variable's value; gating would report empty",
+}
+
+
+def reporting_env_key(lines: list[str], number: int) -> str | None:
+    """The env key whose block scalar contains line `number`, if any.
+
+    Reads inside a `KEY: |` block are values being collected, not an
+    expression selecting a runner.
+    """
+    indent = len(lines[number - 1]) - len(lines[number - 1].lstrip())
+    for previous in range(number - 2, -1, -1):
+        text = lines[previous]
+        if not text.strip() or text.lstrip().startswith("#"):
+            continue
+        current = len(text) - len(text.lstrip())
+        if current >= indent:
+            continue
+        matched = re.match(r"\s*([A-Za-z_][A-Za-z0-9_]*):\s*[|>]", text)
+        return matched.group(1) if matched else None
+    return None
+
 
 def workflow_files() -> list[Path]:
     return sorted(WORKFLOWS.glob("*.y*ml"))
@@ -157,12 +190,16 @@ def check_paid_overflow_gate(path: Path, errors: list[str]) -> None:
     both an admin-set runner variable and CI_PAID_MACOS_OVERFLOW=1. Unset, the
     literal Blacksmith fallback wins, which is the cheap path.
     """
-    for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
+    lines = path.read_text(encoding="utf-8").splitlines()
+    for number, line in enumerate(lines, start=1):
         if line.lstrip().startswith("#"):
             continue
         for name, free_label in PAID_CAPABLE_RUNNER_VARS.items():
             for read in re.finditer(rf"vars\.{name}\b", line):
                 if not PAID_OVERFLOW_GATE_PREFIX.search(line[: read.start()]):
+                    key = reporting_env_key(lines, number)
+                    if key is not None and (path.name, key) in GATE_EXEMPT_REPORTING_READS:
+                        continue
                     errors.append(
                         f"{path.name}:{number}: vars.{name} is read without the "
                         f"paid overflow gate. It can hold a metered WarpBuild "
@@ -179,12 +216,51 @@ def check_paid_overflow_gate(path: Path, errors: list[str]) -> None:
                     )
 
 
+def self_test_gate_matcher(errors: list[str]) -> None:
+    """The reporting exemption must not become a hole in the gate.
+
+    An exemption that quietly widened would disable the check for the exact
+    variables it exists to protect, and nothing else here would notice: the
+    guard would keep printing PASS. These probes pin both directions.
+    """
+    import tempfile
+
+    free = PAID_CAPABLE_RUNNER_VARS["MACOS_RUNNER_15"]
+    probes = (
+        ("other.yml",
+         f"runs-on: ${{{{ vars.MACOS_RUNNER_15 || '{free}' }}}}", 1,
+         "an ungated runs-on"),
+        ("other.yml",
+         f"runs-on: ${{{{ vars.{PAID_OVERFLOW_GATE} == '1' && vars.MACOS_RUNNER_15"
+         f" || '{free}' }}}}",
+         0, "a gated runs-on"),
+        ("other.yml",
+         "    env:\n      SOME_OTHER_KEY: |\n        A=${{ vars.MACOS_RUNNER_15 }}",
+         1, "an ungated read under a non-exempt env key"),
+        ("ci-health-report.yml",
+         "    env:\n      CMUX_CI_RUNNER_VARIABLES: |\n        A=${{ vars.MACOS_RUNNER_15 }}",
+         0, "the exempt reporting block"),
+    )
+    with tempfile.TemporaryDirectory() as directory:
+        for filename, body, expected, description in probes:
+            probe = Path(directory) / filename
+            probe.write_text(body + "\n", encoding="utf-8")
+            found: list[str] = []
+            check_paid_overflow_gate(probe, found)
+            if len(found) != expected:
+                errors.append(
+                    f"paid-overflow gate self-test: {description} produced "
+                    f"{len(found)} error(s), expected {expected}"
+                )
+
+
 def main() -> int:
     errors: list[str] = []
     files = workflow_files()
     if not files:
         print(f"no workflows found under {WORKFLOWS}", file=sys.stderr)
         return 1
+    self_test_gate_matcher(errors)
     for path in files:
         check_runs_on(path, errors)
         check_cheap_defaults(path, errors)
