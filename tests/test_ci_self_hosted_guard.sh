@@ -159,7 +159,7 @@ check_e2e_runner_fallbacks() {
   if ! awk '
     /^[[:space:]]*- name: Validate Tart canary identity$/ { in_tart_step=1; next }
     in_tart_step && /^      - / { in_tart_step=0; in_runner_reject=0; in_marker_reject=0 }
-    in_tart_step && /startsWith\(\(!inputs\.runner \|\| inputs\.runner == '\''auto'\''\) && \(vars\.MACOS_RUNNER_[A-Z0-9_]+ \|\| '\''blacksmith-6vcpu-macos-15'\''\) \|\| inputs\.runner, '\''tart-'\''\)/ { saw_effective_runner=1 }
+    in_tart_step && /startsWith\(\(!inputs\.runner \|\| inputs\.runner == '\''auto'\''\) && \(vars\.MACOS_RUNNER_[A-Z0-9_]+ \|\| '\''blacksmith-6vcpu-macos-[0-9]+'\''\) \|\| inputs\.runner, '\''tart-'\''\)/ { saw_effective_runner=1 }
     in_tart_step && /REQUESTED_RUNNER:.*inputs\.runner/ { saw_requested_runner=1 }
     in_tart_step && /RUNNER_CONTEXT_NAME: \$\{\{ runner\.name \}\}/ { saw_runner_context=1 }
     in_tart_step && /tart-cmux-\*/ { saw_runner_pattern=1 }
@@ -177,10 +177,33 @@ check_e2e_runner_fallbacks() {
     exit 1
   fi
 
-  if grep -Eq "^[[:space:]]*continue-on-error:" "$E2E_FILE"; then
-    echo "FAIL: test-e2e.yml must not mask E2E setup or test failures with continue-on-error"
-    exit 1
-  fi
+  # Compilation caching is an optional optimization. Its failure must not
+  # suppress setup/test failures or make successful tests depend on the cache
+  # service. Keep the exception confined to these cache operations.
+  python3 - "$E2E_FILE" <<'PYTHON'
+import sys
+import yaml
+
+document = yaml.safe_load(open(sys.argv[1]))
+# Compilation caching and the fast artifact transport are optimizations with
+# canonical fallbacks. Everything else must fail the job it runs in.
+allowed = {
+    ("build", "compilation-cache-restore", "Restore E2E compilation cache", "actions/cache/restore"),
+    ("build", None, "Save E2E compilation cache", "actions/cache/save"),
+    ("build", "compilation-cache-bound", "Bound E2E compilation cache", ""),
+    ("build", "revision-on-main", "Check the selected revision against main", ""),
+    ("test", "parallel-product", "Read the compiled test product over parallel range requests", ""),
+}
+for job_id, job in document["jobs"].items():
+    if "continue-on-error" in job:
+        raise SystemExit(f"FAIL: {job_id} must not mask E2E job failures")
+    for step in job.get("steps", []):
+        if "continue-on-error" not in step:
+            continue
+        identity = (job_id, step.get("id"), step.get("name"), step.get("uses", "").split("@", 1)[0])
+        if identity not in allowed or step["continue-on-error"] is not True:
+            raise SystemExit(f"FAIL: {step.get('name')} must not mask E2E setup or test failures")
+PYTHON
 
   # The Tart identity gate, the run name and the SwiftPM cache key all decide
   # things about "the runner this job uses". If any of them reads a different
@@ -201,17 +224,17 @@ check_ios_tart_canary() {
     echo "FAIL: test-ios.yml must expose the Tart iOS canary runner"
     exit 1
   fi
-  if [[ "$(grep -c 'tart-ios resolved to unexpected runner' "$IOS_FILE")" -ne 2 ]] ||
-     [[ "$(grep -c 'tart-ios runner is missing the immutable VM identity marker' "$IOS_FILE")" -ne 2 ]]; then
-    echo "FAIL: both macOS iOS test jobs must fail closed on Tart identity mismatch"
+  if [[ "$(grep -c 'tart-ios resolved to unexpected runner' "$IOS_FILE")" -ne 3 ]] ||
+     [[ "$(grep -c 'tart-ios runner is missing the immutable VM identity marker' "$IOS_FILE")" -ne 3 ]]; then
+    echo "FAIL: all macOS iOS test jobs must fail closed on Tart identity mismatch"
     exit 1
   fi
-  if [[ "$(grep -Fc "runs-on: \${{ (!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_IOS || 'blacksmith-6vcpu-macos-26') || inputs.runner }}" "$IOS_FILE")" -ne 2 ]]; then
-    echo "FAIL: both macOS iOS test jobs must honor the dispatch runner override"
+  if [[ "$(grep -Fc "runs-on: \${{ (!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_IOS || 'blacksmith-6vcpu-macos-26') || inputs.runner }}" "$IOS_FILE")" -ne 3 ]]; then
+    echo "FAIL: all macOS iOS test jobs must honor the dispatch runner override"
     exit 1
   fi
-  if [[ "$(grep -Fc "startsWith((!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_IOS || 'blacksmith-6vcpu-macos-26') || inputs.runner, 'tart-')" "$IOS_FILE")" -ne 2 ]]; then
-    echo "FAIL: both macOS iOS test jobs must validate Tart identity for explicit and repo-variable routing"
+  if [[ "$(grep -Fc "startsWith((!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_IOS || 'blacksmith-6vcpu-macos-26') || inputs.runner, 'tart-')" "$IOS_FILE")" -ne 3 ]]; then
+    echo "FAIL: all macOS iOS test jobs must validate Tart identity for explicit and repo-variable routing"
     exit 1
   fi
   echo "PASS: test-ios.yml exposes the guarded Tart iOS canary"
@@ -1607,8 +1630,8 @@ pr_workflow_events() {
 
 pr_concurrency_cancels_superseded_runs() {
   # The group must be the same for every push to one pull request, and
-  # cancel-in-progress must be true for every pull request event the workflow
-  # triggers on.
+  # cancel-in-progress must be true for new source pushes. Label-only events
+  # may preserve a running compile so full-ci escalation can reuse it.
   local file="$1" event
   local events group_key
   events="$(pr_workflow_events "$file")"
@@ -1635,6 +1658,10 @@ pr_concurrency_cancels_superseded_runs() {
         sub(/^[[:space:]]+cancel-in-progress:[[:space:]]*/, "", value)
         sub(/[[:space:]]+$/, "", value)
         if (value == "${{ github.event_name == \047" ENVIRON["EVENT"] "\047 }}") ok=1
+        # Recognize only the CI workflow label exception: synchronize still
+        # cancels the old head. Extra clauses could suppress that cancellation.
+        if (ENVIRON["EVENT"] == "pull_request" &&
+            value == "${{ github.event_name == \047pull_request\047 && github.event.action != \047labeled\047 && github.event.action != \047unlabeled\047 }}") ok=1
       }
       END { exit !ok }
     ' "$file" || return 1
@@ -1698,6 +1725,11 @@ check_pr_macos_workflows_cancel_superseded_runs() {
   done <<'CASES'
 on:\n  pull_request:~ci-${{ github.ref }}~true~accept
 on: pull_request~ci-${{ github.ref }}~${{ github.event_name == 'pull_request' }}~accept
+on: pull_request~ci-${{ github.ref }}~${{ github.event_name == 'pull_request' && github.event.action != 'labeled' && github.event.action != 'unlabeled' }}~accept
+on: pull_request~ci-${{ github.ref }}~${{ github.event_name == 'pull_request' && github.event.action != 'synchronize' }}~reject
+on: pull_request~ci-${{ github.ref }}~${{ github.event_name == 'pull_request' && github.event.action != 'labeled' && github.event.action != 'unlabeled' && false }}~reject
+on: pull_request~ci-${{ github.ref }}~${{ github.event_name == 'push' && github.event.action != 'labeled' && github.event.action != 'unlabeled' }}~reject
+on: pull_request_target~ci-${{ github.event.pull_request.number }}~${{ github.event_name == 'pull_request' && github.event.action != 'labeled' && github.event.action != 'unlabeled' }}~reject
 on: [push, pull_request]~ci-${{ github.event.pull_request.number || github.run_id }}~${{ github.event_name == 'pull_request' }}~accept
 on:\n  pull_request_target:~ci-${{ github.event.pull_request.number }}~${{ github.event_name == 'pull_request_target' }}~accept
 on:\n  pull_request_target:~ci-${{ github.ref }}~true~reject
@@ -1736,6 +1768,73 @@ CASES
   done
   [ "$failed" -eq 0 ] || exit 1
   echo "PASS: pull request workflows with macOS jobs cancel superseded runs"
+}
+
+check_macos_runner_identity_env_tracks_routing() {
+  # A macOS job picks its pool in `runs-on`, and some jobs then restate that
+  # pool in an env value: `CMUX_PRODUCT_RUNNER` becomes a field of the compiled
+  # product contract, and `REQUESTED_RUNNER` is what the Depot identity guard
+  # validates. Those restatements are only meaningful when they name the pool
+  # the job is actually on. `runs-on` sends pull requests to MACOS_RUNNER_PR
+  # and every other event to the lane variable, so an env value that reads only
+  # the lane variable is wrong on every pull request: the product contract
+  # stamps a pool the build never ran on, which lets two pools with different
+  # workspace layouts share one contract key, and the identity guard validates
+  # a runner the job is not on.
+  #
+  # Require every MACOS_RUNNER-bearing env value in ci-macos.yml to be the same
+  # expression as its own job's `runs-on`, so a future routing change cannot
+  # move a job without moving what that job reports about itself.
+  # Parse YAML so mapping order, quoting, and folded scalars cannot hide an
+  # identity value. A parser failure aborts under set -e rather than passing.
+  local mismatches
+  mismatches="$(python3 - "$CI_MACOS_FILE" <<'PYTHON'
+import sys
+from pathlib import Path
+import yaml
+
+
+def mismatched_identities(document):
+    for job_id, job in document.get("jobs", {}).items():
+        runs_on = job.get("runs-on")
+        scopes = [("job", job)]
+        scopes.extend((f"step {index}", step) for index, step in enumerate(job.get("steps", [])))
+        for scope, owner in scopes:
+            for key, value in (owner.get("env") or {}).items():
+                if isinstance(value, str) and "vars.MACOS_RUNNER" in value and value != runs_on:
+                    yield f"{job_id}/{scope}: {key}\n  env value {value}\n  runs-on   {runs_on}"
+
+
+# Exercise forms the line-based guard missed: env before runs-on, quoted keys
+# containing digits, folded scalars, and both job-level and step-level env.
+fixture = yaml.safe_load("""
+jobs:
+  example:
+    env:
+      'RUNNER2': >-
+        ${{ vars.MACOS_RUNNER }}
+    steps:
+      - env:
+          'STEP_RUNNER2': '${{ vars.MACOS_RUNNER }}'
+    runs-on: >-
+      ${{ vars.MACOS_RUNNER }}
+""")
+assert not list(mismatched_identities(fixture))
+fixture["jobs"]["example"]["runs-on"] = "${{ vars.MACOS_RUNNER_PR }}"
+assert len(list(mismatched_identities(fixture))) == 2
+fixture["jobs"]["example"].pop("runs-on")
+assert len(list(mismatched_identities(fixture))) == 2
+
+print("\n".join(mismatched_identities(yaml.safe_load(Path(sys.argv[1]).read_text()))))
+PYTHON
+)"
+  if [ -n "$mismatches" ]; then
+    echo "FAIL: a macOS runner env value in ci-macos.yml does not match its job's runs-on,"
+    echo "      so it names the wrong pool on pull requests (see docs/ci-runners.md)"
+    echo "$mismatches"
+    exit 1
+  fi
+  echo "PASS: every macOS runner env value in ci-macos.yml matches its job's runs-on"
 }
 
 check_no_paid_overflow_fallbacks() {
@@ -1879,4 +1978,5 @@ check_tmux_terminal_nightly_isolation
 check_pr_macos_workflows_cancel_superseded_runs
 check_ios_only_tests_stay_under_ios
 check_no_paid_overflow_fallbacks
+check_macos_runner_identity_env_tracks_routing
 check_background_macos_lane

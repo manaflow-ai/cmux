@@ -22,6 +22,7 @@ MACOS_ADMISSION_JOB = "macos-compile-admission"
 PRODUCT_CI_INPUTS = frozenset({
     "scripts/ci/app_host_test_products.py",
     "scripts/ci/compile-app-host-test-product.sh",
+    "scripts/ci/canonical-build-root.sh",
     "scripts/ci/sanitize-xcode-source-packages-cache.py",
 })
 
@@ -105,7 +106,7 @@ def reaches_product(path: str) -> bool:
         return True
     if path.startswith("scripts/ci/"):
         return False
-    if path.startswith((".github/", "tests/", "tests_v2/", "docs/", "design/", "plans/", "ios/", "web/", "workers/", "config/iroh/", "cmux-tui/")):
+    if path.startswith((".github/", "tests/", "tests_v2/", "docs/", "design/", "plans/", "ios/", "web/", "workers/", "config/iroh/", "cmux-tui/", "cmux-browser/", "daemon/remote/")):
         return False
     if path in {".vercelignore", "vercel.json"}:
         return False

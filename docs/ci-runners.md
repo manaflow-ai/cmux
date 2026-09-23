@@ -24,7 +24,7 @@ gh variable list --repo manaflow-ai/cmux
 | `LINUX_ARM64_RUNNER` | native ARM64 package entrypoint verification | `ubuntu-24.04-arm` | `ubuntu-24.04-arm` |
 | `MACOS_RUNNER_15` | the macOS 15 default: `macos-compile-admission`, `app-host-unit-tests`, nightly helper and test-cache jobs | `blacksmith-6vcpu-macos-15` | `blacksmith-6vcpu-macos-15` |
 | `MACOS_RUNNER_PR` | **pull-request** macOS jobs only, in `ci-macos.yml`, `cli-pipe-regressions.yml` and `terminal-hang-diagnostics.yml` | unset (see "Lanes" below) | `blacksmith-6vcpu-macos-15` |
-| `MACOS_RUNNER_TESTS` | the manual test-debugging lanes: `test-e2e.yml` and `test-depot.yml` | unset (see "Lanes" below) | `blacksmith-6vcpu-macos-15` |
+| `MACOS_RUNNER_TESTS` | the manual test-debugging lanes: `test-e2e.yml` and `test-depot.yml` | unset (see "Lanes" below) | `blacksmith-6vcpu-macos-26` for `test-e2e.yml`, `blacksmith-6vcpu-macos-15` for `test-depot.yml` |
 | `MACOS_RUNNER_DUAL_XCODE` | `swift-package-tests` (SDK 15 release helper, then SDK 26 package tests) on non-pull-request events; pull requests take `MACOS_RUNNER_PR` | `blacksmith-6vcpu-macos-15` | `blacksmith-6vcpu-macos-15` |
 | `MACOS_RUNNER_26` | macOS 26 compatibility jobs and nightly sign/notarize | `blacksmith-6vcpu-macos-26` | `blacksmith-6vcpu-macos-26` |
 | `MACOS_RUNNER_26_NIGHTLY_BUILD` | changed-revision universal Nightly app builds | `blacksmith-12vcpu-macos-26` | `blacksmith-6vcpu-macos-26` |
@@ -49,11 +49,23 @@ the same cost profile or the same urgency.
 - **Manual test debugging** (`test-e2e.yml`, `test-depot.yml`) resolves through
   `MACOS_RUNNER_TESTS`, and deliberately does **not** follow `MACOS_RUNNER_15`.
   Re-running one test to chase a flake should never reach for paid capacity.
+  Both fallbacks stay on Blacksmith for that reason; `test-e2e.yml` falls back
+  to macOS 26 because the macOS 15 pool's queue-to-start p90 was 83 min against
+  1.0 min on 26, measured over 60 dispatches on 2026-09-22/23.
 
 `MACOS_RUNNER_PR` and `MACOS_RUNNER_TESTS` are escape hatches: leaving them
 unset is the intended state, and setting one overrides just that lane without
 touching required CI. That makes a rollback a variable edit rather than a
 revert.
+
+A job that also reports its own pool in an env value must read that value from
+the same expression its `runs-on` uses, not from the lane variable alone.
+`macos-compile-admission` puts `CMUX_PRODUCT_RUNNER` in the compiled product
+contract and `tests-build-and-lag` validates `REQUESTED_RUNNER`; on a pull
+request both resolve through `MACOS_RUNNER_PR`, so a job reading only
+`MACOS_RUNNER_15` or `MACOS_RUNNER_DISPLAY` would stamp and check a pool it is
+not on. `check_macos_runner_identity_env_tracks_routing` in
+`tests/test_ci_self_hosted_guard.sh` enforces that.
 
 Workflows reference them as `runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}`.
 If a variable is unset the job uses the fallback, so CI is never broken by a
@@ -64,7 +76,9 @@ also asserts that no workflow names a Warp label as a literal anywhere.
 
 Because forks cannot see repository variables, a fork pull request resolves
 `MACOS_RUNNER_PR` and `MACOS_RUNNER_TESTS` to empty and lands on the Blacksmith
-fallback. That is the same runner it used before those variables existed.
+fallback, never on paid capacity. `test-e2e.yml` is `workflow_dispatch`-only,
+so a fork never reaches its fallback at all; for the lanes a fork does reach,
+the fallback is still the runner they used before these variables existed.
 
 ## Background lane
 

@@ -79,6 +79,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_app_host_guard_structure.py
 
+      - name: Validate feature flag linter scope
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_lint_feature_flags_scope.py
+
       - name: Validate canonical compile cache build root
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_canonical_build_root.py
@@ -122,6 +126,31 @@ jobs:
         if: ${{ matrix.group == 'preflight' }}
         run: python3 tests/test_docs_deploy_auth_guard.py
 
+      - name: Validate web complexity scan scoping
+        if: ${{ matrix.group == 'preflight' }}
+        run: python3 tests/test_web_complexity_scope.py
+
+      - name: Validate iOS package conventions for this change
+        if: ${{ matrix.group == 'preflight' }}
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
+        run: |
+          set -euo pipefail
+          python3 tests/test_ci_ios_conventions_diff.py
+          # The conventions lint scans the whole repository, so gating a PR on
+          # it directly turns every open PR red whenever main carries one
+          # unrelated violation (#10409). Judge the change instead: report only
+          # violations absent from the base. Skipped outside PR/merge-group,
+          # where there is no base to compare against.
+          if [ -n "${BASE_SHA:-}" ]; then
+            if ! git cat-file -e "$BASE_SHA^{commit}" 2>/dev/null; then
+              git fetch --no-tags --depth=1 origin "$BASE_SHA"
+            fi
+            ./scripts/ci/lint-ios-conventions-diff.sh "$BASE_SHA"
+          else
+            echo "No base revision for this event; conventions diff skipped."
+          fi
+
       - name: Validate reload shared DerivedData default
         if: ${{ matrix.group == 'preflight' }}
         run: ./tests/test_reload_shared_derived_data.sh
@@ -144,7 +173,9 @@ jobs:
         run: python3 tests/test_swift_testing_require_not_nested.py
       - name: Validate pairing tests name their URL scheme
         if: ${{ matrix.group == 'preflight' }}
-        run: python3 tests/test_pairing_scheme_is_explicit_in_tests.py
+        run: |
+          python3 tests/test_pairing_scheme_lint.py
+          python3 tests/test_pairing_scheme_is_explicit_in_tests.py
       - name: Validate Python test harness syntax
         if: ${{ matrix.group == 'preflight' }}
         run: git ls-files 'tests/*.py' 'tests_v2/*.py' 'scripts/*.py' | xargs python3 -m py_compile
@@ -234,7 +265,7 @@ jobs:
           python-version: "3.9"
 
       - name: Prepare workflow guard Python dependencies
-        if: ${{ matrix.group == 'ci' || matrix.group == 'app-host-execution' || matrix.group == 'app-host-process' || matrix.group == 'app-host-cache' || matrix.group == 'release-notary' || matrix.group == 'release-tooling' }}
+        if: ${{ matrix.group == 'preflight' || matrix.group == 'ci' || matrix.group == 'app-host-execution' || matrix.group == 'app-host-process' || matrix.group == 'app-host-cache' || matrix.group == 'release-notary' || matrix.group == 'release-tooling' }}
         run: |
           set -euo pipefail
           python3 -m venv "$RUNNER_TEMP/workflow-guard-venv"
@@ -268,6 +299,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_select_package_tests.py
 
+      - name: Validate workflow_run triggers name workflows that exist
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_workflow_run_sources.py
+
       - name: Validate shallow complexity comparison fetching
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_fetch_complexity_base.py
@@ -288,6 +323,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_cleanup_stale_runs.py
 
+      - name: Validate the scheduled main full-suite run
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_main_full_suite.py
+
       - name: Validate CI queue janitor policy
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_queue_janitor.py
@@ -303,6 +342,10 @@ jobs:
       - name: Validate every workflow guard is wired
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_workflow_guards_are_wired.py
+
+      - name: Validate CLA metadata routing
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_cla_guard_metadata_routing.py
 
       - name: Validate required checks are bounded
         if: ${{ matrix.group == 'ci' }}
@@ -327,6 +370,12 @@ jobs:
       - name: Validate Release check architectures
         if: ${{ matrix.group == 'release-tooling' }}
         run: ./tests/test_ci_release_build_archs.sh
+
+      - name: Validate exact Release product reuse
+        if: ${{ matrix.group == 'release-tooling' }}
+        run: |
+          python3 tests/test_reuse_release_product.py
+          python3 tests/test_ci_release_product_reuse.py
 
       - name: Validate the R2 cache store script
         if: ${{ matrix.group == 'ci' }}
@@ -366,6 +415,12 @@ jobs:
         if: ${{ matrix.group == 'app-host-execution' }}
         run: python3 tests/test_swift_testing_suite_timeout.py
 
+      - name: Validate Swift package execution evidence
+        if: ${{ matrix.group == 'app-host-execution' }}
+        run: |
+          python3 tests/test_swift_test_execution.py
+          python3 tests/test_swift_package_execution.py
+
       - name: Validate xcodebuild noninteractive crash prompt guard
         if: ${{ matrix.group == 'app-host-execution' }}
         run: python3 tests/test_ci_xcodebuild_noninteractive_helper.py
@@ -382,7 +437,13 @@ jobs:
 
       - name: Validate focused test launcher
         if: ${{ matrix.group == 'app-host-execution' }}
-        run: python3 tests/test_run_e2e.py
+        run: |
+          python3 tests/test_run_e2e.py
+          python3 tests/test_ci_e2e_compilation_cache.py
+
+      - name: Validate manual macOS package cache recovery
+        if: ${{ matrix.group == 'app-host-execution' }}
+        run: python3 tests/test_ci_manual_macos_package_cache.py
 
       - name: Validate app-host xcodebuild retry guard
         if: ${{ matrix.group == 'app-host-execution' }}
@@ -504,6 +565,10 @@ jobs:
         if: ${{ matrix.group == 'release-ios' }}
         run: python3 tests/test_ios_upload_lean_checkout.py
 
+      - name: Validate iOS upload batching
+        if: ${{ matrix.group == 'release-ios' }}
+        run: python3 tests/test_ios_upload_batching.py
+
       - name: Validate tagged iOS device entitlement fallback
         if: ${{ matrix.group == 'release-ios' }}
         run: node --test ios/tests/tagged-device-entitlements.test.mjs
@@ -511,6 +576,10 @@ jobs:
       - name: Validate manual iOS workflow ref resolution
         if: ${{ matrix.group == 'release-ios' }}
         run: python3 tests/test_ios_workflow_dispatch_ref.py
+
+      - name: Validate iOS simulator build-once contract
+        if: ${{ matrix.group == 'release-ios' }}
+        run: python3 tests/test_ios_simulator_build_once.py
 
       - name: Validate cmux scheme test configuration
         if: ${{ matrix.group == 'app-host-cache' }}
@@ -566,6 +635,10 @@ jobs:
         if: ${{ matrix.group == 'release-notary' }}
         run: ./tests/test_ci_nightly_tag_push_auth.sh
 
+      - name: Validate nightly tag push retries
+        if: ${{ matrix.group == 'release-notary' }}
+        run: python3 tests/test_nightly_tag_push.py
+
       - name: Validate nightly Xcode selection
         if: ${{ matrix.group == 'release-notary' }}
         run: ./tests/test_ci_nightly_xcode_selection.sh
@@ -589,6 +662,12 @@ jobs:
       - name: Validate universal nightly workflow
         if: ${{ matrix.group == 'release-notary' }}
         run: bash ./tests/test_nightly_universal_build.sh
+
+      - name: Validate nightly push throttle
+        if: ${{ matrix.group == 'release-notary' }}
+        run: |
+          python3 tests/test_ci_nightly_push_throttle.py
+          python3 tests/test_ci_helper_prebuild_lifecycle.py
 
       - name: Validate test compilation cache seeding
         if: ${{ matrix.group == 'quality-sharding' }}
@@ -623,6 +702,10 @@ jobs:
         run: |
           python3 tests/test_ci_change_areas.py
           python3 tests/test_ci_linux_guard_routing.py
+
+      - name: Validate evidence collection reporting
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_evidence_outcomes.py
 
       - name: Validate reusable workflow job name lookups
         if: ${{ matrix.group == 'ci' }}

@@ -89,6 +89,40 @@ def is_other_workflow_config(path: str) -> bool:
 CI_CONTROL_PLANE_ONLY = frozenset({
     "scripts/ci/persistent_mac_route.py",
     "scripts/ci/web_validation.py",
+    # Operational helpers: janitors, census and reporting, registry validation,
+    # R2 canaries, build diagnostics. No workflow runs any of them on a macOS
+    # runner -- directly or through a wrapper script or composite action -- and
+    # none is read by the Xcode product. Their own Linux guards still route
+    # independently of the macOS area. Editing one used to buy a universal
+    # Release build.
+    #
+    # test_execution_registry.py is deliberately NOT here: run_python_test_lane.py
+    # imports it and ci-macos.yml runs that on a Mac, which is the same reason
+    # cache_restore_receipt.py and xcodebuild_noninteractive.py stay out.
+    "scripts/ci/app_host_failure_census.py",
+    "scripts/ci/build_graph_health.py",
+    "scripts/ci/cleanup-stale-runs.py",
+    "scripts/ci/cmux_workload_profile.py",
+    "scripts/ci/notify-indexnow.py",
+    "scripts/ci/queue_janitor.py",
+    "scripts/ci/r2-canary-cloudflare.py",
+    "scripts/ci/r2_cache_census.py",
+    "scripts/ci/swift_incremental_diagnostics.py",
+    "scripts/ci/triage-radar.py",
+    "scripts/ci/validate_test_execution_registry.py",
+    "scripts/ci/verify-r2-canary.py",
+    # ci-web.yml's subarea router. It keeps the web area below -- editing it
+    # selects every web subarea through the helper's own ALL_SUBAREA_INPUTS --
+    # but it never reaches a macOS build.
+    "scripts/ci/web_subareas.py",
+})
+
+# Publishing consumes finished products. These exact helpers never run in PR
+# compile/test lanes. Validate publishing through its guards/release workflows.
+CI_PUBLISHING_ONLY = frozenset({
+    "scripts/ci/download-run-artifact.py",
+    "scripts/prebuild_sparkle_deltas.sh",
+    "scripts/sparkle_generate_appcast.sh",
 })
 
 CI_MACOS_ADMISSION_CONTROL_INPUTS = frozenset({
@@ -98,6 +132,9 @@ CI_MACOS_ADMISSION_CONTROL_INPUTS = frozenset({
 
 CI_MACOS_TEST_PRODUCT_INPUTS = frozenset({
     "scripts/ci/app_host_test_products.py",
+    "scripts/ci/app_host_layer_transport.py",
+    "scripts/ci/parallel_artifact_download.py",
+    "scripts/ci/canonical-build-root.sh",
     "scripts/ci/compile-app-host-test-product.sh",
     "scripts/ci/product_input_identity.py",
     "scripts/ci/peer_product_source.py",
@@ -119,6 +156,7 @@ def forces_all_areas(path: str) -> bool:
     if (
         direct_ci_python
         and path not in CI_CONTROL_PLANE_ONLY
+        and path not in CI_PUBLISHING_ONLY
         and path not in CI_MACOS_ADMISSION_CONTROL_INPUTS
         and path not in CI_MACOS_TEST_PRODUCT_INPUTS
     ):
@@ -424,7 +462,7 @@ def is_swift_package_input(path: str) -> bool:
     every package, which is the sweep this routing exists to avoid.
     """
     select = _select_package_tests()
-    return select is not None and select.is_routed_input(path)
+    return select is not None and select.is_routed_input(path, Path(__file__).resolve().parents[2])
 
 
 def swift_package_test_selection(paths: Iterable[str]) -> tuple[str, ...]:
@@ -529,6 +567,7 @@ def is_web_change(path: str) -> bool:
         ".npmrc",
         ".github/workflows/web-validation.yml",
         "scripts/ci/web_validation.py",
+        "scripts/ci/web_subareas.py",
         "tests/test_web_validation.py",
         "scripts/build-agent-session-web.sh",
         "scripts/build-webviews-app.sh",
@@ -931,7 +970,7 @@ def is_macos_neutral(
     path: str,
     macos_ios_packages: Optional[frozenset[str]],
 ) -> bool:
-    if path in CI_CONTROL_PLANE_ONLY:
+    if path in CI_CONTROL_PLANE_ONLY or path in CI_PUBLISHING_ONLY:
         return True
     # Review configuration is not a build input. Keep this exact: unknown
     # policy files retain native coverage, and Linux guards still validate PRs.
@@ -965,6 +1004,17 @@ def is_macos_neutral(
     # executable inputs, so only Markdown outside that folder is neutral.
     if path.rsplit("/", 1)[-1] in {"CLAUDE.md", "AGENTS.md"}:
         return True
+    # Contributor-facing prose. These are read by people, never by a build:
+    # none is a bundle resource or an Xcode input. Keep this an exact list --
+    # THIRD_PARTY_LICENSES.md is also root Markdown, but it ships in
+    # Resources/ and is read by AboutLicenseContent.swift, so it stays
+    # macOS-relevant.
+    if path in {
+        "STYLE.md",
+        "CONTRIBUTING.md",
+        ".github/pull_request_template.md",
+    }:
+        return True
 
     if (
         path.startswith("Packages/iOS/")
@@ -988,6 +1038,8 @@ def is_macos_neutral(
             "web/",
             "webviews/",
             "cmux-tui/",
+            "cmux-browser/",
+            "daemon/remote/",
         )
     ):
         return True
@@ -1033,7 +1085,53 @@ def is_release_build_neutral(path: str) -> bool:
     return is_test_only_source(path) or path in RELEASE_BUILD_NEUTRAL_INPUTS
 
 
-def classify_files(paths: Iterable[str], *, ci_workflow_linux_only: bool = False) -> ChangeAreas:
+def test_registry_change_is_linux_only(base: str, head: str) -> bool:
+    """Ignore only Linux registrations; native execution entries must match."""
+    try:
+        import tomllib
+
+        def native_entries(text: str) -> list[dict]:
+            registry = tomllib.loads(text)
+            if set(registry) != {"version", "test"} or registry["version"] != 1:
+                raise ValueError("unknown registry schema")
+            entries = registry["test"]
+            if not isinstance(entries, list) or not entries:
+                raise ValueError("missing test entries")
+            seen = set()
+            native = []
+            for entry in entries:
+                if not isinstance(entry, dict) or set(entry) - {"path", "lane", "requirements", "reason"}:
+                    raise ValueError("unknown test entry")
+                path, lane = entry.get("path"), entry.get("lane")
+                if not isinstance(path, str) or not isinstance(lane, str) or path in seen:
+                    raise ValueError("missing or duplicate test identity")
+                seen.add(path)
+                if lane != "linux-guard":
+                    native.append(entry)
+                elif entry.get("requirements"):
+                    raise ValueError("guard entry with runtime requirements")
+            return native
+
+        return native_entries(base) == native_entries(head)
+    except (ImportError, ValueError, TypeError, KeyError):
+        return False
+
+
+def test_registry_linux_only(base_path: Optional[Path]) -> bool:
+    if base_path is None:
+        return False
+    root = Path(os.environ.get("CMUX_CI_HEAD_TEST_REFERENCE_ROOT") or Path.cwd())
+    try:
+        return test_registry_change_is_linux_only(
+            base_path.read_text(encoding="utf-8"),
+            (root / "tests/test-execution.toml").read_text(encoding="utf-8"),
+        )
+    except OSError:
+        return False
+
+
+def classify_files(paths: Iterable[str], *, ci_workflow_linux_only: bool = False,
+                   test_registry_linux_only: bool = False) -> ChangeAreas:
     macos = False
     web = False
     agent_session_web = False
@@ -1049,6 +1147,18 @@ def classify_files(paths: Iterable[str], *, ci_workflow_linux_only: bool = False
     for raw_path in paths:
         path = normalize_path(raw_path)
         if not path:
+            continue
+        if path in {"Resources/bin/cmux-claude-wrapper", "tests/test_claude_wrapper_hooks.py"}:
+            # The independent macos-claude-wrapper lane executes the wrapper
+            # with fake clients and a Unix socket; it does not need app bytes.
+            continue
+        if path == "tests/test-execution.toml":
+            # The guard workflow references this registry too, but native
+            # Python lanes consume it indirectly through their lane runner.
+            # A Linux reference alone cannot prove native execution unchanged.
+            if not test_registry_linux_only:
+                macos = True
+                release_build = True
             continue
         if is_cli_change(path, cli_inputs, macos_ios_packages):
             cli = True
@@ -1163,6 +1273,11 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         help="The base revision of ci.yml, to compare its jobs with the checked-out one.",
     )
     parser.add_argument(
+        "--test-registry-base",
+        type=Path,
+        help="Base test registry; Linux-only entry changes do not select native CI.",
+    )
+    parser.add_argument(
         "--files-from",
         type=Path,
         help="Read changed files from this newline-delimited file instead of git.",
@@ -1189,7 +1304,11 @@ def main(argv: list[str]) -> int:
                 raise RuntimeError("pull_request event is missing base/head SHA")
             files = changed_files(args.base_sha, args.head_sha)
         if files:
-            areas = classify_files(files, ci_workflow_linux_only=ci_workflow_linux_only(args.ci_workflow_base))
+            areas = classify_files(
+                files,
+                ci_workflow_linux_only=ci_workflow_linux_only(args.ci_workflow_base),
+                test_registry_linux_only=test_registry_linux_only(args.test_registry_base),
+            )
         else:
             areas = ChangeAreas.all()
             print("PR diff is empty; running all CI areas.")

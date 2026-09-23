@@ -249,8 +249,8 @@ class ReuseProducts(TestProductHandoff):
         )
 
         changed_recipe = mutate_admission(
-            "scripts/ci/compile-app-host-test-product.sh build \\",
-            "scripts/ci/compile-app-host-test-product.sh build --changed \\",
+            "scripts/ci/compile-app-host-test-product.sh canonical-build \\",
+            "scripts/ci/compile-app-host-test-product.sh canonical-build --changed \\",
         )
         self.assertNotEqual(
             base_identity,
@@ -273,6 +273,8 @@ class ReuseProducts(TestProductHandoff):
             "config/iroh/managed-relay-catalog.json",
             "vercel.json",
             ".vercelignore",
+            "cmux-browser/src/main.ts",
+            "daemon/remote/cmd/cmuxd-remote/cli.go",
         ):
             self.assertFalse(identity.reaches_product(path), path)
         self.assertTrue(identity.reaches_product("config/IrohRelayPolicyProduction.xcconfig"))
