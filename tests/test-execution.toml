@@ -355,6 +355,10 @@ path = "tests/test_ci_guard_workflow_structure.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_evidence_outcomes.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_health_report.py"
 lane = "linux-guard"
 
