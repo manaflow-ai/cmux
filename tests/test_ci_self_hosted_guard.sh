@@ -1304,6 +1304,110 @@ check_persistent_compile_lane() {
   echo "PASS: persistent compile producer is dispatch-only, credential-minimized, pinned, and cohort-gated"
 }
 
+# Print a job's CMUX_CI_XCODE_APP / CMUX_CI_REQUIRED_MACOS_SDK_MAJOR pins, so the
+# owned Mac and the hosted job that revalidates its product can be compared.
+persistent_compile_toolchain_pin() {
+  local file="$1" job="$2"
+  awk -v want="  ${job}:" '
+    $0 == want { in_job=1; next }
+    in_job && /^  [A-Za-z0-9_-]+:/ { exit }
+    in_job && /^    env:$/ { in_env=1; next }
+    in_env && /^    [A-Za-z0-9_-]+:/ { exit }
+    in_env && /^      (CMUX_CI_XCODE_APP|CMUX_CI_REQUIRED_MACOS_SDK_MAJOR):/ {
+      line=$0
+      sub(/^      /, "", line)
+      print line
+    }
+  ' "$file" | sort
+}
+
+check_persistent_compile_owned_mac_occupancy() {
+  # The owned Mac is one runner behind one workflow-restricted group, so its
+  # capacity is bounded by how long a single job may hold it. Three invariants
+  # keep that bound real; none of them is enforced anywhere else.
+  local concurrency_block group_line
+  concurrency_block="$(awk '
+    /^concurrency:/ { in_block=1; next }
+    in_block && /^[^[:space:]#]/ { exit }
+    in_block && NF { print }
+  ' "$PERSISTENT_COMPILE_FILE")"
+  if [ -z "$concurrency_block" ]; then
+    echo "FAIL: persistent compile producer must declare a top-level concurrency group"
+    echo "      Without one, every push to a pull request queues another owned-Mac run."
+    exit 1
+  fi
+
+  # 1. One in-flight producer per pull request. Keyed on anything coarser and
+  #    two PRs serialize behind each other; keyed on anything finer (the run id,
+  #    the head sha) and a six-push burst parks six compiles on one machine,
+  #    each of which the hosted job has already given up waiting for.
+  group_line="$(printf '%s\n' "$concurrency_block" | awk '/^[[:space:]]+group:/ { print; exit }')"
+  if ! printf '%s\n' "$group_line" | grep -Fq 'inputs.pr_number'; then
+    echo "FAIL: persistent compile producer concurrency group must be keyed on inputs.pr_number"
+    printf 'group=%s\n' "$group_line"
+    exit 1
+  fi
+  if ! printf '%s\n' "$concurrency_block" | grep -Eq '^[[:space:]]+cancel-in-progress:[[:space:]]*true[[:space:]]*$'; then
+    echo "FAIL: persistent compile producer must cancel a superseded run for the same pull request"
+    echo "      A stale compile holds the owned Mac while the hosted job it was for has already fallen back."
+    exit 1
+  fi
+
+  # 2. A bounded compile. The workflow default is 360 minutes; a wedged
+  #    xcodebuild would hold the only owned runner for six hours, during which
+  #    every routed PR reports producer_not_ready and compiles hosted anyway.
+  local timeout
+  timeout="$(awk '
+    /^  compile:$/ { in_job=1; next }
+    in_job && /^  [A-Za-z0-9_-]+:/ { exit }
+    in_job && /^    timeout-minutes:[[:space:]]*[0-9]+[[:space:]]*$/ {
+      line=$0
+      sub(/^[^0-9]*/, "", line)
+      sub(/[^0-9]*$/, "", line)
+      print line
+      exit
+    }
+  ' "$PERSISTENT_COMPILE_FILE")"
+  if [ -z "$timeout" ]; then
+    echo "FAIL: persistent compile producer's compile job must set an explicit timeout-minutes"
+    exit 1
+  fi
+  # The hosted observer gives up after CI_PERSISTENT_MAC_EXECUTION_SECONDS
+  # (480s default, 600s ceiling); a producer allowed to run far past that only
+  # occupies the machine. 45 leaves headroom for a cold-reset compile.
+  if [ "$timeout" -lt 1 ] || [ "$timeout" -gt 45 ]; then
+    echo "FAIL: persistent compile timeout-minutes must be between 1 and 45, got $timeout"
+    echo "      An unbounded compile holds the single owned runner long after the hosted job stopped waiting."
+    exit 1
+  fi
+
+  # 3. The producer builds with the same toolchain the hosted job revalidates
+  #    against. Drift is not a correctness hole -- hosted revalidation refuses
+  #    an Xcode/SDK mismatch -- but every producer run then burns an owned-Mac
+  #    allocation to produce an artifact that is certain to be rejected.
+  local producer_pin hosted_pin
+  producer_pin="$(persistent_compile_toolchain_pin "$PERSISTENT_COMPILE_FILE" compile)"
+  hosted_pin="$(persistent_compile_toolchain_pin "$CI_MACOS_FILE" macos-compile-admission)"
+  if [ "$(printf '%s\n' "$producer_pin" | grep -c .)" -ne 2 ]; then
+    echo "FAIL: could not read both toolchain pins from the persistent compile producer"
+    printf 'producer=%s\n' "$producer_pin"
+    exit 1
+  fi
+  if [ "$(printf '%s\n' "$hosted_pin" | grep -c .)" -ne 2 ]; then
+    echo "FAIL: could not read both toolchain pins from macos-compile-admission"
+    printf 'hosted=%s\n' "$hosted_pin"
+    exit 1
+  fi
+  if [ "$producer_pin" != "$hosted_pin" ]; then
+    echo "FAIL: owned-Mac producer and hosted macOS compile admission pin different toolchains."
+    echo "      Hosted revalidation rejects the mismatch, so every producer run is wasted owned-Mac time."
+    printf 'producer:\n%s\nhosted:\n%s\n' "$producer_pin" "$hosted_pin"
+    exit 1
+  fi
+
+  echo "PASS: owned-Mac occupancy is bounded to one timed compile per pull request on the hosted toolchain"
+}
+
 check_persistent_compile_router() {
   if [ ! -f "$PERSISTENT_ROUTER_FILE" ]; then
     echo "FAIL: default-branch persistent Mac router workflow is missing"
@@ -1449,6 +1553,7 @@ check_cla_guard_runner
 check_no_bare_github_hosted_runners
 check_no_self_hosted_fleet_runners
 check_persistent_compile_lane
+check_persistent_compile_owned_mac_occupancy
 check_persistent_compile_router
 check_macos_runner "$CI_MACOS_FILE" "app-host-unit-tests"
 check_macos_runner "$CI_MACOS_FILE" "macos-compile-admission"
@@ -1633,6 +1738,73 @@ CASES
   echo "PASS: pull request workflows with macOS jobs cancel superseded runs"
 }
 
+check_macos_runner_identity_env_tracks_routing() {
+  # A macOS job picks its pool in `runs-on`, and some jobs then restate that
+  # pool in an env value: `CMUX_PRODUCT_RUNNER` becomes a field of the compiled
+  # product contract, and `REQUESTED_RUNNER` is what the Depot identity guard
+  # validates. Those restatements are only meaningful when they name the pool
+  # the job is actually on. `runs-on` sends pull requests to MACOS_RUNNER_PR
+  # and every other event to the lane variable, so an env value that reads only
+  # the lane variable is wrong on every pull request: the product contract
+  # stamps a pool the build never ran on, which lets two pools with different
+  # workspace layouts share one contract key, and the identity guard validates
+  # a runner the job is not on.
+  #
+  # Require every MACOS_RUNNER-bearing env value in ci-macos.yml to be the same
+  # expression as its own job's `runs-on`, so a future routing change cannot
+  # move a job without moving what that job reports about itself.
+  # Parse YAML so mapping order, quoting, and folded scalars cannot hide an
+  # identity value. A parser failure aborts under set -e rather than passing.
+  local mismatches
+  mismatches="$(python3 - "$CI_MACOS_FILE" <<'PYTHON'
+import sys
+from pathlib import Path
+import yaml
+
+
+def mismatched_identities(document):
+    for job_id, job in document.get("jobs", {}).items():
+        runs_on = job.get("runs-on")
+        scopes = [("job", job)]
+        scopes.extend((f"step {index}", step) for index, step in enumerate(job.get("steps", [])))
+        for scope, owner in scopes:
+            for key, value in (owner.get("env") or {}).items():
+                if isinstance(value, str) and "vars.MACOS_RUNNER" in value and value != runs_on:
+                    yield f"{job_id}/{scope}: {key}\n  env value {value}\n  runs-on   {runs_on}"
+
+
+# Exercise forms the line-based guard missed: env before runs-on, quoted keys
+# containing digits, folded scalars, and both job-level and step-level env.
+fixture = yaml.safe_load("""
+jobs:
+  example:
+    env:
+      'RUNNER2': >-
+        ${{ vars.MACOS_RUNNER }}
+    steps:
+      - env:
+          'STEP_RUNNER2': '${{ vars.MACOS_RUNNER }}'
+    runs-on: >-
+      ${{ vars.MACOS_RUNNER }}
+""")
+assert not list(mismatched_identities(fixture))
+fixture["jobs"]["example"]["runs-on"] = "${{ vars.MACOS_RUNNER_PR }}"
+assert len(list(mismatched_identities(fixture))) == 2
+fixture["jobs"]["example"].pop("runs-on")
+assert len(list(mismatched_identities(fixture))) == 2
+
+print("\n".join(mismatched_identities(yaml.safe_load(Path(sys.argv[1]).read_text()))))
+PYTHON
+)"
+  if [ -n "$mismatches" ]; then
+    echo "FAIL: a macOS runner env value in ci-macos.yml does not match its job's runs-on,"
+    echo "      so it names the wrong pool on pull requests (see docs/ci-runners.md)"
+    echo "$mismatches"
+    exit 1
+  fi
+  echo "PASS: every macOS runner env value in ci-macos.yml matches its job's runs-on"
+}
+
 check_no_paid_overflow_fallbacks() {
   # Repository variables are not exposed to pull requests from forks, so the
   # `vars.X || 'label'` fallback is where every fork pull request runs. Warp is
@@ -1774,4 +1946,5 @@ check_tmux_terminal_nightly_isolation
 check_pr_macos_workflows_cancel_superseded_runs
 check_ios_only_tests_stay_under_ios
 check_no_paid_overflow_fallbacks
+check_macos_runner_identity_env_tracks_routing
 check_background_macos_lane

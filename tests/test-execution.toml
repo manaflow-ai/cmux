@@ -339,6 +339,10 @@ path = "tests/test_ci_checkout_network_diagnostics.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_console_session_env_forwarding.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_cmux_unit_test_shard.py"
 lane = "linux-guard"
 
@@ -348,6 +352,14 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_guard_workflow_structure.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_reusable_job_name_lookups.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_health_report.py"
 lane = "linux-guard"
 
 [[test]]
@@ -384,6 +396,14 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_queue_janitor.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_repo_variable_defaults.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_required_checks_drift.py"
 lane = "linux-guard"
 
 [[test]]
@@ -472,6 +492,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ios_testflight_pro_distribution.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ios_upload_lean_checkout.py"
 lane = "linux-guard"
 
 [[test]]
@@ -611,7 +635,15 @@ path = "tests/test_ci_release_helper_archs.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_required_checks_are_bounded.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_selective_layer_wiring.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_workflow_path_filter_parity.py"
 lane = "linux-guard"
 
 [[test]]
@@ -835,6 +867,10 @@ path = "tests/test_opencode_plugin_install.py"
 lane = "legacy"
 
 [[test]]
+path = "tests/test_pairing_scheme_is_explicit_in_tests.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_plain_text_paste_worker.py"
 lane = "legacy"
 
@@ -945,3 +981,7 @@ lane = "linux-guard"
 [[test]]
 path = "tests/test_workspace_churn_up_arrow_lag.py"
 lane = "legacy"
+
+[[test]]
+path = "tests/test_ci_canonical_build_root.py"
+lane = "linux-guard"

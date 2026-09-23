@@ -1,4 +1,4 @@
-import Foundation
+public import Foundation
 
 /// Intercepts OSC desktop-notification escapes in a mirrored pane's output
 /// stream (issue #833).
@@ -27,7 +27,7 @@ import Foundation
 /// through unbuffered. An unfinished candidate that exceeds
 /// ``maxBufferedBytes`` is flushed verbatim too, so a hostile or corrupt
 /// stream can never pin memory or swallow output.
-struct RemoteTmuxNotificationOSCFilter {
+public struct RemoteTmuxNotificationOSCFilter {
     private enum State {
         case text        // normal passthrough
         case esc         // saw ESC, holding it until we know if it's `ESC ]`
@@ -39,7 +39,7 @@ struct RemoteTmuxNotificationOSCFilter {
 
     /// Ceiling on bytes buffered for an unfinished candidate sequence. An
     /// overflowing sequence is passed through verbatim instead of stripped.
-    static let maxBufferedBytes = 4096
+    public static let maxBufferedBytes = 4096
 
     private static let notifyPrefix = Array("777;notify;".utf8)
     private static let osc9Prefix = Array("9;".utf8)
@@ -53,12 +53,12 @@ struct RemoteTmuxNotificationOSCFilter {
     private var payload: [UInt8] = []
 
     /// Creates a filter with no buffered escape-sequence state.
-    init() {}
+    public init() {}
 
     /// Returns `data` with any complete notification sequences removed,
     /// invoking `onNotification(title, body)` once per hit in stream order.
     /// OSC 9 hits report an empty title.
-    mutating func filter(
+    public mutating func filter(
         _ data: Data,
         onNotification: (_ title: String, _ body: String) -> Void
     ) -> Data {
