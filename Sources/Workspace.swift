@@ -6209,6 +6209,17 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         panelId: UUID,
         agentSessionEnded: Bool = false
     ) -> Bool {
+        // Claude can emit SessionEnd while switching conversations inside the
+        // same process (`/resume` and `/clear`).  The hook for the replacement
+        // session follows immediately; keep the live process's binding so the
+        // replacement SessionStart can refresh it without losing auto-resume.
+        if agentSessionEnded,
+           Self.shouldPreserveLiveClaudeBindingAfterSessionEnd(
+               surfaceResumeBindingsByPanelId[panelId],
+               hasLiveProcess: agentHookBindingHasLiveProcess(panelId: panelId)
+           ) {
+            return false
+        }
         let removedBinding = surfaceResumeBindingsByPanelId.removeValue(forKey: panelId)
         surfaceResumeRestoreClaimsByPanelId.removeValue(forKey: panelId)
         if let removedBinding,
@@ -6235,6 +6246,15 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         observedPlainSSHPanelIds.remove(panelId)
         plainSSHDetectionMissesByPanelId.removeValue(forKey: panelId)
         return removedBinding != nil
+    }
+
+    static func shouldPreserveLiveClaudeBindingAfterSessionEnd(
+        _ binding: SurfaceResumeBindingSnapshot?,
+        hasLiveProcess: Bool
+    ) -> Bool {
+        binding?.isAgentHookBinding == true &&
+            binding?.kind == RestorableAgentKind.claude.rawValue &&
+            hasLiveProcess
     }
 
     func surfaceResumeBinding(panelId: UUID) -> SurfaceResumeBindingSnapshot? {
