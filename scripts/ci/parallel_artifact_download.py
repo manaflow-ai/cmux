@@ -19,6 +19,7 @@ from __future__ import annotations
 import concurrent.futures
 import hashlib
 import json
+import lzma
 import os
 import re
 import stat
@@ -29,6 +30,7 @@ import time
 import urllib.error
 import urllib.request
 import zipfile
+import zlib
 from pathlib import Path
 from urllib.parse import urlsplit
 
@@ -289,7 +291,8 @@ def main() -> int:
             destination,
         )
     except (TransportError, OSError, ValueError, TypeError, urllib.error.URLError,
-            zipfile.BadZipFile, concurrent.futures.CancelledError) as error:
+            zipfile.BadZipFile, EOFError, zlib.error, lzma.LZMAError,
+            NotImplementedError, concurrent.futures.CancelledError) as error:
         print(f"::warning::Parallel artifact download missed ({type(error).__name__}: {error}); "
               "using actions/download-artifact.")
         return 0
