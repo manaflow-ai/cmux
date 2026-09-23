@@ -1,10 +1,15 @@
 {
   "compilerOptions": {
     "target": "ES2022",
-    "lib": ["ES2022"],
+    "lib": [
+      "ES2022"
+    ],
     "module": "ESNext",
     "moduleResolution": "bundler",
-    "types": ["@cloudflare/workers-types/experimental"],
+    "types": [
+      "@cloudflare/workers-types/experimental",
+      "node"
+    ],
     "strict": true,
     "noUncheckedIndexedAccess": true,
     "noFallthroughCasesInSwitch": true,
@@ -14,5 +19,7 @@
     "isolatedModules": true,
     "verbatimModuleSyntax": true
   },
-  "include": ["src/**/*.ts"]
+  "include": [
+    "src/**/*.ts"
+  ]
 }

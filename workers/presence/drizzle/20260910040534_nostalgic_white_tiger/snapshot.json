@@ -1,0 +1,606 @@
+{
+  "version": "7",
+  "dialect": "sqlite",
+  "id": "c01ef247-b00e-44e1-bb35-868cdd3725ec",
+  "prevIds": [
+    "850be65c-2ad5-4d68-a062-cb5023e85bdf"
+  ],
+  "ddl": [
+    {
+      "name": "account_bindings",
+      "entityType": "tables"
+    },
+    {
+      "name": "account_challenges",
+      "entityType": "tables"
+    },
+    {
+      "name": "account_meta",
+      "entityType": "tables"
+    },
+    {
+      "name": "account_pair_grants",
+      "entityType": "tables"
+    },
+    {
+      "name": "account_preferences",
+      "entityType": "tables"
+    },
+    {
+      "name": "account_relay_issuances",
+      "entityType": "tables"
+    },
+    {
+      "name": "account_storage_usage",
+      "entityType": "tables"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "binding_id",
+      "entityType": "columns",
+      "table": "account_bindings"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "endpoint_id",
+      "entityType": "columns",
+      "table": "account_bindings"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "device_id",
+      "entityType": "columns",
+      "table": "account_bindings"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "client_namespace",
+      "entityType": "columns",
+      "table": "account_bindings"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "platform",
+      "entityType": "columns",
+      "table": "account_bindings"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "payload",
+      "entityType": "columns",
+      "table": "account_bindings"
+    },
+    {
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "payload_bytes",
+      "entityType": "columns",
+      "table": "account_bindings"
+    },
+    {
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "last_seen_at",
+      "entityType": "columns",
+      "table": "account_bindings"
+    },
+    {
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "registered_at",
+      "entityType": "columns",
+      "table": "account_bindings"
+    },
+    {
+      "type": "integer",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "revoked_at",
+      "entityType": "columns",
+      "table": "account_bindings"
+    },
+    {
+      "type": "integer",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "tombstone_expires_at",
+      "entityType": "columns",
+      "table": "account_bindings"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "challenge_id",
+      "entityType": "columns",
+      "table": "account_challenges"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "payload",
+      "entityType": "columns",
+      "table": "account_challenges"
+    },
+    {
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "payload_bytes",
+      "entityType": "columns",
+      "table": "account_challenges"
+    },
+    {
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "expires_at",
+      "entityType": "columns",
+      "table": "account_challenges"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "key",
+      "entityType": "columns",
+      "table": "account_meta"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "value",
+      "entityType": "columns",
+      "table": "account_meta"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "grant_id",
+      "entityType": "columns",
+      "table": "account_pair_grants"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "payload",
+      "entityType": "columns",
+      "table": "account_pair_grants"
+    },
+    {
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "payload_bytes",
+      "entityType": "columns",
+      "table": "account_pair_grants"
+    },
+    {
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "expires_at",
+      "entityType": "columns",
+      "table": "account_pair_grants"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "preference_key",
+      "entityType": "columns",
+      "table": "account_preferences"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "payload",
+      "entityType": "columns",
+      "table": "account_preferences"
+    },
+    {
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "payload_bytes",
+      "entityType": "columns",
+      "table": "account_preferences"
+    },
+    {
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "updated_at",
+      "entityType": "columns",
+      "table": "account_preferences"
+    },
+    {
+      "type": "text",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "issuance_id",
+      "entityType": "columns",
+      "table": "account_relay_issuances"
+    },
+    {
+      "type": "text",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "payload",
+      "entityType": "columns",
+      "table": "account_relay_issuances"
+    },
+    {
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "payload_bytes",
+      "entityType": "columns",
+      "table": "account_relay_issuances"
+    },
+    {
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "expires_at",
+      "entityType": "columns",
+      "table": "account_relay_issuances"
+    },
+    {
+      "type": "integer",
+      "notNull": false,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "id",
+      "entityType": "columns",
+      "table": "account_storage_usage"
+    },
+    {
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "payload_bytes",
+      "entityType": "columns",
+      "table": "account_storage_usage"
+    },
+    {
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "records",
+      "entityType": "columns",
+      "table": "account_storage_usage"
+    },
+    {
+      "type": "integer",
+      "notNull": true,
+      "autoincrement": false,
+      "default": null,
+      "generated": null,
+      "name": "live_bindings",
+      "entityType": "columns",
+      "table": "account_storage_usage"
+    },
+    {
+      "columns": [
+        "binding_id"
+      ],
+      "nameExplicit": false,
+      "name": "account_bindings_pk",
+      "table": "account_bindings",
+      "entityType": "pks"
+    },
+    {
+      "columns": [
+        "challenge_id"
+      ],
+      "nameExplicit": false,
+      "name": "account_challenges_pk",
+      "table": "account_challenges",
+      "entityType": "pks"
+    },
+    {
+      "columns": [
+        "key"
+      ],
+      "nameExplicit": false,
+      "name": "account_meta_pk",
+      "table": "account_meta",
+      "entityType": "pks"
+    },
+    {
+      "columns": [
+        "grant_id"
+      ],
+      "nameExplicit": false,
+      "name": "account_pair_grants_pk",
+      "table": "account_pair_grants",
+      "entityType": "pks"
+    },
+    {
+      "columns": [
+        "preference_key"
+      ],
+      "nameExplicit": false,
+      "name": "account_preferences_pk",
+      "table": "account_preferences",
+      "entityType": "pks"
+    },
+    {
+      "columns": [
+        "issuance_id"
+      ],
+      "nameExplicit": false,
+      "name": "account_relay_issuances_pk",
+      "table": "account_relay_issuances",
+      "entityType": "pks"
+    },
+    {
+      "columns": [
+        "id"
+      ],
+      "nameExplicit": false,
+      "name": "account_storage_usage_pk",
+      "table": "account_storage_usage",
+      "entityType": "pks"
+    },
+    {
+      "columns": [
+        {
+          "value": "endpoint_id",
+          "isExpression": false
+        }
+      ],
+      "isUnique": true,
+      "where": "\"account_bindings\".\"revoked_at\" is null",
+      "origin": "manual",
+      "name": "account_bindings_endpoint_live",
+      "entityType": "indexes",
+      "table": "account_bindings"
+    },
+    {
+      "columns": [
+        {
+          "value": "last_seen_at",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": "\"account_bindings\".\"revoked_at\" is null",
+      "origin": "manual",
+      "name": "account_bindings_live_expiry",
+      "entityType": "indexes",
+      "table": "account_bindings"
+    },
+    {
+      "columns": [
+        {
+          "value": "tombstone_expires_at",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": "\"account_bindings\".\"revoked_at\" is not null",
+      "origin": "manual",
+      "name": "account_bindings_revoked_expiry",
+      "entityType": "indexes",
+      "table": "account_bindings"
+    },
+    {
+      "columns": [
+        {
+          "value": "expires_at",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "account_challenges_expiry",
+      "entityType": "indexes",
+      "table": "account_challenges"
+    },
+    {
+      "columns": [
+        {
+          "value": "expires_at",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "account_pair_grants_expiry",
+      "entityType": "indexes",
+      "table": "account_pair_grants"
+    },
+    {
+      "columns": [
+        {
+          "value": "expires_at",
+          "isExpression": false
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "origin": "manual",
+      "name": "account_relay_issuances_expiry",
+      "entityType": "indexes",
+      "table": "account_relay_issuances"
+    },
+    {
+      "value": "length(\"endpoint_id\") = 64",
+      "name": "account_bindings_endpoint_check",
+      "entityType": "checks",
+      "table": "account_bindings"
+    },
+    {
+      "value": "\"platform\" in ('mac', 'ios')",
+      "name": "account_bindings_platform_check",
+      "entityType": "checks",
+      "table": "account_bindings"
+    },
+    {
+      "value": "\"payload_bytes\" = length(cast(\"payload\" as blob)) and \"payload_bytes\" between 0 and 65536",
+      "name": "account_bindings_payload_size_check",
+      "entityType": "checks",
+      "table": "account_bindings"
+    },
+    {
+      "value": "(\n      (\"revoked_at\" is null and \"tombstone_expires_at\" is null) or\n      (\"revoked_at\" is not null and \"tombstone_expires_at\" is not null and\n       \"tombstone_expires_at\" >= \"revoked_at\" + 2592000000)\n    )",
+      "name": "account_bindings_revocation_check",
+      "entityType": "checks",
+      "table": "account_bindings"
+    },
+    {
+      "value": "\"payload_bytes\" = length(cast(\"payload\" as blob)) and \"payload_bytes\" between 0 and 65536",
+      "name": "account_challenges_payload_size_check",
+      "entityType": "checks",
+      "table": "account_challenges"
+    },
+    {
+      "value": "\"key\" in ('route_revision', 'lan_generation', 'revocation_epoch')",
+      "name": "account_meta_key_check",
+      "entityType": "checks",
+      "table": "account_meta"
+    },
+    {
+      "value": "length(\"value\") <= 128",
+      "name": "account_meta_value_check",
+      "entityType": "checks",
+      "table": "account_meta"
+    },
+    {
+      "value": "\"payload_bytes\" = length(cast(\"payload\" as blob)) and \"payload_bytes\" between 0 and 65536",
+      "name": "account_pair_grants_payload_size_check",
+      "entityType": "checks",
+      "table": "account_pair_grants"
+    },
+    {
+      "value": "\"preference_key\" = 'relay'",
+      "name": "account_preferences_key_check",
+      "entityType": "checks",
+      "table": "account_preferences"
+    },
+    {
+      "value": "\"payload_bytes\" = length(cast(\"payload\" as blob)) and \"payload_bytes\" between 0 and 65536",
+      "name": "account_preferences_payload_size_check",
+      "entityType": "checks",
+      "table": "account_preferences"
+    },
+    {
+      "value": "\"payload_bytes\" = length(cast(\"payload\" as blob)) and \"payload_bytes\" between 0 and 65536",
+      "name": "account_relay_issuances_payload_size_check",
+      "entityType": "checks",
+      "table": "account_relay_issuances"
+    },
+    {
+      "value": "\"id\" = 1",
+      "name": "account_storage_usage_id_check",
+      "entityType": "checks",
+      "table": "account_storage_usage"
+    },
+    {
+      "value": "\"payload_bytes\" between 0 and 8388608",
+      "name": "account_storage_usage_payload_check",
+      "entityType": "checks",
+      "table": "account_storage_usage"
+    },
+    {
+      "value": "\"records\" between 0 and 4096",
+      "name": "account_storage_usage_records_check",
+      "entityType": "checks",
+      "table": "account_storage_usage"
+    },
+    {
+      "value": "\"live_bindings\" between 0 and 32",
+      "name": "account_storage_usage_bindings_check",
+      "entityType": "checks",
+      "table": "account_storage_usage"
+    }
+  ],
+  "renames": []
+}
