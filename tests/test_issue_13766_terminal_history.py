@@ -84,5 +84,23 @@ class TerminalHistoryTests(unittest.TestCase):
                 self.assertEqual(global_history.read_text(), 'echo OTHER_TERMINAL\n')
 
 
+    def test_explicit_history_opt_out(self):
+        for shell in ('/bin/zsh', '/bin/bash'):
+            for opt_out in ('unset HISTFILE', 'HISTFILE=', 'HISTFILE=/dev/null'):
+                with self.subTest(shell=shell, opt_out=opt_out), tempfile.TemporaryDirectory(prefix='cmux13766-private-') as temp:
+                    directory = Path(temp)
+                    name = Path(shell).name
+                    integration = ROOT / 'Resources/shell-integration' / (
+                        'cmux-zsh-integration.zsh' if name == 'zsh' else 'cmux-bash-integration.bash'
+                    )
+                    startup = directory / ('.zshrc' if name == 'zsh' else 'bashrc')
+                    startup.write_text(
+                        f'HISTSIZE=2000\nSAVEHIST=2000\n{opt_out}\n'
+                        f'PS1="PROBE> "\nsource "{integration}"\n'
+                    )
+                    self.run_shell(shell, directory, 'private', [b'echo PRIVATE_13766\n'])
+                    self.assertFalse((directory / 'private').exists())
+
+
 if __name__ == '__main__':
     unittest.main()
