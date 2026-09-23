@@ -31,8 +31,8 @@ fi
 for pair in "admission:$ADMISSION" "seeder:$SEEDER"; do
   name="${pair%%:*}"
   body="${pair#*:}"
-  if ! grep -Fq 'scripts/ci/compile-app-host-test-product.sh build' <<<"$body" \
-    || ! grep -Fq 'scripts/ci/compile-app-host-test-product.sh fingerprint' <<<"$body"; then
+  if ! grep -Fq 'scripts/ci/compile-app-host-test-product.sh canonical-build' <<<"$body" \
+    || ! grep -Fq 'scripts/ci/compile-app-host-test-product.sh canonical-fingerprint' <<<"$body"; then
     echo "FAIL: the $name job must build and fingerprint through scripts/ci/compile-app-host-test-product.sh"
     exit 1
   fi
@@ -43,33 +43,13 @@ for pair in "admission:$ADMISSION" "seeder:$SEEDER"; do
 done
 echo "PASS: admission and the seeder build the app-host test product through one script"
 
-# The fingerprint hashes the workspace path, and runner pools lay the workspace
-# out differently, so a seed built on one pool can never be restored on another.
-# The seed existed but was unreachable while the seeder ran on
-# vars.MACOS_RUNNER_15 and pull request admission ran on MACOS_RUNNER_PR: every
-# pull request missed the cache and compiled cold.
-PR_RUNNER="vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15'"
-admission_runs_on="$(grep -E '^    runs-on:' <<<"$ADMISSION" | head -1)"
-seeder_runs_on="$(grep -E '^    runs-on:' <<<"$SEEDER" | head -1)"
-if ! grep -Fq -- "$PR_RUNNER" <<<"$admission_runs_on"; then
-  echo "FAIL: macos-compile-admission must select its pull request runner as $PR_RUNNER"
-  echo "  got: $admission_runs_on"
-  exit 1
-fi
-if [ "$(tr -d '[:space:]' <<<"$seeder_runs_on")" != "$(tr -d '[:space:]' <<<"runs-on: \${{ $PR_RUNNER }}")" ]; then
-  echo "FAIL: refresh-test-compilation-cache must run on the same runner pull request admission uses,"
-  echo "      or the seed it writes can never be restored."
-  echo "  admission: $admission_runs_on"
-  echo "  seeder:    $seeder_runs_on"
-  exit 1
-fi
-echo "PASS: the seeder runs on the runner pull request admission restores from"
+# Pools may differ: the executable canonical recipe test checks absolute paths.
 
 # The build paths are part of every cache entry, so both jobs must use the
 # same ones.
 for line in \
-  'CMUX_COMPILE_ADMISSION_DERIVED_DATA=$RUNNER_TEMP/cmux-derived-data-compile-admission' \
-  'CMUX_COMPILE_ADMISSION_CAS=$RUNNER_TEMP/cmux-compile-admission-cas'; do
+  'CMUX_COMPILE_ADMISSION_DERIVED_DATA=${CMUX_CI_CANONICAL_ROOT:-/private/tmp/cmux-ci}/derived-data-compile-admission' \
+  'CMUX_COMPILE_ADMISSION_CAS=${CMUX_CI_CANONICAL_ROOT:-/private/tmp/cmux-ci}/compile-admission-cas'; do
   if ! grep -Fq "$line" <<<"$ADMISSION" || ! grep -Fq "$line" <<<"$SEEDER"; then
     echo "FAIL: admission and the seeder must both set $line"
     exit 1
@@ -271,7 +251,7 @@ if STUB_RESOLVE_ARTIFACTS_FROM=9 run_script resolve "$TMP_DIR/derived" "$TMP_DIR
   exit 1
 fi
 for name_and_body in "macos-compile-admission:$ADMISSION" "refresh-test-compilation-cache:$SEEDER"; do
-  if ! grep -Fq 'scripts/ci/compile-app-host-test-product.sh resolve' <<<"${name_and_body#*:}"; then
+  if ! grep -Fq 'scripts/ci/compile-app-host-test-product.sh canonical-resolve' <<<"${name_and_body#*:}"; then
     echo "FAIL: the ${name_and_body%%:*} job must resolve packages through scripts/ci/compile-app-host-test-product.sh"
     exit 1
   fi

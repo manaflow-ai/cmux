@@ -124,7 +124,6 @@ struct ControlClientAsyncTransportTests {
             maximumBufferedBytes: 64 * 1024
         )
         var expected = ""
-        let deadline = Date().addingTimeInterval(5)
         var drainedEveryWrite = true
         for index in 0..<200 {
             let byte: [UInt8] = [UInt8(65 + (index % 26))]
@@ -135,7 +134,10 @@ struct ControlClientAsyncTransportTests {
             }
             // Deadline-poll the drain's byte accounting so every write is
             // drained (one queued chunk each) before the next one, keeping
-            // the many-short-chunks shape deterministic under load.
+            // the many-short-chunks shape deterministic under load. The
+            // deadline is per write: one shared budget across 200 polls ran
+            // out on a loaded host, where each 1 ms sleep wakes much later.
+            let deadline = Date().addingTimeInterval(5)
             while bufferingState(reader).queued < index + 1, Date() < deadline {
                 try await Task.sleep(nanoseconds: 1_000_000)
             }

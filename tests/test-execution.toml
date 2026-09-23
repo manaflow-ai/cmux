@@ -7,6 +7,11 @@
 version = 1
 
 [[test]]
+path = "tests/test_omp_auto_naming.py"
+lane = "macos-cli-no-socket"
+requirements = ["cmux-cli"]
+
+[[test]]
 path = "tests/test_open_wrapper.py"
 lane = "macos-shell"
 
@@ -79,7 +84,7 @@ lane = "macos-cli-no-socket"
 
 [[test]]
 path = "tests/test_claude_wrapper_hooks.py"
-lane = "macos-cli-no-socket"
+lane = "macos-claude-wrapper"
 
 [[test]]
 path = "tests/test_codex_wrapper_computer_use_mcp.py"
@@ -315,6 +320,10 @@ path = "tests/test_ci_app_host_failure_census.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_replay_app_host_verdict.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_app_host_guard_structure.py"
 lane = "linux-guard"
 
@@ -355,6 +364,10 @@ path = "tests/test_ci_guard_workflow_structure.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_evidence_outcomes.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_reusable_job_name_lookups.py"
 lane = "linux-guard"
 
@@ -363,11 +376,19 @@ path = "tests/test_ci_health_report.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_runner_label_policy.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_linux_guard_routing.py"
 lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_merge_queue_required_checks.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_nightly_push_throttle.py"
 lane = "linux-guard"
 
 [[test]]
@@ -403,6 +424,10 @@ path = "tests/test_ci_repo_variable_defaults.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_required_checks_drift.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_release_guard_structure.py"
 lane = "linux-guard"
 
@@ -416,6 +441,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_select_package_tests.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_workflow_run_sources.py"
 lane = "linux-guard"
 
 [[test]]
@@ -471,6 +500,10 @@ path = "tests/test_ios_appstore_lane_identity.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ios_appstore_upload_marker.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ios_selected_test_execution.py"
 lane = "linux-guard"
 
@@ -491,6 +524,10 @@ path = "tests/test_ios_testflight_pro_distribution.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ios_upload_batching.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ios_upload_lean_checkout.py"
 lane = "linux-guard"
 
@@ -500,6 +537,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_issue_5164_starship_prompt_composition.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_lint_feature_flags_scope.py"
 lane = "linux-guard"
 
 [[test]]
@@ -543,6 +584,10 @@ path = "tests/test_preflight_trust.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_e2e_warm_derived_data.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_reuse_app_host_products.py"
 lane = "linux-guard"
 
@@ -555,11 +600,27 @@ path = "tests/test_run_e2e.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_e2e_compilation_cache.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_manual_macos_package_cache.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_sync_test_wiring.py"
 lane = "linux-guard"
 
 [[test]]
 path = "tests/test_swift_incremental_diagnostics.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_swift_package_execution.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_swift_test_execution.py"
 lane = "linux-guard"
 
 [[test]]
@@ -615,6 +676,10 @@ path = "tests/test_ci_cache_restore_receipt.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_parallel_artifact_transport.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_r2_artifact.py"
 lane = "linux-guard"
 
@@ -636,6 +701,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_selective_layer_wiring.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_workflow_path_filter_parity.py"
 lane = "linux-guard"
 
 [[test]]
@@ -744,6 +813,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_cmux_settings_supported_paths.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_settings_configuration_review_paths.py"
 lane = "linux-guard"
 
 [[test]]
@@ -863,6 +936,10 @@ path = "tests/test_pairing_scheme_is_explicit_in_tests.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_pairing_scheme_lint.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_plain_text_paste_worker.py"
 lane = "legacy"
 
@@ -976,4 +1053,49 @@ lane = "legacy"
 
 [[test]]
 path = "tests/test_ci_canonical_build_root.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_cli_workflow_catalog.py"
+lane = "macos-cli-no-socket"
+requirements = ["cmux-cli"]
+
+[[test]]
+path = "tests/test_cli_workflow_catalog_translation.py"
+lane = "macos-cli-no-socket"
+
+[[test]]
+path = "tests/test_ci_release_product_reuse.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_reuse_release_product.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_main_full_suite.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_nightly_tag_push.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_cla_guard_metadata_routing.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_helper_prebuild_lifecycle.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ios_simulator_build_once.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_web_complexity_scope.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_ios_conventions_diff.py"
 lane = "linux-guard"

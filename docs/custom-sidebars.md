@@ -156,10 +156,33 @@ Rules of the runtime:
   drop's container from the flat index; `Examples/CustomSidebars/workspaces.js`
   shows the full pattern including cross-group drag via
   `workspace.group.add`/`workspace.group.remove`.
-- `Reorderable({ items, key, onMove, spacing }, template)` is the drag-to-reorder list:
+- `Reorderable({ items, key, onMove, onDragChange, spacing }, template)` is the drag-to-reorder list:
   the grabbed row lifts and follows the pointer, the other rows spring aside
-  live, and the drop calls `onMove(id, index)` (dispatch `workspace.reorder`
-  there to persist).
+  live, and the drop calls `onMove(id, index, extra)` (dispatch
+  `workspace.reorder` there to persist). `index` is the zero-based flat row
+  index after moving. `extra.side` is `"above"` or `"below"`: at a boundary
+  between nesting levels, the pointer's horizontal position chooses which
+  neighboring row's nesting to adopt. It is not a vertical drop direction.
+  `extra.block` is true when moving a block header with its members.
+- Optional `onDragChange(state)` reports the projected drop during a drag:
+  `{ id, index, side, block }`, using the same meanings as `onMove`. It fires
+  on lift and when the projected intent changes, not on every pointer frame.
+  `state` becomes `null` on drop (after `onMove`, if a move is needed), Escape,
+  removal of the dragged row, or disappearance of the list. Keep this state
+  in a signal to render an insertion line or nesting highlight; persist only
+  from `onMove`. For example:
+
+  ```js
+  const [drag, setDrag] = signal(null);
+  // Inside sidebar(() => ...):
+  Reorderable({
+    items: () => data.workspaces() ?? [],
+    key: w => w.id,
+    onDragChange: setDrag,
+    onMove: (id, index) => cmux("workspace.reorder", { workspace_id: id, index }),
+  }, w => Text(() => w().title)
+    .background(() => drag()?.id === w().id ? "accent" : "clear"))
+  ```
 - Right-click menus: `.contextMenu([Button("Pin", fn), Divider(),
   Menu("Move", [...]), Button("Close", fn).destructive()])` on any view. Menu
   items are ordinary Button/Menu/Divider nodes, so labels and actions can be

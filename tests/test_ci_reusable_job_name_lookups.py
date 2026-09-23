@@ -19,10 +19,38 @@ WORKFLOWS = ROOT / ".github" / "workflows"
 SCAN_ROOTS = (WORKFLOWS, ROOT / "scripts" / "ci")
 SCAN_SUFFIXES = (".yml", ".yaml", ".py")
 
-# job.get("name") == "literal" / job["name"] == "literal", either quote style.
+# Match either operand order, accessor style, and quote style. The right-hand
+# accessor must end at the comparison, rather than continue into normalization.
+NAME_ACCESS = r"""\b\w+(?:\.get\(\s*["']name["']\s*\)|\[\s*["']name["']\s*\])"""
 LOOKUP = re.compile(
-    r"""\[?["']name["']\]?\)?\s*==\s*["']([^"']+)["']"""
+    rf"""{NAME_ACCESS}\s*==\s*["']([^"']+)["']"""
+    rf"""|["']([^"']+)["']\s*==\s*{NAME_ACCESS}(?!\s*[.\[])"""
 )
+
+
+def lookup_literals(line: str) -> list[str]:
+    return [forward or reverse for forward, reverse in LOOKUP.findall(line)]
+
+
+def test_lookup_literals_detects_both_operand_orders() -> None:
+    for quote in ('"', "'"):
+        literal = f"{quote}Reusable job{quote}"
+        for accessor in (f"job.get({quote}name{quote})", f"job[{quote}name{quote}]"):
+            for comparison in (f"{accessor} == {literal}", f"{literal} == {accessor}"):
+                assert lookup_literals(comparison) == ["Reusable job"], comparison
+
+
+def test_lookup_literals_allows_normalized_names() -> None:
+    for normalized in (
+        'job["name"].rsplit(" / ", 1)[-1]',
+        'job.get("name").rsplit(" / ", 1)[-1]',
+        'str(job.get("name") or "").rsplit(" / ", 1)[-1]',
+    ):
+        for comparison in (
+            f'{normalized} == "Reusable job"',
+            f'"Reusable job" == {normalized}',
+        ):
+            assert lookup_literals(comparison) == [], comparison
 
 
 def reusable_job_names() -> dict[str, str]:
@@ -57,7 +85,7 @@ def test_no_bare_name_lookup_of_a_reusable_workflow_job() -> None:
             for number, line in enumerate(
                 path.read_text(encoding="utf-8").splitlines(), start=1
             ):
-                for literal in LOOKUP.findall(line):
+                for literal in lookup_literals(line):
                     if literal in reusable:
                         rel = path.relative_to(ROOT)
                         offenders.append(

@@ -31,6 +31,8 @@ Dispatch through the wrapper. It pins the exact pushed commit, carries a `dispat
 
 **Compile the test target locally before dispatching.** One focused run costs 10-20 macOS runner-minutes, and it compiles the whole tree before it runs anything, so the most common red result on a feature branch is a Swift compile error rather than a test failure. The `cmux-unit` command above catches those in a fraction of the time and without a runner.
 
+**The default runner is `blacksmith-6vcpu-macos-26`.** `--runner` overrides it. Over 60 consecutive dispatches (2026-09-22/23) the macOS 15 pool queued for a median 2.4 min but a p90 of 83 min and a worst case of 178 min, while macOS 26 queued 0.3 min median / 1.0 min p90; execution time on 26 ran about 4 min longer. Pick `blacksmith-6vcpu-macos-15` explicitly only when the question is specifically about macOS 15 behavior, and expect to wait for it.
+
 **Do not re-dispatch the same selector at the same commit.** A focused run's result is a property of the commit; repeating it reprints the same failure at full cost. The wrapper now refuses a selector that already failed at that commit and points at the earlier run; read that run, fix the branch, push, and dispatch the new commit. `--force` exists for the rare case where you know the failure was infrastructure.
 
 If a run fails with `selected test filter matched zero tests`, the selector is wrong or the test file is not wired into `project.pbxproj` (see the test wiring section of SKILL.md). Fix the selector; retrying an unmatched filter costs another full build and matches nothing again.
