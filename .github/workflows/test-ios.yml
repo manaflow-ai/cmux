@@ -215,6 +215,11 @@ jobs:
     env:
       SWIFT_TEST_FILTER: ${{ inputs.test_filter }}
       FOCUSED_SWIFT_PACKAGE: ${{ inputs.swift_package }}
+      # A hung test otherwise runs to the job ceiling, which GitHub reports as
+      # "cancelled" without naming it. Completed runs of this job on 2026-09-22
+      # and 2026-09-23 never went quiet for more than 45 s, and no single test
+      # took longer than 44 s; three hung runs went quiet for 353-1152 s.
+      TEST_SILENCE_SECONDS: "180"
     steps:
       - name: Validate package selection
         env:
@@ -276,7 +281,8 @@ jobs:
             args+=(--filter "$SWIFT_TEST_FILTER")
           fi
           log_path="$RUNNER_TEMP/CMUXMobileCore-tests.log"
-          swift test "${args[@]}" 2>&1 | tee "$log_path"
+          python3 scripts/ci/hung_test_watchdog.py --silence-seconds "$TEST_SILENCE_SECONDS" \
+            --label CMUXMobileCore --log "$log_path" -- swift test "${args[@]}"
           ./scripts/ci/require_selected_test_execution.sh "$log_path" "${SWIFT_TEST_FILTER:-CMUXMobileCore}"
 
       - name: Run CmuxSyncStore package tests
@@ -293,7 +299,8 @@ jobs:
             args+=(--filter "$SWIFT_TEST_FILTER")
           fi
           log_path="$RUNNER_TEMP/CmuxSyncStore-tests.log"
-          swift test "${args[@]}" 2>&1 | tee "$log_path"
+          python3 scripts/ci/hung_test_watchdog.py --silence-seconds "$TEST_SILENCE_SECONDS" \
+            --label CmuxSyncStore --log "$log_path" -- swift test "${args[@]}"
           ./scripts/ci/require_selected_test_execution.sh "$log_path" "${SWIFT_TEST_FILTER:-CmuxSyncStore}"
 
       - name: Run CmuxMobilePairedMac package tests
@@ -308,7 +315,8 @@ jobs:
             args+=(--filter "$SWIFT_TEST_FILTER")
           fi
           log_path="$RUNNER_TEMP/CmuxMobilePairedMac-tests.log"
-          swift test "${args[@]}" 2>&1 | tee "$log_path"
+          python3 scripts/ci/hung_test_watchdog.py --silence-seconds "$TEST_SILENCE_SECONDS" \
+            --label CmuxMobilePairedMac --log "$log_path" -- swift test "${args[@]}"
           ./scripts/ci/require_selected_test_execution.sh "$log_path" "${SWIFT_TEST_FILTER:-CmuxMobilePairedMac}"
 
       - name: Run CmuxMobileChanges package tests
@@ -323,7 +331,8 @@ jobs:
             args+=(--filter "$SWIFT_TEST_FILTER")
           fi
           log_path="$RUNNER_TEMP/CmuxMobileChanges-tests.log"
-          swift test "${args[@]}" 2>&1 | tee "$log_path"
+          python3 scripts/ci/hung_test_watchdog.py --silence-seconds "$TEST_SILENCE_SECONDS" \
+            --label CmuxMobileChanges --log "$log_path" -- swift test "${args[@]}"
           ./scripts/ci/require_selected_test_execution.sh "$log_path" "${SWIFT_TEST_FILTER:-CmuxMobileChanges}"
 
       - name: Run CmuxMobileShell package tests
@@ -345,7 +354,8 @@ jobs:
             args+=(--filter "$SWIFT_TEST_FILTER")
           fi
           log_path="$RUNNER_TEMP/CmuxMobileShell-tests.log"
-          swift test "${args[@]}" 2>&1 | tee "$log_path"
+          python3 scripts/ci/hung_test_watchdog.py --silence-seconds "$TEST_SILENCE_SECONDS" \
+            --label CmuxMobileShell --log "$log_path" -- swift test "${args[@]}"
           ./scripts/ci/require_selected_test_execution.sh "$log_path" "${SWIFT_TEST_FILTER:-CmuxMobileShell}"
 
       - name: Run CmuxMobileShellModel package tests
@@ -362,7 +372,8 @@ jobs:
             args+=(--filter "$SWIFT_TEST_FILTER")
           fi
           log_path="$RUNNER_TEMP/CmuxMobileShellModel-tests.log"
-          swift test "${args[@]}" 2>&1 | tee "$log_path"
+          python3 scripts/ci/hung_test_watchdog.py --silence-seconds "$TEST_SILENCE_SECONDS" \
+            --label CmuxMobileShellModel --log "$log_path" -- swift test "${args[@]}"
           ./scripts/ci/require_selected_test_execution.sh "$log_path" "${SWIFT_TEST_FILTER:-CmuxMobileShellModel}"
 
   ios-simulator-build:
