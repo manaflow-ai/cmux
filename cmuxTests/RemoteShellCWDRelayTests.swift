@@ -4,7 +4,26 @@ import Testing
 // Shared by the shell integration fixtures in this test target.
 enum GhosttyShellIntegrationTestResources {
     static func resolve(repositoryRoot: URL, bundleResourceURL: URL? = Bundle.main.resourceURL) throws -> URL {
-        repositoryRoot.appendingPathComponent("ghostty/src", isDirectory: true)
+        let candidates = [
+            bundleResourceURL?.appendingPathComponent("ghostty", isDirectory: true),
+            repositoryRoot.appendingPathComponent("ghostty/src", isDirectory: true),
+        ].compactMap { $0 }
+        for candidate in candidates {
+            let integration = candidate.appendingPathComponent("shell-integration/zsh/ghostty-integration")
+            var isDirectory: ObjCBool = false
+            if FileManager.default.fileExists(atPath: integration.path, isDirectory: &isDirectory),
+               !isDirectory.boolValue,
+               FileManager.default.isReadableFile(atPath: integration.path) {
+                return candidate
+            }
+        }
+        throw NSError(
+            domain: "GhosttyShellIntegrationTestResources",
+            code: 1,
+            userInfo: [NSLocalizedDescriptionKey:
+                "Ghostty zsh integration is missing from the app product and source checkout: "
+                    + candidates.map(\.path).joined(separator: ", ")]
+        )
     }
 }
 
