@@ -1618,7 +1618,8 @@ _cmux_bash_preexec_hook_subshell() {
 
 _cmux_prompt_command() {
     local last_status=$?
-    if [[ -n "${CMUX_HISTORY_FILE:-}" && -z "${_CMUX_HISTORY_INITIALIZED:-}" ]]; then
+    if [[ -n "${CMUX_HISTORY_FILE:-}" && -z "${_CMUX_HISTORY_INITIALIZED:-}" \
+          && -n "${HISTFILE:-}" && "$HISTFILE" != /dev/null ]]; then
         HISTFILE="$CMUX_HISTORY_FILE"
         history -c
         [[ ! -r "$HISTFILE" ]] || history -r "$HISTFILE"

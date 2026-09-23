@@ -1714,7 +1714,8 @@ _cmux_preexec() {
 # Run after startup files and zsh's initial global-history load. fc -p gives
 # this shell a fresh history list, then reads only its persisted surface file.
 _cmux_initialize_terminal_history() {
-    [[ -n "${CMUX_HISTORY_FILE:-}" && -z "${_CMUX_HISTORY_INITIALIZED:-}" ]] || return 0
+    [[ -n "${CMUX_HISTORY_FILE:-}" && -z "${_CMUX_HISTORY_INITIALIZED:-}" \
+       && -n "${HISTFILE:-}" && "$HISTFILE" != /dev/null ]] || return 0
     builtin fc -p "$CMUX_HISTORY_FILE" "${HISTSIZE:-2000}" "${SAVEHIST:-2000}" || return
     setopt inc_append_history
     typeset -g _CMUX_HISTORY_INITIALIZED=1
