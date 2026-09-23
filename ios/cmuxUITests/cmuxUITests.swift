@@ -48,8 +48,8 @@ final class cmuxUITests: XCTestCase {
         let shortText = app.textViews.matching(NSPredicate(format: "label == %@", "Stopped.")).firstMatch
         XCTAssertTrue(shortText.exists)
         shortText.press(forDuration: 1)
-        XCTAssertTrue(app.buttons["Open workspace"].waitForExistence(timeout: 3))
-        app.buttons["Open tab"].tap()
+        XCTAssertTrue(app.buttons["Open"].waitForExistence(timeout: 3))
+        app.buttons["Open"].tap()
         XCTAssertTrue(app.staticTexts["Opened preview tab"].waitForExistence(timeout: 3))
         app.navigationBars.buttons.firstMatch.tap()
         app.tabBars.buttons["Search"].tap()
