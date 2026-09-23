@@ -36,8 +36,17 @@ def candidate():
 
 class CLAMetadataRoutingTests(unittest.TestCase):
     def test_actual_workflow_contract(self):
-        validate_metadata_routing(yaml.safe_load(
-            (ROOT / ".github/workflows/cla-policy-guard.yml").read_text()))
+        workflow = yaml.safe_load(
+            (ROOT / ".github/workflows/cla-policy-guard.yml").read_text())
+        job = workflow["jobs"]["validate"]
+        # GitHub can make the newest skipped suite authoritative for required
+        # checks even when an older suite passed. Always publish this context.
+        self.assertEqual(job["name"], REQUIRED_CHECK)
+        self.assertNotIn("if", job)
+        trigger = workflow.get("on", workflow.get(True))
+        self.assertIn("edited", trigger["pull_request_target"]["types"])
+        self.assertNotIn("concurrency", workflow)
+        self.assertNotIn("concurrency", job)
 
     def test_rejects_incomplete_or_weakened_contract(self):
         for field, value in (("name", REQUIRED_CHECK), ("name", "${{ github.actor }}"),

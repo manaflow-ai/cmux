@@ -26,6 +26,8 @@ from pathlib import Path
 
 import yaml
 
+from test_web_complexity_trusted_workflow import REQUIRED_CHECK, validate_metadata_routing
+
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOWS = ROOT / ".github/workflows"
@@ -83,15 +85,26 @@ def reachable(roots: set[Path], workflows: dict[Path, dict]) -> set[Path]:
 
 def context_of(job_id: str, job: dict, path: Path, workflow: dict) -> str:
     name = job.get("name") or job_id
-    if path.name == "cla-policy-guard.yml" and job_id == "validate":
-        from test_cla_guard_metadata_routing import REQUIRED_CHECK, validate_metadata_routing
+    if path.name == "web-complexity-trusted.yml" and job_id == "complexity" and "${{" in name:
+        # Interpret only the validated routing contract. Unknown expressions
+        # must remain unmatched instead of silently dropping timeout coverage.
         try:
             validate_metadata_routing(workflow)
+        except (AssertionError, KeyError, TypeError):
+            return name
+        return REQUIRED_CHECK
+    if path.name == "cla-policy-guard.yml" and job_id == "validate":
+        from test_cla_guard_metadata_routing import (
+            REQUIRED_CHECK as CLA_REQUIRED_CHECK,
+            validate_metadata_routing as validate_cla_metadata_routing,
+        )
+        try:
+            validate_cla_metadata_routing(workflow)
         except (AssertionError, KeyError, TypeError) as error:
             if "${{" in str(name) or "if" in job:
                 raise ValueError("CLA metadata route violates its condition/name contract") from error
         else:
-            return REQUIRED_CHECK
+            return CLA_REQUIRED_CHECK
     return name
 
 

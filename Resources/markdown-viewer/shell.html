@@ -1188,6 +1188,13 @@ html { scroll-behavior: smooth; }
     return Math.max(0, Math.min(markdownMaxScrollY(), y));
   }
 
+  // `setMarkdownScrollY` is the viewer's only programmatic scroll, so the
+  // position it last wrote is the position the viewer is in unless something
+  // else moved it: the reader, a find match, an anchor jump. Recording it lets
+  // the scroll listener below tell those apart from a reflow, which moves
+  // content under a stationary viewer without scrolling it.
+  var markdownScrollYWeWrote = null;
+
   function setMarkdownScrollY(y) {
     var targetY = clampScrollY(y);
     var scroller = markdownScroller();
@@ -1201,6 +1208,7 @@ html { scroll-behavior: smooth; }
       }
     } finally {
       root.style.scrollBehavior = previousBehavior;
+      markdownScrollYWeWrote = markdownScrollY();
     }
   }
 
@@ -1233,8 +1241,55 @@ html { scroll-behavior: smooth; }
     };
   }
 
+  // The restore runs once synchronously, then again on the next two animation
+  // frames so late layout (images, web fonts, Mermaid) that moves the anchor is
+  // still corrected. Those follow-up passes must keep making that correction,
+  // but must never fight a scroll that happened after the content update: a
+  // queued pass that fires once the reader -- or a find match, or an anchor
+  // jump -- has already moved the viewer would yank it back to the pre-update
+  // position.
+  //
+  // The two cases are told apart causally, not by comparing positions. A reflow
+  // moves content under a stationary viewer and fires no scroll event, so the
+  // correction still runs -- that is the whole reason the frames exist. A real
+  // scroll fires one, and since `setMarkdownScrollY` is the viewer's only
+  // programmatic scroll, any scroll that leaves the viewer somewhere other than
+  // the position we last wrote came from someone else, and this transaction
+  // stands down. A new content update also cancels the frames the previous one
+  // queued.
+  //
+  // The synchronous pass is the authoritative one. Nothing in the viewer, and
+  // nothing in its tests, may treat an animation frame as the completion signal
+  // for a render: a window that is not on an active display never gets one.
+  var markdownScrollRestoreFrame = 0;
+  var markdownScrollRestoreAbandoned = true;
+  var markdownScrollListenerInstalled = false;
+
+  function installMarkdownScrollListenerIfNeeded() {
+    if (markdownScrollListenerInstalled) { return; }
+    markdownScrollListenerInstalled = true;
+    window.addEventListener('scroll', function() {
+      if (markdownScrollRestoreAbandoned) { return; }
+      if (markdownScrollYWeWrote === null) { return; }
+      if (Math.abs(markdownScrollY() - markdownScrollYWeWrote) > 1) {
+        cancelPendingMarkdownScrollRestore();
+      }
+    }, { passive: true });
+  }
+
+  function cancelPendingMarkdownScrollRestore() {
+    if (markdownScrollRestoreFrame) {
+      window.cancelAnimationFrame(markdownScrollRestoreFrame);
+    }
+    markdownScrollRestoreFrame = 0;
+    markdownScrollRestoreAbandoned = true;
+  }
+
   function restoreMarkdownScrollState(state) {
+    cancelPendingMarkdownScrollRestore();
     if (!state) { return; }
+    installMarkdownScrollListenerIfNeeded();
+    markdownScrollRestoreAbandoned = false;
     function apply() {
       var targetY;
       if (state.nearTop) {
@@ -1252,10 +1307,18 @@ html { scroll-behavior: smooth; }
       }
       setMarkdownScrollY(targetY);
     }
-    apply();
-    window.requestAnimationFrame(function() {
+    function reapplyUnlessAbandoned() {
+      markdownScrollRestoreFrame = 0;
+      if (markdownScrollRestoreAbandoned) { return false; }
       apply();
-      window.requestAnimationFrame(apply);
+      return true;
+    }
+    apply();
+    markdownScrollRestoreFrame = window.requestAnimationFrame(function() {
+      if (!reapplyUnlessAbandoned()) { return; }
+      markdownScrollRestoreFrame = window.requestAnimationFrame(function() {
+        reapplyUnlessAbandoned();
+      });
     });
   }
 
