@@ -89,7 +89,6 @@ extension TerminalSurface {
         return renderHealth == .rendering
             || (renderHealth == .shellExited && rendererPresentationState.didPresentFrame)
     }
-
     /// Whether the runtime has delivered a frame that remains reusable after hiding.
     public var hasPresentedFrame: Bool { surface != nil && rendererPresentationState.didPresentFrame }
 
