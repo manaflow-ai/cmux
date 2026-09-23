@@ -3839,6 +3839,7 @@
 		992300019923000199230010 /* VaultQueuedRestoreIdentityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 99230001992300019923000F /* VaultQueuedRestoreIdentityTests.swift */; };
 		6170C16F7014467C93587385 /* VaultRecencySections.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5D1AE45742E0440681EC9AD4 /* VaultRecencySections.swift */; };
 		C018F5613EA04C739B108FB3 /* VaultRecencySectionsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC5B58C162154422A2839569 /* VaultRecencySectionsTests.swift */; };
+		4FEA4BE14382A28C15F2C399 /* VaultRefreshUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 340AACC8DD8772A000EA1971 /* VaultRefreshUITests.swift */; };
 		992300019923000199230006 /* VaultRestoreRelaunchPersistenceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 992300019923000199230005 /* VaultRestoreRelaunchPersistenceTests.swift */; };
 		3FB1776899414996A93F0B93 /* VaultSessionCheckpoint.swift in Sources */ = {isa = PBXBuildFile; fileRef = 662E8F5E0C3F4FBA8F75450A /* VaultSessionCheckpoint.swift */; };
 		8FB35FCA714749A9B54B2313 /* VaultSessionCheckpointStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF959230EC364550B3A48324 /* VaultSessionCheckpointStore.swift */; };
@@ -7949,6 +7950,7 @@
 		99230001992300019923000F /* VaultQueuedRestoreIdentityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VaultQueuedRestoreIdentityTests.swift; sourceTree = "<group>"; };
 		5D1AE45742E0440681EC9AD4 /* VaultRecencySections.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VaultRecencySections.swift; sourceTree = "<group>"; };
 		CC5B58C162154422A2839569 /* VaultRecencySectionsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VaultRecencySectionsTests.swift; sourceTree = "<group>"; };
+		340AACC8DD8772A000EA1971 /* VaultRefreshUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VaultRefreshUITests.swift; sourceTree = "<group>"; };
 		992300019923000199230005 /* VaultRestoreRelaunchPersistenceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VaultRestoreRelaunchPersistenceTests.swift; sourceTree = "<group>"; };
 		662E8F5E0C3F4FBA8F75450A /* VaultSessionCheckpoint.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VaultSessionCheckpoint.swift; sourceTree = "<group>"; };
 		CF959230EC364550B3A48324 /* VaultSessionCheckpointStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VaultSessionCheckpointStore.swift; sourceTree = "<group>"; };
@@ -8571,6 +8573,7 @@
 				2D7997460F5175FDC84FC977 /* RemoteTmuxSizingUITests+Content.swift */,
 				E93214F8A3E0C68058E9EEF6 /* RemoteTmuxSizingUITests+Socket.swift */,
 				AA1B2C3D4E5F60721 /* RightSidebarChromeHeightUITests.swift */,
+				340AACC8DD8772A000EA1971 /* VaultRefreshUITests.swift */,
 			);
 			path = cmuxUITests;
 			sourceTree = "<group>";
@@ -16159,6 +16162,7 @@
 				C2577000A1B2C3D4E5F60718 /* TerminalCmdClickUITests.swift in Sources */,
 				D12797000000000000000002 /* TerminalLightAppearanceUITests.swift in Sources */,
 				C0B4D9B0A1B2C3D4E5F60718 /* UpdatePillUITests.swift in Sources */,
+				4FEA4BE14382A28C15F2C399 /* VaultRefreshUITests.swift in Sources */,
 				E6FA9084A1B2C3D4E5F60718 /* WorkspaceDescriptionUITests.swift in Sources */,
 				F0F0A001A1B2C3D4E5F60718 /* WorkspaceSidebarScrollUITests.swift in Sources */,
 				B95EC019F70D4F23BD3C8D1D /* WorkspaceWorkingDirectorySpawnUITests.swift in Sources */,
