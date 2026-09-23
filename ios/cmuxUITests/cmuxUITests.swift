@@ -1950,14 +1950,28 @@ final class cmuxUITests: XCTestCase {
             add(attachment)
         }
 
+        func openPicker() throws {
+            let control = try picker()
+            let before = XCTAttachment(string: app.debugDescription)
+            before.name = "computer-picker-before-native-tap"
+            before.lifetime = .keepAlways
+            add(before)
+            control.tap()
+            let after = XCTAttachment(string: app.debugDescription)
+            after.name = "computer-picker-after-native-tap"
+            after.lifetime = .keepAlways
+            add(after)
+            capture("computer-picker-menu")
+        }
+
         // Start through the real picker, without seeding its saved preference.
-        tapCompactToolbarTitleMenu(try picker(), in: app)
+        try openPicker()
         let allComputers = try XCTUnwrap(waitForVisibleElement(
             identifier: "MobileWorkspaceMacPickerAll", in: app, timeout: 5
         ))
         tapMenuItem(allComputers, in: app)
         try expectTitle("All Computers")
-        tapCompactToolbarTitleMenu(try picker(), in: app)
+        try openPicker()
         let computer = app.buttons.matching(NSPredicate(
             format: "identifier BEGINSWITH %@",
             "MobileWorkspaceMacPickerMachine-ui-test-mac"
@@ -1977,7 +1991,7 @@ final class cmuxUITests: XCTestCase {
         try expectTitle(computerName)
         capture("computer-restored-after-relaunch")
 
-        tapCompactToolbarTitleMenu(try picker(), in: app)
+        try openPicker()
         tapMenuItem(app.buttons["MobileWorkspaceMacPickerAll"], in: app)
         try expectTitle("All Computers")
         capture("all-computers-selected-before-termination")
