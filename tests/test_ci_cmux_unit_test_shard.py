@@ -68,6 +68,43 @@ extension LargeSuiteTests {
     )
 
 
+def check_split_methods_use_callable_identifiers() -> int:
+    """Xcode matches Swift Testing methods only with their call signature.
+
+    A real Xcode bundle with a failing @Test sentinel exits zero and runs zero
+    tests for ModernTests/testSentinel. ModernTests/testSentinel() executes the
+    failure; XCTest accepts that explicit no-argument signature as well.
+    """
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        test_root = root / "cmuxTests"
+        test_root.mkdir()
+        for suite, declaration, attribute in (
+            ("ModernTests", "@Suite struct ModernTests", "    @Test\n"),
+            ("LegacyTests", "final class LegacyTests: XCTestCase", ""),
+        ):
+            methods = "\n".join(
+                f"{attribute}    func testGenerated{index:02d}() {{}}"
+                for index in range(40)
+            )
+            (test_root / f"{suite}.swift").write_text(
+                f"{declaration} {{\n{methods}\n}}\n", encoding="utf-8"
+            )
+        selectors = set()
+        for shard in (1, 2):
+            selectors.update(run_shard(root, shard, root / f"{shard}.args", root / "absent.json"))
+        expected = {
+            f"-only-testing:cmuxTests/{suite}/testGenerated{index:02d}()"
+            for suite in ("ModernTests", "LegacyTests") for index in range(40)
+        }
+        if selectors != expected:
+            print("FAIL: split selectors must retain callable method signatures; "
+                  f"missing={sorted(expected - selectors)[:3]} unexpected={sorted(selectors - expected)[:3]}")
+            return 1
+    print("PASS: split XCTest and Swift Testing methods retain callable signatures")
+    return 0
+
+
 def write_timed_suites_fixture(test_root: Path) -> None:
     for name in ("AlphaTests", "BetaTests", "GammaTests", "DeltaTests"):
         (test_root / f"{name}.swift").write_text(
@@ -438,6 +475,9 @@ def check_focused_gates_run_once() -> int:
 
 
 def main() -> int:
+    if (rc := check_split_methods_use_callable_identifiers()) != 0:
+        return rc
+
     if (rc := check_test_topology_matches_production()) != 0:
         return rc
     with tempfile.TemporaryDirectory() as tmp:
