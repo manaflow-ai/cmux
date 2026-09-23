@@ -624,7 +624,9 @@ jobs:
 
       - name: Validate nightly push throttle
         if: ${{ matrix.group == 'release-notary' }}
-        run: python3 tests/test_ci_nightly_push_throttle.py
+        run: |
+          python3 tests/test_ci_nightly_push_throttle.py
+          python3 tests/test_ci_helper_prebuild_lifecycle.py
 
       - name: Validate test compilation cache seeding
         if: ${{ matrix.group == 'quality-sharding' }}

@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """The optional prebuild cannot delay or change the authoritative build result."""
 import importlib.util
-import os
 from pathlib import Path
 import signal
 import subprocess
@@ -37,6 +36,12 @@ class LifecycleTests(unittest.TestCase):
     def test_failed_helper_does_not_fail_successful_build(self):
         result, _ = self.run_case("raise SystemExit(23)", "import time; time.sleep(.2)")
         self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_completed_helper_is_not_reported_as_timed_out(self):
+        result, _ = self.run_case("print('warm')", "import time; time.sleep(.5)", .1)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn("deadline", result.stdout)
+        self.assertIn("warm", result.stdout)
 
     def test_helper_deadline_does_not_stop_build(self):
         result, _ = self.run_case("import time; time.sleep(60)", "import time; time.sleep(.5)", .1)
