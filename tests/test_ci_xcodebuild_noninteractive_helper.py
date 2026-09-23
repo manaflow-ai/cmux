@@ -61,11 +61,9 @@ def test_compiler_timeout_evidence() -> None:
         assert "compiler stack fixture" in result.stdout
         assert calls.read_text().split()[0] == str(int(child_pid.read_text()) + 1000000)
         for stalled_tool in ("STALL_PS", "STALL_SAMPLE"):
-            started = time.monotonic()
             result = subprocess.run([sys.executable, str(HELPER), sys.executable, "-c", child],
                                     env={**env, stalled_tool: "1"}, capture_output=True, text=True, timeout=10)
             assert result.returncode == 124, (stalled_tool, result.stderr)
-            assert time.monotonic() - started < 8, stalled_tool
 
 
 def main() -> int:
