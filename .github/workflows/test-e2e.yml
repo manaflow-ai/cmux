@@ -675,8 +675,11 @@ jobs:
           # Only a destination for the restored product: this job runs
           # test-without-building and compiles nothing, so there is no
           # compilation cache here to key, seed or discard.
-          workspace_path="$(cd "$GITHUB_WORKSPACE" && pwd -P)"
-          DERIVED_DATA_PATH="$workspace_path/DerivedData/cmux-e2e"
+          #
+          # It sits under RUNNER_TEMP because app-host cleanup refuses to
+          # inspect a host whose DerivedData lives anywhere else, which is
+          # also where ci-macos.yml puts its test shards.
+          DERIVED_DATA_PATH="$RUNNER_TEMP/cmux-e2e-products-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
           rm -rf -- "$DERIVED_DATA_PATH"
           mkdir -p "$DERIVED_DATA_PATH"
           echo "CMUX_DERIVED_DATA_PATH=$DERIVED_DATA_PATH" >> "$GITHUB_ENV"
@@ -1092,17 +1095,10 @@ jobs:
         if: always()
         run: |
           set -euo pipefail
-          workspace_path="$(cd "$GITHUB_WORKSPACE" && pwd -P)"
           derived_data_path="${CMUX_DERIVED_DATA_PATH:-}"
-          cache_path="${CMUX_E2E_COMPILATION_CACHE:-}"
-          case "$cache_path" in
-            "$workspace_path/DerivedData/cmux-e2e-compilation-cache"|"") ;;
-            *) echo "::error::refusing to remove unowned compilation cache: $cache_path"; exit 1 ;;
-          esac
           case "$derived_data_path" in
-            "$workspace_path/DerivedData/cmux-e2e")
+            "$RUNNER_TEMP/cmux-e2e-products-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}")
               rm -rf -- "$derived_data_path"
-              if [ -n "$cache_path" ]; then rm -rf -- "$cache_path"; fi
               ;;
             "")
               echo "DerivedData was not prepared; nothing to clean"
