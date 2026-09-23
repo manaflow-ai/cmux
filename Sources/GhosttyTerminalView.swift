@@ -2206,56 +2206,6 @@ class GhosttyApp {
         configurationReloadCoordinator.isReloadActive
     }
 
-#if DEBUG
-    /// Whether no configuration reload is active, queued, or waiting behind
-    /// font work, and no outstanding font work would defer the next one.
-    @MainActor
-    var isConfigurationReloadSettledForVerification: Bool {
-        guard configurationReloadCoordinator
-                .isSettledForVerification else {
-            return false
-        }
-        guard let arbiter =
-                AppDelegate.shared?
-                    .workspaceTerminalFontSizeArbiter else {
-            return true
-        }
-        return arbiter.isFontSizeWorkIdleForVerification
-    }
-
-    /// Finishes any configuration reload left in flight by earlier work so a
-    /// caller starts from a known idle coordinator.
-    ///
-    /// Surface fanout is cancelled the same way a newer reload cancels it, so
-    /// the transaction unwinds through its normal completion path instead of
-    /// waiting one main-actor turn per registered surface. Returns `false` if
-    /// work remained after `timeout`, which means the font-size arbiter never
-    /// went idle.
-    @MainActor
-    @discardableResult
-    func settleConfigurationReloadForVerification(
-        timeout: TimeInterval = 5
-    ) -> Bool {
-        let deadline = Date(timeIntervalSinceNow: timeout)
-        while !isConfigurationReloadSettledForVerification {
-            guard Date() < deadline else { return false }
-            if terminalConfigurationApplyScheduler.hasPendingWork {
-                terminalConfigurationApplyScheduler
-                    .cancelPendingWork()
-                continue
-            }
-            RunLoop.main.run(
-                mode: .default,
-                before: min(
-                    deadline,
-                    Date(timeIntervalSinceNow: 0.01)
-                )
-            )
-        }
-        return true
-    }
-#endif
-
     @MainActor
     func terminalFontConfigurationSnapshot()
         -> WorkspaceTerminalFontConfigurationSnapshot {

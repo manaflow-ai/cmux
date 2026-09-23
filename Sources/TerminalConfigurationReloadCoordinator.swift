@@ -39,17 +39,6 @@ final class TerminalConfigurationReloadCoordinator {
         phase == .waitingForFontWork
     }
 
-#if DEBUG
-    /// Whether no transaction is active, queued, or waiting for font work.
-    ///
-    /// Tests share one process-wide coordinator, so a case that depends on
-    /// taking the font-work barrier must be able to observe that an earlier
-    /// case left nothing in flight.
-    var isSettledForVerification: Bool {
-        phase == .idle && pendingRequest == nil
-    }
-#endif
-
     /// Queues a request while bounding commit and post-fanout callbacks across
     /// the active and pending transactions. Reload semantics are retained even
     /// when excess callbacks are rejected.
