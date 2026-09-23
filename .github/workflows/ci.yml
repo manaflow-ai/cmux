@@ -716,7 +716,7 @@ jobs:
   macos-debounce:
     name: macOS admission debounce
     needs: changes
-    if: ${{ github.event_name == 'pull_request' && needs.changes.outputs.macos != 'false' && (needs.changes.outputs.full_suite == 'true' || needs.changes.outputs.compile_admitted != 'true') }}
+    if: ${{ github.event_name == 'pull_request' && (needs.changes.outputs.macos != 'false' || needs.changes.outputs.cli == 'true') && (needs.changes.outputs.full_suite == 'true' || needs.changes.outputs.cli == 'true' || needs.changes.outputs.compile_admitted != 'true') }}
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 15
     permissions:
@@ -754,7 +754,7 @@ jobs:
     # macOS admission is independent of the routed Linux suites. Start it
     # after the cheap static checks so its compile and test shards overlap the
     # web and guard jobs instead of waiting on their aggregate verdict.
-    if: ${{ !cancelled() && needs.changes.result == 'success' && needs.static-preflight.result == 'success' && (needs.macos-debounce.result == 'success' || needs.macos-debounce.result == 'skipped') && needs.changes.outputs.macos != 'false' && (needs.changes.outputs.full_suite == 'true' || needs.changes.outputs.compile_admitted != 'true') }}
+    if: ${{ !cancelled() && needs.changes.result == 'success' && needs.static-preflight.result == 'success' && (needs.macos-debounce.result == 'success' || needs.macos-debounce.result == 'skipped') && (needs.changes.outputs.macos != 'false' || needs.changes.outputs.cli == 'true') && (needs.changes.outputs.full_suite == 'true' || needs.changes.outputs.cli == 'true' || needs.changes.outputs.compile_admitted != 'true') }}
     permissions:
       actions: read
       contents: read
@@ -762,6 +762,7 @@ jobs:
     uses: ./.github/workflows/ci-macos.yml
     with:
       macos: ${{ needs.changes.outputs.macos }}
+      cli: ${{ needs.changes.outputs.cli }}
       full_suite: ${{ needs.changes.outputs.full_suite }}
       compile_admitted: ${{ needs.changes.outputs.compile_admitted }}
       release_build: ${{ needs.changes.outputs.release_build }}
@@ -816,8 +817,8 @@ jobs:
           full_suite = outputs.get("full_suite")
           compile_admitted = outputs.get("compile_admitted")
           macos_work_required = (
-              macos_route == "true"
-              and not (full_suite == "false" and compile_admitted == "true")
+              (macos_route == "true" or outputs.get("cli") == "true")
+              and (full_suite == "true" or outputs.get("cli") == "true" or compile_admitted != "true")
           )
           if macos_work_required:
               if macos_result != "success":

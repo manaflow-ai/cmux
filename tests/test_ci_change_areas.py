@@ -2177,9 +2177,10 @@ def test_macos_workflow_call_starts_after_cheap_static_gate() -> None:
     assert "      - linux-preflight" not in caller
     assert "uses: ./.github/workflows/ci-macos.yml" in caller
     assert "needs.changes.outputs.macos != 'false'" in caller
-    assert "needs.changes.outputs.full_suite == 'true' || needs.changes.outputs.compile_admitted != 'true'" in caller
+    assert "needs.changes.outputs.full_suite == 'true' || needs.changes.outputs.cli == 'true' || needs.changes.outputs.compile_admitted != 'true'" in caller
     for route in (
         "macos",
+        "cli",
         "full_suite",
         "compile_admitted",
         "release_build",
