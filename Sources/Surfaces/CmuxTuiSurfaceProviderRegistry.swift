@@ -245,7 +245,7 @@ final class CmuxTuiSurfaceProviderRegistry {
             pollTask = nil
             return
         }
-        Task { await wireGuardHub?.prepareForCloudUse() }
+        // #12160: `performDiscovery` owns `prepareForCloudUse()`, after its fleet read.
         guard pollTask == nil else { return }
         pollTask = Task { [weak self] in
             while !Task.isCancelled {

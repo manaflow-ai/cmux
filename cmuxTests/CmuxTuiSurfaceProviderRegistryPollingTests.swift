@@ -124,9 +124,11 @@ struct CmuxTuiSurfaceProviderRegistryPollingTests {
         #expect(registry.isPolling == false)
     }
 
-    @Test("Cloud activation starts carrier preparation before fleet discovery finishes")
+    /// The fleet read is the authentication evidence #12160 requires before any
+    /// carrier work, so enrollment must not begin until the read has resolved.
+    @Test("Cloud activation prepares the carrier after the fleet read resolves, not before")
     @MainActor
-    func activationStartsCarrierBeforeFleetReadFinishes() async {
+    func activationPreparesCarrierAfterTheFleetReadResolves() async {
         let listStarted = CloudLinkFirstValue<Bool>()
         let releaseList = CloudLinkFirstValue<Bool>()
         let enrollmentStarted = CloudLinkFirstValue<Bool>()
@@ -146,9 +148,9 @@ struct CmuxTuiSurfaceProviderRegistryPollingTests {
             notificationCenter: NotificationCenter()
         )
         registry.start(catalog: SurfaceCatalog())
-        #expect(await received(enrollmentStarted))
         #expect(await received(listStarted))
         releaseList.resolve(true)
+        #expect(await received(enrollmentStarted))
         await registry.accessDidEnd()
     }
 
