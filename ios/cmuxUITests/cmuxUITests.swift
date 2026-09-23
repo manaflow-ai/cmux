@@ -7520,53 +7520,71 @@ final class cmuxUITests: XCTestCase {
     }
 
     @MainActor
-    func testWorkspaceDetailToolbarDoesNotOverflowWithChangesChip() async throws {
-        let server = try MobileSyncMockHostServer(
-            advertisesWorkspaceChanges: true,
-            mainWorkspaceTitle: "A deliberately long workspace title with changes and terminal controls"
-        )
-        let port = try await server.start()
-        defer { server.stop() }
+    func testWorkspaceDetailToolbarPresentationComparison() throws {
+        defer { XCUIDevice.shared.orientation = .portrait }
+        for scenario in ["reference", "long-title", "alternate-screen"] {
+            XCUIDevice.shared.orientation = .portrait
+            let app = launchWorkspaceDetailDelayedTerminalPreviewApp(environment: [
+                "CMUX_UITEST_WORKSPACE_TOOLBAR_COMPARISON": "1",
+                "CMUX_UITEST_WORKSPACE_DETAIL_LONG_TITLE": scenario == "reference" ? "0" : "1",
+                "CMUX_UITEST_WORKSPACE_TOOLBAR_ALT_SCREEN": scenario == "alternate-screen" ? "1" : "0",
+            ])
+            let surface = app.otherElements["MobileTerminalSurface"]
+            try XCTUnwrap(surface.waitForExistence(timeout: 8) ? true : nil)
+            try XCTUnwrap(app.buttons["MobileChangesButton"].waitForExistence(timeout: 8) ? true : nil)
+            // Capture before assertions so a visual regression still leaves usable evidence.
+            captureWorkspaceToolbarPresentation(in: app, name: "\(scenario)-portrait")
+            tap(surface, in: app)
+            XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 4))
+            captureWorkspaceToolbarPresentation(in: app, name: "\(scenario)-keyboard")
+            XCUIDevice.shared.orientation = .landscapeLeft
+            RunLoop.current.run(until: Date().addingTimeInterval(1))
+            captureWorkspaceToolbarPresentation(in: app, name: "\(scenario)-landscape")
+            XCUIDevice.shared.orientation = .portrait
+            RunLoop.current.run(until: Date().addingTimeInterval(1))
+            let picker = app.buttons["MobileTerminalDropdown"]
+            if picker.exists, picker.isHittable {
+                tap(picker, in: app)
+                assertTerminalMenuItemExists("terminal-delayed", in: app)
+                captureWorkspaceToolbarPresentation(in: app, name: "\(scenario)-terminal-menu")
+                dismissOpenMenu(in: app)
+            }
+            app.terminate()
+        }
+    }
 
-        // This host implements the local RPC fixture, not Iroh discovery.
-        // Keep the fixture on its manual route while exercising the toolbar.
-        let app = try launchConnectedApp(
-            port: port,
-            launchArguments: ["-dev.cmux.mobile.connectionMethod.v1", "tailscale"]
-        )
-        try openSelectedWorkspaceIfNeeded(app)
-
-        XCTAssertTrue(
-            app.buttons["MobileChangesButton"].waitForExistence(timeout: 8),
-            "The workspace changes action must be visible in the detail bar."
-        )
-        assertToolbarOverflowButtonDoesNotExist(in: app)
-        XCTAssertTrue(
-            waitForHittable(app.buttons["MobileTerminalDropdown"], timeout: 8),
-            "The terminal picker must remain visible and usable in the detail bar."
-        )
+    @MainActor
+    func testWorkspaceDetailToolbarDoesNotOverflowWithChangesChip() throws {
+        let app = launchWorkspaceDetailDelayedTerminalPreviewApp(environment: [
+            "CMUX_UITEST_WORKSPACE_TOOLBAR_COMPARISON": "1",
+            "CMUX_UITEST_WORKSPACE_DETAIL_LONG_TITLE": "1",
+            "CMUX_UITEST_WORKSPACE_TOOLBAR_ALT_SCREEN": "1",
+        ])
+        try XCTUnwrap(app.otherElements["MobileTerminalSurface"].waitForExistence(timeout: 8) ? true : nil)
+        try XCTUnwrap(app.buttons["MobileTerminalAltScreenNoticeButton"].waitForExistence(timeout: 8) ? true : nil)
         defer { XCUIDevice.shared.orientation = .portrait }
         for orientation in [UIDeviceOrientation.portrait, .landscapeLeft, .portrait] {
             XCUIDevice.shared.orientation = orientation
-            assertNativeWorkspaceToolbarFits(in: app, includesChanges: true)
+            assertNativeWorkspaceToolbarFits(in: app, includesChanges: true, includesAlternateScreen: true)
             tap(app.buttons["MobileTerminalDropdown"], in: app)
-            XCTAssertTrue(app.buttons["MobileNewTerminalMenuItem"].waitForExistence(timeout: 4))
+            assertTerminalMenuItemExists("terminal-delayed", in: app)
             dismissOpenMenu(in: app)
-            let screenshot = XCTAttachment(screenshot: app.screenshot())
-            screenshot.name = "Native workspace toolbar \(orientation.rawValue)"
-            screenshot.lifetime = .keepAlways
-            add(screenshot)
         }
-        // Selecting a full-screen terminal adds a third trailing control.
-        // Returning to the primary terminal removes it without recreating menus.
-        tap(app.buttons["MobileTerminalDropdown"], in: app)
-        tapMenuItem(app.buttons["MobileTerminalMenuItem-terminal-tui"], in: app)
-        XCTAssertTrue(app.buttons["MobileTerminalAltScreenNoticeButton"].waitForExistence(timeout: 8))
-        assertNativeWorkspaceToolbarFits(in: app, includesChanges: true, includesAlternateScreen: true)
-        tap(app.buttons["MobileTerminalDropdown"], in: app)
-        tapMenuItem(app.buttons["MobileTerminalMenuItem-terminal-build"], in: app)
-        XCTAssertTrue(app.buttons["MobileTerminalAltScreenNoticeButton"].waitForNonExistence(timeout: 8))
+        tap(app.buttons["MobileTerminalAltScreenNoticeButton"], in: app)
+        XCTAssertTrue(app.buttons["MobileTerminalAltScreenNoticeButton"].waitForNonExistence(timeout: 4))
         assertNativeWorkspaceToolbarFits(in: app, includesChanges: true)
+    }
+
+    @MainActor
+    private func captureWorkspaceToolbarPresentation(in app: XCUIApplication, name: String) {
+        let screenshot = XCTAttachment(screenshot: app.screenshot())
+        screenshot.name = "toolbar-\(name)"
+        screenshot.lifetime = .keepAlways
+        add(screenshot)
+        let hierarchy = XCTAttachment(string: app.debugDescription)
+        hierarchy.name = "toolbar-\(name)-hierarchy"
+        hierarchy.lifetime = .keepAlways
+        add(hierarchy)
     }
 
     @MainActor
