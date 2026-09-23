@@ -232,6 +232,129 @@ def check_every_app_host_home_is_identified_and_cleaned() -> None:
                     )
 
 
+def check_e2e_test_derived_data_scope() -> None:
+    """Execute the E2E test job's preparation/cleanup path in a temp scope."""
+    preparation = require_step("test", "Prepare isolated DerivedData")
+    cleanup = require_step("test", "Clean owned DerivedData")
+    preparation_run = preparation.get("run")
+    cleanup_run = cleanup.get("run")
+    if not isinstance(preparation_run, str) or not isinstance(cleanup_run, str):
+        raise SystemExit("FAIL: E2E test DerivedData steps must use shell scripts")
+
+    with tempfile.TemporaryDirectory() as root:
+        root_path = Path(root)
+        workspace = root_path / "workspace"
+        runner_temp = root_path / "runner-temp"
+        tool_bin = root_path / "bin"
+        github_env = root_path / "github-env"
+        github_output = root_path / "github-output"
+        workspace.mkdir()
+        runner_temp.mkdir()
+        tool_bin.mkdir()
+        workspace_derived_data = workspace / "DerivedData" / "cmux-e2e"
+        workspace_derived_data.mkdir(parents=True)
+        workspace_sentinel = workspace_derived_data / "ownership-sentinel.txt"
+        workspace_sentinel.write_text("workspace-owned", encoding="utf-8")
+        (tool_bin / "xcodebuild").write_text(
+            "#!/bin/sh\necho 'Xcode 26.0'\n", encoding="utf-8"
+        )
+        (tool_bin / "xcodebuild").chmod(0o755)
+
+        environment = os.environ.copy()
+        environment.update(
+            {
+                "GITHUB_WORKSPACE": str(workspace),
+                "RUNNER_TEMP": str(runner_temp),
+                "GITHUB_ENV": str(github_env),
+                "GITHUB_OUTPUT": str(github_output),
+                "PATH": f"{tool_bin}:{environment.get('PATH', '')}",
+            }
+        )
+        prepared = subprocess.run(
+            ["/bin/bash", "-e", "-o", "pipefail", "-c", preparation_run],
+            cwd=workspace,
+            env=environment,
+            capture_output=True,
+            text=True,
+        )
+        if prepared.returncode != 0:
+            raise SystemExit(
+                "FAIL: E2E test DerivedData preparation failed in the ownership "
+                f"fixture: {prepared.stderr}"
+            )
+
+        prefix = "CMUX_DERIVED_DATA_PATH="
+        derived_data_values = [
+            line[len(prefix) :]
+            for line in github_env.read_text(encoding="utf-8").splitlines()
+            if line.startswith(prefix)
+        ]
+        if len(derived_data_values) != 1:
+            raise SystemExit(
+                "FAIL: E2E test DerivedData preparation must publish one path"
+            )
+        derived_data = Path(derived_data_values[0]).resolve()
+        expected = (runner_temp / "cmux-e2e").resolve()
+        if derived_data != expected:
+            raise SystemExit(
+                "FAIL: E2E test DerivedData must be owned under RUNNER_TEMP; "
+                f"got {derived_data}, expected {expected}"
+            )
+        if not derived_data.is_dir():
+            raise SystemExit(
+                f"FAIL: E2E test DerivedData target was not created: {derived_data}"
+            )
+        if workspace_sentinel.read_text(encoding="utf-8") != "workspace-owned":
+            raise SystemExit(
+                "FAIL: E2E test DerivedData preparation touched the workspace root"
+            )
+
+        cleanup_environment = {
+            **environment,
+            "CMUX_DERIVED_DATA_PATH": str(derived_data),
+            "CMUX_E2E_COMPILATION_CACHE": "",
+        }
+        cleaned = subprocess.run(
+            ["/bin/bash", "-e", "-o", "pipefail", "-c", cleanup_run],
+            cwd=workspace,
+            env=cleanup_environment,
+            capture_output=True,
+            text=True,
+        )
+        if cleaned.returncode != 0:
+            raise SystemExit(
+                "FAIL: E2E test DerivedData cleanup rejected its prepared target: "
+                f"{cleaned.stderr}"
+            )
+        if derived_data.exists():
+            raise SystemExit(
+                "FAIL: E2E test DerivedData cleanup left its owned target behind"
+            )
+        if workspace_sentinel.read_text(encoding="utf-8") != "workspace-owned":
+            raise SystemExit(
+                "FAIL: E2E test DerivedData cleanup touched the workspace root"
+            )
+
+        rejected_cleanup = subprocess.run(
+            ["/bin/bash", "-e", "-o", "pipefail", "-c", cleanup_run],
+            cwd=workspace,
+            env={
+                **cleanup_environment,
+                "CMUX_DERIVED_DATA_PATH": str(workspace_derived_data),
+            },
+            capture_output=True,
+            text=True,
+        )
+        if rejected_cleanup.returncode == 0:
+            raise SystemExit(
+                "FAIL: E2E test DerivedData cleanup accepted a workspace-root candidate"
+            )
+        if workspace_sentinel.read_text(encoding="utf-8") != "workspace-owned":
+            raise SystemExit(
+                "FAIL: rejected E2E test DerivedData cleanup touched the workspace root"
+            )
+
+
 def main() -> int:
     override_fixture = """\
 <Scheme>
@@ -723,6 +846,7 @@ def main() -> int:
         )
 
     check_every_app_host_home_is_identified_and_cleaned()
+    check_e2e_test_derived_data_scope()
 
     print("PASS: app-host XCTest receives an isolated launch home")
     return 0
