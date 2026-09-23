@@ -107,8 +107,9 @@ public final class TerminalPredictionOverlayView: NSView {
     ///
     /// - Parameters:
     ///   - glyphs: What to draw, left to right from the cursor.
-    ///   - cursorOrigin: The cursor's top-left corner in the host view's
-    ///     coordinates, already converted out of ghostty's top-left space.
+    ///   - cursorOrigin: The cursor cell's frame origin (bottom-left) in the
+    ///     host view's coordinates, already converted out of ghostty's
+    ///     top-left space.
     public func present(
         glyphs: [PredictedGlyph],
         style: Style,

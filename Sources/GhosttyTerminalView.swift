@@ -4225,12 +4225,16 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         var width: Double = 0
         var height: Double = 0
         ghostty_surface_ime_point(surface, &x, &y, &width, &height)
-        // Ghostty reports the cursor in a top-left origin space; this view is
-        // not flipped. Matches the conversion in `firstRect(forCharacterRange:)`.
+        // Ghostty reports the cursor cell's horizontal midpoint and bottom edge
+        // (`Surface.imePoint`) in a top-left origin space; this view is not
+        // flipped, so the bottom edge becomes the frame origin's y.
         predictionOverlayView.present(
             glyphs: glyphs,
             style: style,
-            cursorOrigin: CGPoint(x: x, y: bounds.height - y)
+            cursorOrigin: CGPoint(
+                x: x - style.cellSize.width / 2,
+                y: bounds.height - y
+            )
         )
         setPredictedEchoRenderedFrameTrackingActive(true)
     }
@@ -4255,7 +4259,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             foreground: GhosttyApp.shared.defaultForegroundColor,
             background: GhosttyApp.shared.defaultBackgroundColor,
             cursor: GhosttyApp.shared.defaultCursorColor,
-            cellSize: cellSize
+            // `GHOSTTY_ACTION_CELL_SIZE` reports backing pixels; the overlay
+            // lays out in points alongside `ghostty_surface_ime_point`.
+            cellSize: convertFromBacking(cellSize)
         )
     }
 
