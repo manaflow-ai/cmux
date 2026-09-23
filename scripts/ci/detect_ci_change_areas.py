@@ -330,6 +330,8 @@ CLI_LANE_EXACT_INPUTS = frozenset({
 
 CLI_LANE_INPUT_PREFIXES = (
     "CLI/",
+    "cmuxCLITests/",
+    "cmuxCLITestSupport/",
     # The lane builds the cmux-cli scheme of this project and keys its package
     # cache on the project's Package.resolved.
     "cmux.xcodeproj/",

@@ -6,6 +6,10 @@ on:
       macos:
         required: true
         type: string
+      cli:
+        required: false
+        default: "false"
+        type: string
       full_suite:
         required: true
         type: string
@@ -53,7 +57,7 @@ jobs:
     # build products and run test-without-building, so a compiler failure
     # cannot fan out across every macOS worker and a successful build is not
     # repeated six times.
-    if: ${{ inputs.macos == 'true' && inputs.compile_admitted != 'true' }}
+    if: ${{ (inputs.macos == 'true' || inputs.cli == 'true') && (inputs.compile_admitted != 'true' || inputs.full_suite == 'true' || inputs.cli == 'true') }}
     runs-on: ${{ github.event_name == 'pull_request' && (vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15') || vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15' }}
     timeout-minutes: 75
     permissions:
@@ -563,7 +567,7 @@ jobs:
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_contract_help.py
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_config_doctor.py
 
-      # Compile-only forks have no artifact consumers and cannot seed reuse:
+      # Compile-only forks without targeted CLI tests have no artifact consumers and cannot seed reuse:
       # both the reuse selector and broker require an in-repository producer.
       # Keep unknown metadata, every full suite, and in-org reuse producers.
       - name: Start product publication timer
@@ -573,6 +577,7 @@ jobs:
         id: publish-products
         env:
           PRODUCT_FULL_SUITE: ${{ inputs.full_suite }}
+          PRODUCT_CLI: ${{ inputs.cli }}
           PRODUCT_EVENT: ${{ github.event_name }}
           PRODUCT_HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name }}
           PRODUCT_REPOSITORY: ${{ github.repository }}
@@ -583,6 +588,7 @@ jobs:
           repository = os.environ.get("PRODUCT_REPOSITORY", "").strip()
           unused_fork_product = (
               os.environ.get("PRODUCT_FULL_SUITE") == "false"
+              and os.environ.get("PRODUCT_CLI") == "false"
               and os.environ.get("PRODUCT_EVENT") == "pull_request"
               and bool(head) and bool(repository)
               and head.casefold() != repository.casefold()
@@ -2419,10 +2425,12 @@ jobs:
       actions: read
     needs:
       - macos-compile-admission
+    # Targeted CLI routing consumes the shared compiled product even when prior
+    # compile admission exists; it does not enable the app-host/full-suite lanes.
     # Same !cancelled() reasoning as app-host-unit-tests: the implicit success()
     # gate would count a legitimately skipped linux job in the transitive needs
     # chain as a reason to skip every macOS job.
-    if: ${{ !cancelled() && needs.macos-compile-admission.result == 'success' && inputs.macos == 'true' && inputs.full_suite == 'true' }}
+    if: ${{ !cancelled() && needs.macos-compile-admission.result == 'success' && (inputs.cli == 'true' || (inputs.macos == 'true' && inputs.full_suite == 'true')) }}
     name: CLI product tests
     # cmuxCLITests has no app host, so it needs no testmanagerd control session
     # and no GUI console session. It still needs the compiled product, so it
@@ -3563,17 +3571,19 @@ jobs:
           # same reading the macos-compile-admission job condition uses.
           if inputs.get("compile_admitted") == "":
               inputs["compile_admitted"] = "false"
-          for route in ("macos", "full_suite", "compile_admitted", "release_build"):
+          inputs.setdefault("cli", "false")
+          for route in ("macos", "cli", "full_suite", "compile_admitted", "release_build"):
               if inputs.get(route) not in {"true", "false"}:
                   print(f"invalid route {route}={inputs.get(route)!r}", file=sys.stderr)
                   sys.exit(1)
 
           macos = inputs["macos"] == "true"
           full_suite = inputs["full_suite"] == "true"
+          cli = inputs["cli"] == "true"
           required = {
-              "macos-compile-admission": macos and inputs["compile_admitted"] != "true",
+              "macos-compile-admission": (macos or cli) and (inputs["compile_admitted"] != "true" or full_suite or cli),
               "app-host-unit-tests": macos and full_suite,
-              "cli-product-tests": macos and full_suite,
+              "cli-product-tests": cli or (macos and full_suite),
               "swift-package-tests": macos and full_suite,
               "tests-build-and-lag": macos and full_suite,
               "release-admission": macos and full_suite and inputs["release_build"] == "true",
