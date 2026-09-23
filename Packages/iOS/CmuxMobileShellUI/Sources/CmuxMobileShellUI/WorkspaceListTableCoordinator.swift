@@ -76,6 +76,12 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDataSource,
     private var emptyStateLayoutGeneration = 0
 
     private var isScrollInteractionActive = false
+    /// Set while a geometry commit owns the content offset, so offset changes
+    /// it causes are not reported as unowned.
+    private var isCommittingGeometry = false
+    #if DEBUG
+    private var lastObservedOffsetY: CGFloat?
+    #endif
     /// The row whose swipe controls UIKit is presenting.
     private var editedItemID: String?
     private var isDragSessionActive = false
@@ -246,6 +252,8 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDataSource,
             return
         }
 
+        isCommittingGeometry = true
+        defer { isCommittingGeometry = false }
         let anchor = viewportAnchor(stableIDs: plan.stableIDs, in: tableView)
 
         UIView.performWithoutAnimation {
@@ -289,6 +297,18 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDataSource,
         if let anchor {
             restore(anchor, in: tableView)
         }
+        #if DEBUG
+        let drift = anchor.flatMap { anchor in
+            indexPath(forID: anchor.rowID).map {
+                tableView.rectForRow(at: $0).minY - tableView.contentOffset.y
+                    - anchor.distanceFromOffset
+            }
+        }
+        MobileDebugLog.anchormux(
+            "workspace-list.commit changes=\(plan.difference.count) heights=\(plan.heightChangedIDs.count) actions=\(plan.nativeActionChangedIDs.count) anchor=\(anchor?.rowID ?? "top") drift=\(drift.map { String(format: "%.2f", $0) } ?? "n/a")"
+        )
+        lastObservedOffsetY = tableView.contentOffset.y
+        #endif
     }
 
     /// The first visible row that survives the commit without moving relative
@@ -745,6 +765,24 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDataSource,
 
     func scrollViewDidEndScrollingAnimation(_ scrollView: UIScrollView) {
         scrollInteractionDidSettle(scrollView)
+    }
+
+    func scrollViewDidScroll(_ scrollView: UIScrollView) {
+        #if DEBUG
+        // Any offset change the user did not drive and no commit made is a
+        // viewport shift the user did not ask for.
+        let offsetY = scrollView.contentOffset.y
+        defer { lastObservedOffsetY = offsetY }
+        guard !isCommittingGeometry,
+              !scrollView.isTracking,
+              !scrollView.isDragging,
+              !scrollView.isDecelerating,
+              let lastObservedOffsetY,
+              abs(offsetY - lastObservedOffsetY) >= 0.5 else { return }
+        MobileDebugLog.anchormux(
+            "workspace-list.offset-unowned from=\(lastObservedOffsetY) to=\(offsetY)"
+        )
+        #endif
     }
 
     func scrollViewDidScrollToTop(_ scrollView: UIScrollView) {
