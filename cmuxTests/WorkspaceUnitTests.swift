@@ -5025,6 +5025,15 @@ final class WorkspaceTerminalFocusRecoveryTests: XCTestCase {
             await AppKitTestEventPump().startSurface(rightPanel.surface)
             leftPanel.hostedView.reconcileGeometryNow()
             rightPanel.hostedView.reconcileGeometryNow()
+            // The split suppressed the left view's reparent focus until layout
+            // settles. In the app, SwiftUI's mount runs that follow-up; without
+            // it, first responder moves while onFocus and the notification stay
+            // suppressed.
+            workspace.debugAttemptEventDrivenLayoutFollowUpForTesting()
+            XCTAssertFalse(
+                leftPanel.hostedView.debugIsSuppressingReparentFocusForTesting(),
+                "Expected the layout follow-up to release the split's reparent focus suppression"
+            )
             appDelegate.noteMainPanelKeyboardFocusIntent(
                 workspaceId: workspace.id, panelId: leftPanel.id, in: window
             )
