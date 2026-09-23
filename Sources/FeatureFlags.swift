@@ -597,10 +597,10 @@ final class CmuxFeatureFlags {
         guard let (bytes, response) = try? await session.bytes(for: request),
               let http = response as? HTTPURLResponse else { return nil }
         if http.statusCode == 429 {
-            let seconds = CmxRetryAfterPolicy.seconds(
+            let seconds = CmxRetryAfterPolicy().seconds(
                 from: http,
-                defaultSeconds: CmxRetryAfterPolicy.defaultRateLimitSeconds
-            ) ?? CmxRetryAfterPolicy.defaultRateLimitSeconds
+                defaultSeconds: CmxRetryAfterPolicy().defaultRateLimitSeconds
+            ) ?? CmxRetryAfterPolicy().defaultRateLimitSeconds
             await releaseControlRetryAfterGate.extend(by: seconds)
             return nil
         }

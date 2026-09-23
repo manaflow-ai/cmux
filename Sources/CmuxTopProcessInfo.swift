@@ -1,5 +1,6 @@
 import CmuxFoundation
 import Foundation
+import CmuxFoundation
 
 struct CmuxTopProcessInfo: Sendable {
     let pid: Int
@@ -67,4 +68,3 @@ struct CmuxTopProcessInfo: Sendable {
         return processGroupID == terminalProcessGroupID
     }
 }
-

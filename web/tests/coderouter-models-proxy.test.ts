@@ -1,10 +1,11 @@
+import { vmToken } from "./vm-authorization-fixture";
 import { afterAll, beforeAll, beforeEach, describe, expect, mock, test } from "bun:test";
 import { VM_PLACEHOLDER_API_KEY } from "../services/coderouter/routeTokenAuth";
 
 let selectedAccounts = ["account-1"];
 let unusableAccounts = new Set<string>();
 let authenticatedTokens: string[] = [];
-const BOUND_TOKEN = "crt_bound-to-vm-1";
+const BOUND_TOKEN = await vmToken("vm-1", "team-1", "stack-user-1");
 
 const originalFetch = globalThis.fetch;
 let upstreamUrl = "";
@@ -99,13 +100,13 @@ describe("coderouter models proxy", () => {
     expect(response.status).toBe(200);
   });
 
-  test("a bound token needs the matching x-cmux-vm-id header", async () => {
+  test("a signed VM token needs no separate VM header", async () => {
     const models = (headers: Record<string, string>) =>
       proxyCodexModels(
         new Request("https://coderouter.dev/v1/models", {
           headers: {
             authorization: `Bearer ${VM_PLACEHOLDER_API_KEY}`,
-            "x-coderouter-route-token": BOUND_TOKEN,
+            "x-cmux-authorization": `Bearer ${BOUND_TOKEN}`,
             ...headers,
           },
         }),
@@ -114,17 +115,11 @@ describe("coderouter models proxy", () => {
     expect(matched.status).toBe(200);
 
     selectedAccounts = ["account-1"];
-    const missing = await models({});
-    expect(missing.status).toBe(401);
-    await expect(missing.json()).resolves.toMatchObject({
-      error: "unauthorized",
-      message:
-        "This machine's coderouter credential does not match the machine it was issued to.",
-    });
-
+    expect((await models({})).status).toBe(200);
     selectedAccounts = ["account-1"];
-    const wrong = await models({ "x-cmux-vm-id": "vm-2" });
-    expect(wrong.status).toBe(401);
+    expect((await models({ "x-cmux-vm-id": "vm-2" })).status).toBe(200);
+    selectedAccounts = ["account-1"];
+    expect((await models({ "x-cmux-authorization": "Bearer invalid" })).status).toBe(401);
   });
 
   test("the placeholder API key alone is rejected without a lookup", async () => {

@@ -46,7 +46,7 @@ def check(root: Path, changed: list[str] | None, expected: list[str], why: str) 
 
 def job_scripts() -> set[str]:
     """Scripts the swift-package-tests job runs, plus the helpers those scripts call beside them."""
-    workflow = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
+    workflow = (ROOT / ".github/workflows/ci-macos.yml").read_text(encoding="utf-8")
     job = workflow.split("\n  swift-package-tests:\n", 1)[1]
     job = re.split(r"\n  [A-Za-z0-9_-]+:\n", job, maxsplit=1)[0]
     found = set(re.findall(r"(?:\./)?(scripts/[A-Za-z0-9_./-]+\.(?:sh|py))", job))
@@ -87,6 +87,19 @@ def main() -> int:
         check(root, ["ghostty"], PACKAGES, "the GhosttyKit revision runs everything")
         check(root, ["Loner.swift", "Sources/App.swift"], PACKAGES, "an unknown path runs everything")
 
+        # Exercise the CLI used by the workflow, including mixed package/global
+        # inputs. Full-suite selection retains its existing fail-open policy.
+        for extra in (".github/workflows/ci-macos.yml", "unknown.conf"):
+            changed_file = root / "changed.txt"
+            changed_file.write_text("Packages/macOS/Loner/Sources/A.swift\n" + extra + "\n")
+            command = [sys.executable, str(ROOT / "scripts/ci/select_package_tests.py"),
+                       "--root", str(root), "--changed-files", str(changed_file)]
+            targeted = subprocess.run(command + ["--routed-inputs-only"] + PACKAGES,
+                                      text=True, capture_output=True, check=True)
+            assert targeted.stdout.splitlines() == ["Loner"], targeted
+            full = subprocess.run(command + PACKAGES, text=True, capture_output=True, check=True)
+            assert full.stdout.splitlines() == PACKAGES, full
+
         try:
             select(root, ["Missing"], [])
         except SystemExit:
@@ -95,7 +108,7 @@ def main() -> int:
             raise AssertionError("a listed package that does not exist must fail")
 
     # Every package the workflow lists must exist, or the job fails before testing anything.
-    workflow = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
+    workflow = (ROOT / ".github/workflows/ci-macos.yml").read_text(encoding="utf-8")
     listed = workflow.split("          PACKAGES=(\n", 1)[1].split("          )\n", 1)[0].split()
     assert len(listed) == len(set(listed)), "PACKAGES lists a package twice"
     result = subprocess.run(

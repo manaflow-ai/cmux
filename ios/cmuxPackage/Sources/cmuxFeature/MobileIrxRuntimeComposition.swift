@@ -2,6 +2,7 @@ public import CMUXMobileCore
 import CmuxAuthRuntime
 public import CmuxIrohTransport
 import CmuxIrxTransport
+public import CmuxMobileShellModel
 public import CmuxMobileTransport
 public import Foundation
 
@@ -15,6 +16,7 @@ public actor MobileIrxRuntimeComposition {
         case direct([CmxIrohDirectDialCandidate])
     }
 
+    public nonisolated let macListAuthState: MobileMacListAuthState
     public nonisolated let configuration: MobileIrohV2Configuration
     public nonisolated var tag: String { configuration.buildTag }
     public nonisolated var forceRelayOnly: Bool { configuration.forceRelayOnly }
@@ -55,8 +57,9 @@ public actor MobileIrxRuntimeComposition {
     var admittedSessionCount = 0
 
     /// Dependencies are owned here; authentication is supplied later without copying its persistence.
-    public init(configuration: MobileIrohV2Configuration, keychainAccessGroup: String? = nil,
+    public init(configuration: MobileIrohV2Configuration, macListAuthState: MobileMacListAuthState, keychainAccessGroup: String? = nil,
                 session: URLSession = .shared) {
+        self.macListAuthState = macListAuthState
         self.configuration = configuration
         self.urlSession = session
         localPaths = MobileIrohV2LocalPathStore(root: configuration.stateDirectory)

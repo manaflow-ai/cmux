@@ -298,16 +298,19 @@ private extension MobilePairedMac {
               !displayName.isEmpty else {
             return nil
         }
-        let reconnectRoutes = MobileShellComposite.storedReconnectRoutes(
-            routes,
-            supportedKinds: supportedKinds,
-            preferNonLoopback: preferNonLoopback
-        )
-        if case let .peer(identity, _)? = reconnectRoutes.first?.endpoint {
+        // Presentation identity comes from stored endpoints, not the selected
+        // connection method. Automatic dial admission excludes raw Tailscale
+        // routes, but changing that method must not split a computer's aliases.
+        let supported = Set(supportedKinds)
+        let identityRoutes = routes.filter {
+            (supported.isEmpty || supported.contains($0.kind))
+                && (!preferNonLoopback || $0.kind != .debugLoopback)
+        }.sorted(by: MobileShellComposite.routeSortsBefore)
+        if case let .peer(identity, _)? = identityRoutes.first?.endpoint {
             return "iroh:\(identity.endpointID):name:\(displayName.lowercased())"
         }
         guard let (host, port) = MobileShellComposite.firstReconnectHostPortRoute(
-            reconnectRoutes,
+            identityRoutes,
             supportedKinds: supportedKinds,
             preferNonLoopback: preferNonLoopback
         ), let normalizedHost = MobileShellRouteAuthPolicy.normalizedManualHost(host) else {

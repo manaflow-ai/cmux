@@ -13,6 +13,7 @@ struct SurfaceCatalogSnapshot: Hashable, Codable, Sendable {
     var resources: [SurfaceResource]
     var projections: [SurfaceProjection]
     var staleMachineIDs: Set<SurfaceMachineID> = []
+    var displayCreationMachines: Set<SurfaceMachineID>? = nil
 
     static let empty = SurfaceCatalogSnapshot(machines: [], resources: [], projections: [])
 
@@ -32,7 +33,7 @@ struct SurfaceCatalogSnapshot: Hashable, Codable, Sendable {
 
 extension SurfaceCatalogSnapshot {
     private enum CodingKeys: String, CodingKey {
-        case pendingWorkspaceCreations, pendingWorkspaceDeletions, machines, resources, projections, staleMachineIDs
+        case pendingWorkspaceCreations, pendingWorkspaceDeletions, machines, resources, projections, staleMachineIDs, displayCreationMachines
     }
 
     init(from decoder: Decoder) throws {
@@ -43,5 +44,6 @@ extension SurfaceCatalogSnapshot {
         resources = try values.decode([SurfaceResource].self, forKey: .resources)
         projections = try values.decode([SurfaceProjection].self, forKey: .projections)
         staleMachineIDs = try values.decodeIfPresent(Set<SurfaceMachineID>.self, forKey: .staleMachineIDs) ?? []
+        displayCreationMachines = try values.decodeIfPresent(Set<SurfaceMachineID>.self, forKey: .displayCreationMachines)
     }
 }

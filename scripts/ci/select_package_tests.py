@@ -26,10 +26,13 @@ EXTRA_INPUTS = {
 # toolchain and GhosttyKit revision. A change to any of these selects everything.
 GLOBAL_INPUTS = (
     ".github/workflows/ci.yml",
+    ".github/workflows/ci-macos.yml",
     "scripts/build-ghostty-cli-helper.sh",
+    "scripts/ci/release-build-archs.sh",
     "scripts/ci/run-swift-testing-suites.sh",
     "scripts/ci/run_with_timeout.py",
     "scripts/ci/select_package_tests.py",
+    "scripts/ci/verify-binary-archs.sh",
     "scripts/download-prebuilt-ghosttykit.sh",
     "scripts/install-rust-ci.sh",
     "scripts/install-zig-ci.sh",
@@ -142,16 +145,29 @@ def select(root: Path, packages: list[str], changed: list[str] | None) -> list[s
     ]
 
 
+def is_routed_input(path: str) -> bool:
+    """Inputs eligible to start the targeted PR lane, excluding global sweeps."""
+    return path.startswith("Packages/") or any(
+        under(path, prefix) for prefixes in EXTRA_INPUTS.values() for prefix in prefixes
+    )
+
+
 def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--root", default=".")
     parser.add_argument("--changed-files", help="one path per line; omit when the diff is unknown")
+    parser.add_argument("--routed-inputs-only", action="store_true",
+                        help="select only inputs eligible for the targeted PR lane")
     parser.add_argument("packages", nargs="+")
     args = parser.parse_args(argv)
 
     changed = None
     if args.changed_files:
         changed = [line for line in Path(args.changed_files).read_text(encoding="utf-8").splitlines() if line]
+    if args.routed_inputs_only:
+        if changed is None:
+            parser.error("--routed-inputs-only requires --changed-files")
+        changed = [path for path in changed if is_routed_input(path)]
     # The list has historical duplicates; keep the first of each.
     packages = list(dict.fromkeys(args.packages))
     for name in select(Path(args.root), packages, changed):

@@ -9,6 +9,10 @@ public enum ControlWorkspaceCurrentResolution: Sendable, Equatable {
     /// A TabManager resolved but had no selected workspace (legacy `not_found` /
     /// "No workspace selected").
     case noWorkspaceSelected
+    /// The authenticated relay owner, with no local workspace metadata.
+    case relayWorkspace(id: UUID, title: String)
+    /// The authenticated relay owner was no longer active.
+    case relayOwnerUnavailable
     /// The selected workspace id resolved. Carries the owning window id (may be
     /// absent), the selected workspace's id, its index within the list (if
     /// resolvable), and its summary — `nil` when `selectedTabId` points at a

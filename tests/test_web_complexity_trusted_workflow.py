@@ -20,6 +20,7 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / ".github" / "workflows" / "web-complexity-trusted.yml"
+CANDIDATE_WORKFLOW = ROOT / ".github" / "workflows" / "web-complexity.yml"
 
 # --config takes its value with "=". As a separate argument Bun runs the config
 # file as the script, exits 0, and the check never happens.
@@ -199,6 +200,15 @@ def main() -> int:
     document = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
     validate_metadata_routing(document)
     job = document["jobs"]["complexity"]
+
+    candidate_text = CANDIDATE_WORKFLOW.read_text(encoding="utf-8")
+    pull_request_block = candidate_text.split("  pull_request:\n", 1)[1].split("  push:\n", 1)[0]
+    if "    paths:\n      - web/**\n" not in pull_request_block:
+        print("FAIL: contributor complexity workflow must only queue for web/** pull-request changes")
+        return 1
+    if ".github/workflows/web-complexity.yml" in pull_request_block:
+        print("FAIL: editing the candidate workflow must not self-queue the candidate complexity job")
+        return 1
     if job.get("continue-on-error"):
         print("FAIL: the complexity job must not continue on error")
         return 1
