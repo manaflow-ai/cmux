@@ -19,6 +19,9 @@ import CmuxBrowser
 import struct CmuxSettings.IntegrationsCatalogSection
 import enum CmuxSettings.KiroNotificationLevel
 import XCTest
+#if DEBUG
+import CMUXDebugLog
+#endif
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -4927,6 +4930,150 @@ final class WorkspaceTerminalFocusRecoveryTests: XCTestCase {
         return nil
     }
 
+#if DEBUG
+    /// Keeps a test's focus-state snapshots and reads back what its panels wrote
+    /// to the debug event log, so a focus failure in CI shows which step dropped
+    /// the first-responder callback.
+    private final class FocusDebugLogTrace {
+        let marker = "focustrace.\(UUID().uuidString.prefix(8).lowercased())"
+        private let logPath = CMUXDebugLog.DebugEventLog.currentLogPath()
+        private let startOffset: UInt64
+        private var states: [String] = []
+        private var reported = false
+
+        init() {
+            let attributes = try? FileManager.default.attributesOfItem(atPath: logPath)
+            startOffset = (attributes?[.size] as? NSNumber)?.uint64Value ?? 0
+        }
+
+        /// Marks `step` in the debug log and keeps `state` for the report.
+        func record(_ step: String, state: String? = nil) {
+            cmuxDebugLog("\(marker) step=\(step)")
+            if let state {
+                states.append("\(step): \(state)")
+            }
+        }
+
+        /// The kept states, `extra`, and the matching log lines on the first call.
+        /// Later calls point back to it, so each failure message stays short.
+        func report(keys: [String], splitStep: String, extra: [String] = []) -> String {
+            guard !reported else { return " (focus trace in the first failure above)" }
+            reported = true
+            let parts = ["", "focus states:"] + states + extra + [render(keys: keys, splitStep: splitStep)]
+            return parts.joined(separator: "\n")
+        }
+
+        /// Waits up to two seconds for the log's serial writer to persist an end
+        /// marker, then returns the lines that mention one of `keys`: the last 40
+        /// before the `splitStep` marker and the first 80 from it on.
+        private func render(keys: [String], splitStep: String) -> String {
+            let endLine = "\(marker) step=end"
+            cmuxDebugLog(endLine)
+            var text = ""
+            let deadline = Date().addingTimeInterval(2)
+            repeat {
+                text = readLogSinceStart()
+                if text.contains(endLine) { break }
+                Thread.sleep(forTimeInterval: 0.05)
+            } while Date() < deadline
+
+            let allKeys = [marker, "log.dropped"] + keys
+            let lines = text.split(separator: "\n").map { String($0.prefix(400)) }.filter { line in
+                allKeys.contains { line.contains($0) }
+            }
+            let splitIndex = lines.firstIndex { $0.contains("\(marker) step=\(splitStep)") } ?? lines.count
+            let setup = lines[..<splitIndex]
+            let after = lines[splitIndex...]
+            let setupShown = setup.suffix(40)
+            let afterShown = after.prefix(80)
+            var parts = [
+                "debug log \(logPath): \(lines.count) matching lines, end marker \(text.contains(endLine) ? "found" : "missing")"
+            ]
+            if setup.count > setupShown.count {
+                parts.append("... \(setup.count - setupShown.count) earlier lines omitted")
+            }
+            parts.append(contentsOf: setupShown)
+            parts.append(contentsOf: afterShown)
+            if after.count > afterShown.count {
+                parts.append("... \(after.count - afterShown.count) later lines omitted")
+            }
+            return parts.joined(separator: "\n")
+        }
+
+        private func readLogSinceStart() -> String {
+            guard let handle = FileHandle(forReadingAtPath: logPath) else { return "" }
+            defer { try? handle.close() }
+            let size = (try? handle.seekToEnd()) ?? 0
+            // A log truncated since the test started is read from the top.
+            try? handle.seek(toOffset: size >= startOffset ? startOffset : 0)
+            let data = (try? handle.readToEnd()) ?? Data()
+            return String(decoding: data, as: UTF8.self)
+        }
+    }
+
+    /// The focus state a split-pane first-responder test depends on, on one line.
+    private func splitFocusState(
+        window: NSWindow,
+        workspace: Workspace,
+        appDelegate: AppDelegate,
+        left: TerminalPanel,
+        right: TerminalPanel
+    ) -> String {
+        func panelName(_ id: UUID?) -> String {
+            if id == nil { return "nil" }
+            if id == left.id { return "left" }
+            if id == right.id { return "right" }
+            return "other"
+        }
+        func responderName() -> String {
+            guard let responder = window.firstResponder else { return "nil" }
+            if responder === window { return "window" }
+            guard let view = responder as? NSView else { return "\(type(of: responder))" }
+            for (name, panel) in [("left", left), ("right", right)] {
+                if let ghosttyView = surfaceView(in: panel.hostedView),
+                   view === ghosttyView || view.isDescendant(of: ghosttyView) {
+                    return name
+                }
+                if view.isDescendant(of: panel.hostedView) {
+                    return "\(name)Host(\(type(of: view)))"
+                }
+            }
+            return "\(type(of: view))"
+        }
+        func panelState(_ panel: TerminalPanel) -> String {
+            let hostedView = panel.hostedView
+            let ghosttyView = surfaceView(in: hostedView)
+            let hostSize = hostedView.bounds.size
+            let surfaceSize = ghosttyView?.bounds.size ?? .zero
+            let fields = [
+                "visible=\(hostedView.debugPortalVisibleInUI)",
+                "active=\(hostedView.debugPortalActive)",
+                "desired=\(ghosttyView?.desiredFocus ?? false)",
+                "suppressed=\(hostedView.debugIsSuppressingReparentFocusForTesting())",
+                "pendingApply=\(hostedView.debugHasPendingAutomaticFirstResponderApplyForTesting())",
+                "runtime=\(panel.surface.surface != nil)",
+                "inWindow=\(hostedView.window === window)",
+                "hidden=\(hostedView.isHiddenOrHasHiddenAncestor)",
+                "size=\(Int(hostSize.width))x\(Int(hostSize.height))/\(Int(surfaceSize.width))x\(Int(surfaceSize.height))"
+            ]
+            return fields.joined(separator: " ")
+        }
+        let keyboardFocusAllowed = appDelegate.allowsTerminalKeyboardFocus(
+            workspaceId: workspace.id, panelId: left.id, in: window
+        )
+        let fields = [
+            "responder=\(responderName())",
+            "focused=\(panelName(workspace.focusedPanelId))",
+            "key=\(window.isKeyWindow)",
+            "pendingSuppressions=\(workspace.debugHasPendingReparentFocusSuppressionsForTesting())",
+            "keyboardFocusAllowed=\(keyboardFocusAllowed)",
+            "left[\(panelState(left))]",
+            "right[\(panelState(right))]"
+        ]
+        return fields.joined(separator: " ")
+    }
+#endif
+
     func testTerminalFirstResponderConvergesSplitActiveStateWhenSelectionAlreadyMatches() {
         let fixture = TerminalPortalTestWorkspace()
         defer { fixture.tearDown() }
@@ -4965,6 +5112,10 @@ final class WorkspaceTerminalFocusRecoveryTests: XCTestCase {
 
     func testTerminalFirstResponderFeedbackPreservesActiveFocusTransaction() async {
         await AppContextSerialGate.withExclusiveAppContext {
+#if DEBUG
+            let focusTrace = FocusDebugLogTrace()
+            focusTrace.record("begin")
+#endif
             let originalAppDelegate = AppDelegate.shared
             let appDelegate = originalAppDelegate ?? AppDelegate()
             let manager = TabManager(autoWelcomeIfNeeded: false)
@@ -5069,13 +5220,54 @@ final class WorkspaceTerminalFocusRecoveryTests: XCTestCase {
             defer { NotificationCenter.default.removeObserver(firstResponderToken) }
 
             let transactionId = UUID()
+#if DEBUG
+            // Every terminal first-responder notification, not only the left
+            // panel's, so a failure shows where AppKit focus went instead.
+            var firstResponderNotifications: [String] = []
+            let leftId = leftPanel.id
+            let rightId = rightPanel.id
+            let firstResponderRecorderToken = NotificationCenter.default.addObserver(
+                forName: .ghosttyDidBecomeFirstResponderSurface,
+                object: nil,
+                queue: nil
+            ) { notification in
+                let surfaceId = notification.userInfo?[GhosttyNotificationKey.surfaceId] as? UUID
+                let focusTransactionId = notification.userInfo?[GhosttyNotificationKey.focusTransactionId] as? UUID
+                let surface = surfaceId == leftId ? "left" : surfaceId == rightId ? "right" : "other"
+                let transaction = focusTransactionId == nil ? "nil" : focusTransactionId == transactionId ? "active" : "other"
+                firstResponderNotifications.append("\(surface)(tx=\(transaction))")
+            }
+            defer { NotificationCenter.default.removeObserver(firstResponderRecorderToken) }
+            func recordFocusState(_ step: String) {
+                focusTrace.record(step, state: splitFocusState(
+                    window: window, workspace: workspace, appDelegate: appDelegate,
+                    left: leftPanel, right: rightPanel
+                ))
+            }
+            func focusTraceReport() -> String {
+                focusTrace.report(
+                    keys: [String(leftId.uuidString.prefix(5)), String(rightId.uuidString.prefix(5)), "focus.reparent"],
+                    splitStep: "beforeSelect",
+                    extra: ["first-responder notifications: \(firstResponderNotifications)"]
+                )
+            }
+            recordFocusState("beforeSelect")
+#else
+            func focusTraceReport() -> String { "" }
+#endif
             window.makeFirstResponder(nil)
+#if DEBUG
+            recordFocusState("afterResign")
+#endif
             workspace.applyTabSelection(
                 tabId: leftTabId,
                 inPane: leftPaneId,
                 focusTransactionId: transactionId
             )
             FocusSurfaceBroadcaster.shared.flush()
+#if DEBUG
+            recordFocusState("afterApplyTabSelection")
+#endif
 
             // Selection applies focus through the AppKit event queue.  Drain the
             // queue before inspecting callbacks so this assertion observes the
@@ -5085,29 +5277,33 @@ final class WorkspaceTerminalFocusRecoveryTests: XCTestCase {
             ) {
                 firstResponderFeedbackCount > 0
             }
+#if DEBUG
+            recordFocusState("afterWait")
+#endif
             XCTAssertTrue(
                 firstResponderFeedbackObserved,
-                "Expected AppKit first-responder focus to feed back through workspace.focusPanel"
+                "Expected AppKit first-responder focus to feed back through workspace.focusPanel" + focusTraceReport()
             )
 
             XCTAssertGreaterThan(
                 firstResponderFeedbackCount,
                 0,
-                "Expected AppKit first-responder focus to feed back through workspace.focusPanel"
+                "Expected AppKit first-responder focus to feed back through workspace.focusPanel" + focusTraceReport()
             )
             XCTAssertTrue(
                 sawFirstResponderNotification,
-                "Expected the terminal first-responder notification to be posted for the focused panel"
+                "Expected the terminal first-responder notification to be posted for the focused panel" + focusTraceReport()
             )
             XCTAssertEqual(
                 observedFirstResponderTransactions.last,
                 transactionId,
-                "Terminal first-responder notifications should carry the active focus transaction"
+                "Terminal first-responder notifications should carry the active focus transaction" + focusTraceReport()
             )
             XCTAssertEqual(
                 observedTransactions.last,
                 transactionId,
-                "Terminal first-responder feedback should stay in the active focus transaction instead of starting a new circuit"
+                "Terminal first-responder feedback should stay in the active focus transaction instead of starting a new circuit" +
+                    focusTraceReport()
             )
         }
     }
