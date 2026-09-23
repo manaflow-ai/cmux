@@ -1,23 +1,6 @@
 public import CMUXMobileCore
 internal import Foundation
 
-private func taskModelProviderName(_ provider: DiagnosticTaskModelProvider) -> String {
-    switch provider {
-    case .claude: "claude"
-    case .codex: "codex"
-    case .openCode: "opencode"
-    }
-}
-
-private func taskModelSourceName(_ source: DiagnosticTaskModelSource) -> String {
-    switch source {
-    case .discovered: "discovered"
-    case .backend: "backend"
-    case .augmented: "augmented"
-    case .fallback: "fallback"
-    }
-}
-
 /// Reports bounded connectivity and task model discovery outcomes.
 ///
 /// Starts stay local. Only terminal outcomes reach Axiom, which keeps the
@@ -136,6 +119,23 @@ public final class MobileNetworkOutcomeReporter: Sendable {
     public func flush() async {
         await state.drain()
         await emitter.flush()
+    }
+
+    private static func taskModelProviderName(_ provider: DiagnosticTaskModelProvider) -> String {
+        switch provider {
+        case .claude: "claude"
+        case .codex: "codex"
+        case .openCode: "opencode"
+        }
+    }
+
+    private static func taskModelSourceName(_ source: DiagnosticTaskModelSource) -> String {
+        switch source {
+        case .discovered: "discovered"
+        case .backend: "backend"
+        case .augmented: "augmented"
+        case .fallback: "fallback"
+        }
     }
 
     /// Builds the task model discovery payload for one discovery event kind,

@@ -227,8 +227,16 @@ public struct DiagnosticEventPresentation: Sendable {
 
     /// The failure kind carried in an event's `b` slot, when applicable.
     public func failureKind(of event: DiagnosticEvent) -> DiagnosticFailureKind? {
-        guard Self.codesWithFailureB.contains(event.code), let b = event.b else { return nil }
+        guard Self.carriesFailureInB(event), let b = event.b else { return nil }
         return DiagnosticFailureKind(rawValue: b)
+    }
+
+    private static func carriesFailureInB(_ event: DiagnosticEvent) -> Bool {
+        if event.code == .appFeatureAction,
+           event.a == DiagnosticAppEventKind.taskModelListResultObserved.rawValue {
+            return false
+        }
+        return codesWithFailureB.contains(event.code)
     }
 
     /// The transport kind carried in an event's `a` slot, when applicable.
@@ -481,7 +489,7 @@ public struct DiagnosticEventPresentation: Sendable {
     }
 
     private func decodeB(_ raw: Int, event: DiagnosticEvent) -> Field {
-        if Self.codesWithFailureB.contains(event.code) {
+        if Self.carriesFailureInB(event) {
             return Field(key: "failure", value: failureName(raw))
         }
         switch event.code {
