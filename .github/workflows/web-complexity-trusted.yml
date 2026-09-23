@@ -51,7 +51,7 @@ jobs:
           # snapshot, so avoid cloning the repository's full history and tags.
           # Main pushes compare github.event.before..github.sha and still need
           # enough history to reach an arbitrarily large pushed commit range.
-          fetch-depth: ${{ github.event_name == 'push' && 0 || 1 }}
+          fetch-depth: ${{ github.event_name != 'push' && 1 || 0 }}
           persist-credentials: false
 
       - name: Require GitHub-hosted runner
