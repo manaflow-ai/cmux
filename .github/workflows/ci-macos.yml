@@ -57,6 +57,17 @@ permissions:
 # R2 cache URL must be declared here or every R2 restore reports a miss.
 env:
   CI_CACHE_R2_PUBLIC_URL: ${{ vars.CI_CACHE_R2_PUBLIC_URL || 'https://ci-cache.cmux.com' }}
+  # Which schemes the producer builds, and the profile the product's identity
+  # records. A purely CLI-routed change only feeds cli-product-tests, which
+  # needs the cmux-cli product and its test bundle -- not the app, and not the
+  # app-host or numeric-locale bundles.
+  #
+  # Any macOS routing keeps the full product: the app-host shards consume it,
+  # and admission is also the check that proves the app itself still compiles.
+  # Producer and consumer must agree here, so it is declared once for every job
+  # -- a consumer recomputing a different profile's identity simply declines
+  # the artifact, which would silently cost a compile instead of reusing one.
+  CMUX_PRODUCT_PROFILE: ${{ inputs.macos == 'true' && 'app-host' || 'cli' }}
 
 jobs:
   macos-compile-admission:
@@ -67,6 +78,9 @@ jobs:
     # cannot fan out across every macOS worker and a successful build is not
     # repeated six times.
     if: ${{ (inputs.macos == 'true' || inputs.cli == 'true') && (inputs.compile_admitted != 'true' || inputs.full_suite == 'true' || inputs.cli == 'true') }}
+    # NOTE: the cli clause above still forces a compile when an earlier run was
+    # already admitted. That is now cheap for CLI-only routing (one scheme via
+    # CMUX_PRODUCT_PROFILE), so it no longer buys a full app build.
     runs-on: ${{ github.event_name == 'pull_request' && (vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15') || vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15' }}
     timeout-minutes: 75
     permissions:
