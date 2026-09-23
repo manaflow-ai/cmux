@@ -43,7 +43,8 @@ export function chatmuxConfig(env: Record<string, string | undefined> = process.
 }
 
 function identifier(value: unknown): value is string {
-  return typeof value === "string" && value.length > 0 && value.length <= 256 && !/[\s\x00-\x1f\x7f]/.test(value);
+  return typeof value === "string" && value.length > 0 && value.length <= 256 &&
+    ![...value].some((c) => c.charCodeAt(0) <= 0x20 || c.charCodeAt(0) === 0x7f || /\s/.test(c));
 }
 
 function validLifetime(iat: unknown, exp: unknown): boolean {

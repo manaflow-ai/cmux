@@ -9,6 +9,8 @@ import {
   verifyChatmuxVmToken,
 } from "../services/coderouter/chatmuxVmToken";
 import { authenticateRequestRouteToken } from "../services/coderouter/routeTokenAuth";
+import { resolveCoderouterControlContext } from "../services/coderouter/requestContext";
+import { requireVmPrincipal } from "../services/vms/vmPrincipal";
 import {
   accountAccessForIdentity,
   accountAccessPredicate,
@@ -17,6 +19,8 @@ import {
 
 const ISSUER = "https://chatmux.dev";
 const now = Math.floor(Date.now() / 1000);
+/** The verifier's clock, pinned to the tokens' issue time. */
+const at = new Date(now * 1000);
 const signing = await generateKeyPair("ES256");
 const other = await generateKeyPair("ES256");
 const publicJwk = { ...(await exportJWK(signing.publicKey)), kid: "hsm-1", alg: "ES256", use: "sig" };
@@ -35,7 +39,7 @@ async function token(
 
 describe("chatmux VM tokens", () => {
   test("accepts a token signed by the chatmux key with the expected claims", async () => {
-    expect(await verifyChatmuxVmToken(await token(), config)).toEqual({ ...claims, iss: ISSUER } as never);
+    expect(await verifyChatmuxVmToken(await token(), config, at)).toEqual({ ...claims, iss: ISSUER } as never);
   });
 
   test("rejects other keys, issuers, audiences, lifetimes, roles, and missing claims", async () => {
@@ -54,7 +58,7 @@ describe("chatmux VM tokens", () => {
       "a.b.c",
       "x".repeat(5000),
     ];
-    for (const t of bad) expect(await verifyChatmuxVmToken(t, config)).toBe(null);
+    for (const t of bad) expect(await verifyChatmuxVmToken(t, config, at)).toBe(null);
   });
 
   test("is off unless both a https JWKS address and issuers are configured", () => {
@@ -125,6 +129,30 @@ describe("chatmux machines in request authentication", () => {
       expect(result).toEqual({ ok: false, reason: "invalid_route_token" });
       expect(lookups).toBe(0);
     }
+  });
+
+  test("a chatmux machine cannot manage accounts, even with a route-token header added", async () => {
+    serveJwks();
+    const resolved = await resolveCoderouterControlContext(
+      request(`Bearer ${await token()}`, { "x-coderouter-route-token": "crt_anything" }),
+    );
+    expect(resolved.ok).toBe(false);
+    if (resolved.ok) return;
+    expect(resolved.response.status).toBe(403);
+    expect(await resolved.response.json()).toEqual({ error: "chatmux_machine_not_allowed" });
+  });
+
+  test("a chatmux machine is not a Cloud VM principal", async () => {
+    serveJwks();
+    let loads = 0;
+    const result = await requireVmPrincipal(request(`Bearer ${await token()}`), {
+      loadVm: async () => {
+        loads++;
+        return null;
+      },
+    });
+    expect(result).toEqual({ ok: false, reason: "vm_bound_token_required" });
+    expect(loads).toBe(0);
   });
 });
 
