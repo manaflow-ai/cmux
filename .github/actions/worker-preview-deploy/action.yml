@@ -42,13 +42,22 @@ runs:
           pr-[0-9]*) ;;
           *) echo "::error::Unexpected preview name '$PREVIEW_NAME'"; exit 1 ;;
         esac
+        raw="$RUNNER_TEMP/worker-preview.out"
         result="$RUNNER_TEMP/worker-preview.json"
         "$GITHUB_WORKSPACE/.github/worker-previews/node_modules/.bin/wrangler" preview \
           --cwd "$WORKER_DIR" \
           --name "$PREVIEW_NAME" \
           --tag "${HEAD_SHA:0:12}" \
           --message "$PREVIEW_NAME @ ${HEAD_SHA:0:12}" \
-          --json > "$result"
+          --json > "$raw"
+        # A custom [build] command (the relay's worker-build) also writes to
+        # stdout, so keep only Wrangler's trailing JSON document.
+        python3 - "$raw" "$result" <<'PYTHON'
+        import json, sys
+        text = open(sys.argv[1]).read()
+        start = text.rfind("\n{\n") + 1 if not text.startswith("{\n") else 0
+        json.dump(json.loads(text[start:]), open(sys.argv[2], "w"))
+        PYTHON
         url="$(jq -r '.preview.urls[0] // empty' "$result")"
         deployment_url="$(jq -r '.deployment.urls[0] // empty' "$result")"
         if [ -z "$url" ]; then

@@ -183,7 +183,7 @@ jobs:
           cloudflare-account-id: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 
   cleanup:
-    name: Delete ${{ matrix.worker }} Preview
+    name: Delete Preview
     needs: changes
     if: github.event.action == 'closed'
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
