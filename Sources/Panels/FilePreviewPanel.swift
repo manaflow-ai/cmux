@@ -1279,13 +1279,15 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
     @Published private(set) var isSaving = false
     @Published private(set) var focusFlashToken = 0
     @Published private(set) var previewMode: FilePreviewMode
-    @Published private(set) var gitLineChanges: [Int: FilePreviewGitLineChange] = [:]
-    private let gitLineChangesRevisionState = FilePreviewRevision()
+    @Published private(set) var gitGutterMarkers = FilePreviewGitGutterMarkers.untracked
+    private let gitGutterMarkersRevisionState = FilePreviewRevision()
     let previewRevisionState = FilePreviewRevision()
     private let textContentRevisionState = FilePreviewRevision()
     private var gitDiffTracker: FilePreviewGitDiffTracker?
+    private var gitGutterMarkersTask: Task<Void, Never>?
     /// Panels created without a file watcher also skip git lookups.
     private let tracksGitLineChanges: Bool
+    private var isGitGutterVisible = true
 
     let nativeViewSessions = FilePreviewNativeViewSessions()
 
@@ -1322,8 +1324,8 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
         textContentRevisionState.value
     }
 
-    var gitLineChangesRevision: Int {
-        gitLineChangesRevisionState.value
+    var gitGutterMarkersRevision: Int {
+        gitGutterMarkersRevisionState.value
     }
 
     init(
@@ -1372,32 +1374,50 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
     /// Starts tracking git line changes for the gutter.
     ///
     /// - Image, PDF, and media previews have no gutter and never run git.
-    /// - An index watch reloads the base after commits and staging.
+    /// - A hidden gutter runs no git work either.
+    /// - A repository watch reloads the base when HEAD moves.
     private func startTrackingGitLineChanges() {
-        guard tracksGitLineChanges, !isClosed, previewMode == .text else { return }
+        guard tracksGitLineChanges, isGitGutterVisible, !isClosed, previewMode == .text else { return }
         guard gitDiffTracker == nil else { return }
-        let tracker = FilePreviewGitDiffTracker(filePath: filePath) { [weak self] changes in
-            self?.applyGitLineChanges(changes)
-        }
+        let tracker = FilePreviewGitDiffTracker(filePath: filePath)
         gitDiffTracker = tracker
+        let updates = tracker.updates
+        gitGutterMarkersTask = Task { [weak self] in
+            for await markers in updates {
+                self?.publishGitGutterMarkers(markers)
+            }
+        }
+        tracker.update(encoding: textEncoding)
         tracker.update(currentText: textContent)
-        tracker.startWatchingIndex(using: fileContentChangeCoordinator)
-        tracker.refreshBase()
+        tracker.startWatchingRepository(using: fileContentChangeCoordinator)
     }
 
     private func stopTrackingGitLineChanges() {
         gitDiffTracker?.cancel()
         gitDiffTracker = nil
-        applyGitLineChanges([:])
+        gitGutterMarkersTask?.cancel()
+        gitGutterMarkersTask = nil
+        publishGitGutterMarkers(.untracked)
+    }
+
+    /// Pauses git work while the gutter is hidden and resumes it when shown.
+    func setGitGutterVisible(_ visible: Bool) {
+        guard visible != isGitGutterVisible else { return }
+        isGitGutterVisible = visible
+        if visible {
+            startTrackingGitLineChanges()
+        } else {
+            stopTrackingGitLineChanges()
+        }
     }
 
     /// Publishes new gutter markers.
     ///
     /// Bumps a revision so the editor never compares marker sets on each keystroke.
-    private func applyGitLineChanges(_ changes: [Int: FilePreviewGitLineChange]) {
-        guard gitLineChanges != changes else { return }
-        gitLineChanges = changes
-        gitLineChangesRevisionState.increment()
+    private func publishGitGutterMarkers(_ markers: FilePreviewGitGutterMarkers) {
+        guard gitGutterMarkers != markers else { return }
+        gitGutterMarkers = markers
+        gitGutterMarkersRevisionState.increment()
     }
 
     func focus() {
@@ -1450,11 +1470,11 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
         }
         let wasWatching = fileContentObservationID != nil
         stopWatchingForFileChanges()
-        gitDiffTracker?.stopWatchingIndex()
+        gitDiffTracker?.stopWatchingRepository()
         self.fileContentChangeCoordinator = fileContentChangeCoordinator
         if wasWatching, !isClosed {
             startWatchingForFileChanges()
-            gitDiffTracker?.startWatchingIndex(using: fileContentChangeCoordinator)
+            gitDiffTracker?.startWatchingRepository(using: fileContentChangeCoordinator)
         }
     }
 
@@ -1678,6 +1698,7 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
             if !replacingDirtyContent && isDirty {
                 originalTextContent = content
                 textEncoding = encoding
+                gitDiffTracker?.update(encoding: encoding)
                 setTabMetadataDirtyState(textContent != originalTextContent)
                 isFileUnavailable = false
                 return
@@ -1685,6 +1706,7 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
             _ = replaceTextContentIfChanged(content)
             originalTextContent = content
             textEncoding = encoding
+            gitDiffTracker?.update(encoding: encoding)
             setTabMetadataDirtyState(false)
             isFileUnavailable = false
         }

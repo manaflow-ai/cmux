@@ -5,119 +5,56 @@ import Testing
 
 @Suite("File Preview git line diff")
 struct FilePreviewGitLineDiffTests {
-    @Test("Identical text produces no markers")
-    func identicalTextProducesNoMarkers() {
-        let text = "one\ntwo\nthree\n"
-        #expect(FilePreviewGitLineDiff.changes(base: text, current: text).isEmpty)
+    struct Case: Sendable, CustomTestStringConvertible {
+        let name: String
+        let base: String
+        let current: String
+        let expected: [Int: FilePreviewGitLineChange]
+
+        var testDescription: String { name }
     }
 
-    @Test("Appended lines are added")
-    func appendedLinesAreAdded() {
-        let changes = FilePreviewGitLineDiff.changes(
-            base: "one\ntwo\n",
-            current: "one\ntwo\nthree\nfour\n"
-        )
-        #expect(changes == [3: .added, 4: .added])
+    static let cases: [Case] = [
+        Case(name: "identical text", base: "one\ntwo\n", current: "one\ntwo\n", expected: [:]),
+        Case(name: "appended lines", base: "one\ntwo\n", current: "one\ntwo\nthree\nfour\n", expected: [3: .added, 4: .added]),
+        Case(name: "insertion at the top", base: "one\n", current: "zero\none\n", expected: [1: .added]),
+        Case(name: "insertion in the middle", base: "one\ntwo\n", current: "one\nnew\ntwo\n", expected: [2: .added]),
+        Case(name: "replaced line", base: "one\ntwo\nthree\n", current: "one\nTWO\nthree\n", expected: [2: .modified]),
+        Case(name: "replaced run", base: "a\nb\nc\nd\n", current: "a\nB\nC\nd\n", expected: [2: .modified, 3: .modified]),
+        Case(name: "deleted first line", base: "one\ntwo\n", current: "two\n", expected: [1: .removed]),
+        Case(name: "deleted middle line", base: "one\ntwo\nthree\n", current: "one\nthree\n", expected: [2: .removed]),
+        Case(name: "deleted tail", base: "one\ntwo\nthree\n", current: "one\n", expected: [1: .removedAtEnd]),
+        Case(name: "deleted everything", base: "one\ntwo\n", current: "", expected: [:]),
+        Case(name: "new file", base: "", current: "one\ntwo\n", expected: [1: .added, 2: .added]),
+        Case(name: "independent edits", base: "a\nb\nc\nd\ne\n", current: "a\nB\nc\ne\nf\n", expected: [2: .modified, 4: .removed, 5: .added]),
+        Case(name: "missing final newline only", base: "one\ntwo\n", current: "one\ntwo", expected: [:]),
+        Case(name: "CRLF versus LF only", base: "one\r\ntwo\r\n", current: "one\ntwo\n", expected: [:]),
+        Case(name: "lone CR breaks count as lines", base: "a\rb\rc", current: "a\rB\rc", expected: [2: .modified]),
+        Case(name: "Unicode separators count as lines", base: "a\u{2028}b\u{2029}c", current: "a\u{2028}b\u{2029}C", expected: [3: .modified]),
+    ]
+
+    @Test("Marks changed lines", arguments: cases)
+    func marksChangedLines(_ testCase: Case) {
+        #expect(FilePreviewGitLineDiff().changes(base: testCase.base, current: testCase.current) == testCase.expected)
     }
 
-    @Test("Inserted line in the middle is added without touching neighbors")
-    func insertedLineInMiddleIsAdded() {
-        let changes = FilePreviewGitLineDiff.changes(
-            base: "one\ntwo\nthree\n",
-            current: "one\ninserted\ntwo\nthree\n"
-        )
-        #expect(changes == [2: .added])
+    @Test("Untracked gutter markers never carry changes")
+    func untrackedMarkersDropChanges() {
+        let markers = FilePreviewGitGutterMarkers(isTracked: false, changes: [1: .added])
+        #expect(markers == .untracked)
+        #expect(markers.changes.isEmpty)
     }
 
-    @Test("Replaced line is modified rather than added plus removed")
-    func replacedLineIsModified() {
-        let changes = FilePreviewGitLineDiff.changes(
-            base: "one\ntwo\nthree\n",
-            current: "one\nTWO\nthree\n"
-        )
-        #expect(changes == [2: .modified])
+    @Test("Skips input beyond the line budget")
+    func skipsInputBeyondLineBudget() {
+        let diff = FilePreviewGitLineDiff(maximumLineCount: 2, maximumByteCount: 1024)
+        #expect(diff.changes(base: "one\n", current: "a\nb\nc\n").isEmpty)
+        #expect(diff.changes(base: "one\n", current: "a\nb\n") == [1: .modified, 2: .modified])
     }
 
-    @Test("A replaced run marks every replacement line")
-    func replacedRunMarksEveryLine() {
-        let changes = FilePreviewGitLineDiff.changes(
-            base: "one\ntwo\nthree\nfour\n",
-            current: "one\nTWO\nTHREE\nfour\n"
-        )
-        #expect(changes == [2: .modified, 3: .modified])
-    }
-
-    @Test("Deleted middle line anchors to the following line")
-    func deletedMiddleLineAnchorsToFollowingLine() {
-        let changes = FilePreviewGitLineDiff.changes(
-            base: "one\ntwo\nthree\n",
-            current: "one\nthree\n"
-        )
-        #expect(changes == [2: .removed])
-    }
-
-    @Test("Deletion at the end anchors to the last surviving line")
-    func deletionAtEndAnchorsToLastLine() {
-        let changes = FilePreviewGitLineDiff.changes(
-            base: "one\ntwo\nthree\n",
-            current: "one\n"
-        )
-        #expect(changes == [1: .removedAtEnd])
-    }
-
-    @Test("Deleting every line yields no marker because no line survives")
-    func deletingEveryLineYieldsNoMarker() {
-        let changes = FilePreviewGitLineDiff.changes(
-            base: "one\ntwo\n",
-            current: ""
-        )
-        #expect(changes.isEmpty)
-    }
-
-    @Test("A new file marks every line as added")
-    func newFileMarksEveryLineAsAdded() {
-        let changes = FilePreviewGitLineDiff.changes(
-            base: "",
-            current: "one\ntwo\n"
-        )
-        #expect(changes == [1: .added, 2: .added])
-    }
-
-    @Test("Separate edits keep independent markers")
-    func separateEditsKeepIndependentMarkers() {
-        let changes = FilePreviewGitLineDiff.changes(
-            base: "a\nb\nc\nd\ne\n",
-            current: "a\nB\nc\ne\nf\n"
-        )
-        #expect(changes == [2: .modified, 4: .removed, 5: .added])
-    }
-
-    @Test("A trailing newline difference alone is not a change")
-    func trailingNewlineAloneIsNotAChange() {
-        #expect(
-            FilePreviewGitLineDiff.changes(base: "one\ntwo\n", current: "one\ntwo").isEmpty
-        )
-    }
-
-    @Test("CRLF line endings do not read as modifications")
-    func crlfLineEndingsDoNotReadAsModifications() {
-        #expect(
-            FilePreviewGitLineDiff.changes(
-                base: "one\r\ntwo\r\n",
-                current: "one\ntwo\n"
-            ).isEmpty
-        )
-    }
-
-    @Test("Input beyond the line budget is skipped")
-    func inputBeyondLineBudgetIsSkipped() {
-        let big = String(repeating: "line\n", count: FilePreviewGitLineDiff.maximumLineCount + 1)
-        #expect(FilePreviewGitLineDiff.changes(base: "one\n", current: big).isEmpty)
-    }
-
-    @Test("Input beyond the byte budget is skipped without splitting lines")
-    func inputBeyondByteBudgetIsSkipped() {
-        let big = String(repeating: "x", count: FilePreviewGitLineDiff.maximumByteCount + 1)
-        #expect(FilePreviewGitLineDiff.changes(base: "one\n", current: big).isEmpty)
+    @Test("Skips input beyond the byte budget")
+    func skipsInputBeyondByteBudget() {
+        let diff = FilePreviewGitLineDiff(maximumLineCount: 100, maximumByteCount: 4)
+        #expect(diff.changes(base: "a\n", current: "abcde").isEmpty)
     }
 }

@@ -21,10 +21,11 @@ final class FilePreviewLineNumberGutterView: NSRulerView {
     var drawsEditorBackground = true {
         didSet { applySurfaceFill() }
     }
-    /// Git line changes keyed by 1-based line number.
-    var gitLineChanges: [Int: FilePreviewGitLineChange] = [:] {
+    /// Git markers for the file. A tracked file reserves the stripe column
+    /// even without changes, so the first edit never shifts the text.
+    var gitMarkers = FilePreviewGitGutterMarkers.untracked {
         didSet {
-            guard gitLineChanges != oldValue else { return }
+            guard gitMarkers != oldValue else { return }
             updateRuleThickness(for: (clientView as? NSTextView)?.font)
             needsDisplay = true
         }
@@ -34,7 +35,7 @@ final class FilePreviewLineNumberGutterView: NSRulerView {
     private static let changeStripeWidth: CGFloat = 3
     /// Gap between the line number and the stripe.
     private static let changeStripeGap: CGFloat = 3
-    /// Extra ruler width reserved while any change is shown.
+    /// Extra ruler width reserved while the file is tracked.
     ///
     /// Drawing positions derive from the label's trailing edge, so this
     /// reservation and the drawn stripe cannot drift apart.
@@ -153,7 +154,7 @@ final class FilePreviewLineNumberGutterView: NSRulerView {
         let labelWidth = (String(repeating: "8", count: digits) as NSString).size(
             withAttributes: [.font: font]
         ).width
-        let stripeInset = gitLineChanges.isEmpty ? 0 : Self.changeStripeInset
+        let stripeInset = gitMarkers.isTracked ? Self.changeStripeInset : 0
         let nextThickness = ceil(labelWidth) + Self.horizontalPadding + stripeInset
         if abs(ruleThickness - nextThickness) > 0.5 {
             ruleThickness = nextThickness
@@ -383,7 +384,7 @@ final class FilePreviewLineNumberGutterView: NSRulerView {
         font: NSFont,
         startsLine: Bool
     ) {
-        guard let change = gitLineChanges[lineNumber] else { return }
+        guard let change = gitMarkers.changes[lineNumber] else { return }
         let rulerPoint = convert(NSPoint(x: 0, y: y), from: textView)
         let stripeHeight = max(height, font.capHeight + 4)
         let x = labelTrailingEdge + Self.changeStripeGap
@@ -417,9 +418,9 @@ final class FilePreviewLineNumberGutterView: NSRulerView {
 
     /// X coordinate where the line-number label ends.
     ///
-    /// Without changes the stripe width is released and the label keeps its original frame.
+    /// For an untracked file the stripe width is released and the label keeps its original frame.
     private var labelTrailingEdge: CGFloat {
-        let stripeInset = gitLineChanges.isEmpty ? 0 : Self.changeStripeInset
+        let stripeInset = gitMarkers.isTracked ? Self.changeStripeInset : 0
         return 4 + max(0, ruleThickness - Self.horizontalPadding - stripeInset)
     }
 

@@ -17,7 +17,7 @@ struct TokenPaletteTests {
         #expect(TokenTheme.light.palette.keyword == TokenPalette.cmuxLight.keyword)
     }
 
-    @Test("Git gutter colors stay distinct and saturated in both themes")
+    @Test("Git gutter colors are pinned and distinct in both themes")
     func gitGutterColorsStayDistinct() {
         #expect(TokenPalette.cmuxDark.gitAdded.hexString == "#3FB950")
         #expect(TokenPalette.cmuxDark.gitModified.hexString == "#58A6FF")
