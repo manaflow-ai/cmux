@@ -1,0 +1,106 @@
+import AppKit
+import Bonsplit
+import Testing
+
+#if canImport(cmux_DEV)
+@testable import cmux_DEV
+#elseif canImport(cmux)
+@testable import cmux
+#endif
+
+/// Real outline actions, catalog admission and native layout, with no Cloud network access.
+@MainActor
+final class CloudDesktopOpenFixture {
+    let app: VaultPaneAppFixture
+    let catalog: SurfaceCatalog
+    let provider: CloudDesktopOpenTestProvider
+    let owner: Workspace
+    let other: Workspace
+    let display: SurfaceResource
+    let remote = SurfaceRemoteWorkspace(id: "ws-same", name: "workspace-1", index: 0, focused: false)
+    let defaultsName = "desktop-open-\(UUID())"
+    let defaults: UserDefaults
+    let completion = AsyncStream<Void>.makeStream()
+    var selectedID: UUID?
+    var failures: [String] = []
+    var completions = 0
+
+    lazy var coordinator = CloudTreeOutlineView.Coordinator(
+        machineActions: MachineRowActions(openShell: { _ in }, openDesktop: { _ in },
+            runCommand: { _, _ in }, confirmDelete: { _ in }, promptRename: { _, _ in },
+            resizeDisk: { _, _ in }, promptUpgrade: {}),
+        nodeActions: CloudTreeNodeActions.bound(
+            navigationHost: CloudTerminalNavigationHost(focus: { _, _ in }, closeWorkspace: { _ in }),
+            catalog: { [unowned self] in catalog }, selectedWorkspaceID: { [unowned self] in selectedID },
+            selectLocalWorkspace: { [unowned self] in selectedID = $0 }, onWillMutate: { _ in },
+            onDidMutate: { [unowned self] in completions += 1; completion.continuation.yield(()) },
+            onFailure: { [unowned self] in failures.append($0) }, refresh: {}),
+        expansionStore: CloudTreeExpansionStore(defaults: defaults),
+        organization: CloudSidebarOrganizationStore(defaults: defaults),
+        tabDragTransferRegistry: { [unowned self] in app.appDelegate.tabDragTransferRegistry }
+    )
+    lazy var container = CloudTreeContainerView(coordinator: coordinator)
+
+    init(ownerID: String = "desktop-a", hasRemoteView: Bool = true) throws {
+        app = try VaultPaneAppFixture()
+        owner = app.workspace
+        other = app.manager.addWorkspace(title: "workspace-1", select: false)
+        owner.cloudVMBinding = WorkspaceCloudVMBinding(vmID: ownerID, isBase: false, remoteWorkspaceID: "ws-same")
+        other.cloudVMBinding = WorkspaceCloudVMBinding(
+            vmID: ownerID == "desktop-a" ? "desktop-b" : "desktop-a", isBase: false, remoteWorkspaceID: "ws-same")
+        selectedID = owner.id
+        defaults = try #require(UserDefaults(suiteName: defaultsName))
+        let manager = app.manager
+        catalog = SurfaceCatalog(cloudWorkspaceRenameService: CloudWorkspaceRenameService(environment: .init(
+            workspace: { manager.workspacesById[$0] }
+        )))
+        provider = CloudDesktopOpenTestProvider(machine: .cloud(ownerID))
+        catalog.register(provider)
+        var display = CmuxTuiSnapshotParser.display(machine: provider.machine)
+        display.remoteViews = hasRemoteView ? [SurfaceRemoteView(tabID: "tab-desktop", workspace: remote)] : []
+        self.display = display
+        var info = provider.info
+        info.remoteWorkspaces = [remote]
+        catalog.replaceResources([display], on: provider.machine, info: info)
+    }
+
+    func poolNode() throws -> CloudTreeNode {
+        let nodes = CloudTreeNodeBuilder.nodes(machines: [], snapshot: catalog.snapshot, localWorkspaces: [],
+            includeLocalMachine: false)
+        return try #require(CloudTreeNodeBuilder.flattened(nodes).first {
+            $0.id == CloudTreeNodeBuilder.nodeID(resource: display.id)
+        })
+    }
+
+    func activate(_ node: CloudTreeNode, menu: Bool = false) throws {
+        _ = container
+        coordinator.apply(nodes: [node])
+        let outline = try #require(coordinator.outlineView)
+        outline.selectRowIndexes(IndexSet(integer: 0), byExtendingSelection: false)
+        if menu {
+            let menu = try #require(coordinator.contextMenu(forRow: 0))
+            let item = try #require(menu.items.first {
+                $0.title == String(localized: "cloudTree.menu.open", defaultValue: "Open")
+            })
+            let action = try #require(item.action)
+            #expect(NSApp.sendAction(action, to: item.target, from: item))
+        } else {
+            // A Desktop double-click opens on its first click; the second is intentionally inert.
+            coordinator.handleSingleClick(nil)
+            coordinator.handleDoubleClick(nil)
+        }
+    }
+
+    func waitForOpen() async {
+        var iterator = completion.stream.makeAsyncIterator()
+        _ = await iterator.next()
+    }
+
+    func close() {
+        completion.continuation.finish()
+        catalog.unregister(machine: provider.machine)
+        app.manager.tabs.forEach { $0.teardownAllPanels() }
+        app.tearDown()
+        defaults.removePersistentDomain(forName: defaultsName)
+    }
+}
