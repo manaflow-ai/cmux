@@ -154,13 +154,11 @@ fork does not produce a useful error, it leaves the job queued indefinitely.
 The fork branch therefore short-circuits before any `MACOS_RUNNER_*` or
 `LINUX_RUNNER` value can select organization-only capacity.
 
-`tests/test_ci_runner_capability_resolver.py` discovers every `pull_request`
+`tests/test_ci_fork_runner_routing.py` discovers every `pull_request`
 workflow, recursively follows its local reusable-workflow calls, and requires
 every variable-routed `runs-on` in that closure to contain a hosted fork
 branch. The upstream branch still keeps literal Blacksmith fallbacks so deleting
 a repository variable cannot silently change `manaflow-ai/cmux` capacity.
-Specialized workflows outside the normal CI graph are migrated separately as
-they adopt the capability resolver.
 
 ## Background lane
 
