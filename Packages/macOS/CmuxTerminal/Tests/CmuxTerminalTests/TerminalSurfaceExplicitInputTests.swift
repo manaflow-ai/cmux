@@ -93,7 +93,7 @@ struct TerminalSurfaceExplicitInputTests {
         let fixture = makeFixture()
         defer { fixture.surface.releaseSurfaceForTesting() }
 
-        #expect(fixture.surface.sendText("hello"))
+        #expect(fixture.surface.sendTextResult("hello") == .queued)
 
         #expect(fixture.paneHost.explicitInputCount == 1)
     }
