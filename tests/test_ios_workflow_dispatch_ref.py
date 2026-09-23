@@ -43,6 +43,14 @@ class IOSWorkflowDispatchRefTests(unittest.TestCase):
             jobs["ios-simulator"]["strategy"]["matrix"]["family"],
             "${{ fromJSON(needs.detect-ios-changes.outputs.device_families) }}",
         )
+        # Matrix membership is the admission decision. In particular, an empty
+        # request must not select both families and then skip both test steps.
+        simulator_steps = jobs["ios-simulator"]["steps"]
+        run_tests = next(step for step in simulator_steps if step.get("name") == "Run iOS simulator tests")
+        self.assertNotIn("if", run_tests)
+        for step in simulator_steps:
+            self.assertNotIn("inputs.device_family", step.get("if", ""))
+            self.assertNotEqual(step.get("name"), "Skip unrequested family")
         for requested, expected in (
             (None, ["iphone", "ipad"]),
             ("", ["iphone", "ipad"]),
