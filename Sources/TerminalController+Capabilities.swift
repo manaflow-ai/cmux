@@ -57,6 +57,10 @@ extension TerminalController {
             "mobile.compatible_tags.set",
             "mobile.task.attachment.upload",
             "mobile.task.models.list",
+            // Socket-reachable panel artifact reads (worker lane); fetch stays
+            // behind the authenticated mobile execution context.
+            "mobile.panel.artifact.stat",
+            "mobile.panel.artifact.thumbnail",
             "mobile.workspace.list",
             "mobile.terminal.create",
             "mobile.terminal.input",

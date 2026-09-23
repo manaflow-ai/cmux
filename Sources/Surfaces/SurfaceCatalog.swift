@@ -1316,10 +1316,19 @@ final class SurfaceCatalog {
     /// becomes live as soon as the provider reports the resource again (a cloud terminal
     /// after the link reconnects); local resources are re-registered by the local provider
     /// with the same panel-derived key, so they resolve immediately.
-    func restore(_ records: [SurfaceProjectionRecord], workspaceID: UUID) {
+    ///
+    /// Session restore rebuilds a workspace before its `TabManager` publishes it, so no
+    /// app lookup can resolve the destination yet; that caller passes the workspace it is
+    /// restoring as `restoringWorkspace` and ownership is checked against it directly.
+    func restore(_ records: [SurfaceProjectionRecord], workspaceID: UUID, restoringWorkspace: Workspace? = nil) {
+        let destination = restoringWorkspace.flatMap { $0.id == workspaceID ? $0 : nil }
         for record in records where DockSplitStore.liveStore(containingPanel: record.panelID)?.scope != .global {
-            do { try validateOwnership(of: [record.resource], at: .workspace(id: workspaceID, placement: .tab)) }
-            catch { return }
+            if let destination {
+                if ownershipRejection(for: [record.resource], policy: destination.surfaceOwnershipPolicy) != nil { return }
+            } else {
+                do { try validateOwnership(of: [record.resource], at: .workspace(id: workspaceID, placement: .tab)) }
+                catch { return }
+            }
         }
         var wokenMachines = Set<SurfaceMachineID>()
         for record in records {

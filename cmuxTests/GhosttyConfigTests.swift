@@ -1552,107 +1552,184 @@ final class WindowChromeSeparatorColorTests: XCTestCase {
 
 @MainActor
 final class WorkspaceChromeColorTests: XCTestCase {
-    func testBonsplitChromeHexIncludesAlphaWhenTranslucent() {
-        let color = NSColor(
-            srgbRed: 17.0 / 255.0,
-            green: 34.0 / 255.0,
-            blue: 51.0 / 255.0,
-            alpha: 1.0
-        )
+    /// `#112233`, the terminal theme color every case starts from.
+    private let themeColor = NSColor(
+        srgbRed: 17.0 / 255.0,
+        green: 34.0 / 255.0,
+        blue: 51.0 / 255.0,
+        alpha: 1.0
+    )
 
-        let hex = Workspace.bonsplitChromeHex(backgroundColor: color, backgroundOpacity: 0.5)
-        XCTAssertEqual(hex, "#1122337F")
+    /// `#445566`, standing in for the chrome color the app resolves through
+    /// `Workspace.resolvedTerminalChromeBackgroundColor`. Passing it through
+    /// the `chromeBackgroundColor` seam keeps the expectations independent of
+    /// the test host's ambient `NSColor.windowBackgroundColor`.
+    private let resolvedChromeColor = NSColor(
+        srgbRed: 68.0 / 255.0,
+        green: 85.0 / 255.0,
+        blue: 102.0 / 255.0,
+        alpha: 1.0
+    )
+
+    func testBonsplitChromeHexCompositesTranslucentThemeOverWindowBase() {
+        let hex = Workspace.bonsplitChromeHex(backgroundColor: themeColor, backgroundOpacity: 0.5)
+
+        // Chrome carries the rendered backdrop: the theme composited over the
+        // window base, with no alpha channel. The window root backdrop owns
+        // translucency, so an `#RRGGBBAA` hex would apply the opacity twice
+        // and Bonsplit would derive its tab glyphs from a color nobody sees.
+        XCTAssertEqual(hex.count, 7, "translucent themes must not leak alpha into chrome hex: \(hex)")
+        XCTAssertNotEqual(hex, "#112233")
+        XCTAssertEqual(
+            hex,
+            WindowAppearanceSnapshot.compositedTerminalColor(
+                backgroundColor: themeColor,
+                opacity: 0.5
+            ).hexString()
+        )
+        assertHex(hex, isBlendOf: themeColor, opacity: 0.5, over: .windowBackgroundColor)
     }
 
     func testBonsplitChromeHexOmitsAlphaWhenOpaque() {
-        let color = NSColor(
-            srgbRed: 17.0 / 255.0,
-            green: 34.0 / 255.0,
-            blue: 51.0 / 255.0,
-            alpha: 1.0
-        )
-
-        let hex = Workspace.bonsplitChromeHex(backgroundColor: color, backgroundOpacity: 1.0)
+        let hex = Workspace.bonsplitChromeHex(backgroundColor: themeColor, backgroundOpacity: 1.0)
         XCTAssertEqual(hex, "#112233")
     }
 
-    func testBonsplitChromeHexKeepsBackdropWhenSharingWindowBackdrop() {
-        let color = NSColor(
-            srgbRed: 17.0 / 255.0,
-            green: 34.0 / 255.0,
-            blue: 51.0 / 255.0,
-            alpha: 1.0
-        )
-
+    func testBonsplitChromeHexKeepsCompositedBackdropWhenSharingWindowBackdrop() {
         let hex = Workspace.bonsplitChromeHex(
-            backgroundColor: color,
+            backgroundColor: themeColor,
             backgroundOpacity: 0.5,
             sharesWindowBackdrop: true
         )
-        XCTAssertEqual(hex, "#1122337F")
+
+        XCTAssertEqual(hex.count, 7)
+        XCTAssertEqual(
+            hex,
+            Workspace.bonsplitChromeHex(backgroundColor: themeColor, backgroundOpacity: 0.5),
+            "sharing the window backdrop must not change the semantic chrome color"
+        )
+    }
+
+    func testBonsplitChromeHexPrefersResolvedChromeBackgroundColor() {
+        XCTAssertEqual(
+            Workspace.bonsplitChromeHex(
+                backgroundColor: themeColor,
+                backgroundOpacity: 0.5,
+                chromeBackgroundColor: resolvedChromeColor
+            ),
+            "#445566"
+        )
+        // Only the ambient compositing path flattens alpha. A caller that
+        // hands over a translucent chrome color keeps its alpha in the hex.
+        XCTAssertEqual(
+            Workspace.bonsplitChromeHex(
+                backgroundColor: themeColor,
+                backgroundOpacity: 0.5,
+                chromeBackgroundColor: resolvedChromeColor.withAlphaComponent(0.5)
+            ),
+            "#4455667F"
+        )
     }
 
     func testBonsplitChromeColorsKeepPaneClearWhenTerminalUsesHostLayerBackground() {
-        let color = NSColor(
-            srgbRed: 17.0 / 255.0,
-            green: 34.0 / 255.0,
-            blue: 51.0 / 255.0,
-            alpha: 1.0
+        let colors = Workspace.bonsplitChromeColors(
+            backgroundColor: themeColor,
+            backgroundOpacity: 0.5,
+            renderingMode: .windowHostBackdrop,
+            chromeBackgroundColor: resolvedChromeColor
         )
 
-        let colors = Workspace.bonsplitChromeColors(
-            backgroundColor: color,
+        XCTAssertEqual(colors.backgroundHex, "#445566")
+        XCTAssertEqual(colors.tabBarBackgroundHex, "#445566")
+        XCTAssertEqual(colors.splitButtonBackdropHex, "#445566")
+        XCTAssertEqual(colors.paneBackgroundHex, "#00000000")
+
+        // Without a pre-resolved chrome color the surfaces fall back to the
+        // same ambient compositing as `bonsplitChromeHex`.
+        let ambient = Workspace.bonsplitChromeColors(
+            backgroundColor: themeColor,
             backgroundOpacity: 0.5,
             renderingMode: .windowHostBackdrop
         )
-
-        XCTAssertEqual(colors.backgroundHex, "#1122337F")
-        XCTAssertEqual(colors.tabBarBackgroundHex, "#1122337F")
-        XCTAssertEqual(colors.splitButtonBackdropHex, "#1122337F")
-        XCTAssertEqual(colors.paneBackgroundHex, "#00000000")
+        XCTAssertEqual(
+            ambient.backgroundHex,
+            Workspace.bonsplitChromeHex(backgroundColor: themeColor, backgroundOpacity: 0.5)
+        )
+        XCTAssertEqual(ambient.tabBarBackgroundHex, ambient.backgroundHex)
+        XCTAssertEqual(ambient.splitButtonBackdropHex, ambient.backgroundHex)
+        XCTAssertEqual(ambient.paneBackgroundHex, "#00000000")
     }
 
     func testBonsplitChromeColorsKeepSemanticBackgroundButClearLocalBackdropsWhenSharingWindowBackdrop() {
-        let color = NSColor(
-            srgbRed: 17.0 / 255.0,
-            green: 34.0 / 255.0,
-            blue: 51.0 / 255.0,
-            alpha: 1.0
-        )
-
         let colors = Workspace.bonsplitChromeColors(
-            backgroundColor: color,
+            backgroundColor: themeColor,
             backgroundOpacity: 0.5,
             sharesWindowBackdrop: true,
-            renderingMode: .windowHostBackdrop
+            renderingMode: .windowHostBackdrop,
+            chromeBackgroundColor: resolvedChromeColor
         )
 
-        XCTAssertEqual(colors.backgroundHex, "#1122337F")
+        XCTAssertEqual(colors.backgroundHex, "#445566")
         XCTAssertEqual(colors.tabBarBackgroundHex, "#00000000")
         XCTAssertEqual(colors.splitButtonBackdropHex, "#00000000")
         XCTAssertEqual(colors.paneBackgroundHex, "#00000000")
     }
 
     func testBonsplitChromeColorsUseConfiguredPaneBorderColor() {
-        let color = NSColor(
-            srgbRed: 17.0 / 255.0,
-            green: 34.0 / 255.0,
-            blue: 51.0 / 255.0,
-            alpha: 1.0
-        )
-
         let colors = Workspace.bonsplitChromeColors(
-            backgroundColor: color,
+            backgroundColor: themeColor,
             backgroundOpacity: 0.5,
             renderingMode: .windowHostBackdrop,
-            paneBorderColorHex: "#33AAFF"
+            paneBorderColorHex: "#33AAFF",
+            chromeBackgroundColor: resolvedChromeColor
         )
 
-        XCTAssertEqual(colors.backgroundHex, "#1122337F")
-        XCTAssertEqual(colors.tabBarBackgroundHex, "#1122337F")
-        XCTAssertEqual(colors.splitButtonBackdropHex, "#1122337F")
+        XCTAssertEqual(colors.backgroundHex, "#445566")
+        XCTAssertEqual(colors.tabBarBackgroundHex, "#445566")
+        XCTAssertEqual(colors.splitButtonBackdropHex, "#445566")
         XCTAssertEqual(colors.paneBackgroundHex, "#00000000")
         XCTAssertEqual(colors.borderHex, "#33AAFF")
+    }
+
+    /// Checks an opaque `#RRGGBB` hex against an independent blend of `theme`
+    /// over `base`, so the composited contract is verified by arithmetic and
+    /// not only by the resolver under test. `hexString()` truncates channels
+    /// to whole bytes, so one byte of slack is allowed.
+    private func assertHex(
+        _ hex: String,
+        isBlendOf theme: NSColor,
+        opacity: CGFloat,
+        over base: NSColor,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        guard hex.count == 7, let packed = UInt32(hex.dropFirst(), radix: 16),
+              let theme = theme.usingColorSpace(.sRGB),
+              let base = base.usingColorSpace(.sRGB) else {
+            XCTFail("expected an opaque #RRGGBB chrome hex, got \(hex)", file: file, line: line)
+            return
+        }
+        let actual: [CGFloat] = [
+            CGFloat((packed >> 16) & 0xFF),
+            CGFloat((packed >> 8) & 0xFF),
+            CGFloat(packed & 0xFF)
+        ]
+        let channels: [(KeyPath<NSColor, CGFloat>, String)] = [
+            (\.redComponent, "red"),
+            (\.greenComponent, "green"),
+            (\.blueComponent, "blue")
+        ]
+        for (index, (channel, name)) in channels.enumerated() {
+            let expected = (theme[keyPath: channel] * opacity + base[keyPath: channel] * (1 - opacity)) * 255
+            XCTAssertEqual(
+                actual[index],
+                expected,
+                accuracy: 1.01,
+                "\(name) channel of \(hex) is not the theme blended over the window base",
+                file: file,
+                line: line
+            )
+        }
     }
 }
 
@@ -1706,6 +1783,36 @@ final class BrowserPanelPopupContextTests: XCTestCase {
 
 @MainActor
 final class BrowserPanelWebViewLifecycleTests: XCTestCase {
+    /// Waits for the initial load to settle on both sides: WebKit's `isLoading`
+    /// and the panel's own `isLoading`, which stays true for the loading
+    /// indicator's minimum duration after WebKit finishes. Either flag is a
+    /// "loading" discard blocker, so polling `webView.isLoading` for one second
+    /// raced both the indicator floor and the WebContent process launch on the
+    /// CI hosts.
+    private func waitForInitialLoadToSettle(
+        _ panel: BrowserPanel,
+        timeout: TimeInterval = 10,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        let deadline = Date().addingTimeInterval(timeout)
+        while panel.webView.isLoading || panel.isLoading, Date() < deadline {
+            RunLoop.main.run(until: Date().addingTimeInterval(0.02))
+        }
+        XCTAssertFalse(
+            panel.webView.isLoading,
+            "Timed out waiting for about:blank to finish loading",
+            file: file,
+            line: line
+        )
+        XCTAssertFalse(
+            panel.isLoading,
+            "Timed out waiting for the panel loading indicator to settle",
+            file: file,
+            line: line
+        )
+    }
+
     func testHiddenDiscardPolicyReadsUserDefaults() throws {
         let suiteName = "cmux.browserHiddenDiscardPolicyTests.\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
@@ -1740,9 +1847,18 @@ final class BrowserPanelWebViewLifecycleTests: XCTestCase {
         if !hasDelayEnvironmentOverride {
             XCTAssertEqual(BrowserHiddenWebViewDiscardPolicy.hiddenDelay(defaults: defaults), 42.5)
 
+            // Stored values outside [minimum, maximum] are rejected, not clamped:
+            // `resolvedHiddenDelay` returns nil so the cmux.json loader can report
+            // an invalid `browser.hiddenWebViewDiscardDelaySeconds`, and the runtime
+            // falls back to the default delay. Clamping is only the in-range helper.
             defaults.set(7200, forKey: BrowserHiddenWebViewDiscardPolicy.hiddenDelayKey)
+            XCTAssertNil(BrowserHiddenWebViewDiscardPolicy.resolvedHiddenDelay(7200))
             XCTAssertEqual(
                 BrowserHiddenWebViewDiscardPolicy.hiddenDelay(defaults: defaults),
+                BrowserHiddenWebViewDiscardPolicy.defaultHiddenDelay
+            )
+            XCTAssertEqual(
+                BrowserHiddenWebViewDiscardPolicy.clampedHiddenDelay(7200),
                 BrowserHiddenWebViewDiscardPolicy.maximumHiddenDelay
             )
 
@@ -1905,15 +2021,16 @@ final class BrowserPanelWebViewLifecycleTests: XCTestCase {
         )
         defer { panel.close() }
 
-        let deadline = Date().addingTimeInterval(1.0)
-        while panel.webView.isLoading,
-              RunLoop.main.run(mode: .default, before: deadline),
-              Date() < deadline {}
-        XCTAssertFalse(panel.webView.isLoading, "Timed out waiting for about:blank to finish loading")
+        waitForInitialLoadToSettle(panel)
 
         panel.noteWebViewVisibility(false, reason: "test.hidden", now: discardedAt)
         let originalWebView = panel.webView
 
+        XCTAssertEqual(
+            panel.webViewLifecycleTopPayload(now: discardedAt)["discard_blockers"] as? [String],
+            [],
+            "A hidden, idle about:blank webview must be discard-eligible"
+        )
         XCTAssertTrue(panel.discardHiddenWebViewForMemory(reason: "test.discard", now: discardedAt))
         XCTAssertFalse(panel.webView === originalWebView)
         XCTAssertFalse(panel.shouldRenderWebView)
@@ -1954,11 +2071,7 @@ final class BrowserPanelWebViewLifecycleTests: XCTestCase {
         )
         defer { panel.close() }
 
-        let deadline = Date().addingTimeInterval(1.0)
-        while panel.webView.isLoading,
-              RunLoop.main.run(mode: .default, before: deadline),
-              Date() < deadline {}
-        XCTAssertFalse(panel.webView.isLoading, "Timed out waiting for about:blank to finish loading")
+        waitForInitialLoadToSettle(panel)
 
         panel.noteWebViewVisibility(true, reason: "test.visible.first")
         XCTAssertEqual(panel.webViewLifecycleState, .liveVisible)
@@ -2001,11 +2114,7 @@ final class BrowserPanelWebViewLifecycleTests: XCTestCase {
         )
         defer { panel.close() }
 
-        let deadline = Date().addingTimeInterval(1.0)
-        while panel.webView.isLoading,
-              RunLoop.main.run(mode: .default, before: deadline),
-              Date() < deadline {}
-        XCTAssertFalse(panel.webView.isLoading, "Timed out waiting for about:blank to finish loading")
+        waitForInitialLoadToSettle(panel)
 
         panel.restoreSessionNavigationHistory(
             backHistoryURLStrings: ["https://example.test/back"],
@@ -2015,6 +2124,11 @@ final class BrowserPanelWebViewLifecycleTests: XCTestCase {
         XCTAssertTrue(panel.canGoBack)
 
         panel.noteWebViewVisibility(false, reason: "test.hidden", now: discardedAt)
+        XCTAssertEqual(
+            panel.webViewLifecycleTopPayload(now: discardedAt)["discard_blockers"] as? [String],
+            [],
+            "A hidden, idle about:blank webview must be discard-eligible"
+        )
         XCTAssertTrue(panel.discardHiddenWebViewForMemory(reason: "test.discard", now: discardedAt))
         XCTAssertEqual(panel.webViewLifecycleState, .discarded)
 
@@ -2242,11 +2356,23 @@ final class BrowserPanelRemoteStoreTests: XCTestCase {
         )
         let baseURL = try XCTUnwrap(URL(string: "http://cmux-loopback.localtest.me:3000/"))
 
+        // Every panel-driven load applies the destination identity before it
+        // starts (`browserLoadRequest`). A direct `loadHTMLString` with an HTTP
+        // base URL skips that step, so the navigation delegate's user-agent
+        // restart cancels the data navigation and replays a plain request for
+        // the base URL, which a remote pane without a proxy endpoint defers;
+        // the JavaScript below would then run in the initial empty document.
+        panel.webView.applyBrowserUserAgentPolicy(for: baseURL)
         panel.webView.loadHTMLString(
             "<!doctype html><html><body>remote loopback bridge</body></html>",
             baseURL: baseURL
         )
         try await waitForBrowserWebViewLoad(panel.webView)
+        XCTAssertEqual(
+            panel.webView.url,
+            baseURL,
+            "The HTML document must be the current navigation; a cancelled or replayed load leaves the initial empty document"
+        )
 
         let result = try await panel.evaluateJavaScript(
             """
@@ -2295,7 +2421,7 @@ final class BrowserPanelRemoteStoreTests: XCTestCase {
         XCTAssertEqual(panel.webView.url?.host, "localhost")
     }
 
-    private func waitForBrowserWebViewLoad(_ webView: WKWebView, timeout: TimeInterval = 2.0) async throws {
+    private func waitForBrowserWebViewLoad(_ webView: WKWebView, timeout: TimeInterval = 10.0) async throws {
         let deadline = Date().addingTimeInterval(timeout)
         while webView.isLoading {
             if Date() >= deadline {
@@ -4393,8 +4519,11 @@ final class ZshShellIntegrationHandoffTests: XCTestCase {
             _CMUX_TTY_REPORTED=1
             _CMUX_PORTS_LAST_RUN=-999
             _cmux_precmd
-            repeat 20; do
-              [[ -s "\(logPath.path)" ]] && break
+            # precmd reports the prompt state and kicks the port scan from two
+            # independent background children. Wait for the kick itself, not
+            # for whichever line lands first.
+            repeat 200; do
+              /usr/bin/grep -q 'surface.ports_kick' "\(logPath.path)" && break
               sleep 0.05
             done
             cat "\(logPath.path)"
@@ -4538,8 +4667,10 @@ final class ZshShellIntegrationHandoffTests: XCTestCase {
             _CMUX_TTY_REPORTED=1
             _CMUX_PORTS_LAST_RUN=-999
             _cmux_prompt_command
-            for _cmux_i in $(seq 1 20); do
-              [ -s "\(logPath.path)" ] && break
+            # The prompt hook may send other relay RPCs from separate background
+            # children. Wait for the kick itself, not for whichever line lands first.
+            for _cmux_i in $(seq 1 200); do
+              /usr/bin/grep -q 'surface.ports_kick' "\(logPath.path)" && break
               sleep 0.05
             done
             cat "\(logPath.path)"
