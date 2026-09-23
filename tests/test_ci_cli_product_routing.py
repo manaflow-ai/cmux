@@ -1,5 +1,6 @@
 """Execute the actual gates for targeted CLI tests, including prior admission."""
 import importlib.util
+from itertools import product
 import json
 import os
 from pathlib import Path
@@ -13,9 +14,9 @@ import yaml
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def gate(expression, *, macos, cli, full_suite, compile_admitted):
+def gate(expression, *, macos, cli, full_suite, compile_admitted, swift_packages="false"):
     routes = dict(macos=macos, cli=cli, full_suite=full_suite,
-                  compile_admitted=compile_admitted, release_build="false")
+                  compile_admitted=compile_admitted, release_build="false", swift_packages=swift_packages)
     expression = expression.removeprefix("${{").removesuffix("}}").strip()
     expression = expression.replace("!cancelled()", "True")
     expression = expression.replace("github.event_name", repr("pull_request"))
@@ -42,21 +43,21 @@ class CLIProductRoutingTests(unittest.TestCase):
         cls.jobs = cls.workflow["jobs"]
 
     def test_actual_conditions_keep_targeted_route_alive_after_prior_admission(self):
-        for macos in ("false", "true"):
-            for cli in ("false", "true"):
-                for full_suite in ("false", "true"):
-                    for admitted in ("false", "true"):
-                        routes = dict(macos=macos, cli=cli, full_suite=full_suite, compile_admitted=admitted)
-                        compile_needed = (macos == "true" or cli == "true") and (
-                            full_suite == "true" or cli == "true" or admitted != "true")
-                        cli_needed = cli == "true" or (macos == "true" and full_suite == "true")
-                        with self.subTest(**routes):
-                            for name in ("macos", "macos-debounce"):
-                                self.assertEqual(gate(self.caller[name]["if"], **routes), compile_needed, name)
-                            self.assertEqual(gate(self.jobs["macos-compile-admission"]["if"], **routes), compile_needed)
-                            self.assertEqual(gate(self.jobs["cli-product-tests"]["if"], **routes), cli_needed)
-                            for name in ("app-host-unit-tests", "tests-build-and-lag"):
-                                self.assertEqual(gate(self.jobs[name]["if"], **routes), macos == "true" and full_suite == "true")
+        for macos, cli, full_suite, admitted, packages in product(("false", "true"), repeat=5):
+            routes = dict(macos=macos, cli=cli, full_suite=full_suite,
+                          compile_admitted=admitted, swift_packages=packages)
+            compile_needed = (macos == "true" or cli == "true") and (
+                full_suite == "true" or cli == "true" or admitted != "true")
+            cli_needed = cli == "true" or (macos == "true" and full_suite == "true")
+            with self.subTest(**routes):
+                self.assertEqual(gate(self.caller["macos"]["if"], **routes), compile_needed or packages == "true")
+                self.assertEqual(gate(self.caller["macos-debounce"]["if"], **routes), compile_needed)
+                self.assertEqual(gate(self.jobs["macos-compile-admission"]["if"], **routes), compile_needed)
+                self.assertEqual(gate(self.jobs["cli-product-tests"]["if"], **routes), cli_needed)
+                self.assertEqual(gate(self.jobs["swift-package-tests"]["if"], **routes),
+                                 (macos == "true" and full_suite == "true") or packages == "true")
+                for name in ("app-host-unit-tests", "tests-build-and-lag"):
+                    self.assertEqual(gate(self.jobs[name]["if"], **routes), macos == "true" and full_suite == "true")
 
     def test_required_status_rejects_missing_targeted_cli_work(self):
         job = self.jobs["macos-status"]
