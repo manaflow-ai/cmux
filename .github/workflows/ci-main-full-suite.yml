@@ -57,7 +57,11 @@ jobs:
           FORCE: ${{ inputs.force && 'true' || 'false' }}
         run: |
           set -euo pipefail
-          head_sha="$(gh api "repos/$GITHUB_REPOSITORY/branches/main" --jq '.commit.sha')"
+          if ! head_sha="$(gh api "repos/$GITHUB_REPOSITORY/branches/main" --jq '.commit.sha')"; then
+            echo "Could not read main's HEAD; dispatching the full suite."
+            echo "dispatch=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
           force_args=()
           if [ "$FORCE" = "true" ]; then
             force_args=(--force)

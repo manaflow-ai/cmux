@@ -1,9 +1,13 @@
 """The periodic main full-suite run: skip logic, suite choice, issue sync, wiring."""
 
 import importlib.util
+import os
 import pathlib
 import re
+import subprocess
 import sys
+import tempfile
+import textwrap
 import unittest
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
@@ -126,6 +130,27 @@ class WorkflowWiringTests(unittest.TestCase):
     def test_dispatches_ci_on_main(self):
         self.assertIn("gh workflow run ci.yml --repo \"$GITHUB_REPOSITORY\" --ref main", self.text)
         self.assertIn("steps.gate.outputs.dispatch == 'true'", self.text)
+
+    def test_branch_lookup_failure_still_dispatches(self):
+        gate = self.text.split("        id: gate\n", 1)[1].split("      - name: Dispatch CI", 1)[0]
+        script = textwrap.dedent(gate.split("        run: |\n", 1)[1])
+        for lookup_exit in (1, 0):
+            with self.subTest(lookup_exit=lookup_exit), tempfile.TemporaryDirectory() as directory:
+                output = pathlib.Path(directory) / "output"
+                gh = pathlib.Path(directory) / "gh"
+                gh.write_text(f"#!/bin/sh\necho {HEAD}\nexit {lookup_exit}\n")
+                gh.chmod(0o755)
+                result = subprocess.run(
+                    ["bash", "-euo", "pipefail", "-c", script],
+                    cwd=ROOT,
+                    env={**os.environ, "PATH": directory + os.pathsep + os.environ["PATH"],
+                         "GITHUB_OUTPUT": str(output), "GITHUB_REPOSITORY": "test/repo",
+                         "FORCE": "true"},
+                    capture_output=True, text=True, timeout=10,
+                )
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(output.read_text().strip(), "dispatch=true")
+                self.assertIn("Could not read" if lookup_exit else "forced by", result.stdout)
 
     def test_never_cancels_in_progress(self):
         self.assertNotRegex(self.text, r"cancel-in-progress:\s*(true|\$\{\{)")
