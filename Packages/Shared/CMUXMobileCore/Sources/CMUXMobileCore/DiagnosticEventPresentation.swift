@@ -189,10 +189,10 @@ public struct DiagnosticEventPresentation: Sendable {
             fields.append(decodeA(a, code: event.code))
         }
         if let b = event.b {
-            fields.append(decodeB(b, code: event.code))
+            fields.append(decodeB(b, event: event))
         }
         if let ms = event.ms {
-            fields.append(decodeMilliseconds(ms, code: event.code))
+            fields.append(decodeMilliseconds(ms, event: event))
         }
         if let c = event.c {
             fields.append(decodeC(c, event: event))
@@ -480,11 +480,11 @@ public struct DiagnosticEventPresentation: Sendable {
         }
     }
 
-    private func decodeB(_ raw: Int, code: DiagnosticEventCode) -> Field {
-        if Self.codesWithFailureB.contains(code) {
+    private func decodeB(_ raw: Int, event: DiagnosticEvent) -> Field {
+        if Self.codesWithFailureB.contains(event.code) {
             return Field(key: "failure", value: failureName(raw))
         }
-        switch code {
+        switch event.code {
         case .recoveryStarted:
             return Field(key: "trigger", value: recoveryTriggerName(raw))
         case .transportSessionLifecycle:
@@ -507,6 +507,12 @@ public struct DiagnosticEventPresentation: Sendable {
             return Field(key: "private_fallback_paths", value: String(raw))
         case .discoverySucceeded:
             return Field(key: "bindings", value: String(raw))
+        case .appFeatureAction:
+            if event.a == DiagnosticAppEventKind.taskModelListResultObserved.rawValue,
+               let provider = DiagnosticTaskModelProvider(rawValue: raw) {
+                return Field(key: "provider", value: taskModelProviderName(provider))
+            }
+            return Field(key: "detail_2", value: String(raw))
         case .transportPrivateAddressJoin:
             return Field(key: "configured_addresses", value: String(raw))
         case .transportLANDiscovery:
@@ -532,9 +538,9 @@ public struct DiagnosticEventPresentation: Sendable {
 
     private func decodeMilliseconds(
         _ raw: UInt32,
-        code: DiagnosticEventCode
+        event: DiagnosticEvent
     ) -> Field {
-        switch code {
+        switch event.code {
         case .renderGridLag:
             return Field(key: "lag", value: duration(raw))
         case .livenessResubscribe:
@@ -543,6 +549,11 @@ public struct DiagnosticEventPresentation: Sendable {
             return Field(key: "retry_delay", value: duration(raw))
         case .transportCloseAttribution:
             return Field(key: "application_error_code", value: String(raw))
+        case .appFeatureAction:
+            if event.a == DiagnosticAppEventKind.taskModelListResultObserved.rawValue {
+                return Field(key: "effort_count", value: String(raw))
+            }
+            return Field(key: "duration", value: duration(raw))
         case .composerActiveTransition, .composerKeyboardToggleWhilePresented:
             return Field(key: "keyboard_height", value: pointCount(Int(raw)))
         default:
@@ -604,6 +615,10 @@ public struct DiagnosticEventPresentation: Sendable {
                     return Field(key: "method", value: connectionMethodName(raw))
                 case .foregroundTransportSelected:
                     return Field(key: "transport", value: transportName(raw))
+                case .taskModelListResultObserved:
+                    if let source = DiagnosticTaskModelSource(rawValue: raw) {
+                        return Field(key: "source", value: taskModelSourceName(source))
+                    }
                 default:
                     if Self.appEventKindsWithValuePayload.contains(kind) {
                         return Field(key: "value", value: String(raw))
@@ -679,6 +694,23 @@ public struct DiagnosticEventPresentation: Sendable {
     private func connectionMethodName(_ raw: Int) -> String {
         DiagnosticConnectionMethod(rawValue: raw).map(displayName)
             ?? unknownPayloadName(raw)
+    }
+
+    private func taskModelProviderName(_ provider: DiagnosticTaskModelProvider) -> String {
+        switch provider {
+        case .claude: "claude"
+        case .codex: "codex"
+        case .openCode: "opencode"
+        }
+    }
+
+    private func taskModelSourceName(_ source: DiagnosticTaskModelSource) -> String {
+        switch source {
+        case .discovered: "discovered"
+        case .backend: "backend"
+        case .augmented: "augmented"
+        case .fallback: "fallback"
+        }
     }
 
     private func unknownPayloadName(_ raw: Int) -> String {
