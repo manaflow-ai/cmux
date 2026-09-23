@@ -40,9 +40,10 @@ function commit(message: string): string {
 function ignoreBuild(
   previous: string | undefined,
   current: string,
+  root: string = repository,
 ): number | null {
   const result = spawnSync("bash", [ignoreBuildScript], {
-    cwd: join(repository, "web"),
+    cwd: join(root, "web"),
     encoding: "utf8",
     env: {
       ...process.env,
@@ -181,3 +182,45 @@ test("skips local scripts but builds when a commit also changes production files
   expect(ignoreBuild(base, mixedChange)).toBe(1);
   expect(ignoreBuild(mixedChange, "missing-current-sha")).toBe(1);
 });
+
+test("recovers the previous deployment from outside a shallow clone", () => {
+  // Vercel clones shallowly. main lands commits faster than that clone is
+  // deep, so the previously deployed commit is normally missing from it.
+  const deployed = commit("deployed");
+  for (let index = 0; index < 5; index += 1) {
+    writeFileSync(join(repository, "Sources", "App.swift"), `let app = ${index}\n`);
+    commit(`native change ${index}`);
+  }
+  const head = git("rev-parse", "HEAD");
+
+  const shallow = mkdtempSync(join(tmpdir(), "cmux-vercel-shallow-"));
+  rmSync(shallow, { recursive: true, force: true });
+  execFileSync("git", [
+    "clone", "--depth", "1", "--branch", git("rev-parse", "--abbrev-ref", "HEAD"),
+    `file://${repository}`, shallow,
+  ]);
+  expect(
+    spawnSync("git", ["cat-file", "-e", `${deployed}^{commit}`], { cwd: shallow })
+      .status,
+  ).not.toBe(0);
+
+  // Nothing under web/ changed, so the build must be skipped even though the
+  // marker is outside the clone. Before the fetch, this returned 1.
+  expect(ignoreBuild(deployed, head, shallow)).toBe(0);
+  rmSync(shallow, { recursive: true, force: true });
+}, 30000);
+
+test("still builds when the previous deployment cannot be fetched at all", () => {
+  const base = commit("base");
+  const shallow = mkdtempSync(join(tmpdir(), "cmux-vercel-unreachable-"));
+  rmSync(shallow, { recursive: true, force: true });
+  execFileSync("git", [
+    "clone", "--depth", "1", "--branch", git("rev-parse", "--abbrev-ref", "HEAD"),
+    `file://${repository}`, shallow,
+  ]);
+
+  // A commit no remote has: the fetch fails and the build still runs.
+  expect(ignoreBuild("0".repeat(40), base, shallow)).toBe(1);
+  expect(ignoreBuild(undefined, base, shallow)).toBe(1);
+  rmSync(shallow, { recursive: true, force: true });
+}, 30000);
