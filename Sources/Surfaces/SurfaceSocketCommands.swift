@@ -351,6 +351,22 @@ extension TerminalController {
             let focus = Self.surfaceBool(params["focus"]) ?? true
             // `open: false` stages the workspace on the machine only (`--no-open`).
             let open = Self.surfaceBool(params["open"]) ?? true
+            if let rawSessionID = params["shared_session_id"] {
+                guard let sessionID = Self.surfaceString(rawSessionID),
+                      sessionID.range(of: "^[A-Za-z0-9._:-]{1,200}$", options: .regularExpression) != nil,
+                      !open, !reuse, name == nil,
+                      let cloudProvider = provider as? CmuxTuiSurfaceProvider else {
+                    throw SurfaceCatalogError.unsupported("A shared session requires a Cloud machine, a valid session ID, and open: false.")
+                }
+                let created = try await cloudProvider.resolveSharedSession(sessionID)
+                return [
+                    "machine": machine.rawValue,
+                    "remote_workspace_id": created.workspaceID.map { $0 as Any } ?? NSNull(),
+                    "terminal_id": created.terminalID,
+                    "tab_id": created.tabID.map { $0 as Any } ?? NSNull(),
+                    "opened": false,
+                ]
+            }
             var precreatedWorkspace: SurfaceRemoteWorkspace?
             if reuse, let name {
                 let lookup: CloudTreeRemoteWorkspaceLookup

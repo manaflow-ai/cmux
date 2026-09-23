@@ -98,6 +98,14 @@ struct NewWorkspaceMenuModelTests {
         defer { try? FileManager.default.removeItem(at: root) }
 
         let agent = CmuxResolvedConfigAction.builtIn(.newAgentChat)
+        let appDelegate = AppDelegate()
+        let tabManager = TabManager()
+        let windowId = appDelegate.registerMainWindowContextForTesting(
+            tabManager: tabManager,
+            cmuxConfigStore: store
+        )
+        defer { appDelegate.unregisterMainWindowContextForTesting(windowId: windowId) }
+        let context = try #require(appDelegate.mainWindowContexts.values.first { $0.windowId == windowId })
         let model = NewWorkspaceMenuModel.build(
             newWorkspaceContextMenuItems: store.newWorkspaceContextMenuItems,
             agentChatAction: agent,
@@ -133,6 +141,14 @@ struct NewWorkspaceMenuModelTests {
         #expect(layoutRows.first?.deletable == true)
         #expect(templates == ["Template A"])
         #expect(management.deletableActions.map(\.id) == ["review-layout"])
+
+        let teamItem = appDelegate.sharedTeamWindowMenuItem(windowID: context.windowId)
+        #expect(teamItem.title == String(
+            localized: "command.cloudVM.teamWindow.open.title",
+            defaultValue: "Open Team Window"
+        ))
+        #expect(teamItem.representedObject as? UUID == windowId)
+        #expect(teamItem.target === appDelegate)
         if case .action(_, _, let isDefault)? = createRows.first(where: { row in
             guard case .action(let action, _, _) = row else { return false }
             return action.action.id == "terminal-command"

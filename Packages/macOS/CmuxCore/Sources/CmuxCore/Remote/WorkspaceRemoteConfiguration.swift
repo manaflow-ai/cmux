@@ -243,7 +243,12 @@ public struct WorkspaceRemoteConfiguration: Equatable, Sendable {
         let normalizedIdentity = Self.normalizedIdentityPath(identityFile) ?? ""
         let normalizedLocalProxyPort = localProxyPort.map(String.init) ?? ""
         let normalizedOptions = Self.proxyBrokerSSHOptions(sshOptions).joined(separator: "\u{1f}")
-        let normalizedWebSocketDaemon = daemonWebSocketEndpoint?.proxyBrokerKeyComponent ?? ""
+        // Managed cloud credentials are renewable leases, not transport
+        // identity. Keep their URL/token/expiry out of the broker key so a
+        // replacement lease can take over the existing tunnel lifecycle.
+        let normalizedWebSocketDaemon = managedCloudVMID == nil
+            ? daemonWebSocketEndpoint?.proxyBrokerKeyComponent ?? ""
+            : ""
         let normalizedRequiredCapabilities = preserveAfterTerminalExit ? "pty.session" : ""
         let normalizedPersistentDaemonSlot = persistentDaemonSlot ?? ""
         let normalizedOwnerWorkspaceID = proxyBrokerOwnerWorkspaceKeyComponent
@@ -297,7 +302,8 @@ public struct WorkspaceRemoteConfiguration: Equatable, Sendable {
             && Self.normalizedIdentityPath(identityFile)
                 == Self.normalizedIdentityPath(other.identityFile)
             && Self.proxyBrokerSSHOptions(sshOptions) == Self.proxyBrokerSSHOptions(other.sshOptions)
-            && daemonWebSocketEndpoint?.proxyBrokerKeyComponent == other.daemonWebSocketEndpoint?.proxyBrokerKeyComponent
+            && (managedCloudVMID != nil ||
+                daemonWebSocketEndpoint?.proxyBrokerKeyComponent == other.daemonWebSocketEndpoint?.proxyBrokerKeyComponent)
     }
 
     /// Returns one or two stable lookup keys for this configuration's persistent PTY.
@@ -319,7 +325,9 @@ public struct WorkspaceRemoteConfiguration: Equatable, Sendable {
         let normalizedIdentity = Self.normalizedIdentityPath(identityFile) ?? ""
         let normalizedSSHOptions = Self.proxyBrokerSSHOptions(sshOptions)
             .joined(separator: "\u{1f}")
-        let normalizedWebSocketEndpoint = daemonWebSocketEndpoint?.proxyBrokerKeyComponent ?? ""
+        let normalizedWebSocketEndpoint = managedCloudVMID == nil
+            ? daemonWebSocketEndpoint?.proxyBrokerKeyComponent ?? ""
+            : ""
         let components: [String] = [
             transport.rawValue,
             skipDaemonBootstrap ? "1" : "0",
