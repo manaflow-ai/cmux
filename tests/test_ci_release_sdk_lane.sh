@@ -44,8 +44,8 @@ require_job_contains \
 require_job_contains \
   "$CI_FILE" \
   "release-build" \
-  'runs-on: ${{ vars.MACOS_RUNNER_26 || '\''blacksmith-6vcpu-macos-26'\'' }}' \
-  "CI release-build must compile the app on macOS 26 using the macOS 26 runner variable"
+  'runs-on: ${{ github.repository_owner != '\''manaflow-ai'\'' && '\''macos-15'\'' || (vars.MACOS_RUNNER_26 || '\''blacksmith-6vcpu-macos-26'\'') }}' \
+  "CI release-build must use GitHub-hosted macOS on forks and the macOS 26 runner variable upstream"
 
 for workflow in "$CI_FILE" "$RELEASE_FILE"; do
   if ! grep -Fq "CMUX_SKIP_ZIG_BUILD=1 xcodebuild" "$workflow"; then
