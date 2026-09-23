@@ -2,15 +2,11 @@ import SwiftUI
 
 struct WorkspaceTitleMenu<Label: View, MenuContent: View>: View, Equatable {
     let value: WorkspaceTitleMenuValue
-    /// The app-owned detail bar lays out its fixed controls, so the title can
-    /// use the explicit cap for the current size class and item count.
-    var maximumWidth: CGFloat?
     @ViewBuilder let menuContent: () -> MenuContent
     @ViewBuilder let label: () -> Label
 
     nonisolated static func == (lhs: Self, rhs: Self) -> Bool {
         lhs.value == rhs.value
-            && lhs.maximumWidth == rhs.maximumWidth
     }
 
     @ViewBuilder
@@ -19,12 +15,12 @@ struct WorkspaceTitleMenu<Label: View, MenuContent: View>: View, Equatable {
             Menu {
                 menuContent()
             } label: {
-                fittedLabel
+                label()
             }
             .accessibilityIdentifier("MobileWorkspaceTitleMenu")
         } else {
             Button {} label: {
-                fittedLabel
+                label()
             }
             .allowsHitTesting(false)
             .accessibilityRemoveTraits(.isButton)
@@ -32,13 +28,4 @@ struct WorkspaceTitleMenu<Label: View, MenuContent: View>: View, Equatable {
         }
     }
 
-    @ViewBuilder
-    private var fittedLabel: some View {
-        if let maximumWidth {
-            label()
-                .frame(maxWidth: maximumWidth, alignment: .leading)
-        } else {
-            label()
-        }
-    }
 }

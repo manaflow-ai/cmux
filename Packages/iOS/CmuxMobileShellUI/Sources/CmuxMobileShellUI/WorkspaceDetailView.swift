@@ -48,7 +48,7 @@ struct WorkspaceDetailView: View {
     let backButtonConfiguration: WorkspaceBackButtonConfiguration?
     let signOut: (@MainActor @Sendable () -> Void)?
     /// Regular-width split owner action. Compact layouts leave this nil, so
-    /// the app-owned detail bar omits the sidebar toggle.
+    /// the native detail bar omits the sidebar toggle.
     var toggleSidebar: (() -> Void)? = nil
     /// The regular-width split owner shows this action in the detail bar only
     /// while the sidebar column is hidden. When visible, the sidebar toolbar
@@ -61,10 +61,6 @@ struct WorkspaceDetailView: View {
     @Environment(ToastCenter.self) private var toasts
     @Environment(\.mobileChildPresentationProvider) private var childPresentationProvider
     @Environment(\.terminalFilesChipEnabled) var isTerminalFilesChipEnabled
-#if os(iOS)
-    @Environment(\.horizontalSizeClass) var horizontalSizeClass
-    @Environment(\.verticalSizeClass) var verticalSizeClass
-#endif
     /// Drives the destructive close-workspace confirmation dialog.
     @State var isConfirmingClose = false
     #if canImport(UIKit)
@@ -309,17 +305,14 @@ struct WorkspaceDetailView: View {
     }
 
 #if os(iOS)
-    /// Workspace details use a SwiftUI-owned bar. A system navigation toolbar
-    /// can recompute its item placement when the split sidebar changes width or
-    /// when a compact surface scrolls, which folds the terminal picker into a
-    /// `More` menu. Owning this row keeps every detail control attached to the
-    /// detail column across those transitions.
+    /// UIKit owns the detail bar's title and fixed controls. The surrounding
+    /// NavigationStack still owns routing and interactive back navigation.
     @ViewBuilder
     private func detailNavigationChrome<Content: View>(_ content: Content) -> some View {
         content
             .toolbar(.hidden, for: .navigationBar)
             .safeAreaInset(edge: .top, spacing: 0) {
-                workspaceOwnedTopBar
+                workspaceNavigationBar
             }
     }
 #endif
@@ -356,10 +349,8 @@ struct WorkspaceDetailView: View {
             && displaySettings.showAltScreenNotice
     }
 
-    /// Builds the title menu for the app-owned detail bar.
-    func workspaceTitleMenu(
-        maximumWidth: CGFloat? = nil
-    ) -> some View {
+    /// Builds the title menu for the native detail bar.
+    func workspaceTitleMenu() -> some View {
         // Reconnect lives in the title menu now that no pill covers the
         // terminal; reauthentication keeps its own blocking banner.
         let canReconnect = Self.canReconnectFromTitleMenu(
@@ -380,7 +371,6 @@ struct WorkspaceDetailView: View {
         )
         return WorkspaceTitleMenu(
             value: value,
-            maximumWidth: maximumWidth,
             menuContent: {
                 WorkspaceTitleMenuContent(
                     workspaceName: value.workspaceName,

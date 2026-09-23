@@ -7521,7 +7521,10 @@ final class cmuxUITests: XCTestCase {
 
     @MainActor
     func testWorkspaceDetailToolbarDoesNotOverflowWithChangesChip() async throws {
-        let server = try MobileSyncMockHostServer(advertisesWorkspaceChanges: true)
+        let server = try MobileSyncMockHostServer(
+            advertisesWorkspaceChanges: true,
+            mainWorkspaceTitle: "A deliberately long workspace title with changes and terminal controls"
+        )
         let port = try await server.start()
         defer { server.stop() }
 
@@ -7544,7 +7547,21 @@ final class cmuxUITests: XCTestCase {
             tap(app.buttons["MobileTerminalDropdown"], in: app)
             XCTAssertTrue(app.buttons["MobileNewTerminalMenuItem"].waitForExistence(timeout: 4))
             dismissOpenMenu(in: app)
+            let screenshot = XCTAttachment(screenshot: app.screenshot())
+            screenshot.name = "Native workspace toolbar \(orientation.rawValue)"
+            screenshot.lifetime = .keepAlways
+            add(screenshot)
         }
+        // Selecting a full-screen terminal adds a third trailing control.
+        // Returning to the primary terminal removes it without recreating menus.
+        tap(app.buttons["MobileTerminalDropdown"], in: app)
+        tapMenuItem(app.buttons["MobileTerminalMenuItem-terminal-tui"], in: app)
+        XCTAssertTrue(app.buttons["MobileTerminalAltScreenNoticeButton"].waitForExistence(timeout: 8))
+        assertNativeWorkspaceToolbarFits(in: app, includesChanges: true, includesAlternateScreen: true)
+        tap(app.buttons["MobileTerminalDropdown"], in: app)
+        tapMenuItem(app.buttons["MobileTerminalMenuItem-terminal-build"], in: app)
+        XCTAssertTrue(app.buttons["MobileTerminalAltScreenNoticeButton"].waitForNonExistence(timeout: 8))
+        assertNativeWorkspaceToolbarFits(in: app, includesChanges: true)
     }
 
     @MainActor
@@ -8582,12 +8599,18 @@ final class cmuxUITests: XCTestCase {
     private func assertNativeWorkspaceToolbarFits(
         in app: XCUIApplication,
         includesChanges: Bool = false,
+        includesAlternateScreen: Bool = false,
         file: StaticString = #filePath,
         line: UInt = #line
     ) {
         let bar = app.navigationBars["MobileWorkspaceNavigationBar"]
         XCTAssertTrue(bar.waitForExistence(timeout: 4), "Workspace details must use a native navigation bar", file: file, line: line)
-        var controls = [app.buttons["MobileWorkspaceBackButton"], workspaceTitleElement(in: app)]
+        var controls: [XCUIElement] = []
+        for identifier in ["MobileSplitSidebarToggle", "MobileWorkspaceBackButton"] {
+            if app.buttons[identifier].exists { controls.append(app.buttons[identifier]) }
+        }
+        controls.append(workspaceTitleElement(in: app))
+        if includesAlternateScreen { controls.append(app.buttons["MobileTerminalAltScreenNoticeButton"]) }
         if includesChanges { controls.append(app.buttons["MobileChangesButton"]) }
         controls.append(app.buttons["MobileTerminalDropdown"])
         let fits = NSPredicate { _, _ in
@@ -10852,7 +10875,8 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
         advertisesCaffeineControl: Bool = false,
         taskModelsByProvider: [String: [(id: String, displayName: String)]] = [:],
         holdsTaskModelResponse: Bool = false,
-        macInstanceTag: String = mockHostInstanceTag()
+        macInstanceTag: String = mockHostInstanceTag(),
+        mainWorkspaceTitle: String? = nil
     ) throws {
         listener = try NWListener(using: .tcp, on: .any)
         self.createdWorkspaceTerminalDelay = createdWorkspaceTerminalDelay
@@ -10868,6 +10892,7 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
         self.taskModelsByProvider = taskModelsByProvider
         self.holdsTaskModelResponse = holdsTaskModelResponse
         self.macInstanceTag = macInstanceTag
+        if let mainWorkspaceTitle { workspaces[0].title = mainWorkspaceTitle }
         appendMainTerminals(count: additionalMainTerminalCount)
         // Optionally replace the selected terminal's content (used by the
         // color-band render test so the bands stream on attach without a flaky
