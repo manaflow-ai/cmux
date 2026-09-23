@@ -270,6 +270,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_select_package_tests.py
 
+      - name: Validate workflow_run triggers name workflows that exist
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_workflow_run_sources.py
+
       - name: Validate shallow complexity comparison fetching
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_fetch_complexity_base.py
@@ -289,6 +293,10 @@ jobs:
       - name: Validate stale run cleanup eligibility
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_cleanup_stale_runs.py
+
+      - name: Validate the scheduled main full-suite run
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_main_full_suite.py
 
       - name: Validate CI queue janitor policy
         if: ${{ matrix.group == 'ci' }}
@@ -330,6 +338,12 @@ jobs:
         if: ${{ matrix.group == 'release-tooling' }}
         run: ./tests/test_ci_release_build_archs.sh
 
+      - name: Validate exact Release product reuse
+        if: ${{ matrix.group == 'release-tooling' }}
+        run: |
+          python3 tests/test_reuse_release_product.py
+          python3 tests/test_ci_release_product_reuse.py
+
       - name: Validate the R2 cache store script
         if: ${{ matrix.group == 'ci' }}
         run: bash tests/test_ci_r2_cache.sh
@@ -368,6 +382,12 @@ jobs:
         if: ${{ matrix.group == 'app-host-execution' }}
         run: python3 tests/test_swift_testing_suite_timeout.py
 
+      - name: Validate Swift package execution evidence
+        if: ${{ matrix.group == 'app-host-execution' }}
+        run: |
+          python3 tests/test_swift_test_execution.py
+          python3 tests/test_swift_package_execution.py
+
       - name: Validate xcodebuild noninteractive crash prompt guard
         if: ${{ matrix.group == 'app-host-execution' }}
         run: python3 tests/test_ci_xcodebuild_noninteractive_helper.py
@@ -384,7 +404,9 @@ jobs:
 
       - name: Validate focused test launcher
         if: ${{ matrix.group == 'app-host-execution' }}
-        run: python3 tests/test_run_e2e.py
+        run: |
+          python3 tests/test_run_e2e.py
+          python3 tests/test_ci_e2e_compilation_cache.py
 
       - name: Validate app-host xcodebuild retry guard
         if: ${{ matrix.group == 'app-host-execution' }}
@@ -633,6 +655,10 @@ jobs:
         run: |
           python3 tests/test_ci_change_areas.py
           python3 tests/test_ci_linux_guard_routing.py
+
+      - name: Validate evidence collection reporting
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_evidence_outcomes.py
 
       - name: Validate reusable workflow job name lookups
         if: ${{ matrix.group == 'ci' }}

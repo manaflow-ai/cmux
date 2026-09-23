@@ -9,6 +9,8 @@ history reader against a real repository, and the workflow wiring.
 """
 
 import importlib.util
+import ast
+import textwrap
 import os
 import shlex
 import subprocess
@@ -213,6 +215,31 @@ class HistoryTests(unittest.TestCase):
             os.chdir(cwd)
         return output.read_text(encoding="utf-8"), summary.read_text(encoding="utf-8")
 
+    def test_public_counts_only_relevant_commits_not_old_web_or_docs(self):
+        commits = batch.first_parent_commits(self.base, cwd=self.repo)
+        times = batch.relevant_commit_times(commits, None, public=True)
+        self.assertEqual(sorted(times), [NOW - 90 * 60, NOW - 20 * 60])
+        self.assertFalse(batch.decide("schedule", times, NOW, batch.Thresholds(3, 180)).upload)
+        commit_file(self.repo, "Packages/macOS/CmuxPhonePush/Push.swift", NOW - 5 * 60)
+        times = batch.relevant_commit_times(batch.first_parent_commits(self.base, cwd=self.repo), None, public=True)
+        self.assertTrue(batch.decide("schedule", times, NOW, batch.Thresholds(3, 180)).upload)
+
+    def test_public_predicate_matches_executed_compare_gate(self):
+        workflow = load(OFFICIAL)
+        script = step(workflow["jobs"]["decide"]["steps"], "Skip an unchanged scheduled revision")["run"]
+        source = script.split("import json, sys", 1)[1].split("PYCODE", 1)[0]
+        module = ast.parse(textwrap.dedent(source))
+        function = next(node for node in module.body if isinstance(node, ast.FunctionDef) and node.name == "unrelated")
+        namespace = {}
+        exec(compile(ast.Module(body=[function], type_ignores=[]), "public_compare_filter", "exec"), namespace)
+        for path in ("web/app.ts", "docs/a.md", "tests/a.py", "cmuxTests/A.swift",
+                     ".github/workflows/ci.yml", ".github/workflows/ios-appstore-upload.yml",
+                     ".github/workflows/ios-testflight.yml", "Packages/macOS/CmuxPhonePush/A.swift",
+                     "Packages/Shared/A.swift", "ios/cmux/A.swift", "scripts/install-zig-ci.sh",
+                     "unknown/new-input", "", None):
+            with self.subTest(path=path):
+                self.assertEqual(batch.public_path_relevant(path), not namespace["unrelated"](path))
+
     def test_counts_first_parent_commits_with_merge_diffs(self):
         commits = batch.first_parent_commits(self.base, cwd=self.repo)
         self.assertEqual(len(commits), 4)  # web, docs, merge, Packages/iOS
@@ -337,12 +364,13 @@ class WorkflowWiringTests(unittest.TestCase):
             step(steps, "Check out the upload batching policy")["with"]["sparse-checkout"],
         )
 
-    def test_official_has_no_path_filter_and_unchanged_means_uploaded(self):
+    def test_official_uses_public_filter_and_unchanged_means_uploaded(self):
         steps = load(OFFICIAL)["jobs"]["decide"]["steps"]
         self.assertNotIn(
             "--paths-from-workflow",
             step(steps, "Batch official uploads by commit count and age")["run"],
         )
+        self.assertIn("--public-path-filter", step(steps, "Batch official uploads by commit count and age")["run"])
         decide = step(steps, "Skip an unchanged scheduled revision")["run"]
         self.assertIn("name=cmux-app-testflight-upload", decide)
         self.assertIn(
