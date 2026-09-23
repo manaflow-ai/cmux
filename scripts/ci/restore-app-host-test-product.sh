@@ -16,6 +16,7 @@ elapsed = max(0.0, (time.monotonic_ns() - int(os.environ["CMUX_RESTORE_STARTED_N
 local_hit = os.environ.get("CMUX_NODE_PRODUCT_CACHE_HIT") == "true"
 peer_hit = os.environ.get("CMUX_PEER_PRODUCT_HIT") == "true"
 r2_hit = os.environ.get("CMUX_R2_PRODUCT_HIT") == "true"
+parallel_hit = os.environ.get("CMUX_PARALLEL_PRODUCT_HIT") == "true"
 record = {
     "outcome": "success" if os.environ.get("CMUX_RESTORE_STATUS") == "0" else "failure",
     "r2_result": os.environ.get("CMUX_ARTIFACT_R2_RESULT") or "disabled",
@@ -36,6 +37,7 @@ record = {
         "peer" if peer_hit else
         "layers-github" if layer_hit else
         "r2" if r2_hit else
+        "github-parallel" if parallel_hit else
         "github"
     ),
     "local_hit": local_hit,
@@ -44,6 +46,8 @@ record = {
     "peer_lookup_seconds": float(os.environ.get("CMUX_PEER_PRODUCT_LOOKUP_SECONDS") or 0),
     "peer_transfer_seconds": float(os.environ.get("CMUX_PEER_PRODUCT_TRANSFER_SECONDS") or 0),
     "peer_bytes_transferred": int(os.environ.get("CMUX_PEER_PRODUCT_BYTES") or 0),
+    "parallel_hit": parallel_hit,
+    "parallel_transfer_seconds": float(os.environ.get("CMUX_PARALLEL_PRODUCT_TRANSFER_SECONDS") or 0),
     "run_id": os.environ.get("GITHUB_RUN_ID"),
     "job": os.environ.get("GITHUB_JOB"),
     "shard": os.environ.get("CMUX_APP_HOST_SHARD"),
