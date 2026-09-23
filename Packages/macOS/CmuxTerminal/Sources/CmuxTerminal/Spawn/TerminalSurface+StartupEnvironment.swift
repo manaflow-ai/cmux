@@ -23,7 +23,7 @@ extension TerminalSurface {
             .appendingPathComponent("Application Support", isDirectory: true)
             .appendingPathComponent("cmux", isDirectory: true)
             .appendingPathComponent("terminal-history", isDirectory: true)
-            .appendingPathComponent("surface-(surfaceID.uuidString).history", isDirectory: false)
+            .appendingPathComponent("surface-\(surfaceID.uuidString).history", isDirectory: false)
     }
 
     /// The managed `TERM` value exported to spawned shells.

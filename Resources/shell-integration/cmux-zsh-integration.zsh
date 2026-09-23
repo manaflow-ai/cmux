@@ -1716,7 +1716,6 @@ _cmux_preexec() {
 _cmux_initialize_terminal_history() {
     [[ -n "${CMUX_HISTORY_FILE:-}" && -z "${_CMUX_HISTORY_INITIALIZED:-}" ]] || return 0
     builtin fc -p "$CMUX_HISTORY_FILE" "${HISTSIZE:-2000}" "${SAVEHIST:-2000}" || return
-    (( SAVEHIST > 0 )) || SAVEHIST=2000
     setopt inc_append_history
     typeset -g _CMUX_HISTORY_INITIALIZED=1
 }
