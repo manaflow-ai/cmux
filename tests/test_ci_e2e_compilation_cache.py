@@ -138,6 +138,23 @@ class E2ECompilationCache(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertNotIn('save=true', (self.root / 'output').read_text())
 
+    def test_failed_restore_discards_partial_cache_without_removing_products(self):
+        values = self.prepare()
+        cache = Path(values['CMUX_E2E_COMPILATION_CACHE'])
+        (cache / 'partial-database').write_bytes(b'incomplete')
+        product = Path(values['CMUX_DERIVED_DATA_PATH']) / 'keep'
+        product.write_text('separate build products')
+        result = self.run_step('Discard incomplete E2E compilation cache', **values)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue(cache.is_dir())
+        self.assertEqual(list(cache.iterdir()), [])
+        self.assertTrue(product.exists())
+        rejected = self.run_step('Discard incomplete E2E compilation cache',
+            **dict(values, CMUX_E2E_COMPILATION_CACHE=str(product.parent)))
+        self.assertNotEqual(rejected.returncode, 0)
+        self.assertTrue(product.exists())
+
+
 
 if __name__ == '__main__':
     unittest.main()
