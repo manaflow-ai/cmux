@@ -432,7 +432,11 @@ jobs:
           # Still a gzip stream, so every consumer reads it unchanged. The
           # default level spends about a minute squeezing Mach-O binaries that
           # travel between two jobs on the same fleet and are deleted after.
-          tar -chf - -C "$CMUX_DERIVED_DATA_PATH" Build/Products | gzip -1 > "$archive"
+          # COPYFILE_DISABLE stops macOS tar adding AppleDouble entries
+          # (Build/._Products) for Xcode's xattrs. macOS tar folds them back
+          # in on extract, so the test job never noticed, but cross-run reuse
+          # extracts with Python and rejects them as unscoped paths.
+          COPYFILE_DISABLE=1 tar -chf - -C "$CMUX_DERIVED_DATA_PATH" Build/Products | gzip -1 > "$archive"
           echo "sha256=$(shasum -a 256 "$archive" | awk '{print $1}')" >> "$GITHUB_OUTPUT"
           echo "bytes=$(wc -c < "$archive" | tr -d ' ')" >> "$GITHUB_OUTPUT"
 
