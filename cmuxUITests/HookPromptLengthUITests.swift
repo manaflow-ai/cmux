@@ -59,7 +59,7 @@ final class HookPromptLengthUITests: XCTestCase {
     }
 
     private static let probe = #"""
-import json, os, pathlib, socket, subprocess, sys, time, uuid
+import base64, json, pathlib, socket, subprocess, sys, time, uuid
 cli, sock, root, log_path = sys.argv[1:]
 prefix = 'hook-length-' + uuid.uuid4().hex
 env = {'PATH': '/usr/bin:/bin:/usr/sbin:/sbin', 'HOME': root,
@@ -86,7 +86,7 @@ sentinels = ['PRIVATE_PROMPT_', 'PRIVATE_TOOL_', 'PRIVATE_CONTEXT_']
 def hook(label, prompt, source='claude', nested=False):
     session = prefix + '-' + label
     payload = {'session_id': session, 'hook_event_name': 'UserPromptSubmit', 'cwd': root,
-               'prompt_length': -123, 'tool_input': {'command': 'PRIVATE_TOOL_' + label}}
+               'prompt_length': -123, 'tool_input': {'command': 'PRIVATE_TOOL_' + label, 'prompt_length': 123456}}
     if prompt is not None:
         if nested:
             payload['data'] = {'prompt': prompt}
@@ -97,7 +97,7 @@ def hook(label, prompt, source='claude', nested=False):
     result = subprocess.run([cli, '--socket', sock] + args, input=json.dumps(payload),
                             env=env, text=True, capture_output=True, timeout=20)
     assert result.returncode == 0, (label, result.returncode)
-    return 'claude-' + session
+    return 'cmux-feed-v1:' + base64.b64encode(b'claude').decode() + ':' + base64.b64encode(session.encode()).decode()
 
 for label, prompt, length in [
     ('long', 'PRIVATE_PROMPT_' + 'x' * (18635 - 15), 18635),
@@ -109,6 +109,7 @@ for label, prompt, length in [
         assert len(prompt.encode('utf-8')) == length
     expected[hook(label, prompt)] = length
 expected[hook('generic', 'PRIVATE_PROMPT_' + 'g' * 985, source='feed')] = 1000
+expected[hook('generic-missing', None, source='feed')] = None
 expected[hook('nested', 'PRIVATE_PROMPT_' + 'n' * 985, nested=True)] = 1000
 
 def push(label, fields, length, event_name='UserPromptSubmit'):
@@ -148,7 +149,7 @@ for frame in ours:
     assert payload.get('tool_input') is None and payload.get('context') is None, session
     assert payload.get('extra_fields') is None, session
     assert not any(secret in json.dumps(frame) for secret in sentinels), session
-    if session.endswith('-long'):
+    if expected[session] == 18635 and 'tool_input_length' in payload:
         assert payload['tool_input_length'] < 1000, 'tool JSON length must keep its existing meaning'
 assert seen == set(expected), ('missing own sessions', sorted(set(expected) - seen))
 
