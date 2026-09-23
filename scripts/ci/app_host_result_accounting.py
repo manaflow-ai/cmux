@@ -335,6 +335,9 @@ def check_run(
     complete, reason = run_is_complete(log_text)
     if not complete:
         messages.append(f"incomplete app-host run: {reason}")
+        # A restart or timeout ends the run, not the verdicts recorded before
+        # it; same reasoning as the missing-result gate below.
+        messages.extend(recorded_failure_diagnostics(results, known))
         return False, messages
 
     if not results:

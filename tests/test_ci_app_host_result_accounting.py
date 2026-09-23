@@ -285,6 +285,32 @@ def test_restart_or_outer_timeout_is_never_ratcheted_green() -> None:
         assert messages[0].startswith("incomplete app-host run:")
 
 
+def test_interrupted_run_still_names_the_failures_it_recorded() -> None:
+    """A restarted app host must not hide the failures recorded before it.
+
+    On main's full suite at 638aaa717 (run 35862070143), shard 4 recorded a
+    failed XCTest case, then reported `app host restarted after test
+    execution` and printed no RATCHET line, so the run never named it.
+    """
+    passed, messages = accounting.check_run(
+        inventory={"FooTests/testBad()", "FooTests/testGood()", "BazTests/testKnown()"},
+        selectors=["FooTests", "BazTests"],
+        results={
+            "FooTests/testBad()": "Failed",
+            "FooTests/testGood()": "Passed",
+            "BazTests/testKnown()": "Failed",
+        },
+        known={"BazTests/testKnown()": "known on main"},
+        log_text="Restarting after unexpected exit, crash, or test timeout\n",
+        xcode_status=65,
+    )
+    assert passed is False
+    assert messages[0] == "incomplete app-host run: app host restarted after test execution"
+    assert "RATCHET_NEW_FAILURE FooTests/testBad()" in messages
+    assert "RATCHET_KNOWN_FAILURE BazTests/testKnown()" in messages
+    assert "recorded verdicts: 1 new, 1 known-main; typed test cases: 3" in messages
+
+
 def _catalog(tests: dict[str, dict[str, object]]) -> dict[str, object]:
     return {
         "bootstrap_main_sha": "1" * 40,
