@@ -23,6 +23,7 @@ extension CmuxSettingsFileStore {
         "app.focusHistoryIncludesPanesAndTabs",
         "app.preferredEditor",
         "app.openSupportedFilesInCmux",
+        "app.filePreviewVimKeys",
         "app.openMarkdownInCmuxViewer",
         "app.iMessageMode",
         "app.reorderOnNotification",

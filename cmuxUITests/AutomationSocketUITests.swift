@@ -1,4 +1,5 @@
 import XCTest
+import AppKit
 import Foundation
 import CoreGraphics
 import ImageIO
@@ -35,6 +36,42 @@ final class AutomationSocketUITests: XCTestCase {
         }
         temporaryRoots = []
         super.tearDown()
+    }
+
+    func testFilePreviewVimNavigationPreservesTextAndYanksSelection() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("cmux-vim-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        temporaryRoots.append(root)
+        let file = root.appendingPathComponent("navigation.txt")
+        let source = "one two\nthree four\nfive six\n" + (1...200).map { "row\($0) content\n" }.joined()
+        try source.write(to: file, atomically: true, encoding: .utf8)
+        let app = XCUIApplication.cmuxTestApplication()
+        configureTextBoxMentionLaunchEnvironment(app)
+        app.launchArguments += ["-filePreviewVimKeys", "YES"]
+        app.launch()
+        defer { app.terminate() }
+        app.activate()
+        socketPath = try XCTUnwrap(resolveSocketPath(timeout: 15, allowTmpFallback: false))
+        XCTAssertNotNil(socketResult(method: "file.open", params: ["paths": [file.path], "focus": true]))
+        let editor = app.textViews["FilePreviewTextEditor"]
+        XCTAssertTrue(editor.waitForExistence(timeout: 15))
+        app.typeText("gg2j0wvey")
+        XCTAssertEqual(NSPasteboard.general.string(forType: .string), "six")
+        app.typeText("iddxpu")
+        XCTAssertEqual(editor.value as? String, source)
+        app.typeText("/three")
+        app.typeKey(XCUIKeyboardKey.return.rawValue, modifierFlags: [])
+        app.typeText("vey")
+        XCTAssertEqual(NSPasteboard.general.string(forType: .string), "three")
+        app.typeKey("d", modifierFlags: [.control])
+        app.typeText("0vey")
+        XCTAssertTrue(NSPasteboard.general.string(forType: .string)?.hasPrefix("row") == true)
+        XCTAssertEqual(editor.value as? String, source)
+        XCTAssertEqual(try String(contentsOf: file, encoding: .utf8), source)
+        let screenshot = XCTAttachment(screenshot: app.screenshot())
+        screenshot.name = "File preview Vim navigation and read-only content"
+        screenshot.lifetime = .keepAlways
+        add(screenshot)
     }
 
     func testSocketToggleDisablesAndEnables() {
