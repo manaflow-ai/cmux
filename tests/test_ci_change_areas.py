@@ -4056,7 +4056,7 @@ def test_app_host_multi_batch_failure_cannot_reuse_prior_expected_summary() -> N
 
     assert runner_invoked
     assert result.returncode != 0, result.stdout
-    assert "simulated app-host crash before test summary" in result.stdout
+    assert result.stdout.count("simulated app-host crash before test summary") == 1
 
 
 def test_app_host_catalogued_failure_is_tolerated_with_red_xcode_status() -> None:
