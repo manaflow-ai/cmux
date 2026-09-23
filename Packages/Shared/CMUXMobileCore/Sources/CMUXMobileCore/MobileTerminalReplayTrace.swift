@@ -114,14 +114,17 @@ public struct MobileTerminalReplayTraceContext: Equatable, Sendable {
         guard seconds > 0 else { return 0 }
         var bucket = 0
         var value = 1
-        while value * 2 <= seconds, bucket < Self.maxAgeExponent - 1 {
+        while value * 2 <= seconds, bucket < Self.maxAgeExponent - 2 {
             value *= 2
             bucket += 1
         }
         return value
     }
 
-    /// Exponents 1...15 encode ages; 0 means "nothing has ever arrived".
+    /// Exponent 0 means "nothing has ever arrived" and exponent 1 means "less
+    /// than a second ago". Collapsing those two would report the freshest
+    /// possible lane exactly like a lane that never delivered, which inverts
+    /// the reading this field exists to give.
     static let maxAgeExponent = 15
 
     /// Packs the context into one non-negative integer payload slot.
@@ -137,10 +140,12 @@ public struct MobileTerminalReplayTraceContext: Equatable, Sendable {
         return value
     }
 
-    /// 0 means absent; otherwise the exponent of the power-of-two bucket.
+    /// 0 means absent, 1 means sub-second, and higher values are the
+    /// exponent of the power-of-two bucket offset by that reservation.
     static func ageExponent(_ seconds: Int?) -> Int {
-        guard let seconds, seconds > 0 else { return 0 }
-        var exponent = 1
+        guard let seconds else { return 0 }
+        guard seconds > 0 else { return 1 }
+        var exponent = 2
         var value = 1
         while value * 2 <= seconds, exponent < maxAgeExponent {
             value *= 2
@@ -166,6 +171,10 @@ public struct MobileTerminalReplayTraceContext: Equatable, Sendable {
         self.retryExhausted = (encoded & (1 << 15)) != 0
         self.isConnected = (encoded & (1 << 16)) != 0
         let exponent = (encoded >> 17) & 0xF
-        self.terminalEventAgeSeconds = exponent == 0 ? nil : 1 << (exponent - 1)
+        self.terminalEventAgeSeconds = switch exponent {
+        case 0: nil
+        case 1: 0
+        default: 1 << (exponent - 2)
+        }
     }
 }

@@ -77,6 +77,32 @@ import Testing
         #expect(store.terminalBlankSurfaceWatchdogTasksBySurfaceID[surfaceID] == nil)
     }
 
+    /// A replay taking over ends the unattended condition. If the report is
+    /// not closed here the probe exits at its next mark and leaves the task
+    /// mapping behind, which silently blocks every later report for this
+    /// surface.
+    @Test func aReplayTakingOverClosesTheReportAndFreesTheSurface() {
+        let surfaceID = "blank-terminal"
+        let (store, stream) = makeBlankMountedStore(surfaceID: surfaceID)
+        defer { _ = stream }
+
+        store.recordTerminalSurfaceGaveUp(surfaceID: surfaceID, trigger: .retryExhausted)
+        #expect(store.terminalBlankSurfaceWatchdogTraceIDsBySurfaceID[surfaceID] != nil)
+
+        store.markTerminalReplayInFlight(
+            surfaceID: surfaceID,
+            requestID: UUID(),
+            replayBarrierToken: nil
+        )
+        #expect(store.terminalBlankSurfaceWatchdogTraceIDsBySurfaceID[surfaceID] == nil)
+        #expect(store.terminalBlankSurfaceWatchdogTasksBySurfaceID[surfaceID] == nil)
+
+        // The surface is free to report again once the replay settles blank.
+        store.terminalReplaySurfaceIDsInFlight.remove(surfaceID)
+        store.recordTerminalSurfaceGaveUp(surfaceID: surfaceID, trigger: .retryExhausted)
+        #expect(store.terminalBlankSurfaceWatchdogTraceIDsBySurfaceID[surfaceID] != nil)
+    }
+
     /// One blank episode is one report. Re-evaluating while still blank must
     /// not mint a second trace, or the duration restarts and Axiom shows a
     /// string of short blanks instead of one long one.

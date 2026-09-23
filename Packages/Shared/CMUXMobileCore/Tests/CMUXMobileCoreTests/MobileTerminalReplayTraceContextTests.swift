@@ -85,6 +85,40 @@ struct MobileTerminalReplayTraceContextTests {
             .terminalEventAgeSeconds == 1)
     }
 
+    /// A lane that delivered half a second ago is the healthiest reading
+    /// there is. Encoding it like a lane that never delivered would invert
+    /// the diagnosis this field exists to give.
+    @Test func aSubSecondAgeIsDistinctFromNeverDelivered() {
+        let fresh = MobileTerminalReplayTraceContext(
+            trigger: .coldAttach, surfaceIsBlank: true, barrierActive: false,
+            attempt: 0, terminalEventAgeSeconds: 0
+        )
+        let never = MobileTerminalReplayTraceContext(
+            trigger: .coldAttach, surfaceIsBlank: true, barrierActive: false,
+            attempt: 0, terminalEventAgeSeconds: nil
+        )
+        #expect(fresh.encoded != never.encoded)
+        #expect(MobileTerminalReplayTraceContext(encoded: fresh.encoded)?
+            .terminalEventAgeSeconds == 0)
+        #expect(MobileTerminalReplayTraceContext(encoded: never.encoded)?
+            .terminalEventAgeSeconds == nil)
+    }
+
+    @Test func everyBucketRoundTripsMonotonically() {
+        var previous = -1
+        for seconds in [0, 1, 2, 3, 4, 7, 8, 100, 5_000, 100_000] {
+            let context = MobileTerminalReplayTraceContext(
+                trigger: .coldAttach, surfaceIsBlank: true, barrierActive: false,
+                attempt: 0, terminalEventAgeSeconds: seconds
+            )
+            let decoded = MobileTerminalReplayTraceContext(encoded: context.encoded)
+            let age = decoded?.terminalEventAgeSeconds ?? -1
+            #expect(age >= previous)
+            #expect(age <= seconds)
+            previous = age
+        }
+    }
+
     @Test func aVeryOldAgeSaturatesInsteadOfWrapping() {
         let ancient = MobileTerminalReplayTraceContext(
             trigger: .coldAttach, surfaceIsBlank: true, barrierActive: false,

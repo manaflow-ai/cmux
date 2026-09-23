@@ -445,6 +445,10 @@ extension MobileShellComposite {
         cancelTerminalReplayInFlight(surfaceID: surfaceID)
         terminalReplaySurfaceIDsInFlight.insert(surfaceID)
         terminalReplayRequestIDsInFlightBySurfaceID[surfaceID] = requestID
+        // Something is working on it now, so the unattended condition ended.
+        // Without this the probe exits at its next mark and leaves the task
+        // mapping behind, blocking every later report for this surface.
+        evaluateTerminalBlankSurfaceWatchdog(surfaceID: surfaceID)
         if let replayBarrierToken {
             terminalReplayBarrierTokensInFlightBySurfaceID[surfaceID] = replayBarrierToken
         } else {

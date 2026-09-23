@@ -99,8 +99,8 @@ extension MobileShellComposite {
         )
     }
 
-    /// Whole seconds since the last terminal event arrived, or `nil` when
-    /// none ever has.
+    /// Whole seconds since terminal output last actually arrived, or `nil`
+    /// when none ever has.
     ///
     /// This is the "is the lane alive" reading. A small age beside a blank
     /// surface means the transport is carrying traffic and the surface simply
@@ -108,7 +108,7 @@ extension MobileShellComposite {
     /// itself is the problem. Without it those two states are identical in
     /// Axiom and lead to opposite fixes.
     func terminalEventAgeSecondsForDiagnostics() -> Int? {
-        guard let lastTerminalEventAt else { return nil }
-        return Int(max(0, appDiagnosticNow().timeIntervalSince(lastTerminalEventAt)))
+        guard let lastTerminalOutputArrivedAt else { return nil }
+        return Int(max(0, appDiagnosticNow().timeIntervalSince(lastTerminalOutputArrivedAt)))
     }
 }
