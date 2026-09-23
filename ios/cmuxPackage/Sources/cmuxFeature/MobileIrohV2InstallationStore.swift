@@ -8,14 +8,14 @@ actor MobileIrohV2InstallationStore {
     private let accessGroup: String?
     private let files = FileManager()
     private let keys: V2IdentityKeyStore
-    private let installationKeys: V2KeychainStore
+    private let installationIDs: V2InstallationIDStore
 
     init(configuration: MobileIrohV2Configuration, accessGroup: String?) {
         self.configuration = configuration
         self.accessGroup = accessGroup
         keys = V2IdentityKeyStore(applicationNamespace: configuration.appNamespace, accessGroup: accessGroup)
-        installationKeys = V2KeychainStore(
-            service: configuration.appNamespace + ".cmux-iroh-v2.installation",
+        installationIDs = V2InstallationIDStore(
+            applicationNamespace: configuration.appNamespace,
             accessGroup: accessGroup
         )
     }
@@ -28,21 +28,7 @@ actor MobileIrohV2InstallationStore {
         try Data(value.utf8).write(to: file, options: .atomic)
         return value
         #else
-        let value = UUID().uuidString.lowercased()
-        let data = try installationKeys.loadOrCreate(
-            account: "device-id",
-            candidate: Data(value.utf8)
-        ) { data in
-            guard let stored = String(data: data, encoding: .utf8),
-                  UUID(uuidString: stored) != nil else {
-                throw V2ControlFailure.persistenceFailed
-            }
-        }
-        guard let stored = String(data: data, encoding: .utf8),
-              UUID(uuidString: stored) != nil else {
-            throw V2ControlFailure.persistenceFailed
-        }
-        return stored
+        return try installationIDs.loadOrCreate()
         #endif
     }
 

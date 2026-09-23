@@ -2,11 +2,18 @@ public import CMUXMobileCore
 internal import Foundation
 
 /// Reports bounded connectivity and task model discovery outcomes.
+///
+/// Starts stay local. Only terminal outcomes reach Axiom, which keeps the
+/// operational stream useful for latency histograms without turning every
+/// retry or state transition into an event. The diagnostic ring remains the
+/// source for Sentry's incident policy and the on-device logs.
 public final class MobileNetworkOutcomeReporter: Sendable {
     /// The Axiom event name for connectivity latency diagnostics.
     public static let eventName = "ios_connectivity_latency"
     /// The Axiom event name for task model discovery diagnostics.
     public static let taskModelEventName = "ios_task_model_discovery"
+    /// The Axiom event name for visible task model result metadata.
+    public static let taskModelResultEventName = "ios_task_model_result"
 
     private enum Phase: String, Hashable, Sendable {
         case endpointStart = "endpoint_start"
@@ -87,11 +94,74 @@ public final class MobileNetworkOutcomeReporter: Sendable {
     private let emitter: any AnalyticsEmitting
     private let state = StateStore()
 
-    /// Builds the bounded properties for a terminal task-model outcome.
-    private func taskModelProperties(
+    public init(emitter: any AnalyticsEmitting) {
+        self.emitter = emitter
+    }
+
+    /// Queues one diagnostic event without blocking the diagnostic event tap.
+    public func ingest(_ event: DiagnosticEvent) {
+        if event.code == .appFeatureAction,
+           let kind = event.a.flatMap(DiagnosticAppEventKind.init(rawValue:)),
+           let properties = Self.taskModelProperties(for: kind, event: event) {
+            let eventName = kind == .taskModelListResultObserved
+                ? Self.taskModelResultEventName
+                : Self.taskModelEventName
+            emitter.capture(eventName, properties)
+            return
+        }
+        guard Self.mayObserve(event.code) else { return }
+        let emitter = self.emitter
+        state.enqueue(event) { observation in
+            emitter.capture(Self.eventName, Self.properties(for: observation))
+        }
+    }
+
+    public func flush() async {
+        await state.drain()
+        await emitter.flush()
+    }
+
+    private static func taskModelProviderName(_ provider: DiagnosticTaskModelProvider) -> String {
+        switch provider {
+        case .claude: "claude"
+        case .codex: "codex"
+        case .openCode: "opencode"
+        }
+    }
+
+    private static func taskModelSourceName(_ source: DiagnosticTaskModelSource) -> String {
+        switch source {
+        case .discovered: "discovered"
+        case .backend: "backend"
+        case .augmented: "augmented"
+        case .fallback: "fallback"
+        }
+    }
+
+    /// Builds the task model discovery payload for one discovery event kind,
+    /// or nil when the kind is not part of that group.
+    private static func taskModelProperties(
         for kind: DiagnosticAppEventKind,
         event: DiagnosticEvent
     ) -> [String: AnalyticsValue]? {
+        if kind == .taskModelListResultObserved {
+            guard let provider = event.b.flatMap(DiagnosticTaskModelProvider.init(rawValue:)),
+                  let source = event.c.flatMap(DiagnosticTaskModelSource.init(rawValue:)) else {
+                return nil
+            }
+            var properties: [String: AnalyticsValue] = [
+                "operation": .string("model_list"),
+                "outcome": .string("observed"),
+                "duration_ms": .int(0),
+                "provider": .string(taskModelProviderName(provider)),
+                "source": .string(taskModelSourceName(source)),
+                "effort_count": .int(Int(event.ms ?? 0)),
+            ]
+            if let surface = event.surface {
+                properties["correlation_id"] = .int(Int(surface))
+            }
+            return properties
+        }
         let outcome: String
         let phase: String?
         switch kind {
@@ -159,30 +229,6 @@ public final class MobileNetworkOutcomeReporter: Sendable {
             break
         }
         return properties
-    }
-
-    public init(emitter: any AnalyticsEmitting) {
-        self.emitter = emitter
-    }
-
-    /// Queues one diagnostic event without blocking the diagnostic event tap.
-    public func ingest(_ event: DiagnosticEvent) {
-        if event.code == .appFeatureAction,
-           let kind = event.a.flatMap(DiagnosticAppEventKind.init(rawValue:)),
-           let properties = taskModelProperties(for: kind, event: event) {
-            emitter.capture(Self.taskModelEventName, properties)
-            return
-        }
-        guard Self.mayObserve(event.code) else { return }
-        let emitter = self.emitter
-        state.enqueue(event) { observation in
-            emitter.capture(Self.eventName, Self.properties(for: observation))
-        }
-    }
-
-    public func flush() async {
-        await state.drain()
-        await emitter.flush()
     }
 
     /// Builds a terminal latency payload for an event that already carries a

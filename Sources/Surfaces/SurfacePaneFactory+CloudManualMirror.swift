@@ -13,6 +13,7 @@ extension SurfacePaneFactory {
     static func makeCloudManualMirrorPane(
         at destination: SurfaceDestination,
         focus: Bool,
+        iconAssetName: String? = nil,
         onInput: @escaping @Sendable (TerminalManualInput) -> Void,
         keyNameResolver: (@MainActor @Sendable (ghostty_input_key_s) -> String?)? = nil,
         onResize: @escaping @MainActor @Sendable (TerminalSurfaceRawSizingSample) -> Void,
@@ -26,6 +27,7 @@ extension SurfacePaneFactory {
         return try workspace.addCloudManualMirrorPane(
             at: destination,
             focus: focus,
+            iconAssetName: iconAssetName,
             onInput: onInput,
             keyNameResolver: keyNameResolver,
             onResize: onResize,

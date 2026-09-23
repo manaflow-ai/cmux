@@ -188,9 +188,12 @@ enum PhotoLibraryTransferError: Error {
 
 // Safety: the lock protects every mutable field; callbacks resume outside it.
 private final class PhotoLibraryTransferRace: @unchecked Sendable {
-    // lint:allow lock - sanctioned carve-out: synchronous callbacks race to
-    // resume one checked continuation exactly once; awaiting an actor here
-    // would add a suspension point to the cancellation/timeout compare-and-set.
+    // `start` must store the continuation inside the synchronous
+    // `withCheckedThrowingContinuation` closure, and `cancel` runs in the
+    // synchronous `onCancel:` of `withTaskCancellationHandler`. Neither can
+    // await, so an actor would force both through a detached Task and lose the
+    // ordering that keeps a resume from racing the store. Carve-out: the race
+    // is settled by `didFinish` under this lock, which resumes exactly once.
     private let lock = NSLock()
     private var continuation: CheckedContinuation<ImportedPhotoLibraryFile?, Error>?
     private var transferTask: Task<Void, Never>?
@@ -271,15 +274,15 @@ private final class PhotoLibraryTransferRace: @unchecked Sendable {
 }
 
 extension ImportedPhotoLibraryFile {
-    /// Loads a Photos library asset with a bounded wait. iCloud-backed assets
-    /// can otherwise leave a composer staging task waiting indefinitely when
-    /// the network transfer stalls.
-    init?(
-        loading item: PhotosPickerItem,
+    /// Loads a Photos library asset with a bounded wait. iCloud-backed assets can
+    /// otherwise leave a composer staging task waiting indefinitely when the
+    /// network transfer stalls.
+    static func load(
+        _ item: PhotosPickerItem,
         timeout: Duration = .seconds(60)
-    ) async throws {
+    ) async throws -> ImportedPhotoLibraryFile? {
         let race = PhotoLibraryTransferRace()
-        let loaded: ImportedPhotoLibraryFile? = try await withTaskCancellationHandler(operation: {
+        return try await withTaskCancellationHandler(operation: {
             try await withCheckedThrowingContinuation { continuation in
                 race.start(
                     item: item,
@@ -290,9 +293,6 @@ extension ImportedPhotoLibraryFile {
         }, onCancel: {
             race.cancel()
         })
-        guard let loaded else { return nil }
-        self = loaded
     }
 }
-
 #endif

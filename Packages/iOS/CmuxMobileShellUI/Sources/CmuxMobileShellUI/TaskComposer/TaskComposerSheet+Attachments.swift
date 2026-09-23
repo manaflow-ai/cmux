@@ -208,7 +208,7 @@ extension TaskComposerSheet {
     private func stagePhotoPickerItem(
         _ item: PhotosPickerItem
     ) async throws -> TaskComposerAttachment {
-        guard let imported = try await ImportedPhotoLibraryFile(loading: item) else {
+        guard let imported = try await ImportedPhotoLibraryFile.load(item) else {
             throw TaskComposerAttachmentStager.StagingError.unreadableFile
         }
         defer {

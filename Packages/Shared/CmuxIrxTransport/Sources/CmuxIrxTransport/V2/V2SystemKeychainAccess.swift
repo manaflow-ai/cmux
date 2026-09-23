@@ -3,6 +3,8 @@ import Security
 
 /// The production Security.framework implementation of ``V2KeychainAccess``.
 public struct V2SystemKeychainAccess: V2KeychainAccess, Sendable {
+    private static let migrationMarker = "cmux.v2.keychain.migration-complete"
+
     /// Whether this platform exposes a separate file-keychain domain.
     public let supportsLegacyFileKeychain: Bool
 
@@ -13,6 +15,49 @@ public struct V2SystemKeychainAccess: V2KeychainAccess, Sendable {
         #else
         supportsLegacyFileKeychain = false
         #endif
+    }
+
+    /// Reads the exact marker metadata without changing item identity fields.
+    public func hasMigrationMarker(
+        service: String,
+        account: String,
+        accessGroup: String?,
+        dataProtection: Bool
+    ) throws -> Bool {
+        var query = baseQuery(
+            service: service,
+            account: account,
+            accessGroup: accessGroup,
+            dataProtection: dataProtection
+        )
+        query[kSecReturnAttributes as String] = true
+        query[kSecMatchLimit as String] = kSecMatchLimitOne
+        var result: CFTypeRef?
+        let status = SecItemCopyMatching(query as CFDictionary, &result)
+        if status == errSecItemNotFound { return false }
+        guard status == errSecSuccess, let attributes = result as? NSDictionary else {
+            throw V2KeychainAccessError.status(status)
+        }
+        return attributes[kSecAttrComment] as? String == Self.migrationMarker
+    }
+
+    /// Updates only the fixed marker metadata on an existing primary item.
+    public func setMigrationMarker(
+        service: String,
+        account: String,
+        accessGroup: String?,
+        dataProtection: Bool
+    ) throws {
+        let status = SecItemUpdate(
+            baseQuery(
+                service: service,
+                account: account,
+                accessGroup: accessGroup,
+                dataProtection: dataProtection
+            ) as CFDictionary,
+            [kSecAttrComment as String: Self.migrationMarker] as CFDictionary
+        )
+        guard status == errSecSuccess else { throw V2KeychainAccessError.status(status) }
     }
 
     /// Reads an exact generic-password item from the selected keychain domain.

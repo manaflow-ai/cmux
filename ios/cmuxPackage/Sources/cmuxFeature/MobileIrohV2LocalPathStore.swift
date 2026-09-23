@@ -18,8 +18,8 @@ actor MobileIrohV2LocalPathStore {
 
     func load(identity: V2Identity) throws -> [Path] {
         let url = try file(identity)
-        guard files.fileExists(atPath: url.path) else { return [] }
         try protectStorage()
+        guard files.fileExists(atPath: url.path) else { return [] }
         try files.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
         try excludeFromBackup(url)
         return try JSONDecoder().decode([Path].self, from: Data(contentsOf: url))

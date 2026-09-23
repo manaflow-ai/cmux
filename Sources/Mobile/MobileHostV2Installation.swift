@@ -61,13 +61,13 @@ struct MobileHostV2Configuration: Sendable {
 actor MobileHostV2Installation {
     private let configuration: MobileHostV2Configuration
     private let keys: V2IdentityKeyStore
-    private let installationKeys: V2KeychainStore
+    private let installationIDs: V2InstallationIDStore
 
     init(configuration: MobileHostV2Configuration) {
         self.configuration = configuration
         keys = V2IdentityKeyStore(applicationNamespace: configuration.namespace)
-        installationKeys = V2KeychainStore(
-            service: configuration.namespace + ".cmux-iroh-v2.installation"
+        installationIDs = V2InstallationIDStore(
+            applicationNamespace: configuration.namespace
         )
     }
 
@@ -84,21 +84,7 @@ actor MobileHostV2Installation {
         try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: file.path)
         return value
         #else
-        let value = UUID().uuidString.lowercased()
-        let data = try installationKeys.loadOrCreate(
-            account: "device-id",
-            candidate: Data(value.utf8)
-        ) { data in
-            guard let stored = String(data: data, encoding: .utf8),
-                  UUID(uuidString: stored) != nil else {
-                throw V2ControlFailure.persistenceFailed
-            }
-        }
-        guard let stored = String(data: data, encoding: .utf8),
-              UUID(uuidString: stored) != nil else {
-            throw V2ControlFailure.persistenceFailed
-        }
-        return stored
+        return try installationIDs.loadOrCreate()
         #endif
     }
 

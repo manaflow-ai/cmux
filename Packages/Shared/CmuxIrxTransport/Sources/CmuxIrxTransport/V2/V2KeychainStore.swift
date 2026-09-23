@@ -42,14 +42,19 @@ public struct V2KeychainStore: Sendable {
         validate: @Sendable (Data) throws -> Void
     ) throws -> Data {
         if let primary = try verifiedRead(dataProtection: true, account: account, validate: validate) {
-            if access.supportsLegacyFileKeychain,
-               let legacy = try verifiedRead(dataProtection: false, account: account, validate: validate) {
-                // A previous migration may have committed the primary item
-                // and crashed before deleting the legacy copy. Reconcile only
-                // an exact byte-for-byte match; a mismatch is an unresolved
-                // identity conflict and must remain fail-closed across restarts.
-                guard legacy == primary else { throw V2ControlFailure.persistenceFailed }
-                try deleteLegacy(account: account)
+            if try !hasMigrationMarker(account: account) {
+                if access.supportsLegacyFileKeychain,
+                   let legacy = try verifiedRead(dataProtection: false, account: account, validate: validate) {
+                    // A previous migration may have committed the primary item
+                    // and crashed before deleting the legacy copy. Reconcile only
+                    // an exact byte-for-byte match; a mismatch is an unresolved
+                    // identity conflict and must remain fail-closed across restarts.
+                    guard legacy == primary else { throw V2ControlFailure.persistenceFailed }
+                    try deleteLegacy(account: account)
+                }
+                // Once reconciliation succeeds, remember it on the primary item
+                // so a locked or unavailable legacy domain cannot strand startup.
+                try setMigrationMarker(account: account)
             }
             return primary
         }
@@ -68,11 +73,40 @@ public struct V2KeychainStore: Sendable {
             // The exact legacy item is retained unless the new copy was read
             // back and validated successfully above.
             try deleteLegacy(account: account)
+            try setMigrationMarker(account: account)
             return committed
         }
 
         try validateOrFail(candidate, validate: validate)
-        return try persist(candidate, account: account, validate: validate)
+        let committed = try persist(candidate, account: account, validate: validate)
+        try setMigrationMarker(account: account)
+        return committed
+    }
+
+    private func hasMigrationMarker(account: String) throws -> Bool {
+        do {
+            return try access.hasMigrationMarker(
+                service: service,
+                account: account,
+                accessGroup: accessGroup,
+                dataProtection: true
+            )
+        } catch {
+            throw V2ControlFailure.persistenceFailed
+        }
+    }
+
+    private func setMigrationMarker(account: String) throws {
+        do {
+            try access.setMigrationMarker(
+                service: service,
+                account: account,
+                accessGroup: accessGroup,
+                dataProtection: true
+            )
+        } catch {
+            throw V2ControlFailure.persistenceFailed
+        }
     }
 
     private func verifiedRead(

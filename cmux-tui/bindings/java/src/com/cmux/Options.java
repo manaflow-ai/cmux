@@ -24,6 +24,8 @@ public final class Options {
         public String toWire() { return name().toLowerCase(java.util.Locale.ROOT); }
     }
 
+    // Agent reports are limited to caller-owned sources. Plugin and detected
+    // are server-owned projection sources and belong to the snapshot model.
     public enum AgentSource { HOOK, SOCKET;
         public String toWire() { return name().toLowerCase(java.util.Locale.ROOT); }
     }

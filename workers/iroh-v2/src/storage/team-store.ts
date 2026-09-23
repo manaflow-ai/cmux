@@ -123,7 +123,7 @@ export class TeamStore {
     // Keep the history bounded without allowing the guard trigger to turn a
     // full audit log into a revocation or permission-update outage. This runs
     // inside the caller's transaction, so a failed insert rolls the prune back.
-    const count = this.#db.get<{ count: number }>(sql`SELECT count(*) AS "count" FROM "authority_audit"`)?.count ?? 0;
+    const count = this.#db.get<{ count: number }>(sql`SELECT "row_count" AS "count" FROM "authority_audit_usage" WHERE "id" = 1`)!.count;
     const remove = Math.max(0, count - (AUTHORITY_AUDIT_LIMIT - 1));
     if (remove > 0) {
       this.#db.run(sql`DELETE FROM "authority_audit" WHERE "id" IN (

@@ -9,11 +9,16 @@ final class V2KeychainTestAccess: V2KeychainAccess, @unchecked Sendable {
     private(set) var reads: [V2KeychainTestKey] = []
     private(set) var adds: [V2KeychainTestKey] = []
     private(set) var deletes: [V2KeychainTestKey] = []
+    private(set) var markerReads: [V2KeychainTestKey] = []
+    private(set) var markerWrites: [V2KeychainTestKey] = []
     var readError: (any Error)?
     var legacyReadError: (any Error)?
     var addError: (any Error)?
     var duplicateWinner: Data?
     var deleteError: (any Error)?
+    var markerReadError: (any Error)?
+    var markerWriteError: (any Error)?
+    private var migrationMarkers: Set<V2KeychainTestKey> = []
 
     init(supportsLegacyFileKeychain: Bool = false) {
         self.supportsLegacyFileKeychain = supportsLegacyFileKeychain
@@ -64,6 +69,40 @@ final class V2KeychainTestAccess: V2KeychainAccess, @unchecked Sendable {
         )
         reads.append(key)
         return values[key]
+    }
+
+    func hasMigrationMarker(
+        service: String,
+        account: String,
+        accessGroup: String?,
+        dataProtection: Bool
+    ) throws -> Bool {
+        if let markerReadError { throw markerReadError }
+        let key = V2KeychainTestKey(
+            service: service,
+            account: account,
+            accessGroup: accessGroup,
+            dataProtection: dataProtection
+        )
+        markerReads.append(key)
+        return migrationMarkers.contains(key)
+    }
+
+    func setMigrationMarker(
+        service: String,
+        account: String,
+        accessGroup: String?,
+        dataProtection: Bool
+    ) throws {
+        if let markerWriteError { throw markerWriteError }
+        let key = V2KeychainTestKey(
+            service: service,
+            account: account,
+            accessGroup: accessGroup,
+            dataProtection: dataProtection
+        )
+        markerWrites.append(key)
+        migrationMarkers.insert(key)
     }
 
     func add(

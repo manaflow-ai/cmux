@@ -126,7 +126,8 @@ struct V2KeychainStoreTests {
     func duplicateCreationReturnsPersistedWinner() throws {
         let access = V2KeychainTestAccess()
         let winner = Data(repeating: 4, count: 32)
-        access.seed(winner, service: service, account: account, dataProtection: true)
+        access.addError = V2KeychainAccessError.duplicate
+        access.duplicateWinner = winner
         let store = V2KeychainStore(service: service, access: access)
 
         let value = try store.loadOrCreate(
@@ -138,6 +139,8 @@ struct V2KeychainStoreTests {
         )
 
         #expect(value == winner)
+        #expect(access.adds.count == 1)
+        #expect(access.reads.map(\.dataProtection) == [true, true])
     }
 
     @Test
@@ -160,6 +163,27 @@ struct V2KeychainStoreTests {
         #expect(access.reads.map(\.dataProtection) == [true, true])
         #expect(access.deletes.isEmpty)
         #expect(access.value(service: service, account: account, dataProtection: false) == legacy)
+    }
+
+    @Test
+    func skipsLegacyProbeAfterMigrationMarker() throws {
+        let access = V2KeychainTestAccess(supportsLegacyFileKeychain: true)
+        let store = V2KeychainStore(service: service, access: access)
+        let candidate = Data(repeating: 8, count: 32)
+        let validate: @Sendable (Data) throws -> Void = { data in
+            guard data.count == 32 else { throw V2ControlFailure.persistenceFailed }
+        }
+
+        _ = try store.loadOrCreate(account: account, candidate: candidate, validate: validate)
+        access.legacyReadError = V2KeychainAccessError.status(-25308)
+        let restored = try store.loadOrCreate(
+            account: account,
+            candidate: Data(repeating: 9, count: 32),
+            validate: validate
+        )
+
+        #expect(restored == candidate)
+        #expect(access.reads.map(\.dataProtection) == [true, false, true, true])
     }
 
     @Test
