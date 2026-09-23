@@ -164,6 +164,8 @@ Before `gh pr create`:
 1. `git fetch upstream` and re-check the defect against current `upstream/main`, not the commit in the report. Main moves several commits an hour, so a reported SHA is usually stale and often already fixed.
 2. `gh search prs --repo manaflow-ai/cmux --state open '<failing test or file>'`. Search the failing symbol, not your own PR title: sessions converge on the symbol and diverge on titles.
 3. Check for a session already on it (Claude Code: `ListAgents`) and message it before you push.
+4. Run `git worktree list` and inspect the branches in other local worktrees for an existing fix before starting a duplicate.
+5. Run `git for-each-ref --sort=-committerdate --count=20 --format='%(committerdate:iso8601) %(refname:short) %(subject)' refs/remotes/` after fetching. Inspect recent remote branches for a fix that has not reached an open PR yet; commit dates indicate recent work, not when a branch was pushed.
 
 Query `state` before acting on any PR. GitHub keeps serving `mergeable` and `mergeStateStatus` on closed and merged PRs, where they mean nothing; reading `CONFLICTING` off an already-merged PR has twice sent a session to resolve a conflict that did not exist.
 
