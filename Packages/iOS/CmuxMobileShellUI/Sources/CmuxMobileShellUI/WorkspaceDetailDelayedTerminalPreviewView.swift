@@ -73,7 +73,7 @@ struct WorkspaceDetailDelayedTerminalPreviewView: View {
                     MobileTerminalPreview(id: Self.terminalID, name: Self.terminalTitle),
                 ]
             )
-            store.replaceForegroundWorkspaceState([workspace])
+            store.replaceForegroundWorkspaceState(Self.fixtureWorkspaces(workspace))
             store.selectedWorkspaceID = Self.workspaceID
             store.selectedTerminalID = Self.terminalID
             if Self.showsToolbarComparison {
@@ -183,13 +183,24 @@ struct WorkspaceDetailDelayedTerminalPreviewView: View {
         if usesRefreshingTerminalMenu {
             return [refreshingWorkspace(generation: 0)]
         }
-        return [
-            MobileWorkspacePreview(
-                id: workspaceID,
-                name: workspaceTitle,
-                terminals: []
-            ),
-        ]
+        return fixtureWorkspaces(MobileWorkspacePreview(
+            id: workspaceID,
+            name: workspaceTitle,
+            terminals: []
+        ))
+    }
+
+    private static func fixtureWorkspaces(_ workspace: MobileWorkspacePreview) -> [MobileWorkspacePreview] {
+        guard ProcessInfo.processInfo.environment["CMUX_UITEST_WORKSPACE_TOOLBAR_UNREAD"] == "1" else {
+            return [workspace]
+        }
+        return [workspace, MobileWorkspacePreview(
+            id: "workspace-unread",
+            name: "Unread workspace",
+            hasUnread: true,
+            unreadCount: 1,
+            terminals: []
+        )]
     }
 
     private static func refreshingWorkspace(generation: Int) -> MobileWorkspacePreview {

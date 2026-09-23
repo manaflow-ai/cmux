@@ -7559,12 +7559,15 @@ final class cmuxUITests: XCTestCase {
             "CMUX_UITEST_WORKSPACE_TOOLBAR_COMPARISON": "1",
             "CMUX_UITEST_WORKSPACE_DETAIL_LONG_TITLE": "1",
             "CMUX_UITEST_WORKSPACE_TOOLBAR_ALT_SCREEN": "1",
+            "CMUX_UITEST_WORKSPACE_TOOLBAR_UNREAD": "1",
         ])
         try XCTUnwrap(app.otherElements["MobileTerminalSurface"].waitForExistence(timeout: 8) ? true : nil)
         try XCTUnwrap(app.buttons["MobileTerminalAltScreenNoticeButton"].waitForExistence(timeout: 8) ? true : nil)
         defer { XCUIDevice.shared.orientation = .portrait }
         for orientation in [UIDeviceOrientation.portrait, .landscapeLeft, .portrait] {
             XCUIDevice.shared.orientation = orientation
+            RunLoop.current.run(until: Date().addingTimeInterval(1))
+            captureWorkspaceToolbarPresentation(in: app, name: "crowded-\(orientation.rawValue)")
             assertNativeWorkspaceToolbarFits(in: app, includesChanges: true, includesAlternateScreen: true)
             tap(app.buttons["MobileTerminalDropdown"], in: app)
             assertTerminalMenuItemExists("terminal-delayed", in: app)
