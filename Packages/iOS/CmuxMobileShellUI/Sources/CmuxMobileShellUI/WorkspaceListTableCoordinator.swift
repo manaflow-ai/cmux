@@ -81,6 +81,9 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDataSource,
     private var isCommittingGeometry = false
     #if DEBUG
     private var lastObservedOffsetY: CGFloat?
+    private var lastDecelerationFrameTime: CFTimeInterval?
+    private var decelerationFrames = 0
+    private var decelerationHitches = 0
     #endif
     /// The row whose swipe controls UIKit is presenting.
     private var editedItemID: String?
@@ -294,9 +297,7 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDataSource,
         }
         refreshLiveCells(in: tableView)
         tableView.layoutIfNeeded()
-        if let anchor {
-            restore(anchor, in: tableView)
-        }
+        let clamp = anchor.map { restore($0, in: tableView) }
         #if DEBUG
         let drift = anchor.flatMap { anchor in
             indexPath(forID: anchor.rowID).map {
@@ -305,7 +306,7 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDataSource,
             }
         }
         MobileDebugLog.anchormux(
-            "workspace-list.commit changes=\(plan.difference.count) heights=\(plan.heightChangedIDs.count) actions=\(plan.nativeActionChangedIDs.count) anchor=\(anchor?.rowID ?? "top") drift=\(drift.map { String(format: "%.2f", $0) } ?? "n/a")"
+            "workspace-list.commit changes=\(plan.difference.count) heights=\(plan.heightChangedIDs.count) actions=\(plan.nativeActionChangedIDs.count) anchor=\(anchor?.rowID ?? "top") drift=\(drift.map { String(format: "%.2f", $0) } ?? "n/a") clamp=\(clamp.map { "\($0)" } ?? "n/a") offset=\(String(format: "%.1f", tableView.contentOffset.y)) content=\(String(format: "%.1f", tableView.contentSize.height))"
         )
         lastObservedOffsetY = tableView.contentOffset.y
         #endif
@@ -332,8 +333,19 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDataSource,
         return nil
     }
 
-    private func restore(_ anchor: ViewportAnchor, in tableView: UITableView) {
-        guard let indexPath = indexPath(forID: anchor.rowID) else { return }
+    /// Where the anchor restore landed relative to the scrollable range.
+    private enum AnchorRestore {
+        case exact
+        /// The anchor's old position lies past an end of the new content, so
+        /// the list rests at that end instead.
+        case clampedToTop
+        case clampedToBottom
+        case missing
+    }
+
+    @discardableResult
+    private func restore(_ anchor: ViewportAnchor, in tableView: UITableView) -> AnchorRestore {
+        guard let indexPath = indexPath(forID: anchor.rowID) else { return .missing }
         let rect = tableView.rectForRow(at: indexPath)
         let insets = tableView.adjustedContentInset
         let minimumOffset = -insets.top
@@ -341,10 +353,15 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDataSource,
             minimumOffset,
             tableView.contentSize.height + insets.bottom - tableView.bounds.height
         )
-        let desired = min(max(rect.minY - anchor.distanceFromOffset, minimumOffset), maximumOffset)
+        let unclamped = rect.minY - anchor.distanceFromOffset
+        let desired = min(max(unclamped, minimumOffset), maximumOffset)
         let pixel = 1 / max(tableView.traitCollection.displayScale, 1)
-        guard abs(desired - tableView.contentOffset.y) >= pixel else { return }
-        tableView.contentOffset.y = desired
+        if abs(desired - tableView.contentOffset.y) >= pixel {
+            tableView.contentOffset.y = desired
+        }
+        if unclamped < minimumOffset - pixel { return .clampedToTop }
+        if unclamped > maximumOffset + pixel { return .clampedToBottom }
+        return .exact
     }
 
     private func layoutMetricsDidChange(in tableView: UITableView) {
@@ -760,6 +777,11 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDataSource,
     }
 
     func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) {
+        #if DEBUG
+        MobileDebugLog.anchormux(
+            "workspace-list.decel-end frames=\(decelerationFrames) hitches=\(decelerationHitches)"
+        )
+        #endif
         scrollInteractionDidSettle(scrollView)
     }
 
@@ -773,6 +795,24 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDataSource,
         // viewport shift the user did not ask for.
         let offsetY = scrollView.contentOffset.y
         defer { lastObservedOffsetY = offsetY }
+        // Deceleration advances once per display frame, so a longer gap
+        // between callbacks is a frame the main thread missed.
+        if scrollView.isDecelerating {
+            let now = CACurrentMediaTime()
+            if let last = lastDecelerationFrameTime {
+                let frame = 1 / Double(max(scrollView.window?.screen.maximumFramesPerSecond ?? 60, 1))
+                decelerationFrames += 1
+                if now - last > frame * 2.5 {
+                    decelerationHitches += 1
+                    MobileDebugLog.anchormux(
+                        "workspace-list.decel-hitch gap_ms=\(Int((now - last) * 1000)) frames=\(decelerationFrames) hitches=\(decelerationHitches)"
+                    )
+                }
+            }
+            lastDecelerationFrameTime = now
+        } else {
+            lastDecelerationFrameTime = nil
+        }
         guard !isCommittingGeometry,
               !scrollView.isTracking,
               !scrollView.isDragging,
