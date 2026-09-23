@@ -141,6 +141,8 @@ jobs:
             # Keep both sides of renames visible to path-based guard routing.
             # A guarded file moved into docs/ must still run its owning checks.
             if ! git diff --no-renames --name-only "$BASE_SHA" "$MERGE_SHA" > /tmp/cmux-ci-changed-files.txt; then
+              # Absence means unavailable; an existing empty file means a known empty diff.
+              rm -f /tmp/cmux-ci-changed-files.txt
               echo "Could not compute PR diff; running all CI areas." >&2
               emit_all_areas
               exit 0
@@ -362,6 +364,11 @@ jobs:
           if [ -f /tmp/cmux-ci-changed-files.txt ]; then
             while IFS= read -r path; do
               case "$path" in
+                .github/workflows/ci.yml)
+                  # The caller owns both reusable jobs' conditions and targets.
+                  browser=true
+                  remote_daemon=true
+                  ;;
                 cmux-browser/*|.github/workflows/cmux-browser.yml)
                   browser=true
                   ;;
@@ -370,6 +377,9 @@ jobs:
                   ;;
               esac
             done < /tmp/cmux-ci-changed-files.txt
+          else
+            browser=true
+            remote_daemon=true
           fi
           {
             echo "browser=$browser"
@@ -733,6 +743,9 @@ jobs:
   remote-daemon:
     needs: [changes, static-preflight]
     if: ${{ needs.changes.outputs.remote_daemon == 'true' }}
+    permissions:
+      contents: read
+      pull-requests: read
     uses: ./.github/workflows/remote-daemon.yml
 
   cli:
