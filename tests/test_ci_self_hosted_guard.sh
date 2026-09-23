@@ -1811,6 +1811,75 @@ CASES
   echo "PASS: pull request workflows with macOS jobs cancel superseded runs"
 }
 
+check_macos_xcode_pin_tracks_pull_request_lane() {
+  # A pull-request macOS job picks its pool through MACOS_RUNNER_PR and its
+  # toolchain through CMUX_CI_XCODE_APP. The two macOS images carry different
+  # Xcodes and scripts/select-ci-xcode.sh exits non-zero on a pinned path that
+  # is not installed, so a value naming the macos-15 Xcode in a job whose pool
+  # can move is a job that fails at Xcode selection the moment the lane moves.
+  #
+  # Default-deny rather than an allowlist of covered jobs: every env value under
+  # .github/workflows that names the macos-15 Xcode must also read the
+  # pull-request variant, unless its exact (file, job, key) is exempted below
+  # with a reason. A macOS job added next month inherits the rule for free.
+  local violations
+  violations="$(python3 - "$ROOT_DIR/.github/workflows" <<'PYTHON'
+import sys
+from pathlib import Path
+
+import yaml
+
+# (workflow file, job id, env key) -> why this site keeps the macos-15 Xcode
+# regardless of where the pull-request lane points.
+EXEMPT = {
+    ("iroh-release-gate.yml", "tailscale-version-skew", "CMUX_CI_XCODE_APP"):
+        "streamed validation lane, routed by MACOS_RUNNER_STREAMED_VALIDATION",
+    ("ci-macos.yml", "swift-package-tests", "CMUX_CI_XCODE_APP"):
+        "builds the SDK 15 Ghostty helper; stays on MACOS_RUNNER_DUAL_XCODE",
+    ("ci-macos.yml", "swift-package-tests", "CMUX_CI_HELPER_XCODE_APP"):
+        "same job's SDK 15 release-helper pin",
+}
+
+PINNED = ("CMUX_CI_XCODE_APP_MACOS_15", "CMUX_CI_HELPER_XCODE_APP_MACOS_15")
+LANE = ("CMUX_CI_XCODE_APP_PR", "CMUX_CI_HELPER_XCODE_APP_PR")
+
+violations = []
+for path in sorted(Path(sys.argv[1]).glob("*.yml")):
+    try:
+        document = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    except yaml.YAMLError as error:
+        violations.append(f"{path.name}: unparseable ({error})")
+        continue
+    for job_id, job in (document.get("jobs") or {}).items():
+        if not isinstance(job, dict):
+            continue
+        scopes = [job]
+        scopes.extend(step for step in (job.get("steps") or []) if isinstance(step, dict))
+        for scope in scopes:
+            for key, value in ((scope.get("env") or {})).items():
+                if not isinstance(value, str):
+                    continue
+                if not any(name in value for name in PINNED):
+                    continue
+                if any(name in value for name in LANE):
+                    continue
+                if (path.name, job_id, key) in EXEMPT:
+                    continue
+                violations.append(f"{path.name}::{job_id}: {key}: {value.strip()}")
+
+print("\n".join(violations))
+PYTHON
+)"
+  if [ -n "$violations" ]; then
+    echo "FAIL: a macos-15 Xcode pin does not follow the pull-request lane"
+    echo "      Route it through CMUX_CI_XCODE_APP_PR, or add its (file, job, key) to"
+    echo "      EXEMPT with a reason."
+    printf '%s\n' "$violations"
+    exit 1
+  fi
+  echo "PASS: every macos-15 Xcode pin either follows the pull-request lane or is exempt with a reason"
+}
+
 check_macos_runner_identity_env_tracks_routing() {
   # A macOS job picks its pool in `runs-on`, and some jobs then restate that
   # pool in an env value: `CMUX_PRODUCT_RUNNER` becomes a field of the compiled
@@ -2020,4 +2089,5 @@ check_pr_macos_workflows_cancel_superseded_runs
 check_ios_only_tests_stay_under_ios
 check_no_paid_overflow_fallbacks
 check_macos_runner_identity_env_tracks_routing
+check_macos_xcode_pin_tracks_pull_request_lane
 check_background_macos_lane
