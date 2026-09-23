@@ -34,6 +34,12 @@ public final class TerminalPredictionCenter {
 
     private init() {}
 
+    /// Monotonic time since this process started predicting. Readable off the
+    /// main actor so the PTY reader can stamp arrivals where they arrive.
+    nonisolated private var now: PredictionInstant {
+        ContinuousClock.now - origin
+    }
+
     /// Binds the feature to a defaults key and keeps it current.
     ///
     /// The key is passed in rather than read from the setting catalog because
