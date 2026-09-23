@@ -192,6 +192,7 @@ allowed = {
     ("build", None, "Save E2E compilation cache", "actions/cache/save"),
     ("build", "compilation-cache-bound", "Bound E2E compilation cache", ""),
     ("build", "revision-on-main", "Check the selected revision against main", ""),
+    ("build", "reuse", "Reuse a compiled product instead of building one", ""),
     ("test", "parallel-product", "Read the compiled test product over parallel range requests", ""),
 }
 for job_id, job in document["jobs"].items():
@@ -289,7 +290,7 @@ check_release_helper_artifact_from_package_lane() {
     /^  swift-package-tests:/ { in_job=1; next }
     in_job && /^  [^[:space:]#][^:]*:[[:space:]]*(#.*)?$/ { in_job=0 }
 
-    in_job && /runs-on:[[:space:]]*\$\{\{ vars\.MACOS_RUNNER_DUAL_XCODE \|\| '\''blacksmith-6vcpu-macos-15'\'' \}\}/ { saw_dual_runner=1 }
+    in_job && /runs-on:[[:space:]]*\$\{\{ vars\.CI_PAID_MACOS_OVERFLOW == '\''1'\'' && vars\.MACOS_RUNNER_DUAL_XCODE \|\| '\''blacksmith-6vcpu-macos-15'\'' \}\}/ { saw_dual_runner=1 }
     in_job && /vars\.MACOS_RUNNER_PR/ { saw_pr_lane=1 }
     in_job && /timeout-minutes:[[:space:]]*40/ { saw_timeout=1 }
     in_job && /CMUX_CI_HELPER_XCODE_APP:/ { saw_helper_xcode_env=1 }

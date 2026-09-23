@@ -63,7 +63,7 @@ jobs:
     # cannot fan out across every macOS worker and a successful build is not
     # repeated six times.
     if: ${{ inputs.macos == 'true' && inputs.compile_admitted != 'true' }}
-    runs-on: ${{ github.event_name == 'pull_request' && (vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15') || vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15' }}
+    runs-on: ${{ github.event_name == 'pull_request' && (vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15') || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15' }}
     timeout-minutes: 75
     permissions:
       contents: read
@@ -91,7 +91,7 @@ jobs:
       # Part of the compiled product contract, so it has to name the pool this
       # job actually ran on: two pools lay the workspace out differently, and a
       # product built under one cannot be relocated into the other.
-      CMUX_PRODUCT_RUNNER: ${{ github.event_name == 'pull_request' && (vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15') || vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15' }}
+      CMUX_PRODUCT_RUNNER: ${{ github.event_name == 'pull_request' && (vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15') || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15' }}
     steps:
       - name: Reject stale pull request rerun
         if: ${{ github.event_name == 'pull_request' }}
@@ -957,7 +957,7 @@ jobs:
     # macOS jobs. The fallback is what fork pull requests get, because
     # repository variables are not exposed to them, so it names the same
     # Blacksmith pool main uses and never the paid overflow provider.
-    runs-on: ${{ github.event_name == 'pull_request' && (vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15') || vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15' }}
+    runs-on: ${{ github.event_name == 'pull_request' && (vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15') || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15' }}
     timeout-minutes: 75
     strategy:
       # A pull request wants every shard's failures in one run. A merge group
@@ -1691,9 +1691,35 @@ jobs:
           LOGICAL_SHARDS=("$PHYSICAL_SHARD" "$((PHYSICAL_SHARD + PHYSICAL_SHARD_TOTAL))")
 
           # Each worker runs two balanced batches sequentially. Every invocation
-          # writes to a regular file; a separately-owned tail process mirrors
-          # that file into the Actions log. Detached test descendants therefore
-          # cannot retain the CI capture pipe after xcodebuild exits.
+          # writes to a regular file, and this script mirrors that file into the
+          # Actions log itself. Detached test descendants therefore cannot retain
+          # the CI capture pipe after xcodebuild exits.
+          #
+          # Mirroring in-process rather than from a background `tail -f` is what
+          # makes the last write observable. A tail had to be given some margin
+          # to deliver it before being killed, and a loaded runner could miss
+          # that margin and drop the final lines -- the ones saying why a batch
+          # died. Tracking the byte offset here has no margin to miss.
+          stream_offset=0
+          emit_batch_output() {
+            local file="$1" size
+            size="$(wc -c <"$file" 2>/dev/null || echo 0)"
+            size="${size//[[:space:]]/}"
+            if [ "${size:-0}" -gt "$stream_offset" ]; then
+              # Read exactly the byte range included in the size snapshot.
+              # Reading to EOF here would race a concurrent writer: bytes
+              # appended after wc(1) could be emitted now while stream_offset
+              # advances only to the old size, duplicating them next poll.
+              python3 -c '
+          import sys
+          path, start, end = sys.argv[1], int(sys.argv[2]), int(sys.argv[3])
+          with open(path, "rb") as stream:
+              stream.seek(start)
+              sys.stdout.buffer.write(stream.read(end - start))
+          ' "$file" "$stream_offset" "$size"
+              stream_offset="$size"
+            fi
+          }
           run_unit_test_batch() {
             local logical_shard="$1"
             local execution_attempt="$2"
@@ -1744,6 +1770,7 @@ jobs:
 
             echo "Running app-host unit-test batch ${logical_shard}/${LOGICAL_SHARD_TOTAL}, execution ${execution_attempt}"
             : >"$batch_output"
+            stream_offset=0
             CMUX_TAG="$batch_tag" \
               scripts/ci/run-in-console-session.sh \
               scripts/ci/run-app-host-xcodebuild.sh \
@@ -1757,8 +1784,6 @@ jobs:
               test-without-building >"$batch_output" 2>&1 &
             local xcodebuild_pid=$!
 
-            tail -n +1 -f "$batch_output" &
-            local stream_pid=$!
             local timeout_seconds="${CMUX_UNIT_TEST_TIMEOUT_SECONDS:-900}"
             local deadline=$((SECONDS + timeout_seconds))
             local timed_out=0
@@ -1793,6 +1818,7 @@ jobs:
                 timed_out=1
                 break
               fi
+              emit_batch_output "$batch_output"
               sleep 5
             done
 
@@ -1805,9 +1831,7 @@ jobs:
               batch_status=124
             fi
 
-            sleep 0.2
-            kill "$stream_pid" 2>/dev/null || true
-            wait "$stream_pid" 2>/dev/null || true
+            emit_batch_output "$batch_output"
 
             shopt -s nullglob
             local typed_results=("$result_bundle_root"/cmux-app-host-xcodebuild-"$batch_tag"-pid-*.tests.json)
@@ -2193,7 +2217,7 @@ jobs:
       ghostty_helper_toolchain_sha256: ${{ steps.ghostty-helper-identity.outputs.toolchain_sha256 }}
       ghostty_helper_sdk: ${{ steps.ghostty-helper-identity.outputs.sdk }}
     # Build the release helper with SDK 15, then run package tests with SDK 26.
-    runs-on: ${{ vars.MACOS_RUNNER_DUAL_XCODE || 'blacksmith-6vcpu-macos-15' }}
+    runs-on: ${{ vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_DUAL_XCODE || 'blacksmith-6vcpu-macos-15' }}
     timeout-minutes: 40
     env:
       CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_15 }}
@@ -2651,7 +2675,7 @@ jobs:
     if: ${{ !cancelled() && needs.macos-compile-admission.result == 'success' && inputs.macos == 'true' && inputs.full_suite == 'true' }}
     # Reuse compile admission's app and UI test products; this runner only
     # performs display and runtime verification.
-    runs-on: ${{ github.event_name == 'pull_request' && (vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15') || vars.MACOS_RUNNER_DISPLAY || 'blacksmith-6vcpu-macos-15' }}
+    runs-on: ${{ github.event_name == 'pull_request' && (vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15') || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_DISPLAY || 'blacksmith-6vcpu-macos-15' }}
     timeout-minutes: 75
     env:
       CMUX_NODE_PRODUCT_CACHE_ROOT: ${{ vars.CMUX_NODE_PRODUCT_CACHE_ROOT }}
@@ -2664,7 +2688,7 @@ jobs:
     steps:
       - name: Validate display runner identity
         env:
-          REQUESTED_RUNNER: ${{ github.event_name == 'pull_request' && (vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15') || vars.MACOS_RUNNER_DISPLAY || 'blacksmith-6vcpu-macos-15' }}
+          REQUESTED_RUNNER: ${{ github.event_name == 'pull_request' && (vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15') || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_DISPLAY || 'blacksmith-6vcpu-macos-15' }}
           RUNNER_CONTEXT_NAME: ${{ runner.name }}
         run: |
           set -euo pipefail
@@ -3089,7 +3113,7 @@ jobs:
     # Release builds need enough disk for a universal Release build plus the
     # restored SwiftPM cache. Default to a clean paid macOS 26 runner instead
     # of the generic persistent macOS 26 pool.
-    runs-on: ${{ vars.MACOS_RUNNER_26_RELEASE || 'blacksmith-6vcpu-macos-26' }}
+    runs-on: ${{ vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_26_RELEASE || 'blacksmith-6vcpu-macos-26' }}
     timeout-minutes: 60
     permissions:
       actions: read
@@ -3099,7 +3123,7 @@ jobs:
       CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_26 }}
       CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
       CMUX_SKIP_ZIG_BUILD: "1"
-      CMUX_PRODUCT_RUNNER: ${{ vars.MACOS_RUNNER_26_RELEASE || 'blacksmith-6vcpu-macos-26' }}
+      CMUX_PRODUCT_RUNNER: ${{ vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_26_RELEASE || 'blacksmith-6vcpu-macos-26' }}
       CMUX_RELEASE_SOURCE_REVISION: ${{ github.event.pull_request.head.sha || github.sha }}
     steps:
       - name: Clear stale git locks (self-hosted reused workspace)

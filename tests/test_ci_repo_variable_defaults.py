@@ -40,6 +40,33 @@ CHEAP_DEFAULTS = {
 VARS_REFERENCE = re.compile(r"vars\.([A-Z0-9_]+)")
 RUNS_ON = re.compile(r"^\s*runs-on:\s*(.+?)\s*$")
 
+# The repository-side switch for metered macOS capacity. Unset is the cheap
+# reading, so a fork pull request and a repository with no admin action both
+# land on the free Blacksmith fallback.
+PAID_OVERFLOW_GATE = "CI_PAID_MACOS_OVERFLOW"
+
+# Runner variables that have held a WarpBuild label, and the free label each
+# must fall back to (the "Intended steady state" in docs/ci-runners.md). Each
+# selects a lane that runs on every push to main or in the merge queue, where
+# nobody is watching a check name closely enough to notice the pool changed
+# under it. The fallback is pinned because a gate with the wrong literal moves
+# the lane silently: the nightly builder once fell back to 6vcpu, half its
+# intended 12.
+PAID_CAPABLE_RUNNER_VARS = {
+    "MACOS_RUNNER_15": "blacksmith-6vcpu-macos-15",
+    "MACOS_RUNNER_DISPLAY": "blacksmith-6vcpu-macos-15",
+    "MACOS_RUNNER_DUAL_XCODE": "blacksmith-6vcpu-macos-15",
+    "MACOS_RUNNER_26_RELEASE": "blacksmith-6vcpu-macos-26",
+    "MACOS_RUNNER_26_NIGHTLY_BUILD": "blacksmith-12vcpu-macos-26",
+}
+
+# The gate as it must appear immediately before the read. The lookbehind keeps
+# `inputs.CI_PAID_MACOS_OVERFLOW == '1' && ` from passing for the repository's
+# own flag.
+PAID_OVERFLOW_GATE_PREFIX = re.compile(
+    rf"(?<![\w.])vars\.{PAID_OVERFLOW_GATE} == '1' && $"
+)
+
 
 def workflow_files() -> list[Path]:
     return sorted(WORKFLOWS.glob("*.y*ml"))
@@ -115,6 +142,43 @@ def check_cheap_defaults(path: Path, errors: list[str]) -> None:
         offset += len(line) + 1
 
 
+def check_paid_overflow_gate(path: Path, errors: list[str]) -> None:
+    """Reading a paid-capable runner variable requires the repository's own flag.
+
+    Rule 1 covers the variable being *unset*. This covers it being *set*, which
+    is the case the repository actually got wrong: between 2026-09-19 and
+    2026-09-23 these five variables pointed at WarpBuild, so main and the merge
+    queue ran on metered capacity while pull requests ran free on Blacksmith.
+    Nothing in the repository could see it, because a variable's value is not
+    reviewable and every other guard here reads workflow text.
+
+    The gate restores the polarity the rest of this file assumes: stopping spend
+    is a pull request anyone with push access can merge, and starting it needs
+    both an admin-set runner variable and CI_PAID_MACOS_OVERFLOW=1. Unset, the
+    literal Blacksmith fallback wins, which is the cheap path.
+    """
+    for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
+        if line.lstrip().startswith("#"):
+            continue
+        for name, free_label in PAID_CAPABLE_RUNNER_VARS.items():
+            for read in re.finditer(rf"vars\.{name}\b", line):
+                if not PAID_OVERFLOW_GATE_PREFIX.search(line[: read.start()]):
+                    errors.append(
+                        f"{path.name}:{number}: vars.{name} is read without the "
+                        f"paid overflow gate. It can hold a metered WarpBuild "
+                        f"label, so write `vars.{PAID_OVERFLOW_GATE} == '1' && "
+                        f"vars.{name} || '{free_label}'`"
+                    )
+                    continue
+                fallback = re.match(r"\s*\|\|\s*'([^']+)'", line[read.end():])
+                if fallback is None or fallback.group(1) != free_label:
+                    actual = fallback.group(1) if fallback else "nothing"
+                    errors.append(
+                        f"{path.name}:{number}: gated vars.{name} falls back to "
+                        f"{actual!r}, but its free steady state is {free_label!r}"
+                    )
+
+
 def main() -> int:
     errors: list[str] = []
     files = workflow_files()
@@ -124,6 +188,7 @@ def main() -> int:
     for path in files:
         check_runs_on(path, errors)
         check_cheap_defaults(path, errors)
+        check_paid_overflow_gate(path, errors)
 
     if errors:
         print("Repository variables that an unset value makes expensive:", file=sys.stderr)

@@ -473,6 +473,10 @@ jobs:
         if: ${{ matrix.group == 'app-host-process' }}
         run: python3 tests/test_ci_app_host_failure_census.py
 
+      - name: Validate app-host verdict replay
+        if: ${{ matrix.group == 'app-host-process' }}
+        run: python3 tests/test_ci_replay_app_host_verdict.py
+
       - name: Validate app-host result ratchet
         if: ${{ matrix.group == 'app-host-process' }}
         env:

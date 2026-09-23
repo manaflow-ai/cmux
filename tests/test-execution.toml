@@ -320,6 +320,10 @@ path = "tests/test_ci_app_host_failure_census.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_replay_app_host_verdict.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_app_host_guard_structure.py"
 lane = "linux-guard"
 

@@ -2715,6 +2715,118 @@ def test_macos_admission_waits_for_pull_request_debounce() -> None:
     assert "      - macos-debounce" in workflow_job_block("ci-status")
 
 
+JOBS_ONE_FAILURE = """{"jobs":[{"name":"changes","conclusion":"success"},
+{"name":"linux-preflight","conclusion":"failure"},
+{"name":"guards","conclusion":null}]}"""
+JOBS_CLEAN = """{"jobs":[{"name":"changes","conclusion":"success"},
+{"name":"guards","conclusion":null}]}"""
+JOBS_CANCELLED_ONLY = """{"jobs":[{"name":"web","conclusion":"cancelled"}]}"""
+JOBS_EMPTY = """{"jobs":[]}"""
+JOBS_ERROR_BODY = """{"message":"Not Found"}"""
+
+
+def run_macos_debounce(
+    *,
+    jobs_payload: str = JOBS_CLEAN,
+    pulls_sha: str = "abc",
+    gh_broken: bool = False,
+    attempt: str = "1",
+    debounce_seconds: str = "1",
+) -> subprocess.CompletedProcess:
+    """Run the real debounce step against a fake `gh` and a real `jq`.
+
+    The fake serves the payload and then runs the step's own `--jq` program
+    over it, so a wrong accessor in the workflow shows up here as the
+    fail-open it would be in CI rather than passing on a pre-digested answer.
+    """
+    script = workflow_job_step_script("macos-debounce", "Wait for follow-up pushes")
+    with tempfile.TemporaryDirectory() as raw:
+        root = Path(raw)
+        fake_bin = root / "bin"
+        fake_bin.mkdir()
+        # The step sleeps for the debounce window before it reads anything.
+        (fake_bin / "sleep").write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+        (fake_bin / "sleep").chmod(0o755)
+        payload = root / "jobs.json"
+        payload.write_text(jobs_payload, encoding="utf-8")
+        gh = fake_bin / "gh"
+        if gh_broken:
+            gh.write_text("#!/bin/sh\nexit 1\n", encoding="utf-8")
+        else:
+            gh.write_text(
+                "#!/bin/sh\n"
+                'prog=""\n'
+                'prev=""\n'
+                'for a in "$@"; do\n'
+                '  [ "$prev" = "--jq" ] && prog="$a"\n'
+                '  prev="$a"\n'
+                "done\n"
+                'case "$*" in\n'
+                f"  *pulls*) printf %s '{pulls_sha}' ;;\n"
+                f'  *jobs*) jq -r "$prog" < "{payload}" ;;\n'
+                "  *) exit 1 ;;\n"
+                "esac\n",
+                encoding="utf-8",
+            )
+        gh.chmod(0o755)
+        return subprocess.run(
+            ["bash", "-c", script],
+            env={
+                "PATH": f"{fake_bin}:{os.environ['PATH']}",
+                "GITHUB_RUN_ATTEMPT": attempt,
+                "GITHUB_REPOSITORY": "manaflow-ai/cmux",
+                "GITHUB_RUN_ID": "9",
+                "DEBOUNCE_SECONDS": debounce_seconds,
+                "PR_NUMBER": "1",
+                "HEAD_SHA": "abc",
+                "GH_TOKEN": "token",
+            },
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+
+
+def test_macos_admission_declines_a_run_that_already_failed() -> None:
+    declined = run_macos_debounce(jobs_payload=JOBS_ONE_FAILURE)
+    assert declined.returncode == 1
+    assert "already failed" in declined.stdout + declined.stderr
+    # Declining by failing is load-bearing: `macos` is skipped either way, and
+    # only a failed dependency makes "Re-run failed jobs" re-run it.
+    debounce = workflow_job_block("macos-debounce")
+    assert "      actions: read" in debounce
+    assert "$GITHUB_RUN_ID/jobs" in debounce
+    # The check must sit after the wait, so a re-run attempt and a zero-second
+    # window bypass it along with the debounce itself.
+    assert "$GITHUB_RUN_ID/jobs" in debounce.split('sleep "$DEBOUNCE_SECONDS"', 1)[1]
+    # macOS admission stays uncoupled from the Linux suites as a dependency.
+    assert "needs.linux-preflight" not in workflow_job_block("macos")
+
+
+def test_macos_admission_admits_whenever_it_cannot_prove_a_failure() -> None:
+    for label, kwargs in (
+        ("no failures", {"jobs_payload": JOBS_CLEAN}),
+        # A cancelled run is already going away; it is not a verdict.
+        ("cancelled only", {"jobs_payload": JOBS_CANCELLED_ONLY}),
+        ("no jobs yet", {"jobs_payload": JOBS_EMPTY}),
+        # An error body makes the step's own jq program fail, which must admit.
+        ("api error body", {"jobs_payload": JOBS_ERROR_BODY}),
+        ("gh unusable", {"gh_broken": True}),
+        # A re-run is asking for the results this would withhold.
+        ("re-run attempt", {"attempt": "2", "jobs_payload": JOBS_ONE_FAILURE}),
+        ("wait disabled", {"debounce_seconds": "0", "jobs_payload": JOBS_ONE_FAILURE}),
+    ):
+        result = run_macos_debounce(**kwargs)
+        assert result.returncode == 0, f"{label}: {result.stdout}{result.stderr}"
+        assert "already failed" not in result.stdout + result.stderr, label
+
+
+def test_macos_admission_still_declines_a_moved_head_first() -> None:
+    moved = run_macos_debounce(pulls_sha="def", jobs_payload=JOBS_CLEAN)
+    assert moved.returncode == 1
+    assert "head moved" in (moved.stdout + moved.stderr).lower()
+
+
 def run_tests_gate(needs: dict) -> subprocess.CompletedProcess:
     script = workflow_job_step_script("tests", "Check platform workflow routing")
     body = script.split("python3 - <<'PY'\n", 1)[1].rsplit("\nPY", 1)[0]
@@ -4056,7 +4168,7 @@ def test_app_host_multi_batch_failure_cannot_reuse_prior_expected_summary() -> N
 
     assert runner_invoked
     assert result.returncode != 0, result.stdout
-    assert "simulated app-host crash before test summary" in result.stdout
+    assert result.stdout.count("simulated app-host crash before test summary") == 1
 
 
 def test_app_host_catalogued_failure_is_tolerated_with_red_xcode_status() -> None:
@@ -4367,9 +4479,32 @@ def test_reuse_lookups_match_the_job_name_github_actually_reports() -> None:
     assert not admission_job_name(None)
 
     reuse = (ROOT / "scripts/ci/reuse_app_host_products.py").read_text(encoding="utf-8")
-    assert '.rsplit(" / ", 1)[-1] == "macOS compile admission"' in reuse, (
+    assert '.rsplit(" / ", 1)[-1] == compile_name' in reuse, (
         "reuse_app_host_products.py must match the final segment of the job name"
     )
+    # Each trusted producer workflow names the job that has to have compiled.
+    sys.path.insert(0, str(ROOT / "scripts/ci"))
+    import reuse_app_host_products
+
+    assert reuse_app_host_products.COMPILE_JOBS[".github/workflows/ci.yml"][0] == ADMISSION_JOB, (
+        "reuse_app_host_products.py must look for ci.yml's admission job by its real name"
+    )
+    # A run reports its caller as `path`, so ci.yml's producer job is defined
+    # in the reusable workflow it calls rather than in ci.yml itself.
+    definitions = {
+        ".github/workflows/ci.yml": ".github/workflows/ci-macos.yml",
+        ".github/workflows/test-e2e.yml": ".github/workflows/test-e2e.yml",
+    }
+    for path, (job_name, step_name) in reuse_app_host_products.COMPILE_JOBS.items():
+        workflow = yaml.safe_load((ROOT / definitions[path]).read_text(encoding="utf-8"))
+        producer = next(
+            (job for job in workflow["jobs"].values()
+             if job.get("name", "") == job_name), None,
+        ) or workflow["jobs"].get(job_name)
+        assert producer is not None, f"{path} has no job named {job_name!r}"
+        assert any(step.get("name") == step_name for step in producer["steps"]), (
+            f"{path} job {job_name!r} has no step named {step_name!r}"
+        )
 
 
 
