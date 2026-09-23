@@ -18,12 +18,22 @@ public final class MobileTerminalTraceReporter: Sendable {
         let operation: DiagnosticTerminalTraceOperation
         let tNanos: UInt64
         let replayContext: MobileTerminalReplayTraceContext?
+        /// Background-transition count when this operation began.
+        let backgroundEpoch: UInt64
     }
 
     private struct State: Sendable {
         var starts: [UInt64: Start] = [:]
         var windowStart: UInt64 = 0
         var emittedInWindow = 0
+        /// Counts transitions out of the foreground.
+        ///
+        /// Comparing this against the value recorded at `started` answers the
+        /// question the flag below cannot: an operation that began on screen,
+        /// spent an hour suspended and settled after reactivation is in the
+        /// foreground when it reports, but its elapsed time is not screen
+        /// time. Only an unchanged count means the whole trace was on screen.
+        var backgroundEpoch: UInt64 = 0
         /// Whether the app was in the foreground when the phase was recorded.
         ///
         /// A suspended app runs no code, so an operation that spans
@@ -56,7 +66,10 @@ public final class MobileTerminalTraceReporter: Sendable {
         }
 
         func setForeground(_ active: Bool) {
-            queue.async { [self] in state.isForeground = active }
+            queue.async { [self] in
+                if !active, state.isForeground { state.backgroundEpoch &+= 1 }
+                state.isForeground = active
+            }
         }
 
         func drain() async {
@@ -127,7 +140,8 @@ public final class MobileTerminalTraceReporter: Sendable {
             state.starts[traceID.rawValue] = Start(
                 operation: operation,
                 tNanos: event.tNanos,
-                replayContext: event.c.flatMap(MobileTerminalReplayTraceContext.init(encoded:))
+                replayContext: event.c.flatMap(MobileTerminalReplayTraceContext.init(encoded:)),
+                backgroundEpoch: state.backgroundEpoch
             )
             return nil
         }
@@ -147,7 +161,7 @@ public final class MobileTerminalTraceReporter: Sendable {
                 outcome: "stalled",
                 replayContext: event.c.flatMap(MobileTerminalReplayTraceContext.init(encoded:))
                     ?? start?.replayContext,
-                isForeground: state.isForeground
+                isForeground: stayedForeground(start, state: state)
             )
         }
         guard phase == .applied || phase == .failed || phase == .discarded else { return nil }
@@ -170,8 +184,18 @@ public final class MobileTerminalTraceReporter: Sendable {
             durationMilliseconds: duration,
             outcome: outcome,
             replayContext: start?.replayContext,
-            isForeground: state.isForeground
+            isForeground: stayedForeground(start, state: state)
         )
+    }
+
+    /// Whether the whole operation stayed on screen.
+    ///
+    /// Conservative when the start was dropped under admission pressure: an
+    /// operation whose beginning is unknown cannot claim its elapsed time was
+    /// screen time.
+    private static func stayedForeground(_ start: Start?, state: State) -> Bool {
+        guard let start else { return false }
+        return state.isForeground && start.backgroundEpoch == state.backgroundEpoch
     }
 
     private static func admitEmission(at now: UInt64, state: inout State) -> Bool {

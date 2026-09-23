@@ -126,6 +126,26 @@ struct MobileTerminalTraceStallTests {
         #expect(values.last?.properties["duration_ms"] == .int(60_000))
     }
 
+    /// The case that makes the flag trustworthy: a replay that begins on
+    /// screen, spans suspension, and settles after reactivation is in the
+    /// foreground when it reports, but its elapsed time is not screen time.
+    @Test func aTraceThatSpannedSuspensionIsNotReportedAsOnScreen() async {
+        let (reporter, uploader) = makeReporter()
+        let trace = DiagnosticTerminalTraceID(rawValue: 0xB1B2)!
+        let context = MobileTerminalReplayTraceContext(
+            trigger: .outputReset, surfaceIsBlank: true, barrierActive: true, attempt: 0
+        )
+        reporter.ingest(event(.started, at: 1_000_000_000, trace: trace, c: context.encoded))
+        reporter.setForeground(false)
+        reporter.setForeground(true)
+        reporter.ingest(event(.failed, at: 160_000_000_000, trace: trace))
+        await reporter.flush()
+
+        let values = await uploader.uploadedEvents
+        #expect(values.count == 1)
+        #expect(values.last?.properties["app_foreground"] == .bool(false))
+    }
+
     @Test func stallWithoutAnElapsedMagnitudeIsDropped() async {
         let (reporter, uploader) = makeReporter()
         let trace = DiagnosticTerminalTraceID(rawValue: 0xB1A7)!
