@@ -479,17 +479,36 @@ struct TerminalViewportSpacingTests {
         harness.echo(initial, macColumns: macGrid.cols, macRows: macGrid.rows)
 
         // The grant pins below capacity: bottom-pinned letterbox at the
-        // user's base font (slack at the top), never a rescale.
+        // user's base font (slack at the top), never a rescale. Wait for the
+        // RENDER to reach the pin, not just the grant: the geometry pass that
+        // shrinks the render to the granted rows runs asynchronously after
+        // `applyConfirmedViewSize`, so the grant alone is still the
+        // full-height render, and everything below compares against this
+        // settled state.
         let letterboxed = await harness.pump(timeout: 8) {
             let snap = harness.snapshot
             return snap.effectiveGrid?.rows == macGrid.rows
+                && self.renderMatchesPin(harness)
+                && harness.topGap > harness.cellHeightPoints
                 && harness.bottomGap <= 1
                 && abs(snap.liveFontSize - snap.baseFontSize) < 0.5
         }
         #expect(letterboxed, """
             no letterbox: eff \(harness.snapshot.effectiveGrid.map { "\($0.cols)x\($0.rows)" } ?? "nil"), \
+            top gap \(harness.topGap)pt, bottom gap \(harness.bottomGap)pt, \
+            render \(harness.snapshot.renderRect.height)pt, \
             live font \(harness.snapshot.liveFontSize) vs base \(harness.snapshot.baseFontSize)
             """)
+
+        // The 12 rows the Mac withheld are exactly the slack at the top: the
+        // grid floors to whole cells, so the gap is 12 cells plus the
+        // sub-cell remainder the natural grid could not use.
+        let cell = harness.cellHeightPoints
+        #expect(
+            harness.topGap >= cell * 12 - 1 && harness.topGap <= cell * 13 + 1,
+            "letterbox slack must be the 12 withheld rows: top gap \(harness.topGap)pt, cell \(cell)pt"
+        )
+        #expect(harness.snapshot.isLetterboxBorderVisible)
 
         // Keyboard toggles are invisible to the grid: no report, no font
         // change, no render movement in surface coordinates.

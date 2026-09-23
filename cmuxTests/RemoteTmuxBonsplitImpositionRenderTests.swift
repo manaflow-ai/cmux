@@ -479,6 +479,20 @@ import Testing
         return nil
     }
 
+    /// Frame parity plus a completed sizing transaction. Frames can match
+    /// the plan while a pass is still queued: the render-frame restate and
+    /// every other ignoring-inputs trigger clear the completed inputs and
+    /// schedule a pass, and a pump that checks frames alone can resume in
+    /// that gap. The synchronous test code after the pump never yields, so
+    /// the queued pass cannot run before the test reads the cleared inputs
+    /// and blames the protocol edge it just drove.
+    private func settleMismatch(_ mirror: RemoteTmuxWindowMirror) -> String? {
+        if let mismatch = planViewMismatch(mirror) { return mismatch }
+        if mirror.sizingPassScheduled { return "sizing pass still scheduled" }
+        if mirror.lastCompletedSizingInputs == nil { return "no completed sizing inputs" }
+        return nil
+    }
+
     private func isTracked(_ kind: RemoteTmuxControlCommandKind?) -> Bool {
         if case .tracked = kind { return true }
         return false
@@ -588,10 +602,10 @@ import Testing
         hostingView.autoresizingMask = [.width, .height]
         contentView.addSubview(hostingView)
         window.makeKeyAndOrderFront(nil)
-        try await pumpFixture(window, 60, until: { planViewMismatch(mirror) == nil })
+        try await pumpFixture(window, 60, until: { settleMismatch(mirror) == nil })
         try #require(
-            planViewMismatch(mirror) == nil,
-            "fixture never converged: \(planViewMismatch(mirror) ?? "")"
+            settleMismatch(mirror) == nil,
+            "fixture never settled: \(settleMismatch(mirror) ?? "")"
         )
         let splitId: UUID = try {
             guard case .split(let split) = mirror.bonsplitController.treeSnapshot() else {
@@ -637,11 +651,15 @@ import Testing
         )
         let workspace = TerminalPortalTestWorkspace()
         defer { workspace.tearDown() }
-        let workspaceId = workspace.id
-        // Real panels: the parity judgment reads the panes' hosted terminal
-        // views, so the fixture needs them mounted through the app's real
-        // render chain. The spawn stays paced (no shells launch in a unit
-        // test); only the view tree matters here.
+        // Real panels from the production factory: the parity judgment reads
+        // the panes' hosted terminal views, so the fixture needs them mounted
+        // through the app's real render chain, and it needs the manual-mirror
+        // surfaces production mirrors use. The assigned-grid pin only holds a
+        // manual-IO surface at tmux's 61x35. A process panel's grid follows
+        // its view instead and never matches the assignment, so the judge's
+        // grid-parity half spends the whole re-arm budget during the baseline
+        // and leaves none for the recovery this test measures. A manual-mirror
+        // surface also launches no shell in the test host.
         let mirror = RemoteTmuxWindowMirror(
             windowId: 0,
             panelId: UUID(),
@@ -655,7 +673,7 @@ import Testing
                 )
             },
             makePanel: { _ in
-                TerminalPanel(workspaceId: workspaceId, runtimeSpawnPolicy: .pacedSessionRestore)
+                workspace.workspace.makeRemoteTmuxPanePanel(onInput: { _ in })
             }
         )
         // Freeze the live-sample channel. The injected geometrySource already
@@ -714,10 +732,16 @@ import Testing
         // input drift still in flight (a surface sample swept mid-pass lands
         // AFTER that pass's input snapshot), so the fixed point captured
         // below really is one.
-        try await pump(60, until: { planViewMismatch(mirror) == nil })
+        try await pump(60, until: {
+            planViewMismatch(mirror) == nil && mirror.gridParityMismatch() == nil
+        })
         try #require(
             planViewMismatch(mirror) == nil,
             "fixture never converged to its own plan: \(planViewMismatch(mirror) ?? "")"
+        )
+        try #require(
+            mirror.gridParityMismatch() == nil,
+            "fixture grids never reached tmux's assignment: \(mirror.gridParityMismatch() ?? "")"
         )
         try #require(
             mirror.isEffectivelyVisibleForSizing,
@@ -727,6 +751,14 @@ import Testing
         try await pump(6)
         try #require(planViewMismatch(mirror) == nil)
         let inputsAtSettle = try #require(mirror.lastCompletedSizingInputs)
+        // The re-arm budget belongs to an input fixed point and refills only
+        // when the judge finds parity. A baseline that left any of it spent
+        // would starve the recovery below, and the final failure would read
+        // exactly like the liveness hole this test pins.
+        try #require(
+            mirror.outputParityRearmsSpent == 0,
+            "the baseline spent \(mirror.outputParityRearmsSpent) output-parity re-arms before the perturbation; grid=\(mirror.gridParityMismatch() ?? "ok")"
+        )
         let splitId: UUID = try {
             guard case .split(let split) = mirror.bonsplitController.treeSnapshot(),
                   let id = UUID(uuidString: split.id) else { throw TestError.notASplit }
@@ -786,7 +818,7 @@ import Testing
         }()
         #expect(
             planViewMismatch(mirror) == nil,
-            "off-plan geometry never re-converged: \(planViewMismatch(mirror) ?? ""); arranged=\(arrangedWidths) split=\(splitModel) visible=\(mirror.isEffectivelyVisibleForSizing) drag=\(mirror.bonsplitController.isDividerDragActive) inFlight=\(mirror.dividerResizeInFlight != nil) scheduled=\(mirror.sizingPassScheduled) rearms=\(mirror.outputParityRearmsSpent) rearmsAtPerturbation=\(rearmsSpentAtPerturbation) passesDuringRecovery=\(sizingPassesDuringRecovery) rearmsDuringRecovery=\(parityRearmsDuringRecovery) plan=[\(plannedOuters)] hasCompletedInputs=\(mirror.lastCompletedSizingInputs != nil)"
+            "off-plan geometry never re-converged: \(planViewMismatch(mirror) ?? ""); arranged=\(arrangedWidths) split=\(splitModel) visible=\(mirror.isEffectivelyVisibleForSizing) drag=\(mirror.bonsplitController.isDividerDragActive) inFlight=\(mirror.dividerResizeInFlight != nil) scheduled=\(mirror.sizingPassScheduled) rearms=\(mirror.outputParityRearmsSpent) rearmsAtPerturbation=\(rearmsSpentAtPerturbation) passesDuringRecovery=\(sizingPassesDuringRecovery) rearmsDuringRecovery=\(parityRearmsDuringRecovery) plan=[\(plannedOuters)] grid=\(mirror.gridParityMismatch() ?? "ok") hasCompletedInputs=\(mirror.lastCompletedSizingInputs != nil)"
         )
         withExtendedLifetime(connection) {}
     }
@@ -942,7 +974,7 @@ import Testing
         ]), w: 123, h: 35, x: 0, y: 0)
         mirror.reconcile(layout: draggedLayout)
         try await pump(60, until: {
-            mirror.dividerResizeInFlight == nil && planViewMismatch(mirror) == nil
+            mirror.dividerResizeInFlight == nil && settleMismatch(mirror) == nil
         })
         #expect(
             mirror.dividerResizeInFlight == nil,
@@ -951,6 +983,10 @@ import Testing
         #expect(
             planViewMismatch(mirror) == nil,
             "the reply's plan must settle cleanly: \(planViewMismatch(mirror) ?? "")"
+        )
+        try #require(
+            mirror.lastCompletedSizingInputs != nil,
+            "precondition: the reply's sizing pass must complete before the late ack arrives: \(settleMismatch(mirror) ?? "")"
         )
         // The resize's ack arrives only now, after the reply already released
         // the hold. The late ack (and everything else outstanding) must be
@@ -1050,10 +1086,10 @@ import Testing
             }
         }
 
-        try await pump(60, until: { planViewMismatch(mirror) == nil })
+        try await pump(60, until: { settleMismatch(mirror) == nil })
         try #require(
-            planViewMismatch(mirror) == nil,
-            "fixture never converged: \(planViewMismatch(mirror) ?? "")"
+            settleMismatch(mirror) == nil,
+            "fixture never settled: \(settleMismatch(mirror) ?? "")"
         )
         let splitId: UUID = try {
             guard case .split(let split) = mirror.bonsplitController.treeSnapshot() else {
@@ -1065,6 +1101,10 @@ import Testing
         // the blocks injected below correlate with the drag's own commands.
         drainCommandBlocks(connection)
         try #require(connection.pendingCommandKindsForTesting.isEmpty)
+        try #require(
+            mirror.lastCompletedSizingInputs != nil,
+            "precondition: the drag must start from a completed sizing transaction"
+        )
 
         mirror.bonsplitController.noteDividerDragSession(true)
         _ = mirror.bonsplitController.setDividerPosition(0.75, forSplit: splitId)
@@ -1272,6 +1312,10 @@ import Testing
         let connection = fixture.connection
         drainCommandBlocks(connection)
         try #require(connection.pendingCommandKindsForTesting.isEmpty)
+        try #require(
+            mirror.lastCompletedSizingInputs != nil,
+            "precondition: the drag must start from a completed sizing transaction"
+        )
 
         mirror.bonsplitController.noteDividerDragSession(true)
         _ = mirror.bonsplitController.setDividerPosition(0.75, forSplit: fixture.splitId)
@@ -1316,6 +1360,10 @@ import Testing
         let connection = fixture.connection
         drainCommandBlocks(connection)
         try #require(connection.pendingCommandKindsForTesting.isEmpty)
+        try #require(
+            mirror.lastCompletedSizingInputs != nil,
+            "precondition: the drag must start from a completed sizing transaction"
+        )
 
         mirror.bonsplitController.noteDividerDragSession(true)
         _ = mirror.bonsplitController.setDividerPosition(0.75, forSplit: fixture.splitId)

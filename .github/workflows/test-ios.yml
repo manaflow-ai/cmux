@@ -333,10 +333,14 @@ jobs:
           # iOS shell replay/liveness regressions live in this package target.
           # Keep them under the iOS package gate so PR CI enforces the mobile
           # terminal mirror behavior without relying on local-only SwiftPM runs.
-          args=(--package-path Packages/iOS/CmuxMobileShell)
-          if [ -n "${FOCUSED_SWIFT_PACKAGE:-}" ]; then
-            args+=(--no-parallel)
-          fi
+          # This suite's waits are wall-clock bound (#8143), so swift-testing's
+          # default parallelism starves them: the same 1060 tests take over 12
+          # minutes and report ~161 failures in parallel, against 65 seconds and
+          # 17 failures serially on the same commit. The 10-minute job budget
+          # then kills the step, which reports as `cancelled` rather than a
+          # failure, so none of it surfaced. Run it serially until the waits
+          # themselves are fixed.
+          args=(--package-path Packages/iOS/CmuxMobileShell --no-parallel)
           if [ -n "${SWIFT_TEST_FILTER:-}" ]; then
             args+=(--filter "$SWIFT_TEST_FILTER")
           fi
