@@ -12,11 +12,17 @@ import unittest
 import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
-STEPS = yaml.safe_load((ROOT / '.github/workflows/test-e2e.yml').read_text())['jobs']['e2e']['steps']
+WORKFLOW = yaml.safe_load((ROOT / '.github/workflows/test-e2e.yml').read_text())
+JOBS = {name: spec['steps'] for name, spec in WORKFLOW['jobs'].items() if 'steps' in spec}
 
 
-def step(name):
-    return next(s for s in STEPS if s.get('name') == name)
+def step(name, job=None):
+    """One named step. `build` and `test` share several step names."""
+    found = [(owner, s) for owner, steps in JOBS.items() if job in (None, owner)
+             for s in steps if s.get('name') == name]
+    if len(found) != 1:
+        raise AssertionError(f"expected one {name!r} step in {job or 'the workflow'}, found {len(found)}")
+    return found[0][1]
 
 
 class E2ECompilationCache(unittest.TestCase):
@@ -36,15 +42,15 @@ class E2ECompilationCache(unittest.TestCase):
                         GITHUB_ENV=str(self.root / 'env'), GITHUB_OUTPUT=str(self.root / 'output'),
                         PATH=str(tools) + ':' + os.environ['PATH'], FIXTURE_XCODE='Xcode 26.6')
 
-    def run_step(self, name, **env):
-        return subprocess.run(['bash', '-eu', '-o', 'pipefail', '-c', step(name)['run']],
+    def run_step(self, name, job='build', **env):
+        return subprocess.run(['bash', '-eu', '-o', 'pipefail', '-c', step(name, job)['run']],
                               cwd=self.workspace, env=dict(self.env, **env),
                               text=True, capture_output=True)
 
     def prepare(self):
         for file in ('env', 'output'):
             (self.root / file).write_text('')
-        result = self.run_step('Prepare isolated DerivedData')
+        result = self.run_step('Prepare isolated DerivedData', 'build')
         self.assertEqual(result.returncode, 0, result.stderr)
         values = dict(line.split('=', 1) for file in ('env', 'output')
                       for line in (self.root / file).read_text().splitlines())
@@ -72,28 +78,50 @@ class E2ECompilationCache(unittest.TestCase):
         self.env['GITHUB_WORKSPACE'] = str(other)
         self.assertNotEqual(original, self.prepare()['fingerprint'])
 
-    def test_both_test_targets_enable_cache_without_changing_selectors(self):
-        self.assertEqual(step('Install zig')['if'], "${{ steps.filter.outputs.target == 'cmuxUITests' }}")
+    def test_both_test_targets_run_the_prebuilt_product(self):
+        # The build job compiles every scheme once, so the test job's setup no
+        # longer depends on which target was selected, and its xcodebuild
+        # invocation must not compile anything.
         values = self.prepare()
-        script = step('Run selected tests')['run']
+        script = step('Run selected tests', 'test')['run']
         start = script.index('if [ "$TEST_TARGET" = "cmuxTests" ]; then')
         end = script.index('\nset +e', start)
         construction = script[start:end]
-        for target in ('cmuxTests', 'cmuxUITests'):
+        for target, variable in (('cmuxTests', 'CMUX_APP_HOST_XCTESTRUN'),
+                                 ('cmuxUITests', 'CMUX_UI_XCTESTRUN')):
             with self.subTest(target=target):
+                manifest = self.root / (target + '.xctestrun')
+                manifest.write_text('fixture')
                 command = ('ONLY_TESTING=("-only-testing:' + target + '/Focused")\n' +
                            construction + '\nprintf "%s\\0" "${XCODEBUILD_CMD[@]}"')
                 result = subprocess.run(['bash', '-eu', '-c', command], cwd=self.workspace,
                     env=dict(self.env, **values, TEST_TARGET=target, TEST_TIMEOUT='120',
-                             SOURCE_PACKAGES_DIR=str(self.workspace / '.ci-source-packages')),
+                             **{variable: str(manifest)}),
                     capture_output=True)
                 self.assertEqual(result.returncode, 0, result.stderr)
                 args = result.stdout.decode().strip('\0').split('\0')
-                self.assertIn('COMPILATION_CACHE_ENABLE_CACHING=YES', args)
-                self.assertIn('COMPILATION_CACHE_CAS_PATH=' + values['CMUX_E2E_COMPILATION_CACHE'], args)
+                self.assertIn('test-without-building', args)
+                self.assertIn('-xctestrun', args)
+                self.assertIn(str(manifest), args)
                 self.assertIn('-only-testing:' + target + '/Focused', args)
-                self.assertEqual(args[-1], 'test')
-                self.assertEqual('CMUX_SKIP_ZIG_BUILD=1' in args, target == 'cmuxTests')
+                self.assertNotIn('test', args)
+                self.assertNotIn('build-for-testing', args)
+                for setting in args:
+                    self.assertFalse(setting.startswith('COMPILATION_CACHE_'), setting)
+                    self.assertFalse(setting.startswith('CMUX_SKIP_ZIG_BUILD'), setting)
+
+    def test_a_missing_manifest_fails_instead_of_silently_compiling(self):
+        values = self.prepare()
+        script = step('Run selected tests', 'test')['run']
+        start = script.index('if [ "$TEST_TARGET" = "cmuxTests" ]; then')
+        end = script.index('\nset +e', start)
+        result = subprocess.run(['bash', '-eu', '-c',
+            'ONLY_TESTING=()\n' + script[start:end]], cwd=self.workspace,
+            env=dict(self.env, **values, TEST_TARGET='cmuxTests', TEST_TIMEOUT='120',
+                     CMUX_APP_HOST_XCTESTRUN=str(self.root / 'absent.xctestrun')),
+            text=True, capture_output=True)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('no cmuxTests test manifest', result.stdout + result.stderr)
 
     def test_unit_helper_skip_uses_clang_without_invoking_zig(self):
         zig = self.root / 'bin' / 'zig'
@@ -122,6 +150,44 @@ exit 97
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(output.read_text(), 'fixture-clang-output')
         self.assertIn('Skipping zig CLI helper build', result.stdout)
+
+    def test_one_build_serves_the_test_job_and_every_retry(self):
+        # The whole point of the split: compilation happens in `build`, once,
+        # and `test` consumes that exact artifact. A rerun of a failed `test`
+        # job re-downloads the product instead of recompiling it.
+        build = JOBS['build']
+        compiles = [s for s in build if 'compile-app-host-test-product.sh build' in (s.get('run') or '')]
+        self.assertEqual(len(compiles), 1, 'build must compile exactly once')
+        for job in ('test',):
+            for entry in JOBS[job]:
+                run = entry.get('run') or ''
+                self.assertNotIn('compile-app-host-test-product.sh', run, entry.get('name'))
+                self.assertNotIn('build-for-testing', run, entry.get('name'))
+
+        upload = step('Upload the compiled test product', 'build')
+        self.assertEqual(
+            upload['with']['name'],
+            'app-host-products-v1-${{ steps.product-key.outputs.key }}-${{ github.run_attempt }}',
+            'publish under the name ci.yml uses, so a later run can adopt it')
+
+        outputs = WORKFLOW['jobs']['build']['outputs']
+        self.assertEqual(outputs['artifact_id'], '${{ steps.upload-product.outputs.artifact-id }}')
+        self.assertEqual(outputs['sha256'], '${{ steps.package.outputs.sha256 }}')
+        self.assertEqual(WORKFLOW['jobs']['test']['needs'], ['resolve-ref', 'filter', 'build'])
+
+    def test_the_test_job_verifies_the_product_before_using_it(self):
+        # A transport is allowed to miss; it is not allowed to hand over
+        # unverified bytes. The restore step checks the archive SHA-256 that
+        # the build job published, whichever transport delivered it.
+        restore = step('Restore the compiled test product', 'test')
+        self.assertEqual(restore['env']['EXPECTED_SHA256'], '${{ needs.build.outputs.sha256 }}')
+        self.assertEqual(restore['run'], 'scripts/ci/restore-app-host-test-product.sh')
+        self.assertNotIn('continue-on-error', restore)
+
+        fast = step('Read the compiled test product over parallel range requests', 'test')
+        self.assertIs(fast['continue-on-error'], True)
+        fallback = step('Download the compiled test product', 'test')
+        self.assertEqual(fallback['if'], "${{ steps.parallel-product.outputs.hit != 'true' }}")
 
     def test_cleanup_removes_only_owned_paths(self):
         values = self.prepare()
@@ -234,7 +300,7 @@ exit 97
                               '      - name: Run selected tests\n        continue-on-error: true\n'), False),
             (workflow.replace('      - name: Select Xcode\n',
                               '      - name: Select Xcode\n        continue-on-error: true\n'), False),
-            (workflow.replace('  e2e:\n', '  e2e:\n    continue-on-error: true\n'), False),
+            (workflow.replace('  test:\n', '  test:\n    continue-on-error: true\n'), False),
             (workflow.replace('        id: compilation-cache-restore\n',
                               '        id: unrelated-setup\n'), False),
         ):
@@ -298,7 +364,7 @@ else:
                 # timeout, before substituting an expensive setup side effect.
                 reached = root / 'dependency-setup'
                 command = ''
-                for entry in STEPS:
+                for entry in JOBS['test']:
                     if entry.get('name') == 'Verify screen capture before dependency setup':
                         timeout = '2' if mode == 'timeout' else '10'
                         command += entry['run'].rstrip() + ' --timeout-seconds ' + timeout + '\n'

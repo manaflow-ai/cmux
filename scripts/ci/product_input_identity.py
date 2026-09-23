@@ -22,6 +22,7 @@ MACOS_ADMISSION_JOB = "macos-compile-admission"
 PRODUCT_CI_INPUTS = frozenset({
     "scripts/ci/app_host_test_products.py",
     "scripts/ci/compile-app-host-test-product.sh",
+    "scripts/ci/canonical-build-root.sh",
     "scripts/ci/sanitize-xcode-source-packages-cache.py",
 })
 
