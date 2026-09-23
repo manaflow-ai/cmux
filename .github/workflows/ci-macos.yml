@@ -1706,7 +1706,17 @@ jobs:
             size="$(wc -c <"$file" 2>/dev/null || echo 0)"
             size="${size//[[:space:]]/}"
             if [ "${size:-0}" -gt "$stream_offset" ]; then
-              tail -c "+$((stream_offset + 1))" "$file"
+              # Read exactly the byte range included in the size snapshot.
+              # Reading to EOF here would race a concurrent writer: bytes
+              # appended after wc(1) could be emitted now while stream_offset
+              # advances only to the old size, duplicating them next poll.
+              python3 -c '
+import sys
+path, start, end = sys.argv[1], int(sys.argv[2]), int(sys.argv[3])
+with open(path, "rb") as stream:
+    stream.seek(start)
+    sys.stdout.buffer.write(stream.read(end - start))
+' "$file" "$stream_offset" "$size"
               stream_offset="$size"
             fi
           }
