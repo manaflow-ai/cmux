@@ -321,8 +321,8 @@ public struct SettingsWindowRoot: View {
     }
 }
 
-/// One category row in the embedded sidebar: selection pill in the accent
-/// tint, a quiet hover wash, and the same glyph column as the window sidebar.
+/// One category row in the embedded sidebar: a neutral gray selection pill,
+/// a quiet hover wash, and the same glyph column as the window sidebar.
 private struct SettingsPaneSidebarRow: View {
     let title: String
     let symbolName: String
@@ -336,7 +336,7 @@ private struct SettingsPaneSidebarRow: View {
             HStack(spacing: 9) {
                 Image(systemName: symbolName)
                     .font(.system(size: 13, weight: .medium))
-                    .foregroundStyle(isSelected ? Color.accentColor : Color.secondary)
+                    .foregroundStyle(isSelected ? SettingsSelectionStyle.selectedGlyph : Color.secondary)
                     .frame(width: 18)
                 VStack(alignment: .leading, spacing: 1) {
                     Text(title)
@@ -356,7 +356,7 @@ private struct SettingsPaneSidebarRow: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(
                 RoundedRectangle(cornerRadius: 6, style: .continuous)
-                    .fill(isSelected ? Color.accentColor.opacity(0.18) : (isHovered ? Color.primary.opacity(0.06) : Color.clear))
+                    .fill(isSelected ? SettingsSelectionStyle.selectedFill : (isHovered ? Color.primary.opacity(0.06) : Color.clear))
             )
             .contentShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
         }
@@ -420,7 +420,7 @@ private struct SettingsPaneSearchFieldBackground: View {
                 .glassEffect(.regular.interactive(true), in: shape)
                 .overlay {
                     shape.stroke(
-                        isFocused ? Color.accentColor.opacity(0.6) : Color.white.opacity(0.24),
+                        isFocused ? SettingsSelectionStyle.focusStroke : Color.white.opacity(0.24),
                         lineWidth: isFocused ? 1.5 : 0.85
                     )
                 }
@@ -437,7 +437,7 @@ private struct SettingsPaneSearchFieldBackground: View {
             .fill(Color.gray.opacity(0.18))
             .overlay {
                 shape.stroke(
-                    isFocused ? Color.accentColor.opacity(0.6) : Color.primary.opacity(0.08),
+                    isFocused ? SettingsSelectionStyle.focusStroke : Color.primary.opacity(0.08),
                     lineWidth: isFocused ? 1.5 : 0.5
                 )
             }
