@@ -42,19 +42,23 @@ import UIKit
         let group = MobileWorkspaceGroupPreview(
             id: "group-1", name: "Release", anchorWorkspaceID: "workspace-1"
         )
+        let workspaces = viewportWorkspaces()
+        let items = workspaces.map { WorkspaceListTableItem.workspace($0.id, indented: false) }
+            + [.groupFooter(group.id)]
         let initial = configuration(
-            workspaceIDs: ["workspace-1"],
+            workspaces: workspaces,
             groups: [group],
-            items: [.groupFooter(group.id)]
+            items: items
         )
         let table = makeTableView()
         let coordinator = WorkspaceListTableCoordinator(configuration: initial)
         coordinator.attach(to: table)
-        let path = IndexPath(row: 0, section: 0)
+        let path = IndexPath(row: workspaces.count, section: 0)
         // A prefetched cell exists without being visible, so a visible-only
         // update cannot reach it. UIKit can display this same instance later.
         let retained = try #require(table.dataSource?.tableView(table, cellForRowAt: path))
         #expect(retained.accessibilityIdentifier == "MobileWorkspaceGroupFooterBoundary-group-1-inactive")
+        #expect(table.indexPathsForVisibleRows?.contains(path) != true)
         coordinator.tableView(table, dragSessionWillBegin: ScrollDragSession(dragItems: []))
 
         coordinator.tableView(table, willDisplay: retained, forRowAt: path)

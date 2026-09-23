@@ -397,9 +397,9 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
                 appliedItems = next.items
             }
 
-            // An offscreen row will be measured when it is dequeued. Drop its
-            // stale cached height without asking UIKit to instantiate or lay
-            // out a cell during the current scroll frame.
+            // Invalidate exact heights even offscreen. UIKit caches the row
+            // geometry separately, so those rows must also be included in the
+            // height reload below before they can scroll into view correctly.
             for item in changedToApply where changedRowHeightIDs.contains(item.id) {
                 heightCache.remove(rowID: item.id)
             }
@@ -408,12 +408,13 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
             // reload. Content-only changes (including timestamps) keep the cell.
             let reloadIDs = changedRowHeightIDs.union(nativeActionReloadIDs)
             let visibleIndexPaths = Set(tableView.indexPathsForVisibleRows ?? [])
-            let reloadPaths = changedToApply.filter { reloadIDs.contains($0.id) }
-                .compactMap { item -> IndexPath? in
-                    guard let indexPath = dataSource.indexPath(for: item),
-                          visibleIndexPaths.contains(indexPath) else { return nil }
-                    return indexPath
-                }
+            let reloadPaths = changedToApply.compactMap { item -> IndexPath? in
+                guard let indexPath = dataSource.indexPath(for: item),
+                      changedRowHeightIDs.contains(item.id)
+                        || (nativeActionReloadIDs.contains(item.id)
+                            && visibleIndexPaths.contains(indexPath)) else { return nil }
+                return indexPath
+            }
             let reconfigurePaths = changedToApply.filter { !reloadIDs.contains($0.id) }
                 .compactMap { item -> IndexPath? in
                     guard let indexPath = dataSource.indexPath(for: item),
