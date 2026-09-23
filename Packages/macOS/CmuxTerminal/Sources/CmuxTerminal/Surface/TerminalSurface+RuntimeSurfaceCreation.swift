@@ -17,7 +17,8 @@ extension TerminalSurface {
         app: ghostty_app_t,
         for view: any TerminalSurfaceNativeViewing,
         scaleFactors: (x: CGFloat, y: CGFloat, layer: CGFloat),
-        agentCommandShims: AgentCommandShimSet?
+        agentCommandShims: AgentCommandShimSet?,
+        spawnPolicy: TerminalSurfaceSpawnPolicy
     ) -> (createdSurface: ghostty_surface_t?, runtimeInitialInput: String?) {
         let baseConfig = runtimeCreationConfigTemplate()
         var surfaceConfig = ghostty_surface_config_new()
@@ -151,13 +152,15 @@ extension TerminalSurface {
             setManagedEnvironmentValue("CMUX_PORT_RANGE", String(sessionPortRangeSize))
         }
 
-        let spawnPolicy = spawnPolicyProvider.currentSpawnPolicy()
         for (key, value) in spawnPolicy.socketAuthenticationEnvironment
             where !key.isEmpty && !value.isEmpty {
             setManagedEnvironmentValue(key, value)
         }
-        let claudeHooksEnabled = spawnPolicy.claudeHooksEnabled
-        if !claudeHooksEnabled {
+        setManagedEnvironmentValue(
+            "CMUX_CLAUDE_INTEGRATION_DISABLED",
+            spawnPolicy.claudeHooksEnabled ? "0" : "1"
+        )
+        if !spawnPolicy.claudeHooksEnabled {
             setManagedEnvironmentValue("CMUX_CLAUDE_HOOKS_DISABLED", "1")
         }
         // The codex wrapper shim is still installed (it stays on PATH so a

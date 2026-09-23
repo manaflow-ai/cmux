@@ -1,3 +1,4 @@
+import { vmToken } from "./vm-authorization-fixture";
 import { afterAll, beforeAll, beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
 import * as analytics from "../services/coderouter/analytics";
 import { VM_PLACEHOLDER_API_KEY } from "../services/coderouter/routeTokenAuth";
@@ -18,7 +19,7 @@ let upstreamStatuses: number[] = [];
 let credentialBusyBudgets = new Map<string, number>();
 let credentialCalls: string[] = [];
 let authenticatedTokens: string[] = [];
-const BOUND_TOKEN = "crt_bound-to-vm-1";
+const BOUND_TOKEN = await vmToken("vm-1", "team-1", "stack-user-1");
 
 const originalFetch = globalThis.fetch;
 beforeAll(() => {
@@ -627,7 +628,7 @@ describe("codex responses proxy VM-bound route tokens", () => {
   test("a bound token with the matching x-cmux-vm-id header is routed", async () => {
     accountsToServe = [{ id: "acct-1", sticky: false }];
     const response = await proxy(edgeRequest({
-      "x-coderouter-route-token": BOUND_TOKEN,
+      "x-cmux-authorization": `Bearer ${BOUND_TOKEN}`,
       "x-cmux-vm-id": "vm-1",
     }));
     expect(response.status).toBe(200);

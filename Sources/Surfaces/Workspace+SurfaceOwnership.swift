@@ -13,6 +13,7 @@ extension Workspace {
         let catalog = catalog ?? SurfaceCatalog.shared
         guard panels[panelID] != nil else { return nil }
         if let machine = catalog.machineOwningPanel(panelID), !machine.isLocal { return machine }
+        if let resource = (panels[panelID] as? DeferredBrowserPanel)?.sessionPanelSnapshot.browser?.cloudResource { return resource.machine }
         if let reservation = cloudPendingCreations[panelID] { return reservation.machine }
         if activeRemoteTerminalSurfaceIds.contains(panelID),
            let machine = remoteConfiguration?.managedCloudVMID {

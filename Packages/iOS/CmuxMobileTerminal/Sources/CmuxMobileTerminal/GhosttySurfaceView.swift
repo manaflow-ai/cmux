@@ -800,12 +800,21 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         )
     }
 
+    /// Test seam for a keyboard leg. Drives exactly what a real leg drives:
+    /// ``setHostedKeyboardState`` seats the dock and re-places the render
+    /// inside the (keyboard-independent) viewport, and the host's
+    /// `beginKeyboardLeg` schedules NO geometry negotiation. The keyboard
+    /// stopped being a grid input when the stretch-to-fill auto-fit was
+    /// removed, so a `set_size` here would be a no-op resize with one real
+    /// side effect: `shouldReassertNaturalSize` re-reports capacity whenever
+    /// the effective grid sits below it, which is every Mac-constrained
+    /// terminal. That made the seam emit a viewport report per toggle that
+    /// production never emits.
     func setKeyboardHeightForTesting(_ height: CGFloat) {
         setKeyboardHeightOverrideForTesting(height)
         layoutRenderedTerminalForCurrentViewport()
         layoutBottomDock()
         layoutBottomDockHierarchyIfNeeded()
-        syncSurfaceGeometry(shouldReassertNaturalSize: true)
     }
 
 
@@ -4260,7 +4269,10 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
                     viewportReportSettleFrames = 0
                     viewportReportID &+= 1
                     awaitingViewportEcho = true
-                    MobileDebugLog.anchormux("zoom.report grid=\(pending.columns)x\(pending.rows) id=\(viewportReportID)")
+                    MobileDebugLog.anchormux(
+                        "zoom.report grid=\(pending.columns)x\(pending.rows) "
+                            + "id=\(viewportReportID) retry=\(viewportReportRetries)"
+                    )
                     delegate?.ghosttySurfaceView(self, didResize: pending, reportID: viewportReportID)
                 }
             }
@@ -4857,6 +4869,17 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         viewportReportSettleFrames = 0
     }
 
+    /// Retire an unresolved negotiation after the coordinator's relay retry
+    /// budget is exhausted. This leaves the last confirmed grant visible and
+    /// marks the current natural grid exhausted so stale replay frames cannot
+    /// restart the same negotiation.
+    public func markViewportReportRetryExhausted() {
+        viewportReportRetries = Self.maxViewportReportRetries
+        guard awaitingViewportEcho else { return }
+        awaitingViewportEcho = false
+        setNeedsGeometrySync(reassertNaturalSize: false)
+    }
+
     public func applyViewSize(cols: Int, rows: Int) {
         applyViewSize(cols: cols, rows: rows, confirmedViewportEcho: false)
     }
@@ -4926,16 +4949,29 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// natural-size change.
     public func reassertViewportCapacityReport() {
         guard let pending = lastReportedSize, pending.columns > 0, pending.rows > 0 else { return }
-        viewportReportRetries = 0
-        // A pending report always mirrors `lastReportedSize` (they are
-        // assigned together in the geometry pass), but never clobber one if
-        // that invariant ever changes: the queued report is at least as new.
-        if pendingViewportReport == nil {
-            pendingViewportReport = pending
-            viewportReportSettleFrames = 0
+        guard viewportReportRetries < Self.maxViewportReportRetries else {
+            MobileDebugLog.anchormux(
+                "zoom.viewport.reassert_exhausted retries=\(viewportReportRetries) " +
+                "grid=\(pending.columns)x\(pending.rows)"
+            )
+            return
         }
+        guard !awaitingViewportEcho, pendingViewportReport == nil else {
+            // A late/stale replay often arrives while the dedicated viewport
+            // RPC is still in flight or waiting for its scheduled retry. That
+            // replay is evidence about the same negotiation, not permission to
+            // mint another report ID and reset the retry budget.
+            MobileDebugLog.anchormux(
+                "zoom.viewport.reassert_coalesced retries=\(viewportReportRetries) " +
+                "grid=\(pending.columns)x\(pending.rows)"
+            )
+            return
+        }
+        pendingViewportReport = pending
+        viewportReportSettleFrames = 0
         MobileDebugLog.anchormux(
-            "zoom.viewport.reassert grid=\(pending.columns)x\(pending.rows)"
+            "zoom.viewport.reassert grid=\(pending.columns)x\(pending.rows) " +
+            "retries=\(viewportReportRetries)"
         )
         // The report is serviced by the display link, and this method is
         // called from the replay consumer where the link can be idle or torn
@@ -5281,9 +5317,16 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         let effectiveMatchesNatural = effectiveGrid.map { grid in
             grid.cols == naturalSize.columns && grid.rows == naturalSize.rows
         } ?? true
-        let shouldReportNaturalSize = reportGrid != lastReportedSize ||
+        let naturalGridChanged = reportGrid != lastReportedSize
+        let shouldReportNaturalSize = naturalGridChanged ||
             (shouldReassertNaturalSize && !effectiveMatchesNatural)
         guard shouldReportNaturalSize, reportGrid.columns > 0, reportGrid.rows > 0 else { return }
+        if naturalGridChanged {
+            // Retry exhaustion belongs to one natural grid. Rotation, zoom
+            // settle, composer-height changes, and other real capacity changes
+            // get a fresh bounded recovery budget.
+            viewportReportRetries = 0
+        }
         lastReportedSize = reportGrid
         // Debounce the actual report (a PTY resize on the Mac) until the grid
         // settles; the display link fires it once it stops changing.

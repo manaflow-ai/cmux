@@ -11,9 +11,12 @@ import Testing
 @Suite("Cloud folder native drops")
 struct CloudSidebarNativeDropTests {
     @Test("A projection-capable terminal can reorder inside its parent without opening a pane")
-    func terminalOrganizationKeepsProjectionCapability() throws {
-        let fixture = CloudSidebarOrderingFixture()
-        defer { fixture.close() }
+    func terminalOrganizationKeepsProjectionCapability() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            let app = try VaultPaneAppFixture()
+            defer { app.tearDown() }
+            let fixture = CloudSidebarOrderingFixture(transferRegistry: app.appDelegate.tabDragTransferRegistry)
+            defer { fixture.close() }
         let snapshot = fixture.snapshot()
         var resource = snapshot.resources[0]
         let originalView = try #require(resource.remoteViews?.first)
@@ -38,13 +41,15 @@ struct CloudSidebarNativeDropTests {
         let session = CloudSidebarDraggingSession(pasteboard: board)
         coordinator.outlineView(outline, draggingSession: session, willBeginAt: .zero, forItems: [source])
         coordinator.outlineView(outline, draggingSession: session, willBeginAt: .zero, forItems: [source])
-        let info = CloudSidebarDraggingInfo(source: outline, pasteboard: board, location: .zero)
+        let info = CloudSidebarDraggingInfo(source: outline, pasteboard: board, location: .zero,
+                                            sequenceNumber: session.draggingSequenceNumber)
         #expect(coordinator.outlineView(outline, validateDrop: info, proposedItem: parent, proposedChildIndex: 0) == .move)
         #expect(coordinator.outlineView(outline, acceptDrop: info, item: parent, childIndex: 0))
         #expect(parent.children.map(\.id) == Array(ids.reversed()))
         #expect(fixture.provider.moved.isEmpty && fixture.provider.projected.isEmpty)
         coordinator.outlineView(outline, draggingSession: session, endedAt: .zero, operation: .move)
         #expect(fixture.transferRegistry.resolve(from: board) == nil)
+        }
     }
 
     @Test("Cloud reorder draws the left sidebar line and clears rejected and exited destinations")
