@@ -28,6 +28,11 @@ class LifecycleTests(unittest.TestCase):
             result = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, timeout=8)
             return result
 
+    def test_optional_work_does_not_mutate_the_shared_cua_source_cache(self):
+        prebuild = (ROOT / "scripts/ci/prebuild-app-helpers.sh").read_text()
+        self.assertNotIn('run_helper cmux-cua', prebuild)
+        self.assertNotIn('"$ROOT/scripts/build-cmux-cua.sh"', prebuild)
+
     def test_failed_build_does_not_wait_for_hung_helper(self):
         result = self.run_case("import signal; signal.pause()", "raise SystemExit(17)")
         self.assertEqual(result.returncode, 17, result.stderr)

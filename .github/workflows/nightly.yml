@@ -798,7 +798,7 @@ jobs:
           #
           # The app target's Rust helper phases run after the Swift compile but
           # do not read its output. Build them now at low priority so those
-          # phases find Cargo's units fresh instead of adding about 100 s after
+          # phases find the local-source helpers fresh instead of building them after
           # the compile. A failed or late prebuild only leaves that work to the
           # phases, so its status never fails this step.
           python3 scripts/ci/run-with-helper-prebuild.py \
