@@ -219,11 +219,12 @@ jobs:
           : > "$GITHUB_WORKSPACE/trusted/.bunfig-empty.toml"
 
       # A stale branch still carries old copies of trusted files that main has
-      # since updated, and those copies never land. Merge the head into its base
-      # the way landing it would (git merge-tree handles renames and criss-cross
-      # history) so the checker can judge the trusted files in that merge. The
-      # history is fetched without file contents; a failed fetch or a conflicted
-      # merge leaves the checker comparing the head strictly.
+      # since updated, and those copies never land. When none of the branch's
+      # commits touch those files, merge the head into its base (git merge-tree
+      # follows renames the way the real merge does) so the checker can judge
+      # the trusted files in that merge. The history is fetched without file
+      # contents; a failed fetch, a touched trusted file or a conflicted merge
+      # leaves the checker comparing the head strictly.
       - name: Merge pull request into its base for the trusted-file check
         id: merge
         if: github.event_name == 'pull_request_target' && steps.scope.outputs.run == 'true'
@@ -235,6 +236,16 @@ jobs:
             ! git -C "$merge_repo" cat-file -e "${TRUSTED_SHA}^{commit}" ||
             ! git -C "$merge_repo" -c protocol.version=2 fetch -q --no-tags --filter=blob:none "$upstream" "$CANDIDATE_SHA"; then
             echo "Merge unavailable; comparing trusted files strictly."
+            exit 0
+          fi
+          # A rebase merge replays each commit, so commits that change a trusted
+          # file and change it back can land a change the net merge hides.
+          # Only a branch whose commits never touch the trusted files is judged
+          # by its merge; a merge commit counts against every parent.
+          if ! touched="$(git -C "$merge_repo" log -m --full-history --format=%H "$TRUSTED_SHA..$CANDIDATE_SHA" -- \
+            scripts/ci/scope-web-complexity.py web/scripts/check-complexity.mjs .github/workflows/web-complexity-trusted.yml)" ||
+            [[ -n "$touched" ]]; then
+            echo "The pull request's commits touch a trusted file; comparing trusted files strictly."
             exit 0
           fi
           if ! merge_output="$(git -C "$merge_repo" merge-tree --write-tree "$TRUSTED_SHA" "$CANDIDATE_SHA")"; then
