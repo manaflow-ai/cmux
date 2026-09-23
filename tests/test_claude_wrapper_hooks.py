@@ -1289,6 +1289,39 @@ def test_subcommand_discovery_cache_and_binary_identity(failures: list[str]) -> 
                    f"cache {change}: expected exactly one refresh: {read_lines(calls)}", failures)
 
 
+def test_subcommand_cache_expires_for_unchanged_launchers(failures: list[str]) -> None:
+    """An unchanged launcher eventually refreshes its downstream command catalog."""
+    def setup(tmp: Path, env: dict) -> None:
+        home = tmp / "home"
+        home.mkdir()
+        env["HOME"] = str(home)
+        wrapper = tmp / "cmux.app/Contents/Resources/bin/cmux-claude-wrapper"
+        env["FAKE_REAL_HELP_OUTPUT"] = "Commands:\n  future-first  Old downstream command\n"
+        started = int(time.time())
+        proc = subprocess.run([str(wrapper), "future-first"], cwd=tmp, env=env,
+                              capture_output=True, text=True, timeout=15)
+        expect(proc.returncode == 0 and read_lines(Path(env["FAKE_REAL_ARGS_LOG"])) == ["future-first"],
+               f"expiry: initial catalog did not load: {proc.stderr}", failures)
+        cache_files = list((home / "Library/Caches/cmux/claude-commands-v1").iterdir())
+        expect(len(cache_files) == 1, f"expiry: expected one published cache: {cache_files}", failures)
+        if not cache_files:
+            return
+        cached = cache_files[0].read_text().splitlines()
+        expires = int(cached[1])
+        expect(started < expires <= int(time.time()) + 3600,
+               f"expiry: successful discovery is not bounded to one hour: {expires}", failures)
+        # Age the runtime cache without waiting an hour or changing the launcher.
+        cached[1] = str(started - 1)
+        cache_files[0].write_text("\n".join(cached) + "\n")
+        env["FAKE_REAL_HELP_OUTPUT"] = "Commands:\n  future-second  Updated downstream command\n"
+
+    code, argv, _, stderr, *_ = run_wrapper(
+        socket_state="live", argv=["future-second"], setup_sandbox=setup, process_timeout=15,
+    )
+    expect(code == 0 and argv == ["future-second"],
+           f"expiry: stale launcher catalog was retained: {argv}: {stderr}", failures)
+
+
 def test_subcommand_help_failure_falls_back_and_is_cached(failures: list[str]) -> None:
     """Failed, empty, or hung help never changes prompt or hidden-command dispatch."""
     for behavior, output in (("fail", "Commands:\n  hello  Partial output\n"),
@@ -2966,6 +2999,7 @@ def main() -> int:
     test_hidden_attach_subcommand_bypasses_hook_injection(failures)
     test_discovered_subcommands_and_aliases_pass_through(failures)
     test_subcommand_discovery_cache_and_binary_identity(failures)
+    test_subcommand_cache_expires_for_unchanged_launchers(failures)
     test_subcommand_help_failure_falls_back_and_is_cached(failures)
     test_explicit_prompt_modes_skip_subcommand_discovery(failures)
     test_subcommand_help_cancellation_cleans_up_children(failures)
