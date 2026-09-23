@@ -16,7 +16,7 @@ struct V2FileStateStoreTests {
             identityGeneration: 1, metadata: V2DeviceMetadata(appVersion: "1", capabilities: [],
                 displayName: "Private Mac", pairingEnabled: true, platform: .mac, relayURLs: [])),
             deviceRecordID: "record", revision: 1, revoked: false)
-        let store = V2FileStateStore(rootDirectory: root, fileManager: files)
+        let store = V2FileStateStore(rootDirectory: root, fileManager: FileManager())
         try await store.save(state)
         #expect(try await store.load(identity: identity) == state)
         let directory = root.appendingPathComponent("cmux-iroh-v2/state")
