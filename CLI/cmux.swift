@@ -39004,8 +39004,11 @@ export default CMUXSessionRestore;
         let path = home
             .appendingPathComponent(".cmuxterm", isDirectory: true)
             .appendingPathComponent("workstream.jsonl", isDirectory: false)
+        // The app rotates the log to one previous generation next to it.
+        let rotatedPath = path.deletingLastPathComponent()
+            .appendingPathComponent("workstream.1.jsonl", isDirectory: false)
         let fm = FileManager.default
-        guard fm.fileExists(atPath: path.path) else {
+        guard fm.fileExists(atPath: path.path) || fm.fileExists(atPath: rotatedPath.path) else {
             print("No Feed history to clear (\(path.path) does not exist).")
             return
         }
@@ -39018,7 +39021,11 @@ export default CMUXSessionRestore;
                 return
             }
         }
-        try fm.removeItem(at: path)
+        // The running app notices the unlinked path on its next append and
+        // starts a new file, so the old inode's space is released.
+        for url in [path, rotatedPath] where fm.fileExists(atPath: url.path) {
+            try fm.removeItem(at: url)
+        }
         print("Cleared \(path.path)")
     }
 
