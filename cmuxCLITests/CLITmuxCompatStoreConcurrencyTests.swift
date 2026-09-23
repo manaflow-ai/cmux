@@ -211,10 +211,10 @@ struct CLITmuxCompatStoreConcurrencyTests {
             return ProcessRunResult(status: -1, stderr: String(describing: error), timedOut: false)
         }
 
-        let timedOut = exited.wait(timeout: .now() + timeout) == .timedOut
+        let timedOut = exited.wait(timeout: .now() + timeout) == .timedOut && process.isRunning
         if timedOut {
             process.terminate()
-            if exited.wait(timeout: .now() + 1) == .timedOut {
+            if exited.wait(timeout: .now() + 1) == .timedOut && process.isRunning {
                 kill(process.processIdentifier, SIGKILL)
                 _ = exited.wait(timeout: .now() + 1)
             }
