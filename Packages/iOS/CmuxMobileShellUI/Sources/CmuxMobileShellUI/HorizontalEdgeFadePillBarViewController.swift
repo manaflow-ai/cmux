@@ -20,6 +20,7 @@ final class HorizontalEdgeFadePillBarViewController<Leading: View, Pills: View, 
 
     init(
         contentInsets: UIEdgeInsets,
+        fadesLeadingEdge: Bool = true,
         accessibilityIdentifier: String,
         leading: Leading,
         pills: Pills,
@@ -34,6 +35,7 @@ final class HorizontalEdgeFadePillBarViewController<Leading: View, Pills: View, 
         pillsHost.sizingOptions = .intrinsicContentSize
         trailingHost.sizingOptions = .intrinsicContentSize
         super.init(nibName: nil, bundle: nil)
+        scrollView.fadesLeadingEdge = fadesLeadingEdge
     }
 
     @available(*, unavailable)
@@ -104,7 +106,8 @@ final class HorizontalEdgeFadePillBarViewController<Leading: View, Pills: View, 
         scrollView.contentOffset = CGPoint(x: -contentInsets.left, y: 0)
     }
 
-    func update(leading: Leading, pills: Pills, trailing: Trailing) {
+    func update(fadesLeadingEdge: Bool = true, leading: Leading, pills: Pills, trailing: Trailing) {
+        scrollView.fadesLeadingEdge = fadesLeadingEdge
         leadingHost.rootView = leading
         pillsHost.rootView = pills
         trailingHost.rootView = trailing
