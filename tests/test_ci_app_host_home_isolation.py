@@ -3,6 +3,7 @@
 
 from pathlib import Path
 import os
+import re
 import subprocess
 import tempfile
 import xml.etree.ElementTree as ET
@@ -181,6 +182,57 @@ def acceptance_gate_problem(condition: object, preparation_id: str) -> str:
     return ""
 
 
+def published_derived_data_value(job, steps) -> str | None:
+    """Return the CMUX_DERIVED_DATA_PATH a job publishes, before expansion.
+
+    Both callers compute the path in a shell variable and export it through
+    `GITHUB_ENV`, so the literal that matters is the assignment, not the echo.
+    """
+    environment = job.get("env")
+    if isinstance(environment, dict) and environment.get("CMUX_DERIVED_DATA_PATH"):
+        return str(environment["CMUX_DERIVED_DATA_PATH"])
+    for step in steps:
+        script = str(step.get("run", ""))
+        export = re.search(
+            r'CMUX_DERIVED_DATA_PATH=(?P<value>[^"\n]*)"?\s*>>\s*"?\$(?:\{)?GITHUB_ENV',
+            script,
+        )
+        if export is None:
+            continue
+        value = export.group("value").strip()
+        name = re.fullmatch(r"\$\{?(?P<name>[A-Za-z_][A-Za-z0-9_]*)\}?", value)
+        if name is None:
+            return value
+        assignment = re.search(
+            rf'^\s*{name.group("name")}="(?P<path>[^"]*)"', script, re.MULTILINE
+        )
+        return assignment.group("path") if assignment else None
+    return None
+
+
+def require_derived_data_under_runner_temp(where, job, steps) -> None:
+    """Hold app-host callers to the boundary cleanup enforces at runtime.
+
+    `cleanup-app-host-home.sh` refuses to inspect a host whose DerivedData
+    lives outside `RUNNER_TEMP`, and it runs under `if: always()`, so a job
+    that parks DerivedData anywhere else goes red *after* its tests pass.
+    `test-e2e.yml` shipped exactly that: the split lane inherited a
+    workspace-rooted path from the single-job form, which no other check
+    looked at because no earlier version of that lane cleaned up at all.
+    """
+    value = published_derived_data_value(job, steps)
+    if value is None:
+        raise SystemExit(
+            f"FAIL: {where} prepares an app-host home without publishing "
+            "CMUX_DERIVED_DATA_PATH; cleanup requires it"
+        )
+    if not re.match(r"\$\{?RUNNER_TEMP\}?/", value):
+        raise SystemExit(
+            f"FAIL: {where} puts DerivedData at {value!r}; app-host cleanup "
+            "only inspects hosts whose DerivedData is under RUNNER_TEMP"
+        )
+
+
 def check_every_app_host_home_is_identified_and_cleaned() -> None:
     """Hold every job that prepares an app-host home to the same contract.
 
@@ -216,6 +268,7 @@ def check_every_app_host_home_is_identified_and_cleaned() -> None:
                     f"FAIL: {where} must publish CMUX_APP_HOST_SHARD; "
                     "cmux_resolve_app_host_identity rejects an empty shard"
                 )
+            require_derived_data_under_runner_temp(where, job, steps)
             cleanups = [
                 step for step in steps
                 if "cleanup-app-host-home.sh" in str(step.get("run", ""))
