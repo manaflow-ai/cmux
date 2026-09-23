@@ -135,6 +135,11 @@ case "${1:-}" in
     if [ "$operation" = resolve ]; then
       "$SCRIPT_DIR/canonical-build-root.sh" "$PWD"
     fi
+    # A previous test-only consumer may have left a runtime source alias.
+    # Never derive a shared cache key through its pool-specific realpath.
+    if [ "$operation" = fingerprint ] && [ -L "$CANONICAL_BUILD_ROOT/src" ]; then
+      rm "$CANONICAL_BUILD_ROOT/src"
+    fi
     mkdir -p "$CANONICAL_BUILD_ROOT/src"
     cd "$CANONICAL_BUILD_ROOT/src"
     case "$operation" in

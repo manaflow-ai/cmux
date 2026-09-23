@@ -193,6 +193,8 @@ class CanonicalRecipeTests(unittest.TestCase):
                 " for a in ['sparkle/Sparkle/Sparkle.xcframework','sentry-cocoa/Sentry/Sentry.xcframework']: (p/'artifacts'/a).mkdir(parents=True,exist_ok=True)\n")
             xcode.chmod(0o755)
             root = base / "canonical"
+            root.mkdir()
+            (root / "src").symlink_to(workspace)
             env = dict(os.environ, PATH=f"{bin_dir}:" + os.environ['PATH'], CALLS=str(calls),
                        CMUX_CI_CANONICAL_ROOT=str(root))
             derived = str(root / "derived-data-compile-admission")
