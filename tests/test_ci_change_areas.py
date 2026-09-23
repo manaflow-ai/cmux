@@ -14,6 +14,7 @@ import sys
 import tempfile
 import textwrap
 from pathlib import Path
+from unittest.mock import patch
 
 import yaml
 
@@ -25,6 +26,8 @@ GUARD_WORKFLOW = ROOT / ".github" / "workflows" / "ci-guards.yml"
 WEB_WORKFLOW = ROOT / ".github" / "workflows" / "ci-web.yml"
 MACOS_WORKFLOW = ROOT / ".github" / "workflows" / "ci-macos.yml"
 WEB_VALIDATION_WORKFLOW = ROOT / ".github" / "workflows" / "web-validation.yml"
+BROWSER_WORKFLOW = ROOT / ".github" / "workflows" / "cmux-browser.yml"
+REMOTE_DAEMON_WORKFLOW = ROOT / ".github" / "workflows" / "remote-daemon.yml"
 GUARD_JOBS = (
     "workflow-guard-tests",
     "workflow-guard-history",
@@ -540,6 +543,128 @@ def test_macos_config_stays_macos_relevant() -> None:
     assert_areas(["config/IrohRelayPolicyProduction.xcconfig"], macos=True, web=True)
 
 
+def test_standalone_browser_and_remote_daemon_skip_app_host_macos() -> None:
+    browser_area = module.classify_files(["cmux-browser/src/main.ts"])
+    assert browser_area.macos is False
+    assert browser_area.release_build is False
+
+    daemon_area = module.classify_files(["daemon/remote/cmd/cmuxd-remote/cli.go"])
+    assert daemon_area.macos is False
+    assert daemon_area.release_build is False
+
+
+def test_required_ci_owns_standalone_browser_and_remote_daemon_pr_validation() -> None:
+    changes = workflow_job_block("changes")
+    assert "browser: ${{ steps.standalone.outputs.browser }}" in changes
+    assert "remote_daemon: ${{ steps.standalone.outputs.remote_daemon }}" in changes
+    route = workflow_job_step_script("changes", "Route standalone project workflows")
+    assert "cmux-browser/*|.github/workflows/cmux-browser.yml" in route
+    assert "daemon/remote/*|scripts/*remote_daemon*" in route
+
+    browser_job = workflow_job_block("browser")
+    assert "uses: ./.github/workflows/cmux-browser.yml" in browser_job
+    daemon_job = workflow_job_block("remote-daemon")
+    assert "uses: ./.github/workflows/remote-daemon.yml" in daemon_job
+
+    browser_text = BROWSER_WORKFLOW.read_text(encoding="utf-8")
+    assert "  workflow_call:" in browser_text
+    assert "  pull_request:" not in browser_text
+    assert "group: cmux-browser-${{ github.ref }}" in browser_text
+    remote_text = REMOTE_DAEMON_WORKFLOW.read_text(encoding="utf-8")
+    assert "  workflow_call:" in remote_text
+    assert "  pull_request:" not in remote_text
+    assert "      - name: Reject stale pull request rerun" in remote_text
+
+
+def test_standalone_routes_preserve_missing_empty_and_owned_diffs() -> None:
+    script = workflow_job_step_script("changes", "Route standalone project workflows")
+    script = script.replace("/tmp/cmux-ci-changed-files.txt", '"$CHANGED_FILES"')
+    cases = (
+        (None, "true", "true"),
+        ("", "false", "false"),
+        ("README.md\n", "false", "false"),
+        (".github/workflows/ci.yml\n", "true", "true"),
+        ("cmux-browser/src/main.ts\n", "true", "false"),
+        ("daemon/remote/main.go\n", "false", "true"),
+    )
+    for contents, browser, daemon in cases:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            changed = root / "changed.txt"
+            if contents is not None:
+                changed.write_text(contents)
+            output = root / "output.txt"
+            subprocess.run(["bash", "-c", script], check=True, capture_output=True,
+                           env={**os.environ, "CHANGED_FILES": str(changed), "GITHUB_OUTPUT": str(output)})
+            assert output.read_text().splitlines() == [f"browser={browser}", f"remote_daemon={daemon}", f"remote_daemon_native={daemon}"]
+
+
+def test_publishing_changes_keep_daemon_linux_checks_without_native_rerun() -> None:
+    script = workflow_job_step_script("changes", "Route standalone project workflows")
+    script = script.replace("/tmp/cmux-ci-changed-files.txt", '\"$CHANGED_FILES\"')
+    cases = (
+        (".github/workflows/nightly.yml\nscripts/sparkle_generate_appcast.sh\n", "false"),
+        (".github/workflows/release.yml\n", "false"),
+        (".github/workflows/nightly.yml\ndaemon/remote/main.go\n", "true"),
+        ("daemon/remote/go.mod\n", "true"),
+        ("scripts/build_remote_daemon.sh\n", "true"),
+        ("tests/test_remote_daemon_release_assets.py\n", "true"),
+        (".github/workflows/remote-daemon.yml\n", "true"),
+        (".github/workflows/ci.yml\n", "true"),
+        (None, "true"),
+    )
+    for contents, native in cases:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            changed, output = root / "changed", root / "output"
+            if contents is not None:
+                changed.write_text(contents)
+            subprocess.run(["bash", "-c", script], check=True, capture_output=True,
+                           env={**os.environ, "CHANGED_FILES": str(changed), "GITHUB_OUTPUT": str(output)})
+            values = dict(line.split("=", 1) for line in output.read_text().splitlines())
+            assert values["remote_daemon"] == "true", (contents, values)
+            assert values.get("remote_daemon_native") == native, (contents, values)
+
+
+def test_diff_failure_does_not_look_like_a_known_empty_standalone_diff() -> None:
+    detector = detect_step_script().replace("/tmp/cmux-ci-changed-files.txt", '"$CHANGED_FILES"')
+    route = workflow_job_step_script("changes", "Route standalone project workflows")
+    route = route.replace("/tmp/cmux-ci-changed-files.txt", '"$CHANGED_FILES"')
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        git = root / "git"
+        git.write_text("#!/bin/sh\nexit 1\n")
+        git.chmod(0o755)
+        changed = root / "changed.txt"
+        output = root / "output.txt"
+        env = {**os.environ, "PATH": str(root) + os.pathsep + os.environ["PATH"],
+               "EVENT_NAME": "pull_request", "BASE_SHA": "missing", "MERGE_SHA": "missing",
+               "CHANGED_FILES": str(changed), "GITHUB_OUTPUT": str(output)}
+        subprocess.run(["bash", "-c", detector], env=env, capture_output=True, check=True)
+        assert not changed.exists(), "failed git diff must not leave its truncated output behind"
+        subprocess.run(["bash", "-c", route], env=env, capture_output=True, check=True)
+        assert output.read_text().splitlines()[-3:] == ["browser=true", "remote_daemon=true", "remote_daemon_native=true"]
+
+
+def test_remote_daemon_rejects_stale_heads_before_allocating_macos() -> None:
+    jobs = yaml.safe_load(REMOTE_DAEMON_WORKFLOW.read_text())["jobs"]
+    admission = jobs["remote-daemon-admission"]
+    assert "LINUX_RUNNER" in admission["runs-on"]
+    assert jobs["remote-daemon-macos-tests"]["needs"] == "remote-daemon-admission"
+    script = admission["steps"][0]["run"]
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        gh = root / "gh"
+        gh.write_text('#!/bin/sh\n[ "$CURRENT_HEAD" != unavailable ] || exit 1\nprintf "%s\\n" "$CURRENT_HEAD"\n')
+        gh.chmod(0o755)
+        for current, expected in (("head", 0), ("newer-head", 1), ("unavailable", 0)):
+            env = {**os.environ, "PATH": str(root) + os.pathsep + os.environ["PATH"],
+                   "GITHUB_REPOSITORY": "example/repo", "PR_NUMBER": "1",
+                   "RUN_HEAD_SHA": "head", "CURRENT_HEAD": current}
+            result = subprocess.run(["bash", "-c", script], env=env, capture_output=True)
+            assert result.returncode == expected, (current, result.stderr)
+
+
 def test_cmux_tui_only_skips_macos() -> None:
     # cmux-tui is a standalone Rust project with its own `cmux-tui` workflow; its
     # changes must not require the macOS app-host tests.
@@ -1007,6 +1132,19 @@ def test_workflow_changes_run_everything() -> None:
     )
 
 
+def test_publishing_helpers_skip_unrelated_product_builds() -> None:
+    helpers = ["scripts/ci/download-run-artifact.py", "scripts/prebuild_sparkle_deltas.sh", "scripts/sparkle_generate_appcast.sh"]
+    for path in helpers:
+        actual = module.classify_files([path])
+        assert not any((actual.macos, actual.web, actual.agent_session_web, actual.cli, actual.swift_packages, actual.release_build)), (path, actual)
+    actual = module.classify_files(helpers + ["Sources/AppDelegate.swift"])
+    assert actual.macos and actual.release_build
+    actual = module.classify_files(helpers + ["scripts/ci/unknown_publishing_helper.py"])
+    assert actual.macos and actual.release_build and actual.web
+    result, outputs = run_detect_step_for_paths(helpers + [".github/workflows/nightly.yml", "tests/test_sparkle_generate_appcast_no_deltas.sh"])
+    assert outputs == ["macos=false", "web=false", "agent_session_web=false", "cli=false", "swift_packages=false", "release_build=false"], (result.stdout, outputs)
+
+
 def test_macos_admission_control_helpers_run_admission_without_web_or_release() -> None:
     for path in (
         "scripts/ci/build_input_fingerprint.py",
@@ -1083,6 +1221,50 @@ def test_other_workflow_changes_skip_macos_and_web() -> None:
         macos=False,
         web=False,
     )
+
+
+def test_linux_registry_changes_skip_native_but_preserve_native_changes() -> None:
+    base = 'version = 1\n[[test]]\npath = "tests/native.py"\nlane = "macos-shell"\n'
+    guard = '\n[[test]]\npath = "tests/guard.py"\nlane = "linux-guard"\n'
+    assert module.test_registry_change_is_linux_only(base, base + guard)
+    assert module.test_registry_change_is_linux_only(base + guard, base)
+    assert module.test_registry_change_is_linux_only(base, base + '\n# comment\n')
+    for candidate in (
+        base.replace('macos-shell', 'linux-guard'),
+        base.replace('native.py', 'other.py'),
+        base + 'requirements = ["fish"]\n',
+        base.replace('version = 1', 'version = 2'),
+        'invalid TOML',
+        base + guard + guard,
+    ):
+        assert not module.test_registry_change_is_linux_only(base, candidate), candidate
+    assert not module.test_registry_change_is_linux_only('invalid TOML', base)
+
+
+def test_registry_cli_uses_base_and_keeps_mixed_product_changes() -> None:
+    base = 'version = 1\n[[test]]\npath = "tests/native.py"\nlane = "macos-shell"\n'
+    with tempfile.TemporaryDirectory() as temp_dir:
+        root = Path(temp_dir)
+        (root / 'tests').mkdir()
+        head = root / 'tests/test-execution.toml'
+        head.write_text(base + '\n[[test]]\npath = "tests/guard.py"\nlane = "linux-guard"\n')
+        before = root / 'base.toml'
+        before.write_text(base)
+        files = root / 'files.txt'
+        files.write_text('tests/test-execution.toml\n')
+        env = {**os.environ, 'CMUX_CI_HEAD_TEST_REFERENCE_ROOT': str(root)}
+        command = [sys.executable, str(HELPER), '--event-name', 'pull_request',
+                   '--files-from', str(files), '--test-registry-base', str(before)]
+        result = subprocess.run(command, env=env, capture_output=True, text=True, check=True)
+        assert 'macos=false' in result.stdout, result.stdout
+        assert 'release_build=false' in result.stdout, result.stdout
+        files.write_text('tests/test-execution.toml\nSources/AppDelegate.swift\n')
+        result = subprocess.run(command, env=env, capture_output=True, text=True, check=True)
+        assert 'macos=true' in result.stdout, result.stdout
+        before.unlink()
+        files.write_text('tests/test-execution.toml\n')
+        result = subprocess.run(command, env=env, capture_output=True, text=True, check=True)
+        assert 'macos=true' in result.stdout, result.stdout
 
 
 def test_guard_only_tests_skip_macos() -> None:
@@ -1683,14 +1865,21 @@ def run_macos_status(
 def run_detect_step_for_paths(
     paths: list[str],
     workflow_path: Path = CI_WORKFLOW,
+    *,
+    base_files: dict[str, str] | None = None,
+    head_files: dict[str, str] | None = None,
 ) -> tuple[subprocess.CompletedProcess[str], list[str]]:
     script = detect_step_script(workflow_path)
     with tempfile.TemporaryDirectory() as temp_dir:
         repo = Path(temp_dir)
-        runner_temp = Path(temp_dir) / "runner-temp"
-        subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
-        subprocess.run(["git", "config", "user.email", "ci@example.test"], cwd=repo, check=True)
-        subprocess.run(["git", "config", "user.name", "CI Test"], cwd=repo, check=True)
+        git_env = os.environ.copy()
+        for name in ("GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE"):
+            git_env.pop(name, None)
+        # Parallel local checkouts must not share the workflow's fixed /tmp files.
+        script = script.replace("/tmp/cmux-ci-", str(repo / "cmux-ci-"))
+        subprocess.run(["git", "init", "-q"], cwd=repo, env=git_env, check=True)
+        subprocess.run(["git", "config", "user.email", "ci@example.test"], cwd=repo, env=git_env, check=True)
+        subprocess.run(["git", "config", "user.name", "CI Test"], cwd=repo, env=git_env, check=True)
         helper_copy = repo / "scripts" / "ci" / "detect_ci_change_areas.py"
         helper_copy.parent.mkdir(parents=True, exist_ok=True)
         helper_copy.write_text(HELPER.read_text(encoding="utf-8"), encoding="utf-8")
@@ -1711,34 +1900,36 @@ def run_detect_step_for_paths(
             target = repo / relative
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_text(support.read_text(encoding="utf-8"), encoding="utf-8")
+        for path, content in (base_files or {}).items():
+            target = repo / path
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(content, encoding="utf-8")
         (repo / "base.txt").write_text("base\n", encoding="utf-8")
-        subprocess.run(["git", "add", "."], cwd=repo, check=True)
-        subprocess.run(["git", "commit", "-q", "-m", "base"], cwd=repo, check=True)
-        base_sha = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=repo, text=True).strip()
+        subprocess.run(["git", "add", "."], cwd=repo, env=git_env, check=True)
+        subprocess.run(["git", "commit", "-q", "-m", "base"], cwd=repo, env=git_env, check=True)
+        base_sha = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=repo, env=git_env, text=True).strip()
 
         if paths:
             for path in paths:
                 target = repo / path
                 target.parent.mkdir(parents=True, exist_ok=True)
-                target.write_text("changed\n", encoding="utf-8")
-            subprocess.run(["git", "add", "."], cwd=repo, check=True)
-            subprocess.run(["git", "commit", "-q", "-m", "head"], cwd=repo, check=True)
-            head_sha = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=repo, text=True).strip()
+                target.write_text((head_files or {}).get(path, "changed\n"), encoding="utf-8")
+            subprocess.run(["git", "add", "."], cwd=repo, env=git_env, check=True)
+            subprocess.run(["git", "commit", "-q", "-m", "head"], cwd=repo, env=git_env, check=True)
+            head_sha = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=repo, env=git_env, text=True).strip()
         else:
             head_sha = base_sha
 
         output_path = repo / "github-output.txt"
         env = {
-            **os.environ,
+            **git_env,
             "EVENT_NAME": "pull_request",
             "BASE_SHA": base_sha,
             "HEAD_SHA": head_sha,
             "MERGE_SHA": head_sha,
             "GITHUB_OUTPUT": str(output_path),
-            # The trusted base router lays its checkout out under $RUNNER_TEMP,
-            # and the step runs under `set -u`. GitHub sets it; a local run
-            # does not, so without this the suite only passes inside CI.
-            "RUNNER_TEMP": os.environ.get("RUNNER_TEMP") or str(runner_temp),
+            "GITHUB_WORKSPACE": str(repo),
+            "RUNNER_TEMP": str(repo),
         }
         result = subprocess.run(
             ["bash", "-c", script],
@@ -1750,6 +1941,38 @@ def run_detect_step_for_paths(
             check=True,
         )
         return result, output_path.read_text(encoding="utf-8").splitlines()
+
+
+def test_detect_step_ignores_inherited_git_location() -> None:
+    # Each Git location override must be ignored, including the custom index
+    # that otherwise silently redirects writes outside the fixture repository.
+    with tempfile.TemporaryDirectory() as foreign_dir:
+        foreign = Path(foreign_dir)
+        for variable, value in {
+            "GIT_DIR": str(foreign / "not-a-repository"),
+            "GIT_WORK_TREE": str(foreign / "missing-worktree"),
+            "GIT_INDEX_FILE": str(foreign / "foreign-index"),
+        }.items():
+            with patch.dict(os.environ, {variable: value}):
+                result, outputs = run_detect_step_for_paths(["Sources/AppDelegate.swift"])
+            assert result.returncode == 0, result.stderr
+            assert "macos=true" in outputs, outputs
+            assert not Path(value).exists(), f"fixture wrote through {variable}"
+
+
+def test_workflow_registry_diff_reaches_normal_and_trusted_router() -> None:
+    registry = "tests/test-execution.toml"
+    base = 'version = 1\n[[test]]\npath = "tests/native.py"\nlane = "macos-shell"\n'
+    guard = '\n[[test]]\npath = "tests/guard.py"\nlane = "linux-guard"\n'
+    for policy_change in ([], ["scripts/ci/detect_ci_change_areas.py"]):
+        for candidate, expected in ((base + guard, "false"),
+                                    (base.replace("native.py", "other.py"), "true")):
+            result, outputs = run_detect_step_for_paths(
+                [registry, *policy_change],
+                base_files={registry: base}, head_files={registry: candidate},
+            )
+            assert f"macos={expected}" in outputs, (result.stdout, result.stderr)
+            assert f"release_build={expected}" in outputs, outputs
 
 
 def test_workflow_self_change_guard_runs_before_detector_imports() -> None:
@@ -2228,6 +2451,8 @@ def test_ci_status_job_accepts_skipped_routed_jobs() -> None:
         "changes",
         "static-preflight",
         "guards",
+        "browser",
+        "remote-daemon",
         "cli",
         "web",
         "linux-preflight",
@@ -3110,6 +3335,39 @@ def test_macos_compile_admission_precedes_expensive_shards() -> None:
     )
 
 
+def test_static_preflight_rejects_stale_embedded_schema_before_native_work() -> None:
+    steps = yaml.safe_load(CI_WORKFLOW.read_text())["jobs"]["static-preflight"]["steps"]
+    scripts = [step["run"] for step in steps if "run" in step]
+    with tempfile.TemporaryDirectory(prefix="cmux-schema-preflight-") as tmp:
+        repo = Path(tmp)
+        # Isolate this gate's schema behavior; unrelated validators succeed.
+        for script in scripts:
+            for name in re.findall(r"(?:python3 |\./)([\w/.-]+\.(?:py|sh))", script):
+                target = repo / name
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_text("#!/usr/bin/env bash\nexit 0\n" if name.endswith(".sh") else "pass\n")
+                target.chmod(0o755)
+        generator = repo / "scripts/generate-cmux-config-schema.py"
+        generator.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(ROOT / "scripts/generate-cmux-config-schema.py", generator)
+        schema = repo / "web/data/cmux.schema.json"
+        schema.parent.mkdir(parents=True)
+        schema.write_text('{"type":"object"}\n')
+        generated = repo / "Packages/macOS/CmuxFoundation/Sources/CmuxFoundation/ConfigValidation"
+        generated.mkdir(parents=True)
+        subprocess.run([sys.executable, str(generator)], cwd=repo, check=True)
+        def run_gate():
+            return subprocess.run(["bash", "-e", "-c", "\n".join(scripts)], cwd=repo,
+                                  capture_output=True, text=True)
+        assert run_gate().returncode == 0
+        schema.write_text('{"type":"object","title":"changed"}\n')
+        stale = run_gate()
+        assert stale.returncode != 0, "stale schema reached native admission"
+        assert "is stale" in stale.stdout
+        subprocess.run([sys.executable, str(generator)], cwd=repo, check=True)
+        assert run_gate().returncode == 0
+
+
 def test_guard_workflow_call_preserves_routes_and_static_gate() -> None:
     block = workflow_job_block("guards")
 
@@ -3960,8 +4218,9 @@ def test_guard_python_setup_is_scoped_to_owning_groups() -> None:
     # release-notary joined when test_release_homebrew_gate.py was wired there:
     # it imports yaml, and that was the one group running Python guards without
     # the venv.
+    # preflight needs YAML traversal for the macOS runner identity guard.
     assert (
-        "if: ${{ matrix.group == 'ci' || matrix.group == 'app-host-execution' || "
+        "if: ${{ matrix.group == 'preflight' || matrix.group == 'ci' || matrix.group == 'app-host-execution' || "
         "matrix.group == 'app-host-process' || matrix.group == 'app-host-cache' || "
         "matrix.group == 'release-notary' || matrix.group == 'release-tooling' }}"
     ) in prepare_block

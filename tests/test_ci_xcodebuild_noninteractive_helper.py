@@ -25,7 +25,49 @@ RESTART = (
 RESTART_BUDGET_EXIT_CODE = 123
 
 
+def test_compiler_timeout_evidence() -> None:
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        child_pid = root / "child-pid"
+        calls = root / "sample-calls"
+        ps = root / "ps"
+        ps.write_text("#!/usr/bin/env python3\nimport os, pathlib, time\n"
+                      "if os.environ.get('STALL_PS'): time.sleep(20)\n"
+                      "pid = int(pathlib.Path(os.environ['TEST_CHILD_PID_FILE']).read_text())\n"
+                      "print(f'{pid} 1 0:02.00 00:12 S /Applications/Xcode.app/xcodebuild')\n"
+                      "print(f'{pid+1000000} {pid} 0:08.12 00:10 R /Applications/Xcode.app/swift-frontend')\n"
+                      "print('999999 1 0:20.00 00:20 R /private-secret/swift-frontend')\n")
+        ps.chmod(0o755)
+        sample = root / "sample"
+        sample.write_text("#!/usr/bin/env python3\nimport os, pathlib, sys, time\n"
+                          "if os.environ.get('STALL_SAMPLE'): time.sleep(20)\n"
+                          "pathlib.Path(os.environ['TEST_SAMPLE_CALLS']).write_text(' '.join(sys.argv[1:]))\n"
+                          "print('Command line: DO_NOT_PRINT_SECRET\\nCall graph:\\ncompiler stack fixture\\nBinary Images:\\nprivate metadata')\n")
+        sample.chmod(0o755)
+        child = "import os,time,pathlib;pathlib.Path(os.environ['TEST_CHILD_PID_FILE']).write_text(str(os.getpid()));print('SwiftCompile ContentView.swift',flush=True);time.sleep(60)"
+        env = dict(os.environ, PATH=str(root) + os.pathsep + os.environ['PATH'],
+                   TEST_CHILD_PID_FILE=str(child_pid), TEST_SAMPLE_CALLS=str(calls),
+                   CMUX_XCODEBUILD_NONINTERACTIVE_IDLE_TIMEOUT_SECONDS="0.15",
+                   CMUX_XCODEBUILD_NONINTERACTIVE_LOG_PATH=str(root / "timeout.log"))
+        result = subprocess.run([sys.executable, str(HELPER), sys.executable, "-c", child],
+                                env=env, capture_output=True, text=True, timeout=12)
+        assert result.returncode == 124, result.stderr
+        assert "[idle timeout] compiler process snapshot" in result.stdout, result.stdout
+        assert "swift-frontend" in result.stdout and "0:08.12" in result.stdout
+        assert "pid=999999 " not in result.stdout
+        assert "DO_NOT_PRINT_SECRET" not in result.stdout and "private metadata" not in result.stdout
+        assert result.stdout.count("compiler process snapshot") == 2
+        assert "compiler stack fixture" in (root / "timeout.log").read_text()
+        assert "compiler stack fixture" in result.stdout
+        assert calls.read_text().split()[0] == str(int(child_pid.read_text()) + 1000000)
+        for stalled_tool in ("STALL_PS", "STALL_SAMPLE"):
+            result = subprocess.run([sys.executable, str(HELPER), sys.executable, "-c", child],
+                                    env={**env, stalled_tool: "1"}, capture_output=True, text=True, timeout=10)
+            assert result.returncode == 124, (stalled_tool, result.stderr)
+
+
 def main() -> int:
+    test_compiler_timeout_evidence()
     child = textwrap.dedent(
         f"""
         import sys

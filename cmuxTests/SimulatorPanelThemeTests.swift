@@ -63,7 +63,16 @@ struct SimulatorPanelVisibilityTests {
         root.addSubview(firstHost!)
         root.addSubview(secondHost)
 
-        let window = NSWindow(
+        // The pane only takes framebuffer demand while its host window is on
+        // screen, which `simulatorHostWindowIsVisible` reads from
+        // `NSWindow.occlusionState`. The window server only reports `.visible`
+        // for the active app's on-screen windows, and the app-host test process
+        // runs headless and is usually not the active app, so an ordered-in
+        // test window reports `isVisible == true` with no `.visible` occlusion
+        // bit. Pin the on-screen status this scenario is premised on, so the
+        // suite asserts the coordinator's host refcounting rather than the CI
+        // host's window server.
+        let window = OnScreenTestWindow(
             contentRect: root.bounds,
             styleMask: [.borderless],
             backing: .buffered,
@@ -318,6 +327,16 @@ struct CanvasSimulatorPointerOwnershipTests {
         #expect(frontmost.acceptsPointerEntryEvent(event))
         #expect(!obscured.acceptsPointerEntryEvent(event))
     }
+}
+
+/// A window that reports the occlusion state an on-screen host window has in
+/// the running app. `simulatorHostWindowIsVisible` gates frame demand on
+/// `occlusionState.contains(.visible)`, which the window server reports only
+/// for the active app's on-screen windows; the headless app-host test process
+/// is usually not the active app, so a window it orders in reports no
+/// `.visible` bit and the Simulator pane never asks for a framebuffer.
+private final class OnScreenTestWindow: NSWindow {
+    override var occlusionState: NSWindow.OcclusionState { .visible }
 }
 
 private actor SimulatorThemePaneClient: SimulatorPaneClient {

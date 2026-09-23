@@ -58,10 +58,22 @@ actor AppContextSerialGate {
 /// route after they finish exercising its recovery behavior.
 extension AppDelegate {
     /// Establishes the real window/controller/terminal focus relationship before input probes.
+    ///
+    /// `makeKeyAndOrderFront` only makes a programmatic window key while the
+    /// test host is the active app. The app-host process starts inactive under
+    /// `xcodebuild test`, so callers that use a real `createMainWindow()`
+    /// window (which cannot be swapped for `KeyStatusTestWindow`) became key
+    /// only when an earlier test in the shard happened to activate the app.
+    /// Activate explicitly so the terminal focus paths that gate on
+    /// `isKeyWindow` are exercised by behavior rather than by test order.
     func focusTerminalForTesting(_ panel: TerminalPanel, workspace: Workspace, in window: NSWindow) async -> Bool {
+        NSApp.activate(ignoringOtherApps: true)
         window.makeKeyAndOrderFront(nil)
         window.displayIfNeeded()
-        guard await AppKitTestEventPump().waitUntil({
+        // Activation and the resulting key-window transition land on later main
+        // run-loop turns, and a contended CI runner can take several of them;
+        // the pump's one-second default expires before the window goes key.
+        guard await AppKitTestEventPump().waitUntil(timeout: .seconds(10), {
             panel.hostedView.uiWindow === window
                 && panel.hostedView.surfaceView.window === window
                 && panel.hostedView.bounds.width > 1
@@ -138,4 +150,16 @@ extension AppDelegate {
             TerminalController.shared.setActiveTabManager(previousActive)
         }
     }
+}
+
+/// A window that reports key status the way the focused main window does in
+/// the running app. The app-host test process runs headless under
+/// `xcodebuild test` and is usually not the active app, so
+/// `makeKeyAndOrderFront` never makes a programmatic window key; whether it
+/// does then depends on whether an earlier test happened to activate the app.
+/// Terminal focus paths gate on `isKeyWindow` (automatic first-responder
+/// apply, focus redraws, deferred focus reapply), so focus tests that do not
+/// pin key status pass or fail by test order instead of by behavior.
+final class KeyStatusTestWindow: NSWindow {
+    override var isKeyWindow: Bool { true }
 }
