@@ -83,6 +83,37 @@ extension WorkspaceListView {
                 : { @MainActor workspace in
                     openWorkspaceChanges(workspace)
                 }
+        let movePresentedRows: (([WorkspaceListTableItem], IndexSet, Int) -> Void)?
+        if enablesReorder {
+            movePresentedRows = { presentedItems, sourceOffsets, destination in
+                if grouped {
+                    let itemsByID = Dictionary(uniqueKeysWithValues: groupedItems.map { item in
+                        let id: String
+                        if case .groupHeader(let group, _) = item {
+                            id = "groupHeader.\(group.id.rawValue)"
+                        } else {
+                            id = item.id
+                        }
+                        return (id, item)
+                    })
+                    moveGroupedRows(
+                        from: sourceOffsets,
+                        to: destination,
+                        presentedItems: presentedItems.compactMap { itemsByID[$0.id] }
+                    )
+                } else {
+                    moveFlatRows(
+                        from: sourceOffsets,
+                        to: destination,
+                        presentedWorkspaces: presentedItems.compactMap { item in
+                            item.workspaceID.flatMap { workspacesByID[$0] }
+                        }
+                    )
+                }
+            }
+        } else {
+            movePresentedRows = nil
+        }
         let emptyStateRecoveryTarget = store?.workspaceListRecoveryTarget
         let emptyStateMacDeviceID = emptyStateRecoveryTarget?.macDeviceID
         let emptyStateMacInstanceTag = emptyStateRecoveryTarget?.instanceTag
@@ -175,32 +206,7 @@ extension WorkspaceListView {
                 )
                 : nil,
             enablesReorder: enablesReorder,
-            moveRows: enablesReorder ? { presentedItems, sourceOffsets, destination in
-                if grouped {
-                    let itemsByID = Dictionary(uniqueKeysWithValues: groupedItems.map { item in
-                        let id: String
-                        if case .groupHeader(let group, _) = item {
-                            id = "groupHeader.\(group.id.rawValue)"
-                        } else {
-                            id = item.id
-                        }
-                        return (id, item)
-                    })
-                    moveGroupedRows(
-                        from: sourceOffsets,
-                        to: destination,
-                        presentedItems: presentedItems.compactMap { itemsByID[$0.id] }
-                    )
-                } else {
-                    moveFlatRows(
-                        from: sourceOffsets,
-                        to: destination,
-                        presentedWorkspaces: presentedItems.compactMap { item in
-                            item.workspaceID.flatMap { workspacesByID[$0] }
-                        }
-                    )
-                }
-            } : nil,
+            moveRows: movePresentedRows,
             canDropIntoGroup: enablesReorder && grouped ? { workspaceID, groupID in
                 canJoinGroupAtEnd(workspaceID: workspaceID, groupID: groupID)
             } : nil,

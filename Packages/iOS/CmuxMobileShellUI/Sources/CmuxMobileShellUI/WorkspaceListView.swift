@@ -997,7 +997,9 @@ struct WorkspaceListView: View {
         ForEach(displayedFlatWorkspaces) { workspace in
             workspaceRow(workspace, indented: false, enablesReorder: enablesReorder)
         }
-        .onMove(perform: moveFlatRows)
+        .onMove { sourceOffsets, destination in
+            moveFlatRows(from: sourceOffsets, to: destination)
+        }
     }
 
     /// Grouped presentation: collapsible Mac-ordered group headers and nested members.
@@ -1066,7 +1068,9 @@ struct WorkspaceListView: View {
                 workspaceRow(workspace, indented: indented, enablesReorder: enablesReorder)
             }
         }
-        .onMove(perform: moveGroupedRows)
+        .onMove { sourceOffsets, destination in
+            moveGroupedRows(from: sourceOffsets, to: destination)
+        }
     }
 
     @ViewBuilder
