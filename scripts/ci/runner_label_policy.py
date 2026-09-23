@@ -8,8 +8,8 @@ this repository works the same way, on files.
 
 Runner choice does not live in files. It lives in `MACOS_RUNNER_*` repository
 variables, and a variable's value never appears in a diff, so none of those
-guards can see it. `warp-macos-26-arm64-12x` sat in `MACOS_RUNNER_26_RELEASE`
-and `MACOS_RUNNER_26_NIGHTLY_BUILD` from 2026-09-20 to 2026-09-23 even though
+guards can see it. `warp-macos-26-arm64-12x` sat in the release and large-nightly runner
+variables from 2026-09-20 to 2026-09-23 even though
 the guard rejects that exact label on sight -- it matches the `macos-26` fleet
 pattern and is absent from the allow-list.
 

@@ -45,19 +45,25 @@ RUNS_ON = re.compile(r"^\s*runs-on:\s*(.+?)\s*$")
 # land on the free Blacksmith fallback.
 PAID_OVERFLOW_GATE = "CI_PAID_MACOS_OVERFLOW"
 
-# Runner variables that have held a WarpBuild label, and the free label each
-# must fall back to (the "Intended steady state" in docs/ci-runners.md). Each
-# selects a lane that runs on every push to main or in the merge queue, where
-# nobody is watching a check name closely enough to notice the pool changed
-# under it. The fallback is pinned because a gate with the wrong literal moves
-# the lane silently: the nightly builder once fell back to 6vcpu, half its
-# intended 12.
+# Runner variables whose purpose is the paid overflow path, and the free label
+# each must fall back to (the "Intended steady state" in docs/ci-runners.md).
+# Each selects a lane that runs on every push to main or in the merge queue,
+# where nobody is watching a check name closely enough to notice the pool
+# changed under it. The fallback is pinned because a gate with the wrong
+# literal moves the lane silently: the nightly builder once fell back to 6vcpu,
+# half its intended 12.
+#
+# This is not a list of every runner variable, and adding one here is not a
+# free safety improvement. The gate asks "may we spend money", so a variable
+# that selects a free pool does not belong: gating it would mean repointing
+# that pool -- at owned Mac hardware, say -- required turning the paid-overflow
+# flag on. MACOS_RUNNER_26 is deliberately absent for that reason. What guards
+# a variable outside this table is the value policy in runner_label_policy.py.
 PAID_CAPABLE_RUNNER_VARS = {
     "MACOS_RUNNER_15": "blacksmith-6vcpu-macos-15",
     "MACOS_RUNNER_DISPLAY": "blacksmith-6vcpu-macos-15",
     "MACOS_RUNNER_DUAL_XCODE": "blacksmith-6vcpu-macos-15",
-    "MACOS_RUNNER_26_RELEASE": "blacksmith-6vcpu-macos-26",
-    "MACOS_RUNNER_26_NIGHTLY_BUILD": "blacksmith-12vcpu-macos-26",
+    "MACOS_RUNNER_26_LARGE": "blacksmith-12vcpu-macos-26",
 }
 
 # The gate as it must appear immediately before the read. The lookbehind keeps
@@ -180,7 +186,7 @@ def check_paid_overflow_gate(path: Path, errors: list[str]) -> None:
 
     Rule 1 covers the variable being *unset*. This covers it being *set*, which
     is the case the repository actually got wrong: between 2026-09-19 and
-    2026-09-23 these five variables pointed at WarpBuild, so main and the merge
+    2026-09-23 every variable in the table above, plus the release lane's former variable, pointed at WarpBuild, so main and the merge
     queue ran on metered capacity while pull requests ran free on Blacksmith.
     Nothing in the repository could see it, because a variable's value is not
     reviewable and every other guard here reads workflow text.

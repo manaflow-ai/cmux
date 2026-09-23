@@ -73,17 +73,28 @@ check_display_runner_identity_guard() {
 }
 
 check_release_build_runner_disk_capacity() {
-  if ! awk '
+  # Pin the whole expression, not the variable name and the literal as two
+  # independent substring matches. Those two can both be satisfied by a line
+  # whose effective fallback is a different machine:
+  #
+  #   vars.MACOS_RUNNER_26 || 'blacksmith-12vcpu-macos-26' || 'blacksmith-6vcpu-macos-26'
+  #
+  # still contains the name and still contains blacksmith-6vcpu-macos-26, but
+  # resolves to the 12vcpu pool. Matching the whole string also catches a
+  # paid-overflow gate appearing here, which does not belong: MACOS_RUNNER_26
+  # is the free macOS 26 pool and is read ungated everywhere. See
+  # docs/ci-runners.md for why the gate must not grow to cover it.
+  if ! awk -v release_runner="runs-on: \${{ vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}" '
     /^  release-build:/ { in_job=1; next }
     in_job && /^  [^[:space:]#][^:]*:[[:space:]]*(#.*)?$/ { in_job=0 }
-    in_job && /runs-on:/ && /vars\.MACOS_RUNNER_26_RELEASE/ && /blacksmith-6vcpu-macos-26/ { saw_release_runner=1 }
+    in_job && index($0, release_runner) { saw_release_runner=1 }
     END { exit !saw_release_runner }
   ' "$CI_MACOS_FILE"; then
-    echo "FAIL: release-build must use the release-specific macOS 26 runner var with a cloud (Blacksmith) fallback for disk-heavy universal builds"
+    echo "FAIL: release-build must run the disk-heavy universal build on the macOS 26 runner variable with the exact blacksmith-6vcpu-macos-26 fallback"
     exit 1
   fi
 
-  echo "PASS: release-build uses release-specific macOS 26 runner fallback"
+  echo "PASS: release-build uses the macOS 26 runner variable and its exact Blacksmith fallback"
 }
 
 check_build_lag_deriveddata_cache_path() {
@@ -1838,7 +1849,7 @@ import yaml
 # regardless of where the pull-request lane points.
 EXEMPT = {
     ("iroh-release-gate.yml", "tailscale-version-skew", "CMUX_CI_XCODE_APP"):
-        "builds against the SDK 15 toolchain; stays on MACOS_RUNNER_15",
+        "uses the macOS 15 Xcode configuration; runs on MACOS_RUNNER_15 for paid overflow or blacksmith-6vcpu-macos-15 otherwise",
     ("ci-macos.yml", "swift-package-tests", "CMUX_CI_XCODE_APP"):
         "builds the SDK 15 Ghostty helper; stays on MACOS_RUNNER_DUAL_XCODE",
     ("ci-macos.yml", "swift-package-tests", "CMUX_CI_HELPER_XCODE_APP"):
