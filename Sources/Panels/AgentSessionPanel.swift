@@ -33,13 +33,16 @@ final class AgentSessionPanel: Panel {
         initialProviderID: AgentSessionProviderID = .codex,
         workingDirectory: String? = nil
     ) {
+        let resolvedProviderID: AgentSessionProviderID = rendererKind == .claudeDesktop
+            ? .claude
+            : initialProviderID
         self.id = UUID()
         self.workspaceId = workspaceId
         self.rendererKind = rendererKind
-        self.initialProviderID = initialProviderID
-        self.currentProviderID = initialProviderID
+        self.initialProviderID = resolvedProviderID
+        self.currentProviderID = resolvedProviderID
         self.workingDirectory = workingDirectory
-        self.displayTitle = Self.title(provider: initialProviderID, rendererKind: rendererKind)
+        self.displayTitle = Self.title(provider: resolvedProviderID, rendererKind: rendererKind)
         self.rendererSession.onHasActiveProviderChanged = { [weak self] hasActiveProvider in
             self?.setHasActiveProvider(hasActiveProvider)
         }
