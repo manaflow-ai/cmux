@@ -19676,6 +19676,13 @@ mod tests {
             } else {
                 assert!(initial.to_string().contains("finished-agent-output"));
             }
+            loop {
+                let event = pop_json(&outbound);
+                if event["event"] == "detached" {
+                    assert_eq!(event["retained"], true);
+                    break;
+                }
+            }
             disconnect_client(&mux, client, false);
             mux.shutdown();
         }

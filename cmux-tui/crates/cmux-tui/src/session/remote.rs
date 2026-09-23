@@ -6903,6 +6903,21 @@ mod tests {
     }
 
     #[test]
+    fn retained_exited_terminal_detach_keeps_final_mirror() {
+        let session = super::test_session_with_provider_context(None, HashSet::new());
+        let surface = test_remote_surface(7);
+        surface.term.lock().unwrap().vt_write(b"finished-agent-output");
+        session.surfaces.lock().unwrap().insert(7, surface.clone());
+        session.handle_line(json!({"event": "detached", "surface": 7, "retained": true}));
+        let retained = session.surface(7).expect("final output must stay visible");
+        assert!(Arc::ptr_eq(&retained, &surface));
+        assert!(retained.term.lock().unwrap().plain_text().unwrap().contains("finished-agent-output"));
+        assert!(session.surface_is_exited(7));
+        session.handle_line(json!({"event": "surface-exited", "surface": 7}));
+        assert!(session.surface(7).is_none(), "explicit removal must still retire the view");
+    }
+
+    #[test]
     fn exited_marker_outlives_every_cached_remote_surface_handle() {
         let session = super::test_session_with_provider_context(None, HashSet::new());
         let surface = test_remote_surface(7);
