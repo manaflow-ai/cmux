@@ -2,6 +2,7 @@ import CMUXMobileCore
 import CmuxAgentChat
 import CmuxIrohTransport
 import CmuxMobileRPC
+import CmuxSettings
 import Darwin
 import Foundation
 @preconcurrency import Network
@@ -284,6 +285,57 @@ struct IrohTailscaleVersionSkewMacGateTests {
         #expect(host == "100.71.210.41")
         #expect(port == 58_465)
         #expect(host != "127.0.0.1")
+    }
+
+    // IROH v2 (#12326) retired the separate legacy TCP listener. Shipped iOS
+    // builds now reach the Mac through the legacy `cmux/mobile/1` dialect on
+    // the same v2 endpoint, gated by the same pairing opt-in. These two tests
+    // keep the original guarantee: on Stable, either the current or the
+    // historical setting starts Iroh and keeps the legacy dialect reachable.
+    @Test func testStableExplicitSettingStartsIrohAndLegacyCompatibilityListener() throws {
+        try assertStablePairingStartsIrohAndLegacyDialect(
+            suffix: "Current",
+            key: MobileHostService.listeningEnabledDefaultsKey
+        )
+    }
+
+    @Test func testStableHistoricalSettingStartsIrohAndLegacyCompatibilityListener() throws {
+        try assertStablePairingStartsIrohAndLegacyDialect(
+            suffix: "Historical",
+            key: "cmuxMobilePairingHostEnabled"
+        )
+    }
+
+    private func assertStablePairingStartsIrohAndLegacyDialect(
+        suffix: String,
+        key: String
+    ) throws {
+        let suiteName = "IrohTailscaleVersionSkewMacGateTests.\(suffix).\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        defaults.set(true, forKey: key)
+
+        #expect(MobileHostService.isListeningEnabled(defaults: defaults, buildFlavor: .stable))
+        let runtime = MobileHostIrxRuntime(
+            managedDevicePolicy: ManagedDevicePolicy(
+                defaults: defaults,
+                releaseDomainDefaults: nil,
+                forcedObject: { _, _ in nil }
+            ),
+            pairingEnabled: {
+                MobileHostService.isListeningEnabled(defaults: defaults, buildFlavor: .stable)
+            }
+        )
+        let shippedLegacyALPN = Data("cmux/mobile/1".utf8)
+
+        #expect(runtime.isNetworkingAllowed)
+        #expect(MobileHostIrxLegacyDialectServer.legacyALPN == shippedLegacyALPN)
+        #expect(MobileHostIrxRuntime.endpointAdditionalALPNs.contains(shippedLegacyALPN))
+        #expect(runtime.acceptsLegacyDialect(alpn: shippedLegacyALPN))
+        #expect(!runtime.acceptsLegacyDialect(alpn: Data("cmux/mobile/2".utf8)))
+
+        defaults.set(false, forKey: key)
+        #expect(!runtime.acceptsLegacyDialect(alpn: shippedLegacyALPN))
     }
 
     private func irohAdmissionContext() throws -> MobileHostConnectionAuthorizationContext {

@@ -101,6 +101,7 @@ FOCUSED_GATE_SELECTORS = {
     "cmuxTests/RemoteTmuxWindowMirrorFocusSeedTests",
     "cmuxTests/RestoreAdmissionRetryPolicyTests",
     "cmuxTests/RestoredAgentShellActivityLivenessTests",
+    "cmuxTests/SidebarIssue8373StressTests",
     "cmuxTests/SidebarWorkspaceSwitchLayoutFaultTests",
     "cmuxTests/SidebarWorkspaceDragDelegateTests",
     "cmuxTests/NewCloudWorkspaceShortcutTests",

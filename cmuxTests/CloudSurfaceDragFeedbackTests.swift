@@ -46,9 +46,9 @@ struct CloudSurfaceDragFeedbackTests {
         }
     }
 
-    @Test("Rebinding after hover is rejected before mutation")
-    func destinationChangesBeforeDrop() throws {
-        let fixture = try CloudSurfaceDragFixture(kind: .terminal)
+    @Test("Rebinding after hover is rejected before mutation", arguments: SurfaceResourceKind.allCases)
+    func destinationChangesBeforeDrop(kind: SurfaceResourceKind) throws {
+        let fixture = try CloudSurfaceDragFixture(kind: kind)
         defer { fixture.finish() }
         fixture.workspace.cloudVMBinding = WorkspaceCloudVMBinding(vmID: "a", isBase: false)
         let router = fixture.router()

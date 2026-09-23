@@ -19,7 +19,21 @@ For `cmuxApp` or `AppDelegate` churn, add the repo's GlobalISel workaround flag 
 
 ## E2E and UI tests
 
-Run through GitHub Actions or the VM: `gh workflow run test-e2e.yml`. Never launch an untagged app locally to satisfy socket or UI tests.
+Run through GitHub Actions or the VM. Never launch an untagged app locally to satisfy socket or UI tests.
+
+Dispatch through the wrapper. It pins the exact pushed commit, carries a `dispatch_id` so the run is resolvable, and returns the run URL:
+
+```bash
+./scripts/run-e2e.sh cmuxTests/YourTestClass --ref <pushed-commit-sha> --wait
+```
+
+`gh workflow run test-e2e.yml` on its own is always rejected: `test_filter` is a required input, and without `--ref` the dispatch lands on whatever ref happens to be current rather than the commit you meant to test.
+
+**Compile the test target locally before dispatching.** One focused run costs 10-20 macOS runner-minutes, and it compiles the whole tree before it runs anything, so the most common red result on a feature branch is a Swift compile error rather than a test failure. The `cmux-unit` command above catches those in a fraction of the time and without a runner.
+
+**Do not re-dispatch the same selector at the same commit.** A focused run's result is a property of the commit; repeating it reprints the same failure at full cost. The wrapper now refuses a selector that already failed at that commit and points at the earlier run; read that run, fix the branch, push, and dispatch the new commit. `--force` exists for the rare case where you know the failure was infrastructure.
+
+If a run fails with `selected test filter matched zero tests`, the selector is wrong or the test file is not wired into `project.pbxproj` (see the test wiring section of SKILL.md). Fix the selector; retrying an unmatched filter costs another full build and matches nothing again.
 
 ## Python socket tests
 
