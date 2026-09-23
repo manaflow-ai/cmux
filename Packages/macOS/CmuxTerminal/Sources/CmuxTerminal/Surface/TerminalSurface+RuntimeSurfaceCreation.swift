@@ -285,18 +285,9 @@ extension TerminalSurface {
             resolvedShell: engine.resolvedUserShell
         )
         let runtimeInitialInput = nextRuntimeInitialInput
-        let resolvedInitialInput: String? = {
-            if let runtimeInitialInput, !runtimeInitialInput.isEmpty {
-                return runtimeInitialInput
-            }
-            if suppressConfiguredInitialInput {
-                return nil
-            }
-            if let initialInput, !initialInput.isEmpty {
-                return initialInput
-            }
-            return baseConfig.initialInput
-        }()
+        let resolvedInitialInput = runtimeInitialInputForNextSpawn(
+            configuredDefault: baseConfig.initialInput
+        )
         let createdSurface = withOptionalCString(resolvedCommand) { cCommand in
             surfaceConfig.command = cCommand
             return withOptionalCString(resolvedWorkingDirectory) { cWorkingDir in
@@ -346,5 +337,23 @@ extension TerminalSurface {
             surfaceConfig.env_var_count = envVarsCount
             return ghostty_surface_new(app, &surfaceConfig)
         }
+    }
+
+    /// The text the next runtime spawn will write to the shell as Ghostty
+    /// `initial_input`, or `nil` when the shell starts with no typed input.
+    ///
+    /// - Parameter configuredDefault: The Ghostty configuration's own
+    ///   `initial-input`, used only when the surface configured none.
+    func runtimeInitialInputForNextSpawn(configuredDefault: String?) -> String? {
+        if let nextRuntimeInitialInput, !nextRuntimeInitialInput.isEmpty {
+            return nextRuntimeInitialInput
+        }
+        if suppressConfiguredInitialInput {
+            return nil
+        }
+        if let initialInput, !initialInput.isEmpty {
+            return initialInput
+        }
+        return configuredDefault
     }
 }
