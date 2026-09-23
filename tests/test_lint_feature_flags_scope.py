@@ -54,6 +54,41 @@ class FlagLinterScopeTests(unittest.TestCase):
         for flag in flags:
             self.assertTrue(flag["source"], "each flag must be attributed to its own file")
 
+    def test_prose_flag_references_are_not_declarations(self):
+        """Discovery and parsing must agree on what a declaration is.
+
+        Discovery greps the literal `FLAG(key:`; parsing must require the same
+        thing. Sources/ContentView.swift:1771 has long carried
+        `// FLAG(sidebar-appkit-list-experiment): parent-driven`, a prose
+        reference with no `key:`. Once any flag is declared in that file -- the
+        pattern this linter's file discovery exists to support -- a looser parse
+        reports "flag entry without a key" against the untouched comment rather
+        than against the flag just added.
+        """
+        source = (
+            "// FLAG(sidebar-appkit-list-experiment): parent-driven\n"
+            "// FLAG(key: example-thing-release, owner: someone,\n"
+            "//      reviewBy: 2030-01-01, defaultWhenUnavailable: false)\n"
+        )
+        flags = self.linter.parse_swift_registry(source, "Example.swift")
+        self.assertEqual([flag["key"] for flag in flags], ["example-thing-release"])
+
+    def test_no_discovered_flag_is_missing_a_key(self):
+        """The whole-repo version of the above: a keyless parse is a parse bug.
+
+        Every rule keys off `flag["key"]`, so a `None` key is reported as a
+        malformed declaration in a real file -- a failure nobody can act on,
+        because the file is fine and the parser is wrong.
+        """
+        for rel in self.linter.swift_registry_files():
+            for flag in self.linter.parse_swift_registry(
+                (REPO_ROOT / rel).read_text(), rel
+            ):
+                self.assertIsNotNone(
+                    flag["key"],
+                    f"{rel}: parsed a flag declaration with no key",
+                )
+
 
 if __name__ == "__main__":
     unittest.main()

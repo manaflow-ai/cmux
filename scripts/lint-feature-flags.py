@@ -33,6 +33,15 @@ WEB_REGISTRY_REL = "web/app/lib/feature-flags.ts"
 WEB_REGISTRY = REPO / WEB_REGISTRY_REL
 RETIRED = REPO / "scripts/retired-feature-flags.txt"
 
+# Discovery and parsing must agree on what counts as a declaration, or a file is
+# found by one and misread by the other. A declaration is literally `FLAG(key:`.
+# A prose reference such as `// FLAG(sidebar-appkit-list-experiment): ...`
+# (Sources/ContentView.swift:1771) is not one, and matching it would report
+# "flag entry without a key" against an untouched comment instead of against the
+# flag someone just declared beside the code that reads it.
+FLAG_DECLARATION = "FLAG(key:"
+FLAG_RE = re.compile(r"FLAG\((?=key:)([^)]*)\)", re.S)
+
 NAME_RE = re.compile(r"^[a-z0-9]+(-[a-z0-9]+)*-(release|experiment|permission)$")
 NEGATION_RE = re.compile(r"(^|-)(not|no|disable|disabled|hide|hidden)(-|$)")
 DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
@@ -65,7 +74,7 @@ def swift_registry_files() -> list[str]:
     reviewBy check it was relying on.
     """
     out = subprocess.run(
-        ["git", "grep", "-l", "--untracked", "--fixed-strings", "FLAG(key:", "--",
+        ["git", "grep", "-l", "--untracked", "--fixed-strings", FLAG_DECLARATION, "--",
          "Sources", "Packages", "CLI", "ios", ":!*node_modules*"],
         cwd=REPO, capture_output=True, text=True,
     )
@@ -74,7 +83,7 @@ def swift_registry_files() -> list[str]:
 
 def parse_swift_registry(text: str, source: str) -> list[dict]:
     flags = []
-    for m in re.finditer(r"FLAG\(([^)]*)\)", text, re.S):
+    for m in FLAG_RE.finditer(text):
         body = re.sub(r"\n\s*//\s*", " ", m.group(1))
         fields = dict(
             (k.strip(), v.strip())
