@@ -17,6 +17,11 @@ struct SurfaceProjectionRestoreStore: Sendable {
         Array(entriesByPanelID.values)
     }
 
+    /// Looks up a staged panel's identity without scanning other restored panels.
+    func projection(forPanel panelID: UUID) -> SurfaceProjection? {
+        entriesByPanelID[panelID]
+    }
+
     func machineOwningPanel(_ panelID: UUID) -> SurfaceMachineID? {
         entriesByPanelID[panelID]?.resource.machine
     }
@@ -60,10 +65,11 @@ struct SurfaceProjectionRestoreStore: Sendable {
     /// Returns and removes staged projections whose resources are now available.
     mutating func takeResolvable(
         machine: SurfaceMachineID,
-        availableResources: Set<SurfaceResourceID>
+        availableResources: Set<SurfaceResourceID>,
+        isAllowed: (SurfaceProjection) -> Bool = { _ in true }
     ) -> [SurfaceProjection] {
         let resolved = entriesByPanelID.values.filter {
-            $0.resource.machine == machine && availableResources.contains($0.resource)
+            $0.resource.machine == machine && availableResources.contains($0.resource) && isAllowed($0)
         }
         for entry in resolved {
             entriesByPanelID[entry.panelID] = nil

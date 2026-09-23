@@ -367,8 +367,25 @@ for arch in "${ARCHS[@]}"; do
   # by source dir prevents cross-revision reuse. Concurrent builds of one
   # revision serialize on Cargo's own lock.
   target_dir="$SRC_ROOT/.cmux-cargo-target"
-  CARGO_TARGET_DIR="$target_dir" \
-    cargo build --manifest-path "$CARGO_ROOT/Cargo.toml" --locked -p cmux-cua --release --target "$target"
+  cargo_status=0
+  for cargo_attempt in 1 2 3; do
+    if CARGO_TARGET_DIR="$target_dir" \
+      CARGO_NET_RETRY="${CARGO_NET_RETRY:-5}" \
+      CARGO_HTTP_MULTIPLEXING="${CARGO_HTTP_MULTIPLEXING:-false}" \
+      cargo build --manifest-path "$CARGO_ROOT/Cargo.toml" --locked -p cmux-cua --release --target "$target"; then
+      cargo_status=0
+      break
+    else
+      cargo_status=$?
+    fi
+    if [ "$cargo_attempt" -lt 3 ]; then
+      echo "cmux-cua Cargo build failed for $target (attempt $cargo_attempt/3); retrying transient dependency fetches" >&2
+      sleep $((cargo_attempt * 5))
+    fi
+  done
+  if [ "$cargo_status" -ne 0 ]; then
+    exit "$cargo_status"
+  fi
   arch_output="$TMPDIR_BUILD/cmux-cua-$arch"
   cp "$target_dir/$target/release/cmux-cua" "$arch_output"
   BUILT+=("$arch_output")

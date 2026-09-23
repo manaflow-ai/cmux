@@ -157,7 +157,12 @@ describe("VM defaults and pricing copy", () => {
     test(`${locale} Max copy sells the 32 GB and 64 GB machines Pro cannot start`, () => {
       const features = messages.pricing.max.features.join("\n");
       expect(features).toContain("64 GB");
+      expect(features).toContain("16 vCPU");
       expect(features).toContain("50");
+      expect(features).toContain(locale === "en" ? "sharing" : "共有");
+      const sharedRow = messages.pricing.compare.rows.find(row => row.max.includes("16 vCPU"));
+      expect(sharedRow!.max).toContain(locale === "en" ? "shared across all VMs" : "共有");
+      expect(messages.dashboard.billing.max.upsell).toContain("16 vCPU");
       const row = messages.pricing.compare.rows.find(row => row.label === largestLabel);
       expect(row).toBeDefined();
       expect(row!.max).toBe("64 GB RAM");
@@ -170,6 +175,8 @@ describe("VM defaults and pricing copy", () => {
       const faq = messages.pricing.faq.items.find(item => item.q === faqQuestion);
       expect(faq).toBeDefined();
       expect(faq!.a).toContain("$200");
+      expect(faq!.a).toContain("16 vCPU");
+      expect(faq!.a).toContain(locale === "en" ? "share a total" : "共有");
       expect(faq!.a).toContain("32 GB");
       expect(faq!.a).toContain("64 GB");
       expect(faq!.a).toContain("24 GB");
@@ -183,6 +190,7 @@ describe("VM defaults and pricing copy", () => {
       if (locale === "en" || locale === "ja") continue;
       const messages = await loadMessages(locale) as unknown as typeof enMessages;
       expect(messages.pricing.pro.features.join("\n")).toContain("24 GB RAM and 6 vCPUs shared across all VMs");
+      expect(messages.pricing.max.features[0]).toBe("Up to 50 Cloud VMs sharing 64 GB RAM and 16 vCPUs");
       expect(messages.pricing.compare.rows.find(row => row.label === "Resources shared across all Cloud VMs")).toBeDefined();
     }
   });

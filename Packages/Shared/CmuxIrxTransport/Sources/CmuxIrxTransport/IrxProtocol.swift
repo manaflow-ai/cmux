@@ -3,19 +3,21 @@ public import Foundation
 /// Wire identity for the irx transport. Distinct from the legacy
 /// `cmux/mobile/1` ALPN so an old peer can never half-connect to an irx
 /// endpoint: version mismatch fails at the TLS handshake, not mid-protocol.
-public enum IrxProtocol {
-    public static let alpn = "cmux/irx/1"
-    public static var alpnData: Data { Data(alpn.utf8) }
+public struct IrxProtocol: Sendable {
+    public init() {}
+
+    public let alpn = "cmux/irx/1"
+    public var alpnData: Data { Data(alpn.utf8) }
     /// Envelope version carried on every control frame.
-    public static let version = 1
+    public let version = 1
     /// Control frames are small (hello/admit/keepalive/descriptors); anything
     /// larger is a protocol error, never buffered.
-    public static let maximumControlFrameByteCount = 256 * 1024
+    public let maximumControlFrameByteCount = 256 * 1024
     /// Application latency sampling cadence. Connection lifetime is owned by
     /// Iroh's native keepalives and negotiated connection idle timeout.
-    public static let keepaliveInterval: Duration = .seconds(5)
+    public let keepaliveInterval: Duration = .seconds(5)
     /// A missed application pong retires only the diagnostic stream.
-    public static let keepaliveDeadline: Duration = .seconds(2)
+    public let keepaliveDeadline: Duration = .seconds(2)
 
 }
 
@@ -112,7 +114,7 @@ public struct IrxLaneDescriptor: Codable, Equatable, Sendable {
         cursor: UInt64? = nil,
         offset: UInt64? = nil
     ) {
-        v = IrxProtocol.version
+        v = IrxProtocol().version
         self.lane = lane
         self.resource = resource
         self.cursor = cursor
@@ -131,8 +133,8 @@ public struct IrxHello: Codable, Equatable, Sendable {
     public var grant: String?
 
     public init(grant: String? = nil) {
-        v = IrxProtocol.version
-        proto = IrxProtocol.alpn
+        v = IrxProtocol().version
+        proto = IrxProtocol().alpn
         self.grant = grant
     }
 }
@@ -148,10 +150,10 @@ public struct IrxAdmit: Codable, Equatable, Sendable {
     public var keepaliveDeadlineMs: Int
 
     public init(session: String) {
-        v = IrxProtocol.version
+        v = IrxProtocol().version
         self.session = session
-        keepaliveIntervalMs = Int(IrxProtocol.keepaliveInterval.components.seconds) * 1000
-        keepaliveDeadlineMs = Int(IrxProtocol.keepaliveDeadline.components.seconds) * 1000
+        keepaliveIntervalMs = Int(IrxProtocol().keepaliveInterval.components.seconds) * 1000
+        keepaliveDeadlineMs = Int(IrxProtocol().keepaliveDeadline.components.seconds) * 1000
     }
 }
 
@@ -163,7 +165,7 @@ public struct IrxPing: Codable, Equatable, Sendable {
     public var pong: Bool
 
     public init(seq: UInt64, pong: Bool) {
-        v = IrxProtocol.version
+        v = IrxProtocol().version
         self.seq = seq
         self.pong = pong
     }
@@ -185,7 +187,7 @@ public struct IrxLaneError: Codable, Equatable, Sendable {
     public var message: String
 
     public init(code: Code, message: String) {
-        v = IrxProtocol.version
+        v = IrxProtocol().version
         self.code = code
         self.message = message
     }
@@ -201,10 +203,12 @@ public enum IrxFrameCodecError: Error, Equatable, Sendable {
 /// Length-prefixed JSON control frames: 4-byte big-endian length + body.
 /// Used only for the tiny control vocabulary above; application lanes carry
 /// raw bytes after their descriptor.
-public enum IrxFrameCodec {
-    public static func encode(_ value: some Encodable) throws -> Data {
+public struct IrxFrameCodec: Sendable {
+    public init() {}
+
+    public func encode(_ value: some Encodable) throws -> Data {
         let body = try JSONEncoder().encode(value)
-        guard body.count <= IrxProtocol.maximumControlFrameByteCount else {
+        guard body.count <= IrxProtocol().maximumControlFrameByteCount else {
             throw IrxFrameCodecError.frameTooLarge(body.count)
         }
         var data = Data(capacity: 4 + body.count)
@@ -214,7 +218,7 @@ public enum IrxFrameCodec {
         return data
     }
 
-    public static func decode<T: Decodable>(_ type: T.Type, from body: Data) throws -> T {
+    public func decode<T: Decodable>(_ type: T.Type, from body: Data) throws -> T {
         do {
             return try JSONDecoder().decode(type, from: body)
         } catch {

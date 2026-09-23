@@ -63,6 +63,80 @@ require_option_value() {
   fi
 }
 
+# Fresh tagged bundle IDs signed with an App Store Connect API key can be
+# provisioned automatically, but ASC API-key auth cannot associate the concrete
+# group.dev.cmux.ios App Group with a newly-created App ID. Always try the full
+# Debug entitlements first so existing/pre-associated tags keep shared-container
+# push behavior. A retry without the App Group is allowed only for this exact
+# Debug + ASC API-key + provisioning-updates path.
+cmux_ios_tagged_device_app_group_fallback_allowed() {
+  local configuration="$1"
+  local signing_backend="$2"
+  local allow_provisioning_updates="$3"
+
+  [[ "$configuration" == "Debug" \
+    && "$signing_backend" == "asc-api-key" \
+    && "$allow_provisioning_updates" == "1" ]]
+}
+
+cmux_ios_device_signing_backend() {
+  local key_id="$1"
+  local issuer_id="$2"
+  local key_path="$3"
+
+  if [[ -z "$key_id" && -z "$issuer_id" && -z "$key_path" ]]; then
+    printf '%s' "xcode-account"
+    return 0
+  fi
+  if [[ -n "$key_id" && -n "$issuer_id" && -n "$key_path" ]]; then
+    printf '%s' "asc-api-key"
+    return 0
+  fi
+
+  echo "error: incomplete App Store Connect API credentials for physical-device signing; set all of ASC_API_KEY_ID, ASC_API_ISSUER_ID, and ASC_API_KEY_PATH, or unset all three to use the local Xcode account" >&2
+  return 2
+}
+
+cmux_ios_device_build_failed_for_app_group_entitlement() {
+  local log_path="$1"
+
+  # Require the App Group key and the profile-mismatch wording in the same
+  # diagnostic line. Separate greps over the full log can misclassify an
+  # unrelated entitlement mismatch when App Groups appear elsewhere in output.
+  grep -Eiq "Provisioning profile .*doesn.t match the entitlements file.*com\\.apple\\.security\\.application-groups" "$log_path"
+}
+
+# Derive fallback entitlements from the checked-in Debug entitlement files at
+# build time so every other capability stays in lockstep automatically. Refuse
+# to remove anything except the one known App Group value.
+cmux_ios_render_tagged_device_no_app_group_entitlements() {
+  local output_dir="$1"
+  mkdir -p "$output_dir"
+
+  /usr/bin/python3 - \
+    "$IOS_DIR/Config/cmux.entitlements" "$output_dir/cmux.entitlements" \
+    "$IOS_DIR/Config/NotificationService.entitlements" "$output_dir/NotificationService.entitlements" <<'PY'
+import plistlib
+import sys
+from pathlib import Path
+
+expected_group = ["group.dev.cmux.ios"]
+for source_raw, destination_raw in zip(sys.argv[1::2], sys.argv[2::2]):
+    source = Path(source_raw)
+    destination = Path(destination_raw)
+    with source.open("rb") as handle:
+        entitlements = plistlib.load(handle)
+    groups = entitlements.pop("com.apple.security.application-groups", None)
+    if groups != expected_group:
+        raise SystemExit(
+            f"refusing to derive fallback entitlements from {source}: "
+            f"expected App Group {expected_group!r}, got {groups!r}"
+        )
+    with destination.open("wb") as handle:
+        plistlib.dump(entitlements, handle, fmt=plistlib.FMT_XML, sort_keys=False)
+PY
+}
+
 TAG=""
 SIMULATOR_NAME="${IOS_SIMULATOR_NAME:-iPhone 17}"
 SIMULATOR_ID="${IOS_SIMULATOR_ID:-}"
@@ -514,12 +588,26 @@ if [[ -f "$LOCAL_ASC_CONFIG" ]]; then
 fi
 
 XCODE_AUTH_ARGS=()
-if [[ -n "${ASC_API_KEY_ID:-}" && -n "${ASC_API_ISSUER_ID:-}" && -n "${ASC_API_KEY_PATH:-}" ]]; then
-  XCODE_AUTH_ARGS=(
-    -authenticationKeyPath "$ASC_API_KEY_PATH"
-    -authenticationKeyID "$ASC_API_KEY_ID"
-    -authenticationKeyIssuerID "$ASC_API_ISSUER_ID"
-  )
+DEVICE_SIGNING_BACKEND="xcode-account"
+if [[ "$RELOAD_DEVICE" -eq 1 ]]; then
+  if ! DEVICE_SIGNING_BACKEND="$(cmux_ios_device_signing_backend \
+      "${ASC_API_KEY_ID:-}" "${ASC_API_ISSUER_ID:-}" "${ASC_API_KEY_PATH:-}")"; then
+    exit 2
+  fi
+  if [[ "$DEVICE_SIGNING_BACKEND" == "asc-api-key" ]]; then
+    if [[ ! -f "$ASC_API_KEY_PATH" || ! -r "$ASC_API_KEY_PATH" ]]; then
+      echo "error: ASC_API_KEY_PATH must be a readable file: $ASC_API_KEY_PATH" >&2
+      exit 2
+    fi
+    XCODE_AUTH_ARGS=(
+      -authenticationKeyPath "$ASC_API_KEY_PATH"
+      -authenticationKeyID "$ASC_API_KEY_ID"
+      -authenticationKeyIssuerID "$ASC_API_ISSUER_ID"
+    )
+    echo "==> Device signing backend: App Store Connect API key"
+  else
+    echo "==> Device signing backend: local Xcode account"
+  fi
 fi
 
 # Tell the mobile-attach QR server (scripts/mobile-attach-qr-server.sh) which
@@ -759,7 +847,8 @@ reload_simulator() {
     -destination "$DESTINATION" \
     -derivedDataPath "$DERIVED_DATA" \
     ${IROH_RELAY_POLICY_BUILD_ARGS[@]+"${IROH_RELAY_POLICY_BUILD_ARGS[@]}"} \
-    PRODUCT_BUNDLE_IDENTIFIER="$BUNDLE_ID" \
+    CMUX_APP_BUNDLE_IDENTIFIER="$BUNDLE_ID" \
+    CMUX_HOST_BUNDLE_IDENTIFIER="$BUNDLE_ID" \
     PRODUCT_DISPLAY_NAME="$DISPLAY_NAME" \
     CMUX_GIT_SHA="$GIT_SHA" \
     CMUX_DEV_TAG="$TAG" \
@@ -881,6 +970,9 @@ reload_device() {
   local build_log
   local tab
   local build_args
+  local configuration="Debug"
+  local fallback_entitlements_dir
+  local fallback_build_log
   local queue_mode=0
   local queued_device_id=""
 
@@ -951,7 +1043,7 @@ reload_device() {
     ${XCODEBUILD_PARALLEL_ARGS[@]+"${XCODEBUILD_PARALLEL_ARGS[@]}"}
     -workspace "$WORKSPACE"
     -scheme "$SCHEME"
-    -configuration Debug
+    -configuration "$configuration"
     -destination "$device_destination"
     -derivedDataPath "$DERIVED_DATA"
   )
@@ -969,7 +1061,8 @@ reload_device() {
   build_args+=(${XCODE_AUTH_ARGS[@]+"${XCODE_AUTH_ARGS[@]}"})
 
   build_args+=(
-    PRODUCT_BUNDLE_IDENTIFIER="$BUNDLE_ID"
+    CMUX_APP_BUNDLE_IDENTIFIER="$BUNDLE_ID"
+    CMUX_HOST_BUNDLE_IDENTIFIER="$BUNDLE_ID"
     PRODUCT_DISPLAY_NAME="$DISPLAY_NAME"
     CMUX_GIT_SHA="$GIT_SHA"
     CMUX_DEV_TAG="$TAG"
@@ -995,11 +1088,28 @@ reload_device() {
     build_args+=("DEVELOPMENT_TEAM=$DEVELOPMENT_TEAM")
   fi
 
-  build_args+=(build)
-
-  if ! run_and_capture "$build_log" "${build_args[@]}"; then
-    print_device_build_failure "$build_log"
-    exit 1
+  # First attempt always uses the configured full entitlements. Existing tagged
+  # App IDs whose provisioning profiles already grant group.dev.cmux.ios keep
+  # shared-container push behavior with no special case.
+  if ! run_and_capture "$build_log" "${build_args[@]}" build; then
+    if cmux_ios_tagged_device_app_group_fallback_allowed \
+        "$configuration" "$DEVICE_SIGNING_BACKEND" "$ALLOW_PROVISIONING_UPDATES" \
+        && cmux_ios_device_build_failed_for_app_group_entitlement "$build_log"; then
+      fallback_entitlements_dir="$DERIVED_DATA/TaggedDeviceEntitlements/no-app-group"
+      fallback_build_log="${TMPDIR:-/tmp}/cmux-ios-device-build-$TAG_SLUG-no-app-group.log"
+      cmux_ios_render_tagged_device_no_app_group_entitlements "$fallback_entitlements_dir"
+      echo "==> ASC API-key profile cannot grant group.dev.cmux.ios; retrying tagged Debug device signing without the App Group"
+      if ! run_and_capture "$fallback_build_log" "${build_args[@]}" \
+          "CMUX_APP_CODE_SIGN_ENTITLEMENTS=$fallback_entitlements_dir/cmux.entitlements" \
+          "CMUX_NOTIFICATION_SERVICE_CODE_SIGN_ENTITLEMENTS=$fallback_entitlements_dir/NotificationService.entitlements" \
+          build; then
+        print_device_build_failure "$fallback_build_log"
+        exit 1
+      fi
+    else
+      print_device_build_failure "$build_log"
+      exit 1
+    fi
   fi
 
   if [[ ! -d "$device_app_path" ]]; then

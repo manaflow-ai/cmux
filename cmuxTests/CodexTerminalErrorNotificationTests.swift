@@ -42,6 +42,9 @@ struct CodexTerminalErrorNotificationTests {
         environment["CMUX_SURFACE_ID"] = surfaceID
         environment["CMUX_AGENT_HOOK_STATE_DIR"] = root.path
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        // Keep this foreground error fixture independent of other Codex test
+        // processes in the app-host ancestry walk.
+        environment["CMUX_CODEX_HOOK_PID"] = "2"
 
         let hookInput = """
         {"session_id":"\(sessionID)","turn_id":"\(turnID)","transcript_path":"\(transcriptURL.path)","cwd":"\(root.path)","hook_event_name":"Stop","model":"gpt-5.5","permission_mode":"default","stop_hook_active":false,"last_assistant_message":"Partial response"}
@@ -60,10 +63,17 @@ struct CodexTerminalErrorNotificationTests {
         #expect(!result.timedOut, "\(result.stderr)")
         #expect(result.status == 0, "\(result.stderr)")
         #expect(
-            server.commands.contains { command in
-                command.contains(
-                    "notify_target \(workspaceID) \(surfaceID) Codex|Error|Selected model is at capacity. Please try a different model."
-                )
+            AgentJournalAppendCapture.captures(in: server.commands).contains { capture in
+                guard capture.kind == "agent.error.reported",
+                      capture.workspaceId == workspaceID,
+                      capture.surfaceId == surfaceID,
+                      let attention = capture.draft["attention"] as? [String: Any],
+                      let notification = attention["notification"] as? [String: Any] else {
+                    return false
+                }
+                return notification["title"] as? String == "Codex" &&
+                    notification["subtitle"] as? String == "Error" &&
+                    notification["body"] as? String == "Selected model is at capacity. Please try a different model."
             },
             "Expected the nested terminal error to notify, saw \(server.commands)"
         )
@@ -176,11 +186,19 @@ private final class CodexTerminalErrorSocketServer: @unchecked Sendable {
               let id = payload["id"] as? String else {
             return "OK"
         }
-        let response: [String: Any] = [
-            "id": id,
-            "ok": true,
-            "result": ["surfaces": [["id": surfaceID, "ref": surfaceID, "focused": true]]],
-        ]
+        let method = payload["method"] as? String
+        let result: [String: Any]
+        switch method {
+        case "agent.resolve_delivery_target":
+            result = ["source": "surface", "workspace_id": "11111111-1111-1111-1111-111111111111", "surface_id": surfaceID]
+        case "agent.hook.barrier":
+            result = [:]
+        case "surface.list":
+            result = ["surfaces": [["id": surfaceID, "ref": surfaceID, "focused": true]]]
+        default:
+            result = [:]
+        }
+        let response: [String: Any] = ["id": id, "ok": true, "result": result]
         let responseData = try? JSONSerialization.data(withJSONObject: response)
         return String(data: responseData ?? Data("{}".utf8), encoding: .utf8) ?? "{}"
     }

@@ -119,6 +119,23 @@ export async function vmRequiresProCopy(
   };
 }
 
+/** Copy returned when a create or rename carries an unusable `displayName`. */
+export async function vmDisplayNameCopy(
+  locale: Locale,
+  values: { readonly maxLength: number },
+): Promise<VmRequiresProCopy> {
+  const translator = createTranslator({
+    locale,
+    messages: await loadMessages(locale),
+    namespace: "vmErrors.displayName",
+  }) as unknown as (key: string, values?: Record<string, string | number>) => string;
+  return {
+    title: translator("title"),
+    message: translator("message", values),
+    action: translator("action"),
+  };
+}
+
 export async function vmMemoryErrorCopy(
   kind: "memoryPlan" | "memoryUnknown" | "memoryUnavailable",
   locale: Locale,

@@ -38,6 +38,9 @@ public struct CompositorBlurController: Sendable {
     /// `cmuxResetCompositorBackgroundBlur(on:)`. The caller resolves
     /// `window.windowNumber` in its own (main-actor) isolation domain.
     public func resetBackgroundBlur(windowNumber: Int) {
+        // A window that is not yet backed by the window server reports a
+        // non-positive number; converting it to a CGS window id traps.
+        guard windowNumber > 0 else { return }
         _ = cmuxCGSSetWindowBackgroundBlurRadius(
             cmuxCGSDefaultConnectionForThread(),
             UInt(windowNumber),

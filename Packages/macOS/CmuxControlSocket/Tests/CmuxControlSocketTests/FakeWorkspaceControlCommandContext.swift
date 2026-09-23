@@ -12,6 +12,8 @@ final class FakeWorkspaceControlCommandContext: ControlCommandContext {
     var listResolution: ControlWorkspaceListResolution = .tabManagerUnavailable
     var currentResolution: ControlWorkspaceCurrentResolution = .tabManagerUnavailable
     var closeResolution: ControlWorkspaceCloseResolution = .tabManagerUnavailable
+    var reorderResolution: ControlWorkspaceReorderResolution = .notFound
+    var reorderCall: (workspaceID: UUID, index: Int?, before: UUID?, after: UUID?, dryRun: Bool)?
     var addWorkspaceToGroupResolution: ControlWorkspaceGroupAddResolution = .tabManagerUnavailable
     var addWorkspaceToGroupCall: (
         groupID: UUID,
@@ -104,7 +106,8 @@ final class FakeWorkspaceControlCommandContext: ControlCommandContext {
             reorderManyDuplicateWorkspace: "duplicate workspace",
             reorderManyWorkspaceNotFound: "workspace not found",
             reorderManyInvalidWorkspace: "invalid workspace",
-            reorderManyTabManagerUnavailable: "tab manager unavailable"
+            reorderManyTabManagerUnavailable: "tab manager unavailable",
+            relayOwnerUnavailable: "relay owner workspace unavailable"
         )
     }
 
@@ -141,6 +144,18 @@ final class FakeWorkspaceControlCommandContext: ControlCommandContext {
             referenceWorkspaceID: referenceWorkspaceID
         )
         return addWorkspaceToGroupResolution
+    }
+
+    func controlReorderWorkspace(
+        routing: ControlRoutingSelectors,
+        workspaceID: UUID,
+        toIndex: Int?,
+        beforeWorkspaceID: UUID?,
+        afterWorkspaceID: UUID?,
+        dryRun: Bool
+    ) -> ControlWorkspaceReorderResolution {
+        reorderCall = (workspaceID, toIndex, beforeWorkspaceID, afterWorkspaceID, dryRun)
+        return reorderResolution
     }
 
     func controlWorkspaceRemoteTerminalSessionEnd(

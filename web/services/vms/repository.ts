@@ -6,6 +6,7 @@ import * as Layer from "effect/Layer";
 import { cloudDb } from "../../db/client";
 import {
   accountDeletionTombstones,
+  cloudRuntimes,
   cloudVmBaseEvents,
   cloudVmBaseGenerations,
   cloudVmBases,
@@ -282,6 +283,7 @@ export type VmRepositoryShape = {
     readonly imageVersion?: string | null;
     readonly maxActiveVms: number | null;
     readonly idempotencyKey?: string;
+    readonly displayName?: string | null;
     /** The individual machine shape used for fork, snapshot, and resize recovery. */
     readonly resourceReservation?: VmResourceReservation;
     /** Mark an unfinished provider clone for shape reconciliation. */
@@ -590,6 +592,14 @@ async function allocateSlugInTx(tx: CloudDbTransaction, billingTeamId: string): 
       .limit(1);
     return !!taken;
   });
+}
+
+/** Creates the durable runtime alongside its first M0 machine placement. */
+async function insertRuntimeForVm(tx: CloudDbTransaction, vm: CloudVmRow): Promise<void> {
+  const ownerTeamId = vm.ownerTeamId.trim() || vm.billingTeamId?.trim() || vm.userId.trim();
+  if (!ownerTeamId) throw new Error(`VM ${vm.id} has no durable owner team`);
+  await tx.insert(cloudRuntimes).values({ ownerTeamId, machineId: vm.id })
+    .onConflictDoNothing({ target: cloudRuntimes.machineId });
 }
 
 async function assertAccountVmCreateAllowed(
@@ -1462,6 +1472,7 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
                 imageId: input.image,
                 imageVersion: input.imageVersion ?? null,
                 status: "provisioning",
+                displayName: input.displayName ?? null,
                 idempotencyKey,
                 providerMetadata: reservationMetadataForInput(
                   input.resourceReservation,
@@ -1472,6 +1483,7 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
               })
               .returning();
             if (!vm) throw new Error("insert returned no VM row");
+            await insertRuntimeForVm(tx, vm);
             return { inserted: true as const, vm };
           });
         } catch (err) {
@@ -1584,6 +1596,7 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
               })
               .returning();
             if (!vm) throw new Error("insert returned no VM row");
+            await insertRuntimeForVm(tx, vm);
 
             const [base] = existing?.base
               ? await tx
@@ -1789,6 +1802,7 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
             })
             .returning();
           if (!vm) throw new Error("insert returned no VM row");
+          await insertRuntimeForVm(tx, vm);
 
           const [base] = existing?.base
             ? await tx

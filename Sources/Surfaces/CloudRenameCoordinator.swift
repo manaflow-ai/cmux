@@ -46,9 +46,18 @@ final class CloudRenameCoordinator {
     private var entries: [SurfaceMachineID: Entry] = [:]
     private var pendingNames: [Key: PendingName] = [:]
     private var nextGeneration: UInt64 = 0
+    /// Fires on the machine whose pending names changed: a new intent was
+    /// recorded, or one was released by completion or failure. The catalog
+    /// installs it so every reader that projects pending names redraws.
+    var onPendingNamesChanged: @MainActor (SurfaceMachineID) -> Void = { _ in }
 
     func pendingName(for key: Key) -> String? {
         pendingNames[key]?.value
+    }
+
+    /// Every intent still awaiting its RPC, newest name per identity.
+    var allPendingNames: [Key: String] {
+        pendingNames.mapValues(\.value)
     }
 
     /// Commits the names already chosen when a checkpoint was requested. Capture
@@ -97,12 +106,14 @@ final class CloudRenameCoordinator {
         }
         entries[lane] = Entry(generation: generation, task: task)
         pendingNames[key] = PendingName(generation: pendingGeneration, value: pendingName, task: task)
+        onPendingNamesChanged(lane)
         return task
     }
 
     private func finish(key: Key, lane: SurfaceMachineID, generation: UInt64, pendingGeneration: UInt64) {
         if pendingNames[key]?.generation == pendingGeneration {
             pendingNames[key] = nil
+            onPendingNamesChanged(lane)
         }
         guard entries[lane]?.generation == generation else { return }
         entries[lane] = nil

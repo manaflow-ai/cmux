@@ -97,11 +97,11 @@ private func sentryScheduleMemoryContextRefresh(
 nonisolated func sentryRefreshMemoryContext(reason: String) async {
     guard SentrySDK.isEnabled else { return }
 
-    let processSnapshot = CmuxTopProcessSnapshot.captureCached(
+    let processSnapshot = await CmuxTopProcessSnapshot.captureCached(
         includeProcessDetails: false,
         maximumAge: 2
     )
-    let sample = MemoryResourceSample(processSnapshot: processSnapshot)
+    let sample = await MemoryResourceSample(processSnapshot: processSnapshot)
     guard !Task.isCancelled else { return }
 
     await MainActor.run {
