@@ -2,8 +2,7 @@ import SwiftUI
 
 struct WorkspacePresentationModeContentTopPaddingModifier: ViewModifier {
     let isFullScreen: Bool
-    let titlebarPadding: CGFloat
-    let hostingSafeAreaTop: CGFloat
+    let runtimeCache: WorkspacePresentationModeRuntimeCache
 
     @WorkspaceTitlebarConfiguration private var titlebarSettings
 
@@ -12,8 +11,8 @@ struct WorkspacePresentationModeContentTopPaddingModifier: ViewModifier {
             isMinimalMode: titlebarSettings.isMinimalMode,
             showWorkspaceTitleBar: titlebarSettings.showTitlebar,
             isFullScreen: isFullScreen,
-            titlebarPadding: titlebarPadding,
-            hostingSafeAreaTop: hostingSafeAreaTop
+            titlebarPadding: runtimeCache.titlebarPadding,
+            hostingSafeAreaTop: runtimeCache.hostingSafeAreaTop
         ))
     }
 }

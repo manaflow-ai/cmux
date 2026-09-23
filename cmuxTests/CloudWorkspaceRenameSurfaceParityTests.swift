@@ -67,6 +67,14 @@ private final class CloudWorkspaceRenameParityHarness {
     var provider: CloudNameAuthorityTestProvider { fixture.provider }
     var machine: SurfaceMachineID { fixture.provider.machine }
 
+    /// The accepted daemon graph, without the optimistic rename projection that
+    /// `snapshot` applies for sidebar and Cloud-tree readers.
+    var confirmedWorkspaceName: String? {
+        catalog.authoritativeSnapshot.machines
+            .first(where: { $0.id == machine })?.remoteWorkspaces?
+            .first(where: { $0.id == "a" })?.name
+    }
+
     func surfaces(of workspace: Workspace? = nil) -> CloudWorkspaceNameSurfaces {
         let workspace = workspace ?? fixture.workspace
         let sidebarRow = SidebarWorkspaceSnapshotFactory(
@@ -297,19 +305,28 @@ struct CloudWorkspaceRenameSurfaceParityTests {
             let key = CloudRenameCoordinator.Key.workspace(machine: harness.machine, id: "a")
             #expect(harness.catalog.pendingCloudRenameName(for: key) == "Chosen during creation")
 
-            // The older snapshot arrives while the intent is still unacknowledged.
+            // The older accepted graph arrives while the intent is still
+            // unacknowledged. Every display reader keeps the pending name, while
+            // the authoritative daemon graph remains unchanged.
             harness.fixture.renameService.reconcileRemoteState(
                 machine: harness.machine, state: oldGraph, catalog: harness.catalog, observation: .current
             )
-            #expect(harness.workspace.title == "Chosen during creation")
-            #expect(harness.surfaces().cloudTree == "Same workspace")
+            #expect(harness.catalog.cloudRenameCoordinator.pendingName(for: key) == "Chosen during creation")
+            #expect(harness.surfaces() == .all("Chosen during creation"))
+            #expect(harness.confirmedWorkspaceName == "Same workspace")
 
             gate.continuation.yield(())
             gate.continuation.finish()
             try await harness.fixture.settle()
             harness.projectPane(workspaceID: harness.workspace.id, panelID: harness.fixture.panelID)
+            // The acknowledged write installs the new graph and releases the
+            // intent, so no optimistic overlay remains to hide convergence.
+            #expect(harness.catalog.cloudRenameCoordinator.pendingName(for: key) == nil)
             #expect(harness.catalog.pendingCloudRenameName(for: key) == nil)
             #expect(harness.surfaces() == .all("Chosen during creation"))
+            #expect(harness.confirmedWorkspaceName == "Chosen during creation")
+            #expect(harness.provider.writes.count == 1)
+            #expect(harness.provider.writes.map { $0.0 } == ["a"])
             #expect(harness.provider.writes.map { $0.1 } == ["Chosen during creation"])
         }
     }

@@ -3,7 +3,7 @@ import Foundation
 /// A point-in-time reading of one machine, as `GET /api/vm/{id}/stats` reports it.
 /// Sleeping machines are never woken for a reading: they come back `asleep` with
 /// only their provisioned memory.
-struct VMStats: Equatable {
+struct VMStats: Equatable, Sendable {
     let state: State
     let sampledAt: Date
     var resourceSampledAt: Date? = nil
@@ -17,13 +17,13 @@ struct VMStats: Equatable {
 }
 
 extension VMStats {
-    /// A failed poll has completed without a sample; it is no longer loading.
-    static func unavailable(at date: Date = .now) -> Self {
+    /// A failed poll clears utilization but retains previously confirmed capacity.
+    static func unavailable(preservingCapacityFrom previous: Self? = nil, at date: Date = .now) -> Self {
         Self(
             state: .unknown, sampledAt: date,
-            cpus: nil, cpuPercent: nil, loadAverage1m: nil,
-            memoryTotalMb: nil, memoryUsedMb: nil,
-            diskTotalMb: nil, diskUsedMb: nil
+            cpus: previous?.cpus, cpuPercent: nil, loadAverage1m: nil,
+            memoryTotalMb: previous?.memoryTotalMb, memoryUsedMb: nil,
+            diskTotalMb: previous?.diskTotalMb, diskUsedMb: nil
         )
     }
 

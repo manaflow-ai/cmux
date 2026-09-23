@@ -74,6 +74,7 @@ extension CmuxSettingsFileStore {
         "sidebar.hideAllDetails",
         "sidebar.wrapWorkspaceTitles",
         "sidebar.showWorkspaceDescription",
+        "sidebar.workspaceDescriptionColor",
         "sidebar.beta.workspaceTodos.controls.enabled",
         "sidebar.beta.workspaceTodos.checklistStyle",
         "sidebar.branchLayout",

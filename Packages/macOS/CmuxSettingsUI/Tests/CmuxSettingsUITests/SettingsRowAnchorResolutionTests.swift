@@ -123,6 +123,7 @@ struct SettingsRowAnchorResolutionTests {
         "sidebar.showPullRequests",
         "sidebar.showSSH",
         "sidebar.showWorkspaceDescription",
+        "sidebar.workspaceDescriptionColor",
         "sidebar.stackBranchDirectory",
         "sidebar.watchGitStatus",
         "sidebar.wrapWorkspaceTitles",

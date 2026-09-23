@@ -1,7 +1,7 @@
 "use client";
 
 import { Menu } from "@base-ui-components/react/menu";
-import { UserAvatar, useStackApp } from "@stackframe/stack";
+import { UserAvatar, useStackApp } from "@hexclave/next";
 import { useLocale, useTranslations } from "next-intl";
 import { useState } from "react";
 import { localizedVaultPath, vaultSignInHref } from "@/app/lib/vault-auth";

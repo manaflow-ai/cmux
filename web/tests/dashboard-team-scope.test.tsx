@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 
 type Catalog = {
@@ -131,5 +131,35 @@ describe("dashboard team scope", () => {
       }),
     ).toBeNull();
     expect(parseTeamCatalog({ selectedTeamId: " padded ", teams: [] })).toBeNull();
+  });
+
+  test("a stalled team switch aborts and releases its caller", async () => {
+    const originalFetch = globalThis.fetch;
+    let expire: (() => void) | undefined;
+    let signal: AbortSignal | null | undefined;
+    const timers = spyOn(globalThis, "setTimeout").mockImplementation(((callback: () => void) => {
+      expire = callback;
+      return 1;
+    }) as unknown as typeof setTimeout);
+    const clear = spyOn(globalThis, "clearTimeout");
+    globalThis.fetch = ((_input, init) => new Promise<Response>((_resolve, reject) => {
+      signal = init?.signal;
+      signal?.addEventListener("abort", () => reject(signal?.reason), { once: true });
+    })) as typeof fetch;
+    try {
+      const scope = useDashboardTeamScope("user-1");
+      if (scope.status !== "ready") throw new Error("Expected a ready team scope");
+      const switching = scope.switchTeam(twoTeams.teams[0]!);
+      expect(signal).toBeInstanceOf(AbortSignal);
+      expect(expire).toBeDefined();
+      expire!();
+      await expect(switching).rejects.toThrow();
+      expect(signal?.aborted).toBe(true);
+      expect(clear).toHaveBeenCalled();
+    } finally {
+      globalThis.fetch = originalFetch;
+      timers.mockRestore();
+      clear.mockRestore();
+    }
   });
 });

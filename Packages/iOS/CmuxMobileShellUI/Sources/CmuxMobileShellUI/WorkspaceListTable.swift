@@ -7,6 +7,10 @@ import UIKit
 /// UIKit-owned workspace list with exact, non-estimated row heights.
 @MainActor
 struct WorkspaceListTable: UIViewControllerRepresentable {
+    #if DEBUG
+    @Environment(\.releaseGateUIProbe) var releaseGateUIProbe
+    @Environment(\.releaseGateSnapshotter) var releaseGateSnapshotter
+    #endif
     let items: [WorkspaceListTableItem]
     let workspacesByID: [MobileWorkspacePreview.ID: MobileWorkspacePreview]
     let groupsByID: [MobileWorkspaceGroupPreview.ID: MobileWorkspaceGroupPreview]
@@ -19,6 +23,9 @@ struct WorkspaceListTable: UIViewControllerRepresentable {
     let unreadIndicatorLeftShift: Double
     let unreadBadgeDiameter: Double
     let connectionStatus: MobileMacConnectionStatus
+    var workspaceOwnerID: String? = nil
+    var workspaceOwnerInstanceTag: String? = nil
+    var showsWorkspaceEmptyState = true
     /// Whether the connected Mac advertises `workspace.changes.v1`.
     let workspaceChangesCapable: Bool
     /// Changes chips keyed by the workspace's RPC identifier
@@ -64,9 +71,22 @@ struct WorkspaceListTable: UIViewControllerRepresentable {
     let showAddDevice: (() -> Void)?
     let reconnect: (() -> Void)?
     let refresh: (@Sendable () async -> Void)?
+    var cancelRefresh: (() -> Void)? = nil
+    var cancelRefreshOnDisappear: (() -> Void)? = nil
+    var beginRefresh: (() -> UUID?)? = nil
+    var cancelRefreshAttempt: ((UUID?) -> Void)? = nil
+    var cancelRefreshAttemptOnDisappear: ((UUID?) -> Void)? = nil
+    var emptyStateLayoutChanged: (() -> Void)? = nil
+    var shouldCancelRefreshOnDisappear: (() -> Bool)? = nil
+    var isRetryOwnerCurrentOnDisappear: (() -> Bool)? = nil
 
     func makeCoordinator() -> WorkspaceListTableCoordinator {
-        WorkspaceListTableCoordinator(configuration: self)
+        let coordinator = WorkspaceListTableCoordinator(configuration: self)
+        #if DEBUG
+        coordinator.releaseGateUIProbe = releaseGateUIProbe
+        coordinator.releaseGateSnapshotter = releaseGateSnapshotter
+        #endif
+        return coordinator
     }
 
     func makeUIViewController(context: Context) -> WorkspaceListTableViewController {
@@ -93,6 +113,10 @@ struct WorkspaceListTable: UIViewControllerRepresentable {
         _ uiViewController: WorkspaceListTableViewController,
         context: Context
     ) {
+        #if DEBUG
+        context.coordinator.releaseGateUIProbe = releaseGateUIProbe
+        context.coordinator.releaseGateSnapshotter = releaseGateSnapshotter
+        #endif
         context.coordinator.update(
             configuration: self,
             in: uiViewController.tableView

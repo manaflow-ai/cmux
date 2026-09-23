@@ -12,10 +12,21 @@ if [ "$#" -eq 0 ]; then
   exit 2
 fi
 log_dir="${RUNNER_TEMP:-/tmp}"
-log_stem="${log_dir%/}/cmux-app-host-xcodebuild-${CMUX_TAG:-untagged}"
+log_tag="${CMUX_TAG:-untagged}"
+# Keep every invocation distinct. Focused suites run sequentially in one job,
+# and a shared "untagged" stem used to overwrite earlier retry evidence.
+# Python observes this shell as its parent and avoids relying on shell PID
+# syntax that can be rewritten while workflow text is generated.
+invocation_id="$(python3 -c 'import os; print(os.getppid())')"
+log_stem="${log_dir%/}/cmux-app-host-xcodebuild-${log_tag}-pid-${invocation_id}"
 max_attempts="${CMUX_APP_HOST_XCODEBUILD_ATTEMPTS:-3}"
 export CMUX_XCODEBUILD_NONINTERACTIVE_IDLE_TIMEOUT_SECONDS="${CMUX_XCODEBUILD_NONINTERACTIVE_IDLE_TIMEOUT_SECONDS:-${CMUX_XCODEBUILD_NONINTERACTIVE_TIMEOUT_SECONDS:-300}}"
-echo "App-host xcodebuild idle timeout: ${CMUX_XCODEBUILD_NONINTERACTIVE_IDLE_TIMEOUT_SECONDS}s, attempts: ${max_attempts}"
+# A crashed app host is relaunched by xcodebuild, which then resumes the run.
+# Nothing bounds that loop, so cap the restarts one invocation may spend before
+# the wrapper aborts it (https://github.com/manaflow-ai/cmux/issues/13707).
+export CMUX_XCODEBUILD_NONINTERACTIVE_RESTART_BUDGET="${CMUX_XCODEBUILD_NONINTERACTIVE_RESTART_BUDGET:-2}"
+restart_budget_exit_code=123
+echo "App-host xcodebuild idle timeout: ${CMUX_XCODEBUILD_NONINTERACTIVE_IDLE_TIMEOUT_SECONDS}s, attempts: ${max_attempts}, restart budget: ${CMUX_XCODEBUILD_NONINTERACTIVE_RESTART_BUDGET}"
 
 # Principled serialization (the actual fix; the retry below is only a backstop).
 # Invariant: a GUI test host owns the Mac's single login session + testmanagerd
@@ -57,6 +68,24 @@ fi
 if [ -n "${GITHUB_ACTIONS:-}" ]; then
   app_host_test_runner_environment+=("TEST_RUNNER_GITHUB_ACTIONS=$GITHUB_ACTIONS")
 fi
+# Focused app-host suites invoke Node/Bun-backed helpers from the test process.
+# Xcode does not inherit these driver variables, so carry them through the
+# TEST_RUNNER_ channel when the caller supplied them.
+if [ -n "${TEST_RUNNER_PATH:-}" ]; then
+  app_host_test_runner_environment+=("TEST_RUNNER_PATH=$TEST_RUNNER_PATH")
+fi
+if [ -n "${TEST_RUNNER_BUN_INSTALL:-}" ]; then
+  app_host_test_runner_environment+=("TEST_RUNNER_BUN_INSTALL=$TEST_RUNNER_BUN_INSTALL")
+fi
+# Focused opt-in suites (renderer memory regression, benchmarks) are gated on a
+# plain variable the driver receives. Xcode does not inherit it, so a caller that
+# exports the plain name would silently run nothing. Carry those through.
+for cmux_opt_in_gate in CMUX_RENDERER_MEMORY_REGRESSION; do
+  cmux_opt_in_value="${!cmux_opt_in_gate:-}"
+  if [ -n "$cmux_opt_in_value" ]; then
+    app_host_test_runner_environment+=("TEST_RUNNER_${cmux_opt_in_gate}=$cmux_opt_in_value")
+  fi
+done
 app_host_home=""
 app_host_key=""
 app_host_receipt_dir=""
@@ -98,6 +127,39 @@ if [ -n "$app_host_home_input" ]; then
 fi
 
 app_host_xcodebuild_arguments=("$@")
+caller_has_result_bundle=0
+caller_has_test_timeouts_enabled=0
+caller_has_default_test_timeout=0
+caller_has_maximum_test_timeout=0
+for app_host_argument in "${app_host_xcodebuild_arguments[@]}"; do
+  case "$app_host_argument" in
+    -resultBundlePath)
+      caller_has_result_bundle=1
+      ;;
+    -test-timeouts-enabled)
+      caller_has_test_timeouts_enabled=1
+      ;;
+    -default-test-execution-time-allowance)
+      caller_has_default_test_timeout=1
+      ;;
+    -maximum-test-execution-time-allowance)
+      caller_has_maximum_test_timeout=1
+      ;;
+  esac
+done
+if [ "$caller_has_test_timeouts_enabled" -eq 0 ]; then
+  app_host_xcodebuild_arguments+=("-test-timeouts-enabled" "YES")
+fi
+if [ "$caller_has_default_test_timeout" -eq 0 ]; then
+  app_host_xcodebuild_arguments+=(
+    "-default-test-execution-time-allowance" "${CMUX_APP_HOST_TEST_CASE_TIMEOUT_SECONDS:-300}"
+  )
+fi
+if [ "$caller_has_maximum_test_timeout" -eq 0 ]; then
+  app_host_xcodebuild_arguments+=(
+    "-maximum-test-execution-time-allowance" "${CMUX_APP_HOST_TEST_CASE_TIMEOUT_SECONDS:-300}"
+  )
+fi
 
 # Xcode's package-product layout can recreate or empty the top-level
 # PackageFrameworks directory while resolving/test-without-building. The app
@@ -222,7 +284,29 @@ validate_app_host_config_paths() {
 attempt=1
 while [ "$attempt" -le "$max_attempts" ]; do
   log_path="${log_stem}-attempt-${attempt}.log"
+  metadata_path="${log_stem}-attempt-${attempt}.meta"
   : >"$log_path"
+  attempt_xcodebuild_arguments=("${app_host_xcodebuild_arguments[@]}")
+  result_bundle_path=""
+  result_bundle_root="${CMUX_APP_HOST_RESULT_BUNDLE_ROOT:-}"
+  if [ -z "$result_bundle_root" ] \
+    && [ "${CMUX_APP_HOST_CAPTURE_XCRESULTS:-0}" = "1" ]; then
+    result_bundle_root="${RUNNER_TEMP:-/tmp}/cmux-app-host-xcresults"
+  fi
+  if [ -n "$result_bundle_root" ] \
+    && [ "$caller_has_result_bundle" -eq 0 ]; then
+    mkdir -p "$result_bundle_root"
+    result_bundle_path="${result_bundle_root%/}/$(basename "$log_stem")-attempt-${attempt}.xcresult"
+    rm -rf -- "$result_bundle_path"
+    attempt_xcodebuild_arguments+=("-resultBundlePath" "$result_bundle_path")
+  fi
+  {
+    echo "shard=${CMUX_APP_HOST_SHARD:-unknown}"
+    echo "tag=$log_tag"
+    echo "attempt=$attempt"
+    [ -z "$result_bundle_path" ] || echo "result_bundle=$result_bundle_path"
+    printf 'arg=%q\n' "${attempt_xcodebuild_arguments[@]}"
+  } >"$metadata_path"
   # Recover only this run key's prior attempt. A live foreign key fails the
   # complete preflight without signaling any PID, so one runner service cannot
   # terminate another service's healthy app host.
@@ -232,9 +316,24 @@ while [ "$attempt" -le "$max_attempts" ]; do
     "${app_host_test_runner_environment[@]}" \
     CMUX_XCODEBUILD_NONINTERACTIVE_LOG_PATH="$log_path" \
     scripts/ci/xcodebuild_noninteractive.py xcodebuild \
-      "${app_host_xcodebuild_arguments[@]}"
+      "${attempt_xcodebuild_arguments[@]}"
   status=$?
   set -e
+
+  if [ -n "$result_bundle_path" ] && [ -d "$result_bundle_path" ]; then
+    typed_result_stem="${result_bundle_path%.xcresult}"
+    # Keep Apple's typed test-result JSON beside the raw bundle. Text output
+    # remains useful for streaming diagnostics; these files are the durable,
+    # machine-readable verdict evidence for later census/ratchet work.
+    xcrun xcresulttool get test-results summary \
+      --path "$result_bundle_path" --compact \
+      >"${typed_result_stem}.summary.json" \
+      2>"${typed_result_stem}.summary.err" || true
+    xcrun xcresulttool get test-results tests \
+      --path "$result_bundle_path" --compact \
+      >"${typed_result_stem}.tests.json" \
+      2>"${typed_result_stem}.tests.err" || true
+  fi
 
   require_config_evidence=0
   if [ "$status" -eq 0 ]; then
@@ -256,6 +355,12 @@ while [ "$attempt" -le "$max_attempts" ]; do
   fi
 
   if [ "$status" -ne 0 ]; then
+    # A restart-budget abort is the one failure that must never be retried:
+    # every attempt would crash-loop again and spend the same runner time.
+    if [ "$status" -eq "$restart_budget_exit_code" ]; then
+      echo "App-host restart budget exceeded on attempt $attempt/$max_attempts; not retrying" >&2
+      exit "$status"
+    fi
     retry_reason=""
     if [ "$status" -eq 124 ]; then
       retry_reason="${CMUX_XCODEBUILD_NONINTERACTIVE_IDLE_TIMEOUT_SECONDS}s idle timeout"
@@ -270,6 +375,10 @@ while [ "$attempt" -le "$max_attempts" ]; do
     fi
 
     if [ -n "$retry_reason" ] && [ "$attempt" -lt "$max_attempts" ]; then
+      if ! python3 "$ci_script_dir/classify-app-host-test-output.py"         "$log_path" --retry-safe; then
+        echo "Preserving app-host failure from attempt $attempt; retry blocked after test execution evidence" >&2
+        exit "$status"
+      fi
       echo "Retrying app-host xcodebuild after ${retry_reason} (attempt $attempt/$max_attempts)" >&2
       kill_stale_app_host
       attempt=$((attempt + 1))

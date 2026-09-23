@@ -44,7 +44,10 @@ final class WorkspaceTitlebarLayoutFixture {
             }
             .modifier(WorkspaceContentMinimalModeSafeAreaModifier(isFullScreen: false))
             .modifier(WorkspacePresentationModeContentTopPaddingModifier(
-                isFullScreen: false, titlebarPadding: 28, hostingSafeAreaTop: 0
+                isFullScreen: false,
+                runtimeCache: WorkspacePresentationModeRuntimeCache(
+                    isMinimalMode: false, titlebarPadding: 28, hostingSafeAreaTop: 0
+                )
             ))
             WorkspaceTitlebarModeLayer {
                 Color.clear.frame(height: WindowChromeMetrics.appTitlebarHeight)

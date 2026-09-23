@@ -51,8 +51,13 @@ final class RightSidebarCommandPaletteTests: XCTestCase {
         }
     }
 
+    @MainActor
     func testCommandPaletteRightSidebarActionsUseModeShortcutActions() {
         withSavedBetaFeatureDefaults {
+            let definition = CmuxFeatureFlags.cloudMachinesFlag
+            let previousOverride = CmuxFeatureFlags.shared.overrideValue(for: definition)
+            CmuxFeatureFlags.shared.setOverride(true, for: definition)
+            defer { CmuxFeatureFlags.shared.setOverride(previousOverride, for: definition) }
             let defaults = UserDefaults.standard
             defaults.set(true, forKey: RightSidebarBetaFeatureSettings.feedEnabledKey)
             defaults.set(true, forKey: RightSidebarBetaFeatureSettings.dockEnabledKey)

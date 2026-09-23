@@ -79,10 +79,10 @@ enum KeyboardShortcutSettings {
         case accepted(StoredShortcut)
         case rejected(ShortcutRecordingRejection)
     }
-
     enum Action: String, CaseIterable, Identifiable {
         // App / window
         case openSettings
+        case openTeamPicker
         case reloadConfiguration
         case showHideAllWindows
         case globalSearch
@@ -90,7 +90,6 @@ enum KeyboardShortcutSettings {
         case closeWindow
         case toggleFullScreen
         case quit
-
         // Titlebar / primary UI
         case toggleSidebar
         case newTab
@@ -119,7 +118,6 @@ enum KeyboardShortcutSettings {
         case switchRightSidebarToDock
         case switchRightSidebarToMachines
         case triggerFlash
-
         // Navigation
         case nextSurface
         case prevSurface
@@ -155,7 +153,6 @@ enum KeyboardShortcutSettings {
         case focusTextBoxInput, cycleTextBoxSubmitAction, attachTextBoxFile
         case sendCtrlFToTerminal
         case clearScreenKeepScrollback
-
         // Panes / splits
         case focusLeft
         case focusRight
@@ -240,6 +237,7 @@ enum KeyboardShortcutSettings {
         var label: String {
             switch self {
             case .openSettings: return String(localized: "menu.app.settings", defaultValue: "Settings…")
+            case .openTeamPicker: return String(localized: "shortcut.openTeamPicker.label", defaultValue: "Open Team Picker")
             case .reloadConfiguration: return String(localized: "menu.app.reloadConfiguration", defaultValue: "Reload Configuration")
             case .showHideAllWindows: return String(localized: "settings.globalHotkey.shortcut", defaultValue: "Show/Hide All Windows")
             case .globalSearch: return String(localized: "shortcut.globalSearch.label", defaultValue: "Global Search")
@@ -415,6 +413,8 @@ enum KeyboardShortcutSettings {
             switch self {
             case .openSettings:
                 return StoredShortcut(key: ",", command: true, shift: false, option: false, control: false)
+            case .openTeamPicker:
+                return StoredShortcut(key: "t", command: true, shift: true, option: true, control: false)
             case .reloadConfiguration:
                 return StoredShortcut(key: ",", command: true, shift: true, option: false, control: false)
             case .showHideAllWindows:
@@ -775,11 +775,24 @@ enum KeyboardShortcutSettings {
                 return .accepted(.unbound)
             }
 
-            let resolved = resolvedRecordedShortcutIgnoringConflicts(shortcut)
+            // Defer system-wide reservation checks for the global hotkey until
+            // cmux-owned bindings have had a chance to report their more useful
+            // conflict reason. The reservation helper includes those bindings
+            // so Carbon registration fails safely, but that must not hide a
+            // conflict with a cmux action from the recorder UI.
+            let resolved = resolvedRecordedShortcutIgnoringConflicts(
+                shortcut,
+                checkingSystemWideConflicts: self != .showHideAllWindows
+            )
             guard case .accepted = resolved else { return resolved }
 
             if let conflictingAction = KeyboardShortcutSettings.conflictingAction(for: shortcut, excluding: self) {
                 return .rejected(.conflictsWithAction(conflictingAction))
+            }
+
+            if self == .showHideAllWindows,
+               case let .rejected(reason) = resolvedRecordedShortcutIgnoringConflicts(shortcut) {
+                return .rejected(reason)
             }
 
             return resolved

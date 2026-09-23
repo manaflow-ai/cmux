@@ -256,6 +256,12 @@ struct RemoteTmuxProjectedFocusInteractionTests {
                 mirror.panel(forPane: $0)?.hostedView.window != nil
             }
         })
+        // The input fixture publishes tmux topology synchronously while the
+        // real window's SwiftUI handoff can still be retiring its old content.
+        // Establish the selected workspace's presentation authority before
+        // testing projected-pane focus or the subsequent explicit handoff.
+        manager.selectWorkspace(harness.workspace)
+        harness.workspace.setPortalRenderingEnabled(true, reason: "projected-pane-test")
         return mirror
     }
 

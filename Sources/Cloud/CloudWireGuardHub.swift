@@ -105,10 +105,10 @@ actor CloudWireGuardHub {
     private let processHandle = CloudWireGuardHubProcessHandle()
     private var state: State = .stopped
     private var leases: Set<Lease> = []
-    /// Keeps one hub claim for the signed-in account while its machine fleet is non-empty.
-    /// Without this claim, a transient first-start failure drops the last demand and leaves
-    /// every machine waiting for the next catalog poll to try again.
+    /// Keeps the shared terminal carrier ready while signed-in Cloud access is enabled.
     private var prewarmLease: Lease?
+    /// Retained after completion: one automatic sequence per Cloud activation, not per fleet poll.
+    private var preparationTask: Task<Void, Never>?
     private var pinnedByExternalClient = false
     /// Bumped on every intentional stop so a stale exit callback cannot restart a hub
     /// that was stopped on purpose.
@@ -126,34 +126,6 @@ actor CloudWireGuardHub {
 
     init(configuration: Configuration) {
         self.configuration = configuration
-    }
-
-    /// The production hub for the bundled client, writing under `~/.cmuxterm/wireguard`.
-    static func production(clientURL: URL, home: URL = URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true)) -> CloudWireGuardHub {
-        let manager = VMTunnelManager(home: home, purpose: .terminal)
-        let configuration = Configuration(
-            enroll: {
-                if let config = manager.writtenConfig() {
-                    return Enrollment(configPath: manager.configURL.path, routes: VMTunnelManager.allowedIPs(in: config))
-                }
-                let client = await MainActor.run { VMClient.shared }
-                guard let client else {
-                    throw VMClientError.malformedResponse("Cloud VM client is not available (not signed in).")
-                }
-                let state = try await manager.enroll(client: client)
-                return Enrollment(configPath: state.configPath, routes: state.endpoint.routes)
-            },
-            clientURL: clientURL,
-            socketURL: manager.stateDir.appendingPathComponent("hub-\(getpid()).sock", isDirectory: false),
-            spawner: CloudWireGuardHubProcessSpawner(),
-            waitUntilReady: { socketPath in
-                try await CloudWireGuardHubSocketReadiness.wait(socketPath: socketPath, timeout: .seconds(45))
-            },
-            sleep: { duration in try await ContinuousClock().sleep(for: duration) },
-            restartBackoff: Configuration.defaultRestartBackoff,
-            idleGrace: Configuration.defaultIdleGrace
-        )
-        return CloudWireGuardHub(configuration: configuration)
     }
 
     /// Whether `host` (a literal IP) is one the hub would route: inside the
@@ -185,25 +157,30 @@ actor CloudWireGuardHub {
         }
     }
 
-    /// Starts the shared hub before individual machine links race to acquire it.
-    /// The claim remains held until the fleet is empty or account access ends, so an
-    /// unexpected child exit is eligible for the actor's bounded restart policy.
-    func prewarm() async throws -> Ready {
-        if prewarmLease != nil {
-            restartTask?.cancel()
-            restartTask = nil
-            return try await ensureRunning()
+    /// Schedules account-level preparation without making fleet discovery wait for enrollment.
+    /// Repeated refreshes and a first terminal join the same startup and keep one shared claim.
+    func prepareForCloudUse() {
+        guard !Task.isCancelled, preparationTask == nil else { return }
+        preparationTask = Task { [weak self] in
+            _ = try? await self?.prewarm()
         }
-
-        let claim = try await acquire()
-        // Two prewarm callers can join the same startup. Keep just one account
-        // lease after both resume.
-        if prewarmLease == nil { prewarmLease = claim.lease }
-        else { release(claim.lease) }
-        return claim.ready
     }
 
-    /// Releases the account-level prewarm claim after the fleet becomes empty.
+    /// Keeps one account claim even if startup fails. Explicit link demand can
+    /// recover later without losing the Cloud activation's keep-ready policy.
+    func prewarm() async throws -> Ready {
+        try Task.checkCancellation()
+        if prewarmLease == nil {
+            let lease = Lease(id: UUID())
+            leases.insert(lease)
+            prewarmLease = lease
+            idleStopTask?.cancel()
+            idleStopTask = nil
+        }
+        return try await ensureRunning()
+    }
+
+    /// Releases the account-level preparation claim when its owner no longer needs it.
     func releasePrewarm() {
         guard let prewarmLease else { return }
         self.prewarmLease = nil
@@ -229,6 +206,8 @@ actor CloudWireGuardHub {
     /// Stops the hub on purpose (sign-out, revoke); leases are dropped, no restart follows.
     func stop() {
         generation &+= 1
+        preparationTask?.cancel()
+        preparationTask = nil
         idleStopTask?.cancel()
         idleStopTask = nil
         restartTask?.cancel()
