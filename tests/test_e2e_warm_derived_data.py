@@ -1,0 +1,114 @@
+#!/usr/bin/env python3
+"""Adopting main's DerivedData must rebuild exactly the inputs that changed."""
+import io
+import os
+from pathlib import Path
+import sys
+import tarfile
+import tempfile
+import unittest
+from unittest import mock
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts/ci"))
+import e2e_warm_derived_data as warm
+
+BUILD_TIME_NS = 1_700_000_000_000_000_000
+
+
+class ReplayTimes(unittest.TestCase):
+    def setUp(self):
+        self.root = Path(tempfile.mkdtemp())
+        self.producer = self.root / "producer"
+        self.consumer = self.root / "consumer"
+        for workspace in (self.producer, self.consumer):
+            (workspace / "Sources").mkdir(parents=True)
+            (workspace / "cmuxTests").mkdir()
+            (workspace / "Sources/App.swift").write_text("let app = 1\n")
+            (workspace / "cmuxTests/AppTests.swift").write_text("let test = 1\n")
+        for path in self.producer.rglob("*.swift"):
+            os.utime(path, ns=(BUILD_TIME_NS, BUILD_TIME_NS))
+        (self.producer / "DerivedData").mkdir()
+        (self.producer / "DerivedData/output.o").write_text("object")
+        (self.producer / ".git").mkdir()
+        (self.producer / ".git/index").write_text("git")
+
+    def mtime(self, relative):
+        return (self.consumer / relative).stat().st_mtime_ns
+
+    def test_unchanged_inputs_take_the_producer_time_and_changed_inputs_do_not(self):
+        recorded = warm.record(self.producer)
+        (self.consumer / "cmuxTests/AppTests.swift").write_text("let test = 2\n")
+        (self.consumer / "cmuxTests/NewTests.swift").write_text("let added = 1\n")
+
+        restored, changed = warm.replay(self.consumer, recorded)
+
+        self.assertEqual((restored, changed), (1, 2))
+        self.assertEqual(self.mtime("Sources/App.swift"), BUILD_TIME_NS)
+        self.assertGreater(self.mtime("cmuxTests/AppTests.swift"), BUILD_TIME_NS)
+        self.assertGreater(self.mtime("cmuxTests/NewTests.swift"), BUILD_TIME_NS)
+
+    def test_a_changed_input_unpacked_with_an_old_time_is_still_rebuilt(self):
+        recorded = warm.record(self.producer)
+        # An archive-extracted file (GhosttyKit, SwiftPM binaries) keeps the
+        # archive's time, which can predate the producer's build.
+        header = self.consumer / "Sources/App.swift"
+        header.write_text("let app = 2\n")
+        os.utime(header, ns=(BUILD_TIME_NS - 10**12, BUILD_TIME_NS - 10**12))
+
+        warm.replay(self.consumer, recorded)
+
+        self.assertGreater(self.mtime("Sources/App.swift"), BUILD_TIME_NS)
+
+    def test_build_outputs_and_git_metadata_are_not_inputs(self):
+        recorded = warm.record(self.producer)
+        self.assertEqual(sorted(recorded), ["Sources/App.swift", "cmuxTests/AppTests.swift"])
+
+
+class TrustedProducers(unittest.TestCase):
+    def artifact(self, branch="main", expired=False):
+        return {"expired": expired, "workflow_run": {"id": 7, "head_branch": branch, "repository_id": 1, "head_repository_id": 1}}
+
+    def test_only_main_dispatches_of_this_workflow_are_adopted(self):
+        run = {"path": warm.WORKFLOW_PATH, "event": "workflow_dispatch"}
+        with mock.patch.object(warm, "api", return_value=run):
+            self.assertTrue(warm.trusted(self.artifact(), "o/r"))
+            self.assertFalse(warm.trusted(self.artifact(branch="feature"), "o/r"))
+            self.assertFalse(warm.trusted(self.artifact(expired=True), "o/r"))
+        with mock.patch.object(warm, "api", return_value={**run, "path": ".github/workflows/other.yml"}):
+            self.assertFalse(warm.trusted(self.artifact(), "o/r"))
+
+
+class ArchiveBounds(unittest.TestCase):
+    def archive(self, name, link=None):
+        path = Path(tempfile.mkdtemp(), "derived-data.tar.gz")
+        with tarfile.open(path, "w:gz") as bundle:
+            member = tarfile.TarInfo(name)
+            if link is not None:
+                member.type, member.linkname = tarfile.SYMTYPE, link
+                bundle.addfile(member)
+            else:
+                member.size = 1
+                bundle.addfile(member, io.BytesIO(b"x"))
+        return path
+
+    def test_members_outside_derived_data_are_rejected(self):
+        destination = Path(tempfile.mkdtemp())
+        for archive in (self.archive("../escape"), self.archive("link", link="/etc/passwd")):
+            with self.assertRaises(ValueError):
+                warm.extract(archive, destination)
+        self.assertEqual(list(destination.iterdir()), [])
+
+    def test_an_absolute_link_inside_derived_data_is_accepted(self):
+        destination = Path(tempfile.mkdtemp())
+        target = str(destination / "Build/Products/Debug/PackageFrameworks")
+        warm.extract(self.archive("Build/Products/link", link=target), destination)
+        self.assertTrue((destination / "Build/Products/link").is_symlink())
+
+    def test_a_contained_archive_extracts(self):
+        destination = Path(tempfile.mkdtemp())
+        warm.extract(self.archive("Build/Intermediates.noindex/a.o"), destination)
+        self.assertTrue((destination / "Build/Intermediates.noindex/a.o").is_file())
+
+
+if __name__ == "__main__":
+    unittest.main()

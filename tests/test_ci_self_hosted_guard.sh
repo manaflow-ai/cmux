@@ -185,7 +185,7 @@ import sys
 import yaml
 
 document = yaml.safe_load(open(sys.argv[1]))
-# Compilation caching and the fast artifact transport are optimizations with
+# Compilation caching, adopted DerivedData and the fast artifact transport are optimizations with
 # canonical fallbacks. Everything else must fail the job it runs in.
 allowed = {
     ("build", "compilation-cache-restore", "Restore E2E compilation cache", "actions/cache/restore"),
@@ -193,6 +193,10 @@ allowed = {
     ("build", "compilation-cache-bound", "Bound E2E compilation cache", ""),
     ("build", "revision-on-main", "Check the selected revision against main", ""),
     ("build", "reuse", "Reuse a compiled product instead of building one", ""),
+    ("build", "warm", "Adopt main's DerivedData", ""),
+    ("build", "record-inputs", "Record build input times", ""),
+    ("build", "warm-package", "Package DerivedData for later builds", ""),
+    ("build", None, "Publish DerivedData for later builds", "actions/upload-artifact"),
     ("test", "parallel-product", "Read the compiled test product over parallel range requests", ""),
 }
 for job_id, job in document["jobs"].items():
