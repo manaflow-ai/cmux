@@ -55,6 +55,24 @@ else:
 '''
 
 
+def real_swift_testing_method():
+    """One argument-free @Test method this checkout declares, found fresh."""
+    spec = importlib.util.spec_from_file_location(
+        "focused_test_selectors", ROOT / "scripts/ci/focused_test_selectors.py"
+    )
+    selectors = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(selectors)
+    suite_re = re.compile(r"^(?:@\w+\s+)*(?:final\s+)?struct\s+(\w+Tests)\b", re.M)
+    test_re = re.compile(r"^\s*@Test\s+func\s+(\w+)\(\)", re.M)
+    for path in sorted((ROOT / "cmuxTests").glob("*.swift")):
+        source = path.read_text(encoding="utf-8", errors="replace")
+        suites, tests = suite_re.findall(source), test_re.findall(source)
+        if len(suites) == 1 and tests:
+            if f"{suites[0]}/{tests[0]}()" in selectors.source_inventory(ROOT, suites[0]):
+                return suites[0], tests[0]
+    raise AssertionError("no argument-free @Test method found under cmuxTests")
+
+
 class FocusedLauncherTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
@@ -150,6 +168,36 @@ class FocusedLauncherTests(unittest.TestCase):
             with self.subTest(selector=selector):
                 self.assertNotEqual(self.launch(selector).returncode, 0)
         self.assertFalse((self.root / "dispatch.json").exists())
+
+    def test_swift_testing_call_suffixes_are_accepted_as_written(self):
+        for selector in (
+            "cmuxTests/ExampleTests/plain()",
+            "cmuxTests/ExampleTests/parameterized(value:)",
+            "cmuxTests/ExampleTests/unlabeled(_:_:)",
+        ):
+            with self.subTest(selector=selector):
+                result = self.launch(selector)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(self.dispatch()["test_filter"], selector)
+
+    def test_malformed_call_suffixes_are_rejected_before_dispatch(self):
+        for selector in ("cmuxTests/ExampleTests/plain(value)", "cmuxTests/ExampleTests/plain(value:",
+                         "cmuxTests/ExampleTests/plain(:)"):
+            with self.subTest(selector=selector):
+                result = self.launch(selector)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("Suite/method()", result.stderr)
+        self.assertFalse((self.root / "dispatch.json").exists())
+
+    def test_a_declared_swift_testing_method_is_dispatched_with_its_suffix(self):
+        # `Suite/method` matches no Swift Testing test, and xcodebuild reports
+        # that as a successful run of zero tests. Use a real declaration so the
+        # launcher is proven against the tree it actually reads.
+        suite, method = real_swift_testing_method()
+        result = self.launch(f"cmuxTests/{suite}/{method}")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.dispatch()["test_filter"], f"cmuxTests/{suite}/{method}()")
+        self.assertIn(f"cmuxTests/{suite}/{method}()", result.stderr)
 
     def test_batched_filters_dispatch_one_run_against_one_compile(self):
         result = self.launch("cmuxTests/AlphaTests", "cmuxTests/BetaTests")
@@ -463,6 +511,36 @@ class RunDiscoveryTests(unittest.TestCase):
         )
         cls.dispatch = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(cls.dispatch)
+
+    def test_normalize_entry_repairs_only_what_the_checkout_declares(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            (root / "cmuxTests").mkdir()
+            (root / "cmuxTests/ModernTests.swift").write_text(
+                "struct ModernTests {\n"
+                "    @Test func plain() {}\n"
+                "    @Test(arguments: [1]) func parameterized(value: Int) {}\n"
+                "    @Test func run(a: Int) {}\n"
+                "    @Test func run(b: Int) {}\n"
+                "}\n"
+            )
+            normalize = self.dispatch.normalize_entry
+            self.assertEqual(normalize("cmuxTests/ModernTests/plain", root)[0],
+                             "cmuxTests/ModernTests/plain()")
+            self.assertEqual(normalize("cmuxTests/ModernTests/parameterized", root)[0],
+                             "cmuxTests/ModernTests/parameterized(value:)")
+            self.assertEqual(normalize("cmuxTests/ModernTests/plain()", root),
+                             ("cmuxTests/ModernTests/plain()", None))
+            self.assertEqual(normalize("cmuxTests/ModernTests", root),
+                             ("cmuxTests/ModernTests", None))
+            # A name this checkout does not declare may exist at --ref; the
+            # workflow's built inventory decides, so it passes through.
+            for entry in ("cmuxTests/ModernTests/elsewhere", "cmuxTests/OtherTests/method",
+                          "cmuxUITests/ModernTests/plain", "ModernTests/plain"):
+                with self.subTest(entry=entry):
+                    self.assertEqual(normalize(entry, root)[0], entry)
+            with self.assertRaises(self.dispatch.selectors.AmbiguousSelector):
+                normalize("cmuxTests/ModernTests/run", root)
 
     def test_runner_choices_match_the_workflow(self):
         workflow = yaml.safe_load((ROOT / ".github/workflows/test-e2e.yml").read_text())
