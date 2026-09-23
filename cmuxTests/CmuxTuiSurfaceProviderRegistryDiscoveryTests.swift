@@ -54,8 +54,11 @@ struct CmuxTuiSurfaceProviderRegistryDiscoveryTests {
         created.addressIPv4 = "10.16.0.9"
         created.cmuxTuiContract = CmuxTuiSurfaceProviderRegistry.trustedCarrierContract
         var lists = 0
+        let home = FileManager.default.temporaryDirectory.appendingPathComponent("cmux-receipt-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: home) }
+        let paths = CloudTuiClientPaths(home: home)
         let registry = CmuxTuiSurfaceProviderRegistry(
-            links: CloudMachineLinkManager(clientURL: nil, hub: nil, hostThemeColors: { nil }),
+            links: CloudMachineLinkManager(paths: paths, clientURL: nil, hub: nil, hostThemeColors: { nil }),
             allowsBackgroundWork: { false },
             listPage: { lists += 1; return VMListPage(vms: [], limits: nil) }
         )
@@ -67,6 +70,8 @@ struct CmuxTuiSurfaceProviderRegistryDiscoveryTests {
         #expect(await registry.takeCreatedTrustedCarrierRoute(machineID: created.id) == nil,
                 "The receipt answers one attach; later opens use the saved device path")
         #expect(lists == 0, "Neither registration nor the attach answer re-read the fleet")
+        #expect(paths.deviceFingerprint(for: created.id) == CloudTuiClientPaths.carrierDeviceMarker,
+                "The first link dials --carrier without a control-plane attach request")
         await registry.accessDidEnd()
     }
 
@@ -75,8 +80,11 @@ struct CmuxTuiSurfaceProviderRegistryDiscoveryTests {
         let catalog = SurfaceCatalog()
         var created = machine("vm-legacy")
         created.addressIPv4 = "10.16.0.10"
+        let home = FileManager.default.temporaryDirectory.appendingPathComponent("cmux-receipt-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: home) }
+        let paths = CloudTuiClientPaths(home: home)
         let registry = CmuxTuiSurfaceProviderRegistry(
-            links: CloudMachineLinkManager(clientURL: nil, hub: nil, hostThemeColors: { nil }),
+            links: CloudMachineLinkManager(paths: paths, clientURL: nil, hub: nil, hostThemeColors: { nil }),
             allowsBackgroundWork: { false },
             listPage: { VMListPage(vms: [], limits: nil) }
         )
@@ -85,6 +93,7 @@ struct CmuxTuiSurfaceProviderRegistryDiscoveryTests {
 
         #expect(registry.provider(machineID: created.id) != nil)
         #expect(await registry.takeCreatedTrustedCarrierRoute(machineID: created.id) == nil)
+        #expect(paths.deviceFingerprint(for: created.id) == nil, "An untrusted receipt keeps the attach request")
         await registry.accessDidEnd()
     }
 

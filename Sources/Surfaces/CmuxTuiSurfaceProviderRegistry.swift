@@ -129,6 +129,9 @@ final class CmuxTuiSurfaceProviderRegistry {
         guard !addresses.isEmpty, machineTeardowns[registeredMachineID(matching: summary.id)] == nil else { return }
         let generation = refreshGeneration
         await links.setPrivateAddresses(addresses, for: summary.id)
+        if summary.cmuxTuiContract == Self.trustedCarrierContract {
+            await links.markTrustedCarrier(machineID: summary.id)
+        }
         // Same fences as discovery: a delete or account change during the
         // await must not receive a provider.
         guard !isRetired, generation == refreshGeneration, scope == creationScope,
