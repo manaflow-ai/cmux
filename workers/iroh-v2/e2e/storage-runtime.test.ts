@@ -179,3 +179,28 @@ test("socket reservations survive a second workerd restart", async () => {
   stub = namespace.getByName("team-e2e");
   expect((await post("/socket/list", { userId: "socket-capacity" })).body.length).toBe(501);
 });
+
+test("administrative revocation after recovery validation cannot be cleared by registration", async () => {
+  const recoveryIdentity = { ...identity, deviceId: "revocation-race" };
+  const recoveryDescriptor = { ...descriptor, identity: recoveryIdentity, endpointId: "f".repeat(64) };
+  const initial = { descriptor: recoveryDescriptor, challengeId: "race-initial", nonceHash: "race-nonce", payloadHash: "race-payload", requestId: "race-enroll", requestHash: "race-enroll-hash", now: 2001 };
+  expect((await post("/issue", { identity: recoveryIdentity, issue: { ...initial, expiresAt: 3000, issuedAt: 2000 } })).status).toBe(200);
+  const enrolled = await post("/register", { input: initial });
+  expect(enrolled.status).toBe(200);
+  const deviceRecordId = enrolled.body.device.deviceRecordId;
+  expect((await post("/revoke", { deviceRecordId, now: 2002, actorUserId: identity.userId })).status).toBe(200);
+  const recovery = { ...initial, challengeId: "race-recovery", requestId: "race-recover", requestHash: "race-recover-hash", now: 3001 };
+  expect((await post("/issue", { identity: recoveryIdentity, issue: { ...recovery, expiresAt: 4000, issuedAt: 3000 } })).status).toBe(200);
+  expect((await post("/validate", { input: recovery })).status).toBe(200);
+
+  // Model the interleaving while TeamBroker.register awaits ownership.reserve.
+  const revoked = await post("/revoke", { deviceRecordId, now: 3002, actorUserId: "team-admin" });
+  expect(revoked.status).toBe(200);
+  const result = await post("/register", { input: { ...recovery, now: 3003 } });
+  expect(result.status).toBe(500); // The storage harness exposes OperationError as 500.
+  expect(result.body.code).toBe("device_revoked");
+  expect((await post("/revision", {})).body.revision).toBe(revoked.body.revision);
+  expect((await post("/receipt", { identity: recoveryIdentity, requestId: recovery.requestId, requestHash: recovery.requestHash })).body).toBeNull();
+  expect((await post("/validate", { input: { ...recovery, now: 3003 } })).status).toBe(200);
+});
+
