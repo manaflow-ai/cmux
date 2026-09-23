@@ -209,4 +209,90 @@ struct ControlWorkspaceReorderTargetTests {
         #expect(code == "invalid_params")
         #expect(context.reorderCall == nil)
     }
+
+    /// A value neither `uuid(_:_:)` spelling can read — not a UUID, not a
+    /// `kind:N` ref — is a typo, not a workspace that went away. Reporting it
+    /// as `not_found` sends the caller looking for a workspace that never
+    /// existed under that name.
+    @Test(arguments: ["potato", "workspace", "workspace:", ":7", "workspace:abc", "7", "workspace 7"])
+    func unreadableSubjectIsInvalidParams(raw: String) throws {
+        let context = FakeWorkspaceControlCommandContext()
+        let coordinator = ControlCommandCoordinator(context: context)
+        let result = coordinator.handle(ControlRequest(id: .int(1), method: "workspace.reorder", params: [
+            "workspace_id": .string(raw),
+            "index": .int(0),
+            "dry_run": .bool(true)
+        ]))
+        guard case .err(let code, _, .object(let data)) = result else {
+            Issue.record("An unreadable workspace_id must fail with a payload")
+            return
+        }
+        #expect(code == "invalid_params")
+        #expect(data["param"] == .string("workspace_id"))
+        #expect(data["workspace"] == .string(raw))
+        #expect(context.reorderCall == nil)
+    }
+
+    /// The same split on a relative target.
+    @Test(arguments: ["before_workspace_id", "after_workspace_id"])
+    func unreadableRelativeTargetIsInvalidParams(key: String) throws {
+        let context = FakeWorkspaceControlCommandContext()
+        let coordinator = ControlCommandCoordinator(context: context)
+        let result = coordinator.handle(ControlRequest(id: .int(1), method: "workspace.reorder", params: [
+            "workspace_id": .string(UUID().uuidString),
+            key: .string("potato"),
+            "dry_run": .bool(true)
+        ]))
+        guard case .err(let code, _, .object(let data)) = result else {
+            Issue.record("An unreadable relative target must fail with a payload")
+            return
+        }
+        #expect(code == "invalid_params")
+        #expect(data["param"] == .string(key))
+        #expect(data["workspace"] == .string("potato"))
+        #expect(context.reorderCall == nil)
+    }
+
+    /// The other half of the split: a ref the registry once minted names a
+    /// workspace that is gone, so it stays `not_found`.
+    @Test(arguments: ["workspace:999999", "tab:4"])
+    func staleRefSubjectStaysNotFound(raw: String) throws {
+        let context = FakeWorkspaceControlCommandContext()
+        let coordinator = ControlCommandCoordinator(context: context)
+        let result = coordinator.handle(ControlRequest(id: .int(1), method: "workspace.reorder", params: [
+            "workspace_id": .string(raw),
+            "index": .int(0),
+            "dry_run": .bool(true)
+        ]))
+        guard case .err(let code, _, .object(let data)) = result else {
+            Issue.record("A stale ref must fail with a payload")
+            return
+        }
+        #expect(code == "not_found")
+        #expect(data["workspace"] == .string(raw))
+        #expect(context.reorderCall == nil)
+    }
+
+    /// `workspace.reorder` and `workspace.reorder_many` must answer the same
+    /// unreadable value with the same code. They disagreed before this change,
+    /// so a caller that fell back from one to the other saw the failure change
+    /// class without the input changing.
+    @Test(arguments: ["potato", "workspace:abc", ""])
+    func reorderAgreesWithReorderManyOnUnreadableValues(raw: String) throws {
+        func code(of result: ControlCallResult) -> String? {
+            guard case .err(let code, _, _) = result else { return nil }
+            return code
+        }
+        let single = ControlCommandCoordinator(context: FakeWorkspaceControlCommandContext())
+        let many = ControlCommandCoordinator(context: FakeWorkspaceControlCommandContext())
+        let reorder = single.handle(ControlRequest(id: .int(1), method: "workspace.reorder", params: [
+            "workspace_id": .string(raw), "index": .int(0), "dry_run": .bool(true)
+        ]))
+        let reorderMany = many.handle(ControlRequest(id: .int(1), method: "workspace.reorder_many", params: [
+            "workspace_ids": .array([.string(raw)]), "dry_run": .bool(true)
+        ]))
+        #expect(code(of: reorder) == "invalid_params")
+        #expect(code(of: reorder) == code(of: reorderMany))
+    }
+
 }

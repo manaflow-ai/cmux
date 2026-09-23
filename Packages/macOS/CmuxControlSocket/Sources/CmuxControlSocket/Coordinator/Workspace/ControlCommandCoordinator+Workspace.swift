@@ -265,6 +265,23 @@ extension ControlCommandCoordinator {
         ["workspace_id", "before_workspace_id", "after_workspace_id"]
     }
 
+    /// Whether a value could ever name a workspace: a UUID, or a minted
+    /// `kind:N` handle ref. `uuid(_:_:)` accepts exactly these two spellings,
+    /// so anything else is a value the registry was never going to resolve —
+    /// a typo, not an object that went away. `workspace.reorder_many` already
+    /// answers that with `invalid_params`, and this keeps the two methods
+    /// agreeing on the same input.
+    private func isWorkspaceReferenceShaped(_ raw: String) -> Bool {
+        if UUID(uuidString: raw) != nil { return true }
+        guard let colon = raw.firstIndex(of: ":") else { return false }
+        let kind = raw[raw.startIndex..<colon]
+        let ordinal = raw[raw.index(after: colon)...]
+        return !kind.isEmpty
+            && kind.allSatisfy { $0.isLetter || $0 == "_" }
+            && !ordinal.isEmpty
+            && ordinal.allSatisfy { $0.isASCII && $0.isNumber }
+    }
+
     /// The live workspace ids, or `nil` when the topology cannot be listed (a
     /// relay session, or a window that went away between calls).
     private func workspaceReorderLiveIDs(_ params: [String: JSONValue]) -> Set<UUID>? {
@@ -274,8 +291,8 @@ extension ControlCommandCoordinator {
         return Set(workspaces.map(\.id))
     }
 
-    /// Builds one `not_found` reply for a reorder, naming the id that could not
-    /// be resolved instead of always naming the subject workspace.
+    /// Builds one failure reply for a reorder, naming the id that could not be
+    /// resolved instead of always naming the subject workspace.
     ///
     /// `workspace` carries the caller's own spelling, so a stale `kind:N` ref
     /// comes back verbatim and the caller can see which value to replace;
@@ -283,12 +300,13 @@ extension ControlCommandCoordinator {
     /// resolved to one. The planner reports one opaque `notFound` for "subject
     /// missing" and "target missing" alike, so the workspace list is re-read —
     /// on this error path only — to tell them apart.
-    private func workspaceReorderNotFound(
+    private func workspaceReorderResolutionFailure(
         _ params: [String: JSONValue],
         subject: String
     ) -> ControlCallResult {
+        let strings = context?.controlWorkspaceStrings()
         func failure(param: String, value: String, id: UUID?) -> ControlCallResult {
-            .err(code: "not_found", message: "Workspace not found", data: .object([
+            .err(code: "not_found", message: strings?.workspaceNotFound ?? "", data: .object([
                 "param": .string(param),
                 "workspace": .string(value),
                 "workspace_id": orNull(id?.uuidString),
@@ -299,6 +317,19 @@ extension ControlCommandCoordinator {
             return (key, raw)
         }
         if let unresolvable = supplied.first(where: { uuid(params, $0.key) == nil }) {
+            // A stale `workspace:7` named a real workspace once, so it reports
+            // the object as gone. `"potato"` never could, so it stays a param
+            // error — the same split `workspace.reorder_many` makes.
+            guard isWorkspaceReferenceShaped(unresolvable.raw) else {
+                return .err(
+                    code: "invalid_params",
+                    message: strings?.invalidWorkspaceRef ?? "",
+                    data: .object([
+                        "param": .string(unresolvable.key),
+                        "workspace": .string(unresolvable.raw),
+                    ])
+                )
+            }
             return failure(param: unresolvable.key, value: unresolvable.raw, id: nil)
         }
         // With no relative target, `supplied` holds only the subject, so the
@@ -324,17 +355,19 @@ extension ControlCommandCoordinator {
 
     /// `workspace.reorder` — move one workspace to an index/relative target.
     func workspaceReorder(_ params: [String: JSONValue]) -> ControlCallResult {
+        let strings = context?.controlWorkspaceStrings()
         guard context?.controlWorkspaceRoutingResolvesTabManager(routing: routingSelectors(params)) ?? false else {
-            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+            return .err(code: "unavailable", message: strings?.tabManagerUnavailable ?? "", data: nil)
         }
         guard let subject = string(params, "workspace_id") else {
-            return .err(code: "invalid_params", message: "Missing or invalid workspace_id", data: nil)
+            return .err(code: "invalid_params", message: strings?.reorderMissingWorkspaceID ?? "", data: nil)
         }
-        // A reference the registry cannot resolve names an object that is gone,
-        // which is the same failure a stale `before_workspace_id` reports. Only
-        // an unreadable param stays `invalid_params`.
+        // A ref the registry once minted names an object that is gone, which is
+        // the same failure a stale `before_workspace_id` reports. A value that
+        // could never have named a workspace stays `invalid_params`, and so
+        // does a param `string(_:_:)` cannot read at all.
         guard let workspaceID = uuid(params, "workspace_id") else {
-            return workspaceReorderNotFound(params, subject: subject)
+            return workspaceReorderResolutionFailure(params, subject: subject)
         }
 
         let index = int(params, "index")
@@ -349,14 +382,14 @@ extension ControlCommandCoordinator {
         if targetCount != 1 {
             return .err(
                 code: "invalid_params",
-                message: "Specify exactly one target: index, before_workspace_id, or after_workspace_id",
+                message: strings?.reorderTargetRequired ?? "",
                 data: nil
             )
         }
         if hasNonNull(params, "index"), index == nil {
             return .err(
                 code: "invalid_params",
-                message: "index must be an integer",
+                message: strings?.reorderIndexNotAnInteger ?? "",
                 data: .object(["param": .string("index")])
             )
         }
@@ -366,9 +399,12 @@ extension ControlCommandCoordinator {
         if let malformed = ["before_workspace_id", "after_workspace_id"].first(where: {
             hasNonNull(params, $0) && string(params, $0) == nil
         }) {
+            // The message stays flat and shared with `workspace.reorder_many`;
+            // `data.param` already names the param, so interpolating it would
+            // only make the string untranslatable.
             return .err(
                 code: "invalid_params",
-                message: "\(malformed) must be a workspace id or ref string",
+                message: strings?.invalidWorkspaceRef ?? "",
                 data: .object(["param": .string(malformed)])
             )
         }
@@ -389,7 +425,7 @@ extension ControlCommandCoordinator {
         }
         switch resolution {
         case .notFound:
-            return workspaceReorderNotFound(params, subject: subject)
+            return workspaceReorderResolutionFailure(params, subject: subject)
         case .resolved(let windowID, let plan):
             var object: [String: JSONValue] = [
                 "workspace_id": .string(plan.workspaceID.uuidString),
@@ -417,7 +453,7 @@ extension ControlCommandCoordinator {
         if let invalid = rawOrder.invalidValue {
             return .err(
                 code: "invalid_params",
-                message: strings?.reorderManyInvalidWorkspace ?? "",
+                message: strings?.invalidWorkspaceRef ?? "",
                 data: .object(["workspace": .string(invalid)])
             )
         }
@@ -436,7 +472,7 @@ extension ControlCommandCoordinator {
             guard let workspaceID = uuidAny(.string(raw)) else {
                 return .err(
                     code: "invalid_params",
-                    message: strings?.reorderManyInvalidWorkspace ?? "",
+                    message: strings?.invalidWorkspaceRef ?? "",
                     data: .object(["workspace": .string(raw)])
                 )
             }
@@ -468,7 +504,7 @@ extension ControlCommandCoordinator {
         case .workspaceNotFound(let workspaceID):
             return .err(
                 code: "not_found",
-                message: strings?.reorderManyWorkspaceNotFound ?? "",
+                message: strings?.workspaceNotFound ?? "",
                 data: .object([
                     "workspace_id": .string(workspaceID.uuidString),
                     "workspace_ref": ref(.workspace, workspaceID),
