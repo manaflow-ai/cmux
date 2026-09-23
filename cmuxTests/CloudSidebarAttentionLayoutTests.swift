@@ -13,7 +13,7 @@ struct CloudSidebarAttentionLayoutTests {
     @Test("Unread indicators use a leading slot while read rows stay compact",
           arguments: [140.0, 300.0], ["workspace", "terminal"])
     func attentionPlacement(width: Double, kind: String) throws {
-        for percent in [75, 100, 150, 200] {
+        for percent in [50, 75, 100, 150, 200] {
             for pinned in [false, true] {
                 try attentionPlacement(width: width, kind: kind, percent: percent, pinned: pinned)
             }

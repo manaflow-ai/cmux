@@ -173,7 +173,7 @@ struct CloudTreeCompactLayoutTests {
     }
 
     @Test("Folders start as close to their carets as plain section headings",
-          arguments: [220.0, 360.0], [100, 150])
+          arguments: [220.0, 360.0], [50, 100, 150])
     func compactRows(width: Double, percent: Int) throws {
         let oldPercent = UserDefaults.standard.object(forKey: GlobalFontMagnification.percentKey)
         UserDefaults.standard.set(percent, forKey: GlobalFontMagnification.percentKey)

@@ -73,7 +73,7 @@ struct CloudSidebarPinGeometryTests {
         #expect(restored.tiffRepresentation == unpinned.tiffRepresentation)
     }
 
-    @Test("Pin reserves space before content at narrow and wide widths", arguments: [100.0, 320.0], [75, 100, 150, 200])
+    @Test("Pin reserves space before content at narrow and wide widths", arguments: [100.0, 320.0], [50, 75, 100, 150, 200])
     func leadingPin(width: Double, percent: Int) throws {
         let unpinned = try contentBounds(width: width, pinned: false, percent: percent, unread: false)
         let pinned = try contentBounds(width: width, pinned: true, percent: percent, unread: false)
@@ -82,7 +82,7 @@ struct CloudSidebarPinGeometryTests {
     }
 
     @Test("Read rows stay compact and unread rows reserve the leading attention column",
-          arguments: [75, 100, 150, 200])
+          arguments: [50, 75, 100, 150, 200])
     func attentionSlotPrecedesContent(percent: Int) throws {
         let read = try contentBounds(width: 220, pinned: false, percent: percent, unread: false)
         let unread = try contentBounds(width: 220, pinned: false, percent: percent, unread: true)
