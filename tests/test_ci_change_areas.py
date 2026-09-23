@@ -523,6 +523,8 @@ def test_operational_ci_helpers_skip_product_areas() -> None:
         "scripts/ci/validate_test_execution_registry.py",
         "scripts/ci/app_host_failure_census.py",
         "scripts/ci/swift_incremental_diagnostics.py",
+        "scripts/ci/cmux_workload_profile.py",
+        "scripts/ci/r2-canary-cloudflare.py",
     ):
         assert_areas([path], macos=False, web=False)
 
@@ -539,10 +541,21 @@ def test_web_subarea_router_keeps_web_without_macos() -> None:
 def test_routing_policy_and_build_helpers_still_run_macos() -> None:
     # The boundary the carveout must not cross: the router itself decides
     # macOS selection, and the shard helper is a real macOS build input.
-    assert_areas(["scripts/ci/detect_ci_change_areas.py"], macos=True, web=True,
-                 agent_session_web=True)
-    assert_areas(["scripts/ci/cmux_unit_test_shard.py"], macos=True, web=True,
-                 agent_session_web=True)
+    for path in (
+        # Routing policy: these decide macOS selection, so they must not
+        # certify themselves.
+        "scripts/ci/detect_ci_change_areas.py",
+        "scripts/ci/detect_linux_guard_changes.py",
+        "scripts/ci/workflow_guard_groups.py",
+        # Reached from a macOS job: directly, through run-app-host-xcodebuild.sh,
+        # through the cache-restore composite action, and through
+        # run_python_test_lane.py respectively.
+        "scripts/ci/cmux_unit_test_shard.py",
+        "scripts/ci/xcodebuild_noninteractive.py",
+        "scripts/ci/cache_restore_receipt.py",
+        "scripts/ci/test_execution_registry.py",
+    ):
+        assert_areas([path], macos=True, web=True, agent_session_web=True)
 
 
 def test_contributor_prose_skips_expensive_areas() -> None:

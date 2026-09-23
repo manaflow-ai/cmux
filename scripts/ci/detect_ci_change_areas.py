@@ -90,10 +90,15 @@ CI_CONTROL_PLANE_ONLY = frozenset({
     "scripts/ci/persistent_mac_route.py",
     "scripts/ci/web_validation.py",
     # Operational helpers: janitors, census and reporting, registry validation,
-    # R2 canaries, build diagnostics. Each runs only in a Linux workflow, none
-    # is read by the Xcode product, and their own Linux guards still route
+    # R2 canaries, build diagnostics. No workflow runs any of them on a macOS
+    # runner -- directly or through a wrapper script or composite action -- and
+    # none is read by the Xcode product. Their own Linux guards still route
     # independently of the macOS area. Editing one used to buy a universal
     # Release build.
+    #
+    # test_execution_registry.py is deliberately NOT here: run_python_test_lane.py
+    # imports it and ci-macos.yml runs that on a Mac, which is the same reason
+    # cache_restore_receipt.py and xcodebuild_noninteractive.py stay out.
     "scripts/ci/app_host_failure_census.py",
     "scripts/ci/build_graph_health.py",
     "scripts/ci/cleanup-stale-runs.py",
@@ -103,7 +108,6 @@ CI_CONTROL_PLANE_ONLY = frozenset({
     "scripts/ci/r2-canary-cloudflare.py",
     "scripts/ci/r2_cache_census.py",
     "scripts/ci/swift_incremental_diagnostics.py",
-    "scripts/ci/test_execution_registry.py",
     "scripts/ci/triage-radar.py",
     "scripts/ci/validate_test_execution_registry.py",
     "scripts/ci/verify-r2-canary.py",
