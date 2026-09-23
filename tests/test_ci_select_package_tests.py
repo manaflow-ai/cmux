@@ -6,6 +6,7 @@ from __future__ import annotations
 import re
 import os
 import json
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -77,6 +78,8 @@ def run_package_step(workflow: str, package: str, attempts: list[tuple[str, int]
         root = Path(directory)
         (root / "Packages/macOS" / package).mkdir(parents=True)
         (root / "vendor/bonsplit").mkdir(parents=True)
+        (root / "scripts/ci").mkdir(parents=True)
+        shutil.copyfile(ROOT / "scripts/ci/require_swift_test_execution.py", root / "scripts/ci/require_swift_test_execution.py")
         selected = root / "selected"
         selected.write_text(package + "\n")
         fixture = root / "attempts.json"
@@ -102,7 +105,7 @@ def run_package_step(workflow: str, package: str, attempts: list[tuple[str, int]
 
 def check_package_output_behavior(workflow: str) -> None:
     padding = "build progress line without diagnostics\n" * 12000
-    passed = "✔ Test run with 4 tests in 1 suites passed\n"
+    passed = "✔ Test run with 4 tests in 1 suites passed after 0.001 seconds.\n"
     cosmetic = "error: unexpected binary name GhosttyKit\n"
     for package in ("CmuxTerminal", "CmuxTerminalCore"):
         result, count = run_package_step(workflow, package, [(cosmetic + "error: real compiler failure\n" + padding + passed, 1)])
@@ -162,6 +165,36 @@ def main() -> int:
             assert targeted.stdout.splitlines() == ["Loner"], targeted
             full = subprocess.run(command + PACKAGES, text=True, capture_output=True, check=True)
             assert full.stdout.splitlines() == PACKAGES, full
+
+        # Targeted PR selection must preserve declared local dependencies,
+        # including submodule revision paths, rather than dropping them before
+        # the dependency-aware selector sees the diff.
+        for path in ("vendor/bonsplit", "vendor/bonsplit/Sources/Bonsplit/A.swift"):
+            changed_file = root / "changed.txt"
+            changed_file.write_text(path + "\n.github/workflows/ci-macos.yml\n")
+            result = subprocess.run(
+                [sys.executable, str(ROOT / "scripts/ci/select_package_tests.py"),
+                 "--root", str(root), "--changed-files", str(changed_file),
+                 "--routed-inputs-only", *PACKAGES],
+                text=True, capture_output=True, check=True,
+            )
+            assert result.stdout.splitlines() == ["Splitter"], (path, result.stdout)
+
+        # Check the actual PR router too: a normal package selector result is
+        # insufficient if the lane never starts. These are current declared
+        # local dependencies of packages in the workflow's test inventory.
+        for path in ("vendor/bonsplit", "vendor/stack-auth-swift-sdk-prerelease"):
+            changed_file = root / "router-changed.txt"
+            changed_file.write_text(path + "\n")
+            outputs = root / "router-outputs.txt"
+            outputs.unlink(missing_ok=True)
+            result = subprocess.run(
+                [sys.executable, str(ROOT / "scripts/ci/detect_ci_change_areas.py"),
+                 "--event-name", "pull_request", "--files-from", str(changed_file),
+                 "--github-output", str(outputs)],
+                cwd=ROOT, text=True, capture_output=True, check=True,
+            )
+            assert "swift_packages=true" in outputs.read_text().splitlines(), (path, result.stdout)
 
         try:
             select(root, ["Missing"], [])

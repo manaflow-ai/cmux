@@ -424,7 +424,7 @@ def is_swift_package_input(path: str) -> bool:
     every package, which is the sweep this routing exists to avoid.
     """
     select = _select_package_tests()
-    return select is not None and select.is_routed_input(path)
+    return select is not None and select.is_routed_input(path, Path(__file__).resolve().parents[2])
 
 
 def swift_package_test_selection(paths: Iterable[str]) -> tuple[str, ...]:

@@ -355,6 +355,10 @@ path = "tests/test_ci_guard_workflow_structure.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_evidence_outcomes.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_reusable_job_name_lookups.py"
 lane = "linux-guard"
 
@@ -572,6 +576,14 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_swift_incremental_diagnostics.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_swift_package_execution.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_swift_test_execution.py"
 lane = "linux-guard"
 
 [[test]]
