@@ -165,12 +165,6 @@ class DriftReportingOverVariables(unittest.TestCase):
 HEALTH_REPORT_WORKFLOW = ROOT / ".github" / "workflows" / "ci-health-report.yml"
 
 
-RUNNER_CONTROL_VARIABLES = {
-    "CMUX_CI_RUNNER_FLEET",
-    "CMUX_CI_RUNNER_OVERRIDES",
-}
-
-
 def reported_runner_variables() -> set[str]:
     text = HEALTH_REPORT_WORKFLOW.read_text(encoding="utf-8")
     return set(re.findall(r"^\s+([A-Z0-9_]+)=\$\{\{ vars\.\1\b", text, re.M))
@@ -187,11 +181,6 @@ class TheReportSeesEveryRunnerVariable(unittest.TestCase):
                 re.findall(r"vars\.([A-Z0-9_]*RUNNER[A-Z0-9_]*)", path.read_text(encoding="utf-8"))
             )
         self.assertTrue(read)
-        # Resolver controls contain the word RUNNER but hold a fleet name or
-        # a JSON override object, not one runner label. Publishing them through
-        # the label-value report would both misclassify the value and expose
-        # configuration that the report deliberately does not print.
-        read -= RUNNER_CONTROL_VARIABLES
         missing = read - reported_runner_variables()
         self.assertEqual(missing, set(), f"add to CMUX_CI_RUNNER_VARIABLES in {HEALTH_REPORT_WORKFLOW.name}")
 
