@@ -48,6 +48,7 @@ test("workerd SQLite persists registration and keeps one challenge/receipt slot"
   const recovery = await post("/register", { input: { descriptor, challengeId: "c-recover", nonceHash: "n-recover", payloadHash: "p-recover", requestId: "r-recover", requestHash: "h-recover", now: 3001 } });
   expect(recovery.status).toBe(200);
   expect(recovery.body.device.revoked).toBe(false);
+  expect((await post("/proof", { input: { identity, endpointId: descriptor.endpointId, identityGeneration: 0, requestId: "proof-recovery", issuedAt: 3001, now: 3001 } })).status).toBe(200);
   expect((await post("/revision", {})).body.revision).toBe(3);
 });
 
@@ -222,4 +223,3 @@ test("administrative revocation after recovery validation cannot be cleared by r
   expect((await post("/receipt", { identity: recoveryIdentity, requestId: recovery.requestId, requestHash: recovery.requestHash })).body).toBeNull();
   expect((await post("/validate", { input: { ...recovery, now: 3003 } })).status).toBe(200);
 });
-

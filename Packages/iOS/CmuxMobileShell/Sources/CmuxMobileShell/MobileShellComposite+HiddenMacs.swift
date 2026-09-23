@@ -190,7 +190,7 @@ extension MobileShellComposite {
         if ids.isEmpty {
             forgottenMacRecoveryDefaults.removeObject(forKey: key)
         } else {
-            forgottenMacRecoveryDefaults.set(ids.sorted(), forKey: key)
+            forgottenMacRecoveryDefaults.set(Array(ids), forKey: key)
         }
     }
 
@@ -224,6 +224,14 @@ extension MobileShellComposite {
         saveForgottenMacRecoveryIDs(ids, accountID: accountID)
     }
 
+    private func finishForgottenMacRecovery() -> ForgottenMacRecoveryRerun? {
+        let rerun = forgottenMacRecoveryRerun
+        forgottenMacRecoveryRerun = nil
+        forgottenMacRecoveryIDsRememberedDuringInFlight.removeAll()
+        forgottenMacRecoveryInFlightScope = rerun?.scope
+        return rerun
+    }
+
     /// Rehydrates forgotten Macs only from the current authenticated directory.
     /// A directory event can race the local Forget cleanup, so the identity is
     /// retained until this reconciliation succeeds. Canonical pairing ids make
@@ -234,90 +242,95 @@ extension MobileShellComposite {
     ) async {
         guard let discovery = personalIrohDiscovery else { return }
         if forgottenMacRecoveryInFlightScope != nil {
-            forgottenMacRecoveryRerunScope = scope
+            let pendingRefresh = forgottenMacRecoveryRerun?.refreshDirectory ?? false
+            forgottenMacRecoveryRerun = ForgottenMacRecoveryRerun(
+                scope: scope,
+                refreshDirectory: refreshDirectory || pendingRefresh
+            )
             return
         }
-        var recoveryIDs = forgottenMacRecoveryIDs(accountID: scope.userID)
-        guard !recoveryIDs.isEmpty else { return }
         forgottenMacRecoveryInFlightScope = scope
-        forgottenMacRecoveryRerunScope = nil
+        forgottenMacRecoveryRerun = nil
         forgottenMacRecoveryIDsRememberedDuringInFlight.removeAll()
-        defer {
-            forgottenMacRecoveryInFlightScope = nil
-            let rerunScope = forgottenMacRecoveryRerunScope
-            forgottenMacRecoveryRerunScope = nil
-            forgottenMacRecoveryIDsRememberedDuringInFlight.removeAll()
-            if let rerunScope {
-                Task { @MainActor [weak self] in
-                    await self?.recoverForgottenMacsFromDirectory(
-                        scope: rerunScope,
-                        refreshDirectory: false
+        var request = ForgottenMacRecoveryRerun(scope: scope, refreshDirectory: refreshDirectory)
+        while true {
+            let currentScope = request.scope
+            var recoveryIDs = forgottenMacRecoveryIDs(accountID: currentScope.userID)
+            guard !recoveryIDs.isEmpty else {
+                guard let rerun = finishForgottenMacRecovery() else { return }
+                request = rerun
+                continue
+            }
+
+            if request.refreshDirectory,
+               let firstID = recoveryIDs.first {
+                let identity = MobilePairedMac.pairingIdentity(from: firstID)
+                await discovery.invalidateDiscovery(forMacDeviceID: identity.macDeviceID)
+            }
+            let discovered = await discovery.discoverLiveMacs()
+            guard await isScopeCurrent(currentScope) else {
+                guard let rerun = finishForgottenMacRecovery() else { return }
+                request = rerun
+                continue
+            }
+
+            var seen = Set<String>()
+            var recovered = 0
+            var consumed = Set<String>()
+            for candidate in discovered {
+                guard !candidate.routes.isEmpty else { continue }
+                let identity = CmxMacAppInstanceIdentity(
+                    macDeviceID: candidate.deviceID,
+                    instanceTag: candidate.instanceTag
+                )
+                let pairingID = MobilePairedMac.pairingID(
+                    macDeviceID: identity.macDeviceID,
+                    instanceTag: identity.instanceTag
+                )
+                let canonicalDeviceID = identity.macDeviceID
+                let recoveryID = recoveryIDs.contains(pairingID)
+                    ? pairingID
+                    : (recoveryIDs.contains(canonicalDeviceID) ? canonicalDeviceID : nil)
+                guard let recoveryID, seen.insert(pairingID).inserted else { continue }
+                guard let pairedMacStore else {
+                    recoveryIDs.remove(recoveryID)
+                    consumed.insert(recoveryID)
+                    recovered += 1
+                    continue
+                }
+                do {
+                    try await pairedMacStore.upsert(
+                        macDeviceID: identity.macDeviceID,
+                        displayName: candidate.displayName,
+                        routes: candidate.routes,
+                        instanceTag: identity.instanceTag,
+                        markActive: false,
+                        stackUserID: currentScope.userID,
+                        teamID: currentScope.teamID,
+                        now: candidate.lastSeenAt
+                    )
+                    recoveryIDs.remove(recoveryID)
+                    consumed.insert(recoveryID)
+                    recovered += 1
+                } catch {
+                    hiddenMacsLog.error(
+                        "forgotten Mac recovery upsert failed: \(String(describing: error), privacy: .private)"
                     )
                 }
             }
-        }
-
-        if refreshDirectory,
-           let firstID = recoveryIDs.first {
-            let identity = MobilePairedMac.pairingIdentity(from: firstID)
-            await discovery.invalidateDiscovery(forMacDeviceID: identity.macDeviceID)
-        }
-        let discovered = await discovery.discoverLiveMacs()
-        guard await isScopeCurrent(scope) else { return }
-
-        var seen = Set<String>()
-        var recovered = 0
-        var consumed = Set<String>()
-        for candidate in discovered {
-            guard !candidate.routes.isEmpty else { continue }
-            let identity = CmxMacAppInstanceIdentity(
-                macDeviceID: candidate.deviceID,
-                instanceTag: candidate.instanceTag
+            let currentRecoveryIDs = forgottenMacRecoveryIDs(accountID: currentScope.userID)
+            let newlyRemembered = forgottenMacRecoveryIDsRememberedDuringInFlight
+            saveForgottenMacRecoveryIDs(
+                currentRecoveryIDs.subtracting(consumed.subtracting(newlyRemembered)),
+                accountID: currentScope.userID
             )
-            let pairingID = MobilePairedMac.pairingID(
-                macDeviceID: identity.macDeviceID,
-                instanceTag: identity.instanceTag
-            )
-            let canonicalDeviceID = identity.macDeviceID
-            let recoveryID = recoveryIDs.contains(pairingID)
-                ? pairingID
-                : (recoveryIDs.contains(canonicalDeviceID) ? canonicalDeviceID : nil)
-            guard let recoveryID, seen.insert(pairingID).inserted else { continue }
-            guard let pairedMacStore else {
-                recoveryIDs.remove(recoveryID)
-                consumed.insert(recoveryID)
-                recovered += 1
-                continue
+            if recovered > 0, await isScopeCurrent(currentScope) {
+                await loadPairedMacs(forceRefresh: true)
+                await loadRegistryDevices()
             }
-            do {
-                try await pairedMacStore.upsert(
-                    macDeviceID: identity.macDeviceID,
-                    displayName: candidate.displayName,
-                    routes: candidate.routes,
-                    instanceTag: identity.instanceTag,
-                    markActive: false,
-                    stackUserID: scope.userID,
-                    teamID: scope.teamID,
-                    now: candidate.lastSeenAt
-                )
-                recoveryIDs.remove(recoveryID)
-                consumed.insert(recoveryID)
-                recovered += 1
-            } catch {
-                hiddenMacsLog.error(
-                    "forgotten Mac recovery upsert failed: \(String(describing: error), privacy: .private)"
-                )
-            }
+            guard let rerun = finishForgottenMacRecovery() else { return }
+            request = rerun
         }
-        let currentRecoveryIDs = forgottenMacRecoveryIDs(accountID: scope.userID)
-        let newlyRemembered = forgottenMacRecoveryIDsRememberedDuringInFlight
-        saveForgottenMacRecoveryIDs(
-            currentRecoveryIDs.subtracting(consumed.subtracting(newlyRemembered)),
-            accountID: scope.userID
-        )
-        guard recovered > 0, await isScopeCurrent(scope) else { return }
-        await loadPairedMacs(forceRefresh: true)
-        await loadRegistryDevices()
     }
 
     /// Revokes a hidden computer's account bindings, then drops its local row.

@@ -3649,12 +3649,16 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     @ObservationIgnored private var pairedMacLoadCompletedRefreshGeneration: [
         PairedMacLoadKey: UInt64
     ] = [:]
+    struct ForgottenMacRecoveryRerun: Sendable {
+        let scope: MobileShellScopeSnapshot
+        let refreshDirectory: Bool
+    }
     /// Visible representative id to all stored ids for that logical paired Mac.
     public private(set) var pairedMacAliasIDsByRepresentativeID: [String: [String]] = [:]
     /// Cached device-local hidden ids keyed by signed-in account/team scope.
     @ObservationIgnored var hiddenMacDeviceIDsByScope: [String: Set<String>] = [:]
     @ObservationIgnored var forgottenMacRecoveryInFlightScope: MobileShellScopeSnapshot?
-    @ObservationIgnored var forgottenMacRecoveryRerunScope: MobileShellScopeSnapshot?
+    @ObservationIgnored var forgottenMacRecoveryRerun: ForgottenMacRecoveryRerun?
     @ObservationIgnored var forgottenMacRecoveryIDsRememberedDuringInFlight: Set<String> = []
     /// Row-backed hidden entries for the current account/team.
     public internal(set) var hiddenComputers: [MobileHiddenComputer] = []
