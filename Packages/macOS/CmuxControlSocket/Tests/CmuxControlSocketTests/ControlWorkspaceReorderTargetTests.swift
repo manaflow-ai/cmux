@@ -274,25 +274,36 @@ struct ControlWorkspaceReorderTargetTests {
     }
 
     /// `workspace.reorder` and `workspace.reorder_many` must answer the same
-    /// unreadable value with the same code. They disagreed before this change,
+    /// unresolvable value with the same code. They disagreed before this change,
     /// so a caller that fell back from one to the other saw the failure change
-    /// class without the input changing.
-    @Test(arguments: ["potato", "workspace:abc", ""])
-    func reorderAgreesWithReorderManyOnUnreadableValues(raw: String) throws {
+    /// class without the input changing. `workspace:999999` is the shape a
+    /// closed workspace's ref takes once the registry forgets it.
+    @Test(arguments: [
+        ("potato", "invalid_params"),
+        ("workspace:abc", "invalid_params"),
+        ("", "invalid_params"),
+        ("workspace:999999", "not_found"),
+    ])
+    func reorderAgreesWithReorderManyOnUnresolvableValues(raw: String, expected: String) throws {
         func code(of result: ControlCallResult?) -> String? {
             guard case .err(let code, _, _)? = result else { return nil }
             return code
         }
-        let single = ControlCommandCoordinator(context: FakeWorkspaceControlCommandContext())
-        let many = ControlCommandCoordinator(context: FakeWorkspaceControlCommandContext())
+        // The coordinator holds its context weakly: an inline fake is freed
+        // before `handle` runs, and `reorder` answers `unavailable`.
+        let singleContext = FakeWorkspaceControlCommandContext()
+        let manyContext = FakeWorkspaceControlCommandContext()
+        let single = ControlCommandCoordinator(context: singleContext)
+        let many = ControlCommandCoordinator(context: manyContext)
         let reorder = single.handle(ControlRequest(id: .int(1), method: "workspace.reorder", params: [
             "workspace_id": .string(raw), "index": .int(0), "dry_run": .bool(true)
         ]))
         let reorderMany = many.handle(ControlRequest(id: .int(1), method: "workspace.reorder_many", params: [
             "workspace_ids": .array([.string(raw)]), "dry_run": .bool(true)
         ]))
-        #expect(code(of: reorder) == "invalid_params")
-        #expect(code(of: reorder) == code(of: reorderMany))
+        #expect(code(of: reorder) == expected)
+        #expect(code(of: reorderMany) == expected)
+        withExtendedLifetime((singleContext, manyContext)) {}
     }
 
 }
