@@ -508,6 +508,7 @@
         "workspaceTitlebarVisibility": {
           "type": "boolean",
           "default": true,
+          "descriptionKey": "schemaDescriptions.app.workspaceTitlebarVisibility",
           "description": "Show the folder and active workspace title above pane tabs."
         },
         "keepWorkspaceOpenWhenClosingLastSurface": {

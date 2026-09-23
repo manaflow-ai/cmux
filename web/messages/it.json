@@ -1286,6 +1286,7 @@
           "autoNamingAgent": "Quale agente genera i nomi automatici per ogni sessione. «auto» (predefinito) nomina ogni sessione con il proprio agente; qualsiasi slug di agente (claude, codex, grok, opencode, pi, omp, …) sostituisce la denominazione per tutte le sessioni, anche quelle di altri agenti. Gli agenti non utilizzabili o non installati ricorrono all'agente della sessione, così la denominazione non si interrompe mai."
         },
         "app": {
+          "workspaceTitlebarVisibility": "Mostra la cartella e il titolo dello spazio di lavoro attivo sopra le schede del riquadro.",
           "confirmQuit": "Controlla quando cmux chiede conferma prima di uscire. Le build DEV escono sempre immediatamente indipendentemente da questa impostazione. Il vecchio app.warnBeforeQuit è ancora accettato come fallback booleano.",
           "windowTitleTemplate": "Template opzionale per il titolo NSWindow. Se vuoto, conserva il comportamento predefinito esistente del titolo di cmux, incluso il fallback alla directory corrente. Segnaposto supportati: '{windowId}', '{windowToken}', '{activeWorkspace}', '{activeDirectory}', '{defaultTitle}', '{appName}'.",
           "devWindowDisplay": "Nome del display usato solo nelle build DEBUG quando si aprono nuove finestre. Un valore vuoto usa il valore predefinito del sistema.",
