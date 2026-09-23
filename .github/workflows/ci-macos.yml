@@ -2150,6 +2150,11 @@ jobs:
           esac
 
   swift-package-tests:
+    # Stays on the macos-15 pool on every event, including pull requests:
+    # this job links the Release Ghostty CLI helper with Zig, and Zig
+    # 0.15.2 cannot link it on macOS 26 (see release.yml's
+    # build-ghostty-cli-helper). It is the one pull-request macOS job that
+    # MACOS_RUNNER_PR must not move.
     # !cancelled() disables the implicit success() gate, which GitHub evaluates
     # over the transitive needs chain: linux-preflight runs behind routed linux
     # jobs that legitimately skip (web/go/agent-session paths), and that
@@ -2169,11 +2174,11 @@ jobs:
       ghostty_helper_toolchain_sha256: ${{ steps.ghostty-helper-identity.outputs.toolchain_sha256 }}
       ghostty_helper_sdk: ${{ steps.ghostty-helper-identity.outputs.sdk }}
     # Build the release helper with SDK 15, then run package tests with SDK 26.
-    runs-on: ${{ github.event_name == 'pull_request' && (vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15') || vars.MACOS_RUNNER_DUAL_XCODE || 'blacksmith-6vcpu-macos-15' }}
+    runs-on: ${{ vars.MACOS_RUNNER_DUAL_XCODE || 'blacksmith-6vcpu-macos-15' }}
     timeout-minutes: 40
     env:
-      CMUX_CI_XCODE_APP: ${{ github.event_name == 'pull_request' && (vars.CMUX_CI_XCODE_APP_PR || vars.CMUX_CI_XCODE_APP_MACOS_15) || vars.CMUX_CI_XCODE_APP_MACOS_15 }}
-      CMUX_CI_HELPER_XCODE_APP: ${{ github.event_name == 'pull_request' && (vars.CMUX_CI_HELPER_XCODE_APP_PR || vars.CMUX_CI_HELPER_XCODE_APP_MACOS_15) || vars.CMUX_CI_HELPER_XCODE_APP_MACOS_15 }}
+      CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_15 }}
+      CMUX_CI_HELPER_XCODE_APP: ${{ vars.CMUX_CI_HELPER_XCODE_APP_MACOS_15 }}
       CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
     steps:
       - name: Clear stale git locks (self-hosted reused workspace)

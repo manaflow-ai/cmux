@@ -25,7 +25,7 @@ gh variable list --repo manaflow-ai/cmux
 | `MACOS_RUNNER_15` | the macOS 15 default: `macos-compile-admission`, `app-host-unit-tests`, nightly helper and test-cache jobs | `blacksmith-6vcpu-macos-15` | `blacksmith-6vcpu-macos-15` |
 | `MACOS_RUNNER_PR` | **pull-request** macOS jobs only, in `ci-macos.yml`, `cli-pipe-regressions.yml` and `terminal-hang-diagnostics.yml` | unset (see "Lanes" below) | `blacksmith-6vcpu-macos-15` |
 | `MACOS_RUNNER_TESTS` | the manual test-debugging lanes: `test-e2e.yml` and `test-depot.yml` | unset (see "Lanes" below) | `blacksmith-6vcpu-macos-26` for `test-e2e.yml`, `blacksmith-6vcpu-macos-15` for `test-depot.yml` |
-| `MACOS_RUNNER_DUAL_XCODE` | `swift-package-tests` (SDK 15 release helper, then SDK 26 package tests) on non-pull-request events; pull requests take `MACOS_RUNNER_PR` | `blacksmith-6vcpu-macos-15` | `blacksmith-6vcpu-macos-15` |
+| `MACOS_RUNNER_DUAL_XCODE` | `swift-package-tests` (SDK 15 release helper, then SDK 26 package tests) on **every** event, pull requests included | `blacksmith-6vcpu-macos-15` | `blacksmith-6vcpu-macos-15` |
 | `MACOS_RUNNER_26` | macOS 26 compatibility jobs and nightly sign/notarize | `blacksmith-6vcpu-macos-26` | `blacksmith-6vcpu-macos-26` |
 | `MACOS_RUNNER_26_NIGHTLY_BUILD` | changed-revision universal Nightly app builds | `blacksmith-12vcpu-macos-26` | `blacksmith-6vcpu-macos-26` |
 | `MACOS_RUNNER_26_RELEASE` | disk-heavy `release-build` universal app | `blacksmith-6vcpu-macos-26` | `blacksmith-6vcpu-macos-26` |
@@ -33,7 +33,6 @@ gh variable list --repo manaflow-ai/cmux
 | `MACOS_RUNNER_IOS` | iOS simulator tests + TestFlight upload (`test-ios.yml`, `ios-testflight.yml`) | `blacksmith-6vcpu-macos-26` | `blacksmith-6vcpu-macos-26` |
 | `MACOS_RUNNER_STREAMED_VALIDATION` | `ios-streamed-validate.yml`, `iroh-release-gate.yml` streamed validation | `blacksmith-6vcpu-macos-15` | `blacksmith-6vcpu-macos-26` and `blacksmith-6vcpu-macos-15` respectively |
 | `CMUX_CI_XCODE_APP_PR` | the Xcode pin for the same **pull-request** macOS jobs that read `MACOS_RUNNER_PR` | unset (see "Lanes" below) | `CMUX_CI_XCODE_APP_MACOS_15` |
-| `CMUX_CI_HELPER_XCODE_APP_PR` | the SDK 15 release-helper Xcode pin in `swift-package-tests` on pull requests | unset | `CMUX_CI_HELPER_XCODE_APP_MACOS_15` |
 | `MACOS_RUNNER_BACKGROUND` | non-urgent macOS work only: `build-ghosttykit`, the macOS legs of `cmux-tui-artifacts` (post-merge) and `cmux-tui-nightly` (on demand). See "Background lane" below | unset | `macos-15` (GitHub-hosted, free) |
 
 ## Lanes
@@ -58,9 +57,8 @@ and the `macos-26` image ships `/Applications/Xcode_26.5.app` -- and
 `scripts/select-ci-xcode.sh` exits non-zero on a pinned path that is not
 installed. A pull-request job whose pool moved to `macos-26` while its pin
 still named the `macos-15` Xcode would fail at Xcode selection rather than
-queue. So the pin follows the same lane through `CMUX_CI_XCODE_APP_PR`
-(and `CMUX_CI_HELPER_XCODE_APP_PR` for the `swift-package-tests` release
-helper), and the two are set together:
+queue. So the pin follows the same lane through `CMUX_CI_XCODE_APP_PR`, and the two
+are set together:
 
 ```bash
 gh variable set MACOS_RUNNER_PR --repo manaflow-ai/cmux -b blacksmith-6vcpu-macos-26
@@ -68,6 +66,16 @@ gh variable set CMUX_CI_XCODE_APP_PR --repo manaflow-ai/cmux -b /Applications/Xc
 ```
 
 Unsetting both returns the lane to `blacksmith-6vcpu-macos-15` and Xcode 26.3.
+
+`swift-package-tests` deliberately does **not** resolve through
+`MACOS_RUNNER_PR`. It builds the Release Ghostty CLI helper against an
+SDK 15 Xcode -- it pins `CMUX_CI_REQUIRED_MACOS_SDK_MAJOR=15` for that step
+and then asserts `HELPER_SDK_VERSION == 15.*` -- and only the `macos-15`
+image carries an SDK 15 Xcode. Zig 0.15.2 also cannot link that helper on
+macOS 26, which is why `release.yml` builds it on macOS 15 too. So it stays
+on `MACOS_RUNNER_DUAL_XCODE` on every event, and the dual-Xcode guard in
+`tests/test_ci_self_hosted_guard.sh` fails if it ever reads
+`MACOS_RUNNER_PR`.
 `test_macos_jobs_use_lane_specific_xcode_pin_vars` in
 `tests/test_ci_change_areas.py` keeps the pin on the same escape hatch as the
 pool.
