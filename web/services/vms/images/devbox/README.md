@@ -287,7 +287,7 @@ queries it, and `verify-devbox-image.ts` proves the same on a fresh machine.
 Machines attach through the cmux-tui remote daemon on port 1337
 (transport `cmux-remote`, docs/cloud-cmux-tui-daemon.md). The Freestyle bake
 installs the pinned files.cmux.com build (sha256-verified, the driver's own
-install command) at `/home/cmux/.cmux/bin/cmux-tui`, proves the daemon answers,
+install command) at `/home/cmux/.cmux/bin/cmux-tui` for current images (legacy root images migrate the executable to `/usr/local/lib/cmux/cmux-tui`), proves the daemon answers,
 then parks it, because a Freestyle snapshot is a memory image and a live
 daemon would give every machine the builder's Noise identity. The
 `cmux-devbox-boot` supervisor, run by the baked `cmux-tui-daemon` systemd

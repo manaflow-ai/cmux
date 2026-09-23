@@ -71,6 +71,7 @@ import {
   cmuxTuiInstallCommand,
   cmuxTuiPinnedManifestUrl,
   cmuxTuiLayoutSelector,
+  cmuxTuiLayoutCheckCommand,
   cmuxTuiPinCheckCommand,
   cmuxTuiRunCommand,
   mintCmuxTuiInvitation,
@@ -544,7 +545,7 @@ export function mapFreestyleState(state: VmData["state"] | null | undefined): VM
 export function freestylePinCheckCommand(source: CmuxTuiSource): string {
   return (
     "if [ -s /etc/cmux/cmux-tui-pin ]; then " +
-    `${cmuxTuiLayoutSelector()} && ` +
+    `${cmuxTuiLayoutSelector()} && ${cmuxTuiLayoutCheckCommand()} && ` +
     `test -x "$CMUX_TUI_BIN" && printf '%s  %s\\n' "$(cut -d' ' -f1 /etc/cmux/cmux-tui-pin)" "$CMUX_TUI_BIN" | sha256sum -c >/dev/null 2>&1; ` +
     `else ${cmuxTuiPinCheckCommand(source)}; fi`
   );

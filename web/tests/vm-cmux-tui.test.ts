@@ -110,7 +110,7 @@ describe("cmux-tui install and daemon commands", () => {
     const source = { url: URL, sha256: SHA, commit: COMMIT, builtAt: null, hookUrl: HOOK_URL, hookSha256: HOOK_SHA };
     const command = cmuxTuiInstallCommand(source);
     // Beside the binary: the one place `agent hook install` finds it without a PATH search.
-    expect(command).toContain('CMUX_TUI_HOOK_BIN="$(dirname "$CMUX_TUI_BIN")/cmux-tui-hook"');
+    expect(command).toContain('CMUX_TUI_HOOK_BIN="$(dirname "$(readlink -f "$CMUX_TUI_BIN")")/cmux-tui-hook"');
     expect(command).toContain(`'${HOOK_SHA}' "$CMUX_TUI_HOOK_BIN" | sha256sum -c >/dev/null 2>&1; then :; else`);
     expect(command).toContain(`curl -fsSL --retry 3 -o "$CMUX_TUI_HOOK_TMP" '${HOOK_URL}'`);
     expect(command).toContain(`'${HOOK_SHA}' "$CMUX_TUI_HOOK_TMP" | sha256sum -c >/dev/null 2>&1 && chmod 755`);
@@ -150,6 +150,24 @@ describe("cmux-tui install and daemon commands", () => {
     expect(command).toContain("agent hook install claude codex");
     expect(cmuxTuiHooksReadyCommand()).toContain(cmuxTuiLayoutSelector());
     expect(cmuxTuiHooksReadyCommand()).toContain('test -x "$CMUX_TUI_HOME/.local/share/cmux-tui/bin/cmux-tui-hook"');
+  });
+
+  // Regression: the binary lived only under /root (mode 700), so `cmux-tui` was
+  // "command not found" for the uid-1000 work user (`ubuntu`) in every SSH and
+  // desktop shell, even though /usr/local/bin/cmux-tui existed: the symlink
+  // pointed into root's home. The real file must live on a world-readable path,
+  // with root's canonical path and /usr/local/bin both symlinked to it.
+  test("installs the binary on a world-readable path so the uid-1000 work user can run it", () => {
+    const command = cmuxTuiInstallCommand({ url: URL, sha256: SHA, commit: COMMIT, builtAt: null });
+    expect(command).toContain("mkdir -p '/usr/local/lib/cmux' \"$(dirname \"$CMUX_TUI_BIN\")\"");
+    expect(command).toContain(`'${SHA}' '/usr/local/lib/cmux/cmux-tui.tmp' | sha256sum -c >/dev/null 2>&1`);
+    expect(command).toContain(`-o '/usr/local/lib/cmux/cmux-tui.tmp' '${URL}'`);
+    expect(command).toContain("chmod 755 '/usr/local/lib/cmux/cmux-tui.tmp' && mv -f '/usr/local/lib/cmux/cmux-tui.tmp' '/usr/local/lib/cmux/cmux-tui'");
+    expect(command).toContain("ln -sfn '/usr/local/lib/cmux/cmux-tui' \"$CMUX_TUI_BIN\"");
+    expect(command).toContain("ln -sfn '/usr/local/lib/cmux/cmux-tui' /usr/local/bin/cmux-tui");
+    // Nothing is fetched into or executed from a path only root can traverse.
+    expect(command).not.toContain("/root/.cmux/bin/cmux-tui.tmp");
+    expect(command).toContain('"$CMUX_TUI_BIN" --version');
   });
 
   // Regression: `sha256sum -c -s` is BusyBox-only. GNU coreutils (the xfce-vnc desktop
