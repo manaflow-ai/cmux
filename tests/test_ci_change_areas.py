@@ -509,6 +509,73 @@ def test_agent_instructions_and_skill_docs_skip_expensive_areas() -> None:
     )
 
 
+def test_operational_ci_helpers_skip_product_areas() -> None:
+    # Janitors, census/reporting and registry validation run only in Linux
+    # workflows and are never read by the Xcode product.
+    for path in (
+        "scripts/ci/cleanup-stale-runs.py",
+        "scripts/ci/queue_janitor.py",
+        "scripts/ci/triage-radar.py",
+        "scripts/ci/notify-indexnow.py",
+        "scripts/ci/r2_cache_census.py",
+        "scripts/ci/verify-r2-canary.py",
+        "scripts/ci/build_graph_health.py",
+        "scripts/ci/validate_test_execution_registry.py",
+        "scripts/ci/app_host_failure_census.py",
+        "scripts/ci/swift_incremental_diagnostics.py",
+        "scripts/ci/cmux_workload_profile.py",
+        "scripts/ci/r2-canary-cloudflare.py",
+    ):
+        assert_areas([path], macos=False, web=False)
+
+
+def test_web_subarea_router_keeps_web_without_macos() -> None:
+    # Editing the ci-web.yml subarea router must still run web validation --
+    # the helper lists itself in ALL_SUBAREA_INPUTS -- but never a Mac.
+    actual = module.classify_files(["scripts/ci/web_subareas.py"])
+    assert actual.web is True, actual
+    assert actual.macos is False, actual
+    assert actual.release_build is False, actual
+
+
+def test_routing_policy_and_build_helpers_still_run_macos() -> None:
+    # The boundary the carveout must not cross: the router itself decides
+    # macOS selection, and the shard helper is a real macOS build input.
+    for path in (
+        # Routing policy: these decide macOS selection, so they must not
+        # certify themselves.
+        "scripts/ci/detect_ci_change_areas.py",
+        "scripts/ci/detect_linux_guard_changes.py",
+        "scripts/ci/workflow_guard_groups.py",
+        # Reached from a macOS job: directly, through run-app-host-xcodebuild.sh,
+        # through the cache-restore composite action, and through
+        # run_python_test_lane.py respectively.
+        "scripts/ci/cmux_unit_test_shard.py",
+        "scripts/ci/xcodebuild_noninteractive.py",
+        "scripts/ci/cache_restore_receipt.py",
+        "scripts/ci/test_execution_registry.py",
+    ):
+        assert_areas([path], macos=True, web=True, agent_session_web=True)
+
+
+def test_contributor_prose_skips_expensive_areas() -> None:
+    assert_areas(
+        ["STYLE.md", "CONTRIBUTING.md", ".github/pull_request_template.md"],
+        macos=False,
+        web=False,
+    )
+    # The Release build is the expensive half of the waste: a writing-guidance
+    # edit used to select a universal app build.
+    assert module.classify_files(["STYLE.md"]).release_build is False
+
+
+def test_bundled_root_markdown_still_runs_macos() -> None:
+    # THIRD_PARTY_LICENSES.md is root Markdown like the files above, but it
+    # ships in Resources/ and AboutLicenseContent.swift reads it, so it is a
+    # real product input. This is the boundary the prose carveout must not cross.
+    assert_areas(["THIRD_PARTY_LICENSES.md"], macos=True, web=False)
+
+
 def test_bundled_and_executable_skill_files_run_macos() -> None:
     # The app bundles skills/cmux-cua as a folder resource.
     assert_areas(["skills/cmux-cua/SKILL.md"], macos=True, web=False)
@@ -1161,6 +1228,7 @@ def test_macos_test_product_ci_helpers_run_admission_without_web_or_release() ->
         "scripts/ci/app_host_test_products.py",
         "scripts/ci/app_host_layer_transport.py",
         "scripts/ci/parallel_artifact_download.py",
+        "scripts/ci/canonical-build-root.sh",
         "scripts/ci/compile-app-host-test-product.sh",
         "scripts/ci/product_input_identity.py",
         "scripts/ci/peer_product_source.py",
@@ -3298,7 +3366,7 @@ def test_macos_compile_admission_precedes_expensive_shards() -> None:
     assert "inputs.macos == 'true'" in admission
     # The compile lives in one script so the nightly cache seeder runs the same
     # invocation; see tests/test_ci_test_compilation_cache_seed.sh.
-    assert "scripts/ci/compile-app-host-test-product.sh build" in admission
+    assert "scripts/ci/compile-app-host-test-product.sh canonical-build" in admission
     compile_script = (ROOT / "scripts/ci/compile-app-host-test-product.sh").read_text(encoding="utf-8")
     assert "build-for-testing" in compile_script
     assert "for scheme in cmux cmux-unit cmux-numeric-locale; do" in compile_script

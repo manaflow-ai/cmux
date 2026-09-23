@@ -3,6 +3,7 @@
 
 import ast
 import json
+import re
 import os
 import subprocess
 import sys
@@ -549,6 +550,47 @@ class LinuxGuardRoutingTests(unittest.TestCase):
         for value in ("", "False", "invalid"):
             needs["changes"]["outputs"]["ghosttykit_release"] = value
             self.assertNotEqual(run_linux_preflight(needs).returncode, 0)
+
+
+class InlineGuardGroupLiteralTests(unittest.TestCase):
+    """.github/workflows/ci.yml retypes GROUPS as JSON instead of deriving it.
+
+    The inline shell fallback in ci.yml emits linux_guard_test_groups directly,
+    bypassing detect_linux_guard_changes.py. Nothing else compares those
+    literals to GROUPS, so a group added to the tuple but not to the literal
+    never reaches `fromJSON(inputs.linux_guard_test_groups)` -- the lane
+    reports green having never run.
+    """
+
+    LITERAL_RE = re.compile(r"linux_guard_test_groups=(\[[^\]]*\])")
+
+    def literals(self):
+        text = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
+        found = [json.loads(m) for m in self.LITERAL_RE.findall(text)]
+        self.assertTrue(found, "ci.yml no longer emits linux_guard_test_groups inline")
+        return found
+
+    def test_the_full_matrix_literal_matches_GROUPS_exactly(self):
+        full = max(self.literals(), key=len)
+        self.assertEqual(
+            tuple(full),
+            GROUPS,
+            "ci.yml's full guard matrix has drifted from GROUPS in "
+            "scripts/ci/workflow_guard_groups.py; a group missing here silently "
+            "never runs",
+        )
+
+    def test_every_literal_only_names_known_groups(self):
+        for literal in self.literals():
+            with self.subTest(literal=literal):
+                unknown = sorted(set(literal) - set(GROUPS))
+                self.assertEqual(
+                    unknown, [], "ci.yml names guard groups that do not exist in GROUPS"
+                )
+                self.assertEqual(
+                    len(literal), len(set(literal)), "duplicate group in ci.yml literal"
+                )
+
 
 if __name__ == "__main__":
     unittest.main()

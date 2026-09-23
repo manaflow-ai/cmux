@@ -159,7 +159,7 @@ check_e2e_runner_fallbacks() {
   if ! awk '
     /^[[:space:]]*- name: Validate Tart canary identity$/ { in_tart_step=1; next }
     in_tart_step && /^      - / { in_tart_step=0; in_runner_reject=0; in_marker_reject=0 }
-    in_tart_step && /startsWith\(\(!inputs\.runner \|\| inputs\.runner == '\''auto'\''\) && \(vars\.MACOS_RUNNER_[A-Z0-9_]+ \|\| '\''blacksmith-6vcpu-macos-15'\''\) \|\| inputs\.runner, '\''tart-'\''\)/ { saw_effective_runner=1 }
+    in_tart_step && /startsWith\(\(!inputs\.runner \|\| inputs\.runner == '\''auto'\''\) && \(vars\.MACOS_RUNNER_[A-Z0-9_]+ \|\| '\''blacksmith-6vcpu-macos-[0-9]+'\''\) \|\| inputs\.runner, '\''tart-'\''\)/ { saw_effective_runner=1 }
     in_tart_step && /REQUESTED_RUNNER:.*inputs\.runner/ { saw_requested_runner=1 }
     in_tart_step && /RUNNER_CONTEXT_NAME: \$\{\{ runner\.name \}\}/ { saw_runner_context=1 }
     in_tart_step && /tart-cmux-\*/ { saw_runner_pattern=1 }
@@ -185,10 +185,14 @@ import sys
 import yaml
 
 document = yaml.safe_load(open(sys.argv[1]))
+# Compilation caching and the fast artifact transport are optimizations with
+# canonical fallbacks. Everything else must fail the job it runs in.
 allowed = {
-    ("compilation-cache-restore", "Restore E2E compilation cache", "actions/cache/restore"),
-    (None, "Save E2E compilation cache", "actions/cache/save"),
-    ("compilation-cache-bound", "Bound E2E compilation cache", ""),
+    ("build", "compilation-cache-restore", "Restore E2E compilation cache", "actions/cache/restore"),
+    ("build", None, "Save E2E compilation cache", "actions/cache/save"),
+    ("build", "compilation-cache-bound", "Bound E2E compilation cache", ""),
+    ("build", "revision-on-main", "Check the selected revision against main", ""),
+    ("test", "parallel-product", "Read the compiled test product over parallel range requests", ""),
 }
 for job_id, job in document["jobs"].items():
     if "continue-on-error" in job:
@@ -196,8 +200,8 @@ for job_id, job in document["jobs"].items():
     for step in job.get("steps", []):
         if "continue-on-error" not in step:
             continue
-        identity = (step.get("id"), step.get("name"), step.get("uses", "").split("@", 1)[0])
-        if job_id != "e2e" or identity not in allowed or step["continue-on-error"] is not True:
+        identity = (job_id, step.get("id"), step.get("name"), step.get("uses", "").split("@", 1)[0])
+        if identity not in allowed or step["continue-on-error"] is not True:
             raise SystemExit(f"FAIL: {step.get('name')} must not mask E2E setup or test failures")
 PYTHON
 
