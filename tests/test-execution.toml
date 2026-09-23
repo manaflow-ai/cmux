@@ -431,6 +431,10 @@ path = "tests/test_ci_select_package_tests.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_workflow_run_sources.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_sidebar_lazy_layout_guard.py"
 lane = "linux-guard"
 

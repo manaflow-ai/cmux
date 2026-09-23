@@ -270,6 +270,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_select_package_tests.py
 
+      - name: Validate workflow_run triggers name workflows that exist
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_workflow_run_sources.py
+
       - name: Validate shallow complexity comparison fetching
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_fetch_complexity_base.py
