@@ -234,6 +234,8 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
         }
 
         let structureChanged = appliedItems != next.items
+        let emptyStateVisibilityChanged = previous?.showsWorkspaceEmptyState
+            != next.showsWorkspaceEmptyState
         var changed: [WorkspaceListTableItem] = []
         var nativeActionReloadIDs: Set<String> = []
         var changedRowHeightsStable = true
@@ -276,6 +278,10 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
             }
         }
         previousConfiguration = next
+
+        if !structureChanged, emptyStateVisibilityChanged {
+            updateEmptyStateVisibility(in: tableView)
+        }
 
         guard structureChanged || !changed.isEmpty else {
             #if DEBUG
@@ -690,6 +696,9 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
         guard let identifier = dataSource?.itemIdentifier(for: indexPath) else { return 44 }
         let item = configuredItemsByID[identifier.id] ?? identifier
         if case .groupFooter = item { return 16 }
+        if case .emptyWorkspaceList = item, !configuration.showsWorkspaceEmptyState {
+            return 0
+        }
 
         let key = heightCacheKey(for: item, tableView: tableView)
         if let cached = heightCache.height(for: key) { return cached }
@@ -1081,6 +1090,16 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
         cell.isAccessibilityElement = false
         cell.accessibilityIdentifier = nil
         cell.accessibilityCustomActions = nil
+        cell.isHidden = false
+        cell.contentView.isHidden = false
+        cell.isUserInteractionEnabled = true
+        cell.accessibilityElementsHidden = false
+        if case .emptyWorkspaceList = item, !configuration.showsWorkspaceEmptyState {
+            cell.isHidden = true
+            cell.contentView.isHidden = true
+            cell.isUserInteractionEnabled = false
+            cell.accessibilityElementsHidden = true
+        }
         let content = hostedView(for: item)
         var hosting = UIHostingConfiguration { content }
             .margins(.all, 0)
@@ -1127,6 +1146,25 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
                 .minSize(width: 0, height: 0)
         }
         cell.contentConfiguration = hosting
+    }
+
+    private func updateEmptyStateVisibility(in tableView: UITableView) {
+        guard let indexPath = dataSource?.indexPath(where: {
+            if case .emptyWorkspaceList = $0 { return true }
+            return false
+        }) else { return }
+        if let cell = tableView.cellForRow(at: indexPath) {
+            let isVisible = configuration.showsWorkspaceEmptyState
+            cell.isHidden = !isVisible
+            cell.contentView.isHidden = !isVisible
+            cell.isUserInteractionEnabled = isVisible
+            cell.accessibilityElementsHidden = !isVisible
+        }
+        heightCache.removeAll(keepingCapacity: true)
+        UIView.performWithoutAnimation {
+            tableView.beginUpdates()
+            tableView.endUpdates()
+        }
     }
 
     private func invalidateEmptyStateLayout(in tableView: UITableView?) {
