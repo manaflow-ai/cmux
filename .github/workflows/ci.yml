@@ -52,6 +52,9 @@ jobs:
     outputs:
       macos: ${{ steps.detect.outputs.macos }}
       cli: ${{ steps.detect.outputs.cli }}
+      # Empty until the base revision of the router knows this area, so the
+      # consumers below read a missing value as "not routed".
+      swift_packages: ${{ steps.detect.outputs.swift_packages || 'false' }}
       web: ${{ steps.detect.outputs.web }}
       agent_session_web: ${{ steps.detect.outputs.agent_session_web }}
       release_build: ${{ steps.detect.outputs.release_build }}
@@ -117,6 +120,7 @@ jobs:
               echo "web=true"
               echo "agent_session_web=true"
               echo "cli=true"
+              echo "swift_packages=true"
               echo "release_build=true"
             } >> "$GITHUB_OUTPUT"
           }
@@ -146,6 +150,7 @@ jobs:
                 echo "web=false"
                 echo "agent_session_web=false"
                 echo "cli=false"
+                echo "swift_packages=false"
                 echo "release_build=false"
               } >> "$GITHUB_OUTPUT"
               exit 0
@@ -201,6 +206,7 @@ jobs:
                 echo "web=false"
                 echo "agent_session_web=false"
                 echo "cli=false"
+                echo "swift_packages=false"
                 echo "release_build=false"
               } >> "$GITHUB_OUTPUT"
               exit 0
@@ -259,6 +265,7 @@ jobs:
                   echo "web=false"
                   echo "agent_session_web=false"
                   echo "cli=$cli_call_site_changed"
+                  echo "swift_packages=false"
                   echo "release_build=false"
                 } >> "$GITHUB_OUTPUT"
                 exit 0
@@ -271,6 +278,7 @@ jobs:
               trusted_ok=true
               for trusted_path in \
                 scripts/ci/detect_ci_change_areas.py \
+                scripts/ci/select_package_tests.py \
                 scripts/ci/workloads/ci-guard.sh \
                 .github/workflows/ci.yml \
                 .github/workflows/ci-guards.yml \
@@ -745,7 +753,13 @@ jobs:
     # macOS admission is independent of the routed Linux suites. Start it
     # after the cheap static checks so its compile and test shards overlap the
     # web and guard jobs instead of waiting on their aggregate verdict.
-    if: ${{ !cancelled() && needs.changes.result == 'success' && needs.static-preflight.result == 'success' && (needs.macos-debounce.result == 'success' || needs.macos-debounce.result == 'skipped') && needs.changes.outputs.macos != 'false' && (needs.changes.outputs.full_suite == 'true' || needs.changes.outputs.compile_admitted != 'true') }}
+    # swift_packages is its own call reason: a pull request that only touches
+    # Packages/ still needs the package-test lane, which is not part of compile
+    # admission and would otherwise be skipped whenever the app-host product is
+    # already admitted or the macOS area is neutral (a Packages/iOS package
+    # outside the desktop closure). Every other job in the called workflow stays
+    # gated on inputs.macos, so nothing else wakes up with it.
+    if: ${{ !cancelled() && needs.changes.result == 'success' && needs.static-preflight.result == 'success' && (needs.macos-debounce.result == 'success' || needs.macos-debounce.result == 'skipped') && ((needs.changes.outputs.macos != 'false' && (needs.changes.outputs.full_suite == 'true' || needs.changes.outputs.compile_admitted != 'true')) || needs.changes.outputs.swift_packages == 'true') }}
     permissions:
       actions: read
       contents: read
@@ -754,6 +768,7 @@ jobs:
     with:
       macos: ${{ needs.changes.outputs.macos }}
       full_suite: ${{ needs.changes.outputs.full_suite }}
+      swift_packages: ${{ needs.changes.outputs.swift_packages }}
       compile_admitted: ${{ needs.changes.outputs.compile_admitted }}
       release_build: ${{ needs.changes.outputs.release_build }}
       source_identity_valid: ${{ needs.changes.outputs.source_identity_valid }}
@@ -806,7 +821,11 @@ jobs:
           macos_result = needs["macos"]["result"]
           full_suite = outputs.get("full_suite")
           compile_admitted = outputs.get("compile_admitted")
-          macos_work_required = (
+          # The package-test lane is routed independently of compile admission
+          # and of the macOS area, so it can require the called workflow on its
+          # own. Keep this in sync with the `macos` job's own `if:`.
+          swift_packages = outputs.get("swift_packages") == "true"
+          macos_work_required = swift_packages or (
               macos_route == "true"
               and not (full_suite == "false" and compile_admitted == "true")
           )
@@ -823,6 +842,7 @@ jobs:
               sys.exit(1)
           print(f"changes.macos={macos_route}")
           print(f"changes.full_suite={outputs.get('full_suite')}")
+          print(f"changes.swift_packages={outputs.get('swift_packages')}")
           print(f"linux-preflight={preflight['result']}")
           print(f"macos={macos_result}")
           print(f"web={web_result}")

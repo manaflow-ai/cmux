@@ -20,11 +20,19 @@ class ChangeAreas:
     web: bool
     agent_session_web: bool
     cli: bool
+    swift_packages: bool
     release_build: bool
 
     @classmethod
     def all(cls) -> ChangeAreas:
-        return cls(macos=True, web=True, agent_session_web=True, cli=True, release_build=True)
+        return cls(
+            macos=True,
+            web=True,
+            agent_session_web=True,
+            cli=True,
+            swift_packages=True,
+            release_build=True,
+        )
 
     def as_output_lines(self) -> list[str]:
         return [
@@ -32,6 +40,7 @@ class ChangeAreas:
             f"web={bool_output(self.web)}",
             f"agent_session_web={bool_output(self.agent_session_web)}",
             f"cli={bool_output(self.cli)}",
+            f"swift_packages={bool_output(self.swift_packages)}",
             f"release_build={bool_output(self.release_build)}",
         ]
 
@@ -337,6 +346,112 @@ CLI_LANE_INPUT_PREFIXES = (
     # The lane runs `swift test` in this package directly.
     "Packages/macOS/CmuxFoundation/",
 )
+
+# ---------------------------------------------------------------------------
+# swift-package-tests lane
+#
+# ci-macos.yml's swift-package-tests job already narrows which packages it
+# builds, with scripts/ci/select_package_tests.py. This area answers the prior
+# question the job cannot answer for itself: is the lane worth a macOS runner
+# on this pull request at all? The answer is yes exactly when that same script
+# would pick at least one package, so the two cannot disagree.
+#
+# Only paths that feed a package are offered to the selector. That is
+# deliberate on both sides:
+#
+#   * select_package_tests.py fails open, so an unrecognized path (or an edit
+#     to the lane's own workflow) selects all 33 packages. On main that is
+#     right, because the lane is running regardless and only its list is in
+#     question. Routing a pull request that way would be the 30-minute sweep
+#     under another name: over the last 200 merged pull requests it would have
+#     queued 34 full 33-package runs. Those changes keep their existing
+#     coverage from the push to main.
+#   * A package outside the job's own list selects nothing, so the lane would
+#     start, check out submodules, and test zero packages. Asking the selector
+#     instead of matching `Packages/` by prefix keeps those runs unqueued.
+# ---------------------------------------------------------------------------
+
+SWIFT_PACKAGE_ROOT_PREFIX = "Packages/"
+# The job's package list, as a shell array inside its "Select package tests"
+# step. Reading it here keeps one list rather than a copy that can drift.
+_SWIFT_PACKAGE_JOB_LIST_RE = re.compile(
+    r"(?m)^[ \t]*PACKAGES=\(\n(?P<body>(?:[ \t]*[A-Za-z0-9_]+\n)+)[ \t]*\)\n"
+)
+
+
+@lru_cache(maxsize=1)
+def _select_package_tests() -> Optional[object]:
+    """Import the package-test job's own selector, or None when unavailable."""
+    directory = str(Path(__file__).resolve().parent)
+    sys.path.insert(0, directory)
+    try:
+        import select_package_tests
+
+        return select_package_tests
+    except Exception as error:  # pragma: no cover - defensive
+        print(f"Could not load the package-test selector: {error}", file=sys.stderr)
+        return None
+    finally:
+        if sys.path and sys.path[0] == directory:
+            sys.path.pop(0)
+
+
+@lru_cache(maxsize=1)
+def swift_package_test_packages() -> Optional[tuple[str, ...]]:
+    """The packages ci-macos.yml's swift-package-tests job runs, in job order."""
+    root = Path(__file__).resolve().parents[2]
+    try:
+        workflow = (root / MACOS_WORKFLOW_PATH).read_text(encoding="utf-8")
+    except OSError as error:
+        print(f"Could not read {MACOS_WORKFLOW_PATH}: {error}", file=sys.stderr)
+        return None
+    matches = _SWIFT_PACKAGE_JOB_LIST_RE.findall(workflow)
+    if len(matches) != 1:
+        print(
+            f"Expected one PACKAGES=( ... ) list in {MACOS_WORKFLOW_PATH}, "
+            f"found {len(matches)}",
+            file=sys.stderr,
+        )
+        return None
+    return tuple(dict.fromkeys(matches[0].split()))
+
+
+def is_swift_package_input(path: str) -> bool:
+    """True for a path that can feed a package's tests and nothing wider.
+
+    The lane's global inputs (its workflow, the scripts its steps run, the
+    pinned toolchain) are excluded on purpose: they make the selector pick
+    every package, which is the sweep this routing exists to avoid.
+    """
+    if path.startswith(SWIFT_PACKAGE_ROOT_PREFIX):
+        return True
+    select = _select_package_tests()
+    if select is None:
+        return False
+    prefixes = tuple(
+        sorted({prefix for prefixes in select.EXTRA_INPUTS.values() for prefix in prefixes})
+    )
+    return bool(prefixes) and path.startswith(prefixes)
+
+
+def swift_package_test_selection(paths: Iterable[str]) -> tuple[str, ...]:
+    """The job's packages that `paths` can affect, or () when none can."""
+    candidates = [path for path in paths if is_swift_package_input(path)]
+    if not candidates:
+        return ()
+    select = _select_package_tests()
+    packages = swift_package_test_packages()
+    if select is None or not packages:
+        # The lane's own list is unreadable. Keep the existing behaviour
+        # (unrouted on pull requests, full suite on main) rather than guess.
+        return ()
+    try:
+        root = Path(__file__).resolve().parents[2]
+        return tuple(select.select(root, list(packages), candidates))
+    except (Exception, SystemExit) as error:
+        print(f"Could not select package tests: {error}", file=sys.stderr)
+        return ()
+
 
 # The lane runs `python3 scripts/ci/<helper>.py`, which puts scripts/ci first
 # on sys.path. A new scripts/ci module named like a stdlib module would shadow
@@ -931,6 +1046,9 @@ def classify_files(paths: Iterable[str], *, ci_workflow_linux_only: bool = False
     agent_session_web = False
     cli = False
     release_build = False
+    # Collected across the diff: the lane is selected from the whole change,
+    # not path by path, because the selector resolves package dependencies.
+    swift_package_candidates: list[str] = []
     test_references = load_macos_job_test_references()
     macos_ios_packages = load_macos_ios_package_closure()
     cli_inputs = load_cli_target_inputs()
@@ -943,6 +1061,11 @@ def classify_files(paths: Iterable[str], *, ci_workflow_linux_only: bool = False
             cli = True
         if path == CI_WORKFLOW_PATH and ci_workflow_linux_only:
             continue
+        # Before every `continue` below: a package source or test selects the
+        # package-test lane even when the path is otherwise macOS-neutral (a
+        # Packages/iOS package outside the desktop closure) or test-only.
+        if is_swift_package_input(path):
+            swift_package_candidates.append(path)
         if forces_all_areas(path):
             macos = True
             web = True
@@ -995,6 +1118,7 @@ def classify_files(paths: Iterable[str], *, ci_workflow_linux_only: bool = False
         web=web,
         agent_session_web=agent_session_web,
         cli=cli,
+        swift_packages=bool(swift_package_test_selection(swift_package_candidates)),
         release_build=release_build,
     )
 
