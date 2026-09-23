@@ -34,7 +34,7 @@ const CLOUD_VM_ID = "11111111-2222-4333-8444-555555555555";
 const TUNNEL_CLIENT_KEY = Buffer.alloc(32, 1).toString("base64");
 const EDGE_RULE: VmEdgeRule = {
   domain: "coderouter.dev",
-  headers: { "x-coderouter-route-token": "crt_secret-token", "x-cmux-vm-id": CLOUD_VM_ID },
+  headers: { "x-cmux-authorization": "Bearer eyJ.signed.token" },
 };
 
 // A fake Freestyle SDK client: records every create, exec, file write, and
@@ -298,8 +298,7 @@ describe("Freestyle platform contract", () => {
         transform: [
           {
             headers: {
-              "x-coderouter-route-token": "crt_secret-token",
-              "x-cmux-vm-id": CLOUD_VM_ID,
+              "x-cmux-authorization": "Bearer eyJ.signed.token",
             },
           },
         ],

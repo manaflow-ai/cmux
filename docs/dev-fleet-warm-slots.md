@@ -34,6 +34,7 @@ Example layout:
       foreground/
       checkout-locks/
       events.jsonl
+      events.jsonl.1
       slots/<slot>/
         slot.lock
         lease.json
@@ -57,7 +58,9 @@ The contract is:
 - A successful task build that consumed the shared warm lineage marks it warm_ready=false. The slot must be warmed back to main before it can advertise another task base.
 - Reservations expire after a bounded lease interval. An abandoned task can release its exact lease explicitly; mismatched task/lease IDs fail closed.
 - Recursive cache-size measurement is diagnostic work, not part of ordinary foreground execution. Normal `warm` and `task-run` calls do not walk the cache tree before/after native work. The physical benchmark passes `--measure-disk` explicitly when it needs cache-growth evidence, so large DerivedData trees cannot make routine telemetry a foreground latency tax.
+- `events.jsonl` is advisory telemetry only. Lease, launch, ownership, and recovery authority stays in `lease.json`, `inflight.json`, and recovery receipts. The helper keeps the current journal plus one 16 MiB archive at `events.jsonl.1`; append, partial-tail repair, and rotation share `events.lock`. Event append closes the descriptor after handing bytes to the kernel and performs no `fsync`. A process or host crash may lose recent telemetry rows. A torn final row is discarded before the next append. There is no telemetry writer thread or shutdown drain, so shutdown has no telemetry queue race; durable lease/inflight writes keep their existing atomic `fsync` contract.
 - A cold fallback owns one opaque cold-task generation. Once its native process group is proven settled, the foreground path only atomically renames that reconstructible generation into `retired-cold-tasks`; it never recursively deletes DerivedData while returning the task result. The next background warmer pass reclaims at most one retired generation before warming and aborts reclamation when foreground demand signals the existing preemption FIFO. `cleanup --max-generations N` exposes the same bounded reaper for explicit maintenance. Crash recovery can retire only the exact cold generation recorded in the durable native launch journal.
+- Cold-task receipts report `cold_cache_retirement_seconds`, which times only the foreground retirement decision/rename. Cleanup results always report `wall_seconds`; `cleanup --measure-bytes` additionally scans only the retired generation selected for maintenance and reports `reclaimed_bytes`. The physical benchmark opts into that cleanup scan and reports active/retired cold-generation counts, so ordinary `task-run` and `warm` calls keep recursive size accounting off their foreground path.
 
 The helper writes inflight.json before launching native work. A pipe launch guard keeps the child from executing the native command until its process group is durably recorded in both the in-flight record and visible lease. SIGINT/SIGTERM is forwarded to that group. If the helper dies unexpectedly, the guarded child exits before native exec or recover uses the exact recorded run/group identity. Recovery quarantines the lineage; diagnostic request records also carry process-start identity so PID reuse cannot keep a slot falsely busy.
 
@@ -173,7 +176,7 @@ report.json records:
 - cache disk growth and final state size;
 - cold fallback, fallback-required, quarantine, and recovery counts.
 
-For a longer worker trial, events.jsonl is append-only. Summarize it with:
+For a longer worker trial, telemetry retention is bounded to `events.jsonl.1` plus `events.jsonl`. The report reader consumes the retained archive first, then the current file, and ignores a partial crash tail:
 
     python3 scripts/benchmark-dev-fleet-warm-slots.py report \
       --events "$CMUX_FLEET_MACHINE_STATE/events.jsonl"
