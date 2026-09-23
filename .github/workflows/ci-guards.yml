@@ -260,6 +260,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_merge_queue_required_checks.py
 
+      - name: Validate required-check drift reconciliation
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_required_checks_drift.py
+
       - name: Validate package test selection
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_select_package_tests.py
