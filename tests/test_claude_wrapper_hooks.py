@@ -1351,46 +1351,49 @@ def test_explicit_prompt_modes_skip_subcommand_discovery(failures: list[str]) ->
 
 def test_subcommand_help_cancellation_cleans_up_children(failures: list[str]) -> None:
     """Interrupting a cold lookup also stops its isolated help process group."""
-    def setup(tmp: Path, env: dict) -> None:
-        home = tmp / "home"
-        home.mkdir()
-        env["HOME"] = str(home)
-        wrapper = tmp / "cmux.app/Contents/Resources/bin/cmux-claude-wrapper"
-        pid_log = Path(env["FAKE_REAL_HELP_PIDS_LOG"])
-        proc = subprocess.Popen([str(wrapper), "hello"], cwd=tmp, env=env,
-                                stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                                start_new_session=True)
-        pids: list[int] = []
-        try:
-            deadline = time.monotonic() + 15
-            while not pid_log.exists() and proc.poll() is None and time.monotonic() < deadline:
-                time.sleep(0.01)
-            pids = [int(pid) for pid in read_lines(pid_log)]
-            expect(len(pids) == 2, "cancellation: help process was not reached", failures)
-            os.killpg(proc.pid, signal.SIGTERM)
-            proc.communicate(timeout=15)
-            for pid in pids:
-                # The help launcher is reaped by the probe; its killed child is
-                # adopted and reaped by the OS, which may lag the wrapper exit.
-                deadline = time.monotonic() + 5
-                while time.monotonic() < deadline:
-                    try:
-                        os.kill(pid, 0)
-                    except ProcessLookupError:
-                        break
+    for interrupt in (signal.SIGINT, signal.SIGTERM):
+        def setup(tmp: Path, env: dict) -> None:
+            home = tmp / "home"
+            home.mkdir()
+            env["HOME"] = str(home)
+            wrapper = tmp / "cmux.app/Contents/Resources/bin/cmux-claude-wrapper"
+            pid_log = Path(env["FAKE_REAL_HELP_PIDS_LOG"])
+            proc = subprocess.Popen([str(wrapper), "hello"], cwd=tmp, env=env,
+                                    stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                    start_new_session=True)
+            pids: list[int] = []
+            try:
+                deadline = time.monotonic() + 15
+                while not pid_log.exists() and proc.poll() is None and time.monotonic() < deadline:
                     time.sleep(0.01)
-                else:
-                    failures.append(f"cancellation: help child {pid} survived")
-        finally:
-            for pid in [proc.pid, *pids]:
-                try:
-                    os.kill(pid, signal.SIGKILL)
-                except ProcessLookupError:
-                    pass
-            proc.communicate()
+                pids = [int(pid) for pid in read_lines(pid_log)]
+                expect(len(pids) == 2, "cancellation: help process was not reached", failures)
+                os.killpg(proc.pid, interrupt)
+                proc.communicate(timeout=15)
+                expect(read_lines(Path(env["FAKE_REAL_ARGS_LOG"])) == ["--help"],
+                       f"cancellation {interrupt}: interrupted discovery launched a prompt", failures)
+                for pid in pids:
+                    # The help launcher is reaped by the probe; its killed child is
+                    # adopted and reaped by the OS, which may lag the wrapper exit.
+                    deadline = time.monotonic() + 5
+                    while time.monotonic() < deadline:
+                        try:
+                            os.kill(pid, 0)
+                        except ProcessLookupError:
+                            break
+                        time.sleep(0.01)
+                    else:
+                        failures.append(f"cancellation: help child {pid} survived")
+            finally:
+                for pid in [proc.pid, *pids]:
+                    try:
+                        os.kill(pid, signal.SIGKILL)
+                    except ProcessLookupError:
+                        pass
+                proc.communicate()
 
-    run_wrapper(socket_state="live", argv=["agents"], setup_sandbox=setup,
-                help_behavior="hang", process_timeout=15)
+        run_wrapper(socket_state="live", argv=["agents"], setup_sandbox=setup,
+                    help_behavior="hang", process_timeout=15)
 
 
 def test_passthrough_flags_bypass_hook_injection(failures: list[str]) -> None:

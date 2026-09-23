@@ -1364,7 +1364,7 @@ claude_command_like_invocation() {
 should_inject_claude_hooks() {
     (( $# == 0 )) && return 0
 
-    local arg
+    local arg command_status
     local skip_next=false
     for arg in "$@"; do
         if [[ "$skip_next" == true ]]; then
@@ -1388,9 +1388,14 @@ should_inject_claude_hooks() {
                 continue
                 ;;
             *)
-                if claude_command_like_invocation "$arg"; then
-                    return 1
-                fi
+                claude_command_like_invocation "$arg"
+                command_status=$?
+                case "$command_status" in
+                    0) return 1 ;;
+                    # Cancellation is not a failed lookup: do not start a
+                    # prompt session after the user interrupts discovery.
+                    129|130|143) exit "$command_status" ;;
+                esac
                 return 0
                 ;;
         esac
