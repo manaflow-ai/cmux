@@ -406,7 +406,10 @@ jobs:
           python3 scripts/ci/app_host_test_products.py stamp "$CMUX_DERIVED_DATA_PATH"
           python3 scripts/ci/reuse_app_host_products.py seal "$CMUX_DERIVED_DATA_PATH"
           archive="$RUNNER_TEMP/app-host-products.tar.gz"
-          tar -chzf "$archive" -C "$CMUX_DERIVED_DATA_PATH" Build/Products
+          # Still a gzip stream, so every consumer reads it unchanged. The
+          # default level spends about a minute squeezing Mach-O binaries that
+          # travel between two jobs on the same fleet and are deleted after.
+          tar -chf - -C "$CMUX_DERIVED_DATA_PATH" Build/Products | gzip -1 > "$archive"
           echo "sha256=$(shasum -a 256 "$archive" | awk '{print $1}')" >> "$GITHUB_OUTPUT"
           echo "bytes=$(wc -c < "$archive" | tr -d ' ')" >> "$GITHUB_OUTPUT"
 
