@@ -37,6 +37,15 @@
 #     carries a live identity. The bake and derive scripts write it right
 #     before they snapshot; a clone has a different id and starts its daemon
 #     within one tick of resume.
+#
+# Clone detection speed is New Machine latency. A snapshot is always taken
+# while this loop is parked, so every clone resumes inside the parked branch.
+# That branch therefore ticks every PARKED_TICK (50 ms) instead of 1 s, and
+# a clone is noticed within ~50 ms plus one metadata read. Only the builder
+# (for the seconds before its snapshot) and a clone's first tick pay the fast
+# cadence; a bound machine ticks once a second as before. Do not raise
+# PARKED_TICK or move work in front of the announce without measuring New
+# Machine end to end: the owner's Mac is already dialing while this runs.
 # Without a metadata service (containers) the id is empty and the daemon
 # simply runs, keeping whatever identity the state dir already holds.
 #
@@ -59,9 +68,23 @@
 # measurement). announce_network sends a gratuitous ARP burst from every
 # global IPv4 address; it runs detached when a clone is detected and every
 # 30 s for the life of the supervisor so an idle machine never ages out of
-# the fabric's table. The command line is devboxNetworkAnnounceCommand() in
+# the fabric's table. On a clone the announce is the FIRST action, before
+# the daemon, SSH, or state work: arping -U puts its first frame on the wire
+# at once, and until that frame the Mac's SYNs are dropped by the fabric.
+# The command line is devboxNetworkAnnounceCommand() in
 # network.ts; vm-devbox-identity.test.ts pins the equality. The attach path
 # announces on its own (freestyleNetworkAnnouncement.ts).
+#
+# Resume housekeeping. The guest's realtime AND monotonic clocks jump by the
+# snapshot's age on resume, so every due timer (logrotate, man-db, fstrim,
+# dpkg-db-backup, tmpfiles-clean, apt) would fire in the clone's first second
+# and compete with the daemon start, and systemd would kill every service
+# whose watchdog "missed" a ping during the jump (logind, udevd, journald).
+# The parked branch stops those timers and switches service watchdogs off
+# (runtime state, so the memory snapshot carries it; a bake-time switch is
+# lost when a later step re-executes systemd). A clone re-arms both
+# HOUSEKEEPING_DELAY after it is bound (systemd-run), so timers still run and
+# watchdogs still guard services, just off the critical path.
 #
 # CMUX_TUI_REMOTE_WS_BIND overrides the listener bind. Default: the IPv4
 # wildcard. Freestyle sets [::]:1337 (its systemd unit / a driver drop-in)
@@ -90,6 +113,9 @@ DESKTOP_DISPLAY=:1
 BOUND_INSTANCE_FILE=/etc/cmux/daemon-instance-id
 BAKE_INSTANCE_FILE=/etc/cmux/bake-instance-id
 METADATA=http://169.254.169.254
+PARKED_TICK=0.05
+HOUSEKEEPING_DELAY=10min
+HOUSEKEEPING_TIMERS="apt-daily.timer apt-daily-upgrade.timer dpkg-db-backup.timer e2scrub_all.timer fstrim.timer logrotate.timer man-db.timer motd-news.timer systemd-tmpfiles-clean.timer"
 
 # Selects the daemon's user, home and binary; keep identical to
 # cmuxTuiLayoutSelector() in web/services/vms/drivers/cmuxTuiDaemon.ts.
@@ -110,6 +136,7 @@ cmux_tui_layout
 
 daemon_pid=""
 desktop_pid=""
+parked=""
 
 start_desktop() {
   [ -x "$DESKTOP_BOOT" ] || return 0
@@ -150,6 +177,23 @@ announce_network() {
   command -v arping >/dev/null 2>&1 && ip -o -4 addr show scope global 2>/dev/null | { while read -r _ dev _ cidr _; do case "$dev" in lo|docker*|veth*|br-*|virbr*) continue;; esac; case "$cidr" in 169.254.*) continue;; esac; arping -U -c 2 -w 2 -I "$dev" "${cidr%/*}" >/dev/null 2>&1 & done; wait; }; true
 }
 
+# A derive clone schedules a re-arm and is then parked for its own snapshot;
+# the pending transient timer must not ride into that snapshot, where the
+# clock jump would fire it on the next clone's first second.
+park_housekeeping() {
+  [ -d /run/systemd/system ] || return 0
+  # shellcheck disable=SC2086
+  systemctl stop cmux-housekeeping-rearm.timer cmux-housekeeping-rearm.service $HOUSEKEEPING_TIMERS >/dev/null 2>&1 || true
+  systemd-analyze service-watchdogs no >/dev/null 2>&1 || true
+}
+
+rearm_housekeeping() {
+  [ -d /run/systemd/system ] || return 0
+  systemctl stop cmux-housekeeping-rearm.timer cmux-housekeeping-rearm.service >/dev/null 2>&1 || true
+  systemd-run --quiet --no-block --collect --unit=cmux-housekeeping-rearm --on-active="$HOUSEKEEPING_DELAY" \
+    /bin/sh -c "systemd-analyze service-watchdogs yes; systemctl start $HOUSEKEEPING_TIMERS" >/dev/null 2>&1 || true
+}
+
 announce_loop() {
   while true; do announce_network; sleep 30; done
 }
@@ -167,6 +211,7 @@ stop_daemon() {
 announce_loop &
 
 while true; do
+  tick=1
   start_desktop
   # A driver can install the binary after boot, and it installs into the home
   # this same selection names, so re-read the layout until one appears.
@@ -175,8 +220,17 @@ while true; do
     id=$(instance_id 2>/dev/null) || id=""
     if [ -n "$id" ] && [ -f "$BAKE_INSTANCE_FILE" ] && [ "$id" = "$(cat "$BAKE_INSTANCE_FILE")" ]; then
       stop_daemon # the machine being snapshotted: parked until the snapshot is taken
+      [ -n "$parked" ] || { park_housekeeping; parked=1; }
+      tick=$PARKED_TICK
+    elif [ -z "$id" ] && [ -n "$parked" ]; then
+      # A clone's first metadata read can fail while the platform finishes
+      # restoring it. Stay parked and retry on the fast tick; starting now
+      # would run an unbound daemon that the next tick must restart.
+      tick=$PARKED_TICK
     else
       if [ -n "$id" ] && [ "$id" != "$(cat "$BOUND_INSTANCE_FILE" 2>/dev/null)" ]; then
+        # Announce first: the fabric drops the Mac's SYNs until it sees a frame.
+        ( announce_network & )
         stop_daemon
         # Keep the journaled session graph and first terminal from the warm
         # snapshot. Only auth/connection material belongs to the builder and
@@ -186,8 +240,8 @@ while true; do
         find "$REMOTE_STATE_DIR/sessions" -mindepth 2 -maxdepth 2 -type d -name auth -prune -exec rm -rf {} + 2>/dev/null || true
         rm -rf "$REMOTE_STATE_DIR/connections" 2>/dev/null || true
         ( rekey_ssh_host & )
-        ( announce_network & )
         mkdir -p /etc/cmux && printf '%s\n' "$id" > "$BOUND_INSTANCE_FILE"
+        [ -n "$parked" ] && { rearm_housekeeping; parked=""; }
         # The prompt sync is a clone-local oneshot. A memory snapshot can
         # carry an already-active systemd unit, so explicitly restart it after
         # the fresh instance identity is bound. Older images simply have no
@@ -204,5 +258,5 @@ while true; do
       fi
     fi
   fi
-  sleep 1
+  sleep "$tick"
 done

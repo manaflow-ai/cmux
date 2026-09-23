@@ -92,6 +92,11 @@ const CHECKS: readonly string[] = [
   // the boot supervisor's announce loop is running on the booted machine.
   // `[b]oot` keeps pgrep from matching this check's own shell command line.
   "command -v arping && pgrep -f 'cmux-devbox-[b]oot' >/dev/null && grep -q 'announce_loop &' /usr/local/bin/cmux-devbox-boot && echo network-announce-ok",
+  // Quiet resume (cmux-devbox-boot park/re-arm, build-devbox-freestyle.ts
+  // "snapshot-resume-quiet"): this clone's resume killed no service by
+  // watchdog, fired no parked housekeeping timer, printed no workqueue
+  // lockup, and scheduled the delayed re-arm (or already ran it).
+  "! journalctl -b --no-pager 2>/dev/null | grep -qE 'Watchdog timeout|workqueue lockup|Starting (logrotate|man-db|dpkg-db-backup)\\.service' && { [ ! -e /sys/module/workqueue/parameters/watchdog_thresh ] || [ \"$(cat /sys/module/workqueue/parameters/watchdog_thresh)\" = 0 ]; } && { systemctl list-timers --all --no-pager | grep -q cmux-housekeeping-rearm || [ \"$(systemctl show -p ServiceWatchdogs --value)\" = yes ]; } && echo snapshot-resume-quiet-ok",
   // Chrome + managed policy + browser/computer-use drivers.
   "google-chrome-stable --version",
   "jq -e '.DefaultSearchProviderSearchURL | test(\"duckduckgo\")' /etc/opt/chrome/policies/managed/cmux.json >/dev/null && echo chrome-ddg-policy-ok",

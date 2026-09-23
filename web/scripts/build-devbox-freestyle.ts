@@ -571,6 +571,24 @@ try {
     ].join("\n") + "\n",
     { mode: 0o644 },
   );
+  // Quiet resume. Every machine is a memory-snapshot clone whose monotonic
+  // clock jumps by the snapshot's age on resume, and the kernel would spend
+  // the clone's first second (the New Machine critical path) printing a
+  // workqueue-lockup report. The switch is runtime state, which the memory
+  // snapshot carries into every clone and derived size; the tmpfiles line
+  // re-applies it on a cold boot. Service watchdogs and housekeeping timers
+  // are handled by cmux-devbox-boot's park branch, right before the snapshot.
+  await step("snapshot-resume-dirs", "mkdir -p /etc/tmpfiles.d");
+  await vm.fs.writeFile(
+    "/etc/tmpfiles.d/cmux-snapshot-resume.conf",
+    "# Clones resume with a monotonic clock jump; do not report a workqueue lockup.\nw- /sys/module/workqueue/parameters/watchdog_thresh - - - - 0\n",
+    { mode: 0o644 },
+  );
+  await step(
+    "snapshot-resume-quiet",
+    "{ [ ! -e /sys/module/workqueue/parameters/watchdog_thresh ] || echo 0 > /sys/module/workqueue/parameters/watchdog_thresh; } && " +
+      "echo snapshot-resume-quiet-ok",
+  );
   await step(
     "cmux-tui-daemon-unit",
     "sh -n /usr/local/bin/cmux-devbox-boot && rm -f /etc/cmux/bake-instance-id && mkdir -p /etc/systemd/system/multi-user.target.wants && ln -sf /etc/systemd/system/cmux-tui-daemon.service /etc/systemd/system/multi-user.target.wants/cmux-tui-daemon.service && systemctl daemon-reload && systemctl enable cmux-tui-daemon && systemctl restart cmux-tui-daemon && systemctl is-active cmux-tui-daemon",
