@@ -12,28 +12,28 @@ struct TerminalTextEditingKeyResolutionTests {
     }
 
     @Test func commandGesturesResolveToLineWiseEditing() {
-        let cases: [(keyCode: UInt16, bytes: [UInt8])] = [
-            (Key.leftArrow, [0x01]),      // Ctrl+A
-            (Key.rightArrow, [0x05]),     // Ctrl+E
-            (Key.backspace, [0x15]),      // Ctrl+U
-            (Key.forwardDelete, [0x0B]),  // Ctrl+K
+        let cases: [(keyCode: UInt16, chord: TerminalTextEditingChord)] = [
+            (Key.leftArrow, TerminalTextEditingChord(letter: "a", modifier: .control)),
+            (Key.rightArrow, TerminalTextEditingChord(letter: "e", modifier: .control)),
+            (Key.backspace, TerminalTextEditingChord(letter: "u", modifier: .control)),
+            (Key.forwardDelete, TerminalTextEditingChord(letter: "k", modifier: .control)),
         ]
         for testCase in cases {
-            let action = terminalTextEditingResolve(keyCode: testCase.keyCode, modifiers: [.command])
-            #expect(action?.bytes == testCase.bytes, "keyCode \(testCase.keyCode)")
+            let chord = terminalTextEditingResolve(keyCode: testCase.keyCode, modifiers: [.command])
+            #expect(chord == testCase.chord, "keyCode \(testCase.keyCode)")
         }
     }
 
     @Test func optionGesturesResolveToWordWiseEditing() {
-        let cases: [(keyCode: UInt16, bytes: [UInt8])] = [
-            (Key.leftArrow, [0x1B, 0x62]),      // Alt+b
-            (Key.rightArrow, [0x1B, 0x66]),     // Alt+f
-            (Key.backspace, [0x17]),            // Ctrl+W
-            (Key.forwardDelete, [0x1B, 0x64]),  // Alt+d
+        let cases: [(keyCode: UInt16, chord: TerminalTextEditingChord)] = [
+            (Key.leftArrow, TerminalTextEditingChord(letter: "b", modifier: .option)),
+            (Key.rightArrow, TerminalTextEditingChord(letter: "f", modifier: .option)),
+            (Key.backspace, TerminalTextEditingChord(letter: "w", modifier: .control)),
+            (Key.forwardDelete, TerminalTextEditingChord(letter: "d", modifier: .option)),
         ]
         for testCase in cases {
-            let action = terminalTextEditingResolve(keyCode: testCase.keyCode, modifiers: [.option])
-            #expect(action?.bytes == testCase.bytes, "keyCode \(testCase.keyCode)")
+            let chord = terminalTextEditingResolve(keyCode: testCase.keyCode, modifiers: [.option])
+            #expect(chord == testCase.chord, "keyCode \(testCase.keyCode)")
         }
     }
 
@@ -76,10 +76,10 @@ struct TerminalTextEditingKeyResolutionTests {
 
     /// Lock and pad modifiers are noise and must not defeat a real gesture.
     @Test func ignoredModifiersDoNotBlockResolution() {
-        let action = terminalTextEditingResolve(
+        let chord = terminalTextEditingResolve(
             keyCode: Key.leftArrow,
             modifiers: [.option, .capsLock, .numericPad, .function]
         )
-        #expect(action?.bytes == [0x1B, 0x62])
+        #expect(chord == TerminalTextEditingChord(letter: "b", modifier: .option))
     }
 }

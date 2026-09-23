@@ -13,38 +13,55 @@ enum TerminalTextEditingKeyCode {
     static let rightArrow: UInt16 = 0x7C
 }
 
-/// A resolved text-editing gesture, expressed as the bytes to send to the PTY.
+/// The chord a text-editing gesture stands in for.
 ///
-/// The resolver never mutates terminal state itself. It answers only "which
-/// bytes does this gesture mean to the remote line editor", so the caller can
-/// write them through the ordinary input path.
-public struct TerminalTextEditingAction: Equatable, Sendable {
-    /// The bytes to write to the PTY.
-    public let bytes: [UInt8]
+/// The resolver deliberately names a *chord* rather than the bytes it encodes
+/// to. The app target replays the chord through the ordinary key path, so
+/// Ghostty performs the encoding and the result stays correct under whichever
+/// keyboard protocol the running application negotiated. Emitting raw bytes
+/// would bypass that and send legacy control codes to an application expecting
+/// `CSI u`.
+public struct TerminalTextEditingChord: Equatable, Sendable {
+    /// The modifier the replayed chord carries.
+    public enum Modifier: Equatable, Sendable {
+        /// The Control modifier, as in `Ctrl+A`.
+        case control
+        /// The Option/Alt modifier, as in `Alt+b`.
+        case option
+    }
 
-    /// Creates an action from the bytes a gesture sends.
+    /// The ASCII lowercase letter of the chord.
+    public let letter: Character
+
+    /// The modifier held with ``letter``.
+    public let modifier: Modifier
+
+    /// Creates a chord.
     ///
-    /// - Parameter bytes: The bytes to write to the PTY.
-    public init(bytes: [UInt8]) {
-        self.bytes = bytes
+    /// - Parameters:
+    ///   - letter: The ASCII lowercase letter of the chord.
+    ///   - modifier: The modifier held with `letter`.
+    public init(letter: Character, modifier: Modifier) {
+        self.letter = letter
+        self.modifier = modifier
     }
 
     /// `Ctrl+A` — move to the beginning of the line.
-    static let beginningOfLine = TerminalTextEditingAction(bytes: [0x01])
+    static let beginningOfLine = TerminalTextEditingChord(letter: "a", modifier: .control)
     /// `Ctrl+E` — move to the end of the line.
-    static let endOfLine = TerminalTextEditingAction(bytes: [0x05])
+    static let endOfLine = TerminalTextEditingChord(letter: "e", modifier: .control)
     /// `Alt+b` — move backward one word.
-    static let backwardWord = TerminalTextEditingAction(bytes: [0x1B, 0x62])
+    static let backwardWord = TerminalTextEditingChord(letter: "b", modifier: .option)
     /// `Alt+f` — move forward one word.
-    static let forwardWord = TerminalTextEditingAction(bytes: [0x1B, 0x66])
+    static let forwardWord = TerminalTextEditingChord(letter: "f", modifier: .option)
     /// `Ctrl+U` — kill from the cursor to the beginning of the line.
-    static let killToLineStart = TerminalTextEditingAction(bytes: [0x15])
+    static let killToLineStart = TerminalTextEditingChord(letter: "u", modifier: .control)
     /// `Ctrl+K` — kill from the cursor to the end of the line.
-    static let killToLineEnd = TerminalTextEditingAction(bytes: [0x0B])
+    static let killToLineEnd = TerminalTextEditingChord(letter: "k", modifier: .control)
     /// `Ctrl+W` — kill the word before the cursor.
-    static let killBackwardWord = TerminalTextEditingAction(bytes: [0x17])
+    static let killBackwardWord = TerminalTextEditingChord(letter: "w", modifier: .control)
     /// `Alt+d` — kill the word after the cursor.
-    static let killForwardWord = TerminalTextEditingAction(bytes: [0x1B, 0x64])
+    static let killForwardWord = TerminalTextEditingChord(letter: "d", modifier: .option)
 }
 
 /// Strips modifiers that never participate in gesture matching.
@@ -54,7 +71,7 @@ private func terminalTextEditingNormalizedModifiers(
     modifiers.subtracting([.numericPad, .function, .capsLock])
 }
 
-/// Resolves a macOS text-editing gesture into the bytes its line-editor equivalent sends.
+/// Resolves a macOS text-editing gesture into the line-editor chord it stands for.
 ///
 /// Returns `nil` for anything the mode does not own, which the caller must pass
 /// through untouched. In particular this returns `nil` for every event carrying
@@ -67,22 +84,22 @@ private func terminalTextEditingNormalizedModifiers(
 /// would give the chord a second meaning users did not ask for.
 ///
 /// ```swift
-/// let action = terminalTextEditingResolve(
+/// let chord = terminalTextEditingResolve(
 ///     keyCode: 0x7B, // Left arrow
 ///     modifiers: [.option]
 /// )
-/// // action?.bytes == [0x1B, 0x62]  (Alt+b, backward-word)
+/// // chord == TerminalTextEditingChord(letter: "b", modifier: .option)
 /// ```
 ///
 /// - Parameters:
 ///   - keyCode: The virtual key code of the event.
 ///   - modifiers: The event modifiers, already mapped off AppKit.
-/// - Returns: The action to send, or `nil` when the event is not a text-editing
-///   gesture and should pass through to the terminal unchanged.
+/// - Returns: The chord to replay, or `nil` when the event is not a
+///   text-editing gesture and should pass through to the terminal unchanged.
 public func terminalTextEditingResolve(
     keyCode: UInt16,
     modifiers: TerminalTextEditingModifiers
-) -> TerminalTextEditingAction? {
+) -> TerminalTextEditingChord? {
     let normalized = terminalTextEditingNormalizedModifiers(modifiers)
 
     // Control-bearing events stay with the remote application, always.
