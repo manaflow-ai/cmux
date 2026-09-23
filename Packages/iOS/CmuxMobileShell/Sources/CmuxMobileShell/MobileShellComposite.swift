@@ -14180,6 +14180,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         guard let listenerID = renderGridLivenessListenerID else { return }
         checkRenderGridLiveness(listenerID: listenerID)
     }
+
+    /// The reader identity lets tests detect replacement even before its first RPC.
+    var debugTerminalEventListenerIDForTesting: UUID? { terminalEventListenerID }
+
+    /// Wait for the current decision without a wall-clock settling delay.
+    func debugWaitForRenderGridLivenessCheckForTesting() async {
+        await renderGridLivenessProbeTask?.value
+    }
     #endif
 
     /// One watchdog tick on the main actor: if the subscription generation still

@@ -53,6 +53,7 @@ actor LivenessHostRouter {
     private var probeRequestCount = 0
     private var heldSubscribeRequestNumbers: Set<Int> = []
     private var heldProbeRequestNumbers: Set<Int> = []
+    private var delayedProbeRequestNumbers: Set<Int> = []
     private var delayedSubscribeRequestNumbers: Set<Int> = []
     private var invalidSubscribeRequestNumbers: Set<Int> = []
     private var subscribeErrorCodesByRequestNumber: [Int: String] = [:]
@@ -429,6 +430,11 @@ actor LivenessHostRouter {
         heldProbeRequestNumbers.insert(number)
     }
 
+    /// Delay a read-only probe until released, then answer normally.
+    func delayProbeRequest(number: Int) {
+        delayedProbeRequestNumbers.insert(number)
+    }
+
     /// Delay a subscribe acknowledgement until released, then return the
     /// ordinary successful payload.
     func delaySubscribeRequest(number: Int) {
@@ -496,6 +502,7 @@ actor LivenessHostRouter {
         heldWorkspaceListRequestNumbers = []
         heldSubscribeRequestNumbers = []
         heldProbeRequestNumbers = []
+        delayedProbeRequestNumbers = []
         delayedSubscribeRequestNumbers = []
         heldUnsubscribeRequestNumbers = []
         heldNotificationFeedRequestNumbers = []
@@ -631,6 +638,9 @@ actor LivenessHostRouter {
             if heldProbeRequestNumbers.contains(probeRequestCount) {
                 await park()
                 return nil
+            }
+            if delayedProbeRequestNumbers.contains(probeRequestCount) {
+                await park()
             }
             return try? Self.resultFrame(id: id, result: [
                 "stream_id": streamID ?? "",
