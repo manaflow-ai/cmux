@@ -425,7 +425,9 @@ jobs:
 
       - name: Validate hung test watchdog
         if: ${{ matrix.group == 'app-host-execution' }}
-        run: python3 tests/test_hung_test_watchdog.py
+        run: |
+          python3 tests/test_hung_test_watchdog.py
+          python3 tests/test_run_with_timeout_process_tree.py
 
       - name: Validate Swift package execution evidence
         if: ${{ matrix.group == 'app-host-execution' }}

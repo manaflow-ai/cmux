@@ -6,6 +6,7 @@ from __future__ import annotations
 import importlib.util
 import os
 import pathlib
+import shutil
 import signal
 import subprocess
 import sys
@@ -316,14 +317,16 @@ class WatchdogProcessTests(unittest.TestCase):
         # killpg on the command alone leaves the hung helper running.
         helper_pid = self.temp / "helper.pid"
         helper = self.temp / "swiftpm-testing-helper"
-        helper.write_text("#!/bin/sh\nsleep 60\n", encoding="utf-8")
-        helper.chmod(0o755)
+        # A real binary under the helper's name. A shebang script shows up as
+        # its interpreter on macOS, and a copied system binary fails its code
+        # signature there; a symlink keeps the invoked name on both systems.
+        os.symlink(shutil.which("sleep"), helper)
         calls = self.install_fake_sample()
         completed = self.watchdog(
             "--silence-seconds", "1",
             command=fake_test_command(f"""
                 import signal, subprocess
-                child = subprocess.Popen([{str(helper)!r}], start_new_session=True)
+                child = subprocess.Popen([{str(helper)!r}, "600"], start_new_session=True)
                 open({str(helper_pid)!r}, "w").write(str(child.pid))
                 print("◇ Test stuck() started.")
                 signal.pause()
