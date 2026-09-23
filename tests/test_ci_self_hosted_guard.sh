@@ -1834,7 +1834,7 @@ import yaml
 # regardless of where the pull-request lane points.
 EXEMPT = {
     ("iroh-release-gate.yml", "tailscale-version-skew", "CMUX_CI_XCODE_APP"):
-        "streamed validation lane, routed by MACOS_RUNNER_STREAMED_VALIDATION",
+        "builds against the SDK 15 toolchain; stays on MACOS_RUNNER_15",
     ("ci-macos.yml", "swift-package-tests", "CMUX_CI_XCODE_APP"):
         "builds the SDK 15 Ghostty helper; stays on MACOS_RUNNER_DUAL_XCODE",
     ("ci-macos.yml", "swift-package-tests", "CMUX_CI_HELPER_XCODE_APP"):
