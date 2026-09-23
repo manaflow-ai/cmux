@@ -1437,13 +1437,14 @@ jobs:
           # Verify wheel ownership independently against the pinned Ghostty.
           set -euo pipefail
           test_log="$RUNNER_TEMP/cmux-copy-mode-scrollback.txt"
-          scripts/ci/run-in-console-session.sh \
+          bash scripts/ci/run-and-capture.sh "$test_log" \
+            scripts/ci/run-in-console-session.sh \
             scripts/ci/run-app-host-xcodebuild.sh \
             -xctestrun "$CMUX_APP_HOST_XCTESTRUN" \
             -destination "platform=macOS" \
             CMUX_SKIP_ZIG_BUILD=1 \
             -only-testing:cmuxTests/GhosttyCopyModeScrollbackTests \
-            test-without-building 2>&1 | tee "$test_log"
+            test-without-building
           scripts/ci/require_selected_test_execution.sh \
             "$test_log" cmuxTests/GhosttyCopyModeScrollbackTests
 
@@ -1469,7 +1470,8 @@ jobs:
           do
             selector="$suite"
             test_log="$RUNNER_TEMP/cmux-lifecycle-${selector//\//-}.txt"
-            if ! scripts/ci/run-in-console-session.sh \
+            if ! bash scripts/ci/run-and-capture.sh "$test_log" \
+              scripts/ci/run-in-console-session.sh \
               scripts/ci/run-app-host-xcodebuild.sh \
               -xctestrun "$CMUX_APP_HOST_XCTESTRUN" \
               -destination "platform=macOS" \
@@ -1478,7 +1480,7 @@ jobs:
               -test-timeouts-enabled YES \
               -default-test-execution-time-allowance 120 \
               -maximum-test-execution-time-allowance 120 \
-              test-without-building 2>&1 | tee "$test_log"
+              test-without-building
             then
               failed=1
             fi
