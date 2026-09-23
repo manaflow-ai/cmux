@@ -169,13 +169,128 @@ extension MobileShellComposite {
         }
     }
 
+    // MARK: - Forgotten Mac recovery
+
+    private func forgottenMacRecoveryKey(accountID: String) -> String {
+        "cmux.mobile.forgottenMacRecovery.\(accountID)"
+    }
+
+    private func forgottenMacRecoveryIDs(accountID: String) -> Set<String> {
+        guard let values = forgottenMacRecoveryDefaults.array(
+            forKey: forgottenMacRecoveryKey(accountID: accountID)
+        ) as? [String] else { return [] }
+        return Set(values)
+    }
+
+    private func saveForgottenMacRecoveryIDs(
+        _ ids: Set<String>,
+        accountID: String
+    ) {
+        let key = forgottenMacRecoveryKey(accountID: accountID)
+        if ids.isEmpty {
+            forgottenMacRecoveryDefaults.removeObject(forKey: key)
+        } else {
+            forgottenMacRecoveryDefaults.set(ids.sorted(), forKey: key)
+        }
+    }
+
+    /// Keeps only the identity of a successfully revoked Mac until its fresh
+    /// directory registration arrives. The local paired row has already been
+    /// removed, so this marker cannot leak a revoked route through backup.
+    private func rememberForgottenMacRecovery(
+        for computer: MobileHiddenComputer,
+        accountID: String
+    ) {
+        guard !accountID.isEmpty else { return }
+        var ids = forgottenMacRecoveryIDs(accountID: accountID)
+        ids.insert(
+            computer.instanceTag.map {
+                MobilePairedMac.pairingID(
+                    macDeviceID: computer.macDeviceID,
+                    instanceTag: $0
+                )
+            } ?? cmxCanonicalDeviceID(computer.macDeviceID)
+        )
+        saveForgottenMacRecoveryIDs(ids, accountID: accountID)
+    }
+
+    /// Rehydrates forgotten Macs only from the current authenticated directory.
+    /// A directory event can race the local Forget cleanup, so the identity is
+    /// retained until this reconciliation succeeds. Canonical pairing ids make
+    /// legacy upper/lowercase duplicate records converge to one local row.
+    func recoverForgottenMacsFromDirectory(
+        scope: MobileShellScopeSnapshot,
+        refreshDirectory: Bool
+    ) async {
+        guard !forgottenMacRecoveryInFlight,
+              let discovery = personalIrohDiscovery else { return }
+        var recoveryIDs = forgottenMacRecoveryIDs(accountID: scope.userID)
+        guard !recoveryIDs.isEmpty else { return }
+        forgottenMacRecoveryInFlight = true
+        defer { forgottenMacRecoveryInFlight = false }
+
+        if refreshDirectory,
+           let firstID = recoveryIDs.first {
+            let identity = MobilePairedMac.pairingIdentity(from: firstID)
+            await discovery.invalidateDiscovery(forMacDeviceID: identity.macDeviceID)
+        }
+        let discovered = await discovery.discoverLiveMacs()
+        guard await isScopeCurrent(scope) else { return }
+
+        var seen = Set<String>()
+        var recovered = 0
+        for candidate in discovered {
+            guard !candidate.routes.isEmpty else { continue }
+            let identity = CmxMacAppInstanceIdentity(
+                macDeviceID: candidate.deviceID,
+                instanceTag: candidate.instanceTag
+            )
+            let pairingID = MobilePairedMac.pairingID(
+                macDeviceID: identity.macDeviceID,
+                instanceTag: identity.instanceTag
+            )
+            let canonicalDeviceID = identity.macDeviceID
+            let recoveryID = recoveryIDs.contains(pairingID)
+                ? pairingID
+                : (recoveryIDs.contains(canonicalDeviceID) ? canonicalDeviceID : nil)
+            guard let recoveryID, seen.insert(pairingID).inserted else { continue }
+            guard let pairedMacStore else {
+                recoveryIDs.remove(recoveryID)
+                recovered += 1
+                continue
+            }
+            do {
+                try await pairedMacStore.upsert(
+                    macDeviceID: identity.macDeviceID,
+                    displayName: candidate.displayName,
+                    routes: candidate.routes,
+                    instanceTag: identity.instanceTag,
+                    markActive: false,
+                    stackUserID: scope.userID,
+                    teamID: scope.teamID,
+                    now: candidate.lastSeenAt
+                )
+                recoveryIDs.remove(recoveryID)
+                recovered += 1
+            } catch {
+                hiddenMacsLog.error(
+                    "forgotten Mac recovery upsert failed: \(String(describing: error), privacy: .private)"
+                )
+            }
+        }
+        saveForgottenMacRecoveryIDs(recoveryIDs, accountID: scope.userID)
+        guard recovered > 0, await isScopeCurrent(scope) else { return }
+        await loadPairedMacs(forceRefresh: true)
+        await loadRegistryDevices()
+    }
+
     /// Revokes a hidden computer's account bindings, then drops its local row.
     ///
     /// The revoke is the meaningful action: it removes the binding from every
     /// device on the account. On success the paired-Mac row and its hidden
     /// marker are cleared so the computer disappears from every section; a Mac
-    /// that is still online re-registers a fresh binding and reappears on its
-    /// next connect. Returns `false` (leaving the row untouched) when no forget
+    /// that is still online re-registers a fresh binding and is rehydrated from
+    /// the authenticated directory. Returns `false` (leaving the row untouched) when no forget
     /// capability is wired or the revoke fails, so the caller can surface an
     /// error instead of a silent no-op.
     public func forgetHiddenComputer(_ computer: MobileHiddenComputer) async -> Bool {
@@ -256,7 +371,15 @@ extension MobileShellComposite {
         // rowless and clear them, so the hidden entry the user retries from
         // would vanish while a failed sibling keeps its revoked binding.
         if cleaned {
+            rememberForgottenMacRecovery(
+                for: computer,
+                accountID: scope.userID
+            )
             await refreshAfterForget(displayScope: scope)
+            await recoverForgottenMacsFromDirectory(
+                scope: scope,
+                refreshDirectory: true
+            )
         }
         recordAppEvent(
             cleaned ? .computerForgetSucceeded : .computerForgetFailed,
