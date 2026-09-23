@@ -1330,9 +1330,9 @@ def run_guard_contract_regression_matrix!
   end
   # The guard job's condition is the one place where this workflow can decline
   # to run, so admission of that key is exercised against whole documents.
-  guard_document = lambda do |condition|
+  guard_document = lambda do |condition, name = GUARD_WORKFLOW_NAME|
     job = {
-      "name" => GUARD_WORKFLOW_NAME,
+      "name" => name,
       "runs-on" => "ubuntu-24.04",
       "timeout-minutes" => GUARD_TIMEOUT_MINUTES,
       "permissions" => { "contents" => "read", "pull-requests" => "read" },
@@ -1359,26 +1359,27 @@ def run_guard_contract_regression_matrix!
     )
   end
 
+  safe_if = "${{ !(github.event_name == 'pull_request_target' && github.event.action == 'edited' && !github.event.changes.base && (github.event.changes.body || github.event.changes.title)) }}"
+  safe_name = "${{ github.event_name == 'pull_request_target' && github.event.action == 'edited' && !github.event.changes.base && (github.event.changes.body || github.event.changes.title) && 'CLA policy guard metadata (ignored)' || 'CLA policy guard' }}"
   validate_guard_workflow(guard_document.call(nil), authorize: false)
   checks += 1
-  validate_guard_workflow(guard_document.call(GUARD_VALIDATE_IF), authorize: false)
+  validate_guard_workflow(guard_document.call(safe_if, safe_name), authorize: false)
   checks += 1
-  # Folded YAML arrives with newlines collapsed to spaces; the reviewed
-  # expression must still be recognized after that normalization.
-  validate_guard_workflow(
-    guard_document.call(GUARD_VALIDATE_IF.gsub(" || ", "\n  || ")),
-    authorize: false
-  )
+  validate_guard_workflow(guard_document.call(safe_if.gsub(" && ", "\n  && "), safe_name), authorize: false)
   checks += 1
   [
-    "false",
-    "github.event.action != 'edited'",
-    "github.actor != 'dependabot[bot]'",
-    "github.event.action != 'edited' || github.event.changes.base.ref.from != ''",
-    "#{GUARD_VALIDATE_IF} || github.event.pull_request.user.login == 'someone'"
-  ].each do |condition|
-    expect_failure.call("guard condition #{condition.inspect}") do
-      validate_guard_workflow(guard_document.call(condition), authorize: false)
+    [safe_if, GUARD_WORKFLOW_NAME],
+    [nil, safe_name],
+    ["github.event.action != 'edited' || github.event.changes.base.ref.from != '' || github.event.changes.base.sha.from != ''", GUARD_WORKFLOW_NAME],
+    ["false", safe_name],
+    [safe_if, safe_name.sub("metadata (ignored)", "metadata")],
+    [safe_if, "${{ github.actor }}"],
+    [nil, "Wrong required check"],
+    [safe_if.sub(" && !github.event.changes.base", ""), safe_name],
+    [safe_if, safe_name.sub("!github.event.changes.base", "true")]
+  ].each do |condition, name|
+    expect_failure.call("guard condition/name pair #{condition.inspect}, #{name.inspect}") do
+      validate_guard_workflow(guard_document.call(condition, name), authorize: false)
     end
   end
 
