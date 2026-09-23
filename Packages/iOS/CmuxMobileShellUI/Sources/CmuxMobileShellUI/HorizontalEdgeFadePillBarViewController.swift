@@ -78,9 +78,11 @@ final class HorizontalEdgeFadePillBarViewController<Leading: View, Pills: View, 
         // UIHostingController proposes a 10-point ideal width for EmptyView.
         // An absent fixed control must reserve no space at the sheet edge.
         if Leading.self == EmptyView.self {
+            leadingHost.view.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
             leadingHost.view.widthAnchor.constraint(equalToConstant: 0).isActive = true
         }
         if Trailing.self == EmptyView.self {
+            trailingHost.view.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
             trailingHost.view.widthAnchor.constraint(equalToConstant: 0).isActive = true
         }
 
