@@ -7319,6 +7319,7 @@ final class cmuxUITests: XCTestCase {
             context: "long workspace title"
         )
         assertToolbarOverflowButtonDoesNotExist(in: app)
+        assertNativeWorkspaceToolbarFits(in: app)
         tap(terminalDropdown, in: app)
         assertTerminalMenuItemExists("terminal-delayed", in: app)
     }
@@ -7341,6 +7342,14 @@ final class cmuxUITests: XCTestCase {
             waitForHittable(app.buttons["MobileTerminalDropdown"], timeout: 8),
             "The terminal picker must remain visible and usable in the detail bar."
         )
+        defer { XCUIDevice.shared.orientation = .portrait }
+        for orientation in [UIDeviceOrientation.portrait, .landscapeLeft, .portrait] {
+            XCUIDevice.shared.orientation = orientation
+            assertNativeWorkspaceToolbarFits(in: app, includesChanges: true)
+            tap(app.buttons["MobileTerminalDropdown"], in: app)
+            XCTAssertTrue(app.buttons["MobileNewTerminalMenuItem"].waitForExistence(timeout: 4))
+            dismissOpenMenu(in: app)
+        }
     }
 
     @MainActor
@@ -8372,6 +8381,35 @@ final class cmuxUITests: XCTestCase {
             file: file,
             line: line
         )
+    }
+
+    @MainActor
+    private func assertNativeWorkspaceToolbarFits(
+        in app: XCUIApplication,
+        includesChanges: Bool = false,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        let bar = app.navigationBars["MobileWorkspaceNavigationBar"]
+        XCTAssertTrue(bar.waitForExistence(timeout: 4), "Workspace details must use a native navigation bar", file: file, line: line)
+        var controls = [app.buttons["MobileWorkspaceBackButton"], workspaceTitleElement(in: app)]
+        if includesChanges { controls.append(app.buttons["MobileChangesButton"]) }
+        controls.append(app.buttons["MobileTerminalDropdown"])
+        let fits = NSPredicate { _, _ in
+            let barFrame = bar.frame.insetBy(dx: -1, dy: -1)
+            let frames = controls.map(\.frame)
+            return controls.allSatisfy { $0.exists && $0.isHittable }
+                && frames.allSatisfy { !$0.isEmpty && barFrame.contains($0) }
+                && zip(frames, frames.dropFirst()).allSatisfy { $0.0.maxX <= $0.1.minX }
+        }
+        XCTAssertEqual(
+            XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: fits, object: nil)], timeout: 5),
+            .completed,
+            "Toolbar controls must fit without overlapping: \(controls.map(\.frame))",
+            file: file,
+            line: line
+        )
+        XCTAssertFalse(bar.buttons["More"].exists, "Essential controls must stay out of overflow", file: file, line: line)
     }
 
     @MainActor
