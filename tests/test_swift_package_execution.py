@@ -14,10 +14,10 @@ import unittest
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def package_step() -> str:
+def package_step(name: str) -> str:
     workflow = (ROOT / ".github/workflows/ci-macos.yml").read_text()
     job = workflow.split("\n  swift-package-tests:\n", 1)[1].split("\n  tests-build-and-lag:\n", 1)[0]
-    step = job.split("      - name: Run Swift package unit tests\n", 1)[1]
+    step = job.split(f"      - name: {name}\n", 1)[1]
     body = step.split("        run: |\n", 1)[1]
     lines = []
     for line in body.splitlines():
@@ -28,7 +28,10 @@ def package_step() -> str:
 
 
 class SwiftPackageExecutionTests(unittest.TestCase):
-    def run_step(self, output: str, status: int = 0, package: str = "CmuxComputerUse") -> subprocess.CompletedProcess[str]:
+    def run_step(
+        self, output: str, status: int = 0, package: str = "CmuxComputerUse",
+        step: str = "Run Swift package unit tests",
+    ) -> subprocess.CompletedProcess[str]:
         with tempfile.TemporaryDirectory(prefix="swift-package-execution-") as directory:
             root = Path(directory)
             (root / "Packages/macOS" / package).mkdir(parents=True)
@@ -57,7 +60,7 @@ class SwiftPackageExecutionTests(unittest.TestCase):
                 "RUNNER_TEMP": str(root),
             }
             return subprocess.run(
-                ["bash", "-c", package_step()], cwd=root, env=env,
+                ["bash", "-c", package_step(step)], cwd=root, env=env,
                 text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=20,
             )
 
@@ -104,6 +107,27 @@ class SwiftPackageExecutionTests(unittest.TestCase):
             "✘ Test run with 2 tests failed after 0.001 seconds with 1 issue.\n", status=1,
         )
         self.assertEqual(result.returncode, 1, result.stdout)
+
+    def test_binary_diagnostic_exception_does_not_hide_other_process_failures(self) -> None:
+        passed = "✔ Test run with 2 tests in 1 suite passed after 0.001 seconds.\n"
+        for output, status in (
+            (passed, 1),
+            ("error: unexpected binary framework\n" + passed, 42),
+            ("error: unexpected binary framework\n" + passed
+             + "error: Exited with unexpected signal code 10\n", 1),
+        ):
+            with self.subTest(output=output, status=status):
+                result = self.run_step(output, status=status, package="CmuxTerminal")
+                self.assertEqual(result.returncode, status, result.stdout)
+
+    def test_bonsplit_also_requires_completed_nonempty_execution(self) -> None:
+        for output, expected in (
+            ("✔ Test run with 0 tests passed after 0.001 seconds.\n", 1),
+            ("✔ Test run with 1 test passed after 0.001 seconds.\n", 0),
+        ):
+            with self.subTest(output=output):
+                result = self.run_step(output, step="Run Bonsplit package tests")
+                self.assertEqual(result.returncode, expected, result.stdout)
 
 
 if __name__ == "__main__":

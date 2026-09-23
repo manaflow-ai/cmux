@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 
+import json
 import os
 import pathlib
 import subprocess
@@ -33,6 +34,30 @@ def run_runner(package: pathlib.Path, env: dict[str, str]) -> subprocess.Complet
 
 
 class SwiftTestingSuiteTimeoutTests(unittest.TestCase):
+    def test_success_exit_requires_completed_nonzero_execution(self) -> None:
+        for output in (
+            "Test run with 0 tests passed after 0.001 seconds.",
+            "Test run started.\nTest one() passed after 0.001 seconds.",
+        ):
+            with self.subTest(output=output), tempfile.TemporaryDirectory() as temp_dir:
+                temp = pathlib.Path(temp_dir)
+                fake_swift = temp / "swift"
+                fake_swift.write_text(
+                    "#!/usr/bin/env python3\n"
+                    "import sys\n"
+                    "if sys.argv[1:3] == ['test', 'list']:\n"
+                    "    print('ExampleTests.Suite/testOne()')\n"
+                    "else:\n"
+                    f"    print({json.dumps(output)})\n",
+                    encoding="utf-8",
+                )
+                fake_swift.chmod(0o755)
+                env = os.environ.copy()
+                env["PATH"] = f"{temp}:{env['PATH']}"
+                completed = run_runner(temp, env)
+                self.assertNotEqual(completed.returncode, 0, completed.stdout)
+                self.assertIn("no completed nonzero", completed.stdout)
+
     def test_suite_processes_reuse_the_list_build(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             temp = pathlib.Path(temp_dir)
@@ -44,7 +69,9 @@ class SwiftTestingSuiteTimeoutTests(unittest.TestCase):
                 "if [[ \"$*\" == *\"test list\"* ]]; then\n"
                 "  echo 'ExampleTests.FirstSuite/testOne()'\n"
                 "  echo 'ExampleTests.SecondSuite/testTwo()'\n"
-                "fi\n",
+                "  exit 0\n"
+                "fi\n"
+                "echo 'Test run with 1 test passed after 0.001 seconds.'\n",
                 encoding="utf-8",
             )
             fake_swift.chmod(0o755)
@@ -116,7 +143,8 @@ class SwiftTestingSuiteTimeoutTests(unittest.TestCase):
                 "if [[ -f \"$CMUX_SWIFT_TEST_ATTEMPTS\" ]]; then count=$(cat \"$CMUX_SWIFT_TEST_ATTEMPTS\"); fi\n"
                 "count=$((count + 1))\n"
                 "printf '%s' \"$count\" > \"$CMUX_SWIFT_TEST_ATTEMPTS\"\n"
-                "if [[ \"$count\" -eq 1 ]]; then exit 124; fi\n",
+                "if [[ \"$count\" -eq 1 ]]; then exit 124; fi\n"
+                "echo 'Test run with 1 test passed after 0.001 seconds.'\n",
                 encoding="utf-8",
             )
             fake_swift.chmod(0o755)
@@ -135,7 +163,7 @@ class SwiftTestingSuiteTimeoutTests(unittest.TestCase):
             self.assertEqual(attempts.read_text(encoding="utf-8"), "2")
             for invocation in invocations[1:]:
                 self.assertIn("--skip-build", invocation)
-            self.assertIn("retrying RetrySuite once", completed.stdout)
+            self.assertIn("retrying ^ExampleTests\\.RetrySuite/ once", completed.stdout)
 
     def test_hung_suite_is_terminated_before_the_job_timeout(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -161,7 +189,7 @@ class SwiftTestingSuiteTimeoutTests(unittest.TestCase):
 
             self.assertEqual(completed.returncode, 124, completed.stdout)
             self.assertEqual(completed.stdout.count("timed out after 1s"), 2)
-            self.assertIn("retrying HangingSuite once", completed.stdout)
+            self.assertIn("retrying ^ExampleTests\\.HangingSuite/ once", completed.stdout)
 
 
 if __name__ == "__main__":

@@ -77,6 +77,8 @@ PATH_OWNERS = {
     "scripts/ci/restore-app-host-test-product.sh": frozenset(("preflight",)),
     "scripts/ci/reuse_app_host_products.py": frozenset(("preflight",)),
     "scripts/ci/run_python_test_lane.py": frozenset(("preflight",)),
+    "scripts/ci/require_swift_test_execution.py": frozenset(("app-host-execution",)),
+    "scripts/ci/run-swift-testing-suites.sh": frozenset(("app-host-execution",)),
     "scripts/ci/sanitize-xcode-source-packages-cache.py": frozenset(("preflight",)),
     # detect_ci_change_areas.py imports this to decide the swift-package-tests
     # route, so the ci group's router tests observe an edit to it even though

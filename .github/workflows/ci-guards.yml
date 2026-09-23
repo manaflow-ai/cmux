@@ -364,7 +364,9 @@ jobs:
 
       - name: Validate Swift package execution evidence
         if: ${{ matrix.group == 'app-host-execution' }}
-        run: python3 tests/test_swift_package_execution.py
+        run: |
+          python3 tests/test_swift_test_execution.py
+          python3 tests/test_swift_package_execution.py
 
       - name: Validate xcodebuild noninteractive crash prompt guard
         if: ${{ matrix.group == 'app-host-execution' }}
