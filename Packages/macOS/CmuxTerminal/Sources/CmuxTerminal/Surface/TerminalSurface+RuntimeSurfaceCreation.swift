@@ -301,13 +301,18 @@ extension TerminalSurface {
             surfaceConfig.command = cCommand
             return withOptionalCString(resolvedWorkingDirectory) { cWorkingDir in
                 surfaceConfig.working_directory = cWorkingDir
-                return withOptionalCString(resolvedInitialInput) { cInitialInput in
+                return withOptionalCString(
+                    startupRestoreAdmissionPhase == .unrestricted ? resolvedInitialInput : ""
+                ) { cInitialInput in
                     surfaceConfig.initial_input = cInitialInput
                     return makeGhosttySurface(app: app, config: &surfaceConfig, envVars: &envVars)
                 }
             }
         }
         if let createdSurface {
+            if startupRestoreAdmissionPhase != .unrestricted {
+                startupInputGate.stage(resolvedInitialInput, generation: terminalLifecycleId)
+            }
             guard ghostty_surface_set_render_presented_callback(
                 createdSurface,
                 terminalRendererPresentedCallback,

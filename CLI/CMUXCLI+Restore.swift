@@ -10,34 +10,6 @@ extension CMUXCLI {
         )
     }
 
-    func controlAgentLaunchCommandPayload(
-        _ command: AgentLaunchCommand
-    ) -> [String: Any] {
-        var payload: [String: Any] = ["arguments": command.arguments]
-        if let launcher = command.launcher {
-            payload["launcher"] = launcher
-        }
-        if let executablePath = command.executablePath {
-            payload["executable_path"] = executablePath
-        }
-        if let workingDirectory = command.workingDirectory {
-            payload["working_directory"] = workingDirectory
-        }
-        if let environment = command.environment {
-            payload["environment"] = environment
-        }
-        if let verificationHome = command.verificationHome {
-            payload["verification_home"] = verificationHome
-        }
-        if let capturedAt = command.capturedAt {
-            payload["captured_at"] = capturedAt
-        }
-        if let source = command.source {
-            payload["source"] = source
-        }
-        return payload
-    }
-
     func runRestoreCommand(
         commandArgs: [String],
         client: SocketClient,
@@ -259,11 +231,23 @@ extension CMUXCLI {
             )
         }
 
+        let launchLease = try acquireRestoreLaunchLease(
+            record: record, invocation: invocation, restorePayload: payload, client: client,
+            workingDirectory: effectiveWorkingDirectory ?? FileManager.default.currentDirectoryPath
+        )
+        defer { launchLease?.release() }
         let admissionClaim = try requireRestoreLaunchAdmission(
             record: record,
             recordSessionID: surfaceRecordCheckpointID,
             restorePayload: payload,
-            client: client
+            client: client,
+            effectiveCodexHome: record.kind == "codex"
+                ? CodexRestoreAccount().home(
+                    environment: invocation.environment,
+                    workingDirectory: effectiveWorkingDirectory ?? FileManager.default.currentDirectoryPath,
+                    fallbackHome: NSHomeDirectory()
+                )
+                : nil
         )
         do {
             for preflight in invocation.preflightInvocations {
@@ -292,10 +276,12 @@ extension CMUXCLI {
                 )
                 return
             }
+            try launchLease?.inheritAcrossExec()
             client.close()
             try execRestoreInvocation(
                 invocation,
-                appliedWorkingDirectory: effectiveWorkingDirectory
+                appliedWorkingDirectory: effectiveWorkingDirectory,
+                admittedScope: admissionClaim
             )
         } catch {
             releaseRestoreLaunchAdmission(admissionClaim, client: client)

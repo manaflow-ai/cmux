@@ -94,11 +94,10 @@ struct TerminalStartupRestoreFailureTests {
         restored.terminalStartupRestoreCoordinator.commitPendingRestores(
             panelIDs: [restoredPanelID]
         )
-        // Topology publication alone does not admit an ownership-sensitive
-        // resume. The deferred resolver must still accept or cancel it from
-        // the fresh shared index before the runtime can start.
-        #expect(!restoredPanel.surface.canCreateRuntimeSurface)
-        #expect(restored.deferredAgentResumeRestoresByPanelId[restoredPanelID] != nil)
+        // The remote daemon owns persistent PTY admission. A local census
+        // must not prevent attaching the existing remote session.
+        #expect(restoredPanel.surface.canCreateRuntimeSurface)
+        #expect(restored.deferredAgentResumeRestoresByPanelId[restoredPanelID] == nil)
     }
 
     @Test("Transferred persistent SSH restore adopts the destination owner")

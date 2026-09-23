@@ -135,12 +135,8 @@ struct RestoredStartupInputResendTests {
         #expect(coordinator.takeStartupInputForResend(panelId: panelId, shellState: .promptIdle) == nil)
     }
 
-    @Test("A workspace replays the lost selector after its shell settles at an idle prompt")
+    @Test("A prompt retains restore ownership until command acknowledgement")
     func workspaceReplaysAfterIdlePrompt() async throws {
-        let previousGrace = Workspace.restoredStartupInputResendGrace
-        Workspace.restoredStartupInputResendGrace = 0.05
-        defer { Workspace.restoredStartupInputResendGrace = previousGrace }
-
         let workspace = Workspace()
         defer { workspace.teardownAllPanels() }
         let panelId = try #require(workspace.focusedPanelId)
@@ -155,15 +151,9 @@ struct RestoredStartupInputResendTests {
         workspace.restoredAgentLifecycle.registerStartupInput(selector, panelId: panelId)
 
         workspace.updatePanelShellActivityState(panelId: panelId, state: .promptIdle)
-        // The grace period keeps a prompt-then-command sequence from double-typing.
+        // Readiness alone cannot acknowledge execution. The binding remains
+        // owned until a command-start or matching agent observation arrives.
         #expect(workspace.restoredAgentLifecycle.awaitsStartupInput(panelId: panelId))
-
-        let deadline = ContinuousClock.now + .seconds(5)
-        while workspace.restoredAgentLifecycle.awaitsStartupInput(panelId: panelId),
-              ContinuousClock.now < deadline {
-            try await Task.sleep(for: .milliseconds(20))
-        }
-        #expect(!workspace.restoredAgentLifecycle.awaitsStartupInput(panelId: panelId))
         #expect(workspace.restoredAgentResumeStatesByPanelId[panelId] == .awaitingAutoResumeCommand)
     }
 
@@ -235,17 +225,6 @@ struct RestoredStartupInputResendTests {
         )
     }
 
-    private func waitForReplay(
-        _ coordinator: RestoredAgentLifecycleCoordinator,
-        panelId: UUID
-    ) async throws {
-        let deadline = ContinuousClock.now + .seconds(5)
-        while coordinator.awaitsStartupInput(panelId: panelId),
-              ContinuousClock.now < deadline {
-            try await Task.sleep(for: .milliseconds(20))
-        }
-    }
-
     @Test("Re-stamping a transfer's remote cleanup configuration keeps the retained selector")
     func remoteCleanupCopyKeepsStartupInput() {
         let panel = RestoredStartupInputTransferTestPanel()
@@ -258,12 +237,8 @@ struct RestoredStartupInputResendTests {
         #expect(copied.shellActivityState == .promptIdle)
     }
 
-    @Test("A workspace that adopts a pane whose shell already idled replays the selector itself")
+    @Test("A workspace transfer retains unacknowledged restore ownership")
     func workspaceReplaysAfterAdoptingIdleTransfer() async throws {
-        let previousGrace = Workspace.restoredStartupInputResendGrace
-        Workspace.restoredStartupInputResendGrace = 0.05
-        defer { Workspace.restoredStartupInputResendGrace = previousGrace }
-
         let workspace = Workspace()
         defer { workspace.teardownAllPanels() }
         let panelId = try #require(workspace.focusedPanelId)
@@ -275,22 +250,13 @@ struct RestoredStartupInputResendTests {
 
         #expect(workspace.restoredAgentResumeStatesByPanelId[panelId] == .awaitingAutoResumeCommand)
         #expect(workspace.panelShellActivityStates[panelId] == .promptIdle)
+        // A transfer must retain the unacknowledged identity without arming a timer.
         #expect(workspace.restoredAgentLifecycle.awaitsStartupInput(panelId: panelId))
-        // The idle prompt was reported to the previous owner and never repeats
-        // here, so adoption itself must have armed the replay.
-        #expect(!workspace.restoredAgentLifecycle.armStartupInputResend(panelId: panelId))
-
-        try await waitForReplay(workspace.restoredAgentLifecycle, panelId: panelId)
-        #expect(!workspace.restoredAgentLifecycle.awaitsStartupInput(panelId: panelId))
         #expect(workspace.restoredAgentResumeStatesByPanelId[panelId] == .awaitingAutoResumeCommand)
     }
 
-    @Test("A Dock that adopts a pane whose shell already idled replays the selector itself")
+    @Test("A Dock transfer retains unacknowledged restore ownership")
     func dockReplaysAfterAdoptingIdleTransfer() async throws {
-        let previousGrace = Workspace.restoredStartupInputResendGrace
-        Workspace.restoredStartupInputResendGrace = 0.05
-        defer { Workspace.restoredStartupInputResendGrace = previousGrace }
-
         let sourceWorkspaceId = UUID()
         let panel = TerminalPanel(workspaceId: sourceWorkspaceId)
         let store = DockSplitStore(workspaceId: UUID(), baseDirectoryProvider: { nil })
@@ -306,10 +272,6 @@ struct RestoredStartupInputResendTests {
         #expect(attached == panel.id)
         #expect(panel.shellActivity.state == .promptIdle)
         #expect(store.restoredAgentLifecycle.awaitsStartupInput(panelId: panel.id))
-        #expect(!store.restoredAgentLifecycle.armStartupInputResend(panelId: panel.id))
-
-        try await waitForReplay(store.restoredAgentLifecycle, panelId: panel.id)
-        #expect(!store.restoredAgentLifecycle.awaitsStartupInput(panelId: panel.id))
         #expect(store.restoredAgentLifecycle.resumeStatesByPanelId[panel.id] == .awaitingAutoResumeCommand)
     }
 

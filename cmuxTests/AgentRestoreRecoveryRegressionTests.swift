@@ -60,5 +60,10 @@ struct AgentRestoreRecoveryRegressionTests {
         #expect(input.contains(" restore codex \(sessionID)"), Comment(rawValue: input))
         #expect(!input.contains("/usr/bin/printf"), Comment(rawValue: input))
         #expect(restored.restoredAgentResumeStatesByPanelId[panelID] == .awaitingAutoResumeCommand)
+        let nextSnapshot = restored.sessionSnapshot(includeScrollback: false)
+        let continuation = nextSnapshot.panels.compactMap(\.terminal).first {
+            $0.agent?.sessionId == sessionID
+        }
+        #expect(continuation?.wasAgentRunning == true, "Pending recovery must survive another quit")
     }
 }

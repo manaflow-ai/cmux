@@ -156,12 +156,18 @@
 		0A1107110000000000000012 /* AgentRelaunchCommandBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A1107110000000000000013 /* AgentRelaunchCommandBuilder.swift */; };
 		93840005AA11BB22CC33EE05 /* AgentRelayTTYOwnershipTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 93840006AA11BB22CC33EE06 /* AgentRelayTTYOwnershipTests.swift */; };
 		93840003AA11BB22CC33EE03 /* AgentRelayTTYTargetResolution.swift in Sources */ = {isa = PBXBuildFile; fileRef = 93840004AA11BB22CC33EE04 /* AgentRelayTTYTargetResolution.swift */; };
+		815536281D8502E4EFA683F0 /* AgentRestoreAdmissionInputs.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7692B43CED35D70F292C8537 /* AgentRestoreAdmissionInputs.swift */; };
+		15042AA9E67B074D4C03CA18 /* AgentRestoreCodexEvidence.swift in Sources */ = {isa = PBXBuildFile; fileRef = 922A32567AAA6DD33BCE05CF /* AgentRestoreCodexEvidence.swift */; };
+		5166F999E9205E6CEB90AA79 /* AgentRestoreEvidenceObservation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 34AE0530BC772C9E4DC2BE33 /* AgentRestoreEvidenceObservation.swift */; };
+		A64E0D245603951ACCAEB957 /* AgentRestoreEvidenceSubscription.swift in Sources */ = {isa = PBXBuildFile; fileRef = AC44C6882243B4D699AE73FA /* AgentRestoreEvidenceSubscription.swift */; };
 		C41D15BA2CF8651980082256 /* AgentRestoreLiveOwnerAdmissionTests+Fixture.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0E91730F780E2461753BB8A /* AgentRestoreLiveOwnerAdmissionTests+Fixture.swift */; };
 		110430011104300111043001 /* AgentRestoreLiveOwnerAdmissionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 110430021104300211043002 /* AgentRestoreLiveOwnerAdmissionTests.swift */; };
 		110432021104320211043202 /* AgentRestoreLiveOwnerNotice.swift in Sources */ = {isa = PBXBuildFile; fileRef = 110432011104320111043201 /* AgentRestoreLiveOwnerNotice.swift */; };
 		0A1107110000000000000014 /* AgentRestoreMode.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A1107110000000000000015 /* AgentRestoreMode.swift */; };
 		121580021215800212158002 /* AgentRestoreNoticeInput.swift in Sources */ = {isa = PBXBuildFile; fileRef = 121580011215800112158001 /* AgentRestoreNoticeInput.swift */; };
+		E6C0EB448B3198F053944846 /* AgentRestoreRecoveryPresentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3F412FA43648BED10E95FCB7 /* AgentRestoreRecoveryPresentation.swift */; };
 		32870528BA7DA7C68021A6EA /* AgentRestoreRecoveryRegressionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 79AE16C7F47C6F259EEF6ED3 /* AgentRestoreRecoveryRegressionTests.swift */; };
+		6DEA5D9260D07EB41AC52A77 /* AgentRestoreRecoveryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3CF6B32E82544240C8F118CE /* AgentRestoreRecoveryView.swift */; };
 		110433021104330211043302 /* AgentRestoreSuppressionJournal.swift in Sources */ = {isa = PBXBuildFile; fileRef = 110433011104330111043301 /* AgentRestoreSuppressionJournal.swift */; };
 		121580041215800412158004 /* AgentRestoreUnverifiableNotice.swift in Sources */ = {isa = PBXBuildFile; fileRef = 121580031215800312158003 /* AgentRestoreUnverifiableNotice.swift */; };
 		D8DFFAEC2DBC3ACCF87D563E /* AgentResumeLaunchGuard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5977EB347EF8D7692B3759E2 /* AgentResumeLaunchGuard.swift */; };
@@ -1256,8 +1262,11 @@
 		D7AB12048000000000000001 /* CMUXCLI+RemoteWorkingDirectory.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7AB12048000000000000002 /* CMUXCLI+RemoteWorkingDirectory.swift */; };
 		925800000000000000000002 /* CMUXCLI+Restore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 925800000000000000000001 /* CMUXCLI+Restore.swift */; };
 		110435021104350211043502 /* CMUXCLI+RestoreAdmission.swift in Sources */ = {isa = PBXBuildFile; fileRef = 110435011104350111043501 /* CMUXCLI+RestoreAdmission.swift */; };
+		E7E34A1F76D7A90C5A174B19 /* CMUXCLI+RestoreAdmissionTarget.swift in Sources */ = {isa = PBXBuildFile; fileRef = E1806D03F61C6E8789D112C5 /* CMUXCLI+RestoreAdmissionTarget.swift */; };
 		92580000000000000000000B /* CMUXCLI+RestoreExecution.swift in Sources */ = {isa = PBXBuildFile; fileRef = 92580000000000000000000C /* CMUXCLI+RestoreExecution.swift */; };
 		925800000000000000000009 /* CMUXCLI+RestoreFailureReporting.swift in Sources */ = {isa = PBXBuildFile; fileRef = 92580000000000000000000A /* CMUXCLI+RestoreFailureReporting.swift */; };
+		1BE9FEE6580BAB8B0EC90FC5 /* CMUXCLI+RestoreLaunchLease.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC6116026F3AAE9F0065C15D /* CMUXCLI+RestoreLaunchLease.swift */; };
+		F37D9D30E9A746D54D4675AD /* CMUXCLI+RestoreLaunchPayload.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7C2DBFB8A037113BFB961F9A /* CMUXCLI+RestoreLaunchPayload.swift */; };
 		925800000000000000000003 /* CMUXCLI+RestorePreflight.swift in Sources */ = {isa = PBXBuildFile; fileRef = 925800000000000000000004 /* CMUXCLI+RestorePreflight.swift */; };
 		925800000000000000000007 /* CMUXCLI+RestoreRecord.swift in Sources */ = {isa = PBXBuildFile; fileRef = 925800000000000000000008 /* CMUXCLI+RestoreRecord.swift */; };
 		925800000000000000000005 /* CMUXCLI+RestoreSelector.swift in Sources */ = {isa = PBXBuildFile; fileRef = 925800000000000000000006 /* CMUXCLI+RestoreSelector.swift */; };
@@ -1586,6 +1595,9 @@
 		918100000000000000000041 /* CodexHookFailureSummary.swift in Sources */ = {isa = PBXBuildFile; fileRef = 918100000000000000000040 /* CodexHookFailureSummary.swift */; };
 		918100000000000000000061 /* CodexHookUserInputCandidate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 918100000000000000000060 /* CodexHookUserInputCandidate.swift */; };
 		918100000000000000000091 /* CodexMonitorOwnerState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 918100000000000000000090 /* CodexMonitorOwnerState.swift */; };
+		9D04DE21C5281E376C0FE450 /* CodexRestoreHookEvidence.swift in Sources */ = {isa = PBXBuildFile; fileRef = 657ECAA4E052C87DFE264F70 /* CodexRestoreHookEvidence.swift */; };
+		256E3FBC057F233E8849DF79 /* CodexRestoreHookEvidenceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A1D2A327B1DBFC724A70928 /* CodexRestoreHookEvidenceTests.swift */; };
+		7FF4F2EA73F8883D21912965 /* CodexRestoreOwnerGenerationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49E1CED2CD67AA6493348BF7 /* CodexRestoreOwnerGenerationTests.swift */; };
 		C6209A010000000000000001 /* CodexRestoreValidationResult.swift in Sources */ = {isa = PBXBuildFile; fileRef = C6209A020000000000000001 /* CodexRestoreValidationResult.swift */; };
 		D96290010000000000000001 /* CodexResumeBindingVerificationRegressionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D96290020000000000000001 /* CodexResumeBindingVerificationRegressionTests.swift */; };
 		C8711C000000000000000002 /* CodexRolloutIdentity.swift in Sources */ = {isa = PBXBuildFile; fileRef = C8711C000000000000000001 /* CodexRolloutIdentity.swift */; };
@@ -1809,6 +1821,7 @@
 		DCDC1000000000000000B021 /* DockSplitStore+CloseConfirmation.swift in Sources */ = {isa = PBXBuildFile; fileRef = DCDC1000000000000000B022 /* DockSplitStore+CloseConfirmation.swift */; };
 		9518D0C10000000000000001 /* DockSplitStore+ClosedItemHistory.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9518D0C10000000000000002 /* DockSplitStore+ClosedItemHistory.swift */; };
 		DCDC0000000000000000A003 /* DockSplitStore+Config.swift in Sources */ = {isa = PBXBuildFile; fileRef = DCDC0000000000000000A004 /* DockSplitStore+Config.swift */; };
+		0793CA78268977DEA89DD706 /* DockSplitStore+DeferredAgentRestoreAdmission.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1D75A72E3EB3A0BB5E904DC7 /* DockSplitStore+DeferredAgentRestoreAdmission.swift */; };
 		DCDC1000000000000000B019 /* DockSplitStore+PaneFocus.swift in Sources */ = {isa = PBXBuildFile; fileRef = DCDC1000000000000000B020 /* DockSplitStore+PaneFocus.swift */; };
 		8997E0038997E0038997E003 /* DockSplitStore+PanelDestruction.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8997F0038997F0038997F003 /* DockSplitStore+PanelDestruction.swift */; };
 		5211D0A28DBA420093D8546C /* DockSplitStore+PaneResize.swift in Sources */ = {isa = PBXBuildFile; fileRef = 725324E53E76475FAE1B1255 /* DockSplitStore+PaneResize.swift */; };
@@ -1816,6 +1829,7 @@
 		D77800020000000000000001 /* DockSplitStore+PortalReconcile.swift in Sources */ = {isa = PBXBuildFile; fileRef = D77800020000000000000002 /* DockSplitStore+PortalReconcile.swift */; };
 		A58FE4ADC615FCA54805937D /* DockSplitStore+RemoteTerminalLiveness.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA89727B6E520B2669A530CD /* DockSplitStore+RemoteTerminalLiveness.swift */; };
 		D86840000000000000000011 /* DockSplitStore+Reset.swift in Sources */ = {isa = PBXBuildFile; fileRef = D86840000000000000000012 /* DockSplitStore+Reset.swift */; };
+		BBF4E2C414B888ADA2AF1B98 /* DockSplitStore+RestoreAdmission.swift in Sources */ = {isa = PBXBuildFile; fileRef = 89D26A409C36E03102A92A96 /* DockSplitStore+RestoreAdmission.swift */; };
 		D8684000000000000000000B /* DockSplitStore+RestoredAgentLifecycle.swift in Sources */ = {isa = PBXBuildFile; fileRef = D8684000000000000000000C /* DockSplitStore+RestoredAgentLifecycle.swift */; };
 		D86840000000000000000018 /* DockSplitStore+RestoredStartupInputOwnership.swift in Sources */ = {isa = PBXBuildFile; fileRef = D86840000000000000000019 /* DockSplitStore+RestoredStartupInputOwnership.swift */; };
 		D86840000000000000000005 /* DockSplitStore+SessionRestore.swift in Sources */ = {isa = PBXBuildFile; fileRef = D86840000000000000000006 /* DockSplitStore+SessionRestore.swift */; };
@@ -3452,6 +3466,7 @@
 		A77A0007A1B2C3D4E5F60001 /* TerminalController+AgentJournal.swift in Sources */ = {isa = PBXBuildFile; fileRef = A77A0008A1B2C3D4E5F60001 /* TerminalController+AgentJournal.swift */; };
 		D35A00000000000000000014 /* TerminalController+AgentPromptDelivery.swift in Sources */ = {isa = PBXBuildFile; fileRef = D35B00000000000000000014 /* TerminalController+AgentPromptDelivery.swift */; };
 		110434021104340211043402 /* TerminalController+AgentRestoreAdmission.swift in Sources */ = {isa = PBXBuildFile; fileRef = 110434011104340111043401 /* TerminalController+AgentRestoreAdmission.swift */; };
+		1C2E31B0392EDA1F21B150A4 /* TerminalController+AgentRestoreRecovery.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8BC27608B94D9C9D703147F2 /* TerminalController+AgentRestoreRecovery.swift */; };
 		2AEE214AD8A145C2BEA7AEE3 /* TerminalController+AgentTitle.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0CCD6F86F7D943F79609DF83 /* TerminalController+AgentTitle.swift */; };
 		13019E000000000000000002 /* TerminalController+AuthTeam.swift in Sources */ = {isa = PBXBuildFile; fileRef = 13019E000000000000000001 /* TerminalController+AuthTeam.swift */; };
 		A106490C0000000000000001 /* TerminalController+Automation.swift in Sources */ = {isa = PBXBuildFile; fileRef = A106490B0000000000000001 /* TerminalController+Automation.swift */; };
@@ -3644,6 +3659,7 @@
 		8997E0048997E0048997E004 /* TerminalPanel+AgentHibernation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8997F0048997F0048997F004 /* TerminalPanel+AgentHibernation.swift */; };
 		A5F100000000000000000007 /* TerminalPanel+NotificationScroll.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5F100000000000000000008 /* TerminalPanel+NotificationScroll.swift */; };
 		791101010000000000000001 /* TerminalPanel+SessionScrollbackReplay.swift in Sources */ = {isa = PBXBuildFile; fileRef = 791101020000000000000001 /* TerminalPanel+SessionScrollbackReplay.swift */; };
+		5C0E5FB290CC1E5CE63F98DB /* TerminalPanel+ShellReadiness.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4983F8022A862E60F27778D /* TerminalPanel+ShellReadiness.swift */; };
 		ABB87B1A532D01C50C10F903 /* TerminalPanel+SurfaceSelection.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAAD8854A2CD1387725EEC0A /* TerminalPanel+SurfaceSelection.swift */; };
 		A5001401 /* TerminalPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001411 /* TerminalPanel.swift */; };
 		E8B3D5F71A2C49608B7D5E31 /* TerminalPanelCreationOutcome.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2A6C8E40D5B17293C8F6A42 /* TerminalPanelCreationOutcome.swift */; };
@@ -3941,6 +3957,7 @@
 		C57B00030000000000000001 /* Workspace+CustomSidebarPane.swift in Sources */ = {isa = PBXBuildFile; fileRef = C57B00030000000000000002 /* Workspace+CustomSidebarPane.swift */; };
 		9FC97DA1B422776BB1EEC821 /* Workspace+CustomSidebarPullRequests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 42C2726A34F27E7A43B77368 /* Workspace+CustomSidebarPullRequests.swift */; };
 		C7268001000000000000001 /* Workspace+CustomSidebarSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7268001000000000000002 /* Workspace+CustomSidebarSnapshot.swift */; };
+		453310E91B73DD33C5D966DE /* Workspace+DeferredAgentRestoreAdmission.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEE760B8DF421ADA91B9E469 /* Workspace+DeferredAgentRestoreAdmission.swift */; };
 		D7AB00000000000000000015 /* Workspace+DetachedSurfaceTransfer.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7AB00000000000000000016 /* Workspace+DetachedSurfaceTransfer.swift */; };
 				DE798F1143F44A3291B209B4 /* Workspace+DeviceLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2D524BAA8EBB49159808F6FA /* Workspace+DeviceLayout.swift */; };
 				621C8004A55D9FBCAC886925 /* Workspace+DeviceMachineContext.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4633F977C21AEB58F2FB5785 /* Workspace+DeviceMachineContext.swift */; };
@@ -4403,12 +4420,18 @@
 		0A1107110000000000000013 /* AgentRelaunchCommandBuilder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentRelaunchCommandBuilder.swift; sourceTree = "<group>"; };
 		93840006AA11BB22CC33EE06 /* AgentRelayTTYOwnershipTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentRelayTTYOwnershipTests.swift; sourceTree = "<group>"; };
 		93840004AA11BB22CC33EE04 /* AgentRelayTTYTargetResolution.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentRelayTTYTargetResolution.swift; sourceTree = "<group>"; };
+		7692B43CED35D70F292C8537 /* AgentRestoreAdmissionInputs.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AgentRestoreAdmissionInputs.swift"; sourceTree = "<group>"; };
+		922A32567AAA6DD33BCE05CF /* AgentRestoreCodexEvidence.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AgentRestoreCodexEvidence.swift"; sourceTree = "<group>"; };
+		34AE0530BC772C9E4DC2BE33 /* AgentRestoreEvidenceObservation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AgentRestoreEvidenceObservation.swift"; sourceTree = "<group>"; };
+		AC44C6882243B4D699AE73FA /* AgentRestoreEvidenceSubscription.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AgentRestoreEvidenceSubscription.swift"; sourceTree = "<group>"; };
 		F0E91730F780E2461753BB8A /* AgentRestoreLiveOwnerAdmissionTests+Fixture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AgentRestoreLiveOwnerAdmissionTests+Fixture.swift"; sourceTree = "<group>"; };
 		110430021104300211043002 /* AgentRestoreLiveOwnerAdmissionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentRestoreLiveOwnerAdmissionTests.swift; sourceTree = "<group>"; };
 		110432011104320111043201 /* AgentRestoreLiveOwnerNotice.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentRestoreLiveOwnerNotice.swift; sourceTree = "<group>"; };
 		0A1107110000000000000015 /* AgentRestoreMode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentRestoreMode.swift; sourceTree = "<group>"; };
 		121580011215800112158001 /* AgentRestoreNoticeInput.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentRestoreNoticeInput.swift; sourceTree = "<group>"; };
+		3F412FA43648BED10E95FCB7 /* AgentRestoreRecoveryPresentation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AgentRestoreRecoveryPresentation.swift"; sourceTree = "<group>"; };
 		79AE16C7F47C6F259EEF6ED3 /* AgentRestoreRecoveryRegressionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AgentRestoreRecoveryRegressionTests.swift"; sourceTree = "<group>"; };
+		3CF6B32E82544240C8F118CE /* AgentRestoreRecoveryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/AgentRestoreRecoveryView.swift"; sourceTree = "<group>"; };
 		110433011104330111043301 /* AgentRestoreSuppressionJournal.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentRestoreSuppressionJournal.swift; sourceTree = "<group>"; };
 		121580031215800312158003 /* AgentRestoreUnverifiableNotice.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentRestoreUnverifiableNotice.swift; sourceTree = "<group>"; };
 		5977EB347EF8D7692B3759E2 /* AgentResumeLaunchGuard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentResumeLaunchGuard.swift; sourceTree = "<group>"; };
@@ -5471,8 +5494,11 @@
 		D7AB12048000000000000002 /* CMUXCLI+RemoteWorkingDirectory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+RemoteWorkingDirectory.swift"; sourceTree = "<group>"; };
 		925800000000000000000001 /* CMUXCLI+Restore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+Restore.swift"; sourceTree = "<group>"; };
 		110435011104350111043501 /* CMUXCLI+RestoreAdmission.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+RestoreAdmission.swift"; sourceTree = "<group>"; };
+		E1806D03F61C6E8789D112C5 /* CMUXCLI+RestoreAdmissionTarget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+RestoreAdmissionTarget.swift"; sourceTree = "<group>"; };
 		92580000000000000000000C /* CMUXCLI+RestoreExecution.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+RestoreExecution.swift"; sourceTree = "<group>"; };
 		92580000000000000000000A /* CMUXCLI+RestoreFailureReporting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+RestoreFailureReporting.swift"; sourceTree = "<group>"; };
+		BC6116026F3AAE9F0065C15D /* CMUXCLI+RestoreLaunchLease.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+RestoreLaunchLease.swift"; sourceTree = "<group>"; };
+		7C2DBFB8A037113BFB961F9A /* CMUXCLI+RestoreLaunchPayload.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+RestoreLaunchPayload.swift"; sourceTree = "<group>"; };
 		925800000000000000000004 /* CMUXCLI+RestorePreflight.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+RestorePreflight.swift"; sourceTree = "<group>"; };
 		925800000000000000000008 /* CMUXCLI+RestoreRecord.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+RestoreRecord.swift"; sourceTree = "<group>"; };
 		925800000000000000000006 /* CMUXCLI+RestoreSelector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+RestoreSelector.swift"; sourceTree = "<group>"; };
@@ -5715,6 +5741,9 @@
 		918100000000000000000040 /* CodexHookFailureSummary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexHookFailureSummary.swift; sourceTree = "<group>"; };
 		918100000000000000000060 /* CodexHookUserInputCandidate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexHookUserInputCandidate.swift; sourceTree = "<group>"; };
 		918100000000000000000090 /* CodexMonitorOwnerState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexMonitorOwnerState.swift; sourceTree = "<group>"; };
+		657ECAA4E052C87DFE264F70 /* CodexRestoreHookEvidence.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexRestoreHookEvidence.swift; sourceTree = "<group>"; };
+		7A1D2A327B1DBFC724A70928 /* CodexRestoreHookEvidenceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CodexRestoreHookEvidenceTests.swift"; sourceTree = "<group>"; };
+		49E1CED2CD67AA6493348BF7 /* CodexRestoreOwnerGenerationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CodexRestoreOwnerGenerationTests.swift"; sourceTree = "<group>"; };
 		C6209A020000000000000001 /* CodexRestoreValidationResult.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexRestoreValidationResult.swift; sourceTree = "<group>"; };
 		D96290020000000000000001 /* CodexResumeBindingVerificationRegressionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexResumeBindingVerificationRegressionTests.swift; sourceTree = "<group>"; };
 		C8711C000000000000000001 /* CodexRolloutIdentity.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CodexRolloutIdentity.swift; sourceTree = "<group>"; };
@@ -5935,6 +5964,7 @@
 		DCDC1000000000000000B022 /* DockSplitStore+CloseConfirmation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "DockSplitStore+CloseConfirmation.swift"; sourceTree = "<group>"; };
 		9518D0C10000000000000002 /* DockSplitStore+ClosedItemHistory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "DockSplitStore+ClosedItemHistory.swift"; sourceTree = "<group>"; };
 		DCDC0000000000000000A004 /* DockSplitStore+Config.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "DockSplitStore+Config.swift"; sourceTree = "<group>"; };
+		1D75A72E3EB3A0BB5E904DC7 /* DockSplitStore+DeferredAgentRestoreAdmission.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "DockSplitStore+DeferredAgentRestoreAdmission.swift"; sourceTree = "<group>"; };
 		DCDC1000000000000000B020 /* DockSplitStore+PaneFocus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "DockSplitStore+PaneFocus.swift"; sourceTree = "<group>"; };
 		8997F0038997F0038997F003 /* DockSplitStore+PanelDestruction.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "DockSplitStore+PanelDestruction.swift"; sourceTree = "<group>"; };
 		725324E53E76475FAE1B1255 /* DockSplitStore+PaneResize.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "DockSplitStore+PaneResize.swift"; sourceTree = "<group>"; };
@@ -5942,6 +5972,7 @@
 		D77800020000000000000002 /* DockSplitStore+PortalReconcile.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "DockSplitStore+PortalReconcile.swift"; sourceTree = "<group>"; };
 		AA89727B6E520B2669A530CD /* DockSplitStore+RemoteTerminalLiveness.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "DockSplitStore+RemoteTerminalLiveness.swift"; sourceTree = "<group>"; };
 		D86840000000000000000012 /* DockSplitStore+Reset.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "DockSplitStore+Reset.swift"; sourceTree = "<group>"; };
+		89D26A409C36E03102A92A96 /* DockSplitStore+RestoreAdmission.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "DockSplitStore+RestoreAdmission.swift"; sourceTree = "<group>"; };
 		D8684000000000000000000C /* DockSplitStore+RestoredAgentLifecycle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "DockSplitStore+RestoredAgentLifecycle.swift"; sourceTree = "<group>"; };
 		D86840000000000000000019 /* DockSplitStore+RestoredStartupInputOwnership.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "DockSplitStore+RestoredStartupInputOwnership.swift"; sourceTree = "<group>"; };
 		D86840000000000000000006 /* DockSplitStore+SessionRestore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "DockSplitStore+SessionRestore.swift"; sourceTree = "<group>"; };
@@ -7555,6 +7586,7 @@
 		A77A0008A1B2C3D4E5F60001 /* TerminalController+AgentJournal.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+AgentJournal.swift"; sourceTree = "<group>"; };
 		D35B00000000000000000014 /* TerminalController+AgentPromptDelivery.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+AgentPromptDelivery.swift"; sourceTree = "<group>"; };
 		110434011104340111043401 /* TerminalController+AgentRestoreAdmission.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+AgentRestoreAdmission.swift"; sourceTree = "<group>"; };
+		8BC27608B94D9C9D703147F2 /* TerminalController+AgentRestoreRecovery.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+AgentRestoreRecovery.swift"; sourceTree = "<group>"; };
 		0CCD6F86F7D943F79609DF83 /* TerminalController+AgentTitle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+AgentTitle.swift"; sourceTree = "<group>"; };
 		13019E000000000000000001 /* TerminalController+AuthTeam.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+AuthTeam.swift"; sourceTree = "<group>"; };
 		A106490B0000000000000001 /* TerminalController+Automation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+Automation.swift"; sourceTree = "<group>"; };
@@ -7747,6 +7779,7 @@
 		8997F0048997F0048997F004 /* TerminalPanel+AgentHibernation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/TerminalPanel+AgentHibernation.swift"; sourceTree = "<group>"; };
 		A5F100000000000000000008 /* TerminalPanel+NotificationScroll.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/TerminalPanel+NotificationScroll.swift"; sourceTree = "<group>"; };
 		791101020000000000000001 /* TerminalPanel+SessionScrollbackReplay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/TerminalPanel+SessionScrollbackReplay.swift"; sourceTree = "<group>"; };
+		D4983F8022A862E60F27778D /* TerminalPanel+ShellReadiness.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/TerminalPanel+ShellReadiness.swift"; sourceTree = "<group>"; };
 		AAAD8854A2CD1387725EEC0A /* TerminalPanel+SurfaceSelection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/TerminalPanel+SurfaceSelection.swift"; sourceTree = "<group>"; };
 		A5001411 /* TerminalPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/TerminalPanel.swift; sourceTree = "<group>"; };
 		F2A6C8E40D5B17293C8F6A42 /* TerminalPanelCreationOutcome.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalPanelCreationOutcome.swift; sourceTree = "<group>"; };
@@ -8040,6 +8073,7 @@
 		C57B00030000000000000002 /* Workspace+CustomSidebarPane.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+CustomSidebarPane.swift"; sourceTree = "<group>"; };
 		42C2726A34F27E7A43B77368 /* Workspace+CustomSidebarPullRequests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+CustomSidebarPullRequests.swift"; sourceTree = "<group>"; };
 		C7268001000000000000002 /* Workspace+CustomSidebarSnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+CustomSidebarSnapshot.swift"; sourceTree = "<group>"; };
+		FEE760B8DF421ADA91B9E469 /* Workspace+DeferredAgentRestoreAdmission.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+DeferredAgentRestoreAdmission.swift"; sourceTree = "<group>"; };
 		D7AB00000000000000000016 /* Workspace+DetachedSurfaceTransfer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+DetachedSurfaceTransfer.swift"; sourceTree = "<group>"; };
 				2D524BAA8EBB49159808F6FA /* Workspace+DeviceLayout.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "Devices/Workspace+DeviceLayout.swift"; sourceTree = "<group>"; };
 				4633F977C21AEB58F2FB5785 /* Workspace+DeviceMachineContext.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "Devices/Workspace+DeviceMachineContext.swift"; sourceTree = "<group>"; };
@@ -9766,6 +9800,7 @@
 				F42B6D13319C42CFBF4628B5 /* Workspace+TerminalRespawn.swift */,
 				C3744E100000000000000002 /* Workspace+SidebarStatusVisibility.swift */,
 				A6AC73020000000000000002 /* Workspace+AgentLifecycle.swift */,
+				FEE760B8DF421ADA91B9E469 /* Workspace+DeferredAgentRestoreAdmission.swift */,
 				A6AC73020000000000000004 /* Workspace+RestoredStartupInputOwnership.swift */,
 				D4A9923A0000000000000002 /* TerminalStartupRestoreCoordinator.swift */,
 				9923B0019923B0019923B001 /* PendingTerminalStartupRestoreChatBinding.swift */,
@@ -9946,6 +9981,12 @@
 				0A1107110000000000000013 /* AgentRelaunchCommandBuilder.swift */,
 				0A1107110000000000000015 /* AgentRestoreMode.swift */,
 				110432011104320111043201 /* AgentRestoreLiveOwnerNotice.swift */,
+				3F412FA43648BED10E95FCB7 /* AgentRestoreRecoveryPresentation.swift */,
+				34AE0530BC772C9E4DC2BE33 /* AgentRestoreEvidenceObservation.swift */,
+				922A32567AAA6DD33BCE05CF /* AgentRestoreCodexEvidence.swift */,
+				AC44C6882243B4D699AE73FA /* AgentRestoreEvidenceSubscription.swift */,
+				7692B43CED35D70F292C8537 /* AgentRestoreAdmissionInputs.swift */,
+				657ECAA4E052C87DFE264F70 /* CodexRestoreHookEvidence.swift */,
 				121580031215800312158003 /* AgentRestoreUnverifiableNotice.swift */,
 				121580011215800112158001 /* AgentRestoreNoticeInput.swift */,
 				110433011104330111043301 /* AgentRestoreSuppressionJournal.swift */,
@@ -10075,6 +10116,7 @@
 				C0DE00000000000000000C31 /* TerminalControllerControlCommandContext.swift */,
 				D10548000000000000000012 /* TerminalController+ControlSocketAsync.swift */,
 				110434011104340111043401 /* TerminalController+AgentRestoreAdmission.swift */,
+				8BC27608B94D9C9D703147F2 /* TerminalController+AgentRestoreRecovery.swift */,
 				D10548000000000000000014 /* TerminalController+ControlReadSnapshots.swift */,
 				C0DE00000000000000000C41 /* TerminalController+ControlAppFocusContext.swift */,
 				C0DE00000000000000000C43 /* TerminalController+ControlFeedContext.swift */,
@@ -10588,6 +10630,8 @@
 				D7632B14A1B2C3D4E5F60718 /* WKWebView+CmuxPrintOperation.swift */,
 				A500RG00 /* ReactGrab.swift */,
 				A5001413 /* TerminalPanelView.swift */,
+				D4983F8022A862E60F27778D /* TerminalPanel+ShellReadiness.swift */,
+				3CF6B32E82544240C8F118CE /* AgentRestoreRecoveryView.swift */,
 				8997D00C8997D00C8997D00C /* AgentHibernationPlaceholderMode.swift */,
 				C71500010000000000000001 /* SessionContentWidthModifier.swift */,
 				C71500030000000000000001 /* SessionContentWidthPresentation.swift */,
@@ -11086,6 +11130,7 @@
 				AA89727B6E520B2669A530CD /* DockSplitStore+RemoteTerminalLiveness.swift */,
 				DCDC1000000000000000C011 /* DockSplitStore+SurfaceTransfer.swift */,
 				D86840000000000000000006 /* DockSplitStore+SessionRestore.swift */,
+				89D26A409C36E03102A92A96 /* DockSplitStore+RestoreAdmission.swift */,
 				D86840000000000000000004 /* DockSplitStore+SessionSnapshot.swift */,
 				D86861000000000000000002 /* DockSplitStore+WorkingDirectory.swift */,
 				DCDC1000000000000000C041 /* DockSplitStore+PortalDrop.swift */,
@@ -11095,6 +11140,7 @@
 				D86840000000000000000008 /* Workspace+ClosedPanelLayoutRestore.swift */,
 				D8684000000000000000000A /* SessionSplitContainerSnapshot.swift */,
 				D8684000000000000000000C /* DockSplitStore+RestoredAgentLifecycle.swift */,
+				1D75A72E3EB3A0BB5E904DC7 /* DockSplitStore+DeferredAgentRestoreAdmission.swift */,
 				D86840000000000000000019 /* DockSplitStore+RestoredStartupInputOwnership.swift */,
 				D8684000000000000000000E /* DockSplitStore+SurfaceResume.swift */,
 				D86840000000000000000010 /* ControlSurfaceResumeTarget.swift */,
@@ -11384,6 +11430,9 @@
 				925800000000000000000004 /* CMUXCLI+RestorePreflight.swift */,
 				92580000000000000000000A /* CMUXCLI+RestoreFailureReporting.swift */,
 				92580000000000000000000C /* CMUXCLI+RestoreExecution.swift */,
+				E1806D03F61C6E8789D112C5 /* CMUXCLI+RestoreAdmissionTarget.swift */,
+				BC6116026F3AAE9F0065C15D /* CMUXCLI+RestoreLaunchLease.swift */,
+				7C2DBFB8A037113BFB961F9A /* CMUXCLI+RestoreLaunchPayload.swift */,
 				925800000000000000000008 /* CMUXCLI+RestoreRecord.swift */,
 				925800000000000000000006 /* CMUXCLI+RestoreSelector.swift */,
 				C73660010000000000000002 /* CMUXCLI+RemotePTYErrors.swift */,
@@ -12456,6 +12505,8 @@
 				C0DE31410000000000000104 /* DebugEventLogSerializedAppendTests.swift */,
 				F0E91730F780E2461753BB8A /* AgentRestoreLiveOwnerAdmissionTests+Fixture.swift */,
 				79AE16C7F47C6F259EEF6ED3 /* AgentRestoreRecoveryRegressionTests.swift */,
+				49E1CED2CD67AA6493348BF7 /* CodexRestoreOwnerGenerationTests.swift */,
+				7A1D2A327B1DBFC724A70928 /* CodexRestoreHookEvidenceTests.swift */,
 			);
 			path = cmuxTests;
 			sourceTree = "<group>";
@@ -13288,9 +13339,15 @@
 				89930002AABBCCDDEEFF0001 /* AgentProcessBindingResolution.swift in Sources */,
 				0A1107110000000000000012 /* AgentRelaunchCommandBuilder.swift in Sources */,
 				93840003AA11BB22CC33EE03 /* AgentRelayTTYTargetResolution.swift in Sources */,
+				815536281D8502E4EFA683F0 /* AgentRestoreAdmissionInputs.swift in Sources */,
+				15042AA9E67B074D4C03CA18 /* AgentRestoreCodexEvidence.swift in Sources */,
+				5166F999E9205E6CEB90AA79 /* AgentRestoreEvidenceObservation.swift in Sources */,
+				A64E0D245603951ACCAEB957 /* AgentRestoreEvidenceSubscription.swift in Sources */,
 				110432021104320211043202 /* AgentRestoreLiveOwnerNotice.swift in Sources */,
 				0A1107110000000000000014 /* AgentRestoreMode.swift in Sources */,
 				121580021215800212158002 /* AgentRestoreNoticeInput.swift in Sources */,
+				E6C0EB448B3198F053944846 /* AgentRestoreRecoveryPresentation.swift in Sources */,
+				6DEA5D9260D07EB41AC52A77 /* AgentRestoreRecoveryView.swift in Sources */,
 				110433021104330211043302 /* AgentRestoreSuppressionJournal.swift in Sources */,
 				121580041215800412158004 /* AgentRestoreUnverifiableNotice.swift in Sources */,
 				D8DFFAEC2DBC3ACCF87D563E /* AgentResumeLaunchGuard.swift in Sources */,
@@ -14030,6 +14087,7 @@
 				C0DE60C0000000000000A012 /* CoderouterSocketCommands.swift in Sources */,
 				A9F200000000000000000016 /* CodexAppServerQueuedInput.swift in Sources */,
 				A9E02000000000000000000E /* CodexAppServerSession.swift in Sources */,
+				9D04DE21C5281E376C0FE450 /* CodexRestoreHookEvidence.swift in Sources */,
 					C8711C000000000000000002 /* CodexRolloutIdentity.swift in Sources */,
 					C8711D000000000000000002 /* CodexRolloutIdentityResolver.swift in Sources */,
 				A10240030000000000000001 /* CodexTeamsAppServerProcess.swift in Sources */,
@@ -14180,6 +14238,7 @@
 				DCDC1000000000000000B021 /* DockSplitStore+CloseConfirmation.swift in Sources */,
 				9518D0C10000000000000001 /* DockSplitStore+ClosedItemHistory.swift in Sources */,
 				DCDC0000000000000000A003 /* DockSplitStore+Config.swift in Sources */,
+				0793CA78268977DEA89DD706 /* DockSplitStore+DeferredAgentRestoreAdmission.swift in Sources */,
 				DCDC1000000000000000B019 /* DockSplitStore+PaneFocus.swift in Sources */,
 				8997E0038997E0038997E003 /* DockSplitStore+PanelDestruction.swift in Sources */,
 				5211D0A28DBA420093D8546C /* DockSplitStore+PaneResize.swift in Sources */,
@@ -14187,6 +14246,7 @@
 				D77800020000000000000001 /* DockSplitStore+PortalReconcile.swift in Sources */,
 				A58FE4ADC615FCA54805937D /* DockSplitStore+RemoteTerminalLiveness.swift in Sources */,
 				D86840000000000000000011 /* DockSplitStore+Reset.swift in Sources */,
+				BBF4E2C414B888ADA2AF1B98 /* DockSplitStore+RestoreAdmission.swift in Sources */,
 				D8684000000000000000000B /* DockSplitStore+RestoredAgentLifecycle.swift in Sources */,
 				D86840000000000000000018 /* DockSplitStore+RestoredStartupInputOwnership.swift in Sources */,
 				D86840000000000000000005 /* DockSplitStore+SessionRestore.swift in Sources */,
@@ -15301,6 +15361,7 @@
 				A77A0007A1B2C3D4E5F60001 /* TerminalController+AgentJournal.swift in Sources */,
 				D35A00000000000000000014 /* TerminalController+AgentPromptDelivery.swift in Sources */,
 				110434021104340211043402 /* TerminalController+AgentRestoreAdmission.swift in Sources */,
+				1C2E31B0392EDA1F21B150A4 /* TerminalController+AgentRestoreRecovery.swift in Sources */,
 				2AEE214AD8A145C2BEA7AEE3 /* TerminalController+AgentTitle.swift in Sources */,
 				13019E000000000000000002 /* TerminalController+AuthTeam.swift in Sources */,
 				A106490C0000000000000001 /* TerminalController+Automation.swift in Sources */,
@@ -15472,6 +15533,7 @@
 				8997E0048997E0048997E004 /* TerminalPanel+AgentHibernation.swift in Sources */,
 				A5F100000000000000000007 /* TerminalPanel+NotificationScroll.swift in Sources */,
 				791101010000000000000001 /* TerminalPanel+SessionScrollbackReplay.swift in Sources */,
+				5C0E5FB290CC1E5CE63F98DB /* TerminalPanel+ShellReadiness.swift in Sources */,
 				ABB87B1A532D01C50C10F903 /* TerminalPanel+SurfaceSelection.swift in Sources */,
 				A5001401 /* TerminalPanel.swift in Sources */,
 				E8B3D5F71A2C49608B7D5E31 /* TerminalPanelCreationOutcome.swift in Sources */,
@@ -15687,6 +15749,7 @@
 				C57B00030000000000000001 /* Workspace+CustomSidebarPane.swift in Sources */,
 				9FC97DA1B422776BB1EEC821 /* Workspace+CustomSidebarPullRequests.swift in Sources */,
 				C7268001000000000000001 /* Workspace+CustomSidebarSnapshot.swift in Sources */,
+				453310E91B73DD33C5D966DE /* Workspace+DeferredAgentRestoreAdmission.swift in Sources */,
 				D7AB00000000000000000015 /* Workspace+DetachedSurfaceTransfer.swift in Sources */,
 				DE798F1143F44A3291B209B4 /* Workspace+DeviceLayout.swift in Sources */,
 				621C8004A55D9FBCAC886925 /* Workspace+DeviceMachineContext.swift in Sources */,
@@ -15951,8 +16014,11 @@
 				D7AB12048000000000000001 /* CMUXCLI+RemoteWorkingDirectory.swift in Sources */,
 				925800000000000000000002 /* CMUXCLI+Restore.swift in Sources */,
 				110435021104350211043502 /* CMUXCLI+RestoreAdmission.swift in Sources */,
+				E7E34A1F76D7A90C5A174B19 /* CMUXCLI+RestoreAdmissionTarget.swift in Sources */,
 				92580000000000000000000B /* CMUXCLI+RestoreExecution.swift in Sources */,
 				925800000000000000000009 /* CMUXCLI+RestoreFailureReporting.swift in Sources */,
+				1BE9FEE6580BAB8B0EC90FC5 /* CMUXCLI+RestoreLaunchLease.swift in Sources */,
+				F37D9D30E9A746D54D4675AD /* CMUXCLI+RestoreLaunchPayload.swift in Sources */,
 				925800000000000000000003 /* CMUXCLI+RestorePreflight.swift in Sources */,
 				925800000000000000000007 /* CMUXCLI+RestoreRecord.swift in Sources */,
 				925800000000000000000005 /* CMUXCLI+RestoreSelector.swift in Sources */,
@@ -16566,6 +16632,8 @@
 				B6F143F6E02543F3899F1E02 /* CodexAutoresumeChainTests.swift in Sources */,
 				C8711B000000000000000002 /* CodexCodeModeRolloutIdentityTests.swift in Sources */,
 				9167FFA2759E9AD60F49616C /* CodexHookCapturedSocketCommands.swift in Sources */,
+				256E3FBC057F233E8849DF79 /* CodexRestoreHookEvidenceTests.swift in Sources */,
+				7FF4F2EA73F8883D21912965 /* CodexRestoreOwnerGenerationTests.swift in Sources */,
 				D96290010000000000000001 /* CodexResumeBindingVerificationRegressionTests.swift in Sources */,
 				C0DECAFE0000000000000003 /* CodexTeamsApprovalBridge.swift in Sources */,
 				C0DEBACC0000000000000001 /* CodexTeamsAppServerFixture.swift in Sources */,
