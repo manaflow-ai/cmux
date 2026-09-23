@@ -632,14 +632,11 @@ struct TaskComposerSheet: View {
                 ?? selectedWorkspaceGroupID,
             workspaceGroupSelectionPending: workspaceGroupSelectionNeedsInventory,
             workspaceGroupSelectionRequiresResolution: workspaceGroupSelectionRequiresResolution,
-            // Groups describe where a new workspace is created. Existing-pane
-            // tasks have their destination already, so showing this control
-            // would imply that both routes can be selected at once.
-            showsWorkspaceGroupPicker: selectedTargetWorkspaceID == nil
-                && selectedTargetPaneID == nil
-                && (canSelectWorkspaceGroup
-                    || workspaceGroupSelectionNeedsInventory
-                    || workspaceGroupSelectionRequiresResolution),
+            // The destination sheet keeps groups visible inside New workspace,
+            // and enables the menu only while that destination is selected.
+            showsWorkspaceGroupPicker: canSelectWorkspaceGroup
+                || workspaceGroupSelectionNeedsInventory
+                || workspaceGroupSelectionRequiresResolution,
             paneWorkspaces: paneWorkspacesForSelectedMachine,
             selectedTargetWorkspaceID: selectedTargetWorkspaceID,
             selectedTargetPaneID: selectedTargetPaneID,

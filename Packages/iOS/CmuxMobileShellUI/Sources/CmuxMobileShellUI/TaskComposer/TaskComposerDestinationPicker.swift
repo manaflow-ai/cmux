@@ -16,21 +16,39 @@ struct TaskComposerDestinationPicker: View {
     let workspaces: [MobileWorkspacePreview]
     let selectedWorkspaceID: MobileWorkspacePreview.ID?
     let selectedPaneID: MobilePanePreview.ID?
+    let workspaceGroups: [MobileWorkspaceGroupPreview]
+    let selectedWorkspaceGroupID: MobileWorkspaceGroupPreview.ID?
+    let workspaceGroupSelectionPending: Bool
+    let workspaceGroupSelectionRequiresResolution: Bool
+    let showsWorkspaceGroupPicker: Bool
     let isDisabled: Bool
     let select: (MobileWorkspacePreview.ID?, MobilePanePreview.ID?) -> Void
+    let selectWorkspaceGroup: (MobileWorkspaceGroupPreview.ID?) -> Void
 
     init(
         workspaces: [MobileWorkspacePreview],
         selectedWorkspaceID: MobileWorkspacePreview.ID?,
         selectedPaneID: MobilePanePreview.ID?,
+        workspaceGroups: [MobileWorkspaceGroupPreview],
+        selectedWorkspaceGroupID: MobileWorkspaceGroupPreview.ID?,
+        workspaceGroupSelectionPending: Bool,
+        workspaceGroupSelectionRequiresResolution: Bool,
+        showsWorkspaceGroupPicker: Bool,
         isDisabled: Bool,
-        select: @escaping (MobileWorkspacePreview.ID?, MobilePanePreview.ID?) -> Void
+        select: @escaping (MobileWorkspacePreview.ID?, MobilePanePreview.ID?) -> Void,
+        selectWorkspaceGroup: @escaping (MobileWorkspaceGroupPreview.ID?) -> Void
     ) {
         self.workspaces = workspaces
         self.selectedWorkspaceID = selectedWorkspaceID
         self.selectedPaneID = selectedPaneID
+        self.workspaceGroups = workspaceGroups
+        self.selectedWorkspaceGroupID = selectedWorkspaceGroupID
+        self.workspaceGroupSelectionPending = workspaceGroupSelectionPending
+        self.workspaceGroupSelectionRequiresResolution = workspaceGroupSelectionRequiresResolution
+        self.showsWorkspaceGroupPicker = showsWorkspaceGroupPicker
         self.isDisabled = isDisabled
         self.select = select
+        self.selectWorkspaceGroup = selectWorkspaceGroup
         _expandedWorkspaceID = State(
             initialValue: selectedPaneID == nil ? nil : selectedWorkspaceID
         )
@@ -40,25 +58,7 @@ struct TaskComposerDestinationPicker: View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
-                    Button {
-                        select(nil, nil)
-                        dismiss()
-                    } label: {
-                        destinationRow(
-                            icon: "plus.square",
-                            title: L10n.string(
-                                "mobile.taskComposer.destination.newWorkspace",
-                                defaultValue: "New workspace"
-                            ),
-                            subtitle: L10n.string(
-                                "mobile.taskComposer.destination.newWorkspace.detail",
-                                defaultValue: "Start the task in a new workspace"
-                            ),
-                            isSelected: selectedWorkspaceID == nil
-                        )
-                    }
-                    .buttonStyle(.plain)
-                    .disabled(isDisabled)
+                    newWorkspaceCard
 
                     if workspaces.isEmpty {
                         Text(L10n.string(
@@ -90,11 +90,60 @@ struct TaskComposerDestinationPicker: View {
                     Button(L10n.string("mobile.common.done", defaultValue: "Done")) {
                         dismiss()
                     }
+                    .accessibilityIdentifier("MobileTaskComposerDestinationDoneButton")
                 }
             }
         }
         .presentationDetents([.medium, .large])
         .presentationDragIndicator(.visible)
+    }
+
+    private var isNewWorkspaceSelected: Bool {
+        selectedWorkspaceID == nil && selectedPaneID == nil
+    }
+
+    private var newWorkspaceCard: some View {
+        VStack(spacing: 0) {
+            Button {
+                select(nil, nil)
+                expandedWorkspaceID = nil
+            } label: {
+                destinationRow(
+                    icon: "plus.square",
+                    title: L10n.string(
+                        "mobile.taskComposer.destination.newWorkspace",
+                        defaultValue: "New workspace"
+                    ),
+                    subtitle: L10n.string(
+                        "mobile.taskComposer.destination.newWorkspace.detail",
+                        defaultValue: "Start the task in a new workspace"
+                    ),
+                    isSelected: isNewWorkspaceSelected
+                )
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .disabled(isDisabled)
+            .accessibilityAddTraits(isNewWorkspaceSelected ? .isSelected : [])
+            .accessibilityIdentifier("MobileTaskComposerDestinationNewWorkspace")
+
+            if showsWorkspaceGroupPicker {
+                Divider()
+                    .padding(.leading, 58)
+
+                TaskComposerWorkspaceGroupMenu(
+                    groups: workspaceGroups,
+                    selectedWorkspaceGroupID: selectedWorkspaceGroupID,
+                    isSelectionPending: workspaceGroupSelectionPending,
+                    requiresSelectionResolution: workspaceGroupSelectionRequiresResolution,
+                    isDisabled: isDisabled || !isNewWorkspaceSelected,
+                    select: selectWorkspaceGroup
+                )
+                .padding(.vertical, 4)
+            }
+        }
+        .opacity(isNewWorkspaceSelected ? 1 : 0.5)
+        .background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
     }
 
     private func workspaceCard(_ workspace: MobileWorkspacePreview) -> some View {
@@ -237,7 +286,6 @@ struct TaskComposerDestinationPicker: View {
             }
         }
         .padding(14)
-        .background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
     }
 }
 #endif

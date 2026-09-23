@@ -52,19 +52,14 @@ struct TaskComposerOptionsSheet: View {
                     buildLabelsByID: buildLabelsByID,
                     workspaceGroups: workspaceGroups,
                     selectedWorkspaceGroupID: selectedWorkspaceGroupID,
-                    workspaceGroupSelectionPending: workspaceGroupSelectionPending,
-                    workspaceGroupSelectionRequiresResolution: workspaceGroupSelectionRequiresResolution,
-                    showsWorkspaceGroupPicker: showsWorkspaceGroupPicker,
                     paneWorkspaces: paneWorkspaces,
                     selectedTargetWorkspaceID: selectedTargetWorkspaceID,
                     selectedTargetPaneID: selectedTargetPaneID,
-                    selectTargetPane: selectTargetPane,
                     presentDestinationPicker: { isDestinationPickerPresented = true },
                     directory: directory,
                     isDisabled: isDisabled,
                     endWorkspaceNameEditing: endWorkspaceNameEditing,
                     selectMachine: selectMachine,
-                    selectWorkspaceGroup: selectWorkspaceGroup,
                     selectDirectory: { isDirectoryPickerPresented = true }
                 )
                 .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
@@ -106,8 +101,14 @@ struct TaskComposerOptionsSheet: View {
                     workspaces: paneWorkspaces,
                     selectedWorkspaceID: selectedTargetWorkspaceID,
                     selectedPaneID: selectedTargetPaneID,
+                    workspaceGroups: workspaceGroups,
+                    selectedWorkspaceGroupID: selectedWorkspaceGroupID,
+                    workspaceGroupSelectionPending: workspaceGroupSelectionPending,
+                    workspaceGroupSelectionRequiresResolution: workspaceGroupSelectionRequiresResolution,
+                    showsWorkspaceGroupPicker: showsWorkspaceGroupPicker,
                     isDisabled: isDisabled,
-                    select: selectTargetPane
+                    select: selectTargetPane,
+                    selectWorkspaceGroup: selectWorkspaceGroup
                 )
             }
         }

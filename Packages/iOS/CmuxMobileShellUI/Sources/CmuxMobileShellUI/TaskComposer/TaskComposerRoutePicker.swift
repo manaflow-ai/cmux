@@ -10,18 +10,13 @@ struct TaskComposerRoutePicker: View {
     let buildLabelsByID: [String: String]
     let workspaceGroups: [MobileWorkspaceGroupPreview]
     let selectedWorkspaceGroupID: MobileWorkspaceGroupPreview.ID?
-    let workspaceGroupSelectionPending: Bool
-    let workspaceGroupSelectionRequiresResolution: Bool
-    let showsWorkspaceGroupPicker: Bool
     let paneWorkspaces: [MobileWorkspacePreview]
     let selectedTargetWorkspaceID: MobileWorkspacePreview.ID?
     let selectedTargetPaneID: MobilePanePreview.ID?
-    let selectTargetPane: (MobileWorkspacePreview.ID?, MobilePanePreview.ID?) -> Void
     let presentDestinationPicker: () -> Void
     let directory: String
     let isDisabled: Bool
     let selectMachine: (String, String?) -> Void
-    let selectWorkspaceGroup: (MobileWorkspaceGroupPreview.ID?) -> Void
     let selectDirectory: () -> Void
 
     var body: some View {
@@ -36,18 +31,6 @@ struct TaskComposerRoutePicker: View {
 
             destinationPicker
 
-            if showsWorkspaceGroupPicker {
-                routeDivider
-
-                TaskComposerWorkspaceGroupMenu(
-                    groups: workspaceGroups,
-                    selectedWorkspaceGroupID: selectedWorkspaceGroupID,
-                    isSelectionPending: workspaceGroupSelectionPending,
-                    requiresSelectionResolution: workspaceGroupSelectionRequiresResolution,
-                    isDisabled: isDisabled,
-                    select: selectWorkspaceGroup
-                )
-            }
         }
         .padding(.vertical, 4)
     }
@@ -104,10 +87,14 @@ struct TaskComposerRoutePicker: View {
               let selectedTargetPaneID,
               let workspace = paneWorkspaces.first(where: { $0.rpcWorkspaceID == selectedTargetWorkspaceID }),
               let pane = workspace.panes.first(where: { $0.id == selectedTargetPaneID }) else {
-            return L10n.string(
+            let title = L10n.string(
                 "mobile.taskComposer.destination.newWorkspace",
                 defaultValue: "New workspace"
             )
+            if let group = workspaceGroups.first(where: { $0.id == selectedWorkspaceGroupID }) {
+                return "\(title) · \(group.name)"
+            }
+            return title
         }
         let paneTitle = pane.selectedSurfaceID
             .flatMap { selectedID in workspace.surfaces.first { $0.id == selectedID }?.title }
