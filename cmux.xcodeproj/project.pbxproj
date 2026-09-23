@@ -156,10 +156,12 @@
 		0A1107110000000000000012 /* AgentRelaunchCommandBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A1107110000000000000013 /* AgentRelaunchCommandBuilder.swift */; };
 		93840005AA11BB22CC33EE05 /* AgentRelayTTYOwnershipTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 93840006AA11BB22CC33EE06 /* AgentRelayTTYOwnershipTests.swift */; };
 		93840003AA11BB22CC33EE03 /* AgentRelayTTYTargetResolution.swift in Sources */ = {isa = PBXBuildFile; fileRef = 93840004AA11BB22CC33EE04 /* AgentRelayTTYTargetResolution.swift */; };
+		C41D15BA2CF8651980082256 /* AgentRestoreLiveOwnerAdmissionTests+Fixture.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0E91730F780E2461753BB8A /* AgentRestoreLiveOwnerAdmissionTests+Fixture.swift */; };
 		110430011104300111043001 /* AgentRestoreLiveOwnerAdmissionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 110430021104300211043002 /* AgentRestoreLiveOwnerAdmissionTests.swift */; };
 		110432021104320211043202 /* AgentRestoreLiveOwnerNotice.swift in Sources */ = {isa = PBXBuildFile; fileRef = 110432011104320111043201 /* AgentRestoreLiveOwnerNotice.swift */; };
 		0A1107110000000000000014 /* AgentRestoreMode.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A1107110000000000000015 /* AgentRestoreMode.swift */; };
 		121580021215800212158002 /* AgentRestoreNoticeInput.swift in Sources */ = {isa = PBXBuildFile; fileRef = 121580011215800112158001 /* AgentRestoreNoticeInput.swift */; };
+		32870528BA7DA7C68021A6EA /* AgentRestoreRecoveryRegressionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 79AE16C7F47C6F259EEF6ED3 /* AgentRestoreRecoveryRegressionTests.swift */; };
 		110433021104330211043302 /* AgentRestoreSuppressionJournal.swift in Sources */ = {isa = PBXBuildFile; fileRef = 110433011104330111043301 /* AgentRestoreSuppressionJournal.swift */; };
 		121580041215800412158004 /* AgentRestoreUnverifiableNotice.swift in Sources */ = {isa = PBXBuildFile; fileRef = 121580031215800312158003 /* AgentRestoreUnverifiableNotice.swift */; };
 		D8DFFAEC2DBC3ACCF87D563E /* AgentResumeLaunchGuard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5977EB347EF8D7692B3759E2 /* AgentResumeLaunchGuard.swift */; };
@@ -4401,10 +4403,12 @@
 		0A1107110000000000000013 /* AgentRelaunchCommandBuilder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentRelaunchCommandBuilder.swift; sourceTree = "<group>"; };
 		93840006AA11BB22CC33EE06 /* AgentRelayTTYOwnershipTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentRelayTTYOwnershipTests.swift; sourceTree = "<group>"; };
 		93840004AA11BB22CC33EE04 /* AgentRelayTTYTargetResolution.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentRelayTTYTargetResolution.swift; sourceTree = "<group>"; };
+		F0E91730F780E2461753BB8A /* AgentRestoreLiveOwnerAdmissionTests+Fixture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AgentRestoreLiveOwnerAdmissionTests+Fixture.swift"; sourceTree = "<group>"; };
 		110430021104300211043002 /* AgentRestoreLiveOwnerAdmissionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentRestoreLiveOwnerAdmissionTests.swift; sourceTree = "<group>"; };
 		110432011104320111043201 /* AgentRestoreLiveOwnerNotice.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentRestoreLiveOwnerNotice.swift; sourceTree = "<group>"; };
 		0A1107110000000000000015 /* AgentRestoreMode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentRestoreMode.swift; sourceTree = "<group>"; };
 		121580011215800112158001 /* AgentRestoreNoticeInput.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentRestoreNoticeInput.swift; sourceTree = "<group>"; };
+		79AE16C7F47C6F259EEF6ED3 /* AgentRestoreRecoveryRegressionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AgentRestoreRecoveryRegressionTests.swift"; sourceTree = "<group>"; };
 		110433011104330111043301 /* AgentRestoreSuppressionJournal.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentRestoreSuppressionJournal.swift; sourceTree = "<group>"; };
 		121580031215800312158003 /* AgentRestoreUnverifiableNotice.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentRestoreUnverifiableNotice.swift; sourceTree = "<group>"; };
 		5977EB347EF8D7692B3759E2 /* AgentResumeLaunchGuard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentResumeLaunchGuard.swift; sourceTree = "<group>"; };
@@ -12450,6 +12454,8 @@
 				C51600000000000000000002 /* CLIExecInheritedSignalStateTests.swift */,
 				C0DE5A100000000000000002 /* KeyboardShortcutSavedLayoutTemplateTests.swift */,
 				C0DE31410000000000000104 /* DebugEventLogSerializedAppendTests.swift */,
+				F0E91730F780E2461753BB8A /* AgentRestoreLiveOwnerAdmissionTests+Fixture.swift */,
+				79AE16C7F47C6F259EEF6ED3 /* AgentRestoreRecoveryRegressionTests.swift */,
 			);
 			path = cmuxTests;
 			sourceTree = "<group>";
@@ -16180,7 +16186,9 @@
 				7939000FAA11BB22CC33DD0F /* AgentNotificationMoveRaceTests.swift in Sources */,
 				79460001AA11BB22CC33EE01 /* AgentNotificationMutationBoundaryTests.swift in Sources */,
 				93840005AA11BB22CC33EE05 /* AgentRelayTTYOwnershipTests.swift in Sources */,
+				C41D15BA2CF8651980082256 /* AgentRestoreLiveOwnerAdmissionTests+Fixture.swift in Sources */,
 				110430011104300111043001 /* AgentRestoreLiveOwnerAdmissionTests.swift in Sources */,
+				32870528BA7DA7C68021A6EA /* AgentRestoreRecoveryRegressionTests.swift in Sources */,
 				E8DF7FD45DA2E55E4DA65B38 /* AgentResumeLaunchGuardTests.swift in Sources */,
 				B679CCBA4CF56982C8564009 /* AgentResumeLivenessTests.swift in Sources */,
 				8837A0010000000000000001 /* AgentResumeReturnShellStartupTests.swift in Sources */,
