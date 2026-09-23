@@ -1,4 +1,5 @@
 import AppKit
+import CmuxFilePreviewCore
 import CmuxFoundation
 import CmuxSettings
 import CmuxSettingsUI
@@ -9,6 +10,8 @@ import SwiftUI
 protocol FilePreviewTextEditingPanel: AnyObject {
     var textContent: String { get }
     var textContentRevision: Int { get }
+    var gitLineChanges: [Int: FilePreviewGitLineChange] { get }
+    var gitLineChangesRevision: Int { get }
 
     func attachTextView(_ textView: NSTextView)
     func retryPendingFocus()
@@ -19,6 +22,8 @@ protocol FilePreviewTextEditingPanel: AnyObject {
 
 extension FilePreviewTextEditingPanel {
     var textContentRevision: Int { 0 }
+    var gitLineChanges: [Int: FilePreviewGitLineChange] { [:] }
+    var gitLineChangesRevision: Int { 0 }
 }
 
 struct FilePreviewTextEditor<PanelModel>: NSViewRepresentable where PanelModel: ObservableObject & FilePreviewTextEditingPanel {
@@ -89,6 +94,8 @@ struct FilePreviewTextEditor<PanelModel>: NSViewRepresentable where PanelModel: 
             currentLineHighlight: currentLineHighlight,
             tabWidth: tabWidth
         )
+        context.coordinator.lastAppliedGitLineChangesRevision = panel.gitLineChangesRevision
+        Self.applyGitLineChanges(panel.gitLineChanges, to: scrollView)
         Self.refreshChrome(on: scrollView, textView: textView)
         if isVisibleInUI {
             context.coordinator.scheduleHighlight(
@@ -166,7 +173,26 @@ struct FilePreviewTextEditor<PanelModel>: NSViewRepresentable where PanelModel: 
         } else {
             context.coordinator.cancelHighlight()
         }
+        // 키 입력마다 사전을 비교하지 않도록 개정 번호가 오를 때만 반영
+        if panelChanged
+            || context.coordinator.lastAppliedGitLineChangesRevision != panel.gitLineChangesRevision {
+            context.coordinator.lastAppliedGitLineChangesRevision = panel.gitLineChangesRevision
+            Self.applyGitLineChanges(panel.gitLineChanges, to: scrollView)
+        }
         Self.refreshChrome(on: scrollView, textView: textView)
+    }
+
+    /// git 변경 줄을 거터로 전달
+    ///
+    /// 줄 번호가 꺼져 있으면 거터 자체가 숨겨지므로 표시도 함께 사라짐
+    static func applyGitLineChanges(
+        _ changes: [Int: FilePreviewGitLineChange],
+        to scrollView: NSScrollView
+    ) {
+        guard let gutter = scrollView.verticalRulerView as? FilePreviewLineNumberGutterView else {
+            return
+        }
+        gutter.gitLineChanges = changes
     }
 
     static func applyTheme(
@@ -266,6 +292,7 @@ struct FilePreviewTextEditor<PanelModel>: NSViewRepresentable where PanelModel: 
         var filePath: String
         var isApplyingPanelUpdate = false
         var lastAppliedContentRevision: Int?
+        var lastAppliedGitLineChangesRevision: Int?
         var isHighlightingVisible = false
         // `FilePreviewSyntaxStyler` owns the cancellable task and cancels it in
         // its own deinitializer. Keeping teardown in that owner also avoids an

@@ -1,3 +1,4 @@
+import CmuxFilePreviewCore
 import CmuxFoundation
 import AppKit
 import Bonsplit
@@ -1278,8 +1279,13 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
     @Published private(set) var isSaving = false
     @Published private(set) var focusFlashToken = 0
     @Published private(set) var previewMode: FilePreviewMode
+    @Published private(set) var gitLineChanges: [Int: FilePreviewGitLineChange] = [:]
+    private let gitLineChangesRevisionState = FilePreviewRevision()
     let previewRevisionState = FilePreviewRevision()
     private let textContentRevisionState = FilePreviewRevision()
+    private var gitDiffTracker: FilePreviewGitDiffTracker?
+    /// 파일 감시를 끈 패널은 git 조회도 하지 않음
+    private let tracksGitLineChanges: Bool
 
     let nativeViewSessions = FilePreviewNativeViewSessions()
 
@@ -1316,6 +1322,10 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
         textContentRevisionState.value
     }
 
+    var gitLineChangesRevision: Int {
+        gitLineChangesRevisionState.value
+    }
+
     init(
         workspaceId: UUID,
         filePath: String,
@@ -1349,12 +1359,45 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
             preferredIntent: Self.defaultFocusIntent(for: initialPreviewMode)
         )
         self.lastObservedFileState = .capture(path: filePath)
+        self.tracksGitLineChanges = startFileWatcher
 
         prepareContentForPreviewMode()
         resolvePreviewModeIfNeeded(for: fileURL)
         if startFileWatcher {
             startWatchingForFileChanges()
+            startTrackingGitLineChanges()
         }
+    }
+
+    /// git 변경 거터 표시 시작
+    ///
+    /// 1. 거터가 없는 이미지와 PDF 와 미디어 미리보기는 git 실행 자체를 건너뜀
+    /// 2. 인덱스 관찰로 커밋과 스테이징 이후 기준을 다시 읽음
+    private func startTrackingGitLineChanges() {
+        guard tracksGitLineChanges, !isClosed, previewMode == .text else { return }
+        guard gitDiffTracker == nil else { return }
+        let tracker = FilePreviewGitDiffTracker(filePath: filePath) { [weak self] changes in
+            self?.applyGitLineChanges(changes)
+        }
+        gitDiffTracker = tracker
+        tracker.update(currentText: textContent)
+        tracker.startWatchingIndex(using: fileContentChangeCoordinator)
+        tracker.refreshBase()
+    }
+
+    private func stopTrackingGitLineChanges() {
+        gitDiffTracker?.cancel()
+        gitDiffTracker = nil
+        applyGitLineChanges([:])
+    }
+
+    /// 거터 표시 갱신
+    ///
+    /// 개정 번호를 올려 렌더러가 키 입력마다 사전을 비교하지 않게 함
+    private func applyGitLineChanges(_ changes: [Int: FilePreviewGitLineChange]) {
+        guard gitLineChanges != changes else { return }
+        gitLineChanges = changes
+        gitLineChangesRevisionState.increment()
     }
 
     func focus() {
@@ -1369,6 +1412,7 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
         isClosed = true
         unbindTabMetadata()
         stopWatchingForFileChanges()
+        stopTrackingGitLineChanges()
         textLoadCoordinator.cancel()
         modeLoadCoordinator.cancel()
         selectionReader.close()
@@ -1406,9 +1450,11 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
         }
         let wasWatching = fileContentObservationID != nil
         stopWatchingForFileChanges()
+        gitDiffTracker?.stopWatchingIndex()
         self.fileContentChangeCoordinator = fileContentChangeCoordinator
         if wasWatching, !isClosed {
             startWatchingForFileChanges()
+            gitDiffTracker?.startWatchingIndex(using: fileContentChangeCoordinator)
         }
     }
 
@@ -1513,6 +1559,7 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
         guard textContent != nextContent else { return false }
         textContent = nextContent
         textContentRevisionState.increment()
+        gitDiffTracker?.update(currentText: nextContent)
         return true
     }
 
@@ -1588,6 +1635,11 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
         setTabMetadataDisplayIcon(FilePreviewKindResolver.iconName(for: mode))
         focusCoordinator.notePreferredIntent(Self.defaultFocusIntent(for: mode))
         nativeViewSessions.closeInactive(except: mode)
+        if mode == .text {
+            startTrackingGitLineChanges()
+        } else {
+            stopTrackingGitLineChanges()
+        }
         return prepareContentForPreviewMode()
     }
 

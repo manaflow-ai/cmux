@@ -17,6 +17,22 @@ struct TokenPaletteTests {
         #expect(TokenTheme.light.palette.keyword == TokenPalette.cmuxLight.keyword)
     }
 
+    @Test("Git gutter colors stay distinct and saturated in both themes")
+    func gitGutterColorsStayDistinct() {
+        #expect(TokenPalette.cmuxDark.gitAdded.hexString == "#3FB950")
+        #expect(TokenPalette.cmuxDark.gitModified.hexString == "#58A6FF")
+        #expect(TokenPalette.cmuxDark.gitDeleted.hexString == "#F85149")
+        #expect(TokenPalette.cmuxLight.gitAdded.hexString == "#1A7F37")
+        #expect(TokenPalette.cmuxLight.gitModified.hexString == "#0969DA")
+        #expect(TokenPalette.cmuxLight.gitDeleted.hexString == "#CF222E")
+        // 수정 색이 희미해 놓치던 문제를 막기 위해 세 색은 서로 달라야 함
+        for palette in [TokenPalette.cmuxDark, TokenPalette.cmuxLight] {
+            #expect(palette.gitAdded != palette.gitModified)
+            #expect(palette.gitModified != palette.gitDeleted)
+            #expect(palette.gitAdded != palette.gitDeleted)
+        }
+    }
+
     @Test("Surfaces keep brand neutrals")
     func neutralsMatchMarketingTokens() {
         #expect(TokenPalette.cmuxDark.foreground.hexString == "#EDEDED")

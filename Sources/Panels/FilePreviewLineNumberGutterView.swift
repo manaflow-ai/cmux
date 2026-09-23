@@ -21,7 +21,24 @@ final class FilePreviewLineNumberGutterView: NSRulerView {
     var drawsEditorBackground = true {
         didSet { applySurfaceFill() }
     }
+    /// git 변경 줄. 키는 1-based 줄 번호
+    var gitLineChanges: [Int: FilePreviewGitLineChange] = [:] {
+        didSet {
+            guard gitLineChanges != oldValue else { return }
+            updateRuleThickness(for: (clientView as? NSTextView)?.font)
+            needsDisplay = true
+        }
+    }
     private static let horizontalPadding: CGFloat = 10
+    /// 변경 스트라이프 두께
+    private static let changeStripeWidth: CGFloat = 3
+    /// 스트라이프와 줄 번호 사이 여백
+    private static let changeStripeGap: CGFloat = 3
+    /// 변경 표시가 있을 때 줄 번호 오른쪽에 추가로 확보하는 폭
+    ///
+    /// 그리기 좌표는 줄 번호 라벨의 오른쪽 끝에서 직접 계산하므로
+    /// 이 값과 실제 위치가 어긋날 수 없음
+    private static var changeStripeInset: CGFloat { changeStripeWidth + changeStripeGap }
 
     private var lineIndex = FilePreviewLineIndex(string: "")
     /// Set when edits were skipped (ruler hidden) and the index must be
@@ -136,7 +153,8 @@ final class FilePreviewLineNumberGutterView: NSRulerView {
         let labelWidth = (String(repeating: "8", count: digits) as NSString).size(
             withAttributes: [.font: font]
         ).width
-        let nextThickness = ceil(labelWidth) + Self.horizontalPadding
+        let stripeInset = gitLineChanges.isEmpty ? 0 : Self.changeStripeInset
+        let nextThickness = ceil(labelWidth) + Self.horizontalPadding + stripeInset
         if abs(ruleThickness - nextThickness) > 0.5 {
             ruleThickness = nextThickness
         }
@@ -199,12 +217,21 @@ final class FilePreviewLineNumberGutterView: NSRulerView {
             let lineNumber = self.lineIndex.lineNumber(
                 containingUTF16Offset: characterRange.location
             )
-            guard self.lineIndex.offset(forLine: lineNumber) == characterRange.location else {
-                return
-            }
+            let fragmentY = usedRect.minY + textView.textContainerOrigin.y
+            let startsLine = self.lineIndex.offset(forLine: lineNumber) == characterRange.location
+            // 줄바꿈된 줄은 조각마다 스트라이프를 이어 그려야 변경 구간이 끊기지 않음
+            self.drawGitChangeStripe(
+                for: lineNumber,
+                atTextViewY: fragmentY,
+                height: usedRect.height,
+                in: textView,
+                font: font,
+                startsLine: startsLine
+            )
+            guard startsLine else { return }
             self.drawLineNumber(
                 lineNumber,
-                atTextViewY: usedRect.minY + textView.textContainerOrigin.y,
+                atTextViewY: fragmentY,
                 height: usedRect.height,
                 in: textView,
                 font: font,
@@ -219,10 +246,19 @@ final class FilePreviewLineNumberGutterView: NSRulerView {
             // An empty document has a valid logical line but no glyph fragment
             // for TextKit to enumerate. Paint its first line directly without
             // asking `lineFragmentRect` for an invalid glyph.
+            let emptyLineHeight = textView.font?.boundingRectForFont.height ?? 16
+            self.drawGitChangeStripe(
+                for: 1,
+                atTextViewY: textView.textContainerOrigin.y,
+                height: emptyLineHeight,
+                in: textView,
+                font: font,
+                startsLine: true
+            )
             self.drawLineNumber(
                 1,
                 atTextViewY: textView.textContainerOrigin.y,
-                height: textView.font?.boundingRectForFont.height ?? 16,
+                height: emptyLineHeight,
                 in: textView,
                 font: font,
                 paragraphStyle: paragraphStyle,
@@ -270,6 +306,14 @@ final class FilePreviewLineNumberGutterView: NSRulerView {
                     height: max(trailingRect.height, fallbackHeight)
                 )
                 if NSIntersectsRect(visibleTrailingRect, viewRect) {
+                    self.drawGitChangeStripe(
+                        for: lineCount,
+                        atTextViewY: y,
+                        height: max(trailingRect.height, fallbackHeight),
+                        in: textView,
+                        font: font,
+                        startsLine: true
+                    )
                     self.drawLineNumber(
                         lineCount,
                         atTextViewY: y,
@@ -307,11 +351,12 @@ final class FilePreviewLineNumberGutterView: NSRulerView {
     ) {
         let documentPoint = NSPoint(x: 0, y: y)
         let rulerPoint = convert(documentPoint, from: textView)
+        let lineHeight = max(height, font.capHeight + 4)
         let labelRect = NSRect(
             x: 4,
             y: rulerPoint.y,
-            width: max(0, ruleThickness - 10),
-            height: max(height, font.capHeight + 4)
+            width: labelTrailingEdge - 4,
+            height: lineHeight
         )
         let color = currentLine == lineNumber
             ? tokenTheme.gutterCurrentLineColor
@@ -322,5 +367,73 @@ final class FilePreviewLineNumberGutterView: NSRulerView {
             .paragraphStyle: paragraphStyle
         ]
         NSString(string: String(lineNumber)).draw(in: labelRect, withAttributes: attributes)
+    }
+
+    /// 줄 번호 오른쪽 가장자리에 변경 표시
+    ///
+    /// 1. added 와 modified 는 줄 높이 전체 스트라이프
+    /// 2. removed 는 줄 위 경계에 걸친 짧은 마커
+    /// 3. removedAtEnd 는 줄 아래 경계에 걸친 짧은 마커
+    /// 4. 경계 마커는 줄바꿈된 줄의 첫 조각에만 그림
+    private func drawGitChangeStripe(
+        for lineNumber: Int,
+        atTextViewY y: CGFloat,
+        height: CGFloat,
+        in textView: NSTextView,
+        font: NSFont,
+        startsLine: Bool
+    ) {
+        guard let change = gitLineChanges[lineNumber] else { return }
+        let rulerPoint = convert(NSPoint(x: 0, y: y), from: textView)
+        let stripeHeight = max(height, font.capHeight + 4)
+        let x = labelTrailingEdge + Self.changeStripeGap
+        switch change {
+        case .added, .modified:
+            let color = change == .added
+                ? tokenTheme.gitAddedColor
+                : tokenTheme.gitModifiedColor
+            color.setFill()
+            NSRect(
+                x: x,
+                y: rulerPoint.y,
+                width: Self.changeStripeWidth,
+                height: stripeHeight
+            ).fill()
+        case .removed, .removedAtEnd:
+            guard startsLine else { return }
+            tokenTheme.gitDeletedColor.setFill()
+            let markerHeight = Self.changeStripeWidth
+            let markerY = change == .removed
+                ? rulerPoint.y - markerHeight / 2
+                : rulerPoint.y + stripeHeight - markerHeight / 2
+            nudgedIntoBounds(NSRect(
+                x: x - Self.changeStripeGap,
+                y: markerY,
+                width: Self.changeStripeWidth + Self.changeStripeGap,
+                height: markerHeight
+            )).fill()
+        }
+    }
+
+    /// 줄 번호 라벨이 끝나는 x 좌표
+    ///
+    /// 변경 표시가 없으면 스트라이프 폭을 되돌려 라벨이 원래 자리를 씀
+    private var labelTrailingEdge: CGFloat {
+        let stripeInset = gitLineChanges.isEmpty ? 0 : Self.changeStripeInset
+        return 4 + max(0, ruleThickness - Self.horizontalPadding - stripeInset)
+    }
+
+    /// 뷰 경계를 넘어선 경계 마커를 안쪽으로 밀어 넣음
+    ///
+    /// 화면 첫 줄과 마지막 줄의 삭제 마커가 절반만 보이던 문제 대응
+    private func nudgedIntoBounds(_ rect: NSRect) -> NSRect {
+        guard rect.height <= bounds.height else { return rect }
+        var nudged = rect
+        if nudged.minY < bounds.minY {
+            nudged.origin.y = bounds.minY
+        } else if nudged.maxY > bounds.maxY {
+            nudged.origin.y = bounds.maxY - nudged.height
+        }
+        return nudged
     }
 }

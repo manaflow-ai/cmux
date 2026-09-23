@@ -1,4 +1,5 @@
 import AppKit
+import CmuxFilePreviewCore
 import CmuxSettings
 import CmuxSyntaxHighlighting
 import Testing
@@ -454,6 +455,54 @@ struct FilePreviewCodeViewTests {
         #expect(settings.catalog.tabWidth.id == "fileEditor.tabWidth")
         #expect(settings.catalog.tabWidth.defaultValue == 4)
         #expect(settings.catalog.tabWidthRange == (1...8))
+    }
+
+    @Test("Git change markers widen the gutter and release the width when cleared")
+    func gitChangeMarkersWidenTheGutter() {
+        let scrollView = NSScrollView()
+        let textView = SavingTextView.makeFilePreviewTextView()
+        scrollView.documentView = textView
+        let gutter = FilePreviewLineNumberGutterView(scrollView: scrollView, orientation: .verticalRuler)
+        textView.string = String(repeating: "line\n", count: 12)
+        // 폭 재계산이 두 경로로 갈리지 않도록 관찰자와 같은 폰트를 사용
+        gutter.reloadLineIndex(from: textView.string, textFont: textView.font)
+        let plainThickness = gutter.ruleThickness
+
+        gutter.gitLineChanges = [2: .added, 5: .modified, 9: .removed]
+        let markedThickness = gutter.ruleThickness
+        gutter.gitLineChanges = [:]
+
+        #expect(markedThickness > plainThickness)
+        #expect(gutter.ruleThickness == plainThickness)
+    }
+
+    @Test("The gutter keeps its marker width across a line-count change")
+    func gitChangeMarkerWidthSurvivesLineCountChange() {
+        let scrollView = NSScrollView()
+        let textView = SavingTextView.makeFilePreviewTextView()
+        scrollView.documentView = textView
+        let gutter = FilePreviewLineNumberGutterView(scrollView: scrollView, orientation: .verticalRuler)
+        textView.string = String(repeating: "line\n", count: 12)
+        gutter.reloadLineIndex(from: textView.string, textFont: textView.font)
+        gutter.gitLineChanges = [1: .added]
+        let markedThickness = gutter.ruleThickness
+
+        textView.string = String(repeating: "line\n", count: 12)
+        gutter.reloadLineIndex(from: textView.string, textFont: textView.font)
+
+        #expect(gutter.ruleThickness == markedThickness)
+    }
+
+    @Test("A text editing panel without git tracking reports no change markers")
+    func panelWithoutGitTrackingReportsNoChangeMarkers() {
+        let panel = FilePreviewPanel(
+            workspaceId: UUID(),
+            filePath: "/tmp/cmux-file-editor-git-gutter-absent.txt",
+            startFileWatcher: false
+        )
+        defer { panel.close() }
+
+        #expect(panel.gitLineChanges.isEmpty)
     }
 
     private func distinctForegroundColors(in textView: NSTextView) -> Set<String> {
