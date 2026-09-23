@@ -1,6 +1,7 @@
 import CmuxAuthRuntime
 import AppKit
 import Foundation
+import Network
 import Testing
 
 #if canImport(cmux_DEV)
@@ -269,6 +270,38 @@ private actor CapturedCloudDiagnostics: CloudTelemetrySending {
         #expect(!wire.contains("localhost"))
     }
 
+    @Test func unfinishedCollectorResponseLeavesTheBatchPending() async throws {
+        let server = try UnfinishedDevDiagnosticServer()
+        let endpoint = try await server.start()
+        defer { server.stop() }
+        let session = DevBackendDiagnostics.makeUploadSession(resourceTimeout: 1)
+        defer { session.invalidateAndCancel() }
+        let file = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString).appendingPathComponent("outbox.json")
+        defer { try? FileManager.default.removeItem(at: file.deletingLastPathComponent()) }
+        let event = try #require(DevBackendDiagnostics.event(outcome: "unreachable", startedAt: Date(), durationMs: 1, attempt: 0, environment: ["CMUX_TAG":"deadline-test"]))
+        let queue = DevBackendDiagnostics(queueURL: file, enabled: true, automaticallyFlush: false, sender: {
+            try await DevBackendDiagnostics.send($0, session: session, endpoint: endpoint)
+        })
+        await queue.record(event)
+        let start = ContinuousClock.now
+        #expect(await queue.flushOnce() == false)
+        #expect(start.duration(to: .now) < .seconds(10))
+        #expect(await queue.pendingCount == 1)
+    }
+
+    @Test @MainActor func legacyRouteDoesNotProduceAFalseFailure() async {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [LegacyDevBackendProtocol.self]
+        let session = URLSession(configuration: configuration)
+        defer { session.invalidateAndCancel() }
+        let sink = DevBackendDiagnosticCapture()
+        let check = DevBackendStartup(endpoint: URL(string: "https://legacy.invalid/events")!, session: session,
+            diagnosticsEnvironment: ["CMUX_TAG":"legacy-test"], emit: { await sink.capture([$0]) })
+        await check.observe()
+        #expect(check.status == nil)
+        #expect(await sink.events.isEmpty)
+    }
+
     @Test func disabledDiagnosticsNeverWriteOrSend() async throws {
         let file = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         let sink = DevBackendDiagnosticCapture()
@@ -284,5 +317,59 @@ private actor CapturedCloudDiagnostics: CloudTelemetrySending {
 private actor DevBackendDiagnosticCapture {
     var events: [DevBackendDiagnostics.Event] = []
     func capture(_ values: [DevBackendDiagnostics.Event]) { events += values }
+}
+
+private final class LegacyDevBackendProtocol: URLProtocol {
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+    override func startLoading() {
+        let response = HTTPURLResponse(url: request.url!, statusCode: 404, httpVersion: nil, headerFields: nil)!
+        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+        client?.urlProtocolDidFinishLoading(self)
+    }
+    override func stopLoading() {}
+}
+
+/// All mutable listener/connection state is confined to queue.
+private final class UnfinishedDevDiagnosticServer: @unchecked Sendable {
+    private let queue = DispatchQueue(label: "test.dev-diagnostic-unfinished")
+    private let listener: NWListener
+    private var connections: [NWConnection] = []
+    init() throws {
+        let parameters = NWParameters.tcp
+        parameters.requiredLocalEndpoint = .hostPort(host: "127.0.0.1", port: .any)
+        listener = try NWListener(using: parameters)
+    }
+    func start() async throws -> URL {
+        try await withCheckedThrowingContinuation { continuation in
+            listener.stateUpdateHandler = { [self] state in
+                switch state {
+                case .ready:
+                    listener.stateUpdateHandler = nil
+                    continuation.resume(returning: URL(string: "http://127.0.0.1:\(listener.port!.rawValue)/")!)
+                case .failed(let error):
+                    listener.stateUpdateHandler = nil
+                    continuation.resume(throwing: error)
+                default: break
+                }
+            }
+            listener.newConnectionHandler = { [self] connection in
+                connections.append(connection)
+                connection.start(queue: queue)
+                let partial = Data("HTTP/1.1 202 Accepted\r\nContent-Type: application/json\r\nContent-Length: 1000\r\n\r\n{".utf8)
+                connection.send(content: partial, completion: .contentProcessed { _ in })
+                // Deliberately retain the open connection without completing the response.
+            }
+            listener.start(queue: queue)
+        }
+    }
+    func stop() {
+        queue.async { [self] in
+            listener.cancel()
+            listener.newConnectionHandler = nil
+            for connection in connections { connection.cancel() }
+            connections.removeAll()
+        }
+    }
 }
 #endif
