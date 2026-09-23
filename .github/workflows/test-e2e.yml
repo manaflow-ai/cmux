@@ -362,11 +362,25 @@ jobs:
 
       - name: Restore E2E compilation cache
         id: compilation-cache-restore
+        continue-on-error: true
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ${{ env.CMUX_E2E_COMPILATION_CACHE }}
           key: e2e-compilation-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.filter.outputs.target }}-${{ steps.compilation-cache-key.outputs.fingerprint }}-${{ env.TEST_REF }}
           restore-keys: e2e-compilation-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.filter.outputs.target }}-${{ steps.compilation-cache-key.outputs.fingerprint }}-
+
+      - name: Discard incomplete E2E compilation cache
+        if: ${{ steps.compilation-cache-restore.outcome == 'failure' }}
+        run: |
+          set -euo pipefail
+          workspace_path="$(cd "$GITHUB_WORKSPACE" && pwd -P)"
+          if [ "$CMUX_E2E_COMPILATION_CACHE" != "$workspace_path/.ci-e2e-compilation-cache" ]; then
+            echo "::error::refusing to clear an unowned compilation cache"
+            exit 1
+          fi
+          rm -rf -- "$CMUX_E2E_COMPILATION_CACHE"
+          mkdir -p "$CMUX_E2E_COMPILATION_CACHE"
+          echo "::warning::E2E cache restore failed; compiling with an empty cache"
 
       - name: Cache Swift packages
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
@@ -773,6 +787,7 @@ jobs:
 
       - name: Bound E2E compilation cache
         id: compilation-cache-bound
+        continue-on-error: true
         if: ${{ always() && !cancelled() && steps.compilation-cache-key.outcome == 'success' }}
         env:
           WORKFLOW_REF: ${{ github.ref }}
@@ -804,6 +819,7 @@ jobs:
           echo "save=true" >> "$GITHUB_OUTPUT"
 
       - name: Save E2E compilation cache
+        continue-on-error: true
         if: ${{ always() && !cancelled() && steps.compilation-cache-bound.outputs.save == 'true' && steps.compilation-cache-restore.outputs.cache-hit != 'true' }}
         uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
