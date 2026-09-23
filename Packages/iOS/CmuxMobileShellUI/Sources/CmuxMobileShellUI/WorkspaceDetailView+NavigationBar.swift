@@ -30,23 +30,29 @@ extension WorkspaceDetailView {
     }
 
     private var navigationBarTrailingItems: [WorkspaceNavigationBar.Item] {
-        var items: [WorkspaceNavigationBar.Item] = []
-        if altScreenNoticeIsVisible {
-            items.append(.init(id: .alternateScreen, content: AnyView(
+        let cluster = HStack(spacing: 15) {
+            if altScreenNoticeIsVisible {
                 AltScreenNoticeButton { displaySettings.showAltScreenNotice = false }
-            )))
-        }
-        if workspaceChangesAreAvailable {
-            items.append(.init(id: .changes, content: AnyView(
+            }
+            if workspaceChangesAreAvailable {
                 WorkspaceChangesToolbarButton(
                     chip: workspaceChangesChip,
                     workspaceID: workspace.rpcWorkspaceID.rawValue,
                     action: openWorkspaceChanges
                 )
-            )))
+                .environment(\.colorScheme, store.activeTerminalTheme.terminalColorScheme)
+            }
+            terminalPickerToolbarButton
         }
-        items.append(.init(id: .terminals, content: AnyView(terminalPickerToolbarButton)))
-        return items
+        .buttonStyle(.plain)
+        .padding(.horizontal, 8)
+        .frame(height: 44)
+
+        // Keep the trailing controls in one native bar item. SwiftUI's base
+        // toolbar presents this same HStack as one glass island, and a single
+        // UIKit item lets UINavigationBar reserve its complete width before
+        // compressing the title.
+        return [.init(id: .trailingCluster, content: AnyView(cluster))]
     }
 }
 #endif

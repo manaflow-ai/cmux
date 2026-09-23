@@ -61,10 +61,16 @@ final class WorkspaceNavigationBarController: UIViewController {
 
         var addedHosts: [UIHostingController<AnyView>] = []
         for value in leadingItems + trailingItems {
+            let minimumWidth: CGFloat = switch value.id {
+            case .sidebar: 44
+            case .back: 52
+            case .trailingCluster: 0
+            case .alternateScreen, .changes, .terminals: 30
+            }
             let content = AnyView(value.content
                 .environment(\.self, environment)
                 .buttonStyle(.plain)
-                .frame(minWidth: 30, minHeight: 36)
+                .frame(minWidth: minimumWidth, minHeight: 36)
                 .fixedSize())
             if let control = controls[value.id] {
                 control.host.rootView = content

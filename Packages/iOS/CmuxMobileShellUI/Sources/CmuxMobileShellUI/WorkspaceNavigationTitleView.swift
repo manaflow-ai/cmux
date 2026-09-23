@@ -40,7 +40,7 @@ final class WorkspaceNavigationTitleView: UIView {
 
     override var intrinsicContentSize: CGSize {
         let content = host.view.intrinsicContentSize
-        return CGSize(width: content.width + 20, height: 44)
+        return CGSize(width: content.width, height: 44)
     }
 
     override func sizeThatFits(_ size: CGSize) -> CGSize {
@@ -53,7 +53,7 @@ final class WorkspaceNavigationTitleView: UIView {
         if #unavailable(iOS 26.0) {
             capsule.layer.cornerRadius = bounds.height / 2
         }
-        let inset = min(10, bounds.width / 2)
+        let inset = min(0, bounds.width / 2)
         host.view.frame = bounds.insetBy(dx: inset, dy: 0)
     }
 }
