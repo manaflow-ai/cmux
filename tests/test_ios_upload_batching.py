@@ -262,6 +262,16 @@ class HistoryTests(unittest.TestCase):
         self.assertEqual(output, "should_build=true\n")
         self.assertIn("fail open", summary)
 
+    def test_truncated_first_parent_history_fails_open(self):
+        # The base remains reachable through the merge's second parent, so an
+        # ordinary ancestor check cannot detect this truncated main history.
+        boundary = git(self.repo, "rev-parse", f"{self.merge}^1")
+        Path(self.repo, ".git", "shallow").write_text(boundary + "\n")
+        git(self.repo, "merge-base", "--is-ancestor", self.base, self.head)
+        output, summary = self.run_main("--base", self.base)
+        self.assertEqual(output, "should_build=true\n")
+        self.assertIn("fail open", summary)
+
     def test_dispatch_uploads_without_reading_history(self):
         output, summary = self.run_main("--event", "workflow_dispatch", "--base", "0" * 40)
         self.assertEqual(output, "should_build=true\n")
