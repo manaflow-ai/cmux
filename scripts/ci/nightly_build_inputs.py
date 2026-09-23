@@ -11,8 +11,10 @@ The Nightly is not a pull-request lane, so it differs at both edges. It also
 signs, prebuilds Sparkle deltas, generates the appcast, and publishes, and the
 helpers that do that are neutral for pull requests only because no pull-request
 lane runs them; here every path the Nightly workflow itself runs is an input.
-In the other direction the Nightly reads no pull-request CI configuration, so
-an edit to `ci.yml` or another reusable workflow cannot change what it ships.
+It also ships products no pull-request macOS lane builds, so their sources are
+inputs too even though a separate workflow owns their own testing. In the other
+direction the Nightly reads no pull-request CI configuration, so an edit to
+`ci.yml` or another reusable workflow cannot change what it ships.
 
 Anything this script cannot classify counts as changed, so the Nightly builds.
 """
@@ -38,6 +40,18 @@ NIGHTLY_WORKFLOW_PATH = ".github/workflows/nightly.yml"
 _REFERENCED_PATH_RE = re.compile(
     r"(?<![\w.-])\.?/?((?:scripts|\.github/(?:actions|scripts|workflows))"
     r"/[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)*)"
+)
+
+
+# Sources of products the Nightly bundles or publishes that no pull-request
+# macOS lane builds, which is why the pull-request router calls them neutral.
+NIGHTLY_SHIPPED_SOURCES = (
+    # scripts/install-cmux-tui-client.sh puts a cmux-tui client built from the
+    # newest cmux-tui commit inside cmux.app.
+    "cmux-tui/",
+    # scripts/build_remote_daemon_release_assets.sh builds the remote daemon
+    # assets published beside the app from daemon/remote.
+    "daemon/remote/",
 )
 
 
@@ -79,6 +93,8 @@ def build_inputs_changed(paths: list[str], root: Path = ROOT) -> tuple[bool, str
             continue
         if runs_in_nightly(path, nightly_inputs):
             return True, f"{path} runs in the Nightly workflow"
+        if path.startswith(NIGHTLY_SHIPPED_SOURCES):
+            return True, f"{path} is built into what the Nightly publishes"
         if is_pull_request_ci_config(path):
             continue
         candidates.append(path)

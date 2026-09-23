@@ -545,9 +545,11 @@ fi
 # A measurement run always builds the production universal workload: it must
 # not depend on the nightly tag (a build-only dispatch on main would otherwise
 # skip when the tag already matches HEAD) and must ignore the fast arm64 path.
+# Match the expression, not its declaration keyword, so that rebinding
+# shouldBuild later in `decide` does not read as a change to this contract.
 for expected in \
-  "const shouldBuild = !seedOnly && (buildOnly || !isMainRef || forceBuild || nightlySha !== headSha);" \
-  "const fastBuild = !buildOnly && process.env.FAST_BUILD === 'true';"; do
+  "shouldBuild = !seedOnly && (buildOnly || !isMainRef || forceBuild || nightlySha !== headSha);" \
+  "fastBuild = !buildOnly && process.env.FAST_BUILD === 'true';"; do
   if ! grep -Fq "$expected" "$WORKFLOW_FILE"; then
     echo "FAIL: build_only must always build the universal app: $expected"
     exit 1

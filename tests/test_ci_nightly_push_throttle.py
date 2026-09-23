@@ -12,6 +12,7 @@ asserts is the one the workflow gets.
 import json
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -240,6 +241,10 @@ def test_paths_that_reach_the_app_still_build() -> None:
         "scripts/sign-cmux-bundle.sh",
         "scripts/sparkle_generate_appcast.sh",
         ".github/workflows/nightly.yml",
+        # Bundled into cmux.app and published beside it; no pull-request
+        # macOS lane builds either, so the router alone calls them neutral.
+        "cmux-tui/src/main.rs",
+        "daemon/remote/src/lib.rs",
         # An unrecognized path is never assumed neutral.
         "unknown/new-directory/file.txt",
     ]:
@@ -286,6 +291,27 @@ def test_the_daily_catch_up_skips_a_neutral_gap_and_the_warmup_is_untouched() ->
                       comparison=NEUTRAL_CHANGE)
     assert should_build(warm), "the cache warmup keeps its routing output"
     assert summary_values(warm)["app build inputs changed"] == "(not checked)"
+
+
+def test_products_the_nightly_ships_but_no_pull_request_lane_builds() -> None:
+    """Every extra source prefix must still be doing work, and only work."""
+    sys.path.insert(0, str(ROOT / "scripts" / "ci"))
+    import detect_ci_change_areas as detect
+    import nightly_build_inputs as nightly
+
+    consumers = {
+        "cmux-tui/": "scripts/install-cmux-tui-client.sh",
+        "daemon/remote/": "scripts/build_remote_daemon_release_assets.sh",
+    }
+    workflow = WORKFLOW.read_text(encoding="utf-8")
+    assert set(consumers) == set(nightly.NIGHTLY_SHIPPED_SOURCES)
+    for prefix, consumer in consumers.items():
+        assert consumer in workflow, f"the Nightly no longer runs {consumer}; drop {prefix}"
+        source = f"{prefix}source-file"
+        assert not detect.classify_files([source]).release_build, (
+            f"{prefix} is a pull-request build input again; the entry is redundant"
+        )
+        assert nightly.build_inputs_changed([source])[0]
 
 
 def test_an_unproven_comparison_builds() -> None:
