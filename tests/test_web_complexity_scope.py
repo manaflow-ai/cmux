@@ -245,9 +245,13 @@ def test_real_workflow_api_step_keeps_stale_base_fallback():
                    GITHUB_WORKSPACE=str(root), RUNNER_TEMP=str(root), GITHUB_OUTPUT=str(output),
                    GITHUB_REPOSITORY="owner/repo", TRUSTED_SHA="a" * 40,
                    CANDIDATE_SHA="c" * 40, CHANGED_FILES="1", COMPARE_FIXTURE=str(fixture))
-        for merge_base, expected in (("a" * 40, "scan=false"), ("b" * 40, "scan=true")):
+        for merge_base, filename, expected in (
+            ("a" * 40, "README.md", "scan=false"),
+            ("b" * 40, "README.md", "scan=true"),
+            ("a" * 40, "scripts/ci/scope-web-complexity.py", "scan=true"),
+        ):
             fixture.write_text(json.dumps({"merge_base_commit": {"sha": merge_base},
-                                          "files": [{"status": "modified", "filename": "README.md"}]}))
+                                          "files": [{"status": "modified", "filename": filename}]}))
             output.write_text("")
             result = subprocess.run(["bash", "-c", step["run"]], env=env, capture_output=True, text=True)
             check("real API step " + expected, result.returncode == 0 and output.read_text().strip() == expected,

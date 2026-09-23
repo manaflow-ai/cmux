@@ -167,7 +167,7 @@ struct SidebarWorkspaceTableTests {
 
     @Test
     @MainActor
-    func repeatedProvisionalReconstructionRetainsEveryContainerForTeardown() async throws {
+    func repeatedProvisionalReconstructionDetachesTablesWithoutWriters() async throws {
         let controller = SidebarWorkspaceTableController()
         let firstContainer = controller.makeContainerView()
         let row = makeRowConfiguration()
@@ -186,16 +186,15 @@ struct SidebarWorkspaceTableTests {
         controller.dismantleContainerView(firstContainer)
         let secondContainer = controller.makeContainerView()
         controller.dismantleContainerView(secondContainer)
+        #expect(secondContainer.tableView.dataSource == nil)
+        #expect(secondContainer.tableView.delegate == nil)
         let thirdContainer = controller.makeContainerView()
         controller.dismantleContainerView(thirdContainer)
-
+        #expect(thirdContainer.tableView.dataSource == nil)
+        #expect(thirdContainer.tableView.delegate == nil)
         controller.prepareForMouseDown()
         #expect(firstContainer.tableView.dataSource == nil)
         #expect(firstContainer.tableView.delegate == nil)
-        #expect(secondContainer.tableView.dataSource == nil)
-        #expect(secondContainer.tableView.delegate == nil)
-        #expect(thirdContainer.tableView.dataSource == nil)
-        #expect(thirdContainer.tableView.delegate == nil)
         _ = writer
     }
 
