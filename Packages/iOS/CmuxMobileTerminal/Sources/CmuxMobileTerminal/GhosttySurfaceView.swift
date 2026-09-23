@@ -1439,6 +1439,15 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     private func noteKeyboardTransitionPresentationLegEnded() {
         guard keyboardTransitionPresentationFreeze != nil else { return }
         keyboardTransitionPresentationFreeze?.noteTransitionEnded()
+        armKeyboardTransitionPresentationTimeout()
+        // A frame may already satisfy every other milestone.
+        needsDraw = true
+        startDisplayLink()
+    }
+
+    /// The fallback measures silence, not total latency: a confirmation
+    /// proves the link is alive, so the wait for the redraw starts over.
+    private func armKeyboardTransitionPresentationTimeout() {
         keyboardTransitionPresentationTimeout?.cancel()
         keyboardTransitionPresentationTimeout = Task { @MainActor [weak self] in
             do {
@@ -1450,9 +1459,6 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             MobileDebugLog.anchormux("kb.presentation.timeout")
             self.revealKeyboardTransitionPresentation(reason: "timeout")
         }
-        // A frame may already satisfy every other milestone.
-        needsDraw = true
-        startDisplayLink()
     }
 
     private func noteKeyboardTransitionPresentationReportPublished(id: UInt64) {
@@ -1465,6 +1471,9 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
 
     private func noteKeyboardTransitionPresentationReportConfirmed(id: UInt64) {
         keyboardTransitionPresentationFreeze?.noteReportConfirmed(id: id)
+        if keyboardTransitionPresentationFreeze?.transitionEnded == true {
+            armKeyboardTransitionPresentationTimeout()
+        }
     }
 
     private func noteKeyboardTransitionPresentationOutputApplied() {
