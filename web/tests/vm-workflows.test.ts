@@ -196,6 +196,133 @@ afterAll(async () => {
 });
 
 describe("VM Effect workflows", () => {
+  test("denies exec/attach/remote/destroy on a team-billed VM when the caller is no longer in the billing team", async () => {
+    const vm = testCloudVmRow({
+      userId: "user-workflow-exmember",
+      billingTeamId: "team-workflow-orphaned",
+      providerVmId: "provider-vm-orphaned",
+      status: "running",
+    });
+    const repo = testWorkflowRepo({ vm });
+    let execCalls = 0;
+    let attachCalls = 0;
+    let remoteCalls = 0;
+    let destroyCalls = 0;
+    const provider: VmProviderGatewayShape = {
+      ...unusedProviderGateway(),
+      exec: () =>
+        Effect.sync(() => {
+          execCalls += 1;
+          return { exitCode: 0, stdout: "", stderr: "" };
+        }),
+      openAttach: () =>
+        Effect.sync(() => {
+          attachCalls += 1;
+          return testAttachEndpoint();
+        }),
+      openCmuxRemote: () =>
+        Effect.sync(() => {
+          remoteCalls += 1;
+          throw new Error("removed member must not reach remote provider");
+        }),
+      destroy: () =>
+        Effect.sync(() => {
+          destroyCalls += 1;
+        }),
+    };
+    const layer = workflowLayer(repo, provider);
+    const input = {
+      userId: "user-workflow-exmember",
+      teamIds: ["team-workflow-other"],
+      providerVmId: "provider-vm-orphaned",
+    } as const;
+
+    const execError = await Effect.runPromise(
+      execVm({
+        ...input,
+        command: "true",
+        timeoutMs: 1000,
+      }).pipe(Effect.flip, Effect.provide(layer)),
+    );
+    const attachError = await Effect.runPromise(
+      openAttachEndpoint(input).pipe(Effect.flip, Effect.provide(layer)),
+    );
+    const remoteError = await Effect.runPromise(
+      openVmCmuxRemote(input).pipe(Effect.flip, Effect.provide(layer)),
+    );
+    const destroyError = await Effect.runPromise(
+      destroyVm(input).pipe(Effect.flip, Effect.provide(layer)),
+    );
+
+    expect(execError).toBeInstanceOf(VmNotFoundError);
+    expect(attachError).toBeInstanceOf(VmNotFoundError);
+    expect(remoteError).toBeInstanceOf(VmNotFoundError);
+    expect(destroyError).toBeInstanceOf(VmNotFoundError);
+    expect(execCalls).toBe(0);
+    expect(attachCalls).toBe(0);
+    expect(remoteCalls).toBe(0);
+    expect(destroyCalls).toBe(0);
+  });
+
+  test("allows a current member of the owner team", async () => {
+    const vm = testCloudVmRow({ userId: "user-member", billingTeamId: "team-member", providerVmId: "vm-member", status: "running" });
+    const result = await Effect.runPromise(execVm({
+      userId: vm.userId, teamIds: ["team-other", "team-member"], providerVmId: vm.providerVmId!,
+      command: "true", timeoutMs: 1000,
+    }).pipe(Effect.provide(workflowLayer(testWorkflowRepo({ vm }), {
+      ...unusedProviderGateway(),
+      exec: () => Effect.succeed({ exitCode: 0, stdout: "member", stderr: "" }),
+    }))));
+    expect(result.stdout).toBe("member");
+  });
+
+  test("keeps personal VMs owner-gated regardless of the caller's team set", async () => {
+    const personalNullVm = testCloudVmRow({
+      userId: "u-personal",
+      billingTeamId: null,
+      providerVmId: "vm-personal-null",
+      status: "running",
+    });
+    const personalSelfVm = testCloudVmRow({
+      userId: "u-self",
+      billingTeamId: "u-self",
+      providerVmId: "vm-personal-self",
+      status: "running",
+    });
+    let execCalls = 0;
+    const provider: VmProviderGatewayShape = {
+      ...unusedProviderGateway(),
+      exec: (_provider, providerVmId) =>
+        Effect.sync(() => {
+          execCalls += 1;
+          return { exitCode: 0, stdout: providerVmId, stderr: "" };
+        }),
+    };
+
+    const nullResult = await Effect.runPromise(
+      execVm({
+        userId: "u-personal",
+        teamIds: [],
+        providerVmId: "vm-personal-null",
+        command: "true",
+        timeoutMs: 1000,
+      }).pipe(Effect.provide(workflowLayer(testWorkflowRepo({ vm: personalNullVm }), provider))),
+    );
+    const selfResult = await Effect.runPromise(
+      execVm({
+        userId: "u-self",
+        teamIds: [],
+        providerVmId: "vm-personal-self",
+        command: "true",
+        timeoutMs: 1000,
+      }).pipe(Effect.provide(workflowLayer(testWorkflowRepo({ vm: personalSelfVm }), provider))),
+    );
+
+    expect(nullResult).toMatchObject({ exitCode: 0, stdout: "vm-personal-null" });
+    expect(selfResult).toMatchObject({ exitCode: 0, stdout: "vm-personal-self" });
+    expect(execCalls).toBe(2);
+  });
+
   dbTest("keeps prompt revisions ordered across rapid renames and clock skew", async () => {
     if (!sql) throw new Error("test database not initialized");
     const userId = "user-prompt-revisions";

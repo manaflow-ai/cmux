@@ -99,5 +99,6 @@ export async function POST(
       setSpanAttributes(span, { "cmux.vm.attach.transport": endpoint.transport });
       return jsonResponse(endpoint);
     },
+    { requireFreshTeamMembership: true },
   );
 }

@@ -100,5 +100,6 @@ export async function POST(
       setSpanAttributes(span, { "cmux.exec.exit_code": result.exitCode });
       return jsonResponse(result);
     },
+    { requireFreshTeamMembership: true },
   );
 }

@@ -393,6 +393,40 @@ describe("VM REST auth", () => {
     expect(getUser).toHaveBeenCalledTimes(2);
   });
 
+  test.each(["exec", "attach", "remote", "destroy"] as const)("%s revalidates all memberships after a cached identity loses its selected team", async (operation) => {
+    const first = { id: "team-first", displayName: "First" };
+    const second = { id: "team-second", displayName: "Second" };
+    let removed = false;
+    const listTeams = async (options?: { cursor?: string }) => {
+      if (removed) return [];
+      return options?.cursor === "page-2" ? [second] : Object.assign([first], { nextCursor: "page-2" });
+    };
+    getUser.mockResolvedValue({
+      id: "user-1", displayName: null, primaryEmail: "user@example.com",
+      clientReadOnlyMetadata: {}, selectedTeam: first, listTeams,
+    });
+    runVmWorkflow.mockResolvedValue({ exitCode: 0, stdout: "", stderr: "", transport: "websocket" });
+    const headers = { authorization: "Bearer access-token", "x-stack-refresh-token": "refresh-token" };
+    const context = { params: Promise.resolve({ id: "provider-vm-1" }) };
+    const invoke = () => {
+      const url = "https://cmux.test/api/vm/provider-vm-1";
+      if (operation === "destroy") return DELETE(new Request(url, { method: "DELETE", headers }), context);
+      const body = JSON.stringify(operation === "exec" ? { command: "true" } : { transport: operation === "remote" ? "cmux-remote" : "websocket" });
+      return operation === "exec"
+        ? execRoute.POST(new Request(`${url}/exec`, { method: "POST", headers, body }), context)
+        : attachRoute.POST(new Request(`${url}/attach-endpoint`, { method: "POST", headers, body }), context);
+    };
+    const workflow = operation === "destroy" ? destroyVm : operation === "exec" ? execVm : operation === "remote" ? openVmCmuxRemote : openAttachEndpoint;
+    // Populate the ordinary cache first. Sensitive routes must not reuse it.
+    await verifyRequest(new Request("https://cmux.test/api/vm", { headers }));
+    expect((await invoke()).status).toBe(200);
+    expect(workflow).toHaveBeenLastCalledWith(expect.objectContaining({ teamIds: [first.id, second.id] }));
+    removed = true;
+    expect((await invoke()).status).toBe(200);
+    expect(workflow).toHaveBeenLastCalledWith(expect.objectContaining({ teamIds: [] }));
+    expect(getUser).toHaveBeenCalledTimes(3);
+  });
+
   test("allows stale account-deleting metadata after tombstone lease expires", async () => {
     authTombstoneRows = [accountDeletionAuthTombstone("user-1", "pending", new Date(0))];
     getUser.mockResolvedValue({
