@@ -1,6 +1,10 @@
 import { beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 
+import type { DashboardTeamScope } from "../app/[locale]/dashboard/dashboard-team-scope";
+
+type ReadyTeamScope = Extract<DashboardTeamScope, { status: "ready" }>;
+
 type Catalog = {
   selectedTeamId: string | null;
   teams: Array<{
@@ -64,7 +68,7 @@ const { useDashboardTeamScope, parseTeamCatalog, selectedTeam, permittedTeams } 
   "../app/[locale]/dashboard/dashboard-team-scope"
 );
 
-let probedScope: ReturnType<typeof useDashboardTeamScope> | undefined;
+let probedScope: DashboardTeamScope | undefined;
 
 function Probe({ userId }: { userId: string | null }) {
   const scope = useDashboardTeamScope(userId);
@@ -78,10 +82,18 @@ function Probe({ userId }: { userId: string | null }) {
   );
 } 
 
-function renderReadyScope() {
+// Read the probe through a function so control flow analysis keeps the
+// declared type. Assigning `undefined` below narrows `probedScope` for the
+// rest of the function, and the Probe render reassigns it through a closure
+// that the analysis cannot see, which would otherwise leave it `never`.
+function takeProbedScope(): DashboardTeamScope | undefined {
+  return probedScope;
+}
+
+function renderReadyScope(): ReadyTeamScope {
   probedScope = undefined;
   renderToStaticMarkup(<Probe userId="user-1" />);
-  const scope = probedScope;
+  const scope = takeProbedScope();
   if (!scope || scope.status !== "ready") throw new Error("Expected a ready team scope");
   return scope;
 }
