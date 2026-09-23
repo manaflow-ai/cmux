@@ -320,9 +320,8 @@ struct SessionIndexView: View {
                 }
             }
 
-            // Keep the category selector intentionally quiet. Folder scope
-            // and reload remain model capabilities, but the secondary icon
-            // controls competed with the three primary grouping choices.
+            Spacer(minLength: 4)
+            VaultAllSessionsBar.reloadButton(isLoading: store.isLoading) { store.reload() }
         }
         // Match the right-sidebar mode bar above: the same outer insets and
         // the same 28-point chrome rhythm.
