@@ -355,6 +355,10 @@ path = "tests/test_ci_guard_workflow_structure.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_evidence_outcomes.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_reusable_job_name_lookups.py"
 lane = "linux-guard"
 
@@ -368,6 +372,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_merge_queue_required_checks.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_nightly_push_throttle.py"
 lane = "linux-guard"
 
 [[test]]
@@ -403,6 +411,10 @@ path = "tests/test_ci_repo_variable_defaults.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_required_checks_drift.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_release_guard_structure.py"
 lane = "linux-guard"
 
@@ -416,6 +428,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_select_package_tests.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_workflow_run_sources.py"
 lane = "linux-guard"
 
 [[test]]
@@ -491,6 +507,10 @@ path = "tests/test_ios_testflight_pro_distribution.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ios_upload_batching.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ios_upload_lean_checkout.py"
 lane = "linux-guard"
 
@@ -560,6 +580,14 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_swift_incremental_diagnostics.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_swift_package_execution.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_swift_test_execution.py"
 lane = "linux-guard"
 
 [[test]]
@@ -636,6 +664,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_selective_layer_wiring.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_workflow_path_filter_parity.py"
 lane = "linux-guard"
 
 [[test]]
@@ -863,6 +895,10 @@ path = "tests/test_pairing_scheme_is_explicit_in_tests.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_pairing_scheme_lint.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_plain_text_paste_worker.py"
 lane = "legacy"
 
@@ -976,4 +1012,8 @@ lane = "legacy"
 
 [[test]]
 path = "tests/test_ci_canonical_build_root.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_main_full_suite.py"
 lane = "linux-guard"

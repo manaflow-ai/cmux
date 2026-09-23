@@ -2,7 +2,10 @@ name: iOS TestFlight (CMUX INTERNAL)
 
 on:
   # Poll main every 20 minutes and batch merges into one upload. The decide job
-  # skips scheduled runs when main is unchanged or the changes do not affect iOS.
+  # skips scheduled runs when main is unchanged or the changes do not affect iOS,
+  # and INTERNAL polls wait until IOS_TESTFLIGHT_INTERNAL_MIN_COMMITS (default 5)
+  # iOS-relevant commits are pending or the oldest is
+  # IOS_TESTFLIGHT_INTERNAL_MAX_AGE_MINUTES (default 180) old.
   # Manual dispatch remains available for intentional rebuilds.
   schedule:
     # Check current main for a cmux INTERNAL upload every 20 minutes.
@@ -49,7 +52,9 @@ jobs:
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 360
     outputs:
-      should_build: ${{ steps.decide.outputs.should_build }}
+      # The batch step, when it runs, has the last word on scheduled INTERNAL
+      # polls; every other run keeps the decide script's answer.
+      should_build: ${{ steps.batch.outputs.should_build || steps.decide.outputs.should_build }}
       last_uploaded_sha: ${{ steps.decide.outputs.last_uploaded_sha }}
       variant: ${{ steps.decide.outputs.variant }}
     steps:
@@ -299,6 +304,7 @@ jobs:
               'ios/',
               'Packages/iOS/',
               'Packages/Shared/',
+              'Packages/macOS/CmuxPhonePush/',
               'Sources/Mobile/',
               'vendor/stack-auth-swift-sdk-prerelease/',
               'ghostty',
@@ -418,6 +424,67 @@ jobs:
               ])
               .write();
 
+      # Batch scheduled INTERNAL polls: on a busy day nearly every 20-minute
+      # poll finds an iOS-relevant merge, and each upload is a cold Release
+      # archive on the macOS pool PR CI shares. Runs only when the rules above
+      # already chose to upload against a known prior upload; manual dispatch
+      # and the twice-daily DEMO lane are never batched.
+      - name: Check out the upload batching policy
+        # Batching only delays uploads; a failure here must fall back to the
+        # decide job's answer instead of stopping scheduled uploads.
+        continue-on-error: true
+        if: >-
+          steps.decide.outputs.should_build == 'true' &&
+          github.event_name == 'schedule' &&
+          steps.decide.outputs.variant == 'internal' &&
+          steps.decide.outputs.last_uploaded_sha != ''
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          # Commits and trees only: the batch counts first-parent commits and
+          # their changed paths, which never needs file contents.
+          fetch-depth: 1
+          filter: blob:none
+          sparse-checkout: |
+            .github/workflows/ios-testflight.yml
+            ios/scripts/fetch-testflight-notes-history.sh
+            scripts/ci/ios_upload_batch_decision.py
+          sparse-checkout-cone-mode: false
+
+      - name: Batch INTERNAL uploads by iOS commit count and age
+        # fetch-testflight-notes-history.sh deepens history in a loop; the upload
+        # job bounds the same script at 5 minutes. Without a bound here a
+        # pathological deepen would hold a runner for the job's 360-minute budget.
+        timeout-minutes: 5
+        # Batching only delays uploads; a failure here must fall back to the
+        # decide job's answer instead of stopping scheduled uploads.
+        continue-on-error: true
+        id: batch
+        if: >-
+          steps.decide.outputs.should_build == 'true' &&
+          github.event_name == 'schedule' &&
+          steps.decide.outputs.variant == 'internal' &&
+          steps.decide.outputs.last_uploaded_sha != ''
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          LAST_UPLOADED_SHA: ${{ steps.decide.outputs.last_uploaded_sha }}
+          MIN_COMMITS: ${{ vars.IOS_TESTFLIGHT_INTERNAL_MIN_COMMITS }}
+          MAX_AGE_MINUTES: ${{ vars.IOS_TESTFLIGHT_INTERNAL_MAX_AGE_MINUTES }}
+        run: |
+          set -euo pipefail
+          ./ios/scripts/fetch-testflight-notes-history.sh "$LAST_UPLOADED_SHA"
+          python3 scripts/ci/ios_upload_batch_decision.py \
+            --event "$EVENT_NAME" \
+            --base "$LAST_UPLOADED_SHA" \
+            --paths-from-workflow .github/workflows/ios-testflight.yml \
+            --min-commits "$MIN_COMMITS" \
+            --max-age-minutes "$MAX_AGE_MINUTES" \
+            --default-min-commits 5 \
+            --default-max-age-minutes 180 \
+            --output-name should_build \
+            --github-output "$GITHUB_OUTPUT" \
+            --summary "$GITHUB_STEP_SUMMARY"
+
   upload:
     name: Upload to TestFlight
     needs: decide
@@ -438,6 +505,7 @@ jobs:
       # steps below gate on this same `steps.upload.outcome`; exporting it lets
       # assign-internal-group do likewise instead of reading the job result.
       uploaded: ${{ steps.upload.outcome }}
+      notes_artifact_id: ${{ steps.notes_request.outputs.artifact-id }}
     env:
       ASC_API_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
       ASC_API_ISSUER_ID: ${{ secrets.ASC_API_ISSUER_ID }}
@@ -735,6 +803,7 @@ jobs:
           # The script writes the CFBundleVersion that actually shipped here (the
           # monotonic guard may bump it), so the summary reports the real value.
           CMUX_BUILD_NUMBER_OUT_FILE: ${{ runner.temp }}/cmux-final-build-number.txt
+          CMUX_TESTFLIGHT_NOTES_REQUEST_FILE: ${{ runner.temp }}/testflight-notes.json
           # Pin the archive/export workspace: the default is a /tmp dir keyed by
           # the build number, which this workflow cannot compute, and the
           # post-upload dSYM artifact step must find the archive's dSYM bundle.
@@ -794,6 +863,18 @@ jobs:
           fi
           echo "final_build_number=$FINAL_BN" >> "$GITHUB_OUTPUT"
           echo "Shipped CFBundleVersion: $FINAL_BN"
+
+      - name: Save deferred TestFlight notes request
+        id: notes_request
+        if: ${{ !cancelled() && steps.upload.outcome == 'success' && steps.distribution.outputs.upload_mode != 'marketing_version_override' }}
+        # Notes are best effort after the IPA has shipped, including transport.
+        continue-on-error: true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: testflight-notes-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/testflight-notes.json
+          if-no-files-found: warn
+          retention-days: 7
 
       - name: Upload the archive log
         # Only on failure: on the success path this is 15-20 minutes of
@@ -901,6 +982,33 @@ jobs:
         if: always()
         run: |
           security delete-keychain ios-testflight.keychain >/dev/null 2>&1 || true
+
+  set-testflight-notes:
+    name: Set TestFlight notes
+    needs: upload
+    # Run alongside tester assignment and even if later Mac metadata/Sentry
+    # steps fail. Notes timeouts must not turn an accepted upload into a failure.
+    if: ${{ !cancelled() && needs.upload.outputs.uploaded == 'success' && needs.upload.outputs.notes_artifact_id != '' }}
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 20
+    continue-on-error: true
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: Download notes request
+        uses: actions/download-artifact@95815c38cf2ff2164869cbab79da8d1f422bc89e # v4.2.1
+        with:
+          artifact-ids: ${{ needs.upload.outputs.notes_artifact_id }}
+          path: ${{ runner.temp }}/testflight-notes
+          merge-multiple: true
+      - name: Apply uploaded build notes
+        env:
+          ASC_API_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
+          ASC_API_ISSUER_ID: ${{ secrets.ASC_API_ISSUER_ID }}
+          ASC_API_KEY_P8_BASE64: ${{ secrets.ASC_API_KEY_P8_BASE64 }}
+        run: python3 ios/scripts/apply-deferred-testflight-notes.py "${{ runner.temp }}/testflight-notes/testflight-notes.json"
 
   # Normal and demo runs assign their internal group after upload. A manual
   # external marketing-version override assigns Founder's Edition and Pro
