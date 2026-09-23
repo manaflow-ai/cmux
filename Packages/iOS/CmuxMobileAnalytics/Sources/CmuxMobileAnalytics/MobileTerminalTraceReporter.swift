@@ -17,6 +17,7 @@ public final class MobileTerminalTraceReporter: Sendable {
     private struct Start: Sendable {
         let operation: DiagnosticTerminalTraceOperation
         let tNanos: UInt64
+        let replayContext: MobileTerminalReplayTraceContext?
     }
 
     private struct State: Sendable {
@@ -59,6 +60,7 @@ public final class MobileTerminalTraceReporter: Sendable {
         let terminalPhase: DiagnosticTerminalTracePhase
         let durationMilliseconds: UInt32
         let outcome: String
+        let replayContext: MobileTerminalReplayTraceContext?
     }
 
     private let emitter: any AnalyticsEmitting
@@ -103,8 +105,30 @@ public final class MobileTerminalTraceReporter: Sendable {
                let oldest = state.starts.min(by: { $0.value.tNanos < $1.value.tNanos })?.key {
                 state.starts.removeValue(forKey: oldest)
             }
-            state.starts[traceID.rawValue] = Start(operation: operation, tNanos: event.tNanos)
+            state.starts[traceID.rawValue] = Start(
+                operation: operation,
+                tNanos: event.tNanos,
+                replayContext: event.c.flatMap(MobileTerminalReplayTraceContext.init(encoded:))
+            )
             return nil
+        }
+        // A stall report is the only non-terminal emission: the operation is
+        // still outstanding, so the pending start must survive for the phase
+        // that eventually settles it. Without this an operation that never
+        // settles produced no row at all.
+        if phase == .stalled {
+            guard let duration = event.ms else { return nil }
+            guard admitEmission(at: event.tNanos, state: &state) else { return nil }
+            let start = state.starts[traceID.rawValue]
+            return Observation(
+                traceID: traceID,
+                operation: start?.operation ?? operation,
+                terminalPhase: phase,
+                durationMilliseconds: duration,
+                outcome: "stalled",
+                replayContext: event.c.flatMap(MobileTerminalReplayTraceContext.init(encoded:))
+                    ?? start?.replayContext
+            )
         }
         guard phase == .applied || phase == .failed || phase == .discarded else { return nil }
         let start = state.starts.removeValue(forKey: traceID.rawValue)
@@ -124,7 +148,8 @@ public final class MobileTerminalTraceReporter: Sendable {
             operation: start?.operation ?? operation,
             terminalPhase: phase,
             durationMilliseconds: duration,
-            outcome: outcome
+            outcome: outcome,
+            replayContext: start?.replayContext
         )
     }
 
@@ -140,7 +165,7 @@ public final class MobileTerminalTraceReporter: Sendable {
     }
 
     private static func properties(for observation: Observation) -> [String: AnalyticsValue] {
-        [
+        var properties: [String: AnalyticsValue] = [
             "phase": .string(tracePhase),
             "outcome": .string(observation.outcome),
             "duration_ms": .int(Int(observation.durationMilliseconds)),
@@ -149,5 +174,13 @@ public final class MobileTerminalTraceReporter: Sendable {
             "operation": .string(String(describing: observation.operation)),
             "terminal_phase": .string(String(describing: observation.terminalPhase)),
         ]
+        if let context = observation.replayContext {
+            properties["replay_trigger"] = .string(String(describing: context.trigger))
+            // The field that separates a blank terminal from a stale one.
+            properties["surface_blank"] = .bool(context.surfaceIsBlank)
+            properties["barrier_active"] = .bool(context.barrierActive)
+            properties["replay_attempt"] = .int(context.attempt)
+        }
+        return properties
     }
 }
