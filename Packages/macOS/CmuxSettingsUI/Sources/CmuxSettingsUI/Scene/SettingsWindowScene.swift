@@ -143,13 +143,19 @@ public struct SettingsWindowRoot: View {
             .navigationSplitViewStyle(.balanced)
             .frame(minWidth: 820, minHeight: 540)
         case .pane:
+            // The pane can be narrower than a page's widest row. The detail
+            // column accepts any width (minWidth 0) so the row never exceeds
+            // the pane; an overflowing HStack is centered by SwiftUI, which
+            // clipped the category column on the left and the cards on the right.
             HStack(spacing: 0) {
                 paneSidebar
                     .frame(width: 208)
                 Divider()
                 detailPage
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .frame(minWidth: 0, maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                    .clipped()
             }
+            .frame(minWidth: 0, maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         }
     }
 
@@ -292,6 +298,7 @@ public struct SettingsWindowRoot: View {
                 VStack(alignment: .leading, spacing: 14) {
                     sectionPage(section)
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
                 .id(anchorID(for: section))
                 .padding(20)
                 .onAppear { scrollToDestination(on: section, proxy: proxy) }
@@ -360,39 +367,79 @@ private struct SettingsPaneSidebarRow: View {
     }
 }
 
-/// The embedded sidebar's search field: the real AppKit search field, so it
-/// gets the native rounded bezel, magnifier, clear button, and focus ring
-/// instead of a hand-drawn capsule.
-private struct SettingsPaneSearchField: NSViewRepresentable {
+/// The embedded sidebar's search field. On macOS 26 it is a Liquid Glass
+/// capsule, matching the other glass chrome in cmux panes; earlier systems get
+/// a translucent grey capsule. `NSSearchField` draws an opaque dark bezel that
+/// cannot adopt either look.
+private struct SettingsPaneSearchField: View {
     @Binding var text: String
+    @FocusState private var isFocused: Bool
 
-    func makeNSView(context: Context) -> NSSearchField {
-        let field = NSSearchField()
-        field.placeholderString = String(localized: "settings.search.prompt", defaultValue: "Search")
-        field.controlSize = .regular
-        field.font = .systemFont(ofSize: 13)
-        field.sendsSearchStringImmediately = true
-        field.sendsWholeSearchString = false
-        field.delegate = context.coordinator
-        field.setContentHuggingPriority(.defaultLow, for: .horizontal)
-        return field
+    var body: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "magnifyingglass")
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(.secondary)
+            TextField(
+                String(localized: "settings.search.prompt", defaultValue: "Search"),
+                text: $text
+            )
+            .textFieldStyle(.plain)
+            .font(.system(size: 13))
+            .focused($isFocused)
+            .onExitCommand { text = "" }
+            if !text.isEmpty {
+                Button {
+                    text = ""
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: 12))
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(String(localized: "settings.search.clear", defaultValue: "Clear search"))
+            }
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .background { SettingsPaneSearchFieldBackground(isFocused: isFocused) }
+        .contentShape(Capsule())
+        .onTapGesture { isFocused = true }
+    }
+}
+
+private struct SettingsPaneSearchFieldBackground: View {
+    let isFocused: Bool
+
+    var body: some View {
+        let shape = Capsule()
+#if compiler(>=6.2)
+        if #available(macOS 26.0, *) {
+            shape
+                .fill(Color.clear)
+                .glassEffect(.regular.interactive(true), in: shape)
+                .overlay {
+                    shape.stroke(
+                        isFocused ? Color.accentColor.opacity(0.6) : Color.white.opacity(0.24),
+                        lineWidth: isFocused ? 1.5 : 0.85
+                    )
+                }
+        } else {
+            fallback(shape)
+        }
+#else
+        fallback(shape)
+#endif
     }
 
-    func updateNSView(_ field: NSSearchField, context: Context) {
-        if field.stringValue != text {
-            field.stringValue = text
-        }
-    }
-
-    func makeCoordinator() -> Coordinator { Coordinator(text: $text) }
-
-    final class Coordinator: NSObject, NSSearchFieldDelegate {
-        @Binding var text: String
-        init(text: Binding<String>) { _text = text }
-
-        func controlTextDidChange(_ notification: Notification) {
-            guard let field = notification.object as? NSSearchField else { return }
-            if text != field.stringValue { text = field.stringValue }
-        }
+    private func fallback(_ shape: Capsule) -> some View {
+        shape
+            .fill(Color.gray.opacity(0.18))
+            .overlay {
+                shape.stroke(
+                    isFocused ? Color.accentColor.opacity(0.6) : Color.primary.opacity(0.08),
+                    lineWidth: isFocused ? 1.5 : 0.5
+                )
+            }
     }
 }
