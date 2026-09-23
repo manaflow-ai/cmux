@@ -62,6 +62,7 @@ jobs:
       linux_guard_source: ${{ steps.linux_guards.outputs.linux_guard_source }}
       ghosttykit_release: ${{ steps.unchanged_inputs.outputs.compile_admitted == 'true' && 'false' || steps.linux_guards.outputs.ghosttykit_release }}
       full_suite: ${{ steps.suite.outputs.full_suite }}
+      coverage_gap: ${{ steps.suite.outputs.coverage_gap }}
       compile_admitted: ${{ steps.unchanged_inputs.outputs.compile_admitted == 'true' && 'true' || steps.admitted.outputs.compile_admitted }}
       source_tree: ${{ steps.source-identity.outputs.tree }}
       source_parent1: ${{ steps.source-identity.outputs.parent1 }}
@@ -357,10 +358,18 @@ jobs:
           PULL_REQUEST_POLICY: ${{ vars.CI_PULL_REQUEST_SUITE || 'compile-only' }}
         run: |
           set -euo pipefail
+          # The diff list is only written for pull_request and merge_group, and
+          # only once the diff could be read. Omitting the flag reports an
+          # unknown diff, which fails closed in coverage_gap().
+          files_args=()
+          if [ -f /tmp/cmux-ci-changed-files.txt ]; then
+            files_args=(--files-from /tmp/cmux-ci-changed-files.txt)
+          fi
           python3 scripts/ci/choose_ci_suite.py \
             --event-name "$EVENT_NAME" \
             --pull-request-policy "$PULL_REQUEST_POLICY" \
             --event-path "$GITHUB_EVENT_PATH" \
+            ${files_args[@]+"${files_args[@]}"} \
             --github-output "$GITHUB_OUTPUT"
 
       - name: Route Linux guard suites
@@ -937,9 +946,32 @@ jobs:
               print(f"{name}: {data['result']}")
           PY
 
+  suite-coverage:
+    timeout-minutes: 5
+    # Compile admission builds the test bundle and stops, so a pull request
+    # that edits cmuxTests/ and skips the full suite runs none of the code it
+    # changed. The policy that allows the skip is written for a merge queue
+    # that no longer gates main, so refuse the run here instead of reporting
+    # green on a diff nothing observed. Add "full-ci" to run the suite, or
+    # "no-full-ci" to record that skipping it is deliberate.
+    needs:
+      - changes
+    if: ${{ !cancelled() && needs.changes.result == 'success' && needs.changes.outputs.coverage_gap == 'true' }}
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    steps:
+      - name: Require the suite that judges this diff
+        run: |
+          echo "This pull request changes cmuxTests/ or cmuxUITests/, and this run" >&2
+          echo "skipped the macOS suite, so none of the changed tests executed." >&2
+          echo >&2
+          echo "Add the 'full-ci' label to run the suite on a fresh run, or add" >&2
+          echo "'no-full-ci' to record that skipping it is deliberate." >&2
+          exit 1
+
   ci-status:
     needs:
       - changes
+      - suite-coverage
       - static-preflight
       - guards
       - ghosttykit-release-check
@@ -951,6 +983,10 @@ jobs:
       - tests
     if: ${{ always() }}
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    # One step that reads `needs` and decides. Its siblings are bounded at 5
+    # to 20 minutes; this one was inheriting the six-hour default, as the
+    # required check every pull request waits on.
+    timeout-minutes: 5
     steps:
       - name: Check routed CI jobs
         env:

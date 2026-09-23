@@ -450,11 +450,13 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
-          submodules: recursive
-          # Full history so generate-testflight-notes.sh can walk the commit
-          # range since the last beta.
-          fetch-depth: 0
-          fetch-tags: true
+          # Shallow and without submodules: the iOS archive needs only the
+          # prebuilt GhosttyKit.xcframework, keyed by the ghostty gitlink in
+          # this commit. The ghostty source is fetched (depth 1) only on the
+          # from-source fallback below, and the notes range is fetched by
+          # "Fetch TestFlight notes history". A full recursive clone took
+          # ~12 min of macOS runner time per run.
+          fetch-depth: 1
 
       - name: Resolve TestFlight distribution
         id: distribution
@@ -467,6 +469,18 @@ jobs:
             --marketing-version-override "$INPUT_MARKETING_VERSION_OVERRIDE" \
             --github-env "$GITHUB_ENV" \
             --github-output "$GITHUB_OUTPUT"
+
+      - name: Fetch TestFlight notes history
+        # The only history the upload reads: generate-testflight-notes.sh walks
+        # last_uploaded_sha..HEAD for the "What to Test" notes. The override
+        # path uploads with --skip-notes, and a first run has no base.
+        # Notes are best effort: a hung fetch must not hold or fail the upload.
+        if: ${{ needs.decide.outputs.last_uploaded_sha != '' && steps.distribution.outputs.upload_mode != 'marketing_version_override' }}
+        timeout-minutes: 5
+        continue-on-error: true
+        env:
+          LAST_UPLOADED_SHA: ${{ needs.decide.outputs.last_uploaded_sha }}
+        run: ./ios/scripts/fetch-testflight-notes-history.sh "$LAST_UPLOADED_SHA"
 
       - name: Select Xcode
         run: |
@@ -485,16 +499,51 @@ jobs:
           export DEVELOPER_DIR="$XCODE_DIR"
           xcodebuild -version
 
-      - name: Install zig
-        run: ./scripts/install-zig-ci.sh
-
-      - name: Provision GhosttyKit
+      # The verified prebuilt is the happy path (same pattern as
+      # reload-build.yml). Zig and the ghostty source are fetched only when it
+      # fails, immediately before the ensure-ghosttykit.sh from-source build
+      # that needs them. The iOS app links GhosttyKit via a local-path
+      # binaryTarget, so it must exist before package resolve.
+      - name: Download prebuilt GhosttyKit
+        id: ghosttykit_prebuilt
         run: |
-          # Downloads the prebuilt GhosttyKit.xcframework pinned in
-          # scripts/ghosttykit-checksums.txt for the current ghostty SHA, or
-          # falls back to a from-source build. The iOS app links GhosttyKit via
-          # a local-path binaryTarget, so it must exist before package resolve.
-          ./scripts/ensure-ghosttykit.sh
+          set -euo pipefail
+          # The ghostty gitlink recorded in this commit is the submodule SHA
+          # the from-source build would key on, without checking ghostty out.
+          ghostty_sha="$(git rev-parse HEAD:ghostty)"
+          # Same bounded budget the from-source provisioner used for this
+          # download (3 retries, 300 s per attempt), so a missing release
+          # falls back fast.
+          if GHOSTTY_SHA="$ghostty_sha" \
+            GHOSTTYKIT_DOWNLOAD_RETRIES=3 \
+            GHOSTTYKIT_DOWNLOAD_RETRY_DELAY=5 \
+            GHOSTTYKIT_DOWNLOAD_MAX_TIME=300 \
+            ./scripts/download-prebuilt-ghosttykit.sh; then
+            available=true
+          else
+            available=false
+            echo "::warning::Prebuilt GhosttyKit for ghostty ${ghostty_sha} unavailable; building from source"
+          fi
+          echo "available=$available" >> "$GITHUB_OUTPUT"
+
+      - name: Fetch ghostty and install zig for GhosttyKit fallback
+        if: ${{ steps.ghosttykit_prebuilt.outputs.available != 'true' }}
+        run: |
+          set -euo pipefail
+          # ghostty has no nested submodules; its pinned commit is fetchable
+          # at depth 1.
+          git submodule update --init --depth 1 ghostty
+          ./scripts/install-zig-ci.sh
+
+      - name: Build fallback GhosttyKit
+        if: ${{ steps.ghosttykit_prebuilt.outputs.available != 'true' }}
+        env:
+          # The download step already proved the prebuilt path failed.
+          CMUX_GHOSTTYKIT_NO_PREBUILT: "1"
+        run: ./scripts/ensure-ghosttykit.sh
+
+      - name: Verify provisioned GhosttyKit
+        run: test -d GhosttyKit.xcframework
 
       - name: Install asc CLI
         run: |

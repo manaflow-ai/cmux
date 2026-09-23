@@ -92,9 +92,12 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
-          submodules: recursive
-          fetch-depth: 0
-          fetch-tags: true
+          # Shallow and without submodules: this lane reads no git history
+          # (notes come from ios/CHANGELOG.md, the build number is a UTC
+          # timestamp) and the archive needs only the prebuilt
+          # GhosttyKit.xcframework, keyed by the ghostty gitlink in this commit.
+          # A full recursive clone took ~12 min of macOS runner time per run.
+          fetch-depth: 1
 
       - name: Select Xcode
         env:
@@ -104,11 +107,51 @@ jobs:
       - name: Install asc CLI
         run: brew list asc >/dev/null 2>&1 || brew install asc
 
-      - name: Install zig
-        run: ./scripts/install-zig-ci.sh
+      # The verified prebuilt is the happy path (same pattern as
+      # reload-build.yml). Zig and the ghostty source are fetched only when it
+      # fails, immediately before the ensure-ghosttykit.sh from-source build
+      # that needs them. The iOS app links GhosttyKit via a local-path
+      # binaryTarget, so it must exist before package resolve.
+      - name: Download prebuilt GhosttyKit
+        id: ghosttykit_prebuilt
+        run: |
+          set -euo pipefail
+          # The ghostty gitlink recorded in this commit is the submodule SHA
+          # the from-source build would key on, without checking ghostty out.
+          ghostty_sha="$(git rev-parse HEAD:ghostty)"
+          # Same bounded budget the from-source provisioner used for this
+          # download (3 retries, 300 s per attempt), so a missing release
+          # falls back fast.
+          if GHOSTTY_SHA="$ghostty_sha" \
+            GHOSTTYKIT_DOWNLOAD_RETRIES=3 \
+            GHOSTTYKIT_DOWNLOAD_RETRY_DELAY=5 \
+            GHOSTTYKIT_DOWNLOAD_MAX_TIME=300 \
+            ./scripts/download-prebuilt-ghosttykit.sh; then
+            available=true
+          else
+            available=false
+            echo "::warning::Prebuilt GhosttyKit for ghostty ${ghostty_sha} unavailable; building from source"
+          fi
+          echo "available=$available" >> "$GITHUB_OUTPUT"
 
-      - name: Provision GhosttyKit
+      - name: Fetch ghostty and install zig for GhosttyKit fallback
+        if: ${{ steps.ghosttykit_prebuilt.outputs.available != 'true' }}
+        run: |
+          set -euo pipefail
+          # ghostty has no nested submodules; its pinned commit is fetchable
+          # at depth 1.
+          git submodule update --init --depth 1 ghostty
+          ./scripts/install-zig-ci.sh
+
+      - name: Build fallback GhosttyKit
+        if: ${{ steps.ghosttykit_prebuilt.outputs.available != 'true' }}
+        env:
+          # The download step already proved the prebuilt path failed.
+          CMUX_GHOSTTYKIT_NO_PREBUILT: "1"
         run: ./scripts/ensure-ghosttykit.sh
+
+      - name: Verify provisioned GhosttyKit
+        run: test -d GhosttyKit.xcframework
 
       - name: Materialize App Store Connect API key
         env:
