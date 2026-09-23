@@ -121,6 +121,20 @@ class CanonicalRootMaterializationTests(unittest.TestCase):
             text=True, capture_output=True,
         )
 
+    def test_runtime_source_alias_resolves_embedded_file_paths(self):
+        result = subprocess.run(
+            [str(ROOT / "scripts/ci/canonical-build-root.sh"), "--runtime-source", str(self.workspace)],
+            env={"PATH": "/usr/bin:/bin", "CMUX_CI_CANONICAL_ROOT": str(self.root)},
+            text=True, capture_output=True,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual((self.root / "src/sub/keep.txt").read_text(), "keep")
+        # Runtime aliasing must not trick a later compiler into using a
+        # workspace-dependent realpath under the shared fingerprint.
+        self.assertEqual(self.run_script().returncode, 0)
+        self.assertFalse((self.root / "src").is_symlink())
+        self.assertEqual((self.root / "src/sub/keep.txt").read_text(), "keep")
+
     def test_the_canonical_source_is_a_real_directory_not_a_symlink(self):
         # A symlink resolves back to the pool-specific path, which would make
         # the shared key claim a match the compiler does not honour.
