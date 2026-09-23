@@ -27,6 +27,8 @@ def comparison(paths, **overrides):
     data = {
         "status": "ahead",
         "merge_base_commit": {"sha": TAG_SHA},
+        "total_commits": 1,
+        "commits": [{"sha": HEAD_SHA}],
         "files": [{"filename": path, "status": "modified"} for path in paths],
     }
     data.update(overrides)
@@ -91,10 +93,16 @@ const github = { rest: {
 // Classify with the real script in the real checkout, so the workflow and this
 // contract cannot disagree about what reaches the app.
 const exec = { getExecOutput: async (command, args, options) => {
-  const result = require('node:child_process').spawnSync(command, args, {
-    cwd: scenario.root, input: options?.input, encoding: 'utf8',
-  });
+  const child = require('node:child_process');
+  const result = scenario.classifier
+    ? child.spawnSync('bash', ['-c', scenario.classifier],
+        { cwd: scenario.root, input: options?.input, encoding: 'utf8' })
+    : child.spawnSync(command, args,
+        { cwd: scenario.root, input: options?.input, encoding: 'utf8' });
   if (result.error) throw result.error;
+  if (result.status !== 0 && !options?.ignoreReturnCode) {
+    throw new Error(`The process ${command} failed with exit code ${result.status}`);
+  }
   return { exitCode: result.status, stdout: result.stdout, stderr: result.stderr };
 } };
 const run = new Function('github', 'context', 'core', 'process', 'exec',
@@ -136,6 +144,7 @@ def run_decide(
     schedule: str = "47 8 * * *",
     extra_env=None,
     comparison=None,
+    classifier=None,
 ):
     env = {
         "PATH": "/usr/bin:/bin:/usr/local/bin:/opt/homebrew/bin",
@@ -157,6 +166,7 @@ def run_decide(
                 "getCommitFails": get_commit_fails,
                 "schedule": schedule,
                 "compare": APP_CHANGE if comparison is None else comparison,
+                "classifier": classifier,
                 "root": str(ROOT),
             }
         ),
@@ -283,35 +293,78 @@ def test_force_and_manual_dispatch_bypass_the_input_check() -> None:
     assert summary_values(manual)["app build inputs changed"] == "(not checked)"
 
 
-def test_the_daily_catch_up_skips_a_neutral_gap_and_the_warmup_is_untouched() -> None:
+def test_the_daily_catch_up_still_builds_as_a_backstop() -> None:
+    """One build a day bounds the cost of a path this check gets wrong."""
     daily = run_decide(event="schedule", schedule="47 8 * * *", interval="0",
                        comparison=NEUTRAL_CHANGE)
-    assert not should_build(daily)
+    assert should_build(daily)
+    assert summary_values(daily)["app build inputs changed"] == "(not checked)"
+    # Nothing at all changed: the published-commit check skips it as before.
+    idle = run_decide(event="schedule", schedule="47 8 * * *", interval="0",
+                      tag_sha=HEAD_SHA)
+    assert not should_build(idle)
+    assert "already published" in summary_values(idle)["reason"]
     warm = run_decide(event="schedule", schedule="17 */6 * * *", interval="0",
                       comparison=NEUTRAL_CHANGE)
     assert should_build(warm), "the cache warmup keeps its routing output"
     assert summary_values(warm)["app build inputs changed"] == "(not checked)"
 
 
-def test_products_the_nightly_ships_but_no_pull_request_lane_builds() -> None:
-    """Every extra source prefix must still be doing work, and only work."""
+def test_what_the_nightly_ships_is_read_back_from_the_project() -> None:
+    """The bundled set is derived, not listed, so a new resource cannot slip."""
     sys.path.insert(0, str(ROOT / "scripts" / "ci"))
     import detect_ci_change_areas as detect
     import nightly_build_inputs as nightly
 
-    consumers = {
-        "cmux-tui/": "scripts/install-cmux-tui-client.sh",
-        "daemon/remote/": "scripts/build_remote_daemon_release_assets.sh",
-    }
-    workflow = WORKFLOW.read_text(encoding="utf-8")
-    assert set(consumers) == set(nightly.NIGHTLY_SHIPPED_SOURCES)
-    for prefix, consumer in consumers.items():
-        assert consumer in workflow, f"the Nightly no longer runs {consumer}; drop {prefix}"
-        source = f"{prefix}source-file"
-        assert not detect.classify_files([source]).release_build, (
-            f"{prefix} is a pull-request build input again; the entry is redundant"
-        )
-        assert nightly.build_inputs_changed([source])[0]
+    bundled = nightly.bundled_paths(ROOT)
+    # The derivation finds the folder resource the router already knows about,
+    # which is what shows it reads the real bundling phases.
+    assert "skills/cmux-cua" in bundled
+    # And it finds the two the router calls neutral: each needs no Release
+    # compile, so `release_build` alone would let a change to them skip.
+    for path in ("Resources/bin/open", "Resources/bin/cmux-claude-wrapper"):
+        assert path in bundled, f"{path} is bundled but was not derived"
+        assert not detect.classify_files([path]).release_build
+        assert nightly.build_inputs_changed([path])[0]
+
+    # The cmux-cli product is copied into the bundle, so CLI sources ship
+    # without a Release compile ever covering them.
+    assert not detect.classify_files(["CLI/cmux_open.swift"]).release_build
+    assert nightly.build_inputs_changed(["CLI/cmux_open.swift"])[0]
+
+    # The resolver's path list decides which client gets bundled.
+    tui = nightly.tui_client_paths(ROOT)
+    assert {"cmux-tui", ".github/workflows/cmux-tui-artifacts.yml",
+            ".github/workflows/cmux-tui-build-package.yml"} <= tui
+    for path in (".github/workflows/cmux-tui-artifacts.yml", "cmux-tui/src/main.rs"):
+        assert nightly.build_inputs_changed([path])[0], f"{path} must rebuild"
+
+    consumer = "scripts/build_remote_daemon_release_assets.sh"
+    assert nightly.NIGHTLY_SHIPPED_SOURCES == ("daemon/remote/",)
+    assert consumer in WORKFLOW.read_text(encoding="utf-8"), (
+        f"the Nightly no longer runs {consumer}; drop daemon/remote/"
+    )
+    assert not detect.classify_files(["daemon/remote/src/lib.rs"]).release_build
+    assert nightly.build_inputs_changed(["daemon/remote/src/lib.rs"])[0]
+
+
+def test_decide_checks_out_before_it_classifies() -> None:
+    """Without the checkout the gate silently never fires."""
+    import yaml
+
+    steps = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]["decide"]["steps"]
+    names = [step.get("id") or step.get("uses", "") for step in steps]
+    checkout = next(i for i, n in enumerate(names) if n.startswith("actions/checkout@"))
+    assert checkout < names.index("decide"), "decide must classify a checked-out tree"
+
+
+def test_a_failing_classifier_builds() -> None:
+    """The PR claims a fail-open here; drive it rather than assume it."""
+    for command in ("false", "printf 'not json\\n'"):
+        result = run_decide(event="push", interval="0", comparison=NEUTRAL_CHANGE,
+                            classifier=command)
+        assert should_build(result), f"{command} must rebuild the app"
+        assert result["warnings"]
 
 
 def test_an_unproven_comparison_builds() -> None:

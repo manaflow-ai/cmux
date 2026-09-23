@@ -243,8 +243,9 @@ jobs:
             // bytes, and each one otherwise costs a full publishing build, so
             // compare the paths changed since the published commit rather than
             // the commit itself. Only a proven-neutral change skips: a partial
-            // comparison, an unknown path, or an API failure builds, and force
-            // and manual dispatch never consult this.
+            // comparison, an unknown path, or an API failure builds, force and
+            // manual dispatch never consult this, and the daily catch-up
+            // schedule still publishes main HEAD as a backstop.
             let unchangedBuildInputs = false;
             let buildInputReason = null;
             if (
@@ -253,9 +254,12 @@ jobs:
               nightlySha &&
               !forceBuild &&
               !buildOnly &&
-              !scheduledCacheOnly &&
-              // A person asking for this revision by hand gets it.
-              context.eventName !== 'workflow_dispatch'
+              // A person asking for this revision by hand gets it, and the
+              // 08:47 UTC catch-up still publishes main HEAD every day. That
+              // keeps one daily build as a backstop, so a path this check
+              // wrongly classifies costs at most a day of staleness.
+              context.eventName !== 'workflow_dispatch' &&
+              context.eventName !== 'schedule'
             ) {
               try {
                 const { data } = await github.rest.repos.compareCommitsWithBasehead({
@@ -265,12 +269,15 @@ jobs:
                 });
                 // Cumulative since the last published commit, not since the
                 // previous push. A three-dot comparison only spans that whole
-                // gap when the published commit is the merge base, and GitHub
-                // truncates the file list past 300 entries.
+                // gap when the published commit is the merge base. GitHub
+                // caps the file list at 300 entries and paginates commits, so
+                // require a list that is under the cap and a commit count that
+                // matches the total: a partial answer must not read as proof.
                 const files = data.files;
                 if (
                   data.status === 'ahead' &&
                   data.merge_base_commit?.sha === nightlySha &&
+                  data.total_commits === data.commits?.length &&
                   Array.isArray(files) &&
                   files.length > 0 &&
                   files.length < 300
