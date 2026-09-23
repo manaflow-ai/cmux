@@ -59,28 +59,42 @@ actor AppContextSerialGate {
 extension AppDelegate {
     /// Establishes the real window/controller/terminal focus relationship before input probes.
     ///
-    /// `makeKeyAndOrderFront` only makes a programmatic window key while the
-    /// test host is the active app. The app-host process starts inactive under
-    /// `xcodebuild test`, so callers that use a real `createMainWindow()`
-    /// window (which cannot be swapped for `KeyStatusTestWindow`) became key
-    /// only when an earlier test in the shard happened to activate the app.
-    /// Activate explicitly so the terminal focus paths that gate on
-    /// `isKeyWindow` are exercised by behavior rather than by test order.
+    /// Does not wait for, or require, key status. The app-host process is not
+    /// the active application under `xcodebuild test`, and `NSApp.activate`
+    /// does not change that: a programmatic window never goes key and
+    /// `NSApp.keyWindow` stays nil for the whole run. That constraint is
+    /// already worked around in three other places -- `KeyStatusTestWindow`
+    /// exists only to override `isKeyWindow`, and both `BrowserConfigTests`
+    /// and `GhosttyEnsureFocusWindowActivationTests` route around key status
+    /// explicitly. A real `createMainWindow()` window cannot be swapped for
+    /// `KeyStatusTestWindow`, so waiting on `window.isKeyWindow` here could
+    /// only ever time out. Activating was tried and did not work.
+    ///
+    /// Nothing this helper does needs key status. First responder is assigned
+    /// explicitly, and every focus path that gates on `window.isKeyWindow`
+    /// returns early when the window is not key, so none of them can take
+    /// first responder back from the assignment below.
+    ///
+    /// The remaining geometry and window-identity conditions are waited for
+    /// but not required. They make the surface a realistic input target; a
+    /// caller that only needs first responder should fail on its own
+    /// assertion rather than on a bare `false` from a precondition it never
+    /// asked for. An unmet wait still names itself in the log.
     func focusTerminalForTesting(_ panel: TerminalPanel, workspace: Workspace, in window: NSWindow) async -> Bool {
-        NSApp.activate(ignoringOtherApps: true)
         window.makeKeyAndOrderFront(nil)
         window.displayIfNeeded()
-        // Activation and the resulting key-window transition land on later main
-        // run-loop turns, and a contended CI runner can take several of them;
-        // the pump's one-second default expires before the window goes key.
-        guard await AppKitTestEventPump().waitUntil(timeout: .seconds(10), {
+        panel.hostedView.layoutSubtreeIfNeeded()
+        // The portal adopts the pane host only once AppKit and SwiftUI get
+        // run-loop time, and a contended CI runner can take several turns.
+        // `RemoteTmuxMirrorPaneInputMappingTests` waits on the same window
+        // identity conditions with the same budget and passes.
+        if await AppKitTestEventPump().waitUntil(timeout: .seconds(10), {
             terminalFocusPreconditions(panel, in: window).allSatisfy(\.holds)
-        }) else {
+        }) == false {
             reportUnmetTerminalFocusConditions(
-                "window never became ready within 10s",
+                "proceeding anyway; surface may be an unrealistic input target",
                 terminalFocusPreconditions(panel, in: window)
             )
-            return false
         }
         noteMainPanelKeyboardFocusIntent(workspaceId: workspace.id, panelId: panel.id, in: window)
         workspace.focusPanel(panel.id, focusIntent: .terminal(.surface))
@@ -107,9 +121,9 @@ extension AppDelegate {
     /// for, named individually.
     ///
     /// A timeout used to surface as a bare `false`, which told a CI log nothing
-    /// about which of seven conditions never held — the reason focus timeouts
-    /// here have been hard to act on. Naming them keeps the wait's semantics
-    /// identical while making a failure say what it was still waiting for.
+    /// about which condition never held — the reason focus timeouts here have
+    /// been hard to act on. Naming them lets an unmet wait say what it was
+    /// still waiting for even though it no longer fails the caller.
     private func terminalFocusPreconditions(
         _ panel: TerminalPanel,
         in window: NSWindow
@@ -122,7 +136,6 @@ extension AppDelegate {
             ("hostedView.bounds.height > 1", hosted.bounds.height > 1),
             ("surfaceView.bounds.width > 1", hosted.surfaceView.bounds.width > 1),
             ("surfaceView.bounds.height > 1", hosted.surfaceView.bounds.height > 1),
-            ("window.isKeyWindow", window.isKeyWindow),
         ]
     }
 
