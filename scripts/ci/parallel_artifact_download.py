@@ -42,10 +42,21 @@ ATTEMPTS = 4
 REQUEST_TIMEOUT_SECONDS = 60
 DEADLINE_SECONDS = 360
 AGGREGATE_MEMBERS = {"app-host-products.tar.gz"}
+PRODUCTS = {
+    "app-host": ("app-host-products.tar.gz", "app-host-products"),
+    "ios": ("ios-test-product.tar.gz", "ios-test-product"),
+}
 
 
 class TransportError(RuntimeError):
     """The fast path cannot deliver verified bytes; use the canonical download."""
+
+
+def _product(kind):
+    try:
+        return PRODUCTS[kind]
+    except (KeyError, TypeError):
+        raise TransportError("unknown artifact product kind") from None
 
 
 class _NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -232,8 +243,9 @@ def unpack_single_member(archive, destination, allowed=AGGREGATE_MEMBERS):
 
 
 def restore_aggregate(repository, artifact_id, run_id, expected_digest, destination, *,
-                      token=None, metadata=artifact_metadata, fetch_zip=download_zip):
-    """Restore the aggregate product into destination; return a transfer record."""
+                      token=None, metadata=artifact_metadata, fetch_zip=download_zip, product_kind="app-host"):
+    """Restore one exact product kind; existing callers default to app-host."""
+    member, _ = _product(product_kind)
     artifact_id = int(artifact_id) if str(artifact_id).isdecimal() else 0
     _positive(artifact_id, "artifact id")
     run_id = int(run_id) if str(run_id).isdecimal() else 0
@@ -260,7 +272,7 @@ def restore_aggregate(repository, artifact_id, run_id, expected_digest, destinat
         transfer_seconds = time.monotonic() - started
         if zip_path.stat().st_size != size or sha256_file(zip_path) != expected:
             raise TransportError("provider ZIP digest mismatch")
-        unpack_single_member(zip_path, staging / "products")
+        unpack_single_member(zip_path, staging / "products", allowed={member})
         zip_path.unlink()
         (staging / "products").rename(destination)
     elapsed = time.monotonic() - started
@@ -275,7 +287,6 @@ def restore_aggregate(repository, artifact_id, run_id, expected_digest, destinat
 
 def main() -> int:
     output_path = os.environ.get("GITHUB_OUTPUT")
-    destination = Path(os.environ["RUNNER_TEMP"]) / "app-host-products"
 
     def emit(**values):
         if output_path:
@@ -285,10 +296,13 @@ def main() -> int:
 
     emit(hit="false")
     try:
+        kind = os.environ.get("ARTIFACT_PRODUCT_KIND", "app-host")
+        _, directory = _product(kind)
+        destination = Path(os.environ["RUNNER_TEMP"]) / directory
         record = restore_aggregate(
             os.environ.get("GITHUB_REPOSITORY", ""), os.environ.get("ARTIFACT_ID", ""),
             os.environ.get("GITHUB_RUN_ID", ""), os.environ.get("ARTIFACT_PROVIDER_DIGEST", ""),
-            destination,
+            destination, product_kind=kind,
         )
     except (TransportError, OSError, ValueError, TypeError, urllib.error.URLError,
             zipfile.BadZipFile, EOFError, zlib.error, lzma.LZMAError,
