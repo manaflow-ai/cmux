@@ -45,14 +45,31 @@ def selectors_from_meta(meta: Path) -> list[str]:
     for line in meta.read_text(encoding="utf-8").splitlines():
         if not line.startswith("arg="):
             continue
+        raw = line[4:].strip()
+        # %q falls back to ANSI-C $'...' when the value holds a non-printable
+        # character. shlex does not decode that form and does not raise on it:
+        # it yields a leading '$' and a literal backslash escape, which fails
+        # the prefix test below and drops the selector silently. Unreachable
+        # for today's identifiers, but a silently shorter selector set is the
+        # exact failure this tool exists to expose, so refuse it.
+        if raw.startswith("$'"):
+            raise SystemExit(
+                f"{meta.name}: ANSI-C quoted argv is not decodable here: {line!r}"
+            )
         try:
-            fields = shlex.split(line[4:].strip())
+            fields = shlex.split(raw)
         except ValueError:
             # An unbalanced quote means this line is not recoverable; skipping
             # it would silently shrink the selector set, so fail loudly.
             raise SystemExit(f"{meta.name}: cannot unquote argv line: {line!r}")
         if not fields:
             continue
+        if len(fields) > 1:
+            # %q output is one token by construction, so more than one means
+            # the recorded argv is not what this parser assumes.
+            raise SystemExit(
+                f"{meta.name}: argv line split into {len(fields)} tokens: {line!r}"
+            )
         value = fields[0]
         if value.startswith("-only-testing:"):
             out.append(value.split("-only-testing:", 1)[1])
