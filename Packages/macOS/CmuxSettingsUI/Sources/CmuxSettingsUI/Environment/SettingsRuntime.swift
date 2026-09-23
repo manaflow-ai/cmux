@@ -6,12 +6,21 @@ import SwiftUI
 /// resolve settings dependencies without threading each piece through
 /// every `init`.
 ///
-/// `SettingsRuntime` is a value-typed handle: the stores are actors,
-/// the error log is a `@MainActor` class, the account flow is a
+/// `SettingsRuntime` is an immutable reference handle: the stores are
+/// actors, the error log is a `@MainActor` class, the account flow is a
 /// `@MainActor` protocol existential — the bundle itself is
 /// `Sendable`. Construct one at app startup and pass it via
 /// ``View/settingsRuntime(_:)``.
-public struct SettingsRuntime: @unchecked Sendable {
+///
+/// It is a class, not a struct, because it embeds the whole
+/// ``SettingCatalog`` (tens of kilobytes of key declarations). Every
+/// `@LiveSetting` holds `@Environment(\.settingsRuntime)`, so a struct
+/// runtime was stored inline in every view that uses one. Copying or
+/// destroying such a view then moved the full catalog word by word, and the
+/// Release compiler emitted hundreds of kilobytes of code per view witness and
+/// capturing closure (8 minutes of LLVM time for `ContentView.swift` alone).
+/// A reference keeps each of those sites to one retain or release.
+public final class SettingsRuntime: @unchecked Sendable {
     /// Immutable setting declarations used by stores and section views.
     public let catalog: SettingCatalog
     /// Search index shared by every settings window root for this runtime.

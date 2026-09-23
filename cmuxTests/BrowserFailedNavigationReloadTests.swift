@@ -138,7 +138,10 @@ struct BrowserFailedNavigationReloadTests {
         BrowserWindowPortalRegistry.refresh(webView: webView, reason: "test.paneReplacement")
 
         #expect(webView.superview === slot)
-        #expect(webView.isDescendant(of: try #require(window.contentView)))
+        // The portal host is a window-level sibling of `contentView` unless the
+        // window installs a content-hosted browser root (#12929); the rebind
+        // contract is that the web view stays in the same window.
+        #expect(webView.window === window)
         #expect(BrowserWindowPortalRegistry.isPresented(webView))
         #expect(webView.requests.isEmpty)
         #expect(webView.reloadCount == 0)
