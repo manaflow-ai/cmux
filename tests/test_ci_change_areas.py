@@ -1081,6 +1081,7 @@ def run_detect_step_for_ci_workflow_edit(base: str, head: str) -> tuple[subproce
     script = detect_step_script()
     with tempfile.TemporaryDirectory() as temp_dir:
         repo = Path(temp_dir)
+        runner_temp = Path(temp_dir) / "runner-temp"
         subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
         subprocess.run(["git", "config", "user.email", "ci@example.test"], cwd=repo, check=True)
         subprocess.run(["git", "config", "user.name", "CI Test"], cwd=repo, check=True)
@@ -1104,6 +1105,10 @@ def run_detect_step_for_ci_workflow_edit(base: str, head: str) -> tuple[subproce
             "HEAD_SHA": head_sha,
             "MERGE_SHA": head_sha,
             "GITHUB_OUTPUT": str(output_path),
+            # The trusted base router lays its checkout out under $RUNNER_TEMP,
+            # and the step runs under `set -u`. GitHub sets it; a local run
+            # does not, so without this the suite only passes inside CI.
+            "RUNNER_TEMP": os.environ.get("RUNNER_TEMP") or str(runner_temp),
         }
         result = subprocess.run(
             ["bash", "-c", script], cwd=repo, env=env, text=True,
@@ -1544,6 +1549,7 @@ def run_detect_step_for_paths(
     script = detect_step_script(workflow_path)
     with tempfile.TemporaryDirectory() as temp_dir:
         repo = Path(temp_dir)
+        runner_temp = Path(temp_dir) / "runner-temp"
         subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
         subprocess.run(["git", "config", "user.email", "ci@example.test"], cwd=repo, check=True)
         subprocess.run(["git", "config", "user.name", "CI Test"], cwd=repo, check=True)
@@ -1588,6 +1594,10 @@ def run_detect_step_for_paths(
             "HEAD_SHA": head_sha,
             "MERGE_SHA": head_sha,
             "GITHUB_OUTPUT": str(output_path),
+            # The trusted base router lays its checkout out under $RUNNER_TEMP,
+            # and the step runs under `set -u`. GitHub sets it; a local run
+            # does not, so without this the suite only passes inside CI.
+            "RUNNER_TEMP": os.environ.get("RUNNER_TEMP") or str(runner_temp),
         }
         result = subprocess.run(
             ["bash", "-c", script],
@@ -1656,6 +1666,7 @@ def test_workflow_diff_failure_runs_all_areas() -> None:
     script = detect_step_script()
     with tempfile.TemporaryDirectory() as temp_dir:
         repo = Path(temp_dir)
+        runner_temp = Path(temp_dir) / "runner-temp"
         output_path = repo / "github-output.txt"
         env = {
             **os.environ,
@@ -1664,6 +1675,10 @@ def test_workflow_diff_failure_runs_all_areas() -> None:
             "HEAD_SHA": "missing-head",
             "MERGE_SHA": "missing-merge",
             "GITHUB_OUTPUT": str(output_path),
+            # The trusted base router lays its checkout out under $RUNNER_TEMP,
+            # and the step runs under `set -u`. GitHub sets it; a local run
+            # does not, so without this the suite only passes inside CI.
+            "RUNNER_TEMP": os.environ.get("RUNNER_TEMP") or str(runner_temp),
         }
         result = subprocess.run(
             ["bash", "-c", script],
@@ -1689,6 +1704,7 @@ def run_detect_step_on_shallow_synthetic_merge(*, stale_event_base: bool) -> tup
     script = detect_step_script()
     with tempfile.TemporaryDirectory() as temp_dir:
         root = Path(temp_dir)
+        runner_temp = Path(temp_dir) / "runner-temp"
         source = root / "source"
         shallow = root / "shallow"
         source.mkdir()
@@ -1757,6 +1773,10 @@ def run_detect_step_on_shallow_synthetic_merge(*, stale_event_base: bool) -> tup
                 "HEAD_SHA": head_sha,
                 "MERGE_SHA": merge_sha,
                 "GITHUB_OUTPUT": str(output_path),
+                # The trusted base router lays its checkout out under $RUNNER_TEMP,
+                # and the step runs under `set -u`. GitHub sets it; a local run
+                # does not, so without this the suite only passes inside CI.
+                "RUNNER_TEMP": os.environ.get("RUNNER_TEMP") or str(runner_temp),
             },
             text=True,
             stdout=subprocess.PIPE,
