@@ -136,6 +136,7 @@ enum AppSettingsFileMapping {
             defaultsKey: app.workspaceInheritWorkingDirectory.userDefaultsKey,
             invalidPath: "app.workspaceInheritWorkingDirectory"
         ),
+        .init(jsonKey: "workspaceTitlebarVisibility", defaultsKey: app.workspaceTitlebarVisibility.userDefaultsKey),
         .init(jsonKey: "focusPaneOnFirstClick", defaultsKey: PaneFirstClickFocusSettings.enabledKey),
         .init(
             jsonKey: "focusHistoryIncludesPanesAndTabs",
