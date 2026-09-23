@@ -10,11 +10,14 @@ import hashlib
 import importlib.util
 import io
 import json
+import lzma
 import os
 import sys
 import tempfile
 import unittest
 import zipfile
+import zlib
+from unittest import mock
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -216,6 +219,17 @@ class AggregateRestoreTests(unittest.TestCase):
 
 
 class EntryPointTests(unittest.TestCase):
+    def test_archive_decoder_errors_are_clean_misses(self):
+        for error in (EOFError("truncated member"), zlib.error("bad deflate"),
+                      lzma.LZMAError("bad lzma"), NotImplementedError("unsupported codec")):
+            with self.subTest(error=type(error).__name__), tempfile.TemporaryDirectory() as temp:
+                output = Path(temp) / "github-output"
+                with mock.patch.dict(os.environ, {"RUNNER_TEMP": temp, "GITHUB_OUTPUT": str(output)}), \
+                        mock.patch.object(transport, "restore_aggregate", side_effect=error):
+                    self.assertEqual(transport.main(), 0)
+                self.assertEqual(output.read_text().strip(), "hit=false")
+                self.assertFalse((Path(temp) / "app-host-products").exists())
+
     def test_a_miss_reports_no_hit_and_never_fails_the_job(self):
         with tempfile.TemporaryDirectory(prefix="cmux-parallel-main-") as temp:
             output = Path(temp) / "github-output"
