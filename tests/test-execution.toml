@@ -576,6 +576,10 @@ path = "tests/test_preflight_trust.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_e2e_warm_derived_data.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_reuse_app_host_products.py"
 lane = "linux-guard"
 
