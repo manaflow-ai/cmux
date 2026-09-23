@@ -32,7 +32,6 @@ ROOT = Path(__file__).resolve().parents[1]
 # initializer takes an identity and is deterministic, so tests of the
 # resolver itself are free to use it.
 BUNDLE_DERIVED_RESOLVER = "CmxPairingURLSchemeResolver()"
-RESOLVER = "CmxPairingURLSchemeResolver"
 SCHEME_ARGUMENT = "pairingURLScheme:"
 
 # Call sites that resolve the scheme from the bundle unless a caller names it,
@@ -43,6 +42,30 @@ IMPLICIT_ENTRY_POINTS = {
     r"CmxPairingQRCode\(\)\s*\.\s*encode\(": "CmxPairingQRCode",
     r"\.encodedURL\(": "MobileSyncPairingPayload",
 }
+SOURCE_ROOT = "Packages/Shared/CMUXMobileCore/Sources/CMUXMobileCore/"
+ENTRY_POINT_DECLARATIONS = {
+    "CmxPairingQRCode": (SOURCE_ROOT + "CmxPairingQRCode.swift", "encode"),
+    "MobileSyncPairingPayload": (SOURCE_ROOT + "MobileSyncProtocol.swift", "encodedURL"),
+}
+
+
+def is_test_file(path: str) -> bool:
+    return "/Tests/" in path or path.startswith(
+        ("cmuxTests/", "cmuxUITests/", "ios/cmuxUITests/", "cmuxCLITests/", "cmuxCLITestSupport/")
+    )
+
+
+def declaration_uses_resolver(text: str, method: str) -> bool:
+    # Documentation mentioning the resolver is not a parameter default.
+    code = re.sub(r"/\*.*?\*/|//[^\n]*", "", text, flags=re.DOTALL)
+    default = re.compile(
+        r"\bpairingURLScheme\s*:\s*CmxPairingURLScheme\?\s*=\s*"
+        r"CmxPairingURLSchemeResolver\s*\(\s*\)\s*\.\s*resolved\s*(?:,|$)"
+    )
+    for match in re.finditer(rf"\bfunc\s+{re.escape(method)}\s*\(", code):
+        if default.search(argument_span(code, match.end() - 1)):
+            return True
+    return False
 
 
 def tracked_swift_files() -> list[str]:
@@ -83,8 +106,7 @@ def implicit_calls(text: str) -> list[tuple[int, str]]:
 
 
 def main() -> int:
-    test_files = [p for p in tracked_swift_files() if "/Tests/" in p]
-    source_files = [p for p in tracked_swift_files() if "/Sources/" in p]
+    test_files = [p for p in tracked_swift_files() if is_test_file(p)]
 
     offenders: list[str] = []
     for path in test_files:
@@ -119,14 +141,12 @@ def main() -> int:
     # The entry points above are only worth linting while they still reach the
     # resolver. If one stops defaulting to it, drop it rather than leave a rule
     # that no longer describes the code.
-    resolving = {
-        symbol
-        for path in source_files
-        for symbol in IMPLICIT_ENTRY_POINTS.values()
-        if RESOLVER in (text := (ROOT / path).read_text("utf-8", errors="ignore"))
-        and symbol in text
-    }
-    stale = sorted(set(IMPLICIT_ENTRY_POINTS.values()) - resolving)
+    stale = []
+    for symbol in sorted(set(IMPLICIT_ENTRY_POINTS.values())):
+        path, method = ENTRY_POINT_DECLARATIONS[symbol]
+        source = ROOT / path
+        if not source.is_file() or not declaration_uses_resolver(source.read_text("utf-8"), method):
+            stale.append(symbol)
     if stale:
         print(
             "these no longer resolve the pairing scheme; drop them from "
