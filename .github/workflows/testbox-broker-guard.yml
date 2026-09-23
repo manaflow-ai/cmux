@@ -62,6 +62,10 @@ jobs:
       - name: Check that every workflow is linted
         run: python3 tests/test_ci_actionlint_covers_every_workflow.py
 
+      - name: Check that push and pull_request path filters agree
+        run: |
+          "$TESTBOX_GUARD_PYTHON" tests/test_ci_workflow_path_filter_parity.py
+
       - name: Lint every workflow
         env:
           ACTIONLINT_VERSION: "1.7.7"

@@ -355,6 +355,10 @@ path = "tests/test_ci_guard_workflow_structure.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_reusable_job_name_lookups.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_health_report.py"
 lane = "linux-guard"
 
@@ -396,6 +400,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_repo_variable_defaults.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_required_checks_drift.py"
 lane = "linux-guard"
 
 [[test]]
@@ -632,6 +640,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_selective_layer_wiring.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_workflow_path_filter_parity.py"
 lane = "linux-guard"
 
 [[test]]
