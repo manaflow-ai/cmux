@@ -376,7 +376,8 @@ struct AgentRestoreLiveOwnerAdmissionTests {
         let fixture = try makeFixture(
             kind: .claude,
             ownerState: .live,
-            launchSessionArguments: [selector, "11111111-2222-3333-4444-555555555555"]
+            launchSessionArguments: [selector, "11111111-2222-3333-4444-555555555555"],
+            scopedProcess: true
         )
         defer { fixture.cleanup() }
         let owner = try #require(fixture.index.liveSessionOwner(
@@ -384,6 +385,11 @@ struct AgentRestoreLiveOwnerAdmissionTests {
             sessionID: fixture.sessionID,
             revalidateProcessEvidence: false
         ))
+        #expect(fixture.index.entryForStablePanel(
+            workspaceId: fixture.ownerWorkspaceID,
+            panelId: fixture.ownerSurfaceID,
+            revalidateProcessEvidence: false
+        )?.processLiveness == .running)
         #expect(owner.processID == fixture.processID)
         #expect(owner.sessionID == fixture.sessionID)
         #expect(fixture.index.liveSessionOwner(
@@ -551,6 +557,7 @@ struct AgentRestoreLiveOwnerAdmissionTests {
         ownerState: OwnerState,
         launchOptions: [String] = [],
         launchSessionArguments: [String]? = nil,
+        scopedProcess: Bool = false,
         corruptStoreKinds: Set<RestorableAgentKind> = []
     ) throws -> Fixture {
         let root = FileManager.default.temporaryDirectory
@@ -682,7 +689,10 @@ struct AgentRestoreLiveOwnerAdmissionTests {
                     // the nohup/setsid/daemonized shape from #11043.
                     return CmuxTopProcessArguments(
                         arguments: launchArguments,
-                        environment: [:]
+                        environment: scopedProcess ? [
+                            "CMUX_WORKSPACE_ID": ownerWorkspaceID.uuidString,
+                            "CMUX_SURFACE_ID": ownerSurfaceID.uuidString,
+                        ] : [:]
                     )
                 },
                 processPresenceProvider: { candidatePID in
