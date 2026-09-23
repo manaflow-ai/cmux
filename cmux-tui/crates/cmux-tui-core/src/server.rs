@@ -10055,6 +10055,14 @@ fn get_surface(mux: &Mux, id: SurfaceId) -> anyhow::Result<Arc<crate::Surface>> 
         .ok_or_else(|| anyhow::anyhow!("unknown surface {id}"))
 }
 
+fn detached_surface_message(mux: &Mux, id: SurfaceId) -> Value {
+    // A finite final replay ends its stream without removing the retained
+    // terminal. Tell clients to keep that mirror until topology removes it.
+    let retained = mux.surface(id).is_some_and(|surface| surface.is_dead())
+        && surface_has_view_placement(mux, id);
+    json!({"event": "detached", "surface": id, "retained": retained})
+}
+
 fn surface_has_view_placement(mux: &Mux, id: SurfaceId) -> bool {
     mux.with_state(|state| state.pane_of(id).is_some())
 }
@@ -12894,7 +12902,13 @@ fn handle_command_with_cancellation(
                         .ok_or_else(|| anyhow::anyhow!("attachment_terminal_mismatch"))?
                 }
             };
-            let surface = get_surface(mux, surface_id)?;
+            // Process exit does not remove a keep-on-exit terminal's view.
+            // Its surface still owns the final VT replay; attachment is a read
+            // operation, so do not apply the live-child guard used by input.
+            let surface = mux
+                .surface(surface_id)
+                .filter(|surface| !surface.is_dead() || surface_has_view_placement(mux, surface_id))
+                .ok_or_else(|| anyhow::anyhow!("unknown surface {surface_id}"))?;
             match (expected_generation, expected_terminal_id) {
                 (Some(generation), Some(terminal)) => {
                     anyhow::ensure!(
@@ -13016,7 +13030,7 @@ fn handle_command_with_cancellation(
                         }
                         if writer.is_open() && !lifecycle.overflowed() {
                             let _ = writer.send_stream_backpressured(
-                                &json!({"event": "detached", "surface": surface_id}),
+                                &detached_surface_message(&mux, surface_id),
                                 &outbound_stream,
                             );
                         }
@@ -13151,7 +13165,7 @@ fn handle_command_with_cancellation(
                                     lifecycle.cancel();
                                     if writer.is_open() {
                                         let _ = writer.send_stream_backpressured(
-                                            &json!({"event": "detached", "surface": surface_id}),
+                                            &detached_surface_message(&mux, surface_id),
                                             &outbound_stream,
                                         );
                                     }
@@ -13273,7 +13287,7 @@ fn handle_command_with_cancellation(
                                 attach.lifecycle.cancel();
                                 if writer.is_open() {
                                     let _ = writer.send_stream_backpressured(
-                                        &json!({"event": "detached", "surface": surface_id}),
+                                        &detached_surface_message(&mux, surface_id),
                                         &outbound_stream,
                                     );
                                 }
@@ -19648,30 +19662,39 @@ mod tests {
         for mode in ["bytes", "render"] {
             let mux = test_mux();
             let workspace = mux.create_empty_workspace(None, None, None).unwrap();
-            let id = mux.seed_running_terminal_with_on_exit_for_test(
-                "00000000000040008000000000013290",
-                "10000000000040008000000000013290",
-                &workspace.key,
-                crate::workspace_registry::TerminalOnExit::Keep,
-            ).unwrap();
+            let id = mux
+                .seed_running_terminal_with_on_exit_for_test(
+                    "00000000000040008000000000013290",
+                    "10000000000040008000000000013290",
+                    &workspace.key,
+                    crate::workspace_registry::TerminalOnExit::Keep,
+                )
+                .unwrap();
             let surface = mux.surface(id).unwrap();
             assert!(surface.is_dead());
             surface.with_terminal(|terminal| terminal.vt_write(b"finished-agent-output"));
             let (writer, outbound) = captured_writer();
             let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
-            handle_command(&mux, client, Command::AttachSurface {
-                surface: Some(id),
-                mode: Some(mode.into()),
-                cols: None,
-                rows: None,
-                expected_generation: None,
-                expected_terminal_id: None,
-            }, &writer).expect("retained output must remain attachable after child exit");
+            handle_command(
+                &mux,
+                client,
+                Command::AttachSurface {
+                    surface: Some(id),
+                    mode: Some(mode.into()),
+                    cols: None,
+                    rows: None,
+                    expected_generation: None,
+                    expected_terminal_id: None,
+                },
+                &writer,
+            )
+            .expect("retained output must remain attachable after child exit");
             let initial = pop_json(&outbound);
             if mode == "bytes" {
                 assert_eq!(initial["event"], "vt-state");
                 let replay = base64::engine::general_purpose::STANDARD
-                    .decode(initial["data"].as_str().unwrap()).unwrap();
+                    .decode(initial["data"].as_str().unwrap())
+                    .unwrap();
                 assert!(String::from_utf8_lossy(&replay).contains("finished-agent-output"));
             } else {
                 assert!(initial.to_string().contains("finished-agent-output"));

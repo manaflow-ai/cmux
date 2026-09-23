@@ -2398,7 +2398,14 @@ impl RemoteSession {
             }
             Some("detached") => {
                 if let Some(id) = surface_id() {
-                    self.surfaces.lock().unwrap().remove(&id);
+                    if value.get("retained").and_then(Value::as_bool) == Some(true) {
+                        // The child has exited, but its final replay is still
+                        // a visible terminal. Keep it scrollable and reject
+                        // input until an authoritative removal retires it.
+                        self.exited_surfaces.lock().unwrap().ids.insert(id);
+                    } else {
+                        self.surfaces.lock().unwrap().remove(&id);
+                    }
                     self.emit(MuxEvent::SurfaceOutput(id));
                 }
             }
