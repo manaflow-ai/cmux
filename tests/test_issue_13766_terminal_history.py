@@ -92,21 +92,30 @@ class TerminalHistoryTests(unittest.TestCase):
             + f'PS1="PROBE> "\nsource "{integration}"\n'
         )
 
-    def test_arrow_recall_after_restart(self):
+    def global_startup(self, shell, directory, extra=()):
+        global_history = directory / 'global'
+        global_history.write_text('echo OTHER_TERMINAL\n')
+        self.write_startup(shell, directory, [
+            f'HISTFILE="{global_history}"', 'HISTSIZE=2000', 'SAVEHIST=2000', *extra,
+        ])
+        return global_history
+
+    def test_new_terminal_recalls_global_history(self):
+        # A terminal with nothing of its own yet behaves like any other
+        # terminal: Up reads the shell's global history. Starting every new
+        # terminal empty would take that away from every existing user.
+        for shell in ('/bin/zsh', '/bin/bash'):
+            with self.subTest(shell=shell), tempfile.TemporaryDirectory(prefix='cmux13766-new-') as temp:
+                directory = Path(temp)
+                self.global_startup(shell, directory)
+                output = self.run_shell(shell, directory, 'fresh', [b'\x1b[A\n'])[0]
+                self.assertIn(b'OTHER_TERMINAL', output)
+
+    def test_restored_terminal_recalls_its_own_command_first(self):
         for shell in ('/bin/zsh', '/bin/bash'):
             with self.subTest(shell=shell), tempfile.TemporaryDirectory(prefix='cmux13766-') as temp:
                 directory = Path(temp)
-                global_history = directory / 'global'
-                global_history.write_text('echo OTHER_TERMINAL\n')
-                name = Path(shell).name
-                integration = ROOT / 'Resources/shell-integration' / (
-                    'cmux-zsh-integration.zsh' if name == 'zsh' else 'cmux-bash-integration.bash'
-                )
-                startup = directory / ('.zshrc' if name == 'zsh' else 'bashrc')
-                startup.write_text(
-                    f'HISTFILE="{global_history}"\nHISTSIZE=2000\nSAVEHIST=2000\n'
-                    f'PS1="PROBE> "\nsource "{integration}"\n'
-                )
+                global_history = self.global_startup(shell, directory)
                 self.run_shell(shell, directory, 'a', [b'echo ALPHA_13766\n'])
                 self.run_shell(shell, directory, 'b', [b'echo BRAVO_13766\n'])
                 for surface, own, other in (
@@ -116,9 +125,13 @@ class TerminalHistoryTests(unittest.TestCase):
                     output = self.run_shell(shell, directory, surface, [b'\x1b[A\n'])[0]
                     self.assertIn(own, output)
                     self.assertNotIn(other, output)
-                    self.assertNotIn(b'OTHER_TERMINAL', output)
-                self.assertEqual(global_history.read_text(), 'echo OTHER_TERMINAL\n')
-
+                # Commands still reach the global history so a new terminal
+                # can recall them: twice each, once typed and once recalled
+                # and run. A third copy would be the replayed entry leaking.
+                recorded = global_history.read_text()
+                self.assertEqual(recorded.count('echo ALPHA_13766'), 2, recorded)
+                self.assertEqual(recorded.count('echo BRAVO_13766'), 2, recorded)
+                self.assertIn('echo OTHER_TERMINAL', recorded)
 
     def test_explicit_history_opt_out(self):
         for shell in ('/bin/zsh', '/bin/bash'):
@@ -144,18 +157,18 @@ class TerminalHistoryTests(unittest.TestCase):
         for shell in ('/bin/zsh', '/bin/bash'):
             with self.subTest(shell=shell), tempfile.TemporaryDirectory(prefix='cmux13766-exit-') as temp:
                 directory = Path(temp)
-                global_history = directory / 'global'
-                global_history.write_text('echo OTHER_TERMINAL\n')
-                self.write_startup(shell, directory, [
-                    f'HISTFILE="{global_history}"', 'HISTSIZE=2000', 'SAVEHIST=2000',
-                ])
-                for _ in range(3):
+                global_history = self.global_startup(shell, directory)
+                for exit_cleanly in (True, False, True):
                     self.run_shell(
-                        shell, directory, 'a', [b'echo ONCE_13766\n'], exit_cleanly=True
+                        shell, directory, 'a', [b'echo ONCE_13766\n'], exit_cleanly=exit_cleanly
                     )
                 recorded = (directory / 'a').read_bytes()
                 self.assertEqual(recorded.count(b'echo ONCE_13766'), 3, recorded)
-                self.assertEqual(global_history.read_text(), 'echo OTHER_TERMINAL\n')
+                # Replaying the terminal's own entries on restore must not
+                # write them into the global file a second time.
+                shared = global_history.read_text()
+                self.assertEqual(shared.count('echo ONCE_13766'), 3, shared)
+                self.assertEqual(shared.count('echo OTHER_TERMINAL'), 1, shared)
 
     def test_zsh_unset_savehist_is_not_persisted(self):
         # With HISTFILE set but SAVEHIST unset, stock zsh writes nothing to
