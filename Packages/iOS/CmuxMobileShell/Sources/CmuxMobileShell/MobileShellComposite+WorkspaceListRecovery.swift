@@ -440,7 +440,11 @@ extension MobileShellComposite {
               connectionState == .connected else { return }
         if subscribed || runtime?.supportsServerPushEvents == false {
             for surfaceID in surfaceIDs {
-                requestAuthoritativeTerminalResync(surfaceID: surfaceID, reason: "manual_reconnect")
+                requestAuthoritativeTerminalResync(
+                    surfaceID: surfaceID,
+                    trigger: .resubscribe,
+                    reason: "manual_reconnect"
+                )
             }
         }
         await refreshWorkspaces()

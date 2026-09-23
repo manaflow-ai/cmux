@@ -1878,6 +1878,7 @@
               "fileExplorerOpenSelection",
               "fileExplorerOpenSelectionFinderAlias",
               "saveFilePreview",
+              "toggleFileEditorWordWrap",
               "openBrowser",
               "focusBrowserAddressBar",
               "browserBack",

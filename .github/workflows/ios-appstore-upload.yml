@@ -352,18 +352,62 @@ jobs:
           echo "Shipped CFBundleVersion: $FINAL_BN"
 
       - name: Record completed upload before group assignment
+        id: record_upload
+        # The next scheduled poll skips this revision only if this marker
+        # exists. The upload step can fail after Apple accepted the IPA (the
+        # notes step did, hourly, in #13690), so a failed step still records
+        # the upload when asc's receipt says "uploaded": true. The build number
+        # file alone is not evidence: the script writes it before archiving.
+        if: ${{ always() && steps.upload.outcome != 'skipped' }}
         env:
+          UPLOAD_OUTCOME: ${{ steps.upload.outcome }}
           BUILD_NUMBER: ${{ steps.upload.outputs.final_build_number }}
+          BUILD_NUMBER_FILE: ${{ runner.temp }}/cmux-final-build-number.txt
+          UPLOAD_RECEIPT: ${{ runner.temp }}/cmux-ios-upload/upload.log
         run: |
           mkdir -p "$RUNNER_TEMP/cmux-app-upload-marker"
           python3 - <<'PY'
-          import json, os
+          import json, os, re
           from pathlib import Path
-          marker = {'sha': os.environ['GITHUB_SHA'], 'app_id': '6783338052', 'build_number': os.environ['BUILD_NUMBER']}
+
+          def accepted(path):
+              try:
+                  text = Path(path).read_text(encoding='utf-8', errors='replace')
+              except OSError:
+                  return False
+              # asc prints one JSON object; tolerate it pretty-printed or
+              # surrounded by other lines.
+              decoder = json.JSONDecoder()
+              for start in (m.start() for m in re.finditer(r'\{', text)):
+                  try:
+                      value, _ = decoder.raw_decode(text, start)
+                  except ValueError:
+                      continue
+                  if isinstance(value, dict) and value.get('uploaded') is True:
+                      return True
+              return False
+
+          build_number = os.environ.get('BUILD_NUMBER', '').strip()
+          if os.environ['UPLOAD_OUTCOME'] != 'success':
+              if not accepted(os.environ['UPLOAD_RECEIPT']):
+                  print('No App Store Connect upload receipt; not recording an upload.')
+                  raise SystemExit(0)
+              try:
+                  build_number = Path(os.environ['BUILD_NUMBER_FILE']).read_text().strip()
+              except OSError:
+                  build_number = ''
+          if not re.fullmatch(r'[0-9]+', build_number):
+              print(f'No numeric build number ({build_number!r}); not recording an upload.')
+              raise SystemExit(0)
+          marker = {'sha': os.environ['GITHUB_SHA'], 'app_id': '6783338052', 'build_number': build_number}
           Path(os.environ['RUNNER_TEMP'], 'cmux-app-upload-marker', 'upload.json').write_text(json.dumps(marker))
+          with open(os.environ['GITHUB_OUTPUT'], 'a', encoding='utf-8') as output:
+              output.write('recorded=true\n')
+          print(f'Recorded upload of build {build_number} for {os.environ["GITHUB_SHA"]}.')
           PY
 
       - name: Retain completed upload for assignment retries
+        if: ${{ always() && steps.record_upload.outputs.recorded == 'true' }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: cmux-app-testflight-upload

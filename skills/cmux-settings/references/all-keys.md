@@ -1,6 +1,8 @@
 # All settings keys
 
-Auto-generated from `web/data/cmux.schema.json`. For the rendered docs, see `https://cmux.com/docs/configuration`.
+Hand-maintained from `web/data/cmux.schema.json` and known to lag it. The schema is
+authoritative; `cmux-settings list-supported` enumerates what the helper accepts. For the
+rendered docs, see `https://cmux.com/docs/configuration`.
 
 ## app
 

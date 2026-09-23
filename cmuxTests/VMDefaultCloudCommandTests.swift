@@ -854,7 +854,10 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let result = try XCTUnwrap(resultBox.load())
         XCTAssertFalse(result.timedOut, result.stdout + result.stderr)
         XCTAssertEqual(result.status, 0, result.stdout + result.stderr)
-        XCTAssertTrue(result.stdout.contains("CMUX_DELAYED_RELAY_OK"), result.stdout + result.stderr)
+        XCTAssertTrue(
+            (result.stdout + result.stderr).contains("CMUX_DELAYED_RELAY_OK"),
+            result.stdout + result.stderr
+        )
         XCTAssertFalse(result.stderr.contains("credential prompt timed out"), result.stderr)
         XCTAssertFalse(result.stderr.lowercased().contains("password:"), result.stderr)
         XCTAssertFalse((result.stdout + result.stderr).contains("lease-token"))

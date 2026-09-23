@@ -9,6 +9,7 @@ import * as Cause from "effect/Cause";
 import * as Effect from "effect/Effect";
 import * as Either from "effect/Either";
 import * as Exit from "effect/Exit";
+import * as Fiber from "effect/Fiber";
 import * as ManagedRuntime from "effect/ManagedRuntime";
 import * as Option from "effect/Option";
 import { eq } from "drizzle-orm";
@@ -112,6 +113,7 @@ import {
   type CloudVmRow,
   type VmRepositoryShape,
   type VmResizeReservation,
+  type VmUsageEventInput,
 } from "./repository";
 import { measureVmEffect, type VmTimingSink } from "./timings";
 import { guestPromptInstallCommand, vmPromptIdentity } from "./guestPrompt";
@@ -159,6 +161,13 @@ export type VmEntry = {
   /** The machine's address on its owner's private network, when it has one. */
   readonly addressIpv4: string | null;
   readonly addressIpv6: string | null;
+  /**
+   * The image's cmux-tui attach contract (`"snapshot-v2"`: baked daemon with
+   * the trusted private-network listener). With a private address, it is
+   * everything a client needs to dial the daemon, so the create response can
+   * carry it and New Machine skips the separate attach request.
+   */
+  readonly cmuxTuiContract: string | null;
 };
 
 export type BaseVmEntry = VmEntry & {
@@ -579,6 +588,13 @@ type CreateVmInput = {
    */
   readonly modelPlane?: VmModelPlaneProvisioner;
   readonly timing?: VmTimingSink;
+  /**
+   * Runs best-effort work after the response has been sent (the route passes
+   * `runAfterResponse`). createVm uses it only for the `vm.created` ledger
+   * row, which is written after the machine is already usable and whose
+   * failure is already ignored. Without it the row is written inline.
+   */
+  readonly deferAfterResponse?: (work: Effect.Effect<void>) => void;
 };
 
 function createVmBeginInput(input: CreateVmInput): CreateVmInput {
@@ -655,7 +671,15 @@ export function createVm(input: CreateVmInput): Effect.Effect<VmEntry, VmWorkflo
     }
 
     const creditReservation = yield* reserveCreateCredit(billing, repo, input, create.vm);
-    yield* recordCreateRequestedEvents(repo, input, create.vm, creditReservation);
+    // The requested-events write depends on nothing below, so it runs beside
+    // model-plane provisioning and the provider call instead of in front of
+    // them (~20 ms off every create). It is joined before any failure event
+    // and before success, so the ledger keeps requested -> failed/created
+    // order and the row is written before the response leaves.
+    const requestedEvents = yield* Effect.fork(
+      recordCreateRequestedEvents(repo, input, create.vm, creditReservation),
+    );
+    const awaitRequestedEvents = Fiber.join(requestedEvents);
 
     const materials = yield* measureVmEffect(
       input.timing,
@@ -663,7 +687,7 @@ export function createVm(input: CreateVmInput): Effect.Effect<VmEntry, VmWorkflo
       provisionModelPlane(input.modelPlane, create.vm.id),
     ).pipe(
       Effect.tapError((err) =>
-        Effect.all([
+        awaitRequestedEvents.pipe(Effect.andThen(Effect.all([
           refundCredit(billing, repo, create.vm, creditReservation),
           repo.markCreateFailed({
             id: create.vm.id,
@@ -684,7 +708,7 @@ export function createVm(input: CreateVmInput): Effect.Effect<VmEntry, VmWorkflo
               message: errorMessage(err.cause),
             },
           }),
-        ], { discard: true }).pipe(Effect.catchAll(() => Effect.void))
+        ], { discard: true })), Effect.catchAll(() => Effect.void))
       ),
     );
 
@@ -712,7 +736,7 @@ export function createVm(input: CreateVmInput): Effect.Effect<VmEntry, VmWorkflo
       }),
     ).pipe(
       Effect.tapError((err) =>
-        Effect.all([
+        awaitRequestedEvents.pipe(Effect.andThen(Effect.all([
           revokeModelPlane(input.modelPlane, create.vm.id),
           refundCredit(billing, repo, create.vm, creditReservation),
           repo.markCreateFailed({
@@ -734,7 +758,7 @@ export function createVm(input: CreateVmInput): Effect.Effect<VmEntry, VmWorkflo
             imageId: input.image,
             metadata: { operation: err.operation, message: errorMessage(err.cause) },
           }),
-        ], { discard: true }).pipe(Effect.catchAll(() => Effect.void))
+        ], { discard: true })), Effect.catchAll(() => Effect.void))
       ),
     );
 
@@ -751,6 +775,7 @@ export function createVm(input: CreateVmInput): Effect.Effect<VmEntry, VmWorkflo
     ).pipe(
       Effect.catchAll((err) =>
         Effect.gen(function* () {
+          yield* awaitRequestedEvents;
           yield* rollbackProviderCreate(providers, input.provider, handle);
           yield* revokeModelPlane(input.modelPlane, create.vm.id);
           yield* refundCredit(billing, repo, create.vm, creditReservation);
@@ -771,10 +796,57 @@ export function createVm(input: CreateVmInput): Effect.Effect<VmEntry, VmWorkflo
       ),
     );
 
-    yield* recordCreateSuccessEvents(repo, input, running);
+    yield* awaitRequestedEvents;
+    if (input.deferAfterResponse) {
+      // The machine is usable once mark_running commits; the `vm.created`
+      // ledger row is analytics and its failure was already ignored. Writing
+      // it after the response keeps it off New Machine's critical path.
+      input.deferAfterResponse(
+        repo.recordUsageEvents(createSuccessUsageEvents(input, running)).pipe(Effect.catchAll(() => Effect.void)),
+      );
+    } else {
+      yield* recordCreateSuccessEvents(repo, input, running);
+    }
+    yield* schedulePromptIdentityPush(providers, running, input.deferAfterResponse);
 
     return vmEntryFromRow(running);
   });
+}
+
+/**
+ * Publishes a new machine's prompt name (`cmux@<slug>`) into the guest once,
+ * after the create response, with the same command a rename uses.
+ *
+ * The guest also pulls its name from https://reflection.cmux.internal/name
+ * through the Freestyle edge, but the edge can only reach a public origin: a
+ * private backend (every tailnet dev stack) never answers it, so dev machines
+ * kept the baked `cmux@cmux`. This push is the path that works everywhere.
+ * It is never on New Machine's critical path (NO-WORK INVARIANT in
+ * drivers/freestyle.ts): it runs after the response when the route provides
+ * the hook, detached otherwise, and a failure leaves reflection to publish
+ * the name. cmux-prompt-sync redraws the prompt when the name file changes.
+ */
+function schedulePromptIdentityPush(
+  providers: VmProviderGatewayShape,
+  row: CloudVmRow,
+  defer: ((work: Effect.Effect<void>) => void) | undefined,
+): Effect.Effect<void> {
+  const providerVmId = row.providerVmId;
+  if (!providerVmId || row.status !== "running") return Effect.void;
+  const push = Effect.suspend(() =>
+    providers.exec(row.provider, providerVmId, guestPromptInstallCommand(vmPromptIdentity(row)), {
+      timeoutMs: 10_000,
+      providerMetadata: row.providerMetadata,
+    })
+  ).pipe(
+    Effect.flatMap((result) => result.exitCode === 0 ? Effect.void : Effect.fail(new Error(`prompt push exited ${result.exitCode}`))),
+    Effect.catchAllCause((cause) => Effect.logWarning("Cloud prompt push deferred to reflection", { vmId: row.id, cause })),
+  );
+  if (defer) {
+    defer(push);
+    return Effect.void;
+  }
+  return Effect.asVoid(Effect.forkDaemon(push));
 }
 
 /**
@@ -1071,6 +1143,7 @@ function finishBaseCreate(
     );
 
     yield* recordCreateSuccessEvents(repo, { ...input, idempotencyKey, origin: "base" }, running);
+    yield* schedulePromptIdentityPush(providers, running, undefined);
     yield* repo.recordUsageEvent({
       userId: input.userId,
       billingTeamId: input.billingTeamId,
@@ -4058,44 +4131,50 @@ function recordCreateRequestedEvents(
 
 export type VmCreateOrigin = "create" | "restore" | "fork" | "base";
 
+type CreateSuccessEventInput = {
+  readonly idempotencyKey?: string;
+  readonly timing?: VmTimingSink;
+  readonly origin?: VmCreateOrigin;
+  readonly memoryMb?: number;
+  readonly persistentHome?: boolean;
+  readonly perMachineHome?: boolean;
+  readonly imageSize?: CreateOptions["imageSize"];
+};
+
+function createSuccessUsageEvents(input: CreateSuccessEventInput, running: CloudVmRow): VmUsageEventInput[] {
+  return [
+    {
+      userId: running.userId,
+      billingTeamId: running.billingTeamId,
+      billingPlanId: running.billingPlanId,
+      vmId: running.id,
+      eventType: "vm.created",
+      provider: running.provider,
+      imageId: running.imageId,
+      metadata: {
+        idempotencyKeySet: !!input.idempotencyKey,
+        imageVersion: running.imageVersion,
+        // Machine shape and origin, so analytics can size the fleet by plan
+        // and tell a fresh create from a restore, fork or base open.
+        origin: input.origin ?? "create",
+        ...(input.memoryMb !== undefined ? { memoryMb: input.memoryMb } : {}),
+        ...(input.imageSize ? { imageSize: input.imageSize.name } : {}),
+        ...(input.persistentHome !== undefined ? { persistentHome: input.persistentHome } : {}),
+        ...(input.perMachineHome !== undefined ? { perMachineHome: input.perMachineHome } : {}),
+      },
+    },
+  ];
+}
+
 function recordCreateSuccessEvents(
   repo: VmRepositoryShape,
-  input: {
-    readonly idempotencyKey?: string;
-    readonly timing?: VmTimingSink;
-    readonly origin?: VmCreateOrigin;
-    readonly memoryMb?: number;
-    readonly persistentHome?: boolean;
-    readonly perMachineHome?: boolean;
-    readonly imageSize?: CreateOptions["imageSize"];
-  },
+  input: CreateSuccessEventInput,
   running: CloudVmRow,
 ) {
   return measureVmEffect(
     input.timing,
     "usage_events",
-    repo.recordUsageEvents([
-      {
-        userId: running.userId,
-        billingTeamId: running.billingTeamId,
-        billingPlanId: running.billingPlanId,
-        vmId: running.id,
-        eventType: "vm.created",
-        provider: running.provider,
-        imageId: running.imageId,
-        metadata: {
-          idempotencyKeySet: !!input.idempotencyKey,
-          imageVersion: running.imageVersion,
-          // Machine shape and origin, so analytics can size the fleet by plan
-          // and tell a fresh create from a restore, fork or base open.
-          origin: input.origin ?? "create",
-          ...(input.memoryMb !== undefined ? { memoryMb: input.memoryMb } : {}),
-          ...(input.imageSize ? { imageSize: input.imageSize.name } : {}),
-          ...(input.persistentHome !== undefined ? { persistentHome: input.persistentHome } : {}),
-          ...(input.perMachineHome !== undefined ? { perMachineHome: input.perMachineHome } : {}),
-        },
-      },
-    ]).pipe(Effect.catchAll(() => Effect.void)),
+    repo.recordUsageEvents(createSuccessUsageEvents(input, running)).pipe(Effect.catchAll(() => Effect.void)),
   );
 }
 
@@ -4277,6 +4356,7 @@ function vmEntryFromRow(row: CloudVmRow): VmEntry {
     slug: row.slug ?? null,
     addressIpv4: typeof addressIpv4 === "string" && addressIpv4 ? addressIpv4 : null,
     addressIpv6: typeof addressIpv6 === "string" && addressIpv6 ? addressIpv6 : null,
+    cmuxTuiContract: typeof metadata["cmuxTuiContract"] === "string" ? metadata["cmuxTuiContract"] : null,
   };
 }
 
