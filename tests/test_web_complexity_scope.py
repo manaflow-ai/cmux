@@ -215,6 +215,18 @@ def test_cli_contract() -> None:
         check("cli scans on a truncated listing", out.stdout.strip() == "scan=true", out.stdout)
 
 
+def test_compare_response_requires_current_base():
+    base = "a" * 40
+    docs = {"files": [{"status": "modified", "filename": "README.md"}],
+            "merge_base_commit": {"sha": base}}
+    check("complete current-base docs response skips", scope.decide_compare(docs, base, 1)[0] is False)
+    docs["merge_base_commit"]["sha"] = "b" * 40
+    check("stale base must fall back despite docs-only PR diff", scope.decide_compare(docs, base, 1)[0] is True)
+    check("missing compare metadata falls back", scope.decide_compare({}, base, 1)[0] is True)
+    docs["merge_base_commit"]["sha"] = base
+    check("incomplete compare response falls back", scope.decide_compare(docs, base, 2)[0] is True)
+
+
 def main() -> int:
     for name, fn in sorted(globals().items()):
         if name.startswith("test_") and callable(fn):
