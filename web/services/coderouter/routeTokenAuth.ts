@@ -15,6 +15,7 @@ import {
   verifyVmAuthorization,
 } from "./vmAuthorization";
 import { recordCoderouterIdentity, recordCoderouterSpan } from "./requestTelemetry";
+import { CHATMUX_VM_AUTHORIZATION_HEADER, verifyChatmuxVmToken } from "./chatmuxVmToken";
 
 export const ROUTE_TOKEN_HEADER = "x-coderouter-route-token";
 export const VM_ID_HEADER = "x-cmux-vm-id";
@@ -38,6 +39,8 @@ export type RouteTokenIdentity = {
   /** Opaque database id for a long-lived API key, or null for route tokens. */
   readonly apiKeyId?: string | null;
   readonly poolId?: string | null;
+  /** A chatmux machine: team-shared accounts only (accountAccess.ts). */
+  readonly machine?: "chatmux";
 };
 
 export type RouteTokenAuthFailure =
@@ -97,10 +100,33 @@ export async function authenticateRequestRouteToken(
   return result;
 }
 
+/**
+ * A chatmux VM token (chatmuxVmToken.ts). When its header is present it is
+ * the only credential considered: no fallback to another header, no database
+ * lookup, and a bad token fails closed.
+ */
+async function authenticateChatmuxMachine(request: Request): Promise<RouteTokenAuthResult> {
+  const value = request.headers.get(CHATMUX_VM_AUTHORIZATION_HEADER)?.trim() ?? "";
+  const token = /^Bearer[ \t]+([^\s,]+)$/i.exec(value)?.[1];
+  const claims = token ? await verifyChatmuxVmToken(token) : null;
+  if (!token || !claims) return { ok: false, reason: "invalid_route_token" };
+  return {
+    ok: true,
+    identity: {
+      teamId: claims.team_id,
+      stackUserId: claims.owner_id,
+      vmId: `chatmux:${claims.sub.slice("vm:".length)}`,
+      token,
+      machine: "chatmux",
+    },
+  };
+}
+
 async function authenticateUnobserved(
   request: Request,
   authenticate: Authenticate,
 ): Promise<RouteTokenAuthResult> {
+  if (request.headers.has(CHATMUX_VM_AUTHORIZATION_HEADER)) return await authenticateChatmuxMachine(request);
   const signedHeader = request.headers.has(VM_AUTHORIZATION_HEADER);
   const token = routeTokenFromRequest(request);
   if (!token) return { ok: false, reason: signedHeader ? "invalid_route_token" : "missing_route_token" };

@@ -7,6 +7,11 @@
 version = 1
 
 [[test]]
+path = "tests/test_omp_auto_naming.py"
+lane = "macos-cli-no-socket"
+requirements = ["cmux-cli"]
+
+[[test]]
 path = "tests/test_open_wrapper.py"
 lane = "macos-shell"
 
@@ -315,6 +320,10 @@ path = "tests/test_ci_app_host_failure_census.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_replay_app_host_verdict.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_app_host_guard_structure.py"
 lane = "linux-guard"
 
@@ -524,6 +533,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_issue_5164_starship_prompt_composition.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_lint_feature_flags_scope.py"
 lane = "linux-guard"
 
 [[test]]
@@ -1069,4 +1082,8 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_web_complexity_scope.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_ios_conventions_diff.py"
 lane = "linux-guard"
