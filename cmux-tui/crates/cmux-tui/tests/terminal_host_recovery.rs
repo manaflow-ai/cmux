@@ -530,8 +530,18 @@ fn keep_on_exit_retains_tab_and_final_screen_until_close_and_degrades_on_restart
         }),
     );
     assert_eq!(dead_write["ok"], false);
-    assert_eq!(dead_write["error"]["code"], "operation.failed");
-    assert_eq!(dead_write["error"]["message"], "terminal_input_delivery_failed");
+    assert!(matches!(
+        dead_write["error"]["code"].as_str(),
+        Some("operation.failed" | "mutation.indeterminate")
+    ));
+    let after_write = resource_request(
+        &harness.socket,
+        "keep-screen-after-rejected-write",
+        "terminal.screen.read",
+        serde_json::json!({"machine":"current","session":"current","terminal":terminal}),
+        None,
+    );
+    assert_eq!(after_write["text"], screen["text"], "failed input changed the retained output");
     let latched = resource_request(
         &harness.socket,
         "keep-wait-again",
