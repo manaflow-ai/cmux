@@ -3348,7 +3348,7 @@ final class TerminalNotificationDirectInteractionTests: XCTestCase {
             return
         }
 
-        let livePortalWorkspace = makeAuthorizedPortalTabId()
+        let livePortalWorkspace = try makeAuthorizedPortalTabId()
         defer { livePortalWorkspace.tearDown() }
 
         let surface = TerminalSurface(
@@ -3687,7 +3687,7 @@ final class TerminalNotificationDirectInteractionTests: XCTestCase {
             return
         }
 
-        let livePortalWorkspace = makeAuthorizedPortalTabId()
+        let livePortalWorkspace = try makeAuthorizedPortalTabId()
         defer { livePortalWorkspace.tearDown() }
 
         let surface = TerminalSurface(
@@ -3744,7 +3744,7 @@ final class TerminalNotificationDirectInteractionTests: XCTestCase {
             return
         }
 
-        let livePortalWorkspace = makeAuthorizedPortalTabId()
+        let livePortalWorkspace = try makeAuthorizedPortalTabId()
         defer { livePortalWorkspace.tearDown() }
 
         let surface = TerminalSurface(
@@ -4262,7 +4262,7 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
         // The app host installs an app delegate, so portal visibility is authorized
         // per workspace: a surface whose tab id no manager has selected is never
         // shown, and its renderer is never presented.
-        let liveWorkspace = makeAuthorizedPortalTabId()
+        let liveWorkspace = try makeAuthorizedPortalTabId()
         defer { liveWorkspace.tearDown() }
 
         let window = NSWindow(
