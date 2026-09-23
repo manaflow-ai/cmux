@@ -236,6 +236,23 @@ private struct OfflineReachabilityStub: ReachabilityProviding {
         ) == false)
     }
 
+    @Test(arguments: [
+        [String: String](),
+        ["CMUX_UITEST_STACK_EMAIL": "production@example.com"],
+        ["CMUX_UITEST_STACK_PASSWORD": "test-password"],
+        ["CMUX_UITEST_STACK_EMAIL": "", "CMUX_UITEST_STACK_PASSWORD": "test-password"],
+        ["CMUX_UITEST_STACK_EMAIL": "production@example.com", "CMUX_UITEST_STACK_PASSWORD": ""],
+    ])
+    func productionAuthRejectsIncompleteInjectedCredentials(credentials: [String: String]) {
+        var environment = credentials
+        environment["CMUX_DEV_AUTH_REPLACE_SESSION"] = "1"
+        #expect(!MobileAuthComposition.includesDevAuth(
+            policy: MobileAuthBuildPolicy(includesFortyTwoShortcut: true),
+            resolvedEnvironment: .production,
+            environment: environment
+        ))
+    }
+
     @Test func developmentAuthKeepsTheFortyTwoShortcutWhenThePolicyHasIt() {
         #expect(MobileAuthComposition.includesDevAuth(
             policy: MobileAuthBuildPolicy(includesFortyTwoShortcut: true),

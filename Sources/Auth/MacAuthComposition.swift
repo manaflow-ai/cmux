@@ -249,7 +249,7 @@ struct MacAuthComposition {
         #endif
     }
 
-    private static func includesDevAuth(
+    static func includesDevAuth(
         resolvedAuthEnvironment: CMUXAuthEnvironment,
         environment: [String: String]
     ) -> Bool {
