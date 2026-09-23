@@ -693,7 +693,7 @@ MERGE_STEP = "Merge pull request into its base for the trusted-file check"
 MERGE_UPSTREAM = 'upstream="https://github.com/${GITHUB_REPOSITORY}.git"'
 
 
-def test_merge_step_only_merges_branches_that_leave_trusted_files_alone() -> None:
+def test_merge_step_merges_only_when_rebase_merging_is_off() -> None:
     steps = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]["complexity"]["steps"]
     script = next(step["run"] for step in steps if step.get("name") == MERGE_STEP)
     assert script.count(MERGE_UPSTREAM) == 1, "the merge step must fetch from the upstream repository"
@@ -714,55 +714,62 @@ def test_merge_step_only_merges_branches_that_leave_trusted_files_alone() -> Non
         write(repo, ".github/workflows/web-complexity-trusted.yml", "workflow\n")
         branch_point = commit(repo, "branch point")
         write(repo, "scripts/ci/scope-web-complexity.py", "fixed\n")
-        main = commit(repo, "main fixes the scoper")
+        commit(repo, "main fixes the scoper")
 
-        def branch(name: str, change) -> str:
-            git(repo, "checkout", "-q", "-b", name, branch_point)
-            change()
-            head = git(repo, "rev-parse", "HEAD").decode().strip()
-            git(repo, "checkout", "-q", "main")
-            return head
+        # A stale branch that never touches the trusted files.
+        git(repo, "checkout", "-q", "-b", "stale", branch_point)
+        write(repo, "README.md", "docs\n")
+        stale = commit(repo, "docs")
 
-        def run_step(head: str) -> dict[str, str]:
-            output = root / f"output-{head[:7]}"
-            runner_temp = root / f"runner-{head[:7]}"
+        # A branch that merged main after main changed a trusted file, as
+        # "Update branch" does, before main changed it again.
+        git(repo, "checkout", "-q", "-b", "updated", stale)
+        git(repo, "merge", "-q", "--no-edit", "main")
+        updated = git(repo, "rev-parse", "HEAD").decode().strip()
+        git(repo, "checkout", "-q", "main")
+        write(repo, "scripts/ci/scope-web-complexity.py", "fixed again\n")
+        main = commit(repo, "main fixes the scoper again")
+
+        # The step asks the repository whether rebase merging is allowed.
+        stub = root / "bin"
+        stub.mkdir()
+        write(stub, "gh", '#!/bin/sh\n[ "$GH_STUB" = fail ] && exit 1\necho "$GH_STUB"\n')
+        (stub / "gh").chmod(0o755)
+
+        def run_step(head: str, rebase: str) -> dict[str, str]:
+            label = f"{head[:7]}-{rebase}"
+            output = root / f"output-{label}"
+            runner_temp = root / f"runner-{label}"
             runner_temp.mkdir()
             output.touch()
             run(
                 ["bash", "-c", script],
                 env={
-                    "PATH": "/usr/bin:/bin:/usr/local/bin",
+                    "PATH": f"{stub}:/usr/bin:/bin:/usr/local/bin",
                     "HOME": str(root),
                     "GITHUB_OUTPUT": str(output),
+                    "GITHUB_REPOSITORY": "example/repo",
                     "RUNNER_TEMP": str(runner_temp),
                     "TRUSTED_SHA": main,
                     "CANDIDATE_SHA": head,
                     "TEST_UPSTREAM": f"file://{repo}",
+                    "GH_STUB": rebase,
                 },
             )
             return dict(line.split("=", 1) for line in output.read_text().splitlines() if "=" in line)
 
-        def stale() -> None:
-            write(repo, "README.md", "docs\n")
-            commit(repo, "docs")
+        def merged_tree(head: str) -> str:
+            return git(repo, "merge-tree", "--write-tree", main, head).decode().split("\n")[0]
 
-        outputs = run_step(branch("stale", stale))
-        expected_tree = git(repo, "merge-tree", "--write-tree", main, "stale").decode().split("\n")[0]
-        assert outputs.get("tree") == expected_tree, outputs
+        # A rebase merge replays commits one by one, so the merge of the head
+        # does not describe what lands. The step must stay strict.
+        assert run_step(stale, "true") == {}, "rebase merging allowed: compare strictly"
+        assert run_step(stale, "fail") == {}, "unknown setting: compare strictly"
 
-        # Rebase-merge replays each commit: re-applying main's fix and then
-        # reverting it nets to nothing, yet replaying it undoes main's fix.
-        def replay_revert() -> None:
-            git(repo, "cherry-pick", main)
-            git(repo, "revert", "--no-edit", "HEAD")
-
-        assert run_step(branch("replay", replay_revert)) == {}, "a branch touching a trusted file stays strict"
-
-        def edit() -> None:
-            write(repo, ".github/workflows/web-complexity-trusted.yml", "edit\n")
-            commit(repo, "edit")
-
-        assert run_step(branch("edit", edit)) == {}, "a branch editing a trusted file stays strict"
+        assert run_step(stale, "false").get("tree") == merged_tree(stale)
+        assert run_step(updated, "false").get("tree") == merged_tree(updated), (
+            "a branch that merged main is judged by its merge"
+        )
     finally:
         temp.cleanup()
 
@@ -891,7 +898,7 @@ def main() -> int:
     test_selected_symlink_fails_closed()
     test_checker_protects_trusted_scoper()
     test_checker_judges_trusted_files_in_the_merge()
-    test_merge_step_only_merges_branches_that_leave_trusted_files_alone()
+    test_merge_step_merges_only_when_rebase_merging_is_off()
     test_checker_baseline_ratchet()
     print("PASS: trusted web complexity scopes work before Bun and runs checks from the trusted checkout")
     return 0
