@@ -177,21 +177,19 @@ check_e2e_runner_fallbacks() {
     exit 1
   fi
 
-  # Compilation caching is an optional optimization. Its failure must not
-  # suppress setup/test failures or make successful tests depend on the cache
-  # service. Keep the exception confined to these cache operations.
+  # Product reuse and the fast transport are optional optimizations. Their
+  # failure must not suppress setup/test failures or make successful tests
+  # depend on either service. Keep the exception confined to those steps.
   python3 - "$E2E_FILE" <<'PYTHON'
 import sys
 import yaml
 
 document = yaml.safe_load(open(sys.argv[1]))
-# Compilation caching and the fast artifact transport are optimizations with
-# canonical fallbacks. Everything else must fail the job it runs in.
+# Product reuse and the fast artifact transport are optimizations with
+# canonical fallbacks. The compilation-cache restore needs no exception: it is
+# read-only, and the cache-restore action reports a failed download as a miss.
+# Everything else must fail the job it runs in.
 allowed = {
-    ("build", "compilation-cache-restore", "Restore E2E compilation cache", "actions/cache/restore"),
-    ("build", None, "Save E2E compilation cache", "actions/cache/save"),
-    ("build", "compilation-cache-bound", "Bound E2E compilation cache", ""),
-    ("build", "revision-on-main", "Check the selected revision against main", ""),
     ("build", "reuse", "Reuse a compiled product instead of building one", ""),
     ("test", "parallel-product", "Read the compiled test product over parallel range requests", ""),
 }

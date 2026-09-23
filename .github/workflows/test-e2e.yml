@@ -53,6 +53,12 @@ concurrency:
 permissions:
   contents: read
 
+# The build job restores the nightly-seeded compilation cache and the Swift
+# package cache from R2, whose public reads need this URL and no credentials.
+# Without it every R2 restore reports a miss.
+env:
+  CI_CACHE_R2_PUBLIC_URL: ${{ vars.CI_CACHE_R2_PUBLIC_URL || 'https://ci-cache.cmux.com' }}
+
 jobs:
   resolve-ref:
     uses: ./.github/workflows/resolve-dispatch-ref.yml
@@ -205,13 +211,18 @@ jobs:
     env:
       TEST_REF: ${{ needs.resolve-ref.outputs.sha }}
       CMUX_CI_MAX_MACOS_SDK_MAJOR: "26"
-      # Move toward the compile-admission contract so the published artifact
-      # name is comparable. It is not yet identical: contract() also hashes
-      # CMUX_CI_XCODE_APP and CMUX_CI_REQUIRED_MACOS_SDK_MAJOR, which ci.yml
-      # sets for the macOS 15 pool and this lane deliberately does not, since
-      # pinning that pool's Xcode here would be wrong. Cross-run adoption has
-      # to close that gap; the intra-run handoff uses the artifact id, not the
-      # name, so nothing here depends on it.
+      # The nightly compilation-cache seed is keyed on `xcodebuild -version`,
+      # so this lane has to compile with the Xcode the seeder and pull request
+      # compile admission use, or every restore misses. Pin it on the default
+      # runner, the way both of those jobs do, so an image-default change
+      # cannot silently split the key. An explicit `inputs.runner` stays
+      # unpinned: a pinned Xcode missing from that image hard-fails
+      # scripts/select-ci-xcode.sh, and a miss there only costs a cold build.
+      CMUX_CI_XCODE_APP: ${{ (!inputs.runner || inputs.runner == 'auto') && vars.CMUX_CI_XCODE_APP_PR || '' }}
+      # The product contract is still not ci.yml's: it also hashes
+      # CMUX_CI_REQUIRED_MACOS_SDK_MAJOR and CMUX_PRODUCT_RUNNER, which differ
+      # by pool. The intra-run handoff uses the artifact id, not the name, so
+      # nothing here depends on the two matching.
       CMUX_SKIP_ZIG_BUILD: "1"
       CMUX_PRODUCT_RUNNER: ${{ (!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_TESTS || 'blacksmith-6vcpu-macos-26') || inputs.runner }}
     steps:
@@ -263,24 +274,21 @@ jobs:
           ./scripts/select-ci-xcode.sh
 
       - name: Prepare isolated DerivedData
-        id: compilation-cache-key
         run: |
           set -euo pipefail
-          # Cache entries include absolute compiler paths. Keep these stable
-          # within a runner pool, but never reuse old assembled test products.
-          workspace_path="$(cd "$GITHUB_WORKSPACE" && pwd -P)"
-          DERIVED_DATA_PATH="$workspace_path/DerivedData/cmux-e2e"
-          CACHE_PATH="$workspace_path/DerivedData/cmux-e2e-compilation-cache"
+          # The compilation cache bakes absolute paths into every entry, so
+          # this job builds at the paths ci-macos.yml compile admission and the
+          # nightly seeder use. The DerivedData basename is part of the cache
+          # key, so it has to be theirs too. Fixed paths survive across jobs on
+          # persistent runners: clear them before restoring anything.
+          root="${CMUX_CI_CANONICAL_ROOT:-/private/tmp/cmux-ci}"
+          DERIVED_DATA_PATH="$root/derived-data-compile-admission"
+          CACHE_PATH="$root/compile-admission-cas"
           rm -rf -- "$DERIVED_DATA_PATH" "$CACHE_PATH"
-          mkdir -p "$DERIVED_DATA_PATH" "$CACHE_PATH"
+          mkdir -p "$DERIVED_DATA_PATH"
           echo "CMUX_DERIVED_DATA_PATH=$DERIVED_DATA_PATH" >> "$GITHUB_ENV"
+          # Outside DerivedData: the resolve step below recreates that directory.
           echo "CMUX_E2E_COMPILATION_CACHE=$CACHE_PATH" >> "$GITHUB_ENV"
-          fingerprint="$({
-            echo e2e-compilation-v1
-            xcodebuild -version
-            printf 'workspace=%s\nderived-data=%s\ncas=%s\n' "$workspace_path" "$DERIVED_DATA_PATH" "$CACHE_PATH"
-          } | shasum -a 256 | awk '{print $1}')"
-          echo "fingerprint=$fingerprint" >> "$GITHUB_OUTPUT"
 
       - name: Install Rust
         run: |
@@ -320,33 +328,14 @@ jobs:
           set -euo pipefail
           ./scripts/download-prebuilt-ghosttykit.sh
 
-      - name: Restore E2E compilation cache
-        if: ${{ steps.reuse.outputs.hit != 'true' }}
-        id: compilation-cache-restore
-        continue-on-error: true
-        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
-        with:
-          path: ${{ env.CMUX_E2E_COMPILATION_CACHE }}
-          key: e2e-compilation-v1-${{ runner.os }}-${{ runner.arch }}-all-${{ steps.compilation-cache-key.outputs.fingerprint }}-${{ env.TEST_REF }}
-          restore-keys: e2e-compilation-v1-${{ runner.os }}-${{ runner.arch }}-all-${{ steps.compilation-cache-key.outputs.fingerprint }}-
-
-      - name: Discard incomplete E2E compilation cache
-        if: ${{ steps.reuse.outputs.hit != 'true' && steps.compilation-cache-restore.outcome == 'failure' }}
-        run: |
-          set -euo pipefail
-          workspace_path="$(cd "$GITHUB_WORKSPACE" && pwd -P)"
-          if [ "$CMUX_E2E_COMPILATION_CACHE" != "$workspace_path/DerivedData/cmux-e2e-compilation-cache" ]; then
-            echo "::error::refusing to clear an unowned compilation cache"
-            exit 1
-          fi
-          rm -rf -- "$CMUX_E2E_COMPILATION_CACHE"
-          mkdir -p "$CMUX_E2E_COMPILATION_CACHE"
-          echo "::warning::E2E cache restore failed; compiling with an empty cache"
-
+      # Read-only, like compile admission: nightly.yml
+      # `refresh-test-compilation-cache` saves this key. Resolution now happens
+      # in the canonical copy, so a save from this workspace would be empty.
       - name: Cache Swift packages
         if: ${{ steps.reuse.outputs.hit != 'true' }}
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        uses: ./.github/actions/cache-restore
         with:
+          backend: ${{ vars.CI_CACHE_BACKEND || 'r2' }}
           path: .ci-source-packages
           key: spm-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
           restore-keys: spm-
@@ -359,28 +348,32 @@ jobs:
         if: ${{ steps.reuse.outputs.hit != 'true' }}
         run: |
           set -euo pipefail
-          SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
-          mkdir -p "$SOURCE_PACKAGES_DIR"
-          for attempt in 1 2 3; do
-            if xcodebuild -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
-              -derivedDataPath "$CMUX_DERIVED_DATA_PATH" \
-              -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
-              -resolvePackageDependencies; then
-              # Guard against a stale/poisoned Swift-package cache: resolve can
-              # report success without binary artifacts materialized.
-              if [ -d "$SOURCE_PACKAGES_DIR/artifacts/sparkle/Sparkle/Sparkle.xcframework" ] && [ -d "$SOURCE_PACKAGES_DIR/artifacts/sentry-cocoa/Sentry/Sentry.xcframework" ]; then
-                exit 0
-              fi
-              echo "Resolve succeeded but binary artifacts are missing (stale cache); clearing and retrying" >&2
-              rm -rf "$SOURCE_PACKAGES_DIR"
-            fi
-            if [ "$attempt" -eq 3 ]; then
-              echo "Failed to resolve Swift packages after 3 attempts" >&2
-              exit 1
-            fi
-            echo "Package resolution failed on attempt $attempt, retrying..."
-            sleep $((attempt * 5))
-          done
+          # Copies this checkout, with the restored packages and GhosttyKit,
+          # to $CMUX_CI_CANONICAL_ROOT/src and resolves there.
+          rm -rf -- "$CMUX_DERIVED_DATA_PATH"
+          scripts/ci/compile-app-host-test-product.sh canonical-resolve \
+            "$CMUX_DERIVED_DATA_PATH" "$PWD/.ci-source-packages"
+
+      - name: Compute test compilation cache key
+        if: ${{ steps.reuse.outputs.hit != 'true' }}
+        id: compilation-cache-key
+        run: |
+          set -euo pipefail
+          echo "fingerprint=$(scripts/ci/compile-app-host-test-product.sh canonical-fingerprint "$CMUX_DERIVED_DATA_PATH")" >> "$GITHUB_OUTPUT"
+
+      # The seed ci-macos.yml compile admission restores. Read-only on purpose:
+      # nightly.yml `refresh-test-compilation-cache` is its only writer, and a
+      # dispatch-chosen ref must not seed what pull requests later restore.
+      - name: Restore test compilation cache
+        if: ${{ steps.reuse.outputs.hit != 'true' }}
+        id: compilation-cache-restore
+        uses: ./.github/actions/cache-restore
+        with:
+          backend: ${{ vars.CI_CACHE_BACKEND || 'r2' }}
+          path: ${{ env.CMUX_E2E_COMPILATION_CACHE }}
+          key: xcode-compilation-test-${{ runner.os }}-${{ runner.arch }}-${{ steps.compilation-cache-key.outputs.fingerprint }}-${{ env.TEST_REF }}
+          restore-keys: |
+            xcode-compilation-test-${{ runner.os }}-${{ runner.arch }}-${{ steps.compilation-cache-key.outputs.fingerprint }}-
 
       - name: Build the app-host and UI test product
         id: compile
@@ -390,7 +383,7 @@ jobs:
           # Builds cmux, cmux-unit and cmux-numeric-locale, so one product
           # serves both cmuxTests and cmuxUITests dispatches.
           started="$(python3 -c 'import time; print(time.monotonic())')"
-          scripts/ci/compile-app-host-test-product.sh build \
+          scripts/ci/compile-app-host-test-product.sh canonical-build \
             "$CMUX_DERIVED_DATA_PATH" \
             "$PWD/.ci-source-packages" \
             "$CMUX_E2E_COMPILATION_CACHE" \
@@ -401,8 +394,18 @@ jobs:
 
       - name: Package the compiled test product
         id: package
+        env:
+          REUSE_HIT: ${{ steps.reuse.outputs.hit }}
         run: |
           set -euo pipefail
+          # A fresh build's manifests name the canonical checkout. Stamp that
+          # producer, then relocate into this workspace, as ci-macos.yml does,
+          # so the test job relocates from a checkout it can name. An adopted
+          # product was already relocated here by the reuse step.
+          if [ "$REUSE_HIT" != true ]; then
+            (cd "${CMUX_CI_CANONICAL_ROOT:-/private/tmp/cmux-ci}/src" && python3 scripts/ci/app_host_test_products.py stamp "$CMUX_DERIVED_DATA_PATH")
+            python3 scripts/ci/app_host_test_products.py restore "$CMUX_DERIVED_DATA_PATH"
+          fi
           python3 scripts/ci/app_host_test_products.py stamp "$CMUX_DERIVED_DATA_PATH"
           python3 scripts/ci/reuse_app_host_products.py seal "$CMUX_DERIVED_DATA_PATH"
           archive="$RUNNER_TEMP/app-host-products.tar.gz"
@@ -448,77 +451,23 @@ jobs:
             echo "Archive: ${ARCHIVE_BYTES:-unknown} bytes."
           } >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Check the selected revision against main
-        id: revision-on-main
-        continue-on-error: true
-        if: ${{ always() && !cancelled() && steps.compilation-cache-key.outcome == 'success' }}
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          contained="$(python3 scripts/ci/revision_on_main.py)"
-          echo "contained=$contained" >> "$GITHUB_OUTPUT"
-          echo "Selected revision contained in main: $contained"
-
-      - name: Bound E2E compilation cache
-        id: compilation-cache-bound
-        continue-on-error: true
-        if: ${{ always() && !cancelled() && steps.compilation-cache-key.outcome == 'success' }}
-        env:
-          WORKFLOW_REF: ${{ github.ref }}
-          # This job compiles; the tests it feeds run in `test`. A product that
-          # built cleanly is what makes the cache worth seeding.
-          TEST_OUTCOME: ${{ steps.compile.outcome }}
-          REVISION_ON_MAIN: ${{ steps.revision-on-main.outputs.contained }}
-        run: |
-          set -euo pipefail
-          echo "save=false" >> "$GITHUB_OUTPUT"
-          # A dispatch can execute any selected revision, so only code main
-          # already contains may seed caches that later selected refs restore.
-          # Requiring the selected revision to equal the workflow SHA also
-          # expressed that, but no dispatcher passes main's tip, so the cache
-          # never gained an entry.
-          if [ "$WORKFLOW_REF" != refs/heads/main ] \
-            || [[ ! "$TEST_REF" =~ ^[0-9a-f]{40}$ ]] \
-            || [ "${REVISION_ON_MAIN:-false}" != true ] \
-            || [ "$TEST_OUTCOME" != success ]; then
-            echo "E2E compilation cache is read-only for this selected revision/result"
-            exit 0
-          fi
-          cache_path="$CMUX_E2E_COMPILATION_CACHE"
-          if [ ! -d "$cache_path" ] || [ -z "$(find "$cache_path" -type f -print -quit)" ]; then
-            echo "E2E compilation cache is empty; skipping save"
-            exit 0
-          fi
-          cache_kib="$(du -sk "$cache_path" | awk '{print $1}')"
-          echo "E2E compilation cache size: $cache_kib KiB"
-          if [ "$cache_kib" -gt $((5 * 1024 * 1024)) ]; then
-            echo "::warning::E2E compilation cache exceeds 5 GiB; skipping save"
-            exit 0
-          fi
-          echo "save=true" >> "$GITHUB_OUTPUT"
-
-      - name: Save E2E compilation cache
-        continue-on-error: true
-        if: ${{ always() && !cancelled() && steps.compilation-cache-bound.outputs.save == 'true' && steps.compilation-cache-restore.outputs.cache-hit != 'true' }}
-        uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
-        with:
-          path: ${{ env.CMUX_E2E_COMPILATION_CACHE }}
-          key: e2e-compilation-v1-${{ runner.os }}-${{ runner.arch }}-all-${{ steps.compilation-cache-key.outputs.fingerprint }}-${{ env.TEST_REF }}
-
       - name: Clean owned DerivedData
         if: always()
         run: |
           set -euo pipefail
-          workspace_path="$(cd "$GITHUB_WORKSPACE" && pwd -P)"
+          # Remove exactly the two canonical paths "Prepare isolated
+          # DerivedData" set, and refuse anything else. The canonical source
+          # copy stays: the next canonical resolve replaces it with rsync
+          # --delete, and a test job may alias it.
+          root="${CMUX_CI_CANONICAL_ROOT:-/private/tmp/cmux-ci}"
           derived_data_path="${CMUX_DERIVED_DATA_PATH:-}"
           cache_path="${CMUX_E2E_COMPILATION_CACHE:-}"
           case "$cache_path" in
-            "$workspace_path/DerivedData/cmux-e2e-compilation-cache"|"") ;;
+            "$root/compile-admission-cas"|"") ;;
             *) echo "::error::refusing to remove unowned compilation cache: $cache_path"; exit 1 ;;
           esac
           case "$derived_data_path" in
-            "$workspace_path/DerivedData/cmux-e2e")
+            "$root/derived-data-compile-admission")
               rm -rf -- "$derived_data_path"
               if [ -n "$cache_path" ]; then rm -rf -- "$cache_path"; fi
               ;;
