@@ -97,7 +97,8 @@ final class FilePreviewVimController {
             scroll(to: line.minY + inset.y - (clip.bounds.height - line.height) * fraction, in: scrollView)
         case .page(let pages):
             let delta = clip.bounds.height * pages
-            let point = NSPoint(x: line.minX, y: max(0, line.midY + delta))
+            let glyphPosition = layout.location(forGlyphAt: glyph)
+            let point = NSPoint(x: line.minX + glyphPosition.x, y: max(0, line.midY + delta))
             let target = layout.characterIndex(for: point, in: container, fractionOfDistanceBetweenInsertionPoints: nil)
             navigation.move(to: target)
             scroll(to: clip.bounds.minY + delta, in: scrollView)
