@@ -1103,6 +1103,19 @@ def test_workflow_changes_run_everything() -> None:
     )
 
 
+def test_publishing_helpers_skip_unrelated_product_builds() -> None:
+    helpers = ["scripts/ci/download-run-artifact.py", "scripts/prebuild_sparkle_deltas.sh", "scripts/sparkle_generate_appcast.sh"]
+    for path in helpers:
+        actual = module.classify_files([path])
+        assert not any((actual.macos, actual.web, actual.agent_session_web, actual.cli, actual.swift_packages, actual.release_build)), (path, actual)
+    actual = module.classify_files(helpers + ["Sources/AppDelegate.swift"])
+    assert actual.macos and actual.release_build
+    actual = module.classify_files(helpers + ["scripts/ci/unknown_publishing_helper.py"])
+    assert actual.macos and actual.release_build and actual.web
+    result, outputs = run_detect_step_for_paths(helpers + [".github/workflows/nightly.yml", "tests/test_sparkle_generate_appcast_no_deltas.sh"])
+    assert outputs == ["macos=false", "web=false", "agent_session_web=false", "cli=false", "swift_packages=false", "release_build=false"], (result.stdout, outputs)
+
+
 def test_macos_admission_control_helpers_run_admission_without_web_or_release() -> None:
     for path in (
         "scripts/ci/build_input_fingerprint.py",
