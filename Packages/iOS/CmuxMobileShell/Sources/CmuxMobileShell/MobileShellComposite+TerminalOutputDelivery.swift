@@ -16,6 +16,12 @@ extension MobileShellComposite {
         return true
     }
     func recordTerminalRenderGridDelivery(_ renderGrid: MobileTerminalRenderGridFrame) {
+        if let acknowledgedSequence = renderGrid.appliedInputSequence {
+            resolveTerminalInputEcho(
+                surfaceID: renderGrid.surfaceID,
+                acknowledgedSequence: acknowledgedSequence
+            )
+        }
         // The toolbar observes this dictionary via `isAlternateScreen`; same-value
         // writes would re-fire observers for every delivered render-grid frame.
         if terminalActiveScreenBySurfaceID[renderGrid.surfaceID] != renderGrid.activeScreen {

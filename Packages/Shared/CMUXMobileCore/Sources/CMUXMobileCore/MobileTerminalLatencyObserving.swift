@@ -8,7 +8,12 @@ import Foundation
 /// periodic aggregates through their existing telemetry queue.
 @MainActor
 public protocol MobileTerminalLatencyObserving: Sendable {
-    func inputStarted(surfaceID: String, byteCount: Int, correlate: Bool) -> UInt64
+    /// `sequence` is the wire marker the shell minted for this input, or nil
+    /// when the input carries no marker (host without
+    /// `terminal.input.latency.v1`). The shell owns minting so that marker
+    /// framing and marker-based liveness evidence exist independently of
+    /// whether telemetry collection is enabled.
+    func inputStarted(surfaceID: String, byteCount: Int, sequence: UInt64?)
     func inputSent(surfaceID: String, sequence: UInt64)
     func inputFailed(surfaceID: String, sequence: UInt64)
     func surfaceClosed(surfaceID: String)
@@ -25,16 +30,10 @@ public protocol MobileTerminalLatencyObserving: Sendable {
     func flush() async
 }
 
-public extension MobileTerminalLatencyObserving {
-    func inputStarted(surfaceID: String, byteCount: Int) -> UInt64 {
-        inputStarted(surfaceID: surfaceID, byteCount: byteCount, correlate: true)
-    }
-}
-
 public struct NoopMobileTerminalLatencyObserver: MobileTerminalLatencyObserving {
     public init() {}
 
-    public func inputStarted(surfaceID: String, byteCount: Int, correlate: Bool) -> UInt64 { 0 }
+    public func inputStarted(surfaceID: String, byteCount: Int, sequence: UInt64?) {}
     public func inputSent(surfaceID: String, sequence: UInt64) {}
     public func inputFailed(surfaceID: String, sequence: UInt64) {}
     public func surfaceClosed(surfaceID: String) {}
