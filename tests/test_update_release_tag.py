@@ -40,14 +40,22 @@ class UpdateReleaseTagTests(unittest.TestCase):
     def call(self, existing, *, responses=None):
         calls = []
         queued = list(responses or [])
+        updated = False
 
         def urlopen(request):
+            nonlocal updated
             calls.append((request.method, request.full_url, request.data))
+            if request.method in {"PATCH", "POST"}:
+                updated = True
+            if "/compare/" in request.full_url:
+                return FakeResponse({"status": "ahead"})
             response = queued.pop(0) if queued else None
             if isinstance(response, Exception):
                 raise response
             if response is not None:
                 return FakeResponse(response)
+            if request.method == "GET" and updated:
+                return FakeResponse({"object": {"sha": self.SHA, "type": "commit"}})
             if request.method == "GET":
                 return FakeResponse(existing)
             return FakeResponse({"ref": "refs/tags/nightly", "object": {"sha": self.SHA, "type": "commit"}})
@@ -60,8 +68,8 @@ class UpdateReleaseTagTests(unittest.TestCase):
 
     def test_existing_tag_uses_patch_and_verifies_exact_commit(self):
         calls, _ = self.call({"object": {"sha": "b" * 40, "type": "commit"}})
-        self.assertEqual([method for method, _, _ in calls], ["GET", "PATCH", "GET"])
-        self.assertEqual(json.loads(calls[1][2]), {"sha": self.SHA, "force": True})
+        self.assertEqual([method for method, _, _ in calls], ["GET", "GET", "PATCH", "GET"])
+        self.assertEqual(json.loads(calls[2][2]), {"sha": self.SHA, "force": True})
 
     def test_missing_tag_uses_create_and_verifies_exact_commit(self):
         calls, _ = self.call(None, responses=[HTTPError("https://api.github.com", 404, "missing", {}, None)])
@@ -72,10 +80,9 @@ class UpdateReleaseTagTests(unittest.TestCase):
         transient = HTTPError("https://api.github.com", 503, "unavailable", {}, None)
         calls, sleep = self.call(
             {"object": {"sha": "b" * 40, "type": "commit"}},
-            responses=[transient, {"object": {"sha": "b" * 40, "type": "commit"}},
-                       {"object": {"sha": self.SHA, "type": "commit"}}],
+            responses=[transient, {"object": {"sha": "b" * 40, "type": "commit"}}],
         )
-        self.assertEqual([method for method, _, _ in calls], ["GET", "GET", "PATCH", "GET"])
+        self.assertEqual([method for method, _, _ in calls], ["GET", "GET", "GET", "PATCH", "GET"])
         self.assertEqual(sleep.call_count, 1)
 
     def test_permission_failure_is_not_retried(self):
@@ -87,6 +94,21 @@ class UpdateReleaseTagTests(unittest.TestCase):
                 MODULE.update_tag("owner/repo", "nightly", self.SHA)
         self.assertEqual(urlopen.call_count, 1)
         sleep.assert_not_called()
+
+    def test_non_descendant_candidate_cannot_regress_tag(self):
+        calls = []
+
+        def urlopen(request):
+            calls.append(request.method)
+            if "/compare/" in request.full_url:
+                return FakeResponse({"status": "behind"})
+            return FakeResponse({"object": {"sha": "b" * 40, "type": "commit"}})
+
+        with mock.patch.object(MODULE.urllib.request, "urlopen", side_effect=urlopen), \
+                mock.patch.dict(MODULE.os.environ, {"GH_TOKEN": "test-token"}, clear=False):
+            with self.assertRaisesRegex(MODULE.TagUpdateError, "non-descendant"):
+                MODULE.update_tag("owner/repo", "nightly", self.SHA)
+        self.assertEqual(calls, ["GET", "GET"])
 
 
 if __name__ == "__main__":

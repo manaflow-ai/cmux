@@ -56,14 +56,16 @@ class NightlyPruneRateLimitTests(unittest.TestCase):
             return FakeResponse()
 
         with mock.patch.object(MODULE.urllib.request, "urlopen", side_effect=fake_urlopen), \
-                mock.patch.object(MODULE.time, "sleep") as sleep:
+                mock.patch.object(MODULE.time, "sleep") as sleep, \
+                mock.patch.dict(MODULE.os.environ, {"GH_TOKEN": "test-token"}, clear=False):
             self.assertEqual(MODULE.github_api_json("GET", "repos/o/r/releases"), {"assets": []})
         self.assertEqual(sleep.call_count, 1)
 
     def test_github_api_does_not_retry_permission_failure(self) -> None:
         error = HTTPError("https://api.github.com", 403, "forbidden", {}, None)
         with mock.patch.object(MODULE.urllib.request, "urlopen", side_effect=error) as urlopen, \
-                mock.patch.object(MODULE.time, "sleep") as sleep:
+                mock.patch.object(MODULE.time, "sleep") as sleep, \
+                mock.patch.dict(MODULE.os.environ, {"GH_TOKEN": "test-token"}, clear=False):
             with self.assertRaises(MODULE.GitHubAPIError) as raised:
                 MODULE.github_api_json("GET", "repos/o/r/releases")
         self.assertEqual(raised.exception.status, 403)
