@@ -193,7 +193,7 @@ These are outstanding parts of existing scope or limits that affect its acceptan
 
 | Date | Change |
 | --- | --- |
-| 2026-09-23 | Added notification-to-Feed projection, combined source revisions, durable Workstream mutation replay, durable reply state, and explicit `feed_event_id` reply identity. Started a fresh `feedsim` Mac/simulator rebuild from `e4d54d0e2fe9`; physical phone remains unreachable and queued. |
+| 2026-09-23 | Added notification-to-Feed projection, combined source revisions, durable Workstream mutation replay, durable reply state, and explicit `feed_event_id` reply identity. Started a fresh `feedsim` Mac build from `9bf90380b426`; the current iOS simulator rebuild is queued after two fleet simulator-phase failures, and the physical phone remains unreachable and queued. |
 | 2026-09-23 | Built F28–F31, verified inline expansion, shared controls, Feed search, and event context menus in hosted UI, and passed focused routing/search tests. Saved screenshot/video proof and updated the HTML walkthrough. Installed/authenticated Mac 6dd5a1ad6f4; signed and queued the matching phone update after the device became unreachable (V35–V39). |
 | 2026-09-23 | Completed authenticated Mac/iPhone delivery and persisted reconnect (V34). Added the source-backed HTML architecture walkthrough (F27), with durability/ownership/compatibility findings clearly separated from approved implementation scope. User added inline expansion, shared computer controls, active-tab search, and event context navigation (F28–F31). |
 | 2026-09-23 | Verified full-text reading in hosted iPhone UI, focused packages, and seven actual CLI hook paths. Installed/authenticated the Mac; documented controller packaging repairs and pending phone delivery in V28–V33. |
