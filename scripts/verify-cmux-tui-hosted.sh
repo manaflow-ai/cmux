@@ -18,6 +18,12 @@ Cargo test names do not include their package name, so a plain test-name filter
 cannot select that crate.
 --full runs the cross-platform merge gate, including real Windows execution.
 Both modes build and download a macOS arm64 cmux-tui artifact from the exact pushed HEAD.
+
+Optional retention is enabled with CMUX_TUI_HOSTED_RETENTION_COUNT. Run once
+with CMUX_TUI_HOSTED_RETENTION_DRY_RUN=1, then run with
+CMUX_TUI_HOSTED_RETENTION_CONFIRM=1 to remove confirmed inactive artifacts.
+The candidate scan is capped at 10,000 directories; use
+CMUX_TUI_HOSTED_RETENTION_MAX_CANDIDATES to choose a lower cap.
 EOF
 }
 
@@ -61,6 +67,8 @@ if [[ ! "$timeout_seconds" =~ ^[1-9][0-9]*$ ]]; then
 fi
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=hosted-retention.sh
+source "$script_dir/hosted-retention.sh"
 repo_root="$(git -C "$script_dir" rev-parse --show-toplevel)"
 cd "$repo_root"
 
@@ -341,6 +349,8 @@ artifact_dir="cmux-tui/target/hosted/$commit"
 artifact_binary="$artifact_dir/cmux-tui"
 mkdir -p "$artifact_dir"
 install -m 0755 "$downloaded_binary" "$artifact_binary"
+
+cmux_hosted_retention_run "$artifact_dir" "$commit"
 
 echo "Hosted verification passed: $run_url"
 echo "Artifact: $artifact_binary"
