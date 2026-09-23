@@ -1,5 +1,4 @@
 internal import Foundation
-
 /// The surface domain (`surface.*` plus `debug.terminals`), lifted byte-faithfully
 /// from the former `TerminalController.v2Surface*` / `v2DebugTerminals` bodies.
 /// Each payload is built directly as a ``JSONValue``; the encoded wire bytes match.
@@ -164,7 +163,8 @@ extension ControlCommandCoordinator {
                 if let dev = surface.developerToolsVisible {
                     item["developer_tools_visible"] = .bool(dev)
                 }
-                if surface.isTerminal {
+                let relayScoped = params["_cmux_remote_workspace_id"] != nil
+                if surface.isTerminal, !relayScoped {
                     item["requested_working_directory"] = orNull(surface.requestedWorkingDirectory)
                     item["initial_command"] = orNull(surface.initialCommand)
                     item["tmux_start_command"] = orNull(surface.tmuxStartCommand)

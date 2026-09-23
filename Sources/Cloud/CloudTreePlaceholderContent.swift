@@ -14,13 +14,19 @@ struct CloudTreePlaceholderContent: View {
                 case .connecting:
                     ProgressView().controlSize(.mini)
                 case .error:
-                    Image(systemName: "exclamationmark.triangle")
-                        .font(.system(size: max(style.iconSize, 9), weight: .regular))
-                        .foregroundStyle(.secondary)
+                    CmuxSystemSymbolImage(
+                        systemName: "exclamationmark.triangle",
+                        pointSize: max(style.iconSize, 9),
+                        weight: .regular,
+                        tint: Color(nsColor: .secondaryLabelColor)
+                    )
                 case .dimmed:
-                    Image(systemName: "moon.zzz")
-                        .font(.system(size: max(style.iconSize, 9), weight: .regular))
-                        .foregroundStyle(.tertiary)
+                    CmuxSystemSymbolImage(
+                        systemName: "moon.zzz",
+                        pointSize: max(style.iconSize, 9),
+                        weight: .regular,
+                        tint: Color(nsColor: .tertiaryLabelColor)
+                    )
                 }
             }
             .frame(width: max(style.iconSlot, 12))

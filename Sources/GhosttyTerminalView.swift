@@ -327,6 +327,9 @@ class GhosttyApp {
             SessionScrollbackReplayStore.environmentKey,
         globalFontMagnificationPercent: {
             GhosttyApp.shared.appliedGlobalFontMagnificationPercent
+        },
+        terminalWork: TerminalSurfaceWorkDiagnostics(log: MobileHostDiagnostics.log) { workspaceID in
+            TerminalGeometryDiagnostics().context(workspaceID: workspaceID, transition: .unknown)
         }
     )
 
@@ -5950,6 +5953,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             return GhosttyApp.terminalPasteboard.hasString(for: GHOSTTY_CLIPBOARD_STANDARD)
         case #selector(splitHorizontally(_:)), #selector(splitVertically(_:)):
             return canSplitCurrentSurface()
+        case #selector(beginPaneSwapSelection(_:)):
+            return PaneSwapSelectionController().canBegin(from: terminalSurface)
         case #selector(copyWorkspaceAndSurfaceIdentifiers(_:)):
             return terminalSurface != nil
         default:
@@ -8693,6 +8698,17 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             systemSymbolName: "rectangle.righthalf.inset.filled",
             accessibilityDescription: nil
         )
+
+        let swapPaneItem = menu.addItem(
+            withTitle: CmuxPaneSwapStrings().swapWithSession,
+            action: #selector(beginPaneSwapSelection(_:)),
+            keyEquivalent: ""
+        )
+        swapPaneItem.target = self
+        swapPaneItem.image = NSImage(
+            systemSymbolName: "arrow.left.arrow.right",
+            accessibilityDescription: nil
+        )
         appendCurrentSurfaceContextMenuItems(to: menu)
         let resetTerminalItem = menu.addItem(
             withTitle: String(localized: "terminalContextMenu.resetTerminal", defaultValue: "Reset Terminal"),
@@ -8748,6 +8764,12 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     @objc private func splitVertically(_ sender: Any?) {
         _ = splitCurrentSurface(direction: .right)
+    }
+
+    @objc private func beginPaneSwapSelection(_ sender: Any?) {
+        if !PaneSwapSelectionController().begin(from: terminalSurface, in: window) {
+            NSSound.beep()
+        }
     }
 
     @discardableResult
@@ -9536,7 +9558,10 @@ final class GhosttySurfaceScrollView: NSView {
     private let flashLayer: CAShapeLayer
     let cloudTerminalOverlay = CloudTerminalOverlayCoordinator(dismissalStore: CloudBannerDismissalStore(defaults: .standard))
     private var cloudTerminalReconnectOverlayView: CloudTerminalReconnectOverlayView? { cloudTerminalOverlay.overlay }
-    private var hasVisibilityRevealRefreshScheduled = false
+    var hasVisibilityRevealRefreshScheduled = false
+    var pendingVisibilityRefreshTransition: TerminalWorkContext.Transition = .unknown
+    /// Active reconciliation origin; asynchronous refreshes capture it before return.
+    var terminalWorkTransition: TerminalWorkContext.Transition = .unknown
     var isRightSidebarDockSurface: Bool {
         surfaceView.terminalSurface?.focusPlacement == .rightSidebarDock
     }
@@ -10267,24 +10292,13 @@ final class GhosttySurfaceScrollView: NSView {
         return synchronizeGeometryAndContent()
     }
 
-    /// Request an immediate terminal redraw after geometry updates so stale IOSurface
-    /// contents do not remain stretched during live resize churn.
-    func refreshSurfaceNow(reason: String = "portal.refreshSurfaceNow") {
-        // Portal reparent/reveal can settle geometry a tick before AppKit finishes
-        // realizing the terminal subtree's backing layer state. Flush display for the
-        // hosted subtree first so forceRefresh does not race a still-unrealized layer.
-        layoutSubtreeIfNeeded()
-        surfaceView.layoutSubtreeIfNeeded()
-        displayIfNeeded()
-        surfaceView.displayIfNeeded()
-        surfaceView.terminalSurface?.forceRefresh(reason: reason)
-    }
-
     @discardableResult
     private func synchronizeGeometryAndContent(
         forceViewportSync: Bool? = nil,
         preservedReviewOriginY: CGFloat? = nil
     ) -> Bool {
+        let work = TerminalGeometryDiagnostics().begin(.layout, workspaceID: surfaceView.terminalSurface?.tabId, transition: TerminalGeometryDiagnostics().resizeTransition(in: window))
+        defer { work.end() }
         let preservedReviewOriginY = preservedReviewOriginY ?? {
             guard scrollbackViewportIntent.preservesViewportDuringPendingSync else { return nil }
             return max(scrollView.contentView.bounds.origin.y, 0)
@@ -11411,19 +11425,8 @@ final class GhosttySurfaceScrollView: NSView {
             // from inside SwiftUI update/layout (updateNSView, viewDidMoveToWindow, the
             // geometry-callback rebind), where a synchronous display can wedge the main
             // thread in Metal against the still-open window transaction.
-            scheduleVisibilityRevealRefresh()
+            scheduleVisibilityRevealRefresh(transition: terminalWorkTransition == .unknown ? .reveal : terminalWorkTransition)
             scheduleAutomaticFirstResponderApply(reason: "setVisibleInUI")
-        }
-    }
-
-    private func scheduleVisibilityRevealRefresh() {
-        guard !hasVisibilityRevealRefreshScheduled else { return }
-        hasVisibilityRevealRefreshScheduled = true
-        DispatchQueue.main.async { [weak self] in
-            guard let self else { return }
-            self.hasVisibilityRevealRefreshScheduled = false
-            guard self.surfaceView.isVisibleInUI else { return }
-            self.refreshSurfaceNow(reason: "setVisibleInUI.deferred")
         }
     }
 
@@ -13459,15 +13462,55 @@ extension GhosttyNSView: NSTextInputClient {
             )
         }
 #endif
+        let incoming: NSAttributedString
         switch string {
         case let v as NSAttributedString:
-            markedText = NSMutableAttributedString(attributedString: v)
+            incoming = v
         case let v as String:
-            markedText = NSMutableAttributedString(string: v)
+            incoming = NSAttributedString(string: v)
         default:
             return
         }
-        markedSelectedRange = normalizedMarkedSelectionRange(selectedRange, markedLength: markedText.length)
+
+        // NSTextInputClient defines replacementRange relative to the beginning
+        // of the current marked text. Japanese IME uses a subrange replacement
+        // during conversion-state edits, including an empty replacement for
+        // Backspace. Preserve the rest of the preedit buffer in that case.
+        let replacementStart: Int
+        if markedText.length > 0,
+           replacementRange.location != NSNotFound,
+           replacementRange.location >= 0,
+           replacementRange.length >= 0,
+           replacementRange.location <= markedText.length,
+           replacementRange.length <= markedText.length - replacementRange.location {
+            markedText.replaceCharacters(in: replacementRange, with: incoming)
+            replacementStart = replacementRange.location
+        } else {
+            markedText = NSMutableAttributedString(attributedString: incoming)
+            replacementStart = 0
+        }
+
+        if markedText.length > 0 {
+            // selectedRange is relative to the inserted replacement, so offset
+            // it back into our marked-text coordinate space.
+            let insertedLength = incoming.length
+            let relativeLocation = selectedRange.location == NSNotFound
+                ? insertedLength
+                : min(max(selectedRange.location, 0), insertedLength)
+            let relativeLength = min(
+                max(selectedRange.length, 0),
+                insertedLength - relativeLocation
+            )
+            markedSelectedRange = normalizedMarkedSelectionRange(
+                NSRange(
+                    location: replacementStart + relativeLocation,
+                    length: relativeLength
+                ),
+                markedLength: markedText.length
+            )
+        } else {
+            markedSelectedRange = NSRange(location: NSNotFound, length: 0)
+        }
 
         // If we're not in a keyDown event, sync preedit immediately.
         // This can happen due to external events like changing keyboard layouts

@@ -1,8 +1,6 @@
 import XCTest
 
 final class WorkspaceSSHFishShellTests: XCTestCase {
-    private struct ProcessRunResult { let status: Int32; let stderr: String; let timedOut: Bool }
-
     private final class MockSocketServerState: @unchecked Sendable {
         private let lock = NSLock(); private(set) var commands: [String] = []
 
@@ -83,7 +81,7 @@ final class WorkspaceSSHFishShellTests: XCTestCase {
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
         environment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
 
-        let result = runProcess(
+        let result = SSHFishProcessRunner.runProcess(
             executablePath: cliPath,
             arguments: [
                 "ssh",
@@ -229,7 +227,7 @@ final class WorkspaceSSHFishShellTests: XCTestCase {
         }
 
         let startupResults = (0..<2).map { _ in
-            runProcess(
+            SSHFishProcessRunner.runProcess(
                 executablePath: "/bin/sh",
                 // Execute the materialized script by path so the fixture does
                 // not re-parse a large reusable command through `sh -c`.
@@ -357,49 +355,6 @@ final class WorkspaceSSHFishShellTests: XCTestCase {
             domain: "WorkspaceSSHFishShellTests",
             code: 2,
             userInfo: [NSLocalizedDescriptionKey: "Generated startup command did not pin (systemSSHPath)"]
-        )
-    }
-
-    private func runProcess(
-        executablePath: String,
-        arguments: [String],
-        environment: [String: String],
-        timeout: TimeInterval
-    ) -> ProcessRunResult {
-        let process = Process()
-        let stdoutPipe = Pipe()
-        let stderrPipe = Pipe()
-        process.executableURL = URL(fileURLWithPath: executablePath)
-        process.arguments = arguments
-        process.environment = environment
-        process.standardInput = FileHandle.nullDevice
-        process.standardOutput = stdoutPipe
-        process.standardError = stderrPipe
-        let exitSignal = DispatchSemaphore(value: 0)
-        process.terminationHandler = { _ in exitSignal.signal() }
-
-        do {
-            try process.run()
-        } catch {
-            return ProcessRunResult(
-                status: -1,
-                stderr: String(describing: error),
-                timedOut: false
-            )
-        }
-
-        let timedOut = exitSignal.wait(timeout: .now() + timeout) == .timedOut
-        if timedOut {
-            process.terminate()
-            _ = exitSignal.wait(timeout: .now() + 1)
-        }
-
-        _ = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
-        let stderr = String(data: stderrPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
-        return ProcessRunResult(
-            status: process.terminationStatus,
-            stderr: stderr,
-            timedOut: timedOut
         )
     }
 

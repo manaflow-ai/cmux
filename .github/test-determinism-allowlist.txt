@@ -11,3 +11,9 @@ Packages/Shared/CMUXMobileCore/Tests/CMUXMobileCoreTests/CmxRetryAfterPolicyTest
 Packages/iOS/CmuxMobileShell/Tests/CmuxMobileShellTests/MobileTerminalLaneCoordinatorTests.swift	sleep-then-assert	upstream coordinator readiness timing assertion
 web/tests/vm-publication-pool-db.test.ts	sleep-then-assert	deadline-bounded database pool wait has no fixed sleep
 Packages/Shared/CmuxIrxTransport/Tests/CmuxIrxTransportTests/IrxLiveQUICTests.swift	sleep-then-assert	bounded QUIC reconnect and retirement readiness probe from main
+cmuxTests/DeviceTerminalMirrorTests.swift	sleep-then-assert	deliberately hung transport cancellation test; completion is driven by cancellation stream
+Packages/Shared/CmuxIrxTransport/Tests/CmuxIrxTransportTests/IrxLivenessTests.swift	sleep-then-assert	upstream IROH liveness timing test; replace with event-driven readiness
+Packages/Shared/CmuxIrxTransport/Tests/CmuxIrxTransportTests/IrxRelayCredentialInstallerTests.swift	sleep-then-assert	upstream credential rotation timing test; replace with event-driven readiness
+cmuxTests/MobileHostConnectionEventLaneTests.swift	sleep-then-assert	upstream event-lane timing tests; replace with event-driven readiness
+cmuxTests/MobileHostConnectionLifecycleTests.swift	sleep-then-assert	upstream connection lifecycle timing tests; replace with event-driven readiness
+web/tests/iroh-dashboard-controller.test.ts	sleep-then-assert	upstream dashboard render timing tests; replace with event-driven readiness

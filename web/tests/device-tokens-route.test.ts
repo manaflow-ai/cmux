@@ -796,6 +796,60 @@ describe("device token route", () => {
     });
   });
 
+  dbTest("returns keyed recipients across bundle namespaces for account fanout", async () => {
+    if (!sql) throw new Error("test database not initialized");
+    const token1 = "9".repeat(64);
+    const token2 = "a".repeat(64);
+    const token3 = "b".repeat(64);
+    await sql`
+      insert into device_tokens (
+        user_id, device_token, installation_id, push_key_id, push_public_key,
+        platform, bundle_id, environment
+      ) values
+        (
+          'push-user-1', ${token1}, 'installation-all-1', 'key-all-1',
+          ${"D".repeat(43) + "="}, 'ios', 'com.cmux.app', 'production'
+        ),
+        (
+          'push-user-1', ${token2}, 'installation-all-2', 'key-all-2',
+          ${"E".repeat(43) + "="}, 'ios', 'dev.cmux.app.internal', 'production'
+        ),
+        (
+          'push-user-1', ${token3}, 'legacy', 'legacy', null,
+          'ios', 'dev.cmux.app.beta', 'production'
+        )
+    `;
+
+    const response = await GET(
+      new Request("https://cmux.test/api/device-tokens?all=true", {
+        headers: {
+          authorization: testAccessHeader,
+          "x-stack-refresh-token": "refresh-token",
+        },
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      recipients: [
+        {
+          accountID: "push-user-1",
+          installationID: "installation-all-1",
+          keyID: "key-all-1",
+          publicKey: "D".repeat(43) + "=",
+          bundleID: "com.cmux.app",
+        },
+        {
+          accountID: "push-user-1",
+          installationID: "installation-all-2",
+          keyID: "key-all-2",
+          publicKey: "E".repeat(43) + "=",
+          bundleID: "dev.cmux.app.internal",
+        },
+      ],
+    });
+  });
+
   dbTest("rotates a token in place for the same installation", async () => {
     if (!sql) throw new Error("test database not initialized");
     const bundleId = "dev.cmux.ios.rotate";
