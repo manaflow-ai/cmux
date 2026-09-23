@@ -222,5 +222,42 @@ class CanonicalRecipeTests(unittest.TestCase):
                     self.assertEqual(args[args.index('-derivedDataPath')+1], derived)
 
 
+    def test_build_alone_refuses_a_stale_runtime_alias(self):
+        # The recipe above runs fingerprint first, which strips the alias, so it
+        # only covers `build` transitively. A lane that compiles without
+        # fingerprinting first would follow the alias to the pool-specific
+        # realpath and write those entries under the pool-independent key --
+        # a seed that downloads and then cannot hit.
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            workspace = base / "runner-layout" / "checkout"
+            workspace.mkdir(parents=True)
+            (workspace / ".git").mkdir()
+            bin_dir = base / "bin"
+            bin_dir.mkdir()
+            calls = base / "calls.jsonl"
+            xcode = bin_dir / "xcodebuild"
+            xcode.write_text("#!/usr/bin/env python3\n" +
+                "import os,sys,json\n" +
+                "with open(os.environ['CALLS'], 'a') as f: f.write(json.dumps([os.getcwd(),sys.argv[1:]])+'\\n')\n" +
+                "if '-version' in sys.argv: print('Xcode 26.3')\n")
+            xcode.chmod(0o755)
+            root = base / "canonical"
+            root.mkdir()
+            (root / "src").symlink_to(workspace)
+            env = dict(os.environ, PATH=f"{bin_dir}:" + os.environ['PATH'], CALLS=str(calls),
+                       CMUX_CI_CANONICAL_ROOT=str(root))
+            derived = str(root / "derived-data-compile-admission")
+            result = subprocess.run(
+                [str(SCRIPT), "canonical-build", derived,
+                 str(workspace / ".ci-source-packages"), str(root / "cas")],
+                cwd=workspace, env=env, capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertFalse((root / "src").is_symlink())
+            records = [json.loads(line) for line in calls.read_text().splitlines()]
+            self.assertTrue(records)
+            for cwd, _args in records:
+                self.assertEqual(cwd, str(root / "src"))
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

@@ -136,8 +136,12 @@ case "${1:-}" in
       "$SCRIPT_DIR/canonical-build-root.sh" "$PWD"
     fi
     # A previous test-only consumer may have left a runtime source alias.
-    # Never derive a shared cache key through its pool-specific realpath.
-    if [ "$operation" = fingerprint ] && [ -L "$CANONICAL_BUILD_ROOT/src" ]; then
+    # Never key, resolve, or compile through its pool-specific realpath: the
+    # compiler records the path it opens, so a build behind the alias writes
+    # pool-specific cache entries under the pool-independent canonical key.
+    # `resolve` re-copies the tree through canonical-build-root.sh above, which
+    # strips the alias itself; `fingerprint` and `build` have only this.
+    if [ -L "$CANONICAL_BUILD_ROOT/src" ]; then
       rm "$CANONICAL_BUILD_ROOT/src"
     fi
     mkdir -p "$CANONICAL_BUILD_ROOT/src"
