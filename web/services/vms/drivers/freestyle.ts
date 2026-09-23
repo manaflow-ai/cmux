@@ -518,6 +518,33 @@ export function mapFreestyleState(state: VmData["state"] | null | undefined): VM
   }
 }
 
+/**
+ * Tunnel creates finish in ~150 ms at the median and ~2.2 s at the slowest
+ * seen in production (30 days); 10 s leaves room while cutting a hung create
+ * well short of the 30 s route budget.
+ */
+const TUNNEL_CREATE_TIMEOUT_MS = 10_000;
+
+/**
+ * A create that may have made the tunnel even though it did not return it:
+ * a slug conflict, a provider 5xx (a measured 503 still created the tunnel),
+ * or no answer at all (timeout, reset). A 4xx other than the conflict is a
+ * definite refusal, so it is not worth a recovery read.
+ */
+export function tunnelCreateMayHaveSucceeded(err: unknown): boolean {
+  // Our own configuration failures (no credentials) never reached the provider.
+  if (err instanceof ProviderError) return false;
+  if (err instanceof FreestyleApiError) {
+    return (err.status === 409 && err.code === "CONFLICT") || err.status >= 500;
+  }
+  return true;
+}
+
+function tunnelRecoveryReason(err: unknown): string {
+  if (!(err instanceof FreestyleApiError)) return "no_response";
+  return err.status === 409 ? "conflict" : "server_error";
+}
+
 function isNotFound(err: unknown): boolean {
   return err instanceof FreestyleApiError && (err.status === 404 || err.code === "NOT_FOUND");
 }
@@ -623,8 +650,10 @@ class FreestylePrivateNetworking implements VMPrivateNetworking {
         try {
           // clientPublicKey is always supplied, so the platform never mints or
           // holds a private key: the config comes back with a blank PrivateKey
-          // for the Mac to fill in from its own Keychain.
-          const data = await this.client().tunnels.create({
+          // for the Mac to fill in from its own Keychain. The short timeout
+          // bounds a hung create (a measured 503 arrived after ~25 s); the
+          // recovery read below finds a tunnel the provider made anyway.
+          const data = await this.client(TUNNEL_CREATE_TIMEOUT_MS).tunnels.create({
             slug: options.slug,
             displayName: options.displayName,
             clientPublicKey,
@@ -634,9 +663,10 @@ class FreestylePrivateNetworking implements VMPrivateNetworking {
           setSpanAttributes(span, { "cmux.vm.tunnel.id": tunnel.id });
           return { tunnel, created: true, rotated: false };
         } catch (err) {
-          if (!(err instanceof FreestyleApiError && err.status === 409 && err.code === "CONFLICT")) {
+          if (!tunnelCreateMayHaveSucceeded(err)) {
             throw new ProviderError("freestyle", `createTunnel(${options.slug})`, err);
           }
+          span.setAttribute("cmux.vm.tunnel.recovery_reason", tunnelRecoveryReason(err));
           // A duplicate create may reuse only the exact same client identity.
           // Key rotation belongs to explicit enrollment of an existing row;
           // recovery must never evict a concurrent client's working key.

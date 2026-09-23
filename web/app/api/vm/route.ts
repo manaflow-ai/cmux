@@ -3,6 +3,7 @@ import { normalizedDisplayName } from "../../../services/vms/displayName";
 // provider credentials stay behind server-side ownership checks.
 
 import type { Span } from "@opentelemetry/api";
+import * as Effect from "effect/Effect";
 import { preconnectCloudDb } from "../../../db/client";
 import { preconnectFreestyle } from "../../../services/vms/drivers/freestyle";
 import {
@@ -292,6 +293,8 @@ export async function POST(request: Request): Promise<Response> {
         imageSize: imageSelection.size ?? undefined,
         modelPlane,
         timing,
+        // Keep the `vm.created` ledger write off New Machine's critical path.
+        deferAfterResponse: (work) => runAfterResponse(() => Effect.runPromise(work)),
       }), {
         request,
         onError: createErrorResponders(entitlements),

@@ -374,7 +374,105 @@ describe("Freestyle platform contract", () => {
     });
     expect(calls).toEqual({ create: 1, list: 1, attach: 0 });
   });
+
+  // Measured: tunnels.create answered 503 after ~25 s, yet the tunnel existed;
+  // only the app's later 409 retry recovered it (30.9 s to a first failure).
+  // A create with no answer or a 5xx must look for its own tunnel at once.
+  const createFailures: [string, () => Error][] = [
+    ["a provider 5xx", () => new FreestyleApiError(503, { code: "INTERNAL_ERROR", message: "upstream" })],
+    ["no response (client timeout)", () => new DOMException("The operation timed out.", "TimeoutError")],
+  ];
+  test.each(createFailures)("recovers the same-key tunnel after %s", async (_label, failure) => {
+    const calls = { create: 0, list: 0 };
+    const timeouts: (number | undefined)[] = [];
+    const tunnel = recoverableTunnel(TUNNEL_CLIENT_KEY);
+    const client = {
+      tunnels: {
+        create: async () => { calls.create += 1; throw failure(); },
+        list: async () => { calls.list += 1; return { tunnels: [tunnel], totalCount: 1 }; },
+        attachVpc: async () => tunnel,
+      },
+    } as unknown as Freestyle;
+    const provider = new FreestyleProvider({ client: (timeoutMs) => { timeouts.push(timeoutMs); return client; } });
+
+    const result = await provider.privateNetworking!.createTunnel({
+      slug: "cmux-wg-recover",
+      displayName: "cmux computer",
+      clientPublicKey: TUNNEL_CLIENT_KEY,
+      networkId: "vpc-1",
+    });
+
+    expect(result).toMatchObject({ tunnel: { id: "tun-existing" }, created: false, rotated: false });
+    expect(calls).toEqual({ create: 1, list: 1 });
+    // The create itself runs under a bounded timeout, well inside the route's 30 s.
+    expect(timeouts[0]).toBeLessThanOrEqual(10_000);
+  });
+
+  test("a 5xx never adopts a tunnel that holds another client's key", async () => {
+    const client = {
+      tunnels: {
+        create: async () => { throw new FreestyleApiError(503, { code: "INTERNAL_ERROR", message: "upstream" }); },
+        list: async () => ({ tunnels: [recoverableTunnel("other-client-key")], totalCount: 1 }),
+        attachVpc: async () => { throw new Error("must not attach"); },
+      },
+    } as unknown as Freestyle;
+    const provider = new FreestyleProvider({ client: () => client });
+
+    await expect(provider.privateNetworking!.createTunnel({
+      slug: "cmux-wg-recover",
+      displayName: "cmux computer",
+      clientPublicKey: TUNNEL_CLIENT_KEY,
+      networkId: "vpc-1",
+    })).rejects.toThrow("createTunnel(cmux-wg-recover)");
+  });
+
+  test("a definite 4xx refusal does not spend a recovery read", async () => {
+    let lists = 0;
+    const client = {
+      tunnels: {
+        create: async () => { throw new FreestyleApiError(400, { code: "BAD_REQUEST", message: "bad key" }); },
+        list: async () => { lists += 1; return { tunnels: [], totalCount: 0 }; },
+      },
+    } as unknown as Freestyle;
+    const provider = new FreestyleProvider({ client: () => client });
+
+    await expect(provider.privateNetworking!.createTunnel({
+      slug: "cmux-wg-recover",
+      displayName: "cmux computer",
+      clientPublicKey: TUNNEL_CLIENT_KEY,
+      networkId: "vpc-1",
+    })).rejects.toThrow("createTunnel(cmux-wg-recover)");
+    expect(lists).toBe(0);
+  });
 });
+
+function recoverableTunnel(clientPublicKey: string) {
+  return {
+    id: "tun-existing",
+    tunnelId: "tun-existing",
+    slug: "cmux-wg-recover",
+    displayName: "cmux computer",
+    clientConfig: "[Interface]\nPrivateKey =\n[Peer]\n",
+    endpointHost: "tun-existing.beta-vpn.freestyle.sh",
+    endpointPort: 51820,
+    clientPublicKey,
+    serverPublicKey: "server-key",
+    clientAddressV4: "100.64.0.2",
+    clientAddressV6: "fd00::2",
+    routes: ["10.0.0.0/8", "fd00::/8"],
+    attachments: [{
+      vpcId: "vpc-1",
+      ipv4: "10.40.0.2",
+      ipv6: "fd00:40::2",
+      address: "10.40.0.2",
+      vpcCidr: "10.40.0.0/24",
+      allowedIps: ["10.40.0.0/24", "fd00:40::/64"],
+      createdAt: "2026-01-01T00:00:00.000Z",
+    }],
+    createdAt: "2026-01-01T00:00:00.000Z",
+    updatedAt: "2026-01-01T00:00:00.000Z",
+  };
+}
 
 describe("FreestyleProvider create with edge rules", () => {
   test("creates persistent machines with idle pausing disabled", async () => {
