@@ -54,6 +54,12 @@ on:
         required: false
         default: "120"
 
+# The build restores the nightly-seeded compilation cache and the Swift package
+# cache from R2, whose public reads need this URL and no credentials. Without it
+# every R2 restore reports a miss.
+env:
+  CI_CACHE_R2_PUBLIC_URL: ${{ vars.CI_CACHE_R2_PUBLIC_URL || 'https://ci-cache.cmux.com' }}
+
 jobs:
   resolve-ref:
     uses: ./.github/workflows/resolve-dispatch-ref.yml
@@ -64,8 +70,26 @@ jobs:
     needs: resolve-ref
     # Depot is retired for cmux CI. Keep this reusable test lane on the
     # repository's normal macOS runner and do not expose a provider override.
-    runs-on: ${{ vars.MACOS_RUNNER_TESTS || 'blacksmith-6vcpu-macos-15' }}
+    # The fallback is the macOS 26 pool because the nightly compilation-cache
+    # seed is built there, and a seed only hits on the Xcode that wrote it.
+    runs-on: ${{ vars.MACOS_RUNNER_TESTS || 'blacksmith-6vcpu-macos-26' }}
     timeout-minutes: ${{ inputs.unit_test_suites != '' && 35 || 20 }}
+    env:
+      # The seed is keyed on `xcodebuild -version`, so pin the Xcode the seeder
+      # and pull request compile admission use. Only on the default runner: a
+      # MACOS_RUNNER_TESTS override may lack that Xcode, and
+      # scripts/select-ci-xcode.sh hard-fails a missing pin, where an unpinned
+      # build only misses the cache.
+      CMUX_CI_XCODE_APP: ${{ !vars.MACOS_RUNNER_TESTS && vars.CMUX_CI_XCODE_APP_PR || '' }}
+      CMUX_CI_MAX_MACOS_SDK_MAJOR: "26"
+      # Admission and the seeder skip the zig CLI helper; so does this build, so
+      # its run-script phases match the ones that produced the seed.
+      CMUX_SKIP_ZIG_BUILD: "1"
+      # The product is compiled with CMUX_CI_APP_HOST_ISOLATION_REQUIRED, like
+      # admission's, so the app host demands the prepared home. This lane runs
+      # one test job, so it names the only shard there is.
+      CMUX_CI_APP_HOST_ISOLATION_REQUIRED: "1"
+      CMUX_APP_HOST_SHARD: "1"
     steps:
       - name: Clear stale git locks (self-hosted reused workspace)
         shell: bash
@@ -110,10 +134,6 @@ jobs:
           set -euo pipefail
           ./scripts/download-prebuilt-ghosttykit.sh
 
-      - name: Install zig
-        run: |
-          ./scripts/install-zig-ci.sh
-
       - name: Install Rust
         run: |
           ./scripts/install-rust-ci.sh
@@ -133,22 +153,37 @@ jobs:
           echo "=== Display after ==="
           system_profiler SPDisplaysDataType 2>/dev/null || echo "(none)"
 
-      - name: Clean DerivedData
+      - name: Prepare build and test paths
         run: |
-          rm -rf ~/Library/Developer/Xcode/DerivedData/cmux-*
+          set -euo pipefail
+          # The compilation cache bakes absolute paths into every entry, so the
+          # build uses the paths ci-macos.yml compile admission and the nightly
+          # seeder use; the DerivedData basename is part of the cache key.
+          # Fixed paths survive across jobs on persistent runners, so clear
+          # them first. The tests run from a copy under RUNNER_TEMP, the only
+          # place app-host cleanup will inspect.
+          root="${CMUX_CI_CANONICAL_ROOT:-/private/tmp/cmux-ci}"
+          rm -rf -- "$root/derived-data-compile-admission" "$root/compile-admission-cas"
+          echo "CMUX_COMPILE_DERIVED_DATA=$root/derived-data-compile-admission" >> "$GITHUB_ENV"
+          # Outside DerivedData: the resolve step below recreates that directory.
+          echo "CMUX_COMPILATION_CACHE=$root/compile-admission-cas" >> "$GITHUB_ENV"
+          derived_data="$RUNNER_TEMP/cmux-depot-products-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          rm -rf -- "$derived_data"
+          mkdir -p "$derived_data"
+          echo "CMUX_DERIVED_DATA_PATH=$derived_data" >> "$GITHUB_ENV"
 
       - name: Prepare clean package cache directory
         run: |
           rm -rf "$GITHUB_WORKSPACE/.ci-source-packages"
           mkdir -p "$GITHUB_WORKSPACE/.ci-source-packages"
 
+      # Read-only: nightly.yml `refresh-test-compilation-cache` writes this key,
+      # and a manually selected revision must not seed what others restore.
       - name: Restore Swift packages
-        continue-on-error: true
-        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        uses: ./.github/actions/cache-restore
         with:
+          backend: ${{ vars.CI_CACHE_BACKEND || 'r2' }}
           path: .ci-source-packages
-          # Consume the existing E2E dependency cache without publishing caches
-          # from a manually selected revision. Test products remain fresh.
           key: spm-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
           restore-keys: spm-
 
@@ -158,29 +193,77 @@ jobs:
       - name: Resolve Swift packages
         run: |
           set -euo pipefail
-          SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
-          mkdir -p "$SOURCE_PACKAGES_DIR"
+          # Copies this checkout, with the restored packages and GhosttyKit, to
+          # $CMUX_CI_CANONICAL_ROOT/src and resolves there, retrying a resolve
+          # that reports success without the binary artifacts.
+          rm -rf -- "$CMUX_COMPILE_DERIVED_DATA"
+          scripts/ci/compile-app-host-test-product.sh canonical-resolve \
+            "$CMUX_COMPILE_DERIVED_DATA" "$PWD/.ci-source-packages"
 
-          for attempt in 1 2 3; do
-            if xcodebuild -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
-              -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
-              -resolvePackageDependencies; then
-              if [ -d "$SOURCE_PACKAGES_DIR/artifacts/sparkle/Sparkle/Sparkle.xcframework" ] \
-                && [ -d "$SOURCE_PACKAGES_DIR/artifacts/sentry-cocoa/Sentry/Sentry.xcframework" ]; then
-                exit 0
-              fi
-              echo "Resolve succeeded without required binary artifacts; retrying cleanly" >&2
-            fi
-            rm -rf "$SOURCE_PACKAGES_DIR"
-            mkdir -p "$SOURCE_PACKAGES_DIR"
-            if [ "$attempt" -eq 3 ]; then
-              echo "Failed to resolve Swift packages after 3 attempts" >&2
-              exit 1
-            fi
-            echo "Package resolution failed on attempt $attempt, retrying..."
-            sleep $((attempt * 5))
+      - name: Compute test compilation cache key
+        id: compilation-cache-key
+        run: |
+          set -euo pipefail
+          echo "fingerprint=$(scripts/ci/compile-app-host-test-product.sh canonical-fingerprint "$CMUX_COMPILE_DERIVED_DATA")" >> "$GITHUB_OUTPUT"
+
+      # The seed ci-macos.yml compile admission restores. Read-only on purpose:
+      # nightly.yml `refresh-test-compilation-cache` is its only writer, and a
+      # dispatch-chosen ref must not seed what pull requests later restore.
+      # The cache only speeds compilation; every product below is built fresh
+      # from this revision.
+      - name: Restore test compilation cache
+        uses: ./.github/actions/cache-restore
+        with:
+          backend: ${{ vars.CI_CACHE_BACKEND || 'r2' }}
+          path: ${{ env.CMUX_COMPILATION_CACHE }}
+          key: xcode-compilation-test-${{ runner.os }}-${{ runner.arch }}-${{ steps.compilation-cache-key.outputs.fingerprint }}-${{ needs.resolve-ref.outputs.sha }}
+          restore-keys: |
+            xcode-compilation-test-${{ runner.os }}-${{ runner.arch }}-${{ steps.compilation-cache-key.outputs.fingerprint }}-
+
+      - name: Build the app-host and UI test product
+        run: |
+          set -euo pipefail
+          # The same invocation as compile admission and the seeder, which is
+          # what lets the restored cache hit. Builds cmux, cmux-unit and
+          # cmux-numeric-locale, so one product serves unit and UI tests.
+          scripts/ci/compile-app-host-test-product.sh canonical-build \
+            "$CMUX_COMPILE_DERIVED_DATA" \
+            "$PWD/.ci-source-packages" \
+            "$CMUX_COMPILATION_CACHE" \
+            "$RUNNER_TEMP/cmux-depot-compile.txt"
+
+      - name: Relocate the compiled test product
+        run: |
+          set -euo pipefail
+          # Stamp the canonical producer, copy the products under RUNNER_TEMP,
+          # then relocate the test manifests into this checkout, as the
+          # ci-macos.yml and test-e2e.yml consumers do after a download. The
+          # copy dereferences links, as their archive does.
+          (cd "${CMUX_CI_CANONICAL_ROOT:-/private/tmp/cmux-ci}/src" \
+            && python3 scripts/ci/app_host_test_products.py stamp "$CMUX_COMPILE_DERIVED_DATA")
+          COPYFILE_DISABLE=1 tar -chf - -C "$CMUX_COMPILE_DERIVED_DATA" Build/Products \
+            | tar -xf - -C "$CMUX_DERIVED_DATA_PATH"
+          products="$CMUX_DERIVED_DATA_PATH/Build/Products/Debug"
+          framework_source="$(find "$products" -type d -name 'CmuxAgentJournal*_PackageProduct.framework' -print -quit 2>/dev/null || true)"
+          test -n "$framework_source"
+          framework_root="$(dirname "$framework_source")"
+          # The product's rpath names the /private/tmp copy.
+          for stable in "$RUNNER_TEMP/cmux-app-host-package-frameworks" /private/tmp/cmux-app-host-package-frameworks; do
+            mkdir -p "$stable"
+            rsync -aL "$framework_root/" "$stable/"
           done
+          if [ -L "$products/PackageFrameworks" ]; then
+            rm "$products/PackageFrameworks"
+          fi
+          mkdir -p "$products/PackageFrameworks"
+          rsync -aL "$framework_root/" "$products/PackageFrameworks/"
+          test -f "$products/PackageFrameworks/CmuxAgentJournal_27B6EF8727F6C277_PackageProduct.framework/Versions/A/CmuxAgentJournal_27B6EF8727F6C277_PackageProduct"
+          python3 scripts/ci/app_host_test_products.py restore "$CMUX_DERIVED_DATA_PATH"
 
+      - name: Prepare isolated app-host home
+        id: prepare-app-host-home
+        if: ${{ !inputs.skip_unit_tests }}
+        run: scripts/ci/prepare-app-host-home.sh
       - name: Run unit tests
         if: ${{ !inputs.skip_unit_tests }}
         env:
@@ -188,32 +271,40 @@ jobs:
           TEST_RESULTS_ROOT: ${{ runner.temp }}/cmux-unit-results-${{ github.run_id }}-${{ github.run_attempt }}
         run: |
           set -euo pipefail
-          SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
           mkdir -p "$TEST_RESULTS_ROOT"
+          if [ ! -f "${CMUX_APP_HOST_XCTESTRUN:-}" ]; then
+            echo "::error::the compiled product has no cmuxTests test manifest" >&2
+            exit 1
+          fi
           run_unit_suite() {
             local output_path="$1"
             shift
             local result_dir
             result_dir="$(mktemp -d "$TEST_RESULTS_ROOT/suite.XXXXXX")"
-            scripts/ci/xcodebuild_noninteractive.py \
-              xcodebuild -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
-              -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
-              -disableAutomaticPackageResolution \
-              -destination "platform=macOS" -resultBundlePath "$result_dir/result.xcresult" "$@" test >"$output_path" 2>&1
+            # The app-host wrapper supplies the isolated home, serializes app
+            # hosts, retries runner hangs, and names one result bundle per
+            # attempt under result_dir. The console hop drops variables it does
+            # not forward, so pass the tool PATH across explicitly.
+            CMUX_APP_HOST_RESULT_BUNDLE_ROOT="$result_dir" \
+              scripts/ci/run-in-console-session.sh \
+              env "TEST_RUNNER_PATH=${TEST_RUNNER_PATH:-$PATH}" \
+              scripts/ci/run-app-host-xcodebuild.sh \
+              -xctestrun "$CMUX_APP_HOST_XCTESTRUN" \
+              -destination "platform=macOS" "$@" test-without-building >"$output_path" 2>&1
           }
           report_unit_suite() {
             local output_path="$1"
             local suite="$2"
             local suite_status="$3"
+            local report="$output_path.diagnosis"
             # Reporting is deliberately non-gating; the caller still owns the
             # xcodebuild status and the positive-summary execution guard.
+            python3 scripts/ci/classify-app-host-test-output.py \
+              "$output_path" --suite "$suite" --exit-code "$suite_status" --diagnose \
+              >"$report" 2>&1 || true
+            cat "$report"
             if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
-              python3 scripts/ci/classify-app-host-test-output.py \
-                "$output_path" --suite "$suite" --exit-code "$suite_status" --diagnose \
-                | tee -a "$GITHUB_STEP_SUMMARY" || true
-            else
-              python3 scripts/ci/classify-app-host-test-output.py \
-                "$output_path" --suite "$suite" --exit-code "$suite_status" --diagnose || true
+              cat "$report" >> "$GITHUB_STEP_SUMMARY"
             fi
           }
           run_unit_tests() {
@@ -267,25 +358,15 @@ jobs:
             return "$failed"
           }
 
+          # Regular files only, never a pipe: a test-launched descendant that
+          # outlives xcodebuild would otherwise hold the step open. The
+          # subshell keeps the function's own `set -e` from leaking out here.
           TEST_OUTPUT="$TEST_RESULTS_ROOT/all-suites.log"
           set +e
-          run_unit_tests 2>&1 | tee "$TEST_OUTPUT"
-          EXIT_CODE=${PIPESTATUS[0]}
+          (run_unit_tests) >"$TEST_OUTPUT" 2>&1
+          EXIT_CODE=$?
           set -e
-
-          # SwiftPM binary artifact resolution can occasionally fail with
-          # "Could not resolve package dependencies". Retry once after clearing
-          # SwiftPM/DerivedData caches to recover from transient corruption.
-          if [ "$EXIT_CODE" -ne 0 ] && grep -q "Could not resolve package dependencies" "$TEST_OUTPUT"; then
-            echo "SwiftPM package resolution failed, clearing caches and retrying once"
-            rm -rf ~/Library/Caches/org.swift.swiftpm
-            rm -rf ~/Library/Developer/Xcode/DerivedData/cmux-*
-            : > "$TEST_OUTPUT"
-            set +e
-            run_unit_tests 2>&1 | tee "$TEST_OUTPUT"
-            EXIT_CODE=${PIPESTATUS[0]}
-            set -e
-          fi
+          cat "$TEST_OUTPUT"
 
           if [ -n "$UNIT_TEST_SUITES" ] && [ "$EXIT_CODE" -ne 0 ]; then
             exit "$EXIT_CODE"
@@ -313,7 +394,10 @@ jobs:
           TEST_TIMEOUT: ${{ inputs.test_timeout || '120' }}
         run: |
           set -euo pipefail
-          SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
+          if [ ! -f "${CMUX_UI_XCTESTRUN:-}" ]; then
+            echo "::error::the compiled product has no cmuxUITests test manifest" >&2
+            exit 1
+          fi
 
           # Build the -only-testing argument
           if [ -n "$TEST_FILTER" ]; then
@@ -322,12 +406,10 @@ jobs:
             ONLY_TESTING="-only-testing:cmuxUITests"
           fi
 
-          xcodebuild -project cmux.xcodeproj -scheme cmux -configuration Debug \
-            -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
-            -disableAutomaticPackageResolution \
+          xcodebuild -xctestrun "$CMUX_UI_XCTESTRUN" \
             -destination "platform=macOS" \
             -maximum-test-execution-time-allowance "$TEST_TIMEOUT" \
-            "$ONLY_TESTING" test
+            "$ONLY_TESTING" test-without-building
 
       - name: Upload unit test results
         if: ${{ always() && !inputs.skip_unit_tests }}
@@ -337,3 +419,31 @@ jobs:
           path: ${{ runner.temp }}/cmux-unit-results-${{ github.run_id }}-${{ github.run_attempt }}
           if-no-files-found: warn
           retention-days: 7
+
+      - name: Clean owned app-host home
+        if: always() && steps.prepare-app-host-home.outcome == 'success'
+        run: scripts/ci/cleanup-app-host-home.sh
+
+      - name: Clean owned DerivedData
+        if: always()
+        run: |
+          set -euo pipefail
+          # Remove exactly the paths "Prepare build and test paths" set, and
+          # refuse anything else. The canonical source copy stays: the next
+          # canonical resolve replaces it with rsync --delete.
+          root="${CMUX_CI_CANONICAL_ROOT:-/private/tmp/cmux-ci}"
+          for owned in \
+            "${CMUX_COMPILE_DERIVED_DATA:-}:$root/derived-data-compile-admission" \
+            "${CMUX_COMPILATION_CACHE:-}:$root/compile-admission-cas" \
+            "${CMUX_DERIVED_DATA_PATH:-}:$RUNNER_TEMP/cmux-depot-products-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"; do
+            path="${owned%%:*}"
+            expected="${owned#*:}"
+            if [ -z "$path" ]; then
+              continue
+            fi
+            if [ "$path" != "$expected" ]; then
+              echo "::error::refusing to remove unowned path: $path"
+              exit 1
+            fi
+            rm -rf -- "$path"
+          done

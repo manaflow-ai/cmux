@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import importlib.util
+import json
 import os
 import pathlib
 import shutil
@@ -20,6 +21,23 @@ TEST_DEPOT_RUN_UNIT_TESTS = next(
     for step in yaml.safe_load(TEST_DEPOT_WORKFLOW.read_text(encoding="utf-8"))["jobs"]["tests"]["steps"]
     if step.get("name") == "Run unit tests"
 )
+
+
+def install_depot_runner_fakes(root: pathlib.Path) -> dict[str, str]:
+    """Stand in for the console hop and the compiled product the step runs against.
+
+    The step invokes scripts/ci/run-in-console-session.sh, which only changes
+    the bootstrap it runs in; the fake executes its arguments directly. Each
+    test writes its own scripts/ci/run-app-host-xcodebuild.sh.
+    """
+    console = root / "scripts/ci/run-in-console-session.sh"
+    console.write_text('#!/bin/sh\nexec "$@"\n', encoding="utf-8")
+    console.chmod(0o755)
+    manifest = root / "cmux-unit.xctestrun"
+    manifest.write_text("fake manifest", encoding="utf-8")
+    return {"CMUX_APP_HOST_XCTESTRUN": str(manifest)}
+
+
 SPEC = importlib.util.spec_from_file_location("classify_app_host_test_output", SCRIPT)
 MODULE = importlib.util.module_from_spec(SPEC)
 assert SPEC.loader is not None
@@ -325,7 +343,7 @@ class AppHostTestOutputTests(unittest.TestCase):
             fake_ci = root / "scripts/ci"
             fake_ci.mkdir(parents=True)
             shutil.copy2(SCRIPT, fake_ci / SCRIPT.name)
-            fake_runner = fake_ci / "xcodebuild_noninteractive.py"
+            fake_runner = fake_ci / "run-app-host-xcodebuild.sh"
             fake_runner.write_text(
                 "#!/usr/bin/env python3\n"
                 "print('Executed 2 tests, with 0 failures (0 unexpected)')\n"
@@ -333,8 +351,10 @@ class AppHostTestOutputTests(unittest.TestCase):
                 encoding="utf-8",
             )
             fake_runner.chmod(0o755)
+            fakes = install_depot_runner_fakes(root)
             environment = {
                 **os.environ,
+                **fakes,
                 "UNIT_TEST_SUITES": "",
                 "TEST_RESULTS_ROOT": str(root / "results"),
             }
@@ -355,7 +375,7 @@ class AppHostTestOutputTests(unittest.TestCase):
             fake_ci = root / "scripts/ci"
             fake_ci.mkdir(parents=True)
             shutil.copy2(SCRIPT, fake_ci / SCRIPT.name)
-            fake_runner = fake_ci / "xcodebuild_noninteractive.py"
+            fake_runner = fake_ci / "run-app-host-xcodebuild.sh"
             fake_runner.write_text(
                 "#!/usr/bin/env python3\n"
                 "import os\n"
@@ -366,11 +386,13 @@ class AppHostTestOutputTests(unittest.TestCase):
                 encoding="utf-8",
             )
             fake_runner.chmod(0o755)
+            fakes = install_depot_runner_fakes(root)
 
             for mode, expected_success in (("pass", True), ("compile", False)):
                 results = root / f"results-{mode}"
                 environment = {
                     **os.environ,
+                    **fakes,
                     "UNIT_TEST_SUITES": "Foo",
                     "TEST_RESULTS_ROOT": str(results),
                     "FAKE_TEST_MODE": mode,
@@ -398,7 +420,7 @@ class AppHostTestOutputTests(unittest.TestCase):
             fake_ci.mkdir(parents=True)
             shutil.copy2(SCRIPT, fake_ci / SCRIPT.name)
             argv_log = root / "argv.log"
-            fake_runner = fake_ci / "xcodebuild_noninteractive.py"
+            fake_runner = fake_ci / "run-app-host-xcodebuild.sh"
             fake_runner.write_text(
                 "#!/usr/bin/env python3\n"
                 "import os, sys\n"
@@ -408,12 +430,14 @@ class AppHostTestOutputTests(unittest.TestCase):
                 encoding="utf-8",
             )
             fake_runner.chmod(0o755)
+            fakes = install_depot_runner_fakes(root)
             results = root / "results"
             completed = subprocess.run(
                 ["bash", "-c", TEST_DEPOT_RUN_UNIT_TESTS],
                 cwd=root,
                 env={
                     **os.environ,
+                    **fakes,
                     "UNIT_TEST_SUITES": "Foo/testSwift(),Bar/testXC,Baz",
                     "TEST_RESULTS_ROOT": str(results),
                     "ARGV_LOG": str(argv_log),
@@ -436,6 +460,84 @@ class AppHostTestOutputTests(unittest.TestCase):
             self.assertTrue((results / "Bar.testXC.log").is_file())
             self.assertTrue((results / "Baz.log").is_file())
 
+    def test_suites_run_the_compiled_product_through_the_app_host_wrapper(self) -> None:
+        # The step must execute the product the job already compiled against
+        # the nightly seed. `xcodebuild test` would compile a second time, with
+        # an invocation the seed cannot hit.
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = pathlib.Path(temporary_directory)
+            fake_ci = root / "scripts/ci"
+            fake_ci.mkdir(parents=True)
+            shutil.copy2(SCRIPT, fake_ci / SCRIPT.name)
+            record = root / "invocation.json"
+            fake_runner = fake_ci / "run-app-host-xcodebuild.sh"
+            fake_runner.write_text(
+                "#!/usr/bin/env python3\n"
+                "import json, os, sys\n"
+                "json.dump({'argv': sys.argv[1:],\n"
+                "           'bundles': os.environ.get('CMUX_APP_HOST_RESULT_BUNDLE_ROOT'),\n"
+                "           'path': os.environ.get('TEST_RUNNER_PATH')},\n"
+                "          open(os.environ['RECORD'], 'w'))\n"
+                "print('Test run with 1 test in 1 suite passed after 0.01 seconds.')\n",
+                encoding="utf-8",
+            )
+            fake_runner.chmod(0o755)
+            fakes = install_depot_runner_fakes(root)
+            results = root / "results"
+            completed = subprocess.run(
+                ["bash", "-c", TEST_DEPOT_RUN_UNIT_TESTS],
+                cwd=root,
+                env={
+                    **os.environ,
+                    **fakes,
+                    "UNIT_TEST_SUITES": "Foo",
+                    "TEST_RESULTS_ROOT": str(results),
+                    "TEST_RUNNER_PATH": "/tool/bin",
+                    "RECORD": str(record),
+                },
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+            self.assertEqual(completed.returncode, 0, completed.stderr)
+            invocation = json.loads(record.read_text(encoding="utf-8"))
+            argv = invocation["argv"]
+            self.assertEqual(argv[:2], ["-xctestrun", fakes["CMUX_APP_HOST_XCTESTRUN"]])
+            self.assertEqual(argv[-1], "test-without-building")
+            self.assertIn("-only-testing:cmuxTests/Foo", argv)
+            self.assertNotIn("-project", argv)
+            self.assertEqual(invocation["path"], "/tool/bin")
+            self.assertEqual(pathlib.Path(invocation["bundles"]).parent, results)
+
+    def test_missing_compiled_manifest_fails_before_running_anything(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = pathlib.Path(temporary_directory)
+            fake_ci = root / "scripts/ci"
+            fake_ci.mkdir(parents=True)
+            marker = root / "ran"
+            fake_runner = fake_ci / "run-app-host-xcodebuild.sh"
+            fake_runner.write_text(f"#!/bin/sh\ntouch {marker}\n", encoding="utf-8")
+            fake_runner.chmod(0o755)
+            install_depot_runner_fakes(root)
+            completed = subprocess.run(
+                ["bash", "-c", TEST_DEPOT_RUN_UNIT_TESTS],
+                cwd=root,
+                env={
+                    **os.environ,
+                    "CMUX_APP_HOST_XCTESTRUN": str(root / "missing.xctestrun"),
+                    "UNIT_TEST_SUITES": "Foo",
+                    "TEST_RESULTS_ROOT": str(root / "results"),
+                },
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+            self.assertNotEqual(completed.returncode, 0)
+            self.assertIn("no cmuxTests test manifest", completed.stderr)
+            self.assertFalse(marker.exists())
+
     def test_selector_rejects_anything_but_suite_or_suite_slash_test(self) -> None:
         for value in ("Foo/../Bar", "Foo/bar/baz", "Foo;true", "Foo/bar(x)", "/Foo", "Foo/"):
             with self.subTest(value=value), tempfile.TemporaryDirectory() as temporary_directory:
@@ -444,7 +546,7 @@ class AppHostTestOutputTests(unittest.TestCase):
                 fake_ci.mkdir(parents=True)
                 shutil.copy2(SCRIPT, fake_ci / SCRIPT.name)
                 marker = root / "ran"
-                fake_runner = fake_ci / "xcodebuild_noninteractive.py"
+                fake_runner = fake_ci / "run-app-host-xcodebuild.sh"
                 fake_runner.write_text(
                     "#!/usr/bin/env python3\n"
                     f"open({str(marker)!r}, 'w').close()\n"
@@ -452,11 +554,13 @@ class AppHostTestOutputTests(unittest.TestCase):
                     encoding="utf-8",
                 )
                 fake_runner.chmod(0o755)
+                fakes = install_depot_runner_fakes(root)
                 completed = subprocess.run(
                     ["bash", "-c", TEST_DEPOT_RUN_UNIT_TESTS],
                     cwd=root,
                     env={
                         **os.environ,
+                        **fakes,
                         "UNIT_TEST_SUITES": value,
                         "TEST_RESULTS_ROOT": str(root / "results"),
                     },
