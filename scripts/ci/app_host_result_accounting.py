@@ -299,14 +299,18 @@ def recorded_failure_diagnostics(
     failures = {
         identifier for identifier, result in results.items() if result == "Failed"
     }
-    messages = [
-        f"RATCHET_NEW_FAILURE {identifier}"
-        for identifier in sorted(failures - set(known))
-    ]
-    messages += [
-        f"RATCHET_KNOWN_FAILURE {identifier}"
-        for identifier in sorted(failures & set(known))
-    ]
+    new_failures = sorted(failures - set(known))
+    known_failures = sorted(failures & set(known))
+    messages = [f"RATCHET_NEW_FAILURE {identifier}" for identifier in new_failures]
+    messages += [f"RATCHET_KNOWN_FAILURE {identifier}" for identifier in known_failures]
+    if messages:
+        # Mirror the summary the complete path prints. Without it, a reader
+        # scanning shard output for "the accounting ran" sees the same silence
+        # here that the missing verdicts themselves used to produce.
+        messages.append(
+            f"recorded verdicts: {len(new_failures)} new, "
+            f"{len(known_failures)} known-main; typed test cases: {len(results)}"
+        )
     return messages
 
 

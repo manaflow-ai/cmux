@@ -209,6 +209,7 @@ def test_incomplete_run_still_names_the_failures_it_recorded() -> None:
     assert "missing typed test result: BarTests/testTwo()" in messages
     assert "RATCHET_NEW_FAILURE FooTests/testOne()" in messages
     assert "RATCHET_KNOWN_FAILURE BazTests/testThree()" in messages
+    assert "recorded verdicts: 1 new, 1 known-main; typed test cases: 2" in messages
 
 
 def test_incomplete_run_without_failures_adds_no_ratchet_noise() -> None:
