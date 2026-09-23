@@ -134,6 +134,16 @@ def first_parent_commits(base: str, head: str = "HEAD", cwd: Optional[Path] = No
         capture_output=True,
     ).returncode != 0:
         raise LookupError(f"{base[:12]} is not an ancestor of {head} in this checkout")
+    base_sha, head_sha = subprocess.run(
+        ["git", "rev-parse", f"{base}^{{commit}}", f"{head}^{{commit}}"],
+        cwd=cwd, capture_output=True, text=True, check=True,
+    ).stdout.splitlines()
+    boundaries = subprocess.run(
+        ["git", "rev-list", "--first-parent", "--boundary", f"{base_sha}..{head_sha}"],
+        cwd=cwd, capture_output=True, text=True, check=True,
+    ).stdout.splitlines()
+    if base_sha != head_sha and f"-{base_sha}" not in boundaries:
+        raise LookupError("first-parent history does not reach the last upload")
     output = subprocess.run(
         [
             "git", "log", "-z",
