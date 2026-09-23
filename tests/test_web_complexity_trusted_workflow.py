@@ -238,8 +238,9 @@ def run(
     *,
     cwd: Path | None = None,
     check: bool = True,
+    env: dict[str, str] | None = None,
 ) -> subprocess.CompletedProcess[bytes]:
-    result = subprocess.run(args, cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    result = subprocess.run(args, cwd=cwd, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     if check and result.returncode != 0:
         raise AssertionError(
             f"{args!r} failed with {result.returncode}:\n"
@@ -688,6 +689,84 @@ def test_checker_judges_trusted_files_in_the_merge() -> None:
         temp.cleanup()
 
 
+MERGE_STEP = "Merge pull request into its base for the trusted-file check"
+MERGE_UPSTREAM = 'upstream="https://github.com/${GITHUB_REPOSITORY}.git"'
+
+
+def test_merge_step_only_merges_branches_that_leave_trusted_files_alone() -> None:
+    steps = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]["complexity"]["steps"]
+    script = next(step["run"] for step in steps if step.get("name") == MERGE_STEP)
+    assert script.count(MERGE_UPSTREAM) == 1, "the merge step must fetch from the upstream repository"
+    script = script.replace(MERGE_UPSTREAM, 'upstream="$TEST_UPSTREAM"')
+
+    temp = tempfile.TemporaryDirectory()
+    try:
+        root = Path(temp.name)
+        repo = root / "upstream"
+        repo.mkdir()
+        git(repo, "init", "-q", "-b", "main")
+        git(repo, "config", "user.email", "ci@example.com")
+        git(repo, "config", "user.name", "CI")
+        git(repo, "config", "uploadpack.allowFilter", "true")
+        git(repo, "config", "uploadpack.allowAnySHA1InWant", "true")
+        write(repo, "scripts/ci/scope-web-complexity.py", "old\n")
+        write(repo, "web/scripts/check-complexity.mjs", "checker\n")
+        write(repo, ".github/workflows/web-complexity-trusted.yml", "workflow\n")
+        branch_point = commit(repo, "branch point")
+        write(repo, "scripts/ci/scope-web-complexity.py", "fixed\n")
+        main = commit(repo, "main fixes the scoper")
+
+        def branch(name: str, change) -> str:
+            git(repo, "checkout", "-q", "-b", name, branch_point)
+            change()
+            head = git(repo, "rev-parse", "HEAD").decode().strip()
+            git(repo, "checkout", "-q", "main")
+            return head
+
+        def run_step(head: str) -> dict[str, str]:
+            output = root / f"output-{head[:7]}"
+            runner_temp = root / f"runner-{head[:7]}"
+            runner_temp.mkdir()
+            output.touch()
+            run(
+                ["bash", "-c", script],
+                env={
+                    "PATH": "/usr/bin:/bin:/usr/local/bin",
+                    "HOME": str(root),
+                    "GITHUB_OUTPUT": str(output),
+                    "RUNNER_TEMP": str(runner_temp),
+                    "TRUSTED_SHA": main,
+                    "CANDIDATE_SHA": head,
+                    "TEST_UPSTREAM": f"file://{repo}",
+                },
+            )
+            return dict(line.split("=", 1) for line in output.read_text().splitlines() if "=" in line)
+
+        def stale() -> None:
+            write(repo, "README.md", "docs\n")
+            commit(repo, "docs")
+
+        outputs = run_step(branch("stale", stale))
+        expected_tree = git(repo, "merge-tree", "--write-tree", main, "stale").decode().split("\n")[0]
+        assert outputs.get("tree") == expected_tree, outputs
+
+        # Rebase-merge replays each commit: re-applying main's fix and then
+        # reverting it nets to nothing, yet replaying it undoes main's fix.
+        def replay_revert() -> None:
+            git(repo, "cherry-pick", main)
+            git(repo, "revert", "--no-edit", "HEAD")
+
+        assert run_step(branch("replay", replay_revert)) == {}, "a branch touching a trusted file stays strict"
+
+        def edit() -> None:
+            write(repo, ".github/workflows/web-complexity-trusted.yml", "edit\n")
+            commit(repo, "edit")
+
+        assert run_step(branch("edit", edit)) == {}, "a branch editing a trusted file stays strict"
+    finally:
+        temp.cleanup()
+
+
 def test_checker_baseline_ratchet() -> None:
     if shutil.which("node") is None:
         raise AssertionError("node is required for the checker ratchet regression")
@@ -812,6 +891,7 @@ def main() -> int:
     test_selected_symlink_fails_closed()
     test_checker_protects_trusted_scoper()
     test_checker_judges_trusted_files_in_the_merge()
+    test_merge_step_only_merges_branches_that_leave_trusted_files_alone()
     test_checker_baseline_ratchet()
     print("PASS: trusted web complexity scopes work before Bun and runs checks from the trusted checkout")
     return 0
