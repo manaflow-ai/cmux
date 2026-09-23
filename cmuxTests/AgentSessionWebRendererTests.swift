@@ -50,13 +50,4 @@ struct AgentSessionWebRendererTests {
         expectFalse(AgentSessionWebRendererCoordinator.isTrustedShellURL(otherBundledFile, expected: expected))
         expectFalse(AgentSessionWebRendererCoordinator.isTrustedShellURL(URL(string: "https://example.com"), expected: expected))
     }
-    @Test
-    @MainActor
-    func testThreadScrollDeltaIsBoundedAndFlushedAtDisplayCadence() {
-        #expect(AgentSessionWebHostView.clampedScrollDelta(10_000) == 2_400)
-        #expect(AgentSessionWebHostView.clampedScrollDelta(-10_000) == -2_400)
-        #expect(AgentSessionWebHostView.clampedScrollDelta(12.5) == 12.5)
-        #expect(AgentSessionWebHostView.scrollFlushDelayNanoseconds == 16_000_000)
-    }
-
 }

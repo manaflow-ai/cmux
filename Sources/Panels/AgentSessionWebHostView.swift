@@ -15,9 +15,6 @@ final class AgentSessionWebHostView: NSView {
     private var isScrollJavaScriptInFlight = false
     private var scrollGeneration: UInt64 = 0
     private static let maximumPendingScrollDelta: CGFloat = 2400
-    // Coalesce high-frequency trackpad events before asking WebKit to lay out the
-    // entire transcript. A long thread can make each scrollBy expensive.
-    static let scrollFlushDelayNanoseconds: UInt64 = 16_000_000
 
     override var isOpaque: Bool { false }
 
@@ -71,7 +68,7 @@ final class AgentSessionWebHostView: NSView {
         scheduleScrollFlush()
     }
 
-    static func clampedScrollDelta(_ value: CGFloat) -> CGFloat {
+    private static func clampedScrollDelta(_ value: CGFloat) -> CGFloat {
         min(max(value, -maximumPendingScrollDelta), maximumPendingScrollDelta)
     }
 
@@ -80,7 +77,7 @@ final class AgentSessionWebHostView: NSView {
               scrollFlushTask == nil,
               !isScrollJavaScriptInFlight else { return }
         scrollFlushTask = Task { @MainActor [weak self] in
-            try? await Task.sleep(nanoseconds: Self.scrollFlushDelayNanoseconds)
+            await Task.yield()
             guard !Task.isCancelled, let self else { return }
             self.scrollFlushTask = nil
             self.flushPendingScroll()
