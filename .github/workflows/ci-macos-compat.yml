@@ -42,7 +42,11 @@ jobs:
             run_mobile_transport_tests: true
             startup_smoke: true
             virtual_display: false
-            skip_zig: true  # zig 0.15.2 MachO linker can't resolve libSystem on macOS 26
+            # PROBE (ci/zig-macos26-probe, not for merge): re-enable the Zig leg to
+            # test whether ziglang/zig#31673 (in Zig 0.16.0, which the Ghostty
+            # submodule now requires) fixed the libSystem resolution failure that
+            # Zig 0.15.2 hit against an Xcode 26.4+ SDK.
+            skip_zig: false
             expected_arch: ""
             expected_os_major: ""
     runs-on: ${{ matrix.os }}
