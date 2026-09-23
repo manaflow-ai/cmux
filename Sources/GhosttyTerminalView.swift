@@ -4215,7 +4215,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         let glyphs = TerminalPredictionCenter.shared.expiring(surfaceID: surfaceID)
         guard !glyphs.isEmpty,
               let surface,
-              let appearance = predictedEchoAppearance() else {
+              let style = predictedEchoStyle() else {
             hidePredictionOverlay()
             return
         }
@@ -4229,7 +4229,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         // not flipped. Matches the conversion in `firstRect(forCharacterRange:)`.
         predictionOverlayView.present(
             glyphs: glyphs,
-            appearance: appearance,
+            style: style,
             cursorOrigin: CGPoint(x: x, y: bounds.height - y)
         )
         setPredictedEchoRenderedFrameTrackingActive(true)
@@ -4241,7 +4241,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         setPredictedEchoRenderedFrameTrackingActive(false)
     }
 
-    private func predictedEchoAppearance() -> TerminalPredictionOverlayView.Appearance? {
+    private func predictedEchoStyle() -> TerminalPredictionOverlayView.Style? {
         guard cellSize.width > 0, cellSize.height > 0 else { return nil }
         let configuration = GhosttyConfig.loadForCmux(
             globalFontMagnificationPercent: appliedGlobalFontMagnificationPercent
@@ -4250,7 +4250,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         // always carries the glyph and no fallback chain is involved.
         let font = NSFont(name: configuration.fontFamily, size: configuration.fontSize)
             ?? NSFont.monospacedSystemFont(ofSize: configuration.fontSize, weight: .regular)
-        return TerminalPredictionOverlayView.Appearance(
+        return TerminalPredictionOverlayView.Style(
             font: font,
             foreground: defaultForegroundColor,
             background: defaultBackgroundColor,

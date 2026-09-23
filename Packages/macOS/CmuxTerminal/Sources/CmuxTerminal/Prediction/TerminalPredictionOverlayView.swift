@@ -11,7 +11,7 @@ public final class TerminalPredictionOverlayView: NSView {
     /// drawing a cursor block at the first predicted cell -- it has not seen
     /// these characters -- so painting over it is what makes the cursor look
     /// like it advanced.
-    public struct Appearance: Equatable, Sendable {
+    public struct Style: Equatable {
         public var font: NSFont
         public var foreground: NSColor
         public var background: NSColor
@@ -33,8 +33,8 @@ public final class TerminalPredictionOverlayView: NSView {
         }
     }
 
-    public var appearance: Appearance? {
-        didSet { if appearance != oldValue { needsDisplay = true } }
+    public var style: Style? {
+        didSet { if style != oldValue { needsDisplay = true } }
     }
 
     public var glyphs: [PredictedGlyph] = [] {
@@ -57,10 +57,10 @@ public final class TerminalPredictionOverlayView: NSView {
     public override func hitTest(_ point: NSPoint) -> NSView? { nil }
 
     public override func draw(_ dirtyRect: NSRect) {
-        guard let appearance, !glyphs.isEmpty else { return }
+        guard let style, !glyphs.isEmpty else { return }
         let attributes: [NSAttributedString.Key: Any] = [
-            .font: appearance.font,
-            .foregroundColor: appearance.foreground,
+            .font: style.font,
+            .foregroundColor: style.foreground,
             // Underlining unconfirmed text is the convention mosh established,
             // and it is the only cue that separates a guess from the truth.
             .underlineStyle: NSUnderlineStyle.single.rawValue,
@@ -68,14 +68,14 @@ public final class TerminalPredictionOverlayView: NSView {
 
         for (index, glyph) in glyphs.enumerated() {
             let cell = CGRect(
-                x: CGFloat(index) * appearance.cellSize.width,
+                x: CGFloat(index) * style.cellSize.width,
                 y: 0,
-                width: appearance.cellSize.width,
-                height: appearance.cellSize.height
+                width: style.cellSize.width,
+                height: style.cellSize.height
             )
             guard cell.maxX <= bounds.width else { break }
 
-            appearance.background.setFill()
+            style.background.setFill()
             cell.fill()
 
             let text = String(glyph.character) as NSString
@@ -92,13 +92,13 @@ public final class TerminalPredictionOverlayView: NSView {
         // A caret where typing continues, because ghostty's own cursor is still
         // painted under the first predicted cell.
         let caret = CGRect(
-            x: CGFloat(glyphs.count) * appearance.cellSize.width,
+            x: CGFloat(glyphs.count) * style.cellSize.width,
             y: 0,
             width: 1,
-            height: appearance.cellSize.height
+            height: style.cellSize.height
         )
         if caret.maxX <= bounds.width {
-            appearance.cursor.setFill()
+            style.cursor.setFill()
             caret.fill()
         }
     }
@@ -111,7 +111,7 @@ public final class TerminalPredictionOverlayView: NSView {
     ///     coordinates, already converted out of ghostty's top-left space.
     public func present(
         glyphs: [PredictedGlyph],
-        appearance: Appearance,
+        style: Style,
         cursorOrigin: CGPoint
     ) {
         guard !glyphs.isEmpty else {
@@ -119,15 +119,15 @@ public final class TerminalPredictionOverlayView: NSView {
             isHidden = true
             return
         }
-        self.appearance = appearance
+        self.style = style
         self.glyphs = glyphs
         // One extra cell of width so the caret after the run has somewhere to
         // land.
         frame = CGRect(
             x: cursorOrigin.x,
             y: cursorOrigin.y,
-            width: CGFloat(glyphs.count + 1) * appearance.cellSize.width,
-            height: appearance.cellSize.height
+            width: CGFloat(glyphs.count + 1) * style.cellSize.width,
+            height: style.cellSize.height
         )
         isHidden = false
     }
