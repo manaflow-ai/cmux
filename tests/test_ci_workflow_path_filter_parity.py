@@ -11,6 +11,7 @@ so it is written down rather than implied by a list that looks like a typo.
 """
 
 from pathlib import Path
+from tempfile import TemporaryDirectory
 import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -32,6 +33,7 @@ FILTERS = ("paths", "paths-ignore")
 
 
 def workflow_files():
+    """List every workflow in deterministic order."""
     return sorted(
         [*WORKFLOWS.glob("*.yml"), *WORKFLOWS.glob("*.yaml")],
         key=lambda path: path.name,
@@ -60,9 +62,21 @@ def divergence(path):
 
     differences = {}
     for name in FILTERS:
-        on_push = set(push.get(name) or [])
-        on_pull_request = set(pull_request.get(name) or [])
-        if on_push != on_pull_request:
+        push_patterns = push.get(name) or []
+        pull_request_patterns = pull_request.get(name) or []
+        on_push = set(push_patterns)
+        on_pull_request = set(pull_request_patterns)
+        # Negated paths can exclude and later re-include a match; their order
+        # is meaningful. Exclusion-only paths-ignore has no such ordering.
+        order_sensitive = name == "paths" and any(
+            pattern.startswith("!") for pattern in (*push_patterns, *pull_request_patterns)
+        )
+        differs = (
+            push_patterns != pull_request_patterns
+            if order_sensitive
+            else on_push != on_pull_request
+        )
+        if differs:
             differences[name] = (
                 sorted(on_push - on_pull_request),
                 sorted(on_pull_request - on_push),
@@ -71,8 +85,11 @@ def divergence(path):
 
 
 def describe(name, differences):
+    """Explain membership or ordering differences for a workflow."""
     lines = [f"{name}: push and pull_request filter different files"]
     for filter_name, (push_only, pull_request_only) in sorted(differences.items()):
+        if not push_only and not pull_request_only:
+            lines.append(f"  {filter_name}: patterns differ in order or repetition")
         if pull_request_only:
             lines.append(
                 f"  {filter_name}: guarded on pull requests, not on push: "
@@ -87,6 +104,7 @@ def describe(name, differences):
 
 
 def test_push_and_pull_request_filter_the_same_files():
+    """Reject unapproved differences between trigger path filters."""
     drifted = []
     for path in workflow_files():
         if path.name in EXEMPTIONS:
@@ -102,6 +120,7 @@ def test_push_and_pull_request_filter_the_same_files():
 
 
 def test_every_exemption_is_still_needed():
+    """Reject obsolete or unexplained parity exemptions."""
     names = {path.name for path in workflow_files()}
     for name, reason in sorted(EXEMPTIONS.items()):
         assert name in names, f"EXEMPTIONS names {name}, which no longer exists"
@@ -112,7 +131,29 @@ def test_every_exemption_is_still_needed():
         )
 
 
+def test_filter_pattern_order():
+    """Catch negation reordering without making paths-ignore order-sensitive."""
+    with TemporaryDirectory() as directory:
+        path = Path(directory) / "workflow.yml"
+        for filter_name, push, pull_request, expected in (
+            ("paths", ["**", "!docs/**"], ["!docs/**", "**"], {"paths": ([], [])}),
+            ("paths", ["**", "!docs/**"], ["**", "!docs/**"], {}),
+            ("paths", ["docs/**", "tests/**"], ["tests/**", "docs/**"], {}),
+            ("paths-ignore", ["docs/**", "tests/**"], ["tests/**", "docs/**"], {}),
+            ("paths", ["src/**"], ["tests/**"], {"paths": (["src/**"], ["tests/**"])}),
+        ):
+            path.write_text(yaml.safe_dump({"on": {
+                "push": {filter_name: push},
+                "pull_request": {filter_name: pull_request},
+            }}), encoding="utf-8")
+            assert divergence(path) == expected, (filter_name, push, pull_request)
+    assert "patterns differ in order or repetition" in describe(
+        "workflow.yml", {"paths": ([], [])}
+    )
+
+
 if __name__ == "__main__":
+    test_filter_pattern_order()
     test_push_and_pull_request_filter_the_same_files()
     test_every_exemption_is_still_needed()
     print("ok")
