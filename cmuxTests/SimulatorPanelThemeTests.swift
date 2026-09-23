@@ -26,7 +26,8 @@ struct SimulatorPanelVisibilityTests {
 
         panel.setMobileFrameDemand(true, consumerID: consumerID)
 
-        for _ in 0..<100 {
+        let discoveryDeadline = ContinuousClock().now.advanced(by: .seconds(10))
+        while ContinuousClock().now < discoveryDeadline {
             if await client.discoveryCount > 0 { break }
             await Task.yield()
         }
@@ -83,7 +84,8 @@ struct SimulatorPanelVisibilityTests {
         defer { window.orderOut(nil) }
         settle(root)
 
-        for _ in 0..<100 {
+        let discoveryDeadline = ContinuousClock().now.advanced(by: .seconds(10))
+        while ContinuousClock().now < discoveryDeadline {
             if await client.discoveryCount > 0 { break }
             await Task.yield()
         }
@@ -97,7 +99,8 @@ struct SimulatorPanelVisibilityTests {
             slotCount: 2,
             sharedMemoryByteCount: 256
         )))
-        for _ in 0..<100 {
+        let frameTransportDeadline = ContinuousClock().now.advanced(by: .seconds(10))
+        while ContinuousClock().now < frameTransportDeadline {
             if panel.coordinator.frameTransport != nil { break }
             await Task.yield()
         }

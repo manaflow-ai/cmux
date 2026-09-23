@@ -175,7 +175,8 @@ struct SimulatorPanelIntegrationTests {
         let firstCoordinator = panel.coordinator
 
         flags.setOverride(false, for: simulatorFlag)
-        for _ in 0..<100 {
+        let firstStopDeadline = ContinuousClock().now.advanced(by: .seconds(10))
+        while ContinuousClock().now < firstStopDeadline {
             if await firstClient.stopCount != 0 { break }
             await Task.yield()
         }
@@ -189,7 +190,8 @@ struct SimulatorPanelIntegrationTests {
         #expect(await secondClient.discoveryCount == 0)
 
         await firstClient.releaseStop()
-        for _ in 0..<100 {
+        let secondDiscoveryDeadline = ContinuousClock().now.advanced(by: .seconds(10))
+        while ContinuousClock().now < secondDiscoveryDeadline {
             if await secondClient.discoveryCount != 0 { break }
             await Task.yield()
         }
@@ -208,7 +210,8 @@ struct SimulatorPanelIntegrationTests {
             await completion.markCompleted()
         }
 
-        for _ in 0..<100 {
+        let stopDeadline = ContinuousClock().now.advanced(by: .seconds(10))
+        while ContinuousClock().now < stopDeadline {
             if await client.stopCount != 0 { break }
             await Task.yield()
         }
@@ -230,7 +233,8 @@ struct SimulatorPanelIntegrationTests {
             releasedPanel = panel
             panel.close()
         }
-        for _ in 0..<100 {
+        let stopDeadline = ContinuousClock().now.advanced(by: .seconds(10))
+        while ContinuousClock().now < stopDeadline {
             if await client.stopCount != 0 { break }
             await Task.yield()
         }
@@ -267,14 +271,16 @@ struct SimulatorPanelIntegrationTests {
         let panel = SimulatorPanel(clientFactory: { clients.removeFirst() })
         defer { panel.close() }
         panel.setVisibleInUI(true)
-        for _ in 0..<100 {
+        let firstDiscoveryDeadline = ContinuousClock().now.advanced(by: .seconds(10))
+        while ContinuousClock().now < firstDiscoveryDeadline {
             if await firstClient.discoveryCount != 0 { break }
             await Task.yield()
         }
         let firstCoordinator = panel.coordinator
 
         let cleanupTasks = SimulatorPanel.beginApplicationTerminationCleanup()
-        for _ in 0..<100 {
+        let firstStopDeadline = ContinuousClock().now.advanced(by: .seconds(10))
+        while ContinuousClock().now < firstStopDeadline {
             if await firstClient.stopCount != 0 { break }
             await Task.yield()
         }
@@ -285,7 +291,8 @@ struct SimulatorPanelIntegrationTests {
         for task in cleanupTasks {
             await task.value
         }
-        for _ in 0..<100 {
+        let replacementDeadline = ContinuousClock().now.advanced(by: .seconds(10))
+        while ContinuousClock().now < replacementDeadline {
             let replacementStarted = await secondClient.discoveryCount == 1
             if panel.isFeatureReady,
                panel.coordinator !== firstCoordinator,
