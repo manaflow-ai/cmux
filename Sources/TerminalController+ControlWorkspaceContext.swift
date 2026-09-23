@@ -148,10 +148,17 @@ extension TerminalController: ControlWorkspaceContext {
             return .notFound
         }
         let plan: WorkspaceReorderPlanItem?
+        let refused: Bool
         if let toIndex {
             plan = tabManager.workspaceReorderPlan(tabId: workspaceID, toIndex: toIndex)
+            refused = tabManager.isRefusedWorkspacePlacement(tabId: workspaceID, toIndex: toIndex)
         } else {
             plan = tabManager.workspaceReorderPlan(
+                tabId: workspaceID,
+                before: beforeWorkspaceID,
+                after: afterWorkspaceID
+            )
+            refused = tabManager.isRefusedWorkspacePlacement(
                 tabId: workspaceID,
                 before: beforeWorkspaceID,
                 after: afterWorkspaceID
@@ -160,23 +167,23 @@ extension TerminalController: ControlWorkspaceContext {
         guard let plan else {
             return .notFound
         }
-        let applied = dryRun || tabManager.reorderWorkspace(tabId: workspaceID, toIndex: plan.toIndex)
         let windowId = AppDelegate.shared?.windowId(for: tabManager)
         let planItem = ControlWorkspaceReorderPlanItem(
             workspaceID: plan.workspaceId,
             fromIndex: plan.fromIndex,
             toIndex: plan.toIndex
         )
-        if applied {
-            return .resolved(
-                windowID: windowId,
-                plan: planItem
-            )
+        // reorderWorkspace returns true for a clamp to "stay put", so a
+        // refused placement (#13499) is detected from the request, not the
+        // mutation result. A refused plan is a no-op, so skipping the apply
+        // changes nothing; dry runs report the same refusal.
+        if refused {
+            return .rejected(windowID: windowId, plan: planItem)
         }
-        return .rejected(
-            windowID: windowId,
-            plan: planItem
-        )
+        if !dryRun {
+            _ = tabManager.reorderWorkspace(tabId: workspaceID, toIndex: plan.toIndex)
+        }
+        return .resolved(windowID: windowId, plan: planItem)
     }
 
     func controlReorderWorkspacesMany(
