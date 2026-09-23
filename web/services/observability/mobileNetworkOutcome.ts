@@ -7,6 +7,7 @@ export const MAX_MOBILE_NETWORK_OUTCOME_BATCH_EVENTS = 100;
 
 const EVENT_NAME = "ios_connectivity_latency";
 const TASK_MODEL_EVENT_NAME = "ios_task_model_discovery";
+const TASK_MODEL_RESULT_EVENT_NAME = "ios_task_model_result";
 const TERMINAL_WINDOW_EVENT_NAME = "ios_terminal_latency_window";
 const TERMINAL_ANOMALY_EVENT_NAME = "ios_terminal_latency_anomaly";
 const RUNTIME_ROLE = "mobileClient";
@@ -41,6 +42,8 @@ const eventCodes = new Set([
 const cancellationReasons = new Set([
   "unknown", "requestCancelled", "requestTimedOut", "sessionTeardown", "sessionDeinitialized",
 ]);
+const taskModelProviders = new Set(["claude", "codex", "opencode"]);
+const taskModelSources = new Set(["discovered", "backend", "augmented", "fallback"]);
 
 const allowedPropertyKeys = new Set([
   "phase", "outcome", "duration_ms", "runtime_role", "user_usable",
@@ -58,6 +61,7 @@ const allowedPropertyKeys = new Set([
   "duration_ms", "threshold_ms", "stage",
   "trace_id", "operation", "terminal_phase",
   "model_count", "phase", "attempt", "retry_delay_ms", "stop_reason", "correlation_id",
+  "provider", "source", "effort_count",
 ]);
 
 export type MobileNetworkOutcome = {
@@ -156,7 +160,22 @@ export type MobileTaskModelDiscovery = {
   readonly deviceModel?: string;
 };
 
-export type MobileObservabilityEvent = MobileNetworkOutcome | MobileTerminalLatencyWindow | MobileTerminalLatencyAnomaly | MobileTaskModelDiscovery;
+export type MobileTaskModelResult = {
+  readonly timestamp: string;
+  readonly provider: "claude" | "codex" | "opencode";
+  readonly source: "discovered" | "backend" | "augmented" | "fallback";
+  readonly effortCount: number;
+  readonly correlationId?: number;
+  readonly platform?: "ios";
+  readonly clientChannel?: "dev" | "nightly" | "production" | "unknown";
+  readonly appVersion?: string;
+  readonly buildNumber?: string;
+  readonly bundleIdentifier?: string;
+  readonly osVersion?: string;
+  readonly deviceModel?: string;
+};
+
+export type MobileObservabilityEvent = MobileNetworkOutcome | MobileTerminalLatencyWindow | MobileTerminalLatencyAnomaly | MobileTaskModelDiscovery | MobileTaskModelResult;
 
 export function parseMobileNetworkOutcome(candidate: unknown): MobileNetworkOutcome | null {
   if (!isRecord(candidate) || candidate.event !== EVENT_NAME || !isRecord(candidate.properties)) return null;
@@ -261,7 +280,8 @@ export function parseMobileTerminalLatencyAnomaly(candidate: unknown): MobileTer
 }
 
 export function parseMobileObservabilityEvent(candidate: unknown): MobileObservabilityEvent | null {
-  return parseMobileTaskModelDiscovery(candidate)
+  return parseMobileTaskModelResult(candidate)
+    ?? parseMobileTaskModelDiscovery(candidate)
     ?? parseMobileNetworkOutcome(candidate)
     ?? parseMobileTerminalLatencyWindow(candidate)
     ?? parseMobileTerminalLatencyAnomaly(candidate);
@@ -340,6 +360,53 @@ export function parseMobileTaskModelDiscovery(candidate: unknown): MobileTaskMod
   };
 }
 
+export function parseMobileTaskModelResult(candidate: unknown): MobileTaskModelResult | null {
+  if (!isRecord(candidate) || candidate.event !== TASK_MODEL_RESULT_EVENT_NAME || !isRecord(candidate.properties)) return null;
+  if (!validTimestamp(candidate.timestamp) || !validProperties(candidate.properties)) return null;
+  const payload = parseMobileTaskModelResultPayload(candidate.properties);
+  if (!payload) return null;
+  return {
+    timestamp: candidate.timestamp,
+    ...payload,
+  };
+}
+
+type MobileTaskModelResultPayload = Omit<MobileTaskModelResult, "timestamp">;
+
+function parseMobileTaskModelResultPayload(
+  properties: Record<string, unknown>,
+): MobileTaskModelResultPayload | null {
+  if (properties.operation !== "model_list") return null;
+  const provider = optionalSetValue(properties.provider, taskModelProviders);
+  const source = optionalSetValue(properties.source, taskModelSources);
+  if (typeof provider !== "string" || typeof source !== "string") return null;
+  const effortCount = unsignedInteger(properties.effort_count);
+  if (effortCount === null) return null;
+  const correlationId = optionalUnsignedInteger(properties.correlation_id);
+  if (correlationId === null) return null;
+  const metadata = parseMetadata(properties);
+  if (!metadata) return null;
+  return {
+    provider: provider as MobileTaskModelResult["provider"],
+    source: source as MobileTaskModelResult["source"],
+    effortCount,
+    ...(typeof correlationId === "number" ? { correlationId } : {}),
+    ...taskModelMetadataFields(metadata),
+  };
+}
+
+function taskModelMetadataFields(metadata: Metadata): Omit<MobileTaskModelResultPayload, "provider" | "source" | "effortCount" | "correlationId"> {
+  return {
+    ...(metadata.platform ? { platform: metadata.platform } : {}),
+    ...(metadata.clientChannel ? { clientChannel: metadata.clientChannel } : {}),
+    ...(metadata.appVersion ? { appVersion: metadata.appVersion } : {}),
+    ...(metadata.buildNumber ? { buildNumber: metadata.buildNumber } : {}),
+    ...(metadata.bundleIdentifier ? { bundleIdentifier: metadata.bundleIdentifier } : {}),
+    ...(metadata.osVersion ? { osVersion: metadata.osVersion } : {}),
+    ...(metadata.deviceModel ? { deviceModel: metadata.deviceModel } : {}),
+  };
+}
+
 type CoreObservation = Pick<MobileNetworkOutcome, "phase" | "outcome" | "durationMs" | "userUsable" | "failure" | "transport" | "population" | "attemptId" | "terminalReady" | "eventCode" | "eventCodeRaw" | "eventSurface" | "eventA" | "eventB" | "eventC" | "cancellationReason">;
 type Metadata = Pick<MobileNetworkOutcome, "platform" | "clientChannel" | "appVersion" | "buildNumber" | "bundleIdentifier" | "osVersion" | "deviceModel" | "traceId" | "operation" | "terminalPhase">;
 
@@ -351,6 +418,10 @@ function validTimestamp(value: unknown): value is string {
 
 function validProperties(properties: Record<string, unknown>): boolean {
   return !Object.keys(properties).some((key) => !allowedPropertyKeys.has(key));
+}
+
+function optionalUnsignedInteger(value: unknown): number | null | undefined {
+  return value === undefined ? undefined : unsignedInteger(value);
 }
 
 function parseCore(properties: Record<string, unknown>): CoreObservation | null {
@@ -511,6 +582,32 @@ export async function emitMobileObservabilityEvents(
   batch: readonly MobileObservabilityEvent[],
 ): Promise<void> {
   await Promise.all(batch.map((observation) => {
+    if ("provider" in observation) {
+      return withSpan(
+        "cmux-mobile-network",
+        "cmux.mobile.task_model_result",
+        {
+          "cmux.subsystem": "mobile-network",
+          "cmux.runtime": "ios",
+          "cmux.user_id": userId,
+          "cmux.mobile.event": "task_model_result",
+          "cmux.mobile.operation": "model_list",
+          "cmux.mobile.provider": observation.provider,
+          "cmux.mobile.source": observation.source,
+          "cmux.mobile.effort_count": observation.effortCount,
+          "cmux.mobile.correlation_id": observation.correlationId,
+          "cmux.mobile.occurred_at": observation.timestamp,
+          "cmux.mobile.platform": observation.platform,
+          "cmux.client.channel": observation.clientChannel,
+          "cmux.mobile.app_version": observation.appVersion,
+          "cmux.mobile.build_number": observation.buildNumber,
+          "cmux.mobile.bundle_identifier": observation.bundleIdentifier,
+          "cmux.mobile.os_version": observation.osVersion,
+          "cmux.mobile.device_model": observation.deviceModel,
+        },
+        () => undefined,
+      );
+    }
     if ("modelCount" in observation) {
       return withSpan(
         "cmux-mobile-network",
