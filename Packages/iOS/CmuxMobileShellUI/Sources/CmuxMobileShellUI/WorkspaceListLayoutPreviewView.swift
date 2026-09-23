@@ -799,6 +799,9 @@ public struct WorkspaceListLayoutPreviewView: View {
                             searchCoordinator: primarySearchCoordinator
                         ) {
                             switch primarySearchCoordinator.scope {
+                            case .feed:
+                                Text(verbatim: "Agent feed fixture")
+                                    .foregroundStyle(.secondary)
                             case .workspaces:
                                 MobilePrimaryWorkspaceSearchContentHost(
                                     searchCoordinator: primarySearchCoordinator
