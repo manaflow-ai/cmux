@@ -3063,8 +3063,6 @@ final class TerminalNotificationDirectInteractionTests: XCTestCase {
         return window
     }
 
-    /// A live portal-rendering authority for a standalone surface fixture.
-    ///
     private func makeMouseEvent(type: NSEvent.EventType, location: NSPoint, window: NSWindow) -> NSEvent {
         guard let event = NSEvent.mouseEvent(
             with: type,
