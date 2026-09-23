@@ -3,11 +3,9 @@ import Foundation
 /// Immutable text coordinates used by the preview's navigation interpreter.
 struct ReadOnlyVimBuffer {
     let text: NSString
-    let lines: FilePreviewLineIndex
 
     init(_ source: String) {
         text = source as NSString
-        lines = FilePreviewLineIndex(string: source)
     }
 
     var length: Int { text.length }
