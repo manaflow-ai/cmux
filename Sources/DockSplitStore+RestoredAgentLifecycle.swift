@@ -463,7 +463,7 @@ extension DockSplitStore {
         }
     }
 
-    private func clearDeferredAgentResumeRestoreTransfer(panelId: UUID) {
+    func clearDeferredAgentResumeRestoreTransfer(panelId: UUID) {
         if var transfer = detachedSurfaceTransfersByPanelId[panelId],
            transfer.deferredAgentResumeRestore != nil {
             transfer.deferredAgentResumeRestore = nil
