@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Unset repository variables must select the cheap path, not the expensive one.
 
-Fork pull requests receive no repository variables, so every `vars.X` a
-workflow reads can arrive empty. #13717 found CI silently running the full
+Repository variables can be absent. The normal CI runner expressions now
+short-circuit non-manaflow-ai owners onto GitHub-hosted capacity; every other
+`vars.X` still needs a safe empty-value reading. #13717 found CI silently running the full
 macOS suite and missing every cache restore because three expressions had no
 literal fallback. That fix edited the sites it found; nothing stopped the next
 copy of the same expression from landing without one, and several did.
@@ -40,9 +41,9 @@ CHEAP_DEFAULTS = {
 VARS_REFERENCE = re.compile(r"vars\.([A-Z0-9_]+)")
 RUNS_ON = re.compile(r"^\s*runs-on:\s*(.+?)\s*$")
 
-# The repository-side switch for metered macOS capacity. Unset is the cheap
-# reading, so a fork pull request and a repository with no admin action both
-# land on the free Blacksmith fallback.
+# The repository-side switch for metered macOS capacity. On manaflow-ai/cmux,
+# unset is the cheap reading and lands on the free Blacksmith fallback. Forks
+# short-circuit to GitHub-hosted macOS before this gate is consulted.
 PAID_OVERFLOW_GATE = "CI_PAID_MACOS_OVERFLOW"
 
 # Runner variables whose purpose is the paid overflow path, and the free label
