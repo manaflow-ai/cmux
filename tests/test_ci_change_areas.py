@@ -1584,6 +1584,9 @@ def run_macos_status(
 def run_detect_step_for_paths(
     paths: list[str],
     workflow_path: Path = CI_WORKFLOW,
+    *,
+    base_files: dict[str, str] | None = None,
+    head_files: dict[str, str] | None = None,
 ) -> tuple[subprocess.CompletedProcess[str], list[str]]:
     script = detect_step_script(workflow_path)
     with tempfile.TemporaryDirectory() as temp_dir:
@@ -1608,6 +1611,10 @@ def run_detect_step_for_paths(
             target = repo / relative
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_text(support.read_text(encoding="utf-8"), encoding="utf-8")
+        for path, content in (base_files or {}).items():
+            target = repo / path
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(content, encoding="utf-8")
         (repo / "base.txt").write_text("base\n", encoding="utf-8")
         subprocess.run(["git", "add", "."], cwd=repo, check=True)
         subprocess.run(["git", "commit", "-q", "-m", "base"], cwd=repo, check=True)
@@ -1617,7 +1624,7 @@ def run_detect_step_for_paths(
             for path in paths:
                 target = repo / path
                 target.parent.mkdir(parents=True, exist_ok=True)
-                target.write_text("changed\n", encoding="utf-8")
+                target.write_text((head_files or {}).get(path, "changed\n"), encoding="utf-8")
             subprocess.run(["git", "add", "."], cwd=repo, check=True)
             subprocess.run(["git", "commit", "-q", "-m", "head"], cwd=repo, check=True)
             head_sha = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=repo, text=True).strip()
@@ -1632,6 +1639,8 @@ def run_detect_step_for_paths(
             "HEAD_SHA": head_sha,
             "MERGE_SHA": head_sha,
             "GITHUB_OUTPUT": str(output_path),
+            "GITHUB_WORKSPACE": str(repo),
+            "RUNNER_TEMP": str(repo),
         }
         result = subprocess.run(
             ["bash", "-c", script],
@@ -1643,6 +1652,21 @@ def run_detect_step_for_paths(
             check=True,
         )
         return result, output_path.read_text(encoding="utf-8").splitlines()
+
+
+def test_workflow_registry_diff_reaches_normal_and_trusted_router() -> None:
+    registry = "tests/test-execution.toml"
+    base = 'version = 1\n[[test]]\npath = "tests/native.py"\nlane = "macos-shell"\n'
+    guard = '\n[[test]]\npath = "tests/guard.py"\nlane = "linux-guard"\n'
+    for policy_change in ([], ["scripts/ci/detect_ci_change_areas.py"]):
+        for candidate, expected in ((base + guard, "false"),
+                                    (base.replace("native.py", "other.py"), "true")):
+            result, outputs = run_detect_step_for_paths(
+                [registry, *policy_change],
+                base_files={registry: base}, head_files={registry: candidate},
+            )
+            assert f"macos={expected}" in outputs, (result.stdout, result.stderr)
+            assert f"release_build={expected}" in outputs, outputs
 
 
 def test_workflow_self_change_guard_runs_before_detector_imports() -> None:
