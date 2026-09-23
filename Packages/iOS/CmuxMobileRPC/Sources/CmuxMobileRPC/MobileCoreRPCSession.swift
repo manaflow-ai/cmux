@@ -110,6 +110,13 @@ actor MobileCoreRPCSession {
     /// inbound delivery resets this, so the streak only survives a lane that
     /// has gone completely quiet.
     private var silentTimeoutStreak = 0
+    /// Increments once per counted silent timeout.
+    ///
+    /// Requests armed before the previous silent timeout belong to the same
+    /// silence window. Six replays fired together and answered by one quiet
+    /// period is one piece of evidence, not six, so only a request armed
+    /// after the last counted timeout may advance the streak.
+    private var silentTimeoutEpoch: UInt64 = 0
     /// Silent timeouts required before the installed transport is condemned.
     static let minimumSilentTimeoutsBeforeCondemning = 2
     private var readerTask: Task<Void, Never>?
@@ -400,6 +407,10 @@ actor MobileCoreRPCSession {
             return
         }
         isTearingDown = true
+        // Evidence is per connection. A replacement transport must not
+        // inherit a streak accumulated against the one it replaces, or its
+        // first silent timeout condemns it on a single piece of evidence.
+        silentTimeoutStreak = 0
         defer {
             isTearingDown = false
             let waiters = tearDownWaiters
@@ -1111,7 +1122,8 @@ actor MobileCoreRPCSession {
     private func timeoutPendingRequest(
         requestID: String,
         armedConnectionID: UUID? = nil,
-        armedInboundCount: UInt64 = 0
+        armedInboundCount: UInt64 = 0,
+        armedSilentEpoch: UInt64 = 0
     ) async {
         let legacyContinuation = pending.removeValue(forKey: requestID)
         let pipelinedSettlement = pipelinedPending.removeValue(
@@ -1152,20 +1164,24 @@ actor MobileCoreRPCSession {
         // this the dead transport stays installed and `ensureConnected` hands
         // it to the retry, which burns another full deadline. Two of those is
         // a minute of blank terminal.
-        if case .requestTimedOut = error,
-           reachedTheWire,
-           transportDeliveredNothing(
-               armedConnectionID: armedConnectionID,
-               armedInboundCount: armedInboundCount
-           ) {
-            silentTimeoutStreak += 1
-            if silentTimeoutStreak >= Self.minimumSilentTimeoutsBeforeCondemning {
+        if case .requestTimedOut = error, reachedTheWire {
+            if transportDeliveredNothing(
+                armedConnectionID: armedConnectionID,
+                armedInboundCount: armedInboundCount
+            ) {
+                // Requests armed before the last counted timeout share its
+                // silence window; they are already represented by it.
+                if armedSilentEpoch == silentTimeoutEpoch {
+                    silentTimeoutEpoch &+= 1
+                    silentTimeoutStreak += 1
+                    if silentTimeoutStreak >= Self.minimumSilentTimeoutsBeforeCondemning {
+                        error = .connectionClosed
+                        await tearDown(error: .connectionClosed)
+                    }
+                }
+            } else {
                 silentTimeoutStreak = 0
-                error = .connectionClosed
-                await tearDown(error: .connectionClosed)
             }
-        } else if reachedTheWire {
-            silentTimeoutStreak = 0
         }
         let settlement = PendingRequestSettlement.response(.failure(error))
         legacyContinuation?.resume(returning: settlement)
@@ -1205,6 +1221,7 @@ actor MobileCoreRPCSession {
         requestTimeoutTasks[requestID]?.cancel()
         let armedConnectionID = installedConnectionID
         let armedInboundCount = inboundDeliveryCount
+        let armedSilentEpoch = silentTimeoutEpoch
         requestTimeoutTasks[requestID] = Task { [weak self, taskTimeout] in
             do {
                 try await taskTimeout.sleep(nanoseconds: timeoutNanoseconds)
@@ -1215,7 +1232,8 @@ actor MobileCoreRPCSession {
             await self.timeoutPendingRequest(
                 requestID: requestID,
                 armedConnectionID: armedConnectionID,
-                armedInboundCount: armedInboundCount
+                armedInboundCount: armedInboundCount,
+                armedSilentEpoch: armedSilentEpoch
             )
         }
     }

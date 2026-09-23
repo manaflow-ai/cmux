@@ -66,6 +66,27 @@ import Testing
         #expect(await transport.closed())
     }
 
+    /// Six replays fired together and answered by one quiet period is one
+    /// piece of evidence, not six. Without a silence-window guard a single
+    /// quiet moment condemns the transport on concurrent requests alone.
+    @Test func concurrentTimeoutsInOneSilenceWindowAreOnePieceOfEvidence() async throws {
+        let transport = ControllableResponseTransport(closeEndsReceive: true)
+        let client = try makeClient(transport: transport, port: 59312)
+
+        await withTaskGroup(of: Void.self) { group in
+            for index in 0..<4 {
+                group.addTask {
+                    _ = try? await client.sendRequest(
+                        try self.replayRequest(id: "concurrent-\(index)")
+                    )
+                }
+            }
+            await group.waitForAll()
+        }
+
+        #expect(await transport.closed() == false)
+    }
+
     /// The guard that keeps this from punishing a healthy connection: if
     /// anything at all arrived while the request was outstanding, the lane is
     /// demonstrably alive and only the request failed.
