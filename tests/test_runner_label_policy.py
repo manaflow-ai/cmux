@@ -14,16 +14,21 @@ days because nothing reads variable values.
 
 from __future__ import annotations
 
+import os
+import re
 import sys
 import unittest
 from pathlib import Path
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts" / "ci"))
 
 from runner_label_policy import (  # noqa: E402
+    GUARD_FUNCTION,
     GUARD_SCRIPT,
     PolicyUnreadable,
+    _guard_function,
     _shell_local,
     drifted_runner_variables,
     forbidden_reason,
@@ -32,14 +37,39 @@ from runner_label_policy import (  # noqa: E402
 
 class PolicyIsReadFromTheGuard(unittest.TestCase):
     def test_the_three_patterns_are_still_declared(self) -> None:
-        source = GUARD_SCRIPT.read_text(encoding="utf-8")
+        body = _guard_function(GUARD_SCRIPT.read_text(encoding="utf-8"))
         for name in ("fleet", "allowed", "selfhosted"):
             with self.subTest(pattern=name):
-                self.assertTrue(_shell_local(source, name))
+                self.assertTrue(_shell_local(body, name))
 
     def test_a_renamed_pattern_raises_instead_of_reporting_clean(self) -> None:
         with self.assertRaises(PolicyUnreadable):
             _shell_local("local something_else='x'\n", "fleet")
+
+    def test_a_missing_guard_function_raises(self) -> None:
+        with self.assertRaises(PolicyUnreadable):
+            _guard_function("other_check() {\n  local fleet='x'\n}\n")
+
+    def test_a_same_named_local_outside_the_guard_is_not_the_policy(self) -> None:
+        # The guard script is 2000 lines and other functions already use a
+        # local named `allowed`. Only the owning function's copy counts.
+        source = (
+            "earlier_check() {\n  local fleet='nothing-matches-this'\n}\n"
+            f"{GUARD_FUNCTION}() {{\n  local fleet='macos-26'\n}}\n"
+        )
+        self.assertEqual(_shell_local(_guard_function(source), "fleet"), "macos-26")
+
+    def test_a_pattern_built_in_several_steps_raises(self) -> None:
+        # Reading only `local fleet='macos-26'` here would silently drop
+        # everything appended after it.
+        for body in (
+            "  local fleet='macos-26'\n  fleet+='|tart-[a-z0-9-]+'\n",
+            "  local fleet='macos-26'\n  local fleet='tart-canary'\n",
+            "  local fleet='macos-26'\n  fleet='tart-canary'\n",
+        ):
+            with self.subTest(body=body):
+                with self.assertRaises(PolicyUnreadable):
+                    _shell_local(body, "fleet")
 
 
 class ApprovedLabelsPass(unittest.TestCase):
@@ -52,6 +82,11 @@ class ApprovedLabelsPass(unittest.TestCase):
             "warp-macos-15-arm64-6x",
             "ubuntu-24.04-arm",
             "macos-15",
+            # Tart pools are banned from workflow text so that moving onto
+            # Tart stays a variable change; as a value they are configuration.
+            "tart-macos-15",
+            "tart-gui",
+            "tart-ios",
         ):
             with self.subTest(label=label):
                 self.assertIsNone(forbidden_reason(label))
@@ -70,7 +105,6 @@ class ForbiddenLabelsAreCaught(unittest.TestCase):
 
     def test_fleet_and_self_hosted_labels(self) -> None:
         for label in (
-            "tart-macos-15",
             "cmux-persistent-compile",
             "macfleet",
             "mac-mini-3",
@@ -78,6 +112,9 @@ class ForbiddenLabelsAreCaught(unittest.TestCase):
         ):
             with self.subTest(label=label):
                 self.assertIsNotNone(forbidden_reason(label))
+
+    def test_a_tart_pool_does_not_launder_what_sits_beside_it(self) -> None:
+        self.assertIsNotNone(forbidden_reason("tart-macos-15,self-hosted"))
 
     def test_an_approved_label_does_not_mask_a_forbidden_one(self) -> None:
         # Stripping the allow-list first is what lets blacksmith-6vcpu-macos-26
@@ -91,7 +128,7 @@ class DriftReportingOverVariables(unittest.TestCase):
     def test_only_runner_variables_are_inspected(self) -> None:
         drifted = drifted_runner_variables(
             {
-                "CI_HEALTH_REPORT_ISSUE": "tart-macos-15",
+                "CI_HEALTH_REPORT_ISSUE": "cmux-persistent-compile",
                 "MACOS_RUNNER_26_RELEASE": "warp-macos-26-arm64-12x",
             }
         )
@@ -130,6 +167,57 @@ class DriftReportingOverVariables(unittest.TestCase):
 
     def test_a_non_string_value_is_ignored_rather_than_crashing(self) -> None:
         self.assertEqual(drifted_runner_variables({"MACOS_RUNNER_15": None}), [])
+
+
+HEALTH_REPORT_WORKFLOW = ROOT / ".github" / "workflows" / "ci-health-report.yml"
+
+
+def reported_runner_variables() -> set[str]:
+    text = HEALTH_REPORT_WORKFLOW.read_text(encoding="utf-8")
+    return set(re.findall(r"^\s+([A-Z0-9_]+)=\$\{\{ vars\.\1\b", text, re.M))
+
+
+class TheReportSeesEveryRunnerVariable(unittest.TestCase):
+    def test_every_runner_variable_a_workflow_reads_is_reported(self) -> None:
+        # The report is passed an explicit list rather than toJSON(vars), which
+        # would print every repository variable in a public step log. A list
+        # can fall behind; this is what keeps it complete.
+        read = set()
+        for path in (ROOT / ".github" / "workflows").glob("*.y*ml"):
+            read |= set(
+                re.findall(r"vars\.([A-Z0-9_]*RUNNER[A-Z0-9_]*)", path.read_text(encoding="utf-8"))
+            )
+        self.assertTrue(read)
+        missing = read - reported_runner_variables()
+        self.assertEqual(missing, set(), f"add to CMUX_CI_RUNNER_VARIABLES in {HEALTH_REPORT_WORKFLOW.name}")
+
+
+class TheReportParsesItsInput(unittest.TestCase):
+    def lines(self, value: str | None) -> list[str]:
+        import ci_health_report
+
+        env = {} if value is None else {ci_health_report.RUNNER_VARIABLES_ENV: value}
+        with mock.patch.dict(os.environ, env, clear=False):
+            if value is None:
+                os.environ.pop(ci_health_report.RUNNER_VARIABLES_ENV, None)
+            return ci_health_report._runner_variable_drift_lines()
+
+    def test_absent_input_is_not_reported_as_clean(self) -> None:
+        self.assertIn("not checked", self.lines(None)[0])
+
+    def test_unset_variables_arrive_empty_and_are_clean(self) -> None:
+        self.assertIn(
+            "every runner variable holds",
+            self.lines("MACOS_RUNNER_15=blacksmith-6vcpu-macos-15\nMACOS_RUNNER_PR=\n")[0],
+        )
+
+    def test_a_drifted_value_is_named(self) -> None:
+        line = self.lines("MACOS_RUNNER_26_RELEASE=warp-macos-26-arm64-12x\n")[0]
+        self.assertIn("MACOS_RUNNER_26_RELEASE", line)
+        self.assertIn("1 variable(s)", line)
+
+    def test_a_malformed_line_is_unreadable_not_clean(self) -> None:
+        self.assertIn("unreadable", self.lines("MACOS_RUNNER_15\n")[0])
 
 
 if __name__ == "__main__":

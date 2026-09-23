@@ -597,7 +597,7 @@ def paid_runner_minutes(
     return jobs, minutes, breakdown
 
 
-REPO_VARIABLES_ENV = "CMUX_CI_REPO_VARIABLES"
+RUNNER_VARIABLES_ENV = "CMUX_CI_RUNNER_VARIABLES"
 
 
 def _runner_variable_drift_lines() -> list[str]:
@@ -608,24 +608,25 @@ def _runner_variable_drift_lines() -> list[str]:
     configuration itself, which is the only way to catch a variable that has
     been repointed but whose lane has not fired yet.
 
-    The workflow passes `toJSON(vars)`, because a variable's value is readable
-    from the expression context without any token scope -- this report's token
-    is deliberately `actions: read` and cannot query the variables API. When
-    the environment variable is absent (a local run, or an older workflow), say
-    so rather than claiming the configuration is clean.
+    The workflow passes one `NAME=value` line per runner variable, read from
+    the expression context, because a variable's value is readable there
+    without any token scope -- this report's token is deliberately
+    `actions: read` and cannot query the variables API. When the environment
+    variable is absent (a local run, or an older workflow), say so rather than
+    claiming the configuration is clean.
     """
-    raw = os.environ.get(REPO_VARIABLES_ENV, "").strip()
+    raw = os.environ.get(RUNNER_VARIABLES_ENV, "").strip()
     if not raw:
         return [
             "**Runner variable values:** not checked — "
-            f"`{REPO_VARIABLES_ENV}` was not set for this run."
+            f"`{RUNNER_VARIABLES_ENV}` was not set for this run."
         ]
-    try:
-        variables = json.loads(raw)
-    except json.JSONDecodeError as error:
-        return [f"**Runner variable values:** unreadable ({_escape(str(error))})."]
-    if not isinstance(variables, dict):
-        return ["**Runner variable values:** unreadable (expected a JSON object)."]
+    variables = {}
+    for line in raw.splitlines():
+        name, separator, value = line.strip().partition("=")
+        if not separator or not name:
+            return [f"**Runner variable values:** unreadable (line {_escape(line.strip())!r})."]
+        variables[name] = value
 
     try:
         drifted = drifted_runner_variables(variables)

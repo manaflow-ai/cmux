@@ -22,6 +22,7 @@ two cannot drift apart.
 from __future__ import annotations
 
 import re
+from functools import cache
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -36,35 +37,70 @@ class PolicyUnreadable(RuntimeError):
     """
 
 
-def _shell_local(source: str, name: str) -> str:
-    """The single-quoted value of `local <name>='...'` in a bash script."""
-    match = re.search(rf"^\s*local {re.escape(name)}='([^']*)'\s*$", source, re.M)
+GUARD_FUNCTION = "check_no_self_hosted_fleet_runners"
+
+
+def _guard_function(source: str) -> str:
+    """The body of the guard function that owns the patterns.
+
+    Reading only this body is what stops a same-named local elsewhere in the
+    2000-line script from being taken for the policy.
+    """
+    match = re.search(rf"^{GUARD_FUNCTION}\(\) \{{\n(.*?)^\}}", source, re.M | re.S)
     if match is None:
         raise PolicyUnreadable(
-            f"{GUARD_SCRIPT.name} no longer declares `local {name}='...'`; "
+            f"{GUARD_SCRIPT.name} no longer defines `{GUARD_FUNCTION}`; "
             f"runner label policy cannot be read from it"
         )
     return match.group(1)
 
 
+def _shell_local(body: str, name: str) -> str:
+    """The single-quoted value of the one `local <name>='...'` in a function.
+
+    Any other assignment to the name (`name+=...`, a second `local`) raises:
+    reading only the first piece of a pattern built in several steps would
+    narrow the policy without anything failing.
+    """
+    assignments = re.findall(rf"^\s*(?:local\s+)?{re.escape(name)}\+?=", body, re.M)
+    match = re.search(rf"^\s*local {re.escape(name)}='([^']*)'\s*$", body, re.M)
+    if match is None or len(assignments) != 1:
+        raise PolicyUnreadable(
+            f"{GUARD_SCRIPT.name} no longer declares `{name}` as exactly one "
+            f"`local {name}='...'` in {GUARD_FUNCTION}; runner label policy "
+            f"cannot be read from it"
+        )
+    return match.group(1)
+
+
+@cache
 def _patterns() -> tuple[str, str, str]:
-    source = GUARD_SCRIPT.read_text(encoding="utf-8")
+    body = _guard_function(GUARD_SCRIPT.read_text(encoding="utf-8"))
     return (
-        _shell_local(source, "fleet"),
-        _shell_local(source, "allowed"),
-        _shell_local(source, "selfhosted"),
+        _shell_local(body, "fleet"),
+        _shell_local(body, "allowed"),
+        _shell_local(body, "selfhosted"),
     )
+
+
+# A whole value naming one Tart VM pool. The guard forbids these in workflow
+# text precisely so that moving a lane onto Tart stays a variable change
+# (test-ios.yml branches on a `tart-` MACOS_RUNNER_IOS, and docs/ci-runners.md
+# carries the restore recipe), so as a variable value it is configuration, not
+# drift.
+VARIABLE_ONLY_LABEL = re.compile(r"tart-[a-z0-9-]+")
 
 
 def forbidden_reason(label: str) -> str | None:
     """Why this runner label is not allowed, or None when it is fine.
 
-    Mirrors the guard exactly: strip the approved cloud labels first, then look
+    Mirrors the guard, except that a Tart pool is allowed (see
+    VARIABLE_ONLY_LABEL): strip the approved cloud labels first, then look
     for a forbidden pattern in what is left. Stripping first is what lets
     `blacksmith-6vcpu-macos-26` through while `warp-macos-26-arm64-12x` is
     caught, even though both contain `macos-26`.
     """
-    if not label:
+    if not label or VARIABLE_ONLY_LABEL.fullmatch(label):
         return None
     fleet, allowed, selfhosted = _patterns()
     remainder = re.sub(f"({allowed})", "", label)
