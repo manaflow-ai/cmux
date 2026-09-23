@@ -75,6 +75,15 @@ final class HorizontalEdgeFadePillBarViewController<Leading: View, Pills: View, 
         configureHostingView(trailingHost.view)
         scrollView.translatesAutoresizingMaskIntoConstraints = false
 
+        // UIHostingController proposes a 10-point ideal width for EmptyView.
+        // An absent fixed control must reserve no space at the sheet edge.
+        if Leading.self == EmptyView.self {
+            leadingHost.view.widthAnchor.constraint(equalToConstant: 0).isActive = true
+        }
+        if Trailing.self == EmptyView.self {
+            trailingHost.view.widthAnchor.constraint(equalToConstant: 0).isActive = true
+        }
+
         NSLayoutConstraint.activate([
             // Keep the scroll viewport flush between the fixed controls. The
             // pills never render underneath either control, and the inset
