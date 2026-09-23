@@ -1,4 +1,5 @@
 #if os(iOS)
+import CMUXMobileCore
 import CmuxMobileDiagnostics
 import CmuxMobileShellModel
 import CmuxMobileSupport
