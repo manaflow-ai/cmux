@@ -25,6 +25,7 @@ test("the owning Mac can recover a forgotten registration with fresh Stack auth"
   };
   let device: DeviceRecord = { descriptor, deviceRecordId: endpointID, revision: 2, revoked: true };
   let recoverable = true;
+  let revokeDuring: "setup" | "registration" | undefined;
   const store = {
     getDevice: () => device,
     getDeviceByRecordId: () => device,
@@ -43,8 +44,8 @@ test("the owning Mac can recover a forgotten registration with fresh Stack auth"
   const broker = new TeamBroker({
     store,
     now: () => now,
-    charge: async () => {},
-    ownership: { reserve: async () => {} },
+    charge: async (_, operation) => { if (revokeDuring === "setup" && operation === "ticket.request") recoverable = false; },
+    ownership: { reserve: async () => { if (revokeDuring === "registration") recoverable = false; } },
     relays: { configuration: { relayURLs: [] } } as never,
     issueTicket: async () => ({ token: "fresh-ticket", expiresAt: now + 3600, refreshAfter: now + 3300 }),
     verifyStack: async () => authority,
@@ -68,6 +69,10 @@ test("the owning Mac can recover a forgotten registration with fresh Stack auth"
   recoverable = false;
   await expect(broker.open(setup, authority, now + 3600, true)).rejects.toMatchObject({ code: "device_revoked" });
   recoverable = true;
+  revokeDuring = "setup";
+  await expect(broker.open(setup, authority, now + 3600, true)).rejects.toMatchObject({ code: "device_revoked" });
+  revokeDuring = undefined;
+  recoverable = true;
   const opened = await broker.open(setup, authority, now + 3600, true);
   expect(opened.response.schemaId).toBe("session.ready.v1");
   expect("device" in opened.response).toBe(false);
@@ -83,6 +88,11 @@ test("the owning Mac can recover a forgotten registration with fresh Stack auth"
     nonce: challenge.nonce,
     signature: encodeBase64URL(new Uint8Array(enrollmentSignature)),
   };
+  revokeDuring = "registration";
+  await expect(broker.execute(opened.session!, registerRequest)).rejects.toMatchObject({ code: "device_revoked" });
+  expect(device.revoked).toBe(true);
+  revokeDuring = undefined;
+  recoverable = true;
   const registered = await broker.execute(opened.session!, registerRequest);
   expect(registered.response.schemaId).toBe("device.registered.v1");
   expect(device.revoked).toBe(false);
