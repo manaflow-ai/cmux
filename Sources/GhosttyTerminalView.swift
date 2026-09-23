@@ -6136,6 +6136,15 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                 )
             }
         }
+        // Mirror the intent before requiring a live runtime, the way
+        // resignFirstResponder already does. createSurface re-applies
+        // desiredFocusState once the runtime exists, so a focus taken while the
+        // surface is still spawning survives; gating the mirror on the runtime
+        // left nothing for that reconciliation to converge to.
+        if result, shouldApplySurfaceFocus {
+            terminalSurface?.recordExternalFocusState(true)
+            terminalSurface?.hostedView.cancelSuppressedFirstResponderFocusReapply()
+        }
         if result, shouldApplySurfaceFocus, let surface = ensureSurfaceReadyForInput(reassertInputFocus: false) {
             let now = CACurrentMediaTime()
             let deltaMs = (now - lastScrollEventTime) * 1000
@@ -6163,8 +6172,6 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                     userInfo: userInfo
                 )
             }
-            terminalSurface?.recordExternalFocusState(true)
-            terminalSurface?.hostedView.cancelSuppressedFirstResponderFocusReapply()
             ghostty_surface_set_focus(surface, true)
 
             // Ghostty only restarts its vsync display link on display-id changes while focused.
