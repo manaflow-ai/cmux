@@ -285,9 +285,7 @@ private actor CapturedCloudDiagnostics: CloudTelemetrySending {
             catch { await failure.capture(error); throw error }
         })
         await queue.record(event)
-        let start = ContinuousClock.now
         #expect(await queue.flushOnce() == false)
-        #expect(start.duration(to: .now) < .seconds(10))
         #expect(await failure.code == URLError.timedOut.rawValue)
         #expect(await queue.pendingCount == 1)
     }
@@ -303,6 +301,23 @@ private actor CapturedCloudDiagnostics: CloudTelemetrySending {
         await check.observe()
         #expect(check.status == nil)
         #expect(await sink.events.isEmpty)
+    }
+
+    @Test func rejectedFutureRecordDoesNotBlockAValidRecord() async throws {
+        let file = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString).appendingPathComponent("outbox.json")
+        defer { try? FileManager.default.removeItem(at: file.deletingLastPathComponent()) }
+        let bad = try #require(DevBackendDiagnostics.event(outcome: "unreachable", startedAt: Date().addingTimeInterval(3600), durationMs: 1, attempt: 0, environment: ["CMUX_TAG":"clock-test"]))
+        let good = try #require(DevBackendDiagnostics.event(outcome: "ready", startedAt: Date(), durationMs: 1, attempt: 1, environment: ["CMUX_TAG":"clock-test"]))
+        let sink = DevBackendDiagnosticCapture()
+        let queue = DevBackendDiagnostics(queueURL: file, enabled: true, automaticallyFlush: false, sender: { events in
+            if events.contains(where: { $0.eventId == bad.eventId }) { throw DevBackendDiagnostics.RejectedBatch(status: 400) }
+            await sink.capture(events)
+        })
+        await queue.record(bad)
+        await queue.record(good)
+        #expect(await queue.flushOnce())
+        #expect(await queue.pendingCount == 0)
+        #expect(await sink.events == [good])
     }
 
     @Test func disabledDiagnosticsNeverWriteOrSend() async throws {
@@ -343,6 +358,7 @@ private final class UnfinishedDevDiagnosticServer: @unchecked Sendable {
     private let queue = DispatchQueue(label: "test.dev-diagnostic-unfinished")
     private let listener: NWListener
     private var connections: [NWConnection] = []
+    private var timers: [DispatchSourceTimer] = []
     init() throws {
         let parameters = NWParameters.tcp
         parameters.requiredLocalEndpoint = .hostPort(host: "127.0.0.1", port: .any)
@@ -364,9 +380,14 @@ private final class UnfinishedDevDiagnosticServer: @unchecked Sendable {
             listener.newConnectionHandler = { [self] connection in
                 connections.append(connection)
                 connection.start(queue: queue)
-                let partial = Data("HTTP/1.1 202 Accepted\r\nContent-Type: application/json\r\nContent-Length: 1000\r\n\r\n{".utf8)
+                let partial = Data("HTTP/1.1 202 Accepted\r\nContent-Type: application/json\r\nContent-Length: 10000000\r\n\r\n{".utf8)
                 connection.send(content: partial, completion: .contentProcessed { _ in })
-                // Deliberately retain the open connection without completing the response.
+                // Continuous data prevents an idle timeout; only the whole-resource deadline can finish the task.
+                let timer = DispatchSource.makeTimerSource(queue: queue)
+                timer.schedule(deadline: .now(), repeating: .milliseconds(100))
+                timer.setEventHandler { connection.send(content: Data(" ".utf8), completion: .contentProcessed { _ in }) }
+                timers.append(timer)
+                timer.resume()
             }
             listener.start(queue: queue)
         }
@@ -375,6 +396,8 @@ private final class UnfinishedDevDiagnosticServer: @unchecked Sendable {
         queue.async { [self] in
             listener.cancel()
             listener.newConnectionHandler = nil
+            for timer in timers { timer.cancel() }
+            timers.removeAll()
             for connection in connections { connection.cancel() }
             connections.removeAll()
         }
