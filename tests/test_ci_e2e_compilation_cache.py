@@ -97,6 +97,9 @@ class E2ECompilationCache(unittest.TestCase):
         rejected = self.run_step('Clean owned DerivedData', **dict(values, CMUX_DERIVED_DATA_PATH=str(unrelated)))
         self.assertNotEqual(rejected.returncode, 0)
         self.assertTrue(unrelated.exists())
+        rejected = self.run_step('Clean owned DerivedData', **dict(values, CMUX_E2E_COMPILATION_CACHE=str(unrelated)))
+        self.assertNotEqual(rejected.returncode, 0)
+        self.assertTrue(Path(values['CMUX_DERIVED_DATA_PATH']).exists())
         result = self.run_step('Clean owned DerivedData', **values)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertFalse(Path(values['CMUX_DERIVED_DATA_PATH']).exists())
@@ -119,6 +122,21 @@ class E2ECompilationCache(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stderr)
             outputs = dict(line.split('=', 1) for line in (self.root / 'output').read_text().splitlines())
             self.assertEqual(outputs['save'], str(allowed).lower())
+
+    def test_empty_and_oversized_caches_are_not_published(self):
+        values = self.prepare()
+        env = dict(values, WORKFLOW_REF='refs/heads/main', WORKFLOW_SHA='a' * 40,
+                   TEST_REF='a' * 40, TEST_OUTCOME='success')
+        result = self.run_step('Bound E2E compilation cache', **env)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn('save=true', (self.root / 'output').read_text())
+        (Path(values['CMUX_E2E_COMPILATION_CACHE']) / 'compiler-entry').write_bytes(b'cached')
+        fake_du = self.root / 'bin' / 'du'
+        fake_du.write_text('#!/bin/sh\nprintf "6291456 cache\\n"\n')
+        fake_du.chmod(0o755)
+        result = self.run_step('Bound E2E compilation cache', **env)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn('save=true', (self.root / 'output').read_text())
 
 
 if __name__ == '__main__':
