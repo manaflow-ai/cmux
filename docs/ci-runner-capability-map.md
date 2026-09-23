@@ -35,12 +35,13 @@ falls to `default_fleet`, which is the free GitHub-hosted fleet. The resolver
 job itself uses the same principle for its bootstrap runner, so it can start in
 a personal fork before the map exists.
 
-The normal `CI` workflow does not wait for every job to be converted to
-`needs.runners.outputs.map`: its direct jobs and reusable core workflows
-(`ci-guards`, `ci-web`, `ci-macos`, `remote-daemon`, and
-`cli-pipe-regressions`) contain an explicit non-`manaflow-ai` GitHub-hosted
-branch. `tests/test_ci_runner_capability_resolver.py` walks that core graph and
-fails if a variable-routed job can reach Blacksmith on a fork.
+Fork safety does not wait for every job to be converted to
+`needs.runners.outputs.map`. Every workflow with a `pull_request` trigger,
+plus every local reusable workflow reachable from those workflows, carries an
+explicit non-`manaflow-ai` GitHub-hosted branch wherever runner variables or
+Blacksmith fallbacks are used. `tests/test_ci_runner_capability_resolver.py`
+discovers that graph recursively and fails if a variable-routed job can reach
+Blacksmith on a fork.
 
 The hosted fleet is a working fleet, not an identical one. GitHub publishes no
 macOS 26 image, so `macos_26`, `macos_26_ios` and `macos_26_large` all resolve
