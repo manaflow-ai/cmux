@@ -58,7 +58,7 @@ final class CloudDesktopOpenFixture {
         window.isReleasedWhenClosed = false
         window.identifier = NSUserInterfaceItemIdentifier("cmux.main.\(app.windowID.uuidString)")
         owner = app.workspace
-        other = app.manager.addWorkspace(title: "workspace-1", select: false)
+        other = try #require(app.manager.addWorkspaceIfActive(title: "workspace-1", select: false))
         owner.cloudVMBinding = WorkspaceCloudVMBinding(vmID: ownerID, isBase: false, remoteWorkspaceID: "ws-same")
         other.cloudVMBinding = WorkspaceCloudVMBinding(
             vmID: ownerID == "desktop-a" ? "desktop-b" : "desktop-a", isBase: false, remoteWorkspaceID: "ws-same")
