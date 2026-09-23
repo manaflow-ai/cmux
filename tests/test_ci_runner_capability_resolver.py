@@ -67,6 +67,11 @@ def write_map(document: object) -> Path:
             json.dump(document, handle)
     return Path(handle.name)
 
+LOCAL_WORKFLOW_CALL = re.compile(
+    r"uses:\s+\./\.github/workflows/([A-Za-z0-9_.-]+\.ya?ml)"
+)
+
+
 def pull_request_workflows() -> list[Path]:
     """Every workflow whose top-level on: block includes pull_request."""
     result = []
@@ -75,6 +80,23 @@ def pull_request_workflows() -> list[Path]:
         if re.search(r"(?m)^  pull_request:\s*(?:$|\[|\{)", text):
             result.append(path)
     return result
+
+
+def fork_exercised_workflows() -> list[Path]:
+    """Pull-request workflows plus every local reusable workflow they call."""
+    pending = list(pull_request_workflows())
+    seen: set[Path] = set()
+    while pending:
+        path = pending.pop()
+        if path in seen:
+            continue
+        seen.add(path)
+        text = path.read_text(encoding="utf-8")
+        for name in LOCAL_WORKFLOW_CALL.findall(text):
+            called = WORKFLOWS / name
+            if called.is_file() and called not in seen:
+                pending.append(called)
+    return sorted(seen)
 
 
 
@@ -290,8 +312,9 @@ class WiringTests(unittest.TestCase):
 
     def test_every_pull_request_workflow_is_zero_configuration_on_a_fork(self) -> None:
         """A fork PR must never require an organization-only runner provider."""
-        workflows = pull_request_workflows()
-        self.assertTrue(workflows)
+        workflows = fork_exercised_workflows()
+        self.assertTrue(pull_request_workflows())
+        self.assertGreater(len(workflows), len(pull_request_workflows()))
         saw_linux = 0
         saw_macos = 0
 
