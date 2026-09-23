@@ -89,6 +89,28 @@ def is_other_workflow_config(path: str) -> bool:
 CI_CONTROL_PLANE_ONLY = frozenset({
     "scripts/ci/persistent_mac_route.py",
     "scripts/ci/web_validation.py",
+    # Operational helpers: janitors, census and reporting, registry validation,
+    # R2 canaries, build diagnostics. Each runs only in a Linux workflow, none
+    # is read by the Xcode product, and their own Linux guards still route
+    # independently of the macOS area. Editing one used to buy a universal
+    # Release build.
+    "scripts/ci/app_host_failure_census.py",
+    "scripts/ci/build_graph_health.py",
+    "scripts/ci/cleanup-stale-runs.py",
+    "scripts/ci/cmux_workload_profile.py",
+    "scripts/ci/notify-indexnow.py",
+    "scripts/ci/queue_janitor.py",
+    "scripts/ci/r2-canary-cloudflare.py",
+    "scripts/ci/r2_cache_census.py",
+    "scripts/ci/swift_incremental_diagnostics.py",
+    "scripts/ci/test_execution_registry.py",
+    "scripts/ci/triage-radar.py",
+    "scripts/ci/validate_test_execution_registry.py",
+    "scripts/ci/verify-r2-canary.py",
+    # ci-web.yml's subarea router. It keeps the web area below -- editing it
+    # selects every web subarea through the helper's own ALL_SUBAREA_INPUTS --
+    # but it never reaches a macOS build.
+    "scripts/ci/web_subareas.py",
 })
 
 # Publishing consumes finished products. These exact helpers never run in PR
@@ -540,6 +562,7 @@ def is_web_change(path: str) -> bool:
         ".npmrc",
         ".github/workflows/web-validation.yml",
         "scripts/ci/web_validation.py",
+        "scripts/ci/web_subareas.py",
         "tests/test_web_validation.py",
         "scripts/build-agent-session-web.sh",
         "scripts/build-webviews-app.sh",

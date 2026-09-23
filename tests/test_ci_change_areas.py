@@ -509,6 +509,42 @@ def test_agent_instructions_and_skill_docs_skip_expensive_areas() -> None:
     )
 
 
+def test_operational_ci_helpers_skip_product_areas() -> None:
+    # Janitors, census/reporting and registry validation run only in Linux
+    # workflows and are never read by the Xcode product.
+    for path in (
+        "scripts/ci/cleanup-stale-runs.py",
+        "scripts/ci/queue_janitor.py",
+        "scripts/ci/triage-radar.py",
+        "scripts/ci/notify-indexnow.py",
+        "scripts/ci/r2_cache_census.py",
+        "scripts/ci/verify-r2-canary.py",
+        "scripts/ci/build_graph_health.py",
+        "scripts/ci/validate_test_execution_registry.py",
+        "scripts/ci/app_host_failure_census.py",
+        "scripts/ci/swift_incremental_diagnostics.py",
+    ):
+        assert_areas([path], macos=False, web=False)
+
+
+def test_web_subarea_router_keeps_web_without_macos() -> None:
+    # Editing the ci-web.yml subarea router must still run web validation --
+    # the helper lists itself in ALL_SUBAREA_INPUTS -- but never a Mac.
+    actual = module.classify_files(["scripts/ci/web_subareas.py"])
+    assert actual.web is True, actual
+    assert actual.macos is False, actual
+    assert actual.release_build is False, actual
+
+
+def test_routing_policy_and_build_helpers_still_run_macos() -> None:
+    # The boundary the carveout must not cross: the router itself decides
+    # macOS selection, and the shard helper is a real macOS build input.
+    assert_areas(["scripts/ci/detect_ci_change_areas.py"], macos=True, web=True,
+                 agent_session_web=True)
+    assert_areas(["scripts/ci/cmux_unit_test_shard.py"], macos=True, web=True,
+                 agent_session_web=True)
+
+
 def test_contributor_prose_skips_expensive_areas() -> None:
     assert_areas(
         ["STYLE.md", "CONTRIBUTING.md", ".github/pull_request_template.md"],
