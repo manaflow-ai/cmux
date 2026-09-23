@@ -4,10 +4,11 @@ import Testing
 @Suite(.serialized)
 struct CLILegacyCodexRestoreLeaseTests {
     @Test("Legacy execution preserves mode and protects resumed conversations", arguments: [
-        ("resumeAgent", false, true), ("resumeAgent", true, true),
-        ("direct", false, false), ("relaunchAgent", false, false)
+        ("codex", "resumeAgent", false, true), ("codex", "resumeAgent", true, true),
+        ("codex", "direct", false, false), ("codex", "relaunchAgent", false, false),
+        ("custom-agent", "legacy-mode", false, false)
     ])
-    func legacyLaunchHoldsLease(mode: String, plannerFallback: Bool, expectsLease: Bool) throws {
+    func legacyLaunchHoldsLease(kind: String, mode: String, plannerFallback: Bool, expectsLease: Bool) throws {
         let runner = CMUXCLIErrorOutputRegressionTests()
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("cmux-legacy-lease-\(UUID().uuidString)")
         let home = root.appendingPathComponent("account")
@@ -35,7 +36,7 @@ struct CLILegacyCodexRestoreLeaseTests {
         try probe.write(to: executable, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: executable.path)
         var record: [String: Any] = [
-            "kind": "codex", "mode": mode, "checkpoint_id": session,
+            "kind": kind, "mode": mode, "checkpoint_id": session,
             "source": "session-snapshot", "working_directory": root.path,
             "environment": ["CODEX_HOME": home.path],
             "legacy_command": "'\(executable.path)' resume '\(session)' --model 'legacy model'"
@@ -56,7 +57,7 @@ struct CLILegacyCodexRestoreLeaseTests {
         defer { responder.stop() }
         let result = runner.runProcess(
             executablePath: try runner.bundledCLIPath(),
-            arguments: ["restore", "--surface", UUID().uuidString, "codex", session],
+            arguments: ["restore", "--surface", UUID().uuidString, kind, session],
             environment: [
                 "HOME": root.path, "CFFIXED_USER_HOME": root.path, "PATH": "/usr/bin:/bin",
                 "CMUX_SOCKET_PATH": socket, "CMUX_CLI_SENTRY_DISABLED": "1", "SHELL": "/bin/sh"
