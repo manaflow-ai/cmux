@@ -595,7 +595,7 @@ def test_standalone_routes_preserve_missing_empty_and_owned_diffs() -> None:
             output = root / "output.txt"
             subprocess.run(["bash", "-c", script], check=True, capture_output=True,
                            env={**os.environ, "CHANGED_FILES": str(changed), "GITHUB_OUTPUT": str(output)})
-            assert output.read_text().splitlines() == [f"browser={browser}", f"remote_daemon={daemon}"]
+            assert output.read_text().splitlines() == [f"browser={browser}", f"remote_daemon={daemon}", f"remote_daemon_native={daemon}"]
 
 
 def test_publishing_changes_keep_daemon_linux_checks_without_native_rerun() -> None:
@@ -642,7 +642,7 @@ def test_diff_failure_does_not_look_like_a_known_empty_standalone_diff() -> None
         subprocess.run(["bash", "-c", detector], env=env, capture_output=True, check=True)
         assert not changed.exists(), "failed git diff must not leave its truncated output behind"
         subprocess.run(["bash", "-c", route], env=env, capture_output=True, check=True)
-        assert output.read_text().splitlines()[-2:] == ["browser=true", "remote_daemon=true"]
+        assert output.read_text().splitlines()[-3:] == ["browser=true", "remote_daemon=true", "remote_daemon_native=true"]
 
 
 def test_remote_daemon_rejects_stale_heads_before_allocating_macos() -> None:
