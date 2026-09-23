@@ -6918,7 +6918,9 @@ mod tests {
         session.handle_line(json!({"event": "detached", "surface": 7, "retained": true}));
         let retained = session.surface(7).expect("final output must stay visible");
         assert!(Arc::ptr_eq(&retained, &surface));
-        assert!(retained.term.lock().unwrap().plain_text().unwrap().contains("finished-agent-output"));
+        assert!(
+            retained.term.lock().unwrap().plain_text().unwrap().contains("finished-agent-output")
+        );
         assert!(session.surface_is_exited(7));
         session.handle_line(json!({"event": "surface-exited", "surface": 7}));
         assert!(session.surface(7).is_none(), "explicit removal must still retire the view");
