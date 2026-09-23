@@ -1326,6 +1326,14 @@ check_persistent_compile_lane() {
 
 # Print a job's CMUX_CI_XCODE_APP / CMUX_CI_REQUIRED_MACOS_SDK_MAJOR pins, so the
 # owned Mac and the hosted job that revalidates its product can be compared.
+#
+# The hosted job routes its pin through the pull-request lane, so its value is a
+# `github.event_name == 'pull_request' && (PR) || (default)` conditional while
+# the dispatch-only producer names the pull-request branch directly. Only the
+# owned Mac's products are ever consumed on a pull request, so both sides are
+# reduced to that branch before comparison: the check stays a real equality of
+# the toolchain the producer builds with and the one admission revalidates, and
+# a lane edit that moved only one of them would still fail here.
 persistent_compile_toolchain_pin() {
   local file="$1" job="$2"
   awk -v want="  ${job}:" '
@@ -1338,7 +1346,17 @@ persistent_compile_toolchain_pin() {
       sub(/^      /, "", line)
       print line
     }
-  ' "$file" | sort
+  ' "$file" | python3 -c '
+import re
+import sys
+
+PR_LANE = re.compile(
+    r"\$\{\{\s*github\.event_name == .pull_request.\s*&&\s*\((?P<pr>.+?)\)\s*\|\|.+?\}\}"
+)
+
+for line in sys.stdin:
+    sys.stdout.write(PR_LANE.sub(lambda m: "${{ " + m.group("pr").strip() + " }}", line))
+' | sort
 }
 
 check_persistent_compile_owned_mac_occupancy() {

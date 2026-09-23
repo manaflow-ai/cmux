@@ -32,6 +32,8 @@ gh variable list --repo manaflow-ai/cmux
 | `MACOS_RUNNER_DISPLAY` | macOS GUI, XCUITest, and virtual-display tests (`tests-build-and-lag`) | `blacksmith-6vcpu-macos-15` | `blacksmith-6vcpu-macos-15` |
 | `MACOS_RUNNER_IOS` | iOS simulator tests + TestFlight upload (`test-ios.yml`, `ios-testflight.yml`) | `blacksmith-6vcpu-macos-26` | `blacksmith-6vcpu-macos-26` |
 | `MACOS_RUNNER_STREAMED_VALIDATION` | `ios-streamed-validate.yml`, `iroh-release-gate.yml` streamed validation | `blacksmith-6vcpu-macos-15` | `blacksmith-6vcpu-macos-26` and `blacksmith-6vcpu-macos-15` respectively |
+| `CMUX_CI_XCODE_APP_PR` | the Xcode pin for the same **pull-request** macOS jobs that read `MACOS_RUNNER_PR` | unset (see "Lanes" below) | `CMUX_CI_XCODE_APP_MACOS_15` |
+| `CMUX_CI_HELPER_XCODE_APP_PR` | the SDK 15 release-helper Xcode pin in `swift-package-tests` on pull requests | unset | `CMUX_CI_HELPER_XCODE_APP_MACOS_15` |
 | `MACOS_RUNNER_BACKGROUND` | non-urgent macOS work only: `build-ghosttykit`, the macOS legs of `cmux-tui-artifacts` (post-merge) and `cmux-tui-nightly` (on demand). See "Background lane" below | unset | `macos-15` (GitHub-hosted, free) |
 
 ## Lanes
@@ -49,6 +51,35 @@ the same cost profile or the same urgency.
 - **Manual test debugging** (`test-e2e.yml`, `test-depot.yml`) resolves through
   `MACOS_RUNNER_TESTS`, and deliberately does **not** follow `MACOS_RUNNER_15`.
   Re-running one test to chase a flake should never reach for paid capacity.
+
+`MACOS_RUNNER_PR` does not move a lane on its own. The two images carry
+different Xcodes -- the `macos-15` image ships `/Applications/Xcode_26.3.app`
+and the `macos-26` image ships `/Applications/Xcode_26.5.app` -- and
+`scripts/select-ci-xcode.sh` exits non-zero on a pinned path that is not
+installed. A pull-request job whose pool moved to `macos-26` while its pin
+still named the `macos-15` Xcode would fail at Xcode selection rather than
+queue. So the pin follows the same lane through `CMUX_CI_XCODE_APP_PR`
+(and `CMUX_CI_HELPER_XCODE_APP_PR` for the `swift-package-tests` release
+helper), and the two are set together:
+
+```bash
+gh variable set MACOS_RUNNER_PR --repo manaflow-ai/cmux -b blacksmith-6vcpu-macos-26
+gh variable set CMUX_CI_XCODE_APP_PR --repo manaflow-ai/cmux -b /Applications/Xcode_26.5.app
+```
+
+Unsetting both returns the lane to `blacksmith-6vcpu-macos-15` and Xcode 26.3.
+`test_macos_jobs_use_lane_specific_xcode_pin_vars` in
+`tests/test_ci_change_areas.py` keeps the pin on the same escape hatch as the
+pool.
+
+The dispatch-only owned-Mac producer in `persistent-macos-compile.yml` reads
+`CMUX_CI_XCODE_APP_PR` directly, because only pull-request jobs consume its
+products and hosted revalidation rejects a toolchain mismatch. Before enabling
+`CI_PERSISTENT_MAC_COMPILE`, the owned Mac has to carry whatever Xcode the
+pull-request lane currently pins;
+`check_persistent_compile_owned_mac_occupancy` in
+`tests/test_ci_self_hosted_guard.sh` compares the two pins after reducing both
+to their pull-request branch.
   Both fallbacks stay on Blacksmith for that reason; `test-e2e.yml` falls back
   to macOS 26 because the macOS 15 pool's queue-to-start p90 was 83 min against
   1.0 min on 26, measured over 60 dispatches on 2026-09-22/23.
