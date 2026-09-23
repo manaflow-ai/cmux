@@ -104,6 +104,19 @@ extension AppDelegate {
         ]
         for (action, direction) in paneResizeActions {
             guard matchConfiguredShortcut(event: event, action: action) else { continue }
+            let handledByDock: Bool = switch action {
+            case .resizePaneLeft:
+                performFocusedDockShortcut(.resizePane(.left), action: .resizePaneLeft, event: event)
+            case .resizePaneRight:
+                performFocusedDockShortcut(.resizePane(.right), action: .resizePaneRight, event: event)
+            case .resizePaneUp:
+                performFocusedDockShortcut(.resizePane(.up), action: .resizePaneUp, event: event)
+            case .resizePaneDown:
+                performFocusedDockShortcut(.resizePane(.down), action: .resizePaneDown, event: event)
+            default:
+                false
+            }
+            if handledByDock { return true }
             _ = performResizePaneShortcut(
                 direction: direction,
                 preferredWindow: event.window ?? shortcutRoutingActiveWindow

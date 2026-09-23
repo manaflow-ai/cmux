@@ -41,9 +41,13 @@ extension CMUXCLI {
 
     func resolvedSSHConfigurationResult(
         for options: SSHCommandOptions,
-        timeout: TimeInterval = 2
+        timeout: TimeInterval = 2,
+        configurationFile: String? = nil
     ) -> CLIProcessResult {
         var arguments = ["-G"]
+        if let configurationFile {
+            arguments += ["-F", configurationFile]
+        }
         if let port = options.port {
             arguments += ["-p", String(port)]
         }

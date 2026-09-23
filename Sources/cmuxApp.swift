@@ -184,19 +184,25 @@ struct cmuxApp: App {
         // Reconcile saved language preference before any UI loads
         LanguageSettingsStore(defaults: .standard).reconcileLanguageOverrideAtLaunch()
         StartupBreadcrumbLog.append("app.init.language.applied")
+        let devices = MacDevicesComposition(defaults: .standard, catalog: settingsCatalog)
+        let devicesRegistry = devices.registry
+        let computersService = devices.computers
         self.settingsRuntime = SettingsRuntime(
             catalog: settingsCatalog,
-            userDefaultsStore: UserDefaultsSettingsStore(
-                defaults: .standard,
-                migrating: settingsCatalog.all
-            ),
+            userDefaultsStore: devices.defaultsStore,
             jsonStore: JSONConfigStore(fileURL: configFileURL),
             secretStore: secretStore,
             errorLog: SettingsErrorLog(),
             accountFlow: authComposition.accountFlow,
             hostActions: HostSettingsActions(
                 configFileURL: configFileURL,
-                computerUseRuntimeService: computerUseRuntimeService
+                computerUseRuntimeService: computerUseRuntimeService,
+                computersActions: devices.settingsActions,
+                runComputerUseOnboardingAction: { startingPoint in
+                    AppDelegate.shared?.computerUseUXCoordinator.presentOnboardingFromSettings(
+                        startingAt: startingPoint
+                    )
+                }
             ),
             shortcutDefaultResolver: Self.makeShortcutDefaultResolver()
         )
@@ -206,6 +212,7 @@ struct cmuxApp: App {
         Self.applyAppearance(startupAppearance, duringLaunch: true)
         StartupBreadcrumbLog.append("app.init.appearance.applied", fields: ["mode": startupAppearance.rawValue])
         let defaults = UserDefaults.standard
+        TerminalController.shared.prepareControlHandleRegistryForLaunch(defaults: defaults)
         let workspaceCustomizationStore = WorkspaceCustomizationStore(
             defaults: defaults
         )
@@ -306,7 +313,9 @@ struct cmuxApp: App {
             cloudWorkspaceOperationController: cloudWorkspaceOperationController,
             newMachineSheetPresenter: NewMachineSheetPresenter.shared,
             automationEngine: automationEngine,
-            computerUseRuntimeService: computerUseRuntimeService
+            computerUseRuntimeService: computerUseRuntimeService,
+            devicesRegistry: devicesRegistry,
+            computersService: computersService
         )
         historyMenuCoordinator.refreshIfNeeded()
         StartupBreadcrumbLog.append("app.init.delegate.configured")
@@ -1045,7 +1054,7 @@ struct cmuxApp: App {
                 .cmuxAppearanceColorScheme(appearanceMode)
         }
     }
-
+    /// Presents window navigation and stateful View commands for the focused content.
     @CommandsBuilder
     private var windowAndViewCommands: some Commands {
         CommandGroup(after: .windowArrangement) {
@@ -1151,7 +1160,7 @@ struct cmuxApp: App {
                     _ = activeTabManager.resetZoomFocusedBrowserOrTextFilePreview()
                 }
             }
-
+            FilePreviewWordWrapMenu(shortcut: menuShortcut(for: .toggleFileEditorWordWrap), target: { appDelegate.shortcutFocusedSavingTextView(in: NSApp.keyWindow ?? NSApp.mainWindow) })
             Button(String(localized: "menu.view.clearBrowserHistory", defaultValue: "Clear Browser History")) {
                 BrowserHistoryStore.shared.clearHistory()
             }
