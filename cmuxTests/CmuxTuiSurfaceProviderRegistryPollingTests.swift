@@ -146,9 +146,9 @@ struct CmuxTuiSurfaceProviderRegistryPollingTests {
             notificationCenter: NotificationCenter()
         )
         registry.start(catalog: SurfaceCatalog())
-        #expect(await received(enrollmentStarted))
         #expect(await received(listStarted))
         releaseList.resolve(true)
+        #expect(await received(enrollmentStarted))
         await registry.accessDidEnd()
     }
 
