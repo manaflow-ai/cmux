@@ -214,24 +214,11 @@ GUARD_HOSTED_TRIGGER = {
 }.freeze
 GUARD_WORKFLOW_NAME = "CLA policy guard"
 GUARD_TIMEOUT_MINUTES = 10
-# The only condition the guard job may carry. An `edited` event fires for a
-# title, body or base change, and only a base change moves the revision pair
-# (`base.sha`, `head.sha`) that the guard reads, so a title or body edit can
-# only reproduce the verdict already published for that head. Review bots write
-# their summaries into the pull-request body, which is what makes those events
-# frequent.
-#
-# The expression is pinned as an exact string rather than admitted as a general
-# `if:`. A free-form condition on this job would be an opt-out of the guard
-# itself: anything that evaluates false skips the control plane. Pinning keeps
-# exactly one skippable case, the one reviewed here. A retarget is still
-# checked, because `changes.base` carries the previous ref and sha, and every
-# non-`edited` action keeps the condition true.
-GUARD_VALIDATE_IF = [
-  "github.event.action != 'edited'",
-  "github.event.changes.base.ref.from != ''",
-  "github.event.changes.base.sha.from != ''"
-].join(" || ").freeze
+# Metadata-only skips must never publish a successful skipped required check.
+# Admit the condition and alternate name only as one exact reviewed contract.
+GUARD_METADATA_ONLY = "github.event_name == 'pull_request_target' && github.event.action == 'edited' && !github.event.changes.base && (github.event.changes.body || github.event.changes.title)".freeze
+GUARD_VALIDATE_IF = "${{ !(github.event_name == 'pull_request_target' && github.event.action == 'edited' && !github.event.changes.base && (github.event.changes.body || github.event.changes.title)) }}".freeze
+GUARD_VALIDATE_NAME = "${{ github.event_name == 'pull_request_target' && github.event.action == 'edited' && !github.event.changes.base && (github.event.changes.body || github.event.changes.title) && 'CLA policy guard metadata (ignored)' || 'CLA policy guard' }}".freeze
 GUARD_VERIFY_ENV = {
   "WORKFLOW_SHA" => "${{ github.workflow_sha }}"
 }.freeze
@@ -1179,13 +1166,14 @@ def assert_exact_secret_paths(document, allowed_paths: ALLOWED_SECRET_PATHS)
   fail!("workflow token references are not the reviewed contract") unless actual == expected
 end
 
-def assert_safe_expression_fields(document, name, allowed_secret_paths: ALLOWED_SECRET_PATHS)
+def assert_safe_expression_fields(document, name, allowed_secret_paths: ALLOWED_SECRET_PATHS, reviewed_guard_name: false)
   walk_paths(document) do |path, value|
     next unless value.is_a?(String) && value.match?(EXPRESSION_MARKER)
 
     joined_path = path.map(&:to_s).join(".")
     fail!("#{name} has an expression in an unreviewed field") unless
-      ALLOWED_EXPRESSION_PATHS.any? { |pattern| joined_path.match?(pattern) }
+      ALLOWED_EXPRESSION_PATHS.any? { |pattern| joined_path.match?(pattern) } ||
+      (reviewed_guard_name && joined_path == "jobs.validate.name" && value == GUARD_VALIDATE_NAME)
     if value.match?(GITHUB_CONTEXT_EXPRESSION) && value.match?(GITHUB_TOKEN_EXPRESSION_PATTERN)
       fail!("#{name} may not reference the GitHub token or serialized context")
     end
@@ -2323,17 +2311,18 @@ def validate_guard_workflow(raw, authorize: true, pr_author_id: nil)
   fail!("guard workflow has an unexpected job") unless jobs.keys == ["validate"]
   guard_job = document.dig("jobs", "validate")
   fail!("guard workflow validate job is missing") unless guard_job.is_a?(Hash)
-  # The condition is optional so that the guard workflow validates both with
-  # and without it. When it is present it must be exactly GUARD_VALIDATE_IF;
-  # any other expression is a way to switch the guard off.
   guard_job_keys = %w[name runs-on timeout-minutes permissions steps]
   guard_job_keys += ["if"] if guard_job.key?("if")
   assert_exact_keys(guard_job, guard_job_keys, "guard workflow validate job")
-  if guard_job.key?("if")
-    fail!("guard workflow validate condition is not the reviewed expression") unless
-      guard_job["if"].to_s.gsub(/\s+/, " ").strip == GUARD_VALIDATE_IF
-  end
   assert_string(guard_job["name"], "guard workflow validate job name")
+  if guard_job.key?("if")
+    fail!("guard workflow validate condition/name is not the reviewed pair") unless
+      guard_job["if"].to_s.gsub(/\s+/, " ").strip == GUARD_VALIDATE_IF &&
+      guard_job["name"] == GUARD_VALIDATE_NAME
+  else
+    fail!("unconditional guard must report the required check name") unless
+      guard_job["name"] == GUARD_WORKFLOW_NAME
+  end
   assert_positive_integer(guard_job["timeout-minutes"], "guard workflow validate timeout")
   fail!("guard workflow validate timeout is not the reviewed value") unless
     guard_job["timeout-minutes"] == GUARD_TIMEOUT_MINUTES
@@ -2373,7 +2362,7 @@ def validate_guard_workflow(raw, authorize: true, pr_author_id: nil)
     "guard validation step run"
   )
   assert_exact_secret_paths(document, allowed_paths: layout[:allowed_secret_paths])
-  assert_safe_expression_fields(document, "guard workflow", allowed_secret_paths: layout[:allowed_secret_paths])
+  assert_safe_expression_fields(document, "guard workflow", allowed_secret_paths: layout[:allowed_secret_paths], reviewed_guard_name: true)
   assert_safe_run_values(document)
   uses = []
   walk(document) { |key, value| uses << value if key == "uses" && value.is_a?(String) }
