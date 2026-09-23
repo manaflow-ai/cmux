@@ -2027,8 +2027,13 @@ extension Workspace {
             // that id (duplicate-workspace / restore-into-live can collide);
             // otherwise fall back to a fresh id and let the old->new remap
             // handle it, exactly as before.
-            let reusableSurfaceId: UUID? =
-                GhosttyApp.terminalSurfaceRegistry.surface(id: snapshot.id) == nil ? snapshot.id : nil
+            // A colliding restore must still present a restore identity: since
+            // #13098, `newTerminalSurfaceOutcome` treats a nil `restoredSurfaceId`
+            // as an interactive create and routes it to the selected pane's Cloud
+            // source, which replaces a legacy managed-Cloud SSH attach with a
+            // remote tab create. A fresh id is free by construction.
+            let reusableSurfaceId: UUID =
+                GhosttyApp.terminalSurfaceRegistry.surface(id: snapshot.id) == nil ? snapshot.id : UUID()
             guard let terminalPanel = newTerminalSurface(
                 inPane: paneId,
                 focus: false,
