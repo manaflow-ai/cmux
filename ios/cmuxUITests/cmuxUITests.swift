@@ -1922,6 +1922,14 @@ final class cmuxUITests: XCTestCase {
 
         func picker() throws -> XCUIElement {
             waitForWorkspaceShell(in: app)
+            let whatsNewContinue = app.buttons["MobileWhatsNewSheet"].firstMatch
+            if whatsNewContinue.waitForExistence(timeout: 4) {
+                whatsNewContinue.tap()
+                _ = try XCTUnwrap(
+                    whatsNewContinue.waitForNonExistence(timeout: 5) ? true : nil,
+                    "Finish the launch sheet before using the picker behind it"
+                )
+            }
             let back = app.buttons["MobileWorkspaceBackButton"]
             if back.exists { tap(back, in: app) }
             let picker = app.buttons["MobileWorkspaceMacPicker"]
@@ -1952,16 +1960,7 @@ final class cmuxUITests: XCTestCase {
 
         func openPicker() throws {
             let control = try picker()
-            let before = XCTAttachment(string: app.debugDescription)
-            before.name = "computer-picker-before-native-tap"
-            before.lifetime = .keepAlways
-            add(before)
             control.tap()
-            let after = XCTAttachment(string: app.debugDescription)
-            after.name = "computer-picker-after-native-tap"
-            after.lifetime = .keepAlways
-            add(after)
-            capture("computer-picker-menu")
         }
 
         // Start through the real picker, without seeding its saved preference.
