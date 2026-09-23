@@ -10,6 +10,9 @@ the worst case, not a hypothetical one. See #13812.
 """
 
 from pathlib import Path
+import os
+import subprocess
+from tempfile import TemporaryDirectory
 
 import yaml
 
@@ -83,10 +86,30 @@ def test_the_report_step_never_fails_the_job() -> None:
             if isinstance(step, dict) and step.get("name") == REPORT_STEP
         )
         run = report.get("run", "")
-        # Annotations, not a non-zero exit: a warning is visible without
-        # turning a diagnostics hiccup into a red required check.
-        assert "::warning" in run
-        assert "exit 1" not in run
+        for outcome in ("failure", "skipped", "", "success", "cancelled"):
+            with TemporaryDirectory() as directory:
+                summary = Path(directory) / "summary.md"
+                result = subprocess.run(
+                    ["bash", "-euo", "pipefail", "-c", run],
+                    env={
+                        **os.environ,
+                        "EVIDENCE_OUTCOMES": f"test-evidence={outcome}",
+                        "GITHUB_STEP_SUMMARY": str(summary),
+                    },
+                    capture_output=True,
+                    text=True,
+                    timeout=10,
+                )
+                assert result.returncode == 0, (job_id, outcome, result.stderr)
+                assert not result.stderr, (job_id, outcome, result.stderr)
+                if outcome == "failure":
+                    assert "::warning title=Evidence not captured::test-evidence failed" in result.stdout
+                else:
+                    assert not result.stdout, (job_id, outcome, result.stdout)
+                if outcome in ("skipped", ""):
+                    assert not summary.exists(), (job_id, outcome)
+                else:
+                    assert f"- test-evidence: `{outcome}`" in summary.read_text()
 
 
 if __name__ == "__main__":
