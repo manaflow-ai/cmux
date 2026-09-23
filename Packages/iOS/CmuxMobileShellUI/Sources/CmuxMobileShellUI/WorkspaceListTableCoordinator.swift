@@ -174,6 +174,15 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDataSource,
     private func reconcile(in tableView: UITableView) {
         #if DEBUG
         reconcilesSinceFrame += 1
+        let startedAt = CACurrentMediaTime()
+        defer {
+            let milliseconds = (CACurrentMediaTime() - startedAt) * 1000
+            if milliseconds > 2 {
+                MobileDebugLog.anchormux(
+                    "workspace-list.reconcile-slow ms=\(String(format: "%.1f", milliseconds)) rows=\(renderedItems.count) scrolling=\(tableView.isDragging || tableView.isDecelerating)"
+                )
+            }
+        }
         #endif
         let target = targetRows(in: tableView)
         let plan = WorkspaceListUpdatePlan(
@@ -826,6 +835,8 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDataSource,
             lastDecelerationFrameTime = nil
         }
         guard !isCommittingGeometry,
+              scrollView.refreshControl?.isRefreshing != true,
+              offsetY >= -scrollView.adjustedContentInset.top,
               !scrollView.isTracking,
               !scrollView.isDragging,
               !scrollView.isDecelerating,
