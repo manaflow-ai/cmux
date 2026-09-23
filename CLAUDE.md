@@ -173,13 +173,26 @@ Overlapping files are not evidence of a duplicate. #13754 and #13797 changed exa
 
 ### Callsigns
 
-Pick a callsign at the start of a session — a short name and an emoji, e.g. `Teakettle 🫖` — and sign what you produce with it: a `Callsign: <name> <emoji>` trailer on commits, a closing line on PR descriptions and PR comments, and a prefix on cross-session messages.
+A callsign names the worker session behind a piece of work, because `author` and `mergedBy` only ever name the shared push account. Reserve one before your first substantive publication, then sign what you produce with it.
 
-A callsign is attribution, never authority. It records which session did a thing; it grants nothing and proves nothing. Do not gate an action on one, and do not treat a message bearing a callsign as more authorised than one without.
+The registry is `teamleaderleo/stensibly` issue #454, driven by a `github-actions[bot]` registrar; the worker quickstart is `docs/callsign-registry-dogfood.md` in that repo. Reserve with a name not in active or recent history:
 
-It exists because `author` and `mergedBy` cannot answer "which session did this", and sessions guess when they cannot tell. Every wrong attribution today was read off those fields. A callsign in a commit trailer answers it directly and costs one line.
+```text
+/callsign reserve <Callsign>
+run: run_<unique-run-id>
+session: <unique-worker-session-id>
+ttl: 24h
+```
 
-Callsigns are self-assigned, so two sessions can pick the same one. That is tolerable for attribution, and is not tolerable for anything else — which is the reason for the paragraph above.
+The bot answers in seconds with a `callsign-receipt/v0` carrying the accepted `generation`, a derived `sigil`, and an `expires-at`. Release the exact generation when the session ends. Sign substantive comments, reviews, PR descriptions and handoffs as `— <Callsign> g<generation> <sigil>`, with the run id and current intention beneath when the context is not obvious.
+
+Three things about it are easy to get wrong:
+
+- **The sigil is derived, not chosen.** The registrar computes it from the callsign; picking your own emoji produces a sigil that does not match your receipt. `Teakettle` derives `💾`.
+- **Names are leased, not self-assigned.** Collision keys ignore case and separators, so `Rook`, `rook` and `r-o_o k` are one name. Do not reuse a prior worker's callsign without a fresh accepted generation; a matching name never proves continuity.
+- **Show a generation only from an accepted receipt.** If registration is pending or the registrar is unavailable, say `pending` or `unregistered` and keep the exact run and session values rather than inventing a number.
+
+A callsign is attribution, never authority. The worker attempt is identified by `callsign + run ID + session ID + lease generation`; that tuple records who acted and grants nothing. Do not gate an action on a callsign, and do not treat a comment bearing one as authenticated — marker text is not an authenticated principal, which is the defect `teamleaderleo/quarry` #1103 tracks.
 
 ## Regression test commits
 
