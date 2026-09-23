@@ -24,6 +24,8 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
         with:
           persist-credentials: false
+      - name: Select Xcode
+        run: ./scripts/select-ci-xcode.sh
       - name: Exercise shared refresh transport and deadlines without credentials
         run: swift test --package-path vendor/stack-auth-swift-sdk-prerelease --filter 'RefreshLifecycleTests|RefreshDeadlineTests|RefreshTransportTimingTests|RateLimitRetryTests'
       - name: Exercise coordinator cancellation, sessions, and recovery

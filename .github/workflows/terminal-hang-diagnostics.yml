@@ -17,6 +17,8 @@ on:
       - tests/run_terminal_portal_reconciliation_tests.sh
       # both macOS jobs
       - scripts/select-ci-xcode.sh
+      - scripts/ci/xcode-pins.txt
+      - .xcode-version
       # release-gate
       - scripts/terminal-hang-release-gate.py
       - tests/test_terminal_hang_release_gate.py

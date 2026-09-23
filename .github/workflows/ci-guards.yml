@@ -67,6 +67,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_repo_variable_defaults.py
 
+      - name: Validate macOS jobs select a pinned Xcode
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_macos_xcode_selection.py
+
       - name: Validate quality guard structure
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_quality_guard_structure.py
