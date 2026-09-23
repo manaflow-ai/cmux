@@ -1911,12 +1911,14 @@ final class cmuxUITests: XCTestCase {
 
     @MainActor
     func testComputerPickerSelectionSurvivesAppRelaunch() async throws {
-        let server = try MobileSyncMockHostServer()
+        let server = try MobileSyncMockHostServer(macAppVersion: "0.64.25")
         let port = try await server.start()
         defer { server.stop() }
 
         let app = launchApp(mockData: true, environment: [
             "CMUX_UITEST_ATTACH_URL": try attachURL(port: port).absoluteString,
+        ], launchArguments: [
+            "-dev.cmux.mobile.connectionMethod.v1", "tailscale",
         ])
         defer { app.terminate() }
 
@@ -10706,6 +10708,7 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
     private let taskModelsByProvider: [String: [(id: String, displayName: String)]]
     private let holdsTaskModelResponse: Bool
     private let macInstanceTag: String
+    private let macAppVersion: String
     private var readyContinuation: CheckedContinuation<UInt16, Error>?
     private var connections: [NWConnection] = []
     private var selectedWorkspaceID = "workspace-main"
@@ -10793,7 +10796,8 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
         advertisesCaffeineControl: Bool = false,
         taskModelsByProvider: [String: [(id: String, displayName: String)]] = [:],
         holdsTaskModelResponse: Bool = false,
-        macInstanceTag: String = mockHostInstanceTag()
+        macInstanceTag: String = mockHostInstanceTag(),
+        macAppVersion: String = "0.64.23"
     ) throws {
         listener = try NWListener(using: .tcp, on: .any)
         self.createdWorkspaceTerminalDelay = createdWorkspaceTerminalDelay
@@ -10808,6 +10812,7 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
         self.taskModelsByProvider = taskModelsByProvider
         self.holdsTaskModelResponse = holdsTaskModelResponse
         self.macInstanceTag = macInstanceTag
+        self.macAppVersion = macAppVersion
         appendMainTerminals(count: additionalMainTerminalCount)
         // Optionally replace the selected terminal's content (used by the
         // color-band render test so the bands stream on attach without a flaky
@@ -11433,7 +11438,7 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
             "mac_client_namespace": macInstanceTag == "dev"
                 ? "mac:com.cmuxterm.app.debug"
                 : "mac:com.cmuxterm.app.debug.\(macInstanceTag)",
-            "mac_app_version": "0.64.23",
+            "mac_app_version": macAppVersion,
             "routes": [],
             "terminal_fidelity": "render_grid",
             "capabilities": capabilities,
