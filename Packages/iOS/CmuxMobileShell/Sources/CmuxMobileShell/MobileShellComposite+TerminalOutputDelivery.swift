@@ -396,6 +396,8 @@ extension MobileShellComposite {
         recordTerminalRenderGridHistoryContinuity(renderGrid)
         if renderGrid.full, renderGrid.scrollbackRows > 0 {
             terminalMirrorHydrationNeededSurfaceIDs.remove(renderGrid.surfaceID)
+            // Content landed: close any open blank report for this surface.
+            evaluateTerminalBlankSurfaceWatchdog(surfaceID: renderGrid.surfaceID)
         }
         #if DEBUG
         MobileLatencyTrace.stamp(

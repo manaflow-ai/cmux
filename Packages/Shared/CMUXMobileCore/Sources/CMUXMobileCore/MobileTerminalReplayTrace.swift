@@ -42,6 +42,12 @@ public enum MobileTerminalReplayTrigger: Int, Sendable, Codable, CaseIterable {
     case missingBaseline = 15
     /// A gap in the byte stream needs an authoritative screen to verify it.
     case byteGap = 16
+    /// The replay retry budget for this surface ran out, so nothing is left
+    /// asking the Mac for content.
+    case retryExhausted = 17
+    /// A stuck replay barrier was failed open. Live output resumes, but a
+    /// surface rebuilt blank stays blank until output happens to arrive.
+    case barrierFailedOpen = 18
 }
 
 /// Categorical context recorded alongside one replay trace.

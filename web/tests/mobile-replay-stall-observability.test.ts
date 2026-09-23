@@ -68,6 +68,18 @@ describe("terminal replay stall telemetry", () => {
     expect(parsed?.terminalPhase).toBe("hostCaptureFinished");
   });
 
+  test("accepts a blank surface that nothing is repairing", () => {
+    const blank = parseMobileNetworkOutcome(
+      stall({ operation: "blankSurface", replay_trigger: "retryExhausted" }),
+    );
+    expect(blank?.operation).toBe("blankSurface");
+    expect(blank?.replayTrigger).toBe("retryExhausted");
+    expect(blank?.surfaceBlank).toBe(true);
+    expect(
+      parseMobileNetworkOutcome(stall({ replay_trigger: "barrierFailedOpen" }))?.replayTrigger,
+    ).toBe("barrierFailedOpen");
+  });
+
   test("still requires trace id and operation on every terminal trace", () => {
     expect(parseMobileNetworkOutcome(stall({ trace_id: undefined }))).toBeNull();
     expect(parseMobileNetworkOutcome(stall({ operation: undefined }))).toBeNull();

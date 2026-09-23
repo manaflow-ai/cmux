@@ -431,6 +431,7 @@ const replayTriggers = new Set([
   "revisionChainBreak", "historyChainBreak", "coldAttach", "failureRetry",
   "droppedFrame", "applyFenceFailure", "pendingInputDrop", "resubscribe",
   "screenTransition", "missingBaseline", "byteGap",
+  "retryExhausted", "barrierFailedOpen",
 ]);
 
 function validTimestamp(value: unknown): value is string {
@@ -546,7 +547,7 @@ function parseMetadata(properties: Record<string, unknown>): Metadata | null {
   const osVersion = optionalMachineString(properties.os_version);
   const deviceModel = optionalMachineString(properties.device_model, true);
   const traceId = optionalTraceID(properties.trace_id);
-  const operation = optionalSetValue(properties.operation, new Set(["replay", "artifactScan", "artifactList", "model_list"]));
+  const operation = optionalSetValue(properties.operation, new Set(["replay", "artifactScan", "artifactList", "blankSurface", "model_list"]));
   const terminalPhase = optionalSetValue(properties.terminal_phase, new Set([
     "applied", "failed", "discarded", "hostCaptureFinished", "stalled",
   ]));

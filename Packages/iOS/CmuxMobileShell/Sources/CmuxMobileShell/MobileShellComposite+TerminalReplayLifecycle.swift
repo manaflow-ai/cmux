@@ -366,6 +366,10 @@ extension MobileShellComposite {
         terminalRenderGridBaselineReplayBarrierTokensBySurfaceID.removeValue(forKey: surfaceID)
         terminalReplayBarrierTokensInFlightBySurfaceID.removeValue(forKey: surfaceID)
         restoreTerminalPreBarrierBaselineIfNeeded(surfaceID: surfaceID)
+        // The barrier is down and live output flows again, but nothing
+        // repaints a surface that was rebuilt blank. On an idle terminal that
+        // is a permanent blank, and it is exactly the state no telemetry saw.
+        recordTerminalSurfaceGaveUp(surfaceID: surfaceID, trigger: .barrierFailedOpen)
         cancelTerminalInputAckResubscribeRetry(surfaceID: surfaceID)
         pendingTerminalByteEndSeqBySurfaceID.removeValue(forKey: surfaceID)
         pendingTerminalInputDroppedRenderGridSurfaceIDs.remove(surfaceID)
@@ -463,6 +467,7 @@ extension MobileShellComposite {
     func clearTerminalReplayInFlightIfCurrent(surfaceID: String, requestID: UUID) {
         guard terminalReplayRequestIDsInFlightBySurfaceID[surfaceID] == requestID else { return }
         cancelTerminalReplayStallProbe(surfaceID: surfaceID)
+        defer { evaluateTerminalBlankSurfaceWatchdog(surfaceID: surfaceID) }
         terminalReplaySurfaceIDsInFlight.remove(surfaceID)
         terminalReplayRequestIDsInFlightBySurfaceID.removeValue(forKey: surfaceID)
         terminalReplayTasksBySurfaceID.removeValue(forKey: surfaceID)
@@ -479,6 +484,7 @@ extension MobileShellComposite {
 
     func cancelAllTerminalReplayTasks() {
         cancelAllTerminalReplayStallProbes()
+        cancelAllTerminalBlankSurfaceWatchdogs()
         for task in terminalReplayTasksBySurfaceID.values {
             task.cancel()
         }

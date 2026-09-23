@@ -1589,6 +1589,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     var terminalReplaySurfaceIDsInFlight: Set<String>
     var terminalReplayRequestIDsInFlightBySurfaceID: [String: UUID]
     var terminalReplayTasksBySurfaceID: [String: Task<Void, Never>]
+    /// Telemetry-only reports for a surface left blank with nothing repairing it.
+    var terminalBlankSurfaceWatchdogTasksBySurfaceID: [String: Task<Void, Never>]
+    var terminalBlankSurfaceWatchdogTraceIDsBySurfaceID: [String: DiagnosticTerminalTraceID]
+    var terminalBlankSurfaceWatchdogStartedAtBySurfaceID: [String: Date]
+    var terminalBlankSurfaceWatchdogContextsBySurfaceID: [String: MobileTerminalReplayTraceContext]
+    /// Why each surface most recently stopped asking for content.
+    var terminalSurfaceGaveUpTriggersBySurfaceID: [String: MobileTerminalReplayTrigger]
     /// Telemetry-only probes that stamp an outstanding replay as stalled.
     var terminalReplayStallProbeTasksBySurfaceID: [String: Task<Void, Never>]
     var terminalReplayBarrierWatchdogTasksBySurfaceID: [String: Task<Void, Never>]
@@ -2015,6 +2022,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         self.terminalReplaySurfaceIDsInFlight = []
         self.terminalReplayRequestIDsInFlightBySurfaceID = [:]
         self.terminalReplayTasksBySurfaceID = [:]
+        self.terminalBlankSurfaceWatchdogTasksBySurfaceID = [:]
+        self.terminalBlankSurfaceWatchdogTraceIDsBySurfaceID = [:]
+        self.terminalBlankSurfaceWatchdogStartedAtBySurfaceID = [:]
+        self.terminalBlankSurfaceWatchdogContextsBySurfaceID = [:]
+        self.terminalSurfaceGaveUpTriggersBySurfaceID = [:]
         self.terminalReplayStallProbeTasksBySurfaceID = [:]
         self.terminalReplayBarrierWatchdogTasksBySurfaceID = [:]
         self.terminalReplayBarrierWatchdogIDsBySurfaceID = [:]
