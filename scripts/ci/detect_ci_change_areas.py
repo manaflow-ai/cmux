@@ -106,6 +106,8 @@ CI_MACOS_ADMISSION_CONTROL_INPUTS = frozenset({
 
 CI_MACOS_TEST_PRODUCT_INPUTS = frozenset({
     "scripts/ci/app_host_test_products.py",
+    "scripts/ci/app_host_layer_transport.py",
+    "scripts/ci/parallel_artifact_download.py",
     "scripts/ci/compile-app-host-test-product.sh",
     "scripts/ci/product_input_identity.py",
     "scripts/ci/peer_product_source.py",
@@ -1106,6 +1108,10 @@ def classify_files(paths: Iterable[str], *, ci_workflow_linux_only: bool = False
     for raw_path in paths:
         path = normalize_path(raw_path)
         if not path:
+            continue
+        if path in {"Resources/bin/cmux-claude-wrapper", "tests/test_claude_wrapper_hooks.py"}:
+            # The independent macos-claude-wrapper lane executes the wrapper
+            # with fake clients and a Unix socket; it does not need app bytes.
             continue
         if path == "tests/test-execution.toml":
             # The guard workflow references this registry too, but native

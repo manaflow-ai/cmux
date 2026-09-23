@@ -751,14 +751,42 @@ import Testing
             "sizing inputs drifted during the perturbation — this run judged an input change, not the liveness hole"
         )
 
+        // The re-arm budget is bounded per input fixed point, so a failure
+        // reading `rearms=3` is ambiguous: either the recovery passes ran and
+        // failed to impose, or the budget was already spent before the
+        // perturbation and no recovery pass ran at all. Bracket the recovery
+        // window with the DEBUG pass/re-arm counters so the CI message names
+        // which one happened.
+        let rearmsSpentAtPerturbation = mirror.outputParityRearmsSpent
+        let sizingPassesBeforeRecovery = RemoteTmuxSizingDiagnostics.sizingPassCount
+        let parityRearmsBeforeRecovery = RemoteTmuxSizingDiagnostics.parityRearmCount
+
         // A redundant trigger, exactly what the live app keeps delivering at
         // rest (surface samples, geometry echoes). Inputs are unchanged, so
         // today the pass early-returns and the views stay off-plan forever.
         mirror.setNeedsSizingPass()
         try await pump(60, until: { planViewMismatch(mirror) == nil })
+        let sizingPassesDuringRecovery = RemoteTmuxSizingDiagnostics.sizingPassCount
+            - sizingPassesBeforeRecovery
+        let parityRearmsDuringRecovery = RemoteTmuxSizingDiagnostics.parityRearmCount
+            - parityRearmsBeforeRecovery
+        let plannedOuters = mirror.lastPlannedOuterSizes
+            .sorted { $0.key < $1.key }
+            .map { "%\($0.key)=\(Int($0.value.width))x\(Int($0.value.height))" }
+            .joined(separator: " ")
+        // Name the layer that kept the stale geometry: the live split view's
+        // arranged frames (did bonsplit apply the imposition?) and the split
+        // model (is the imposition still set?). planViewMismatch reads the
+        // portal-hosted terminal views, which follow those frames.
+        let arrangedWidths = firstDescendant(ofType: NSSplitView.self, in: hostingView)
+            .map { $0.arrangedSubviews.map { Int($0.frame.width) } } ?? []
+        let splitModel: String = {
+            guard case .split(let split) = mirror.bonsplitController.treeSnapshot() else { return "leaf" }
+            return "pos=\(split.dividerPosition) imposed=\(split.imposedFirstExtent.map { "\($0)" } ?? "nil")"
+        }()
         #expect(
             planViewMismatch(mirror) == nil,
-            "off-plan geometry never re-converged: \(planViewMismatch(mirror) ?? ""); visible=\(mirror.isEffectivelyVisibleForSizing) drag=\(mirror.bonsplitController.isDividerDragActive) inFlight=\(mirror.dividerResizeInFlight != nil) scheduled=\(mirror.sizingPassScheduled) rearms=\(mirror.outputParityRearmsSpent) hasCompletedInputs=\(mirror.lastCompletedSizingInputs != nil)"
+            "off-plan geometry never re-converged: \(planViewMismatch(mirror) ?? ""); arranged=\(arrangedWidths) split=\(splitModel) visible=\(mirror.isEffectivelyVisibleForSizing) drag=\(mirror.bonsplitController.isDividerDragActive) inFlight=\(mirror.dividerResizeInFlight != nil) scheduled=\(mirror.sizingPassScheduled) rearms=\(mirror.outputParityRearmsSpent) rearmsAtPerturbation=\(rearmsSpentAtPerturbation) passesDuringRecovery=\(sizingPassesDuringRecovery) rearmsDuringRecovery=\(parityRearmsDuringRecovery) plan=[\(plannedOuters)] hasCompletedInputs=\(mirror.lastCompletedSizingInputs != nil)"
         )
         withExtendedLifetime(connection) {}
     }

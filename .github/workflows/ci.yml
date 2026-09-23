@@ -52,6 +52,7 @@ jobs:
     outputs:
       macos: ${{ steps.detect.outputs.macos }}
       cli: ${{ steps.detect.outputs.cli }}
+      claude_wrapper: ${{ steps.standalone.outputs.claude_wrapper }}
       browser: ${{ steps.standalone.outputs.browser }}
       remote_daemon: ${{ steps.standalone.outputs.remote_daemon }}
       remote_daemon_native: ${{ steps.standalone.outputs.remote_daemon_native }}
@@ -377,6 +378,7 @@ jobs:
         id: standalone
         run: |
           set -euo pipefail
+          claude_wrapper=false
           browser=false
           remote_daemon=false
           remote_daemon_native=false
@@ -384,10 +386,14 @@ jobs:
             while IFS= read -r path; do
               case "$path" in
                 .github/workflows/ci.yml)
+                  claude_wrapper=true
                   # The caller owns both reusable jobs' conditions and targets.
                   browser=true
                   remote_daemon=true
                   remote_daemon_native=true
+                  ;;
+                Resources/bin/cmux-claude-wrapper|tests/test_claude_wrapper_hooks.py|tests/node_runtime.py|scripts/ci/run_python_test_lane.py|scripts/ci/test_execution_registry.py|tests/test-execution.toml)
+                  claude_wrapper=true
                   ;;
                 cmux-browser/*|.github/workflows/cmux-browser.yml)
                   browser=true
@@ -404,11 +410,13 @@ jobs:
               esac
             done < /tmp/cmux-ci-changed-files.txt
           else
+            claude_wrapper=true
             browser=true
             remote_daemon=true
             remote_daemon_native=true
           fi
           {
+            echo "claude_wrapper=$claude_wrapper"
             echo "browser=$browser"
             echo "remote_daemon=$remote_daemon"
             echo "remote_daemon_native=$remote_daemon_native"
@@ -797,6 +805,49 @@ jobs:
       macos: ${{ needs.changes.outputs.macos }}
       agent_session_web: ${{ needs.changes.outputs.agent_session_web }}
 
+  claude-wrapper:
+    name: Claude wrapper regressions
+    needs: [changes, static-preflight]
+    if: ${{ !cancelled() && needs.changes.result == 'success' && needs.static-preflight.result == 'success' && (needs.changes.outputs.claude_wrapper == 'true' || (needs.changes.outputs.macos == 'true' && needs.changes.outputs.full_suite == 'true')) }}
+    runs-on: ${{ github.event_name == 'pull_request' && (vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15') || vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15' }}
+    timeout-minutes: 10
+    steps:
+      - name: Checkout wrapper and test inputs
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - name: Find an existing Node runtime
+        id: node
+        run: |
+          python3 - <<'PYTHON'
+          import os
+          import sys
+          from pathlib import Path
+          if sys.version_info < (3, 9):
+              raise SystemExit("Claude wrapper tests require Python 3.9 or newer")
+          print(sys.version)
+          sys.path.insert(0, "tests")
+          from node_runtime import ensure_node_on_path
+          node = ensure_node_on_path()
+          with open(os.environ["GITHUB_OUTPUT"], "a") as output:
+              output.write(f"available={'true' if node else 'false'}\n")
+          if node:
+              with open(os.environ["GITHUB_PATH"], "a") as path:
+                  path.write(str(Path(node).parent) + "\n")
+          PYTHON
+      - name: Install Node only when the runner has none
+        if: ${{ steps.node.outputs.available != 'true' }}
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "20"
+      - name: Run standalone Claude wrapper regressions
+        run: |
+          set -euo pipefail
+          # Missing Node must fail this required lane, never produce the
+          # legacy test script's successful SKIP result.
+          node --version
+          python3 scripts/ci/run_python_test_lane.py --lane macos-claude-wrapper
+
   # Agents often push several commits to a PR within minutes. Each push cancels
   # the previous run through the concurrency group, but by then its macOS jobs
   # have already been billed. Holding macOS admission briefly on a Linux runner
@@ -854,6 +905,7 @@ jobs:
     if: ${{ !cancelled() && needs.changes.result == 'success' && needs.static-preflight.result == 'success' && (needs.macos-debounce.result == 'success' || needs.macos-debounce.result == 'skipped') && ((needs.changes.outputs.macos != 'false' && (needs.changes.outputs.full_suite == 'true' || needs.changes.outputs.compile_admitted != 'true')) || needs.changes.outputs.swift_packages == 'true') }}
     permissions:
       actions: read
+      id-token: write
       attestations: read
       contents: read
       pull-requests: read
@@ -1075,6 +1127,7 @@ jobs:
   ci-status:
     needs:
       - changes
+      - claude-wrapper
       - suite-coverage
       - static-preflight
       - guards
@@ -1110,6 +1163,13 @@ jobs:
               for name, data in sorted(needs.items())
               if data["result"] not in allowed
           }
+
+          outputs = needs["changes"].get("outputs", {})
+          wrapper_required = outputs.get("claude_wrapper") == "true" or (
+              outputs.get("macos") == "true" and outputs.get("full_suite") == "true"
+          )
+          if wrapper_required and needs.get("claude-wrapper", {}).get("result") != "success":
+              bad["claude-wrapper"] = needs.get("claude-wrapper", {}).get("result", "missing")
 
           if bad:
               for name, result in bad.items():
