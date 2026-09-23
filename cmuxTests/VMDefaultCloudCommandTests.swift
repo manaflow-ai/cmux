@@ -1132,6 +1132,9 @@ extension CLINotifyProcessIntegrationRegressionTests {
             child.waitForStandardError(containing: "Retrying in 0.1s (attempt 2).", timeout: 20),
             child.standardOutput + child.standardError
         )
+        // The mock fulfills when its connection closes. Stop the persistent
+        // client after observing progress, before waiting for that teardown.
+        child.terminate()
         wait(for: [serverHandled], timeout: 5)
         XCTAssertTrue(child.standardError.contains("Retrying in 0.1s (attempt 1)."), child.standardError)
         XCTAssertFalse(child.standardError.contains("attempt 1/86400"), child.standardError)
