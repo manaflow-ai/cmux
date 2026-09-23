@@ -48,7 +48,6 @@ extension WorkspaceDetailView {
                 .frame(width: 42, height: 36)
         }
         .buttonStyle(.plain)
-        .padding(.horizontal, 8)
         .frame(height: 44)
 
         // Keep the trailing controls in one native bar item. SwiftUI's base

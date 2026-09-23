@@ -40,7 +40,7 @@ final class WorkspaceNavigationTitleView: UIView {
 
     override var intrinsicContentSize: CGSize {
         let content = host.view.intrinsicContentSize
-        return CGSize(width: content.width + 10, height: 44)
+        return CGSize(width: content.width + 5, height: 44)
     }
 
     override func sizeThatFits(_ size: CGSize) -> CGSize {
