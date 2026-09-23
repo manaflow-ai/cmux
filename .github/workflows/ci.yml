@@ -69,6 +69,7 @@ jobs:
       linux_guard_source: ${{ steps.linux_guards.outputs.linux_guard_source }}
       ghosttykit_release: ${{ steps.unchanged_inputs.outputs.compile_admitted == 'true' && 'false' || steps.linux_guards.outputs.ghosttykit_release }}
       full_suite: ${{ steps.suite.outputs.full_suite }}
+      unit_suite: ${{ steps.suite.outputs.unit_suite }}
       coverage_gap: ${{ steps.suite.outputs.coverage_gap }}
       compile_admitted: ${{ steps.unchanged_inputs.outputs.compile_admitted == 'true' && 'true' || steps.admitted.outputs.compile_admitted }}
       source_tree: ${{ steps.source-identity.outputs.tree }}
@@ -934,7 +935,7 @@ jobs:
     # already admitted or the macOS area is neutral (a Packages/iOS package
     # outside the desktop closure). Every other job in the called workflow stays
     # gated on inputs.macos, so nothing else wakes up with it.
-    if: ${{ !cancelled() && needs.changes.result == 'success' && needs.static-preflight.result == 'success' && (needs.macos-debounce.result == 'success' || needs.macos-debounce.result == 'skipped') && ((needs.changes.outputs.macos != 'false' && (needs.changes.outputs.full_suite == 'true' || needs.changes.outputs.compile_admitted != 'true')) || needs.changes.outputs.swift_packages == 'true') }}
+    if: ${{ !cancelled() && needs.changes.result == 'success' && needs.static-preflight.result == 'success' && (needs.macos-debounce.result == 'success' || needs.macos-debounce.result == 'skipped') && ((needs.changes.outputs.macos != 'false' && (needs.changes.outputs.full_suite == 'true' || needs.changes.outputs.unit_suite == 'true' || needs.changes.outputs.compile_admitted != 'true')) || needs.changes.outputs.swift_packages == 'true') }}
     permissions:
       actions: read
       id-token: write
@@ -945,6 +946,7 @@ jobs:
     with:
       macos: ${{ needs.changes.outputs.macos }}
       full_suite: ${{ needs.changes.outputs.full_suite }}
+      unit_suite: ${{ needs.changes.outputs.unit_suite }}
       swift_packages: ${{ needs.changes.outputs.swift_packages }}
       compile_admitted: ${{ needs.changes.outputs.compile_admitted }}
       release_build: ${{ needs.changes.outputs.release_build }}
@@ -1002,9 +1004,16 @@ jobs:
           # and of the macOS area, so it can require the called workflow on its
           # own. Keep this in sync with the `macos` job's own `if:`.
           swift_packages = outputs.get("swift_packages") == "true"
+          # `unit-ci` asks for app-host unit tests without the full suite, so a
+          # routed macOS run is required even when compile admission reused a
+          # product and full_suite stayed false.
+          unit_suite = outputs.get("unit_suite") == "true"
           macos_work_required = swift_packages or (
               macos_route == "true"
-              and not (full_suite == "false" and compile_admitted == "true")
+              and (
+                  unit_suite
+                  or not (full_suite == "false" and compile_admitted == "true")
+              )
           )
           if macos_work_required:
               if macos_result != "success":
@@ -1140,8 +1149,11 @@ jobs:
     # that edits cmuxTests/ and skips the full suite runs none of the code it
     # changed. The policy that allows the skip is written for a merge queue
     # that no longer gates main, so refuse the run here instead of reporting
-    # green on a diff nothing observed. Add "full-ci" to run the suite, or
-    # "no-full-ci" to record that skipping it is deliberate.
+    # green on a diff nothing observed. A cmuxTests/ diff is judged by
+    # `app-host unit tests` alone, so "unit-ci" clears it without waking the
+    # package, lag and Release lanes; "full-ci" runs everything, and
+    # "no-full-ci" records that skipping it is deliberate. cmuxUITests/ has no
+    # pull request job at all, so only the latter two clear that.
     needs:
       - changes
     if: ${{ !cancelled() && needs.changes.result == 'success' && needs.changes.outputs.coverage_gap == 'true' }}
@@ -1152,7 +1164,13 @@ jobs:
           echo "This pull request changes cmuxTests/ or cmuxUITests/, and this run" >&2
           echo "skipped the macOS suite, so none of the changed tests executed." >&2
           echo >&2
-          echo "Add the 'full-ci' label to run the suite on a fresh run, or add" >&2
+          echo "For a cmuxTests/ change, add the 'unit-ci' label to run compile" >&2
+          echo "admission plus 'app-host unit tests' on a fresh run. That job" >&2
+          echo "reads the product admission already built, so it does not wake" >&2
+          echo "the package, lag, release-admission or Release-build lanes." >&2
+          echo >&2
+          echo "cmuxUITests/ has no pull request job that executes it, so those" >&2
+          echo "need the 'full-ci' label to run the suite on a fresh run, or" >&2
           echo "'no-full-ci' to record that skipping it is deliberate." >&2
           exit 1
 
