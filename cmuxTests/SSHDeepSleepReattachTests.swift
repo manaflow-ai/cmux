@@ -541,15 +541,10 @@ struct SSHDeepSleepReattachTests {
         } catch {
             return ProcessRunResult(status: -1, stderr: String(describing: error), timedOut: false)
         }
-        let exitSignal = DispatchSemaphore(value: 0)
-        DispatchQueue.global(qos: .userInitiated).async {
-            process.waitUntilExit()
-            exitSignal.signal()
-        }
-        let timedOut = exitSignal.wait(timeout: .now() + 5) == .timedOut
+        let timedOut = waitForProcessExit(process, timeout: 5) == .timedOut
         if timedOut {
             process.terminate()
-            _ = exitSignal.wait(timeout: .now() + 1)
+            _ = waitForProcessExit(process, timeout: 1)
         }
         let stderr = String(data: stderrPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
         return ProcessRunResult(status: process.terminationStatus, stderr: stderr, timedOut: timedOut)
