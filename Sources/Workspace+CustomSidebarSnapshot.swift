@@ -134,10 +134,15 @@ extension Workspace {
             for tab in bonsplitController.tabs(inPane: paneId) {
                 guard let panelId = panelIdFromSurfaceId(tab.id) else { continue }
                 let git = reportedPanelGitBranch(panelId: panelId)
+                // A remote tmux window tab is a mirror container that
+                // `surface.focus` rejects; hand out its projected pane instead.
+                let focusSurfaceId = activeRemoteTmuxControlSurfaceProjection(
+                    containerPanelID: panelId
+                )?.surfaceID ?? tab.id.uuid
                 surfaces.append(
                     CustomSidebarSurfaceSnapshot(
                         panelId: panelId,
-                        surfaceId: tab.id.uuid,
+                        surfaceId: focusSurfaceId,
                         title: tab.title,
                         isFocused: panelId == focusedPanelId,
                         isPinned: pinnedPanelIds.contains(panelId),
