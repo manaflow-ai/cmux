@@ -1922,7 +1922,7 @@ final class cmuxUITests: XCTestCase {
 
         func picker() throws -> XCUIElement {
             waitForWorkspaceShell(in: app)
-            let whatsNewContinue = app.buttons["MobileWhatsNewSheet"].firstMatch
+            let whatsNewContinue = app.buttons["MobileWhatsNewContinue"].firstMatch
             if whatsNewContinue.waitForExistence(timeout: 4) {
                 whatsNewContinue.tap()
                 _ = try XCTUnwrap(
