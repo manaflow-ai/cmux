@@ -51,9 +51,35 @@ MAX_CANDIDATES = 6
 # Producer events permitted for each consumer event. Pull-request consumers are
 # further restricted to the same pull request; merge groups may adopt an exact
 # product from either an in-repository PR or an earlier merge-group run.
+#
+# A dispatch consumer is at least as trusted as a merge group, because starting
+# one requires write access, so it may adopt any exact product CI compiled as
+# well as the ones earlier dispatches of its own lane compiled. Nothing adopts a
+# dispatch product in the other direction: CI's trust surface is unchanged.
 PERMITTED_PRODUCERS = {
     "pull_request": {"pull_request"},
     "merge_group": {"pull_request", "merge_group"},
+    "workflow_dispatch": {"pull_request", "merge_group", "workflow_dispatch"},
+}
+
+# The workflow each event is trusted to run from, keyed by event so a future
+# dispatchable ci.yml or pull-request-triggered E2E lane cannot inherit the
+# other one's trust by accident.
+TRUSTED_WORKFLOWS = {
+    "pull_request": ".github/workflows/ci.yml",
+    "merge_group": ".github/workflows/ci.yml",
+    "workflow_dispatch": ".github/workflows/test-e2e.yml",
+}
+
+# The job, and the step inside it, that must have compiled a product before that
+# workflow's artifact may be adopted.
+COMPILE_JOBS = {
+    ".github/workflows/ci.yml": (
+        "macOS compile admission", "Compile app-host test product",
+    ),
+    ".github/workflows/test-e2e.yml": (
+        "build", "Build the app-host and UI test product",
+    ),
 }
 
 
@@ -214,6 +240,15 @@ def attested_producer_revision(api, run, revision, product_inputs):
     head = run.get("head_sha")
     if revision == head:
         return True
+    if run.get("event") == "workflow_dispatch":
+        # A dispatch compiles a revision handed to it as a workflow input, so
+        # its `head_sha` names the workflow definition's ref and attests
+        # nothing about what was built. Re-fingerprinting the sealed revision
+        # is the whole check here, and it is the same one every other producer
+        # ends at: the artifact name already pinned these exact product inputs,
+        # and a receipt cannot name a revision whose tree carries different
+        # ones without GitHub's own copy disagreeing.
+        return github_product_identity(api, revision) == product_inputs
     if run.get("event") != "pull_request":
         return False
     parents = api.get(f"git/commits/{revision}").get("parents")
@@ -226,11 +261,12 @@ def attested_producer_revision(api, run, revision, product_inputs):
 
 
 def trusted_ci_run(run, repository):
-    """Require the repository CI workflow and an in-repository event source."""
+    """Require the event's own trusted workflow and an in-repository source."""
     head_repository = run.get("head_repository")
+    event = run.get("event")
     return (
-        run.get("path") == ".github/workflows/ci.yml"
-        and run.get("event") in PERMITTED_PRODUCERS
+        event in PERMITTED_PRODUCERS
+        and run.get("path") == TRUSTED_WORKFLOWS[event]
         and isinstance(head_repository, dict)
         and str(head_repository.get("full_name", "")).casefold() == repository.casefold()
     )
@@ -262,13 +298,13 @@ def elapsed_seconds(started_at, completed_at):
     return max(0.0, (completed - started).total_seconds())
 
 
-def compile_step_seconds(job):
+def compile_step_seconds(job, step_name="Compile app-host test product"):
     """Return the producer's actual compile-step duration when it compiled."""
     steps = job.get("steps")
     if not isinstance(steps, list):
         return None
     for step in steps:
-        if (step.get("name") == "Compile app-host test product"
+        if (step.get("name") == step_name
                 and step.get("status") == "completed"
                 and step.get("conclusion") == "success"):
             return elapsed_seconds(step.get("started_at"), step.get("completed_at"))
@@ -285,11 +321,18 @@ def load_consumer(api, value, current_run, current_attempt, current_revision, re
         if not trusted_ci_run(run, api.repository):
             record_reason(reasons, "consumer_untrusted")
             return None
-        head = run.get("head_sha")
+        # A dispatch takes the revision under test as a workflow input, so its
+        # `head_sha` names the workflow definition's ref and attests nothing
+        # about the checkout. The binding that matters is the same either way:
+        # the tree this job fingerprinted has to equal GitHub's immutable copy
+        # of the revision it claims, which is checked directly below. A locally
+        # modified checkout still cannot adopt anything.
+        dispatched = run.get("event") == "workflow_dispatch"
+        head = current_revision if dispatched else run.get("head_sha")
         if not isinstance(head, str) or not re.fullmatch(r"[0-9a-f]{6,40}", head):
             record_reason(reasons, "consumer_revision_invalid")
             return None
-        if not attested_checkout(run, current_revision):
+        if not dispatched and not attested_checkout(run, current_revision):
             record_reason(reasons, "consumer_revision_mismatch")
             return None
         if github_product_identity(api, head) != value["product_inputs"]:
@@ -377,13 +420,21 @@ def select(api, value, current_run, current_attempt, consumer, reasons):
             # GitHub's immutable Git objects, not a candidate-authored receipt,
             # establish product compatibility before download. Admission-only
             # source changes may differ while compiled-product inputs stay exact.
-            head = run.get("head_sha")
-            if not isinstance(head, str) or not re.fullmatch(r"[0-9a-f]{6,40}", head):
-                record_reason(reasons, "producer_revision_invalid")
-                continue
-            if github_product_identity(api, head) != value["product_inputs"]:
-                record_reason(reasons, "producer_product_inputs_mismatch")
-                continue
+            #
+            # A dispatch producer's `head_sha` names its workflow ref rather
+            # than what it compiled, so there is nothing to check here for one.
+            # Its binding is not skipped, only deferred: the artifact name
+            # already encodes this contract's product inputs, and `restore`
+            # re-fingerprints the revision the receipt names against GitHub
+            # before the products are moved anywhere.
+            if run.get("event") != "workflow_dispatch":
+                head = run.get("head_sha")
+                if not isinstance(head, str) or not re.fullmatch(r"[0-9a-f]{6,40}", head):
+                    record_reason(reasons, "producer_revision_invalid")
+                    continue
+                if github_product_identity(api, head) != value["product_inputs"]:
+                    record_reason(reasons, "producer_product_inputs_mismatch")
+                    continue
             jobs = []
             for page in range(1, 4):
                 batch = api.get(
@@ -399,8 +450,9 @@ def select(api, value, current_run, current_attempt, consumer, reasons):
             # A reusable workflow reports "<caller job> / <job name>", so this
             # is "macos / macOS compile admission" when ci.yml reaches the job
             # through ci-macos.yml. Match the final segment.
+            compile_name, compile_step = COMPILE_JOBS[run["path"]]
             compile_job = next((job for job in jobs
-                                if str(job.get("name") or "").rsplit(" / ", 1)[-1] == "macOS compile admission"
+                                if str(job.get("name") or "").rsplit(" / ", 1)[-1] == compile_name
                                 and job.get("status") == "completed"
                                 and job.get("conclusion") == "success"), None)
             if compile_job is None:
@@ -411,7 +463,7 @@ def select(api, value, current_run, current_attempt, consumer, reasons):
                 record_reason(reasons, "artifact_digest_missing")
                 continue
             run = dict(run)
-            run["_compile_seconds"] = compile_step_seconds(compile_job)
+            run["_compile_seconds"] = compile_step_seconds(compile_job, compile_step)
             run["_producer_attempt"] = producer_attempt
             yield artifact, run
         except (TypeError, AttributeError, ValueError, KeyError, OSError,

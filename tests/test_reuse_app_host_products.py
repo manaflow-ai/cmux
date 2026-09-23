@@ -766,6 +766,131 @@ class ReuseProducts(TestProductHandoff):
         self.assertFalse(self.consumer.exists())
 
 
+    def dispatch_consumer(self):
+        """Make the consumer an E2E dispatch.
+
+        Its `head_sha` names the workflow definition's ref, never the revision
+        under test, because that arrives as a workflow input.
+        """
+        self.api.consumer_run.update({
+            "path": ".github/workflows/test-e2e.yml",
+            "event": "workflow_dispatch",
+            "pull_requests": [],
+            "head_sha": "aaa999",
+        })
+
+    def dispatch_producer(self):
+        self.api.run.update({
+            "path": ".github/workflows/test-e2e.yml",
+            "event": "workflow_dispatch",
+            "pull_requests": [],
+            "head_sha": "aaa999",
+        })
+        self.api.job = {
+            "name": "build",
+            "conclusion": "success",
+            "status": "completed",
+            "steps": [{
+                "name": "Build the app-host and UI test product",
+                "conclusion": "success",
+                "status": "completed",
+                "started_at": "2026-09-21T08:00:00Z",
+                "completed_at": "2026-09-21T08:10:00Z",
+            }],
+        }
+
+    def test_a_dispatch_adopts_the_product_ci_already_compiled(self):
+        # `head_sha` here is "aaa999", which has no product identity at all, so
+        # a hit proves the dispatch was admitted on its checkout instead.
+        self.dispatch_consumer()
+        report = {}
+        self.assertTrue(self.restore_reuse(report=report))
+        self.assertEqual(report["reason"], "hit")
+        self.assertEqual(report["producer_run_id"], "12")
+
+    def test_a_dispatch_checkout_must_still_match_githubs_copy(self):
+        self.dispatch_consumer()
+        self.api.product_identities["def456"] = {
+            **self.contract["product_inputs"], "source": "z" * 64,
+        }
+        self.assertFalse(self.restore_reuse())
+        self.assertFalse(self.consumer.exists())
+
+    def test_one_dispatch_adopts_an_earlier_dispatch_product(self):
+        # Two dispatches of the same revision on the same pool compile the same
+        # product; the second should download the first one instead.
+        self.dispatch_consumer()
+        self.dispatch_producer()
+        report = {}
+        self.assertTrue(self.restore_reuse(report=report))
+        self.assertEqual(report["reason"], "hit")
+        # Found through the E2E lane's own compile job and step names.
+        self.assertEqual(report["compile_seconds_avoided"], 600.0)
+
+    def test_a_dispatch_producer_cannot_seal_a_revision_it_did_not_build(self):
+        # Nothing binds a dispatch producer's run to what it compiled, so the
+        # sealed revision is re-fingerprinted against GitHub. A receipt naming
+        # a revision whose tree carries other product inputs is a miss, and the
+        # products never reach the consumer's DerivedData.
+        self.dispatch_consumer()
+        self.dispatch_producer()
+        self.api.product_identities["abc123"] = {
+            **self.contract["product_inputs"], "source": "z" * 64,
+        }
+        self.assertFalse(self.restore_reuse())
+        self.assertFalse(self.consumer.exists())
+
+    def test_ci_never_adopts_a_dispatch_product(self):
+        # Trust runs one way: a dispatch compiles a dispatcher-chosen revision,
+        # so CI's own lanes must not pick its products up.
+        self.dispatch_producer()
+        self.assertFalse(self.restore_reuse())
+        self.assertFalse(self.consumer.exists())
+
+    def test_each_event_is_trusted_only_from_its_own_workflow(self):
+        for event, path, trusted in (
+            ("pull_request", ".github/workflows/ci.yml", True),
+            ("pull_request", ".github/workflows/test-e2e.yml", False),
+            ("merge_group", ".github/workflows/ci.yml", True),
+            ("workflow_dispatch", ".github/workflows/test-e2e.yml", True),
+            ("workflow_dispatch", ".github/workflows/ci.yml", False),
+            ("schedule", ".github/workflows/nightly.yml", False),
+        ):
+            with self.subTest(event=event, path=path):
+                run = {
+                    "event": event,
+                    "path": path,
+                    "head_repository": {"full_name": self.api.repository},
+                }
+                self.assertEqual(
+                    reuse.trusted_ci_run(run, self.api.repository), trusted
+                )
+
+    def test_dispatch_pairs_extend_the_matrix_in_one_direction(self):
+        ci = {
+            "path": ".github/workflows/ci.yml",
+            "head_repository": {"full_name": self.api.repository},
+            "pull_requests": [{"number": 7}],
+        }
+        dispatch = {
+            "path": ".github/workflows/test-e2e.yml",
+            "head_repository": {"full_name": self.api.repository},
+            "event": "workflow_dispatch",
+            "pull_requests": [],
+        }
+        for name, producer, consumer, expected in (
+            ("pr_to_dispatch", {**ci, "event": "pull_request"}, dispatch, True),
+            ("merge_group_to_dispatch", {**ci, "event": "merge_group"}, dispatch, True),
+            ("dispatch_to_dispatch", dispatch, dispatch, True),
+            ("dispatch_to_pr", dispatch, {**ci, "event": "pull_request"}, False),
+            ("dispatch_to_merge_group", dispatch, {**ci, "event": "merge_group"}, False),
+        ):
+            with self.subTest(name=name):
+                self.assertEqual(
+                    reuse.permitted_pair(producer, consumer, self.api.repository),
+                    expected,
+                )
+
     def test_permitted_producer_consumer_matrix(self):
         base = {
             "path": ".github/workflows/ci.yml",
