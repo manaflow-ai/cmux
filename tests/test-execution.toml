@@ -371,6 +371,10 @@ path = "tests/test_ci_merge_queue_required_checks.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_nightly_push_throttle.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_notification_semantics.py"
 lane = "linux-guard"
 
@@ -492,6 +496,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ios_testflight_pro_distribution.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ios_upload_batching.py"
 lane = "linux-guard"
 
 [[test]]
@@ -868,6 +876,10 @@ lane = "legacy"
 
 [[test]]
 path = "tests/test_pairing_scheme_is_explicit_in_tests.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_pairing_scheme_lint.py"
 lane = "linux-guard"
 
 [[test]]
