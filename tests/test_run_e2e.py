@@ -230,19 +230,22 @@ class FocusedLauncherTests(unittest.TestCase):
             with self.subTest(args=args):
                 self.assertNotEqual(self.launch("ExampleTests", *args).returncode, 0)
         self.assertFalse((self.root / "dispatch.json").exists())
-    def _prior(self, conclusion, *, selector="cmuxTests/ExampleTests", commit=HEAD, runner="mac"):
+    def _prior(self, conclusion, *, selector="cmuxTests/ExampleTests", commit=HEAD, runner="mac",
+               workflow_ref="main"):
         return json.dumps([{
             "displayTitle": f"{selector} on {runner} @ {commit} [deadbeef]",
+            "headBranch": workflow_ref,
             "conclusion": conclusion,
             "status": "completed",
             "url": "https://github.com/manaflow-ai/cmux/actions/runs/555",
         }])
 
     def _live(self, *, selector="cmuxTests/ExampleTests", commit=HEAD,
-              runner=DEFAULT_RUNNER, status="in_progress"):
+              runner=DEFAULT_RUNNER, status="in_progress", workflow_ref="main"):
         return json.dumps([{
             "databaseId": 777,
             "displayTitle": f"{selector} on {runner} @ {commit} [deadbeef]",
+            "headBranch": workflow_ref,
             "conclusion": None,
             "status": status,
             "url": "https://github.com/manaflow-ai/cmux/actions/runs/777",
@@ -437,6 +440,32 @@ class FocusedLauncherTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertFalse((self.root / "dispatch.json").exists(), "must not dispatch")
 
+    def test_runs_of_another_workflow_definition_are_neither_reused_nor_refusing(self):
+        # --workflow-ref tests a workflow change. A run of the same selector at
+        # the same commit under another definition answers a different
+        # question: attaching to it, or refusing because it failed, means the
+        # definition under test never runs.
+        for history in (
+            self._live(workflow_ref="ci/other-definition"),
+            self._live(selector="cmuxTests/ExampleTests,cmuxTests/OtherTests",
+                       workflow_ref="ci/other-definition"),
+            self._prior("failure", workflow_ref="ci/other-definition"),
+        ):
+            with self.subTest(history=history):
+                (self.root / "dispatch.json").unlink(missing_ok=True)
+                result = self.launch("cmuxTests/ExampleTests", "--workflow-ref", "ci/under-test",
+                                     LAUNCHER_PRIOR_RUNS=history)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertNotIn("reusing", result.stdout)
+                self.assertEqual(self.dispatch()["test_filter"], "cmuxTests/ExampleTests")
+        # The same definition still gets the guards, including the default one.
+        result = self.launch("cmuxTests/ExampleTests", "--workflow-ref", "ci/under-test",
+                             LAUNCHER_PRIOR_RUNS=self._live(workflow_ref="ci/under-test"))
+        self.assertIn("reusing", result.stdout)
+        result = self.launch("cmuxTests/ExampleTests",
+                             LAUNCHER_PRIOR_RUNS=self._live(workflow_ref="ci/other-definition"))
+        self.assertNotIn("reusing", result.stdout)
+
     def test_a_run_without_a_dispatch_id_is_still_seen(self):
         # A run started from the GitHub UI shares the concurrency group and its
         # compile is just as real. Requiring the trailing "[" hid exactly the
@@ -444,6 +473,7 @@ class FocusedLauncherTests(unittest.TestCase):
         live = json.dumps([{
             "databaseId": 777,
             "displayTitle": f"cmuxTests/ExampleTests on {DEFAULT_RUNNER} @ {HEAD}",
+            "headBranch": "main",
             "conclusion": None, "status": "in_progress",
             "url": "https://github.com/manaflow-ai/cmux/actions/runs/777",
         }])
@@ -457,6 +487,7 @@ class FocusedLauncherTests(unittest.TestCase):
         # id cannot be watched, so the caller gets the run they asked for.
         live = json.dumps([{
             "displayTitle": f"cmuxTests/ExampleTests on {DEFAULT_RUNNER} @ {HEAD} [deadbeef]",
+            "headBranch": "main",
             "conclusion": None, "status": "in_progress", "url": "",
         }])
         result = self.launch("cmuxTests/ExampleTests", LAUNCHER_PRIOR_RUNS=live)
