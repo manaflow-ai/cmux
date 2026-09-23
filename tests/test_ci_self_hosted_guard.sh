@@ -177,10 +177,29 @@ check_e2e_runner_fallbacks() {
     exit 1
   fi
 
-  if grep -Eq "^[[:space:]]*continue-on-error:" "$E2E_FILE"; then
-    echo "FAIL: test-e2e.yml must not mask E2E setup or test failures with continue-on-error"
-    exit 1
-  fi
+  # Compilation caching is an optional optimization. Its failure must not
+  # suppress setup/test failures or make successful tests depend on the cache
+  # service. Keep the exception confined to these cache operations.
+  python3 - "$E2E_FILE" <<'PYTHON'
+import sys
+import yaml
+
+document = yaml.safe_load(open(sys.argv[1]))
+allowed = {
+    ("compilation-cache-restore", "Restore E2E compilation cache", "actions/cache/restore"),
+    (None, "Save E2E compilation cache", "actions/cache/save"),
+    ("compilation-cache-bound", "Bound E2E compilation cache", ""),
+}
+for job_id, job in document["jobs"].items():
+    if "continue-on-error" in job:
+        raise SystemExit(f"FAIL: {job_id} must not mask E2E job failures")
+    for step in job.get("steps", []):
+        if "continue-on-error" not in step:
+            continue
+        identity = (step.get("id"), step.get("name"), step.get("uses", "").split("@", 1)[0])
+        if job_id != "e2e" or identity not in allowed or step["continue-on-error"] is not True:
+            raise SystemExit(f"FAIL: {step.get('name')} must not mask E2E setup or test failures")
+PYTHON
 
   # The Tart identity gate, the run name and the SwiftPM cache key all decide
   # things about "the runner this job uses". If any of them reads a different
@@ -1738,6 +1757,73 @@ CASES
   echo "PASS: pull request workflows with macOS jobs cancel superseded runs"
 }
 
+check_macos_runner_identity_env_tracks_routing() {
+  # A macOS job picks its pool in `runs-on`, and some jobs then restate that
+  # pool in an env value: `CMUX_PRODUCT_RUNNER` becomes a field of the compiled
+  # product contract, and `REQUESTED_RUNNER` is what the Depot identity guard
+  # validates. Those restatements are only meaningful when they name the pool
+  # the job is actually on. `runs-on` sends pull requests to MACOS_RUNNER_PR
+  # and every other event to the lane variable, so an env value that reads only
+  # the lane variable is wrong on every pull request: the product contract
+  # stamps a pool the build never ran on, which lets two pools with different
+  # workspace layouts share one contract key, and the identity guard validates
+  # a runner the job is not on.
+  #
+  # Require every MACOS_RUNNER-bearing env value in ci-macos.yml to be the same
+  # expression as its own job's `runs-on`, so a future routing change cannot
+  # move a job without moving what that job reports about itself.
+  # Parse YAML so mapping order, quoting, and folded scalars cannot hide an
+  # identity value. A parser failure aborts under set -e rather than passing.
+  local mismatches
+  mismatches="$(python3 - "$CI_MACOS_FILE" <<'PYTHON'
+import sys
+from pathlib import Path
+import yaml
+
+
+def mismatched_identities(document):
+    for job_id, job in document.get("jobs", {}).items():
+        runs_on = job.get("runs-on")
+        scopes = [("job", job)]
+        scopes.extend((f"step {index}", step) for index, step in enumerate(job.get("steps", [])))
+        for scope, owner in scopes:
+            for key, value in (owner.get("env") or {}).items():
+                if isinstance(value, str) and "vars.MACOS_RUNNER" in value and value != runs_on:
+                    yield f"{job_id}/{scope}: {key}\n  env value {value}\n  runs-on   {runs_on}"
+
+
+# Exercise forms the line-based guard missed: env before runs-on, quoted keys
+# containing digits, folded scalars, and both job-level and step-level env.
+fixture = yaml.safe_load("""
+jobs:
+  example:
+    env:
+      'RUNNER2': >-
+        ${{ vars.MACOS_RUNNER }}
+    steps:
+      - env:
+          'STEP_RUNNER2': '${{ vars.MACOS_RUNNER }}'
+    runs-on: >-
+      ${{ vars.MACOS_RUNNER }}
+""")
+assert not list(mismatched_identities(fixture))
+fixture["jobs"]["example"]["runs-on"] = "${{ vars.MACOS_RUNNER_PR }}"
+assert len(list(mismatched_identities(fixture))) == 2
+fixture["jobs"]["example"].pop("runs-on")
+assert len(list(mismatched_identities(fixture))) == 2
+
+print("\n".join(mismatched_identities(yaml.safe_load(Path(sys.argv[1]).read_text()))))
+PYTHON
+)"
+  if [ -n "$mismatches" ]; then
+    echo "FAIL: a macOS runner env value in ci-macos.yml does not match its job's runs-on,"
+    echo "      so it names the wrong pool on pull requests (see docs/ci-runners.md)"
+    echo "$mismatches"
+    exit 1
+  fi
+  echo "PASS: every macOS runner env value in ci-macos.yml matches its job's runs-on"
+}
+
 check_no_paid_overflow_fallbacks() {
   # Repository variables are not exposed to pull requests from forks, so the
   # `vars.X || 'label'` fallback is where every fork pull request runs. Warp is
@@ -1879,4 +1965,5 @@ check_tmux_terminal_nightly_isolation
 check_pr_macos_workflows_cancel_superseded_runs
 check_ios_only_tests_stay_under_ios
 check_no_paid_overflow_fallbacks
+check_macos_runner_identity_env_tracks_routing
 check_background_macos_lane
