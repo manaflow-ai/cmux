@@ -624,6 +624,7 @@
 		A12123000000000000000009 /* ClaudeHookHibernationGenerationHistoryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A12123000000000000000010 /* ClaudeHookHibernationGenerationHistoryTests.swift */; };
 		A12123000000000000000011 /* ClaudeHookHibernationSessionEndPreservationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A12123000000000000000012 /* ClaudeHookHibernationSessionEndPreservationTests.swift */; };
 		7939000BAA11BB22CC33DD0B /* ClaudeHookLifecycleCleanupTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7939000CAA11BB22CC33DD0C /* ClaudeHookLifecycleCleanupTests.swift */; };
+		C11757000000000000000060 /* ClaudeHookLiveDeliverySocketState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3B508AD047EB519F849B4F21 /* ClaudeHookLiveDeliverySocketState.swift */; };
 		F33BF21E04815ED46826DCB4 /* ClaudeHookLiveDeliverySocketState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3B508AD047EB519F849B4F21 /* ClaudeHookLiveDeliverySocketState.swift */; };
 		79390001AA11BB22CC33DD01 /* ClaudeHookLiveDeliveryTargetTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 79390002AA11BB22CC33DD02 /* ClaudeHookLiveDeliveryTargetTests.swift */; };
 		79390009AA11BB22CC33DD09 /* ClaudeHookLiveDeliveryTargetTestSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7939000AAA11BB22CC33DD0A /* ClaudeHookLiveDeliveryTargetTestSupport.swift */; };
@@ -1615,9 +1616,11 @@
 		C1175700000000000000004B /* CodexTeamsAppServerFixture.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEBACC0000000000000004 /* CodexTeamsAppServerFixture.swift */; };
 		A10240010000000000000001 /* CodexTeamsAppServerProcess.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10240020000000000000001 /* CodexTeamsAppServerProcess.swift */; };
 		A10240030000000000000001 /* CodexTeamsAppServerProcess.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10240020000000000000001 /* CodexTeamsAppServerProcess.swift */; };
+		C11757000000000000000061 /* CodexTeamsAppServerProcess.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10240020000000000000001 /* CodexTeamsAppServerProcess.swift */; };
 		C1175700000000000000003B /* CodexTeamsAppServerProcessTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C11757000000000000000022 /* CodexTeamsAppServerProcessTests.swift */; };
 		A10240080000000000000001 /* CodexTeamsPOSIXSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10240090000000000000001 /* CodexTeamsPOSIXSupport.swift */; };
 		A10240100000000000000001 /* CodexTeamsPOSIXSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10240090000000000000001 /* CodexTeamsPOSIXSupport.swift */; };
+		C11757000000000000000062 /* CodexTeamsPOSIXSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10240090000000000000001 /* CodexTeamsPOSIXSupport.swift */; };
 		C1175700000000000000003C /* CodexTeamsResumedBackfillTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C11757000000000000000023 /* CodexTeamsResumedBackfillTests.swift */; };
 		C0DEBACC0000000000000002 /* CodexTeamsSocketFixture.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEBACC0000000000000005 /* CodexTeamsSocketFixture.swift */; };
 		C1175700000000000000004C /* CodexTeamsSocketFixture.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEBACC0000000000000005 /* CodexTeamsSocketFixture.swift */; };
@@ -8545,6 +8548,7 @@
 				D1893BDBF86104694F22BC3C /* CodexHookCapturedSocketCommands.swift */,
 				C0DEBACC0000000000000004 /* CodexTeamsAppServerFixture.swift */,
 				C0DEBACC0000000000000005 /* CodexTeamsSocketFixture.swift */,
+				3B508AD047EB519F849B4F21 /* ClaudeHookLiveDeliverySocketState.swift */,
 			);
 			path = cmuxCLITestSupport;
 			sourceTree = "<group>";
@@ -12418,7 +12422,6 @@
 				A76110020000000000000002 /* AgentHookNotificationPolicyTests.swift */,
 				A77A000DA1B2C3D4E5F60001 /* AgentJournalLifecycleCenterTests.swift */,
 				7B74E6D94323FE9C5804E0B4 /* FeedWaiterRegistryTests.swift */,
-				3B508AD047EB519F849B4F21 /* ClaudeHookLiveDeliverySocketState.swift */,
 				D1136E25CD5300988F9F2162 /* ClaudeHookSurfaceSocketState.swift */,
 				1E40480ECEC94949BB74D852 /* CLINotifyProcessSocketState.swift */,
 				A5D41233A1B2C3D4E5F60718 /* ClaudeBackgroundWorkNotifyTests.swift */,
@@ -13324,6 +13327,7 @@
 				C11757000000000000000041 /* AgentJournalTestSupport.swift in Sources */,
 				C11757000000000000000027 /* BundledCLITestSupport.swift in Sources */,
 				C11757000000000000000039 /* CampfireHookNotificationTests.swift in Sources */,
+				C11757000000000000000060 /* ClaudeHookLiveDeliverySocketState.swift in Sources */,
 				C11757000000000000000049 /* ClaudeHookLiveDeliveryTargetTestSupport.swift in Sources */,
 				C1175700000000000000003A /* ClaudeWrapperResumeEnvironmentTests.swift in Sources */,
 				C11757000000000000000042 /* CLIChildEnvironment.swift in Sources */,
@@ -13352,7 +13356,9 @@
 				C11757000000000000000038 /* CMUXOpenHTMLFocusTests.swift in Sources */,
 				C1175700000000000000004A /* CodexHookCapturedSocketCommands.swift in Sources */,
 				C1175700000000000000004B /* CodexTeamsAppServerFixture.swift in Sources */,
+				C11757000000000000000061 /* CodexTeamsAppServerProcess.swift in Sources */,
 				C1175700000000000000003B /* CodexTeamsAppServerProcessTests.swift in Sources */,
+				C11757000000000000000062 /* CodexTeamsPOSIXSupport.swift in Sources */,
 				C1175700000000000000003C /* CodexTeamsResumedBackfillTests.swift in Sources */,
 				C1175700000000000000004C /* CodexTeamsSocketFixture.swift in Sources */,
 				C1175700000000000000003D /* CodexTerminalErrorNotificationTests.swift in Sources */,

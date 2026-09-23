@@ -94,24 +94,7 @@ struct CodexTeamsResumedBackfillTests {
     }
 
     private func bundledCLIPath() throws -> String {
-        let appBundleURL = Bundle(for: BundleToken.self)
-            .bundleURL
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-        let cliURL = appBundleURL
-            .appendingPathComponent("Contents", isDirectory: true)
-            .appendingPathComponent("Resources", isDirectory: true)
-            .appendingPathComponent("bin", isDirectory: true)
-            .appendingPathComponent("cmux", isDirectory: false)
-        guard FileManager.default.isExecutableFile(atPath: cliURL.path) else {
-            throw NSError(
-                domain: "CodexTeamsResumedBackfillTests",
-                code: 1,
-                userInfo: [NSLocalizedDescriptionKey: "Bundled cmux CLI not found at \(cliURL.path)"]
-            )
-        }
-        return cliURL.path
+        try BundledCLITestSupport.bundledCLIPath()
     }
 
     private func stop(_ process: Process) {
@@ -127,5 +110,4 @@ struct CodexTeamsResumedBackfillTests {
         process.waitUntilExit()
     }
 
-    private final class BundleToken {}
 }

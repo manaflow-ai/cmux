@@ -4,7 +4,6 @@ import Testing
 
 @Suite("CLI hook no-response telemetry", .serialized)
 struct CLIHookNoResponseTests {
-    final class BundleProbe {}
 
     struct ProcessRunResult {
         let status: Int32
@@ -253,29 +252,7 @@ struct CLIHookNoResponseTests {
     }
 
     private static func bundledCLIPath() throws -> String {
-        let fileManager = FileManager.default
-        let appBundleURL = Bundle(for: BundleProbe.self)
-            .bundleURL
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-        let enumerator = fileManager.enumerator(
-            at: appBundleURL,
-            includingPropertiesForKeys: nil,
-            options: [.skipsHiddenFiles]
-        )
-
-        while let item = enumerator?.nextObject() as? URL {
-            guard item.lastPathComponent == "cmux",
-                  item.path.contains(".app/Contents/Resources/bin/cmux") else {
-                continue
-            }
-            return item.path
-        }
-
-        throw NSError(domain: "cmux.tests", code: 1, userInfo: [
-            NSLocalizedDescriptionKey: "Bundled cmux CLI not found in \(appBundleURL.path)",
-        ])
+        try BundledCLITestSupport.bundledCLIPath()
     }
 
     private static func makeSocketPath(_ name: String) -> String {
