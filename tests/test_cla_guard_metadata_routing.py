@@ -76,9 +76,11 @@ class CLAMetadataRoutingTests(unittest.TestCase):
             self.assertEqual(run(workflow), 1)
             workflow = candidate()
             workflow["jobs"]["validate"]["if"] = "${{ false }}"
-            # The bridge still owns a literal required name, but the malformed
-            # dynamic route must not be inferred as another required owner.
-            self.assertEqual(bounded.context_of("validate", workflow["jobs"]["validate"], path, workflow), METADATA_NAME)
+            self.assertEqual(run(workflow), 1)
+            workflow["jobs"]["validate"]["name"] = REQUIRED_CHECK
+            self.assertEqual(run(workflow), 1)
+            del workflow["jobs"]["validate"]["if"]
+            self.assertEqual(run(workflow), 0)
 
     def test_merge_queue_retains_static_policy_bridge(self):
         import test_ci_merge_queue_required_checks as queue
