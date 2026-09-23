@@ -32,6 +32,9 @@ extension CMUXCLI {
         if normalizedCommand == "surface", commandArgs.first?.lowercased() == "resume" {
             return false
         }
+        if Self.commandDefersSocketConnectionUntilRequest(command: command, commandArgs: commandArgs) {
+            return false
+        }
         return true
     }
 

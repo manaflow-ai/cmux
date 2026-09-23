@@ -75,7 +75,6 @@ describe("Freestyle private network readiness", () => {
     } } as unknown as Freestyle;
     const provider = new FreestyleProvider({
       client: () => client,
-      resolveDaemonSource: async () => { throw new Error("No daemon install is needed"); },
     });
 
     const allocation = operation === "create"
@@ -84,9 +83,7 @@ describe("Freestyle private network readiness", () => {
     if (hasAddresses) {
       await allocation;
       events.push("published");
-      expect(events).toEqual(operation === "create"
-        ? ["allocated", "published"]
-        : ["allocated", "guest-network", "published"]);
+      expect(events).toEqual(["allocated", "published"]);
     } else {
       await expect(allocation).rejects.toThrow();
       expect(events).toEqual(["allocated", "delete"]);
@@ -116,7 +113,6 @@ describe("Freestyle private network readiness", () => {
     } } as unknown as Freestyle;
     const provider = new FreestyleProvider({
       client: () => client,
-      resolveDaemonSource: async () => { throw new Error("No daemon install is needed"); },
     });
 
     const handle = await provider.create({ image: "sh-fixture", network: { id: "vpc-fixture" } });

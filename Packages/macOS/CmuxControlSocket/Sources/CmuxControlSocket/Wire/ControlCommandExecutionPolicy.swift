@@ -125,8 +125,11 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         // surfaces. Keep them on the worker lane so markdown/file-preview panes
         // reach TerminalController's mobile.panel.artifact.* dispatcher instead
         // of the main-actor switch returning method_not_found.
+        // `mobile.panel.artifact.fetch` is deliberately absent: it needs the
+        // authenticated mobile RPC execution context, so the local control
+        // socket answers method_not_found instead of bypassing
+        // artifact-transfer authorization (the worker switch has no case for it).
         "mobile.panel.artifact.stat",
-        "mobile.panel.artifact.fetch",
         "mobile.panel.artifact.thumbnail",
         "system.top",
         "system.memory",
