@@ -14,8 +14,10 @@ public let WorkstreamDefaultMaxActiveFileBytes: UInt64 = 64 * 1024 * 1024
 /// single previous generation (`workstream.1.jsonl`) once the next append
 /// would push it past `maxActiveFileBytes`, so the log never holds more
 /// than about twice the cap. An older file that grew past the cap before
-/// rotation existed is trimmed once to its newest line-aligned bytes, on
-/// this actor's executor, before the first read or write.
+/// rotation existed is trimmed once to its newest line-aligned bytes. The
+/// copy runs on a detached utility task so reads and appends never wait
+/// for it; cursors into the old file are re-anchored after the swap, and
+/// rows appended during the copy are carried into the trimmed file.
 ///
 /// Writes are serialized through the actor so the store can fire them off
 /// without awaiting disk IO. The write handle is reopened whenever the path
@@ -98,6 +100,15 @@ public actor WorkstreamPersistence {
     private var handle: FileHandle?
     private var handleIdentity: FileIdentity?
     private var hasCheckedOversizedFile = false
+    /// True from the trim's size snapshot until its swap or abandonment.
+    /// Rotation waits so the oversized file is never moved whole into the
+    /// previous generation.
+    private var legacyTrimInFlight = false
+    private var legacyTrimTask: Task<Void, Never>?
+    private var legacyTrimFinalizeGate: (@Sendable () async -> Void)?
+    /// Old file identity -> trimmed file identity and bytes dropped from
+    /// its front, so cursors from before the trim keep their rows.
+    private var reanchors: [FileIdentity: (file: FileIdentity, droppedBytes: UInt64)] = [:]
 
     /// - Parameters:
     ///   - fileURL: Active JSONL file. The previous generation lives next to
@@ -139,13 +150,13 @@ public actor WorkstreamPersistence {
     /// directory lazily on first write, and rotates first when the line
     /// would push the active file past the cap.
     public func append(_ item: WorkstreamItem) throws {
-        trimOversizedActiveFileOnce()
+        startLegacyTrimIfNeeded()
         let data = try encoder.encode(item.redactedForPersistence())
         var line = data
         line.append(0x0A) // "\n"
         var fh = try handleForWriting()
         let size = try Self.size(of: fh)
-        if size > 0, size + UInt64(line.count) > maxActiveFileBytes {
+        if !legacyTrimInFlight, size > 0, size + UInt64(line.count) > maxActiveFileBytes {
             try rotate()
             fh = try handleForWriting()
         }
@@ -175,7 +186,8 @@ public actor WorkstreamPersistence {
     ) throws -> Page {
         let empty = Page(items: [], hasMoreBefore: false, startCursor: nil)
         guard limit > 0 else { return empty }
-        trimOversizedActiveFileOnce()
+        startLegacyTrimIfNeeded()
+        let cursor = cursor.map(reanchored)
 
         let activeIdentity = Self.identity(atPath: fileURL.path)
         let previousIdentity = Self.identity(atPath: previousFileURL.path)
@@ -250,15 +262,15 @@ public actor WorkstreamPersistence {
         }
     }
 
-    /// Trims an active file that grew past the cap before rotation existed.
-    /// Runs at most once per instance; later growth is handled by rotation.
-    func trimOversizedActiveFileIfNeeded() throws {
-        guard !hasCheckedOversizedFile else { return }
-        hasCheckedOversizedFile = true
-        let size = Self.fileSize(atPath: fileURL.path)
-        guard size > maxActiveFileBytes else { return }
-        closeWriteHandle()
-        try Self.keepNewestLines(of: fileURL, fileSize: size, maxBytes: maxActiveFileBytes)
+    /// Waits for the one-time legacy trim, if one was started.
+    func waitForLegacyTrim() async {
+        await legacyTrimTask?.value
+    }
+
+    /// Runs `gate` after the trim copy and before its swap. Tests use it
+    /// to append while the copy snapshot is outstanding.
+    func setLegacyTrimFinalizeGateForTesting(_ gate: @escaping @Sendable () async -> Void) {
+        legacyTrimFinalizeGate = gate
     }
 
     // MARK: - Private
@@ -269,10 +281,96 @@ public actor WorkstreamPersistence {
         let file: FileIdentity
     }
 
-    private func trimOversizedActiveFileOnce() {
-        // A failed trim leaves the file as it was; rotation still bounds
-        // new growth and the next launch retries.
-        try? trimOversizedActiveFileIfNeeded()
+    private struct TrimSnapshot: Sendable {
+        let fileURL: URL
+        let file: FileIdentity
+        let size: UInt64
+        let maxBytes: UInt64
+    }
+
+    private struct StagedTrim: Sendable {
+        let snapshot: TrimSnapshot
+        let tempURL: URL
+        let keepFrom: UInt64
+    }
+
+    private func reanchored(_ cursor: Cursor) -> Cursor {
+        guard let file = cursor.file, let anchor = reanchors[file] else { return cursor }
+        let offset = cursor.offset > anchor.droppedBytes ? cursor.offset - anchor.droppedBytes : 0
+        return Cursor(file: anchor.file, offset: offset)
+    }
+
+    /// Snapshots an active file that grew past the cap before rotation
+    /// existed and starts its trim off this actor. Runs at most once per
+    /// instance; later growth is handled by rotation.
+    private func startLegacyTrimIfNeeded() {
+        guard !hasCheckedOversizedFile else { return }
+        hasCheckedOversizedFile = true
+        var info = stat()
+        guard stat(fileURL.path, &info) == 0, info.st_size > 0 else { return }
+        let size = UInt64(info.st_size)
+        guard size > maxActiveFileBytes else { return }
+        let snapshot = TrimSnapshot(
+            fileURL: fileURL,
+            file: Self.identity(from: info),
+            size: size,
+            maxBytes: maxActiveFileBytes
+        )
+        legacyTrimInFlight = true
+        let gate = legacyTrimFinalizeGate
+        legacyTrimTask = Task.detached(priority: .utility) { [self] in
+            let staged: StagedTrim
+            do {
+                staged = try Self.stageTrim(snapshot)
+            } catch {
+                await self.abandonLegacyTrim(tempURL: nil)
+                return
+            }
+            await gate?()
+            await self.finishLegacyTrim(staged)
+        }
+    }
+
+    /// Swaps the staged copy in. Runs on the actor, so no in-process append
+    /// interleaves: bytes appended after the snapshot are copied onto the
+    /// staged file before the rename.
+    private func finishLegacyTrim(_ staged: StagedTrim) {
+        let snapshot = staged.snapshot
+        guard Self.identity(atPath: fileURL.path) == snapshot.file else {
+            // Cleared or replaced during the copy; nothing to swap.
+            abandonLegacyTrim(tempURL: staged.tempURL)
+            return
+        }
+        do {
+            let currentSize = Self.fileSize(atPath: fileURL.path)
+            if currentSize > snapshot.size {
+                try Self.appendRange(
+                    of: fileURL,
+                    from: snapshot.size,
+                    to: currentSize,
+                    onto: staged.tempURL
+                )
+            }
+            guard rename(staged.tempURL.path, fileURL.path) == 0 else {
+                throw POSIXError(Self.currentErrno())
+            }
+        } catch {
+            // A failed trim leaves the file as it was; the next launch retries.
+            abandonLegacyTrim(tempURL: staged.tempURL)
+            return
+        }
+        closeWriteHandle()
+        if let trimmed = Self.identity(atPath: fileURL.path) {
+            reanchors[snapshot.file] = (file: trimmed, droppedBytes: staged.keepFrom)
+        }
+        legacyTrimInFlight = false
+    }
+
+    private func abandonLegacyTrim(tempURL: URL?) {
+        if let tempURL {
+            try? FileManager.default.removeItem(at: tempURL)
+        }
+        legacyTrimInFlight = false
     }
 
     private func handleForWriting() throws -> FileHandle {
@@ -413,49 +511,68 @@ public actor WorkstreamPersistence {
         }
     }
 
-    /// Replaces `url` with its bytes from the first line start at or after
-    /// `fileSize - maxBytes`, copying through a sibling temp file and an
-    /// atomic rename so a crash leaves either the old or the new file.
-    private static func keepNewestLines(
-        of url: URL,
-        fileSize: UInt64,
-        maxBytes: UInt64
-    ) throws {
-        let reader = try FileHandle(forReadingFrom: url)
+    /// Copies the snapshot's bytes from the first line start at or after
+    /// `size - maxBytes` into a sibling temp file. Runs off the actor.
+    private static func stageTrim(_ snapshot: TrimSnapshot) throws -> StagedTrim {
+        let reader = try FileHandle(forReadingFrom: snapshot.fileURL)
         defer { try? reader.close() }
+        guard identity(of: reader.fileDescriptor) == snapshot.file else {
+            throw POSIXError(.ESTALE)
+        }
         let keepFrom = try firstLineStart(
-            atOrAfter: fileSize - maxBytes,
+            atOrAfter: snapshot.size - snapshot.maxBytes,
             in: reader,
-            fileSize: fileSize
+            fileSize: snapshot.size
         )
-
-        let tempURL = url.deletingLastPathComponent().appendingPathComponent(
-            ".\(url.lastPathComponent).trim-\(UUID().uuidString)",
+        let tempURL = snapshot.fileURL.deletingLastPathComponent().appendingPathComponent(
+            ".\(snapshot.fileURL.lastPathComponent).trim-\(UUID().uuidString)",
             isDirectory: false
         )
         let fd = open(tempURL.path, O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC, 0o644)
         guard fd >= 0 else { throw POSIXError(currentErrno()) }
         let writer = FileHandle(fileDescriptor: fd, closeOnDealloc: true)
         do {
-            try reader.seek(toOffset: keepFrom)
-            var remaining = fileSize - keepFrom
-            let chunkSize: UInt64 = 1024 * 1024
-            while remaining > 0 {
-                let count = Int(min(chunkSize, remaining))
-                guard let chunk = try reader.read(upToCount: count), !chunk.isEmpty else {
-                    break
-                }
-                try writer.write(contentsOf: chunk)
-                remaining -= UInt64(chunk.count)
-            }
+            try copyBytes(from: reader, start: keepFrom, end: snapshot.size, to: writer)
             try writer.close()
-            guard rename(tempURL.path, url.path) == 0 else {
-                throw POSIXError(currentErrno())
-            }
         } catch {
             try? writer.close()
             try? FileManager.default.removeItem(at: tempURL)
             throw error
+        }
+        return StagedTrim(snapshot: snapshot, tempURL: tempURL, keepFrom: keepFrom)
+    }
+
+    private static func appendRange(
+        of url: URL,
+        from start: UInt64,
+        to end: UInt64,
+        onto destination: URL
+    ) throws {
+        let reader = try FileHandle(forReadingFrom: url)
+        defer { try? reader.close() }
+        let fd = open(destination.path, O_WRONLY | O_APPEND | O_CLOEXEC)
+        guard fd >= 0 else { throw POSIXError(currentErrno()) }
+        let writer = FileHandle(fileDescriptor: fd, closeOnDealloc: true)
+        defer { try? writer.close() }
+        try copyBytes(from: reader, start: start, end: end, to: writer)
+    }
+
+    private static func copyBytes(
+        from reader: FileHandle,
+        start: UInt64,
+        end: UInt64,
+        to writer: FileHandle
+    ) throws {
+        try reader.seek(toOffset: start)
+        var remaining = end > start ? end - start : 0
+        let chunkSize: UInt64 = 1024 * 1024
+        while remaining > 0 {
+            let count = Int(min(chunkSize, remaining))
+            guard let chunk = try reader.read(upToCount: count), !chunk.isEmpty else {
+                break
+            }
+            try writer.write(contentsOf: chunk)
+            remaining -= UInt64(chunk.count)
         }
     }
 
