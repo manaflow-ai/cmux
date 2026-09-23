@@ -126,6 +126,27 @@ jobs:
         if: ${{ matrix.group == 'preflight' }}
         run: python3 tests/test_web_complexity_scope.py
 
+      - name: Validate iOS package conventions for this change
+        if: ${{ matrix.group == 'preflight' }}
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
+        run: |
+          set -euo pipefail
+          python3 tests/test_ci_ios_conventions_diff.py
+          # The conventions lint scans the whole repository, so gating a PR on
+          # it directly turns every open PR red whenever main carries one
+          # unrelated violation (#10409). Judge the change instead: report only
+          # violations absent from the base. Skipped outside PR/merge-group,
+          # where there is no base to compare against.
+          if [ -n "${BASE_SHA:-}" ]; then
+            if ! git cat-file -e "$BASE_SHA^{commit}" 2>/dev/null; then
+              git fetch --no-tags --depth=1 origin "$BASE_SHA"
+            fi
+            ./scripts/ci/lint-ios-conventions-diff.sh "$BASE_SHA"
+          else
+            echo "No base revision for this event; conventions diff skipped."
+          fi
+
       - name: Validate reload shared DerivedData default
         if: ${{ matrix.group == 'preflight' }}
         run: ./tests/test_reload_shared_derived_data.sh
