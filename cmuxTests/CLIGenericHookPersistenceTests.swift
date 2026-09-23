@@ -2074,7 +2074,8 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 Darwin.bind(socketFD, sockaddrPointer, socklen_t(MemoryLayout<sockaddr_un>.size))
             }
         }
-        XCTAssertEqual(bindResult, 0, String(cString: strerror(errno)))
+        let bindErrno = errno
+        XCTAssertEqual(bindResult, 0, String(cString: strerror(bindErrno)))
         close(socketFD)
         XCTAssertTrue(FileManager.default.fileExists(atPath: staleSocketPath))
 
