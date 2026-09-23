@@ -449,29 +449,10 @@ struct SSHStartupManualReconnectTests {
             replacingSystemSSHWith: fakeSSH
         )
         defer { Self.removeFixturePaths(startup.cleanupPaths) }
-        // The pane ships a 20-failure foreground-authentication budget. Assert
-        // that value on the generated script, then run the loop against a
-        // shrunken budget so the test proves the limit is honored without
-        // spawning 20 authentication attempts.
-        let authPolicy = SSHForegroundAuthenticationRetryPolicy()
-        #expect(authPolicy.maximumConsecutiveTransientFailures == 20)
-        let generatedScripts = SSHStartupCommandTestSupport.scriptDecodeLevels(in: startup.command)
-        let productionBudget = try #require(
-            ["cmux_ssh_auth_retry_limit", "cmux_ssh_attach_auth_retry_limit"]
-                .map { "\($0)=\(authPolicy.maximumConsecutiveTransientFailures)" }
-                .first { budget in generatedScripts.contains { $0.contains(budget) } },
-            "the generated startup script no longer pins the production authentication retry budget"
-        )
-        let shrunkenBudget = 3
-        let startupCommand = try #require(SSHStartupCommandTestSupport.replacingWithinScript(
-            in: startup.command,
-            replacements: [
-                productionBudget: productionBudget.replacingOccurrences(
-                    of: "=\(authPolicy.maximumConsecutiveTransientFailures)",
-                    with: "=\(shrunkenBudget)"
-                )
-            ]
-        ))
+        // Keep the real helper retry budget: the preserved __ssh-* CLI helper
+        // owns authentication retries, so rewriting its shell wrapper does not
+        // change the number of attempts it executes. The fake sleep removes backoff.
+        let startupCommand = startup.command
         var environment = ProcessInfo.processInfo.environment
         environment["PATH"] = "\(root.path):\(environment["PATH"] ?? "/usr/bin:/bin")"
         environment["CMUX_BUNDLED_CLI_PATH"] = fakeCLI.path
@@ -494,7 +475,7 @@ struct SSHStartupManualReconnectTests {
         #expect(!result.timedOut, Comment(rawValue: result.stderr))
         #expect(result.status == 255, Comment(rawValue: result.stderr))
         let attempts = try String(contentsOf: attemptFile, encoding: .utf8)
-        #expect(attempts == "\(shrunkenBudget)", Comment(rawValue: result.stderr))
+        #expect(attempts == "20", Comment(rawValue: result.stderr))
     }
 
     @Test func establishedStartupRetriesUnclassifiedReauthenticationFailure() throws {
