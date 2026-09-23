@@ -151,6 +151,42 @@ struct TerminalLocalImageTransferFileLifetimeTests {
         #expect(try FileManager.default.contentsOfDirectory(atPath: directory.path) == ["Folder with spaces"])
     }
 
+    @Test(
+        "A promise for another file does not promote an auxiliary folder URL",
+        arguments: [TerminalImageTransferMode.paste, .drop]
+    )
+    func unrelatedPromiseKeepsImagePriority(mode: TerminalImageTransferMode) throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-mixed-promise-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let source = directory.appendingPathComponent("promised.txt")
+        try Data("file".utf8).write(to: source)
+        let png = try #require(Data(base64Encoded: Self.onePixelPNGBase64))
+        let pasteboard = NSPasteboard(name: .init("cmux-mixed-promise-\(UUID().uuidString)"))
+        defer { pasteboard.releaseGlobally() }
+        let item = NSPasteboardItem()
+        #expect(item.setString(directory.absoluteString, forType: .fileURL))
+        #expect(item.setString(source.absoluteString, forType: PasteboardFileURLReader.promisedFileURLPasteboardType))
+        #expect(item.setData(png, forType: .png))
+        #expect(pasteboard.writeObjects([item]))
+        let service = TerminalPasteboardService(temporaryDirectory: directory)
+        let prepared = TerminalImageTransferPlanner.prepareSynchronously(
+            pasteboard: pasteboard,
+            mode: mode,
+            pasteboardService: service
+        )
+        guard case .fileURLs(let urls) = prepared else {
+            Issue.record("Expected an image attachment, got \(prepared)")
+            return
+        }
+        let imageURL = try #require(urls.first)
+        #expect(urls.count == 1)
+        #expect(service.isOwnedTemporaryImageFile(imageURL))
+        #expect(imageURL.pathExtension == "png")
+        #expect(try Data(contentsOf: imageURL) == png)
+    }
+
     @Test("Finder file and folder pastes preserve their URL identity", arguments: [false, true])
     func fileOnlyPasteKeepsURLs(isDirectory: Bool) throws {
         let directory = FileManager.default.temporaryDirectory
