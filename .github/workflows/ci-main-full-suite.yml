@@ -1,0 +1,117 @@
+name: CI main full suite
+
+# Pull requests run compile admission only unless labeled full-ci, and the
+# merge queue that ran the full suite before landing is off. This workflow is
+# the periodic full-suite signal for main: every 3 hours it dispatches CI on
+# main's HEAD unless that SHA already has a full-suite run, and it keeps one
+# tracking issue open while main is red.
+#
+# It dispatches ci.yml instead of calling it so the run keeps the identity the
+# app-host product transport trusts (path ci.yml, event workflow_dispatch), and
+# so CI's own routing, suite choice and runner selection stay untouched. Every
+# workflow_dispatch CI run routes every area and runs the full suite.
+on:
+  schedule:
+    - cron: "23 */3 * * *"
+  workflow_dispatch:
+    inputs:
+      force:
+        description: Dispatch CI even when main's HEAD already has a full-suite run.
+        required: false
+        default: false
+        type: boolean
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+
+permissions: {}
+
+env:
+  # Keep the display-name trigger checked against its stable workflow identity.
+  SOURCE_WORKFLOW_PATHS: .github/workflows/ci.yml
+
+jobs:
+  dispatch:
+    name: Dispatch full-suite CI on main
+    if: ${{ github.event_name != 'workflow_run' && github.ref == 'refs/heads/main' }}
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 5
+    # Never cancel: a queued tick waits for the previous one. Dispatched CI
+    # runs share ci.yml's main concurrency group, which does not cancel
+    # in-progress non-PR runs either.
+    concurrency:
+      group: ci-main-full-suite-dispatch
+      cancel-in-progress: false
+    permissions:
+      actions: write
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+          sparse-checkout: scripts/ci
+
+      - name: Skip when main's HEAD already has a full-suite run
+        id: gate
+        env:
+          GH_TOKEN: ${{ github.token }}
+          FORCE: ${{ inputs.force && 'true' || 'false' }}
+        run: |
+          set -euo pipefail
+          if ! head_sha="$(gh api "repos/$GITHUB_REPOSITORY/branches/main" --jq '.commit.sha')"; then
+            echo "Could not read main's HEAD; dispatching the full suite."
+            echo "dispatch=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          force_args=()
+          if [ "$FORCE" = "true" ]; then
+            force_args=(--force)
+          fi
+          python3 scripts/ci/main_full_suite.py gate --head-sha "$head_sha" ${force_args[@]+"${force_args[@]}"}
+
+      - name: Dispatch CI on main
+        if: ${{ steps.gate.outputs.dispatch == 'true' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh workflow run ci.yml --repo "$GITHUB_REPOSITORY" --ref main
+          echo "Dispatched full-suite CI on main." >> "$GITHUB_STEP_SUMMARY"
+
+  report:
+    name: Sync the main full-suite failure issue
+    # workflow_run reports each dispatched CI run as it completes. The
+    # scheduled tick re-syncs from the newest green or red run, so a missed
+    # workflow_run event is caught within one tick. Reports are idempotent.
+    if: ${{ (github.event_name != 'workflow_run' && github.ref == 'refs/heads/main') || (github.event.workflow_run.event == 'workflow_dispatch' && github.event.workflow_run.head_branch == 'main' && github.event.workflow_run.path == '.github/workflows/ci.yml') }}
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 5
+    concurrency:
+      group: ci-main-full-suite-report
+      cancel-in-progress: false
+    permissions:
+      actions: read
+      contents: read
+      issues: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+          sparse-checkout: scripts/ci
+
+      - name: Open, update or close the tracking issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+        run: |
+          set -euo pipefail
+          run_args=()
+          if [ -n "$RUN_ID" ]; then
+            run_args=(--run-id "$RUN_ID")
+          fi
+          python3 scripts/ci/main_full_suite.py report ${run_args[@]+"${run_args[@]}"}

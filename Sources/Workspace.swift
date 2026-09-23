@@ -1,4 +1,5 @@
 import CmuxAppKitSupportUI
+import CMUXMobileCore
 import CmuxFoundation
 import Foundation
 import CmuxCore
@@ -217,6 +218,9 @@ extension Workspace {
         startupRestoreCommitOwner: WorkspaceTerminalStartupRestoreCommitOwner = .workspaceTopology,
         deferBrowserPanels: Bool = false
     ) -> [UUID: UUID] {
+        guard acceptsRestoredSession(snapshot) else { return [:] }
+        let finishWork = beginTerminalGeometryTransition(.restore)
+        defer { finishWork() }
         sessionRestoreLayoutSuppressionDepth += 1
         defer {
             sessionRestoreLayoutSuppressionDepth = max(sessionRestoreLayoutSuppressionDepth - 1, 0)
@@ -751,7 +755,7 @@ extension Workspace {
                     forwardHistoryURLStrings: historySnapshot.forwardHistoryURLStrings,
                     transparentBackground: browserPanel.sessionSnapshotTransparentBackground,
                     diffViewerToken: diffViewerComponents?.token,
-                    diffViewerRequestPath: diffViewerComponents?.requestPath
+                    diffViewerRequestPath: diffViewerComponents?.requestPath, cloudResource: browserPanel.cloudResourceForSession
                 )
             } else if let deferredPanel = panel as? DeferredBrowserPanel {
                 // A deferred panel already owns the exact persisted browser DTO;
@@ -977,6 +981,7 @@ extension Workspace {
     }
     @discardableResult
     func restoreClosedPanel(_ entry: ClosedPanelHistoryEntry) -> UUID? {
+        guard acceptsRestoredPanel(entry.snapshot, projection: entry.projection) else { return nil }
         // Inert nested scaffolds must not enter the user-split terminal repair path.
         let wasProgrammaticSplit = isProgrammaticSplit
         isProgrammaticSplit = true
@@ -1565,7 +1570,9 @@ extension Workspace {
         restoresDeviceProjection: Bool = false
     ) -> UUID? {
         guard !isRetiredFromOwningTabManager else { return nil }
-        let snapshot = Self.repairedLegacyHermesSessionPanelSnapshot(snapshot, workspaceId: snapshotWorkspaceId ?? id)
+        var snapshot = Self.repairedLegacyHermesSessionPanelSnapshot(snapshot, workspaceId: snapshotWorkspaceId ?? id)
+        if let resource = cloudProjectionRecord?.resource, !resource.machine.isLocal { snapshot.browser?.cloudResource = resource }
+        guard acceptsRestoredPanel(snapshot, projection: cloudProjectionRecord) else { return nil }
         // Another Mac's terminal restores through the device link below, never
         // through the Cloud VM reservation.
         if let cloudProjectionRecord, !cloudProjectionRecord.resource.machine.isLocal,
@@ -2020,8 +2027,13 @@ extension Workspace {
             // that id (duplicate-workspace / restore-into-live can collide);
             // otherwise fall back to a fresh id and let the old->new remap
             // handle it, exactly as before.
-            let reusableSurfaceId: UUID? =
-                GhosttyApp.terminalSurfaceRegistry.surface(id: snapshot.id) == nil ? snapshot.id : nil
+            // A colliding restore must still present a restore identity: since
+            // #13098, `newTerminalSurfaceOutcome` treats a nil `restoredSurfaceId`
+            // as an interactive create and routes it to the selected pane's Cloud
+            // source, which replaces a legacy managed-Cloud SSH attach with a
+            // remote tab create. A fresh id is free by construction.
+            let reusableSurfaceId: UUID =
+                GhosttyApp.terminalSurfaceRegistry.surface(id: snapshot.id) == nil ? snapshot.id : UUID()
             guard let terminalPanel = newTerminalSurface(
                 inPane: paneId,
                 focus: false,
@@ -2627,6 +2639,7 @@ struct WorkspaceCloudVMBinding: Equatable, Sendable {
 /// Workspace represents a sidebar tab.
 /// Each workspace contains one BonsplitController that manages split panes and nested surfaces.
 final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHost {
+    @MainActor var terminalGeometryTransition: TerminalWorkContext.Transition = .unknown
     enum BrowserPanelCreationPolicy {
         case userInitiated
         case automationPreload
@@ -2900,6 +2913,10 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     /// Subscriptions for panel updates (e.g., browser title changes)
     var panelSubscriptions: [UUID: AnyCancellable] = [:]
     private var agentSessionPanelCallbackIds: Set<UUID> = []
+    /// Terminal pairings belong to the workspace currently owning the agent
+    /// panel. Moving an agent panel drops the old pairing and lets the new
+    /// workspace lazily establish its own terminal on the next command.
+    private var agentSessionPairedTerminalPanelIds: [UUID: UUID] = [:]
 
     /// Aggregate media-device activity across every browser pane in this
     /// workspace (audio / microphone / camera), surfaced to the sidebar
@@ -4633,13 +4650,6 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     private var skipControlMasterCleanupAfterDetachedRemoteTransfer = false
     var transferredRemoteCleanupConfigurationsByPanelId: [UUID: WorkspaceRemoteConfiguration] = [:]
 
-#if DEBUG
-    func debugElapsedMs(since start: TimeInterval) -> String {
-        let ms = (ProcessInfo.processInfo.systemUptime - start) * 1000
-        return String(format: "%.2f", ms)
-    }
-#endif
-
     func markExplicitClose(surfaceId: TabID) {
         explicitUserCloseTabIds.insert(surfaceId)
         closeHistoryEligibleTabIds.insert(surfaceId)
@@ -5044,7 +5054,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         setPreferredBrowserProfileID(browserPanel.profileID)
     }
 
-    private func syncBrowserAudioMuteStateForPanel(_ panelId: UUID, browserPanel: BrowserPanel? = nil) {
+    func syncBrowserAudioMuteStateForPanel(_ panelId: UUID, browserPanel: BrowserPanel? = nil) {
         guard let browserPanel = browserPanel ?? self.browserPanel(for: panelId),
               let tabId = surfaceIdFromPanelId(panelId),
               let tab = bonsplitController.tab(tabId),
@@ -5165,8 +5175,10 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     func discardAgentSessionPanelSubscription(panelId: UUID, panel: (any Panel)?) {
         if let agentPanel = panel as? AgentSessionPanel {
             agentPanel.onDisplayStateChanged = nil
+            agentPanel.onRunCommand = nil
         }
         agentSessionPanelCallbackIds.remove(panelId)
+        agentSessionPairedTerminalPanelIds.removeValue(forKey: panelId)
     }
 
     func discardBrowserPanelSubscription(panelId _: UUID, panel: (any Panel)?) {
@@ -5473,7 +5485,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         return true
     }
 
-    private func insertionIndexToRight(of anchorTabId: TabID, inPane paneId: PaneID) -> Int {
+    func insertionIndexToRight(of anchorTabId: TabID, inPane paneId: PaneID) -> Int {
         let tabs = bonsplitController.tabs(inPane: paneId)
         guard let anchorIndex = tabs.firstIndex(where: { $0.id == anchorTabId }) else { return tabs.count }
         let pinnedCount = tabs.reduce(into: 0) { count, tab in
@@ -9067,6 +9079,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         runtimeSpawnPolicy: TerminalSurfaceRuntimeSpawnPolicy = .immediate,
         autoRefreshMetadata: Bool = true,
         preserveFocusWhenUnfocused: Bool = true,
+        preserveBonsplitSelectionWhenUnfocused: Bool = false,
         remotePTYSessionID: String? = nil,
         suppressWorkspaceRemoteStartupCommand: Bool = false,
         restoredSurfaceId: UUID? = nil,
@@ -9087,6 +9100,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             runtimeSpawnPolicy: runtimeSpawnPolicy,
             autoRefreshMetadata: autoRefreshMetadata,
             preserveFocusWhenUnfocused: preserveFocusWhenUnfocused,
+            preserveBonsplitSelectionWhenUnfocused: preserveBonsplitSelectionWhenUnfocused,
             remotePTYSessionID: remotePTYSessionID,
             suppressWorkspaceRemoteStartupCommand: suppressWorkspaceRemoteStartupCommand,
             restoredSurfaceId: restoredSurfaceId,
@@ -9112,6 +9126,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         runtimeSpawnPolicy: TerminalSurfaceRuntimeSpawnPolicy = .immediate,
         autoRefreshMetadata: Bool = true,
         preserveFocusWhenUnfocused: Bool = true,
+        preserveBonsplitSelectionWhenUnfocused: Bool = false,
         remotePTYSessionID: String? = nil,
         suppressWorkspaceRemoteStartupCommand: Bool = false,
         restoredSurfaceId: UUID? = nil,
@@ -9178,6 +9193,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             runtimeSpawnPolicy: runtimeSpawnPolicy,
             autoRefreshMetadata: autoRefreshMetadata,
             preserveFocusWhenUnfocused: preserveFocusWhenUnfocused,
+            preserveBonsplitSelectionWhenUnfocused: preserveBonsplitSelectionWhenUnfocused,
             remotePTYSessionID: remotePTYSessionID,
             suppressWorkspaceRemoteStartupCommand: suppressWorkspaceRemoteStartupCommand,
             restoredSurfaceId: restoredSurfaceId,
@@ -9201,6 +9217,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         runtimeSpawnPolicy: TerminalSurfaceRuntimeSpawnPolicy,
         autoRefreshMetadata: Bool,
         preserveFocusWhenUnfocused: Bool,
+        preserveBonsplitSelectionWhenUnfocused: Bool,
         remotePTYSessionID: String?,
         suppressWorkspaceRemoteStartupCommand: Bool,
         restoredSurfaceId: UUID?,
@@ -9212,6 +9229,10 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         let shouldFocusNewTab = focus ?? (bonsplitController.focusedPaneId == paneId)
         let previousFocusedPanelId = focusedPanelId
         let previousHostedView = focusedTerminalInputTarget()?.panel.hostedView
+        let previousFocusedPaneId = bonsplitController.focusedPaneId
+        let previousSelectedTabId = previousFocusedPaneId.flatMap {
+            bonsplitController.selectedTab(inPane: $0)?.id
+        }
 
         var inheritedConfig = terminalFontSizeCreationPolicy.applying(
             to: inheritedTerminalConfig(inPane: paneId)
@@ -9326,6 +9347,15 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             bonsplitController.selectTab(newTabId)
             newPanel.focus()
             applyTabSelection(tabId: newTabId, inPane: paneId)
+        } else if preserveBonsplitSelectionWhenUnfocused {
+            clearNonFocusSplitFocusReassert()
+            if let previousFocusedPaneId {
+                bonsplitController.focusPane(previousFocusedPaneId)
+                if let previousSelectedTabId {
+                    bonsplitController.selectTab(previousSelectedTabId)
+                }
+            }
+            newPanel.unfocus()
         } else if preserveFocusWhenUnfocused || owningTabManager?.selectedTabId == id {
             preserveFocusAfterNonFocusSplit(
                 preferredPanelId: previousFocusedPanelId,
@@ -9606,7 +9636,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         initialDividerPosition: CGFloat? = nil,
         websiteDataStore: WKWebsiteDataStore? = nil
     ) -> BrowserPanel? {
-        guard !isRetiredFromOwningTabManager else { return nil }
+        guard !isRetiredFromOwningTabManager, acceptsUnownedBrowserURL(initialRequest?.url ?? url) else { return nil }
         // No local browser surfaces in a remote tmux mirror workspace (it is a
         // 1:1 view of a tmux session). See ``newBrowserSurface(inPane:)``.
         if isRemoteTmuxMirror { return nil }
@@ -9733,7 +9763,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         bypassRemoteProxy: Bool = false,
         websiteDataStore: WKWebsiteDataStore? = nil
     ) -> BrowserPanel? {
-        guard !isRetiredFromOwningTabManager else { return nil }
+        guard !isRetiredFromOwningTabManager, acceptsUnownedBrowserURL(initialRequest?.url ?? url) else { return nil }
         // A remote tmux mirror workspace is a 1:1 view of a tmux session (which
         // has no browser concept). A local browser tab here would be an orphan
         // that the mirror's rebuild() never reconciles, breaking the 1:1
@@ -10453,8 +10483,72 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         }
 
         installAgentSessionPanelSubscription(agentPanel)
+        installAgentSessionCommandRouting(agentPanel)
 
         return agentPanel
+    }
+
+    /// Binds composer command routing to this workspace's current ownership.
+    private func installAgentSessionCommandRouting(_ agentPanel: AgentSessionPanel) {
+        agentPanel.onRunCommand = { [weak self, weak agentPanel] command in
+            guard let self, let agentPanel,
+                  self.panels[agentPanel.id] === agentPanel,
+                  agentPanel.workspaceId == self.id else {
+                throw AgentSessionBridgeError.unsupportedTransport("terminal")
+            }
+            return try self.runAgentSessionCommand(command, for: agentPanel)
+        }
+    }
+
+    /// Creates the paired command terminal without arming the generic deferred
+    /// focus-repair path. Bonsplit selection is restored synchronously so later
+    /// user or layout selection changes remain authoritative.
+    private func newAgentSessionBackgroundTerminalSurface(
+        inPane paneId: PaneID,
+        workingDirectory: String?
+    ) -> TerminalPanel? {
+        newTerminalSurface(
+            inPane: paneId,
+            focus: false,
+            workingDirectory: workingDirectory,
+            autoRefreshMetadata: false,
+            preserveFocusWhenUnfocused: false,
+            preserveBonsplitSelectionWhenUnfocused: true
+        )
+    }
+
+    /// Routes composer shell commands to a terminal owned by this workspace.
+    /// The terminal is created once and reused so stateful commands such as `cd`
+    /// remain in effect for subsequent commands.
+    private func runAgentSessionCommand(
+        _ command: String,
+        for agentPanel: AgentSessionPanel
+    ) throws -> [String: Any] {
+        let resolvedTerminalPanel: TerminalPanel?
+        if let pairedTerminalPanelId = agentSessionPairedTerminalPanelIds[agentPanel.id],
+           let existing = terminalPanel(for: pairedTerminalPanelId) {
+            resolvedTerminalPanel = existing
+        } else {
+            agentSessionPairedTerminalPanelIds.removeValue(forKey: agentPanel.id)
+            guard let paneId = paneId(forPanelId: agentPanel.id),
+                  let created = newAgentSessionBackgroundTerminalSurface(
+                      inPane: paneId,
+                      workingDirectory: agentPanel.workingDirectory
+                  ) else {
+                throw AgentSessionBridgeError.unsupportedTransport("terminal")
+            }
+            agentSessionPairedTerminalPanelIds[agentPanel.id] = created.id
+            resolvedTerminalPanel = created
+        }
+
+        guard let terminalPanel = resolvedTerminalPanel,
+              terminalPanel.sendInputResult(command + "\n").accepted else {
+            throw AgentSessionBridgeError.unsupportedTransport("terminal")
+        }
+        return [
+            "accepted": true,
+            "terminalPanelId": terminalPanel.id.uuidString
+        ]
     }
 
     @discardableResult
@@ -10919,6 +11013,13 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         var detached = splitLayout.takeDetachedTransfer(tabId)
         detached?.surfaceMachine = surfaceMachine
         detached?.origin = .workspace(id)
+        if detached != nil, let agentPanel = sourcePanel as? AgentSessionPanel {
+            // A detached panel is between owners. Drop this workspace's command
+            // route immediately; attachDetachedSurface installs the destination
+            // route after ownership has moved.
+            agentPanel.onRunCommand = nil
+            agentSessionPairedTerminalPanelIds.removeValue(forKey: agentPanel.id)
+        }
         if detached == nil {
             (sourcePanel as? any FileContentChangeObservingPanel)?.stopWatchingForFileChanges()
             AgentHibernationController.shared.discardTrackingStateForClosedPanel(
@@ -11156,6 +11257,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             if !agentSessionPanelCallbackIds.contains(agentPanel.id) {
                 installAgentSessionPanelSubscription(agentPanel)
             }
+            installAgentSessionCommandRouting(agentPanel)
         }
         if detached.directoryIsTrustedRemoteReport {
             remoteDirectoryReportPanelIds.insert(detached.panelId); remoteDirectoryTrustRequiredPanelIds.insert(detached.panelId)
@@ -11200,14 +11302,14 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
                 }
             }
         }
-        // Seed deferred restore work only after the destination binding and
-        // persistent-SSH context have been retargeted. The resolver starts an
-        // asynchronous ownership scan, so publishing it earlier can race the
-        // adoption and reject a valid moved session.
+        // Seed deferred restore work after destination binding and persistent-
+        // SSH retargeting; early publication races asynchronous ownership scan.
         seedDetachedRestoredAgentState(from: detached)
         if detached.isRemoteTerminal, detached.remoteTerminalSessionPhase != .ended {
+            // Preserve the original relay owner across same-namespace moves;
+            // the destination remains remote for local lifecycle handling.
             surfaceRegistry.remoteTTYReportOriginWorkspaceIDs[detached.panelId] =
-                didAdoptWorkspaceRemoteTracking ? id : detached.sessionRestoreWorkspaceId
+                detached.sessionRestoreWorkspaceId
         } else {
             surfaceRegistry.remoteTTYReportOriginWorkspaceIDs.removeValue(forKey: detached.panelId)
         }
@@ -12596,27 +12698,6 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             websiteDataStore: sourceBrowser?.explicitEphemeralWebsiteDataStoreForSibling
         ) else { return }
         _ = reorderSurface(panelId: newPanel.id, toIndex: targetIndex)
-    }
-
-    @discardableResult
-    func duplicateBrowserToRight(panelId: UUID, focus: Bool = true) -> BrowserPanel? {
-        guard let anchorTabId = surfaceIdFromPanelId(panelId),
-              let paneId = paneId(forPanelId: panelId),
-              let browser = browserPanel(for: panelId) else { return nil }
-        let targetIndex = insertionIndexToRight(of: anchorTabId, inPane: paneId)
-        guard let newPanel = newBrowserSurface(
-            inPane: paneId,
-            url: browser.currentURLForTabDuplication,
-            focus: focus,
-            preferredProfileID: browser.profileID,
-            chromeVisibility: browser.chromeVisibility,
-            bypassRemoteProxy: browser.bypassesRemoteWorkspaceProxyForTabDuplication,
-            websiteDataStore: browser.explicitEphemeralWebsiteDataStoreForSibling
-        ) else { return nil }
-        newPanel.setMuted(browser.isMuted)
-        syncBrowserAudioMuteStateForPanel(newPanel.id, browserPanel: newPanel)
-        _ = reorderSurface(panelId: newPanel.id, toIndex: targetIndex, focus: focus)
-        return newPanel
     }
 
     private func promptRenamePanel(tabId: TabID) {
@@ -14294,6 +14375,8 @@ extension Workspace: BonsplitDelegate {
 
     func splitTabBar(_ controller: BonsplitController, didSplitPane originalPane: PaneID, newPane: PaneID, orientation: SplitOrientation) {
         guard !isRetiredFromOwningTabManager else { return }
+        let finishWork = beginTerminalGeometryTransition(.split)
+        defer { finishWork() }
 #if DEBUG
         let panelKindForTab: (TabID) -> String = { tabId in
             guard let panelId = self.panelIdFromSurfaceId(tabId),

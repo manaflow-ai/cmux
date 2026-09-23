@@ -134,20 +134,13 @@ struct WindowTitleTemplateTests {
     }
 
     @Test func settingsFileStoreAppliesAutoNamingAgentAutomationSetting() throws {
-        let defaults = UserDefaults.standard
+        // App-host observers and other suites also use standard defaults.
+        // Exercise the importer in its own domain while keeping the exact
+        // configured-value assertion below.
+        let suiteName = "cmux.auto-naming-agent-test.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
         let autoNamingAgentKey = AutomationCatalogSection().autoNamingAgent.userDefaultsKey
-        let keys = [
-            autoNamingAgentKey,
-            backupsDefaultsKey,
-            importedManagedDefaultsKey,
-        ]
-        let previousValues: [String: Any?] = Dictionary(
-            uniqueKeysWithValues: keys.map { ($0, defaults.object(forKey: $0)) }
-        )
-        defer {
-            restore(previousValues, defaults: defaults)
-        }
-        keys.forEach { defaults.removeObject(forKey: $0) }
 
         let directoryURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-auto-naming-agent-\(UUID().uuidString)", isDirectory: true)
@@ -167,6 +160,7 @@ struct WindowTitleTemplateTests {
             primaryPath: settingsFileURL.path,
             fallbackPath: nil,
             additionalFallbackPaths: [],
+            userDefaults: defaults,
             startWatching: false
         )
 

@@ -9,9 +9,18 @@
 # whole compiler invocation and on absolute paths, so both jobs must build
 # through this script or they stop sharing hits without anything failing.
 #
-# `fingerprint` hashes the toolchain and the build paths into the cache key.
-# Runner pools lay the workspace out differently, and a seed built under
-# another layout cannot hit, so it should be a cache miss and not a download.
+# `fingerprint` keys the cache. A cache entry bakes in the absolute source and
+# derived-data paths, so which paths the build used decides whether a seed can
+# hit at all. Runner pools disagree about those paths -- Blacksmith checks out
+# under /Users/runner/_work, WarpBuild under /Users/runner/work -- so a seed
+# built on one pool could never hit on another.
+#
+# scripts/ci/canonical-build-root.sh removes that disagreement by building from
+# a fixed location every pool can reproduce. When the build runs there the key
+# drops the paths, because they are now a constant, and one seed serves every
+# pool. A build anywhere else keeps the old path-scoped key and its own private
+# cache, so an unconverted lane degrades to a miss rather than downloading a
+# seed whose entries cannot hit.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -26,8 +35,25 @@ usage() {
 # Same limit as the Release seed in nightly.yml.
 cache_limit_bytes=3221225472
 
+# Keep in sync with scripts/ci/canonical-build-root.sh.
+CANONICAL_BUILD_ROOT="${CMUX_CI_CANONICAL_ROOT:-/private/tmp/cmux-ci}"
+
 fingerprint() {
   local derived_data="$1"
+  # Canonical only when both paths are fixed: the source at the canonical
+  # checkout and the derived data directly beneath the canonical root. Its
+  # basename still separates purposes, since two purposes are two paths and
+  # their entries cannot hit each other.
+  if [ "$PWD" = "$CANONICAL_BUILD_ROOT/src" ] \
+    && [ "${derived_data%/*}" = "$CANONICAL_BUILD_ROOT" ] \
+    && [ "${derived_data##*/}" != "" ]; then
+    {
+      echo "canonical-v1"
+      xcodebuild -version
+      printf 'derived-data=%s\n' "${derived_data##*/}"
+    } | shasum -a 256 | cut -c1-32
+    return
+  fi
   {
     xcodebuild -version
     printf 'workspace=%s\n' "$PWD"
@@ -66,7 +92,12 @@ resolve() {
 
 build() {
   local derived_data="$1" source_packages="$2" cas_path="$3" log="${4:-/dev/null}"
+  local -a module_cache_setting=()
   mkdir -p "$cas_path" "$derived_data"
+  if [ -n "${CMUX_CI_MODULE_CACHE_PATH:-}" ]; then
+    mkdir -p "$CMUX_CI_MODULE_CACHE_PATH"
+    module_cache_setting=("CLANG_MODULE_CACHE_PATH=$CMUX_CI_MODULE_CACHE_PATH")
+  fi
 
   # Build the app/UI scheme first so its warning log retains the old runtime
   # job warning-budget scope; subsequent schemes reuse the same app objects.
@@ -82,6 +113,8 @@ build() {
       COMPILATION_CACHE_ENABLE_CACHING=YES \
       "COMPILATION_CACHE_CAS_PATH=$cas_path" \
       "COMPILATION_CACHE_LIMIT_SIZE=$cache_limit_bytes" \
+      ${module_cache_setting[@]+"${module_cache_setting[@]}"} \
+      -showBuildTimingSummary \
       build-for-testing 2>&1 | tee "$derived_data/$scheme-build.log" | tee -a "$log"
   done
 }
