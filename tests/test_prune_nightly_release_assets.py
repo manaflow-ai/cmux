@@ -7,6 +7,7 @@ import subprocess
 import unittest
 from pathlib import Path
 from unittest import mock
+from urllib.error import HTTPError
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -32,6 +33,43 @@ def args(*, best_effort: bool) -> argparse.Namespace:
 
 
 class NightlyPruneRateLimitTests(unittest.TestCase):
+    def test_github_api_retries_transient_503_then_returns_json(self) -> None:
+        responses = [
+            HTTPError("https://api.github.com", 503, "unavailable", {}, None),
+            {"assets": []},
+        ]
+
+        class FakeResponse:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *args):
+                return False
+
+            def read(self):
+                return b'{"assets": []}'
+
+        def fake_urlopen(request):
+            response = responses.pop(0)
+            if isinstance(response, Exception):
+                raise response
+            return FakeResponse()
+
+        with mock.patch.object(MODULE.urllib.request, "urlopen", side_effect=fake_urlopen), \
+                mock.patch.object(MODULE.time, "sleep") as sleep:
+            self.assertEqual(MODULE.github_api_json("GET", "repos/o/r/releases"), {"assets": []})
+        self.assertEqual(sleep.call_count, 1)
+
+    def test_github_api_does_not_retry_permission_failure(self) -> None:
+        error = HTTPError("https://api.github.com", 403, "forbidden", {}, None)
+        with mock.patch.object(MODULE.urllib.request, "urlopen", side_effect=error) as urlopen, \
+                mock.patch.object(MODULE.time, "sleep") as sleep:
+            with self.assertRaises(MODULE.GitHubAPIError) as raised:
+                MODULE.github_api_json("GET", "repos/o/r/releases")
+        self.assertEqual(raised.exception.status, 403)
+        self.assertEqual(urlopen.call_count, 1)
+        sleep.assert_not_called()
+
     def test_best_effort_prune_ignores_github_rate_limit(self) -> None:
         error = MODULE.GitHubAPIError(403, '{"message":"API rate limit exceeded"}')
         with mock.patch.object(MODULE, "parse_args", return_value=args(best_effort=True)), \
