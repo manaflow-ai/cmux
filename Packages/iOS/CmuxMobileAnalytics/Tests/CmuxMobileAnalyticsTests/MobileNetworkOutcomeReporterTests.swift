@@ -182,7 +182,7 @@ private struct NetworkOutcomeTestConsent: AnalyticsConsentProviding {
             .string("opened"),
             .string("selected"),
             .string("opened"),
-            .string("selected"),
+            .string("snapshot"),
         ])
         #expect(events.map { $0.properties["path"] } == [
             .string("relay"),

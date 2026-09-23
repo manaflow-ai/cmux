@@ -140,6 +140,20 @@ describe("iOS mobile network observability route", () => {
     });
   });
 
+  test("distinguishes an initial Iroh path snapshot from a native selection change", async () => {
+    const response = await POST(outcomeRequest([{
+      event: "ios_iroh_path_event",
+      timestamp: "2026-09-04T12:00:00.000Z",
+      properties: {
+        operation: "snapshot", path: "relay", transport: "iroh",
+        event_code: "selectedPathChanged", event_code_raw: 40,
+        event_surface: 8, event_a: 2, event_c: 23, platform: "ios",
+      },
+    }]));
+    expect(response.status).toBe(200);
+    expect(emitted[0]?.batch[0]).toMatchObject({ operation: "snapshot", path: "relay" });
+  });
+
   test("accepts task model discovery failures for Axiom root-cause spans", async () => {
     const response = await POST(outcomeRequest([{
       event: "ios_task_model_discovery",

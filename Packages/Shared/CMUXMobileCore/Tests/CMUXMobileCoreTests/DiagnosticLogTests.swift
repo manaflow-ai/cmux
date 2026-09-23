@@ -157,6 +157,20 @@ import os
         #expect(report.events[1].diagnosticSessionLifecycleKind == .established)
     }
 
+    @Test func selectedPathSnapshotsKeepDifferentPeersAndSessions() async {
+        let log = DiagnosticLog(capacity: 16)
+        for (surface, session) in [(UInt32(1), 1), (1, 2), (2, 2), (2, 2)] {
+            log.record(DiagnosticEvent(
+                .selectedPathChanged, surface: surface,
+                a: DiagnosticPathKind.relay.rawValue, c: session
+            ))
+        }
+        await waitForProcessed(log, 4)
+        let events = await log.snapshot().events
+        #expect(events.map(\.surface) == [1, 1, 2])
+        #expect(events.map(\.c) == [1, 2, 2])
+    }
+
     @Test func transportPathLifecycleKeepsDistinctOperationsOnOnePathClass() async {
         let log = DiagnosticLog(capacity: 16)
         let events = [
