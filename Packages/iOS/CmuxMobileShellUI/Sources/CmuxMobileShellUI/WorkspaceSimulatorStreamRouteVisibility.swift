@@ -31,6 +31,8 @@ extension WorkspaceShellView {
             return notificationNavigationPath.last
         case .search:
             switch searchScope {
+            case .feed:
+                return nil
             case .workspaces:
                 return workspaceSearchNavigationPath.last
             case .notifications:

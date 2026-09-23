@@ -497,9 +497,11 @@ struct WorkspaceShellView: View {
     #endif
 
     private var primarySearchNavigationPath: Binding<[MobileWorkspacePreview.ID]> {
-        primarySearchCoordinator.scope == .workspaces
-            ? $workspaceSearchNavigationPath
-            : $notificationSearchNavigationPath
+        switch primarySearchCoordinator.scope {
+        case .workspaces: $workspaceSearchNavigationPath
+        case .notifications: $notificationSearchNavigationPath
+        case .feed: .constant([])
+        }
     }
 
     private func primarySearchTabContent(
@@ -1349,6 +1351,13 @@ struct WorkspaceShellView: View {
         let scope = macSelectionScope
         let selectedMachineIDs = scope.selectedScopeEntries
         let visibleNotificationFeedItems = store.notificationFeedItems(scopedTo: selectedMachineIDs)
+        let selectedFeedOwners = selectedMachineIDs.map(MobileWorkspaceListFilter.parsedMachineEntries)
+        let visibleAgentFeedItems = store.agentFeedItems.filter { item in
+            guard let selectedFeedOwners, !selectedFeedOwners.isEmpty else { return true }
+            return selectedFeedOwners.contains {
+                $0.matches(deviceID: item.macDeviceID, rowTag: item.macInstanceTag)
+            }
+        }
         let notificationUnreadCount = visibleNotificationFeedItems.lazy.filter { !$0.isRead }.count
         var names: [String: String] = [:]
         for workspace in store.workspaces {
@@ -1402,15 +1411,9 @@ struct WorkspaceShellView: View {
             notificationUnreadCount: notificationUnreadCount,
             notificationFeedStatus: store.notificationFeedStatus(scopedTo: selectedMachineIDs),
             selectedNotificationFeedMacDeviceIDs: selectedMachineIDs,
-            agentFeedItems: store.agentFeedItems.filter { item in
-                guard let selectedMachineIDs else { return true }
-                return selectedMachineIDs.contains(item.macDeviceID)
-                    || selectedMachineIDs.contains(MobilePairedMac.pairingID(
-                        macDeviceID: item.macDeviceID, instanceTag: item.macInstanceTag
-                    ))
-            },
+            agentFeedItems: visibleAgentFeedItems,
             agentFeedStatus: store.agentFeedStatus,
-            agentFeedNeedsInputCount: store.agentFeedNeedsInputCount,
+            agentFeedNeedsInputCount: visibleAgentFeedItems.lazy.filter(\.effectiveNeedsInput).count,
             agentFeedPendingReplyRequestIDs: store.agentFeedPendingReplyRequestIDs,
             agentFeedPendingTerminalReplyItemIDs: store.agentFeedPendingTerminalReplyItemIDs,
             toolbarMachineSnapshots: toolbarMachineSnapshots,
