@@ -1,8 +1,8 @@
 internal import Foundation
 
-/// Explicit workspace handoffs share one synchronous mutation seam. Parsing
-/// stays on the worker; the small main-actor hop acknowledges the applied
-/// state before replying, unlike passive panel telemetry's enqueue-only ACK.
+/// Explicit workspace handoffs parse on the worker and enqueue their state
+/// transition on the main-actor mutation bus. The socket worker never blocks
+/// on UI state; the response acknowledges that the mutation was accepted.
 extension ControlCommandCoordinator {
     nonisolated func sidebarReportWorkspacePullRequest(
         _ args: String,
@@ -27,13 +27,15 @@ extension ControlCommandCoordinator {
         guard context.controlSidebarIsValidPullRequestState(status), !label.isEmpty else {
             return context.controlSidebarManualPullRequestError(invalidTarget: false)
         }
-        let attached = context.controlSidebarOnMain {
-            $0.controlSidebarAttachManualPullRequest(
-                tabArg: tabArg, number: number, label: String(label.prefix(16)), url: url,
-                statusRawValue: status, branch: sidebarNormalizedOptionValue(parsed.options["branch"])
-            )
-        }
-        return attached ? "OK" : context.controlSidebarManualPullRequestError(invalidTarget: true)
+        context.controlSidebarScheduleManualPullRequest(
+            tabArg: tabArg,
+            number: number,
+            label: String(label.prefix(16)),
+            url: url,
+            statusRawValue: status,
+            branch: sidebarNormalizedOptionValue(parsed.options["branch"])
+        )
+        return "OK"
     }
 
     nonisolated func sidebarClearWorkspacePullRequest(
@@ -46,7 +48,7 @@ extension ControlCommandCoordinator {
               let context else {
             return context?.controlSidebarManualPullRequestError(invalidTarget: false) ?? "ERROR"
         }
-        let cleared = context.controlSidebarOnMain { $0.controlSidebarClearManualPullRequest(tabArg: tabArg) }
-        return cleared ? "OK" : context.controlSidebarManualPullRequestError(invalidTarget: true)
+        context.controlSidebarScheduleManualPullRequestClear(tabArg: tabArg)
+        return "OK"
     }
 }

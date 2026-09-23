@@ -5,10 +5,10 @@ import Foundation
 final class FakeSidebarV1ControlCommandContext: ControlCommandContext {
     var workspaceLoadingResult: ControlSidebarWorkspaceLoadingState?
     var workspaceLoadingCall: (tabArg: String?, key: String, on: Bool)?
-    var manualPullRequestCall: (
+    nonisolated(unsafe) var manualPullRequestCall: (
         tabArg: String?, number: Int, label: String, url: URL, state: String, branch: String?
     )?
-    var manualPullRequestClearTab: String?
+    nonisolated(unsafe) var manualPullRequestClearTab: String?
     nonisolated(unsafe) var statusClearCall: (
         target: ControlSidebarTabTarget,
         key: String,
@@ -40,21 +40,19 @@ final class FakeSidebarV1ControlCommandContext: ControlCommandContext {
         ["open", "merged", "closed"].contains(raw)
     }
 
-    func controlSidebarAttachManualPullRequest(
+    nonisolated func controlSidebarScheduleManualPullRequest(
         tabArg: String?,
         number: Int,
         label: String,
         url: URL,
         statusRawValue: String,
         branch: String?
-    ) -> Bool {
+    ) {
         manualPullRequestCall = (tabArg, number, label, url, statusRawValue, branch)
-        return true
     }
 
-    func controlSidebarClearManualPullRequest(tabArg: String?) -> Bool {
+    nonisolated func controlSidebarScheduleManualPullRequestClear(tabArg: String?) {
         manualPullRequestClearTab = tabArg
-        return true
     }
 
     nonisolated func controlSidebarScheduleStatusClear(

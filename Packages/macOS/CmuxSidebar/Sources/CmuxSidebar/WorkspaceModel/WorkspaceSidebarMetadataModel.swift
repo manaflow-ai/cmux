@@ -71,10 +71,50 @@ public final class WorkspaceSidebarMetadataModel {
     /// independent of watcher-owned panel state so branch refreshes cannot
     /// erase a deliberate script-to-sidebar association.
     public var manualPullRequest: SidebarPullRequestState? {
-        // Reuse the existing sidebar snapshot pulse rather than introducing a
-        // second observation stream for one field. The snapshot builder reads
-        // this value when that pulse arrives.
-        didSet { statusEntriesSubject.send(statusEntries) }
+        get { manualPullRequestStore.state }
+        set {
+            if manualPullRequestStore.replace(newValue) {
+                statusEntriesSubject.send(statusEntries)
+            }
+        }
+    }
+
+    /// Applies an explicit CLI handoff and emits the existing sidebar snapshot
+    /// pulse only when the value actually changes.
+    @discardableResult
+    public func attachManualPullRequest(
+        number: Int,
+        label: String,
+        url: URL,
+        status: SidebarPullRequestStatus,
+        branch: String?
+    ) -> Bool {
+        let changed = manualPullRequestStore.attach(
+            number: number,
+            label: label,
+            url: url,
+            status: status,
+            branch: branch
+        )
+        if changed { statusEntriesSubject.send(statusEntries) }
+        return changed
+    }
+
+    /// Reconciles a matching watcher result with the explicit CLI state.
+    @discardableResult
+    public func reconcileManualPullRequest(with watcherState: SidebarPullRequestState) -> Bool {
+        let changed = manualPullRequestStore.reconcile(with: watcherState)
+        if changed { statusEntriesSubject.send(statusEntries) }
+        return changed
+    }
+
+    /// Clears the explicit CLI association and emits the existing sidebar
+    /// snapshot pulse when it was present.
+    @discardableResult
+    public func clearManualPullRequest() -> Bool {
+        let changed = manualPullRequestStore.clear()
+        if changed { statusEntriesSubject.send(statusEntries) }
+        return changed
     }
 
     /// Per-panel pull-request state keyed by panel id (legacy
@@ -112,6 +152,8 @@ public final class WorkspaceSidebarMetadataModel {
     private lazy var panelPullRequestsSubject = CurrentValueSubject<[UUID: SidebarPullRequestState], Never>(panelPullRequests)
     @ObservationIgnored
     private lazy var panelDirectoryDisplayLabelsSubject = CurrentValueSubject<[UUID: String], Never>(panelDirectoryDisplayLabels)
+    @ObservationIgnored
+    private var manualPullRequestStore = SidebarManualPullRequestStore()
 
     /// Creates an empty sidebar-metadata model.
     /// - Parameter limitProvider: Supplies the configured maximum number of log

@@ -147,16 +147,16 @@ extension ControlSidebarContext {
 
     nonisolated func controlSidebarManualPullRequestError(invalidTarget: Bool) -> String { "ERROR: invalid handoff" }
 
-    func controlSidebarAttachManualPullRequest(
+    nonisolated func controlSidebarScheduleManualPullRequest(
         tabArg: String?,
         number: Int,
         label: String,
         url: URL,
         statusRawValue: String,
         branch: String?
-    ) -> Bool { false }
+    ) {}
 
-    func controlSidebarClearManualPullRequest(tabArg: String?) -> Bool { false }
+    nonisolated func controlSidebarScheduleManualPullRequestClear(tabArg: String?) {}
 
     nonisolated func controlSidebarSchedulePanelPullRequestUpdate(
         target: ControlSidebarPanelMutationTarget,

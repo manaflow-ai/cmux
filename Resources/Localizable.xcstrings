@@ -125,55 +125,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux pr expects a GitHub pull-request URL or a positive pull-request number"
+            "value": "cmux pr expects a pull-request URL or a positive pull-request number"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux pr erwartet eine GitHub-Pull-Request-URL oder eine positive Pull-Request-Nummer"
+            "value": "cmux pr erwartet eine Pull-Request-URL oder eine positive Pull-Request-Nummer"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux pr attend une URL de pull request GitHub ou un numéro positif"
+            "value": "cmux pr attend une URL de pull request ou un numéro positif"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "يتوقع cmux pr رابط طلب سحب من GitHub أو رقمًا موجبًا"
+            "value": "يتوقع cmux pr رابط طلب سحب أو رقمًا موجبًا"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux pr espera una URL de pull request de GitHub o un número positivo"
+            "value": "cmux pr espera una URL de pull request o un número positivo"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux pr 需要 GitHub 拉取請求網址或正整數編號"
+            "value": "cmux pr 需要拉取請求網址或正整數編號"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux pr 需要 GitHub 拉取请求网址或正整数编号"
+            "value": "cmux pr 需要拉取请求网址或正整数编号"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux pr은 GitHub 풀 리퀘스트 URL 또는 양의 풀 리퀘스트 번호를 요구합니다"
+            "value": "cmux pr은 풀 리퀘스트 URL 또는 양의 풀 리퀘스트 번호를 요구합니다"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux pr には GitHub プルリクエスト URL または正の番号が必要です"
+            "value": "cmux pr にはプルリクエスト URL または正の番号が必要です"
           }
         }
       }
@@ -184,55 +184,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux pr could not resolve the pull request with gh; run gh auth status and try again"
+            "value": "cmux pr could not resolve the pull request; check authentication and try again"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux pr konnte den Pull Request mit gh nicht auflösen; führen Sie gh auth status aus und versuchen Sie es erneut"
+            "value": "cmux pr konnte den Pull Request nicht auflösen; prüfen Sie die Anmeldung und versuchen Sie es erneut"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux pr n’a pas pu résoudre la pull request avec gh ; exécutez gh auth status puis réessayez"
+            "value": "cmux pr n’a pas pu résoudre la pull request ; vérifiez l’authentification puis réessayez"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "تعذر على cmux pr العثور على طلب السحب باستخدام gh؛ شغّل gh auth status ثم حاول مرة أخرى"
+            "value": "تعذر على cmux pr العثور على طلب السحب؛ تحقق من تسجيل الدخول ثم حاول مرة أخرى"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux pr no pudo resolver la pull request con gh; ejecuta gh auth status y vuelve a intentarlo"
+            "value": "cmux pr no pudo resolver la pull request; comprueba la autenticación y vuelve a intentarlo"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux pr 無法使用 gh 解析拉取請求；請執行 gh auth status 後再試"
+            "value": "cmux pr 無法解析拉取請求；請檢查登入狀態後再試"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux pr 无法使用 gh 解析拉取请求；请运行 gh auth status 后重试"
+            "value": "cmux pr 无法解析拉取请求；请检查登录状态后重试"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux pr에서 gh로 풀 리퀘스트를 확인할 수 없습니다. gh auth status를 실행한 후 다시 시도하세요"
+            "value": "cmux pr에서 풀 리퀘스트를 확인할 수 없습니다. 인증 상태를 확인한 후 다시 시도하세요"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux pr は gh でプルリクエストを解決できませんでした。gh auth status を実行して再試行してください"
+            "value": "cmux pr はプルリクエストを解決できませんでした。認証を確認して再試行してください"
           }
         }
       }
@@ -243,55 +243,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux pr received invalid pull-request metadata from gh"
+            "value": "cmux pr received invalid pull-request information"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux pr erhielt ungültige Pull-Request-Metadaten von gh"
+            "value": "cmux pr erhielt ungültige Pull-Request-Informationen"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux pr a reçu des métadonnées de pull request invalides de gh"
+            "value": "cmux pr a reçu des informations de pull request invalides"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "تلقى cmux pr بيانات وصفية غير صالحة من gh"
+            "value": "تلقى cmux pr معلومات غير صالحة عن طلب السحب"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux pr recibió metadatos de pull request no válidos de gh"
+            "value": "cmux pr recibió información no válida de la pull request"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux pr 從 gh 收到無效的拉取請求中繼資料"
+            "value": "cmux pr 收到無效的拉取請求資訊"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux pr 从 gh 收到无效的拉取请求元数据"
+            "value": "cmux pr 收到无效的拉取请求信息"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux pr에서 gh로부터 잘못된 풀 리퀘스트 메타데이터를 받았습니다"
+            "value": "cmux pr에서 잘못된 풀 리퀘스트 정보를 받았습니다"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux pr は gh から無効なプルリクエストメタデータを受け取りました"
+            "value": "cmux pr は無効なプルリクエスト情報を受け取りました"
           }
         }
       }
@@ -361,55 +361,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Usage: cmux pr <url|number> [--workspace <id|ref|index>] [--window <id|ref|index>]\n       cmux pr clear [--workspace <id|ref|index>] [--window <id|ref|index>]\n\nAttach or replace a GitHub PR link immediately. Requires git and authenticated gh.\nUses the current directory's gh repository, including its configured fork upstream.\nTarget: explicit workspace, caller TTY, CMUX_WORKSPACE_ID, then a unique worktree match.\n--window restricts resolution; ambiguous targets fail without changing focus.\nThe manual link survives branch refreshes until replaced, cleared, or the session ends.\nThe existing watcher refreshes matching PR status. Clear removes only the manual link.\nSidebar visibility and click settings still apply.\n\nExample:\n  url=$(gh pr create --fill) && cmux pr \"$url\"\n  cmux pr 123\n  cmux pr clear"
+            "value": "Usage: cmux pr <url|number> [--workspace <id|ref|index>] [--window <id|ref|index>]\n       cmux pr clear [--workspace <id|ref|index>] [--window <id|ref|index>]\n\nAttach or replace a pull-request link immediately. Requires a Git repository and account authentication.\nUses the repository associated with the current directory, including its configured upstream.\nTarget: explicit workspace, caller TTY, configured workspace, then a unique worktree match.\n--window restricts resolution; ambiguous targets fail without changing focus.\nThe manual link survives branch refreshes until replaced, cleared, or the session ends.\nThe existing watcher refreshes matching pull-request status. Clear removes only the manual link.\nSidebar visibility and click settings still apply.\n\nExample:\n  cmux pr 123\n  cmux pr clear"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Verwendung: cmux pr <url|number> [--workspace <id|ref|index>] [--window <id|ref|index>]\n       cmux pr clear [--workspace <id|ref|index>] [--window <id|ref|index>]\n\nVerknüpft oder ersetzt sofort einen GitHub-PR-Link. Erfordert git und authentifiziertes gh.\nVerwendet das gh-Repository des aktuellen Verzeichnisses einschließlich des konfigurierten Fork-Upstreams.\nZiel: expliziter Workspace, aufrufendes TTY, CMUX_WORKSPACE_ID, dann eindeutiger Worktree-Treffer.\n--window begrenzt die Suche; mehrdeutige Ziele schlagen ohne Fokuswechsel fehl.\nDer manuelle Link bleibt bei Branch-Aktualisierungen bis zum Ersetzen, Löschen oder Sitzungsende erhalten.\nDer vorhandene Watcher aktualisiert den passenden PR-Status. Clear entfernt nur den manuellen Link.\nSidebar-Sichtbarkeits- und Klickeinstellungen gelten weiterhin.\n\nBeispiel:\n  url=$(gh pr create --fill) && cmux pr \"$url\"\n  cmux pr 123\n  cmux pr clear"
+            "value": "Verwendung: cmux pr <url|number> [--workspace <id|ref|index>] [--window <id|ref|index>]\n       cmux pr clear [--workspace <id|ref|index>] [--window <id|ref|index>]\n\nVerknüpft oder ersetzt sofort einen Pull-Request-Link. Erfordert ein Git-Repository und eine authentifizierte Anmeldung.\nVerwendet das Repository des aktuellen Verzeichnisses einschließlich des konfigurierten Upstreams.\nZiel: expliziter Workspace, aufrufendes TTY, konfigurierter Workspace, dann ein eindeutiger Worktree-Treffer.\n--window begrenzt die Suche; mehrdeutige Ziele schlagen ohne Fokuswechsel fehl.\nDer manuelle Link bleibt bei Branch-Aktualisierungen bis zum Ersetzen, Löschen oder Sitzungsende erhalten.\nDer vorhandene Watcher aktualisiert den passenden Pull-Request-Status. Clear entfernt nur den manuellen Link.\nSidebar-Sichtbarkeits- und Klickeinstellungen gelten weiterhin.\n\nBeispiel:\n  cmux pr 123\n  cmux pr clear"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Utilisation : cmux pr <url|number> [--workspace <id|ref|index>] [--window <id|ref|index>]\n       cmux pr clear [--workspace <id|ref|index>] [--window <id|ref|index>]\n\nAssocie ou remplace immédiatement un lien de PR GitHub. Nécessite git et gh authentifié.\nUtilise le dépôt gh du répertoire courant, y compris le dépôt amont configuré pour le fork.\nCible : workspace explicite, TTY appelant, CMUX_WORKSPACE_ID, puis worktree unique correspondant.\n--window restreint la recherche ; une cible ambiguë échoue sans changer le focus.\nLe lien manuel survit aux actualisations de branche jusqu’à son remplacement, sa suppression ou la fin de session.\nLe suivi existant actualise le statut de la PR correspondante. Clear supprime uniquement le lien manuel.\nLes réglages de visibilité et de clic de la barre latérale restent applicables.\n\nExemple :\n  url=$(gh pr create --fill) && cmux pr \"$url\"\n  cmux pr 123\n  cmux pr clear"
+            "value": "Utilisation : cmux pr <url|number> [--workspace <id|ref|index>] [--window <id|ref|index>]\n       cmux pr clear [--workspace <id|ref|index>] [--window <id|ref|index>]\n\nAssocie ou remplace immédiatement un lien de pull request. Nécessite un dépôt Git et une authentification.\nUtilise le dépôt associé au répertoire courant, y compris son amont configuré.\nCible : workspace explicite, TTY appelant, workspace configuré, puis worktree unique correspondant.\n--window restreint la recherche ; une cible ambiguë échoue sans changer le focus.\nLe lien manuel survit aux actualisations de branche jusqu’à son remplacement, sa suppression ou la fin de session.\nLe suivi existant actualise le statut de la pull request correspondante. Clear supprime uniquement le lien manuel.\nLes réglages de visibilité et de clic de la barre latérale restent applicables.\n\nExemple :\n  cmux pr 123\n  cmux pr clear"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "الاستخدام: cmux pr <url|number> [--workspace <id|ref|index>] [--window <id|ref|index>]\n       cmux pr clear [--workspace <id|ref|index>] [--window <id|ref|index>]\n\nيربط رابط PR من GitHub أو يستبدله فورًا. يتطلب git و gh مع تسجيل الدخول.\nيستخدم مستودع gh للدليل الحالي، بما في ذلك المستودع الأصلي المضبوط للنسخة المتفرعة.\nالهدف: مساحة عمل صريحة، ثم TTY المستدعي، ثم CMUX_WORKSPACE_ID، ثم تطابق worktree فريد.\nيقيّد --window البحث؛ تفشل الأهداف الملتبسة دون تغيير التركيز.\nيبقى الرابط اليدوي بعد تحديثات الفرع حتى استبداله أو مسحه أو انتهاء الجلسة.\nيحدّث المراقب الحالي حالة PR المطابق. يزيل clear الرابط اليدوي فقط.\nتظل إعدادات ظهور الشريط الجانبي والنقر سارية.\n\nمثال:\n  url=$(gh pr create --fill) && cmux pr \"$url\"\n  cmux pr 123\n  cmux pr clear"
+            "value": "الاستخدام: cmux pr <url|number> [--workspace <id|ref|index>] [--window <id|ref|index>]\n       cmux pr clear [--workspace <id|ref|index>] [--window <id|ref|index>]\n\nيربط رابط طلب سحب أو يستبدله فورًا. يتطلب مستودع Git وتسجيل دخول موثق.\nيستخدم المستودع المرتبط بالدليل الحالي، بما في ذلك المنبع المضبوط.\nالهدف: مساحة عمل صريحة، ثم TTY المستدعي، ثم مساحة العمل المضبوطة، ثم تطابق worktree فريد.\nيقيّد --window البحث؛ تفشل الأهداف الملتبسة دون تغيير التركيز.\nيبقى الرابط اليدوي بعد تحديثات الفرع حتى استبداله أو مسحه أو انتهاء الجلسة.\nيحدّث المراقب الحالي حالة طلب السحب المطابق. يزيل clear الرابط اليدوي فقط.\nتظل إعدادات ظهور الشريط الجانبي والنقر سارية.\n\nمثال:\n  cmux pr 123\n  cmux pr clear"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Uso: cmux pr <url|number> [--workspace <id|ref|index>] [--window <id|ref|index>]\n       cmux pr clear [--workspace <id|ref|index>] [--window <id|ref|index>]\n\nAsocia o reemplaza inmediatamente un enlace de PR de GitHub. Requiere git y gh autenticado.\nUsa el repositorio gh del directorio actual, incluido el upstream configurado del fork.\nDestino: espacio explícito, TTY del llamante, CMUX_WORKSPACE_ID y después un worktree coincidente único.\n--window limita la búsqueda; los destinos ambiguos fallan sin cambiar el foco.\nEl enlace manual sobrevive a las actualizaciones de rama hasta reemplazarlo, borrarlo o finalizar la sesión.\nEl observador existente actualiza el estado de la PR coincidente. Clear solo elimina el enlace manual.\nSe siguen aplicando los ajustes de visibilidad y clic de la barra lateral.\n\nEjemplo:\n  url=$(gh pr create --fill) && cmux pr \"$url\"\n  cmux pr 123\n  cmux pr clear"
+            "value": "Uso: cmux pr <url|number> [--workspace <id|ref|index>] [--window <id|ref|index>]\n       cmux pr clear [--workspace <id|ref|index>] [--window <id|ref|index>]\n\nAsocia o reemplaza inmediatamente un enlace de pull request. Requiere un repositorio Git y autenticación.\nUsa el repositorio asociado al directorio actual, incluido su upstream configurado.\nDestino: espacio explícito, TTY del llamante, espacio configurado y después un worktree coincidente único.\n--window limita la búsqueda; los destinos ambiguos fallan sin cambiar el foco.\nEl enlace manual sobrevive a las actualizaciones de rama hasta reemplazarlo, borrarlo o finalizar la sesión.\nEl observador existente actualiza el estado de la pull request coincidente. Clear solo elimina el enlace manual.\nSe siguen aplicando los ajustes de visibilidad y clic de la barra lateral.\n\nEjemplo:\n  cmux pr 123\n  cmux pr clear"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "用法： cmux pr <url|number> [--workspace <id|ref|index>] [--window <id|ref|index>]\n       cmux pr clear [--workspace <id|ref|index>] [--window <id|ref|index>]\n\n立即附加或取代 GitHub PR 連結。需要 git 和已登入的 gh。\n使用目前目錄的 gh 儲存庫，包括已設定的分支儲存庫上游。\n目標順序：明確工作區、呼叫端 TTY、CMUX_WORKSPACE_ID，然後是唯一符合的 worktree。\n--window 會限制搜尋；目標不明確時會失敗且不變更焦點。\n手動連結會保留於分支重新整理後，直到被取代、清除或工作階段結束。\n現有監看器會更新相符 PR 的狀態。clear 只移除手動連結。\n側邊欄顯示與點擊設定仍然適用。\n\n範例：\n  url=$(gh pr create --fill) && cmux pr \"$url\"\n  cmux pr 123\n  cmux pr clear"
+            "value": "用法：cmux pr <url|number> [--workspace <id|ref|index>] [--window <id|ref|index>]\n       cmux pr clear [--workspace <id|ref|index>] [--window <id|ref|index>]\n\n立即附加或取代拉取請求連結。需要 Git 儲存庫與已驗證的登入狀態。\n使用目前目錄所關聯的儲存庫，包括已設定的上游。\n目標順序：明確工作區、呼叫端 TTY、已設定工作區，然後是唯一符合的 worktree。\n--window 會限制搜尋；目標不明確時會失敗且不變更焦點。\n手動連結會保留於分支重新整理後，直到被取代、清除或工作階段結束。\n現有監看器會更新相符拉取請求的狀態。clear 只移除手動連結。\n側邊欄顯示與點擊設定仍然適用。\n\n範例：\n  cmux pr 123\n  cmux pr clear"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "用法： cmux pr <url|number> [--workspace <id|ref|index>] [--window <id|ref|index>]\n       cmux pr clear [--workspace <id|ref|index>] [--window <id|ref|index>]\n\n立即附加或替换 GitHub PR 链接。需要 git 和已登录的 gh。\n使用当前目录的 gh 仓库，包括已配置的分叉仓库上游。\n目标顺序：明确工作区、调用方 TTY、CMUX_WORKSPACE_ID，然后是唯一匹配的 worktree。\n--window 限制搜索；目标不明确时会失败且不改变焦点。\n手动链接在分支刷新后仍然保留，直到被替换、清除或会话结束。\n现有监视器会更新匹配 PR 的状态。clear 只移除手动链接。\n侧边栏显示和点击设置仍然适用。\n\n示例：\n  url=$(gh pr create --fill) && cmux pr \"$url\"\n  cmux pr 123\n  cmux pr clear"
+            "value": "用法：cmux pr <url|number> [--workspace <id|ref|index>] [--window <id|ref|index>]\n       cmux pr clear [--workspace <id|ref|index>] [--window <id|ref|index>]\n\n立即附加或替换拉取请求链接。需要 Git 仓库和已验证的登录状态。\n使用当前目录关联的仓库，包括已配置的上游。\n目标顺序：明确工作区、调用方 TTY、已配置工作区，然后是唯一匹配的 worktree。\n--window 限制搜索；目标不明确时会失败且不改变焦点。\n手动链接在分支刷新后仍然保留，直到被替换、清除或会话结束。\n现有监视器会更新匹配拉取请求的状态。clear 只移除手动链接。\n侧边栏显示和点击设置仍然适用。\n\n示例：\n  cmux pr 123\n  cmux pr clear"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "사용법: cmux pr <url|number> [--workspace <id|ref|index>] [--window <id|ref|index>]\n       cmux pr clear [--workspace <id|ref|index>] [--window <id|ref|index>]\n\nGitHub PR 링크를 즉시 연결하거나 교체합니다. git과 로그인된 gh가 필요합니다.\n설정된 포크 업스트림을 포함하여 현재 디렉터리의 gh 저장소를 사용합니다.\n대상 순서: 명시적 워크스페이스, 호출 TTY, CMUX_WORKSPACE_ID, 고유한 worktree 일치 항목.\n--window는 검색 범위를 제한하며, 모호한 대상은 포커스를 바꾸지 않고 실패합니다.\n수동 링크는 교체, 삭제 또는 세션 종료까지 브랜치 새로고침 후에도 유지됩니다.\n기존 감시기가 일치하는 PR 상태를 갱신합니다. clear는 수동 링크만 제거합니다.\n사이드바 표시 및 클릭 설정은 계속 적용됩니다.\n\n예:\n  url=$(gh pr create --fill) && cmux pr \"$url\"\n  cmux pr 123\n  cmux pr clear"
+            "value": "사용법: cmux pr <url|number> [--workspace <id|ref|index>] [--window <id|ref|index>]\n       cmux pr clear [--workspace <id|ref|index>] [--window <id|ref|index>]\n\n풀 리퀘스트 링크를 즉시 연결하거나 교체합니다. Git 저장소와 인증된 로그인이 필요합니다.\n현재 디렉터리에 연결된 저장소와 설정된 업스트림을 사용합니다.\n대상 순서: 명시적 워크스페이스, 호출 TTY, 설정된 워크스페이스, 고유한 worktree 일치 항목.\n--window는 검색 범위를 제한하며, 모호한 대상은 포커스를 바꾸지 않고 실패합니다.\n수동 링크는 교체, 삭제 또는 세션 종료까지 브랜치 새로고침 후에도 유지됩니다.\n기존 감시기가 일치하는 풀 리퀘스트 상태를 갱신합니다. clear는 수동 링크만 제거합니다.\n사이드바 표시 및 클릭 설정은 계속 적용됩니다.\n\n예:\n  cmux pr 123\n  cmux pr clear"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "使用方法: cmux pr <url|number> [--workspace <id|ref|index>] [--window <id|ref|index>]\n       cmux pr clear [--workspace <id|ref|index>] [--window <id|ref|index>]\n\nGitHub PR リンクをすぐに追加または置換します。git と認証済み gh が必要です。\n設定済みのフォーク元を含め、現在のディレクトリの gh リポジトリを使用します。\n対象の優先順：明示ワークスペース、呼び出し元 TTY、CMUX_WORKSPACE_ID、一意の worktree 一致。\n--window は検索を制限します。対象が曖昧な場合、フォーカスを変えずに失敗します。\n手動リンクはブランチ更新後も、置換・削除またはセッション終了まで保持されます。\n既存の監視処理が一致する PR の状態を更新します。clear は手動リンクだけを削除します。\nサイドバーの表示設定とクリック設定は引き続き適用されます。\n\n例:\n  url=$(gh pr create --fill) && cmux pr \"$url\"\n  cmux pr 123\n  cmux pr clear"
+            "value": "使用方法: cmux pr <url|number> [--workspace <id|ref|index>] [--window <id|ref|index>]\n       cmux pr clear [--workspace <id|ref|index>] [--window <id|ref|index>]\n\nプルリクエストのリンクをすぐに追加または置換します。Git リポジトリと認証済みのログインが必要です。\n現在のディレクトリに関連付けられたリポジトリと、設定済みの上流を使用します。\n対象の優先順：明示ワークスペース、呼び出し元 TTY、設定済みワークスペース、一意の worktree 一致。\n--window は検索を制限します。対象が曖昧な場合、フォーカスを変えずに失敗します。\n手動リンクはブランチ更新後も、置換・削除またはセッション終了まで保持されます。\n既存の監視処理が一致するプルリクエストの状態を更新します。clear は手動リンクだけを削除します。\nサイドバーの表示設定とクリック設定は引き続き適用されます。\n\n例:\n  cmux pr 123\n  cmux pr clear"
           }
         }
       }

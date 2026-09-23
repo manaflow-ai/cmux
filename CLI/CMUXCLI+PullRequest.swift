@@ -133,23 +133,42 @@ extension CMUXCLI {
         return roots.isEmpty ? [root] : roots
     }
 
-    /// Filters one workspace path using the registered worktree roots and a
-    /// direct nested-repository marker check. These are bounded metadata reads;
-    /// the expensive Git process is launched once for the whole collection.
+    /// Filters one workspace path using Git's registered worktree roots. A
+    /// nested marker is only probed when a candidate actually has one; a
+    /// successful Git identity check is required before it can exclude a
+    /// workspace. An unrelated directory that happens to contain a `.git`
+    /// name therefore remains a valid candidate.
     private func pullRequestWorkspacePathIsCandidate(
         _ path: String,
         root: String,
         worktreeRoots: [String]
     ) -> Bool {
-        guard FileManager.default.fileExists(atPath: path),
-              worktreeRoots.contains(where: { path == $0 || path.hasPrefix($0 + "/") }) else {
+        guard worktreeRoots.contains(where: { path == $0 || path.hasPrefix($0 + "/") }) else {
             return false
         }
-        if path != root,
-           FileManager.default.fileExists(atPath: URL(fileURLWithPath: path).appendingPathComponent(".git").path) {
-            return false
-        }
-        return true
+        guard path == root || FileManager.default.fileExists(atPath: path) else { return false }
+        guard path != root, !worktreeRoots.contains(path) else { return true }
+        let markerPath = URL(fileURLWithPath: path).appendingPathComponent(".git").path
+        guard FileManager.default.fileExists(atPath: markerPath) else { return true }
+        guard let gitRoot = pullRequestGitRoot(at: path) else { return true }
+        return gitRoot == root
+    }
+
+    /// Validates a candidate's repository identity only after the inexpensive
+    /// marker check found a possible nested repository. This keeps the common
+    /// workspace scan free of one Git process per record while avoiding
+    /// filename-based repository decisions.
+    private func pullRequestGitRoot(at path: String) -> String? {
+        let result = CLIProcessRunner.runProcess(
+            executablePath: "/usr/bin/env",
+            arguments: ["git", "-C", path, "rev-parse", "--show-toplevel"],
+            stdinText: "",
+            timeout: 2
+        )
+        guard result.status == 0, !result.timedOut else { return nil }
+        let root = result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !root.isEmpty else { return nil }
+        return URL(fileURLWithPath: root).standardizedFileURL.resolvingSymlinksInPath().path
     }
 
     private static func pullRequestWindowIDsEqual(_ lhs: String?, _ rhs: String?) -> Bool {
@@ -182,7 +201,7 @@ extension CMUXCLI {
         guard inputURL != nil || (Int(numberToken).map { $0 > 0 } == true && numberToken.allSatisfy(\.isNumber)) else {
             throw CLIError(message: CMUXDiffViewerLocalization.string(
                 "cli.pr.error.invalidSelector",
-                defaultValue: "cmux pr expects a GitHub pull-request URL or a positive pull-request number"
+                defaultValue: "cmux pr expects a pull-request URL or a positive pull-request number"
             ))
         }
         let root = try pullRequestRepositoryRoot()
@@ -241,7 +260,7 @@ extension CMUXCLI {
         guard !result.timedOut, result.status == 0 else {
             throw CLIError(message: CMUXDiffViewerLocalization.string(
                 "cli.pr.error.lookupFailed",
-                defaultValue: "cmux pr could not resolve the pull request with gh; run gh auth status and try again"
+                defaultValue: "cmux pr could not resolve the pull request; check authentication and try again"
             ))
         }
         guard let data = result.stdout.data(using: .utf8),
@@ -254,7 +273,7 @@ extension CMUXCLI {
     private func pullRequestMalformedMetadataError() -> CLIError {
         CLIError(message: CMUXDiffViewerLocalization.string(
             "cli.pr.error.lookupMalformed",
-            defaultValue: "cmux pr received invalid pull-request metadata from gh"
+            defaultValue: "cmux pr received invalid pull-request information"
         ))
     }
 
@@ -264,16 +283,15 @@ extension CMUXCLI {
         Usage: cmux pr <url|number> [--workspace <id|ref|index>] [--window <id|ref|index>]
                cmux pr clear [--workspace <id|ref|index>] [--window <id|ref|index>]
 
-        Attach or replace a GitHub PR link immediately. Requires git and authenticated gh.
-        Uses the current directory's gh repository, including its configured fork upstream.
-        Target: explicit workspace, caller TTY, CMUX_WORKSPACE_ID, then a unique worktree match.
+        Attach or replace a pull-request link immediately. Requires a Git repository and account authentication.
+        Uses the repository associated with the current directory, including its configured upstream.
+        Target: explicit workspace, caller TTY, configured workspace, then a unique worktree match.
         --window restricts resolution; ambiguous targets fail without changing focus.
         The manual link survives branch refreshes until replaced, cleared, or the session ends.
-        The existing watcher refreshes matching PR status. Clear removes only the manual link.
+        The existing watcher refreshes matching pull-request status. Clear removes only the manual link.
         Sidebar visibility and click settings still apply.
 
         Example:
-          url=$(gh pr create --fill) && cmux pr "$url"
           cmux pr 123
           cmux pr clear
         """
