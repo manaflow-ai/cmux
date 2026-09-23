@@ -553,7 +553,11 @@ def unchanged_tree_reruns(
     return repeated
 
 
-PAID_RUNNER_PREFIX = "warp-"
+# Third-party providers this repo pays per minute. Depot is permitted by
+# `tests/test_ci_self_hosted_guard.sh` and documented alongside Warp, so a
+# single-prefix check would total zero and report "none in the window" the
+# moment a variable is pinned to it -- exactly the silent drift this measures.
+PAID_RUNNER_PREFIXES = ("warp-", "depot-")
 
 
 def paid_runner_minutes(
@@ -561,11 +565,12 @@ def paid_runner_minutes(
 ) -> tuple[int, float, list[tuple[str, int, float]]]:
     """Jobs that ran on metered capacity, and the minutes they billed.
 
-    Blacksmith and GitHub-hosted runners are free to this repository;
-    WarpBuild is billed per minute, at roughly double the rate on its 12-vCPU
-    labels. The runner label is the only place that difference is visible, so
-    a lane that drifts onto paid capacity reads as an ordinary row in the
-    tables above and nobody notices until somebody reads an invoice.
+    WarpBuild and Depot bill this repository per minute, at roughly double
+    the rate on 12-vCPU labels. Blacksmith is sponsored for this organization
+    and GitHub-hosted runners are free on a public repo, so neither shows up
+    on an invoice today. The runner label is the only place that difference is
+    visible, so a lane that drifts onto metered capacity reads as an ordinary
+    row in the tables above and nobody notices until somebody reads a bill.
 
     docs/ci-runners.md records an intended steady state for every
     MACOS_RUNNER_* variable. Minutes here that are not a deliberate, temporary
@@ -575,7 +580,7 @@ def paid_runner_minutes(
     jobs = 0
     minutes = 0.0
     for row in rows:
-        if not row.label.startswith(PAID_RUNNER_PREFIX):
+        if not row.label.startswith(PAID_RUNNER_PREFIXES):
             continue
         jobs += 1
         minutes += row.minutes
@@ -1044,15 +1049,16 @@ def render_report(
             f"{_escape(label)} {n} job(s)/{m:.0f} min" for label, n, m in paid_breakdown
         )
         lines.append(
-            f"**Paid runner capacity (WarpBuild):** {paid_jobs} sampled job(s), "
-            f"{paid_minutes:.0f} runner minutes — {detail}. Every other macOS and Linux "
-            "label in this report is free to this repository. Check these against the "
+            f"**Paid runner capacity:** {paid_jobs} sampled job(s), "
+            f"{paid_minutes:.0f} runner minutes — {detail}. These are the metered "
+            "third-party labels; Blacksmith is sponsored for this organization and "
+            "GitHub-hosted runners are free on a public repo. Check these against the "
             "intended steady state in `docs/ci-runners.md`; a lane that is not "
             "deliberate overflow should be moved back."
         )
     else:
         lines.append(
-            "**Paid runner capacity (WarpBuild):** none in the window."
+            "**Paid runner capacity:** none in the window."
         )
     lines.append("")
 

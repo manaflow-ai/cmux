@@ -364,8 +364,11 @@ in a workflow with no pull request, merge-queue or `workflow_call` trigger,
 apart from the pinned macOS 14 / Intel compatibility legs in
 `ci-macos-compat.yml` and `relay-publish-npm.yml`. It also asserts every paid macOS job references
 `vars.MACOS_RUNNER_*` or a Blacksmith/Warp/Depot label so it can never silently
-fall back to a free runner. Bare paid-provider labels (`blacksmith-*`, `warp-*`,
-`depot-*`) stay allowed for deliberate single-runner pins. Keep new labels in
+fall back to a free runner. Bare third-party provider labels (`blacksmith-*`, `warp-*`,
+`depot-*`) stay allowed for deliberate single-runner pins. "Paid" there means
+"not a GitHub-hosted free runner"; of the three, only Warp and Depot bill this
+repository per minute, since Blacksmith is sponsored for this organization.
+The CI health report counts those two. Keep new labels in
 `.github/actionlint.yaml`.
 
 The fleet-label guard allows Tart labels only as exact manual canary choices.
