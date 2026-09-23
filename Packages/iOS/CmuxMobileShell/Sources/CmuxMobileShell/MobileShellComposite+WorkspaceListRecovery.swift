@@ -1,6 +1,6 @@
 import CmuxMobilePairedMac
 public import CmuxMobileShellModel
-import Foundation
+public import Foundation
 
 @MainActor
 extension MobileShellComposite {
@@ -65,6 +65,29 @@ extension MobileShellComposite {
             && !isRecoveringConnection
             && !connectionRecoveryFailed
             && workspaceListConnectionStatus == .connected
+    }
+
+    /// Whether a complete, connected workspace snapshot is available for the
+    /// exact Mac app instance that produced a push payload. This remains true
+    /// for an authoritative empty workspace list, so deletion can be reported.
+    public func isWorkspaceListAuthoritative(
+        forMacDeviceID macDeviceID: String?,
+        instanceTag: String?
+    ) -> Bool {
+        let key: MacPairingKey
+        if let macDeviceID, !macDeviceID.isEmpty {
+            key = MacPairingKey(macDeviceID: macDeviceID, instanceTag: instanceTag)
+        } else {
+            guard instanceTag?.isEmpty != false else { return false }
+            key = .anonymousForeground
+        }
+        guard let state = workspacesByMac[key],
+              state.status == .connected,
+              state.workspaceSnapshotIsAuthoritative else { return false }
+        // Foreground snapshots also require the aggregate recovery gates. A
+        // secondary Mac owns its own connected snapshot and remains authoritative
+        // while the foreground transport is reconnecting.
+        return key != foregroundMacKey || workspaceListIsAuthoritative
     }
 
     /// UI reconnect entry for a specific workspace's Mac (status pill, toast
@@ -155,6 +178,25 @@ extension MobileShellComposite {
             ?? foregroundMacDeviceID.map {
                 (macDeviceID: $0, instanceTag: activeMacInstanceTag)
             }
+    }
+
+    /// Whether a workspace-list Retry action currently owns recovery. The UI
+    /// uses this to render the shared Reconnecting status under the picker
+    /// while the row button stays visually stable.
+    public var isRecoveringWorkspaceList: Bool {
+        workspaceListRecoveryActive
+    }
+
+    /// Whether the active workspace-list recovery belongs to the supplied Mac
+    /// pairing. The UI uses this to keep a disappearing retry row alive only
+    /// for the recovery it started.
+    public func isWorkspaceListRecoveryOwned(
+        byMacDeviceID macDeviceID: String?,
+        instanceTag: String?
+    ) -> Bool {
+        workspaceListRecoveryActive
+            && workspaceListRecoveryOwnerID == macDeviceID
+            && workspaceListRecoveryOwnerInstanceTag == instanceTag
     }
 
     /// Reserves the recovery token used by the empty-state Retry action.

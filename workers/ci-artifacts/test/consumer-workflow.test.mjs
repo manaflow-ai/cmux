@@ -8,7 +8,7 @@ import YAML from "yaml";
 import { Parser, Lexer, Evaluator, data } from "@actions/expressions";
 
 const root = new URL("../../../", import.meta.url).pathname;
-const workflow = YAML.parse(fs.readFileSync(path.join(root, ".github/workflows/ci.yml"), "utf8"));
+const workflow = YAML.parse(fs.readFileSync(path.join(root, ".github/workflows/ci-macos.yml"), "utf8"));
 
 function context(value) {
   if (typeof value === "string") return new data.StringData(value);
@@ -77,7 +77,6 @@ else:
       const restore = job.steps.find((step) => step.id === "r2-products");
       const fallback = job.steps.find((step) => step.name === "Download compiled app-host test product");
       assert.equal(local.run, 'python3 scripts/ci/node_product_cache.py acquire "$RUNNER_TEMP/app-host-products"');
-      assert.equal(evaluate(restore.if, { steps: { "node-products": { outputs: { hit: "false" } } } }), "true");
       const values = {
         github: { token: "read-only-job-token" },
         vars: { CI_ARTIFACT_R2_URL: enabled ? "https://broker.example" : "" },
@@ -86,8 +85,17 @@ else:
           artifact_digest: "sha256:169fa1cbfb4a778073f1efdc24904064d3bee6103f4a89e5054936d6661eed2a",
         } } },
       };
+      const restoreEnabled = evaluate(restore.if, {
+        steps: {
+          "node-products": { outputs: { hit: "false" } },
+          "peer-products": { outputs: { hit: "false" } },
+          "restore-layers": { outputs: { hit: "false" } },
+        }, vars: values.vars,
+      }) === "true";
+      assert.equal(restoreEnabled, enabled);
       const output = path.join(temporary, "output");
-      execFileSync("bash", ["-e", "-c", restore.run], { cwd: root, env: {
+      let outputs = { hit: "false", route: "github", r2_result: "disabled" };
+      if (restoreEnabled) execFileSync("bash", ["-e", "-c", restore.run], { cwd: root, env: {
         ...process.env, PATH: `${bin}:${process.env.PATH}`, RUNNER_TEMP: temporary,
         GITHUB_OUTPUT: output, GITHUB_RUN_ID: "456", GITHUB_RUN_ATTEMPT: "1",
         GITHUB_REPOSITORY: "manaflow-ai/cmux",
@@ -96,13 +104,15 @@ else:
         ...Object.fromEntries(Object.entries(restore.env).map(([key, value]) => [key, render(value, values)])),
       } });
 
-      const outputs = Object.fromEntries(fs.readFileSync(output, "utf8").trim().split("\n").map((line) => line.split("=", 2)));
+      if (restoreEnabled) outputs = Object.fromEntries(fs.readFileSync(output, "utf8").trim().split("\n").map((line) => line.split("=", 2)));
       assert.equal(outputs.hit, enabled ? "true" : "false");
       assert.equal(outputs.route, enabled ? "r2" : "github");
       assert.equal(outputs.r2_result, enabled ? "fill" : "disabled");
 
       const downloadFallback = evaluate(fallback.if, { steps: {
         "node-products": { outputs: { hit: "false" } },
+        "peer-products": { outputs: { hit: "false" } },
+        "restore-layers": { outputs: { hit: "false" } },
         "r2-products": { outputs: { hit: outputs.hit } },
       } }) === "true";
       assert.equal(downloadFallback, !enabled);

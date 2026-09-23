@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Exercise cross-run artifact reuse through real archives and product relocation."""
+import base64
 import hashlib
 import io
 import json
@@ -8,9 +9,11 @@ from unittest import mock
 import shutil
 import sys
 import tarfile
+import subprocess
 import unittest
 import zipfile
 from pathlib import Path
+from urllib.parse import parse_qs
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts/ci"))
 import reuse_app_host_products as reuse
@@ -21,7 +24,12 @@ class ReuseProducts(TestProductHandoff):
     def setUp(self):
         super().setUp()
         self.contract = {
-            "tree": "same-tree",
+            "product_inputs": {
+                "schema": "cmux-app-host-product-inputs/v1",
+                "algorithm": "a" * 64,
+                "source": "b" * 64,
+                "recipe": "c" * 64,
+            },
             "xcode": "same-xcode",
             "sdk": "same-sdk",
             "os": "same-os",
@@ -57,17 +65,26 @@ class ReuseProducts(TestProductHandoff):
     def restore_reuse(self, *, current_run="13", current_attempt="1",
                       revision="def456", destination=None, report=None):
         current = {**self.identity, "revision": revision, "checkout": "/queue/work/cmux"}
-        return reuse.restore(
-            self.api,
-            self.contract,
-            destination or self.consumer,
-            current_run,
-            current,
-            current_attempt,
-            report,
-        )
 
-    def test_other_commit_same_tree_reuses_and_relocates_without_test_result(self):
+        def product_identity(api, source_revision):
+            return api.product_identities[source_revision]
+
+        with mock.patch.object(
+            reuse,
+            "github_product_identity",
+            side_effect=product_identity,
+        ):
+            return reuse.restore(
+                self.api,
+                self.contract,
+                destination or self.consumer,
+                current_run,
+                current,
+                current_attempt,
+                report,
+            )
+
+    def test_other_commit_same_product_inputs_reuses_and_relocates_without_test_result(self):
         # The full run failed tests, while compilation itself succeeded.
         self.api.run["conclusion"] = "failure"
         self.assertTrue(self.restore_reuse())
@@ -115,17 +132,235 @@ class ReuseProducts(TestProductHandoff):
                 self.assertFalse(self.restore_reuse())
                 self.contract = original
 
-    def test_changed_source_tree_is_a_miss(self):
-        original = self.contract
-        self.contract = {**self.contract, "tree": "changed-tree"}
+    def test_product_identity_separates_orchestration_from_product_inputs(self):
+        identity = reuse.product_inputs
+        workflow = (Path(__file__).resolve().parents[1] / ".github/workflows/ci-macos.yml").read_text()
+        admission = identity._job_block(workflow, identity.MACOS_ADMISSION_JOB)
+
+        def mutate_admission(old: str, new: str) -> str:
+            changed = admission.replace(old, new, 1)
+            self.assertNotEqual(admission, changed, old)
+            return workflow.replace(admission, changed, 1)
+
+        base = [
+            f"100644 blob {'1' * 40}\tSources/App.swift",
+            f"100644 blob {'2' * 40}\tscripts/ci/compile-app-host-test-product.sh",
+            f"100644 blob {'3' * 40}\tscripts/ci/persistent_mac_route.py",
+            f"100644 blob {'4' * 40}\t.github/workflows/ci-macos.yml",
+        ]
+        admission_only = [
+            f"100644 blob {'1' * 40}\tSources/App.swift",
+            f"100644 blob {'2' * 40}\tscripts/ci/compile-app-host-test-product.sh",
+            f"100644 blob {'5' * 40}\tscripts/ci/persistent_mac_route.py",
+            f"100644 blob {'6' * 40}\t.github/workflows/ci-macos.yml",
+        ]
+        base_identity = identity.identity_from_tree_lines(base, workflow)
+        orchestration_workflow = workflow.replace(
+            "name: CI macOS\n",
+            "name: CI macOS orchestration-only\n",
+            1,
+        )
+        self.assertEqual(
+            base_identity,
+            identity.identity_from_tree_lines(base, orchestration_workflow),
+        )
+        # Mutating an explicitly orchestration-only step must not change product identity.
+        metrics_admission = admission.replace(
+            "      - name: Record compiled-product reuse metrics\n",
+            "      - name: Record compiled-product reuse metrics\n        # metrics-only edit\n",
+            1,
+        )
+        self.assertNotEqual(admission, metrics_admission)
+        orchestration_workflow = orchestration_workflow.replace(
+            admission,
+            metrics_admission,
+            1,
+        )
+        self.assertEqual(
+            base_identity,
+            identity.identity_from_tree_lines(admission_only, orchestration_workflow),
+        )
+
+        changed_product_env = mutate_admission(
+            '      CMUX_SKIP_ZIG_BUILD: "1"\n',
+            '      CMUX_SKIP_ZIG_BUILD: "0"\n',
+        )
+        self.assertNotEqual(
+            base_identity,
+            identity.identity_from_tree_lines(base, changed_product_env),
+        )
+
+        changed_cache_env = mutate_admission(
+            '      CMUX_NODE_PRODUCT_CACHE_WAIT_SECONDS: ${{ vars.CMUX_NODE_PRODUCT_CACHE_WAIT_SECONDS }}\n',
+            '      CMUX_NODE_PRODUCT_CACHE_WAIT_SECONDS: "999"\n',
+        )
+        self.assertEqual(
+            base_identity,
+            identity.identity_from_tree_lines(base, changed_cache_env),
+        )
+
+        changed_defaults = mutate_admission(
+            "    steps:\n",
+            "    defaults:\n      run:\n        shell: bash\n    steps:\n",
+        )
+        self.assertNotEqual(
+            base_identity,
+            identity.identity_from_tree_lines(base, changed_defaults),
+        )
+
+        unclassified_job_key = mutate_admission(
+            "    timeout-minutes: 75\n",
+            "    timeout-minutes: 75\n    container: future-image\n",
+        )
+        with self.assertRaisesRegex(ValueError, "unclassified.*container"):
+            identity.identity_from_tree_lines(base, unclassified_job_key)
+
+        unknown_product_step = mutate_admission(
+            "      - name: Validate Swift warning budget\n",
+            "      - name: Future product mutation\n        run: touch product\n\n"
+            "      - name: Validate Swift warning budget\n",
+        )
+        self.assertNotEqual(
+            base_identity,
+            identity.identity_from_tree_lines(base, unknown_product_step),
+        )
+
+        duplicate_step = mutate_admission(
+            "      - name: Validate Swift warning budget\n",
+            "      - name: Compile app-host test product\n",
+        )
+        with self.assertRaisesRegex(ValueError, "not unique"):
+            identity.identity_from_tree_lines(base, duplicate_step)
+
+        changed_source = list(base)
+        changed_source[0] = f"100644 blob {'7' * 40}\tSources/App.swift"
+        self.assertNotEqual(
+            base_identity,
+            identity.identity_from_tree_lines(changed_source, workflow),
+        )
+
+        changed_helper = list(base)
+        changed_helper[1] = (
+            f"100644 blob {'8' * 40}\tscripts/ci/compile-app-host-test-product.sh"
+        )
+        self.assertNotEqual(
+            base_identity,
+            identity.identity_from_tree_lines(changed_helper, workflow),
+        )
+
+        changed_recipe = mutate_admission(
+            "scripts/ci/compile-app-host-test-product.sh build \\",
+            "scripts/ci/compile-app-host-test-product.sh build --changed \\",
+        )
+        self.assertNotEqual(
+            base_identity,
+            identity.identity_from_tree_lines(base, changed_recipe),
+        )
+
+        changed_ghostty_selection = mutate_admission(
+            'echo "sha=$(git -C ghostty rev-parse HEAD)"',
+            'echo "sha=$(git rev-parse HEAD:ghostty)"',
+        )
+        self.assertNotEqual(
+            base_identity,
+            identity.identity_from_tree_lines(base, changed_ghostty_selection),
+        )
+
+        self.assertFalse(identity.reaches_product(".github/workflows/ci-macos.yml"))
+        self.assertFalse(identity.reaches_product("scripts/ci/persistent_mac_route.py"))
+        for path in (
+            "workers/presence/src/index.ts",
+            "config/iroh/managed-relay-catalog.json",
+            "vercel.json",
+            ".vercelignore",
+            "cmux-browser/src/main.ts",
+            "daemon/remote/cmd/cmuxd-remote/cli.go",
+        ):
+            self.assertFalse(identity.reaches_product(path), path)
+        self.assertTrue(identity.reaches_product("config/IrohRelayPolicyProduction.xcconfig"))
+        self.assertTrue(identity.reaches_product("scripts/ci/compile-app-host-test-product.sh"))
+        self.assertTrue(identity.reaches_product("cmuxTests/WorkspaceTests.swift"))
+
+    def test_bundled_paste_worker_source_reaches_product(self):
+        """cmux.xcodeproj compiles this into the bundle, so reuse must see it."""
+        identity = reuse.product_inputs
+        # The "Build Plain Text Paste Worker" phase declares main.m as an input
+        # and emits bin/cmux-paste-text-worker into the app-host bundle, which
+        # PlainPastePTYFixture and the paste startup suites execute. The rest of
+        # workers/ is Cloudflare Worker source and stays excluded.
+        self.assertTrue(identity.reaches_product("workers/cmux-paste-text/main.m"))
+        self.assertFalse(identity.reaches_product("workers/presence/src/index.ts"))
+
+        # Assert the named build phase declares it, not merely that the path
+        # appears somewhere in the project file: only the inputPaths entry is
+        # evidence that the worker is compiled into the bundle.
+        project = (Path(__file__).resolve().parents[1] / "cmux.xcodeproj/project.pbxproj").read_text()
+        phase = project.split("name = \"Build Plain Text Paste Worker\"", 1)
+        self.assertEqual(len(phase), 2, "Build Plain Text Paste Worker phase is missing")
+        declaration = phase[0].rsplit("isa = PBXShellScriptBuildPhase", 1)[-1]
+        self.assertIn("$(SRCROOT)/workers/cmux-paste-text/main.m", declaration)
+        self.assertIn("inputPaths", declaration)
+        self.assertIn("cmux-paste-text-worker", phase[1].split("};", 1)[0])
+
+        # A commit that only touches the worker must change the fingerprint.
+        workflow = (Path(__file__).resolve().parents[1] / ".github/workflows/ci-macos.yml").read_text()
+        base = ["100644 blob 1111111111111111111111111111111111111111\tworkers/cmux-paste-text/main.m"]
+        changed = ["100644 blob 2222222222222222222222222222222222222222\tworkers/cmux-paste-text/main.m"]
+        self.assertNotEqual(
+            identity.identity_from_tree_lines(base, workflow),
+            identity.identity_from_tree_lines(changed, workflow),
+        )
+
+    def test_github_product_identity_is_recomputed_from_git_objects(self):
+        workflow = (Path(__file__).resolve().parents[1] / ".github/workflows/ci-macos.yml").read_text()
+        entries = [
+            {"path": "Sources/App.swift", "mode": "100644", "type": "blob", "sha": "1" * 40},
+            {
+                "path": ".github/workflows/ci-macos.yml",
+                "mode": "100644",
+                "type": "blob",
+                "sha": "2" * 40,
+            },
+        ]
+
+        class GitObjects:
+            def get(self, path):
+                if path == "git/commits/abc123":
+                    return {"tree": {"sha": "3" * 40}}
+                if path == f"git/trees/{'3' * 40}?recursive=1":
+                    return {"truncated": False, "tree": entries}
+                if path == f"git/blobs/{'2' * 40}":
+                    return {
+                        "encoding": "base64",
+                        "content": base64.b64encode(workflow.encode()).decode(),
+                    }
+                raise AssertionError(path)
+
+        actual = reuse.github_product_identity(GitObjects(), "abc123")
+        expected = reuse.product_inputs.identity_from_tree_lines(
+            reuse.product_inputs.github_tree_lines(entries),
+            workflow,
+        )
+        self.assertEqual(actual, expected)
+
+    def test_changed_product_inputs_are_a_miss(self):
+        original = self.api.product_identities["abc123"]
+        self.api.product_identities["abc123"] = {
+            **original,
+            "source": "d" * 64,
+        }
         self.assertFalse(self.restore_reuse())
-        self.contract = original
+        self.api.product_identities["abc123"] = original
 
     def test_actual_source_and_run_provenance_must_match(self):
-        self.api.trees["abc123"] = "different-tree"
+        original_identity = self.api.product_identities["abc123"]
+        self.api.product_identities["abc123"] = {
+            **original_identity,
+            "recipe": "d" * 64,
+        }
         self.assertFalse(self.restore_reuse())
         self.assertFalse(self.consumer.exists())
-        self.api.trees["abc123"] = "same-tree"
+        self.api.product_identities["abc123"] = original_identity
         root = self.producer / "Build/Products"
         receipt = json.loads((root / reuse.RECEIPT).read_text())
         receipt["run_id"] = "999"
@@ -170,6 +405,96 @@ class ReuseProducts(TestProductHandoff):
                     else:
                         self.api.artifact["size_in_bytes"] = old
 
+    def pull_request_checkout(self, branch):
+        """Reproduce the checkout a pull request run actually gets.
+
+        `actions/checkout` with no `ref:` fetches `github.sha` at the default
+        depth of one, so the working tree is the ephemeral merge of the pull
+        request head into the base, in a shallow repository. Clone the same way
+        here: a shallow HEAD has no walkable parents, which is the difference
+        between reading the commit object and asking for `HEAD^2`.
+        """
+        root = Path(self.temp.name) / "git"
+        source = root / "source"
+
+        def git(*args, cwd=source):
+            return subprocess.check_output(
+                ["git", "-c", "user.email=ci@cmux.test", "-c", "user.name=cmux ci", *args],
+                cwd=cwd, text=True).strip()
+
+        if not source.exists():
+            source.mkdir(parents=True)
+            git("init", "-q", "-b", "main", ".")
+            git("commit", "-q", "--allow-empty", "-m", "base")
+            self.base_revision = git("rev-parse", "HEAD")
+            # Not "head": on a case-insensitive filesystem refs/heads/head and
+            # .git/HEAD are the same path, so every later "head" argument is an
+            # ambiguous refname and these tests cannot run on macOS at all.
+            git("checkout", "-q", "-b", "pull-request-head")
+            git("commit", "-q", "--allow-empty", "-m", "pull request head")
+            self.head_revision = git("rev-parse", "HEAD")
+            git("checkout", "-q", "main")
+            git("merge", "-q", "--no-ff", "pull-request-head", "-m", "merge pull request")
+            # The same two commits merged the other way, leaving the pull
+            # request head in the first-parent position.
+            git("checkout", "-q", "-b", "reversed", "pull-request-head")
+            git("merge", "-q", "--no-ff", "main", "-m", "merge base")
+        checkout = root / branch
+        git("clone", "-q", "--depth", "1", "--branch", branch, "--no-local",
+            source.as_uri(), str(checkout), cwd=root)
+        self.addCleanup(os.chdir, os.getcwd())
+        os.chdir(checkout)
+        return git("rev-parse", "HEAD", cwd=checkout)
+
+    def test_pull_request_merge_checkout_is_bound_to_the_attested_head(self):
+        """A pull request consumer reuses instead of reporting a mismatch.
+
+        The run's `head_sha` is the pull request head while the checkout is the
+        merge commit, so an exact revision comparison rejects every pull request
+        run before any producer is considered.
+        """
+        revision = self.pull_request_checkout("main")
+        self.api.consumer_run["head_sha"] = self.head_revision
+        self.api.product_identities[self.head_revision] = self.contract["product_inputs"]
+        report = {}
+        self.assertTrue(self.restore_reuse(revision=revision, report=report))
+        self.assertNotIn("consumer_revision_mismatch", report["miss_reasons"])
+        self.assertEqual(report["reason"], "hit")
+
+    def test_checkout_outside_the_attested_head_stays_a_miss(self):
+        """Only a merge of the attested head counts as that head's checkout."""
+        cases = (
+            # A merge commit that does not have the attested head as a parent.
+            ("main", "base_revision"),
+            # The attested head as first parent: the pull request with the base
+            # merged into it, not the pull request merged for testing.
+            ("reversed", "head_revision"),
+            # A non-merge checkout still has to be the attested commit itself.
+            ("pull-request-head", "base_revision"),
+        )
+        for branch, attribute in cases:
+            with self.subTest(branch=branch):
+                revision = self.pull_request_checkout(branch)
+                attested = getattr(self, attribute)
+                self.api.consumer_run["head_sha"] = attested
+                self.api.product_identities[attested] = self.contract["product_inputs"]
+                report = {}
+                self.assertFalse(self.restore_reuse(revision=revision, report=report))
+                self.assertIn("consumer_revision_mismatch", report["miss_reasons"])
+                self.assertFalse(self.consumer.exists())
+
+    def test_merge_group_checkout_still_requires_an_exact_revision(self):
+        """Merge queue runs check out the attested commit, so nothing relaxes."""
+        revision = self.pull_request_checkout("main")
+        for run in (self.api.run, self.api.consumer_run):
+            run["event"] = "merge_group"
+            run.pop("pull_requests", None)
+        self.api.consumer_run["head_sha"] = self.head_revision
+        self.api.product_identities[self.head_revision] = self.contract["product_inputs"]
+        report = {}
+        self.assertFalse(self.restore_reuse(revision=revision, report=report))
+        self.assertIn("consumer_revision_mismatch", report["miss_reasons"])
+
     def valid_schema2_upstream(self):
         """Build a complete prior-hop provenance record for validation tests."""
         producer = {
@@ -202,6 +527,69 @@ class ReuseProducts(TestProductHandoff):
             "consumer_revision": "abc123",
             "upstream": None,
         }
+
+    def seal_at(self, revision):
+        """Re-seal the producer archive as a run that checked out `revision`."""
+        self.identity = {**self.identity, "revision": revision}
+        self.seal()
+
+    def test_pull_request_producer_sealed_at_its_merge_commit_is_reusable(self):
+        """A pull request producer seals the merge commit it checked out.
+
+        `reuse_app_host_products.py seal` records `git rev-parse HEAD`, which
+        on a pull request run is the ephemeral merge commit, while the run's
+        `head_sha` is the pull request head. Requiring those two to be equal
+        rejected every pull request producer, and only after its archive had
+        already been downloaded and expanded.
+        """
+        merge = "aaa111bbb222"
+        self.api.commit_parents[merge] = ["base999", self.api.run["head_sha"]]
+        self.api.product_identities[merge] = self.contract["product_inputs"]
+        self.seal_at(merge)
+        report = {}
+        self.assertTrue(self.restore_reuse(report=report))
+        self.assertNotIn("product_provenance_invalid", report["miss_reasons"])
+        self.assertEqual(report["reason"], "hit")
+        provenance = json.loads(
+            (self.consumer / "Build/Products/cmux-original-producer.json").read_text())
+        self.assertEqual(provenance["revision"], merge)
+
+    def test_producer_revision_outside_the_attested_head_stays_a_miss(self):
+        """Only a merge of the producer's attested head vouches for its archive."""
+        merge = "aaa111bbb222"
+        cases = {
+            # The attested head is not a parent of the sealed revision at all.
+            "unrelated_merge": (["base999", "other77"], "pull_request", True),
+            # The attested head as first parent: the base merged into the pull
+            # request, not the pull request merged for testing.
+            "reversed_merge": ([self.api.run["head_sha"], "base999"],
+                               "pull_request", True),
+            # An octopus merge never names a single tested head.
+            "octopus_merge": (["base999", self.api.run["head_sha"], "third33"],
+                              "pull_request", True),
+            # Merge queue runs check out the attested commit, so nothing relaxes.
+            "merge_group": (["base999", self.api.run["head_sha"]],
+                            "merge_group", True),
+            # A well-formed merge whose tree carries different product inputs.
+            "foreign_product_inputs": (["base999", self.api.run["head_sha"]],
+                                       "pull_request", False),
+        }
+        for name, (parents, event, same_inputs) in cases.items():
+            with self.subTest(case=name):
+                self.setUp()
+                self.api.commit_parents[merge] = parents
+                self.api.product_identities[merge] = (
+                    self.contract["product_inputs"] if same_inputs
+                    else {**self.contract["product_inputs"], "source": "9" * 64})
+                if event == "merge_group":
+                    for run in (self.api.run, self.api.consumer_run):
+                        run["event"] = event
+                        run.pop("pull_requests", None)
+                self.seal_at(merge)
+                report = {}
+                self.assertFalse(self.restore_reuse(report=report))
+                self.assertIn("product_provenance_invalid", report["miss_reasons"])
+                self.assertFalse(self.consumer.exists())
 
     def install_upstream(self, provenance):
         """Embed provenance in the producer archive and refresh its outer digest."""
@@ -341,11 +729,16 @@ class ReuseProducts(TestProductHandoff):
                 self.assertFalse(self.restore_reuse())
                 self.assertFalse(self.consumer.exists())
 
-    def test_unrelated_producer_tree_rejected_before_download(self):
-        self.api.trees["abc123"] = "different-tree"
+    def test_unrelated_producer_inputs_rejected_before_download(self):
+        original = self.api.product_identities["abc123"]
+        self.api.product_identities["abc123"] = {
+            **original,
+            "source": "e" * 64,
+        }
         with mock.patch.object(self.api, "download", wraps=self.api.download) as download:
             self.assertFalse(self.restore_reuse())
             download.assert_not_called()
+        self.api.product_identities["abc123"] = original
 
     def test_completed_compile_can_be_used_while_other_tests_run(self):
         self.api.run['status'] = 'in_progress'
@@ -423,15 +816,20 @@ class ReuseProducts(TestProductHandoff):
 
     def test_candidate_lookup_is_bounded(self):
         original_get = self.api.get
-        artifact_pages = []
+        artifact_queries = []
         def no_matches(path):
             if path.startswith("actions/artifacts?"):
-                artifact_pages.append(path)
+                artifact_queries.append(path)
                 return {"artifacts": [{"name": "unrelated"} for _ in range(100)]}
             return original_get(path)
         with mock.patch.object(self.api, "get", side_effect=no_matches):
             self.assertFalse(self.restore_reuse())
-        self.assertEqual(len(artifact_pages), 3)
+        # One exact-name request per plausible producer attempt, never a page scan.
+        self.assertEqual(
+            artifact_queries,
+            [f"actions/artifacts?name={reuse.artifact_name(self.contract, attempt)}&per_page=100"
+             for attempt in (1, 2, 3)],
+        )
 
         prefix = reuse.PREFIX + reuse.key(self.contract) + "-1"
         candidates = [
@@ -456,6 +854,103 @@ class ReuseProducts(TestProductHandoff):
         with mock.patch.object(self.api, "get", side_effect=six_candidates):
             self.assertFalse(self.restore_reuse())
         self.assertEqual(len(attempts), 6)
+
+    def test_exact_name_lookup_finds_artifact_outside_recent_listing_window(self):
+        # Retention is days, while the newest few hundred repository artifacts
+        # span minutes. An artifact this old is reachable by name only.
+        self.api.artifact["created_at"] = "2026-09-19T08:00:00Z"
+        self.assertTrue(self.restore_reuse())
+        self.assertEqual(
+            self.api.artifact_queries,
+            [f"actions/artifacts?name={reuse.artifact_name(self.contract, attempt)}&per_page=100"
+             for attempt in (1, 2, 3)],
+        )
+
+    def test_earlier_producer_attempt_is_reachable_by_name(self):
+        self.api.run["run_attempt"] = 2
+        self.api.artifact["name"] = reuse.artifact_name(self.contract, 2)
+        self.seal()
+        self.assertTrue(self.restore_reuse())
+
+    def test_artifact_of_another_contract_is_never_a_candidate(self):
+        self.api.artifact["name"] = reuse.PREFIX + "0" * 64 + "-1"
+        report = {}
+        with mock.patch.object(self.api, "download") as download:
+            self.assertFalse(self.restore_reuse(report=report))
+            download.assert_not_called()
+        self.assertIn("no_matching_contract_artifact", report["miss_reasons"])
+        self.assertFalse(self.consumer.exists())
+
+    def test_named_candidate_still_requires_producer_validation(self):
+        cases = {
+            "untrusted_producer": (
+                lambda: self.api.run.update({"head_repository": {"full_name": "fork/cmux"}}),
+                "producer_consumer_pair_disallowed",
+            ),
+            "failed_compile": (
+                lambda: self.api.job.update({"conclusion": "failure"}),
+                "producer_compile_unsuccessful",
+            ),
+            "product_inputs_changed": (
+                lambda: self.api.product_identities.__setitem__(
+                    "abc123", {**self.contract["product_inputs"], "source": "f" * 64}),
+                "producer_product_inputs_mismatch",
+            ),
+            "oversize_archive": (
+                lambda: self.api.artifact.update({"size_in_bytes": reuse.MAX_ARCHIVE_BYTES + 1}),
+                "artifact_oversize",
+            ),
+            "expired_artifact": (
+                lambda: self.api.artifact.update({"expired": True}),
+                "artifact_expired",
+            ),
+            "missing_digest": (
+                lambda: self.api.artifact.pop("digest"),
+                "artifact_digest_missing",
+            ),
+        }
+        for name, (mutate, expected) in cases.items():
+            with self.subTest(name=name):
+                self.setUp()
+                mutate()
+                report = {}
+                with mock.patch.object(self.api, "download") as download:
+                    self.assertFalse(self.restore_reuse(report=report))
+                    download.assert_not_called()
+                self.assertIn(expected, report["miss_reasons"])
+                self.assertFalse(self.consumer.exists())
+
+    def test_artifact_listing_errors_are_misses_not_failures(self):
+        original_get = self.api.get
+        cases = {
+            "api_error": subprocess.CalledProcessError(1, "gh"),
+            "transport_error": OSError("artifact listing unavailable"),
+            "invalid_json": ValueError("no JSON object could be decoded"),
+        }
+        for name, error in cases.items():
+            with self.subTest(name=name):
+                def failing(path, error=error):
+                    if path.startswith("actions/artifacts?"):
+                        raise error
+                    return original_get(path)
+                report = {}
+                with mock.patch.object(self.api, "get", side_effect=failing), \
+                        mock.patch.object(self.api, "download") as download:
+                    self.assertFalse(self.restore_reuse(report=report))
+                    download.assert_not_called()
+                self.assertIn("artifact_listing_unavailable", report["miss_reasons"])
+                self.assertIn("no_matching_contract_artifact", report["miss_reasons"])
+                self.assertFalse(self.consumer.exists())
+
+        def malformed(path):
+            if path.startswith("actions/artifacts?"):
+                return {"artifacts": "not-a-list"}
+            return original_get(path)
+        report = {}
+        with mock.patch.object(self.api, "get", side_effect=malformed):
+            self.assertFalse(self.restore_reuse(report=report))
+        self.assertIn("artifact_listing_invalid", report["miss_reasons"])
+        self.assertFalse(self.consumer.exists())
 
     def test_multi_hop_reuse_preserves_original_producer(self):
         first_report = {}
@@ -498,7 +993,7 @@ class ReuseProducts(TestProductHandoff):
             "event": "merge_group",
             "pull_requests": [],
         })
-        self.api.trees["fed789"] = "same-tree"
+        self.api.product_identities["fed789"] = self.contract["product_inputs"]
         second = self.consumer.parent / "second-consumer" / "derived"
         second_report = {}
         self.assertTrue(self.restore_reuse(
@@ -537,8 +1032,10 @@ class FakeGitHub:
     repository = "manaflow-ai/cmux"
 
     def __init__(self, contract):
-        self.tree = contract["tree"]
-        self.trees = {"abc123": self.tree, "def456": self.tree}
+        self.product_identities = {
+            "abc123": contract["product_inputs"],
+            "def456": contract["product_inputs"],
+        }
         self.artifact = {
             "id": 42,
             "name": reuse.PREFIX + reuse.key(contract) + "-1",
@@ -547,6 +1044,10 @@ class FakeGitHub:
             "workflow_run": {"id": 12},
         }
         self.artifacts = [self.artifact]
+        self.artifact_queries = []
+        # Parent revisions GitHub reports for a commit, so a pull request
+        # producer's ephemeral merge commit can be bound to its attested head.
+        self.commit_parents = {}
         self.run = {
             "id": 12,
             "path": ".github/workflows/ci.yml",
@@ -582,7 +1083,15 @@ class FakeGitHub:
 
     def get(self, path):
         if path.startswith("actions/artifacts?"):
-            return {"artifacts": self.artifacts}
+            query = parse_qs(path.split("?", 1)[1])
+            self.artifact_queries.append(path)
+            # The real endpoint returns only exact name matches when `name` is
+            # given; an unfiltered listing would reach just the newest few
+            # hundred artifacts of a fast-churning repository.
+            names = query.get("name")
+            if not names:
+                raise AssertionError(f"unfiltered artifact listing: {path}")
+            return {"artifacts": [a for a in self.artifacts if a.get("name") == names[0]]}
         if path == f"actions/runs/{self.consumer_run['id']}":
             return self.consumer_run
         match = __import__("re").fullmatch(r"actions/runs/(\d+)/attempts/(\d+)", path)
@@ -599,8 +1108,11 @@ class FakeGitHub:
                 return {"jobs": [self.job]}
             raise OSError("jobs unavailable")
         if path.startswith("git/commits/"):
-            revision = path.rsplit("/", 1)[-1]
-            return {"tree": {"sha": self.trees.get(revision, self.tree)}}
+            revision = path[len("git/commits/"):]
+            return {
+                "tree": {"sha": "f" * 40},
+                "parents": [{"sha": sha} for sha in self.commit_parents.get(revision, [])],
+            }
         raise AssertionError(path)
 
     def download(self, artifact_id, target):

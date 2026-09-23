@@ -38,10 +38,39 @@ extension SurfaceCatalog {
     }
 
     func validateOwnership(of resources: [SurfaceResourceID], at destination: SurfaceDestination) throws {
-        let workspace = cloudWorkspaceRenameService.environment.workspace(destination.workspaceID)
-            ?? Workspace.liveWorkspace(id: destination.workspaceID)
-        if let policy = workspace?.surfaceOwnershipPolicy,
-           let rejection = ownershipRejection(for: resources, policy: policy) { throw rejection }
+        guard let workspace = cloudWorkspaceRenameService.environment.workspace(destination.workspaceID)
+                ?? Workspace.liveWorkspace(id: destination.workspaceID) else {
+            throw SurfaceCatalogError.destinationNotFound(destination.workspaceID.uuidString)
+        }
+        if let rejection = ownershipRejection(for: resources, policy: workspace.surfaceOwnershipPolicy) {
+            throw rejection
+        }
+    }
+
+    /// Provider work may suspend. Check the live destination again before its
+    /// receipt can enter the catalog, and retire only the just-created view.
+    func validateMaterializationOwnership(_ projection: SurfaceProjection, provider: any SurfaceProvider) throws {
+        do {
+            if DockSplitStore.liveStore(containingPanel: projection.panelID)?.scope == .global {
+                return
+            }
+            try validateOwnership(of: [projection.resource], at: .workspace(id: projection.workspaceID, placement: .tab))
+        } catch {
+            provider.discardMaterialization(projection)
+            throw error
+        }
+    }
+
+    func canRestoreProjection(_ projection: SurfaceProjection) -> Bool {
+        if DockSplitStore.liveStore(containingPanel: projection.panelID)?.scope == .global {
+            return true
+        }
+        do {
+            try validateOwnership(of: [projection.resource], at: .workspace(id: projection.workspaceID, placement: .tab))
+            return true
+        } catch {
+            return false
+        }
     }
 
     func ownershipRejection(for resources: [SurfaceResourceID], policy: SurfaceOwnershipPolicy) -> SurfaceTransferRejection? {

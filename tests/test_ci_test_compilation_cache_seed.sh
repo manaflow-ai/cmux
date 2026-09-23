@@ -4,7 +4,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-CI_FILE="$ROOT_DIR/.github/workflows/ci.yml"
+CI_FILE="$ROOT_DIR/.github/workflows/ci-macos.yml"
 NIGHTLY_FILE="$ROOT_DIR/.github/workflows/nightly.yml"
 SCRIPT="$ROOT_DIR/scripts/ci/compile-app-host-test-product.sh"
 
@@ -21,7 +21,7 @@ ADMISSION="$(job_body "$CI_FILE" "macos-compile-admission")"
 SEEDER="$(job_body "$NIGHTLY_FILE" "refresh-test-compilation-cache")"
 
 if [ -z "$ADMISSION" ] || [ -z "$SEEDER" ]; then
-  echo "FAIL: expected ci.yml macos-compile-admission and nightly.yml refresh-test-compilation-cache"
+  echo "FAIL: expected ci-macos.yml macos-compile-admission and nightly.yml refresh-test-compilation-cache"
   exit 1
 fi
 
@@ -42,6 +42,28 @@ for pair in "admission:$ADMISSION" "seeder:$SEEDER"; do
   fi
 done
 echo "PASS: admission and the seeder build the app-host test product through one script"
+
+# The fingerprint hashes the workspace path, and runner pools lay the workspace
+# out differently, so a seed built on one pool can never be restored on another.
+# The seed existed but was unreachable while the seeder ran on
+# vars.MACOS_RUNNER_15 and pull request admission ran on MACOS_RUNNER_PR: every
+# pull request missed the cache and compiled cold.
+PR_RUNNER="vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15'"
+admission_runs_on="$(grep -E '^    runs-on:' <<<"$ADMISSION" | head -1)"
+seeder_runs_on="$(grep -E '^    runs-on:' <<<"$SEEDER" | head -1)"
+if ! grep -Fq -- "$PR_RUNNER" <<<"$admission_runs_on"; then
+  echo "FAIL: macos-compile-admission must select its pull request runner as $PR_RUNNER"
+  echo "  got: $admission_runs_on"
+  exit 1
+fi
+if [ "$(tr -d '[:space:]' <<<"$seeder_runs_on")" != "$(tr -d '[:space:]' <<<"runs-on: \${{ $PR_RUNNER }}")" ]; then
+  echo "FAIL: refresh-test-compilation-cache must run on the same runner pull request admission uses,"
+  echo "      or the seed it writes can never be restored."
+  echo "  admission: $admission_runs_on"
+  echo "  seeder:    $seeder_runs_on"
+  exit 1
+fi
+echo "PASS: the seeder runs on the runner pull request admission restores from"
 
 # The build paths are part of every cache entry, so both jobs must use the
 # same ones.
@@ -93,6 +115,38 @@ if ! awk '
   exit 1
 fi
 echo "PASS: the seeder rolls the cache forward by main revision and bounds what it saves"
+
+# The seed must come from one clean build. The seeder used to restore its own
+# last seed by prefix, so each run stacked another build's objects onto the
+# CAS; Xcode keeps the primary generation and the upstream it faults from, and
+# that pair crossed the 5 GiB save bound on 2026-09-22 after climbing 3.5 -> 5.0
+# GiB in eight runs. Past the bound nothing is saved, so the next run restores
+# the same older entry and lands past it again and the seed freezes for good.
+# A cold build covers all of main anyway, and it measured smaller (3.5 GiB) and
+# faster (18 min, against 19-25 warm) than a stacked one.
+if awk '
+  /^      - name: / { step = $0 }
+  step ~ /Restore test compilation cache/ && /^[[:space:]]+restore-keys:/ { found = 1 }
+  END { exit !found }
+' <<<"$SEEDER"; then
+  echo "FAIL: refresh-test-compilation-cache must not restore an earlier seed by prefix:"
+  echo "      stacking builds onto one CAS grows it past the save bound, and then the seed freezes."
+  exit 1
+fi
+echo "PASS: the seeder seeds from one clean build"
+
+# Admission is the opposite case and must keep its fallback: its exact key
+# names a base revision no seeder run built, so the prefix is the only way a
+# pull request ever finds the seed.
+if ! awk '
+  /^      - name: / { step = $0 }
+  step ~ /Restore test compilation cache/ && /^[[:space:]]+restore-keys:/ { found = 1 }
+  END { exit !found }
+' <<<"$ADMISSION"; then
+  echo "FAIL: macos-compile-admission must restore the seed by prefix, or it can never find one"
+  exit 1
+fi
+echo "PASS: pull requests find the seed by prefix"
 
 if ! grep -Eq "if: github\.event_name == 'schedule'" <<<"$SEEDER"; then
   echo "FAIL: refresh-test-compilation-cache must stay on the cache-warming schedule so it does not take a macOS slot per merge"
@@ -164,6 +218,7 @@ for expected in \
   cmux-unit \
   cmux-numeric-locale \
   build-for-testing \
+  -showBuildTimingSummary \
   COMPILATION_CACHE_ENABLE_CACHING=YES \
   "COMPILATION_CACHE_CAS_PATH=$TMP_DIR/cas" \
   "$TMP_DIR/derived" \

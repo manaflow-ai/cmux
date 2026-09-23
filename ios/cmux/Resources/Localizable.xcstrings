@@ -7,55 +7,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Set Up cmux iOS"
+            "value": "See Docs"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux iOS einrichten"
+            "value": "Doku anzeigen"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Configurer cmux iOS"
+            "value": "Voir la documentation"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "إعداد cmux على iOS"
+            "value": "عرض المستندات"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Configurar cmux iOS"
+            "value": "Ver documentación"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "設定 cmux iOS"
+            "value": "查看文件"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "设置 cmux iOS"
+            "value": "查看文档"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux iOS 설정"
+            "value": "문서 보기"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux iOS を設定"
+            "value": "ドキュメントを見る"
           }
         }
       }
@@ -28088,18 +28088,18 @@
         }
       }
     },
-    "mobile.settings.diagnostics.copyDebugInfo": {
+    "mobile.settings.about.copySupportInfo": {
       "extractionState": "manual",
       "localizations": {
-        "en": {"stringUnit": {"state": "translated", "value": "Copy Debug Information"}},
-        "ja": {"stringUnit": {"state": "translated", "value": "デバッグ情報をコピー"}},
-        "de": {"stringUnit": {"state": "translated", "value": "Debug-Informationen kopieren"}},
-        "fr": {"stringUnit": {"state": "translated", "value": "Copier les informations de débogage"}},
-        "ar": {"stringUnit": {"state": "translated", "value": "نسخ معلومات التصحيح"}},
-        "es": {"stringUnit": {"state": "translated", "value": "Copiar información de depuración"}},
-        "zh-Hant": {"stringUnit": {"state": "translated", "value": "複製除錯資訊"}},
-        "zh-Hans": {"stringUnit": {"state": "translated", "value": "复制调试信息"}},
-        "ko": {"stringUnit": {"state": "translated", "value": "디버그 정보 복사"}}
+        "en": {"stringUnit": {"state": "translated", "value": "Copy Support Information"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "サポート情報をコピー"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Supportinformationen kopieren"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Copier les informations d’assistance"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "نسخ معلومات الدعم"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Copiar información de soporte"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "複製支援資訊"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "复制支持信息"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "지원 정보 복사"}}
       }
     },
     "mobile.settings.diagnostics.footer": {
@@ -30104,6 +30104,65 @@
           "stringUnit": {
             "state": "translated",
             "value": "이 앱이 표시하는 cmux 팀의 컴퓨터와 장치를 전환합니다."
+          }
+        }
+      }
+    },
+    "mobile.settings.teamSwitchFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Could not switch teams. Try again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "チームを切り替えられませんでした。もう一度お試しください。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Teams konnten nicht gewechselt werden. Bitte versuche es erneut."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossible de changer d'équipe. Réessayez."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذر تبديل الفرق. حاول مرة أخرى."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudieron cambiar los equipos. Inténtalo de nuevo."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法切換團隊。請再試一次。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法切换团队。请重试。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "팀을 전환할 수 없습니다. 다시 시도해 주세요."
           }
         }
       }
@@ -86243,6 +86302,202 @@
             "value": "이 Mac에는 최신 cmux Nightly가 필요합니다. 연결하려면 이 Mac의 cmux를 %1$@ 이상으로 업데이트하세요."
           }
         }
+      }
+    },
+    "mobile.push.tabUnavailable.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Tab unavailable"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "タブを利用できません"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Registerkarte nicht verfügbar"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Onglet indisponible"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "علامة التبويب غير متاحة"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Pestaña no disponible"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "標籤頁無法使用"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "标签页不可用"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "탭을 사용할 수 없음"}}
+      }
+    },
+    "mobile.push.tabUnavailable.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "This tab is no longer available on your Mac."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "このタブは Mac で利用できなくなりました。"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Diese Registerkarte ist auf Ihrem Mac nicht mehr verfügbar."}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Cet onglet n’est plus disponible sur votre Mac."}},
+        "ar": {"stringUnit": {"state": "translated", "value": "لم تعد علامة التبويب هذه متاحة على جهاز Mac الخاص بك."}},
+        "es": {"stringUnit": {"state": "translated", "value": "Esta pestaña ya no está disponible en tu Mac."}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "此標籤頁已無法在您的 Mac 上使用。"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "此标签页已无法在你的 Mac 上使用。"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "Mac에서 이 탭을 더 이상 사용할 수 없습니다."}}
+      }
+    },
+    "mobile.push.connectionUnavailable.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Waiting for your Mac"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "Mac を待機中"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Auf Ihren Mac warten"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "En attente de votre Mac"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "في انتظار جهاز Mac الخاص بك"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Esperando tu Mac"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "等待您的 Mac"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "等待你的 Mac"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "Mac을 기다리는 중"}}
+      }
+    },
+    "mobile.push.connectionUnavailable.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "This notification will open when your Mac reconnects."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "Mac が再接続すると、この通知が開きます。"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Diese Benachrichtigung wird geöffnet, sobald Ihr Mac wieder verbunden ist."}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Cette notification s’ouvrira lorsque votre Mac se reconnectera."}},
+        "ar": {"stringUnit": {"state": "translated", "value": "سيفتح هذا الإشعار عند إعادة اتصال جهاز Mac الخاص بك."}},
+        "es": {"stringUnit": {"state": "translated", "value": "Esta notificación se abrirá cuando tu Mac vuelva a conectarse."}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "Mac 重新連線後，這則通知會開啟。"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "Mac 重新连接后，此通知会打开。"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "Mac이 다시 연결되면 이 알림이 열립니다."}}
+      }
+    },
+    "mobile.push.connectionUnavailable.retry": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Try again"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "再試行"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Erneut versuchen"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Réessayer"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "حاول مرة أخرى"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Intentar de nuevo"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "再試一次"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "重试"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "다시 시도"}}
+      }
+    },
+    "mobile.push.connectionUnavailable.cancel": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Dismiss"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "閉じる"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Schließen"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Fermer"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "إغلاق"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Descartar"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "關閉"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "关闭"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "닫기"}}
+      }
+    },
+    "mobile.push.preview.ready": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Ready for a notification tap"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "通知タップの準備完了"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Bereit für einen Benachrichtigungstipp"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Prêt pour une notification"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "جاهز للنقر على إشعار"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Listo para tocar una notificación"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "準備接收通知點按"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "准备接收通知点击"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "알림 탭 준비 완료"}}
+      }
+    },
+    "mobile.push.preview.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Notification tab navigation"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "通知タップの移動"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Navigation über Benachrichtigung"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Navigation par notification"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "التنقل من الإشعار"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Navegación desde la notificación"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "通知標籤頁導覽"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "通知标签页导航"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "알림 탭 탐색"}}
+      }
+    },
+    "mobile.push.preview.tapConnected": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Tap notification for Notes"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "ターミナル「Notes」の通知をタップ"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Benachrichtigung für „Notes“ tippen"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Touchez la notification de Notes"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "اضغط على إشعار Notes"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Toca la notificación de Notes"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "點按 Notes 的通知"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "点击 Notes 的通知"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "Notes 알림 탭하기"}}
+      }
+    },
+    "mobile.push.preview.waiting": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Waiting for the Mac connection…"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "Mac 接続を待機中…"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Warten auf die Mac-Verbindung…"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "En attente de la connexion Mac…"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "في انتظار اتصال Mac…"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Esperando la conexión del Mac…"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "正在等待 Mac 連線…"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "正在等待 Mac 连接…"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "Mac 연결 대기 중…"}}
+      }
+    },
+    "mobile.push.preview.reconnect": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Reconnect Mac"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "Mac に再接続"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Mac erneut verbinden"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Reconnecter le Mac"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "إعادة اتصال Mac"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Volver a conectar el Mac"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "重新連線 Mac"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "重新连接 Mac"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "Mac 다시 연결"}}
+      }
+    },
+    "mobile.push.preview.connected": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Mac connection active"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "Mac 接続が有効"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Mac-Verbindung aktiv"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Connexion Mac active"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "اتصال Mac نشط"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Conexión del Mac activa"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "Mac 連線已啟用"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "Mac 连接已激活"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "Mac 연결 활성화됨"}}
+      }
+    },
+    "mobile.push.preview.tapMissing": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Tap notification for closed tab"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "閉じたタブの通知をタップ"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Benachrichtigung für geschlossene Registerkarte tippen"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Touchez la notification d’un onglet fermé"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "اضغط على إشعار علامة تبويب مغلقة"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Toca la notificación de la pestaña cerrada"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "點按已關閉標籤頁的通知"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "点击已关闭标签页的通知"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "닫힌 탭 알림 탭하기"}}
+      }
+    },
+    "mobile.push.preview.missing": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "The notification targets a closed tab"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "通知の対象タブは閉じています"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Die Benachrichtigung betrifft eine geschlossene Registerkarte"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "La notification cible un onglet fermé"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "الإشعار يستهدف علامة تبويب مغلقة"}},
+        "es": {"stringUnit": {"state": "translated", "value": "La notificación apunta a una pestaña cerrada"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "通知指向已關閉的標籤頁"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "通知指向已关闭的标签页"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "알림이 닫힌 탭을 가리킴"}}
       }
     }
   },

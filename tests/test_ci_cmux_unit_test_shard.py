@@ -18,7 +18,7 @@ CI_LOGICAL_SHARD_TOTAL = CI_PHYSICAL_SHARD_TOTAL * CI_LOGICAL_BATCHES_PER_WORKER
 
 def production_shard_constants() -> tuple[int, int]:
     """Read the production matrix constants so this test exercises its topology."""
-    workflow = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+    workflow = (ROOT / ".github" / "workflows" / "ci-macos.yml").read_text(encoding="utf-8")
     values: dict[str, int] = {}
     for line in workflow.splitlines():
         stripped = line.strip()
@@ -66,6 +66,119 @@ extension LargeSuiteTests {
 """.lstrip(),
         encoding="utf-8",
     )
+
+
+def check_split_methods_use_callable_identifiers() -> int:
+    """Xcode matches Swift Testing methods only with their call signature.
+
+    A real Xcode bundle with a failing @Test sentinel exits zero and runs zero
+    tests for ModernTests/testSentinel. ModernTests/testSentinel() executes the
+    failure; XCTest accepts that explicit no-argument signature as well.
+    """
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        test_root = root / "cmuxTests"
+        test_root.mkdir()
+        for suite, declaration, attribute in (
+            ("ModernTests", "@Suite struct ModernTests", "    @Test\n"),
+            ("LegacyTests", "final class LegacyTests: XCTestCase", ""),
+        ):
+            methods = "\n".join(
+                f"{attribute}    func testGenerated{index:02d}() {{}}"
+                for index in range(40)
+            )
+            (test_root / f"{suite}.swift").write_text(
+                f"{declaration} {{\n{methods}\n}}\n", encoding="utf-8"
+            )
+        selectors = set()
+        for shard in (1, 2):
+            selectors.update(run_shard(root, shard, root / f"{shard}.args", root / "absent.json"))
+        expected = {
+            f"-only-testing:cmuxTests/{suite}/testGenerated{index:02d}()"
+            for suite in ("ModernTests", "LegacyTests") for index in range(40)
+        }
+        if selectors != expected:
+            print("FAIL: split selectors must retain callable method signatures; "
+                  f"missing={sorted(expected - selectors)[:3]} unexpected={sorted(selectors - expected)[:3]}")
+            return 1
+        import json
+        timings = root / "timings.json"
+        timings.write_text(json.dumps({
+            "suites": {}, "methods": {"ModernTests/testGenerated00": 12345},
+        }), encoding="utf-8")
+        listed = subprocess.run(
+            [sys.executable, str(HELPER), "--root", str(root), "--list", "--timings", str(timings)],
+            text=True, capture_output=True, check=True,
+        )
+        weights = {row.split("\t")[0]: int(row.split("\t")[1])
+                   for row in listed.stdout.splitlines()}
+        if weights["cmuxTests/ModernTests/testGenerated00()"] != 12345:
+            print("FAIL: call suffix must preserve measured method weights")
+            return 1
+    print("PASS: split XCTest and Swift Testing methods retain callable signatures")
+    return 0
+
+
+def check_parameterized_test_methods_keep_their_suite() -> int:
+    """A no-argument method selector must never replace a parameterized test."""
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        test_root = root / "cmuxTests"
+        test_root.mkdir()
+        ordinary = "\n".join(f"    @Test\n    func testGenerated{i}() {{}}" for i in range(40))
+        declarations = {
+            "DirectTests": "    @Test(arguments: [1, 2]) func testValues(value: Int) {}",
+            "MultilineTests": "    @Test(arguments: [1, 2])\n    func testValues(\n        value: Int\n    ) {}",
+            "ExtendedTests": "",
+        }
+        for suite, extra in declarations.items():
+            (test_root / f"{suite}.swift").write_text(
+                f"@Suite struct {suite} {{\n{ordinary}\n{extra}\n}}\n", encoding="utf-8"
+            )
+        (test_root / "Extension.swift").write_text(
+            "extension ExtendedTests {\n    @Test(arguments: [1, 2])\n    func testValues(value: Int) {}\n}\n",
+            encoding="utf-8",
+        )
+        selected = []
+        for shard in (1, 2):
+            selected.extend(run_shard(root, shard, root / f"{shard}.args", root / "absent.json"))
+        expected = {f"-only-testing:cmuxTests/{suite}" for suite in declarations}
+        if len(selected) != len(expected) or set(selected) != expected:
+            print(f"FAIL: parameterized suites must run whole exactly once: {selected[:5]}")
+            return 1
+    print("PASS: parameterized and multiline test methods preserve whole-suite execution")
+    return 0
+
+
+def check_unrepresented_swift_tests_keep_their_suite() -> int:
+    """Large migrated suites cannot drop modern names or inline @Test methods."""
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        test_root = root / "cmuxTests"
+        test_root.mkdir()
+        ordinary = "\n".join(f"    @Test\n    func testGenerated{i}() {{}}" for i in range(40))
+        declarations = {
+            "ModernNameTests": "    @Test\n    func otherName() {}",
+            "InlineTests": "    @Test func testInline() {}",
+            "ExtendedModernTests": "",
+        }
+        for suite, extra in declarations.items():
+            (test_root / f"{suite}.swift").write_text(
+                f"@Suite struct {suite} {{\n{ordinary}\n{extra}\n}}\n", encoding="utf-8"
+            )
+        (test_root / "ModernExtension.swift").write_text(
+            "extension ExtendedModernTests {\n    @Test func otherName() {}\n}\n",
+            encoding="utf-8",
+        )
+        selected = []
+        for shard in (1, 2):
+            selected.extend(run_shard(root, shard, root / f"{shard}.args", root / "absent.json"))
+        expected = {f"-only-testing:cmuxTests/{suite}" for suite in declarations}
+        if len(selected) != len(expected) or set(selected) != expected:
+            print(f"FAIL: unrepresented Swift Testing methods must preserve their whole suite: {selected[:5]}")
+            return 1
+    print("PASS: modern names and inline Swift Testing methods preserve whole-suite execution")
+    return 0
 
 
 def write_timed_suites_fixture(test_root: Path) -> None:
@@ -372,10 +485,10 @@ def focused_steps_in_ci_workflow() -> tuple[set[str], set[str], dict[str, str]]:
     """Return suites strict steps run in full, suites run in part, and the job env."""
     import re
 
-    workflow = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+    workflow = (ROOT / ".github" / "workflows" / "ci-macos.yml").read_text(encoding="utf-8")
     match = re.search(r"(?ms)^  app-host-unit-tests:\n(.*?)(?=^  [A-Za-z0-9_-]+:\n)", workflow)
     if match is None:
-        raise SystemExit("FAIL: app-host-unit-tests job missing from ci.yml")
+        raise SystemExit("FAIL: app-host-unit-tests job missing from ci-macos.yml")
     job = match.group(1)
     whole: set[str] = set()
     partial: set[str] = set()
@@ -404,9 +517,9 @@ def check_focused_gates_run_once() -> int:
     whole, partial, env = focused_steps_in_ci_workflow()
     excluded = {selector.split("/", 1)[1] for selector in helper.FOCUSED_GATE_SELECTORS}
     if excluded != whole - partial:
-        print("FAIL: the batch must leave out exactly the suites a strict ci.yml step runs in full")
-        print(f"  strict in ci.yml but still in the batch: {sorted(whole - partial - excluded)}")
-        print(f"  left out of the batch but not strict in ci.yml: {sorted(excluded - (whole - partial))}")
+        print("FAIL: the batch must leave out exactly the suites a strict ci-macos.yml step runs in full")
+        print(f"  strict in ci-macos.yml but still in the batch: {sorted(whole - partial - excluded)}")
+        print(f"  left out of the batch but not strict in ci-macos.yml: {sorted(excluded - (whole - partial))}")
         return 1
 
     sources = "\n".join(
@@ -417,7 +530,7 @@ def check_focused_gates_run_once() -> int:
         if not re.search(rf"(?m)^\s*(?:@\w+(?:\([^)]*\))?\s+)*(?:final\s+)?(?:class|struct|enum|actor)\s+{name}\b", sources)
     )
     if undeclared:
-        print(f"FAIL: ci.yml strict steps name suites cmuxTests does not declare: {undeclared}")
+        print(f"FAIL: ci-macos.yml strict steps name suites cmuxTests does not declare: {undeclared}")
         return 1
 
     groups = {
@@ -438,6 +551,13 @@ def check_focused_gates_run_once() -> int:
 
 
 def main() -> int:
+    if (rc := check_split_methods_use_callable_identifiers()) != 0:
+        return rc
+    if (rc := check_parameterized_test_methods_keep_their_suite()) != 0:
+        return rc
+    if (rc := check_unrepresented_swift_tests_keep_their_suite()) != 0:
+        return rc
+
     if (rc := check_test_topology_matches_production()) != 0:
         return rc
     with tempfile.TemporaryDirectory() as tmp:
@@ -475,7 +595,7 @@ def main() -> int:
                 return 1
             selectors.extend(output.read_text(encoding="utf-8").splitlines())
 
-    extension_selector = "-only-testing:cmuxTests/LargeSuiteTests/testExtensionRegression"
+    extension_selector = "-only-testing:cmuxTests/LargeSuiteTests/testExtensionRegression()"
     if selectors.count(extension_selector) != 1:
         print(f"FAIL: expected extension selector exactly once, got {selectors.count(extension_selector)}")
         return 1

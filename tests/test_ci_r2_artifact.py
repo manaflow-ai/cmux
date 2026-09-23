@@ -3,6 +3,7 @@
 import hashlib
 import importlib.util
 import io
+import json
 import os
 import stat
 import subprocess
@@ -166,6 +167,16 @@ class TransportTests(unittest.TestCase):
         self.assertEqual(record["transfer_seconds"], 0.5)
         self.assertEqual(record["downloaded_bytes"], len(self.zip))
 
+    def test_worker_toolchain_only_runs_for_worker_owned_changes(self):
+        workflow = (ROOT / ".github/workflows/ci-artifact-transport.yml").read_text()
+        self.assertIn("Detect Worker changes", workflow)
+        self.assertIn("workers/ci-artifacts", workflow)
+        self.assertGreaterEqual(
+            workflow.count("if: steps.worker.outputs.run == 'true'"),
+            3,
+        )
+        self.assertIn("fetch-depth: 2", workflow)
+
     def test_disabled_does_no_network_work(self):
         self.assertFalse(self.restore(""))
         self.assertEqual(self.calls, [])
@@ -317,6 +328,26 @@ class MeasurementTests(unittest.TestCase):
                  "status": "completed", "conclusion": "success"},
                 jobs, records)
 
+        # Exercise collection too: API names acquired the caller prefix when
+        # native jobs moved from ci.yml into its reusable macos workflow.
+        prefixed_jobs = [{**job, "name": "macos / " + job["name"]} for job in jobs]
+        run = {"id": 999, "html_url": "https://example/run/999", "event": "workflow_dispatch",
+               "status": "completed", "conclusion": "success"}
+        def api_response(path):
+            return run if path == "actions/runs/999" else {"size_in_bytes": 100}
+        def job_log(run_id, job_id):
+            return "\n".join(record["_marker"] + " " + json.dumps(record) for record in records[job_id])
+        with patch.object(measurement, "gh_json", side_effect=api_response), \
+             patch.object(measurement, "jobs_for_run", return_value=prefixed_jobs), \
+             patch.object(measurement, "log_for_job", side_effect=job_log) as logs:
+            prefixed = measurement.collect(999)
+        self.assertEqual(logs.call_count, 7)
+        for key in ("complete_consumer_set", "consumer_count", "producer_to_last_consumer_seconds",
+                    "aggregate_producer_and_consumer_runner_minutes", "transport_counts"):
+            self.assertEqual(prefixed[key], result[key], key)
+        self.assertEqual(measurement.job_name({"name": "unrelated / macOS compile admission"}),
+                         "unrelated / macOS compile admission")
+
         self.assertTrue(result["complete_consumer_set"])
         self.assertEqual(result["consumer_count"], 7)
         self.assertEqual(result["producer_to_last_consumer_seconds"], 1800.0)
@@ -338,6 +369,35 @@ class MeasurementTests(unittest.TestCase):
         self.assertEqual(measurement.marker_records(log), [{
             "transport": "r2", "cache": "fill", "_marker": "CMUX_TEST_PRODUCT_TRANSFER"
         }])
+
+
+class RestoreReceiptTests(unittest.TestCase):
+    def test_exit_receipt_preserves_provenance_and_original_status(self):
+        script = (ROOT / "scripts/ci/restore-app-host-test-product.sh").read_text()
+        # Execute the actual EXIT handler without performing a native restore.
+        prefix = script.split("trap report_restore_measurement EXIT", 1)[0] + "trap report_restore_measurement EXIT\n"
+        with tempfile.TemporaryDirectory() as directory:
+            env = {**os.environ, "RUNNER_TEMP": directory,
+                   "GITHUB_REPOSITORY": "manaflow-ai/cmux", "ARTIFACT_ID": "123",
+                   "ARTIFACT_PROVIDER_DIGEST": "sha256:outer", "EXPECTED_SHA256": "inner",
+                   "CMUX_PRODUCT_CONTRACT": "contract", "CMUX_PRODUCT_SOURCE_REVISION": "revision",
+                   "CMUX_PRODUCT_PRODUCER_RUN_ID": "456", "CMUX_PRODUCT_PRODUCER_RUN_ATTEMPT": "2",
+                   "CMUX_PEER_PRODUCT_HIT": "true", "CMUX_PEER_PRODUCT_BYTES": "789"}
+            for status in (0, 23):
+                result = subprocess.run(["bash", "-c", prefix + f"exit {status}\n"],
+                                        env=env, capture_output=True, text=True)
+                self.assertEqual(result.returncode, status, result.stderr)
+                records = [json.loads(line.split(" ", 1)[1]) for line in result.stdout.splitlines()
+                           if line.startswith("CMUX_TEST_PRODUCT_RESTORE ")]
+                self.assertEqual(len(records), 1, result.stdout)
+                record = records[0]
+                self.assertEqual(record["outcome"], "success" if status == 0 else "failure")
+                self.assertEqual(record["source_revision"], "revision")
+                self.assertEqual(record["producer_run_id"], 456)
+                self.assertEqual(record["producer_run_attempt"], 2)
+                self.assertEqual(record["provider_digest"], "sha256:outer")
+                self.assertEqual(record["route"], "peer")
+                self.assertEqual(record["peer_bytes_transferred"], 789)
 
 
 if __name__ == "__main__":

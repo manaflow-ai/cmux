@@ -2360,6 +2360,1421 @@
           }
         }
       }
+    },
+    "glaeda.cli.error.documentTooLarge": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The input document exceeds the size limit."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Das Eingabedokument überschreitet das Größenlimit."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le document d’entrée dépasse la limite de taille."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يتجاوز مستند الإدخال حد الحجم."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El documento de entrada supera el límite de tamaño."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "輸入文件超過大小限制。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "输入文档超过大小限制。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "입력 문서가 크기 제한을 초과합니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "入力文書がサイズ制限を超えています。"
+          }
+        }
+      }
+    },
+    "glaeda.cli.error.documentUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The input document is unavailable."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Das Eingabedokument ist nicht verfügbar."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le document d’entrée est indisponible."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مستند الإدخال غير متاح."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El documento de entrada no está disponible."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "輸入文件無法使用。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "输入文档不可用。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "입력 문서를 사용할 수 없습니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "入力文書を利用できません。"
+          }
+        }
+      }
+    },
+    "glaeda.cli.error.duplicateOption": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ may only be supplied once."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ darf nur einmal angegeben werden."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ ne peut être fourni qu’une seule fois."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يمكن توفير %@ مرة واحدة فقط."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ solo se puede proporcionar una vez."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 只能提供一次。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 只能提供一次。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@는 한 번만 지정할 수 있습니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ は 1 回だけ指定できます。"
+          }
+        }
+      }
+    },
+    "glaeda.cli.error.encodingFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The document could not be encoded."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Das Dokument konnte nicht codiert werden."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le document n’a pas pu être encodé."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذر ترميز المستند."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo codificar el documento."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法編碼文件。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法编码文档。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "문서를 인코딩할 수 없습니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "文書をエンコードできませんでした。"
+          }
+        }
+      }
+    },
+    "glaeda.cli.error.helpArguments": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This help command accepts no additional arguments."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieser Hilfebefehl akzeptiert keine zusätzlichen Argumente."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cette commande d’aide n’accepte aucun argument supplémentaire."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا يقبل أمر المساعدة هذا أي وسيطات إضافية."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este comando de ayuda no acepta argumentos adicionales."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此說明命令不接受其他引數。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此帮助命令不接受其他参数。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 도움말 명령은 추가 인수를 받지 않습니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このヘルプコマンドは追加の引数を受け付けません。"
+          }
+        }
+      }
+    },
+    "glaeda.cli.error.invalidJSON": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The input document is invalid JSON."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Das Eingabedokument enthält ungültiges JSON."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le document d’entrée contient un JSON invalide."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مستند الإدخال ليس JSON صالحًا."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El documento de entrada contiene JSON no válido."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "輸入文件不是有效的 JSON。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "输入文档不是有效的 JSON。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "입력 문서의 JSON이 올바르지 않습니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "入力文書の JSON が無効です。"
+          }
+        }
+      }
+    },
+    "glaeda.cli.error.invalidReceipt": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The execution receipt does not match this request."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Ausführungsbeleg passt nicht zu dieser Anfrage."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le reçu d’exécution ne correspond pas à cette demande."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا يتطابق إيصال التنفيذ مع هذا الطلب."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El recibo de ejecución no coincide con esta solicitud."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "執行收據與此要求不符。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "执行收据与此请求不匹配。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "실행 영수증이 이 요청과 일치하지 않습니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "実行レシートがこのリクエストと一致しません。"
+          }
+        }
+      }
+    },
+    "glaeda.cli.error.invalidRequest": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The execution request is invalid."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Ausführungsanfrage ist ungültig."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La demande d’exécution est invalide."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "طلب التنفيذ غير صالح."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La solicitud de ejecución no es válida."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "執行要求無效。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "执行请求无效。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "실행 요청이 올바르지 않습니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "実行リクエストが無効です。"
+          }
+        }
+      }
+    },
+    "glaeda.cli.error.invalidWorkloadDigest": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The workload receipt digest is invalid."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Digest des Workload-Belegs ist ungültig."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le condensat du reçu de charge est invalide."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "بصمة إيصال حمل العمل غير صالحة."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El hash del recibo de carga no es válido."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "工作負載收據摘要無效。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "工作负载收据摘要无效。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "워크로드 영수증 다이제스트가 올바르지 않습니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークロードレシートのダイジェストが無効です。"
+          }
+        }
+      }
+    },
+    "glaeda.cli.error.missingOption": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Missing required option: %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Erforderliche Option fehlt: %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Option requise manquante : %@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الخيار المطلوب مفقود: %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Falta la opción obligatoria: %@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "缺少必要選項：%@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "缺少必需选项：%@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "필수 옵션이 없습니다: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "必須オプションがありません: %@"
+          }
+        }
+      }
+    },
+    "glaeda.cli.error.noncanonicalJSON": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The input document must use canonical JSON."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Das Eingabedokument muss kanonisches JSON verwenden."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le document d’entrée doit utiliser un JSON canonique."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يجب أن يستخدم مستند الإدخال JSON أساسيًا."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El documento de entrada debe usar JSON canónico."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "輸入文件必須使用標準 JSON。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "输入文档必须使用规范 JSON。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "입력 문서는 표준 JSON을 사용해야 합니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "入力文書は正規 JSON を使用する必要があります。"
+          }
+        }
+      }
+    },
+    "glaeda.cli.error.objectRequired": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The input document must be a JSON object."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Das Eingabedokument muss ein JSON-Objekt sein."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le document d’entrée doit être un objet JSON."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يجب أن يكون مستند الإدخال كائن JSON."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El documento de entrada debe ser un objeto JSON."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "輸入文件必須是 JSON 物件。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "输入文档必须是 JSON 对象。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "입력 문서는 JSON 객체여야 합니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "入力文書は JSON オブジェクトである必要があります。"
+          }
+        }
+      }
+    },
+    "glaeda.cli.error.optionValueRequired": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ requires a value."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ benötigt einen Wert."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ nécessite une valeur."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يتطلب %@ قيمة."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ requiere un valor."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 需要值。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 需要值。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@에 값이 필요합니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ には値が必要です。"
+          }
+        }
+      }
+    },
+    "glaeda.cli.error.regularFileRequired": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The input document must be a regular file."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Das Eingabedokument muss eine reguläre Datei sein."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le document d’entrée doit être un fichier ordinaire."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يجب أن يكون مستند الإدخال ملفًا عاديًا."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El documento de entrada debe ser un archivo normal."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "輸入文件必須是一般檔案。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "输入文档必须是普通文件。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "입력 문서는 일반 파일이어야 합니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "入力文書は通常ファイルである必要があります。"
+          }
+        }
+      }
+    },
+    "glaeda.cli.error.requestDigestMismatch": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The execution receipt request digest does not match."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Anfrage-Digest im Ausführungsbeleg stimmt nicht überein."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le condensat de demande du reçu d’exécution ne correspond pas."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا تتطابق بصمة الطلب في إيصال التنفيذ."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El hash de solicitud del recibo de ejecución no coincide."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "執行收據的要求摘要不符。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "执行收据的请求摘要不匹配。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "실행 영수증의 요청 다이제스트가 일치하지 않습니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "実行レシートのリクエストダイジェストが一致しません。"
+          }
+        }
+      }
+    },
+    "glaeda.cli.error.terminalEvidenceMissing": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The terminal result is missing workload evidence."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Im terminalen Ergebnis fehlt der Workload-Nachweis."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le résultat terminal ne contient pas la preuve de charge."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تفتقد النتيجة النهائية دليل حمل العمل."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Al resultado terminal le falta la evidencia de carga."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "終止結果缺少工作負載證據。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "终止结果缺少工作负载证据。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "종료 결과에 워크로드 증거가 없습니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "終了結果にワークロード証拠がありません。"
+          }
+        }
+      }
+    },
+    "glaeda.cli.error.unknownOption": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unknown option: %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unbekannte Option: %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Option inconnue : %@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "خيار غير معروف: %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opción desconocida: %@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未知選項：%@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未知选项：%@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "알 수 없는 옵션: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "不明なオプション: %@"
+          }
+        }
+      }
+    },
+    "glaeda.cli.error.unknownSubcommand": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unknown execution subcommand: %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unbekannter Ausführungs-Unterbefehl: %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sous-commande d’exécution inconnue : %@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أمر تنفيذ فرعي غير معروف: %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Subcomando de ejecución desconocido: %@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未知的執行子命令：%@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未知的执行子命令：%@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "알 수 없는 실행 하위 명령: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "不明な実行サブコマンド: %@"
+          }
+        }
+      }
+    },
+    "glaeda.cli.taskHelp": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "glaeda <request|observe> [options]"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "glaeda <request|observe> [Optionen]"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "glaeda <request|observe> [paramètres]"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "glaeda <request|observe> [خيارات]"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "glaeda <request|observe> [opciones]"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "glaeda <request|observe> [選項]"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "glaeda <request|observe> [选项]"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "glaeda <request|observe> [옵션]"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "glaeda <request|observe> [オプション]"
+          }
+        }
+      }
+    },
+    "glaeda.cli.usage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage: cmux glaeda <request|observe> [options]\n\nExchange one semantic execution request with the execution service.\n\nSubcommands:\n  request\n    --request-ref <ref>        CMUX caller correlation reference\n    --work-ref <ref>           CMUX work correlation reference\n    --repository <owner/repo>  Canonical Git repository identity\n    --commit <40-hex>          Exact Git commit\n    --tree <40-hex>            Exact Git tree\n    [--reuse <prefer_valid_reuse|no_preference>]\n\n    Emits canonical execution-request JSON to stdout.\n    CMUX workspace, machine, shell command, and environment stay outside this request.\n\n  observe\n    --request <path>           Exact request document previously emitted\n    --receipt <path|->         Bounded execution receipt, or - for stdin\n\n    Validates request/result correlation and emits a bounded CMUX observation.\n    Terminal states require a workload-receipt digest.\n\nExamples:\n  cmux glaeda request --request-ref cmux:exec:42 --work-ref cmux:work:42 \\\n    --repository owner/repo --commit <commit> --tree <tree>\n  cmux glaeda observe --request request.json --receipt result.json"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verwendung: cmux glaeda <request|observe> [Optionen]\n\nTauscht eine semantische Ausführungsanfrage mit dem Ausführungsdienst aus.\n\nUnterbefehle:\n  request\n    --request-ref <ref>        CMUX-Korrelationsreferenz der Anfrage\n    --work-ref <ref>           CMUX-Korrelationsreferenz der Arbeit\n    --repository <owner/repo>  Kanonische Git-Repository-Identität\n    --commit <40-hex>          Exakter Git-Commit\n    --tree <40-hex>            Exakter Git-Tree\n    [--reuse <prefer_valid_reuse|no_preference>]\n\n    Gibt kanonisches Ausführungsanfrage-JSON auf stdout aus.\n    CMUX-Arbeitsbereich, Maschine, Shell-Befehl und Umgebung bleiben außerhalb dieser Anfrage.\n\n  observe\n    --request <pfad>           Zuvor ausgegebenes exaktes Anfragedokument\n    --receipt <pfad|->         Begrenzter Ausführungsbeleg oder - für stdin\n\n    Prüft die Korrelation von Anfrage und Ergebnis und gibt eine begrenzte CMUX-Beobachtung aus.\n    Terminale Zustände benötigen einen Workload-Beleg-Digest.\n\nBeispiele:\n  cmux glaeda request --request-ref cmux:exec:42 --work-ref cmux:work:42 \\\n    --repository owner/repo --commit <commit> --tree <tree>\n  cmux glaeda observe --request request.json --receipt result.json"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Utilisation : cmux glaeda <request|observe> [options]\n\nÉchange une demande d’exécution sémantique avec le service d’exécution.\n\nSous-commandes :\n  request\n    --request-ref <ref>        Référence de corrélation CMUX de la demande\n    --work-ref <ref>           Référence de corrélation CMUX du travail\n    --repository <owner/repo>  Identité canonique du dépôt Git\n    --commit <40-hex>          Commit Git exact\n    --tree <40-hex>            Arbre Git exact\n    [--reuse <prefer_valid_reuse|no_preference>]\n\n    Émet le JSON canonique de demande d’exécution sur stdout.\n    L’espace de travail CMUX, la machine, la commande shell et l’environnement restent hors de cette demande.\n\n  observe\n    --request <chemin>         Document exact de demande émis auparavant\n    --receipt <chemin|->       Reçu d’exécution borné, ou - pour stdin\n\n    Valide la corrélation demande/résultat et émet une observation CMUX bornée.\n    Les états terminaux exigent un condensat de reçu de charge.\n\nExemples :\n  cmux glaeda request --request-ref cmux:exec:42 --work-ref cmux:work:42 \\\n    --repository owner/repo --commit <commit> --tree <tree>\n  cmux glaeda observe --request request.json --receipt result.json"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الاستخدام: cmux glaeda <request|observe> [خيارات]\n\nيتبادل طلب تنفيذ دلالي واحد مع خدمة التنفيذ.\n\nالأوامر الفرعية:\n  request\n    --request-ref <ref>        مرجع ربط الطلب في CMUX\n    --work-ref <ref>           مرجع ربط العمل في CMUX\n    --repository <owner/repo>  هوية مستودع Git الأساسية\n    --commit <40-hex>          معرّف Git commit الدقيق\n    --tree <40-hex>            معرّف Git tree الدقيق\n    [--reuse <prefer_valid_reuse|no_preference>]\n\n    يطبع JSON أساسيًا لطلب التنفيذ إلى stdout.\n    تبقى مساحة عمل CMUX والجهاز وأمر shell والبيئة خارج هذا الطلب.\n\n  observe\n    --request <path>           مستند الطلب الدقيق الذي تم إنشاؤه سابقًا\n    --receipt <path|->         إيصال تنفيذ محدود، أو - لـ stdin\n\n    يتحقق من ربط الطلب بالنتيجة ويطبع ملاحظة CMUX محدودة.\n    تتطلب الحالات النهائية بصمة إيصال حمل العمل.\n\nأمثلة:\n  cmux glaeda request --request-ref cmux:exec:42 --work-ref cmux:work:42 \\\n    --repository owner/repo --commit <commit> --tree <tree>\n  cmux glaeda observe --request request.json --receipt result.json"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uso: cmux glaeda <request|observe> [opciones]\n\nIntercambia una solicitud de ejecución semántica con el servicio de ejecución.\n\nSubcomandos:\n  request\n    --request-ref <ref>        Referencia de correlación de solicitud de CMUX\n    --work-ref <ref>           Referencia de correlación de trabajo de CMUX\n    --repository <owner/repo>  Identidad canónica del repositorio Git\n    --commit <40-hex>          Commit Git exacto\n    --tree <40-hex>            Árbol Git exacto\n    [--reuse <prefer_valid_reuse|no_preference>]\n\n    Emite JSON canónico de solicitud de ejecución por stdout.\n    El espacio de trabajo de CMUX, la máquina, el comando shell y el entorno quedan fuera de esta solicitud.\n\n  observe\n    --request <ruta>           Documento exacto de solicitud emitido antes\n    --receipt <ruta|->         Recibo de ejecución acotado, o - para stdin\n\n    Valida la correlación solicitud/resultado y emite una observación acotada de CMUX.\n    Los estados terminales requieren un hash de recibo de carga.\n\nEjemplos:\n  cmux glaeda request --request-ref cmux:exec:42 --work-ref cmux:work:42 \\\n    --repository owner/repo --commit <commit> --tree <tree>\n  cmux glaeda observe --request request.json --receipt result.json"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用法：cmux glaeda <request|observe> [選項]\n\n與執行服務交換一個語意執行要求。\n\n子命令：\n  request\n    --request-ref <ref>        CMUX 要求關聯參照\n    --work-ref <ref>           CMUX 工作關聯參照\n    --repository <owner/repo>  標準 Git 儲存庫識別\n    --commit <40-hex>          精確 Git commit\n    --tree <40-hex>            精確 Git tree\n    [--reuse <prefer_valid_reuse|no_preference>]\n\n    將標準執行要求 JSON 輸出到 stdout。\n    CMUX 工作區、機器、shell 命令與環境不會進入此要求。\n\n  observe\n    --request <path>           先前輸出的精確要求文件\n    --receipt <path|->         有界執行收據，或以 - 讀取 stdin\n\n    驗證要求與結果的關聯，並輸出有界 CMUX 觀察。\n    終止狀態需要工作負載收據摘要。\n\n範例：\n  cmux glaeda request --request-ref cmux:exec:42 --work-ref cmux:work:42 \\\n    --repository owner/repo --commit <commit> --tree <tree>\n  cmux glaeda observe --request request.json --receipt result.json"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用法：cmux glaeda <request|observe> [选项]\n\n与执行服务交换一个语义执行请求。\n\n子命令：\n  request\n    --request-ref <ref>        CMUX 请求关联引用\n    --work-ref <ref>           CMUX 工作关联引用\n    --repository <owner/repo>  规范 Git 仓库标识\n    --commit <40-hex>          精确 Git commit\n    --tree <40-hex>            精确 Git tree\n    [--reuse <prefer_valid_reuse|no_preference>]\n\n    将规范执行请求 JSON 输出到 stdout。\n    CMUX 工作区、机器、shell 命令和环境不会进入此请求。\n\n  observe\n    --request <path>           先前输出的精确请求文档\n    --receipt <path|->         有界执行收据，或用 - 读取 stdin\n\n    验证请求与结果的关联，并输出有界 CMUX 观察。\n    终止状态需要工作负载收据摘要。\n\n示例：\n  cmux glaeda request --request-ref cmux:exec:42 --work-ref cmux:work:42 \\\n    --repository owner/repo --commit <commit> --tree <tree>\n  cmux glaeda observe --request request.json --receipt result.json"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사용법: cmux glaeda <request|observe> [옵션]\n\n실행 서비스와 하나의 의미 기반 실행 요청을 교환합니다.\n\n하위 명령:\n  request\n    --request-ref <ref>        CMUX 요청 상관 참조\n    --work-ref <ref>           CMUX 작업 상관 참조\n    --repository <owner/repo>  표준 Git 저장소 식별자\n    --commit <40-hex>          정확한 Git commit\n    --tree <40-hex>            정확한 Git tree\n    [--reuse <prefer_valid_reuse|no_preference>]\n\n    표준 실행 요청 JSON을 stdout으로 출력합니다.\n    CMUX 작업 공간, 머신, shell 명령, 환경은 이 요청에 포함되지 않습니다.\n\n  observe\n    --request <path>           이전에 출력한 정확한 요청 문서\n    --receipt <path|->         제한된 실행 영수증 또는 stdin용 -\n\n    요청/결과 상관관계를 검증하고 제한된 CMUX 관찰을 출력합니다.\n    종료 상태에는 워크로드 영수증 다이제스트가 필요합니다.\n\n예:\n  cmux glaeda request --request-ref cmux:exec:42 --work-ref cmux:work:42 \\\n    --repository owner/repo --commit <commit> --tree <tree>\n  cmux glaeda observe --request request.json --receipt result.json"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用法: cmux glaeda <request|observe> [オプション]\n\n実行サービスと 1 件の意味的な実行リクエストを交換します。\n\nサブコマンド:\n  request\n    --request-ref <ref>        CMUX リクエスト相関参照\n    --work-ref <ref>           CMUX 作業相関参照\n    --repository <owner/repo>  正規 Git リポジトリ識別子\n    --commit <40-hex>          正確な Git commit\n    --tree <40-hex>            正確な Git tree\n    [--reuse <prefer_valid_reuse|no_preference>]\n\n    正規実行リクエスト JSON を stdout に出力します。\n    CMUX ワークスペース、マシン、shell コマンド、環境はこのリクエストに含めません。\n\n  observe\n    --request <path>           以前出力した正確なリクエスト文書\n    --receipt <path|->         制限付き実行レシート、または stdin 用の -\n\n    リクエストと結果の相関を検証し、制限付き CMUX 観察を出力します。\n    終了状態にはワークロードレシートのダイジェストが必要です。\n\n例:\n  cmux glaeda request --request-ref cmux:exec:42 --work-ref cmux:work:42 \\\n    --repository owner/repo --commit <commit> --tree <tree>\n  cmux glaeda observe --request request.json --receipt result.json"
+          }
+        }
+      }
+    },
+    "paneSwap.swapWithSession": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Swap With Session…"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mit Sitzung tauschen …"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Permuter avec la session…"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تبديل مع جلسة…"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Intercambiar con sesión…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "與工作階段交換…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "与会话交换…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "세션과 바꾸기…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "セッションと入れ替える…"
+          }
+        }
+      }
+    },
+    "paneSwap.terminalPane": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal Pane"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminalbereich"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Volet de terminal"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لوحة طرفية"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Panel de terminal"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "終端機窗格"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "终端窗格"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "터미널 창"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナルペイン"
+          }
+        }
+      }
+    },
+    "paneSwap.source": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Source"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quelle"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Origine"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "المصدر"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Origen"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "來源"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "来源"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "원본"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "移動元"
+          }
+        }
+      }
+    },
+    "paneSwap.swapHere": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Swap Here"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hier tauschen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Permuter ici"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "التبديل هنا"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Intercambiar aquí"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在此交換"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在此交换"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "여기와 바꾸기"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ここで入れ替え"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
