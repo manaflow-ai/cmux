@@ -594,6 +594,10 @@ jobs:
         if: ${{ matrix.group == 'release-notary' }}
         run: ./tests/test_ci_nightly_tag_push_auth.sh
 
+      - name: Validate nightly tag push retries
+        if: ${{ matrix.group == 'release-notary' }}
+        run: python3 tests/test_nightly_tag_push.py
+
       - name: Validate nightly Xcode selection
         if: ${{ matrix.group == 'release-notary' }}
         run: ./tests/test_ci_nightly_xcode_selection.sh

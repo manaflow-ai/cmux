@@ -19,12 +19,12 @@ class NightlyTagPushTests(unittest.TestCase):
             directory = Path(tmp)
             git = directory / 'git'
             git.write_text('''#!/bin/bash
+printf '%s\\n' "$@" >> "$ARGS"
 if [ "$1" != push ]; then exit 0; fi
 count=0
 [ ! -f "$STATE" ] || count=$(cat "$STATE")
 count=$((count + 1))
 echo "$count" > "$STATE"
-printf '%s\\n' "$@" >> "$ARGS"
 if [ "$count" -le "$FAILURES" ]; then
   echo 'Unable to determine if workflow can be created or updated due to timeout' >&2
   exit 1
@@ -48,6 +48,7 @@ fi
         self.assertEqual(count, 1)
         self.assertEqual(pauses, [])
         self.assertIn('refs/tags/nightly\n--force\n', args)
+        self.assertIn('tag\n-f\nnightly\n' + 'a' * 40 + '\n', args)
 
     def test_timeout_recovers(self):
         result, count, pauses, _ = self.run_step(2)
