@@ -81,6 +81,7 @@ extension WorkstreamEvent {
     var submittedPromptLength: Int? {
         guard hookEventName == .userPromptSubmit else { return nil }
         if let candidate = Self.messageLength(fromJSON: toolInputJSON) { return candidate.length }
+        if Self.messageText(fromJSON: toolInputJSON, keys: Self.promptMessageKeys) != nil { return nil }
         // A context-only message has no original-size evidence. Do not borrow
         // a different message's count from the lower-priority extra fields.
         if context?.lastUserMessage.flatMap(Self.normalizedPromptText) != nil { return nil }

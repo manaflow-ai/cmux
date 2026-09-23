@@ -126,6 +126,8 @@ push('legacy', {'tool_input': {'prompt': 'PRIVATE_PROMPT_legacy'}}, None)
 push('no-prompt', {}, None)
 push('length-only', {'prompt_length': 18635}, 18635)
 push('max-length', {'prompt_length': 1048576}, 1048576)
+push('scalar-precedence', {'tool_input': 'PRIVATE_PROMPT_scalar', 'prompt_length': 999}, None)
+push('context-precedence', {'context': {'lastUserMessage': 'PRIVATE_CONTEXT_original'}, 'prompt_length': 999}, None)
 push('precedence', {'tool_input': {'prompt': 'PRIVATE_PROMPT_first'}, 'prompt_length': 999}, None)
 push('tool', {'tool_input': {'command': 'PRIVATE_TOOL_echo', 'prompt_length': 18635}}, None, 'PreToolUse')
 
