@@ -1153,21 +1153,32 @@ def test_command_like_invocations_bypass_hook_injection(failures: list[str]) -> 
     expect("--session-id" not in real_argv, f"agents after global option passthrough: expected no --session-id injection, got {real_argv}", failures)
 
 
-def test_hidden_attach_subcommand_bypasses_hook_injection(failures: list[str]) -> None:
-    # `claude attach <id>` is a real subcommand (the attach door for `--bg`
-    # background sessions) but is hidden from `claude --help`, so it's easy to
-    # miss when refreshing the builtin-command list. Injecting
-    # --session-id/--settings ahead of it makes the CLI treat "attach" as the
-    # [prompt] positional and mint a fresh session instead of attaching.
-    code, real_argv, _, stderr, _, node_options, _, _, _, _ = run_wrapper(
-        socket_state="live",
-        argv=["attach", "abc12345"],
+def test_new_claude_subcommands_bypass_hook_injection(failures: list[str]) -> None:
+    # These commands are real Claude subcommands, including lifecycle commands
+    # that are hidden from `claude --help`. Injecting --session-id/--settings
+    # ahead of them makes the CLI treat the command as prompt text instead of
+    # dispatching the requested subcommand.
+    subcommand_argvs = (
+        ["attach", "abc12345"],
+        ["logs", "abc12345"],
+        ["stop", "abc12345"],
+        ["kill", "abc12345"],
+        ["rm", "abc12345"],
+        ["respawn", "abc12345"],
+        ["gateway"],
+        ["import"],
     )
-    expect(code == 0, f"attach passthrough: wrapper exited {code}: {stderr}", failures)
-    expect(real_argv == ["attach", "abc12345"], f"attach passthrough: expected raw argv, got {real_argv}", failures)
-    expect("--settings" not in real_argv, f"attach passthrough: expected no --settings injection, got {real_argv}", failures)
-    expect("--session-id" not in real_argv, f"attach passthrough: expected no --session-id injection, got {real_argv}", failures)
-    expect(node_options == "__UNSET__", f"attach passthrough: expected no NODE_OPTIONS injection, got {node_options!r}", failures)
+    for argv in subcommand_argvs:
+        label = " ".join(argv)
+        code, real_argv, _, stderr, _, node_options, _, _, _, _ = run_wrapper(
+            socket_state="live",
+            argv=argv,
+        )
+        expect(code == 0, f"{label} passthrough: wrapper exited {code}: {stderr}", failures)
+        expect(real_argv == argv, f"{label} passthrough: expected raw argv, got {real_argv}", failures)
+        expect("--settings" not in real_argv, f"{label} passthrough: expected no --settings injection, got {real_argv}", failures)
+        expect("--session-id" not in real_argv, f"{label} passthrough: expected no --session-id injection, got {real_argv}", failures)
+        expect(node_options == "__UNSET__", f"{label} passthrough: expected no NODE_OPTIONS injection, got {node_options!r}", failures)
 
 
 def test_passthrough_flags_bypass_hook_injection(failures: list[str]) -> None:
@@ -2737,7 +2748,7 @@ def main() -> int:
     test_large_settings_file_is_merged_without_argv_growth(failures)
     test_plain_claude_launch_argv_has_no_empty_argument(failures)
     test_command_like_invocations_bypass_hook_injection(failures)
-    test_hidden_attach_subcommand_bypasses_hook_injection(failures)
+    test_new_claude_subcommands_bypass_hook_injection(failures)
     test_passthrough_flags_bypass_hook_injection(failures)
     test_live_socket_attaches_cmux_cua_when_available(failures)
     test_computer_use_wrapper_is_a_pure_proxy(failures)
