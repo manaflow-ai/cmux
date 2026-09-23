@@ -84,6 +84,9 @@ extension TerminalSurface {
     }
 
     /// Sends paste-style text to the surface, queueing on a cold surface.
+    ///
+    /// - Parameter text: Literal UTF-8 text to paste.
+    /// - Returns: Whether the text was delivered or queued.
     @MainActor
     @discardableResult
     public func sendText(_ text: String) -> Bool {
@@ -91,6 +94,10 @@ extension TerminalSurface {
     }
 
     /// Sends paste-style text and reports whether it was delivered or queued.
+    ///
+    /// Delivery means handed to the live terminal runtime, not consumed by its child process.
+    /// - Parameter text: Literal UTF-8 text to paste. Empty text succeeds without a write.
+    /// - Returns: The immediate delivery, queueing, or rejection outcome.
     @MainActor
     @discardableResult
     public func sendTextResult(_ text: String) -> TextSendResult {
