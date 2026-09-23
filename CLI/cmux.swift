@@ -1560,7 +1560,10 @@ final class ClaudeHookSessionStore {
                 transcriptPath: transcriptPath,
                 pid: pid,
                 launchCommand: launchCommand,
-                isRestorable: false,
+                // A resumed Claude process is already back at its prompt: no
+                // turn is active yet, so its persisted session can safely be
+                // reclaimed by Agent Hibernation immediately after restore.
+                isRestorable: normalizedSource == "resume",
                 agentLifecycle: .idle,
                 hookEventName: hookEventName,
                 lastSubtitle: nil,
