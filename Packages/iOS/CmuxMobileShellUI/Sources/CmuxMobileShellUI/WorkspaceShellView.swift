@@ -979,7 +979,8 @@ struct WorkspaceShellView: View {
                     // Notifications has no WorkspaceListView toolbar, so the
                     // sidebar owns its trailing control directly in this path.
                     WorkspaceSidebarToggleButton(
-                        action: toggleSplitSidebar
+                        action: toggleSplitSidebar,
+                        usesSystemToolbarChrome: true
                     )
                 }
             }

@@ -60,6 +60,13 @@ import Testing
         canReconnect: Bool = false
     ) -> WorkspaceTitleMenuValue {
         WorkspaceTitleMenuValue(
+            contentWidth: 390,
+            hasBackButton: true,
+            hasTrailingCluster: true,
+            measuredTrailingItemsWidth: 0,
+            measuredTrailingItemCount: 0,
+            trailingItemCount: 0,
+            hadTrailingCollapse: false,
             isEnabled: true,
             workspaceName: "Workspace",
             hasUnread: false,

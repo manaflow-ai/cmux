@@ -47,8 +47,8 @@ struct WorkspaceDetailView: View {
     let safeAreaContext: MobileTerminalSafeAreaContext
     let backButtonConfiguration: WorkspaceBackButtonConfiguration?
     let signOut: (@MainActor @Sendable () -> Void)?
-    /// Regular-width split owner action. Compact layouts leave this nil, so
-    /// the native detail bar omits the sidebar toggle.
+    /// Regular-width split owner action. Compact navigation leaves this nil
+    /// and continues to use its existing back-button/system-toolbar path.
     var toggleSidebar: (() -> Void)? = nil
     /// The regular-width split owner shows this action in the detail bar only
     /// while the sidebar column is hidden. When visible, the sidebar toolbar
@@ -61,6 +61,9 @@ struct WorkspaceDetailView: View {
     @Environment(ToastCenter.self) private var toasts
     @Environment(\.mobileChildPresentationProvider) private var childPresentationProvider
     @Environment(\.terminalFilesChipEnabled) var isTerminalFilesChipEnabled
+#if os(iOS)
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+#endif
     /// Drives the destructive close-workspace confirmation dialog.
     @State var isConfirmingClose = false
     #if canImport(UIKit)
@@ -83,6 +86,8 @@ struct WorkspaceDetailView: View {
     @State var renameText = ""
     /// Drives the shared workspace identity editor from the title menu.
     @State var isCustomizationPresented = false
+    /// Live pane width for capping the leading glass title pill.
+    @State private var contentWidth: CGFloat = 0
     /// Top safe-area inset captured just OUTSIDE the terminal leaf's
     /// top-edge safe-area expansion. Once the leaf underlaps the bar its
     /// UIKit `safeAreaInsets.top` reads 0, so the surface's scroll-edge band
@@ -102,6 +107,24 @@ struct WorkspaceDetailView: View {
             .filter { $0 > 0 }
             .min() ?? 0
     }
+    // Rendered content width per trailing toolbar item, keyed by item. The
+    // title's width cap subtracts the structurally visible items' widths so
+    // they always fit and iOS never folds them into the overflow More menu
+    // (no per-item priority exists below iOS 27). Only structural removal
+    // deletes an entry (see the onChange handlers); a layout-driven
+    // disappearance (overflow into More) cannot release a reservation and
+    // make the collapse sticky.
+    @State private var trailingToolbarItemWidths: [String: CGFloat] = [:]
+    /// Ratchets on when the trailing cluster's content leaves the bar while
+    /// the screen's own content is still on a window: the system folded it
+    /// into the More menu, so the estimate reserves undershot this device's
+    /// chrome. Never cleared for this view's lifetime; the extra recovery
+    /// reserve un-collapses the bar.
+    @State private var trailingToolbarCollapseDetected = false
+    /// Live window-attachment flags shared with the UIKit probes; reference
+    /// identity keeps event-time reads current where SwiftUI captures of
+    /// value state would be stale.
+    @State private var barPresence = WorkspaceBarPresence()
     /// Terminal captured for the current "View as Text" sheet presentation.
     @State private var textSheetSurfaceID: String?
     /// Identity of the in-flight New Browser creation. A late RPC result must
@@ -198,6 +221,7 @@ struct WorkspaceDetailView: View {
 
         #if os(iOS)
         let navigationContent = content
+            .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { contentWidth = $0 }
             .navigationTitle(systemNavigationTitle)
             // With the scroll-edge band active (iOS 26, terminal surface),
             // the bar stays system glass and the terminal's overscan rows
@@ -211,6 +235,11 @@ struct WorkspaceDetailView: View {
             // plain view background only covers the content bounds, leaving
             // the split view's top safe area on the default system color.
             .mobileNavigationContainerBackground(store.activeTerminalTheme.terminalBackgroundColor)
+            // The browser and chat surfaces scroll; without this the system
+            // minimizes the whole bar into a floating "…" pill, unlike the
+            // terminal surface, which has no system scroll view.
+            .mobilePinnedNavigationBar()
+            .trackBarPresence(barPresence)
 
         detailNavigationChrome(navigationContent)
             .task(id: workspace.rpcWorkspaceID.rawValue) {
@@ -228,6 +257,17 @@ struct WorkspaceDetailView: View {
             .onChange(of: workspace.simulators) { _, _ in
                 syncSimulatorStreamPanels()
                 store.refreshWorkspaceSelection()
+            }
+            // Structural removal drops the item's retained measurement so a
+            // returning item takes the fail-safe unmeasured reserve instead of
+            // a stale width for its first layout pass. Layout-driven
+            // disappearance (overflow into More) never flips these conditions,
+            // so it cannot release a reservation and make the collapse sticky.
+            .onChange(of: workspaceChangesAreAvailable) { _, isAvailable in
+                if !isAvailable { trailingToolbarItemWidths["changes"] = nil }
+            }
+            .onChange(of: altScreenNoticeIsVisible) { _, isVisible in
+                if !isVisible { trailingToolbarItemWidths["altscreen-notice"] = nil }
             }
             .onAppear {
                 #if os(iOS) && DEBUG
@@ -305,15 +345,24 @@ struct WorkspaceDetailView: View {
     }
 
 #if os(iOS)
-    /// UIKit owns the detail bar's title and fixed controls. The surrounding
-    /// NavigationStack still owns routing and interactive back navigation.
+    /// The regular-width detail column uses a SwiftUI-owned bar. A system
+    /// navigation toolbar is allowed to recompute its item placement when the
+    /// split sidebar changes width, which briefly removes and re-inserts the
+    /// terminal picker. Owning this row keeps the trailing controls attached to
+    /// the detail column throughout that transition. Compact iPhone navigation
+    /// retains the existing system toolbar unchanged.
     @ViewBuilder
     private func detailNavigationChrome<Content: View>(_ content: Content) -> some View {
-        content
-            .toolbar(.hidden, for: .navigationBar)
-            .safeAreaInset(edge: .top, spacing: 0) {
-                workspaceNavigationBar
-            }
+        if horizontalSizeClass == .regular {
+            content
+                .toolbar(.hidden, for: .navigationBar)
+                .safeAreaInset(edge: .top, spacing: 0) {
+                    workspaceOwnedTopBar
+                }
+        } else {
+            content
+                .toolbar { workspaceDetailToolbar }
+        }
     }
 #endif
 
@@ -349,8 +398,134 @@ struct WorkspaceDetailView: View {
             && displaySettings.showAltScreenNotice
     }
 
-    /// Builds the title menu for the native detail bar.
-    func workspaceTitleMenu() -> some View {
+    @ToolbarContentBuilder
+    private var workspaceDetailToolbar: some ToolbarContent {
+        if backButtonConfiguration != nil {
+            ToolbarItem(id: "workspace-back", placement: .topBarLeading) {
+                workspaceBackToolbarButton
+            }
+            if #available(iOS 26.0, *) {
+                ToolbarSpacer(.fixed, placement: .topBarLeading)
+            }
+        }
+        ToolbarItem(id: "workspace-title", placement: .topBarLeading) {
+            workspaceTitleToolbarMenu
+        }
+        // iOS 27's visibilityPriority(.high) natively keeps the trailing items
+        // out of the overflow More menu. The symbols are absent from SDK 26.x,
+        // so the branch is compiler-gated until an Xcode 27 toolchain builds
+        // this target; the measured title cap below stays the sizing mechanism
+        // on every OS (the native priority only decides who overflows, it does
+        // not grant the title the remaining space).
+        #if compiler(>=6.4)
+        if #available(iOS 27.0, *) {
+            highPriorityTrailingToolbarItems
+        } else {
+            trailingToolbarItems
+        }
+        #else
+        trailingToolbarItems
+        #endif
+    }
+
+    @ToolbarContentBuilder
+    private var trailingToolbarItems: some ToolbarContent {
+        if altScreenNoticeIsVisible {
+            ToolbarItem(id: "workspace-altscreen-notice", placement: .topBarTrailing) {
+                altScreenNoticeToolbarContent
+            }
+        }
+        if workspaceChangesAreAvailable {
+            ToolbarItem(id: "workspace-changes", placement: .topBarTrailing) {
+                workspaceChangesToolbarContent
+            }
+        }
+        ToolbarItem(id: "workspace-trailing", placement: .topBarTrailing) {
+            trailingClusterToolbarContent
+        }
+    }
+
+    #if compiler(>=6.4)
+    @available(iOS 27.0, *)
+    @ToolbarContentBuilder
+    private var highPriorityTrailingToolbarItems: some ToolbarContent {
+        if altScreenNoticeIsVisible {
+            ToolbarItem(id: "workspace-altscreen-notice", placement: .topBarTrailing) {
+                altScreenNoticeToolbarContent
+            }
+            .visibilityPriority(.high)
+        }
+        if workspaceChangesAreAvailable {
+            ToolbarItem(id: "workspace-changes", placement: .topBarTrailing) {
+                workspaceChangesToolbarContent
+            }
+            .visibilityPriority(.high)
+        }
+        ToolbarItem(id: "workspace-trailing", placement: .topBarTrailing) {
+            trailingClusterToolbarContent
+        }
+        .visibilityPriority(.high)
+    }
+    #endif
+
+    private var altScreenNoticeToolbarContent: some View {
+        AltScreenNoticeButton {
+            displaySettings.showAltScreenNotice = false
+        }
+        .measureTrailingToolbarItem("altscreen-notice", into: $trailingToolbarItemWidths)
+    }
+
+    private var workspaceChangesToolbarContent: some View {
+        WorkspaceChangesToolbarButton(
+            chip: workspaceChangesChip,
+            workspaceID: workspace.rpcWorkspaceID.rawValue,
+            action: openWorkspaceChanges
+        )
+        // The chrome sits on the terminal theme's background, not the
+        // system scheme; resolve the counts' green/red for that.
+        .environment(\.colorScheme, store.activeTerminalTheme.terminalColorScheme)
+        .measureTrailingToolbarItem("changes", into: $trailingToolbarItemWidths)
+    }
+
+    private var trailingClusterToolbarContent: some View {
+        terminalPickerToolbarButton
+            .frame(width: 44, height: 44)
+            // Only the always-structural cluster wires collapse detection: a
+            // conditional item's structural removal also detaches its probe
+            // and would be indistinguishable from a More-menu collapse.
+            .measureTrailingToolbarItem(
+                "trailing-cluster",
+                into: $trailingToolbarItemWidths,
+                onLeaveBar: {
+                    // A deeper push or a pop detaches the whole screen, this
+                    // content view included, before the bar items animate
+                    // out; only a cluster detach while the content is still
+                    // on a window is the More-menu collapse.
+                    if barPresence.detailContentAttached {
+                        trailingToolbarCollapseDetected = true
+                    }
+                }
+            )
+    }
+
+    // Which trailing toolbar items are structurally in the bar right now.
+    // Must mirror the conditions in trailingToolbarItems.
+    private var structuralTrailingItemKeys: [String] {
+        var keys = ["trailing-cluster"]
+        if altScreenNoticeIsVisible { keys.append("altscreen-notice") }
+        if workspaceChangesAreAvailable { keys.append("changes") }
+        return keys
+    }
+
+    private var workspaceTitleToolbarMenu: some View {
+        workspaceTitleMenu(usesNaturalWidth: false)
+    }
+
+    /// Builds the shared title menu for either the system toolbar or the
+    /// regular-width owned iPad bar. The latter lays out its fixed trailing
+    /// cluster itself, so it must not use the system-toolbar width cap.
+    func workspaceTitleMenu(usesNaturalWidth: Bool = false) -> some View {
+        let measuredWidths = structuralTrailingItemKeys.compactMap { trailingToolbarItemWidths[$0] }
         // Reconnect lives in the title menu now that no pill covers the
         // terminal; reauthentication keeps its own blocking banner.
         let canReconnect = Self.canReconnectFromTitleMenu(
@@ -358,6 +533,13 @@ struct WorkspaceDetailView: View {
             connectionRequiresReauth: store.connectionRequiresReauth
         )
         let value = WorkspaceTitleMenuValue(
+            contentWidth: contentWidth,
+            hasBackButton: backButtonConfiguration != nil,
+            hasTrailingCluster: true,
+            measuredTrailingItemsWidth: measuredWidths.reduce(0, +),
+            measuredTrailingItemCount: measuredWidths.count,
+            trailingItemCount: structuralTrailingItemKeys.count,
+            hadTrailingCollapse: trailingToolbarCollapseDetected,
             isEnabled: hasTitleMenuActions || canReconnect,
             workspaceName: workspace.name,
             hasUnread: workspace.hasUnread,
@@ -371,6 +553,7 @@ struct WorkspaceDetailView: View {
         )
         return WorkspaceTitleMenu(
             value: value,
+            usesNaturalWidth: usesNaturalWidth,
             menuContent: {
                 WorkspaceTitleMenuContent(
                     workspaceName: value.workspaceName,
