@@ -1,16 +1,6 @@
 import XCTest
 
 final class WorkspaceSSHFishShellTests: XCTestCase {
-    private struct ProcessRunResult { let status: Int32; let stderr: String; let timedOut: Bool }
-
-    /// Collects a pipe's bytes from a drain thread while the child still runs.
-    private final class CapturedOutput: @unchecked Sendable {
-        private let lock = NSLock(); private var data = Data()
-
-        func append(_ chunk: Data) { lock.lock(); data.append(chunk); lock.unlock() }
-        var value: Data { lock.lock(); defer { lock.unlock() }; return data }
-    }
-
     private final class MockSocketServerState: @unchecked Sendable {
         private let lock = NSLock(); private(set) var commands: [String] = []
 
@@ -91,7 +81,7 @@ final class WorkspaceSSHFishShellTests: XCTestCase {
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
         environment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
 
-        let result = runProcess(
+        let result = SSHFishProcessRunner.runProcess(
             executablePath: cliPath,
             arguments: [
                 "ssh",
@@ -237,7 +227,7 @@ final class WorkspaceSSHFishShellTests: XCTestCase {
         }
 
         let startupResults = (0..<2).map { _ in
-            runProcess(
+            SSHFishProcessRunner.runProcess(
                 executablePath: "/bin/sh",
                 // Execute the materialized script by path so the fixture does
                 // not re-parse a large reusable command through `sh -c`.
@@ -365,76 +355,6 @@ final class WorkspaceSSHFishShellTests: XCTestCase {
             domain: "WorkspaceSSHFishShellTests",
             code: 2,
             userInfo: [NSLocalizedDescriptionKey: "Generated startup command did not pin (systemSSHPath)"]
-        )
-    }
-
-    private func runProcess(
-        executablePath: String,
-        arguments: [String],
-        environment: [String: String],
-        timeout: TimeInterval
-    ) -> ProcessRunResult {
-        let process = Process()
-        let stdoutPipe = Pipe()
-        let stderrPipe = Pipe()
-        process.executableURL = URL(fileURLWithPath: executablePath)
-        process.arguments = arguments
-        process.environment = environment
-        process.standardInput = FileHandle.nullDevice
-        process.standardOutput = stdoutPipe
-        process.standardError = stderrPipe
-        let exitSignal = DispatchSemaphore(value: 0)
-        process.terminationHandler = { _ in exitSignal.signal() }
-
-        do {
-            try process.run()
-        } catch {
-            return ProcessRunResult(
-                status: -1,
-                stderr: String(describing: error),
-                timedOut: false
-            )
-        }
-
-        // Close our copies of the write ends: the child holds its own, and a
-        // writer left open here would keep the drains below from seeing EOF.
-        try? stdoutPipe.fileHandleForWriting.close()
-        try? stderrPipe.fileHandleForWriting.close()
-
-        // Drain both pipes while the child is still running. Reading only
-        // after exit deadlocks a child that writes more than the pipe buffer:
-        // it blocks on write while we block on its exit.
-        let capturedStderr = CapturedOutput()
-        let drains = DispatchGroup()
-        let stdoutHandle = stdoutPipe.fileHandleForReading
-        let stderrHandle = stderrPipe.fileHandleForReading
-        DispatchQueue.global(qos: .userInitiated).async(group: drains) {
-            while !stdoutHandle.availableData.isEmpty {}
-        }
-        DispatchQueue.global(qos: .userInitiated).async(group: drains) {
-            while true {
-                let chunk = stderrHandle.availableData
-                if chunk.isEmpty { break }
-                capturedStderr.append(chunk)
-            }
-        }
-
-        let timedOut = exitSignal.wait(timeout: .now() + timeout) == .timedOut
-        if timedOut {
-            process.terminate()
-            _ = exitSignal.wait(timeout: .now() + 1)
-        }
-
-        // A backgrounded grandchild (an SSH control master, for one) inherits
-        // these write ends and holds them open past the direct child's exit,
-        // so EOF may never arrive. Bound the drain and report what we read
-        // rather than hanging the suite on it.
-        _ = drains.wait(timeout: .now() + 2)
-        let stderr = String(data: capturedStderr.value, encoding: .utf8) ?? ""
-        return ProcessRunResult(
-            status: process.terminationStatus,
-            stderr: stderr,
-            timedOut: timedOut
         )
     }
 
