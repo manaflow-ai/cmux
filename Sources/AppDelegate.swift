@@ -998,7 +998,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
         )
     }()
-    private lazy var mainWindowVisibilityController = MainWindowVisibilityController(
+    internal lazy var mainWindowVisibilityController = MainWindowVisibilityController(
         dependencies: .init(
             isActivationSuppressed: {
                 TerminalController.shouldSuppressSocketCommandActivation()

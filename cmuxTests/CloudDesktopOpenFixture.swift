@@ -44,6 +44,15 @@ final class CloudDesktopOpenFixture {
 
     init(ownerID: String = "desktop-a", hasRemoteView: Bool = true) throws {
         app = try VaultPaneAppFixture()
+        let appDelegate = app.appDelegate
+        appDelegate.mainWindowVisibilityController = MainWindowVisibilityController(
+            dependencies: .init(
+                isActivationSuppressed: { true },
+                setActiveMainWindow: { [weak appDelegate] window in
+                    appDelegate?.setActiveMainWindow(window)
+                }
+            )
+        )
         window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 640, height: 480),
             styleMask: [.titled], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
@@ -71,6 +80,7 @@ final class CloudDesktopOpenFixture {
         // though this fixture never displays or focuses its task-owned window.
         let context = try #require(app.appDelegate.mainWindowContexts.values.first { $0.windowId == app.windowID })
         context.window = window
+        assertTaskWindowRemainsUnfocused()
         Attachment.record("""
             identity-source: task-owned Cloud Desktop fixture
             machine: \(provider.machine)
@@ -95,6 +105,7 @@ final class CloudDesktopOpenFixture {
     }
 
     func activate(_ node: CloudTreeNode, menu: Bool = false) throws {
+        assertTaskWindowRemainsUnfocused()
         _ = container
         coordinator.apply(nodes: [node])
         let outline = try #require(coordinator.outlineView)
@@ -112,6 +123,7 @@ final class CloudDesktopOpenFixture {
             try sendPointerAction(outline.action, from: outline, clickCount: 2)
             try sendPointerAction(outline.doubleAction, from: outline, clickCount: 2)
         }
+        assertTaskWindowRemainsUnfocused()
     }
 
     private func sendPointerAction(_ action: Selector?, from outline: NSOutlineView, clickCount: Int) throws {
@@ -145,9 +157,11 @@ final class CloudDesktopOpenFixture {
     func waitForOpen() async {
         var iterator = completion.stream.makeAsyncIterator()
         _ = await iterator.next()
+        assertTaskWindowRemainsUnfocused()
     }
 
     func drop(_ row: CloudTreeNode, into workspace: Workspace) async throws {
+        assertTaskWindowRemainsUnfocused()
         let group = try #require(row.dragGroup)
         let pane = try #require(workspace.bonsplitController.allPaneIds.first)
         let route = try #require(TerminalController.shared.v2LocatePane(pane.id))
@@ -168,6 +182,12 @@ final class CloudDesktopOpenFixture {
         try #require(workspace.handleSurfaceResourceDrop(group: group,
             destination: .split(targetPane: pane, orientation: .vertical, insertFirst: false), catalog: catalog))
         _ = await committed.result
+        assertTaskWindowRemainsUnfocused()
+    }
+
+    private func assertTaskWindowRemainsUnfocused() {
+        #expect(!window.isVisible)
+        #expect(!window.isKeyWindow)
     }
 
     func close() {
