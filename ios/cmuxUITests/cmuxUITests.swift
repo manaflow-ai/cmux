@@ -12,6 +12,39 @@ final class cmuxUITests: XCTestCase {
     }
 
     @MainActor
+    func testFilesChipsScrollThroughSheetEdge() throws {
+        let app = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_MAC_SURFACE_GALLERY": "files",
+        ])
+        defer { app.terminate() }
+        let openFiles = app.buttons["FilesPreviewOpen"]
+        XCTAssertTrue(openFiles.waitForExistence(timeout: 10))
+        openFiles.tap()
+        let scroller = app.scrollViews["TerminalArtifactGalleryFilterScroller"]
+        XCTAssertTrue(scroller.waitForExistence(timeout: 10))
+        let all = app.buttons["All"]
+        XCTAssertTrue(all.exists)
+        let initialX = all.frame.minX
+        // A resting content inset is allowed; the viewport itself must reach
+        // the sheet edge rather than sharing that inset.
+        XCTAssertEqual(initialX - scroller.frame.minX, 16, accuracy: 1)
+        let before = XCTAttachment(screenshot: app.screenshot())
+        before.name = "Files chips before scrolling"
+        before.lifetime = .keepAlways
+        add(before)
+        scroller.swipeLeft(velocity: .slow)
+        XCTAssertLessThan(all.frame.minX, initialX)
+        let after = XCTAttachment(screenshot: app.screenshot())
+        after.name = "Files chips at sheet edge"
+        after.lifetime = .keepAlways
+        add(after)
+        scroller.swipeRight(velocity: .slow)
+        XCTAssertEqual(all.frame.minX, initialX, accuracy: 1)
+        scroller.swipeLeft(velocity: .slow)
+        scroller.swipeRight(velocity: .slow)
+    }
+
+    @MainActor
     func testDeveloperSettingsReplaysWhatsNewRange() throws {
         let app = launchApp(
             mockData: false,
