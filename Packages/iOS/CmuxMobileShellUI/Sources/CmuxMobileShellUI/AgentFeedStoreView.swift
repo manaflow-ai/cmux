@@ -49,11 +49,13 @@ struct AgentFeedStoreView: View {
             terminalReply: { item, text in
                 Task { await store.submitAgentFeedTerminalReply(item, text: text) }
             },
-            openWorkspace: { item in
-                Task { showsNavigationFailure = !(await store.openAgentFeedDestination(item, openTab: false)) }
-            },
-            openTab: { item in
-                Task { showsNavigationFailure = !(await store.openAgentFeedDestination(item, openTab: true)) }
+            openDestination: { item in
+                Task {
+                    showsNavigationFailure = !(await store.openAgentFeedDestination(
+                        item,
+                        openTab: item.remoteSurfaceID != nil
+                    ))
+                }
             },
             loadFullText: { item in
                 try await store.loadAgentFeedFullText(item)

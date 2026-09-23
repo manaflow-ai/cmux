@@ -16796,6 +16796,20 @@
         }
       }
     },
+    "mobile.agentFeed.open": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Open"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Öffnen"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Ouvrir"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "فتح"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Abrir"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "開啟"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "打开"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "열기"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "開く"}}
+      }
+    },
     "mobile.agentFeed.openWorkspace": {
       "extractionState": "manual",
       "localizations": {

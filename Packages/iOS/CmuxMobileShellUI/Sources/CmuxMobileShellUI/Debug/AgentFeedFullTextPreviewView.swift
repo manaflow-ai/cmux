@@ -62,8 +62,7 @@ public struct AgentFeedFullTextPreviewView: View {
             items: [shortItem, item], status: .ready, pendingReplyRequestIDs: [],
             pendingTerminalReplyItemIDs: [], refreshesOnAppear: false,
             actions: AgentFeedActions(
-                openWorkspace: { _ in path = ["workspace"] },
-                openTab: { _ in path = ["tab"] },
+                openDestination: { item in path = [item.remoteSurfaceID == nil ? "workspace" : "tab"] },
                 loadFullText: { _ in
                     attempts += 1
                     if failsOnce && attempts == 1 { throw URLError(.notConnectedToInternet) }

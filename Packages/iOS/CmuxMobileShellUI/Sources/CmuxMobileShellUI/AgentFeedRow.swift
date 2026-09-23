@@ -12,8 +12,10 @@ struct AgentFeedActions {
     var terminalReply: @MainActor (MobileAgentFeedItem, _ text: String) -> Void = { _, _ in }
     /// Opens the X-style reply composer sheet; rows never host a keyboard.
     var beginCompose: @MainActor (MobileAgentFeedItem, AgentFeedComposeContext.Kind) -> Void = { _, _ in }
-    var openWorkspace: @MainActor (MobileAgentFeedItem) -> Void = { _ in }
-    var openTab: @MainActor (MobileAgentFeedItem) -> Void = { _ in }
+    /// Opens the event's current tab when available, or its workspace when it
+    /// has no live tab target. The menu intentionally presents one action for
+    /// both destinations.
+    var openDestination: @MainActor (MobileAgentFeedItem) -> Void = { _ in }
     var viewFullText: @MainActor (MobileAgentFeedItem) -> Void = { _ in }
     var loadFullText: @MainActor (MobileAgentFeedItem) async throws -> String = { _ in
         throw URLError(.unsupportedURL)
@@ -158,18 +160,10 @@ struct AgentFeedRow: View, Equatable {
         .contextMenu {
             if model.item.connectionStatus == .connected, model.item.remoteWorkspaceID != nil {
                 Button {
-                    actions.openWorkspace(model.item)
+                    actions.openDestination(model.item)
                 } label: {
-                    Label(String(localized: "mobile.agentFeed.openWorkspace", defaultValue: "Open workspace", bundle: .module),
+                    Label(String(localized: "mobile.agentFeed.open", defaultValue: "Open", bundle: .module),
                           systemImage: "rectangle.stack")
-                }
-                if model.item.remoteSurfaceID != nil {
-                    Button {
-                        actions.openTab(model.item)
-                    } label: {
-                        Label(String(localized: "mobile.agentFeed.openTab", defaultValue: "Open tab", bundle: .module),
-                              systemImage: "terminal")
-                    }
                 }
             }
         }
