@@ -4742,7 +4742,8 @@ final class cmuxUITests: XCTestCase {
             )
             XCTAssertTrue(app.buttons["MobileTaskComposerMachineMenu"].exists)
             XCTAssertTrue(app.buttons["MobileTaskComposerDirectory"].exists)
-            XCTAssertTrue(app.buttons["MobileTaskComposerWorkspaceGroup"].exists)
+            XCTAssertTrue(app.buttons["MobileTaskComposerDestinationPicker"].exists)
+            XCTAssertFalse(app.buttons["MobileTaskComposerWorkspaceGroup"].exists)
             XCTAssertLessThanOrEqual(
                 app.buttons.matching(identifier: "MobileTaskComposerAgentPill").count,
                 1,
@@ -6081,7 +6082,7 @@ final class cmuxUITests: XCTestCase {
         XCTAssertEqual(submittedMac.label, "task-composer-backup-preview-mac")
     }
 
-    /// Selecting a workspace group in Task Options must travel with the
+    /// Selecting a workspace group inside the destination sheet must travel with the
     /// immutable create spec, so the new workspace lands in that group.
     @MainActor
     func testTaskComposerSubmitsToSelectedWorkspaceGroup() throws {
@@ -6094,13 +6095,25 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(prompt.waitForExistence(timeout: 8))
         openTaskComposerOptions(in: app)
 
+        XCTAssertFalse(app.buttons["MobileTaskComposerWorkspaceGroup"].exists)
+        tap(app.buttons["MobileTaskComposerDestinationPicker"], in: app)
+        let newWorkspace = app.buttons["MobileTaskComposerDestinationNewWorkspace"]
+        XCTAssertTrue(newWorkspace.waitForExistence(timeout: 3))
+        tap(newWorkspace, in: app)
+
         let groupMenu = app.buttons["MobileTaskComposerWorkspaceGroup"]
         XCTAssertTrue(groupMenu.waitForExistence(timeout: 3))
+        XCTAssertTrue(groupMenu.isEnabled)
         XCTAssertEqual(groupMenu.value as? String, "None")
         tap(groupMenu, in: app)
         tapMenuItem(app.buttons["Focus work"], in: app)
         XCTAssertEqual(groupMenu.value as? String, "Focus work")
 
+        tap(app.buttons["MobileTaskComposerDestinationDoneButton"], in: app)
+        XCTAssertEqual(
+            app.buttons["MobileTaskComposerDestinationPicker"].value as? String,
+            "New workspace · Focus work"
+        )
         tap(app.buttons["MobileTaskComposerOptionsDoneButton"], in: app)
         try typeText("Put this task in Focus work", into: prompt, in: app)
         tap(app.buttons["MobileTaskComposerSubmitButton"], in: app)
