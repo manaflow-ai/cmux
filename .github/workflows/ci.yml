@@ -54,6 +54,7 @@ jobs:
       cli: ${{ steps.detect.outputs.cli }}
       browser: ${{ steps.standalone.outputs.browser }}
       remote_daemon: ${{ steps.standalone.outputs.remote_daemon }}
+      remote_daemon_native: ${{ steps.standalone.outputs.remote_daemon_native }}
       # Empty until the base revision of the router knows this area, so the
       # consumers below read a missing value as "not routed".
       swift_packages: ${{ steps.detect.outputs.swift_packages || 'false' }}
@@ -161,6 +162,16 @@ jobs:
               exit 0
             fi
 
+            # Registry edits that only register Linux guards do not change the
+            # native test lanes. Missing history keeps the detector fail-open.
+            registry_base_args=()
+            if grep -Fxq 'tests/test-execution.toml' /tmp/cmux-ci-changed-files.txt; then
+              registry_base="$(mktemp "${RUNNER_TEMP:-/tmp}/cmux-test-registry-base.XXXXXX")"
+              if git show "$BASE_SHA:tests/test-execution.toml" > "$registry_base"; then
+                registry_base_args=(--test-registry-base "$registry_base")
+              fi
+            fi
+
             # A provenance-only PR gets the cheap Linux guard and avoids
             # queuing the unrelated macOS/web/Go suites. Keep this exception
             # narrow: an unrelated workflow edit or source/configuration file
@@ -184,7 +195,7 @@ jobs:
                   ci_router_changed=true
                   ghosttykit_guard_only=false
                   ;;
-                scripts/ci/build_input_fingerprint.py|scripts/ci/find_admitted_build.py|scripts/ci/app_host_test_products.py|scripts/ci/compile-app-host-test-product.sh|scripts/ci/product_input_identity.py|scripts/ci/peer_product_source.py|scripts/ci/restore-app-host-test-product.sh|scripts/ci/reuse_app_host_products.py|scripts/ci/sanitize-xcode-source-packages-cache.py|scripts/ci/persistent_mac_route.py|scripts/ci/web_validation.py)
+                scripts/ci/build_input_fingerprint.py|scripts/ci/find_admitted_build.py|scripts/ci/app_host_test_products.py|scripts/ci/compile-app-host-test-product.sh|scripts/ci/product_input_identity.py|scripts/ci/peer_product_source.py|scripts/ci/restore-app-host-test-product.sh|scripts/ci/reuse_app_host_products.py|scripts/ci/sanitize-xcode-source-packages-cache.py|scripts/ci/persistent_mac_route.py|scripts/ci/web_validation.py|scripts/ci/download-run-artifact.py)
                   # These have explicit owning lanes and names that cannot
                   # shadow Python stdlib imports used by the router.
                   ghosttykit_guard_only=false
@@ -312,6 +323,11 @@ jobs:
               fi
 
               echo "CI routing policy changed; classifying product inputs with the trusted base router."
+              if [ "${#registry_base_args[@]}" -gt 0 ] && ! python3 "$trusted_root/scripts/ci/detect_ci_change_areas.py" --help | grep -q -- '--test-registry-base'; then
+                echo "Trusted router predates registry comparison; running all CI areas."
+                emit_all_areas
+                exit 0
+              fi
               trusted_areas=/tmp/cmux-ci-trusted-areas.txt
               : > "$trusted_areas"
               (
@@ -320,6 +336,7 @@ jobs:
                 python3 scripts/ci/detect_ci_change_areas.py \
                   --event-name "$EVENT_NAME" \
                   --files-from "$product_files" \
+                  ${registry_base_args[@]+"${registry_base_args[@]}"} \
                   --github-output "$trusted_areas"
               )
               if [ "$cli_call_site_changed" = true ]; then
@@ -346,6 +363,7 @@ jobs:
             python3 scripts/ci/detect_ci_change_areas.py \
               --event-name "$EVENT_NAME" \
               --files-from /tmp/cmux-ci-changed-files.txt \
+              ${registry_base_args[@]+"${registry_base_args[@]}"} \
               ${workflow_base_args[@]+"${workflow_base_args[@]}"}
             exit 0
           fi
@@ -361,6 +379,7 @@ jobs:
           set -euo pipefail
           browser=false
           remote_daemon=false
+          remote_daemon_native=false
           if [ -f /tmp/cmux-ci-changed-files.txt ]; then
             while IFS= read -r path; do
               case "$path" in
@@ -368,11 +387,18 @@ jobs:
                   # The caller owns both reusable jobs' conditions and targets.
                   browser=true
                   remote_daemon=true
+                  remote_daemon_native=true
                   ;;
                 cmux-browser/*|.github/workflows/cmux-browser.yml)
                   browser=true
                   ;;
-                daemon/remote/*|scripts/*remote_daemon*|scripts/release_asset_guard*|tests/*remote_daemon*|.github/workflows/remote-daemon.yml|.github/workflows/release.yml|.github/workflows/nightly.yml)
+                daemon/remote/*|scripts/*remote_daemon*|scripts/release_asset_guard*|tests/*remote_daemon*|.github/workflows/remote-daemon.yml)
+                  remote_daemon=true
+                  remote_daemon_native=true
+                  ;;
+                .github/workflows/release.yml|.github/workflows/nightly.yml)
+                  # Packaging contracts run on Linux; unchanged Go code does
+                  # not need another native build on the shared Mac pool.
                   remote_daemon=true
                   ;;
               esac
@@ -380,10 +406,12 @@ jobs:
           else
             browser=true
             remote_daemon=true
+            remote_daemon_native=true
           fi
           {
             echo "browser=$browser"
             echo "remote_daemon=$remote_daemon"
+            echo "remote_daemon_native=$remote_daemon_native"
           } >> "$GITHUB_OUTPUT"
 
       # Compile admission runs on every routed push. The rest of the macOS suite
@@ -675,6 +703,11 @@ jobs:
           python3 tests/test_normalize_pbxproj.py
           ./scripts/check-pbxproj.sh
 
+      # Pure source generation check: fail before reserving a Mac, rather than
+      # discovering stale schema after the app-host build's CLI smoke tests.
+      - name: Validate embedded cmux.json schema generation
+        run: python3 scripts/generate-cmux-config-schema.py --check
+
       - name: Validate Claude launch environment policy generation
         run: python3 scripts/generate-claude-launch-environment-policy.py --check
 
@@ -747,6 +780,8 @@ jobs:
       contents: read
       pull-requests: read
     uses: ./.github/workflows/remote-daemon.yml
+    with:
+      native_tests: ${{ needs.changes.outputs.remote_daemon_native == 'true' || contains(github.event.pull_request.labels.*.name, 'full-ci') }}
 
   cli:
     needs: [changes, static-preflight]
@@ -819,6 +854,7 @@ jobs:
     if: ${{ !cancelled() && needs.changes.result == 'success' && needs.static-preflight.result == 'success' && (needs.macos-debounce.result == 'success' || needs.macos-debounce.result == 'skipped') && ((needs.changes.outputs.macos != 'false' && (needs.changes.outputs.full_suite == 'true' || needs.changes.outputs.compile_admitted != 'true')) || needs.changes.outputs.swift_packages == 'true') }}
     permissions:
       actions: read
+      attestations: read
       contents: read
       pull-requests: read
     uses: ./.github/workflows/ci-macos.yml
