@@ -426,7 +426,9 @@ jobs:
       # Compile admission runs on every routed push. The rest of the macOS suite
       # runs on merge groups and dispatches always, and on pull requests unless
       # the repository variable CI_PULL_REQUEST_SUITE is "compile-only". Under
-      # that policy the "full-ci" label opts one pull request back in. Labels
+      # that policy the "full-ci" label opts one pull request back in. App-host
+      # unit tests need no label: a diff that can change the tested product
+      # selects them (choose_ci_suite.wants_unit_suite). Labels
       # come from this run's event payload, so a rerun replays the same label
       # snapshot; labeled/unlabeled events above create a fresh run instead.
       - name: Choose the macOS suite for this run
@@ -573,7 +575,8 @@ jobs:
       # compile. Each pull request run publishes its build-input fingerprint as
       # an artifact name, and a compile-only run whose fingerprint an earlier run
       # of the same in-org branch already compiled skips compile admission. Runs
-      # with the full suite or unit-ci always compile, because the app-host
+      # with the full suite or the unit suite (derived from a product-reaching
+      # diff, or the unit-ci label) always compile, because the app-host
       # shards need the product and only run behind a compile admission that
       # succeeded in this run.
       # The artifact name carries the run attempt, so a pass only vouches for the
@@ -1006,7 +1009,8 @@ jobs:
           # and of the macOS area, so it can require the called workflow on its
           # own. Keep this in sync with the `macos` job's own `if:`.
           swift_packages = outputs.get("swift_packages") == "true"
-          # `unit-ci` asks for app-host unit tests without the full suite, so a
+          # The unit suite (derived from the diff, or `unit-ci`) asks for
+          # app-host unit tests without the full suite, so a
           # routed macOS run is required even when compile admission reused a
           # product and full_suite stayed false.
           unit_suite = outputs.get("unit_suite") == "true"

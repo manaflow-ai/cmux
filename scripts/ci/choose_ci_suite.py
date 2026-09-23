@@ -28,6 +28,9 @@ import sys
 from collections.abc import Iterable
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from product_input_identity import reaches_product  # noqa: E402
+
 COMPILE_ONLY_POLICY = "compile-only"
 FULL_SUITE_LABEL = "full-ci"
 SUITE_OPT_OUT_LABEL = "no-full-ci"
@@ -80,15 +83,17 @@ def wants_unit_suite(
     """True when this run should execute `app-host unit tests`.
 
     The full suite already includes them, so it implies this. Otherwise the
-    diff decides: a change under cmuxTests/ is judged by exactly this job and
-    by nothing compile admission does, so it selects the job itself rather
-    than failing `suite-coverage` and waiting for someone to add a label that
-    this module could already have derived. An unreadable diff (`paths` is
-    None) runs it too. The `unit-ci` label still asks for it on any diff.
+    diff decides: any path that can change the app-host test product (the
+    same `reaches_product` rule that keys product reuse, which covers both
+    Sources/ and cmuxTests/) can change what those tests observe, and running
+    them is the only way to judge it. Compile admission alone let main go red
+    on a dozen app-host tests once the merge queue stopped running the suite.
+    An unreadable diff runs them too. The `unit-ci` label still asks for them
+    on any diff.
 
     Only this job is selected: the package tests, the lag lane, release
     admission and the Release build the full suite also unlocks cost a paid
-    runner and judge nothing about a change to cmuxTests/.
+    runner and are routed separately.
     """
     if wants_full_suite(event_name, pull_request_policy, labels):
         return True
@@ -96,7 +101,7 @@ def wants_unit_suite(
         return True
     if paths is None:
         return True
-    return any(path.strip().startswith(UNIT_JUDGED_PREFIXES) for path in paths)
+    return any(reaches_product(path) for path in paths)
 
 
 def labels_from_event(event_path: str | Path) -> list[str] | None:
