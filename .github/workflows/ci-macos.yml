@@ -2150,11 +2150,20 @@ jobs:
           esac
 
   swift-package-tests:
-    # Stays on the macos-15 pool on every event, including pull requests:
-    # this job links the Release Ghostty CLI helper with Zig, and Zig
-    # 0.15.2 cannot link it on macOS 26 (see release.yml's
-    # build-ghostty-cli-helper). It is the one pull-request macOS job that
-    # MACOS_RUNNER_PR must not move.
+    # Stays on the macos-15 pool on every event, including pull requests. The
+    # "Select helper Xcode" step below pins CMUX_CI_REQUIRED_MACOS_SDK_MAJOR=15
+    # and the build then asserts HELPER_SDK_VERSION == 15.*, so the job needs an
+    # image carrying an SDK 15 Xcode; select-ci-xcode.sh exits non-zero rather
+    # than falling back when it cannot find one. The macos-26 image has no SDK 15.
+    # It is the one pull-request macOS job MACOS_RUNNER_PR must not move.
+    #
+    # That SDK 15 pin is self-imposed, not a toolchain limit. It dates from Zig
+    # 0.15.2, whose MachO linker could not resolve libSystem against an
+    # Xcode 26.4+ SDK (ziglang/zig#31658, fixed by #31673 in Zig 0.16.0). The
+    # Ghostty submodule has required 0.16.0 since at least 2026-09-17 and
+    # install-zig-ci.sh derives the version from that manifest, so the original
+    # reason is likely gone -- but no helper build has run on a macos-26 image to
+    # prove it, and the SDK assertion would fail there first regardless.
     # !cancelled() disables the implicit success() gate, which GitHub evaluates
     # over the transitive needs chain: linux-preflight runs behind routed linux
     # jobs that legitimately skip (web/go/agent-session paths), and that
