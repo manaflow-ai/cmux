@@ -10,6 +10,8 @@ import threading
 import unittest
 from unittest import mock
 
+import yaml
+
 ROOT = Path(__file__).resolve().parents[1]
 HEAD = "a" * 40
 REMOTE_HEAD = "b" * 40
@@ -94,6 +96,25 @@ class FocusedLauncherTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(self.dispatch()["ref"], REMOTE_HEAD)
 
+    def test_explicit_runner_reaches_the_workflow_dispatch(self):
+        workflow = yaml.safe_load((ROOT / ".github/workflows/test-e2e.yml").read_text())
+        choices = workflow["on" if "on" in workflow else True]["workflow_dispatch"]["inputs"]["runner"]["options"]
+        for runner in choices:
+            with self.subTest(runner=runner):
+                result = self.launch("cmuxTests/ExampleTests", "--runner", runner)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(self.dispatch()["runner"], runner)
+
+    def test_default_runner_keeps_the_workflow_default(self):
+        result = self.launch("cmuxTests/ExampleTests")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn("runner", self.dispatch())
+
+    def test_invalid_runner_is_rejected_before_github_access(self):
+        result = self.launch("cmuxTests/ExampleTests", "--runner", "macos-15")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(self.calls(), [])
+
     def test_dirty_default_checkout_does_not_dispatch(self):
         result = self.launch("cmuxTests/ExampleTests", LAUNCHER_DIRTY=" M Sources/App.swift")
         self.assertNotEqual(result.returncode, 0)
@@ -154,13 +175,41 @@ class FocusedLauncherTests(unittest.TestCase):
             with self.subTest(args=args):
                 self.assertNotEqual(self.launch("ExampleTests", *args).returncode, 0)
         self.assertFalse((self.root / "dispatch.json").exists())
-    def _prior(self, conclusion, *, selector="cmuxTests/ExampleTests", commit=HEAD):
+    def _prior(self, conclusion, *, selector="cmuxTests/ExampleTests", commit=HEAD, runner="mac"):
         return json.dumps([{
-            "displayTitle": f"{selector} on mac @ {commit} [deadbeef]",
+            "displayTitle": f"{selector} on {runner} @ {commit} [deadbeef]",
             "conclusion": conclusion,
             "status": "completed",
             "url": "https://github.com/manaflow-ai/cmux/actions/runs/555",
         }])
+
+    def test_failure_on_another_runner_allows_explicit_runner_proof(self):
+        result = self.launch(
+            "cmuxTests/ExampleTests", "--runner", "blacksmith-6vcpu-macos-26",
+            LAUNCHER_PRIOR_RUNS=self._prior("failure", runner="blacksmith-6vcpu-macos-15"),
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.dispatch()["runner"], "blacksmith-6vcpu-macos-26")
+
+    def test_same_runner_failure_is_not_overridden_by_other_runner_success(self):
+        prior = json.loads(self._prior("failure", runner="blacksmith-6vcpu-macos-26"))
+        prior += json.loads(self._prior("success", runner="blacksmith-6vcpu-macos-15"))
+        result = self.launch(
+            "cmuxTests/ExampleTests", "--runner", "blacksmith-6vcpu-macos-26",
+            LAUNCHER_PRIOR_RUNS=json.dumps(prior),
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("already failed", result.stderr)
+        self.assertFalse((self.root / "dispatch.json").exists())
+
+    def test_explicit_auto_preserves_existing_repeat_guard(self):
+        result = self.launch(
+            "cmuxTests/ExampleTests", "--runner", "auto",
+            LAUNCHER_PRIOR_RUNS=self._prior("failure", runner="blacksmith-6vcpu-macos-15"),
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("already failed", result.stderr)
+        self.assertFalse((self.root / "dispatch.json").exists())
 
     def test_repeat_of_a_failed_selector_at_the_same_commit_is_refused(self):
         result = self.launch(
@@ -230,6 +279,11 @@ class RunDiscoveryTests(unittest.TestCase):
         )
         cls.dispatch = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(cls.dispatch)
+
+    def test_runner_choices_match_the_workflow(self):
+        workflow = yaml.safe_load((ROOT / ".github/workflows/test-e2e.yml").read_text())
+        choices = workflow["on" if "on" in workflow else True]["workflow_dispatch"]["inputs"]["runner"]["options"]
+        self.assertEqual(list(self.dispatch.RUNNERS), choices)
 
     def test_waits_for_matching_dispatch_without_choosing_another_run(self):
         other = {"databaseId": 999, "displayTitle": "Other on mac @ " + HEAD + " [other]"}

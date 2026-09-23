@@ -3,9 +3,15 @@
 
 from __future__ import annotations
 
+import json
+import os
 import re
+import subprocess
+import tempfile
 import unittest
 from pathlib import Path
+
+import yaml
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -23,6 +29,62 @@ def job_block(name: str) -> str:
 
 
 class IOSWorkflowDispatchRefTests(unittest.TestCase):
+    def test_requested_family_matrix_is_selected_on_linux(self) -> None:
+        jobs = yaml.safe_load(WORKFLOW.read_text())["jobs"]
+        detect = jobs["detect-ios-changes"]
+        self.assertIn("LINUX_RUNNER", detect["runs-on"])
+        selector = next(step for step in detect["steps"] if step.get("id") == "families")
+        self.assertEqual(selector["env"]["DEVICE_FAMILY"], "${{ inputs.device_family }}")
+        self.assertEqual(
+            detect["outputs"]["device_families"], "${{ steps.families.outputs.json }}"
+        )
+        self.assertEqual(jobs["ios-simulator"]["needs"], "detect-ios-changes")
+        self.assertEqual(
+            jobs["ios-simulator"]["strategy"]["matrix"]["family"],
+            "${{ fromJSON(needs.detect-ios-changes.outputs.device_families) }}",
+        )
+        # Matrix membership is the admission decision. In particular, an empty
+        # request must not select both families and then skip both test steps.
+        simulator_steps = jobs["ios-simulator"]["steps"]
+        run_tests = next(step for step in simulator_steps if step.get("name") == "Run iOS simulator tests")
+        self.assertNotIn("if", run_tests)
+        for step in simulator_steps:
+            self.assertNotIn("inputs.device_family", step.get("if", ""))
+            self.assertNotEqual(step.get("name"), "Skip unrequested family")
+        for requested, expected in (
+            (None, ["iphone", "ipad"]),
+            ("", ["iphone", "ipad"]),
+            ("both", ["iphone", "ipad"]),
+            ("iphone", ["iphone"]),
+            ("ipad", ["ipad"]),
+            ("invalid", None),
+            ('["iphone"]', None),
+        ):
+            with self.subTest(requested=requested), tempfile.TemporaryDirectory() as directory:
+                output = Path(directory) / "output"
+                env = {key: value for key, value in os.environ.items() if key != "DEVICE_FAMILY"}
+                env["GITHUB_OUTPUT"] = str(output)
+                if requested is not None:
+                    env["DEVICE_FAMILY"] = requested
+                result = subprocess.run(
+                    ["bash", "-e", "-c", selector["run"]],
+                    env=env, capture_output=True, text=True,
+                )
+                if expected is None:
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertFalse(output.exists())
+                else:
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    key, value = output.read_text().strip().split("=", 1)
+                    self.assertEqual(key, "json")
+                    self.assertEqual(json.loads(value), expected)
+
+    def test_run_name_identifies_the_requested_workload(self) -> None:
+        run_name = yaml.safe_load(WORKFLOW.read_text())["run-name"]
+        for field in ("ref", "test_filter", "swift_package", "device_family", "ios_version"):
+            self.assertIn(f"inputs.{field}", run_name)
+        self.assertIn("github.ref_name", run_name)
+
     def test_manual_ref_is_resolved_once_to_a_full_commit_sha(self) -> None:
         detect = job_block("detect-ios-changes")
         workflow = WORKFLOW.read_text(encoding="utf-8")
@@ -50,7 +112,7 @@ class IOSWorkflowDispatchRefTests(unittest.TestCase):
         workflow = WORKFLOW.read_text(encoding="utf-8")
         resolved_ref = "ref: ${{ needs.detect-ios-changes.outputs.target_sha }}"
 
-        self.assertNotIn("inputs.ref || github.ref", workflow)
+        self.assertNotIn("ref: ${{ inputs.ref || github.ref", workflow)
         for job in ("package-conventions-lint", "mobile-core-package", "ios-simulator"):
             with self.subTest(job=job):
                 self.assertIn(resolved_ref, job_block(job))

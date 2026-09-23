@@ -111,7 +111,7 @@ def main() -> int:
     decision = nightly["jobs"]["decide"]["steps"][0]["with"]["script"]
     harness = """
     const outputs = {};
-    const core = {setOutput: (k,v) => outputs[k]=v,
+    const core = {setOutput: (k,v) => outputs[k]=v, notice() {},
       summary: {addHeading(){return this},addTable(){return this},async write(){}}};
     const context = {repo:{owner:'test',repo:'test'},ref:'refs/heads/main',sha:'test-head'};
     const github = {rest:{git:{getRef:async()=>({data:{object:{type:'commit',sha:'old'}}})}}};

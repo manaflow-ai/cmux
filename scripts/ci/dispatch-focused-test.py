@@ -22,6 +22,15 @@ RUN_DISCOVERY_ATTEMPTS = 12
 RUN_DISCOVERY_TIMEOUT_SECONDS = 60.0
 PRIOR_ATTEMPT_LIMIT = 100
 PRIOR_ATTEMPT_TIMEOUT_SECONDS = 30.0
+RUNNERS = (
+    "auto",
+    "blacksmith-6vcpu-macos-15",
+    "blacksmith-6vcpu-macos-26",
+    "blacksmith-6vcpu-macos-latest",
+    "tart-canary",
+    "tart-dual",
+    "tart-small",
+)
 SELECTOR = re.compile(
     r"(?:(?:cmuxTests|cmuxUITests)/)?"
     r"[A-Za-z_][A-Za-z0-9_]*(?:/[A-Za-z_][A-Za-z0-9_]*(?:\(\))?)?"
@@ -113,13 +122,15 @@ def cancellation_scope():
             signal.signal(signum, handler)
 
 
-def prior_attempts(commit: str, selector: str) -> list[dict]:
-    """Completed runs of this exact selector at this exact commit.
+def prior_attempts(commit: str, selector: str, runner: str | None = None) -> list[dict]:
+    """Completed runs of this selector/commit, scoped to an explicit runner.
 
     A focused run compiles the tree before it runs anything, so a red result is
-    a property of the commit, not of the attempt. Re-dispatching the same
-    selector at the same SHA spends another 10-20 macOS runner-minutes to
-    reprint the same failure. The run name carries both halves --
+    often a property of the commit and runner, not of the attempt. Preserve
+    the existing broad guard for the default/auto runner, but a failure on
+    macOS 15 must not block an explicitly requested macOS 26 verification.
+    Re-dispatching the same selector/SHA/runner can reprint the same failure.
+    The run name carries the dispatch identity --
     "<selector> on <runner> @ <commit> [<dispatch id>]" -- so earlier attempts
     are findable without recording any local state.
     """
@@ -144,8 +155,10 @@ def prior_attempts(commit: str, selector: str) -> list[dict]:
         # A batched dispatch names several selectors before " on ", so match
         # membership rather than a prefix. Otherwise batching would silently
         # bypass this guard for every selector it carried.
-        head, separator, _ = title.partition(" on ")
+        head, separator, remainder = title.partition(" on ")
         if not separator:
+            return False
+        if runner not in (None, "auto") and not remainder.startswith(f"{runner} @ "):
             return False
         return selector in [part.strip() for part in head.split(",")]
 
@@ -226,6 +239,7 @@ def main() -> int:
     parser.add_argument("--timeout", type=positive_integer, default=120, help="per-test timeout in seconds (default: 120)")
     parser.add_argument("--job-timeout", type=positive_integer, default=45, help="job timeout in minutes, including compilation (default: 45)")
     parser.add_argument("--workflow-ref", help="workflow-definition branch/tag (default: repository default branch)")
+    parser.add_argument("--runner", choices=RUNNERS, help="runner override (default: workflow's configured runner)")
     parser.add_argument(
         "--force",
         action="store_true",
@@ -268,7 +282,7 @@ def main() -> int:
         # Refuse per entry: one already-red selector makes the whole batch a
         # reprint of a known failure, and the compile it would pay for is shared.
         for entry in args.test_filter:
-            earlier = prior_attempts(commit, entry)
+            earlier = prior_attempts(commit, entry, args.runner)
             failures = [run for run in earlier if run.get("conclusion") == "failure"]
             if failures and not any(run.get("conclusion") == "success" for run in earlier):
                 latest = failures[0]
@@ -292,6 +306,8 @@ def main() -> int:
         "job_timeout": str(args.job_timeout),
         "dispatch_id": dispatch_id,
     }
+    if args.runner is not None:
+        fields["runner"] = args.runner
     command = ["gh", "workflow", "run", WORKFLOW, "--repo", REPO]
     if args.workflow_ref:
         command.extend(["--ref", args.workflow_ref])

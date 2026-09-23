@@ -21,7 +21,7 @@ on:
   workflow_dispatch:
     inputs:
       force:
-        description: Force a nightly build even if main has no new commits
+        description: Rebuild an already published main commit. Manual runs always bypass the push throttle.
         required: false
         default: false
         type: boolean
@@ -257,15 +257,35 @@ jobs:
                 core.warning(`Could not read the published ${channelIdentity.releaseTag} commit; building: ${error.message}`);
               }
             }
-            if (pushThrottled) {
-              core.notice(
+            // Explain the final app workload separately from the eligibility
+            // outputs: the six-hour schedule only warms caches downstream.
+            const scheduledCacheOnly = context.eventName === 'schedule' &&
+              context.payload?.schedule === '17 */6 * * *';
+            let decisionReason;
+            if (seedOnly) {
+              decisionReason = 'Manual cache-only run: refresh compilation caches without building or publishing an app.';
+            } else if (scheduledCacheOnly) {
+              decisionReason = 'Scheduled cache warmup: refresh compilation caches only. The daily 08:47 UTC schedule is the app catch-up run.';
+            } else if (!shouldBuild) {
+              decisionReason = 'This main commit is already published. Use force=true in Run workflow to rebuild the same commit; manual runs already bypass the push throttle.';
+            } else if (pushThrottled) {
+              decisionReason =
                 `Skipping this push: ${channelIdentity.releaseTag} published ${nightlySha.slice(0, 7)}, ` +
                 `committed ${publishedCommitAgeHours.toFixed(2)}h ago (minimum ${minIntervalHours}h). ` +
-                'A later push past the interval, the 08:47 UTC schedule, or a manual dispatch publishes this commit.'
-              );
+                'A later eligible push or the 08:47 UTC catch-up can publish an updated main revision. Run workflow bypasses this throttle; force is only needed to rebuild an already published commit.';
+            } else if (buildOnly) {
+              decisionReason = 'Manual build-only measurement: build the unsigned app without publishing.';
+            } else if (fastBuild) {
+              decisionReason = 'Manual fast dogfood build: build an arm64 artifact without publishing the Nightly feed.';
+            } else if (context.eventName === 'workflow_dispatch') {
+              decisionReason = 'Manual dispatch bypasses the push throttle; build the selected revision.';
+            } else {
+              decisionReason = 'The selected revision needs an app build and is not push-throttled.';
             }
+            core.notice(decisionReason);
 
             const shouldPublish = !seedOnly && (isMainRef || isRcRef) && !buildOnly && !fastBuild;
+            const appBuildSelected = shouldBuild && !pushThrottled && !scheduledCacheOnly;
             core.setOutput('should_build', shouldBuild && !pushThrottled ? 'true' : 'false');
             core.setOutput('head_sha', headSha);
             core.setOutput('short_sha', headSha.slice(0, 7));
@@ -277,10 +297,13 @@ jobs:
                 [{data: 'channel', header: true}, channel],
                 [{data: 'build HEAD', header: true}, headSha],
                 [{data: 'nightly tag', header: true}, nightlySha ?? '(missing)'],
+                [{data: 'reason', header: true}, decisionReason],
                 [{data: 'force build', header: true}, String(forceBuild)],
+                [{data: 'push minimum commit age (hours)', header: true}, Number.isFinite(minIntervalHours) && minIntervalHours > 0 ? String(minIntervalHours) : '(disabled)'],
+                [{data: 'published commit age (hours)', header: true}, publishedCommitAgeHours === null ? '(not checked)' : publishedCommitAgeHours.toFixed(2)],
                 [{data: 'push throttled', header: true}, String(pushThrottled)],
-                [{data: 'should build', header: true}, String(shouldBuild && !pushThrottled)],
-                [{data: 'should publish', header: true}, String(shouldPublish)],
+                [{data: 'app build selected', header: true}, String(appBuildSelected)],
+                [{data: 'publish app this run', header: true}, String(appBuildSelected && shouldPublish)],
                 [{data: 'fast dogfood build', header: true}, String(fastBuild)],
                 [{data: 'build-only measurement', header: true}, String(buildOnly)],
                 [{data: 'cold compilation cache', header: true}, String(coldCache)],
@@ -987,6 +1010,10 @@ jobs:
     needs: [decide, build-nightly-ghostty-cli-helper, build-nightly-app]
     if: needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') && needs.decide.outputs.build_only != 'true'
     # Sign and notarize on the same macOS 26 lane proven by stable releases.
+    # actions:read lets the parallel artifact download resolve the blob URL.
+    permissions:
+      contents: read
+      actions: read
     runs-on: ${{ needs.decide.outputs.fast_build == 'true' && 'blacksmith-6vcpu-macos-26' || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
     # Start the standalone helper submission early so
     # Apple's first wait overlaps useful work; finish it before the final DMG.
@@ -1034,12 +1061,26 @@ jobs:
         with:
           persist-credentials: false
           ref: ${{ needs.decide.outputs.head_sha }}
-          submodules: recursive
+          # Signing reads only this repository's scripts, tests, license and
+          # entitlements. The ghostty, bonsplit and homebrew submodules cost
+          # ~15s of fetch on every variant and are never read here.
+          submodules: false
 
       - name: Select Xcode
         run: ./scripts/select-ci-xcode.sh
 
+      # download-artifact reads the blob over one connection, about 1.8 MB/s
+      # on these runners (140s for this 242 MB archive). Parallel ranges of the
+      # same blob, checked against the artifact's SHA-256, take about 10s.
+      - name: Download unsigned nightly app (parallel)
+        id: unsigned-app-parallel
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/ci/download-run-artifact.py --name cmux-nightly-unsigned-app --out nightly-inputs/app
+
       - name: Download unsigned nightly app
+        if: steps.unsigned-app-parallel.outcome != 'success'
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: cmux-nightly-unsigned-app
@@ -1659,8 +1700,20 @@ jobs:
           # configured" on self-hosted runners) nor overlay a second
           # Authorization header on top of them (which makes GitHub reject the
           # push with `remote: Duplicate header: "Authorization"`).
-          git push "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" \
-            "refs/tags/${CHANNEL_RELEASE_TAG}" --force
+          # GitHub can transiently time out checking workflow permissions on
+          # a tag push. Retrying the same fixed commit is idempotent; never
+          # mark publication complete if all attempts fail.
+          for attempt in 1 2 3; do
+            if git push "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" \
+              "refs/tags/${CHANNEL_RELEASE_TAG}" --force; then
+              break
+            fi
+            if [ "$attempt" -eq 3 ]; then
+              echo "::error::Channel release tag push failed after 3 attempts"
+              exit 1
+            fi
+            sleep "$((attempt * 5))"
+          done
 
   # A nightly that fails on main stalls every NIGHTLY install silently. Keep
   # one open issue per breakage so the failure is visible without watching Actions.
