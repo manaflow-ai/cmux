@@ -4,6 +4,12 @@
 from __future__ import annotations
 
 import importlib.util
+import json
+import os
+import subprocess
+import sys
+
+import yaml
 import plistlib
 import re
 import shutil
@@ -84,6 +90,52 @@ class IOSSimulatorWorkflowTests(unittest.TestCase):
         self.assertIn("inputs.swift_package == ''", producer)
         self.assertIn("inputs.swift_package == ''", consumer)
         self.assertIn("fromJSON(needs.detect-ios-changes.outputs.device_families)", consumer)
+
+    def test_producer_compiles_only_the_selected_test_plan(self) -> None:
+        workflow = yaml.safe_load(WORKFLOW.read_text())
+        step = next(
+            step for step in workflow["jobs"]["ios-simulator-build"]["steps"]
+            if step.get("id") == "compile-product"
+        )
+        for selected, expected in (
+            ("", "cmux"),
+            ("cmuxFeatureTests/TerminalViewportSpacingTests", "cmux"),
+            ("cmuxUITests/cmuxUITests/testComputerPickerSelectionSurvivesAppRelaunch", "cmux-ui"),
+        ):
+            with self.subTest(selected=selected), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory).resolve()
+                binary = root / "xcodebuild"
+                binary.write_text(
+                    f"#!{sys.executable}\n"
+                    "import json, os, sys\n"
+                    "from pathlib import Path\n"
+                    "Path(os.environ['CAPTURE_ARGS']).write_text(json.dumps(sys.argv[1:]))\n"
+                )
+                binary.chmod(0o755)
+                (root / "derived" / "logs").mkdir(parents=True)
+                capture = root / "arguments.json"
+                env = {
+                    **os.environ,
+                    "PATH": f"{root}:{os.environ['PATH']}",
+                    "CAPTURE_ARGS": str(capture),
+                    "TEST_FILTER": selected,
+                    "SIMULATOR_ID": "fixture-simulator",
+                    "IOS_DERIVED_DATA": str(root / "derived"),
+                    "IOS_SPM_CACHE": str(root / "packages"),
+                    "GITHUB_OUTPUT": str(root / "output"),
+                    "GITHUB_STEP_SUMMARY": str(root / "summary"),
+                }
+                result = subprocess.run(
+                    ["bash", "-e", "-c", step["run"]],
+                    env=env, text=True, capture_output=True,
+                )
+                self.assertEqual(result.returncode, 0, result.stderr)
+                arguments = json.loads(capture.read_text())
+                # build-for-testing otherwise emits all three scheme plans,
+                # even though ordinary test defaults to cmux.
+                self.assertEqual(arguments.count("-testPlan"), 1)
+                self.assertEqual(arguments[arguments.index("-testPlan") + 1], expected)
+                self.assertIn("build-for-testing", arguments)
 
     def test_compatibility_runtime_identity_and_cleanup_are_preserved(self) -> None:
         producer = job_block("ios-simulator-build")

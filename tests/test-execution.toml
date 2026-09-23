@@ -1033,3 +1033,7 @@ lane = "linux-guard"
 [[test]]
 path = "tests/test_cla_guard_metadata_routing.py"
 lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ios_simulator_build_once.py"
+lane = "linux-guard"
