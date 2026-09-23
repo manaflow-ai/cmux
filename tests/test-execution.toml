@@ -575,6 +575,10 @@ path = "tests/test_run_e2e.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_e2e_compilation_cache.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_sync_test_wiring.py"
 lane = "linux-guard"
 

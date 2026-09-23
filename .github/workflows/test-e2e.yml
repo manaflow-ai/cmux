@@ -341,12 +341,46 @@ jobs:
           fi
 
       - name: Prepare isolated DerivedData
+        id: compilation-cache-key
         run: |
           set -euo pipefail
-          DERIVED_DATA_PATH="${RUNNER_TEMP}/cmux-derived-data-e2e-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
-          rm -rf "$DERIVED_DATA_PATH"
-          mkdir -p "$DERIVED_DATA_PATH"
+          # Cache entries include absolute compiler paths. Keep these stable
+          # within a runner pool, but never reuse old assembled test products.
+          workspace_path="$(cd "$GITHUB_WORKSPACE" && pwd -P)"
+          DERIVED_DATA_PATH="$workspace_path/DerivedData/cmux-e2e"
+          CACHE_PATH="$workspace_path/DerivedData/cmux-e2e-compilation-cache"
+          rm -rf -- "$DERIVED_DATA_PATH" "$CACHE_PATH"
+          mkdir -p "$DERIVED_DATA_PATH" "$CACHE_PATH"
           echo "CMUX_DERIVED_DATA_PATH=$DERIVED_DATA_PATH" >> "$GITHUB_ENV"
+          echo "CMUX_E2E_COMPILATION_CACHE=$CACHE_PATH" >> "$GITHUB_ENV"
+          fingerprint="$({
+            echo e2e-compilation-v1
+            xcodebuild -version
+            printf 'workspace=%s\nderived-data=%s\ncas=%s\n' "$workspace_path" "$DERIVED_DATA_PATH" "$CACHE_PATH"
+          } | shasum -a 256 | awk '{print $1}')"
+          echo "fingerprint=$fingerprint" >> "$GITHUB_OUTPUT"
+
+      - name: Restore E2E compilation cache
+        id: compilation-cache-restore
+        continue-on-error: true
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ${{ env.CMUX_E2E_COMPILATION_CACHE }}
+          key: e2e-compilation-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.filter.outputs.target }}-${{ steps.compilation-cache-key.outputs.fingerprint }}-${{ env.TEST_REF }}
+          restore-keys: e2e-compilation-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.filter.outputs.target }}-${{ steps.compilation-cache-key.outputs.fingerprint }}-
+
+      - name: Discard incomplete E2E compilation cache
+        if: ${{ steps.compilation-cache-restore.outcome == 'failure' }}
+        run: |
+          set -euo pipefail
+          workspace_path="$(cd "$GITHUB_WORKSPACE" && pwd -P)"
+          if [ "$CMUX_E2E_COMPILATION_CACHE" != "$workspace_path/DerivedData/cmux-e2e-compilation-cache" ]; then
+            echo "::error::refusing to clear an unowned compilation cache"
+            exit 1
+          fi
+          rm -rf -- "$CMUX_E2E_COMPILATION_CACHE"
+          mkdir -p "$CMUX_E2E_COMPILATION_CACHE"
+          echo "::warning::E2E cache restore failed; compiling with an empty cache"
 
       - name: Cache Swift packages
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
@@ -522,6 +556,9 @@ jobs:
               -maximum-test-execution-time-allowance "$TEST_TIMEOUT"
               "${ONLY_TESTING[@]}"
               CMUX_SKIP_ZIG_BUILD=1
+              COMPILATION_CACHE_ENABLE_CACHING=YES
+              "COMPILATION_CACHE_CAS_PATH=$CMUX_E2E_COMPILATION_CACHE"
+              COMPILATION_CACHE_LIMIT_SIZE=5368709120
               test
             )
           else
@@ -533,6 +570,9 @@ jobs:
               -destination "platform=macOS"
               -maximum-test-execution-time-allowance "$TEST_TIMEOUT"
               "${ONLY_TESTING[@]}"
+              COMPILATION_CACHE_ENABLE_CACHING=YES
+              "COMPILATION_CACHE_CAS_PATH=$CMUX_E2E_COMPILATION_CACHE"
+              COMPILATION_CACHE_LIMIT_SIZE=5368709120
               test
             )
           fi
@@ -745,14 +785,62 @@ jobs:
             fi
           } >> "$GITHUB_STEP_SUMMARY"
 
+      - name: Bound E2E compilation cache
+        id: compilation-cache-bound
+        continue-on-error: true
+        if: ${{ always() && !cancelled() && steps.compilation-cache-key.outcome == 'success' }}
+        env:
+          WORKFLOW_REF: ${{ github.ref }}
+          WORKFLOW_SHA: ${{ github.sha }}
+          TEST_OUTCOME: ${{ steps.tests.outcome }}
+        run: |
+          set -euo pipefail
+          echo "save=false" >> "$GITHUB_OUTPUT"
+          # A dispatch can execute any selected revision. Only the exact main
+          # workflow revision may seed caches that later selected refs restore.
+          if [ "$WORKFLOW_REF" != refs/heads/main ] \
+            || [[ ! "$WORKFLOW_SHA" =~ ^[0-9a-f]{40}$ ]] \
+            || [ "$TEST_REF" != "$WORKFLOW_SHA" ] \
+            || [ "$TEST_OUTCOME" != success ]; then
+            echo "E2E compilation cache is read-only for this selected revision/result"
+            exit 0
+          fi
+          cache_path="$CMUX_E2E_COMPILATION_CACHE"
+          if [ ! -d "$cache_path" ] || [ -z "$(find "$cache_path" -type f -print -quit)" ]; then
+            echo "E2E compilation cache is empty; skipping save"
+            exit 0
+          fi
+          cache_kib="$(du -sk "$cache_path" | awk '{print $1}')"
+          echo "E2E compilation cache size: $cache_kib KiB"
+          if [ "$cache_kib" -gt $((5 * 1024 * 1024)) ]; then
+            echo "::warning::E2E compilation cache exceeds 5 GiB; skipping save"
+            exit 0
+          fi
+          echo "save=true" >> "$GITHUB_OUTPUT"
+
+      - name: Save E2E compilation cache
+        continue-on-error: true
+        if: ${{ always() && !cancelled() && steps.compilation-cache-bound.outputs.save == 'true' && steps.compilation-cache-restore.outputs.cache-hit != 'true' }}
+        uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ${{ env.CMUX_E2E_COMPILATION_CACHE }}
+          key: e2e-compilation-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.filter.outputs.target }}-${{ steps.compilation-cache-key.outputs.fingerprint }}-${{ env.TEST_REF }}
+
       - name: Clean owned DerivedData
         if: always()
         run: |
           set -euo pipefail
+          workspace_path="$(cd "$GITHUB_WORKSPACE" && pwd -P)"
           derived_data_path="${CMUX_DERIVED_DATA_PATH:-}"
+          cache_path="${CMUX_E2E_COMPILATION_CACHE:-}"
+          case "$cache_path" in
+            "$workspace_path/DerivedData/cmux-e2e-compilation-cache"|"") ;;
+            *) echo "::error::refusing to remove unowned compilation cache: $cache_path"; exit 1 ;;
+          esac
           case "$derived_data_path" in
-            "$RUNNER_TEMP"/cmux-derived-data-e2e-*)
+            "$workspace_path/DerivedData/cmux-e2e")
               rm -rf -- "$derived_data_path"
+              if [ -n "$cache_path" ]; then rm -rf -- "$cache_path"; fi
               ;;
             "")
               echo "DerivedData was not prepared; nothing to clean"
