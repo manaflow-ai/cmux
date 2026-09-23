@@ -5,6 +5,9 @@ import SwiftUI
 import UIKit
 
 /// UIKit-owned workspace list with exact, non-estimated row heights.
+///
+/// Each SwiftUI update hands the coordinator a complete snapshot; see
+/// ``WorkspaceListTableCoordinator`` for how it reaches the table.
 @MainActor
 struct WorkspaceListTable: UIViewControllerRepresentable {
     #if DEBUG
@@ -76,7 +79,6 @@ struct WorkspaceListTable: UIViewControllerRepresentable {
     var beginRefresh: (() -> UUID?)? = nil
     var cancelRefreshAttempt: ((UUID?) -> Void)? = nil
     var cancelRefreshAttemptOnDisappear: ((UUID?) -> Void)? = nil
-    var emptyStateLayoutChanged: (() -> Void)? = nil
     var shouldCancelRefreshOnDisappear: (() -> Bool)? = nil
     var isRetryOwnerCurrentOnDisappear: (() -> Bool)? = nil
 
@@ -95,12 +97,8 @@ struct WorkspaceListTable: UIViewControllerRepresentable {
         tableView.separatorStyle = .none
         tableView.backgroundColor = .clear
         tableView.keyboardDismissMode = .interactive
-        tableView.estimatedRowHeight = 0
-        tableView.estimatedSectionHeaderHeight = 0
-        tableView.estimatedSectionFooterHeight = 0
         tableView.sectionHeaderHeight = 0
         tableView.sectionFooterHeight = 0
-        tableView.rowHeight = UITableView.automaticDimension
         tableView.accessibilityIdentifier = "MobileWorkspaceList"
         context.coordinator.attach(
             to: tableView,
