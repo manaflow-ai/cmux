@@ -1,7 +1,6 @@
 import CryptoKit
 import CmuxIrxTransport
 import Foundation
-import Security
 
 struct MobileHostV2Configuration: Sendable {
     let baseURL: URL
@@ -62,10 +61,14 @@ struct MobileHostV2Configuration: Sendable {
 actor MobileHostV2Installation {
     private let configuration: MobileHostV2Configuration
     private let keys: V2IdentityKeyStore
+    private let installationKeys: V2KeychainStore
 
     init(configuration: MobileHostV2Configuration) {
         self.configuration = configuration
         keys = V2IdentityKeyStore(applicationNamespace: configuration.namespace)
+        installationKeys = V2KeychainStore(
+            service: configuration.namespace + ".cmux-iroh-v2.installation"
+        )
     }
 
     func deviceID() throws -> String {
@@ -81,30 +84,21 @@ actor MobileHostV2Installation {
         try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: file.path)
         return value
         #else
-        let query: [String: Any] = [kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: configuration.namespace + ".cmux-iroh-v2.installation",
-            kSecAttrAccount as String: "device-id"]
-        var read = query
-        read[kSecReturnData as String] = true
-        read[kSecMatchLimit as String] = kSecMatchLimitOne
-        var result: CFTypeRef?
-        let status = SecItemCopyMatching(read as CFDictionary, &result)
-        if status == errSecSuccess, let data = result as? Data,
-           let value = String(data: data, encoding: .utf8), UUID(uuidString: value) != nil { return value }
-        guard status == errSecItemNotFound else { throw V2ControlFailure.persistenceFailed }
         let value = UUID().uuidString.lowercased()
-        var create = query
-        create[kSecValueData as String] = Data(value.utf8)
-        create[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
-        let added = SecItemAdd(create as CFDictionary, nil)
-        if added == errSecDuplicateItem {
-            guard SecItemCopyMatching(read as CFDictionary, &result) == errSecSuccess,
-                  let data = result as? Data, let stored = String(data: data, encoding: .utf8),
-                  UUID(uuidString: stored) != nil else { throw V2ControlFailure.persistenceFailed }
-            return stored
+        let data = try installationKeys.loadOrCreate(
+            account: "device-id",
+            candidate: Data(value.utf8)
+        ) { data in
+            guard let stored = String(data: data, encoding: .utf8),
+                  UUID(uuidString: stored) != nil else {
+                throw V2ControlFailure.persistenceFailed
+            }
         }
-        guard added == errSecSuccess else { throw V2ControlFailure.persistenceFailed }
-        return value
+        guard let stored = String(data: data, encoding: .utf8),
+              UUID(uuidString: stored) != nil else {
+            throw V2ControlFailure.persistenceFailed
+        }
+        return stored
         #endif
     }
 

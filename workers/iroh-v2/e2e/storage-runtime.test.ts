@@ -134,6 +134,9 @@ test("authority lease accepts newer verification and ignores stale updates", asy
 test("audit retention keeps revocation available at the bounded history limit", async () => {
   expect((await post("/audit/fill", {})).status).toBe(200);
   expect((await post("/audit/count", {})).body.count).toBe(65536);
+  const oversized = Array.from({ length: 16 }, () => "x".repeat(2048));
+  expect((await post("/preferences", { relayURLs: oversized, expectedRevision: 0, now: 7000 })).status).toBe(500);
+  expect((await post("/audit/count", {})).body.count).toBe(65536);
   expect((await post("/revoke", { deviceRecordId: "revocation-target", now: 7000, actorUserId: "audit-test" })).status).toBe(200);
   expect((await post("/audit/count", {})).body.count).toBe(65536);
 });
@@ -143,7 +146,7 @@ test("SQLite state survives a workerd restart", async () => {
   mf = new Miniflare({ ...convertV4MiniflareOptions({ rootPath: workerRoot, resourcePersistencePath: persistencePath, scriptPath: "worker.js", modules: true, durableObjects: { STORAGE: { className: "StorageTestDO", useSQLite: true }, MIGRATION: { className: "MigrationProbeDO", useSQLite: true } }, compatibilityDate: "2025-01-01" }), verbose: true });
   const namespace = await mf.getDurableObjectNamespace("STORAGE");
   stub = namespace.getByName("team-e2e");
-  expect((await post("/revision", {})).body.revision).toBe(6);
+  expect((await post("/revision", {})).body.revision).toBe(7);
 });
 
 test("socket reservations aggregate across teams and survive retries", async () => {

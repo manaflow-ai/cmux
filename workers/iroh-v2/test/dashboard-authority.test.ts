@@ -14,6 +14,8 @@ const directoryRequest = { schemaId: "directory.request.v1", requestId: "directo
 function fixture() {
   let member = true;
   let manager = true;
+  let now = 1100;
+  let expireDuringLookup = false;
   const managerArguments: boolean[] = [];
   const dependencies = {
     store: {
@@ -26,12 +28,15 @@ function fixture() {
     },
     ownership: { reserve: async () => {} },
     relays: { configuration: { relayURLs: ["https://relay.example/"] } },
-    now: () => 1100,
+    now: () => now,
     charge: async () => {},
     issueTicket: async () => ({ token: "ticket", expiresAt: 4600, refreshAfter: 4300 }),
     verifyStack: async () => ({ ...authority }),
     canManageTeam: async () => manager,
-    verifyTeamMember: async () => member,
+    verifyTeamMember: async () => {
+      if (expireDuringLookup) now = 4600;
+      return member;
+    },
   } as unknown as BrokerDependencies;
   const session: DashboardClaims = {
     version: 2,
@@ -49,6 +54,7 @@ function fixture() {
     managerArguments,
     removeMember: () => { member = false; },
     demote: () => { manager = false; },
+    expireDuringLookup: () => { expireDuringLookup = true; },
   };
 }
 
@@ -79,4 +85,11 @@ test("dashboard rejects a removed member even with an old ticket", async () => {
     ...directoryRequest,
     requestId: "removed-member",
   })).rejects.toMatchObject({ code: "team_access_revoked" });
+});
+
+test("dashboard rechecks expiry after remote authority lookups", async () => {
+  const fixtureValue = fixture();
+  fixtureValue.expireDuringLookup();
+  await expect(fixtureValue.broker.executeDashboard(fixtureValue.session, directoryRequest))
+    .rejects.toMatchObject({ code: "ticket_expired" });
 });

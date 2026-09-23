@@ -55,7 +55,7 @@ struct MobileIrxRuntimeLifecycleTests {
                 http: { _ in throw V2ControlFailure.stopped }, stackAccessToken: { _ in "test" },
                 sign: { _ in Data() }),
             store: V2FileStateStore(rootDirectory: composition.configuration.stateDirectory,
-                fileManager: FileManager())
+                fileManager: FileManager(), identityKey: V2IdentityKey())
         )
         await control.installLifecycleTestSocket(socket)
         await composition.installLifecycleTestRuntime(scope: previous, control: control)

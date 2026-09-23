@@ -39,7 +39,7 @@ jobs:
       - name: Run transport security and WebSocket regressions
         run: >-
           swift test --package-path Packages/Shared/CmuxIrxTransport
-          --filter 'V2URLSessionSocketTests|V2FileStateStoreTests|IrxJournalTests|V2InboundAdmissionAuthorityTests|IrxMacPeerAuthorizationTests'
+          --filter 'V2URLSessionSocketTests|V2FileStateStoreTests|V2KeychainStoreTests|IrxJournalTests|V2InboundAdmissionAuthorityTests|IrxMacPeerAuthorizationTests'
 
   backend:
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}

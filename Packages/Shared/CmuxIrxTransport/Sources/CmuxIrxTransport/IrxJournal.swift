@@ -71,7 +71,8 @@ public final class IrxJournal: @unchecked Sendable {
     }
 
     /// Records one event. `attributes` values must already be privacy-safe:
-    /// identifiers and codes, never payload content.
+    /// identifiers and codes, never payload content. Full endpoint keys are
+    /// redacted before reaching the diagnostic ring, system log or journal file.
     public func record(
         _ component: String,
         _ event: String,
@@ -101,7 +102,7 @@ public final class IrxJournal: @unchecked Sendable {
             monotonicMs: monotonicMs,
             component: component,
             event: event,
-            attributes: attributes
+            attributes: attributes.mapValues(Self.redactEndpointIDs)
         )
         let rendered = Self.render(entry)
         logger.notice("irx \(rendered, privacy: .public)")
@@ -140,7 +141,7 @@ public final class IrxJournal: @unchecked Sendable {
             "event": entry.event,
         ]
         for (key, value) in entry.attributes {
-            object["a_" + key] = value
+            object["a_" + key] = redactEndpointIDs(value)
         }
         guard
             let data = try? JSONSerialization.data(
@@ -150,5 +151,11 @@ public final class IrxJournal: @unchecked Sendable {
             return "{\"event\":\"journal-render-failed\"}"
         }
         return text
+    }
+
+    private static func redactEndpointIDs(_ value: String) -> String {
+        // Also catches keys embedded in native error descriptions, not just named fields.
+        value.replacingOccurrences(of: "(?i)(?<![0-9a-f])[0-9a-f]{64}(?![0-9a-f])",
+            with: "<redacted-endpoint>", options: .regularExpression)
     }
 }

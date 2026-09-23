@@ -15,6 +15,9 @@ import Testing
         #expect(!IrxJournal.render(event).contains(endpoint))
         #expect(!(try String(contentsOf: file, encoding: .utf8)).contains(endpoint))
         #expect(event.attributes["generation"] == "3")
+        let external = IrxJournalEvent(wallTime: Date(), monotonicMs: 0, component: "endpoint", event: "bound",
+            attributes: ["endpoint_id": endpoint.uppercased()])
+        #expect(!IrxJournal.render(external).contains(endpoint.uppercased()))
     }
 
     @Test func terminalTraceEventsAreRateLimitedBeforeRetention() {
