@@ -126,6 +126,53 @@ class ProductPublicationTests(unittest.TestCase):
         )
 
 
+    def test_app_host_shards_only_consume_the_admission_product(self):
+        job = self.workflow["jobs"]["app-host-unit-tests"]
+        steps = job["steps"]
+        names = [step["name"] for step in steps]
+
+        self.assertIn("needs.macos-compile-admission.outputs.artifact_id", str(job))
+        restore_index = names.index("Restore compiled app-host test product")
+        app_host_indices = [
+            index for index, step in enumerate(steps)
+            if "scripts/ci/run-app-host-xcodebuild.sh" in step.get("run", "")
+        ]
+        self.assertTrue(app_host_indices)
+        self.assertLess(restore_index, min(app_host_indices))
+
+        run_text = "\n".join(step.get("run", "") for step in steps)
+        self.assertNotIn("-project cmux.xcodeproj", run_text)
+        self.assertNotIn("-resolvePackageDependencies", run_text)
+        self.assertNotIn(".ci-source-packages", str(job))
+        self.assertNotIn("Cache Swift packages", names)
+        self.assertNotIn("Resolve Swift packages", names)
+        for setup_name in (
+            "Capture Ghostty revision",
+            "Cache GhosttyKit.xcframework",
+            "Download pre-built GhosttyKit.xcframework",
+            "Install Rust",
+        ):
+            self.assertNotIn(setup_name, names)
+        self.assertNotIn("GhosttyKit.xcframework", str(job))
+        self.assertNotIn("install-rust-ci.sh", str(job))
+
+        checkout_steps = [
+            step
+            for step in steps
+            if str(step.get("uses", "")).startswith("actions/checkout@")
+        ]
+        self.assertEqual(len(checkout_steps), 2)
+        for step in checkout_steps:
+            self.assertNotIn("submodules", step.get("with", {}))
+
+        for step in steps:
+            run = step.get("run", "")
+            if "scripts/ci/run-app-host-xcodebuild.sh" not in run:
+                continue
+            self.assertIn("-xctestrun", run, step["name"])
+            self.assertIn("test-without-building", run, step["name"])
+
+
     def test_skipping_publication_keeps_admission_and_early_checks(self):
         self.assertTrue(condition(self.job["if"], full_suite="false", publish="false"))
         for name in ("Compile app-host test product", "Validate Swift warning budget",

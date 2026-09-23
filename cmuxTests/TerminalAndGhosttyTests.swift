@@ -3053,7 +3053,7 @@ final class TerminalNotificationDirectInteractionTests: XCTestCase {
     }
 
     private func makeWindow() -> NSWindow {
-        let window = NSWindow(
+        let window = KeyStatusTestWindow(
             contentRect: NSRect(x: 0, y: 0, width: 480, height: 320),
             styleMask: [.titled, .closable],
             backing: .buffered,
@@ -3061,6 +3061,32 @@ final class TerminalNotificationDirectInteractionTests: XCTestCase {
         )
         window.contentView = NSView(frame: window.contentRect(forFrameRect: window.frame))
         return window
+    }
+
+    /// A live portal-rendering authority for a standalone surface fixture.
+    ///
+    /// `setVisibleInUI` and `setActive` both fold their request through
+    /// `Workspace.portalRenderingEnabled(for:)`, which denies any workspace id
+    /// the app delegate cannot resolve to a *selected* tab. A surface built
+    /// with a made-up `tabId` is therefore never actually made visible or
+    /// active, so it never takes Ghostty focus and never schedules a
+    /// visibility-restore redraw: the fixture silently stops exercising the
+    /// behavior under test. Register a real selected workspace and build the
+    /// surface with its id so the fixture gets the authority the app grants
+    /// the selected tab.
+    ///
+    /// Returns `nil` only when no app delegate is installed, where the
+    /// authority already defaults to allowing the portal.
+    private func makeLivePortalWorkspace() -> (id: UUID, tearDown: @MainActor () -> Void)? {
+        guard let appDelegate = AppDelegate.shared else { return nil }
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        guard let workspace = manager.selectedWorkspace else { return nil }
+        let windowId = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
+        return (workspace.id, {
+            appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
+            appDelegate.forgetRecoverableMainWindowRoute(windowId: windowId)
+            manager.finalizeAllWorkspacesForWindowClose()
+        })
     }
 
     private func makeMouseEvent(type: NSEvent.EventType, location: NSPoint, window: NSWindow) -> NSEvent {
@@ -3348,8 +3374,11 @@ final class TerminalNotificationDirectInteractionTests: XCTestCase {
             return
         }
 
+        let livePortalWorkspace = makeLivePortalWorkspace()
+        defer { livePortalWorkspace?.tearDown() }
+
         let surface = TerminalSurface(
-            tabId: UUID(),
+            tabId: livePortalWorkspace?.id ?? UUID(),
             context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
             configTemplate: nil,
             workingDirectory: nil
@@ -3684,8 +3713,11 @@ final class TerminalNotificationDirectInteractionTests: XCTestCase {
             return
         }
 
+        let livePortalWorkspace = makeLivePortalWorkspace()
+        defer { livePortalWorkspace?.tearDown() }
+
         let surface = TerminalSurface(
-            tabId: UUID(),
+            tabId: livePortalWorkspace?.id ?? UUID(),
             context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
             configTemplate: nil,
             workingDirectory: nil
@@ -3738,8 +3770,11 @@ final class TerminalNotificationDirectInteractionTests: XCTestCase {
             return
         }
 
+        let livePortalWorkspace = makeLivePortalWorkspace()
+        defer { livePortalWorkspace?.tearDown() }
+
         let surface = TerminalSurface(
-            tabId: UUID(),
+            tabId: livePortalWorkspace?.id ?? UUID(),
             context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
             configTemplate: nil,
             workingDirectory: nil
@@ -4211,10 +4246,6 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
         }
     }
 
-    private final class KeyStatusTestWindow: NSWindow {
-        override var isKeyWindow: Bool { true }
-    }
-
     private func makeScrollbar(total: UInt64, offset: UInt64, len: UInt64) -> GhosttyScrollbar {
         GhosttyScrollbar(
             c: ghostty_action_scrollbar_s(
@@ -4254,13 +4285,21 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
         }
         _ = NSApplication.shared
 
+        // The app host installs an app delegate, so portal visibility is authorized
+        // per workspace: a surface whose tab id no manager has selected is never
+        // shown, and its renderer is never presented.
+        let liveWorkspace = AppDelegate.shared?.registerLivePortalWorkspaceForTesting()
+        defer { liveWorkspace?.tearDown() }
+
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 1_280, height: 800),
             styleMask: [.borderless],
             backing: .buffered,
             defer: false
         )
-        let surfaces = (0..<5).map { _ in makeTrackedTerminalSurface() }
+        let surfaces = (0..<5).map { _ in
+            makeTrackedTerminalSurface(tabId: liveWorkspace?.id ?? UUID())
+        }
         var didTeardown = false
         defer {
             for surface in surfaces {
@@ -4276,6 +4315,12 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
             XCTFail("Expected a content view for the renderer memory workload")
             return
         }
+        // Order the window in before the terminals attach. Each terminal samples its
+        // window's visibility when it moves into the window and afterwards only on an
+        // occlusion, key, or screen change. This borderless window never becomes key
+        // and the headless host never reports an occlusion `.visible` bit, so a window
+        // ordered in after the attach would stay hidden to its renderers.
+        window.orderFront(nil)
         for surface in surfaces {
             let hostedView = surface.hostedView
             hostedView.frame = contentView.bounds
@@ -4283,7 +4328,6 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
             contentView.addSubview(hostedView)
             hostedView.setVisibleInUI(true)
         }
-        window.orderFront(nil)
         window.displayIfNeeded()
         contentView.layoutSubtreeIfNeeded()
 
@@ -4987,24 +5031,35 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
 
         scrollView.scrollerStyle = .legacy
         scrollView.layoutSubtreeIfNeeded()
-        let legacyContentWidth = scrollView.contentSize.width
         XCTAssertEqual(scrollView.scrollerStyle, .legacy)
         assertPendingSurfaceWidth(
             initialSurfaceSize.width,
             "Changing the scroll view style alone should leave the terminal grid unchanged until the scroller-style observer runs"
         )
 
+        // Scroller presence is a function of the scroller style (#12918): under
+        // the overlay style a surface without scrollback carries no scroller, so
+        // the scroll view reserves nothing until the observer re-evaluates
+        // presence for the legacy style. Expect the gutter AppKit reserves for a
+        // legacy scroller rather than snapshotting the content width before the
+        // product has applied that choice.
         NotificationCenter.default.post(name: NSScroller.preferredScrollerStyleDidChangeNotification, object: nil)
         XCTAssertTrue(
             waitUntil(description: "legacy terminal scrollbar geometry") {
                 scrollView.scrollerStyle == .legacy &&
+                    scrollView.hasVerticalScroller &&
+                    scrollView.contentSize.width < initialContentWidth &&
                     hostedView.debugPendingSurfaceSize().map {
-                        abs($0.width - legacyContentWidth) <= 0.5
+                        abs($0.width - scrollView.contentSize.width) <= 0.5
                     } == true
             }
         )
 
         let preservedLegacyContentWidth = scrollView.contentSize.width
+        let legacyScrollerWidth = NSScroller.scrollerWidth(
+            for: scrollView.verticalScroller?.controlSize ?? .regular,
+            scrollerStyle: .legacy
+        )
         XCTAssertEqual(scrollView.scrollerStyle, .legacy)
         XCTAssertGreaterThanOrEqual(
             initialContentWidth,
@@ -5013,7 +5068,7 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
         )
         XCTAssertEqual(
             preservedLegacyContentWidth,
-            legacyContentWidth,
+            initialContentWidth - legacyScrollerWidth,
             accuracy: 0.5,
             "Preferred scroller style changes should preserve the system's legacy scrollbar choice"
         )
@@ -5497,7 +5552,11 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
         let surface = makeTrackedTerminalSurface()
         let hostedView = surface.hostedView
         hostedView.setSearchOverlay(searchState: TerminalSurface.SearchState(needle: "workspace"))
-        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        // The overlay mounts through a deferred main-actor task; wait for it like the
+        // sibling mount tests instead of assuming a fixed run-loop spin drained it.
+        waitUntil(description: "search overlay to mount") {
+            hostedView.debugHasSearchOverlay()
+        }
         XCTAssertTrue(hostedView.debugHasSearchOverlay())
 
         portal.bind(hostedView: hostedView, to: anchor, visibleInUI: true)

@@ -456,11 +456,25 @@ struct GhosttyTerminalViewVisibilityPolicyTests {
 
         panel.hostedView.setVisibleInUI(false)
         TerminalWindowPortalRegistry.hideHostedView(panel.hostedView)
-        container.nextLayout = { anchor.frame.size.width = 280 }
-        _ = portal.updateEntryVisibility(
-            forHostedId: ObjectIdentifier(panel.hostedView),
-            visibleInUI: true
+        // Hiding retires the hosted view from the window (#12607); only a
+        // bind reinstalls it. Reveal the way workspace reconciliation does
+        // (TerminalPortalReconciliation rebinds a hosted view with no
+        // superview) instead of flipping portal visibility on a detached view.
+        #expect(panel.hostedView.superview == nil, "Hiding must retire the hosted view from the window")
+        #expect(
+            portal.hostedViewNeedsPortalReattachForVisiblePresentation(
+                withId: ObjectIdentifier(panel.hostedView)
+            ),
+            "Revealing a retired hosted view must request a portal reattach"
         )
+        TerminalWindowPortalRegistry.bind(
+            hostedView: panel.hostedView,
+            to: anchor,
+            visibleInUI: true,
+            expectedSurfaceId: panel.surface.id,
+            expectedGeneration: panel.surface.portalBindingGeneration()
+        )
+        container.nextLayout = { anchor.frame.size.width = 280 }
         panel.hostedView.setVisibleInUI(true)
         container.needsLayout = true
         container.resetLayoutCount()

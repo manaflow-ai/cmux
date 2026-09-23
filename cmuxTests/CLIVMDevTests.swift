@@ -152,6 +152,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         _ name: String,
         arguments: [String],
         home: URL,
+        expectsSocketConnection: Bool = true,
         respond: @escaping @Sendable (_ method: String, _ params: [String: Any]) -> [String: Any]?
     ) throws -> (result: ProcessRunResult, log: VMDevRequestLog) {
         let cliPath = try bundledCLIPath()
@@ -163,23 +164,36 @@ extension CLINotifyProcessIntegrationRegressionTests {
             Darwin.close(listenerFD)
             unlink(socketPath)
         }
-        let serverHandled = startVMDevMock(listenerFD: listenerFD, state: state, log: log, respond: respond)
+        let serverHandled: XCTestExpectation?
+        if expectsSocketConnection {
+            serverHandled = startVMDevMock(listenerFD: listenerFD, state: state, log: log, respond: respond)
+        } else {
+            // Invalid input is rejected before connecting, so the mock's expectation
+            // would only be fulfilled by the listener closing, which happens after the
+            // wait. Keep the socket listening instead and check its backlog once the
+            // process has exited: an accidental connection is still observable.
+            let flags = fcntl(listenerFD, F_GETFL)
+            XCTAssertGreaterThanOrEqual(flags, 0)
+            XCTAssertEqual(fcntl(listenerFD, F_SETFL, flags | O_NONBLOCK), 0)
+            serverHandled = nil
+        }
         let result = runProcess(
             executablePath: cliPath,
             arguments: arguments,
             environment: vmDevEnvironment(socketPath: socketPath, home: home),
             timeout: 60
         )
-        // `vm dev` finishes local validation before its first request and
-        // SocketClient connects at that first send, so an invocation the CLI
-        // rejects locally never touches the socket. The mock's "handled"
-        // expectation is only owed once a request was made; on the
-        // no-request path a non-failing bounded wait keeps the fixture from
-        // spending the full timeout and reporting it as a failure.
-        let sawRequest = !log.methods.isEmpty
-        let handled = XCTWaiter.wait(for: [serverHandled], timeout: sawRequest ? 60 : 1)
-        if sawRequest {
-            XCTAssertEqual(handled, .completed, "\(arguments): the mock socket never finished handling the request")
+        if let serverHandled {
+            wait(for: [serverHandled], timeout: 60)
+        } else {
+            let unexpectedClient = Darwin.accept(listenerFD, nil, nil)
+            let acceptError = errno
+            if unexpectedClient >= 0 {
+                Darwin.close(unexpectedClient)
+                XCTFail("Invalid vm dev input must not open a socket connection")
+            } else {
+                XCTAssertTrue(acceptError == EAGAIN || acceptError == EWOULDBLOCK)
+            }
         }
         XCTAssertFalse(result.timedOut, "\(arguments) timed out: \(result.stderr)")
         return (result, log)
@@ -653,7 +667,8 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let (invalidLayout, invalidLog) = try runVMDev(
             "vm-dev-bad-layout",
             arguments: ["vm", "dev", "brave-otter", fixture.project.path, "--layout", badLayout],
-            home: fixture.home
+            home: fixture.home,
+            expectsSocketConnection: false
         ) { _, _ in nil }
         XCTAssertEqual(invalidLayout.status, 2, "stdout=\(invalidLayout.stdout) stderr=\(invalidLayout.stderr)")
         XCTAssertTrue(invalidLayout.stderr.contains("invalid layout document"), invalidLayout.stderr)
@@ -663,7 +678,8 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let (missingFolder, missingLog) = try runVMDev(
             "vm-dev-missing-folder",
             arguments: ["vm", "dev", "brave-otter", fixture.project.appendingPathComponent("nope").path],
-            home: fixture.home
+            home: fixture.home,
+            expectsSocketConnection: false
         ) { _, _ in nil }
         XCTAssertNotEqual(missingFolder.status, 0)
         XCTAssertTrue(missingFolder.stderr.contains("no such folder"), missingFolder.stderr)
@@ -672,7 +688,8 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let (badPort, badPortLog) = try runVMDev(
             "vm-dev-bad-port",
             arguments: ["vm", "dev", "brave-otter", fixture.project.path, "--port", "http"],
-            home: fixture.home
+            home: fixture.home,
+            expectsSocketConnection: false
         ) { _, _ in nil }
         XCTAssertNotEqual(badPort.status, 0)
         XCTAssertTrue(badPort.stderr.contains("--port must be a port number"), badPort.stderr)
@@ -681,7 +698,8 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let (noMachine, noMachineLog) = try runVMDev(
             "vm-dev-no-machine",
             arguments: ["vm", "dev"],
-            home: fixture.home
+            home: fixture.home,
+            expectsSocketConnection: false
         ) { _, _ in nil }
         XCTAssertNotEqual(noMachine.status, 0)
         XCTAssertTrue(noMachine.stderr.contains("Usage: cmux vm dev <machine>"), noMachine.stderr)

@@ -4887,7 +4887,7 @@ final class WorkspaceSplitWorkingDirectoryTests: XCTestCase {
 @MainActor
 final class WorkspaceTerminalFocusRecoveryTests: XCTestCase {
     private func makeWindow() -> NSWindow {
-        NSWindow(
+        KeyStatusTestWindow(
             contentRect: NSRect(x: 0, y: 0, width: 360, height: 220),
             styleMask: [.titled, .closable],
             backing: .buffered,
@@ -6675,6 +6675,21 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
     }
 
     func testForkAgentWorkspaceLaunchFromPersistentSSHPTYDoesNotReuseParentRelayOrDaemonSlot() throws {
+        // The forked configuration only mints a fresh relay namespace when the
+        // control listener can name the socket the new session will reconnect
+        // through (`SessionRemoteWorkspaceSnapshot.workspaceConfiguration`
+        // requires a non-nil `localSocketPath`). That path comes from the
+        // process-wide `TerminalController.shared`, so reserve one here instead
+        // of inheriting whatever an earlier test in this app host left behind.
+        TerminalController.shared.stop(cleanupDiscoveryState: true)
+        let reservedSocket = TerminalController.shared.reserveStartupSocketPath(
+            "/tmp/cmux-fork-persistent-restore-\(UUID().uuidString).sock"
+        )
+        defer {
+            TerminalController.shared.stop(cleanupDiscoveryState: true)
+            try? FileManager.default.removeItem(atPath: reservedSocket)
+            try? FileManager.default.removeItem(atPath: reservedSocket + ".lock")
+        }
         let workspace = Workspace()
         workspace.configureRemoteConnection(
             WorkspaceRemoteConfiguration(
@@ -6727,6 +6742,7 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
         XCTAssertNotEqual(relayID, "relay-fork-persistent")
         XCTAssertNotEqual(relayToken, String(repeating: "c", count: 64))
         XCTAssertNotEqual(localSocketPath, "/tmp/cmux-fork-persistent.sock")
+        XCTAssertEqual(localSocketPath, reservedSocket)
         XCTAssertNil(launch.remoteConfiguration?.persistentDaemonSlot)
         let startupCommand = try XCTUnwrap(launch.remoteConfiguration?.terminalStartupCommand)
         XCTAssertTrue(startupCommand.contains("terminal_session_launching"), startupCommand)

@@ -14,10 +14,15 @@ ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW_PATH = ROOT / ".github/workflows/ci.yml"
 GUARD_WORKFLOW_PATH = ROOT / ".github/workflows/ci-guards.yml"
 MACOS_WORKFLOW_PATH = ROOT / ".github/workflows/ci-macos.yml"
+E2E_WORKFLOW_PATH = ROOT / ".github/workflows/test-e2e.yml"
+WORKFLOW_PATHS = [
+    WORKFLOW_PATH,
+    GUARD_WORKFLOW_PATH,
+    MACOS_WORKFLOW_PATH,
+    E2E_WORKFLOW_PATH,
+]
 WORKFLOWS = [
-    yaml.safe_load(WORKFLOW_PATH.read_text(encoding="utf-8")),
-    yaml.safe_load(GUARD_WORKFLOW_PATH.read_text(encoding="utf-8")),
-    yaml.safe_load(MACOS_WORKFLOW_PATH.read_text(encoding="utf-8")),
+    yaml.safe_load(path.read_text(encoding="utf-8")) for path in WORKFLOW_PATHS
 ]
 CONSOLE_WRAPPER = (ROOT / "scripts/ci/run-in-console-session.sh").read_text(
     encoding="utf-8"
@@ -174,6 +179,57 @@ def acceptance_gate_problem(condition: object, preparation_id: str) -> str:
     if f"steps.{preparation_id}.outcome=='success'" not in terms:
         return "must require successful app-host preparation"
     return ""
+
+
+def check_every_app_host_home_is_identified_and_cleaned() -> None:
+    """Hold every job that prepares an app-host home to the same contract.
+
+    The rest of this guard names `app-host-unit-tests` directly, so a second
+    lane could adopt the pattern and be checked by nothing. One did:
+    `test-e2e.yml` gained a `Prepare isolated app-host home` step whose job set
+    no `CMUX_APP_HOST_SHARD`, and `cmux_resolve_app_host_identity` rejects a
+    shard that is not a decimal integer -- so every dispatch of that lane would
+    have failed before running a test, with this file still green.
+
+    Check the pattern rather than the instance: find the callers.
+    """
+    for path, workflow in zip(WORKFLOW_PATHS, WORKFLOWS):
+        for job_name, job in (workflow.get("jobs") or {}).items():
+            steps = job.get("steps") or []
+            prepares = [
+                step for step in steps
+                if "prepare-app-host-home.sh" in str(step.get("run", ""))
+            ]
+            if not prepares:
+                continue
+            where = f"{path.name} job {job_name}"
+            environment = job.get("env")
+            if not isinstance(environment, dict):
+                raise SystemExit(f"FAIL: {where} prepares an app-host home with no job env")
+            if environment.get("CMUX_CI_APP_HOST_ISOLATION_REQUIRED") != "1":
+                raise SystemExit(
+                    f"FAIL: {where} must require app-host configuration isolation"
+                )
+            shard = environment.get("CMUX_APP_HOST_SHARD")
+            if not isinstance(shard, str) or not shard.strip():
+                raise SystemExit(
+                    f"FAIL: {where} must publish CMUX_APP_HOST_SHARD; "
+                    "cmux_resolve_app_host_identity rejects an empty shard"
+                )
+            cleanups = [
+                step for step in steps
+                if "cleanup-app-host-home.sh" in str(step.get("run", ""))
+            ]
+            if not cleanups:
+                raise SystemExit(
+                    f"FAIL: {where} prepares an app-host home and never cleans it up"
+                )
+            for cleanup in cleanups:
+                gate = str(cleanup.get("if", ""))
+                if "always()" not in gate and "cancelled()" not in gate:
+                    raise SystemExit(
+                        f"FAIL: {where} app-host cleanup must run after failures"
+                    )
 
 
 def main() -> int:
@@ -665,6 +721,8 @@ def main() -> int:
             "FAIL: console-session cleanup mode must match only the repository "
             "cleanup command"
         )
+
+    check_every_app_host_home_is_identified_and_cleaned()
 
     print("PASS: app-host XCTest receives an isolated launch home")
     return 0

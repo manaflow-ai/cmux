@@ -24,6 +24,18 @@ def run(argv, **kwargs):
     return subprocess.run(argv, text=True, capture_output=True, timeout=45, **kwargs)
 
 
+def drain_terminal(master, sink):
+    """Collects a pty's output until every process holding its slave has exited."""
+    while True:
+        try:
+            chunk = os.read(master, 65536)
+        except OSError:
+            return
+        if not chunk:
+            return
+        sink.extend(chunk)
+
+
 def main(cli):
     with tempfile.TemporaryDirectory(prefix="scp-", dir="/tmp") as raw:
         root = Path(raw)
@@ -269,55 +281,39 @@ LogLevel ERROR
                     wrong_host_key = fails
                     destination = f"human-{tty}-{fails}"
                     master, slave = pty.openpty() if tty else (None, None)
-                    argv = [cli, "vm", "push", "test-vm", str(payload), destination]
+                    terminal_output = bytearray()
+                    reader = None
                     try:
-                        if master is None:
-                            result = subprocess.run(
-                                argv, env=env, stdin=subprocess.DEVNULL,
-                                stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=30,
-                            )
-                            returncode, stdout, stderr = result.returncode, result.stdout, result.stderr or b""
-                        else:
-                            # A PTY has a small fixed buffer. Draining it only
-                            # after the child exits deadlocks whenever stderr
-                            # outgrows that buffer: the child blocks in write()
-                            # and never exits, so the timeout fires instead.
-                            # Drain concurrently, and close the parent's slave
-                            # copy now so the reader sees EOF once the child is
-                            # gone (otherwise this end holds the PTY open).
-                            chunks = []
-                            proc = subprocess.Popen(
-                                argv, env=env, stdin=subprocess.DEVNULL,
-                                stdout=subprocess.PIPE, stderr=slave,
-                            )
+                        process = subprocess.Popen(
+                            [cli, "vm", "push", "test-vm", str(payload), destination],
+                            env=env, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                            stderr=slave if tty else subprocess.PIPE,
+                        )
+                        if slave is not None:
+                            # The CLI owns the slave now. A terminal's output queue
+                            # holds only about 1 KiB and the host-key failure report is
+                            # longer, so the master must be drained while the CLI runs
+                            # or its stderr writes block until the timeout.
                             os.close(slave)
                             slave = None
-
-                            def drain(fd=master, sink=chunks):
-                                while True:
-                                    try:
-                                        data = os.read(fd, 65536)
-                                    except OSError:
-                                        return  # EIO: the last slave fd closed
-                                    if not data:
-                                        return
-                                    sink.append(data)
-
-                            reader = threading.Thread(target=drain, daemon=True)
+                            reader = threading.Thread(target=drain_terminal, args=(master, terminal_output), daemon=True)
                             reader.start()
-                            try:
-                                stdout, _ = proc.communicate(timeout=30)
-                            except subprocess.TimeoutExpired:
-                                proc.kill()
-                                proc.communicate()
-                                raise
-                            reader.join(timeout=5)
-                            returncode, stderr = proc.returncode, b"".join(chunks)
+                        try:
+                            stdout, piped_stderr = process.communicate(timeout=30)
+                        except subprocess.TimeoutExpired:
+                            process.kill()
+                            process.communicate()
+                            raise
+                        if reader is not None:
+                            # Returns once every process holding the slave has exited.
+                            reader.join(timeout=10)
+                            assert not reader.is_alive(), "terminal stderr stayed open after the CLI exited"
+                        stderr = piped_stderr if piped_stderr is not None else bytes(terminal_output)
                     finally:
                         if slave is not None: os.close(slave)
                         if master is not None: os.close(master)
                         wrong_host_key = False
-                    assert returncode == (1 if fails else 0), stderr
+                    assert process.returncode == (1 if fails else 0), stderr
                     if fails:
                         assert b"Host key verification failed" in stderr, stderr
                         assert b"Cloud diagnostic reference:" in stderr, stderr
