@@ -46,8 +46,6 @@ extension DockSplitStore {
         case (.commandRunning, .some(.awaitingAutoResumeCommand)):
             restoredAgentLifecycle.setResumeState(.autoResumeCommandRunning, panelId: panelId)
             restoredAgentLifecycle.clearStartupInput(panelId: panelId)
-        case (.promptIdle, .some(.awaitingAutoResumeCommand)):
-            scheduleRestoredStartupInputResend(panelId: panelId)
         case (.commandRunning, .some(.manualResumeAvailable)):
             if restoredAgentHasLiveProcess(panelId: panelId, restoredAgent: restoredAgent) {
                 // A TUI turn (OSC 133;C) from the agent itself, not an
@@ -156,9 +154,6 @@ extension DockSplitStore {
             resumeWorkingDirectory: detached.restoredResumeSessionWorkingDirectory,
             startupInput: detached.restoredStartupInput
         )
-        if detached.shellActivityState == .promptIdle {
-            scheduleRestoredStartupInputResend(panelId: detached.panelId)
-        }
         managedAgentResumeBindingsByPanelId.removeValue(forKey: detached.panelId)
         if let resumeBinding = detached.resumeBinding {
             if surfaceResumeBindingMutationAllowed(resumeBinding, panelId: detached.panelId) {

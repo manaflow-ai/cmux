@@ -4808,7 +4808,7 @@ struct CMUXCLI {
         }
         if command == SudoExecutionRunner.hiddenCommand {
             Darwin.exit(runHiddenSudoRunner(commandArgs: rawCommandArgs))
-        }
+        }; if command == "__restore-lease-watch" { runRestoreLeaseWatcher(commandArgs: rawCommandArgs) }
         if command == "sudo" {
             let exitCode = try runSudoCommand(commandArgs: rawCommandArgs)
             if exitCode != 0 { Darwin.exit(exitCode) }

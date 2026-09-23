@@ -34,6 +34,15 @@ struct TerminalStartupInputGateTests {
         #expect(gate.takeForPrompt(generation: generation) == nil)
     }
 
+    @Test("Input delivered directly at spawn cannot be delivered again by a later prompt")
+    func directDeliveryConsumesGeneration() {
+        var gate = TerminalStartupInputGate()
+        let generation = UUID()
+        gate.stage(nil, generation: generation)
+        gate.stage("cmux restore --surface\n", generation: generation)
+        #expect(gate.takeForPrompt(generation: generation) == nil)
+    }
+
     @Test("A replaced runtime cannot receive the preceding shell's command")
     func replacementRejectsStalePrompt() {
         var gate = TerminalStartupInputGate()

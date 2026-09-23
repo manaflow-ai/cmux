@@ -334,9 +334,9 @@ extension Workspace {
                 markRestoredAgentCompleted(panelId: panelId, snapshot: restoredAgent)
                 restoredResumeSessionWorkingDirectoriesByPanelId.removeValue(forKey: panelId)
                 retireAgentHookResumeBinding(panelId: panelId, matching: restoredAgent)
-            case .some(.awaitingAutoResumeCommand):
-                scheduleRestoredStartupInputResend(panelId: panelId)
-            case .some(.manualResumeAvailable), .some(.completedAgentExit), nil:
+            case .some(.awaitingAutoResumeCommand), .some(.manualResumeAvailable),
+                 .some(.completedAgentExit), nil:
+                // The terminal owns prompt-ready startup input delivery.
                 break
             }
         case .unknown:
@@ -352,8 +352,6 @@ extension Workspace {
         case (.commandRunning, .some(.awaitingAutoResumeCommand)):
             restoredAgentLifecycle.setResumeState(.autoResumeCommandRunning, panelId: panelId)
             restoredAgentLifecycle.clearStartupInput(panelId: panelId)
-        case (.promptIdle, .some(.awaitingAutoResumeCommand)):
-            scheduleRestoredStartupInputResend(panelId: panelId)
         case (.promptIdle, .some(.autoResumeCommandRunning)),
              (.promptIdle, .some(.observedAgentCommandRunning)):
             guard !agentHookBindingHasLiveProcess(panelId: panelId) else { break }
@@ -480,9 +478,6 @@ extension Workspace {
             resumeWorkingDirectory: detached.restoredResumeSessionWorkingDirectory,
             startupInput: detached.restoredStartupInput
         )
-        if detached.shellActivityState == .promptIdle {
-            scheduleRestoredStartupInputResend(panelId: detached.panelId)
-        }
         if let deferredRestore = detached.deferredAgentResumeRestore {
             let adoptedRemoteContext = surfaceResumeBindingsByPanelId[detached.panelId]?
                 .launchFlavor.remoteContext

@@ -241,7 +241,10 @@ extension CMUXCLI {
             recordSessionID: surfaceRecordCheckpointID,
             restorePayload: payload,
             client: client,
+            // A remote provider has no local writer lock; omitting the home makes
+            // the app require complete process evidence, matching the lease.
             effectiveCodexHome: record.kind == "codex"
+                && !CodexRestoreAccount().usesRemoteProvider(arguments: invocation.arguments)
                 ? CodexRestoreAccount().home(
                     environment: invocation.environment,
                     workingDirectory: effectiveWorkingDirectory ?? FileManager.default.currentDirectoryPath,
@@ -276,7 +279,9 @@ extension CMUXCLI {
                 )
                 return
             }
-            try launchLease?.inheritAcrossExec()
+            // The watcher holds the lease for exactly this process's lifetime;
+            // exec closes our descriptor so the agent's children never inherit it.
+            if let launchLease { try transferRestoreLaunchLease(launchLease) }
             client.close()
             try execRestoreInvocation(
                 invocation,

@@ -224,9 +224,11 @@ extension TerminalSurface {
         }
 
         var managedShellCommand: String?
+        var appliedShellIntegrationDirectory: String?
         if spawnPolicy.shellIntegrationEnabled,
            let integrationDir = Bundle.main.resourceURL?.appendingPathComponent("shell-integration").path,
            Self.shellIntegrationDirectoryExists(integrationDir) {
+            appliedShellIntegrationDirectory = integrationDir
             setManagedEnvironmentValue("CMUX_SHELL_INTEGRATION", "1")
             setManagedEnvironmentValue("CMUX_SHELL_INTEGRATION_DIR", integrationDir)
             Self.applyManagedGitWatchEnvironment(
@@ -297,12 +299,23 @@ extension TerminalSurface {
             }
             return baseConfig.initialInput
         }()
+        // Admission holds startup input until the shell reports a prompt. A
+        // process that cannot report one receives the input directly at spawn.
+        let gatesStartupInputOnPrompt = startupRestoreAdmissionPhase != .unrestricted
+            && TerminalShellPromptReadinessPolicy().reportsPromptReadiness(
+                integrationDirectory: appliedShellIntegrationDirectory,
+                resolvedCommand: resolvedCommand,
+                hasUserGhosttyCommand: engine.hasUserGhosttyCommand,
+                resolvedShell: engine.resolvedUserShell,
+                managedShellCommand: managedShellCommand,
+                environment: env
+            )
         let createdSurface = withOptionalCString(resolvedCommand) { cCommand in
             surfaceConfig.command = cCommand
             return withOptionalCString(resolvedWorkingDirectory) { cWorkingDir in
                 surfaceConfig.working_directory = cWorkingDir
                 return withOptionalCString(
-                    startupRestoreAdmissionPhase == .unrestricted ? resolvedInitialInput : ""
+                    gatesStartupInputOnPrompt ? "" : resolvedInitialInput
                 ) { cInitialInput in
                     surfaceConfig.initial_input = cInitialInput
                     return makeGhosttySurface(app: app, config: &surfaceConfig, envVars: &envVars)
@@ -310,8 +323,11 @@ extension TerminalSurface {
             }
         }
         if let createdSurface {
-            if startupRestoreAdmissionPhase != .unrestricted {
+            if gatesStartupInputOnPrompt {
                 startupInputGate.stage(resolvedInitialInput, generation: terminalLifecycleId)
+            } else if startupRestoreAdmissionPhase != .unrestricted {
+                // Direct delivery consumed this generation's input.
+                startupInputGate.stage(nil, generation: terminalLifecycleId)
             }
             guard ghostty_surface_set_render_presented_callback(
                 createdSurface,

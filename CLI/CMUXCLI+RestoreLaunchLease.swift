@@ -50,4 +50,19 @@ extension CMUXCLI {
         }
         return lease
     }
+
+    /// Hands the lease to a watcher bound to this process, immediately before exec.
+    func transferRestoreLaunchLease(_ lease: AgentRestoreLaunchLease) throws {
+        guard let executable = resolvedExecutableURL()?.path else { throw POSIXError(.ENOENT) }
+        try lease.transferToExitWatcher(
+            executablePath: executable,
+            arguments: [executable, "__restore-lease-watch", String(getpid())]
+        )
+    }
+
+    /// Internal watcher process: holds the inherited lease until the restoring process exits.
+    func runRestoreLeaseWatcher(commandArgs: [String]) -> Never {
+        guard let raw = commandArgs.first, let processID = pid_t(raw), processID > 1 else { exit(64) }
+        exit(AgentRestoreLaunchLease.runExitWatcher(processID: processID) ? 0 : 1)
+    }
 }

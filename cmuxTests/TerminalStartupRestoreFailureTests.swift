@@ -23,8 +23,8 @@ private final class RejectingRestoreTabDelegate: BonsplitDelegate {
 @MainActor
 @Suite("Terminal startup restore failure handling", .serialized)
 struct TerminalStartupRestoreFailureTests {
-    @Test("Binding-only persistent SSH resume waits for topology admission")
-    func persistentSSHBindingOnlyResumeWaitsForTopologyAdmission() throws {
+    @Test("Binding-only persistent SSH resume attaches after topology commit without local census admission")
+    func persistentSSHBindingOnlyResumeBypassesLocalCensusAdmission() throws {
         let defaults = try makeAutoResumeDefaults()
         defer { defaults.store.removePersistentDomain(forName: defaults.name) }
         TerminalController.shared.stop(cleanupDiscoveryState: true)

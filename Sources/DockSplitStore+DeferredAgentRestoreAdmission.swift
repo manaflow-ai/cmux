@@ -3,34 +3,6 @@ import CmuxWorkspaces
 import Foundation
 
 extension DockSplitStore {
-    func deferAgentResumeRestore(
-        panelId: UUID,
-        restore: DeferredAgentResumeRestore
-    ) {
-        deferredAgentResumeRestoresByPanelId[panelId] = restore
-        guard deferredAgentResumeIndexTask == nil else { return }
-        deferredAgentResumeIndexTask = Task { @MainActor [weak self] in
-            while !Task.isCancelled {
-                let outcome = await SharedLiveAgentIndex.shared.indexForOwnershipDecision()
-                guard !Task.isCancelled, let self else { return }
-                switch outcome {
-                case .index(let index):
-                    self.resolveDeferredAgentResumeRestores(using: index)
-                case .timedOut, .cancelled:
-                    self.presentPendingAgentResumeRestores()
-                }
-                guard !self.deferredAgentResumeRestoresByPanelId.isEmpty else {
-                    self.deferredAgentResumeIndexTask = nil
-                    return
-                }
-                await AgentRestoreEvidenceObservation().wait(
-                    process: nil,
-                    paths: [RestorableAgentKind.claude.hookStoreFileURL().deletingLastPathComponent().path]
-                )
-            }
-        }
-    }
-
     func resolveDeferredAgentResumeRestores(
         using index: RestorableAgentSessionIndex
     ) {

@@ -3,40 +3,6 @@ import CmuxWorkspaces
 import Foundation
 
 extension Workspace {
-    /// Defers one restore launch until the off-main shared agent index is ready.
-    ///
-    /// Restore is synchronous because it rebuilds Bonsplit topology, while the
-    /// live-agent index is intentionally asynchronous. Keeping the request on
-    /// the owner lets the terminal join its topology first and avoids a main
-    /// actor hook-store scan.
-    func deferAgentResumeRestore(
-        panelId: UUID,
-        restore: DeferredAgentResumeRestore
-    ) {
-        deferredAgentResumeRestoresByPanelId[panelId] = restore
-        guard deferredAgentResumeIndexTask == nil else { return }
-        deferredAgentResumeIndexTask = Task { @MainActor [weak self] in
-            while !Task.isCancelled {
-                let outcome = await SharedLiveAgentIndex.shared.indexForOwnershipDecision()
-                guard !Task.isCancelled, let self else { return }
-                switch outcome {
-                case .index(let index):
-                    self.resolveDeferredAgentResumeRestores(using: index)
-                case .timedOut, .cancelled:
-                    self.presentPendingAgentResumeRestores()
-                }
-                guard !self.deferredAgentResumeRestoresByPanelId.isEmpty else {
-                    self.deferredAgentResumeIndexTask = nil
-                    return
-                }
-                await AgentRestoreEvidenceObservation().wait(
-                    process: nil,
-                    paths: [RestorableAgentKind.claude.hookStoreFileURL().deletingLastPathComponent().path]
-                )
-            }
-        }
-    }
-
     func resolveDeferredAgentResumeRestores(
         using index: RestorableAgentSessionIndex
     ) {
