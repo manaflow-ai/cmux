@@ -53,6 +53,8 @@ export async function GET(
         createdAt: vm.createdAt,
         displayName: vm.displayName,
         slug: vm.slug,
+        ...(vm.providerStatusObservedAt === null ? {} : { providerStatusObservedAt: vm.providerStatusObservedAt }),
+        ...(vm.providerStatusCheckedAt === null ? {} : { providerStatusCheckedAt: vm.providerStatusCheckedAt }),
         address: { ipv4: vm.addressIpv4 ?? null, ipv6: vm.addressIpv6 ?? null },
       });
     },

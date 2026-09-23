@@ -10,7 +10,11 @@ import { randomInt } from "node:crypto";
  * hyphens) so the slug is safe in URLs, hostnames, shell arguments, and file
  * names without escaping.
  */
-export const VM_SLUG_PATTERN = /^[a-z]+-[a-z]+-[a-z]+(?:-[a-z0-9]{4})?$/;
+// New names use a four-character collision suffix. Legacy rows that existed
+// before slug allocation was introduced are backfilled with a longer opaque
+// suffix derived from their UUID, so keep the suffix grammar bounded but wide
+// enough for that one-time migration.
+export const VM_SLUG_PATTERN = /^[a-z]+-[a-z]+-[a-z]+(?:-[a-z0-9]{4,32})?$/;
 
 export function isVmSlug(value: unknown): value is string {
   return typeof value === "string" && VM_SLUG_PATTERN.test(value);
