@@ -99,6 +99,13 @@ CI_PUBLISHING_ONLY = frozenset({
     "scripts/sparkle_generate_appcast.sh",
 })
 
+# This helper packages only iOS simulator test products. Its Linux contract
+# runs in the release-ios guard group; the iOS workflow owns native execution.
+# Shared transport helpers remain outside this exact set.
+CI_IOS_TEST_PRODUCT_INPUTS = frozenset({
+    "scripts/ci/ios_simulator_test_product.py",
+})
+
 CI_MACOS_ADMISSION_CONTROL_INPUTS = frozenset({
     "scripts/ci/build_input_fingerprint.py",
     "scripts/ci/find_admitted_build.py",
@@ -128,6 +135,7 @@ def forces_all_areas(path: str) -> bool:
         direct_ci_python
         and path not in CI_CONTROL_PLANE_ONLY
         and path not in CI_PUBLISHING_ONLY
+        and path not in CI_IOS_TEST_PRODUCT_INPUTS
         and path not in CI_MACOS_ADMISSION_CONTROL_INPUTS
         and path not in CI_MACOS_TEST_PRODUCT_INPUTS
     ):
@@ -940,7 +948,11 @@ def is_macos_neutral(
     path: str,
     macos_ios_packages: Optional[frozenset[str]],
 ) -> bool:
-    if path in CI_CONTROL_PLANE_ONLY or path in CI_PUBLISHING_ONLY:
+    if (
+        path in CI_CONTROL_PLANE_ONLY
+        or path in CI_PUBLISHING_ONLY
+        or path in CI_IOS_TEST_PRODUCT_INPUTS
+    ):
         return True
     # Review configuration is not a build input. Keep this exact: unknown
     # policy files retain native coverage, and Linux guards still validate PRs.

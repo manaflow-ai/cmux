@@ -230,6 +230,119 @@ class IOSSimulatorProductTests(unittest.TestCase):
         manifest.write_bytes(plistlib.dumps(value))
         return Path(self.consumer_identity["developer"]) / relative
 
+    def add_compile_outputs(self) -> tuple[Path, Path, Path]:
+        root = self.stage / "Build" / "Products" / "Debug-iphonesimulator"
+        archive = root / "libUnused.a"
+        archive.write_bytes(b"static library" * 10)
+        obj = root / "Unused.o"
+        obj.write_bytes(b"object" * 10)
+        module = root / "Unused.swiftmodule"
+        module.mkdir()
+        (module / "arm64.swiftmodule").write_bytes(b"compiler metadata" * 10)
+        return archive, obj, module
+
+    def update_manifest_target(self, **fields) -> None:
+        path = next((self.stage / "Build" / "Products").glob("*.xctestrun"))
+        value = plistlib.loads(path.read_bytes())
+        next(self.product.targets(value)).update(fields)
+        path.write_bytes(plistlib.dumps(value))
+
+    def test_pruned_product_restores_with_complete_runtime_bundles(self) -> None:
+        archive, obj, module = self.add_compile_outputs()
+        root = archive.parent
+        preserved = []
+        for bundle in ("cmux.app", "cmuxTests.xctest", "Support.framework", "Resources.bundle", "cmux.app.dSYM"):
+            child = root / bundle / "nested" / "Keep.a"
+            child.parent.mkdir(parents=True, exist_ok=True)
+            child.write_bytes(b"keep whole bundle")
+            preserved.append(child.relative_to(self.stage))
+        # Runtime loader search roots must not pin static compiler metadata.
+        self.update_manifest_target(EnvironmentVariables={"DYLD_FRAMEWORK_PATH": "__TESTROOT__/Debug-iphonesimulator"})
+        self.stamp_and_copy()
+        self.product.identity = lambda: dict(self.consumer_identity)
+        self.product.restore(self.consumer)
+        for candidate in (archive, obj, module):
+            self.assertFalse(candidate.exists())
+        for path in preserved:
+            self.assertEqual((self.consumer / path).read_bytes(), b"keep whole bundle")
+        receipt = json.loads((self.stage / "Build" / "Products" / self.product.RECEIPT).read_text())
+        report = receipt["staging"]
+        self.assertEqual(report["removed_count"], 3)
+        self.assertEqual(report["removed_bytes"], 370)
+        self.assertEqual(report["before_bytes"] - report["after_bytes"], 370)
+
+    def test_manifest_references_protect_loose_compile_products(self) -> None:
+        archive, obj, module = self.add_compile_outputs()
+        self.update_manifest_target(
+            DependentProductPaths=["__TESTROOT__/Debug-iphonesimulator/libUnused.a", str(module / "arm64.swiftmodule")],
+            FutureProductReference="Debug-iphonesimulator/Unused.o",
+        )
+        self.stamp_and_copy()
+        self.product.identity = lambda: dict(self.consumer_identity)
+        self.product.restore(self.consumer)
+        for candidate in (archive, obj, module):
+            self.assertTrue((self.consumer / candidate.relative_to(self.stage)).exists())
+        # Referenced compiler outputs remain covered by the product digest.
+        (self.consumer / archive.relative_to(self.stage)).write_bytes(b"changed")
+        with self.assertRaisesRegex(ValueError, "digest mismatch"):
+            self.product.restore(self.consumer)
+
+    def assert_pruning_skipped_and_product_verified(self, reference: str, reason: str) -> None:
+        candidates = self.add_compile_outputs()
+        self.update_manifest_target(DependentProductPaths=[reference])
+        self.stamp_and_copy()
+        self.product.identity = lambda: dict(self.consumer_identity)
+        self.product.restore(self.consumer)
+        self.assertTrue(all(path.exists() for path in candidates))
+        for path in candidates:
+            self.assertTrue((self.consumer / path.relative_to(self.stage)).exists())
+        receipt = json.loads((self.stage / "Build" / "Products" / self.product.RECEIPT).read_text())
+        self.assertEqual(receipt["staging"]["skipped_reason"], reason)
+        self.assertEqual(receipt["staging"]["removed_count"], 0)
+        (self.consumer / candidates[0].relative_to(self.stage)).write_bytes(b"changed")
+        with self.assertRaisesRegex(ValueError, "digest mismatch"):
+            self.product.restore(self.consumer)
+
+    def test_unfamiliar_reference_preserves_verified_complete_product(self) -> None:
+        self.assert_pruning_skipped_and_product_verified(
+            "__FUTURE_ROOT__/required.a", "unfamiliar manifest macro",
+        )
+
+    def test_wildcard_reference_preserves_verified_complete_product(self) -> None:
+        self.assert_pruning_skipped_and_product_verified(
+            "__TESTROOT__/Debug-iphonesimulator/*.a", "wildcard manifest reference",
+        )
+
+    def test_reference_through_symlink_protects_module_contents(self) -> None:
+        _, _, module = self.add_compile_outputs()
+        alias = module.parent / "CompilerAlias"
+        alias.symlink_to(module.name)
+        self.update_manifest_target(
+            DependentProductPaths=["__TESTROOT__/Debug-iphonesimulator/CompilerAlias/arm64.swiftmodule"]
+        )
+        self.stamp_and_copy()
+        self.assertTrue(module.is_dir())
+        self.assertEqual((module / "arm64.swiftmodule").read_bytes(), b"compiler metadata" * 10)
+
+    def test_unknown_directory_reference_protects_all_children(self) -> None:
+        candidates = self.add_compile_outputs()
+        self.update_manifest_target(FutureProductDirectory="__TESTROOT__/Debug-iphonesimulator")
+        self.stamp_and_copy()
+        self.product.identity = lambda: dict(self.consumer_identity)
+        self.product.restore(self.consumer)
+        self.assertTrue(all(path.exists() for path in candidates))
+
+    def test_nested_non_bundle_outputs_and_symlinks_are_not_pruned(self) -> None:
+        root = self.stage / "Build" / "Products" / "Debug-iphonesimulator"
+        nested = root / "UnknownProduct" / "Keep.o"
+        nested.parent.mkdir()
+        nested.write_bytes(b"unclassified")
+        link = root / "Alias.o"
+        link.symlink_to("UnknownProduct/Keep.o")
+        self.stamp_and_copy()
+        self.assertTrue(nested.exists())
+        self.assertTrue(link.is_symlink())
+
     def test_platform_xctest_host_survives_stamp_and_consumer_relocation(self) -> None:
         self.configure_platform_test_host()
         self.stamp_and_copy()

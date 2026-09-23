@@ -8,6 +8,8 @@ import json
 import os
 import platform
 import plistlib
+import re
+import shutil
 import stat
 import subprocess
 import sys
@@ -178,6 +180,98 @@ def relocate_manifest(
     manifest.write_bytes(plistlib.dumps(value))
 
 
+def prune_compile_products(products: Path) -> dict:
+    """Remove only unreferenced loose compiler outputs, never bundle contents."""
+    roots = [products] + [
+        path for path in products.iterdir()
+        if path.is_dir() and not path.is_symlink() and path.name.endswith("-iphonesimulator")
+    ]
+    candidates = [
+        path for root in roots for path in root.iterdir()
+        if not path.is_symlink() and (
+            (path.is_file() and path.suffix in {".a", ".o"})
+            or (path.is_dir() and path.suffix == ".swiftmodule")
+        )
+    ]
+
+    def strings(value, key=""):
+        if isinstance(value, dict):
+            for child_key, child in value.items():
+                yield from strings(child, child_key)
+        elif isinstance(value, list):
+            for child in value:
+                yield from strings(child, key)
+        elif isinstance(value, str):
+            yield key, value
+
+    references = list(strings(plistlib.loads(manifests(products)[0].read_bytes())))
+    # Resolve only understood manifest syntax before touching any candidate.
+    # Unknown macros could hide a reference to a compiler output.
+    skipped_reason = None
+    for _, raw in references:
+        unknown = set(re.findall(r"__[A-Z][A-Z0-9_]*__", raw)) - {
+            "__TESTROOT__", "__TESTHOST__", "__PLATFORMS__",
+        }
+        if candidates and unknown:
+            skipped_reason = "unfamiliar manifest macro"
+            break
+        if candidates and "__TESTROOT__" in raw and any(char in raw for char in "*?["):
+            skipped_reason = "wildcard manifest reference"
+            break
+
+    loader_search_paths = {
+        "DYLD_FRAMEWORK_PATH", "DYLD_LIBRARY_PATH",
+        "DYLD_FALLBACK_FRAMEWORK_PATH", "DYLD_FALLBACK_LIBRARY_PATH",
+    }
+
+    def referenced(candidate):
+        for key, raw in references:
+            # Also protect paths in future/unknown fields, command arguments,
+            # __TESTHOST__ references and relative DependentProductPaths.
+            if candidate.name in raw:
+                return True
+            for part in raw.replace("__TESTROOT__", str(products)).split(":"):
+                if not part.startswith("/"):
+                    continue
+                path = Path(part).resolve()
+                if path.is_relative_to(candidate):
+                    return True
+                # dyld searches directories for runtime libraries; it cannot
+                # load loose .a/.o files or Swift compiler module metadata.
+                if key not in loader_search_paths and candidate.is_relative_to(path):
+                    return True
+        return False
+
+    def file_bytes(root):
+        if root.is_file():
+            return root.stat().st_size
+        return sum(path.lstat().st_size for path in root.rglob("*") if path.is_file() and not path.is_symlink())
+
+    before = file_bytes(products)
+    if skipped_reason:
+        # Pruning is optional. Unknown references keep the complete product;
+        # ordinary manifest and identity validation still run unchanged.
+        return {
+            "before_bytes": before, "after_bytes": before,
+            "removed_count": 0, "removed_bytes": 0, "removed": [],
+            "skipped_reason": skipped_reason,
+        }
+    removed = []
+    for path in candidates:
+        if referenced(path):
+            continue
+        removed.append({"path": path.relative_to(products).as_posix(), "bytes": file_bytes(path)})
+    # All references have been checked before the first removal.
+    for item in removed:
+        path = products / item["path"]
+        shutil.rmtree(path) if path.is_dir() else path.unlink()
+    return {
+        "before_bytes": before, "after_bytes": file_bytes(products),
+        "removed_count": len(removed), "removed_bytes": sum(item["bytes"] for item in removed),
+        "removed": removed,
+    }
+
+
 def stamp(derived: Path, source_derived: Path) -> None:
     products = derived / "Build" / "Products"
     current = identity()
@@ -186,6 +280,7 @@ def stamp(derived: Path, source_derived: Path) -> None:
         manifest, products, [(str(source_derived.resolve()), str(derived.resolve()))],
         Path(current["developer"]),
     )
+    staging = prune_compile_products(products)
     digest = product_digest(products)
     receipt = {
         "schema": 1,
@@ -193,9 +288,11 @@ def stamp(derived: Path, source_derived: Path) -> None:
         "producer_derived": str(derived.resolve()),
         "product_digest": f"sha256:{digest}",
         "xctestrun": manifest.name,
+        "staging": staging,
     }
     (products / RECEIPT).write_text(json.dumps(receipt, sort_keys=True, indent=2) + "\n")
     print(f"Stamped iOS simulator product {receipt['product_digest']}")
+    print("IOS_BUILD_ONCE_STAGING " + json.dumps(staging, sort_keys=True))
 
 
 def restore(derived: Path) -> None:

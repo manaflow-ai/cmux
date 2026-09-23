@@ -1131,6 +1131,42 @@ def test_workflow_changes_run_everything() -> None:
     )
 
 
+def test_ios_simulator_product_helper_skips_unrelated_builds() -> None:
+    helper = "scripts/ci/ios_simulator_test_product.py"
+    guard = "tests/test_ios_simulator_build_once.py"
+    no_products = [
+        "macos=false", "web=false", "agent_session_web=false",
+        "cli=false", "swift_packages=false", "release_build=false",
+    ]
+    result, outputs = run_detect_step_for_paths([helper])
+    assert result.returncode == 0, result.stderr
+    assert outputs == no_products, (result.stdout, outputs)
+
+    _, guard_outputs = run_detect_step_for_paths([guard])
+    result, combined = run_detect_step_for_paths([helper, guard])
+    assert combined == guard_outputs, (result.stdout, combined, guard_outputs)
+    assert "macos=false" in combined and "release_build=false" in combined
+
+    # Narrowing the iOS helper must not remove any lane selected by a real
+    # desktop edit, shared download transport, or an unowned CI helper.
+    for other in (
+        "Sources/AppDelegate.swift",
+        "scripts/ci/parallel_artifact_download.py",
+        "scripts/ci/future_ios_helper.py",
+    ):
+        _, baseline = run_detect_step_for_paths([guard, other])
+        result, combined = run_detect_step_for_paths([helper, guard, other])
+        assert combined == baseline, (other, result.stdout, combined, baseline)
+        assert "macos=true" in combined, (other, combined)
+        assert "release_build=true" in combined, (other, combined)
+
+    # Router/workflow edits retain the existing trusted-base policy.
+    for router in ("scripts/ci/detect_ci_change_areas.py", ".github/workflows/ci.yml"):
+        _, baseline = run_detect_step_for_paths([router])
+        result, combined = run_detect_step_for_paths([helper, router])
+        assert combined == baseline, (router, result.stdout, combined, baseline)
+
+
 def test_publishing_helpers_skip_unrelated_product_builds() -> None:
     helpers = ["scripts/ci/download-run-artifact.py", "scripts/prebuild_sparkle_deltas.sh", "scripts/sparkle_generate_appcast.sh"]
     for path in helpers:
