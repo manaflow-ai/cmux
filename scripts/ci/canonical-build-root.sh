@@ -60,6 +60,12 @@ mkdir -p "$root"
 # Consumers only need the source files at that path, not another checkout copy.
 # A later producer removes this alias below before building a real source tree.
 if [ "$runtime_source" = true ]; then
+  case "$workspace/" in
+    "$src/"*)
+      echo "canonical-build-root: runtime workspace must live outside $src" >&2
+      exit 1
+      ;;
+  esac
   rm -rf "$src"
   ln -s "$workspace" "$src"
   exit 0

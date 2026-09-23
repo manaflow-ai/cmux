@@ -134,6 +134,13 @@ class CanonicalRootMaterializationTests(unittest.TestCase):
         self.assertEqual(self.run_script().returncode, 0)
         self.assertFalse((self.root / "src").is_symlink())
         self.assertEqual((self.root / "src/sub/keep.txt").read_text(), "keep")
+        refused = subprocess.run(
+            [str(ROOT / "scripts/ci/canonical-build-root.sh"), "--runtime-source", str(self.root / "src")],
+            env={"PATH": "/usr/bin:/bin", "CMUX_CI_CANONICAL_ROOT": str(self.root)},
+            text=True, capture_output=True,
+        )
+        self.assertNotEqual(refused.returncode, 0)
+        self.assertEqual((self.root / "src/sub/keep.txt").read_text(), "keep")
 
     def test_the_canonical_source_is_a_real_directory_not_a_symlink(self):
         # A symlink resolves back to the pool-specific path, which would make
