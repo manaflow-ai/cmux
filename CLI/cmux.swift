@@ -39632,11 +39632,17 @@ export default CMUXSessionRestore;
                 return
             }
         }
-        if validatedCodexFeedTarget == nil,
+        let claimedWorkspaceId = feedWorkspaceId(rawObject: stdinObj, fallback: env["CMUX_WORKSPACE_ID"])
+        let claimedSurfaceId = firstString(in: stdinObj, keys: ["surface_id", "surfaceId"])
+            ?? normalizedHookValue(env["CMUX_SURFACE_ID"])
+        // Telemetry must not wait for a routing response. Carry its scope to
+        // the host, where Computer Use checks live local ownership before
+        // presenting setup. Blocking decisions resolve their target first.
+        if isActionable, validatedCodexFeedTarget == nil,
            let activeClient = client ?? makeLifecycleProbeClient(),
            let target = resolvedFeedDeliveryTarget(
-               workspaceId: feedWorkspaceId(rawObject: stdinObj, fallback: env["CMUX_WORKSPACE_ID"]),
-               surfaceId: firstString(in: stdinObj, keys: ["surface_id", "surfaceId"]) ?? normalizedHookValue(env["CMUX_SURFACE_ID"]),
+               workspaceId: claimedWorkspaceId,
+               surfaceId: claimedSurfaceId,
                agentPid: agentPid,
                relayOrigin: env[agentHookRelayOriginEnvironmentKey] == "1",
                client: activeClient,
@@ -39645,15 +39651,19 @@ export default CMUXSessionRestore;
                        + Self.feedAttentionProbeTimeoutCapSeconds
                )
            ) { validatedCodexFeedTarget = target }
-        guard let validatedCodexFeedTarget else { print("{}"); return }
+        guard !isActionable || validatedCodexFeedTarget != nil else { print("{}"); return }
         var eventDict: [String: Any] = [
             "session_id": workstreamID,
             "hook_event_name": hookEventName,
             "_source": source,
         ]
         if agentPid > 0 { eventDict["_ppid"] = agentPid }
-        eventDict["workspace_id"] = validatedCodexFeedTarget.workspaceId
-        eventDict["surface_id"] = validatedCodexFeedTarget.surfaceId
+        if let workspaceId = validatedCodexFeedTarget?.workspaceId ?? claimedWorkspaceId {
+            eventDict["workspace_id"] = workspaceId
+        }
+        if let surfaceId = validatedCodexFeedTarget?.surfaceId ?? claimedSurfaceId {
+            eventDict["surface_id"] = surfaceId
+        }
         let toolRequestInput = stdinObj["tool_input"] ?? stdinObj["toolInput"] ?? toolCall?["args"]
         let postToolUseResponseInput = stdinObj["tool_response"]
             ?? stdinObj["toolResponse"]
