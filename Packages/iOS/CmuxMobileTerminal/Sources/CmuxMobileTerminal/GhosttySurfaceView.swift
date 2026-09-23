@@ -1168,6 +1168,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// stretched by Core Animation.
     private var keyboardTransitionPresentationOverlay: CALayer?
     private var keyboardTransitionPresentationTarget: TerminalViewportSnapshot?
+    private var keyboardTransitionPresentationStableFrames = 0
     private var keyboardVisible = false
     /// Height the persistent bottom toolbar reserves in the terminal grid. The
     /// toolbar is constrained to ``UIView/keyboardLayoutGuide`` and the viewport
@@ -1317,6 +1318,14 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             publishSettledKeyboardViewportImmediately = false
         }
         if !active {
+            if wasActive {
+                // UIKit has just finished moving the pane. Require two quiet
+                // layout/display passes at that final target before exposing
+                // the live renderer, since its first presented surface can
+                // still carry the previous grid even after its layer resized.
+                keyboardTransitionPresentationStableFrames = 0
+                keyboardTransitionPresentationTarget = nil
+            }
             let committed = commitHostedKeyboardGeometryIfNeeded()
             if wasActive,
                (committed || keyboardTargetGeometryReportPending),
@@ -1378,6 +1387,8 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         ]
         layer.addSublayer(overlay)
         keyboardTransitionPresentationOverlay = overlay
+        renderer?.isHidden = true
+        keyboardTransitionPresentationStableFrames = 0
         updateKeyboardTransitionPresentationOverlayFrame()
         MobileDebugLog.anchormux("kb.presentation.freeze")
     }
@@ -1385,7 +1396,15 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     private func updateKeyboardTransitionPresentationOverlayFrame() {
         guard let overlay = keyboardTransitionPresentationOverlay else { return }
         let snapshot = viewportSnapshot()
-        keyboardTransitionPresentationTarget = snapshot
+        if keyboardTransitionPresentationTarget == snapshot {
+            keyboardTransitionPresentationStableFrames += 1
+        } else {
+            keyboardTransitionPresentationTarget = snapshot
+            keyboardTransitionPresentationStableFrames = 1
+        }
+        for sublayer in layer.sublayers ?? [] where isGhosttyRendererLayer(sublayer) {
+            sublayer.isHidden = true
+        }
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         overlay.frame = snapshot.layoutViewportRect
@@ -1393,9 +1412,19 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     }
 
     private func clearKeyboardTransitionPresentationOverlayIfReady() {
-        guard let overlay = keyboardTransitionPresentationOverlay,
-              let target = keyboardTransitionPresentationTarget,
-              viewportSnapshot() == target,
+        guard let overlay = keyboardTransitionPresentationOverlay else { return }
+        let snapshot = viewportSnapshot()
+        if keyboardTransitionPresentationTarget == snapshot {
+            keyboardTransitionPresentationStableFrames += 1
+        } else {
+            keyboardTransitionPresentationTarget = snapshot
+            keyboardTransitionPresentationStableFrames = 1
+        }
+        guard let target = keyboardTransitionPresentationTarget,
+              snapshot == target,
+              !keyboardTransitionActiveForGeometry,
+              !keyboardTargetGeometryReportPending,
+              keyboardTransitionPresentationStableFrames >= 2,
               let renderer = (layer.sublayers ?? []).first(where: isGhosttyRendererLayer),
               let identity = verifiedReplayRendererIdentity(from: renderer.contents),
               abs(CGFloat(identity.pixelWidth) - renderer.bounds.width * renderer.contentsScale) < 2,
@@ -1403,9 +1432,13 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         overlay.removeFromSuperlayer()
+        for sublayer in layer.sublayers ?? [] where isGhosttyRendererLayer(sublayer) {
+            sublayer.isHidden = false
+        }
         CATransaction.commit()
         keyboardTransitionPresentationOverlay = nil
         keyboardTransitionPresentationTarget = nil
+        keyboardTransitionPresentationStableFrames = 0
         MobileDebugLog.anchormux("kb.presentation.reveal")
     }
 
@@ -1413,9 +1446,13 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         keyboardTransitionPresentationOverlay?.removeFromSuperlayer()
+        for sublayer in layer.sublayers ?? [] where isGhosttyRendererLayer(sublayer) {
+            sublayer.isHidden = false
+        }
         CATransaction.commit()
         keyboardTransitionPresentationOverlay = nil
         keyboardTransitionPresentationTarget = nil
+        keyboardTransitionPresentationStableFrames = 0
     }
 
     @discardableResult
