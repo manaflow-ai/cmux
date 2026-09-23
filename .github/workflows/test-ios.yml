@@ -658,6 +658,9 @@ jobs:
           xcrun simctl delete "$SIMULATOR_ID"
 
   ios-simulator:
+    permissions:
+      contents: read
+      actions: read
     needs:
       - detect-ios-changes
       - ios-simulator-build
@@ -763,7 +766,18 @@ jobs:
       - name: Start iOS product download timer
         run: echo "IOS_DOWNLOAD_STARTED_NS=$(python3 -c 'import time; print(time.monotonic_ns())')" >> "$GITHUB_ENV"
 
+      - name: Try parallel GitHub artifact transport
+        id: parallel-product
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_ID: ${{ needs.ios-simulator-build.outputs.artifact_id }}
+          ARTIFACT_PROVIDER_DIGEST: ${{ needs.ios-simulator-build.outputs.artifact_digest }}
+          ARTIFACT_PRODUCT_KIND: ios
+        run: python3 scripts/ci/parallel_artifact_download.py
+
       - name: Download iOS test product
+        if: ${{ steps.parallel-product.outputs.hit != 'true' }}
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
           artifact-ids: ${{ needs.ios-simulator-build.outputs.artifact_id }}
