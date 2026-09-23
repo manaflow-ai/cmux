@@ -270,6 +270,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_select_package_tests.py
 
+      - name: Validate workflow_run triggers name workflows that exist
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_workflow_run_sources.py
+
       - name: Validate shallow complexity comparison fetching
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_fetch_complexity_base.py
@@ -334,6 +338,12 @@ jobs:
         if: ${{ matrix.group == 'release-tooling' }}
         run: ./tests/test_ci_release_build_archs.sh
 
+      - name: Validate exact Release product reuse
+        if: ${{ matrix.group == 'release-tooling' }}
+        run: |
+          python3 tests/test_reuse_release_product.py
+          python3 tests/test_ci_release_product_reuse.py
+
       - name: Validate the R2 cache store script
         if: ${{ matrix.group == 'ci' }}
         run: bash tests/test_ci_r2_cache.sh
@@ -394,7 +404,9 @@ jobs:
 
       - name: Validate focused test launcher
         if: ${{ matrix.group == 'app-host-execution' }}
-        run: python3 tests/test_run_e2e.py
+        run: |
+          python3 tests/test_run_e2e.py
+          python3 tests/test_ci_e2e_compilation_cache.py
 
       - name: Validate app-host xcodebuild retry guard
         if: ${{ matrix.group == 'app-host-execution' }}

@@ -431,6 +431,10 @@ path = "tests/test_ci_select_package_tests.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_workflow_run_sources.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_sidebar_lazy_layout_guard.py"
 lane = "linux-guard"
 
@@ -568,6 +572,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_run_e2e.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_e2e_compilation_cache.py"
 lane = "linux-guard"
 
 [[test]]
@@ -1008,6 +1016,14 @@ lane = "legacy"
 
 [[test]]
 path = "tests/test_ci_canonical_build_root.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_release_product_reuse.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_reuse_release_product.py"
 lane = "linux-guard"
 
 [[test]]
