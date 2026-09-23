@@ -703,6 +703,11 @@ jobs:
           python3 tests/test_normalize_pbxproj.py
           ./scripts/check-pbxproj.sh
 
+      # Pure source generation check: fail before reserving a Mac, rather than
+      # discovering stale schema after the app-host build's CLI smoke tests.
+      - name: Validate embedded cmux.json schema generation
+        run: python3 scripts/generate-cmux-config-schema.py --check
+
       - name: Validate Claude launch environment policy generation
         run: python3 scripts/generate-claude-launch-environment-policy.py --check
 
@@ -849,6 +854,7 @@ jobs:
     if: ${{ !cancelled() && needs.changes.result == 'success' && needs.static-preflight.result == 'success' && (needs.macos-debounce.result == 'success' || needs.macos-debounce.result == 'skipped') && ((needs.changes.outputs.macos != 'false' && (needs.changes.outputs.full_suite == 'true' || needs.changes.outputs.compile_admitted != 'true')) || needs.changes.outputs.swift_packages == 'true') }}
     permissions:
       actions: read
+      id-token: write
       attestations: read
       contents: read
       pull-requests: read

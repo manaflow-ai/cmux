@@ -314,6 +314,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_workflow_guards_are_wired.py
 
+      - name: Validate CLA metadata routing
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_cla_guard_metadata_routing.py
+
       - name: Validate required checks are bounded
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_required_checks_are_bounded.py
@@ -404,7 +408,13 @@ jobs:
 
       - name: Validate focused test launcher
         if: ${{ matrix.group == 'app-host-execution' }}
-        run: python3 tests/test_run_e2e.py
+        run: |
+          python3 tests/test_run_e2e.py
+          python3 tests/test_ci_e2e_compilation_cache.py
+
+      - name: Validate manual macOS package cache recovery
+        if: ${{ matrix.group == 'app-host-execution' }}
+        run: python3 tests/test_ci_manual_macos_package_cache.py
 
       - name: Validate app-host xcodebuild retry guard
         if: ${{ matrix.group == 'app-host-execution' }}
@@ -591,6 +601,10 @@ jobs:
       - name: Validate nightly tag push auth
         if: ${{ matrix.group == 'release-notary' }}
         run: ./tests/test_ci_nightly_tag_push_auth.sh
+
+      - name: Validate nightly tag push retries
+        if: ${{ matrix.group == 'release-notary' }}
+        run: python3 tests/test_nightly_tag_push.py
 
       - name: Validate nightly Xcode selection
         if: ${{ matrix.group == 'release-notary' }}

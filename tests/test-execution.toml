@@ -575,6 +575,14 @@ path = "tests/test_run_e2e.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_e2e_compilation_cache.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_manual_macos_package_cache.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_sync_test_wiring.py"
 lane = "linux-guard"
 
@@ -1024,4 +1032,12 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_main_full_suite.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_nightly_tag_push.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_cla_guard_metadata_routing.py"
 lane = "linux-guard"
