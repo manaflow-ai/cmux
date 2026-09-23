@@ -88,7 +88,7 @@ public final class MobileNetworkOutcomeReporter: Sendable {
     private let state = StateStore()
 
     /// Builds the bounded properties for a terminal task-model outcome.
-    private static func taskModelProperties(
+    private func taskModelProperties(
         for kind: DiagnosticAppEventKind,
         event: DiagnosticEvent
     ) -> [String: AnalyticsValue]? {
@@ -169,7 +169,7 @@ public final class MobileNetworkOutcomeReporter: Sendable {
     public func ingest(_ event: DiagnosticEvent) {
         if event.code == .appFeatureAction,
            let kind = event.a.flatMap(DiagnosticAppEventKind.init(rawValue:)),
-           let properties = Self.taskModelProperties(for: kind, event: event) {
+           let properties = taskModelProperties(for: kind, event: event) {
             emitter.capture(Self.taskModelEventName, properties)
             return
         }

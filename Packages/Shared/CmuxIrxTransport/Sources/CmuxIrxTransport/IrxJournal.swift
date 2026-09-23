@@ -25,6 +25,17 @@ public struct IrxJournalEvent: Sendable {
         self.event = event
         self.attributes = attributes
     }
+
+    /// Returns the event representation safe for diagnostic retention and output.
+    func redacted() -> Self {
+        var result = self
+        // Also catches keys embedded in native error descriptions, not just named fields.
+        result.attributes = attributes.mapValues {
+            $0.replacingOccurrences(of: "(?i)(?<![0-9a-f])[0-9a-f]{64}(?![0-9a-f])",
+                with: "<redacted-endpoint>", options: .regularExpression)
+        }
+        return result
+    }
 }
 
 /// Structured transport journal: every event goes to os.Logger at NOTICE
@@ -102,8 +113,8 @@ public final class IrxJournal: @unchecked Sendable {
             monotonicMs: monotonicMs,
             component: component,
             event: event,
-            attributes: attributes.mapValues(Self.redactEndpointIDs)
-        )
+            attributes: attributes
+        ).redacted()
         let rendered = Self.render(entry)
         logger.notice("irx \(rendered, privacy: .public)")
         lock.lock()
@@ -140,8 +151,8 @@ public final class IrxJournal: @unchecked Sendable {
             "component": entry.component,
             "event": entry.event,
         ]
-        for (key, value) in entry.attributes {
-            object["a_" + key] = redactEndpointIDs(value)
+        for (key, value) in entry.redacted().attributes {
+            object["a_" + key] = value
         }
         guard
             let data = try? JSONSerialization.data(
@@ -153,9 +164,4 @@ public final class IrxJournal: @unchecked Sendable {
         return text
     }
 
-    private static func redactEndpointIDs(_ value: String) -> String {
-        // Also catches keys embedded in native error descriptions, not just named fields.
-        value.replacingOccurrences(of: "(?i)(?<![0-9a-f])[0-9a-f]{64}(?![0-9a-f])",
-            with: "<redacted-endpoint>", options: .regularExpression)
-    }
 }

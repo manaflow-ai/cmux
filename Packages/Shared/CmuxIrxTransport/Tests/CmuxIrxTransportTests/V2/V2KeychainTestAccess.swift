@@ -1,13 +1,6 @@
 import Foundation
 @testable import CmuxIrxTransport
 
-struct V2KeychainTestKey: Hashable, Sendable {
-    let service: String
-    let account: String
-    let accessGroup: String?
-    let dataProtection: Bool
-}
-
 /// Each test owns one fake and accesses it only before or after awaiting its
 /// serial store operation; no fake state is accessed concurrently across actors.
 final class V2KeychainTestAccess: V2KeychainAccess, @unchecked Sendable {

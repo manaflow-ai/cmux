@@ -274,12 +274,12 @@ extension ImportedPhotoLibraryFile {
     /// Loads a Photos library asset with a bounded wait. iCloud-backed assets
     /// can otherwise leave a composer staging task waiting indefinitely when
     /// the network transfer stalls.
-    static func load(
-        _ item: PhotosPickerItem,
+    init?(
+        loading item: PhotosPickerItem,
         timeout: Duration = .seconds(60)
-    ) async throws -> ImportedPhotoLibraryFile? {
+    ) async throws {
         let race = PhotoLibraryTransferRace()
-        return try await withTaskCancellationHandler(operation: {
+        let loaded: ImportedPhotoLibraryFile? = try await withTaskCancellationHandler(operation: {
             try await withCheckedThrowingContinuation { continuation in
                 race.start(
                     item: item,
@@ -290,6 +290,8 @@ extension ImportedPhotoLibraryFile {
         }, onCancel: {
             race.cancel()
         })
+        guard let loaded else { return nil }
+        self = loaded
     }
 }
 
