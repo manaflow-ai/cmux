@@ -8,6 +8,8 @@ and do not depend on the real history.
 """
 
 import os
+import json
+from pathlib import Path
 import subprocess
 import sys
 import tempfile
@@ -51,7 +53,41 @@ def _gen(repo, base, audience="internal"):
     return out.stdout
 
 
+def test_deferred_notes():
+    """Execute the production post-upload block with a fake ASC boundary."""
+    upload = Path(REPO_ROOT, "ios/scripts/upload-testflight.sh").read_text()
+    block = upload[upload.index('if [[ "$TESTFLIGHT_NOTES_LANE" -ne 1 ]]'):]
+    block = block[:block.index('# --external means')]
+    with tempfile.TemporaryDirectory() as temp:
+        root = Path(temp)
+        calls = root / "calls.json"
+        request = root / "notes.json"
+        setter = root / "set-testflight-notes.sh"
+        setter.write_text('#!/usr/bin/env python3\nimport json, os, sys\nfrom pathlib import Path\nPath(os.environ["CALLS"]).write_text(json.dumps(sys.argv[1:]))\nsys.exit(int(os.environ.get("SETTER_EXIT", "0")))\n')
+        setter.chmod(0o755)
+        env = dict(os.environ, TESTFLIGHT_NOTES_LANE="1", SKIP_NOTES="0",
+                   ASC_API_KEY_ID="fixture", ASC_API_ISSUER_ID="fixture", ASC_API_KEY_PATH="fixture",
+                   SCRIPT_DIR=temp, PLISTBUDDY="false", ARCHIVE_PATH=temp,
+                   RANGE_NOTES_MODE="0", NOTES_VERSION_GUARD="0", NOTES_AUDIENCE="internal",
+                   SHIPPED_BUILD_NUMBER="20260923010101", PRODUCT_BUNDLE_IDENTIFIER="dev.cmux.app.internal",
+                   CALLS=str(calls), CMUX_TESTFLIGHT_NOTES_REQUEST_FILE=str(request))
+        result = subprocess.run(["bash", "-euo", "pipefail", "-c", block], env=env, capture_output=True, text=True)
+        _check(result.returncode == 0, "deferred notes do not fail the accepted upload")
+        _check(not calls.exists(), "Mac upload does not contact ASC for deferred notes")
+        _check(request.exists(), "Mac writes a portable notes request")
+        if request.exists():
+            args = json.loads(request.read_text())
+            _check(args == ["--build-number", "20260923010101", "--audience", "internal", "--bundle-id", "dev.cmux.app.internal"], "deferred request preserves shipped build identity")
+        # Local callers keep their existing synchronous behavior.
+        env.pop("CMUX_TESTFLIGHT_NOTES_REQUEST_FILE")
+        env["SETTER_EXIT"] = "3"
+        result = subprocess.run(["bash", "-euo", "pipefail", "-c", block], env=env, capture_output=True, text=True)
+        _check(calls.exists(), "local uploads still apply notes directly")
+        _check(result.returncode == 0 and "warning:" in result.stderr, "notes timeout remains nonfatal after upload")
+
+
 def main():
+    test_deferred_notes()
     _check(os.access(SCRIPT, os.X_OK), "generator script is executable")
 
     with tempfile.TemporaryDirectory() as repo:
