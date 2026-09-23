@@ -2,6 +2,7 @@ import CmuxAppKitSupportUI
 import CMUXMobileCore
 import CmuxFoundation
 import Foundation
+import Observation
 import CmuxCore
 import CmuxRemoteDaemon
 import CmuxRemoteSession
@@ -4277,6 +4278,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
 
         // Set ourselves as delegate
         bonsplitController.delegate = self
+        observeSplitZoomLayoutShape()
 
         // Ensure bonsplit has a focused pane and our didSelectTab handler runs for the
         // initial terminal. bonsplit's createTab selects internally but does not emit
@@ -11658,6 +11660,26 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         bonsplitController.clearPaneZoom()
     }
 
+    /// Split zoom swaps Bonsplit between the full tree and one pane, and every
+    /// pane host is rebuilt for the new shape. Zoom changes come from many
+    /// paths (shortcut, tab menu, navigation, split and close inside Bonsplit),
+    /// so the workspace observes the model value instead of each caller.
+    /// The change callback runs synchronously, before SwiftUI rebuilds, which
+    /// lets the terminal portal retire the old hosts' frames first.
+    private func observeSplitZoomLayoutShape() {
+        _ = withObservationTracking {
+            bonsplitController.zoomedPaneId
+        } onChange: { [weak self] in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                TerminalWindowPortalRegistry.retireAnchorLayoutShape(forWorkspaceID: self.id)
+            }
+            Task { @MainActor [weak self] in
+                self?.observeSplitZoomLayoutShape()
+            }
+        }
+    }
+
     @discardableResult
     func toggleSplitZoom(panelId: UUID) -> Bool {
         let wasSplitZoomed = bonsplitController.isSplitZoomed
@@ -12377,7 +12399,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             let hostedView = terminalPanel.hostedView
             let hasUsableBounds = hostedView.bounds.width > 1 && hostedView.bounds.height > 1
             let hasSurface = terminalPanel.surface.surface != nil
-            let isAttached = terminalPanel.surface.isViewInWindow && hostedView.superview != nil
+            let isAttached = terminalPanel.surface.isViewInWindow && hostedView.superview != nil &&
+                TerminalWindowPortalRegistry.isHostedViewAnchoredInWindow(hostedView)
 
             // Split close/reparent churn can transiently detach a surviving terminal view.
             // Force one SwiftUI representable update so the portal binding reattaches it.
@@ -12530,7 +12553,10 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             let hostedView = terminalPanel.hostedView
 
             if shouldBeVisible {
-                if hostedView.isHidden || !terminalPanel.surface.isViewInWindow || hostedView.superview == nil {
+                // Attached and unhidden is not settled on its own: a terminal
+                // whose anchor left the window is showing a frame nothing owns.
+                if hostedView.isHidden || !terminalPanel.surface.isViewInWindow || hostedView.superview == nil ||
+                    !TerminalWindowPortalRegistry.isHostedViewAnchoredInWindow(hostedView) {
                     return true
                 }
             } else if !hostedView.isHidden {

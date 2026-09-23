@@ -1008,6 +1008,12 @@ final class WindowTerminalPortal: NSObject {
         var needsSettledCommit: Bool
         var zPriority: Int
         var transientRecoveryRetriesRemaining: Int
+        /// The workspace changed layout shape (split zoom) after this anchor
+        /// was bound. Its frame describes a layout that no longer exists, so
+        /// once the anchor leaves the window the hosted view hides instead of
+        /// staying at that frame until a new host binds. Cleared by the next
+        /// bind.
+        var anchorLayoutShapeRetired = false
     }
 
     var entriesByHostedId: [ObjectIdentifier: Entry] = [:]
@@ -1835,6 +1841,54 @@ final class WindowTerminalPortal: NSObject {
 #endif
     }
 
+    /// Marks every anchor of one workspace as belonging to a layout shape the
+    /// workspace just left (split zoom in or out). SwiftUI rebuilds all pane
+    /// hosts for the new shape; until a new host binds, an entry's only frame
+    /// is its old host's. Anchors still in the window keep presenting (that
+    /// frame is still on screen); an anchor that has left hides its terminal
+    /// rather than keeping it over the new layout.
+    func retireAnchorLayoutShape(forWorkspaceID workspaceID: UUID) {
+        var retiredAny = false
+        for (hostedId, var entry) in entriesByHostedId where entry.workspaceID == workspaceID {
+            entry.anchorLayoutShapeRetired = true
+            entriesByHostedId[hostedId] = entry
+            retiredAny = true
+            hideIfAnchorLayoutShapeRetired(hostedId: hostedId)
+        }
+        // The retiring hosts leave the window in the rebuild this change
+        // schedules; re-sync afterwards so none keeps its old frame.
+        if retiredAny {
+            scheduleDeferredFullSynchronizeAll()
+        }
+    }
+
+    /// Hides a hosted view whose anchor is from a retired layout shape and is
+    /// no longer presentable (detached, or leaving via its host's dismantle).
+    func hideIfAnchorLayoutShapeRetired(hostedId: ObjectIdentifier, anchorLeaving: NSView? = nil) {
+        guard let entry = entriesByHostedId[hostedId],
+              entry.anchorLayoutShapeRetired,
+              let hostedView = entry.hostedView,
+              !hostedView.isHidden else { return }
+        let anchorPresentable: Bool = {
+            guard let anchor = entry.anchorView, anchor !== anchorLeaving else { return false }
+            return anchor.window === window
+        }()
+        guard !anchorPresentable else { return }
+#if DEBUG
+        cmuxDebugLog(
+            "portal.hidden hosted=\(portalDebugToken(hostedView)) value=1 reason=layoutShapeRetired " +
+            "frame=\(portalDebugFrame(hostedView.frame))"
+        )
+#endif
+        hostedView.isHidden = true
+        updatePresentationState(for: hostedId, hostedView: hostedView)
+    }
+
+    func isHostedViewAnchoredInWindow(withId hostedId: ObjectIdentifier) -> Bool {
+        guard let entry = entriesByHostedId[hostedId], let anchor = entry.anchorView else { return false }
+        return anchor.window != nil && anchor.window === window
+    }
+
     func hideEntries(forWorkspaceID workspaceID: UUID) {
         for hostedId in entriesByHostedId.compactMap({ hostedId, entry in
             entry.workspaceID == workspaceID ? hostedId : nil
@@ -2278,6 +2332,7 @@ final class WindowTerminalPortal: NSObject {
         guard let anchorView = entry.anchorView, let window else {
             if entry.visibleInUI {
                 let shouldPreserveVisibleOnTransient = !hostedView.isHidden &&
+                    !entry.anchorLayoutShapeRetired &&
                     scheduleTransientRecoveryRetryIfNeeded(
                         forHostedId: hostedId,
                         entry: &entry,
@@ -2317,12 +2372,14 @@ final class WindowTerminalPortal: NSObject {
             if !hostedView.isHidden {
                 cmuxDebugLog(
                     "portal.hidden hosted=\(portalDebugToken(hostedView)) value=1 " +
-                    "reason=anchorWindowMismatch anchorWindow=\(portalDebugToken(anchorView.window?.contentView))"
+                    "reason=anchorWindowMismatch anchorWindow=\(portalDebugToken(anchorView.window?.contentView)) " +
+                    "shapeRetired=\(entry.anchorLayoutShapeRetired ? 1 : 0)"
                 )
             }
 #endif
             if entry.visibleInUI {
                 let shouldPreserveVisibleOnTransient = !hostedView.isHidden &&
+                    !entry.anchorLayoutShapeRetired &&
                     scheduleTransientRecoveryRetryIfNeeded(
                         forHostedId: hostedId,
                         entry: &entry,
@@ -3365,6 +3422,29 @@ enum TerminalWindowPortalRegistry {
         let hostedId = ObjectIdentifier(hostedView)
         guard let windowId = hostedToWindowId[hostedId], let portal = portalsByWindowId[windowId] else { return }
         portal.hideEntry(forHostedId: hostedId)
+    }
+    /// Tells every portal that a workspace left its current layout shape, so no
+    /// terminal stays at a frame from the old shape. See
+    /// `WindowTerminalPortal.retireAnchorLayoutShape(forWorkspaceID:)`.
+    static func retireAnchorLayoutShape(forWorkspaceID workspaceID: UUID) {
+        for portal in portalsByWindowId.values {
+            portal.retireAnchorLayoutShape(forWorkspaceID: workspaceID)
+        }
+    }
+    /// Called while SwiftUI dismantles `anchorView`: a terminal bound to it
+    /// from a retired layout shape hides in the same transaction that removes
+    /// the old pane chrome.
+    static func hideIfAnchorLayoutShapeRetired(_ hostedView: GhosttySurfaceScrollView, dismantling anchorView: NSView) {
+        let hostedId = ObjectIdentifier(hostedView)
+        guard let windowId = hostedToWindowId[hostedId], let portal = portalsByWindowId[windowId],
+              portal.isHostedViewBoundToAnchor(withId: hostedId, anchorView: anchorView) else { return }
+        portal.hideIfAnchorLayoutShapeRetired(hostedId: hostedId, anchorLeaving: anchorView)
+    }
+    /// Whether the hosted view is bound to an anchor that is in its portal's window.
+    static func isHostedViewAnchoredInWindow(_ hostedView: GhosttySurfaceScrollView) -> Bool {
+        let hostedId = ObjectIdentifier(hostedView)
+        guard let windowId = hostedToWindowId[hostedId], let portal = portalsByWindowId[windowId] else { return false }
+        return portal.isHostedViewAnchoredInWindow(withId: hostedId)
     }
     /// Hides every registered terminal portal owned by one inactive workspace.
     static func hideHostedViews(forWorkspaceID workspaceID: UUID) {
