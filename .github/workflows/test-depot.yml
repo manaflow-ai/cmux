@@ -1,4 +1,8 @@
 name: Run macOS tests
+run-name: >-
+  macOS tests @ ${{ inputs.ref || github.ref_name }} ·
+  unit=${{ inputs.skip_unit_tests && 'off' || inputs.unit_test_suites || 'all' }} ·
+  UI=${{ inputs.skip_ui_tests && 'off' || inputs.test_filter || 'all' }}
 
 on:
   workflow_call:
@@ -60,7 +64,7 @@ jobs:
     needs: resolve-ref
     # Depot is retired for cmux CI. Keep this reusable test lane on the
     # repository's normal macOS runner and do not expose a provider override.
-    runs-on: ${{ vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15' }}
+    runs-on: ${{ vars.MACOS_RUNNER_TESTS || 'blacksmith-6vcpu-macos-15' }}
     timeout-minutes: ${{ inputs.unit_test_suites != '' && 35 || 20 }}
     steps:
       - name: Clear stale git locks (self-hosted reused workspace)

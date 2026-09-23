@@ -590,6 +590,10 @@ public enum DiagnosticAppEventKind: Int, Sendable, Codable, CaseIterable {
     /// ``DiagnosticFailureKind/attachmentCountLimitReached`` and aggregate
     /// bytes for ``DiagnosticFailureKind/attachmentAggregateSizeLimitReached``.
     case taskAttachmentLimitReached = 270
+    /// A transient task model discovery failure scheduled another attempt.
+    case taskModelListRetryScheduled = 271
+    /// Task model discovery stopped because the owner cancelled or reached a permanent failure.
+    case taskModelListRetryStopped = 272
 
     // MARK: Agent chat (280-309)
     case chatOpened = 280

@@ -29,8 +29,8 @@ export type ApnsBundlePolicy = {
  * mirror (the default; older Macs never send `kind`). `dismiss` is the cold
  * lane of Mac→iOS dismiss-sync: a banner-less `content-available` push carrying
  * the dismissed ids plus the authoritative badge, fanned out to every
- * registered device in the selected app namespace (idempotent on devices that
- * got the live event).
+ * registered device, or to every registered app namespace when the Mac sends
+ * an account-wide fanout (idempotent on devices that got the live event).
  */
 export type PushKind = "notify" | "dismiss";
 
