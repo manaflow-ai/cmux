@@ -157,6 +157,47 @@ import os
         #expect(report.events[1].diagnosticSessionLifecycleKind == .established)
     }
 
+    @Test func transportPathLifecycleKeepsDistinctOperationsOnOnePathClass() async {
+        let log = DiagnosticLog(capacity: 16)
+        let events = [
+            DiagnosticEvent(
+                code: .transportPathEvent,
+                tNanos: 1_000,
+                a: 1,
+                b: DiagnosticPathKind.relay.rawValue,
+                c: 9
+            ),
+            DiagnosticEvent(
+                code: .transportPathEvent,
+                tNanos: 2_000,
+                a: 3,
+                b: DiagnosticPathKind.relay.rawValue,
+                c: 9
+            ),
+            DiagnosticEvent(
+                code: .transportPathEvent,
+                tNanos: 3_000,
+                a: 1,
+                b: DiagnosticPathKind.privateNetwork.rawValue,
+                c: 9
+            ),
+            DiagnosticEvent(
+                code: .transportPathEvent,
+                tNanos: 4_000,
+                a: 3,
+                b: DiagnosticPathKind.privateNetwork.rawValue,
+                c: 9
+            ),
+        ]
+        for event in events {
+            log.record(event)
+        }
+        await waitForProcessed(log, events.count)
+
+        let report = await log.snapshot()
+        #expect(report.events == events)
+    }
+
     @Test func ringEvictionDropsOldest() async {
         let log = DiagnosticLog(capacity: 3)
         // Drain each event before recording the next so eviction is governed

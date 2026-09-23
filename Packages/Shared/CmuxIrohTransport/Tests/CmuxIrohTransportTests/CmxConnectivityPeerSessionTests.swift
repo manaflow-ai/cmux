@@ -59,6 +59,41 @@ struct CmxConnectivityPeerSessionTests {
     }
 
     @Test
+    func selectedPathSnapshotsRecordInitialAndMigratedRouteClasses() async throws {
+        let request = try Self.request()
+        let peerID = try CmxConnectivityPeerID(request: request)
+        let log = DiagnosticLog(capacity: 32, role: .mobileClient)
+        let session = TestConnectivitySession(
+            continuityID: 18,
+            keepsSelectedPathStreamOpen: true
+        )
+        let builder = SequencedConnectivitySessionBuilder(sessions: [session])
+        let peer = CmxConnectivityPeerSession(
+            peerID: peerID,
+            buildSession: { request in try await builder.build(request) },
+            diagnosticLog: log
+        )
+
+        _ = try await peer.connectedSession(for: request)
+        try await Self.waitUntil { await session.hasSelectedPathObserver() }
+        await session.publishSelectedPath(.relay(url: "https://relay.example"))
+        await session.publishSelectedPath(.privateNetwork)
+        try await Self.waitUntil {
+            let events = await log.snapshot().events
+            return events.filter { $0.code == .selectedPathChanged }.count >= 3
+        }
+
+        let report = await log.snapshot()
+        let pathEvents = report.events.filter { $0.code == .selectedPathChanged }
+        #expect(pathEvents.compactMap(\.diagnosticPathKind) == [
+            .direct,
+            .relay,
+            .privateNetwork,
+        ])
+        #expect(pathEvents.allSatisfy { $0.diagnosticSessionID != nil })
+    }
+
+    @Test
     func nextControlOwnerWaitsAndReleaseClosesThePeerConnection() async throws {
         let request = try Self.request()
         let routeVariant = try Self.request(routeID: "iroh-v2-refreshed")
