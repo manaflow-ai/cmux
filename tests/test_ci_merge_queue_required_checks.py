@@ -13,11 +13,18 @@ workflows, so it can only see disagreements inside the tree.
 
 from __future__ import annotations
 
+import contextlib
 import importlib.util
+import io
 import sys
+import tempfile
+import unittest
+from unittest.mock import patch
 from pathlib import Path
 
 import yaml
+
+from test_web_complexity_trusted_workflow import REQUIRED_CHECK, validate_metadata_routing
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOWS = ROOT / ".github" / "workflows"
@@ -47,6 +54,7 @@ BRIDGED_CHECKS = {
 
 
 def expected_bridge() -> dict:
+    """Return the canonical required-check bridge fixture."""
     return {
         "name": "Merge-group policy checks",
         True: {"merge_group": None},
@@ -64,6 +72,7 @@ def expected_bridge() -> dict:
 
 
 def triggers(document: dict) -> set[str]:
+    """Return workflow event names from GitHub Actions YAML."""
     # PyYAML reads the bare key `on` as boolean True.
     on = document.get("on", document.get(True))
     if isinstance(on, str):
@@ -76,6 +85,7 @@ def triggers(document: dict) -> set[str]:
 
 
 def merge_group_check_names() -> dict[str, list[str]]:
+    """Collect check names that can be emitted for merge-group runs."""
     names: dict[str, list[str]] = {}
     for path in sorted([*WORKFLOWS.glob("*.yml"), *WORKFLOWS.glob("*.yaml")]):
         document = yaml.safe_load(path.read_text(encoding="utf-8"))
@@ -88,11 +98,24 @@ def merge_group_check_names() -> dict[str, list[str]]:
             condition = str(job.get("if", ""))
             if "merge_group" in condition and "!=" in condition:
                 continue
-            names.setdefault(str(job.get("name", job_id)), []).append(path.name)
+            name = str(job.get("name", job_id))
+            if path.name == "web-complexity-trusted.yml" and job_id == "complexity" and "${{" in name:
+                # This routing contract requires the metadata predicate to start
+                # with event_name == pull_request_target. On merge_group it is
+                # false, so the job runs with the required name. Validate the
+                # entire contract before interpreting this one dynamic name;
+                # changed/unknown expressions must not satisfy the queue guard.
+                try:
+                    validate_metadata_routing(document)
+                except (AssertionError, KeyError, TypeError):
+                    continue
+                name = REQUIRED_CHECK
+            names.setdefault(name, []).append(path.name)
     return names
 
 
 def main() -> int:
+    """Validate required merge-queue check ownership and uniqueness."""
     if yaml.safe_load(BRIDGE.read_text(encoding="utf-8")) != expected_bridge():
         print(f"FAIL: {BRIDGE.name} must contain only the fixed no-op jobs for {', '.join(BRIDGED_CHECKS.values())}")
         return 1
@@ -115,5 +138,71 @@ def main() -> int:
     return 0
 
 
+class MergeGroupCheckNamesTests(unittest.TestCase):
+    def setUp(self) -> None:
+        """Load the trusted complexity workflow fixture for each test."""
+        self.workflow = yaml.safe_load(
+            (WORKFLOWS / "web-complexity-trusted.yml").read_text(encoding="utf-8")
+        )
+
+    def validate(self, workflow: dict, *, duplicate: bool = False) -> int:
+        """Run the required-check validator against an isolated workflow set."""
+        with tempfile.TemporaryDirectory() as temporary:
+            workflows = Path(temporary)
+            bridge = workflows / BRIDGE.name
+            bridge.write_text(yaml.safe_dump(expected_bridge()), encoding="utf-8")
+            (workflows / "web-complexity-trusted.yml").write_text(
+                yaml.safe_dump(workflow), encoding="utf-8"
+            )
+            jobs = {
+                name: {} for name in REQUIRED_NAMES
+                if name not in {*BRIDGED_CHECKS.values(), "Web complexity"}
+            }
+            if duplicate:
+                jobs["duplicate"] = {"name": "Web complexity"}
+            (workflows / "other.yml").write_text(
+                yaml.safe_dump({"on": "merge_group", "jobs": jobs}), encoding="utf-8"
+            )
+            with patch.dict(main.__globals__, WORKFLOWS=workflows, BRIDGE=bridge):
+                with contextlib.redirect_stdout(io.StringIO()):
+                    return main()
+
+    def test_dynamic_name_reports_required_check_for_merge_group(self) -> None:
+        """Dynamic metadata routing must retain the required merge-group name."""
+        self.assertEqual(self.validate(self.workflow), 0)
+
+    def test_wrong_merge_group_name_is_rejected(self) -> None:
+        """A changed required check name must fail validation."""
+        self.workflow["jobs"]["complexity"]["name"] = self.workflow["jobs"]["complexity"]["name"].replace(
+            "'Web complexity'", "'Wrong required name'"
+        )
+        self.assertEqual(self.validate(self.workflow), 1)
+
+    def test_missing_merge_group_trigger_is_rejected(self) -> None:
+        """Removing the merge-group trigger must fail validation."""
+        events = self.workflow.get("on", self.workflow.get(True))
+        events.pop("merge_group")
+        self.assertEqual(self.validate(self.workflow), 1)
+
+    def test_metadata_cannot_use_required_name(self) -> None:
+        """Metadata-only edits must not publish under the required check name."""
+        self.workflow["jobs"]["complexity"]["name"] = self.workflow["jobs"]["complexity"]["name"].replace(
+            "'Web complexity metadata (ignored)'", "'Web complexity'"
+        )
+        self.assertEqual(self.validate(self.workflow), 1)
+
+    def test_duplicate_required_name_is_rejected(self) -> None:
+        """Duplicate required check ownership must fail validation."""
+        self.assertEqual(self.validate(self.workflow, duplicate=True), 1)
+
+    def test_merge_group_excluded_job_is_rejected(self) -> None:
+        """The required job must remain eligible on merge-group events."""
+        self.workflow["jobs"]["complexity"]["if"] = "github.event_name != 'merge_group'"
+        self.assertEqual(self.validate(self.workflow), 1)
+
+
 if __name__ == "__main__":
+    tests = unittest.defaultTestLoader.loadTestsFromTestCase(MergeGroupCheckNamesTests)
+    if not unittest.TextTestRunner().run(tests).wasSuccessful():
+        sys.exit(1)
     sys.exit(main())
