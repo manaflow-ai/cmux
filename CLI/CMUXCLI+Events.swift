@@ -173,6 +173,8 @@ extension CMUXCLI {
                 "timed out waiting for event stream frame",
                 "stream request timed out",
                 "failed to write stream request",
+                "failed to configure socket receive timeout",
+                "errno 22",
                 "broken pipe",
                 "connection reset",
                 "connection refused",

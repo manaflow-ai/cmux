@@ -3911,6 +3911,15 @@ final class SocketClient {
     }
 
     func configureReceiveTimeout(_ timeout: TimeInterval) throws {
+        // Skip the setsockopt entirely when the receive timeout is already
+        // configured with this value: streaming callers (the events line
+        // reader) re-invoke this before every read, and a redundant
+        // SO_RCVTIMEO reconfiguration is pure syscall churn in the middle of
+        // a replay burst (#12756).
+        if let lastConfiguredReceiveTimeout,
+           abs(lastConfiguredReceiveTimeout - timeout) <= Self.receiveTimeoutReconfigurationToleranceSeconds {
+            return
+        }
         var interval = Self.socketTimeval(for: timeout)
         let result = withUnsafePointer(to: &interval) { ptr in
             setsockopt(
