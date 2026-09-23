@@ -1,0 +1,176 @@
+import Foundation
+import XCTest
+
+/// Exercises the bundled hook CLI, app ingestion, durable event log, and events CLI.
+/// Run only on a hosted test runner: this launches the test application.
+final class HookPromptLengthUITests: XCTestCase {
+    func testOriginalPromptLengthSurvivesCompactionAndEventStorage() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("hook-length-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let socketPath = "/tmp/cmux-debug-hook-length-\(UUID().uuidString.prefix(8)).sock"
+        let app = XCUIApplication.cmuxTestApplication()
+        app.launchArguments += ["-socketControlMode", "allowAll", "-NSAppSleepDisabled", "YES"]
+        app.launchEnvironment["CMUX_SOCKET_PATH"] = socketPath
+        app.launchEnvironment["CMUX_SOCKET_ENABLE"] = "1"
+        app.launchEnvironment["CMUX_SOCKET_MODE"] = "allowAll"
+        app.launchEnvironment["CMUX_ALLOW_SOCKET_OVERRIDE"] = "1"
+        app.launchEnvironment["CMUX_TAG"] = "ui-tests-14024-hook-length"
+        app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
+        app.launch()
+        defer { app.terminate() }
+        XCTAssertTrue(waitForControlSocketReady(
+            pingTimeout: 20,
+            socketFileExists: { FileManager.default.fileExists(atPath: socketPath) },
+            pingReturnsPong: {
+                ControlSocketClient(path: socketPath, responseTimeout: 5).sendLine("ping") == "PONG"
+            }
+        ))
+
+        let products = Bundle(for: Self.self).bundleURL
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent().deletingLastPathComponent()
+        let cli = try XCTUnwrap(["cmux DEV", "cmux"].map {
+            products.appendingPathComponent("\($0).app/Contents/Resources/bin/cmux").path
+        }.first(where: FileManager.default.isExecutableFile(atPath:)))
+        let output = root.appendingPathComponent("result.txt")
+        _ = FileManager.default.createFile(atPath: output.path, contents: nil)
+        let handle = try FileHandle(forWritingTo: output)
+        defer { try? handle.close() }
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/python3")
+        process.arguments = ["-c", Self.probe, cli, socketPath, root.path,
+            FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".cmuxterm/events.jsonl").path]
+        process.standardOutput = handle
+        process.standardError = handle
+        let finished = expectation(description: "hook and events CLI probe finished")
+        process.terminationHandler = { _ in finished.fulfill() }
+        try process.run()
+        wait(for: [finished], timeout: 120)
+        if process.isRunning { process.terminate() }
+        let diagnostics = (try? String(contentsOf: output, encoding: .utf8)) ?? "missing probe output"
+        XCTAssertFalse(process.isRunning, diagnostics)
+        if !process.isRunning { XCTAssertEqual(process.terminationStatus, 0, diagnostics) }
+        let attachment = XCTAttachment(string: diagnostics)
+        attachment.name = "14024-prompt-length-results"
+        attachment.lifetime = .keepAlways
+        add(attachment)
+    }
+
+    private static let probe = #"""
+import json, os, pathlib, socket, subprocess, sys, time, uuid
+cli, sock, root, log_path = sys.argv[1:]
+prefix = 'hook-length-' + uuid.uuid4().hex
+env = {'PATH': '/usr/bin:/bin:/usr/sbin:/sbin', 'HOME': root,
+       'CMUX_SOCKET_PATH': sock, 'CMUX_CLI_SENTRY_DISABLED': '1',
+       'CMUX_CLAUDE_HOOK_SENTRY_DISABLED': '1',
+       'CMUX_CLAUDE_HOOK_STATE_PATH': root + '/sessions.json'}
+
+def rpc(method, params):
+    with socket.socket(socket.AF_UNIX) as connection:
+        connection.settimeout(15)
+        connection.connect(sock)
+        connection.sendall((json.dumps({'id': str(uuid.uuid4()), 'method': method, 'params': params}) + '\n').encode())
+        result = json.loads(connection.makefile().readline())
+        assert result.get('ok'), (method, result.get('error'))
+        return result['result']
+
+workspace = rpc('workspace.create', {'focus': False})['workspace_id']
+surfaces = rpc('surface.list', {'workspace_id': workspace})['surfaces']
+surface = surfaces[0]['id']
+env.update(CMUX_WORKSPACE_ID=workspace, CMUX_SURFACE_ID=surface)
+expected = {}
+sentinels = ['PRIVATE_PROMPT_', 'PRIVATE_TOOL_', 'PRIVATE_CONTEXT_']
+
+def hook(label, prompt, source='claude', nested=False):
+    session = prefix + '-' + label
+    payload = {'session_id': session, 'hook_event_name': 'UserPromptSubmit', 'cwd': root,
+               'prompt_length': -123, 'tool_input': {'command': 'PRIVATE_TOOL_' + label}}
+    if prompt is not None:
+        if nested:
+            payload['data'] = {'prompt': prompt}
+        else:
+            payload['prompt'] = prompt
+    args = ['hooks', 'claude', 'prompt-submit'] if source == 'claude' else [
+        'hooks', 'feed', '--source', 'claude', '--event', 'UserPromptSubmit']
+    result = subprocess.run([cli, '--socket', sock] + args, input=json.dumps(payload),
+                            env=env, text=True, capture_output=True, timeout=20)
+    assert result.returncode == 0, (label, result.returncode)
+    return 'claude-' + session
+
+for label, prompt, length in [
+    ('long', 'PRIVATE_PROMPT_' + 'x' * (18635 - 15), 18635),
+    ('short', 'PRIVATE_PROMPT_' + 'x' * (85 - 15), 85),
+    ('unicode', '\u00e9\u4e2de\u0301\U0001f469\u200d\U0001f4bb' * 100, 400),
+    ('empty', '', 0), ('whitespace', ' \n\t ', 4), ('missing', None, None),
+]:
+    if label in ('long', 'short'):
+        assert len(prompt.encode('utf-8')) == length
+    expected[hook(label, prompt)] = length
+expected[hook('generic', 'PRIVATE_PROMPT_' + 'g' * 985, source='feed')] = 1000
+expected[hook('nested', 'PRIVATE_PROMPT_' + 'n' * 985, nested=True)] = 1000
+
+def push(label, fields, length, event_name='UserPromptSubmit'):
+    session = prefix + '-' + label
+    event = {'session_id': session, 'hook_event_name': event_name, '_source': 'claude',
+             'workspace_id': workspace, 'surface_id': surface,
+             '_opencode_request_id': session, **fields}
+    rpc('feed.push', {'event': event, 'wait_timeout_seconds': 0})
+    expected[session] = length
+
+for index, invalid in enumerate([-1, True, False, 1.5, '18635', None, [], {}, 1048577, 1e100]):
+    push('invalid-' + str(index), {'tool_input': {'prompt': 'PRIVATE_PROMPT_bad', 'prompt_length': invalid}}, None)
+push('legacy', {'tool_input': {'prompt': 'PRIVATE_PROMPT_legacy'}}, None)
+push('no-prompt', {}, None)
+push('length-only', {'prompt_length': 18635}, 18635)
+push('max-length', {'prompt_length': 1048576}, 1048576)
+push('precedence', {'tool_input': {'prompt': 'PRIVATE_PROMPT_first'}, 'prompt_length': 999}, None)
+push('tool', {'tool_input': {'command': 'PRIVATE_TOOL_echo', 'prompt_length': 18635}}, None, 'PreToolUse')
+
+result = subprocess.run([cli, '--socket', sock, 'events', '--after', '0',
+    '--name', 'agent.hook.UserPromptSubmit', '--name', 'agent.hook.PreToolUse',
+    '--no-ack', '--no-heartbeat', '--timeout', '3'], env=env, text=True,
+    capture_output=True, timeout=15)
+assert result.returncode == 0, ('events CLI', result.returncode)
+frames = [json.loads(line) for line in result.stdout.splitlines() if line.strip()]
+ours = [frame for frame in frames if frame.get('payload', {}).get('session_id') in expected]
+seen = set()
+for frame in ours:
+    payload = frame['payload']
+    session = payload['session_id']
+    seen.add(session)
+    assert payload.get('prompt_length') == expected[session], (session, payload.get('prompt_length'), expected[session])
+    if expected[session] is None:
+        assert 'prompt_length' not in payload, session
+    assert frame['workspace_id'] == workspace and frame['surface_id'] == surface, session
+    assert payload['workspace_id'] == workspace and payload['surface_id'] == surface, session
+    assert payload.get('tool_input') is None and payload.get('context') is None, session
+    assert payload.get('extra_fields') is None, session
+    assert not any(secret in json.dumps(frame) for secret in sentinels), session
+    if session.endswith('-long'):
+        assert payload['tool_input_length'] < 1000, 'tool JSON length must keep its existing meaning'
+assert seen == set(expected), ('missing own sessions', sorted(set(expected) - seen))
+
+# The durable telemetry record must match the CLI frame, including identity and redaction.
+deadline = time.monotonic() + 10
+stored = {}
+while time.monotonic() < deadline:
+    if pathlib.Path(log_path).exists():
+        for line in pathlib.Path(log_path).read_text().splitlines():
+            try:
+                frame = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if frame.get('payload', {}).get('session_id') in expected and frame.get('name', '').startswith('agent.hook.'):
+                stored[frame['id']] = frame
+    if all(frame['id'] in stored for frame in ours):
+        break
+    time.sleep(0.05)
+for frame in ours:
+    assert stored.get(frame['id']) == frame, ('durable event mismatch', frame['payload']['session_id'])
+print(json.dumps({'cases': len(expected), 'stream_frames': len(ours), 'durable_frames': len(stored),
+                  'ascii_lengths': [18635, 85], 'unicode_graphemes': 400,
+                  'redaction': 'passed', 'session_surface_association': 'passed'}, sort_keys=True))
+"""#
+}
