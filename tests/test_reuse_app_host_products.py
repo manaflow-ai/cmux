@@ -5,6 +5,7 @@ import hashlib
 import io
 import json
 import os
+import re
 from unittest import mock
 import shutil
 import sys
@@ -703,13 +704,13 @@ class ReuseProducts(TestProductHandoff):
                 if failure == 'archive':
                     bad['digest'] = 'sha256:' + hashlib.sha256(b'corrupt').hexdigest()
                 bad_run = {**self.api.run, 'id': 99} if failure == 'receipt' else self.api.run
-                def download(artifact_id, target):
+                def download(artifact_id, target, size):
                     if artifact_id == 41 and failure == 'download':
                         raise OSError('candidate unavailable')
                     if artifact_id == 41 and failure == 'archive':
                         target.write_bytes(b'corrupt')
                     else:
-                        original_download(42, target)
+                        original_download(42, target, size)
                 with mock.patch.object(reuse, 'select', return_value=[
                         (bad, bad_run), (self.api.artifact, self.api.run)]), \
                         mock.patch.object(self.api, 'download', side_effect=download) as calls:
@@ -912,36 +913,50 @@ class ReuseProducts(TestProductHandoff):
         self.assertFalse(self.restore_reuse())
         self.assertFalse(self.consumer.exists())
 
-    def test_the_download_budget_is_derived_from_the_archive_ceiling(self):
-        # A flat 120 s budget against a 2 GiB ceiling meant any product past
-        # roughly 700 MB timed out, recorded a miss, and compiled instead --
-        # invisibly, because a miss looks exactly like a normal build. The
-        # budget has to come from the ceiling, not from a literal that ages
-        # out the next time the product grows.
-        seen = {}
-
-        def capture(args, **kwargs):
-            seen.update(kwargs)
-            return subprocess.CompletedProcess(args, 0)
-
+    def test_products_are_read_over_parallel_range_requests(self):
+        # A single `gh api .../zip` stream sustained about 2 MB/s, so every
+        # ~900 MB candidate hit its budget and the job compiled instead --
+        # invisibly, because a miss looks exactly like a normal build.
         target = self.producer.parent / "probe.zip"
-        with mock.patch.object(reuse.subprocess, "run", side_effect=capture):
-            reuse.GitHub("manaflow-ai/cmux").download(42, target)
-        self.assertEqual(seen.get("timeout"), reuse.DOWNLOAD_TIMEOUT)
-        self.assertGreaterEqual(
-            reuse.DOWNLOAD_TIMEOUT * reuse.MIN_TRANSFER_BYTES_PER_SECOND,
-            reuse.MAX_ARCHIVE_BYTES,
-        )
+        with mock.patch.object(reuse.parallel, "download_zip") as download_zip, \
+                mock.patch.object(reuse.subprocess, "run") as run:
+            reuse.GitHub("manaflow-ai/cmux").download(42, target, 979844748)
+        download_zip.assert_called_once_with("manaflow-ai/cmux", 42, target, 979844748)
+        run.assert_not_called()
 
-    def test_a_download_that_runs_out_of_time_is_a_miss_not_a_crash(self):
-        with mock.patch.object(
-            type(self.api), "download",
-            side_effect=subprocess.TimeoutExpired("gh", reuse.DOWNLOAD_TIMEOUT),
-        ):
-            report = {}
-            self.assertFalse(self.restore_reuse(report=report))
-        self.assertIn("artifact_download_error", report["miss_reasons"])
-        self.assertFalse(self.consumer.exists())
+    def test_restore_passes_the_listed_artifact_size_to_the_transport(self):
+        with mock.patch.object(self.api, "download", wraps=self.api.download) as download:
+            self.assertTrue(self.restore_reuse())
+        self.assertEqual(download.call_args.args[2], self.api.artifact["size_in_bytes"])
+
+    def test_a_failed_transfer_is_a_miss_not_a_crash(self):
+        for error in (reuse.parallel.TransportError("parallel download deadline exceeded"),
+                      OSError("connection reset"),
+                      reuse.http.client.IncompleteRead(b"partial"),
+                      EOFError("stream ended"),
+                      ValueError("size must be positive")):
+            with self.subTest(error=type(error).__name__):
+                with mock.patch.object(type(self.api), "download", side_effect=error):
+                    report = {}
+                    self.assertFalse(self.restore_reuse(report=report))
+                self.assertIn("artifact_download_error", report["miss_reasons"])
+                self.assertFalse(self.consumer.exists())
+
+    def test_product_archives_carry_no_appledouble_entries(self):
+        # macOS tar adds Build/._Products for Xcode's xattrs unless
+        # COPYFILE_DISABLE is set; unpack() rejects that as an unscoped path,
+        # so every product packed without it was a silent miss.
+        root = Path(__file__).resolve().parents[1] / ".github/workflows"
+        packers = [
+            (path.name, line.strip())
+            for path in sorted(root.glob("*.yml"))
+            for line in path.read_text().splitlines()
+            if re.search(r"\btar -c\w*\b.*\bBuild/Products\b", line)
+        ]
+        self.assertTrue(packers)
+        for name, line in packers:
+            with self.subTest(workflow=name):
+                self.assertTrue(line.startswith("COPYFILE_DISABLE=1 tar "), line)
 
     def test_each_event_is_trusted_only_from_its_own_workflow(self):
         for event, path, trusted in (
@@ -1336,8 +1351,9 @@ class FakeGitHub:
             }
         raise AssertionError(path)
 
-    def download(self, artifact_id, target):
+    def download(self, artifact_id, target, size):
         assert artifact_id == self.artifact["id"]
+        assert size == self.artifact["size_in_bytes"]
         shutil.copyfile(self.archive, target)
 
 
