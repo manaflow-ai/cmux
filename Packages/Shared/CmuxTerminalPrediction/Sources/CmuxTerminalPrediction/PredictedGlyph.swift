@@ -1,8 +1,9 @@
 /// One character cmux is drawing that the remote has not put on the screen yet.
 ///
-/// Offsets are cells to the right of the cursor as it stood when the run began,
-/// which is all the host needs: it reads the live cursor rectangle from the
-/// surface and advances by the cell width.
+/// Offsets are cells to the right of the live cursor, which is all the host
+/// needs: it reads the cursor cell from the surface and advances by the cell
+/// width. A confirmed glyph has a negative offset, because the cursor already
+/// moved past the echo it is standing in for.
 public struct PredictedGlyph: Sendable, Equatable {
     public enum Standing: Sendable, Equatable {
         /// Sent to the remote, no echo yet. Draw it as unconfirmed.

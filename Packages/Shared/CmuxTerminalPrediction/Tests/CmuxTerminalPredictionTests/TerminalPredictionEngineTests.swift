@@ -96,6 +96,44 @@ struct TerminalPredictionEngineTests {
         #expect(session.engine.glyphs.map(\.offset) == [0])
     }
 
+    @Test func aConfirmedGlyphSitsLeftOfTheLiveCursor() {
+        // The host anchors on ghostty's cursor, which the parser has already
+        // advanced past the echo. The held glyph has to land on the cell the
+        // echo went to, not one to the right of it.
+        var session = armedSession()
+        session.type("a")
+        session.type("b")
+        session.remote("a")
+
+        #expect(session.drawn == "ab")
+        #expect(session.engine.glyphs.map(\.offset) == [-1, 0])
+        #expect(session.engine.glyphs.map(\.standing) == [.confirmed, .speculative])
+
+        session.remote("b", after: .milliseconds(1))
+        #expect(session.engine.glyphs.map(\.offset) == [-2, -1])
+    }
+
+    @Test func keystrokesTypedBeforeArmingStillOccupyTheirCells() {
+        // "a" and "b" go out before any echo, so neither is drawn. The echo
+        // of "a" arms the run; "c" is then drawn, and has to land after the
+        // cell "b" is about to take rather than on top of it.
+        var session = Session()
+        session.type("a")
+        session.type("b", after: .milliseconds(5))
+        session.remote("a")
+        #expect(session.drawn == "")
+
+        session.type("c", after: .milliseconds(5))
+        #expect(session.drawn == "c")
+        #expect(session.engine.glyphs.map(\.offset) == [1])
+
+        // "b" arrives: never drawn, so nothing is held, and "c" is now the
+        // cell under the cursor.
+        session.remote("b", after: .milliseconds(1))
+        #expect(session.engine.glyphs.map(\.offset) == [0])
+        #expect(session.engine.glyphs.map(\.standing) == [.speculative])
+    }
+
     @Test func aContradictedPredictionIsWithdrawnWhole() {
         var session = armedSession()
         session.type("s")

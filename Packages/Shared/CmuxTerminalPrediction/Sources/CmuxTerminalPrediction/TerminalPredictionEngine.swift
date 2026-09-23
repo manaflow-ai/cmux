@@ -61,11 +61,27 @@ public struct TerminalPredictionEngine: Sendable {
 
     // MARK: Readable state
 
-    /// What the host should draw, ordered left to right from the cursor.
+    /// What the host should draw, ordered left to right, with offsets measured
+    /// from the live cursor.
+    ///
+    /// The host anchors on the cursor ghostty reports, and ghostty's parser
+    /// has already advanced that cursor past every echo this engine has
+    /// confirmed (the tee runs ahead of the parser, and the engine drains
+    /// after it). So confirmed glyphs, which are always the leading entries,
+    /// sit at negative offsets, exactly over the cells their echo landed in:
+    /// drawing them there covers the frames before ghostty repaints without
+    /// ever doubling a character one cell to the right. Speculative glyphs
+    /// start at offset 0. Entries typed before the run armed are never drawn,
+    /// but still occupy their cell, so a later glyph keeps its true offset.
     public var glyphs: [PredictedGlyph] {
-        entries.enumerated().compactMap { index, entry in
+        let consumedByCursor = entries.prefix { $0.standing == .confirmed }.count
+        return entries.enumerated().compactMap { index, entry in
             guard entry.isDisplayed else { return nil }
-            return PredictedGlyph(character: entry.character, offset: index, standing: entry.standing)
+            return PredictedGlyph(
+                character: entry.character,
+                offset: index - consumedByCursor,
+                standing: entry.standing
+            )
         }
     }
 
