@@ -1116,6 +1116,14 @@ struct CLIClaudeHookTimeoutRegressionTests {
             #expect(!requests.contains { $0["method"] as? String == "feed.push" })
             return
         }
+        let barrier = try #require(requests.first {
+            $0["method"] as? String == "agent.hook.barrier"
+        })
+        let barrierParams = try #require(barrier["params"] as? [String: Any])
+        let orderingEnvironment = try #require(barrierParams["environment"] as? [String: Any])
+        #expect(orderingEnvironment["CMUX_AGENT_HOOK_RELAY_ORIGIN"] as? String == "1")
+        #expect(orderingEnvironment["CMUX_WORKSPACE_ID"] as? String == "11111111-1111-1111-1111-111111111111")
+        #expect(orderingEnvironment["CMUX_SURFACE_ID"] as? String == "22222222-2222-2222-2222-222222222222")
         let feedPush = try #require(requests.first {
             $0["method"] as? String == "feed.push"
         })
