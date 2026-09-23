@@ -86,9 +86,38 @@ final class CloudDesktopOpenFixture {
             #expect(NSApp.sendAction(action, to: item.target, from: item))
         } else {
             // A Desktop double-click opens on its first click; the second is intentionally inert.
-            coordinator.handleSingleClick(nil)
-            coordinator.handleDoubleClick(nil)
+            try sendPointerAction(outline.action, from: outline, clickCount: 1)
+            try sendPointerAction(outline.action, from: outline, clickCount: 2)
+            try sendPointerAction(outline.doubleAction, from: outline, clickCount: 2)
         }
+    }
+
+    private func sendPointerAction(_ action: Selector?, from outline: NSOutlineView, clickCount: Int) throws {
+        let action = try #require(action)
+        let event = try #require(NSEvent.mouseEvent(
+            with: .leftMouseUp,
+            location: .zero,
+            modifierFlags: [],
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: 0,
+            context: nil,
+            eventNumber: 0,
+            clickCount: clickCount,
+            pressure: 0
+        ))
+        // AppKit's currentEvent is the last dequeued event, not the sender of a
+        // target/action call. Establish the same mouse context as a row click.
+        NSApp.postEvent(event, atStart: true)
+        let dequeued = try #require(NSApp.nextEvent(
+            matching: .leftMouseUp, until: .distantPast, inMode: .default, dequeue: true
+        ))
+        try #require(dequeued.type == .leftMouseUp)
+        try #require(dequeued.clickCount == clickCount)
+        let current = try #require(NSApp.currentEvent)
+        try #require(current === dequeued)
+        try #require(current.type == .leftMouseUp)
+        try #require(current.clickCount == clickCount)
+        try #require(NSApp.sendAction(action, to: outline.target, from: outline))
     }
 
     func waitForOpen() async {
