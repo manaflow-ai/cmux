@@ -230,6 +230,11 @@ struct CampfireHookNotificationTests {
 
                 DispatchQueue.global(qos: .userInitiated).async {
                     defer { Darwin.close(clientFD) }
+                    // A hook may exit before its response arrives. A closed
+                    // client must not terminate the host-free test runner.
+                    var noSignal: Int32 = 1
+                    guard setsockopt(clientFD, SOL_SOCKET, SO_NOSIGPIPE, &noSignal,
+                                     socklen_t(MemoryLayout<Int32>.size)) == 0 else { return }
                     var pending = Data()
                     var buffer = [UInt8](repeating: 0, count: 4096)
                     while true {
@@ -246,9 +251,21 @@ struct CampfireHookNotificationTests {
                             guard let line = String(data: lineData, encoding: .utf8) else { continue }
                             context.state.append(line)
                             let response = agentHookMockResponse(line: line, context: context) + "\n"
-                            _ = response.withCString { ptr in
-                                Darwin.write(clientFD, ptr, strlen(ptr))
+                            let sent = response.withCString { ptr -> Bool in
+                                let count = strlen(ptr)
+                                var offset = 0
+                                while offset < count {
+                                    let written = Darwin.write(clientFD, ptr.advanced(by: offset), count - offset)
+                                    if written < 0 {
+                                        if errno == EINTR { continue }
+                                        return false
+                                    }
+                                    guard written > 0 else { return false }
+                                    offset += written
+                                }
+                                return true
                             }
+                            guard sent else { return }
                         }
                     }
                 }

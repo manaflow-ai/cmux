@@ -65,7 +65,7 @@ struct CodexTerminalErrorNotificationTests {
         #expect(
             server.commands.contains { command in
                 command.contains(
-                    "notify_target \(workspaceID) \(surfaceID) Codex|Error|Selected model is at capacity. Please try a different model."
+                    "notify_target_async \(workspaceID) \(surfaceID) Codex|Error|Selected model is at capacity. Please try a different model."
                 )
             },
             "Expected the nested terminal error to notify, saw \(server.commands)"
@@ -87,6 +87,7 @@ private final class CodexTerminalErrorSocketServer: @unchecked Sendable {
     private let surfaceID: String
     private let lock = NSLock()
     private var recordedCommands: [String] = []
+    private let notifications = AgentHookTestNotificationPipeline()
     private let finished = DispatchSemaphore(value: 0)
 
     var commands: [String] {
@@ -159,7 +160,12 @@ private final class CodexTerminalErrorSocketServer: @unchecked Sendable {
                     let lineData = pending.subdata(in: 0..<newline.lowerBound)
                     pending.removeSubrange(0...newline.lowerBound)
                     guard let line = String(data: lineData, encoding: .utf8) else { continue }
-                    lock.withLock { recordedCommands.append(line) }
+                    lock.withLock {
+                        // The CLI submits semantic journal events. Record only
+                        // effects admitted by production reconciliation, so this
+                        // assertion still proves delivery of the terminal error.
+                        recordedCommands.append(contentsOf: [line] + notifications.effects(for: line))
+                    }
                     let response = response(for: line) + "\n"
                     guard Self.writeAll(response, to: clientFD) else { return }
                 }
