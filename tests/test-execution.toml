@@ -1027,6 +1027,15 @@ path = "tests/test_ci_canonical_build_root.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_cli_workflow_catalog.py"
+lane = "macos-cli-no-socket"
+requirements = ["cmux-cli"]
+
+[[test]]
+path = "tests/test_cli_workflow_catalog_translation.py"
+lane = "macos-cli-no-socket"
+
+[[test]]
 path = "tests/test_ci_release_product_reuse.py"
 lane = "linux-guard"
 
