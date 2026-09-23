@@ -144,7 +144,9 @@ jobs:
         run: python3 tests/test_swift_testing_require_not_nested.py
       - name: Validate pairing tests name their URL scheme
         if: ${{ matrix.group == 'preflight' }}
-        run: python3 tests/test_pairing_scheme_is_explicit_in_tests.py
+        run: |
+          python3 tests/test_pairing_scheme_lint.py
+          python3 tests/test_pairing_scheme_is_explicit_in_tests.py
       - name: Validate Python test harness syntax
         if: ${{ matrix.group == 'preflight' }}
         run: git ls-files 'tests/*.py' 'tests_v2/*.py' 'scripts/*.py' | xargs python3 -m py_compile
@@ -507,6 +509,10 @@ jobs:
       - name: Validate iOS upload lean checkout
         if: ${{ matrix.group == 'release-ios' }}
         run: python3 tests/test_ios_upload_lean_checkout.py
+
+      - name: Validate iOS upload batching
+        if: ${{ matrix.group == 'release-ios' }}
+        run: python3 tests/test_ios_upload_batching.py
 
       - name: Validate tagged iOS device entitlement fallback
         if: ${{ matrix.group == 'release-ios' }}

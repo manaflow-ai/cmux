@@ -495,6 +495,10 @@ path = "tests/test_ios_testflight_pro_distribution.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ios_upload_batching.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ios_upload_lean_checkout.py"
 lane = "linux-guard"
 
@@ -868,6 +872,10 @@ lane = "legacy"
 
 [[test]]
 path = "tests/test_pairing_scheme_is_explicit_in_tests.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_pairing_scheme_lint.py"
 lane = "linux-guard"
 
 [[test]]
