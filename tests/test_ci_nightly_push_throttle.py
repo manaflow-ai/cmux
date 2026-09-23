@@ -19,6 +19,7 @@ TAG_SHA = "b" * 40
 
 HARNESS = r"""
 const scenario = JSON.parse(process.env.SCENARIO);
+Date.now = () => scenario.nowMs;
 const outputs = {};
 const notices = [];
 const warnings = [];
@@ -97,6 +98,7 @@ def run_decide(
         "SCENARIO": json.dumps(
             {
                 "script": decide_script(),
+                "nowMs": 1700000000000,
                 "ref": ref,
                 "headSha": HEAD_SHA,
                 "eventName": event,
@@ -136,7 +138,14 @@ def test_push_to_main_skips_while_published_commit_is_young() -> None:
 
 
 def test_push_to_main_builds_once_published_commit_is_old_enough() -> None:
+    assert not should_build(run_decide(event="push", tag_age_hours=1.999))
+    assert should_build(run_decide(event="push", tag_age_hours=2))
     assert should_build(run_decide(event="push", tag_age_hours=2.5))
+
+
+def test_non_default_interval_changes_the_push_decision() -> None:
+    assert should_build(run_decide(event="push", tag_age_hours=2.5, interval="2"))
+    assert not should_build(run_decide(event="push", tag_age_hours=2.5, interval="3"))
 
 
 def test_zero_or_invalid_interval_restores_publish_every_push() -> None:
@@ -152,7 +161,9 @@ def test_lookup_failures_build() -> None:
 
 
 def test_same_commit_still_skips_as_before() -> None:
-    assert not should_build(run_decide(event="push", tag_sha=HEAD_SHA))
+    assert not should_build(
+        run_decide(event="push", tag_sha=HEAD_SHA, tag_age_hours=2.5)
+    )
 
 
 def test_schedule_dispatch_and_rc_are_not_throttled() -> None:
