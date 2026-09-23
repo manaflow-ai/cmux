@@ -125,6 +125,14 @@ CI_PUBLISHING_ONLY = frozenset({
     "scripts/sparkle_generate_appcast.sh",
 })
 
+# Run only by workflows no pull request, merge group or push can start (today
+# test-e2e.yml, which is workflow_dispatch only), so no PR lane executes them.
+# Their own linux-guard tests route independently. Editing one used to buy the
+# macOS, web and Release lanes through the fail-open rule below.
+CI_DISPATCH_ONLY = frozenset({
+    "scripts/ci/e2e_warm_derived_data.py",
+})
+
 CI_MACOS_ADMISSION_CONTROL_INPUTS = frozenset({
     "scripts/ci/build_input_fingerprint.py",
     "scripts/ci/find_admitted_build.py",
@@ -157,6 +165,7 @@ def forces_all_areas(path: str) -> bool:
         direct_ci_python
         and path not in CI_CONTROL_PLANE_ONLY
         and path not in CI_PUBLISHING_ONLY
+        and path not in CI_DISPATCH_ONLY
         and path not in CI_MACOS_ADMISSION_CONTROL_INPUTS
         and path not in CI_MACOS_TEST_PRODUCT_INPUTS
     ):
@@ -970,7 +979,7 @@ def is_macos_neutral(
     path: str,
     macos_ios_packages: Optional[frozenset[str]],
 ) -> bool:
-    if path in CI_CONTROL_PLANE_ONLY or path in CI_PUBLISHING_ONLY:
+    if path in CI_CONTROL_PLANE_ONLY or path in CI_PUBLISHING_ONLY or path in CI_DISPATCH_ONLY:
         return True
     # Review configuration is not a build input. Keep this exact: unknown
     # policy files retain native coverage, and Linux guards still validate PRs.

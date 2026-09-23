@@ -2120,6 +2120,35 @@ def test_owned_control_plane_helper_reaches_detector_instead_of_fail_open_guard(
         ], path
 
 
+def test_dispatch_only_helper_routes_no_pull_request_lane() -> None:
+    for path in module.CI_DISPATCH_ONLY:
+        result, outputs = run_detect_step_for_paths([path])
+        assert "CI router changed; running all CI areas." not in result.stdout, path
+        assert outputs == [
+            "macos=false",
+            "web=false",
+            "agent_session_web=false",
+            "cli=false",
+            "swift_packages=false",
+            "release_build=false",
+        ], path
+
+
+def test_dispatch_only_helpers_are_only_run_by_dispatch_only_workflows() -> None:
+    # The carve-out is sound only while no PR-reachable workflow runs the helper.
+    for path in module.CI_DISPATCH_ONLY:
+        users = [
+            workflow for workflow in sorted((ROOT / ".github/workflows").glob("*.yml"))
+            if path in workflow.read_text(encoding="utf-8")
+        ]
+        assert users, f"{path} is not run by any workflow"
+        for workflow in users:
+            document = yaml.safe_load(workflow.read_text(encoding="utf-8"))
+            triggers = document.get(True, document.get("on")) or {}
+            reachable = {"pull_request", "pull_request_target", "merge_group", "push"} & set(triggers)
+            assert not reachable, f"{workflow.name} runs {path} but is started by {sorted(reachable)}"
+
+
 def test_workflow_diff_failure_runs_all_areas() -> None:
     script = detect_step_script()
     with tempfile.TemporaryDirectory() as temp_dir:
