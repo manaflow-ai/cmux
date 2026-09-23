@@ -249,8 +249,8 @@ class ReuseProducts(TestProductHandoff):
         )
 
         changed_recipe = mutate_admission(
-            "scripts/ci/compile-app-host-test-product.sh build \\",
-            "scripts/ci/compile-app-host-test-product.sh build --changed \\",
+            "scripts/ci/compile-app-host-test-product.sh canonical-build \\",
+            "scripts/ci/compile-app-host-test-product.sh canonical-build --changed \\",
         )
         self.assertNotEqual(
             base_identity,
