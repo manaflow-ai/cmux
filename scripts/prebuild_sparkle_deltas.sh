@@ -47,10 +47,15 @@ cleanup() {
 }
 trap cleanup EXIT
 
-# Mount <dmg> read-only and set APP to the one .app at its root.
+# Copy the one .app at the root of <dmg> to local disk and set APP to the copy.
+# generate_appcast diffs local copies too. BinaryDelta walks directories in
+# file system order, and a mounted image orders entries differently from the
+# runner's disk, so diffing the mount directly yields a different (equally
+# valid) delta. Diffing copies reproduces generate_appcast's bytes exactly.
 APP=""
-mount_app() {
-  local dmg="$1" mountpoint
+copies=0
+copy_app() {
+  local dmg="$1" mountpoint mounted_app dest
   APP=""
   mountpoint="$(mktemp -d "$work_dir/mount.XXXXXX")"
   if ! hdiutil attach "$dmg" -nobrowse -readonly -noautoopen -mountpoint "$mountpoint" -quiet >/dev/null 2>&1; then
@@ -58,13 +63,23 @@ mount_app() {
     return 1
   fi
   mounts+=("$mountpoint")
-  APP="$(find "$mountpoint" -maxdepth 1 -name '*.app' -type d -print -quit)"
-  [[ -n "$APP" ]]
+  mounted_app="$(find "$mountpoint" -maxdepth 1 -name '*.app' -type d -print -quit)"
+  if [[ -z "$mounted_app" ]]; then
+    return 1
+  fi
+  copies=$((copies + 1))
+  dest="$work_dir/apps/$copies/$(basename "$mounted_app")"
+  mkdir -p "$(dirname "$dest")"
+  if ! ditto "$mounted_app" "$dest"; then
+    log "could not copy the app out of $(basename "$dmg")"
+    return 1
+  fi
+  APP="$dest"
 }
 
 plist_value() { /usr/libexec/PlistBuddy -c "Print :$2" "$1" 2>/dev/null; }
 
-if ! mount_app "$NEW_ARCHIVE"; then
+if ! copy_app "$NEW_ARCHIVE"; then
   log "new archive has no app; generate_appcast will create deltas"
   exit 0
 fi
@@ -81,7 +96,7 @@ candidates=()
 for dmg in "$ARCHIVES_DIR"/*.dmg; do
   [[ -f "$dmg" && "$dmg" != "$NEW_ARCHIVE" ]] || continue
   [[ "$(basename "$dmg")" != "$(basename "$NEW_ARCHIVE")" ]] || continue
-  mount_app "$dmg" || continue
+  copy_app "$dmg" || continue
   old_version="$(plist_value "$APP/Contents/Info.plist" CFBundleVersion)"
   if ! [[ "$old_version" =~ ^[0-9]+$ ]] || [[ "$old_version" -ge "$new_version" ]]; then
     continue
