@@ -13,6 +13,15 @@ on:
       full_suite:
         required: true
         type: string
+      # Path-derived selection for the swift-package-tests lane, so a pull
+      # request that changes a Swift package still executes that package's
+      # tests under the compile-only suite policy. Optional and defaulted:
+      # a caller (or a trusted base router) that predates this input leaves it
+      # empty, which reads as "not routed" everywhere below.
+      swift_packages:
+        required: false
+        default: ""
+        type: string
       product_artifacts:
         required: false
         default: "layered"
@@ -193,7 +202,13 @@ jobs:
               check=True, text=True, capture_output=True,
           )
           jobs = json.loads(result.stdout).get("jobs", [])
-          matches = [job for job in jobs if job.get("name") == "macOS compile admission"]
+          # A reusable workflow prefixes its jobs with the caller's job id, so the
+          # reported name is "macos / macOS compile admission" on every real run.
+          matches = [
+              job
+              for job in jobs
+              if str(job.get("name") or "").rsplit(" / ", 1)[-1] == "macOS compile admission"
+          ]
           if len(matches) != 1:
               raise SystemExit(f"expected one admission job, found {len(matches)}")
           job = matches[0]
@@ -2582,7 +2597,14 @@ jobs:
     # jobs that legitimately skip (web/go/agent-session paths), and that
     # transitive skip otherwise marks every macOS job skipped even when
     # linux-preflight itself succeeds. Require the direct needs explicitly.
-    if: ${{ inputs.macos == 'true' && inputs.full_suite == 'true' }}
+    # Two reasons to run: the full suite, or a change the router attributed to
+    # a Swift package. The second is deliberately independent of inputs.macos:
+    # Packages/iOS packages outside the desktop product's closure are
+    # macOS-neutral for the app build yet still own tests this lane runs.
+    # The job narrows itself to the affected packages in "Select package
+    # tests", so the routed case costs one runner and a short build, not the
+    # full 33-package sweep.
+    if: ${{ (inputs.macos == 'true' && inputs.full_suite == 'true') || inputs.swift_packages == 'true' }}
     outputs:
       release_archs: ${{ steps.release-archs.outputs.archs }}
     # Build the release helper with SDK 15, then run package tests with SDK 26.
@@ -2617,6 +2639,7 @@ jobs:
         id: select
         env:
           EVENT_NAME: ${{ github.event_name }}
+          FULL_SUITE: ${{ inputs.full_suite }}
         run: |
           set -euo pipefail
           PACKAGES=(
@@ -2664,8 +2687,18 @@ jobs:
             if grep -qE '^vendor/bonsplit(/|$)' "$changed" || grep -qxF '.github/workflows/ci.yml' "$changed"; then
               echo "bonsplit=true" >> "$GITHUB_OUTPUT"
             fi
-            python3 scripts/ci/select_package_tests.py --changed-files "$changed" "${PACKAGES[@]}" > "$selected"
+            selection_args=(--changed-files "$changed")
+            if [ "$FULL_SUITE" != "true" ]; then
+              # Match the router's candidate filtering even for mixed PRs.
+              # A package edit plus a workflow edit must not become a full sweep.
+              selection_args+=(--routed-inputs-only)
+            fi
+            python3 scripts/ci/select_package_tests.py "${selection_args[@]}" "${PACKAGES[@]}" > "$selected"
           else
+            if [ "$FULL_SUITE" != "true" ]; then
+              echo "::error::Diff unavailable for targeted package tests; refusing a full sweep."
+              exit 1
+            fi
             echo "Diff unavailable; running every package."
             echo "bonsplit=true" >> "$GITHUB_OUTPUT"
             printf '%s\n' "${PACKAGES[@]}" > "$selected"
@@ -2691,7 +2724,7 @@ jobs:
       # still builds the shipped universal app independently of this policy.
       - name: Resolve Release check architectures
         id: release-archs
-        if: ${{ inputs.release_build == 'true' }}
+        if: ${{ inputs.full_suite == 'true' && inputs.release_build == 'true' }}
         env:
           REQUESTED_ARCHS: ${{ inputs.release_archs != 'default' && inputs.release_archs || vars.CI_RELEASE_BUILD_ARCHS }}
         run: |
@@ -2703,7 +2736,7 @@ jobs:
       # Only release-build consumes this artifact. Package/app-host tests use
       # the prebuilt GhosttyKit framework and do not need the Release CLI.
       - name: Select helper Xcode
-        if: ${{ inputs.release_build == 'true' }}
+        if: ${{ inputs.full_suite == 'true' && inputs.release_build == 'true' }}
         run: |
           set -euo pipefail
           CMUX_CI_XCODE_APP="$CMUX_CI_HELPER_XCODE_APP" \
@@ -2711,11 +2744,11 @@ jobs:
             ./scripts/select-ci-xcode.sh
 
       - name: Install zig
-        if: ${{ inputs.release_build == 'true' }}
+        if: ${{ inputs.full_suite == 'true' && inputs.release_build == 'true' }}
         run: ./scripts/install-zig-ci.sh
 
       - name: Cache Zig packages
-        if: ${{ inputs.release_build == 'true' }}
+        if: ${{ inputs.full_suite == 'true' && inputs.release_build == 'true' }}
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.cache/zig
@@ -2723,7 +2756,7 @@ jobs:
           restore-keys: zig-packages-
 
       - name: Build Release Ghostty CLI helper
-        if: ${{ inputs.release_build == 'true' }}
+        if: ${{ inputs.full_suite == 'true' && inputs.release_build == 'true' }}
         env:
           RELEASE_ARCHS: ${{ steps.release-archs.outputs.archs }}
         run: |
@@ -2752,7 +2785,7 @@ jobs:
           done
 
       - name: Upload Release Ghostty CLI helper
-        if: ${{ inputs.release_build == 'true' }}
+        if: ${{ inputs.full_suite == 'true' && inputs.release_build == 'true' }}
         id: upload-ghostty-cli-helper
         continue-on-error: true
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -2763,7 +2796,7 @@ jobs:
           retention-days: 1
 
       - name: Retry Release Ghostty CLI helper upload
-        if: ${{ inputs.release_build == 'true' && steps.upload-ghostty-cli-helper.outcome == 'failure' }}
+        if: ${{ inputs.full_suite == 'true' && inputs.release_build == 'true' && steps.upload-ghostty-cli-helper.outcome == 'failure' }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: cmux-ghostty-cli-helper
@@ -2940,6 +2973,59 @@ jobs:
             esac
             echo "::endgroup::"
           done < "$selected"
+
+      # A package test runner that dies on a signal prints one line from
+      # SwiftPM ("Exited with unexpected signal code N") and nothing else: no
+      # faulting address, no thread, no frames. That is why the only tool this
+      # job has ever had for a crash is a retry whose signal list has to be
+      # guessed at. macOS already wrote the report; collect it so the next
+      # crash is diagnosed from a backtrace instead of from the signal number.
+      - name: Collect test runner crash reports
+        if: ${{ failure() }}
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -uo pipefail
+          reports="$RUNNER_TEMP/package-test-crash-reports"
+          mkdir -p "$reports"
+          found=0
+          for dir in "$HOME/Library/Logs/DiagnosticReports" /Library/Logs/DiagnosticReports; do
+            [ -d "$dir" ] || continue
+            # Only this job's own crashes: reports written since the runner
+            # started this workspace, from SwiftPM test runners and swift-*
+            # tools. -newer keeps an unrelated report from an earlier job out.
+            while IFS= read -r report; do
+              case "$(basename "$report")" in
+                *PackageTests*|*xctest*|*swift-testing*|*swift*)
+                  cp "$report" "$reports/" 2>/dev/null && found=$((found + 1))
+                  ;;
+              esac
+            done < <(find "$dir" -maxdepth 1 -type f \( -name '*.ips' -o -name '*.crash' \) -newer "$GITHUB_WORKSPACE/.git" 2>/dev/null)
+          done
+          if [ "$found" -eq 0 ]; then
+            echo "No matching crash report found. A signal the kernel does not report (for example a runner-initiated kill) leaves none."
+            exit 0
+          fi
+          echo "Collected $found crash report(s)."
+          for report in "$reports"/*; do
+            echo "::group::$(basename "$report")"
+            # The .ips header is one JSON line followed by the payload; print
+            # enough to identify the signal, the faulting address and the
+            # crashing thread's frames without dumping every loaded image.
+            head -c 20000 "$report"
+            echo
+            echo "::endgroup::"
+          done
+
+      - name: Upload test runner crash reports
+        if: ${{ failure() }}
+        continue-on-error: true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: swift-package-tests-crash-reports-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/package-test-crash-reports
+          if-no-files-found: ignore
+          retention-days: 7
 
   tests-build-and-lag:
     permissions:
@@ -3572,7 +3658,11 @@ jobs:
           if inputs.get("compile_admitted") == "":
               inputs["compile_admitted"] = "false"
           inputs.setdefault("cli", "false")
-          for route in ("macos", "cli", "full_suite", "compile_admitted", "release_build"):
+          # A caller that predates the swift_packages input leaves it unset or
+          # empty, which reads as "the package lane was not separately routed".
+          if inputs.get("swift_packages", "") == "":
+              inputs["swift_packages"] = "false"
+          for route in ("macos", "cli", "full_suite", "compile_admitted", "release_build", "swift_packages"):
               if inputs.get(route) not in {"true", "false"}:
                   print(f"invalid route {route}={inputs.get(route)!r}", file=sys.stderr)
                   sys.exit(1)
@@ -3580,11 +3670,14 @@ jobs:
           macos = inputs["macos"] == "true"
           full_suite = inputs["full_suite"] == "true"
           cli = inputs["cli"] == "true"
+          # The package lane is routed from changed paths, so it is required
+          # whenever the router selected it even under the compile-only suite.
+          swift_packages = inputs["swift_packages"] == "true"
           required = {
               "macos-compile-admission": (macos or cli) and (inputs["compile_admitted"] != "true" or full_suite or cli),
               "app-host-unit-tests": macos and full_suite,
               "cli-product-tests": cli or (macos and full_suite),
-              "swift-package-tests": macos and full_suite,
+              "swift-package-tests": (macos and full_suite) or swift_packages,
               "tests-build-and-lag": macos and full_suite,
               "release-admission": macos and full_suite and inputs["release_build"] == "true",
               "release-build": macos and full_suite and inputs["release_build"] == "true",
