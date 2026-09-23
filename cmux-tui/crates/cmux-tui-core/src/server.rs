@@ -19715,7 +19715,7 @@ mod tests {
                 .unwrap();
                 mux.with_state(|state| {
                     state
-                        .placements_of_content(&crate::resource::ContentPublicId::Terminal(terminal))
+                        .placements_of_content(&ContentPublicId::Terminal(terminal))
                         .iter()
                         .copied()
                         .find(|placement| *placement != id)
