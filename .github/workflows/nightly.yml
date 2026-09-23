@@ -693,6 +693,18 @@ jobs:
           path: ${{ env.CMUX_COMPILE_ADMISSION_CAS }}
           key: xcode-compilation-test-${{ runner.os }}-${{ runner.arch }}-${{ steps.compilation-cache-key.outputs.fingerprint }}-${{ needs.decide.outputs.head_sha }}
 
+      # canonical-resolve copies the workspace to the canonical root and
+      # resolves there, so the workspace copy is still exactly what was
+      # restored. Save what the resolve wrote, or a fallback restore of an
+      # older layout is saved again under the current key.
+      - name: Collect resolved Swift packages
+        if: steps.compilation-cache-restore.outputs.cache-hit != 'true' && steps.swift-packages-restore.outputs.cache-hit != 'true'
+        run: |
+          set -euo pipefail
+          resolved="${CMUX_CI_CANONICAL_ROOT:-/private/tmp/cmux-ci}/src/.ci-source-packages"
+          test -d "$resolved/.package-cache"
+          rsync -a --delete "$resolved/" .ci-source-packages/
+
       - name: Save Swift packages
         if: steps.compilation-cache-restore.outputs.cache-hit != 'true' && steps.swift-packages-restore.outputs.cache-hit != 'true'
         uses: ./.github/actions/cache-save
