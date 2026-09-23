@@ -291,13 +291,6 @@ jobs:
         with:
           bun-version: "1.3.14"
 
-      - name: Download pre-built GhosttyKit.xcframework
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          set -euo pipefail
-          ./scripts/download-prebuilt-ghosttykit.sh
-
       - name: Install zig
         run: |
           ./scripts/install-zig-ci.sh
@@ -316,6 +309,16 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: python3 scripts/ci/reuse_app_host_products.py restore "$CMUX_DERIVED_DATA_PATH"
+
+      # Only an input to compiling, and not part of the product contract, so an
+      # adopted product never needs it.
+      - name: Download pre-built GhosttyKit.xcframework
+        if: ${{ steps.reuse.outputs.hit != 'true' }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          ./scripts/download-prebuilt-ghosttykit.sh
 
       - name: Restore E2E compilation cache
         if: ${{ steps.reuse.outputs.hit != 'true' }}
