@@ -1,60 +1,421 @@
+import os
 import CmuxTerminal
 import Foundation
 
-/// Input typed into an optimistic Cloud pane before its remote PTY exists.
+/// Input typed into an optimistic Cloud pane before its native mirror is ready.
 ///
-/// The pane is inserted the moment the user asks for it; the machine's terminal
-/// arrives later. Keystrokes made in between are queued here and handed to the
-/// attachment's input router once the pane is adopted, so the first characters
-/// a user types into a new pane are not lost.
+/// The pane is inserted the moment the user asks for it; once the stable remote
+/// terminal id arrives, early keystrokes go straight to that PTY. The adopted
+/// native mirror receives only the suffix after that handoff, so the remote
+/// shell remains the source of truth for startup output and echo.
 final class CloudOptimisticInputRelay: @unchecked Sendable {
-    private let lock = NSLock()
-    private var router: CloudTuiManualIOInputRouter?
-    private var pending: [TerminalManualInput] = []
-    private var discarded = false
-    /// Bounded like the router's own queue: a runaway paste into a pane that
-    /// never attaches must not grow without limit.
-    private let pendingLimit = 4_096
-
-    /// Number of inputs waiting for a router. Diagnostics and tests only.
-    var pendingCount: Int {
-        lock.lock(); defer { lock.unlock() }
-        return pending.count
+    private struct RemoteSink: Sendable {
+        let terminalID: String
+        let sender: any CloudTuiUntrackedCommandSending
     }
+
+    private struct State: @unchecked Sendable {
+        var router: CloudTuiManualIOInputRouter?
+        var remoteSink: RemoteSink?
+        var pending: [TerminalManualInput] = []
+        var remoteQueue: [TerminalManualInput] = []
+        var remoteQueueHead = 0
+        var remoteWorker: Task<Void, Never>?
+        var remoteWorkerToken: UUID?
+        var remoteInFlight = false
+        var remoteEpoch: UInt64 = 0
+        var requestedRouter: CloudTuiManualIOInputRouter?
+        var remoteBindingPending = false
+        var remoteBindingToken: UUID?
+        var remoteRebind: (@Sendable () async -> Bool)?
+        var remoteRebindInFlight = false
+        var remoteRebindToken: UUID?
+        var discarded = false
+    }
+
+    // Ghostty's synchronous input callback needs a tiny synchronous bridge.
+    // All asynchronous delivery and lifecycle state remains on one retained worker.
+    private let state = OSAllocatedUnfairLock(initialState: State())
+    private let pendingLimit = 4_096
 
     /// Callable from Ghostty's I/O thread, like the router it fronts.
     func send(_ input: TerminalManualInput) {
-        lock.lock()
-        if let router {
-            lock.unlock()
-            router.send(input)
-            return
+        let router = state.withLock { state -> CloudTuiManualIOInputRouter? in
+            if let router = state.router { return router }
+            guard !state.discarded,
+                  retainedInputCountLocked(state) < pendingLimit else { return nil }
+            if state.remoteSink != nil {
+                appendRemoteLocked([input], to: &state)
+                startRemoteWorkerLocked(&state)
+            } else {
+                state.pending.append(input)
+                startRemoteRebindLocked(&state)
+            }
+            return nil
         }
-        if !discarded, pending.count < pendingLimit { pending.append(input) }
-        lock.unlock()
+        router?.send(input)
+    }
+
+    /// Marks the relay as awaiting the binding attempt that precedes materialization.
+    /// Pending input remains owned by this relay until bindRemoteTerminal succeeds.
+    @discardableResult
+    func beginRemoteBinding() -> UUID? {
+        state.withLock { state in
+            guard !state.discarded, state.router == nil else { return nil }
+            state.remoteBindingPending = true
+            let token = UUID()
+            state.remoteBindingToken = token
+            return token
+        }
+    }
+
+    /// Stores the reconnect operation used after an acknowledged remote send
+    /// fails. The retry is triggered by a later input, attach, or worker failure.
+    func setRemoteRebinder(_ rebinder: @escaping @Sendable () async -> Bool) {
+        state.withLock { state in
+            state.remoteRebind = rebinder
+        }
+    }
+
+    /// Ends a binding attempt before any remote input was handed to the PTY.
+    /// The native mirror is the safe fallback for this pre-send failure.
+    func remoteBindingFailed(token: UUID?) {
+        state.withLock { state in
+            guard !state.discarded, state.remoteBindingToken == token else { return }
+            state.remoteBindingPending = false
+            state.remoteBindingToken = nil
+            state.remoteSink = nil
+            state.remoteRebind = nil
+            state.remoteRebindInFlight = false
+            state.remoteRebindToken = nil
+            promoteRequestedRouterIfReadyLocked(&state)
+        }
+    }
+
+    /// Starts routing input to the remote terminal as soon as its stable id is known.
+    @discardableResult
+    func bindRemoteTerminal(
+        terminalID: String,
+        sender: any CloudTuiUntrackedCommandSending,
+        token: UUID?
+    ) -> Bool {
+        state.withLock { state in
+            guard !state.discarded,
+                  state.router == nil,
+                  state.remoteBindingToken == token else { return false }
+            state.remoteBindingPending = false
+            state.remoteBindingToken = nil
+            state.remoteRebindInFlight = false
+            state.remoteRebindToken = nil
+            if let existing = state.remoteSink, existing.terminalID == terminalID {
+                startRemoteWorkerLocked(&state)
+                promoteRequestedRouterIfReadyLocked(&state)
+                return true
+            }
+            state.remoteWorker?.cancel()
+            state.remoteWorker = nil
+            state.remoteWorkerToken = nil
+            state.remoteInFlight = false
+            state.remoteSink = RemoteSink(terminalID: terminalID, sender: sender)
+            state.remoteEpoch &+= 1
+            let pending = state.pending
+            appendRemoteLocked(pending, to: &state)
+            state.pending.removeAll(keepingCapacity: true)
+            startRemoteWorkerLocked(&state)
+            promoteRequestedRouterIfReadyLocked(&state)
+            return true
+        }
     }
 
     /// Delivers everything queued so far to `router` and forwards from now on.
     func attach(_ router: CloudTuiManualIOInputRouter) {
-        lock.lock()
-        // Enqueue the backlog before publishing the router. send() only queues
-        // work, so holding this lock performs no socket I/O. A concurrent key
-        // cannot overtake earlier input at the handoff boundary.
-        for input in pending { router.send(input) }
-        pending.removeAll()
-        discarded = false
-        self.router = router
-        lock.unlock()
+        state.withLock { state in
+            // `discard()` fences the current request; an explicit later attach is
+            // the retry boundary and is allowed to resume forwarding.
+            state.discarded = false
+            state.requestedRouter = router
+            startRemoteRebindLocked(&state)
+            promoteRequestedRouterIfReadyLocked(&state)
+        }
     }
 
-    /// Drops queued input and stops forwarding: the request was cancelled or the
-    /// pane failed. A later `attach` (retry) resumes forwarding.
+    /// Drops queued input and stops forwarding. A later `attach` resumes forwarding.
     func discard() {
-        lock.lock()
-        pending.removeAll()
-        router = nil
-        discarded = true
-        lock.unlock()
+        state.withLock { state in
+            state.pending.removeAll()
+            clearRemoteQueueLocked(&state)
+            state.requestedRouter = nil
+            state.remoteSink = nil
+            state.remoteBindingPending = false
+            state.remoteBindingToken = nil
+            state.remoteEpoch &+= 1
+            state.remoteWorker?.cancel()
+            state.remoteWorker = nil
+            state.remoteWorkerToken = nil
+            state.remoteInFlight = false
+            state.remoteRebind = nil
+            state.remoteRebindInFlight = false
+            state.remoteRebindToken = nil
+            state.router = nil
+            state.discarded = true
+        }
+    }
+
+    private func startRemoteWorkerLocked(_ state: inout State) {
+        guard state.remoteWorker == nil,
+              state.remoteSink != nil,
+              !remoteQueueIsEmptyLocked(state) else { return }
+        let epoch = state.remoteEpoch
+        let token = UUID()
+        state.remoteWorkerToken = token
+        state.remoteWorker = Task { [weak self] in
+            while let self, let item = self.takeRemoteInput(epoch: epoch) {
+                guard let sink = self.remoteSinkForDelivery(epoch: epoch) else { break }
+                do {
+                    guard let request = Self.request(for: item, sink: sink) else {
+                        self.remoteInputFinished(epoch: epoch)
+                        continue
+                    }
+                    // Input uses the persistent channel's checked untracked
+                    // write path. The single barrier below fences the whole
+                    // FIFO once, instead of paying one network RTT per key.
+                    try await sink.sender.sendUntrackedTuiCommand(arguments: request)
+                    self.remoteInputFinished(epoch: epoch)
+                } catch let error as CloudTuiSendError {
+                    let requeueInput: Bool
+                    if case .notSent = error { requeueInput = true } else { requeueInput = false }
+                    self.remoteInputFailed(
+                        epoch: epoch,
+                        input: item,
+                        requeueInput: requeueInput
+                    )
+                    break
+                } catch let error as CloudMachineLink.LinkError {
+                    let requeueInput: Bool
+                    switch error {
+                    case .clientMissing, .spawnFailed, .inputTooLarge, .timedOut, .exited:
+                        requeueInput = false
+                    }
+                    if case .clientMissing = error {
+                        self.remoteInputTerminalFailure(epoch: epoch, input: item)
+                    } else if case .spawnFailed = error {
+                        self.remoteInputTerminalFailure(epoch: epoch, input: item)
+                    } else if case .inputTooLarge = error {
+                        self.remoteInputTerminalFailure(epoch: epoch, input: item)
+                    } else {
+                        self.remoteInputFailed(epoch: epoch, input: item, requeueInput: requeueInput)
+                    }
+                    break
+                } catch {
+                    self.remoteInputFailed(epoch: epoch, input: item, requeueInput: false)
+                    break
+                }
+            }
+            if let self,
+               let sink = self.remoteSinkForDelivery(epoch: epoch) {
+                do {
+                    try await sink.sender.sendTuiCommandAndAwaitAck(
+                        arguments: CloudTuiRequests.snapshotArguments(socketPath: "")
+                    )
+                } catch {
+                    self.remoteInputFailed(
+                        epoch: epoch,
+                        input: .bytes(Data()),
+                        requeueInput: false
+                    )
+                }
+            }
+            self?.remoteWorkerFinished(epoch: epoch, token: token)
+        }
+    }
+
+    private func startRemoteRebindLocked(_ state: inout State) {
+        guard state.remoteBindingPending,
+              !state.remoteRebindInFlight,
+              let rebinder = state.remoteRebind else { return }
+        state.remoteRebindInFlight = true
+        let token = UUID()
+        state.remoteRebindToken = token
+        Task { [weak self] in
+            let bound = await rebinder()
+            self?.remoteRebindFinished(token: token, bound: bound)
+        }
+    }
+
+    private func remoteRebindFinished(token: UUID, bound: Bool) {
+        state.withLock { state in
+            guard !state.discarded, state.remoteRebindToken == token else { return }
+            state.remoteRebindInFlight = false
+            state.remoteRebindToken = nil
+            if !bound {
+                // One failed recovery attempt falls back to the native mirror.
+                // The ambiguous item was intentionally not replayed; the
+                // untouched suffix remains ordered in `pending`.
+                state.remoteBindingPending = false
+                state.remoteRebind = nil
+                promoteRequestedRouterIfReadyLocked(&state)
+            }
+        }
+    }
+
+    private func takeRemoteInput(epoch: UInt64) -> TerminalManualInput? {
+        state.withLock { state in
+            guard !state.discarded,
+                  epoch == state.remoteEpoch,
+                  state.remoteSink != nil,
+                  !remoteQueueIsEmptyLocked(state) else { return nil }
+            let item = state.remoteQueue[state.remoteQueueHead]
+            state.remoteQueueHead += 1
+            if state.remoteQueueHead == state.remoteQueue.count {
+                clearRemoteQueueLocked(&state)
+            } else if state.remoteQueueHead >= 256,
+                      state.remoteQueueHead * 2 >= state.remoteQueue.count {
+                state.remoteQueue.removeFirst(state.remoteQueueHead)
+                state.remoteQueueHead = 0
+            }
+            state.remoteInFlight = true
+            return item
+        }
+    }
+
+    private func remoteSinkForDelivery(epoch: UInt64) -> RemoteSink? {
+        state.withLock { state in
+            guard !state.discarded, epoch == state.remoteEpoch else { return nil }
+            return state.remoteSink
+        }
+    }
+
+    private func remoteInputFinished(epoch: UInt64) {
+        state.withLock { state in
+            guard !state.discarded, epoch == state.remoteEpoch else { return }
+            state.remoteInFlight = false
+        }
+    }
+
+    private func remoteInputFailed(
+        epoch: UInt64,
+        input: TerminalManualInput,
+        requeueInput: Bool
+    ) {
+        state.withLock { state in
+            guard !state.discarded, epoch == state.remoteEpoch else { return }
+            // The failed request may already have reached the PTY before its
+            // acknowledgement was lost. Never replay that item. Retain only
+            // the untouched suffix for a fresh authenticated binding.
+            if requeueInput {
+                state.pending.append(input)
+            }
+            if !remoteQueueIsEmptyLocked(state) {
+                let suffix = Array(state.remoteQueue[state.remoteQueueHead...])
+                state.pending.append(contentsOf: suffix)
+            }
+            clearRemoteQueueLocked(&state)
+            state.remoteSink = nil
+            state.remoteBindingPending = true
+            state.remoteInFlight = false
+            startRemoteRebindLocked(&state)
+        }
+    }
+
+    private func remoteInputTerminalFailure(epoch: UInt64, input: TerminalManualInput) {
+        state.withLock { state in
+            guard !state.discarded, epoch == state.remoteEpoch else { return }
+            state.pending.append(input)
+            if !remoteQueueIsEmptyLocked(state) {
+                state.pending.append(contentsOf: state.remoteQueue[state.remoteQueueHead...])
+            }
+            clearRemoteQueueLocked(&state)
+            state.remoteSink = nil
+            state.remoteBindingPending = false
+            state.remoteBindingToken = nil
+            state.remoteRebind = nil
+            state.remoteInFlight = false
+            promoteRequestedRouterIfReadyLocked(&state)
+        }
+    }
+
+    private func remoteWorkerFinished(epoch: UInt64, token: UUID) {
+        state.withLock { state in
+            guard !state.discarded,
+                  epoch == state.remoteEpoch,
+                  token == state.remoteWorkerToken else { return }
+            state.remoteWorker = nil
+            state.remoteWorkerToken = nil
+            state.remoteInFlight = false
+            startRemoteWorkerLocked(&state)
+            startRemoteRebindLocked(&state)
+            promoteRequestedRouterIfReadyLocked(&state)
+        }
+    }
+
+    private func promoteRequestedRouterIfReadyLocked(_ state: inout State) {
+        guard state.router == nil,
+              let requestedRouter = state.requestedRouter,
+              !state.remoteBindingPending,
+              state.remoteWorker == nil,
+              remoteQueueIsEmptyLocked(state),
+              !state.remoteInFlight else { return }
+        state.requestedRouter = nil
+        state.router = requestedRouter
+        state.remoteRebind = nil
+        // Enqueue before publishing the router so a concurrent key cannot overtake.
+        for input in state.pending { requestedRouter.send(input) }
+        state.pending.removeAll(keepingCapacity: true)
+    }
+
+    private func retainedInputCountLocked(_ state: State) -> Int {
+        state.pending.count + remoteQueueCountLocked(state) + (state.remoteInFlight ? 1 : 0)
+    }
+
+    private func remoteQueueCountLocked(_ state: State) -> Int {
+        max(0, state.remoteQueue.count - state.remoteQueueHead)
+    }
+
+    private func remoteQueueIsEmptyLocked(_ state: State) -> Bool {
+        state.remoteQueueHead >= state.remoteQueue.count
+    }
+
+    private func appendRemoteLocked(
+        _ inputs: [TerminalManualInput],
+        to state: inout State
+    ) {
+        guard !inputs.isEmpty else { return }
+        if state.remoteQueueHead > 0 {
+            state.remoteQueue.removeFirst(state.remoteQueueHead)
+            state.remoteQueueHead = 0
+        }
+        for input in inputs {
+            switch input {
+            case .bytes(let bytes) where bytes.count > 64 * 1024:
+                var offset = 0
+                while offset < bytes.count {
+                    let end = min(bytes.count, offset + 64 * 1024)
+                    state.remoteQueue.append(.bytes(bytes.subdata(in: offset..<end)))
+                    offset = end
+                }
+            default:
+                state.remoteQueue.append(input)
+            }
+        }
+    }
+
+    private func clearRemoteQueueLocked(_ state: inout State) {
+        state.remoteQueue.removeAll(keepingCapacity: true)
+        state.remoteQueueHead = 0
+    }
+
+    private static func request(
+        for input: TerminalManualInput,
+        sink: RemoteSink
+    ) -> CloudTuiRequest? {
+        switch input {
+        case .bytes(let bytes):
+            guard !bytes.isEmpty else { return nil }
+            return CloudTuiRequests.writeBytes(terminalID: sink.terminalID, data: bytes)
+        case .namedKey(let name):
+            guard let key = CloudTuiManualIOInputRouter.protocolKeyName(for: name) else { return nil }
+            return CloudTuiRequests.keysArguments(socketPath: "", terminalID: sink.terminalID, keys: [key])
+        }
     }
 }
 

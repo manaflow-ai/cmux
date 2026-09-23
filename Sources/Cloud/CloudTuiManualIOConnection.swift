@@ -11,6 +11,12 @@ import Foundation
 // framing field and pending demand are accessed only on `queue`. Continuations
 // hand immutable frames back to the single async consumer.
 final class CloudTuiManualIOConnection: @unchecked Sendable {
+    enum CheckedSendError: Error {
+        case notSent
+        case ambiguous
+        case bufferFull
+    }
+
     private static let maximumLineBytes = 16 * 1024 * 1024
     private static let readChunkBytes = 16 * 1024
 
@@ -43,6 +49,9 @@ final class CloudTuiManualIOConnection: @unchecked Sendable {
     // This storage is queue-owned and reused for every socket read.
     private var readBuffer = [UInt8](repeating: 0, count: CloudTuiManualIOConnection.readChunkBytes)
     private var pendingWrites: [Data] = []
+    private var pendingWriteContinuations: [CheckedContinuation<Void, Error>?] = []
+    private var pendingWriteTokens: [UUID?] = []
+    private var cancelledWriteTokens = Set<UUID>()
     private var pendingWriteOffset = 0
     private var pendingWriteBytes = 0
     private let pendingWriteByteLimit = 256 * 1024
@@ -137,8 +146,73 @@ final class CloudTuiManualIOConnection: @unchecked Sendable {
                 return
             }
             pendingWrites.append(line)
+            pendingWriteContinuations.append(nil)
+            pendingWriteTokens.append(nil)
             pendingWriteBytes += line.count
             flushWritesLocked()
+        }
+    }
+
+    /// Enqueues a line and completes only after the nonblocking socket has
+    /// accepted every byte. A closed or full queue is reported to the caller so
+    /// remote PTY input can remain buffered for a reconnect instead of being
+    /// silently discarded.
+    func sendChecked(line: Data) async throws {
+        try Task.checkCancellation()
+        let token = UUID()
+        try await withTaskCancellationHandler(operation: {
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+                queue.async { [self, line] in
+                    if cancelledWriteTokens.remove(token) != nil {
+                        continuation.resume(throwing: CheckedSendError.notSent)
+                        return
+                    }
+                    guard !closed, descriptor >= 0 else {
+                        continuation.resume(throwing: CheckedSendError.notSent)
+                        return
+                    }
+                    guard pendingWriteBytes + line.count <= pendingWriteByteLimit else {
+                        closeLocked()
+                        continuation.resume(throwing: CheckedSendError.bufferFull)
+                        return
+                    }
+                    pendingWrites.append(line)
+                    pendingWriteContinuations.append(continuation)
+                    pendingWriteTokens.append(token)
+                    pendingWriteBytes += line.count
+                    flushWritesLocked()
+                }
+            }
+        }, onCancel: { [weak self] in
+            self?.cancelCheckedWrite(token)
+        })
+    }
+
+    private func cancelCheckedWrite(_ token: UUID) {
+        queue.async { [self] in
+            guard let index = pendingWriteTokens.firstIndex(where: { $0 == token }) else {
+                // The write already drained before the cancellation callback
+                // reached the queue. Keep only a bounded fence for the rare
+                // inverse ordering where the enqueue block is still pending.
+                cancelledWriteTokens.insert(token)
+                if cancelledWriteTokens.count > 1024 {
+                    cancelledWriteTokens.removeFirst()
+                }
+                return
+            }
+            let continuation = pendingWriteContinuations[index]
+            pendingWriteContinuations[index] = nil
+            pendingWriteTokens[index] = nil
+            if index == 0, pendingWriteOffset > 0 {
+                continuation?.resume(throwing: CheckedSendError.ambiguous)
+                return
+            }
+            let bytes = pendingWrites[index].count - (index == 0 ? pendingWriteOffset : 0)
+            pendingWriteBytes = max(0, pendingWriteBytes - bytes)
+            pendingWrites.remove(at: index)
+            pendingWriteContinuations.remove(at: index)
+            pendingWriteTokens.remove(at: index)
+            continuation?.resume(throwing: CheckedSendError.notSent)
         }
     }
 
@@ -316,6 +390,8 @@ final class CloudTuiManualIOConnection: @unchecked Sendable {
             let remaining = first.count - pendingWriteOffset
             guard remaining > 0 else {
                 pendingWrites.removeFirst()
+                pendingWriteContinuations.removeFirst()?.resume()
+                pendingWriteTokens.removeFirst()
                 pendingWriteOffset = 0
                 continue
             }
@@ -332,6 +408,8 @@ final class CloudTuiManualIOConnection: @unchecked Sendable {
                 pendingWriteBytes -= result
                 if pendingWriteOffset == first.count {
                     pendingWrites.removeFirst()
+                    pendingWriteContinuations.removeFirst()?.resume()
+                    pendingWriteTokens.removeFirst()
                     pendingWriteOffset = 0
                 }
                 continue
@@ -366,8 +444,15 @@ final class CloudTuiManualIOConnection: @unchecked Sendable {
         pendingLine.removeAll(keepingCapacity: false)
         pendingLineSearchOffset = 0
         pendingWrites.removeAll(keepingCapacity: false)
+        let writeContinuations = pendingWriteContinuations
+        pendingWriteContinuations.removeAll(keepingCapacity: false)
+        pendingWriteTokens.removeAll(keepingCapacity: false)
+        cancelledWriteTokens.removeAll(keepingCapacity: false)
         pendingWriteOffset = 0
         pendingWriteBytes = 0
+        for continuation in writeContinuations {
+            continuation?.resume(throwing: CheckedSendError.ambiguous)
+        }
         let descriptorToClose = self.descriptor
         let writeSource = self.writeSource
         self.writeSource = nil

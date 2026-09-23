@@ -132,7 +132,7 @@ final class CloudTuiManualIOInputRouter: @unchecked Sendable {
         }
     }
 
-    private static func protocolKeyName(for name: String) -> String? {
+    static func protocolKeyName(for name: String) -> String? {
         let pieces = name.split(separator: "-").map(String.init)
         guard let rawBase = pieces.last else { return nil }
         let modifiers = pieces.dropLast().compactMap { piece -> String? in

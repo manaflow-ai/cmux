@@ -1,6 +1,11 @@
 import CoreFoundation
 import Foundation
 
+enum CloudTuiSendError: Error {
+    case notSent(Error)
+    case ambiguous(Error)
+}
+
 /// One machine-owned control connection. Only this actor owns request IDs,
 /// continuations, deadlines and event subscriptions. Never retries a mutation:
 /// a caller retains its idempotency key when an outcome is uncertain.
@@ -10,6 +15,7 @@ actor CloudTuiPersistentResourceConnection {
         let request: CloudTuiRequest
         let deadline: Task<Void, Never>
         let isExpired: @Sendable () -> Bool
+        var sendTask: Task<Void, Never>?
     }
     private struct Subscription {
         let continuation: AsyncStream<Data>.Continuation
@@ -21,6 +27,8 @@ actor CloudTuiPersistentResourceConnection {
     private var sequence: UInt64 = 0
     private var pending: [String: Pending] = [:]
     private var subscriptions: [String: Subscription] = [:]
+    private var sendTail: Task<Void, Never>?
+    private var sendTailToken: UUID?
     private var startTask: Task<Void, Error>?
     private var pumpTask: Task<Void, Never>?
     private var closed = false
@@ -106,9 +114,19 @@ actor CloudTuiPersistentResourceConnection {
                 }
                 pending[id] = Pending(
                     continuation: continuation, request: request, deadline: deadline,
-                    isExpired: { clock.now >= expiresAt }
+                    isExpired: { clock.now >= expiresAt }, sendTask: nil
                 )
-                connection.send(line: encoded + Data([0x0A]))
+                let token = UUID()
+                let previous = sendTail
+                let orderedSendTask: Task<Void, Never> = Task { [weak self, previous] in
+                    await previous?.value
+                    guard !Task.isCancelled, let self else { return }
+                    await self.sendIfPending(id, connection: connection, line: encoded + Data([0x0A]))
+                    await self.finishSendTail(token)
+                }
+                sendTail = orderedSendTask
+                sendTailToken = token
+                pending[id]?.sendTask = orderedSendTask
             }
         }, onCancel: { [weak self] in
             Task { await self?.retire(id, error: CancellationError()) }
@@ -121,15 +139,73 @@ actor CloudTuiPersistentResourceConnection {
     private func retire(_ id: String, error: Error) {
         guard let entry = pending.removeValue(forKey: id) else { return }
         entry.deadline.cancel()
+        entry.sendTask?.cancel()
         entry.continuation.resume(throwing: error)
         // Cancellation is request-local, never close siblings' shared socket.
         // A mutation that already committed remains fenced by its original key.
-        if !entry.request.raw { sendUntracked(CloudTuiRequest("request.cancel", ["request_id": id])) }
+        if !entry.request.raw { sendBestEffort(CloudTuiRequest("request.cancel", ["request_id": id])) }
     }
 
-    private func sendUntracked(_ request: CloudTuiRequest) {
+    private func sendFailed(_ id: String, error: Error) {
+        let mapped: Error
+        if let sendError = error as? CloudTuiManualIOConnection.CheckedSendError {
+            switch sendError {
+            case .notSent, .bufferFull:
+                mapped = CloudTuiSendError.notSent(error)
+            case .ambiguous:
+                mapped = CloudTuiSendError.ambiguous(error)
+            }
+        } else {
+            mapped = CloudTuiSendError.ambiguous(error)
+        }
+        retire(id, error: mapped)
+    }
+
+    private func sendIfPending(
+        _ id: String,
+        connection: CloudTuiManualIOConnection,
+        line: Data
+    ) async {
+        guard pending[id] != nil else { return }
+        do {
+            try await connection.sendChecked(line: line)
+        } catch {
+            guard pending[id] != nil else { return }
+            sendFailed(id, error: error)
+        }
+    }
+
+    private func finishSendTail(_ token: UUID) {
+        guard sendTailToken == token else { return }
+        sendTail = nil
+        sendTailToken = nil
+    }
+
+    private func sendBestEffort(_ request: CloudTuiRequest) {
         guard !closed, let data = try? request.envelope(id: nextID()) else { return }
         connection.send(line: data + Data([0x0A]))
+    }
+
+    /// Writes a request on this authenticated channel without waiting for its
+    /// response. The daemon still emits a normal response, which the reader
+    /// safely ignores after the request has been handed to the socket.
+    func sendUntracked(_ request: CloudTuiRequest) async throws {
+        try Task.checkCancellation()
+        try await start()
+        try Task.checkCancellation()
+        guard !closed else { throw Self.protocolFailure }
+        let encoded = try request.envelope(id: nextID())
+        guard encoded.count <= 256 * 1024 - 1 else { throw CloudMachineLink.LinkError.inputTooLarge }
+        do {
+            try await connection.sendChecked(line: encoded + Data([0x0A]))
+        } catch let error as CloudTuiManualIOConnection.CheckedSendError {
+            switch error {
+            case .notSent, .bufferFull:
+                throw CloudTuiSendError.notSent(error)
+            case .ambiguous:
+                throw CloudTuiSendError.ambiguous(error)
+            }
+        }
     }
 
     /// Open the revisioned event feed on the control connection. One queued
@@ -154,7 +230,7 @@ actor CloudTuiPersistentResourceConnection {
     func cancelStream(_ id: String) {
         guard let stream = subscriptions.removeValue(forKey: id) else { return }
         stream.continuation.finish()
-        sendUntracked(CloudTuiRequest("stream.cancel", ["stream": id]))
+        sendBestEffort(CloudTuiRequest("stream.cancel", ["stream": id]))
     }
 
     private func receive(_ data: Data) {
