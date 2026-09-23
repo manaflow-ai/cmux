@@ -3653,7 +3653,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     public private(set) var pairedMacAliasIDsByRepresentativeID: [String: [String]] = [:]
     /// Cached device-local hidden ids keyed by signed-in account/team scope.
     @ObservationIgnored var hiddenMacDeviceIDsByScope: [String: Set<String>] = [:]
-    @ObservationIgnored var forgottenMacRecoveryInFlight = false
+    @ObservationIgnored var forgottenMacRecoveryInFlightScope: MobileShellScopeSnapshot?
+    @ObservationIgnored var forgottenMacRecoveryRerunScope: MobileShellScopeSnapshot?
+    @ObservationIgnored var forgottenMacRecoveryIDsRememberedDuringInFlight: Set<String> = []
     /// Row-backed hidden entries for the current account/team.
     public internal(set) var hiddenComputers: [MobileHiddenComputer] = []
     /// True when the current account/team scope has at least one hidden computer.

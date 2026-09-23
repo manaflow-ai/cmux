@@ -21,13 +21,34 @@ private final class RecoveryForgetStub: MobileIrohMacForgetting {
 private final class RecoveryDirectoryStub: MobileIrohMacDiscovering {
     var candidates: [MobileDiscoveredIrohMac]
     private(set) var invalidatedIDs: [String] = []
+    private var blockedDiscovery = false
+    private var discoveryStarted = false
+    private var discoveryCount = 0
+    private var discoveryStartWaiters: [CheckedContinuation<Void, Never>] = []
+    private var discoveryCountWaiters: [(Int, CheckedContinuation<Void, Never>)] = []
+    private var discoveryRelease: CheckedContinuation<Void, Never>?
 
     init(candidates: [MobileDiscoveredIrohMac]) {
         self.candidates = candidates
     }
 
     func discoverLiveMacs() async -> [MobileDiscoveredIrohMac] {
-        candidates
+        let snapshot = candidates
+        discoveryCount += 1
+        discoveryStarted = true
+        let startWaiters = discoveryStartWaiters
+        discoveryStartWaiters.removeAll()
+        for waiter in startWaiters { waiter.resume() }
+        let countWaiters = discoveryCountWaiters.filter { discoveryCount >= $0.0 }
+        discoveryCountWaiters.removeAll { discoveryCount >= $0.0 }
+        for (_, waiter) in countWaiters { waiter.resume() }
+        if blockedDiscovery {
+            blockedDiscovery = false
+            await withCheckedContinuation { continuation in
+                discoveryRelease = continuation
+            }
+        }
+        return snapshot
     }
 
     func invalidateDiscovery(forMacDeviceID deviceID: String) async {
@@ -36,6 +57,26 @@ private final class RecoveryDirectoryStub: MobileIrohMacDiscovering {
 
     func replaceCandidates(_ candidates: [MobileDiscoveredIrohMac]) {
         self.candidates = candidates
+    }
+
+    func blockNextDiscovery() {
+        blockedDiscovery = true
+        discoveryStarted = false
+    }
+
+    func waitUntilDiscoveryStarted() async {
+        if discoveryStarted { return }
+        await withCheckedContinuation { discoveryStartWaiters.append($0) }
+    }
+
+    func waitUntilDiscoveryCount(_ count: Int) async {
+        if discoveryCount >= count { return }
+        await withCheckedContinuation { discoveryCountWaiters.append((count, $0)) }
+    }
+
+    func releaseDiscovery() {
+        discoveryRelease?.resume()
+        discoveryRelease = nil
     }
 }
 
@@ -136,6 +177,109 @@ private final class RecoveryDirectoryStub: MobileIrohMacDiscovering {
         #expect(recovered.first?.displayName == "Recovered Mac")
         #expect(shell.pairedMacs.count == 1)
         #expect(shell.pairedMacs.first?.macDeviceID == "mac-a")
+    }
+
+    @Test func preservesASecondForgetWhileRecoveryDirectoryFetchIsInFlight() async throws {
+        let suiteName = "forgotten-mac-recovery-race-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let pairedStore = DelayedTeamPairedMacStore(
+            recordsByTeam: [
+                "team-a": [
+                    MobilePairedMac(
+                        macDeviceID: "mac-a",
+                        displayName: "Desk Mac A",
+                        routes: [],
+                        createdAt: Date(timeIntervalSince1970: 1),
+                        lastSeenAt: Date(timeIntervalSince1970: 2),
+                        isActive: false,
+                        stackUserID: "user-1",
+                        teamID: "team-a"
+                    ),
+                    MobilePairedMac(
+                        macDeviceID: "mac-b",
+                        displayName: "Desk Mac B",
+                        routes: [],
+                        createdAt: Date(timeIntervalSince1970: 1),
+                        lastSeenAt: Date(timeIntervalSince1970: 2),
+                        isActive: false,
+                        stackUserID: "user-1",
+                        teamID: "team-a"
+                    ),
+                ],
+            ],
+            blockedTeams: []
+        )
+        let route = try CmxAttachRoute(
+            id: "iroh-recovered",
+            kind: .iroh,
+            endpoint: .peer(
+                identity: CmxIrohPeerIdentity(endpointID: String(repeating: "b", count: 64)),
+                pathHints: []
+            )
+        )
+        let candidates = [
+            MobileDiscoveredIrohMac(
+                deviceID: "mac-a",
+                displayName: "Recovered Mac A",
+                instanceTag: "",
+                routes: [route],
+                lastSeenAt: Date(timeIntervalSince1970: 10)
+            ),
+            MobileDiscoveredIrohMac(
+                deviceID: "mac-b",
+                displayName: "Recovered Mac B",
+                instanceTag: "",
+                routes: [route],
+                lastSeenAt: Date(timeIntervalSince1970: 11)
+            ),
+        ]
+        let discovery = RecoveryDirectoryStub(candidates: [candidates[0]])
+        let forget = RecoveryForgetStub()
+        let shell = MobileShellComposite(
+            isSignedIn: true,
+            pairedMacStore: pairedStore,
+            personalIrohDiscovery: discovery,
+            personalIrohForget: forget,
+            identityProvider: StaticIdentityProvider(userID: "user-1"),
+            teamIDProvider: { "team-a" },
+            pairingHintDefaults: defaults,
+            hiddenMacStore: InMemoryPairedMacHiddenStore()
+        )
+
+        await shell.loadPairedMacs()
+        await shell.hideMac(macDeviceID: "mac-a")
+        await shell.hideMac(macDeviceID: "mac-b")
+        let hiddenA = try #require(shell.hiddenComputers.first { $0.macDeviceID == "mac-a" })
+        let hiddenB = try #require(shell.hiddenComputers.first { $0.macDeviceID == "mac-b" })
+        discovery.blockNextDiscovery()
+
+        let firstForget = Task { @MainActor in
+            await shell.forgetHiddenComputer(hiddenA)
+        }
+        await discovery.waitUntilDiscoveryStarted()
+
+        // The second forget completes cleanup while the first directory read is
+        // suspended. Its recovery request must be queued rather than dropped.
+        let secondForget = Task { @MainActor in
+            await shell.forgetHiddenComputer(hiddenB)
+        }
+        #expect(await secondForget.value)
+        discovery.replaceCandidates(candidates)
+        discovery.releaseDiscovery()
+        #expect(await firstForget.value)
+
+        // The queued rerun observes the second Mac in the next authenticated
+        // snapshot and consumes its marker.
+        await discovery.waitUntilDiscoveryCount(2)
+        await pairedStore.waitUntilUpsertCount(2)
+        let recovered = try await pairedStore.loadAll(
+            stackUserID: "user-1",
+            teamID: "team-a"
+        )
+        #expect(Set(recovered.map(\.macDeviceID)) == Set(["mac-a", "mac-b"]))
+        #expect(recovered.count == 2)
     }
 
 }

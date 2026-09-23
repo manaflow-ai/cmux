@@ -211,6 +211,16 @@ extension MobileShellComposite {
                 )
             } ?? cmxCanonicalDeviceID(computer.macDeviceID)
         )
+        if forgottenMacRecoveryInFlightScope != nil {
+            forgottenMacRecoveryIDsRememberedDuringInFlight.insert(
+                computer.instanceTag.map {
+                    MobilePairedMac.pairingID(
+                        macDeviceID: computer.macDeviceID,
+                        instanceTag: $0
+                    )
+                } ?? cmxCanonicalDeviceID(computer.macDeviceID)
+            )
+        }
         saveForgottenMacRecoveryIDs(ids, accountID: accountID)
     }
 
@@ -222,12 +232,30 @@ extension MobileShellComposite {
         scope: MobileShellScopeSnapshot,
         refreshDirectory: Bool
     ) async {
-        guard !forgottenMacRecoveryInFlight,
-              let discovery = personalIrohDiscovery else { return }
+        guard let discovery = personalIrohDiscovery else { return }
+        if forgottenMacRecoveryInFlightScope != nil {
+            forgottenMacRecoveryRerunScope = scope
+            return
+        }
         var recoveryIDs = forgottenMacRecoveryIDs(accountID: scope.userID)
         guard !recoveryIDs.isEmpty else { return }
-        forgottenMacRecoveryInFlight = true
-        defer { forgottenMacRecoveryInFlight = false }
+        forgottenMacRecoveryInFlightScope = scope
+        forgottenMacRecoveryRerunScope = nil
+        forgottenMacRecoveryIDsRememberedDuringInFlight.removeAll()
+        defer {
+            forgottenMacRecoveryInFlightScope = nil
+            let rerunScope = forgottenMacRecoveryRerunScope
+            forgottenMacRecoveryRerunScope = nil
+            forgottenMacRecoveryIDsRememberedDuringInFlight.removeAll()
+            if let rerunScope {
+                Task { @MainActor [weak self] in
+                    await self?.recoverForgottenMacsFromDirectory(
+                        scope: rerunScope,
+                        refreshDirectory: false
+                    )
+                }
+            }
+        }
 
         if refreshDirectory,
            let firstID = recoveryIDs.first {
@@ -239,6 +267,7 @@ extension MobileShellComposite {
 
         var seen = Set<String>()
         var recovered = 0
+        var consumed = Set<String>()
         for candidate in discovered {
             guard !candidate.routes.isEmpty else { continue }
             let identity = CmxMacAppInstanceIdentity(
@@ -256,6 +285,7 @@ extension MobileShellComposite {
             guard let recoveryID, seen.insert(pairingID).inserted else { continue }
             guard let pairedMacStore else {
                 recoveryIDs.remove(recoveryID)
+                consumed.insert(recoveryID)
                 recovered += 1
                 continue
             }
@@ -271,6 +301,7 @@ extension MobileShellComposite {
                     now: candidate.lastSeenAt
                 )
                 recoveryIDs.remove(recoveryID)
+                consumed.insert(recoveryID)
                 recovered += 1
             } catch {
                 hiddenMacsLog.error(
@@ -278,7 +309,12 @@ extension MobileShellComposite {
                 )
             }
         }
-        saveForgottenMacRecoveryIDs(recoveryIDs, accountID: scope.userID)
+        let currentRecoveryIDs = forgottenMacRecoveryIDs(accountID: scope.userID)
+        let newlyRemembered = forgottenMacRecoveryIDsRememberedDuringInFlight
+        saveForgottenMacRecoveryIDs(
+            currentRecoveryIDs.subtracting(consumed.subtracting(newlyRemembered)),
+            accountID: scope.userID
+        )
         guard recovered > 0, await isScopeCurrent(scope) else { return }
         await loadPairedMacs(forceRefresh: true)
         await loadRegistryDevices()
