@@ -492,7 +492,7 @@ final class AppDelegateEqualizeSplitsShortcutTests {
         }
 
         workspace.splitTabBar(workspace.bonsplitController, didChangeGeometry: workspace.bonsplitController.layoutSnapshot())
-        guard let seededLayoutSnapshot = workspace.tmuxLayoutSnapshot else {
+        guard let seededLayoutSnapshot = shortcutRoutingWaitForPublishedLayout(workspace) else {
             XCTFail("Expected cached layout snapshot after seeding split geometry")
             return
         }
@@ -527,11 +527,11 @@ final class AppDelegateEqualizeSplitsShortcutTests {
             XCTAssertEqual(split.dividerPosition, expectedPosition, accuracy: 0.000_1)
         }
 
-        let liveEqualizedLayout = workspace.bonsplitController.layoutSnapshot()
-        guard let cachedEqualizedLayout = workspace.tmuxLayoutSnapshot else {
+        guard let cachedEqualizedLayout = shortcutRoutingWaitForPublishedLayout(workspace) else {
             XCTFail("Expected cached layout snapshot after equalizing split geometry")
             return
         }
+        let liveEqualizedLayout = workspace.bonsplitController.layoutSnapshot()
         XCTAssertNotEqual(
             shortcutRoutingPaneFramesById(in: seededLayoutSnapshot),
             shortcutRoutingPaneFramesById(in: liveEqualizedLayout)
@@ -8017,6 +8017,31 @@ final class AppDelegateEqualizeSplitsShortcutTests {
 
     private func shortcutRoutingPaneFramesById(in snapshot: LayoutSnapshot) -> [String: PixelRect] {
         Dictionary(uniqueKeysWithValues: snapshot.panes.map { ($0.paneId, $0.frame) })
+    }
+
+    /// The cached snapshot that catches up to the controller's live tree, or
+    /// the stale cache once the deadline passes so the caller's assertion
+    /// reports the drift.
+    ///
+    /// Since a27969a38b the geometry callback publishes `tmuxLayoutSnapshot`
+    /// through `geometryNotificationScheduler` instead of assigning it in the
+    /// synchronous `splitTabBar(_:didChangeGeometry:)` body, so a read taken
+    /// right after driving geometry still sees the previous cache — at the
+    /// start of a workspace, the one-pane value written at init.
+    /// `PaneResizeShortcutTests.expectCachedFramesMatch` waits the same way.
+    private func shortcutRoutingWaitForPublishedLayout(
+        _ workspace: Workspace,
+        timeout: TimeInterval = 3
+    ) -> LayoutSnapshot? {
+        let deadline = Date(timeIntervalSinceNow: timeout)
+        while Date() < deadline {
+            let live = workspace.bonsplitController.layoutSnapshot()
+            if let cached = workspace.tmuxLayoutSnapshot, cached.panes == live.panes {
+                return cached
+            }
+            RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.01))
+        }
+        return workspace.tmuxLayoutSnapshot
     }
 
     private func shortcutRoutingAssertPaneFramesMatch(
