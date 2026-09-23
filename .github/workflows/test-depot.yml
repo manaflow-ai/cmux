@@ -1,4 +1,8 @@
 name: Run macOS tests
+run-name: >-
+  macOS tests @ ${{ inputs.ref || github.ref_name }} ·
+  unit=${{ inputs.skip_unit_tests && 'off' || inputs.unit_test_suites || 'all' }} ·
+  UI=${{ inputs.skip_ui_tests && 'off' || inputs.test_filter || 'all' }}
 
 on:
   workflow_call:

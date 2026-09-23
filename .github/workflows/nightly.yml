@@ -987,6 +987,10 @@ jobs:
     needs: [decide, build-nightly-ghostty-cli-helper, build-nightly-app]
     if: needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') && needs.decide.outputs.build_only != 'true'
     # Sign and notarize on the same macOS 26 lane proven by stable releases.
+    # actions:read lets the parallel artifact download resolve the blob URL.
+    permissions:
+      contents: read
+      actions: read
     runs-on: ${{ needs.decide.outputs.fast_build == 'true' && 'blacksmith-6vcpu-macos-26' || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
     # Start the standalone helper submission early so
     # Apple's first wait overlaps useful work; finish it before the final DMG.
@@ -1034,12 +1038,26 @@ jobs:
         with:
           persist-credentials: false
           ref: ${{ needs.decide.outputs.head_sha }}
-          submodules: recursive
+          # Signing reads only this repository's scripts, tests, license and
+          # entitlements. The ghostty, bonsplit and homebrew submodules cost
+          # ~15s of fetch on every variant and are never read here.
+          submodules: false
 
       - name: Select Xcode
         run: ./scripts/select-ci-xcode.sh
 
+      # download-artifact reads the blob over one connection, about 1.8 MB/s
+      # on these runners (140s for this 242 MB archive). Parallel ranges of the
+      # same blob, checked against the artifact's SHA-256, take about 10s.
+      - name: Download unsigned nightly app (parallel)
+        id: unsigned-app-parallel
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/ci/download-run-artifact.py --name cmux-nightly-unsigned-app --out nightly-inputs/app
+
       - name: Download unsigned nightly app
+        if: steps.unsigned-app-parallel.outcome != 'success'
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: cmux-nightly-unsigned-app

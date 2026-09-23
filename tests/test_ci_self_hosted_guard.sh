@@ -177,10 +177,29 @@ check_e2e_runner_fallbacks() {
     exit 1
   fi
 
-  if grep -Eq "^[[:space:]]*continue-on-error:" "$E2E_FILE"; then
-    echo "FAIL: test-e2e.yml must not mask E2E setup or test failures with continue-on-error"
-    exit 1
-  fi
+  # Compilation caching is an optional optimization. Its failure must not
+  # suppress setup/test failures or make successful tests depend on the cache
+  # service. Keep the exception confined to these cache operations.
+  python3 - "$E2E_FILE" <<'PYTHON'
+import sys
+import yaml
+
+document = yaml.safe_load(open(sys.argv[1]))
+allowed = {
+    ("compilation-cache-restore", "Restore E2E compilation cache", "actions/cache/restore"),
+    (None, "Save E2E compilation cache", "actions/cache/save"),
+    ("compilation-cache-bound", "Bound E2E compilation cache", ""),
+}
+for job_id, job in document["jobs"].items():
+    if "continue-on-error" in job:
+        raise SystemExit(f"FAIL: {job_id} must not mask E2E job failures")
+    for step in job.get("steps", []):
+        if "continue-on-error" not in step:
+            continue
+        identity = (step.get("id"), step.get("name"), step.get("uses", "").split("@", 1)[0])
+        if job_id != "e2e" or identity not in allowed or step["continue-on-error"] is not True:
+            raise SystemExit(f"FAIL: {step.get('name')} must not mask E2E setup or test failures")
+PYTHON
 
   # The Tart identity gate, the run name and the SwiftPM cache key all decide
   # things about "the runner this job uses". If any of them reads a different

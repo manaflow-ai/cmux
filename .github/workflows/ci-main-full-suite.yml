@@ -27,6 +27,10 @@ on:
 
 permissions: {}
 
+env:
+  # Keep the display-name trigger checked against its stable workflow identity.
+  SOURCE_WORKFLOW_PATHS: .github/workflows/ci.yml
+
 jobs:
   dispatch:
     name: Dispatch full-suite CI on main

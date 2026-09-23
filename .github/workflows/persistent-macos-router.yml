@@ -20,6 +20,13 @@ on:
 
 permissions: {}
 
+env:
+  # The file that must carry the display name in the trigger above. Renaming a
+  # workflow silently stops every `workflow_run` consumer of it, so
+  # tests/test_ci_workflow_run_sources.py derives the expected name from this
+  # path and fails the pull request that renames it.
+  SOURCE_WORKFLOW_PATHS: .github/workflows/ci.yml
+
 concurrency:
   group: persistent-mac-router-${{ github.event.workflow_run.id }}-${{ github.event.workflow_run.run_attempt }}
   cancel-in-progress: true
