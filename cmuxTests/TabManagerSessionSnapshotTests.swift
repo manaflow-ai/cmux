@@ -2205,23 +2205,31 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         defer { catalog.unregister(machine: remote.machine) }
 
         let restored = TabManager()
-        restored.restoreSessionSnapshot(snapshot)
-        let restoredWorkspace = try XCTUnwrap(restored.tabs.first { $0.customTitle == workspaceTitle })
-        let restoredPanelId = try XCTUnwrap(restoredWorkspace.panels.first { $0.value is TerminalPanel }?.key)
+        // `SurfaceCatalog.shared` relinks a restored projection only into a workspace the
+        // app resolves as live (#13196), so the restored window must be registered.
+        try LiveWorkspaceFixture.withAppRegistration(of: restored) {
+            restored.restoreSessionSnapshot(snapshot)
+            let restoredWorkspace = try XCTUnwrap(restored.tabs.first { $0.customTitle == workspaceTitle })
+            let restoredPanelId = try XCTUnwrap(restoredWorkspace.panels.first { $0.value is TerminalPanel }?.key)
 
-        // Until the machine's provider reports the terminal, the pane is a plain local shell.
-        XCTAssertEqual(catalog.projection(forPanel: restoredPanelId)?.resource.machine.isLocal, true)
-        catalog.upsert(SurfaceResource(id: remote, title: "root@\(machineId)", detail: "/root", lifecycle: .running, agent: nil, remoteWorkspace: nil, port: nil, url: nil), from: provider)
-        XCTAssertEqual(catalog.projection(forPanel: restoredPanelId)?.resource, remote, "the restored pane re-links to the remote terminal")
-        XCTAssertEqual(catalog.projection(forPanel: restoredPanelId)?.workspaceID, restoredWorkspace.id)
+            // Until the machine's provider reports the terminal, the pane is a reserved Cloud
+            // pane (#12675): it has no live projection yet, but its persisted remote identity
+            // stays staged so the restore is never mistaken for a plain local shell.
+            XCTAssertNil(catalog.projection(forPanel: restoredPanelId))
+            XCTAssertEqual(catalog.projectionIncludingPendingRestore(forPanel: restoredPanelId)?.resource, remote)
+            XCTAssertEqual(restoredWorkspace.terminalPanel(for: restoredPanelId)?.surface.ioMode, .manualMirror)
+            catalog.upsert(SurfaceResource(id: remote, title: "root@\(machineId)", detail: "/root", lifecycle: .running, agent: nil, remoteWorkspace: nil, port: nil, url: nil), from: provider)
+            XCTAssertEqual(catalog.projection(forPanel: restoredPanelId)?.resource, remote, "the restored pane re-links to the remote terminal")
+            XCTAssertEqual(catalog.projection(forPanel: restoredPanelId)?.workspaceID, restoredWorkspace.id)
 
-        // The projection round-trips through the next save with the live panel id.
-        let resaved = restored.sessionSnapshot(includeScrollback: false)
-        XCTAssertEqual(
-            resaved.workspaces.first { $0.customTitle == workspaceTitle }?.surfaceProjections,
-            [SurfaceProjectionRecord(panelID: restoredPanelId, resource: remote)]
-        )
-        restored.closeWorkspace(restoredWorkspace, recordHistory: false)
+            // The projection round-trips through the next save with the live panel id.
+            let resaved = restored.sessionSnapshot(includeScrollback: false)
+            XCTAssertEqual(
+                resaved.workspaces.first { $0.customTitle == workspaceTitle }?.surfaceProjections,
+                [SurfaceProjectionRecord(panelID: restoredPanelId, resource: remote)]
+            )
+            restored.closeWorkspace(restoredWorkspace, recordHistory: false)
+        }
     }
 
     func testWorkspaceSnapshotWithoutSurfaceProjectionsDecodesAndRestoresLocalOnly() throws {

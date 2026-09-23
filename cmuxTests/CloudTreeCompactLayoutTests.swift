@@ -146,8 +146,21 @@ struct CloudTreeCompactLayoutTests {
         let starts = try nodes.map { node in
             let cell = try #require(outline.view(atColumn: 0, row: outline.row(forItem: node), makeIfNecessary: true))
             let ink = try inkColumns(in: cell)
-            try #require(ink.runs.count >= 2)
-            return CGFloat(ink.runs[1].lowerBound) / ink.scale
+            // A hollow glyph can contain several disconnected ink-column runs.
+            // Locate title ink beyond the rendered icon, rather than assuming
+            // the second run belongs to the title.
+            let iconBounds = try #require(
+                descendants(of: cell).compactMap { view -> CGRect? in
+                    guard view is CmuxResolvedIconImageView else { return nil }
+                    return cell.convert(view.bounds, from: view)
+                }.min(by: { $0.minX < $1.minX }),
+                "Expected an appearance-resolved row icon"
+            )
+            let titleRun = try #require(
+                ink.runs.first { CGFloat($0.lowerBound) / ink.scale >= iconBounds.maxX },
+                "Expected title ink after the row icon"
+            )
+            return CGFloat(titleRun.lowerBound) / ink.scale
         }
         // Sections insets the whole machine identity 6pt inside its band.
         // Preserve that decoration while comparing the shared icon column.

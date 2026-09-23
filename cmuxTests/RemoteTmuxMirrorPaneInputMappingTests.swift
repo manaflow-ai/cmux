@@ -165,17 +165,28 @@ struct RemoteTmuxMirrorPaneInputMappingTests {
         )
         manager.selectWorkspace(harness.workspace)
         let panel = try #require(try harness.mirror().panel(forPane: 4))
+        // A manual-I/O mirror pane spawns eagerly inside its hidden bootstrap
+        // window, which `TerminalSurface.uiWindow` deliberately excludes. The
+        // main window's portal adopts the pane host only once AppKit and
+        // SwiftUI get run-loop time, so physical key delivery has to wait for
+        // that adoption instead of assuming the runtime-ready wait spun the loop.
+        let window = try #require(AppDelegate.shared?.windowForMainWindowId(harness.windowId))
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
         panel.hostedView.setVisibleInUI(true)
         panel.hostedView.setActive(true)
         panel.hostedView.layoutSubtreeIfNeeded()
         await waitForLiveSurface(panel.surface)
+        _ = await AppKitTestEventPump().waitUntil(timeout: .seconds(10)) {
+            panel.surface.uiWindow === window && panel.hostedView.surfaceView.window === window
+        }
         try #require(
             panel.surface.hasLiveSurface,
             "Remote manual-I/O key coverage requires a live Ghostty surface"
         )
         try #require(
-            panel.surface.uiWindow != nil,
-            "Physical key coverage requires a usable window; hosted=\(String(describing: panel.hostedView.window)), live=\(panel.surface.hasLiveSurface)"
+            panel.surface.uiWindow === window,
+            "Physical key coverage requires the mirror pane in the main window; hosted=\(String(describing: panel.hostedView.window)), bootstrap=\(panel.surface.isHeadlessStartupWindow(panel.hostedView.window)), live=\(panel.surface.hasLiveSurface)"
         )
         return panel.surface
     }
