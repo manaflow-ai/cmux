@@ -4,10 +4,16 @@
 GitHub waits for each required check on the merge group commit. A check whose
 workflow does not trigger on merge_group never reports there, and the queue
 entry waits until it times out.
+
+The list of required checks is not this file's to declare: it is a copy of a
+repository ruleset, and it is owned by scripts/ci/required_status_checks.py,
+which reconciles that copy against GitHub. This file reads the copy and the
+workflows, so it can only see disagreements inside the tree.
 """
 
 from __future__ import annotations
 
+import importlib.util
 import sys
 from pathlib import Path
 
@@ -16,14 +22,18 @@ import yaml
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOWS = ROOT / ".github" / "workflows"
 
-# The required status checks on main. Each must report for merge queue runs.
-REQUIRED_CHECKS = (
-    "CLA Assistant",
-    "CLA policy guard",
-    "Web complexity",
-    "ci-status",
-    "web-validation",
+_SPEC = importlib.util.spec_from_file_location(
+    "required_status_checks", ROOT / "scripts/ci/required_status_checks.py"
 )
+_required_status_checks = importlib.util.module_from_spec(_SPEC)
+assert _SPEC.loader is not None
+# Registered before execution: the module defines a dataclass, and dataclasses
+# resolve field types through sys.modules[cls.__module__].
+sys.modules["required_status_checks"] = _required_status_checks
+_SPEC.loader.exec_module(_required_status_checks)
+
+# The required status checks on main. Each must report for merge queue runs.
+REQUIRED_NAMES = _required_status_checks.REQUIRED_CHECKS
 
 # Checks that judge a pull request's author and head in workflows a pull request
 # may not edit. BRIDGE reports them for a merge group without running anything, so it
@@ -87,7 +97,7 @@ def main() -> int:
         print(f"FAIL: {BRIDGE.name} must contain only the fixed no-op jobs for {', '.join(BRIDGED_CHECKS.values())}")
         return 1
     reported = merge_group_check_names()
-    missing = [name for name in REQUIRED_CHECKS if name not in reported]
+    missing = [name for name in REQUIRED_NAMES if name not in reported]
     if missing:
         print(
             "FAIL: these required checks never report on merge_group, so a merge "
@@ -96,7 +106,7 @@ def main() -> int:
         return 1
     duplicated = {
         name: files for name, files in reported.items()
-        if name in REQUIRED_CHECKS and len(files) > 1
+        if name in REQUIRED_NAMES and len(files) > 1
     }
     if duplicated:
         print(f"FAIL: more than one merge_group job reports the same required check: {duplicated}")

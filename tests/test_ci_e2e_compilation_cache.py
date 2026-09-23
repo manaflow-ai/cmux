@@ -1,0 +1,183 @@
+#!/usr/bin/env python3
+"""Execute E2E cache setup, cleanup and compiler command construction."""
+import os
+from pathlib import Path
+import subprocess
+import tempfile
+import unittest
+
+import yaml
+
+ROOT = Path(__file__).resolve().parents[1]
+STEPS = yaml.safe_load((ROOT / '.github/workflows/test-e2e.yml').read_text())['jobs']['e2e']['steps']
+
+
+def step(name):
+    return next(s for s in STEPS if s.get('name') == name)
+
+
+class E2ECompilationCache(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name)
+        self.workspace = self.root / 'workspace'
+        self.workspace.mkdir()
+        tools = self.root / 'bin'
+        tools.mkdir()
+        xcode = tools / 'xcodebuild'
+        xcode.write_text('#!/bin/sh\nprintf "%s\\n" "$FIXTURE_XCODE"\n')
+        xcode.chmod(0o755)
+        self.env = dict(os.environ, GITHUB_WORKSPACE=str(self.workspace),
+                        RUNNER_TEMP=str(self.root), GITHUB_RUN_ID='11', GITHUB_RUN_ATTEMPT='1',
+                        GITHUB_ENV=str(self.root / 'env'), GITHUB_OUTPUT=str(self.root / 'output'),
+                        PATH=str(tools) + ':' + os.environ['PATH'], FIXTURE_XCODE='Xcode 26.6')
+
+    def run_step(self, name, **env):
+        return subprocess.run(['bash', '-eu', '-o', 'pipefail', '-c', step(name)['run']],
+                              cwd=self.workspace, env=dict(self.env, **env),
+                              text=True, capture_output=True)
+
+    def prepare(self):
+        for file in ('env', 'output'):
+            (self.root / file).write_text('')
+        result = self.run_step('Prepare isolated DerivedData')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        values = dict(line.split('=', 1) for file in ('env', 'output')
+                      for line in (self.root / file).read_text().splitlines())
+        return values
+
+    def test_repeat_runs_share_cache_paths_but_start_with_clean_products(self):
+        first = self.prepare()
+        product = Path(first['CMUX_DERIVED_DATA_PATH']) / 'stale-product'
+        product.write_text('old app')
+        self.env.update(GITHUB_RUN_ID='12', GITHUB_RUN_ATTEMPT='2')
+        second = self.prepare()
+        self.assertEqual(first['CMUX_DERIVED_DATA_PATH'], second['CMUX_DERIVED_DATA_PATH'])
+        self.assertEqual(first['CMUX_E2E_COMPILATION_CACHE'], second['CMUX_E2E_COMPILATION_CACHE'])
+        self.assertEqual(first['fingerprint'], second['fingerprint'])
+        self.assertFalse(product.exists())
+
+    def test_toolchain_and_absolute_workspace_partition_cache(self):
+        original = self.prepare()['fingerprint']
+        self.env['FIXTURE_XCODE'] = 'Xcode 26.7'
+        self.assertNotEqual(original, self.prepare()['fingerprint'])
+        self.env['FIXTURE_XCODE'] = 'Xcode 26.6'
+        other = self.root / 'other-workspace'
+        other.mkdir()
+        self.workspace = other
+        self.env['GITHUB_WORKSPACE'] = str(other)
+        self.assertNotEqual(original, self.prepare()['fingerprint'])
+
+    def test_both_test_targets_enable_cache_without_changing_selectors(self):
+        values = self.prepare()
+        script = step('Run selected tests')['run']
+        start = script.index('if [ "$TEST_TARGET" = "cmuxTests" ]; then')
+        end = script.index('\nset +e', start)
+        construction = script[start:end]
+        for target in ('cmuxTests', 'cmuxUITests'):
+            with self.subTest(target=target):
+                command = ('ONLY_TESTING=("-only-testing:' + target + '/Focused")\n' +
+                           construction + '\nprintf "%s\\0" "${XCODEBUILD_CMD[@]}"')
+                result = subprocess.run(['bash', '-eu', '-c', command], cwd=self.workspace,
+                    env=dict(self.env, **values, TEST_TARGET=target, TEST_TIMEOUT='120',
+                             SOURCE_PACKAGES_DIR=str(self.workspace / '.ci-source-packages')),
+                    capture_output=True)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                args = result.stdout.decode().strip('\0').split('\0')
+                self.assertIn('COMPILATION_CACHE_ENABLE_CACHING=YES', args)
+                self.assertIn('COMPILATION_CACHE_CAS_PATH=' + values['CMUX_E2E_COMPILATION_CACHE'], args)
+                self.assertIn('-only-testing:' + target + '/Focused', args)
+                self.assertEqual(args[-1], 'test')
+
+    def test_cleanup_removes_only_owned_paths(self):
+        values = self.prepare()
+        unrelated = self.root / 'keep'
+        unrelated.mkdir()
+        rejected = self.run_step('Clean owned DerivedData', **dict(values, CMUX_DERIVED_DATA_PATH=str(unrelated)))
+        self.assertNotEqual(rejected.returncode, 0)
+        self.assertTrue(unrelated.exists())
+        rejected = self.run_step('Clean owned DerivedData', **dict(values, CMUX_E2E_COMPILATION_CACHE=str(unrelated)))
+        self.assertNotEqual(rejected.returncode, 0)
+        self.assertTrue(Path(values['CMUX_DERIVED_DATA_PATH']).exists())
+        result = self.run_step('Clean owned DerivedData', **values)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertFalse(Path(values['CMUX_DERIVED_DATA_PATH']).exists())
+        self.assertFalse(Path(values['CMUX_E2E_COMPILATION_CACHE']).exists())
+
+    def test_only_successful_trusted_main_build_can_seed(self):
+        values = self.prepare()
+        cache = Path(values['CMUX_E2E_COMPILATION_CACHE'])
+        (cache / 'compiler-entry').write_bytes(b'cached')
+        for ref, selected, outcome, allowed in (
+            ('refs/heads/main', 'a' * 40, 'success', True),
+            ('refs/heads/main', 'b' * 40, 'success', False),
+            ('refs/heads/topic', 'a' * 40, 'success', False),
+            ('refs/heads/main', 'a' * 40, 'failure', False),
+        ):
+            (self.root / 'output').write_text('')
+            result = self.run_step('Bound E2E compilation cache', **values,
+                                  WORKFLOW_REF=ref, WORKFLOW_SHA='a' * 40,
+                                  TEST_REF=selected, TEST_OUTCOME=outcome)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            outputs = dict(line.split('=', 1) for line in (self.root / 'output').read_text().splitlines())
+            self.assertEqual(outputs['save'], str(allowed).lower())
+
+    def test_empty_and_oversized_caches_are_not_published(self):
+        values = self.prepare()
+        env = dict(values, WORKFLOW_REF='refs/heads/main', WORKFLOW_SHA='a' * 40,
+                   TEST_REF='a' * 40, TEST_OUTCOME='success')
+        result = self.run_step('Bound E2E compilation cache', **env)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn('save=true', (self.root / 'output').read_text())
+        (Path(values['CMUX_E2E_COMPILATION_CACHE']) / 'compiler-entry').write_bytes(b'cached')
+        fake_du = self.root / 'bin' / 'du'
+        fake_du.write_text('#!/bin/sh\nprintf "6291456 cache\\n"\n')
+        fake_du.chmod(0o755)
+        result = self.run_step('Bound E2E compilation cache', **env)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn('save=true', (self.root / 'output').read_text())
+
+    def test_failed_restore_discards_partial_cache_without_removing_products(self):
+        values = self.prepare()
+        cache = Path(values['CMUX_E2E_COMPILATION_CACHE'])
+        (cache / 'partial-database').write_bytes(b'incomplete')
+        product = Path(values['CMUX_DERIVED_DATA_PATH']) / 'keep'
+        product.write_text('separate build products')
+        result = self.run_step('Discard incomplete E2E compilation cache', **values)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue(cache.is_dir())
+        self.assertEqual(list(cache.iterdir()), [])
+        self.assertTrue(product.exists())
+        rejected = self.run_step('Discard incomplete E2E compilation cache',
+            **dict(values, CMUX_E2E_COMPILATION_CACHE=str(product.parent)))
+        self.assertNotEqual(rejected.returncode, 0)
+        self.assertTrue(product.exists())
+
+    def test_failure_guard_only_allows_optional_compilation_cache_steps(self):
+        guard = (ROOT / 'tests/test_ci_self_hosted_guard.sh').read_text()
+        start = guard.index('check_e2e_runner_fallbacks() {')
+        end = guard.index('\ncheck_ios_tart_canary()', start)
+        invoke = guard[start:end] + '\ncheck_e2e_runner_fallbacks\n'
+        workflow = (ROOT / '.github/workflows/test-e2e.yml').read_text()
+        candidate = self.root / 'workflow.yml'
+        for text, succeeds in (
+            (workflow, True),
+            (workflow.replace('      - name: Run selected tests\n',
+                              '      - name: Run selected tests\n        continue-on-error: true\n'), False),
+            (workflow.replace('      - name: Select Xcode\n',
+                              '      - name: Select Xcode\n        continue-on-error: true\n'), False),
+            (workflow.replace('  e2e:\n', '  e2e:\n    continue-on-error: true\n'), False),
+            (workflow.replace('        id: compilation-cache-restore\n',
+                              '        id: unrelated-setup\n'), False),
+        ):
+            candidate.write_text(text)
+            result = subprocess.run(['bash', '-eu', '-c', invoke],
+                env=dict(self.env, E2E_FILE=str(candidate)), capture_output=True, text=True)
+            self.assertEqual(result.returncode == 0, succeeds, result.stdout + result.stderr)
+
+
+
+
+if __name__ == '__main__':
+    unittest.main()
