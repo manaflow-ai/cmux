@@ -248,4 +248,41 @@ private actor CapturedCloudDiagnostics: CloudTelemetrySending {
     func enqueue(_ span: CloudTelemetrySpan, identity: AuthenticatedSessionIdentity) { spans.append(span) }
     func clearForSignOut() { spans.removeAll() }
 }
+
+@Suite struct DevBackendDiagnosticsTests {
+    @Test func failureSurvivesRestartWithoutAnAuthenticatedSession() async throws {
+        let file = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString).appendingPathComponent("outbox.json")
+        defer { try? FileManager.default.removeItem(at: file.deletingLastPathComponent()) }
+        let event = try #require(DevBackendDiagnostics.event(outcome: "unreachable", startedAt: Date(), durationMs: 10, attempt: 0,
+            errorNumber: -1004, environment: ["CMUX_TAG":"test-dev"], info:["CMUXCommit":String(repeating:"a",count:40)]))
+        let failed = DevBackendDiagnostics(queueURL: file, enabled: true, automaticallyFlush: false, sender: { _ in throw URLError(.cannotConnectToHost) })
+        await failed.record(event)
+        #expect(await failed.flushOnce() == false)
+        #expect(await failed.pendingCount == 1)
+        let sink = DevBackendDiagnosticCapture()
+        let restarted = DevBackendDiagnostics(queueURL: file, enabled: true, automaticallyFlush: false, sender: { await sink.capture($0) })
+        #expect(await restarted.flushOnce())
+        #expect(await sink.events == [event])
+        #expect(await restarted.pendingCount == 0)
+        let wire = try String(decoding: JSONEncoder().encode(event), as: UTF8.self)
+        #expect(!wire.contains("Authorization"))
+        #expect(!wire.contains("localhost"))
+    }
+
+    @Test func disabledDiagnosticsNeverWriteOrSend() async throws {
+        let file = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let sink = DevBackendDiagnosticCapture()
+        let disabled = DevBackendDiagnostics(queueURL: file, enabled: false, sender: { await sink.capture($0) })
+        let event = try #require(DevBackendDiagnostics.event(outcome:"unreachable", startedAt:Date(), durationMs:1, attempt:0, environment:["CMUX_TAG":"test-dev"]))
+        await disabled.record(event)
+        #expect(await disabled.pendingCount == 0)
+        #expect(await sink.events.isEmpty)
+        #expect(!FileManager.default.fileExists(atPath: file.path))
+    }
+}
+
+private actor DevBackendDiagnosticCapture {
+    var events: [DevBackendDiagnostics.Event] = []
+    func capture(_ values: [DevBackendDiagnostics.Event]) { events += values }
+}
 #endif
