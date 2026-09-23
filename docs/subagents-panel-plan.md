@@ -96,8 +96,8 @@ per workspace. Each `agents[j]`:
 | `lastActivityAt` | yes | epoch seconds of last hook/transcript activity |
 | `sinceEpoch` | working / needs_input | when the current state began |
 | `title` | when known | conversation title (first user prompt) |
-| `panelId` | when bound | hosting terminal panel UUID (= `tabs[k].id`) |
-| `surfaceId` | when bound | hosting tab surface UUID (= `tabs[k].surfaceId`, accepted by `surface.focus`) |
+| `panelId` | when bound | hosting terminal panel UUID (= `tabs[k].id`, accepted by `surface.focus`) |
+| `surfaceId` | when bound | hosting tab surface UUID (= `tabs[k].surfaceId`, for correlating an agent with its tab) |
 | `directory` | when known | session working directory |
 | `transcriptPath` | when resolved | absolute transcript JSONL path |
 | `pid` | when known | agent process id |
