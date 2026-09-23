@@ -637,7 +637,7 @@ extension Workspace {
                             processPresence: agentProcessPresence
                         ) ?? false
                 }
-                guard let effectiveRestorableAgent else { return nil }
+                guard let effectiveRestorableAgent else { return nil }; if CodexTurnRestoreIntentPolicy.shouldPreserveAfterOwnerExit(snapshot: effectiveRestorableAgent, binding: resumeBinding, processLiveness: matchingObservation?.processLiveness) { return true }
                 let confirmedRuntimeProcessIdentities = confirmedRuntimeAgentProcessIdentities(
                     for: effectiveRestorableAgent,
                     panelId: panelId,

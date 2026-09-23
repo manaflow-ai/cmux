@@ -1610,6 +1610,7 @@
 		C8711C000000000000000002 /* CodexRolloutIdentity.swift in Sources */ = {isa = PBXBuildFile; fileRef = C8711C000000000000000001 /* CodexRolloutIdentity.swift */; };
 		C8711D000000000000000002 /* CodexRolloutIdentityResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = C8711D000000000000000001 /* CodexRolloutIdentityResolver.swift */; };
 		E6227020943E2260565D992D /* CodexSessionStartDeadTurnTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7E3FFB9B84F6DE45250D5D5 /* CodexSessionStartDeadTurnTests.swift */; };
+		35241766A401B4F40BFFF49D /* CodexStaleTurnRestoreIntentTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0B0073F9140EA86D5ADEE233 /* CodexStaleTurnRestoreIntentTests.swift */; };
 		C0DECAFE0000000000000001 /* CodexTeamsApprovalBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DECAFE0000000000000002 /* CodexTeamsApprovalBridge.swift */; };
 		C0DECAFE0000000000000003 /* CodexTeamsApprovalBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DECAFE0000000000000002 /* CodexTeamsApprovalBridge.swift */; };
 		C0DEBACC0000000000000001 /* CodexTeamsAppServerFixture.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEBACC0000000000000004 /* CodexTeamsAppServerFixture.swift */; };
@@ -1629,6 +1630,7 @@
 		7520C0DF0000000000000005 /* CodexTurnLedgerModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7520C0DF0000000000000006 /* CodexTurnLedgerModels.swift */; };
 		7520C0DF0000000000000007 /* CodexTurnLedgerPersistence.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7520C0DF0000000000000008 /* CodexTurnLedgerPersistence.swift */; };
 		7520C0DF0000000000000009 /* CodexTurnLifecycleCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7520C0DF000000000000000A /* CodexTurnLifecycleCoordinator.swift */; };
+		D3AD00000000000000000005 /* CodexTurnRestoreIntentPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3AD00000000000000000004 /* CodexTurnRestoreIntentPolicy.swift */; };
 		C4041001000000000000001B /* CommandClickFileOpenRouter.swift in Sources */ = {isa = PBXBuildFile; fileRef = C4041001000000000000001A /* CommandClickFileOpenRouter.swift */; };
 		C0DE86060000000000000001 /* CommandPaletteFocusRestoreCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE86060000000000000002 /* CommandPaletteFocusRestoreCoordinator.swift */; };
 		C0DE32470000000000000005 /* CommandPaletteIdentifierClipboardUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE32470000000000000006 /* CommandPaletteIdentifierClipboardUITests.swift */; };
@@ -5774,6 +5776,7 @@
 		C8711C000000000000000001 /* CodexRolloutIdentity.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CodexRolloutIdentity.swift; sourceTree = "<group>"; };
 		C8711D000000000000000001 /* CodexRolloutIdentityResolver.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CodexRolloutIdentityResolver.swift; sourceTree = "<group>"; };
 		C7E3FFB9B84F6DE45250D5D5 /* CodexSessionStartDeadTurnTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CodexSessionStartDeadTurnTests.swift"; sourceTree = "<group>"; };
+		0B0073F9140EA86D5ADEE233 /* CodexStaleTurnRestoreIntentTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CodexStaleTurnRestoreIntentTests.swift"; sourceTree = "<group>"; };
 		C0DECAFE0000000000000002 /* CodexTeamsApprovalBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexTeamsApprovalBridge.swift; sourceTree = "<group>"; };
 		C0DEBACC0000000000000004 /* CodexTeamsAppServerFixture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexTeamsAppServerFixture.swift; sourceTree = "<group>"; };
 		A10240020000000000000001 /* CodexTeamsAppServerProcess.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexTeamsAppServerProcess.swift; sourceTree = "<group>"; };
@@ -5790,6 +5793,7 @@
 		7520C0DF0000000000000006 /* CodexTurnLedgerModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexTurnLedgerModels.swift; sourceTree = "<group>"; };
 		7520C0DF0000000000000008 /* CodexTurnLedgerPersistence.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexTurnLedgerPersistence.swift; sourceTree = "<group>"; };
 		7520C0DF000000000000000A /* CodexTurnLifecycleCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexTurnLifecycleCoordinator.swift; sourceTree = "<group>"; };
+		D3AD00000000000000000004 /* CodexTurnRestoreIntentPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexTurnRestoreIntentPolicy.swift; sourceTree = "<group>"; };
 		C4041001000000000000001A /* CommandClickFileOpenRouter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommandClickFileOpenRouter.swift; sourceTree = "<group>"; };
 		C0DE86060000000000000002 /* CommandPaletteFocusRestoreCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommandPaletteFocusRestoreCoordinator.swift; sourceTree = "<group>"; };
 		C0DE32470000000000000006 /* CommandPaletteIdentifierClipboardUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommandPaletteIdentifierClipboardUITests.swift; sourceTree = "<group>"; };
@@ -10026,6 +10030,7 @@
 				AC44C6882243B4D699AE73FA /* AgentRestoreEvidenceSubscription.swift */,
 				7692B43CED35D70F292C8537 /* AgentRestoreAdmissionInputs.swift */,
 				657ECAA4E052C87DFE264F70 /* CodexRestoreHookEvidence.swift */,
+				D3AD00000000000000000004 /* CodexTurnRestoreIntentPolicy.swift */,
 				121580031215800312158003 /* AgentRestoreUnverifiableNotice.swift */,
 				121580011215800112158001 /* AgentRestoreNoticeInput.swift */,
 				110433011104330111043301 /* AgentRestoreSuppressionJournal.swift */,
@@ -12562,6 +12567,7 @@
 				D96D0A50A9C2220332A4B28A /* DeferredAdmissionTestOwner.swift */,
 				511EAB11A81C099E4F5A8ECF /* DeferredAgentResumeAdmissionOwnerTests.swift */,
 				C7E3FFB9B84F6DE45250D5D5 /* CodexSessionStartDeadTurnTests.swift */,
+				0B0073F9140EA86D5ADEE233 /* CodexStaleTurnRestoreIntentTests.swift */,
 			);
 			path = cmuxTests;
 			sourceTree = "<group>";
@@ -14149,6 +14155,7 @@
 					C8711D000000000000000002 /* CodexRolloutIdentityResolver.swift in Sources */,
 				A10240030000000000000001 /* CodexTeamsAppServerProcess.swift in Sources */,
 				A10240100000000000000001 /* CodexTeamsPOSIXSupport.swift in Sources */,
+				D3AD00000000000000000005 /* CodexTurnRestoreIntentPolicy.swift in Sources */,
 				C4041001000000000000001B /* CommandClickFileOpenRouter.swift in Sources */,
 				C0DE86060000000000000001 /* CommandPaletteFocusRestoreCoordinator.swift in Sources */,
 				C0DEFF200000000000000001 /* CommandPaletteOverlay.swift in Sources */,
@@ -16705,6 +16712,7 @@
 				7FF4F2EA73F8883D21912965 /* CodexRestoreOwnerGenerationTests.swift in Sources */,
 				D96290010000000000000001 /* CodexResumeBindingVerificationRegressionTests.swift in Sources */,
 				E6227020943E2260565D992D /* CodexSessionStartDeadTurnTests.swift in Sources */,
+				35241766A401B4F40BFFF49D /* CodexStaleTurnRestoreIntentTests.swift in Sources */,
 				C0DECAFE0000000000000003 /* CodexTeamsApprovalBridge.swift in Sources */,
 				C0DEBACC0000000000000001 /* CodexTeamsAppServerFixture.swift in Sources */,
 				A10240040000000000000001 /* CodexTeamsAppServerProcessTests.swift in Sources */,
