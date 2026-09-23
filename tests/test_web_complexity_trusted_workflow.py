@@ -212,6 +212,18 @@ def main() -> int:
     if job.get("continue-on-error"):
         print("FAIL: the complexity job must not continue on error")
         return 1
+    trusted_checkout = next(
+        step
+        for step in job["steps"]
+        if step.get("name") == "Checkout trusted policy revision"
+    )
+    expected_fetch_depth = "${{ github.event_name != 'push' && 1 || 0 }}"
+    if trusted_checkout.get("with", {}).get("fetch-depth") != expected_fetch_depth:
+        print(
+            "FAIL: trusted policy checkout must stay shallow on PR/merge-group runs "
+            "and retain full history only for main pushes"
+        )
+        return 1
     steps = job["steps"]
     checks = [step for step in steps if "check-complexity.mjs" in str(step.get("run", "")) and "bun " in step["run"]]
     if checks != EXPECTED_CHECKS:
