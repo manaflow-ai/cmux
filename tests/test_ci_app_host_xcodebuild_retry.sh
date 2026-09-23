@@ -95,6 +95,18 @@ if [ "${CMUX_MOCK_XCODEBUILD_PROCESS:-0}" = "1" ]; then
     echo "Executed 1 test, with 0 failures (0 unexpected)"
     exit 0
   fi
+  if [ "${CMUX_MOCK_XCODEBUILD_MODE:-timeout}" = "crash-loop" ]; then
+    # xcodebuild relaunching an app host that crashes on contact: the run is
+    # resumed after every crash and never ends on its own.
+    echo 'cmux DEV message = "socket.listener.start"'
+    for _ in 1 2 3 4 5 6 7 8; do
+      echo "Test Case '-[cmuxTests.ExampleTests testExample]' started."
+      echo "Restarting after unexpected exit, crash, or test timeout; summary will include totals from previous launches."
+      sleep 0.2
+    done
+    sleep 600
+    exit 0
+  fi
   if [ "${CMUX_MOCK_XCODEBUILD_MODE:-timeout}" = "success" ] \
     || [ "${CMUX_MOCK_XCODEBUILD_MODE:-timeout}" = "xdg-config-leak" ] \
     || [ "${CMUX_MOCK_XCODEBUILD_MODE:-timeout}" = "xdg-default-leak" ] \
@@ -644,4 +656,49 @@ if find "$RUNNER_TEMP_DIR" -maxdepth 1 -name 'cmux-app-host-xcodebuild-*-pid-$-*
   exit 1
 fi
 
-echo "PASS: app-host xcodebuild wrapper retries only before test execution"
+# A crash-looping app host must abort the invocation once its restart budget
+# is spent, and must not be retried: each attempt would loop again and spend
+# the same runner time. https://github.com/manaflow-ai/cmux/issues/13707
+set +e
+/usr/bin/env -u CMUX_APP_HOST_HOME -u CMUX_APP_HOST_XDG_CONFIG_HOME \
+  -u CFFIXED_USER_HOME -u XDG_CONFIG_HOME \
+  PATH="$BASH32_BIN_DIR:$TMP_DIR:$PATH" \
+  RUNNER_TEMP="$RUNNER_TEMP_DIR" \
+  CMUX_TAG=crash-loop \
+  CMUX_CAPTURE_XCODEBUILD_ARGS="$TMP_DIR/crash-loop-xcodebuild-args.log" \
+  CMUX_CAPTURE_TEST_RUNNER_ENV="$TMP_DIR/crash-loop-test-runner-env.log" \
+  CMUX_CAPTURE_XCODEBUILD_PARENT_ENV="$TMP_DIR/crash-loop-parent-env.log" \
+  CMUX_CAPTURE_TEST_RUNNER_HOME_ENV="$TMP_DIR/crash-loop-runner-home-env.log" \
+  CMUX_MOCK_XCODEBUILD_PROCESS=1 \
+  CMUX_MOCK_XCODEBUILD_MODE=crash-loop \
+  CMUX_APP_HOST_XCODEBUILD_ATTEMPTS=3 \
+  CMUX_XCODEBUILD_NONINTERACTIVE_RESTART_BUDGET=2 \
+  CMUX_XCODEBUILD_NONINTERACTIVE_IDLE_TIMEOUT_SECONDS=60 \
+  /bin/bash "$ROOT_DIR/scripts/ci/run-app-host-xcodebuild.sh" test \
+    >"$TMP_DIR/crash-loop-output.log" 2>&1
+crash_loop_status=$?
+set -e
+
+if [ "$crash_loop_status" -ne 123 ]; then
+  cat "$TMP_DIR/crash-loop-output.log"
+  echo "FAIL: expected restart-budget abort status 123, got $crash_loop_status"
+  exit 1
+fi
+if ! grep -Fq "Aborted by the app-host restart budget" "$TMP_DIR/crash-loop-output.log"; then
+  cat "$TMP_DIR/crash-loop-output.log"
+  echo "FAIL: restart-budget abort did not explain itself in the job log"
+  exit 1
+fi
+if ! grep -Fq "App-host restart budget exceeded on attempt 1/3; not retrying" \
+  "$TMP_DIR/crash-loop-output.log"; then
+  cat "$TMP_DIR/crash-loop-output.log"
+  echo "FAIL: wrapper did not report that it declined to retry a crash loop"
+  exit 1
+fi
+if [ "$(grep -cx 'test' "$TMP_DIR/crash-loop-xcodebuild-args.log")" -ne 1 ]; then
+  cat "$TMP_DIR/crash-loop-output.log"
+  echo "FAIL: wrapper retried a crash loop instead of stopping after one attempt"
+  exit 1
+fi
+
+echo "PASS: app-host xcodebuild wrapper retries only before test execution, and aborts a crash loop without retrying"
