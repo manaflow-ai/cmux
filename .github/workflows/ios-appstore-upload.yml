@@ -46,12 +46,9 @@ jobs:
           set -euo pipefail
           if [ "$EVENT_NAME" = schedule ]; then
             LAST_SHA="$(gh api "repos/$REPOSITORY/actions/workflows/ios-appstore-upload.yml/runs?branch=main&status=success&per_page=1" --jq '.workflow_runs[0].head_sha // ""')"
-            # The newest completed upload on main (the marker is written right
-            # after the upload, before assignment). A poll the batch step
-            # skipped also concludes successfully, so "unchanged" must also
-            # mean this head was actually uploaded; otherwise a quiet main
-            # would never reach the age threshold.
-            LAST_UPLOAD_SHA="$(gh api "repos/$REPOSITORY/actions/artifacts?name=cmux-app-testflight-upload&per_page=20" --jq '[.artifacts[] | select(.expired == false and .workflow_run.head_branch == "main")] | sort_by(.created_at) | last | .workflow_run.head_sha // ""')"
+            # Successful runs can be skipped polls: use durable upload evidence
+            # as the diff base, never advance it merely because a poll succeeded.
+            LAST_UPLOAD_SHA="$(gh api "repos/$REPOSITORY/actions/artifacts?name=cmux-app-testflight-upload&per_page=100" --jq '[.artifacts[] | select(.expired == false and .workflow_run.head_branch == "main")] | max_by(.created_at) | .workflow_run.head_sha // ""' 2>/dev/null || true)"
             echo "last_upload_sha=$LAST_UPLOAD_SHA" >> "$GITHUB_OUTPUT"
             if [ "$LAST_SHA" = "$HEAD_SHA" ] && [ "$LAST_UPLOAD_SHA" = "$HEAD_SHA" ]; then
               echo 'upload=false' >> "$GITHUB_OUTPUT"
@@ -82,13 +79,62 @@ jobs:
               exit 0
             done
           fi
+          # Preserve same-head assignment retries above before considering a
+          # skip. Missing/expired evidence and comparison failures build safely.
+          if [ "$EVENT_NAME" = schedule ] && [ -n "${LAST_UPLOAD_SHA:-}" ]; then
+            COMPARE_FILE="$(mktemp)"
+            if gh api "repos/$REPOSITORY/compare/$LAST_UPLOAD_SHA...$HEAD_SHA" > "$COMPARE_FILE"; then
+              if python3 - "$COMPARE_FILE" <<'PYCODE'
+          import json, sys
+
+          # All unrecognized paths remain build inputs. In particular iOS uses
+          # Packages/macOS/CmuxPhonePush, shared protocols and scripts outside
+          # ios/, so copying the INTERNAL lane's allowlist would miss inputs.
+          def unrelated(path):
+              if not isinstance(path, str) or not path:
+                  return False
+              if path.startswith(("web/", "docs/", "tests/", "cmuxTests/")):
+                  return True
+              if path.startswith(".github/workflows/"):
+                  return path not in {
+                      ".github/workflows/ios-appstore-upload.yml",
+                      ".github/workflows/ios-testflight.yml",
+                  }
+              return False
+
+          try:
+              with open(sys.argv[1]) as handle:
+                  comparison = json.load(handle)
+              files = comparison["files"]
+              # The compare API caps changed paths at 300. A full page cannot
+              # prove that the omitted paths are unrelated to the iOS archive.
+              safe = (comparison.get("status") in {"ahead", "identical"}
+                      and isinstance(files, list) and len(files) < 300
+                      and all(isinstance(item, dict)
+                              and unrelated(item.get("filename"))
+                              and ("previous_filename" not in item
+                                   or unrelated(item["previous_filename"]))
+                              for item in files))
+          except (OSError, ValueError, KeyError, TypeError):
+              safe = False
+          sys.exit(0 if safe else 1)
+          PYCODE
+              then
+                rm -f "$COMPARE_FILE"
+                echo 'upload=false' >> "$GITHUB_OUTPUT"
+                echo 'No iOS build inputs changed since the last completed upload.' >> "$GITHUB_STEP_SUMMARY"
+                exit 0
+              fi
+            fi
+            rm -f "$COMPARE_FILE"
+          fi
           echo 'upload=true' >> "$GITHUB_OUTPUT"
 
       # Batch scheduled polls: on a busy day nearly every hourly poll finds new
       # main commits, and each upload is a cold Release archive on the macOS
       # pool PR CI shares. Runs only when the rules above already chose to
       # upload against a known prior upload; manual dispatch is never batched.
-      # This lane has no path filter, so every main commit counts.
+      # Count only inputs accepted by the conservative public path filter.
       - name: Check out the upload batching policy
         # Batching only delays uploads; a failure here must fall back to the
         # decide job's answer instead of stopping scheduled uploads.
@@ -134,6 +180,7 @@ jobs:
             --base "$LAST_UPLOAD_SHA" \
             --min-commits "$MIN_COMMITS" \
             --max-age-minutes "$MAX_AGE_MINUTES" \
+            --public-path-filter \
             --default-min-commits 10 \
             --default-max-age-minutes 360 \
             --output-name upload \

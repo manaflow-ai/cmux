@@ -304,6 +304,7 @@ jobs:
               'ios/',
               'Packages/iOS/',
               'Packages/Shared/',
+              'Packages/macOS/CmuxPhonePush/',
               'Sources/Mobile/',
               'vendor/stack-auth-swift-sdk-prerelease/',
               'ghostty',
@@ -504,6 +505,7 @@ jobs:
       # steps below gate on this same `steps.upload.outcome`; exporting it lets
       # assign-internal-group do likewise instead of reading the job result.
       uploaded: ${{ steps.upload.outcome }}
+      notes_artifact_id: ${{ steps.notes_request.outputs.artifact-id }}
     env:
       ASC_API_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
       ASC_API_ISSUER_ID: ${{ secrets.ASC_API_ISSUER_ID }}
@@ -801,6 +803,7 @@ jobs:
           # The script writes the CFBundleVersion that actually shipped here (the
           # monotonic guard may bump it), so the summary reports the real value.
           CMUX_BUILD_NUMBER_OUT_FILE: ${{ runner.temp }}/cmux-final-build-number.txt
+          CMUX_TESTFLIGHT_NOTES_REQUEST_FILE: ${{ runner.temp }}/testflight-notes.json
           # Pin the archive/export workspace: the default is a /tmp dir keyed by
           # the build number, which this workflow cannot compute, and the
           # post-upload dSYM artifact step must find the archive's dSYM bundle.
@@ -860,6 +863,18 @@ jobs:
           fi
           echo "final_build_number=$FINAL_BN" >> "$GITHUB_OUTPUT"
           echo "Shipped CFBundleVersion: $FINAL_BN"
+
+      - name: Save deferred TestFlight notes request
+        id: notes_request
+        if: ${{ !cancelled() && steps.upload.outcome == 'success' && steps.distribution.outputs.upload_mode != 'marketing_version_override' }}
+        # Notes are best effort after the IPA has shipped, including transport.
+        continue-on-error: true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: testflight-notes-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/testflight-notes.json
+          if-no-files-found: warn
+          retention-days: 7
 
       - name: Upload the archive log
         # Only on failure: on the success path this is 15-20 minutes of
@@ -967,6 +982,33 @@ jobs:
         if: always()
         run: |
           security delete-keychain ios-testflight.keychain >/dev/null 2>&1 || true
+
+  set-testflight-notes:
+    name: Set TestFlight notes
+    needs: upload
+    # Run alongside tester assignment and even if later Mac metadata/Sentry
+    # steps fail. Notes timeouts must not turn an accepted upload into a failure.
+    if: ${{ !cancelled() && needs.upload.outputs.uploaded == 'success' && needs.upload.outputs.notes_artifact_id != '' }}
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 20
+    continue-on-error: true
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: Download notes request
+        uses: actions/download-artifact@95815c38cf2ff2164869cbab79da8d1f422bc89e # v4.2.1
+        with:
+          artifact-ids: ${{ needs.upload.outputs.notes_artifact_id }}
+          path: ${{ runner.temp }}/testflight-notes
+          merge-multiple: true
+      - name: Apply uploaded build notes
+        env:
+          ASC_API_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
+          ASC_API_ISSUER_ID: ${{ secrets.ASC_API_ISSUER_ID }}
+          ASC_API_KEY_P8_BASE64: ${{ secrets.ASC_API_KEY_P8_BASE64 }}
+        run: python3 ios/scripts/apply-deferred-testflight-notes.py "${{ runner.temp }}/testflight-notes/testflight-notes.json"
 
   # Normal and demo runs assign their internal group after upload. A manual
   # external marketing-version override assigns Founder's Edition and Pro

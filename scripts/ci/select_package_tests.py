@@ -13,6 +13,7 @@ from __future__ import annotations
 import argparse
 import re
 import sys
+from functools import lru_cache
 from pathlib import Path
 
 PATH_DEPENDENCY = re.compile(r'\.package\(\s*(?:name:\s*"[^"]*",\s*)?path:\s*"([^"]+)"')
@@ -29,6 +30,7 @@ GLOBAL_INPUTS = (
     ".github/workflows/ci-macos.yml",
     "scripts/build-ghostty-cli-helper.sh",
     "scripts/ci/release-build-archs.sh",
+    "scripts/ci/require_swift_test_execution.py",
     "scripts/ci/run-swift-testing-suites.sh",
     "scripts/ci/run_with_timeout.py",
     "scripts/ci/select_package_tests.py",
@@ -145,10 +147,23 @@ def select(root: Path, packages: list[str], changed: list[str] | None) -> list[s
     ]
 
 
-def is_routed_input(path: str) -> bool:
-    """Inputs eligible to start the targeted PR lane, excluding global sweeps."""
+@lru_cache(maxsize=1)
+def routed_input_prefixes(root: Path) -> frozenset[str]:
+    """Known package inputs, including transitive local dependencies outside Packages/."""
+    dirs = package_dirs(root)
+    return frozenset(
+        prefix for name in dirs for prefix in input_prefixes(root, name, dirs)
+    )
+
+
+def is_routed_input(path: str, root: Path) -> bool:
+    """Inputs eligible to start the targeted PR lane, excluding global sweeps.
+
+    Use the same dependency graph as selection: a vendor submodule revision or
+    source change can affect package tests just as a change inside Packages/ can.
+    """
     return path.startswith("Packages/") or any(
-        under(path, prefix) for prefixes in EXTRA_INPUTS.values() for prefix in prefixes
+        under(path, prefix) for prefix in routed_input_prefixes(root)
     )
 
 
@@ -167,7 +182,7 @@ def main(argv: list[str]) -> int:
     if args.routed_inputs_only:
         if changed is None:
             parser.error("--routed-inputs-only requires --changed-files")
-        changed = [path for path in changed if is_routed_input(path)]
+        changed = [path for path in changed if is_routed_input(path, Path(args.root))]
     # The list has historical duplicates; keep the first of each.
     packages = list(dict.fromkeys(args.packages))
     for name in select(Path(args.root), packages, changed):
