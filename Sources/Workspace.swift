@@ -1880,12 +1880,8 @@ extension Workspace {
                 )
                 remoteRestoreClaim = nil
             }
-            let liveOwnerNoticeInput = liveSessionOwner.map {
-                AgentRestoreLiveOwnerNotice(processID: $0.processID).startupInput(
-                    dialect: restoresRemoteWorkspaceTerminalSnapshot
-                        ? .remoteHost
-                        : .loginShell
-                )
+            let liveOwnerNotice = liveSessionOwner.map {
+                AgentRestoreLiveOwnerNotice(processID: $0.processID).notice
             }
             // Build the candidate before arming the gate. A binding that is
             // disabled, unapproved, or cannot render a command must start as an
@@ -1934,9 +1930,17 @@ extension Workspace {
                 hasResumeStartupWork: restoredBindingLaunch != nil ||
                     restoredAgentResumeLaunch != nil || deferredAgentResumeStartupInput != nil
             )
+            // A persistent-SSH attach prints the notice on the remote host, and
+            // only when the PTY session was lost and a new shell starts there.
             let restoredRemoteLiveOwnerNoticeCommand = restoredRemotePTYSessionID == nil
                 ? nil
-                : liveOwnerNoticeInput.flatMap(persistentSSHLiveOwnerNoticeCommand)
+                : liveOwnerNotice.flatMap {
+                    persistentSSHLiveOwnerNoticeCommand($0.startupInput(
+                        dialect: restoresRemoteWorkspaceTerminalSnapshot
+                            ? .remoteHost
+                            : .loginShell
+                    ))
+                }
             let restoredRemotePTYAttachCommand = restoredRemotePTYSessionID.map {
                 remotePTYAttachStartupCommand(
                     sessionID: $0,
@@ -1950,15 +1954,20 @@ extension Workspace {
             let restoredStartupInput = restoredRemotePTYAttachCommand == nil
                 ? (restoredBindingLaunch?.initialInput ??
                     restoredAgentResumeLaunch?.initialInput ??
-                    deferredAgentResumeStartupInput ??
-                    liveOwnerNoticeInput)
+                    deferredAgentResumeStartupInput)
+                : nil
+            // Every other pane shows the notice as display output; nothing is
+            // typed into its shell.
+            let liveOwnerDisplayNotice = restoredRemotePTYAttachCommand == nil &&
+                restoredStartupInput == nil
+                ? liveOwnerNotice
                 : nil
             let startupHandlesWorkingDirectory =
                 restoredTmuxStartupScript != nil ||
                 restoredAgentResumeLaunch != nil ||
                 restoredBindingLaunch != nil ||
                 deferredAgentResumeStartupInput != nil ||
-                liveOwnerNoticeInput != nil
+                liveOwnerNotice != nil
             // Guarded startup commands cd themselves and tolerate deleted saved directories.
             // Passing the same cwd to Ghostty can fail before the guarded command runs.
             let suppressWorkspaceRemoteStartupCommand =
@@ -2222,6 +2231,9 @@ extension Workspace {
                 panelId: terminalPanel.id,
                 internallySeededInput: restoredStartupInput
             )
+            if let liveOwnerDisplayNotice {
+                terminalPanel.surface.writeDisplayNotice(liveOwnerDisplayNotice.message)
+            }
             if restoredAgentWillRunStartupInput,
                restoredRemotePTYAttachCommand == nil,
                !restoresRemoteWorkspaceTerminalSnapshot {

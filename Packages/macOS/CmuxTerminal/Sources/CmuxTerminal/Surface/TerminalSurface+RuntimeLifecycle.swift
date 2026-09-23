@@ -880,6 +880,9 @@ extension TerminalSurface {
         // after sizing, so the seed paints into the final grid instead of
         // wrapping at Ghostty's default grid.
         flushPendingRemoteOutput(to: createdSurface)
+        // Restore notices queued before the runtime existed go out now,
+        // sized to the final grid and ahead of the shell's first prompt.
+        flushPendingDisplayNotices(to: createdSurface)
 
         // Some GhosttyKit builds can drop explicit font_size during post-create
         // config/scale reconciliation. Re-apply explicit runtime points so

@@ -552,9 +552,9 @@ extension DockSplitStore {
                     panelId: panelId,
                     restore: restore,
                     terminal: terminal,
-                    noticeInput: AgentRestoreLiveOwnerNotice(
+                    notice: AgentRestoreLiveOwnerNotice(
                         processID: liveSessionOwner.processID
-                    ).startupInput(dialect: restore.noticeDialect)
+                    ).notice
                 )
                 AgentRestoreSuppressionJournal().record(
                     kind: liveSessionOwner.kind,
@@ -854,13 +854,17 @@ extension DockSplitStore {
         retireAgentHookResumeBinding(panelId: panelId)
     }
 
-    /// Replaces a deferred automatic resume with a typed explanation, so the
-    /// pane says why nothing was resumed and how to resume it by hand.
+    /// Replaces a deferred automatic resume with an explanation, so the pane
+    /// says why nothing was resumed and how to resume it by hand.
+    ///
+    /// Local panes show the notice as terminal display output; the shell
+    /// starts with no typed input. A persistent-SSH pane keeps a remote-side
+    /// notice command that runs only when its PTY session was lost.
     private func explainDeferredAgentResumeRestore(
         panelId: UUID,
         restore: DeferredAgentResumeRestore,
         terminal: TerminalPanel,
-        noticeInput: String
+        notice: AgentRestoreNoticeInput
     ) {
         removeDeferredAgentResumeRestore(panelId: panelId)
         restoredAgentLifecycle.setResumeState(
@@ -868,19 +872,24 @@ extension DockSplitStore {
             panelId: panelId
         )
         if restore.remoteResumeCommandEmbedded {
-            let fallbackCommand = detachedRemoteLiveOwnerNoticeAttachCommand(
+            if let fallbackCommand = detachedRemoteLiveOwnerNoticeAttachCommand(
                 panelID: panelId,
                 restore: restore,
-                noticeInput: noticeInput
-            ) ?? noticeInput
-            terminal.surface.setStartupRestoreAdmissionFallbackCommand(fallbackCommand)
+                noticeInput: notice.startupInput(dialect: restore.noticeDialect)
+            ) {
+                terminal.surface.setStartupRestoreAdmissionFallbackCommand(fallbackCommand)
+            } else {
+                // No remote shell can carry the notice. Show it locally
+                // instead of running it as the terminal's command.
+                terminal.surface.writeDisplayNotice(notice.message)
+            }
             // The original remote attach command contains the agent resume
             // payload. Cancel admission so it is replaced by the
             // attach-only/notice fallback and can never execute.
             terminal.surface.cancelStartupRestoreAdmission()
         } else {
             _ = terminal.surface.admitStartupRestoreRuntime(
-                initialInput: noticeInput
+                displayNotice: notice.message
             )
         }
     }
@@ -906,8 +915,7 @@ extension DockSplitStore {
                 panelId: panelId,
                 restore: restore,
                 terminal: terminal,
-                noticeInput: AgentRestoreUnverifiableNotice()
-                    .startupInput(dialect: restore.noticeDialect)
+                notice: AgentRestoreUnverifiableNotice().notice
             )
         }
         deferredAgentResumeRestoresByPanelId.removeAll()

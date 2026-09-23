@@ -4,7 +4,7 @@ import Foundation
 struct AgentRestoreLiveOwnerNotice: Sendable {
     let processID: Int
 
-    func startupInput(dialect: TerminalStartupShellDialect) -> String {
+    var notice: AgentRestoreNoticeInput {
         let format = String(
             localized: "agentRestore.liveOwner.notice",
             defaultValue: "This agent session is already running in process %1$lld. cmux did not start another copy. To take it over here, stop process %1$lld, then run 'cmux restore --surface' again."
@@ -17,7 +17,7 @@ struct AgentRestoreLiveOwnerNotice: Sendable {
             locale: Locale(identifier: "en_US_POSIX"),
             Int64(processID)
         )
-        return startupInput(message: message, dialect: dialect)
+        return AgentRestoreNoticeInput(message: message)
     }
 
     /// Renders an already-localized message for shell-boundary tests.

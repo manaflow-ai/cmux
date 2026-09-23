@@ -668,9 +668,9 @@ extension Workspace {
                     panelId: panelId,
                     restore: restore,
                     terminal: terminal,
-                    noticeInput: AgentRestoreLiveOwnerNotice(
+                    notice: AgentRestoreLiveOwnerNotice(
                         processID: liveSessionOwner.processID
-            ).startupInput(dialect: restore.noticeDialect)
+                    ).notice
                 )
                 AgentRestoreSuppressionJournal().record(
                     kind: liveSessionOwner.kind,
@@ -914,13 +914,18 @@ extension Workspace {
         retireAgentHookResumeBinding(panelId: panelId)
     }
 
-    /// Replaces a deferred automatic resume with a typed explanation, so the
-    /// pane says why nothing was resumed and how to resume it by hand.
+    /// Replaces a deferred automatic resume with an explanation, so the pane
+    /// says why nothing was resumed and how to resume it by hand.
+    ///
+    /// Local panes show the notice as terminal display output; the shell
+    /// starts with no typed input. A persistent-SSH pane keeps a remote-side
+    /// notice command, because only the remote host knows whether its PTY
+    /// session survived (see `persistentSSHLiveOwnerNoticeCommand`).
     private func explainDeferredAgentResumeRestore(
         panelId: UUID,
         restore: DeferredAgentResumeRestore,
         terminal: TerminalPanel,
-        noticeInput: String
+        notice: AgentRestoreNoticeInput
     ) {
         removeDeferredAgentResumeRestore(panelId: panelId)
         restoredAgentLifecycle.setResumeState(
@@ -928,24 +933,28 @@ extension Workspace {
             panelId: panelId
         )
         if restore.remoteResumeCommandEmbedded {
-            let fallbackCommand: String
             if let remoteResumeContext = restore.remoteResumeContext,
-               let remoteNoticeCommand = persistentSSHLiveOwnerNoticeCommand(noticeInput) {
-                fallbackCommand = remotePTYAttachStartupCommand(
-                    sessionID: remoteResumeContext.persistentPTYSessionID,
-                    remoteCommand: remoteNoticeCommand
+               let remoteNoticeCommand = persistentSSHLiveOwnerNoticeCommand(
+                   notice.startupInput(dialect: restore.noticeDialect)
+               ) {
+                terminal.surface.setStartupRestoreAdmissionFallbackCommand(
+                    remotePTYAttachStartupCommand(
+                        sessionID: remoteResumeContext.persistentPTYSessionID,
+                        remoteCommand: remoteNoticeCommand
+                    )
                 )
             } else {
-                fallbackCommand = noticeInput
+                // No remote shell can carry the notice. Keep the attach-only
+                // fallback armed at restore and show the notice locally.
+                terminal.surface.writeDisplayNotice(notice.message)
             }
-            terminal.surface.setStartupRestoreAdmissionFallbackCommand(fallbackCommand)
             // The original remote attach command contains the agent resume
             // payload. Cancel admission so the attach-only/notice fallback
             // replaces it and the payload can never execute.
             terminal.surface.cancelStartupRestoreAdmission()
         } else {
             _ = terminal.surface.admitStartupRestoreRuntime(
-                initialInput: noticeInput
+                displayNotice: notice.message
             )
         }
     }
@@ -971,8 +980,7 @@ extension Workspace {
                 panelId: panelId,
                 restore: restore,
                 terminal: terminal,
-                noticeInput: AgentRestoreUnverifiableNotice()
-                    .startupInput(dialect: restore.noticeDialect)
+                notice: AgentRestoreUnverifiableNotice().notice
             )
         }
         deferredAgentResumeRestoresByPanelId.removeAll()
