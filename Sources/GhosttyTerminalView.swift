@@ -3953,6 +3953,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     fileprivate private(set) var keyboardCopyModeActive = false
     private var wordPathHoverActive = false
     private var keyboardCopyModeConsumedKeyUps: Set<UInt16> = []
+    private var textEditingGestureConsumedKeyUps: Set<UInt16> = []
     private var imeConsumedKeyUps: Set<UInt16> = []
     private var manualNamedKeyConsumedKeyUps: Set<UInt16> = []
     /// Deferred native input actions retain their authored order until the
@@ -5809,6 +5810,71 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         syncKeyboardCopyModeCursorOverlay(surface: surface)
     }
 
+    /// Whether opt-in terminal text-editing gestures are active.
+    ///
+    /// Backed by a defaults flag while the Settings UI surface is still
+    /// unwired, so the mode stays off unless a user sets the key explicitly.
+    private var textEditingGesturesEnabled: Bool {
+        UserDefaults.standard.bool(forKey: "cmuxTerminalTextEditingGestures")
+    }
+
+    /// Maps AppKit modifier flags onto the resolver's platform-neutral set.
+    private func textEditingModifiers(
+        from flags: NSEvent.ModifierFlags
+    ) -> TerminalTextEditingModifiers {
+        var modifiers: TerminalTextEditingModifiers = []
+        if flags.contains(.command) { modifiers.insert(.command) }
+        if flags.contains(.shift) { modifiers.insert(.shift) }
+        if flags.contains(.control) { modifiers.insert(.control) }
+        if flags.contains(.option) { modifiers.insert(.option) }
+        if flags.contains(.numericPad) { modifiers.insert(.numericPad) }
+        if flags.contains(.function) { modifiers.insert(.function) }
+        if flags.contains(.capsLock) { modifiers.insert(.capsLock) }
+        return modifiers
+    }
+
+    /// Carbon virtual key codes for the letters a resolved chord can name.
+    private static let textEditingChordKeyCodes: [Character: UInt16] = [
+        "a": 0x00, "b": 0x0B, "d": 0x02, "e": 0x0E,
+        "f": 0x03, "k": 0x28, "u": 0x20, "w": 0x0D,
+    ]
+
+    /// Replays a macOS text-editing gesture as the line-editor chord it means.
+    ///
+    /// The chord is sent as a synthesized key press rather than as raw bytes so
+    /// Ghostty performs the encoding, keeping the result correct under whichever
+    /// keyboard protocol the running application negotiated.
+    ///
+    /// - Parameters:
+    ///   - event: The key-down event to consider.
+    ///   - surface: The surface that receives the replayed chord.
+    /// - Returns: `true` when the gesture was consumed and must not reach the
+    ///   terminal as the original keystroke.
+    private func handleTextEditingGestureIfNeeded(
+        _ event: NSEvent,
+        surface: ghostty_surface_t
+    ) -> Bool {
+        guard textEditingGesturesEnabled, !hasMarkedText() else { return false }
+        guard let chord = terminalTextEditingResolve(
+            keyCode: event.keyCode,
+            modifiers: textEditingModifiers(from: event.modifierFlags)
+        ) else { return false }
+        guard
+            let chordKeyCode = Self.textEditingChordKeyCodes[chord.letter],
+            let scalar = chord.letter.unicodeScalars.first
+        else { return false }
+
+        var keyEvent = ghostty_input_key_s()
+        keyEvent.action = event.isARepeat ? GHOSTTY_ACTION_REPEAT : GHOSTTY_ACTION_PRESS
+        keyEvent.keycode = UInt32(chordKeyCode)
+        keyEvent.mods = chord.modifier == .control ? GHOSTTY_MODS_CTRL : GHOSTTY_MODS_ALT
+        keyEvent.consumed_mods = GHOSTTY_MODS_NONE
+        keyEvent.composing = false
+        keyEvent.unshifted_codepoint = scalar.value
+        keyEvent.text = nil
+        return sendGhosttyKey(surface, keyEvent)
+    }
+
     private func handleKeyboardCopyModeIfNeeded(_ event: NSEvent, surface: ghostty_surface_t) -> Bool {
         guard keyboardCopyModeActive else { return false }
         reconcileKeyboardCopyModeViewport(surface: surface)
@@ -6541,6 +6607,13 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             keyboardCopyModeConsumedKeyUps.insert(event.keyCode)
             return
         }
+        if handleTextEditingGestureIfNeeded(event, surface: surface) {
+            // sendGhosttyKey already reported the accepted input; only the
+            // originating gesture's key-up still needs suppressing, because the
+            // synthesized press has no matching release.
+            textEditingGestureConsumedKeyUps.insert(event.keyCode)
+            return
+        }
 #if DEBUG
         keyboardCopyModeMs = (ProcessInfo.processInfo.systemUptime - keyboardCopyModeStart) * 1000.0
 #endif
@@ -7007,6 +7080,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         }
 
         if keyboardCopyModeConsumedKeyUps.remove(event.keyCode) != nil {
+            return
+        }
+        if textEditingGestureConsumedKeyUps.remove(event.keyCode) != nil {
             return
         }
         if imeConsumedKeyUps.remove(event.keyCode) != nil {
