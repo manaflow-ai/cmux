@@ -581,7 +581,11 @@ jobs:
         continue-on-error: true
         if: ${{ github.event_name == 'pull_request' && steps.detect.outputs.macos == 'true' }}
         env:
-          XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_15 }}
+          # Both steps are pull-request-only, and the xcode= extra exists so the
+          # fingerprint moves when the pinned toolchain does. Read the same lane
+          # the pull-request macOS jobs compile under, or a lane move would reuse
+          # a build admitted under the previous Xcode and skip the compile.
+          XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_PR || vars.CMUX_CI_XCODE_APP_MACOS_15 }}
         run: |
           set -euo pipefail
           fingerprint="$(python3 scripts/ci/build_input_fingerprint.py --extra "xcode=$XCODE_APP")"
@@ -593,7 +597,11 @@ jobs:
         continue-on-error: true
         if: ${{ steps.inputs.outputs.fingerprint != '' && steps.suite.outputs.full_suite == 'false' }}
         env:
-          XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_15 }}
+          # Both steps are pull-request-only, and the xcode= extra exists so the
+          # fingerprint moves when the pinned toolchain does. Read the same lane
+          # the pull-request macOS jobs compile under, or a lane move would reuse
+          # a build admitted under the previous Xcode and skip the compile.
+          XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_PR || vars.CMUX_CI_XCODE_APP_MACOS_15 }}
           HEAD_FINGERPRINT: ${{ steps.inputs.outputs.fingerprint }}
         run: |
           set -euo pipefail

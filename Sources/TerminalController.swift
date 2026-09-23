@@ -15695,8 +15695,16 @@ class TerminalController {
         // surface): they run `resumeForExplicitInputIfNeeded()` first, waking a
         // hibernated agent terminal the same way local typing does, so a mobile
         // composer submit cannot write into a cold surface.
-        guard terminalTarget.sendText(text) else {
+        let textResult = terminalTarget.sendTextResult(text)
+        switch textResult {
+        case .sent, .queued:
+            break
+        case .inputQueueFull:
+            return .err(code: "input_queue_full", message: Self.terminalInputQueueFullMessage, data: ["surface_id": surfaceId.uuidString])
+        case .surfaceUnavailable:
             return .err(code: "surface_unavailable", message: Self.terminalSurfaceUnavailableMessage, data: ["surface_id": surfaceId.uuidString])
+        case .processExited:
+            return .err(code: "process_exited", message: Self.terminalProcessExitedMessage, data: ["surface_id": surfaceId.uuidString])
         }
 
         // The paste text is already accepted by the surface above. From here on a
@@ -15739,6 +15747,7 @@ class TerminalController {
         var payload: [String: Any] = [
             "workspace_id": resolved.workspace.id.uuidString,
             "surface_id": terminalPanel.id.uuidString,
+            "delivery": textResult == .sent ? "delivered" : "queued",
             "submitted": submitted,
         ]
         if let submitError {

@@ -70,8 +70,20 @@ if ! grep -Fq "actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef35013
 fi
 
 swift_package_section="$(job_section "$CI_FILE" "swift-package-tests")"
-if [[ "$swift_package_section" != *'runs-on: ${{ github.event_name == '\''pull_request'\'' && (vars.MACOS_RUNNER_PR || '\''blacksmith-6vcpu-macos-15'\'') || vars.MACOS_RUNNER_DUAL_XCODE || '\''blacksmith-6vcpu-macos-15'\'' }}'* ]]; then
-  echo "FAIL: CI swift-package-tests must use the dual-Xcode runner lane" >&2
+# Every event, pull requests included: this job builds the Release Ghostty CLI
+# helper against an SDK 15 Xcode, which only the macos-15 image carries, so it
+# must not follow MACOS_RUNNER_PR onto whatever pool that lane points at.
+if [[ "$swift_package_section" != *'runs-on: ${{ vars.MACOS_RUNNER_DUAL_XCODE || '\''blacksmith-6vcpu-macos-15'\'' }}'* ]]; then
+  echo "FAIL: CI swift-package-tests must use the dual-Xcode runner lane on every event" >&2
+  exit 1
+fi
+
+# Comments are stripped first: the job carries a comment naming MACOS_RUNNER_PR
+# to explain why it does not use it, and that prose is not a routing decision.
+swift_package_directives="$(printf '%s\n' "$swift_package_section" | sed 's/[[:space:]]*#.*$//')"
+if [[ "$swift_package_directives" == *MACOS_RUNNER_PR* ]]; then
+  echo "FAIL: CI swift-package-tests must not resolve through MACOS_RUNNER_PR" >&2
+  echo "      The pull-request lane may point at a macos-26 pool, which has no SDK 15 Xcode." >&2
   exit 1
 fi
 

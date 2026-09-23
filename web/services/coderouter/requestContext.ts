@@ -59,6 +59,10 @@ export async function resolveCoderouterControlContext(
   if (request.headers.has(VM_AUTHORIZATION_HEADER) || token?.startsWith("crt_") || request.headers.has(VM_ID_HEADER) || request.headers.has(ROUTE_TOKEN_HEADER)) {
     const auth = await authenticateRequestRouteToken(request);
     if (!auth.ok) return { ok: false, response: jsonResponse({ error: auth.reason }, 401) };
+    // A chatmux machine may use its team's shared accounts, never manage them.
+    if (auth.identity.machine === "chatmux") {
+      return { ok: false, response: jsonResponse({ error: "chatmux_machine_not_allowed" }, 403) };
+    }
     if (!auth.identity.vmId) {
       return { ok: false, response: jsonResponse({ error: "vm_bound_token_required" }, 403) };
     }

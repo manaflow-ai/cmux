@@ -285,6 +285,35 @@ def run_is_complete(log_text: str) -> tuple[bool, str]:
     return True, "no interruption marker"
 
 
+def recorded_failure_diagnostics(
+    results: dict[str, str],
+    known: dict[str, dict[str, Any]],
+) -> list[str]:
+    """Name every recorded failure without deciding the run's verdict.
+
+    The ratchet below fails fast: it reports new failures and returns without
+    mentioning known ones, because the verdict is already decided. A run that
+    is being reported for some other reason wants the opposite -- the complete
+    picture, since its verdict does not depend on what this finds.
+    """
+    failures = {
+        identifier for identifier, result in results.items() if result == "Failed"
+    }
+    new_failures = sorted(failures - set(known))
+    known_failures = sorted(failures & set(known))
+    messages = [f"RATCHET_NEW_FAILURE {identifier}" for identifier in new_failures]
+    messages += [f"RATCHET_KNOWN_FAILURE {identifier}" for identifier in known_failures]
+    if messages:
+        # Mirror the summary the complete path prints. Without it, a reader
+        # scanning shard output for "the accounting ran" sees the same silence
+        # here that the missing verdicts themselves used to produce.
+        messages.append(
+            f"recorded verdicts: {len(new_failures)} new, "
+            f"{len(known_failures)} known-main; typed test cases: {len(results)}"
+        )
+    return messages
+
+
 def check_run(
     *,
     inventory: set[str],
@@ -324,6 +353,12 @@ def check_run(
             messages.append(
                 f"... {len(missing_execution) - 20} additional selected Test Case(s) missing"
             )
+        # An incomplete result set still carries a verdict for everything that
+        # did finish. Naming those costs nothing and is the only way to tell a
+        # shard whose remaining tests regressed from one whose remaining tests
+        # went green -- without it both print the same "incomplete" line, and a
+        # full suite can be red while naming no regression at all.
+        messages.extend(recorded_failure_diagnostics(results, known))
         return False, messages
 
     if xcode_status not in {0, 65}:
