@@ -6097,17 +6097,40 @@ final class cmuxUITests: XCTestCase {
 
         XCTAssertFalse(app.buttons["MobileTaskComposerWorkspaceGroup"].exists)
         tap(app.buttons["MobileTaskComposerDestinationPicker"], in: app)
+        let workspace = app.descendants(matching: .any)[
+            "MobileTaskComposerDestinationWorkspace-workspace-pane-preview"
+        ].firstMatch
+        XCTAssertTrue(workspace.waitForExistence(timeout: 3))
+        tap(workspace, in: app)
+        let pane = app.buttons[
+            "MobileTaskComposerDestinationPane-workspace-pane-preview-pane-preview-right"
+        ]
+        XCTAssertTrue(pane.waitForExistence(timeout: 3))
+        tap(pane, in: app)
+        tap(app.buttons["MobileTaskComposerDestinationPicker"], in: app)
+
+        let groupMenu = app.buttons["MobileTaskComposerWorkspaceGroup"]
+        XCTAssertTrue(groupMenu.waitForExistence(timeout: 3))
+        XCTAssertFalse(groupMenu.isEnabled)
+        let disabledScreenshot = XCTAttachment(screenshot: app.screenshot())
+        disabledScreenshot.name = "New workspace inactive, group disabled"
+        disabledScreenshot.lifetime = .keepAlways
+        add(disabledScreenshot)
+
         let newWorkspace = app.buttons["MobileTaskComposerDestinationNewWorkspace"]
         XCTAssertTrue(newWorkspace.waitForExistence(timeout: 3))
         tap(newWorkspace, in: app)
 
-        let groupMenu = app.buttons["MobileTaskComposerWorkspaceGroup"]
         XCTAssertTrue(groupMenu.waitForExistence(timeout: 3))
         XCTAssertTrue(groupMenu.isEnabled)
         XCTAssertEqual(groupMenu.value as? String, "None")
         tap(groupMenu, in: app)
         tapMenuItem(app.buttons["Focus work"], in: app)
         XCTAssertEqual(groupMenu.value as? String, "Focus work")
+        let selectedScreenshot = XCTAttachment(screenshot: app.screenshot())
+        selectedScreenshot.name = "New workspace selected with Focus work group"
+        selectedScreenshot.lifetime = .keepAlways
+        add(selectedScreenshot)
 
         tap(app.buttons["MobileTaskComposerDestinationDoneButton"], in: app)
         XCTAssertEqual(
