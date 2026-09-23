@@ -218,7 +218,7 @@ export class TeamControl extends DurableObject<Environment> {
     // The budget RPC yields. Re-check authority before private data leaves us.
     if (response.schemaId === "session.ready.v1") {
       const broker = this.broker(attachment.session.identity.teamId);
-      if (broker.dependencies.store.getDevice(attachment.session.identity)) broker.requiredDevice(attachment.session);
+      broker.validateSetup(attachment.session, response.challenge !== undefined);
       if (attachment.session.expiresAt <= Math.floor(Date.now() / 1000)) throw new OperationError("ticket_expired", 401, true);
     }
     if (["directory.result.v1", "relay.result.v1", "ticket.result.v1", "device.registered.v1"].includes(response.schemaId)) {

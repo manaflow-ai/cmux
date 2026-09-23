@@ -290,6 +290,9 @@ export class TeamStore {
       if (challenge.nonce_hash !== input.nonceHash || challenge.payload_hash !== input.payloadHash) throw new OperationError("challenge_invalid", 400);
       if (challenge.expires_at <= input.now) throw new OperationError("challenge_expired", 409);
       const existing = this.#db.get<DeviceRow>(sql`SELECT * FROM "devices" WHERE "identity_key" = ${key}`);
+      if (existing?.revoked === 1 && !this.canRecoverRevokedDevice(existing.device_record_id)) {
+        throw new OperationError("device_revoked", 403);
+      }
       if (existing && (existing.endpoint_id !== descriptor.endpointId || existing.identity_generation !== descriptor.identityGeneration)) {
         throw new OperationError("key_replacement_required", 409);
       }

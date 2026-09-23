@@ -85,7 +85,7 @@ export class TeamBroker {
       : existing ? undefined : await this.challenge(session, setup.device);
     // Signing and user-budget calls can yield to revocation or key replacement.
     existing = this.dependencies.store.getDevice(setup.device.identity);
-    if (existing && !recoveringRevoked) this.assertDevice(existing, setup.device);
+    this.validateSetup(session, challenge !== undefined);
     if (session.expiresAt <= this.dependencies.now()) throw new OperationError("ticket_expired", 401, true);
     const revision = this.observeAuthority(authority);
     return {
@@ -113,6 +113,7 @@ export class TeamBroker {
     await verifyDeviceSignature(setup.device.endpointId, requestSigningInput(setup.device, proof.requestId, proof.issuedAt, { setup: plainSetup, request }, proof.nonce), proof.signature);
     const existing = this.dependencies.store.getDevice(setup.device.identity);
     if (existing) {
+      this.assertDeviceIdentity(existing, setup.device);
       const recoveringRevoked = existing.revoked && this.dependencies.store.canRecoverRevokedDevice(existing.deviceRecordId);
       if (!(recoveringRevoked && request.schemaId === "device.register.v1" && issueTicket)) this.assertDevice(existing, setup.device);
       if (!existing.revoked) {
@@ -134,6 +135,7 @@ export class TeamBroker {
       throw new OperationError("ticket_expired", 401, true);
     }
     const existing = this.dependencies.store.getDevice(session.identity);
+    if (existing) this.assertDeviceIdentity(existing, session);
     const recoveringRevoked = existing?.revoked === true && this.dependencies.store.canRecoverRevokedDevice(existing.deviceRecordId);
     if (existing && !(recoveringRevoked && request.schemaId === "device.register.v1" && session.issueTicket)) this.assertDevice(existing, session);
     if (!existing && request.schemaId !== "device.register.v1" && request.schemaId !== "challenge.request.v1" && request.schemaId !== "session.goodbye.v1") {
@@ -280,10 +282,19 @@ export class TeamBroker {
     return record;
   }
 
+  /** Revalidate after every setup yield, including the socket delivery budget. */
+  validateSetup(session: BrokerSession, allowRecovery = false): void {
+    const record = this.dependencies.store.getDevice(session.identity);
+    if (!record) return;
+    this.assertDeviceIdentity(record, session);
+    if (record.revoked && !(allowRecovery && session.issueTicket && this.dependencies.store.canRecoverRevokedDevice(record.deviceRecordId))) {
+      throw new OperationError("device_revoked", 403);
+    }
+  }
+
   private async challenge(session: BrokerSession, device: DeviceDescriptor, charge = true, allowRevoked = false) {
     this.assertSessionDevice(session, device);
-    const existing = this.dependencies.store.getDevice(device.identity);
-    if (existing && !(allowRevoked && existing.revoked)) this.assertDevice(existing, device);
+    this.validateSetup(session, allowRevoked);
     if (charge) await this.dependencies.charge(session.identity.userId, "challenge.request");
     const now = this.dependencies.now();
     const challengeId = crypto.randomUUID();
@@ -291,8 +302,7 @@ export class TeamBroker {
     const payloadHash = await hash(canonicalJSON(device));
     const nonceHash = await hash(nonce);
     const expiresAt = now + CHALLENGE_SECONDS;
-    const current = this.dependencies.store.getDevice(device.identity);
-    if (current && !(allowRevoked && current.revoked)) this.assertDevice(current, device);
+    this.validateSetup(session, allowRevoked);
     if (session.expiresAt <= this.dependencies.now()) throw new OperationError("ticket_expired", 401, true);
     this.dependencies.store.issueChallenge(device.identity, { challengeId, nonceHash, payloadHash, expiresAt, issuedAt: now });
     return { challengeId, nonce, payloadHash, expiresAt };
@@ -307,10 +317,13 @@ export class TeamBroker {
       payloadHash: await hash(canonicalJSON(request.device)), requestId: request.requestId,
       requestHash: await hash(canonicalJSON(request)), now: this.dependencies.now(),
     };
+    this.validateSetup(session, true);
     const receipt = this.dependencies.store.findRegistrationReceipt(session.identity, request.requestId, commit.requestHash);
     if (receipt) return { response: { schemaId: "device.registered.v1", requestId: request.requestId, device: receipt.device } };
     this.dependencies.store.validateRegistrationChallenge(commit);
     await this.dependencies.ownership.reserve(request.device, commit.now);
+    this.validateSetup(session, true);
+    if (session.expiresAt <= this.dependencies.now()) throw new OperationError("ticket_expired", 401, true);
     const result = this.dependencies.store.commitRegistration({ ...commit, now: this.dependencies.now() });
     return {
       response: { schemaId: "device.registered.v1", requestId: request.requestId, device: result.device },
