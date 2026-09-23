@@ -156,12 +156,17 @@ describe("devbox identity contract (services/vms/images/identity.ts)", () => {
     // Detached: a subshell backgrounds the job and exits, so the loop never
     // waits on it, the daemon starts in the same tick, and no zombie is left.
     expect(devboxBoot).toContain("( rekey_ssh_host & )");
-    const wipe = devboxBoot.indexOf('rm -rf "$REMOTE_STATE_DIR"');
+    const stateRefresh = devboxBoot.indexOf('find "$REMOTE_STATE_DIR/sessions"');
     const rekey = devboxBoot.indexOf("( rekey_ssh_host & )");
     const bound = devboxBoot.indexOf(`printf '%s\\n' "$id" > "$BOUND_INSTANCE_FILE"`);
-    expect(wipe).toBeGreaterThan(-1);
-    expect(rekey).toBeGreaterThan(wipe);
-    expect(bound).toBeGreaterThan(rekey);
+    const daemonStart = devboxBoot.indexOf("start_daemon", bound);
+    expect(stateRefresh).toBeGreaterThan(-1);
+    expect(bound).toBeGreaterThan(stateRefresh);
+    // The daemon starts before key generation competes for the clone's CPU,
+    // and key generation runs at the lowest CPU and I/O priority.
+    expect(daemonStart).toBeGreaterThan(bound);
+    expect(rekey).toBeGreaterThan(daemonStart);
+    expect(devboxBoot).toContain('low="nice -n 19"');
   });
 });
 
@@ -228,12 +233,43 @@ describe("devbox private-network announce (services/vms/images/network.ts)", () 
     expect(devboxBoot).toContain("announce_loop() {\n  while true; do announce_network; sleep 30; done\n}");
     expect(devboxBoot.indexOf("\nannounce_loop &\n")).toBeGreaterThan(-1);
     expect(devboxBoot.indexOf("\nannounce_loop &\n")).toBeLessThan(devboxBoot.indexOf("\nwhile true; do\n"));
-    // On a clone: detached, right after the SSH rekey, before the machine is bound.
-    const rekey = devboxBoot.indexOf("( rekey_ssh_host & )");
+    // On a clone: the very first action, detached, before the daemon stop,
+    // the state refresh, the SSH rekey, and the bind. The Mac is already
+    // dialing; the fabric drops its SYNs until this frame goes out.
+    const cloneBranch = devboxBoot.indexOf('if [ -n "$id" ] && [ "$id" != "$(cat "$BOUND_INSTANCE_FILE" 2>/dev/null)" ]; then');
     const announce = devboxBoot.indexOf("( announce_network & )");
+    const stop = devboxBoot.indexOf("stop_daemon", cloneBranch);
+    const rekey = devboxBoot.indexOf("( rekey_ssh_host & )");
     const bound = devboxBoot.indexOf(`printf '%s\\n' "$id" > "$BOUND_INSTANCE_FILE"`);
-    expect(announce).toBeGreaterThan(rekey);
-    expect(bound).toBeGreaterThan(announce);
+    expect(cloneBranch).toBeGreaterThan(-1);
+    expect(announce).toBeGreaterThan(cloneBranch);
+    expect(stop).toBeGreaterThan(announce);
+    expect(bound).toBeGreaterThan(stop);
+    expect(rekey).toBeGreaterThan(bound);
+  });
+
+  test("a parked supervisor ticks fast so a clone is noticed within ~50 ms of resume", () => {
+    expect(devboxBoot).toContain("PARKED_TICK=0.05");
+    expect(devboxBoot).toContain('sleep "$tick"');
+    // The parked branch and the failed-first-read branch keep the fast tick;
+    // a bound machine goes back to one second.
+    expect(devboxBoot.match(/tick=\$PARKED_TICK/g)?.length).toBe(2);
+    expect(devboxBoot).toContain("  tick=1\n");
+    expect(devboxBoot).toContain('elif [ -z "$id" ] && [ -n "$parked" ]; then');
+  });
+
+  test("resume housekeeping timers are parked with the daemon and re-armed off the critical path", () => {
+    for (const timer of ["logrotate.timer", "man-db.timer", "fstrim.timer", "dpkg-db-backup.timer", "systemd-tmpfiles-clean.timer", "apt-daily.timer"]) {
+      expect(devboxBoot).toContain(timer);
+    }
+    expect(devboxBoot).toContain("systemctl stop cmux-housekeeping-rearm.timer cmux-housekeeping-rearm.service $HOUSEKEEPING_TIMERS");
+    // Service watchdogs are runtime state: off while parked (so the clock jump
+    // kills nothing on resume), back on with the delayed re-arm.
+    expect(devboxBoot).toContain("  systemd-analyze service-watchdogs no >/dev/null 2>&1 || true\n");
+    expect(devboxBoot).toContain('--on-active="$HOUSEKEEPING_DELAY"');
+    expect(devboxBoot).toContain('/bin/sh -c "systemd-analyze service-watchdogs yes; systemctl start $HOUSEKEEPING_TIMERS"');
+    const bound = devboxBoot.indexOf(`printf '%s\\n' "$id" > "$BOUND_INSTANCE_FILE"`);
+    expect(devboxBoot.indexOf('[ -n "$parked" ] && { rearm_housekeeping; parked=""; }')).toBeGreaterThan(bound);
   });
 
   test("the image installs arping and verify proves the announce loop on a booted machine", () => {

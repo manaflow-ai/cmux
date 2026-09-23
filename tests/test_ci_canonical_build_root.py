@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+import os
+import json
 import subprocess
 import tempfile
 import unittest
@@ -119,6 +121,27 @@ class CanonicalRootMaterializationTests(unittest.TestCase):
             text=True, capture_output=True,
         )
 
+    def test_runtime_source_alias_resolves_embedded_file_paths(self):
+        result = subprocess.run(
+            [str(ROOT / "scripts/ci/canonical-build-root.sh"), "--runtime-source", str(self.workspace)],
+            env={"PATH": "/usr/bin:/bin", "CMUX_CI_CANONICAL_ROOT": str(self.root)},
+            text=True, capture_output=True,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual((self.root / "src/sub/keep.txt").read_text(), "keep")
+        # Runtime aliasing must not trick a later compiler into using a
+        # workspace-dependent realpath under the shared fingerprint.
+        self.assertEqual(self.run_script().returncode, 0)
+        self.assertFalse((self.root / "src").is_symlink())
+        self.assertEqual((self.root / "src/sub/keep.txt").read_text(), "keep")
+        refused = subprocess.run(
+            [str(ROOT / "scripts/ci/canonical-build-root.sh"), "--runtime-source", str(self.root / "src")],
+            env={"PATH": "/usr/bin:/bin", "CMUX_CI_CANONICAL_ROOT": str(self.root)},
+            text=True, capture_output=True,
+        )
+        self.assertNotEqual(refused.returncode, 0)
+        self.assertEqual((self.root / "src/sub/keep.txt").read_text(), "keep")
+
     def test_the_canonical_source_is_a_real_directory_not_a_symlink(self):
         # A symlink resolves back to the pool-specific path, which would make
         # the shared key claim a match the compiler does not honour.
@@ -156,6 +179,85 @@ class CanonicalRootMaterializationTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn(".git", result.stderr)
 
+
+class CanonicalRecipeTests(unittest.TestCase):
+    def test_resolve_build_and_fingerprint_use_canonical_paths(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            workspace = base / "runner-layout" / "checkout"
+            workspace.mkdir(parents=True)
+            (workspace / ".git").mkdir()
+            bin_dir = base / "bin"
+            bin_dir.mkdir()
+            calls = base / "calls.jsonl"
+            xcode = bin_dir / "xcodebuild"
+            xcode.write_text("#!/usr/bin/env python3\n" +
+                "import os,sys,json,pathlib\n" +
+                "with open(os.environ['CALLS'], 'a') as f: f.write(json.dumps([os.getcwd(),sys.argv[1:]])+'\\n')\n" +
+                "if '-version' in sys.argv: print('Xcode 26.3')\n" +
+                "if '-resolvePackageDependencies' in sys.argv:\n" +
+                " p=pathlib.Path(sys.argv[sys.argv.index('-clonedSourcePackagesDirPath')+1])\n" +
+                " for a in ['sparkle/Sparkle/Sparkle.xcframework','sentry-cocoa/Sentry/Sentry.xcframework']: (p/'artifacts'/a).mkdir(parents=True,exist_ok=True)\n")
+            xcode.chmod(0o755)
+            root = base / "canonical"
+            root.mkdir()
+            (root / "src").symlink_to(workspace)
+            env = dict(os.environ, PATH=f"{bin_dir}:" + os.environ['PATH'], CALLS=str(calls),
+                       CMUX_CI_CANONICAL_ROOT=str(root))
+            derived = str(root / "derived-data-compile-admission")
+            packages = str(workspace / ".ci-source-packages")
+            for args in [("canonical-fingerprint", derived),
+                         ("canonical-resolve", derived, packages),
+                         ("canonical-build", derived, packages, str(root / "cas"))]:
+                result = subprocess.run([str(SCRIPT), *args], cwd=workspace, env=env,
+                                        capture_output=True, text=True)
+                self.assertEqual(result.returncode, 0, result.stderr)
+            records = [json.loads(line) for line in calls.read_text().splitlines()]
+            self.assertEqual(len(records), 5)
+            for cwd, args in records:
+                self.assertEqual(cwd, str(root / "src"))
+                if '-clonedSourcePackagesDirPath' in args:
+                    self.assertEqual(args[args.index('-clonedSourcePackagesDirPath')+1],
+                                     str(root / 'src' / '.ci-source-packages'))
+                    self.assertEqual(args[args.index('-derivedDataPath')+1], derived)
+
+
+    def test_build_alone_refuses_a_stale_runtime_alias(self):
+        # The recipe above runs fingerprint first, which strips the alias, so it
+        # only covers `build` transitively. A lane that compiles without
+        # fingerprinting first would follow the alias to the pool-specific
+        # realpath and write those entries under the pool-independent key --
+        # a seed that downloads and then cannot hit.
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            workspace = base / "runner-layout" / "checkout"
+            workspace.mkdir(parents=True)
+            (workspace / ".git").mkdir()
+            bin_dir = base / "bin"
+            bin_dir.mkdir()
+            calls = base / "calls.jsonl"
+            xcode = bin_dir / "xcodebuild"
+            xcode.write_text("#!/usr/bin/env python3\n" +
+                "import os,sys,json\n" +
+                "with open(os.environ['CALLS'], 'a') as f: f.write(json.dumps([os.getcwd(),sys.argv[1:]])+'\\n')\n" +
+                "if '-version' in sys.argv: print('Xcode 26.3')\n")
+            xcode.chmod(0o755)
+            root = base / "canonical"
+            root.mkdir()
+            (root / "src").symlink_to(workspace)
+            env = dict(os.environ, PATH=f"{bin_dir}:" + os.environ['PATH'], CALLS=str(calls),
+                       CMUX_CI_CANONICAL_ROOT=str(root))
+            derived = str(root / "derived-data-compile-admission")
+            result = subprocess.run(
+                [str(SCRIPT), "canonical-build", derived,
+                 str(workspace / ".ci-source-packages"), str(root / "cas")],
+                cwd=workspace, env=env, capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertFalse((root / "src").is_symlink())
+            records = [json.loads(line) for line in calls.read_text().splitlines()]
+            self.assertTrue(records)
+            for cwd, _args in records:
+                self.assertEqual(cwd, str(root / "src"))
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

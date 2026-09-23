@@ -53,6 +53,7 @@ struct WorkspaceTerminalFocusRecoverySwiftTests {
             panel.hostedView.setActive(true)
 
             window.makeKeyAndOrderFront(nil)
+            appDelegate.setActiveMainWindow(window)
             window.displayIfNeeded()
             contentView.layoutSubtreeIfNeeded()
             panel.hostedView.layoutSubtreeIfNeeded()
@@ -136,6 +137,7 @@ struct WorkspaceTerminalFocusRecoverySwiftTests {
             panel.hostedView.setActive(true)
 
             window.makeKeyAndOrderFront(nil)
+            appDelegate.setActiveMainWindow(window)
             window.displayIfNeeded()
             contentView.layoutSubtreeIfNeeded()
             panel.hostedView.layoutSubtreeIfNeeded()
@@ -219,6 +221,7 @@ struct WorkspaceTerminalFocusRecoverySwiftTests {
             panel.hostedView.setActive(true)
 
             window.makeKeyAndOrderFront(nil)
+            appDelegate.setActiveMainWindow(window)
             window.displayIfNeeded()
             contentView.layoutSubtreeIfNeeded()
             panel.hostedView.layoutSubtreeIfNeeded()
@@ -300,6 +303,7 @@ struct WorkspaceTerminalFocusRecoverySwiftTests {
             panel.hostedView.setActive(true)
 
             window.makeKeyAndOrderFront(nil)
+            appDelegate.setActiveMainWindow(window)
             window.displayIfNeeded()
             contentView.layoutSubtreeIfNeeded()
             panel.hostedView.layoutSubtreeIfNeeded()
@@ -367,6 +371,8 @@ struct WorkspaceTerminalFocusRecoverySwiftTests {
             }
 
             let workspace = try #require(manager.selectedWorkspace, "Expected initial workspace")
+            manager.selectWorkspace(workspace)
+            workspace.setPortalRenderingEnabled(true, reason: "focus-recovery-test")
             let panelId = try #require(workspace.focusedPanelId, "Expected initial focused panel")
             let panel = try #require(workspace.terminalPanel(for: panelId), "Expected initial terminal panel")
             let contentView = try #require(window.contentView, "Expected content view")
@@ -385,6 +391,7 @@ struct WorkspaceTerminalFocusRecoverySwiftTests {
             panel.hostedView.preparePanelFocusIntentForActivation(.surface)
 
             window.makeKeyAndOrderFront(nil)
+            appDelegate.setActiveMainWindow(window)
             window.displayIfNeeded()
             contentView.layoutSubtreeIfNeeded()
             panel.hostedView.layoutSubtreeIfNeeded()
@@ -541,7 +548,7 @@ struct WorkspaceTerminalFocusRecoverySwiftTests {
 #endif
 
     private func makeWindow() -> NSWindow {
-        NSWindow(
+        KeyStatusTestWindow(
             contentRect: NSRect(x: 0, y: 0, width: 360, height: 220),
             styleMask: [.titled, .closable],
             backing: .buffered,
