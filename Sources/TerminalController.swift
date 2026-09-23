@@ -243,9 +243,9 @@ class TerminalController {
     /// Shared with the CLI client, which sizes its socket response timeout from
     /// the same window.
     private nonisolated static let v2BrowserDownloadWaitDefaultTimeoutMs =
-        BrowserDownloadWaitTimeout.defaultTimeoutMilliseconds
+        BrowserDownloadWaitTimeout.standard.defaultTimeoutMilliseconds
     private nonisolated static let v2BrowserDownloadWaitMaxTimeoutMs =
-        BrowserDownloadWaitTimeout.maximumTimeoutMilliseconds
+        BrowserDownloadWaitTimeout.standard.maximumTimeoutMilliseconds
     private nonisolated static let v2ConsumedBrowserDownloadIDLimit = 128
     private struct MobileViewportReport {
         var columns: Int; var rows: Int; var updatedAt: Date; var generation: UInt64? = nil

@@ -55,9 +55,8 @@ extension CMUXCLI {
             // The handler's own window plus reply slack, both owned by
             // BrowserDownloadWaitTimeout so the client cannot give up while the
             // app is still inside the window it is allowed to wait.
-            let responseTimeout = BrowserDownloadWaitTimeout.clientResponseTimeoutSeconds(
-                requestedMilliseconds: wait.timeoutMs
-            )
+            let responseTimeout = BrowserDownloadWaitTimeout.standard
+                .clientResponseTimeoutSeconds(requestedMilliseconds: wait.timeoutMs)
             let payload = try client.sendV2(
                 method: "browser.download.wait",
                 params: params,

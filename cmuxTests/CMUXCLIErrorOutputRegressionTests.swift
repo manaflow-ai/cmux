@@ -693,12 +693,12 @@ import Testing
         // The preflight child below never exits on its own, so restore has to reach its
         // timeout for this test to observe the quiet failure. The size of that window is
         // production policy, asserted as a value; the run itself narrows it.
-        #expect(AgentRestorePreflightTimeout.defaultSeconds == 10)
+        #expect(AgentRestorePreflightInvocation.defaultTimeoutSeconds == 10)
         #expect(
-            AgentRestorePreflightTimeout.seconds(environment: [:])
-                == AgentRestorePreflightTimeout.defaultSeconds
+            AgentRestorePreflightInvocation.timeoutSeconds(environment: [:])
+                == AgentRestorePreflightInvocation.defaultTimeoutSeconds
         )
-        environment[AgentRestorePreflightTimeout.environmentKey] = "0.5"
+        environment[AgentRestorePreflightInvocation.timeoutEnvironmentKey] = "0.5"
 
         let result = runProcess(
             executablePath: cliPath,
@@ -3317,21 +3317,34 @@ import Testing
 
     @Test func testBrowserDownloadWaitDefaultTimeoutMatchesServerDefaultWindow() throws {
         // The window itself is a value, not a latency: the app-side handler and the
-        // CLI client both take it from BrowserDownloadWaitTimeout, so the client
-        // outwaits the handler by the reply slack rather than by coincidence.
+        // CLI client both take it from BrowserDownloadWaitTimeout.standard, so the
+        // client outwaits the handler by the reply slack rather than by coincidence.
         // Spending the real window here would mean a >10s test that still could not
         // tell 15s from a minute.
-        #expect(BrowserDownloadWaitTimeout.defaultTimeoutMilliseconds == 10_000)
+        let window = BrowserDownloadWaitTimeout.standard
+        #expect(window.defaultTimeoutMilliseconds == 10_000)
         #expect(
-            BrowserDownloadWaitTimeout.handlerTimeoutMilliseconds(requestedMilliseconds: nil)
-                == BrowserDownloadWaitTimeout.defaultTimeoutMilliseconds
+            window.handlerTimeoutMilliseconds(requestedMilliseconds: nil)
+                == window.defaultTimeoutMilliseconds
         )
         #expect(
-            BrowserDownloadWaitTimeout.clientResponseTimeoutSeconds(requestedMilliseconds: nil)
-                == TimeInterval(BrowserDownloadWaitTimeout.defaultTimeoutMilliseconds) / 1000.0
-                    + BrowserDownloadWaitTimeout.clientResponseSlackSeconds
+            window.clientResponseTimeoutSeconds(requestedMilliseconds: nil)
+                == TimeInterval(window.defaultTimeoutMilliseconds) / 1000.0
+                    + window.clientResponseSlackSeconds
         )
-        #expect(BrowserDownloadWaitTimeout.clientResponseSlackSeconds > 0)
+        #expect(window.clientResponseSlackSeconds > 0)
+        // The agreement is a property of the pair, not of the shipped numbers: a
+        // narrower window the client still outwaits keeps the same invariant.
+        let narrow = BrowserDownloadWaitTimeout(
+            defaultTimeoutMilliseconds: 50,
+            maximumTimeoutMilliseconds: 200,
+            clientResponseSlackSeconds: 0.1
+        )
+        #expect(
+            narrow.clientResponseTimeoutSeconds(requestedMilliseconds: nil)
+                > TimeInterval(narrow.handlerTimeoutMilliseconds(requestedMilliseconds: nil))
+                    / 1000.0
+        )
 
         // And the default path really uses that window: with no --timeout-ms the CLI
         // must ignore the generic response timeout below, which is short enough that
