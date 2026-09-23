@@ -3921,16 +3921,44 @@ def test_r2_transport_is_an_explicit_optional_remote_broker() -> None:
         assert "CI_ARTIFACT_R2_URL: ${{ vars.CI_ARTIFACT_R2_URL }}" in r2_step
 
 
+PR_LANE_XCODE_PIN = (
+    "${{ github.event_name == 'pull_request' "
+    "&& (vars.CMUX_CI_XCODE_APP_PR || vars.CMUX_CI_XCODE_APP_MACOS_15) "
+    "|| vars.CMUX_CI_XCODE_APP_MACOS_15 }}"
+)
+
+
 def test_macos_jobs_use_lane_specific_xcode_pin_vars() -> None:
+    # A pull-request job picks its pool through MACOS_RUNNER_PR, and the two
+    # macOS images carry different Xcodes: macos-15 ships CMUX_CI_XCODE_APP_MACOS_15
+    # and macos-26 ships CMUX_CI_XCODE_APP_MACOS_26. scripts/select-ci-xcode.sh
+    # exits non-zero on a pinned path that is not installed, so a pin that does
+    # not follow the same lane turns a routing change into a failed job rather
+    # than a queued one. Require the pin to resolve through the pull-request
+    # escape hatch exactly as runs-on does, with the macos-15 pin as the default
+    # on both branches so an unset variable keeps today's behavior.
     for job_name in [
         "app-host-unit-tests",
         "macos-compile-admission",
-        "swift-package-tests",
         "tests-build-and-lag",
     ]:
         block = workflow_job_block(job_name, MACOS_WORKFLOW)
-        assert "CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_15 }}" in block
+        assert f"CMUX_CI_XCODE_APP: {PR_LANE_XCODE_PIN}" in block, job_name
+        assert "vars.CMUX_CI_XCODE_APP_MACOS_26" not in block, job_name
         assert 'CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"' in block
+
+    # swift-package-tests links the Release Ghostty CLI helper with Zig, which
+    # Zig 0.15.2 cannot do on macOS 26, so it stays on the macos-15 pool on
+    # every event and keeps the unconditional macos-15 pins. Moving it onto the
+    # pull-request lane would hand MACOS_RUNNER_PR a job it must not move.
+    package_block = workflow_job_block("swift-package-tests", MACOS_WORKFLOW)
+    assert "vars.MACOS_RUNNER_PR" not in package_block
+    assert "CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_15 }}" in package_block
+    assert (
+        "CMUX_CI_HELPER_XCODE_APP: ${{ vars.CMUX_CI_HELPER_XCODE_APP_MACOS_15 }}"
+        in package_block
+    )
+    assert 'CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"' in package_block
 
     release_block = workflow_job_block("release-build", MACOS_WORKFLOW)
     assert "CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_26 }}" in release_block

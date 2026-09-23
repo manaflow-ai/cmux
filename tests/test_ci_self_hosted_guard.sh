@@ -289,7 +289,8 @@ check_release_helper_artifact_from_package_lane() {
     /^  swift-package-tests:/ { in_job=1; next }
     in_job && /^  [^[:space:]#][^:]*:[[:space:]]*(#.*)?$/ { in_job=0 }
 
-    in_job && /runs-on:[[:space:]]*\$\{\{ github\.event_name == '\''pull_request'\'' && \(vars\.MACOS_RUNNER_PR \|\| '\''blacksmith-6vcpu-macos-15'\''\) \|\| vars\.MACOS_RUNNER_DUAL_XCODE \|\| '\''blacksmith-6vcpu-macos-15'\'' \}\}/ { saw_dual_runner=1 }
+    in_job && /runs-on:[[:space:]]*\$\{\{ vars\.MACOS_RUNNER_DUAL_XCODE \|\| '\''blacksmith-6vcpu-macos-15'\'' \}\}/ { saw_dual_runner=1 }
+    in_job && /vars\.MACOS_RUNNER_PR/ { saw_pr_lane=1 }
     in_job && /timeout-minutes:[[:space:]]*40/ { saw_timeout=1 }
     in_job && /CMUX_CI_HELPER_XCODE_APP:/ { saw_helper_xcode_env=1 }
     in_job && /- name: Select helper Xcode/ { saw_helper_select=1; next }
@@ -316,10 +317,12 @@ check_release_helper_artifact_from_package_lane() {
     in_job && /\[\[ "\$HELPER_SDK_VERSION" == 15\.\* \]\]/ { saw_helper_sdk_validation=1 }
 
     END {
-      exit !(saw_dual_runner && saw_timeout && saw_helper_xcode_env && saw_helper_select && saw_helper_sdk_pin && saw_build_step && saw_build && saw_arch_validation && saw_helper_sdk_validation && saw_upload_step && saw_upload && saw_artifact_name && saw_select && !saw_build_after_select && !saw_upload_after_select)
+      exit !(saw_dual_runner && !saw_pr_lane && saw_timeout && saw_helper_xcode_env && saw_helper_select && saw_helper_sdk_pin && saw_build_step && saw_build && saw_arch_validation && saw_helper_sdk_validation && saw_upload_step && saw_upload && saw_artifact_name && saw_select && !saw_build_after_select && !saw_upload_after_select)
     }
   ' "$CI_MACOS_FILE"; then
-    echo "FAIL: swift-package-tests must use the dual-Xcode runner, then pin and validate the macOS 15 Ghostty helper before selecting Xcode 26"
+    echo "FAIL: swift-package-tests must use the dual-Xcode runner on every event, then pin and validate the macOS 15 Ghostty helper before selecting Xcode 26"
+    echo "      It builds the Release Ghostty CLI helper against an SDK 15 Xcode, which only the"
+    echo "      macos-15 image carries, so it must not resolve through MACOS_RUNNER_PR."
     exit 1
   fi
 
@@ -1329,6 +1332,20 @@ check_persistent_compile_lane() {
 
 # Print a job's CMUX_CI_XCODE_APP / CMUX_CI_REQUIRED_MACOS_SDK_MAJOR pins, so the
 # owned Mac and the hosted job that revalidates its product can be compared.
+#
+# The hosted job routes its pin through the pull-request lane, so its value is a
+# `github.event_name == 'pull_request' && (PR) || (default)` conditional, while
+# the dispatch-only producer names the pull-request branch directly. Only the
+# hosted side is reduced to that branch before comparison.
+#
+# The producer is deliberately NOT normalized. persistent-macos-compile.yml is
+# workflow_dispatch-only, so `github.event_name == 'pull_request'` is never true
+# there: reducing it to its pull-request branch would compare a string it can
+# never evaluate, and a producer pinned to `... || CMUX_CI_XCODE_APP_MACOS_26`
+# would match a hosted job revalidating against 26.3 while resolving to 26.5 on
+# every dispatch. That is exactly the wasted owned-Mac allocation invariant 3
+# exists to prevent, so the producer must name the lane directly and is checked
+# for that literal shape below.
 persistent_compile_toolchain_pin() {
   local file="$1" job="$2"
   awk -v want="  ${job}:" '
@@ -1341,7 +1358,20 @@ persistent_compile_toolchain_pin() {
       sub(/^      /, "", line)
       print line
     }
-  ' "$file" | sort
+  ' "$file" | python3 -c '
+import re
+import sys
+
+PR_LANE = re.compile(
+    r"\$\{\{\s*github\.event_name == .pull_request.\s*&&\s*\((?P<pr>.+?)\)\s*\|\|.+?\}\}"
+)
+
+normalize = len(sys.argv) > 1 and sys.argv[1] == "--pr-lane"
+for line in sys.stdin:
+    if normalize:
+        line = PR_LANE.sub(lambda m: "${{ " + m.group("pr").strip() + " }}", line)
+    sys.stdout.write(line)
+' ${3:+--pr-lane} | sort
 }
 
 check_persistent_compile_owned_mac_occupancy() {
@@ -1410,10 +1440,21 @@ check_persistent_compile_owned_mac_occupancy() {
   #    allocation to produce an artifact that is certain to be rejected.
   local producer_pin hosted_pin
   producer_pin="$(persistent_compile_toolchain_pin "$PERSISTENT_COMPILE_FILE" compile)"
-  hosted_pin="$(persistent_compile_toolchain_pin "$CI_MACOS_FILE" macos-compile-admission)"
+  hosted_pin="$(persistent_compile_toolchain_pin "$CI_MACOS_FILE" macos-compile-admission --pr-lane)"
   if [ "$(printf '%s\n' "$producer_pin" | grep -c .)" -ne 2 ]; then
     echo "FAIL: could not read both toolchain pins from the persistent compile producer"
     printf 'producer=%s\n' "$producer_pin"
+    exit 1
+  fi
+  # The producer names the lane directly; anything else (a conditional, or a
+  # different default) would survive the equality below while resolving to a
+  # toolchain the hosted job rejects.
+  if [ "$producer_pin" != "CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: \"26\"
+CMUX_CI_XCODE_APP: \${{ vars.CMUX_CI_XCODE_APP_PR || vars.CMUX_CI_XCODE_APP_MACOS_15 }}" ]; then
+    echo "FAIL: the owned-Mac producer must pin the pull-request lane directly"
+    echo "      persistent-macos-compile.yml is workflow_dispatch-only, so a conditional"
+    echo "      on github.event_name there never takes its pull-request branch."
+    printf 'producer:\n%s\n' "$producer_pin"
     exit 1
   fi
   if [ "$(printf '%s\n' "$hosted_pin" | grep -c .)" -ne 2 ]; then
