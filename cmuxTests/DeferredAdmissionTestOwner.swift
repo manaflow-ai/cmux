@@ -12,6 +12,13 @@ final class DeferredAdmissionTestOwner: DeferredAgentResumeAdmissionOwner {
     var deferredAgentResumeIndexTask: Task<Void, Never>?
     let scans = AsyncStream<Set<UUID>>.makeStream()
     let waits = AsyncStream<Void>.makeStream()
+    private let deinitialization: AsyncStream<Void>.Continuation?
+
+    init(deinitialization: AsyncStream<Void>.Continuation? = nil) {
+        self.deinitialization = deinitialization
+    }
+
+    deinit { deinitialization?.yield() }
 
     var deferredAgentResumeIndexProvider: @MainActor @Sendable () async -> SharedLiveAgentIndexRefreshOutcome {
         { .index(.empty) }

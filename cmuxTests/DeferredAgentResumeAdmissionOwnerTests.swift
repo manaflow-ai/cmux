@@ -31,8 +31,9 @@ struct DeferredAgentResumeAdmissionOwnerTests {
 
     @Test("An evidence wait does not retain a closed container")
     func waitingTaskDoesNotRetainOwner() async {
-        var owner: DeferredAdmissionTestOwner? = DeferredAdmissionTestOwner()
-        weak var observed = owner
+        let (deinitializations, deinitialization) = AsyncStream<Void>.makeStream()
+        var owner: DeferredAdmissionTestOwner? = DeferredAdmissionTestOwner(deinitialization: deinitialization)
+        var deinitializationsIterator = deinitializations.makeAsyncIterator()
         var waits = owner!.waits.stream.makeAsyncIterator()
         let panel = UUID()
         owner?.deferAgentResumeRestore(panelId: panel, restore: restore(panel))
@@ -40,7 +41,7 @@ struct DeferredAgentResumeAdmissionOwnerTests {
         defer { task?.cancel() }
         _ = await waits.next()
         owner = nil
-        #expect(observed == nil)
+        #expect(await deinitializationsIterator.next() != nil)
     }
 
     private func restore(_ panel: UUID) -> DeferredAgentResumeRestore {

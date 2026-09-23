@@ -258,7 +258,6 @@ struct RestoredStartupInputOwnershipTests {
 
 @MainActor
 private final class RestoredStartupInputTransferTestPanel: Panel {
-    let objectWillChange = ObservableObjectPublisher()
     let id = UUID()
     let stableSurfaceIdentity = PanelStableSurfaceIdentity()
     let panelType: PanelType = .terminal
