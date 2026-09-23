@@ -2434,11 +2434,13 @@ impl RemoteSession {
                     return;
                 };
                 let session = value.get("session").and_then(Value::as_str).map(str::to_string);
+                let agent_adapter = value.get("agent").and_then(Value::as_str).map(str::to_string);
                 let agent = AgentInfo {
                     surface,
                     state: state.to_string(),
                     source: source.to_string(),
                     session,
+                    agent: agent_adapter,
                     updated_at_ms,
                 };
                 let event = MuxEvent::AgentChanged {
@@ -2446,6 +2448,7 @@ impl RemoteSession {
                     state: Arc::from(agent.state.as_str()),
                     source: Arc::from(agent.source.as_str()),
                     session: agent.session.as_deref().map(Arc::from),
+                    agent: agent.agent.as_deref().map(Arc::from),
                     updated_at_ms,
                 };
                 {
@@ -7675,6 +7678,7 @@ mod tests {
                 state: "blocked".into(),
                 source: "hook".into(),
                 session: Some("review".into()),
+                agent: None,
                 updated_at_ms: 41,
             }]
         );
@@ -7737,6 +7741,7 @@ mod tests {
                 state: "working".into(),
                 source: "hook".into(),
                 session: Some("review".into()),
+                agent: None,
                 updated_at_ms: 41,
             }],
             0,
@@ -7817,6 +7822,7 @@ mod tests {
                 state: "working".into(),
                 source: "hook".into(),
                 session: Some("review".into()),
+                agent: None,
                 updated_at_ms: surface,
             }
         }
@@ -7847,6 +7853,7 @@ mod tests {
             state: "working".into(),
             source: "hook".into(),
             session: Some("review".into()),
+            agent: None,
             updated_at_ms: 41,
         };
         let mut cache = RemoteTreeCache::default();
@@ -8118,6 +8125,7 @@ mod tests {
                 state: "working".into(),
                 source: "hook".into(),
                 session: Some("review".into()),
+                agent: None,
                 updated_at_ms: 41,
             },
             &retired,
@@ -8158,6 +8166,7 @@ mod tests {
                 state: "working".into(),
                 source: "hook".into(),
                 session: Some("review".into()),
+                agent: None,
                 updated_at_ms: 41,
             },
             &retired,
@@ -8199,6 +8208,7 @@ mod tests {
             state: "working".into(),
             source: "hook".into(),
             session: Some("review".into()),
+            agent: None,
             updated_at_ms: 41,
         };
         cache.update_agent(update.clone(), &retired);

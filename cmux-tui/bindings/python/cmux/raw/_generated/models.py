@@ -42,6 +42,7 @@ class AgentReportSource(str, Enum):
     HOOK = 'hook'
 
 class AgentSource(str, Enum):
+    PLUGIN = 'plugin'
     DETECTED = 'detected'
     SOCKET = 'socket'
     HOOK = 'hook'
@@ -734,6 +735,7 @@ class ProcessInfoResult:
     cwd: Union[str, None]
     pid: Union[int, None]
     foreground_cwd: Union[str, None, MissingType] = field(default=MISSING)
+    foreground_executable: Union[str, None, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -2192,6 +2194,7 @@ class AgentChangedEvent(EventBase):
     source: AgentSource
     state: AgentState
     updated_at_ms: int
+    agent: Union[str, None, MissingType] = field(default=MISSING)
     raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
 
 
