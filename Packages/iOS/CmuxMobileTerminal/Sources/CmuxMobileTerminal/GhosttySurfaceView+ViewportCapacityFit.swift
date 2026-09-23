@@ -11,18 +11,25 @@ extension GhosttySurfaceView {
     /// report their current drawable width.
     func columnReportContainerWidth(currentWidth: CGFloat) -> CGFloat {
         let currentWindowSize = window?.bounds.size ?? bounds.size
+        // Geometry is measured off the main actor. A pre-attachment pass can
+        // return after the view mounts in a narrower window, so it is not
+        // evidence that this window ever rendered that larger width. Keep
+        // remembered overlay capacity inside the current window's bounds.
+        let drawableWidth = min(currentWidth, currentWindowSize.width)
         if abs(currentWindowSize.width - reportWidthWindowSize.width) > 1 ||
             abs(currentWindowSize.height - reportWidthWindowSize.height) > 1 {
             reportWidthWindowSize = currentWindowSize
-            widestRenderedContainerWidth = currentWidth
+            widestRenderedContainerWidth = drawableWidth
         } else {
-            widestRenderedContainerWidth = max(widestRenderedContainerWidth, currentWidth)
+            widestRenderedContainerWidth = min(
+                max(widestRenderedContainerWidth, drawableWidth), currentWindowSize.width
+            )
         }
         return TerminalColumnReportWidthSelection(
-            currentWidth: currentWidth,
+            currentWidth: drawableWidth,
             widestRenderedWidth: widestRenderedContainerWidth,
             preservesWidestRenderedWidth: traitCollection.userInterfaceIdiom == .phone
-        ).width ?? currentWidth
+        ).width ?? drawableWidth
     }
 
     /// The viewport report for the current geometry: base-font row and column
