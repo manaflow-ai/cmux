@@ -3338,32 +3338,13 @@ class TabManager: ObservableObject {
                   workspace.terminalPanel(for: surfaceId)?.surface === runtimeSurface else {
                 return
             }
-            Task { @MainActor [weak self, weak workspace, weak runtimeSurface] in
-                guard let self, let workspace, let runtimeSurface,
-                      self.tabs.count == 1,
-                      self.tabs.first === workspace,
-                      workspace.panels.count == 1,
-                      workspace.terminalPanel(for: surfaceId)?.surface === runtimeSurface else {
-                    return
-                }
-                let scrollback = await runtimeSurface.boundedScreenTailVT(
-                    maxRows: SessionPersistencePolicy.maxScrollbackLinesPerTerminal,
-                    maxBytes: SessionPersistencePolicy.maxScrollbackCharactersPerTerminal
-                )
-                guard self.tabs.count == 1,
-                      self.tabs.first === workspace,
-                      workspace.panels.count == 1,
-                      workspace.terminalPanel(for: surfaceId)?.surface === runtimeSurface else {
-                    return
-                }
-                _ = workspace.respawnTerminalSurface(
-                    panelId: surfaceId,
-                    command: nil,
-                    focus: true,
-                    replayScrollback: scrollback,
-                    replayFileURL: nil
-                )
-            }
+            _ = workspace.respawnTerminalSurface(
+                panelId: surfaceId,
+                command: nil,
+                focus: true,
+                replayScrollback: nil,
+                replayFileURL: nil
+            )
         }
     }
 

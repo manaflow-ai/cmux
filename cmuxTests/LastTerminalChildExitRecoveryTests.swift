@@ -11,7 +11,7 @@ import Testing
 @Suite
 struct LastTerminalChildExitRecoveryTests {
     @Test
-    func cancellingLastWindowCloseRespawnsWithTerminalHistory() async throws {
+    func cancellingLastWindowCloseRespawnsAHistoryFreeTerminal() throws {
         let manager = TabManager()
         let workspace = try #require(manager.selectedWorkspace)
         let panelId = try #require(workspace.focusedPanelId)
@@ -30,15 +30,10 @@ struct LastTerminalChildExitRecoveryTests {
         ))
         recovery()
 
-        for _ in 0..<100 {
-            if workspace.terminalPanel(for: panelId)?.surface !== oldSurface { break }
-            try await Task.sleep(for: .milliseconds(10))
-        }
         let replacement = try #require(workspace.terminalPanel(for: panelId))
         #expect(replacement.surface !== oldSurface)
         #expect(replacement.surface.initialCommand == nil)
         #expect(replacement.ownedSessionScrollbackReplayFileURL == nil)
-        #expect(replacement.surface.respawnAdditionalEnvironment[SessionScrollbackReplayStore.environmentKey] != nil)
         #expect(!FileManager.default.fileExists(atPath: replayFile.path))
         #expect(workspace.panels.count == 1)
         #expect(manager.tabs.count == 1)
