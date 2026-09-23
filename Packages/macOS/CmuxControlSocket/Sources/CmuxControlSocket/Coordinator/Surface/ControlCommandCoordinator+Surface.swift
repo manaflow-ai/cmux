@@ -556,7 +556,7 @@ extension ControlCommandCoordinator {
         case .invalidRenderer(let rawValue):
             return .err(
                 code: "invalid_params",
-                message: "Invalid renderer (react|solid)",
+                message: "Invalid renderer (react|solid|claude-desktop)",
                 data: .object(["renderer": .string(rawValue)])
             )
         case .invalidPlacement(let rawValue):
