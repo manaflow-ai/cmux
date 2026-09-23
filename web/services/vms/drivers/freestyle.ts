@@ -126,8 +126,7 @@ import {
 // longer, listening.
 //
 // The coderouter model plane is edge-injected: the create carries an inline
-// `tls` rule for the coderouter host whose transform overwrites `authorization`
-// and adds `x-coderouter-route-token` and `x-cmux-vm-id` to every request the
+// `tls` rule for the coderouter host whose transform overwrites `x-cmux-authorization` to every request the
 // guest makes there. The platform steers the host to its edge (/etc/hosts) and
 // installs its CA at boot; rules added after boot never reach a running
 // guest, so the rule must be inline. The baked env file holds only base
