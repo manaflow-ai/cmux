@@ -1262,7 +1262,7 @@ if (-f $cache && !-l $cache && -s $cache <= 65536 && open(my $file, "<", $cache)
     chomp @lines;
     my ($cached_identity, $expires, @commands) = @lines;
     if (defined($expires) && $cached_identity eq $identity &&
-        $expires =~ /^\d+$/ && (!$expires || $expires > time()) &&
+        $expires =~ /^\d+$/ && $expires > time() &&
         !grep { !/^$word$/ } @commands) {
         exit((grep { $_ eq $candidate } @commands) ? 0 : 1);
     }
@@ -1332,9 +1332,10 @@ if ($success) {
     }
 }
 
-# Retry failed/empty help after a minute; do not permanently cache a transient
-# failure. Successful discovery is invalidated by binary path/mtime changes.
-my $expires = %commands ? 0 : int(time()) + 60;
+# Retry failed/empty help after a minute. Also refresh successful discovery
+# hourly: a version-manager launcher can select a new binary without changing
+# its own path/mtime. Native binary replacements still invalidate immediately.
+my $expires = int(time()) + (%commands ? 3600 : 60);
 eval {
     make_path($directory, { mode => 0700 });
     my ($file, $temporary) = tempfile(".commands-XXXXXX", DIR => $directory);
