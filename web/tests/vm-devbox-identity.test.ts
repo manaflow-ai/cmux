@@ -159,9 +159,14 @@ describe("devbox identity contract (services/vms/images/identity.ts)", () => {
     const stateRefresh = devboxBoot.indexOf('find "$REMOTE_STATE_DIR/sessions"');
     const rekey = devboxBoot.indexOf("( rekey_ssh_host & )");
     const bound = devboxBoot.indexOf(`printf '%s\\n' "$id" > "$BOUND_INSTANCE_FILE"`);
+    const daemonStart = devboxBoot.indexOf("start_daemon", bound);
     expect(stateRefresh).toBeGreaterThan(-1);
-    expect(rekey).toBeGreaterThan(stateRefresh);
-    expect(bound).toBeGreaterThan(rekey);
+    expect(bound).toBeGreaterThan(stateRefresh);
+    // The daemon starts before key generation competes for the clone's CPU,
+    // and key generation runs at the lowest CPU and I/O priority.
+    expect(daemonStart).toBeGreaterThan(bound);
+    expect(rekey).toBeGreaterThan(daemonStart);
+    expect(devboxBoot).toContain('low="nice -n 19"');
   });
 });
 
@@ -239,8 +244,8 @@ describe("devbox private-network announce (services/vms/images/network.ts)", () 
     expect(cloneBranch).toBeGreaterThan(-1);
     expect(announce).toBeGreaterThan(cloneBranch);
     expect(stop).toBeGreaterThan(announce);
-    expect(rekey).toBeGreaterThan(announce);
-    expect(bound).toBeGreaterThan(rekey);
+    expect(bound).toBeGreaterThan(stop);
+    expect(rekey).toBeGreaterThan(bound);
   });
 
   test("a parked supervisor ticks fast so a clone is noticed within ~50 ms of resume", () => {
