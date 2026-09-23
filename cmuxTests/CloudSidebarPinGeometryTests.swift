@@ -222,9 +222,11 @@ struct CloudSidebarPinGeometryTests {
     }
 
     private func contentBounds(width: Double, pinned: Bool, percent: Int, unread: Bool) throws -> CGRect {
-        let host = NSHostingView(rootView: Text("content")
-            .foregroundStyle(.green)
+        // Fill the proposed content area so both edges measure layout, not
+        // the intrinsic width and side bearings of a centered text glyph.
+        let host = NSHostingView(rootView: Color.green
             .modifier(CloudSidebarRowDecoration(isPinned: pinned, showsAttentionSlot: true, hasUnreadNotification: unread))
+            .accentColor(.blue)
             .environment(\.cmuxGlobalFontMagnificationPercent, percent))
         host.frame = NSRect(x: 0, y: 0, width: width, height: 28)
         let window = NSWindow(contentRect: host.frame, styleMask: [], backing: .buffered, defer: false)
@@ -243,7 +245,7 @@ struct CloudSidebarPinGeometryTests {
         let left = Double(try #require(xs.min())) / scale
         let right = Double(try #require(xs.max())) / scale
         #if compiler(>=6.2)
-        Attachment.record(try #require(bitmap.representation(using: .png, properties: [:])), named: "pin-\(pinned)-\(Int(width))-\(percent).png")
+        Attachment.record(try #require(bitmap.representation(using: .png, properties: [:])), named: "pin-\(pinned)-\(Int(width))-\(percent)-unread-\(unread).png")
         #endif
         return CGRect(x: left, y: 0, width: right - left, height: 28)
     }
