@@ -166,6 +166,75 @@ def sample_app_host(log_file: BinaryIO | None, stdout_fd: int) -> None:
         write_child_output(header + excerpt, None, stdout_fd)
 
 
+def compiler_process_snapshot(root_pid: int, timeout: float) -> list[tuple[int, str]]:
+    """Only compiler descendants of this invocation; never print argv or env."""
+    result = subprocess.run(
+        ["ps", "-axo", "pid=,ppid=,time=,etime=,state=,comm="],
+        capture_output=True, text=True, timeout=timeout, check=False,
+    )
+    records = {}
+    for line in result.stdout.splitlines():
+        fields = line.split(None, 5)
+        if len(fields) != 6:
+            continue
+        try:
+            pid, parent = int(fields[0]), int(fields[1])
+        except ValueError:
+            continue
+        records[pid] = (parent, fields)
+    descendants = {root_pid}
+    while True:
+        children = {pid for pid, (parent, _) in records.items() if parent in descendants}
+        if children.issubset(descendants):
+            break
+        descendants.update(children)
+    names = {"xcodebuild", "swift", "swiftc", "swift-frontend", "clang", "clang++", "ld", "XCBBuildService"}
+    return [
+        (pid, f"pid={pid} ppid={fields[1]} cpu={fields[2]} elapsed={fields[3]} state={fields[4]} executable={os.path.basename(fields[5])}")
+        for pid, (_, fields) in records.items()
+        if pid in descendants and os.path.basename(fields[5]) in names
+    ][:12]
+
+
+def sample_compilers(root_pid: int, log_file: BinaryIO | None, stdout_fd: int) -> None:
+    """Spend at most eight seconds recording why a silent compile timed out.
+
+    CPU time is evidence, not permission to extend the build: a spinning
+    compiler can consume CPU forever. The idle verdict remains unchanged.
+    """
+    deadline = time.monotonic() + 8
+    try:
+        first = compiler_process_snapshot(root_pid, timeout=2)
+        if not first:
+            return
+        write_child_output(("[idle timeout] compiler process snapshot (before)\n" +
+                            "\n".join(row for _, row in first) + "\n").encode(), log_file, stdout_fd)
+        time.sleep(1)
+        second = compiler_process_snapshot(root_pid, timeout=min(2, max(0.1, deadline - time.monotonic())))
+        write_child_output(("[idle timeout] compiler process snapshot (after)\n" +
+                            "\n".join(row for _, row in second) + "\n").encode(), log_file, stdout_fd)
+        # Recheck parentage in the second snapshot; never sample a process that
+        # disappeared or another developer's compiler. One stack is enough.
+        candidates = [pid for pid, row in second if pid != root_pid and
+                      any(row.endswith("executable=" + name) for name in ("swift-frontend", "swiftc", "clang", "clang++", "ld"))]
+        sampler = shutil.which("sample")
+        remaining = deadline - time.monotonic()
+        if sampler and candidates and remaining > 0:
+            result = subprocess.run([sampler, str(candidates[0]), "1", "-mayDie"],
+                                    capture_output=True, timeout=min(3, remaining), check=False)
+            # Do not emit sample's process metadata/command line. Stack lines
+            # follow the Call graph header on macOS; omit other sections.
+            output = result.stdout or result.stderr
+            marker = output.find(b"Call graph:")
+            if marker >= 0:
+                stack = output[marker:].split(b"Binary Images:", 1)[0]
+                excerpt = b"\n".join(stack.splitlines()[:120]) + b"\n"
+                write_child_output(b"[idle timeout] compiler stack sample\n" + excerpt, log_file, stdout_fd)
+    except (OSError, subprocess.SubprocessError):
+        # Missing/slow diagnostics cannot replace the timeout verdict.
+        return
+
+
 def child_exit_code(status: int) -> int:
     if os.WIFEXITED(status):
         return os.WEXITSTATUS(status)
@@ -475,6 +544,7 @@ def main() -> int:
         print(message, file=sys.stderr)
         if log_file is not None:
             log_file.write(f"{message}\n".encode())
+        sample_compilers(pid, log_file, stdout_fd)
         sample_app_host(log_file, stdout_fd)
         if log_file is not None:
             log_file.close()
