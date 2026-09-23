@@ -31,6 +31,12 @@ Detectors (all line/regex heuristics, never an AST):
   lines) by an assertion, where the sleep is NOT a loop body (i.e. not a poll).
   This is the "sleep as synchronization" ban. Deadline-bounded polls and
   scenario-pacing sleeps with no trailing assert are allowed.
+- yield-count-poll (Swift): `for _ in 0..<N { ... await Task.yield() ... }`
+  that exits on a condition (`break`/`return`) and carries no deadline. N
+  yields is however long N reschedules take, so the bound tightens exactly
+  when the runner is busy and turns a slow pass into a failure. Loops that
+  already check a deadline, drain yields with no condition, or exit only on
+  cancellation are allowed.
 
 Usage:
     check-test-determinism.py                 # scan, print findings, exit 0
@@ -88,12 +94,14 @@ RULE_ASSERT_ON_DURATION = "assert-on-duration"
 RULE_LIVE_NETWORK_HOST = "live-network-host"
 RULE_FIXED_PORT_BIND = "fixed-port-bind"
 RULE_SLEEP_THEN_ASSERT = "sleep-then-assert"
+RULE_YIELD_COUNT_POLL = "yield-count-poll"
 
 ALL_RULES = (
     RULE_ASSERT_ON_DURATION,
     RULE_LIVE_NETWORK_HOST,
     RULE_FIXED_PORT_BIND,
     RULE_SLEEP_THEN_ASSERT,
+    RULE_YIELD_COUNT_POLL,
 )
 
 # ---------------------------------------------------------------------------
@@ -3680,6 +3688,44 @@ def detect_sleep_then_assert(lines: list[str], idx: int, path_suffix: str) -> bo
     return False
 
 
+# `for _ in 0..<100 {` / `for _ in 1...256 {`: a loop bounded only by a literal
+# iteration count. A named loop variable means per-iteration work, not a poll.
+_YIELD_COUNT_LOOP_HEADER = re.compile(
+    r"^\s*for\s+_\s+in\s+\(?\s*\d[\d_]*\s*(?:\.\.<|\.\.\.)\s*\d[\d_]*\s*\)?\s*\{"
+)
+_TASK_YIELD = re.compile(r"\bawait\s+Task\.yield\(\s*\)")
+_POLL_EXIT = re.compile(r"\b(?:break|return)\b")
+# Any clock reading in the body means the loop is already deadline-bounded and
+# the count only caps spinning.
+_POLL_DEADLINE = re.compile(
+    r"\bdeadline\b|\bContinuousClock\b|\bSuspendingClock\b|\bDate\s*\(\s*\)|"
+    r"\bDate\.now\b|\bDispatchTime\.now\b|\.now\b|\bCFAbsoluteTimeGetCurrent\b"
+)
+_CANCELLATION_ONLY_EXIT = re.compile(
+    r"^\s*(?:if|guard)\s+!?\s*Task\.isCancelled\s*(?:else\s*)?\{\s*(?:break|return)\b[^}]*\}\s*$"
+)
+_YIELD_COUNT_LOOP_MAX_LINES = 60
+
+
+def detect_yield_count_poll(lines: list[str], idx: int, path_suffix: str) -> bool:
+    """A Swift condition poll bounded by a Task.yield() count, not a deadline."""
+    if path_suffix != ".swift" or not _YIELD_COUNT_LOOP_HEADER.search(lines[idx]):
+        return False
+    body: list[str] = []
+    depth = 0
+    for j in range(idx, min(idx + _YIELD_COUNT_LOOP_MAX_LINES, len(lines))):
+        line = lines[j]
+        body.append(line)
+        depth += line.count("{") - line.count("}")
+        if depth <= 0:
+            break
+    text = "\n".join(body)
+    if not _TASK_YIELD.search(text) or _POLL_DEADLINE.search(text):
+        return False
+    exits = "\n".join(line for line in body if not _CANCELLATION_ONLY_EXIT.match(line))
+    return bool(_POLL_EXIT.search(exits))
+
+
 # ---------------------------------------------------------------------------
 # File scanning
 # ---------------------------------------------------------------------------
@@ -3823,6 +3869,8 @@ def scan_text(rel_posix: str, text: str) -> list[Finding]:
             findings.append(Finding(rel_posix, line_no, RULE_FIXED_PORT_BIND, snippet))
         if detect_sleep_then_assert(code_lines, i, suffix):
             findings.append(Finding(rel_posix, line_no, RULE_SLEEP_THEN_ASSERT, snippet))
+        if detect_yield_count_poll(code_lines, i, suffix):
+            findings.append(Finding(rel_posix, line_no, RULE_YIELD_COUNT_POLL, snippet))
 
     return findings
 
@@ -4896,7 +4944,7 @@ def _self_test() -> int:
                 "        }\n"
                 "        #expect(panel.coordinator.frameTransport != nil)\n"
             ),
-            {"yield-count-poll"},
+            {RULE_YIELD_COUNT_POLL},
         ),
         (
             "Packages/macOS/Kit/Tests/KitTests/yield_poll_return.swift",
@@ -4906,7 +4954,7 @@ def _self_test() -> int:
                 "        await Task.yield()\n"
                 "    }\n"
             ),
-            {"yield-count-poll"},
+            {RULE_YIELD_COUNT_POLL},
         ),
         (
             "cmuxTests/yield_poll_guard.swift",
@@ -4916,12 +4964,12 @@ def _self_test() -> int:
                 "        guard session.state != .connected else { return }\n"
                 "    }\n"
             ),
-            {"yield-count-poll"},
+            {RULE_YIELD_COUNT_POLL},
         ),
         (
             "cmuxTests/yield_poll_one_line.swift",
             "for _ in 0..<20 { if model.isReady { break }; await Task.yield() }\n",
-            {"yield-count-poll"},
+            {RULE_YIELD_COUNT_POLL},
         ),
     ]
 
