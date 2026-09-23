@@ -188,10 +188,13 @@ exit 97
 
     def test_empty_and_oversized_caches_are_not_published(self):
         values = self.prepare()
-        env = dict(values, WORKFLOW_REF='refs/heads/main', WORKFLOW_SHA='a' * 40,
+        # A revision main contains, so both runs reach the cache checks rather
+        # than stopping at the containment gate ahead of them.
+        env = dict(values, WORKFLOW_REF='refs/heads/main', REVISION_ON_MAIN='true',
                    TEST_REF='a' * 40, TEST_OUTCOME='success')
         result = self.run_step('Bound E2E compilation cache', **env)
         self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn('cache is empty', result.stdout)
         self.assertNotIn('save=true', (self.root / 'output').read_text())
         (Path(values['CMUX_E2E_COMPILATION_CACHE']) / 'compiler-entry').write_bytes(b'cached')
         fake_du = self.root / 'bin' / 'du'
@@ -199,6 +202,7 @@ exit 97
         fake_du.chmod(0o755)
         result = self.run_step('Bound E2E compilation cache', **env)
         self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn('exceeds 5 GiB', result.stdout)
         self.assertNotIn('save=true', (self.root / 'output').read_text())
 
     def test_failed_restore_discards_partial_cache_without_removing_products(self):
