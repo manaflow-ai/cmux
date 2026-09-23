@@ -353,13 +353,18 @@
     // Scalar options (e.g. spacing) become node props; the wiring keys are not.
     const props = {};
     for (const k of Object.keys(opts)) {
-      if (k !== "items" && k !== "key" && k !== "onMove") props[k] = opts[k];
+      if (k !== "items" && k !== "key" && k !== "onMove" && k !== "onDragChange") props[k] = opts[k];
     }
     const node = makeNode(type, props, []);
     const id = node.__nodeId;
     if (opts.onMove) {
       handlers[id] = handlers[id] || {};
       handlers[id].move = opts.onMove;
+    }
+    if (typeof opts.onDragChange === "function") {
+      handlers[id] = handlers[id] || {};
+      handlers[id].dragChange = opts.onDragChange;
+      pushOp({ op: "update", id, key: "reportsDrag", value: true });
     }
     const rows = new Map(); // key -> {scope, rootId, setItem, serialized}
     const owner = currentScope;
@@ -464,6 +469,7 @@
     const payload = json ? JSON.parse(json) : null;
     if (event === "tap" && nodeHandlers.tap) nodeHandlers.tap(payload);
     if (event === "move" && nodeHandlers.move) nodeHandlers.move(payload.id, payload.index, payload);
+    if (event === "dragChange" && nodeHandlers.dragChange) nodeHandlers.dragChange(payload && payload.id !== undefined ? payload : null);
     if (event === "doubletap" && nodeHandlers.doubletap) nodeHandlers.doubletap(payload);
     if (event === "submit" && nodeHandlers.submit) nodeHandlers.submit(payload ? payload.text : "");
     if (event === "cancel" && nodeHandlers.cancel) nodeHandlers.cancel(payload);
