@@ -35,7 +35,6 @@ METADATA_ONLY = (
     "!github.event.changes.base && (github.event.changes.body || github.event.changes.title)"
 )
 REQUIRED_CHECK = "Web complexity"
-IGNORED_CHECK = "Web complexity metadata (ignored)"
 CONTENT_GROUP = (
     "web-complexity-trusted-${{ github.event.pull_request.number || "
     "github.event.merge_group.head_sha || github.ref }}"
@@ -43,12 +42,10 @@ CONTENT_GROUP = (
 
 
 def validate_metadata_routing(document: dict) -> None:
-    """Validate that metadata edits cannot replace required content checks."""
+    """Metadata edits must publish a real verdict under the required name."""
     job = document["jobs"]["complexity"]
-    assert job["if"] == "${{ !(" + METADATA_ONLY + ") }}", "metadata edits must not allocate content runners"
-    assert job["name"] == (
-        "${{ " + METADATA_ONLY + " && '" + IGNORED_CHECK + "' || '" + REQUIRED_CHECK + "' }}"
-    ), "ignored metadata must not publish a skipped-success under the required check name"
+    assert job["name"] == REQUIRED_CHECK, "required checks need a stable literal name"
+    assert "if" not in job, "metadata edits must execute the verdict, not publish a skipped check"
     assert document["concurrency"]["group"] == (
         CONTENT_GROUP + "${{ " + METADATA_ONLY + " && '-metadata' || '' }}"
     ), "metadata edits must not cancel or replace an in-flight content check"
