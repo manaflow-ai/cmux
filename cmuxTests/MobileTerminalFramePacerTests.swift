@@ -18,7 +18,8 @@ struct MobileTerminalFramePacerTests {
 
     @Test func firstUpdateEmitsImmediately() {
         var pacer = MobileTerminalFramePacer()
-        #expect(pacer.updateArrived(now: t0, acceptedInputSequence: nil) == .emit)
+        let decision = pacer.updateArrived(now: t0, acceptedInputSequence: nil)
+        #expect(decision == .emit)
     }
 
     @Test func sustainedRepaintsCoalesceToTheFloorRate() {
@@ -67,7 +68,8 @@ struct MobileTerminalFramePacerTests {
             return
         }
         #expect(deadline >= t0 + MobileTerminalFramePacer.floorPeriod)
-        #expect(pacer.flushFired(now: deadline), "the flush must emit the held frame")
+        let flushed = pacer.flushFired(now: deadline)
+        #expect(flushed, "the flush must emit the held frame")
     }
 
     @Test func flushAfterBypassEmitIsANoOp() {
@@ -76,7 +78,8 @@ struct MobileTerminalFramePacerTests {
         _ = pacer.updateArrived(now: t0 + .milliseconds(10), acceptedInputSequence: 1)
         // An echo emit services the surface before the timer fires.
         _ = pacer.updateArrived(now: t0 + .milliseconds(20), acceptedInputSequence: 2)
-        #expect(!pacer.flushFired(now: t0 + MobileTerminalFramePacer.floorPeriod), "flush re-emitted a frame the bypass already serviced")
+        let flushed = pacer.flushFired(now: t0 + MobileTerminalFramePacer.floorPeriod)
+        #expect(!flushed, "flush re-emitted a frame the bypass already serviced")
     }
 
     @Test func transportShedWidensThePeriodAndQuietRecoversIt() {
