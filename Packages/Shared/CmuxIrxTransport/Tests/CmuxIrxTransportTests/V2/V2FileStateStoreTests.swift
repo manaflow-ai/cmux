@@ -3,6 +3,32 @@ import Testing
 @testable import CmuxIrxTransport
 
 struct V2FileStateStoreTests {
+    @Test func persistedStateDoesNotExposeCredentialsOrEndpointIDs() async throws {
+        let files = FileManager()
+        let root = files.temporaryDirectory.appendingPathComponent("cmux-v2-private-state-\(UUID().uuidString)")
+        defer { try? files.removeItem(at: root) }
+        let identity = V2Identity(appNamespace: "com.cmux.test", buildTag: "test", deviceID: "device",
+            environment: "test", projectID: "project", teamID: "team", userID: "user")
+        let endpoint = V2IdentityKey().endpointID
+        var state = V2CachedState(identity: identity)
+        state.ticket = V2Ticket(expiresAt: 3600, refreshAfter: 3300, token: "private-api-ticket")
+        state.device = V2DeviceRecord(descriptor: V2DeviceDescriptor(endpointID: endpoint, identity: identity,
+            identityGeneration: 1, metadata: V2DeviceMetadata(appVersion: "1", capabilities: [],
+                displayName: "Private Mac", pairingEnabled: true, platform: .mac, relayURLs: [])),
+            deviceRecordID: "record", revision: 1, revoked: false)
+        let store = V2FileStateStore(rootDirectory: root, fileManager: files)
+        try await store.save(state)
+        #expect(try await store.load(identity: identity) == state)
+        let directory = root.appendingPathComponent("cmux-iroh-v2/state")
+        let entries = try files.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)
+        for file in entries {
+            let bytes = try Data(contentsOf: file)
+            #expect(bytes.range(of: Data(endpoint.utf8)) == nil)
+            #expect(bytes.range(of: Data("private-api-ticket".utf8)) == nil)
+            #expect(bytes.range(of: Data("Private Mac".utf8)) == nil)
+        }
+    }
+
     @Test func replacesOneFilePerScopeAndIgnoresLegacyState() async throws {
         let files = FileManager()
         let root = files.temporaryDirectory.appendingPathComponent("cmux-v2-state-\(UUID().uuidString)")
