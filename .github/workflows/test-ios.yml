@@ -1,4 +1,7 @@
 name: iOS simulator tests
+run-name: >-
+  iOS tests · ${{ inputs.ref || github.ref_name }} · ${{ inputs.swift_package || 'simulator' }} ·
+  ${{ inputs.test_filter || 'full suite' }} · ${{ inputs.device_family || 'both' }} · iOS ${{ inputs.ios_version || 'default' }}
 
 on:
   # Temporarily manual-only beginning 2026-07-13 to pause automatic CI.
@@ -79,7 +82,19 @@ jobs:
       should_run: ${{ steps.detect.outputs.should_run }}
       should_lint: ${{ steps.detect.outputs.should_lint }}
       target_sha: ${{ steps.target.outputs.sha }}
+      device_families: ${{ steps.families.outputs.json }}
     steps:
+      - name: Select requested simulator families
+        id: families
+        env:
+          DEVICE_FAMILY: ${{ inputs.device_family }}
+        run: |
+          case "${DEVICE_FAMILY:-both}" in
+            both) echo 'json=["iphone","ipad"]' >> "$GITHUB_OUTPUT" ;;
+            iphone|ipad) printf 'json=["%s"]\n' "$DEVICE_FAMILY" >> "$GITHUB_OUTPUT" ;;
+            *) echo "::error::Unsupported simulator device family" >&2; exit 1 ;;
+          esac
+
       - name: Checkout workflow revision
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -355,7 +370,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        family: [iphone, ipad]
+        family: ${{ fromJSON(needs.detect-ios-changes.outputs.device_families) }}
     steps:
       - name: Validate Tart runner identity
         if: ${{ startsWith((!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_IOS || 'blacksmith-6vcpu-macos-26') || inputs.runner, 'tart-') && !(github.event_name == 'workflow_dispatch' && inputs.device_family != 'both' && inputs.device_family != matrix.family) }}

@@ -104,7 +104,7 @@ class IOSWorkflowDispatchRefTests(unittest.TestCase):
         workflow = WORKFLOW.read_text(encoding="utf-8")
         resolved_ref = "ref: ${{ needs.detect-ios-changes.outputs.target_sha }}"
 
-        self.assertNotIn("inputs.ref || github.ref", workflow)
+        self.assertNotIn("ref: ${{ inputs.ref || github.ref", workflow)
         for job in ("package-conventions-lint", "mobile-core-package", "ios-simulator"):
             with self.subTest(job=job):
                 self.assertIn(resolved_ref, job_block(job))
