@@ -83,6 +83,7 @@ private final class RecoveryDirectoryStub: MobileIrohMacDiscovering {
 @MainActor
 @Suite struct MobileShellCompositeForgottenMacRecoveryTests {
     @Test func rehydratesAfterForgetFromAuthenticatedDirectoryAndCoalescesDuplicates() async throws {
+        let macID = "123e4567-e89b-12d3-a456-426614174000"
         let suiteName = "forgotten-mac-recovery-\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suiteName))
         defer { defaults.removePersistentDomain(forName: suiteName) }
@@ -91,7 +92,7 @@ private final class RecoveryDirectoryStub: MobileIrohMacDiscovering {
             recordsByTeam: [
                 "team-a": [
                     MobilePairedMac(
-                        macDeviceID: "mac-a",
+                        macDeviceID: macID,
                         displayName: "Desk Mac",
                         routes: [],
                         createdAt: Date(timeIntervalSince1970: 1),
@@ -114,7 +115,7 @@ private final class RecoveryDirectoryStub: MobileIrohMacDiscovering {
         )
         let recoveredCandidates = [
             MobileDiscoveredIrohMac(
-                deviceID: "MAC-A",
+                deviceID: macID.uppercased(),
                 displayName: "Recovered Mac",
                 instanceTag: "",
                 routes: [route],
@@ -123,7 +124,7 @@ private final class RecoveryDirectoryStub: MobileIrohMacDiscovering {
             // Older directory snapshots could contain the same physical id with
             // different casing. The recovery projection must create one row.
             MobileDiscoveredIrohMac(
-                deviceID: "mac-a",
+                deviceID: macID,
                 displayName: "Duplicate Mac",
                 instanceTag: "",
                 routes: [route],
@@ -144,12 +145,12 @@ private final class RecoveryDirectoryStub: MobileIrohMacDiscovering {
         )
 
         await shell.loadPairedMacs()
-        await shell.hideMac(macDeviceID: "mac-a")
+        await shell.hideMac(macDeviceID: macID)
         let hidden = try #require(shell.hiddenComputers.first)
 
         #expect(await shell.forgetHiddenComputer(hidden))
-        #expect(forget.forgottenIDs == ["mac-a"])
-        #expect(discovery.invalidatedIDs == ["mac-a"])
+        #expect(forget.forgottenIDs == [macID])
+        #expect(discovery.invalidatedIDs == [macID])
         let afterForget = try await pairedStore.loadAll(
             stackUserID: "user-1",
             teamID: "team-a"
@@ -173,10 +174,10 @@ private final class RecoveryDirectoryStub: MobileIrohMacDiscovering {
             teamID: "team-a"
         )
         #expect(recovered.count == 1)
-        #expect(recovered.first?.macDeviceID == "mac-a")
+        #expect(recovered.first?.macDeviceID == macID)
         #expect(recovered.first?.displayName == "Recovered Mac")
         #expect(shell.pairedMacs.count == 1)
-        #expect(shell.pairedMacs.first?.macDeviceID == "mac-a")
+        #expect(shell.pairedMacs.first?.macDeviceID == macID)
     }
 
     @Test func preservesASecondForgetWhileRecoveryDirectoryFetchIsInFlight() async throws {
