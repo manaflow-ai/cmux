@@ -4382,7 +4382,18 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
             XCTAssertTrue(surface.releaseRenderer(), "Initial target-scale eviction must release each hidden renderer")
         }
         XCTAssertTrue(hiddenSurfaces.allSatisfy { !$0.isRendererRealized })
-        var oneRendererBaseline = try settledFootprint("one-renderer baseline")
+        // Fixed for every cycle. This previously advanced to each cycle's
+        // measured target, which made the reference drift upward with whatever
+        // that cycle happened to retain while the five-renderer peak drifted
+        // down (observed: 270 -> 245 -> 238 MB). The denominator shrank from
+        // both ends and each cycle inflated the next one's ratio until an
+        // unrelated cycle tripped the bound -- cycles 1 and 3 reading 0.0 with
+        // cycle 2 at 0.4819 against 0.45 is that artifact, not a regression.
+        //
+        // Holding it fixed is also the stricter test: cumulative retention
+        // across cycles now shows up as a rising ratio, where advancing the
+        // baseline measured only each cycle's increment and hid a steady leak.
+        let oneRendererBaseline = try settledFootprint("one-renderer baseline")
 
         for cycle in 1...3 {
             for surface in hiddenSurfaces {
@@ -4410,6 +4421,7 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
 
             let targetFootprint = try settledFootprint("cycle \(cycle) one-renderer target")
             let realizedDelta = fiveRendererPeak - oneRendererBaseline
+
             let retainedDelta = targetFootprint > oneRendererBaseline
                 ? targetFootprint - oneRendererBaseline
                 : 0
@@ -4420,14 +4432,15 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
             print(
                 "renderer-memory cycle=\(cycle) one=\(oneRendererBaseline) " +
                 "five=\(fiveRendererPeak) target=\(targetFootprint) " +
+                "realized_delta=\(realizedDelta) noise_allowance=\(sampleNoiseAllowance) " +
                 "retained_ratio=\(normalizedRetainedRatio)"
             )
             XCTAssertLessThanOrEqual(
                 normalizedRetainedRatio,
                 0.45,
-                "Cycle \(cycle) retained too much of the four-renderer memory delta after eviction"
+                "Cycle \(cycle) cumulative retention above the one-renderer baseline "
+                + "exceeds 45% of the five-renderer delta"
             )
-            oneRendererBaseline = targetFootprint
         }
 
         for surface in surfaces {
