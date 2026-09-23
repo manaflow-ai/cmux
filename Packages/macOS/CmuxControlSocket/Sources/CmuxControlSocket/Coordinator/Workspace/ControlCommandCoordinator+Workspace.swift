@@ -311,6 +311,12 @@ extension ControlCommandCoordinator {
                 ? .array([workspaceReorderPlanPayload(plan, windowID: windowID)])
                 : .array([])
             return .ok(.object(object))
+        case .rejected(_, let plan):
+            return .err(code: "rejected", message: "Workspace reorder placement was refused", data: .object([
+                "workspace_id": .string(plan.workspaceID.uuidString),
+                "from_index": .int(Int64(plan.fromIndex)),
+                "to_index": .int(Int64(plan.toIndex)),
+            ]))
         }
     }
 

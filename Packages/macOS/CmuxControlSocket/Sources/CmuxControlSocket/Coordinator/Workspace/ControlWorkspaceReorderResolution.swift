@@ -9,4 +9,7 @@ public enum ControlWorkspaceReorderResolution: Sendable, Equatable {
     /// A plan was built (and applied unless dry-run). Carries the owning window
     /// id (may be absent) and the single plan item.
     case resolved(windowID: UUID?, plan: ControlWorkspaceReorderPlanItem)
+    /// The target was valid, but the workspace coordinator refused the
+    /// placement (for example, crossing a pinned/group anchor boundary).
+    case rejected(windowID: UUID?, plan: ControlWorkspaceReorderPlanItem)
 }

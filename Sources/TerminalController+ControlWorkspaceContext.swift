@@ -160,17 +160,22 @@ extension TerminalController: ControlWorkspaceContext {
         guard let plan else {
             return .notFound
         }
-        if !dryRun {
-            _ = tabManager.reorderWorkspace(tabId: workspaceID, toIndex: plan.toIndex)
-        }
+        let applied = dryRun || tabManager.reorderWorkspace(tabId: workspaceID, toIndex: plan.toIndex)
         let windowId = AppDelegate.shared?.windowId(for: tabManager)
-        return .resolved(
-            windowID: windowId,
-            plan: ControlWorkspaceReorderPlanItem(
-                workspaceID: plan.workspaceId,
-                fromIndex: plan.fromIndex,
-                toIndex: plan.toIndex
+        let planItem = ControlWorkspaceReorderPlanItem(
+            workspaceID: plan.workspaceId,
+            fromIndex: plan.fromIndex,
+            toIndex: plan.toIndex
+        )
+        if applied {
+            return .resolved(
+                windowID: windowId,
+                plan: planItem
             )
+        }
+        return .rejected(
+            windowID: windowId,
+            plan: planItem
         )
     }
 
