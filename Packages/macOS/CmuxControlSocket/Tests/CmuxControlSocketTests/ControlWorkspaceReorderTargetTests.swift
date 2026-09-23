@@ -213,8 +213,13 @@ struct ControlWorkspaceReorderTargetTests {
     /// A value neither `uuid(_:_:)` spelling can read — not a UUID, not a
     /// `kind:N` ref — is a typo, not a workspace that went away. Reporting it
     /// as `not_found` sends the caller looking for a workspace that never
-    /// existed under that name.
-    @Test(arguments: ["potato", "workspace", "workspace:", ":7", "workspace:abc", "7", "workspace 7"])
+    /// existed under that name. That includes a `kind:N` whose kind the
+    /// registry never mints (`unknown:1`), and a known kind in the wrong case
+    /// (`WORKSPACE:1`): refs are minted lowercase and looked up exactly.
+    @Test(arguments: [
+        "potato", "workspace", "workspace:", ":7", "workspace:abc", "7", "workspace 7",
+        "unknown:1", "WORKSPACE:1",
+    ])
     func unreadableSubjectIsInvalidParams(raw: String) throws {
         let context = FakeWorkspaceControlCommandContext()
         let coordinator = ControlCommandCoordinator(context: context)
@@ -255,7 +260,8 @@ struct ControlWorkspaceReorderTargetTests {
 
     /// The other half of the split: a ref the registry once minted names a
     /// workspace that is gone, so it stays `not_found`.
-    @Test(arguments: ["workspace:999999", "tab:4"])
+    /// `TAB:4` is included because the registry lowercases the `tab:` alias.
+    @Test(arguments: ["workspace:999999", "tab:4", "TAB:4", "pane:7", "workspace_group:2"])
     func staleRefSubjectStaysNotFound(raw: String) throws {
         let context = FakeWorkspaceControlCommandContext()
         let coordinator = ControlCommandCoordinator(context: context)
@@ -281,6 +287,7 @@ struct ControlWorkspaceReorderTargetTests {
     @Test(arguments: [
         ("potato", "invalid_params"),
         ("workspace:abc", "invalid_params"),
+        ("unknown:1", "invalid_params"),
         ("", "invalid_params"),
         ("workspace:999999", "not_found"),
     ])
