@@ -832,7 +832,7 @@ fi
 cmux_claude_app_restore_launch="${CMUX_AGENT_RESTORE_LAUNCH:-}"
 unset CMUX_AGENT_RESTORE_LAUNCH
 
-exec_real_claude_passthrough() {
+clear_cmux_claude_passthrough_env() {
     if [[ "$IN_CMUX" == "1" ]]; then
         clear_inherited_claude_session_identity_env
         local cmux_key
@@ -841,6 +841,10 @@ exec_real_claude_passthrough() {
         done
         unset TERMINFO
     fi
+}
+
+exec_real_claude_passthrough() {
+    clear_cmux_claude_passthrough_env
     cmux_claude_wrapper_exec_resolved_claude "$REAL_CLAUDE" "$@"
 }
 
@@ -1209,8 +1213,11 @@ claude_passthrough_option_flag() {
 }
 
 claude_builtin_command_name() {
+    # Compatibility floor for hidden commands and unavailable help. Advertised
+    # commands are also discovered below so new Claude releases need no update.
     case "$1" in
-        agents|attach|auth|auto-mode|config|api-key|daemon|doctor|install|mcp|\
+        agents|attach|auth|auto-mode|config|api-key|daemon|doctor|gateway|import|install|\
+        kill|logs|mcp|respawn|rm|stop|\
         experimental-next|plugin|plugins|project|rc|remote-control|setup-token|\
         ultrareview|update|upgrade)
             return 0
@@ -1218,6 +1225,127 @@ claude_builtin_command_name() {
     esac
     return 1
 }
+
+claude_discovered_command_name() (
+    # Keep discovery optional, bounded, and outside the project. Perl ships on
+    # macOS and already supplies process deadlines for the other agent wrappers.
+    [[ -x /usr/bin/perl && "${HOME:-}" == /* ]] || return 1
+    cmux_claude_wrapper_prepare_custom_path_environment "$REAL_CLAUDE"
+    clear_inherited_claude_auth_selection_env
+    clear_cmux_claude_passthrough_env
+    LC_ALL=C /usr/bin/perl - "$REAL_CLAUDE" "$1" \
+        "$HOME/Library/Caches/cmux/claude-commands-v1" 2>/dev/null <<'PERL'
+use strict;
+use warnings;
+use Cwd qw(abs_path);
+use Digest::SHA qw(sha256_hex);
+use File::Path qw(make_path);
+use File::Temp qw(tempfile);
+use POSIX qw(setpgid);
+use Time::HiRes qw(alarm stat time);
+
+my ($executable, $candidate, $directory) = @ARGV;
+my $binary = abs_path($executable) or exit 1;
+my @metadata = stat($binary);
+exit 1 unless @metadata;
+my $identity = sha256_hex(join("\0", $binary, @metadata[0, 1, 7],
+    map { sprintf("%.9f", $_) } @metadata[9, 10]));
+my $cache = "$directory/" . sha256_hex($binary);
+my $word = qr/[a-z][a-z0-9_-]*/;
+umask 0077;
+
+# A cache is data, never shell code. Ignore malformed/partial files. Atomic
+# replacement lets concurrent launches read complete snapshots without a lock.
+if (-f $cache && !-l $cache && -s $cache <= 65536 && open(my $file, "<", $cache)) {
+    my @lines = <$file>;
+    close $file;
+    chomp @lines;
+    my ($cached_identity, $expires, @commands) = @lines;
+    if (defined($expires) && $cached_identity eq $identity &&
+        $expires =~ /^\d+$/ && $expires > time() &&
+        !grep { !/^$word$/ } @commands) {
+        exit((grep { $_ eq $candidate } @commands) ? 0 : 1);
+    }
+}
+
+pipe(my $reader, my $writer) or exit 1;
+my $pid = fork();
+exit 1 unless defined $pid;
+if ($pid == 0) {
+    # Own the probe process group so a launcher that spawns children cannot
+    # keep the pipe open or survive its deadline. Never read the terminal.
+    setpgid(0, 0) == 0 or exit 1;
+    close $reader;
+    open(STDIN, "<", "/dev/null") or exit 1;
+    open(STDOUT, ">&", $writer) or exit 1;
+    close $writer;
+    $ENV{NO_COLOR} = 1;
+    exec { $executable } $executable, "--help";
+    exit 1;
+}
+close $writer;
+my $stop_probe = sub {
+    return unless defined $pid;
+    kill "KILL", -$pid;
+    kill "KILL", $pid;
+    waitpid($pid, 0);
+    undef $pid;
+};
+$SIG{HUP} = sub { $stop_probe->(); exit 129; };
+$SIG{INT} = sub { $stop_probe->(); exit 130; };
+$SIG{TERM} = sub { $stop_probe->(); exit 143; };
+my $output = "";
+my $success = eval {
+    local $SIG{ALRM} = sub { die "help deadline\n" };
+    alarm(0.75);
+    while (1) {
+        my $read = sysread($reader, my $chunk, 8192);
+        die "help read\n" unless defined $read;
+        last unless $read;
+        $output .= $chunk;
+        die "help too large\n" if length($output) > 65536;
+    }
+    waitpid($pid, 0) == $pid or die "help wait\n";
+    my $status = $?;
+    undef $pid;
+    alarm(0);
+    $status == 0;
+};
+alarm(0);
+if (!defined $success) {
+    $stop_probe->();
+}
+close $reader;
+
+my %commands;
+if ($success) {
+    $output =~ s/\e\[[0-?]*[ -\/]*[\@-~]//g;
+    my $in_commands = 0;
+    for my $line (split /\r?\n/, $output) {
+        if ($line =~ /^Commands:\s*$/) { $in_commands = 1; next; }
+        next unless $in_commands;
+        last if $line =~ /^\S/;
+        # Only command rows, not wrapped descriptions, options, or examples.
+        if ($line =~ /^  ($word(?:\|$word)*)(?:\s|$)/) {
+            $commands{$_} = 1 for split /\|/, $1;
+        }
+    }
+}
+
+# Retry failed/empty help after a minute. Also refresh successful discovery
+# hourly: a version-manager launcher can select a new binary without changing
+# its own path/mtime. Native binary replacements still invalidate immediately.
+my $expires = int(time()) + (%commands ? 3600 : 60);
+eval {
+    make_path($directory, { mode => 0700 });
+    my ($file, $temporary) = tempfile(".commands-XXXXXX", DIR => $directory);
+    my $saved = print $file join("\n", $identity, $expires, sort keys %commands), "\n";
+    $saved = close($file) && $saved;
+    unlink $temporary unless $saved && rename($temporary, $cache);
+};
+exit(exists($commands{$candidate}) ? 0 : 1);
+PERL
+)
 
 claude_command_like_invocation() {
     local candidate="$1"
@@ -1227,13 +1355,17 @@ claude_command_like_invocation() {
             return 1
             ;;
     esac
-    claude_builtin_command_name "$candidate"
+    claude_builtin_command_name "$candidate" && return 0
+    # Empty launches, explicit session flags and multiword prompts never reach
+    # discovery. An unknown single word still gets hooks unless help names it.
+    [[ "$candidate" =~ ^[a-z][a-z0-9_-]*$ ]] || return 1
+    claude_discovered_command_name "$candidate"
 }
 
 should_inject_claude_hooks() {
     (( $# == 0 )) && return 0
 
-    local arg
+    local arg command_status
     local skip_next=false
     for arg in "$@"; do
         if [[ "$skip_next" == true ]]; then
@@ -1257,9 +1389,14 @@ should_inject_claude_hooks() {
                 continue
                 ;;
             *)
-                if claude_command_like_invocation "$arg"; then
-                    return 1
-                fi
+                claude_command_like_invocation "$arg"
+                command_status=$?
+                case "$command_status" in
+                    0) return 1 ;;
+                    # Cancellation is not a failed lookup: do not start a
+                    # prompt session after the user interrupts discovery.
+                    129|130|143) exit "$command_status" ;;
+                esac
                 return 0
                 ;;
         esac
