@@ -10,7 +10,7 @@ import Testing
 @MainActor
 @Suite("Cloud sidebar attention layout", .serialized)
 struct CloudSidebarAttentionLayoutTests {
-    @Test("Unread indicators remain separate from row ink without moving the identity",
+    @Test("Unread indicators use a leading slot while read rows stay compact",
           arguments: [140.0, 300.0], ["workspace", "terminal"])
     func attentionPlacement(width: Double, kind: String) throws {
         for percent in [75, 100, 150, 200] {
@@ -56,7 +56,7 @@ struct CloudSidebarAttentionLayoutTests {
         cell.prepareForReuse()
         let cleared = try render(cell, node: readNode, fixture: fixture)
         #expect(cleared.tiffRepresentation == read.tiffRepresentation,
-                "A reused cell must remove the dot without shifting the pin, icon or title")
+                "A reused cell must remove the dot and restore the compact read layout")
     }
 
     private func expectSeparateIndicator(
@@ -64,19 +64,7 @@ struct CloudSidebarAttentionLayoutTests {
     ) throws {
         #expect(read.pixelsWide == unread.pixelsWide)
         #expect(read.pixelsHigh == unread.pixelsHigh)
-        var changed = CGRect.null
-        for y in 0..<min(read.pixelsHigh, unread.pixelsHigh) {
-            for x in 0..<min(read.pixelsWide, unread.pixelsWide) {
-                let a = try #require(read.colorAt(x: x, y: y)?.usingColorSpace(.deviceRGB))
-                let b = try #require(unread.colorAt(x: x, y: y)?.usingColorSpace(.deviceRGB))
-                let difference = abs(a.redComponent - b.redComponent) + abs(a.greenComponent - b.greenComponent)
-                    + abs(a.blueComponent - b.blueComponent) + abs(a.alphaComponent - b.alphaComponent)
-                if difference > 0.15 { changed = changed.union(CGRect(x: x, y: y, width: 1, height: 1)) }
-            }
-        }
-        try #require(!changed.isNull, "The unread indicator must actually render")
         let scale = CGFloat(unread.pixelsWide) / cell.bounds.width
-        _ = try #require(cell.subviews.first { $0 is CloudTreePassthroughHostingView })
         let readRuns = occupiedRuns(in: read)
         let unreadRuns = occupiedRuns(in: unread)
         let leadingSlot = GlobalFontMagnification.scaledSize(
@@ -86,12 +74,25 @@ struct CloudSidebarAttentionLayoutTests {
         let unreadDot = try #require(unreadRuns.first)
         let unreadContent = try #require(unreadRuns.dropFirst().first)
         #expect(readStart <= 8, "Read rows keep their compact leading edge: \(readStart)")
-        #expect(CGFloat(unreadDot.lowerBound) / scale <= 8,
-                "The unread dot remains on the left side")
+        let dotCenter = CGFloat(unreadDot.lowerBound + unreadDot.upperBound) / (2 * scale)
+        #expect(abs(dotCenter - leadingSlot / 2) <= 1,
+                "The unread dot is centered in the leading slot at every font scale")
         #expect(CGFloat(unreadDot.count) / scale >= 5 && CGFloat(unreadDot.count) / scale <= 7,
                 "The unread dot remains six points wide")
-        #expect(CGFloat(unreadContent.lowerBound) / scale >= leadingSlot - 2,
-                "Unread content follows the reserved leading attention slot")
+        let contentShift = CGFloat(unreadContent.lowerBound) / scale - readStart
+        #expect(abs(contentShift - leadingSlot - 2) <= 1,
+                "Only unread rows add the leading slot and its gap: \(contentShift)")
+        #expect(CGFloat(unreadContent.lowerBound - unreadDot.upperBound) / scale >= 2,
+                "The dot stays separate from the pin or icon")
+        let dotRows = (0..<unread.pixelsHigh).filter { y in
+            unreadDot.contains { x in (unread.colorAt(x: x, y: y)?.alphaComponent ?? 0) > 0.2 }
+        }
+        let top = try #require(dotRows.first)
+        let bottom = try #require(dotRows.last) + 1
+        #expect(abs(CGFloat(top + bottom - unread.pixelsHigh) / 2) <= scale,
+                "The dot stays vertically centered instead of overlapping the icon's upper corner")
+        #expect(CGFloat(bottom - top) / scale >= 5 && CGFloat(bottom - top) / scale <= 7,
+                "The complete six-point dot remains visible")
     }
 
     private func occupiedRuns(in bitmap: NSBitmapImageRep) -> [Range<Int>] {

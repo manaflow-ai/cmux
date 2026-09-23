@@ -2,7 +2,7 @@ import CmuxFoundation
 import SwiftUI
 
 /// An unread badge in the leading identity column, followed by an optional pin.
-/// Read/unread changes never move the row's icon or title.
+/// Read rows keep the compact identity edge; unread rows reserve the badge slot.
 /// Immutable input keeps AppKit cell reuse independent of observable stores.
 struct CloudSidebarRowDecoration: ViewModifier {
     let isPinned: Bool
@@ -12,19 +12,16 @@ struct CloudSidebarRowDecoration: ViewModifier {
     @Environment(\.cmuxGlobalFontMagnificationPercent) private var magnification
 
     func body(content: Content) -> some View {
-        // Reserve the attention column even when the row is read. This keeps
-        // the icon and title stable across unread transitions while limiting
-        // the gutter to rows that can actually carry notifications.
+        // Keep read rows flush with the outline's content edge. A row earns the
+        // leading slot only while it has unread attention, so the compact tree
+        // does not carry an empty gutter between the caret and its identity.
         HStack(spacing: 2) {
-            if showsAttentionSlot {
+            if showsAttentionSlot && hasUnreadNotification {
                 Circle()
                     .fill(Color.accentColor)
                     .frame(width: 6, height: 6)
-                    .opacity(hasUnreadNotification ? 1 : 0)
-                    .accessibilityHidden(!hasUnreadNotification)
                     .accessibilityLabel(String(localized: "cloudTree.organization.unread", defaultValue: "Unread notification"))
-                    .help(hasUnreadNotification
-                        ? String(localized: "cloudTree.organization.unread", defaultValue: "Unread notification") : "")
+                    .help(String(localized: "cloudTree.organization.unread", defaultValue: "Unread notification"))
                     .frame(width: GlobalFontMagnification.scaledSize(attentionSlot, percent: magnification))
                     .allowsHitTesting(false)
             }
