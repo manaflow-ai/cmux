@@ -20,6 +20,8 @@ final class cmuxUITests: XCTestCase {
         defer { app.terminate() }
         let open = app.buttons["MobileAgentFeedFullText-full-text-preview"]
         XCTAssertTrue(open.waitForExistence(timeout: 10))
+        XCTAssertEqual(open.label, "See more")
+        XCTAssertFalse(app.buttons["MobileAgentFeedFullText-short-text-preview"].exists)
         let before = XCTAttachment(screenshot: app.screenshot())
         before.name = "feed-full-text-entry"
         before.lifetime = .keepAlways
