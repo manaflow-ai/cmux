@@ -30,8 +30,7 @@ struct CloudHubConnectorHedgeTests {
         let value = try await CloudHubConnector.hedged(
             candidates: 1,
             fallbackDelay: .milliseconds(50),
-            redialInterval: .milliseconds(20),
-            maxRedials: 50,
+            schedule: CloudHubRedialSchedule(fastInterval: .milliseconds(20), fastWindow: .seconds(10), slowInterval: .milliseconds(20)),
             timeout: .seconds(10),
             clock: ContinuousClock(),
             attempt: { _ in
@@ -51,16 +50,15 @@ struct CloudHubConnectorHedgeTests {
         #expect(ledger.startedCount > 1)
     }
 
-    @Test("Nothing reachable: fails at the deadline and stops redialing after the cap")
+    @Test("Nothing reachable: fails at the deadline, and redials slow down after the fast window")
     func unreachableFailsAtDeadlineWithBoundedAttempts() async {
         let ledger = Ledger()
         await #expect(throws: (any Error).self) {
             _ = try await CloudHubConnector.hedged(
                 candidates: 2,
                 fallbackDelay: .milliseconds(5),
-                redialInterval: .milliseconds(10),
-                maxRedials: 3,
-                timeout: .milliseconds(200),
+                schedule: CloudHubRedialSchedule(fastInterval: .milliseconds(10), fastWindow: .milliseconds(50), slowInterval: .milliseconds(100)),
+                timeout: .milliseconds(400),
                 clock: ContinuousClock(),
                 attempt: { _ -> Int in
                     _ = ledger.start()
@@ -70,8 +68,31 @@ struct CloudHubConnectorHedgeTests {
                 discard: { ledger.discard($0) }
             )
         }
-        // One initial round plus three redials, for each of two addresses.
-        #expect(ledger.startedCount == 8)
+        // Fast rounds for 50 ms, then one round per 100 ms until 400 ms: about
+        // 9 rounds for each of two addresses. Fast-only would be about 40 rounds.
+        #expect(ledger.startedCount >= 8)
+        #expect(ledger.startedCount <= 30)
+    }
+
+    @Test("A machine that comes up after the fast window still connects before the deadline")
+    func slowColdMachineConnectsOnSlowRedial() async throws {
+        let ledger = Ledger()
+        let reachableAt = ContinuousClock.now + .milliseconds(300)
+        let value = try await CloudHubConnector.hedged(
+            candidates: 1,
+            fallbackDelay: .zero,
+            schedule: CloudHubRedialSchedule(fastInterval: .milliseconds(10), fastWindow: .milliseconds(50), slowInterval: .milliseconds(40)),
+            timeout: .seconds(5),
+            clock: ContinuousClock(),
+            attempt: { _ in
+                let attempt = ledger.start()
+                // Attempts before the machine is up never answer on their own.
+                if ContinuousClock.now < reachableAt { try await Task.sleep(for: .seconds(10)) }
+                return attempt
+            },
+            discard: { ledger.discard($0) }
+        )
+        #expect(value > 1)
     }
 
     @Test("Every success other than the winner is discarded, so no stream leaks")
@@ -80,8 +101,7 @@ struct CloudHubConnectorHedgeTests {
         let value = try await CloudHubConnector.hedged(
             candidates: 2,
             fallbackDelay: .zero,
-            redialInterval: .milliseconds(5),
-            maxRedials: 5,
+            schedule: CloudHubRedialSchedule(fastInterval: .milliseconds(5), fastWindow: .milliseconds(25), slowInterval: .seconds(10)),
             timeout: .seconds(5),
             clock: ContinuousClock(),
             attempt: { index in
