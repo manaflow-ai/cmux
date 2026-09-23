@@ -834,6 +834,14 @@ final class WorkspaceTerminalFontSizeArbiter {
             && extendedFontSizeWorkIdleBarrierTokens.isEmpty
     }
 
+#if DEBUG
+    /// Whether a configuration reload requested now would take the font-work
+    /// barrier immediately instead of queueing behind outstanding font work.
+    var isFontSizeWorkIdleForVerification: Bool {
+        isFontSizeWorkIdleBeforeBarrier && !hasFontSizeWorkIdleBarrier
+    }
+#endif
+
     @discardableResult
     private func appendDeferredCoordinatorJoin(
         _ join: DeferredWorkspaceTerminalFontSizeCoordinatorJoin,
