@@ -9,7 +9,9 @@
 # hit it because it always has previous archives. Drive the script with fake
 # git/xcodebuild/generate_appcast tools under every bash on this machine
 # (macOS /bin/bash 3.2 reproduces the bug; bash 4.4+ never did) and require a
-# signed appcast to land at the requested output path.
+# signed appcast to land at the requested output path. The source-build path
+# (unpinned Sparkle versions) is covered through fake git/xcodebuild; the
+# pinned-release path through SPARKLE_TOOLS_DIR.
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
@@ -76,6 +78,13 @@ cat > "$FAKE_TOOLS/sign_update" <<'SU'
 #!/usr/bin/env bash
 echo "fixture-signature"
 SU
+# BinaryDelta: the fixture DMGs never mount, so delta prebuilding must fall
+# back to generate_appcast without calling it.
+cat > "$FAKE_TOOLS/BinaryDelta" <<'BD'
+#!/usr/bin/env bash
+echo "fake BinaryDelta must not run for fixture archives" >&2
+exit 1
+BD
 chmod +x "$FAKE_BIN"/* "$FAKE_TOOLS"/*
 
 run_script() {
@@ -85,6 +94,7 @@ run_script() {
   CMUX_TEST_FAKE_TOOLS="$FAKE_TOOLS" \
   CMUX_TEST_ARGV_LOG="$TMP_DIR/argv.log" \
   SPARKLE_PRIVATE_KEY="Zml4dHVyZS1rZXk" \
+  SPARKLE_VERSION="0.0.0-test" \
   "$@" \
   "$bash_bin" "$SCRIPT" "$TMP_DIR/cmux-macos.dmg" "v0.0.0-test" "$out"
 }
@@ -123,6 +133,11 @@ for bash_bin in "${candidates[@]}"; do
   fi
   [ -s "$out_dir/appcast-deltas.xml" ] || fail "bash $version: no appcast written on the delta path"
   paste -sd' ' "$TMP_DIR/argv.log" | grep -q -- "--maximum-deltas 1 " || fail "bash $version: --maximum-deltas 1 not passed with previous archives: $(paste -sd' ' "$TMP_DIR/argv.log")"
+  # Pinned-release path: tools come from SPARKLE_TOOLS_DIR, never a source build.
+  if ! run_script "$bash_bin" "$out_dir/appcast-tools.xml" env SPARKLE_TOOLS_DIR="$FAKE_TOOLS" SPARKLE_PREVIOUS_ARCHIVES_DIR="$TMP_DIR/previous" SPARKLE_MAXIMUM_DELTAS=1 PATH="/usr/bin:/bin" >"$out_dir/run-tools.log" 2>&1; then
+    fail "bash $version: script failed with SPARKLE_TOOLS_DIR: $(tail -n 5 "$out_dir/run-tools.log")"
+  fi
+  grep -q 'sparkle:edSignature' "$out_dir/appcast-tools.xml" || fail "bash $version: SPARKLE_TOOLS_DIR appcast lacks sparkle:edSignature"
   echo "ok: bash $version generates a signed appcast with and without previous archives"
 done
 
