@@ -26,13 +26,29 @@ gh variable list --repo manaflow-ai/cmux
 | `MACOS_RUNNER_PR` | **pull-request** macOS jobs only, in `ci-macos.yml`, `cli-pipe-regressions.yml`, `terminal-hang-diagnostics.yml`, `ci.yml` (`claude-wrapper`) and `nightly.yml` (`refresh-test-compilation-cache`) | unset (see "Lanes" below) | `blacksmith-6vcpu-macos-15` |
 | `MACOS_RUNNER_TESTS` | the manual test-debugging lanes: `test-e2e.yml` and `test-depot.yml` | unset (see "Lanes" below) | `blacksmith-6vcpu-macos-26` for `test-e2e.yml`, `blacksmith-6vcpu-macos-15` for `test-depot.yml` |
 | `MACOS_RUNNER_DUAL_XCODE` | `swift-package-tests` (SDK 15 release helper, then SDK 26 package tests) on **every** event, pull requests included | `blacksmith-6vcpu-macos-15` | `blacksmith-6vcpu-macos-15` |
-| `MACOS_RUNNER_26` | macOS 26 compatibility jobs and nightly sign/notarize | `blacksmith-6vcpu-macos-26` | `blacksmith-6vcpu-macos-26` |
-| `MACOS_RUNNER_26_NIGHTLY_BUILD` | changed-revision universal Nightly app builds | `blacksmith-12vcpu-macos-26` | `blacksmith-12vcpu-macos-26` |
-| `MACOS_RUNNER_26_RELEASE` | disk-heavy `release-build` universal app | `blacksmith-6vcpu-macos-26` | `blacksmith-6vcpu-macos-26` |
+| `MACOS_RUNNER_26` | the macOS 26 image: compatibility jobs, `release.yml` and nightly sign/notarize, the disk-heavy `release-build` universal app, and the nightly compilation-cache warmer | `blacksmith-6vcpu-macos-26` | `blacksmith-6vcpu-macos-26` |
+| `MACOS_RUNNER_26_LARGE` | the larger macOS 26 machine: changed-revision universal Nightly app builds | `blacksmith-12vcpu-macos-26` | `blacksmith-12vcpu-macos-26` |
 | `MACOS_RUNNER_DISPLAY` | macOS GUI, XCUITest, and virtual-display tests (`tests-build-and-lag`) | `blacksmith-6vcpu-macos-15` | `blacksmith-6vcpu-macos-15` |
 | `MACOS_RUNNER_IOS` | the iOS image: simulator tests, TestFlight upload, and `ios-streamed-validate.yml` (`test-ios.yml`, `ios-testflight.yml`) | `blacksmith-6vcpu-macos-26` | `blacksmith-6vcpu-macos-26` |
-| `CI_PAID_MACOS_OVERFLOW` | the repository-side switch for metered capacity; gates the five WarpBuild-capable variables above (see "Break-glass" below) | unset (free capacity) | unset means the Blacksmith fallback wins |
+| `CI_PAID_MACOS_OVERFLOW` | the repository-side switch for metered capacity; gates the four paid-overflow variables above (see "Break-glass" below) | unset (free capacity) | unset means the Blacksmith fallback wins |
 | `MACOS_RUNNER_BACKGROUND` | non-urgent macOS work only: `build-ghosttykit`, the macOS legs of `cmux-tui-artifacts` (post-merge) and `cmux-tui-nightly` (on demand). See "Background lane" below | unset | `macos-15` (GitHub-hosted, free) |
+
+A runner variable names a **machine capability** — an OS version, a GUI, a
+simulator, both SDKs, or a larger instance — and every job needing that
+capability reads the same one. It does not name the lane asking, which the
+workflow already knows. `MACOS_RUNNER_PR` and `MACOS_RUNNER_TESTS` are the
+deliberate lane exceptions documented below.
+
+Two capability variables may hold the same label today and still mean different
+things. `MACOS_RUNNER_26` and `MACOS_RUNNER_26_LARGE` both name macOS 26,
+while the latter requires the larger instance.
+
+The paid-overflow gate and the runner-value policy answer different questions.
+`CI_PAID_MACOS_OVERFLOW` covers only variables whose purpose is paid overflow.
+Other variables, including `MACOS_RUNNER_26`, are checked by
+`scripts/ci/runner_label_policy.py` through the CI health report. Gating a free
+pool would make repointing it at owned hardware require enabling a flag whose
+meaning is permission to spend.
 
 The pull-request lane also has a toolchain variable, set together with
 `MACOS_RUNNER_PR`:
@@ -305,25 +321,31 @@ There is no automatic overflow. If the Tart pool is unavailable or its queue is
 too long, set the affected variable to a paid provider. Restore Tart after the
 fleet recovers.
 
-Five of these variables can name **metered WarpBuild capacity**, so they are read
-through a second switch that lives in this repository rather than in repository
-settings:
+Four runner variables exist to name **metered WarpBuild capacity**, so they are
+read through a second switch that lives in this repository rather than in
+repository settings:
 
 | | Effect |
 | --- | --- |
-| `CI_PAID_MACOS_OVERFLOW` unset or not `1` | `MACOS_RUNNER_15`, `MACOS_RUNNER_DISPLAY`, `MACOS_RUNNER_DUAL_XCODE`, `MACOS_RUNNER_26_RELEASE` and `MACOS_RUNNER_26_NIGHTLY_BUILD` are **not read**; every lane takes its free Blacksmith fallback |
-| `CI_PAID_MACOS_OVERFLOW` = `1` | those five variables select the pool, exactly as they did before the gate |
+| `CI_PAID_MACOS_OVERFLOW` unset or not `1` | `MACOS_RUNNER_15`, `MACOS_RUNNER_DISPLAY`, `MACOS_RUNNER_DUAL_XCODE` and `MACOS_RUNNER_26_LARGE` are **not read**; every lane takes its free Blacksmith fallback |
+| `CI_PAID_MACOS_OVERFLOW` = `1` | those four variables select the pool |
 
 Turning paid capacity **on** therefore needs two admin actions: a runner variable
 pointing at Warp *and* `CI_PAID_MACOS_OVERFLOW=1`. Turning it **off** needs
-either — including a pull request anyone with push access can merge, which is
-the point: between 2026-09-19 and 2026-09-23 those five variables pointed at
-Warp, so main and the merge queue ran metered while pull requests ran free, and
-nothing in the repository could see it.
+either — including a pull request anyone with push access can merge. Between
+2026-09-19 and 2026-09-23 these four variables, plus the former release-specific
+runner variable now folded into `MACOS_RUNNER_26`, pointed at Warp, so main and
+the merge queue ran metered while pull requests ran free.
+
+`MACOS_RUNNER_26` stays ungated because it names the ordinary free macOS 26
+pool used by several jobs. Its safety check is the value policy described above.
+Moving `release-build` onto a paid pool therefore takes one admin action:
+repointing `MACOS_RUNNER_26`.
 
 `tests/test_ci_repo_variable_defaults.py` fails if a workflow reads one of the
-five without the gate, and `scripts/ci/ci_health_report.py` reports how many
-metered runner minutes each window actually contained.
+four paid-overflow variables without the gate, and
+`scripts/ci/ci_health_report.py` reports how many metered runner minutes each
+window actually contained.
 
 ```bash
 gh variable set CI_PAID_MACOS_OVERFLOW --repo manaflow-ai/cmux -b 1   # enable paid overflow
@@ -336,8 +358,7 @@ gh variable set LINUX_ARM64_RUNNER    --repo manaflow-ai/cmux -b ubuntu-24.04-ar
 gh variable set MACOS_RUNNER_15         --repo manaflow-ai/cmux -b blacksmith-6vcpu-macos-15
 gh variable set MACOS_RUNNER_DUAL_XCODE --repo manaflow-ai/cmux -b blacksmith-6vcpu-macos-15
 gh variable set MACOS_RUNNER_26         --repo manaflow-ai/cmux -b blacksmith-6vcpu-macos-26
-gh variable set MACOS_RUNNER_26_NIGHTLY_BUILD --repo manaflow-ai/cmux -b blacksmith-12vcpu-macos-26
-gh variable set MACOS_RUNNER_26_RELEASE --repo manaflow-ai/cmux -b blacksmith-6vcpu-macos-26
+gh variable set MACOS_RUNNER_26_LARGE   --repo manaflow-ai/cmux -b blacksmith-12vcpu-macos-26
 gh variable set MACOS_RUNNER_DISPLAY    --repo manaflow-ai/cmux -b blacksmith-6vcpu-macos-15
 gh variable set MACOS_RUNNER_IOS        --repo manaflow-ai/cmux -b blacksmith-6vcpu-macos-26
 ```
@@ -350,14 +371,15 @@ Restore the self-hosted pool with explicit labels. The gate above applies
 here too: `MACOS_RUNNER_15`, `MACOS_RUNNER_DISPLAY` and the other gated
 variables are read only when `CI_PAID_MACOS_OVERFLOW=1`, so Tart needs that
 flag set even though Tart is free. Without it, these values are ignored and
-every lane stays on its Blacksmith fallback, with no error.
+every lane stays on its Blacksmith fallback, with no error. `MACOS_RUNNER_26`
+is ungated, so repointing the ordinary macOS 26 pool does not require the paid
+overflow switch.
 
 ```bash
 gh variable set MACOS_RUNNER_15         --repo manaflow-ai/cmux -b tart-macos-15
 gh variable set MACOS_RUNNER_DUAL_XCODE --repo manaflow-ai/cmux -b blacksmith-6vcpu-macos-15
 gh variable set MACOS_RUNNER_26         --repo manaflow-ai/cmux -b blacksmith-6vcpu-macos-26
-gh variable set MACOS_RUNNER_26_NIGHTLY_BUILD --repo manaflow-ai/cmux -b blacksmith-12vcpu-macos-26
-gh variable set MACOS_RUNNER_26_RELEASE --repo manaflow-ai/cmux -b blacksmith-6vcpu-macos-26
+gh variable set MACOS_RUNNER_26_LARGE   --repo manaflow-ai/cmux -b blacksmith-12vcpu-macos-26
 gh variable set MACOS_RUNNER_DISPLAY    --repo manaflow-ai/cmux -b tart-gui
 gh variable set MACOS_RUNNER_IOS        --repo manaflow-ai/cmux -b tart-ios
 ```
