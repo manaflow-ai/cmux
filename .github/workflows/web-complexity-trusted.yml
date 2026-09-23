@@ -30,10 +30,9 @@ concurrency:
 
 jobs:
   complexity:
-    # A skipped required check counts as passing. Give ignored metadata its own
-    # name so a body/title edit cannot overwrite a failed content verdict.
-    name: ${{ github.event_name == 'pull_request_target' && github.event.action == 'edited' && !github.event.changes.base && (github.event.changes.body || github.event.changes.title) && 'Web complexity metadata (ignored)' || 'Web complexity' }}
-    if: ${{ !(github.event_name == 'pull_request_target' && github.event.action == 'edited' && !github.event.changes.base && (github.event.changes.body || github.event.changes.title)) }}
+    # Keep the required context literal and evaluate the real verdict on edits.
+    # GitHub can publish an unevaluated name expression when a job is skipped.
+    name: Web complexity
     # The job reads untrusted source bytes. Keep it on an ephemeral GitHub
     # hosted runner and never allow a repository variable to select the host.
     runs-on: ubuntu-24.04
