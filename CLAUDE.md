@@ -198,7 +198,7 @@ A callsign is attribution, never authority. The worker attempt is identified by 
 
 ## Outside contributors
 
-Most open PRs from people outside the team never got a human reply: of 824 open on 2026-09-23, 779 had only bot comments. Several were fixed on `main` by a maintainer PR while the contributor's PR sat open, and the contributor found out on their own.
+Most open PRs from people outside the team never got a human reply: of 810 open on 2026-09-23, 765 had only bot comments. Several were fixed on `main` by a maintainer PR while the contributor's PR sat open, and the contributor found out on their own.
 
 Before fixing a bug or building a feature, run `gh search prs --repo manaflow-ai/cmux --state open '<symptom or issue number>'` and look for an outside PR (author not on the team). If one exists:
 
