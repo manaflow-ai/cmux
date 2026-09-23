@@ -1626,7 +1626,9 @@ _cmux_prompt_command() {
         _CMUX_HISTORY_INITIALIZED=1
     fi
     if [[ -n "${_CMUX_HISTORY_INITIALIZED:-}" ]]; then
-        history -a
+        # bash 3.2 does not append reliably after clearing its initial history.
+        # This file belongs to this terminal, so persist its bounded list.
+        history -w "$HISTFILE"
     fi
     _cmux_tmux_sync_cmux_environment
 
