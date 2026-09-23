@@ -51,6 +51,7 @@ struct AgentSessionWebRendererTests {
         expectFalse(AgentSessionWebRendererCoordinator.isTrustedShellURL(URL(string: "https://example.com"), expected: expected))
     }
     @Test
+    @MainActor
     func testThreadScrollDeltaIsBoundedAndFlushedAtDisplayCadence() {
         #expect(AgentSessionWebHostView.clampedScrollDelta(10_000) == 2_400)
         #expect(AgentSessionWebHostView.clampedScrollDelta(-10_000) == -2_400)
