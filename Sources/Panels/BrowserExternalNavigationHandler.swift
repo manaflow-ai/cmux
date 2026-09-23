@@ -1,6 +1,7 @@
 import AppKit
 import CmuxCore
 import CmuxSettings
+import CmuxTestSupport
 import Foundation
 import WebKit
 
@@ -21,11 +22,27 @@ struct BrowserExternalNavigationHandler {
 
     init(
         defaults: UserDefaults = .standard,
-        openURL: @escaping @MainActor @Sendable (URL) -> Bool = { NSWorkspace.shared.open($0) }
+        openURL: @escaping @MainActor @Sendable (URL) -> Bool = Self.openInSystemBrowser
     ) {
         self.defaults = defaults
         self.openURL = openURL
         self.policyCache = BrowserExternalURLPolicyCache(defaults: defaults)
+    }
+
+    /// The default opener. UI tests observe external-open routing through the
+    /// capture sink; a configured sink intercepts the open so CI never
+    /// launches a real browser.
+    @MainActor
+    private static func openInSystemBrowser(_ url: URL) -> Bool {
+#if DEBUG
+        if UITestCaptureSink().appendLineIfConfigured(
+            envKey: "CMUX_UI_TEST_CAPTURE_EXTERNAL_OPEN_PATH",
+            line: "externalOpen \(url.absoluteString)"
+        ) {
+            return true
+        }
+#endif
+        return NSWorkspace.shared.open(url)
     }
 
     /// Returns whether a URL matches a configured external rule.
@@ -54,14 +71,35 @@ struct BrowserExternalNavigationHandler {
         return policyCache.currentPolicy().matches(target)
     }
 
+    /// True when a link the user chose outside a web view (a sidebar
+    /// pull-request or port link) should bypass the embedded browser and go
+    /// to the system browser. Restricted to web schemes; other schemes have
+    /// their own external-open routing.
+    func linkEscapesToSystemBrowser(_ url: URL) -> Bool {
+        guard Self.isWebNavigationURL(url) else { return false }
+        return shouldOpenExternally(url)
+    }
+
     /// Returns whether a user-activated main-frame navigation should be external.
+    ///
+    /// Downloads keep the download flow. WebKit reports a script calling
+    /// `click()` on an anchor as `.linkActivated`, the same as a real click,
+    /// so the rules on their own would let a page hand itself a system-browser
+    /// open at a moment of its choosing; requiring an AppKit event in flight
+    /// makes the page ride a click the user actually made. It is a bound
+    /// rather than a proof — `NSApp.currentEvent` says an event is being
+    /// dispatched, not that this navigation is the thing the user asked for.
     func shouldOpenExternally(
         _ url: URL,
         navigationType: WKNavigationType,
-        targetFrameIsMain: Bool?
+        targetFrameIsMain: Bool?,
+        shouldPerformDownload: Bool = false,
+        hasUserActivation: Bool = browserNavigationHasSimpleUserActivation()
     ) -> Bool {
         guard navigationType == .linkActivated,
               targetFrameIsMain != false,
+              !shouldPerformDownload,
+              hasUserActivation,
               Self.isWebNavigationURL(url),
               !Self.isAppOwnedInternalURL(url) else {
             return false
@@ -137,12 +175,16 @@ struct BrowserExternalNavigationHandler {
         _ url: URL,
         navigationType: WKNavigationType,
         targetFrameIsMain: Bool?,
+        shouldPerformDownload: Bool = false,
+        hasUserActivation: Bool = browserNavigationHasSimpleUserActivation(),
         onOpened: @escaping @MainActor () -> Void = {}
     ) -> Bool {
         if case .opened = openConfiguredExternallyResult(
             url,
             navigationType: navigationType,
             targetFrameIsMain: targetFrameIsMain,
+            shouldPerformDownload: shouldPerformDownload,
+            hasUserActivation: hasUserActivation,
             onOpened: onOpened
         ) {
             return true
@@ -156,13 +198,17 @@ struct BrowserExternalNavigationHandler {
         _ url: URL,
         navigationType: WKNavigationType,
         targetFrameIsMain: Bool?,
+        shouldPerformDownload: Bool = false,
+        hasUserActivation: Bool = browserNavigationHasSimpleUserActivation(),
         onOpened: @escaping @MainActor () -> Void = {}
     ) -> OpenResult {
         let externalURL = canonicalURL(for: url)
         guard shouldOpenExternally(
             externalURL,
             navigationType: navigationType,
-            targetFrameIsMain: targetFrameIsMain
+            targetFrameIsMain: targetFrameIsMain,
+            shouldPerformDownload: shouldPerformDownload,
+            hasUserActivation: hasUserActivation
         ) else {
             return .notConfigured
         }
