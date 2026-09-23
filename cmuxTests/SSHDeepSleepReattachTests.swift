@@ -309,11 +309,19 @@ struct SSHDeepSleepReattachTests {
     }
 
     /// The attach wrapper resolves its retry budget before the loop starts, so
-    /// the production default and its malformed-value fallback are provable
-    /// without paying for a full budget of attach attempts.
-    @Test(arguments: [nil, "2O", "0", "021", "21"] as [String?])
-    func foregroundAuthenticatedAttachClampsRetryBudgetToProductionDefault(
-        reconnectLimit: String?
+    /// the fallback, a well-formed operator budget, and the ceiling are all
+    /// provable without paying for a full budget of attach attempts.
+    @Test(arguments: [
+        (nil, SSHReconnectBudget().fallbackLimit),
+        ("2O", SSHReconnectBudget().fallbackLimit),
+        ("0", SSHReconnectBudget().fallbackLimit),
+        ("021", 21),
+        ("21", 21),
+        (String(SSHReconnectBudget().maximumLimit + 1), SSHReconnectBudget().maximumLimit),
+    ] as [(String?, Int)])
+    func foregroundAuthenticatedAttachResolvesRetryBudgetBeforeTheLoop(
+        reconnectLimit: String?,
+        expectedLimit: Int
     ) throws {
         let attachLines = SSHPTYAttachRetryScriptBuilder().lines(
             command: "cmux_ssh_attach_attempt",
@@ -343,9 +351,9 @@ struct SSHDeepSleepReattachTests {
 
         #expect(!result.timedOut, Comment(rawValue: result.stderr))
         #expect(result.status == 0, Comment(rawValue: result.stderr))
-        // Absent, malformed, and out-of-range budgets all fail closed to the
-        // finite production default.
-        #expect(result.stdout == "20", Comment(rawValue: result.stdout))
+        // Absent, malformed, and zero budgets fall back to the finite default;
+        // a well-formed budget is honored up to the shared ceiling (#13959).
+        #expect(result.stdout == String(expectedLimit), Comment(rawValue: result.stderr))
     }
 
     @Test(arguments: [(Optional("4"), Int32(255), "5", 4)])
