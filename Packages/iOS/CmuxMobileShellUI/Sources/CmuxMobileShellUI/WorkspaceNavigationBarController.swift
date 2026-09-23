@@ -6,6 +6,11 @@ import UIKit
 final class WorkspaceNavigationBarController: UIViewController {
     let bar = UINavigationBar()
     private let item = UINavigationItem()
+    private let titleLeadingSpacer: UIBarButtonItem = {
+        let spacer = UIBarButtonItem(barButtonSystemItem: .fixedSpace, target: nil, action: nil)
+        spacer.width = 4
+        return spacer
+    }()
     private let titleHost = UIHostingController(rootView: AnyView(EmptyView()))
     private lazy var titleCapsule = WorkspaceNavigationTitleView(host: titleHost)
     private var controls: [WorkspaceNavigationBar.Item.ID: HostedControl] = [:]
@@ -100,7 +105,11 @@ final class WorkspaceNavigationBarController: UIViewController {
         let nextTrailingIDs = trailingItems.map(\.id)
         if leadingIDs != nextLeadingIDs {
             leadingIDs = nextLeadingIDs
-            item.setLeftBarButtonItems(leadingIDs.compactMap { controls[$0]?.button }, animated: false)
+            var buttons = leadingIDs.compactMap { controls[$0]?.button }
+            if leadingIDs.contains(.back) {
+                buttons.append(titleLeadingSpacer)
+            }
+            item.setLeftBarButtonItems(buttons, animated: false)
         }
         if trailingIDs != nextTrailingIDs {
             trailingIDs = nextTrailingIDs
