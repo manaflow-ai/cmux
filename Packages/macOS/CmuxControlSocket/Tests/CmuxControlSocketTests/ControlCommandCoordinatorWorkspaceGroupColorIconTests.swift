@@ -95,6 +95,42 @@ struct ControlCommandCoordinatorWorkspaceGroupColorIconTests {
         #expect(errData["color"] == .string("Magenta"))
     }
 
+    @Test func malformedHexLengthsAreRejectedNotApplied() {
+        let context = FakeWorkspaceGroupColorIconContext()
+        let coordinator = ControlCommandCoordinator(context: context)
+
+        // Five- and seven-digit payloads pass a naive length window but are
+        // not hex colors; they must be rejected, not stored or cleared.
+        for badValue in ["#12345", "#1234567", "#12", "#123456789", "123456"] {
+            guard case .err(let code, _, _) = coordinator.handle(request(
+                "workspace.group.set_color",
+                [
+                    "group_id": .string(UUID().uuidString),
+                    "hex": .string(badValue),
+                ]
+            )) else {
+                Issue.record("\(badValue) was not rejected")
+                continue
+            }
+            #expect(code == "invalid_params")
+        }
+        #expect(context.setColors.isEmpty)
+
+        for goodValue in ["#F3A", "#F3AB", "#FF3EA5", "#FF3EA5C8"] {
+            guard case .ok = coordinator.handle(request(
+                "workspace.group.set_color",
+                [
+                    "group_id": .string(UUID().uuidString),
+                    "hex": .string(goodValue),
+                ]
+            )) else {
+                Issue.record("\(goodValue) was rejected")
+                continue
+            }
+        }
+        #expect(context.setColors.count == 4)
+    }
+
     @Test func nonHexHexValueIsRejectedNamingTheParameter() {
         let context = FakeWorkspaceGroupColorIconContext()
         let coordinator = ControlCommandCoordinator(context: context)

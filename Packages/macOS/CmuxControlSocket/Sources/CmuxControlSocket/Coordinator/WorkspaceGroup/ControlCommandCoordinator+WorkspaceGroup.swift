@@ -476,8 +476,10 @@ extension ControlCommandCoordinator {
     /// `#RRGGBBAA`). Named colors are rejected so the caller learns the value
     /// was not applied instead of silently clearing the override.
     static func isValidHexColor(_ value: String) -> Bool {
-        guard value.first == "#", value.count >= 4, value.count <= 9 else { return false }
-        return value.dropFirst().allSatisfy { $0.isHexDigit }
+        guard value.first == "#" else { return false }
+        let digits = value.dropFirst()
+        guard [3, 4, 6, 8].contains(digits.count) else { return false }
+        return digits.allSatisfy { $0.isHexDigit }
     }
 
 
