@@ -30,11 +30,7 @@ def workflow_job_block(job_name: str) -> str:
 def test_release_groups_are_parallel_and_owned() -> None:
     block = workflow_job_block("workflow-guard-tests")
 
-    assert (
-        "group: [preflight, ci, app-host-execution, app-host-process, "
-        "app-host-cache, release-ios, release-notary, release-tooling, "
-        "quality-sharding, quality-runtime, quality-determinism]"
-    ) in block
+    assert "group: ${{ fromJSON(inputs.linux_guard_test_groups) }}" in block
 
     expected = {
         "Validate TestFlight notes generator": "release-ios",
@@ -42,6 +38,7 @@ def test_release_groups_are_parallel_and_owned() -> None:
         "Validate external TestFlight group assignment helper": "release-ios",
         "Validate Pro TestFlight distribution workflow": "release-ios",
         "Validate iOS App Store lane identity": "release-ios",
+        "Validate tagged iOS device entitlement fallback": "release-ios",
         "Validate release does not gate on iOS screenshot capture": "release-ios",
         "Validate release tunnel extension identifiers": "release-ios",
         "Validate create-dmg version pinning": "release-notary",

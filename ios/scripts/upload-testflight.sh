@@ -63,8 +63,129 @@ verify_ipa_aps_environment_production() {
     rm -rf "$workdir"
     return 1
   fi
+  while IFS= read -r -d '' extension_app; do
+    extension_ent="$workdir/$(basename "$extension_app").entitlements.plist"
+    if ! codesign --verify --strict --verbose=2 "$extension_app" >&2 ||
+      ! codesign -d --entitlements :- --xml "$extension_app" > "$extension_ent" 2>/dev/null; then
+      echo "error: signed notification extension failed code-signature verification: $extension_app" >&2
+      rm -rf "$workdir"
+      return 1
+    fi
+    extension_bundle_id="$("$PLISTBUDDY" -c 'Print :CFBundleIdentifier' "$extension_app/Info.plist" 2>/dev/null || true)"
+    extension_app_id="$("$PLISTBUDDY" -c 'Print :application-identifier' "$extension_ent" 2>/dev/null || true)"
+    extension_team_id="$("$PLISTBUDDY" -c 'Print :com.apple.developer.team-identifier' "$extension_ent" 2>/dev/null || true)"
+    expected_extension_app_id="$DEVELOPMENT_TEAM.$extension_bundle_id"
+    if [[ "$extension_app_id" != "$expected_extension_app_id" || "$extension_team_id" != "$DEVELOPMENT_TEAM" ]]; then
+      echo "error: signed notification extension identity is invalid (application-identifier='${extension_app_id:-<absent>}', expected='$expected_extension_app_id', team='${extension_team_id:-<absent>}'): $extension_app" >&2
+      plutil -p "$extension_ent" >&2 || true
+      rm -rf "$workdir"
+      return 1
+    fi
+  done < <(find "$app/PlugIns" -maxdepth 1 -type d -name '*.appex' -print0 2>/dev/null)
   rm -rf "$workdir"
   return 0
+}
+
+# The notification service extension decrypts the payload with key material
+# stored in the host app's keychain group. Xcode's App Store export can sign an
+# extension with a wildcard profile while dropping the requested keychain
+# entitlement from the extension signature. Re-sign every extension from its
+# profile baseline and the checked-in entitlement contract, reducing list
+# capabilities to what the profile authorizes and claiming the host's exact
+# group. The host app is signed after this function so its nested code seal is
+# rebuilt around the repaired extension.
+resign_notification_service_extensions() {
+  local app="$1"
+  local resign_dir="$2"
+  local identity="$3"
+  local host_bundle_id="$4"
+  local entitlements_source="$5"
+  local extension extension_candidate extension_bundle_id profile profile_entitlements merged_entitlements candidate_bundle_id
+
+  if [[ ! -f "$entitlements_source" ]]; then
+    echo "error: notification extension entitlements are missing: $entitlements_source" >&2
+    return 1
+  fi
+  extension=""
+  while IFS= read -r -d '' extension_candidate; do
+    candidate_bundle_id="$($PLISTBUDDY -c 'Print :CFBundleIdentifier' "$extension_candidate/Info.plist" 2>/dev/null || true)"
+    if [[ "$candidate_bundle_id" == "$host_bundle_id.NotificationService" ]]; then
+      extension="$extension_candidate"
+      break
+    fi
+  done < <(find "$app/PlugIns" -maxdepth 1 -type d -name '*.appex' -print0 2>/dev/null)
+  if [[ -z "$extension" || ! -d "$extension" ]]; then
+    echo "error: exported app has no NotificationService.appex to sign" >&2
+    return 1
+  fi
+  extension_bundle_id="$($PLISTBUDDY -c 'Print :CFBundleIdentifier' "$extension/Info.plist" 2>/dev/null || true)"
+  if [[ "$extension_bundle_id" != "$host_bundle_id.NotificationService" ]]; then
+    echo "error: notification extension bundle id is '${extension_bundle_id:-<absent>}', expected '$host_bundle_id.NotificationService'" >&2
+    return 1
+  fi
+
+  profile="$resign_dir/notification-service-profile.plist"
+  profile_entitlements="$resign_dir/notification-service-profile-entitlements.plist"
+  merged_entitlements="$resign_dir/notification-service-entitlements.plist"
+  if ! security cms -D -i "$extension/embedded.mobileprovision" > "$profile"; then
+    echo "error: could not decode notification extension provisioning profile" >&2
+    return 1
+  fi
+  if ! plutil -extract Entitlements xml1 -o "$profile_entitlements" "$profile"; then
+    echo "error: notification extension provisioning profile has no Entitlements dictionary" >&2
+    return 1
+  fi
+  cp "$profile_entitlements" "$merged_entitlements"
+  python3 - "$merged_entitlements" "$entitlements_source" "$DEVELOPMENT_TEAM" "$host_bundle_id" <<'PY'
+import plistlib
+import sys
+
+merged_path, source_path, team_id, host_bundle_id = sys.argv[1:]
+with open(merged_path, "rb") as handle:
+    profile = plistlib.load(handle)
+with open(source_path, "rb") as handle:
+    source = plistlib.load(handle)
+
+expected_group = f"{team_id}.{host_bundle_id}"
+groups = profile.get("keychain-access-groups", [])
+authorized = any(
+    group == expected_group
+    or (isinstance(group, str) and group.endswith(".*") and expected_group.startswith(group[:-1]))
+    for group in groups
+)
+if not authorized:
+    raise SystemExit(
+        "notification extension provisioning profile does not authorize "
+        f"the host keychain group {expected_group}"
+    )
+
+# Keep profile metadata as the source of truth. Copy only requested values that
+# the profile already authorizes, intersecting list capabilities so a stale
+# entitlement file cannot make ASC reject the bundle with error 90163.
+for key, value in source.items():
+    if key not in profile:
+        continue
+    profile_value = profile[key]
+    if isinstance(value, list) and isinstance(profile_value, list):
+        profile[key] = [item for item in value if item in profile_value]
+    else:
+        profile[key] = value
+profile["keychain-access-groups"] = [expected_group]
+
+with open(merged_path, "wb") as handle:
+    plistlib.dump(profile, handle)
+PY
+  if ! plutil -lint "$merged_entitlements" >/dev/null; then
+    echo "error: generated notification extension entitlements are invalid" >&2
+    return 1
+  fi
+  if "$PLISTBUDDY" -c 'Print :CMUXKeychainAccessGroup' "$extension/Info.plist" >/dev/null 2>&1; then
+    "$PLISTBUDDY" -c "Set :CMUXKeychainAccessGroup $DEVELOPMENT_TEAM.$host_bundle_id" "$extension/Info.plist"
+  else
+    "$PLISTBUDDY" -c "Add :CMUXKeychainAccessGroup string $DEVELOPMENT_TEAM.$host_bundle_id" "$extension/Info.plist"
+  fi
+  codesign --force --sign "$identity" --entitlements "$merged_entitlements" --timestamp "$extension"
+  codesign --verify --strict --verbose=2 "$extension"
 }
 
 verify_ipa_bundle_identity() {
@@ -73,7 +194,7 @@ verify_ipa_bundle_identity() {
   local team_id="$3"
   local expected_crash_reporting="${4:-}"
   local expected_app_id="$team_id.$expected_bundle_id"
-  local workdir app plist_bundle_id plist_crash_reporting profile_plist profile_app_id profile_aps profile_time_sensitive ent ent_app_id
+  local workdir app plist_bundle_id plist_crash_reporting profile_plist profile_app_id profile_aps profile_time_sensitive ent ent_app_id extension extension_bundle_id extension_entitlements extension_app_id extension_group
 
   workdir="$(mktemp -d)"
   if ! ( cd "$workdir" && unzip -q "$ipa" ); then
@@ -165,6 +286,53 @@ PY
   plist_keychain_group="$("$PLISTBUDDY" -c 'Print :CMUXKeychainAccessGroup' "$app/Info.plist" 2>/dev/null || true)"
   if [[ -n "$plist_keychain_group" && "$plist_keychain_group" != "$expected_app_id" ]]; then
     echo "error: Info.plist CMUXKeychainAccessGroup is '$plist_keychain_group', expected '$expected_app_id' (unsigned-archive AppIdentifierPrefix bake); refusing to upload a keychain-broken build: $app" >&2
+    rm -rf "$workdir"
+    return 1
+  fi
+
+  extension="$app/PlugIns/NotificationService.appex"
+  if [[ ! -d "$extension" ]]; then
+    echo "error: signed IPA is missing NotificationService.appex: $ipa" >&2
+    rm -rf "$workdir"
+    return 1
+  fi
+  extension_bundle_id="$($PLISTBUDDY -c 'Print :CFBundleIdentifier' "$extension/Info.plist" 2>/dev/null || true)"
+  if [[ "$extension_bundle_id" != "$expected_bundle_id.NotificationService" ]]; then
+    echo "error: signed IPA notification extension bundle id is '${extension_bundle_id:-<absent>}', expected '$expected_bundle_id.NotificationService': $ipa" >&2
+    rm -rf "$workdir"
+    return 1
+  fi
+  if ! codesign --verify --strict --verbose=2 "$extension" >&2; then
+    echo "error: signed IPA notification extension has an invalid signature: $ipa" >&2
+    rm -rf "$workdir"
+    return 1
+  fi
+  extension_entitlements="$workdir/notification-service-entitlements.plist"
+  if ! codesign -d --entitlements :- --xml "$extension" > "$extension_entitlements" 2>/dev/null; then
+    echo "error: could not read signed notification extension entitlements: $ipa" >&2
+    rm -rf "$workdir"
+    return 1
+  fi
+  extension_app_id="$($PLISTBUDDY -c 'Print :application-identifier' "$extension_entitlements" 2>/dev/null || true)"
+  if [[ "$extension_app_id" != "$expected_app_id.NotificationService" ]]; then
+    echo "error: signed IPA notification extension application-identifier is '${extension_app_id:-<absent>}', expected '$expected_app_id.NotificationService': $ipa" >&2
+    rm -rf "$workdir"
+    return 1
+  fi
+  if ! python3 - "$extension_entitlements" "$expected_app_id" <<'PY'
+import plistlib, sys
+with open(sys.argv[1], "rb") as handle:
+    entitlements = plistlib.load(handle)
+raise SystemExit(0 if entitlements.get("keychain-access-groups") == [sys.argv[2]] else 1)
+PY
+  then
+    echo "error: signed IPA notification extension keychain-access-groups must contain exactly '$expected_app_id': $ipa" >&2
+    rm -rf "$workdir"
+    return 1
+  fi
+  extension_group="$($PLISTBUDDY -c 'Print :CMUXKeychainAccessGroup' "$extension/Info.plist" 2>/dev/null || true)"
+  if [[ "$extension_group" != "$expected_app_id" ]]; then
+    echo "error: signed IPA notification extension CMUXKeychainAccessGroup is '${extension_group:-<absent>}', expected '$expected_app_id': $ipa" >&2
     rm -rf "$workdir"
     return 1
   fi
@@ -910,7 +1078,7 @@ if [[ -z "$ARCHIVE_PATH" ]]; then
       -archivePath "$ARCHIVE_PATH" \
       -derivedDataPath "$DERIVED_DATA" \
       -allowProvisioningUpdates \
-      "${XCODE_AUTH_ARGS[@]}" \
+      ${XCODE_AUTH_ARGS[@]+"${XCODE_AUTH_ARGS[@]}"} \
       DEVELOPMENT_TEAM="$DEVELOPMENT_TEAM" \
       CMUX_APP_BUNDLE_IDENTIFIER="$PRODUCT_BUNDLE_IDENTIFIER" \
       CMUX_HOST_BUNDLE_IDENTIFIER="$PRODUCT_BUNDLE_IDENTIFIER" \
@@ -1069,11 +1237,15 @@ else
   plutil -insert signingCertificate -string "Apple Distribution" "$EXPORT_OPTIONS"
   "$PLISTBUDDY" -c "Add :provisioningProfiles dict" "$EXPORT_OPTIONS"
   "$PLISTBUDDY" -c "Add :provisioningProfiles:$PRODUCT_BUNDLE_IDENTIFIER string $PROVISIONING_PROFILE_NAME" "$EXPORT_OPTIONS"
-  if [[ "$LANE" == "appstore" ]]; then
+  if [[ "$LANE" == "appstore" || "$LANE" == "beta" ]]; then
     EXTENSION_BUNDLE_IDENTIFIER="${PRODUCT_BUNDLE_IDENTIFIER}.NotificationService"
-    EXTENSION_PROFILE_NAME="${IOS_APPSTORE_EXTENSION_PROVISIONING_PROFILE_NAME:-}"
+    if [[ "$LANE" == "appstore" ]]; then
+      EXTENSION_PROFILE_NAME="${IOS_APPSTORE_EXTENSION_PROVISIONING_PROFILE_NAME:-}"
+    else
+      EXTENSION_PROFILE_NAME="${IOS_BETA_EXTENSION_PROVISIONING_PROFILE_NAME:-}"
+    fi
     if [[ -z "$EXTENSION_PROFILE_NAME" ]]; then
-      echo "error: manual App Store export needs IOS_APPSTORE_EXTENSION_PROVISIONING_PROFILE_NAME for $EXTENSION_BUNDLE_IDENTIFIER" >&2
+      echo "error: manual beta/App Store export needs a provisioning profile name for $EXTENSION_BUNDLE_IDENTIFIER" >&2
       exit 1
     fi
     "$PLISTBUDDY" -c "Add :provisioningProfiles:$EXTENSION_BUNDLE_IDENTIFIER string $EXTENSION_PROFILE_NAME" "$EXPORT_OPTIONS"
@@ -1085,7 +1257,7 @@ xcodebuild -exportArchive \
   -exportPath "$EXPORT_PATH" \
   -exportOptionsPlist "$EXPORT_OPTIONS" \
   -allowProvisioningUpdates \
-  "${XCODE_AUTH_ARGS[@]}" \
+  ${XCODE_AUTH_ARGS[@]+"${XCODE_AUTH_ARGS[@]}"} \
   | tee "$OUT_DIR/export.log"
 
 IPA_PATH="$EXPORT_PATH/cmux.ipa"
@@ -1129,12 +1301,11 @@ fi
 #
 # This runs on the MANUAL signing path only: it re-signs with the named
 # distribution cert from the local keychain ("Apple Distribution: Manaflow,
-# Inc."), which is present for local/fleet-archive beta cuts. The cmux iOS app is
-# a single self-contained bundle (no Frameworks/, no PlugIns/, GhosttyKit is
-# static), so only the top-level .app is signed; there is no nested code to
-# re-sign. Two alternatives were ruled out: an ad-hoc archive (CODE_SIGN_IDENTITY
-# "-") is rejected by the iOS SDK for an entitled app, and signing on the shared
-# fleet would put distribution material on shared Macs.
+# Inc."), which is present for local/fleet-archive beta cuts. The notification
+# service extension is nested code and must be re-signed before the host app.
+# Two alternatives were ruled out: an ad-hoc archive (CODE_SIGN_IDENTITY "-")
+# is rejected by the iOS SDK for an entitled app, and signing on the shared fleet
+# would put distribution material on shared Macs.
 if [[ "$SIGNING" == "manual" ]]; then
   # Resolve the Release entitlements file. Release.xcconfig statically sets
   # CODE_SIGN_ENTITLEMENTS = Config/cmux-release.entitlements, so default to that
@@ -1144,6 +1315,11 @@ if [[ "$SIGNING" == "manual" ]]; then
 
   if [[ ! -f "$RELEASE_ENTITLEMENTS" ]]; then
     echo "error: re-sign needs the Release entitlements file but it is missing: $RELEASE_ENTITLEMENTS (set IOS_RELEASE_ENTITLEMENTS to override)" >&2
+    exit 1
+  fi
+  NOTIFICATION_SERVICE_ENTITLEMENTS="${IOS_NOTIFICATION_SERVICE_ENTITLEMENTS:-$IOS_DIR/Config/NotificationService.entitlements}"
+  if [[ ! -f "$NOTIFICATION_SERVICE_ENTITLEMENTS" ]]; then
+    echo "error: re-sign needs the notification extension entitlements file but it is missing: $NOTIFICATION_SERVICE_ENTITLEMENTS (set IOS_NOTIFICATION_SERVICE_ENTITLEMENTS to override)" >&2
     exit 1
   fi
   if ! security find-identity -v -p codesigning 2>/dev/null | grep -qF "$RESIGN_IDENTITY"; then
@@ -1227,6 +1403,16 @@ if [[ "$SIGNING" == "manual" ]]; then
   # An empty Frameworks/ dir after stripping is pointless; remove it so the
   # bundle matches the historical no-Frameworks layout.
   rmdir "$RESIGN_APP/Frameworks" 2>/dev/null || true
+
+  if ! resign_notification_service_extensions \
+    "$RESIGN_APP" \
+    "$RESIGN_DIR" \
+    "$RESIGN_IDENTITY" \
+    "$PRODUCT_BUNDLE_IDENTIFIER" \
+    "$NOTIFICATION_SERVICE_ENTITLEMENTS"; then
+    echo "error: could not re-sign NotificationService.appex with the host keychain group" >&2
+    exit 1
+  fi
 
   # Start from the exported app's current (profile-baseline) entitlements, then
   # MERGE the profile's authorized Entitlements dict, then every key from the
@@ -1640,7 +1826,7 @@ else
        --build-number "$SHIPPED_BUILD_NUMBER" \
        --audience "$NOTES_AUDIENCE" \
        --bundle-id "$PRODUCT_BUNDLE_IDENTIFIER" \
-       "${NOTES_SOURCE_ARGS[@]}"; then
+       ${NOTES_SOURCE_ARGS[@]+"${NOTES_SOURCE_ARGS[@]}"}; then
     echo "TestFlight What to Test notes set for build $SHIPPED_BUILD_NUMBER" >&2
   else
     echo "warning: could not set TestFlight What to Test notes for build $SHIPPED_BUILD_NUMBER (the upload succeeded; re-run ios/scripts/set-testflight-notes.sh --build-number $SHIPPED_BUILD_NUMBER --audience $NOTES_AUDIENCE once the build finishes processing)" >&2
@@ -1673,6 +1859,6 @@ if [[ "$LANE" == "beta" && "$EXPORT_ONLY" -ne 1 && "$EXTERNAL_TESTING" -eq 1 && 
     python3 "$SCRIPT_DIR/asc_assign_external_testflight_group.py" \
       --bundle-id "$PRODUCT_BUNDLE_IDENTIFIER" \
       --build-number "$SHIPPED_BUILD_NUMBER" \
-      "${EXTERNAL_GROUP_SELECTOR[@]}" \
+      ${EXTERNAL_GROUP_SELECTOR[@]+"${EXTERNAL_GROUP_SELECTOR[@]}"} \
       --additional-group-id "$PRO_TESTFLIGHT_GROUP_ID"
 fi

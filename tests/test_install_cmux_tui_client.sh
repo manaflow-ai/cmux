@@ -1,9 +1,22 @@
 #!/usr/bin/env bash
-set -euo pipefail
+set -Eeuo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 TEST_DIR="$(mktemp -d "${TMPDIR:-/tmp}/cmux-client-install.XXXXXX")"
 trap 'rm -rf "$TEST_DIR"' EXIT
+# Most assertions below are a bare `cmp`, `grep -q` or `[ ... ]`, and the
+# installer's own output is redirected into a per-case log. When one of them
+# fails, `set -e` exits 1 having printed nothing after the last PASS line, which
+# is all a CI log preserves. Name the line that failed and dump the event log.
+report_failure() { # <line>
+  local status=$?
+  echo "FAIL: assertion at $(basename "${BASH_SOURCE[0]}"):$1 exited $status" >&2
+  if [[ -n "${EVENTS:-}" && -f "${EVENTS:-}" ]]; then
+    echo "--- installer events ---" >&2
+    cat "$EVENTS" >&2
+  fi
+}
+trap 'report_failure "$LINENO"' ERR
 APP="$TEST_DIR/Test.app"
 mkdir -p "$APP/Contents"
 CLIENT="$TEST_DIR/client"
@@ -96,11 +109,19 @@ exit 0
 SH
 chmod +x "$FAKEBIN/curl" "$FAKEBIN/gh" "$FAKEBIN/lipo"
 
+# Every case needs its own download cache: the installer skips the curl for a
+# slice already cached under the manifest's commit, and that commit is one
+# constant for the whole file. $RANDOM draws from 32768 values, so across the 25
+# calls made here two cases collided about once in a hundred runs, the second
+# silently served both slices from the first one's cache, and the `curl` and
+# `lipo` assertions below failed with no output. Number the caches instead.
+REMOTE_INSTALL_SEQ=0
 install_remote() { # <app> [installer options]
   local app="$1"; shift
   mkdir -p "$app/Contents"
   : > "$EVENTS"
-  PATH="$FAKEBIN:$PATH" CMUX_TUI_CLIENT_CACHE="$TEST_DIR/cache-$RANDOM" /bin/bash \
+  REMOTE_INSTALL_SEQ=$((REMOTE_INSTALL_SEQ + 1))
+  PATH="$FAKEBIN:$PATH" CMUX_TUI_CLIENT_CACHE="$TEST_DIR/cache-$REMOTE_INSTALL_SEQ" /bin/bash \
     "$ROOT_DIR/scripts/install-cmux-tui-client.sh" "$app" \
     --manifest-url "https://files.example.test/cmux-tui/$COMMIT/manifest.json" "$@"
 }

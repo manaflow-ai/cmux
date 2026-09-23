@@ -115,8 +115,12 @@ struct MachinesChromeIconButton: View {
                     ProgressView()
                         .controlSize(.mini)
                 } else {
-                    Image(systemName: symbolName)
-                        .font(.system(size: 11, weight: .medium))
+                    CmuxSystemSymbolImage(
+                        systemName: symbolName,
+                        pointSize: 11,
+                        weight: .medium,
+                        tint: Color(nsColor: isHovered ? .labelColor : .secondaryLabelColor)
+                    )
                 }
             }
             .frame(width: 22, height: 20)

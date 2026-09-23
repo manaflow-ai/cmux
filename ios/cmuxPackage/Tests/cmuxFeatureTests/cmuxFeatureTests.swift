@@ -6,6 +6,16 @@ import CmuxMobileRPC
 @testable import CmuxMobileShellUI
 import CmuxMobileShellModel
 import CmuxMobileTransport
+
+/// Named rather than resolved. `CmxPairingURLSchemeResolver` reads
+/// `Bundle.main`, which in an xctest process is the test runner and not a cmux
+/// build, so `encodedURL()` throws `invalidURL` whenever this target runs in an
+/// iOS Simulator without a host app. This is the untagged development scheme,
+/// the same value the host fallback produced.
+private let pairingScheme = CmxPairingURLScheme(
+    rawValue: "cmux-ios-dev.cmux.ios"
+)
+
 import CmuxMobileWorkspace
 import Foundation
 import StackAuth
@@ -188,7 +198,10 @@ final class TerminalOutputCollector {
     let store = CMUXMobileShellStore.preview()
 
     store.signIn()
-    let result = await store.connectPairingURLResult(try payload.encodedURL().absoluteString)
+    let result = await store.connectPairingURLResult(
+        try payload.encodedURL(pairingURLScheme: pairingScheme)
+            .absoluteString
+    )
 
     #expect(result == .needsUserApproval)
     #expect(store.pairingVersionWarning?.contains("unknown compatibility") == true)
@@ -4186,11 +4199,14 @@ struct InertPushRegistration: PushRegistering {
     ) async {}
 }
 
-@MainActor func deeplinkTestStore() -> CMUXMobileShellStore {
+@MainActor func deeplinkTestStore(
+    connectionState: MobileConnectionState = .connected
+) -> CMUXMobileShellStore {
     CMUXMobileShellStore(
         runtime: testRuntime(
             transportFactory: RecordingNeverConnectTransportFactory(dials: TransportDialRecorder())
         ),
+        connectionState: connectionState,
         reachability: OfflineReachability()
     )
 }
@@ -4234,9 +4250,9 @@ struct InertPushRegistration: PushRegistering {
     #expect(store.selectedTerminalID == MobileTerminalPreview.ID(rawValue: "terminal-notes"))
 }
 
-/// A parked tap expires: navigating minutes later would yank the user out of
-/// whatever they moved on to.
-@Test @MainActor func notificationTapExpiresInsteadOfNavigatingLate() async throws {
+/// A parked tap remains recoverable after the deadline while its Mac is still
+/// disconnected. The deadline cannot prove that the tab was deleted.
+@Test @MainActor func notificationTapRemainsRecoverableWhileDisconnected() async throws {
     nonisolated(unsafe) var currentTime = Date(timeIntervalSince1970: 1_000_000)
     let coordinator = MobilePushCoordinator(
         registration: InertPushRegistration(),
@@ -4245,12 +4261,76 @@ struct InertPushRegistration: PushRegistering {
     coordinator.handleTap(workspaceId: "workspace-docs", surfaceId: "terminal-notes")
 
     currentTime = currentTime.addingTimeInterval(121)
-    let store = deeplinkTestStore()
+    let store = deeplinkTestStore(connectionState: .disconnected)
     store.replaceForegroundWorkspaceState(PreviewMobileHost.workspaces)
     coordinator.bind(store: store)
 
     #expect(store.selectedWorkspaceID == nil)
     #expect(store.selectedTerminalID == nil)
+    #expect(coordinator.tabUnavailableAlert == nil)
+
+    store.connectionState = .connected
+    coordinator.workspacesDidChange()
+    #expect(store.selectedWorkspaceID == MobileWorkspacePreview.ID(rawValue: "workspace-docs"))
+    #expect(store.selectedTerminalID == MobileTerminalPreview.ID(rawValue: "terminal-notes"))
+}
+
+/// A tap received while its Mac is disconnected must stay parked. Once the
+/// connection recovers, the same tap selects the exact terminal without a
+/// second notification tap.
+@Test @MainActor func notificationTapWaitsForConnectionRecovery() async throws {
+    let coordinator = MobilePushCoordinator(registration: InertPushRegistration())
+    let store = deeplinkTestStore(connectionState: .disconnected)
+    store.replaceForegroundWorkspaceState(PreviewMobileHost.workspaces)
+    coordinator.bind(store: store)
+
+    coordinator.handleTap(workspaceId: "workspace-docs", surfaceId: "terminal-notes")
+
+    #expect(store.selectedWorkspaceID == nil)
+    #expect(store.selectedTerminalID == nil)
+    #expect(coordinator.tabUnavailableAlert == nil)
+
+    store.connectionState = .connected
+    coordinator.workspacesDidChange()
+
+    #expect(store.selectedWorkspaceID == MobileWorkspacePreview.ID(rawValue: "workspace-docs"))
+    #expect(store.selectedTerminalID == MobileTerminalPreview.ID(rawValue: "terminal-notes"))
+}
+
+/// Once a connected workspace snapshot proves the pushed terminal is gone, the
+/// coordinator clears the parked request and exposes a one-shot alert instead
+/// of navigating into a workspace that cannot show the requested tab.
+@Test @MainActor func notificationTapAlertsWhenTabIsUnavailable() async throws {
+    let coordinator = MobilePushCoordinator(registration: InertPushRegistration())
+    let store = deeplinkTestStore()
+    store.replaceForegroundWorkspaceState([
+        MobileWorkspacePreview(id: "workspace-docs", name: "Docs", terminals: [])
+    ])
+    coordinator.bind(store: store)
+
+    coordinator.handleTap(workspaceId: "workspace-docs", surfaceId: "terminal-notes")
+
+    #expect(store.selectedWorkspaceID == nil)
+    #expect(store.selectedTerminalID == nil)
+    #expect(coordinator.tabUnavailableAlert != nil)
+
+    coordinator.dismissTabUnavailableAlert()
+    #expect(coordinator.tabUnavailableAlert == nil)
+}
+
+@Test @MainActor func notificationTapAlertsWhenWorkspaceIsUnavailable() async throws {
+    let coordinator = MobilePushCoordinator(registration: InertPushRegistration())
+    let store = deeplinkTestStore()
+    store.replaceForegroundWorkspaceState([
+        MobileWorkspacePreview(id: "workspace-home", name: "Home", terminals: [])
+    ])
+    coordinator.bind(store: store)
+
+    coordinator.handleTap(workspaceId: "workspace-gone", surfaceId: "terminal-notes")
+
+    #expect(store.selectedWorkspaceID == nil)
+    #expect(store.selectedTerminalID == nil)
+    #expect(coordinator.tabUnavailableAlert != nil)
 }
 
 /// A surface-only tap (no workspaceId in the payload) must wait for the
@@ -4280,7 +4360,7 @@ struct InertPushRegistration: PushRegistering {
 /// pointing the store at a non-existent surface.
 @Test @MainActor func notificationTapKeepsTerminalParkedUntilItsSnapshotArrives() async throws {
     let coordinator = MobilePushCoordinator(registration: InertPushRegistration())
-    let store = deeplinkTestStore()
+    let store = deeplinkTestStore(connectionState: .disconnected)
     coordinator.bind(store: store)
 
     coordinator.handleTap(workspaceId: "workspace-docs", surfaceId: "terminal-notes")
@@ -4289,10 +4369,12 @@ struct InertPushRegistration: PushRegistering {
     ])
     coordinator.workspacesDidChange()
 
-    // Workspace navigation happens now; the absent terminal is not selected.
-    #expect(store.selectedWorkspaceID == MobileWorkspacePreview.ID(rawValue: "workspace-docs"))
+    // The workspace snapshot is incomplete and its connection is down, so the
+    // tap remains parked without selecting a stale workspace or terminal.
+    #expect(store.selectedWorkspaceID == nil)
     #expect(store.selectedTerminalID == nil)
 
+    store.connectionState = .connected
     store.replaceForegroundWorkspaceState(PreviewMobileHost.workspaces)
     coordinator.workspacesDidChange()
 
