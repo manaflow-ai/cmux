@@ -186,7 +186,11 @@ enum PhotoLibraryTransferError: Error {
     case timedOut
 }
 
+// Safety: the lock protects every mutable field; callbacks resume outside it.
 private final class PhotoLibraryTransferRace: @unchecked Sendable {
+    // lint:allow lock - sanctioned carve-out: synchronous callbacks race to
+    // resume one checked continuation exactly once; awaiting an actor here
+    // would add a suspension point to the cancellation/timeout compare-and-set.
     private let lock = NSLock()
     private var continuation: CheckedContinuation<ImportedPhotoLibraryFile?, Error>?
     private var transferTask: Task<Void, Never>?
@@ -266,24 +270,27 @@ private final class PhotoLibraryTransferRace: @unchecked Sendable {
     }
 }
 
-/// Loads a Photos library asset with a bounded wait. iCloud-backed assets can
-/// otherwise leave a composer staging task waiting indefinitely when the
-/// network transfer stalls.
-func loadImportedPhotoLibraryFile(
-    _ item: PhotosPickerItem,
-    timeout: Duration = .seconds(60)
-) async throws -> ImportedPhotoLibraryFile? {
-    let race = PhotoLibraryTransferRace()
-    return try await withTaskCancellationHandler(operation: {
-        try await withCheckedThrowingContinuation { continuation in
-            race.start(
-                item: item,
-                timeout: timeout,
-                continuation: continuation
-            )
-        }
-    }, onCancel: {
-        race.cancel()
-    })
+extension ImportedPhotoLibraryFile {
+    /// Loads a Photos library asset with a bounded wait. iCloud-backed assets
+    /// can otherwise leave a composer staging task waiting indefinitely when
+    /// the network transfer stalls.
+    static func load(
+        _ item: PhotosPickerItem,
+        timeout: Duration = .seconds(60)
+    ) async throws -> ImportedPhotoLibraryFile? {
+        let race = PhotoLibraryTransferRace()
+        return try await withTaskCancellationHandler(operation: {
+            try await withCheckedThrowingContinuation { continuation in
+                race.start(
+                    item: item,
+                    timeout: timeout,
+                    continuation: continuation
+                )
+            }
+        }, onCancel: {
+            race.cancel()
+        })
+    }
 }
+
 #endif
