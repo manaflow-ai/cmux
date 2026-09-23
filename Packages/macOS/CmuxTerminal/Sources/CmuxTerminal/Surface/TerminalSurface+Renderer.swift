@@ -90,6 +90,9 @@ extension TerminalSurface {
             || (renderHealth == .shellExited && rendererPresentationState.didPresentFrame)
     }
 
+    /// Whether the runtime has delivered a frame that remains reusable after hiding.
+    public var hasPresentedFrame: Bool { surface != nil && rendererPresentationState.didPresentFrame }
+
     /// Whether this surface's portal is currently visible in the UI. This is the
     /// authoritative on-screen signal (the same one that drives occlusion via
     /// `setVisibleInUI`), so the reclamation controller never releases a visible

@@ -6,8 +6,8 @@ extension GhosttySurfaceScrollView {
     /// A renderer that already presented a frame is already paintable; asking
     /// Ghostty to refresh it again during workspace selection can block the main
     /// thread while a remote surface drains its current frame.
-    static func shouldScheduleVisibilityRevealRefresh(rendererPresented: Bool) -> Bool {
-        !rendererPresented
+    static func shouldScheduleVisibilityRevealRefresh(hasPresentedFrame: Bool) -> Bool {
+        !hasPresentedFrame
     }
 
     /// Request an immediate terminal redraw after geometry updates so stale IOSurface
