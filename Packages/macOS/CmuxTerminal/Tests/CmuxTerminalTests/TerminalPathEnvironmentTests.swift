@@ -1,3 +1,4 @@
+import Foundation
 import CmuxTerminal
 import Testing
 
@@ -15,5 +16,27 @@ struct TerminalPathEnvironmentTests {
         )
 
         #expect(result == "\(shimDirectory):/usr/bin:/bin")
+    }
+
+    @Test("Scopes shell history to the terminal surface")
+    func scopesShellHistoryToSurface() {
+        let surfaceID = UUID(uuidString: "AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE")!
+        let context = TerminalSurface.CmuxContextEnvironment(
+            workspaceId: UUID(),
+            surfaceId: surfaceID,
+            terminalLifecycleId: UUID(),
+            socketPath: "/tmp/cmux.sock"
+        )
+        var environment: [String: String] = [:]
+        var protectedKeys: Set<String> = []
+
+        TerminalSurface.applyManagedCmuxContextEnvironment(
+            context,
+            to: &environment,
+            protectedKeys: &protectedKeys
+        )
+
+        #expect(environment["HISTFILE"] == TerminalSurface.terminalHistoryFileURL(surfaceID: surfaceID).path)
+        #expect(protectedKeys.contains("HISTFILE"))
     }
 }
