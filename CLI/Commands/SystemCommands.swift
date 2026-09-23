@@ -69,6 +69,15 @@ struct TreeCommand: SharedLegacyFacadeCommand {
     static let configuration = CommandConfiguration(commandName: "tree", helpNames: [])
 }
 
+/// `CurrentTopLevelCommand`, not `CurrentCommand`: `CLI/CMUXCLI+Current.swift`
+/// already owns that name for the legacy invocation's parsed options.
+struct CurrentTopLevelCommand: SharedLegacyFacadeCommand {
+    // `--limit` stays `String?`: the legacy parser owns its 1...200 range check.
+    @Option(name: .customLong("limit")) var limit: String?
+    @Argument(parsing: .allUnrecognized) var arguments: [String] = []
+    static let configuration = CommandConfiguration(commandName: "current", helpNames: [])
+}
+
 struct IdentifyCommand: SharedLegacyFacadeCommand {
     @Option(name: .customLong("workspace"), completion: workspaceCompletion) var workspaceID: String?
     @Option(name: .customLong("surface"), completion: surfaceCompletion) var surfaceID: String?
@@ -504,6 +513,29 @@ struct LayoutCommand: SharedLegacyFacadeCommand {
     @Option(name: .customLong("workspace"), completion: workspaceCompletion) var workspaceID: String?
     @Argument(parsing: .allUnrecognized) var arguments: [String] = []
     static let configuration = CommandConfiguration(commandName: "layout", helpNames: [])
+}
+
+struct GlaedaCommand: SharedLegacyFacadeCommand {
+    // See AuthCommand's comment: no catch-all argument alongside `subcommands`.
+    // No `defaultSubcommand`: a bare `cmux glaeda` throws its usage.
+    static let configuration = CommandConfiguration(
+        commandName: "glaeda",
+        subcommands: [
+            GlaedaRequestCommand.self,
+            GlaedaObserveCommand.self,
+        ],
+        helpNames: []
+    )
+}
+
+struct GlaedaRequestCommand: SharedLegacyFacadeCommand {
+    @Argument(parsing: .allUnrecognized) var arguments: [String] = []
+    static let configuration = CommandConfiguration(commandName: "request", helpNames: [])
+}
+
+struct GlaedaObserveCommand: SharedLegacyFacadeCommand {
+    @Argument(parsing: .allUnrecognized) var arguments: [String] = []
+    static let configuration = CommandConfiguration(commandName: "observe", helpNames: [])
 }
 
 struct AutomationCommand: SharedLegacyFacadeCommand {

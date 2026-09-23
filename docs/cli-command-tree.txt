@@ -392,6 +392,9 @@ command  config  aliases=-
   arg  arguments  kind=argument  completion=list(docs,doctor,get,help,path,reload,set,sidebar-font-size,surface-tab-bar-font-size)
 command  copy-mode  aliases=-
   arg  arguments  kind=argument  completion=-
+command  current  aliases=-
+  arg  --limit  kind=option  completion=-
+  arg  arguments  kind=argument  completion=-
 command  current-window  aliases=-
   arg  arguments  kind=argument  completion=-
 command  current-workspace  aliases=-
@@ -492,6 +495,11 @@ command  fork  aliases=-
   arg  --surface  kind=option  completion=custom-deprecated
   arg  arguments  kind=argument  completion=-
 command  get-url  aliases=-
+  arg  arguments  kind=argument  completion=-
+command  glaeda  aliases=-
+command  glaeda observe  aliases=-
+  arg  arguments  kind=argument  completion=-
+command  glaeda request  aliases=-
   arg  arguments  kind=argument  completion=-
 command  guide  aliases=-
   arg  arguments  kind=argument  completion=-
@@ -955,6 +963,8 @@ command  simulate-sidebar-drag  aliases=-
   arg  arguments  kind=argument  completion=-
 command  simulator  aliases=-
   arg  --surface  kind=option  completion=custom-deprecated
+  arg  arguments  kind=argument  completion=-
+command  socket-status  aliases=-
   arg  arguments  kind=argument  completion=-
 command  split-off  aliases=-
   arg  --focus  kind=option  completion=-
