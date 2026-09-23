@@ -79,7 +79,7 @@ lane = "macos-cli-no-socket"
 
 [[test]]
 path = "tests/test_claude_wrapper_hooks.py"
-lane = "macos-cli-no-socket"
+lane = "macos-claude-wrapper"
 
 [[test]]
 path = "tests/test_codex_wrapper_computer_use_mcp.py"
@@ -651,6 +651,10 @@ path = "tests/test_ci_cache_restore_receipt.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_parallel_artifact_transport.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_r2_artifact.py"
 lane = "linux-guard"
 
@@ -1040,6 +1044,14 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_cla_guard_metadata_routing.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_helper_prebuild_lifecycle.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ios_simulator_build_once.py"
 lane = "linux-guard"
 
 [[test]]

@@ -1107,6 +1107,10 @@ def classify_files(paths: Iterable[str], *, ci_workflow_linux_only: bool = False
         path = normalize_path(raw_path)
         if not path:
             continue
+        if path in {"Resources/bin/cmux-claude-wrapper", "tests/test_claude_wrapper_hooks.py"}:
+            # The independent macos-claude-wrapper lane executes the wrapper
+            # with fake clients and a Unix socket; it does not need app bytes.
+            continue
         if path == "tests/test-execution.toml":
             # The guard workflow references this registry too, but native
             # Python lanes consume it indirectly through their lane runner.

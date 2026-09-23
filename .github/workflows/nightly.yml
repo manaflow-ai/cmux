@@ -818,6 +818,15 @@ jobs:
           # step went from 21 minutes to 31-40 (#12704). The diagnostics
           # wrapper does not need a serial build; PR 12704 recorded 95% free
           # memory on the 50 GiB host during the failure it was written for.
+          #
+          # The app target's Rust helper phases run after the Swift compile but
+          # do not read its output. Build them now at low priority so those
+          # phases find the local-source helpers fresh instead of building them after
+          # the compile. A failed or late prebuild only leaves that work to the
+          # phases, so its status never fails this step.
+          python3 scripts/ci/run-with-helper-prebuild.py \
+            --derived-data build-universal --configuration Release --archs "$archs" \
+            --log "$RUNNER_TEMP/helper-prebuild.log" -- \
           ./scripts/ci/run-xcodebuild-with-diagnostics.sh -- \
             env CMUX_SKIP_ZIG_BUILD=1 xcodebuild -scheme cmux -configuration Release -derivedDataPath build-universal \
             -destination 'generic/platform=macOS' \

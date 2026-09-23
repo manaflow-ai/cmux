@@ -275,10 +275,16 @@ final class AgentSessionAutoResumeSettingsTests: XCTestCase {
                 input
             )
             XCTAssertFalse(input.contains("/tmp/repo"), input)
+            // The remote cwd survives restore as the panel's trusted remote
+            // directory report, not as the host shell's spawn directory: the
+            // restored resume input owns the `cd`, and a remote-host path is
+            // never enterable locally (OneShotTerminalLauncherStore filters it),
+            // so seeding it as the local spawn cwd would break the owning shell.
             XCTAssertEqual(
-                restoredPanel.requestedWorkingDirectory,
+                restored.panelDirectories[restoredPanelId],
                 remoteWorkingDirectory
             )
+            XCTAssertNil(restoredPanel.requestedWorkingDirectory)
             XCTAssertEqual(
                 restored.restoredAgentResumeStatesByPanelId[restoredPanelId],
                 .awaitingAutoResumeCommand
