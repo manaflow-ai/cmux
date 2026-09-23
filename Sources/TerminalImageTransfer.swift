@@ -442,17 +442,16 @@ enum TerminalImageTransferPlanner {
         pasteboard: NSPasteboard,
         pasteboardService: TerminalPasteboardService
     ) -> TerminalImageTransferPreparedContent? {
-        let urls = fileURLs(from: pasteboard)
+        let promisedURLs = PasteboardFileURLReader.promisedFileURLs(from: pasteboard)
+        let urls = PasteboardFileURLReader.fileURLs(from: pasteboard, promisedFileURLs: promisedURLs)
         // A promised file URL identifies the Finder selection, including a
         // folder whose icon is also advertised as image data. Ordinary image
         // copies can carry auxiliary folder URLs, so only promises give folders
         // precedence over pixels. Remote directory-upload policy stays separate.
-        let hasPromisedFiles = PasteboardFileURLReader.hasPromisedFileURLType(
-            pasteboard.types ?? []
-        )
+        let promisedPaths = Set(promisedURLs.map { $0.standardizedFileURL.path })
         guard !urls.isEmpty, urls.allSatisfy({ url in
             if isRemoteUploadableFileURL(url) { return true }
-            guard hasPromisedFiles, url.isFileURL,
+            guard promisedPaths.contains(url.standardizedFileURL.path), url.isFileURL,
                   let values = try? url.resourceValues(forKeys: [.isDirectoryKey]) else {
                 return false
             }
