@@ -54,9 +54,16 @@ final class RestoredAgentLifecycleCoordinator {
     }
 
     /// Accepts a hook publication without carrying an ended conversation into its replacement.
-    func acceptHookSnapshot(_ snapshot: SessionRestorableAgentSnapshot, panelId: UUID) {
+    func acceptHookSnapshot(
+        _ snapshot: SessionRestorableAgentSnapshot,
+        previousBinding: SurfaceResumeBindingSnapshot?,
+        panelId: UUID
+    ) {
+        // A completed Dock transfer may retain its binding but omit the snapshot.
+        let previous = previousBinding?.managedRestorableAgentSnapshot(replacing: nil)
+            ?? snapshotsByPanelId[panelId]
         if resumeStatesByPanelId[panelId] == .completedAgentExit,
-           let previous = snapshotsByPanelId[panelId],
+           let previous,
            !Self.hasSameSessionIdentity(previous, snapshot) {
             setResumeState(nil, panelId: panelId)
         }

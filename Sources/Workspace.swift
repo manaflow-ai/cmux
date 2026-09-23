@@ -6104,7 +6104,11 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         if let restorableAgent = binding.managedRestorableAgentSnapshot(
             replacing: previousRestorableAgent
         ) {
-            restoredAgentLifecycle.acceptHookSnapshot(restorableAgent, panelId: panelId)
+            restoredAgentLifecycle.acceptHookSnapshot(
+                restorableAgent,
+                previousBinding: existingBinding,
+                panelId: panelId
+            )
             invalidatedRestoredAgentFingerprintsByPanelId.removeValue(forKey: panelId)
         }
         surfaceResumeBindingsByPanelId[panelId] = binding
