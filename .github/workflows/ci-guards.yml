@@ -142,6 +142,11 @@ jobs:
       - name: "Validate Swift Testing #require is not nested"
         if: ${{ matrix.group == 'preflight' }}
         run: python3 tests/test_swift_testing_require_not_nested.py
+      - name: Validate pairing tests name their URL scheme
+        if: ${{ matrix.group == 'preflight' }}
+        run: |
+          python3 tests/test_pairing_scheme_lint.py
+          python3 tests/test_pairing_scheme_is_explicit_in_tests.py
       - name: Validate Python test harness syntax
         if: ${{ matrix.group == 'preflight' }}
         run: git ls-files 'tests/*.py' 'tests_v2/*.py' 'scripts/*.py' | xargs python3 -m py_compile
@@ -231,7 +236,7 @@ jobs:
           python-version: "3.9"
 
       - name: Prepare workflow guard Python dependencies
-        if: ${{ matrix.group == 'ci' || matrix.group == 'app-host-execution' || matrix.group == 'app-host-process' || matrix.group == 'app-host-cache' || matrix.group == 'release-notary' || matrix.group == 'release-tooling' }}
+        if: ${{ matrix.group == 'preflight' || matrix.group == 'ci' || matrix.group == 'app-host-execution' || matrix.group == 'app-host-process' || matrix.group == 'app-host-cache' || matrix.group == 'release-notary' || matrix.group == 'release-tooling' }}
         run: |
           set -euo pipefail
           python3 -m venv "$RUNNER_TEMP/workflow-guard-venv"
@@ -257,6 +262,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_merge_queue_required_checks.py
 
+      - name: Validate required-check drift reconciliation
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_required_checks_drift.py
+
       - name: Validate package test selection
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_select_package_tests.py
@@ -280,6 +289,10 @@ jobs:
       - name: Validate stale run cleanup eligibility
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_cleanup_stale_runs.py
+
+      - name: Validate the scheduled main full-suite run
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_main_full_suite.py
 
       - name: Validate CI queue janitor policy
         if: ${{ matrix.group == 'ci' }}
@@ -358,6 +371,12 @@ jobs:
       - name: Validate Swift Testing suite timeout guard
         if: ${{ matrix.group == 'app-host-execution' }}
         run: python3 tests/test_swift_testing_suite_timeout.py
+
+      - name: Validate Swift package execution evidence
+        if: ${{ matrix.group == 'app-host-execution' }}
+        run: |
+          python3 tests/test_swift_test_execution.py
+          python3 tests/test_swift_package_execution.py
 
       - name: Validate xcodebuild noninteractive crash prompt guard
         if: ${{ matrix.group == 'app-host-execution' }}
@@ -497,6 +516,10 @@ jobs:
         if: ${{ matrix.group == 'release-ios' }}
         run: python3 tests/test_ios_upload_lean_checkout.py
 
+      - name: Validate iOS upload batching
+        if: ${{ matrix.group == 'release-ios' }}
+        run: python3 tests/test_ios_upload_batching.py
+
       - name: Validate tagged iOS device entitlement fallback
         if: ${{ matrix.group == 'release-ios' }}
         run: node --test ios/tests/tagged-device-entitlements.test.mjs
@@ -583,6 +606,10 @@ jobs:
         if: ${{ matrix.group == 'release-notary' }}
         run: bash ./tests/test_nightly_universal_build.sh
 
+      - name: Validate nightly push throttle
+        if: ${{ matrix.group == 'release-notary' }}
+        run: python3 tests/test_ci_nightly_push_throttle.py
+
       - name: Validate test compilation cache seeding
         if: ${{ matrix.group == 'quality-sharding' }}
         run: bash ./tests/test_ci_test_compilation_cache_seed.sh
@@ -616,6 +643,14 @@ jobs:
         run: |
           python3 tests/test_ci_change_areas.py
           python3 tests/test_ci_linux_guard_routing.py
+
+      - name: Validate evidence collection reporting
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_evidence_outcomes.py
+
+      - name: Validate reusable workflow job name lookups
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_reusable_job_name_lookups.py
 
       - name: Validate reusable guard workflow structure
         if: ${{ matrix.group == 'ci' }}
