@@ -283,6 +283,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_queue_janitor.py
 
+      - name: Validate CI health report
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_health_report.py
+
       - name: Validate the trusted web complexity workflow
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_web_complexity_trusted_workflow.py
@@ -290,6 +294,10 @@ jobs:
       - name: Validate every workflow guard is wired
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_workflow_guards_are_wired.py
+
+      - name: Validate required checks are bounded
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_required_checks_are_bounded.py
 
       - name: Validate triage radar scoring
         if: ${{ matrix.group == 'ci' }}
@@ -482,6 +490,10 @@ jobs:
       - name: Validate the TestFlight archive log is kept on failure
         if: ${{ matrix.group == 'release-ios' }}
         run: python3 tests/test_ios_testflight_archive_log.py
+
+      - name: Validate iOS upload lean checkout
+        if: ${{ matrix.group == 'release-ios' }}
+        run: python3 tests/test_ios_upload_lean_checkout.py
 
       - name: Validate tagged iOS device entitlement fallback
         if: ${{ matrix.group == 'release-ios' }}

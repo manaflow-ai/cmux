@@ -951,6 +951,10 @@ jobs:
       - tests
     if: ${{ always() }}
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    # One step that reads `needs` and decides. Its siblings are bounded at 5
+    # to 20 minutes; this one was inheriting the six-hour default, as the
+    # required check every pull request waits on.
+    timeout-minutes: 5
     steps:
       - name: Check routed CI jobs
         env:
