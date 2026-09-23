@@ -501,7 +501,9 @@ final class AppDelegateEqualizeSplitsShortcutTests {
         }
 
         workspace.splitTabBar(workspace.bonsplitController, didChangeGeometry: workspace.bonsplitController.layoutSnapshot())
-        guard let seededLayoutSnapshot = await shortcutRoutingAwaitPublishedLayout(workspace) else {
+        guard let seededLayoutSnapshot = await shortcutRoutingAwaitPublishedLayout(workspace, until: {
+            $0.panes == workspace.bonsplitController.layoutSnapshot().panes
+        }) else {
             XCTFail("tmuxLayoutSnapshot never caught up to the seeded 3-pane tree; the geometry publish Task did not run")
             return
         }
@@ -536,8 +538,15 @@ final class AppDelegateEqualizeSplitsShortcutTests {
             XCTAssertEqual(split.dividerPosition, expectedPosition, accuracy: 0.000_1)
         }
 
-        guard let cachedEqualizedLayout = await shortcutRoutingAwaitPublishedLayout(workspace) else {
-            XCTFail("tmuxLayoutSnapshot never caught up to the equalized tree; the geometry publish Task did not run")
+        // Wait for the equalize to be published rather than for the cache to
+        // match the live tree: waiting on equality would make the frame
+        // comparison below true by construction. Waiting for the cache to
+        // leave the seeded geometry keeps that comparison able to fail if the
+        // publish lands the wrong snapshot.
+        guard let cachedEqualizedLayout = await shortcutRoutingAwaitPublishedLayout(workspace, until: {
+            $0.panes != seededLayoutSnapshot.panes
+        }) else {
+            XCTFail("tmuxLayoutSnapshot never left the seeded geometry; the geometry publish Task did not run")
             return
         }
         let liveEqualizedLayout = workspace.bonsplitController.layoutSnapshot()
@@ -8028,29 +8037,32 @@ final class AppDelegateEqualizeSplitsShortcutTests {
         Dictionary(uniqueKeysWithValues: snapshot.panes.map { ($0.paneId, $0.frame) })
     }
 
-    /// The published `tmuxLayoutSnapshot` once it catches up to the live tree.
+    /// The published `tmuxLayoutSnapshot` once it satisfies `predicate`.
     ///
     /// Since a27969a38b the geometry callback hands its work to
     /// `geometryNotificationScheduler.schedule(zeroDelayPolicy: .yieldOnce)`,
     /// which is `Task { await Task.yield(); action() }` on the MainActor
-    /// executor. A synchronous test body owns that executor for its whole
-    /// duration, so the continuation cannot run and the cache keeps the
-    /// one-pane value written at workspace init — no amount of
-    /// `RunLoop.main.run` helps, because spinning the run loop does not let
-    /// the MainActor's cooperative executor drain queued tasks. The caller
-    /// must be `async` and this must suspend.
+    /// executor. The pre-`async` version of this case read
+    /// `tmuxLayoutSnapshot` with no suspension point after the geometry call,
+    /// so it could only ever observe the one-pane value written at workspace
+    /// init. The caller must be `async` and this must suspend.
+    ///
+    /// The deadline bounds the failure path only: a publish that lands
+    /// promptly returns on the first drain.
     private func shortcutRoutingAwaitPublishedLayout(
         _ workspace: Workspace,
-        yields: Int = 200
+        timeout: Duration = .seconds(3),
+        until predicate: (LayoutSnapshot) -> Bool
     ) async -> LayoutSnapshot? {
-        for _ in 0..<yields {
-            await Task.yield()
-            let live = workspace.bonsplitController.layoutSnapshot()
-            if let cached = workspace.tmuxLayoutSnapshot, cached.panes == live.panes {
-                return cached
+        var published: LayoutSnapshot?
+        let settled = await AppKitTestEventPump().waitUntil(timeout: timeout) {
+            guard let cached = workspace.tmuxLayoutSnapshot, predicate(cached) else {
+                return false
             }
+            published = cached
+            return true
         }
-        return nil
+        return settled ? published : nil
     }
 
     private func shortcutRoutingAssertPaneFramesMatch(
