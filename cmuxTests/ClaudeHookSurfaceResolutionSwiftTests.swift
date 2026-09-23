@@ -143,7 +143,7 @@ struct ClaudeHookSurfaceResolutionSwiftTests {
             executablePath: context.cliPath,
             arguments: ["hooks", "claude", "session-start"],
             environment: environment,
-            standardInput: #"{"session_id":"\(sessionId)","source":"resume","cwd":"\(context.root.path)","hook_event_name":"SessionStart"}"#,
+            standardInput: #"{"session_id":"\#(sessionId)","source":"resume","cwd":"\#(context.root.path)","hook_event_name":"SessionStart"}"#,
             timeout: 5
         )
         #expect(serverHandled.wait(timeout: .now() + 5) == .success)
