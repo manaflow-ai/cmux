@@ -18,16 +18,6 @@ on:
         required: false
         default: ""
         type: string
-      # Label-derived selection for `app-host unit tests`. The full suite
-      # already implies it; this lets `unit-ci` ask for compile admission plus
-      # that one job, which reads the product admission already built, without
-      # waking the package, lag, release-admission and Release-build lanes.
-      # Optional and defaulted for the same reason as swift_packages: a caller
-      # that predates this input leaves it empty, which reads as "not routed".
-      unit_suite:
-        required: false
-        default: ""
-        type: string
       product_artifacts:
         required: false
         default: "layered"
@@ -606,7 +596,6 @@ jobs:
         id: publish-products
         env:
           PRODUCT_FULL_SUITE: ${{ inputs.full_suite }}
-          PRODUCT_UNIT_SUITE: ${{ inputs.unit_suite }}
           PRODUCT_EVENT: ${{ github.event_name }}
           PRODUCT_HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name }}
           PRODUCT_REPOSITORY: ${{ github.repository }}
@@ -615,12 +604,8 @@ jobs:
           import os
           head = os.environ.get("PRODUCT_HEAD_REPOSITORY", "").strip()
           repository = os.environ.get("PRODUCT_REPOSITORY", "").strip()
-          # `unit-ci` makes app-host unit tests a consumer of this product
-          # under the compile-only policy, so the fork product stops being
-          # unused and must still be packaged and uploaded.
           unused_fork_product = (
               os.environ.get("PRODUCT_FULL_SUITE") == "false"
-              and os.environ.get("PRODUCT_UNIT_SUITE") != "true"
               and os.environ.get("PRODUCT_EVENT") == "pull_request"
               and bool(head) and bool(repository)
               and head.casefold() != repository.casefold()
@@ -965,7 +950,7 @@ jobs:
     # jobs that legitimately skip (web/go/agent-session paths), and that
     # transitive skip otherwise marks every macOS job skipped even when
     # linux-preflight itself succeeds. Require the direct needs explicitly.
-    if: ${{ !cancelled() && needs.macos-compile-admission.result == 'success' && inputs.macos == 'true' && (inputs.full_suite == 'true' || inputs.unit_suite == 'true') }}
+    if: ${{ !cancelled() && needs.macos-compile-admission.result == 'success' && inputs.macos == 'true' && inputs.full_suite == 'true' }}
     name: app-host unit tests (${{ matrix.shard }}/7)
     # App-host XCTest needs a runner that can broker testmanagerd control
     # sessions, so route through the shared MACOS_RUNNER_15 var like the other
@@ -3126,9 +3111,9 @@ jobs:
     # Keep the app build on macOS 26 so SDK-gated SwiftUI Liquid Glass code
     # compiles into the same artifact shape as nightly and stable releases.
     # Release builds need enough disk for a universal Release build plus the
-    # restored SwiftPM cache. Default to a clean paid macOS 26 runner instead
-    # of the generic persistent macOS 26 pool.
-    runs-on: ${{ vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_26_RELEASE || 'blacksmith-6vcpu-macos-26' }}
+    # restored SwiftPM cache, which the macOS 26 image already carries. The
+    # variable names that image, not this lane.
+    runs-on: ${{ vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
     timeout-minutes: 60
     permissions:
       actions: read
@@ -3138,7 +3123,7 @@ jobs:
       CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_26 }}
       CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
       CMUX_SKIP_ZIG_BUILD: "1"
-      CMUX_PRODUCT_RUNNER: ${{ vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_26_RELEASE || 'blacksmith-6vcpu-macos-26' }}
+      CMUX_PRODUCT_RUNNER: ${{ vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
       CMUX_RELEASE_SOURCE_REVISION: ${{ github.event.pull_request.head.sha || github.sha }}
     steps:
       - name: Clear stale git locks (self-hosted reused workspace)
@@ -3533,7 +3518,7 @@ jobs:
           inputs = json.loads(os.environ["MACOS_INPUTS"])
           needs = json.loads(os.environ["MACOS_NEEDS"])
           # The caller leaves compile_admitted unset when its build-input reuse
-          # steps are skipped (full suite or unit-ci) or fail; unset means "compile", the
+          # steps are skipped (full suite) or fail; unset means "compile", the
           # same reading the macos-compile-admission job condition uses.
           if inputs.get("compile_admitted") == "":
               inputs["compile_admitted"] = "false"
@@ -3551,14 +3536,9 @@ jobs:
           # The package lane is routed from changed paths, so it is required
           # whenever the router selected it even under the compile-only suite.
           swift_packages = inputs["swift_packages"] == "true"
-          # `unit-ci` asks for app-host unit tests without the full suite, and
-          # clears suite-coverage on the strength of them, so a skip here must
-          # fail rather than read as a job nobody routed. Empty or missing
-          # means a caller that predates the input.
-          unit_suite = inputs.get("unit_suite", "") == "true"
           required = {
               "macos-compile-admission": macos and inputs["compile_admitted"] != "true",
-              "app-host-unit-tests": macos and (full_suite or unit_suite),
+              "app-host-unit-tests": macos and full_suite,
               "swift-package-tests": (macos and full_suite) or swift_packages,
               "tests-build-and-lag": macos and full_suite,
               "release-admission": macos and full_suite and inputs["release_build"] == "true",
