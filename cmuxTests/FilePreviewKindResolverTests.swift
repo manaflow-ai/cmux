@@ -26,6 +26,25 @@ struct FilePreviewKindResolverTests {
         }
     }
 
+    @Test("Elixir and Erlang source files route directly to text preview")
+    func beamSourceFilesRouteDirectlyToTextPreview() throws {
+        // .exs collides with the Logic sampler UTI (com.apple.logic.exs), which
+        // conforms to audiovisualContent and would otherwise open as media.
+        for fileExtension in ["ex", "exs", "erl", "hrl"] {
+            let url = try temporaryFile(
+                extension: fileExtension,
+                contents: "defmodule Greeter do\n  def hello, do: :world\nend\n"
+            )
+            defer { try? FileManager.default.removeItem(at: url) }
+
+            #expect(
+                FilePreviewKindResolver.initialMode(for: url) == .text,
+                "Expected .\(fileExtension) to avoid the QuickLook/media backend before async resolution."
+            )
+            #expect(FilePreviewKindResolver.mode(for: url) == .text)
+        }
+    }
+
     @Test("Movie file extensions keep media preview")
     func movieFileExtensionsKeepMediaPreview() throws {
         for fileExtension in ["mov", "mp4"] {
