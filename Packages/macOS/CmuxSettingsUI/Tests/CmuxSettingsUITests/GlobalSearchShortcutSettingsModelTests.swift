@@ -7,6 +7,7 @@ import Testing
 @Suite(.serialized)
 final class GlobalSearchShortcutSettingsModelTests {
     @Test func distinctChordSuffixesCanShareAPrefix() async throws {
+        FileHandle.standardError.write(Data("global-search-chord: creating fixture\n".utf8))
         let directory = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }
 
@@ -24,6 +25,7 @@ final class GlobalSearchShortcutSettingsModelTests {
             option: true,
             control: true
         )
+        FileHandle.standardError.write(Data("global-search-chord: fixture ready\n".utf8))
         let settingsChord = StoredShortcut(
             first: prefix,
             second: ShortcutStroke(key: "p")
@@ -34,12 +36,15 @@ final class GlobalSearchShortcutSettingsModelTests {
         )
 
         await model.assignChord(settingsChord, to: .openSettings)
+        FileHandle.standardError.write(Data("global-search-chord: settings chord assigned\n".utf8))
         await model.assignChord(searchChord, to: .globalSearch)
+        FileHandle.standardError.write(Data("global-search-chord: search chord assigned\n".utf8))
 
         let bindings = await store.value(for: catalog.shortcuts.bindings)
         #expect(bindings[ShortcutAction.openSettings.rawValue] == settingsChord)
         #expect(bindings[ShortcutAction.globalSearch.rawValue] == searchChord)
         #expect(model.conflictRejections[ShortcutAction.globalSearch.rawValue] == nil)
+        FileHandle.standardError.write(Data("global-search-chord: assertions complete\n".utf8))
     }
 
     @Test func persistedMediaKeyGlobalSearchBindingIsNotEffective() async throws {
