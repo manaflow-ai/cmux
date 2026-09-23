@@ -27,7 +27,8 @@ public struct TerminalShellPromptReadinessPolicy: Sendable {
         environment: [String: String],
         managedShellReportsPromptReadiness: Bool = false
     ) -> Bool {
-        guard let integrationDirectory, let resolvedShell, !hasUserGhosttyCommand else { return false }
+        guard managedShellReportsPromptReadiness,
+              let integrationDirectory, let resolvedShell, !hasUserGhosttyCommand else { return false }
         if let resolvedCommand, !resolvedCommand.isEmpty,
            resolvedCommand != managedShellCommand, resolvedCommand != resolvedShell {
             return false
@@ -38,7 +39,7 @@ public struct TerminalShellPromptReadinessPolicy: Sendable {
         case "bash":
             return environment["PROMPT_COMMAND"]?.isEmpty == false
         case "fish", "nu":
-            return managedShellReportsPromptReadiness && managedShellCommand != nil && resolvedCommand == managedShellCommand
+            return managedShellCommand != nil && resolvedCommand == managedShellCommand
         default:
             return false
         }

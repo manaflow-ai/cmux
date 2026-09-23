@@ -19,7 +19,10 @@ extension CMUXCLI {
         workingDirectory: String?
     ) throws -> RestoreExecution {
         if let command = record.legacyCommand {
-            if record.kind != "codex" || record.mode != AgentRestoreRequestMode.resumeAgent.rawValue {
+            if record.kind != "codex" {
+                return .legacy(command: command, environment: processEnvironment.merging(record.environment) { _, saved in saved })
+            }
+            if let mode = AgentRestoreRequestMode(rawValue: record.mode), mode != .resumeAgent {
                 return .legacy(command: command, environment: processEnvironment.merging(record.environment) { _, saved in saved })
             }
             if record.mode == AgentRestoreRequestMode.resumeAgent.rawValue,
