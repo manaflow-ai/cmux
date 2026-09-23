@@ -117,7 +117,13 @@ final class CloudTuiManualIOConnection: @unchecked Sendable {
         })
     }
 
-    /// Enqueues one JSON command. Commands are serialized with incoming lines.
+    /// Enqueues one schema-generated command. Commands are serialized with incoming lines.
+    func send(_ command: CloudTuiGenerated.Command) {
+        guard let line = try? command.line() else { return }
+        send(line: line)
+    }
+
+    /// Legacy dictionary boundary retained for non-generated commands during migration.
     func send(_ command: [String: Any]) {
         guard let line = commandBuilder.line(command) else { return }
         send(line: line)

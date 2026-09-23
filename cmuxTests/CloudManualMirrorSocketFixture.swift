@@ -19,6 +19,7 @@ struct CloudManualMirrorFixtureCommand: Sendable {
     let offset: Int?
     let imageBytes: Data?
     let hasDestinationPath: Bool
+    let pointerRow: Int?
 
     init?(_ object: [String: Any]) {
         guard let cmd = object["cmd"] as? String else { return nil }
@@ -37,6 +38,8 @@ struct CloudManualMirrorFixtureCommand: Sendable {
         offset = object["offset"] as? Int
         imageBytes = (object["data"] as? String).flatMap { Data(base64Encoded: $0) }
         hasDestinationPath = object["path"] != nil
+        pointerRow = (object["pointer"] as? [String: Any])
+            .flatMap { ($0["row"] as? NSNumber)?.intValue }
     }
 }
 
@@ -68,14 +71,13 @@ final class CloudManualMirrorSocketFixture: @unchecked Sendable {
     func nextCommand(timeout: Duration) async -> CloudManualMirrorFixtureCommand? {
         let deadline = ContinuousClock.now + timeout
         while true {
-            lock.lock()
-            if cursor < received.count {
+            let command: CloudManualMirrorFixtureCommand? = lock.withLock {
+                guard cursor < received.count else { return nil }
                 let command = received[cursor]
                 cursor += 1
-                lock.unlock()
                 return command
             }
-            lock.unlock()
+            if let command { return command }
             if ContinuousClock.now >= deadline { return nil }
             try? await Task.sleep(for: .milliseconds(10))
         }
@@ -175,7 +177,7 @@ final class CloudManualMirrorSocketFixture: @unchecked Sendable {
             Darwin.close(fd)
             throw NSError(domain: "cmux.tests", code: Int(ENAMETOOLONG))
         }
-        _ = withUnsafeMutablePointer(to: &address.sun_path) { pointer in
+        withUnsafeMutablePointer(to: &address.sun_path) { pointer in
             pointer.withMemoryRebound(to: CChar.self, capacity: maxPathLength) { buffer in
                 for index in 0..<utf8.count {
                     buffer[index] = CChar(bitPattern: utf8[index])

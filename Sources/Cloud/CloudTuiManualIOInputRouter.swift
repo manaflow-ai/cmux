@@ -78,16 +78,38 @@ final class CloudTuiManualIOInputRouter: @unchecked Sendable {
 
     /// Orders a control request with the manual input that preceded the paste.
     func sendControl(
-        _ command: [String: Any], on connection: CloudTuiManualIOConnection, requestID: UInt64
+        _ fields: [String: Any], on connection: CloudTuiManualIOConnection, requestID: UInt64
     ) throws -> UInt64 {
-        let command = command.merging(["id": requestID]) { _, value in value }
-        guard let line = commandBuilder.line(command) else {
+        guard let terminalID = fields["terminal_id"] as? String,
+              let lease = fields["lease"] as? String,
+              let uploadID = fields["upload_id"] as? String,
+              let surface = Self.uint64(fields["surface"]),
+              let operation = fields["op"] as? String else {
             throw CloudImagePasteError.unavailable
         }
+        let command = commandBuilder.typedPasteImage(
+            terminalID: terminalID,
+            lease: lease,
+            uploadID: uploadID,
+            surfaceID: surface,
+            operation: operation,
+            mime: fields["mime"] as? String,
+            data: fields["data"] as? String,
+            size: Self.uint64(fields["size"]),
+            offset: Self.uint64(fields["offset"]),
+            requestID: requestID
+        )
         // Image commit shares the input lane. Queue it behind prior manual input,
         // and retain this exact connection rather than replaying it after reconnect.
-        queue.async { connection.send(line: line) }
+        queue.async { connection.send(command) }
         return requestID
+    }
+
+    private static func uint64(_ value: Any?) -> UInt64? {
+        if let value = value as? UInt64 { return value }
+        if let value = value as? Int, value >= 0 { return UInt64(value) }
+        if let value = value as? NSNumber, value.int64Value >= 0 { return value.uint64Value }
+        return nil
     }
 
     /// Enqueues one manual input event.
@@ -96,7 +118,6 @@ final class CloudTuiManualIOInputRouter: @unchecked Sendable {
         // callback only copies the already-owned Sendable value and enqueues it
         // on this serial transport lane.
         queue.async { [self, input] in
-            let command: [String: Any]
             switch input {
             case .bytes(let bytes):
                 guard !bytes.isEmpty else { return }
@@ -104,31 +125,23 @@ final class CloudTuiManualIOInputRouter: @unchecked Sendable {
                 // mirror session uses positive ids for handshake/resize state,
                 // so an input acknowledgement can never be mistaken for one
                 // of its state-machine responses.
-                command = commandBuilder.input(
-                    surfaceID: surfaceID,
-                    bytes: bytes,
-                    requestID: 0
-                )
+                let typed = commandBuilder.typedInput(surfaceID: surfaceID, bytes: bytes, requestID: 0)
+                if let connection { connection.send(typed); return }
+                guard let line = commandBuilder.line(typed) else { return }
+                guard pendingByteCount + line.count <= pendingByteLimit else { pendingLines.removeAll(keepingCapacity: true); pendingByteCount = 0; return }
+                pendingLines.append(line)
+                pendingByteCount += line.count
+                return
             case .namedKey(let name):
                 guard let key = Self.protocolKeyName(for: name) else { return }
-                command = commandBuilder.namedKey(
-                    surfaceID: surfaceID,
-                    key: key,
-                    requestID: 0
-                )
-            }
-            guard let line = commandBuilder.line(command) else { return }
-            if let connection {
-                connection.send(line: line)
+                let typed = commandBuilder.typedNamedKey(surfaceID: surfaceID, key: key, requestID: 0)
+                if let connection { connection.send(typed); return }
+                guard let line = commandBuilder.line(typed) else { return }
+                guard pendingByteCount + line.count <= pendingByteLimit else { pendingLines.removeAll(keepingCapacity: true); pendingByteCount = 0; return }
+                pendingLines.append(line)
+                pendingByteCount += line.count
                 return
             }
-            guard pendingByteCount + line.count <= pendingByteLimit else {
-                pendingLines.removeAll(keepingCapacity: true)
-                pendingByteCount = 0
-                return
-            }
-            pendingLines.append(line)
-            pendingByteCount += line.count
         }
     }
 

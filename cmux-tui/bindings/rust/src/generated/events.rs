@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 7042c629f34d3606581d07b2d2c03b65116c2467810724163c54674865825cc0.
+// cmux-tui mux protocol 12, IR 34f9da1bacadfc5138b12eb08e6078d3a71fd513a5b71bab5d7b9311f7d7c91a.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -257,6 +257,20 @@ pub struct PaneClosedEvent {
     pub pane: T::Id,
     pub screen: T::Id,
     pub workspace: T::Id,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PresenceChangedEvent {
+    pub client: u64,
+    pub color: u64,
+    pub generation: u64,
+    pub highlight: Nullable<T::PresenceHighlight>,
+    pub kind: Nullable<String>,
+    pub name: Nullable<String>,
+    pub pointer: Nullable<T::PresenceAnchor>,
+    pub surface: Nullable<T::Id>,
+    pub updated_at_ms: u64,
 }
 
 #[rustfmt::skip]
@@ -564,6 +578,7 @@ pub enum Event {
     PairingResolved(PairingResolvedEvent),
     PaneAdded(PaneAddedEvent),
     PaneClosed(PaneClosedEvent),
+    PresenceChanged(PresenceChangedEvent),
     RenderDelta(RenderDeltaEvent),
     RenderState(RenderStateEvent),
     Resized(ResizedEvent),
@@ -620,6 +635,7 @@ impl Event {
             Self::PairingResolved(_) => Some("pairing-resolved"),
             Self::PaneAdded(_) => Some("pane-added"),
             Self::PaneClosed(_) => Some("pane-closed"),
+            Self::PresenceChanged(_) => Some("presence-changed"),
             Self::RenderDelta(_) => Some("render-delta"),
             Self::RenderState(_) => Some("render-state"),
             Self::Resized(_) => Some("resized"),
@@ -675,6 +691,7 @@ impl Event {
             Self::PairingResolved(_) => Some(&PAIRING_RESOLVED_EVENT_METADATA),
             Self::PaneAdded(_) => Some(&PANE_ADDED_EVENT_METADATA),
             Self::PaneClosed(_) => Some(&PANE_CLOSED_EVENT_METADATA),
+            Self::PresenceChanged(_) => Some(&PRESENCE_CHANGED_EVENT_METADATA),
             Self::RenderDelta(_) => Some(&RENDER_DELTA_EVENT_METADATA),
             Self::RenderState(_) => Some(&RENDER_STATE_EVENT_METADATA),
             Self::Resized(_) => Some(&RESIZED_EVENT_METADATA),
@@ -895,6 +912,14 @@ pub fn decode_event(raw: Value) -> Event {
         },
         Some("pane-closed") => match serde_json::from_value::<PaneClosedEvent>(raw.clone()) {
             Ok(event) => Event::PaneClosed(event),
+            Err(error) => Event::Unknown(UnknownEvent {
+                name,
+                raw,
+                decode_error: Some(error.to_string()),
+            }),
+        },
+        Some("presence-changed") => match serde_json::from_value::<PresenceChangedEvent>(raw.clone()) {
+            Ok(event) => Event::PresenceChanged(event),
             Err(error) => Event::Unknown(UnknownEvent {
                 name,
                 raw,

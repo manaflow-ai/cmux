@@ -4,6 +4,11 @@ on:
     paths:
       - Sources/Cloud/CloudTuiPersistent*.swift
       - Sources/Cloud/CloudTuiManualIO*.swift
+      - Sources/Cloud/CloudPresence*.swift
+      - cmux-tui/bindings/swift/**
+      - cmuxTests/CloudPresenceTests.swift
+      - cmuxTests/CloudTuiSwiftSDKTests.swift
+      - cmuxTests/CloudManualMirrorSocketFixture.swift
       - Sources/Cloud/CloudTuiTerminalProjectionTarget.swift
       - Sources/Cloud/CloudTuiRemoteColors.swift
       - cmuxTests/CloudCommand*.swift
