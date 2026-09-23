@@ -1,9 +1,12 @@
 #!/usr/bin/env python3
-"""Behavioral contract for the Nightly push throttle in nightly.yml `decide`.
+"""Behavioral contract for the Nightly build decision in nightly.yml `decide`.
 
 Runs the real `decide` github-script under Node with a mocked GitHub API and
 checks that only pushes to main are throttled, by the age of the commit the
-`nightly` tag points at, and that every lookup failure builds.
+`nightly` tag points at; that a push whose changed paths cannot reach the app
+skips the build; and that every lookup failure builds. The build-input check
+runs the real `scripts/ci/nightly_build_inputs.py`, so the classification it
+asserts is the one the workflow gets.
 """
 
 import json
@@ -16,6 +19,24 @@ WORKFLOW = ROOT / ".github" / "workflows" / "nightly.yml"
 
 HEAD_SHA = "a" * 40
 TAG_SHA = "b" * 40
+
+
+def comparison(paths, **overrides):
+    """A complete `nightly`...HEAD comparison touching `paths`."""
+    data = {
+        "status": "ahead",
+        "merge_base_commit": {"sha": TAG_SHA},
+        "files": [{"filename": path, "status": "modified"} for path in paths],
+    }
+    data.update(overrides)
+    return data
+
+
+# The default for every other test: the app itself changed, so the build
+# decision is the one the throttle and the publish gates make.
+APP_CHANGE = comparison(["Sources/AppDelegate.swift"])
+# Two merges that cannot reach the app: the web deployment and a Linux guard.
+NEUTRAL_CHANGE = comparison(["web/app/page.tsx", "tests/test_ci_change_areas.py"])
 
 HARNESS = r"""
 const scenario = JSON.parse(process.env.SCENARIO);
@@ -43,21 +64,41 @@ const context = {
   repo: { owner: 'manaflow-ai', repo: 'cmux' },
 };
 const notFound = () => Object.assign(new Error('Not Found'), { status: 404 });
-const github = { rest: { git: {
-  getRef: async () => {
-    if (!scenario.tagSha) throw notFound();
-    return { data: { object: { type: 'commit', sha: scenario.tagSha } } };
+const github = { rest: {
+  git: {
+    getRef: async () => {
+      if (!scenario.tagSha) throw notFound();
+      return { data: { object: { type: 'commit', sha: scenario.tagSha } } };
+    },
+    getTag: async () => { throw new Error('unexpected annotated tag'); },
+    getCommit: async () => {
+      if (scenario.getCommitFails) throw new Error('boom');
+      const date = new Date(Date.now() - scenario.tagAgeHours * 3600000).toISOString();
+      return { data: { committer: { date } } };
+    },
   },
-  getTag: async () => { throw new Error('unexpected annotated tag'); },
-  getCommit: async () => {
-    if (scenario.getCommitFails) throw new Error('boom');
-    const date = new Date(Date.now() - scenario.tagAgeHours * 3600000).toISOString();
-    return { data: { committer: { date } } };
+  repos: {
+    compareCommitsWithBasehead: async ({ basehead }) => {
+      if (!scenario.compare) throw new Error('comparison unavailable');
+      if (basehead !== `${scenario.tagSha}...${scenario.headSha}`) {
+        throw new Error(`expected a cumulative comparison, got ${basehead}`);
+      }
+      return { data: scenario.compare };
+    },
   },
-} } };
-const run = new Function('github', 'context', 'core', 'process',
+} };
+// Classify with the real script in the real checkout, so the workflow and this
+// contract cannot disagree about what reaches the app.
+const exec = { getExecOutput: async (command, args, options) => {
+  const result = require('node:child_process').spawnSync(command, args, {
+    cwd: scenario.root, input: options?.input, encoding: 'utf8',
+  });
+  if (result.error) throw result.error;
+  return { exitCode: result.status, stdout: result.stdout, stderr: result.stderr };
+} };
+const run = new Function('github', 'context', 'core', 'process', 'exec',
   `return (async () => {\n${scenario.script}\n})();`);
-run(github, context, core, process).then(() => {
+run(github, context, core, process, exec).then(() => {
   console.log(JSON.stringify({ outputs, notices, warnings, tables }));
 }).catch((e) => { console.error(e); process.exit(1); });
 """
@@ -93,6 +134,7 @@ def run_decide(
     get_commit_fails: bool = False,
     schedule: str = "47 8 * * *",
     extra_env=None,
+    comparison=None,
 ):
     env = {
         "PATH": "/usr/bin:/bin:/usr/local/bin:/opt/homebrew/bin",
@@ -113,6 +155,8 @@ def run_decide(
                 "tagAgeHours": tag_age_hours,
                 "getCommitFails": get_commit_fails,
                 "schedule": schedule,
+                "compare": APP_CHANGE if comparison is None else comparison,
+                "root": str(ROOT),
             }
         ),
     }
@@ -171,6 +215,97 @@ def test_cache_only_modes_explain_why_no_app_is_built() -> None:
     assert "cache warmup" in summary_values(warm)["reason"]
     daily = run_decide(event="schedule", schedule="47 8 * * *")
     assert summary_values(daily)["app build selected"] == "true"
+
+
+def test_push_skips_when_no_changed_path_reaches_the_app() -> None:
+    result = run_decide(event="push", interval="0", comparison=NEUTRAL_CHANGE)
+    assert not should_build(result)
+    assert summary_values(result)["app build selected"] == "false"
+    assert summary_values(result)["app build inputs changed"] == "false"
+    assert "nothing that reaches the app changed" in summary_values(result)["reason"]
+    assert "force=true" in result["notices"][0]
+    assert not result["warnings"]
+
+
+def test_paths_that_reach_the_app_still_build() -> None:
+    for path in [
+        "Sources/AppDelegate.swift",
+        "Resources/bin/open-app",
+        "cmux.xcodeproj/project.pbxproj",
+        "package.json",
+        # The app bundles skills/cmux-cua as a folder resource, so its
+        # Markdown ships while other skills' Markdown does not.
+        "skills/cmux-cua/SKILL.md",
+        # Nightly signs and publishes; those helpers run in no PR lane.
+        "scripts/sign-cmux-bundle.sh",
+        "scripts/sparkle_generate_appcast.sh",
+        ".github/workflows/nightly.yml",
+        # An unrecognized path is never assumed neutral.
+        "unknown/new-directory/file.txt",
+    ]:
+        built = run_decide(event="push", interval="0", comparison=comparison([path]))
+        assert should_build(built), f"{path} must rebuild the app"
+        assert summary_values(built)["app build inputs changed"] == "true"
+    mixed = run_decide(event="push", interval="0",
+                       comparison=comparison(["web/app/page.tsx", "Sources/AppDelegate.swift"]))
+    assert should_build(mixed)
+
+
+def test_skill_markdown_outside_the_bundled_skill_is_neutral() -> None:
+    assert not should_build(run_decide(event="push", interval="0",
+                                       comparison=comparison(["skills/cmux-testing/SKILL.md"])))
+
+
+def test_renames_are_classified_by_both_names() -> None:
+    moved_out = comparison(["docs/moved.md"], files=[
+        {"filename": "docs/moved.md", "status": "renamed",
+         "previous_filename": "Sources/Moved.swift"},
+    ])
+    assert should_build(run_decide(event="push", interval="0", comparison=moved_out))
+    moved_in = comparison([], files=[
+        {"filename": "Sources/Moved.swift", "status": "renamed",
+         "previous_filename": "docs/moved.md"},
+    ])
+    assert should_build(run_decide(event="push", interval="0", comparison=moved_in))
+
+
+def test_force_and_manual_dispatch_bypass_the_input_check() -> None:
+    forced = run_decide(event="push", interval="0", comparison=NEUTRAL_CHANGE,
+                        extra_env={"FORCE_BUILD": "true"})
+    assert should_build(forced)
+    manual = run_decide(event="workflow_dispatch", interval="0", comparison=NEUTRAL_CHANGE)
+    assert should_build(manual)
+    assert summary_values(manual)["app build inputs changed"] == "(not checked)"
+
+
+def test_the_daily_catch_up_skips_a_neutral_gap_and_the_warmup_is_untouched() -> None:
+    daily = run_decide(event="schedule", schedule="47 8 * * *", interval="0",
+                       comparison=NEUTRAL_CHANGE)
+    assert not should_build(daily)
+    warm = run_decide(event="schedule", schedule="17 */6 * * *", interval="0",
+                      comparison=NEUTRAL_CHANGE)
+    assert should_build(warm), "the cache warmup keeps its routing output"
+    assert summary_values(warm)["app build inputs changed"] == "(not checked)"
+
+
+def test_an_unproven_comparison_builds() -> None:
+    for unusable in [
+        # Not a fast-forward from the published commit, so the file list does
+        # not describe the whole gap.
+        comparison(["web/app/page.tsx"], status="diverged"),
+        comparison(["web/app/page.tsx"], merge_base_commit={"sha": "c" * 40}),
+        # GitHub truncates the list past 300 files.
+        comparison(["web/app/page.tsx"] * 300),
+        # No file list at all, or a comparison the API would not return.
+        comparison([], files=None),
+        comparison([]),
+        {},
+        # The comparison request itself failed.
+        False,
+    ]:
+        result = run_decide(event="push", interval="0", comparison=unusable)
+        assert should_build(result), f"{unusable} must rebuild the app"
+    assert run_decide(event="push", interval="0", comparison=False)["warnings"]
 
 
 def test_default_interval_is_two_hours_and_overridable() -> None:
