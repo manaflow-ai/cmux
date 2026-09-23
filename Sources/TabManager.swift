@@ -860,9 +860,13 @@ class TabManager: ObservableObject {
     private var pendingPanelTitleUpdates: [PanelTitleUpdateKey: String] = [:]
     private let panelTitleUpdateCoalescer = NotificationBurstCoalescer(delay: 1.0 / 30.0)
     private var recentlyClosedBrowsers = RecentlyClosedBrowserStack(capacity: 20)
+    // `.workItem` so the Pipes each probe autoreleases are drained per run: the
+    // default frequency inherits `.never` from the global queues, and a serial
+    // queue that lives for the app's lifetime then never releases a single one.
     private let initialWorkspaceGitProbeQueue = DispatchQueue(
         label: "com.cmux.initial-workspace-git-probe",
-        qos: .utility
+        qos: .utility,
+        autoreleaseFrequency: .workItem
     )
     private var workspaceGitProbeGenerationByKey: [WorkspaceGitProbeKey: UUID] = [:]
     private var workspaceGitProbeTimersByKey: [WorkspaceGitProbeKey: [DispatchSourceTimer]] = [:]
@@ -2189,70 +2193,101 @@ class TabManager: ObservableObject {
         return result.stdout
     }
 
+    /// Upper bound on a probe that asked for no timeout. Without one a wedged
+    /// child parks the serial probe queue for good.
+    private nonisolated static let commandResultFallbackTimeout: TimeInterval = 60
+
     private nonisolated static func runCommandResult(
         directory: String,
         executable: String,
         arguments: [String],
         timeout: TimeInterval? = nil
     ) -> CommandResult? {
-        let process = Process()
-        let stdout = Pipe()
-        let stderr = Pipe()
-        if let resolvedExecutable = resolvedCommandPath(executable: executable) {
-            process.executableURL = URL(fileURLWithPath: resolvedExecutable)
-            process.arguments = arguments
-        } else {
-            process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-            process.arguments = [executable] + arguments
-        }
-        process.currentDirectoryURL = URL(fileURLWithPath: directory)
-        process.standardOutput = stdout
-        process.standardError = stderr
-
-        let completion = DispatchSemaphore(value: 0)
-        process.terminationHandler = { _ in
-            completion.signal()
-        }
-
-        do {
-            try process.run()
-        } catch {
-            return CommandResult(
-                stdout: nil,
-                stderr: nil,
-                exitStatus: nil,
-                timedOut: false,
-                executionError: String(describing: error)
-            )
-        }
-
-        if let timeout,
-           completion.wait(timeout: .now() + timeout) == .timedOut {
-            process.terminate()
-            if completion.wait(timeout: .now() + 0.2) == .timedOut {
-                kill(process.processIdentifier, SIGKILL)
-                _ = completion.wait(timeout: .now() + 0.2)
+        // Everything Foundation autoreleases here (Process, Pipe, FileHandle) is
+        // released when this pool pops, not whenever the worker thread happens to.
+        autoreleasepool { () -> CommandResult? in
+            let process = Process()
+            let stdout = Pipe.closeOnExec()
+            let stderr = Pipe.closeOnExec()
+            if let resolvedExecutable = resolvedCommandPath(executable: executable) {
+                process.executableURL = URL(fileURLWithPath: resolvedExecutable)
+                process.arguments = arguments
+            } else {
+                process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+                process.arguments = [executable] + arguments
             }
+            process.currentDirectoryURL = URL(fileURLWithPath: directory)
+            process.standardOutput = stdout
+            process.standardError = stderr
+
+            let completion = DispatchSemaphore(value: 0)
+            process.terminationHandler = { _ in
+                completion.signal()
+            }
+
+            do {
+                try process.run()
+            } catch {
+                stdout.closeBothEnds()
+                stderr.closeBothEnds()
+                return CommandResult(
+                    stdout: nil,
+                    stderr: nil,
+                    exitStatus: nil,
+                    timedOut: false,
+                    executionError: String(describing: error)
+                )
+            }
+
+            // Drain both pipes while the child runs. A pipe holds 16 KB; a child
+            // with more to say blocks on write until someone reads, so waiting
+            // for exit first deadlocks the probe queue on any chatty `gh` call.
+            var stdoutData = Data()
+            var stderrData = Data()
+            let drained = DispatchGroup()
+            DispatchQueue.global(qos: .utility).async(group: drained) {
+                stdoutData = stdout.fileHandleForReading.readDataToEndOfFile()
+            }
+            DispatchQueue.global(qos: .utility).async(group: drained) {
+                stderrData = stderr.fileHandleForReading.readDataToEndOfFile()
+            }
+            // Only close once the readers are done: closing a handle under a
+            // blocked `readDataToEndOfFile` raises rather than returning. A drain
+            // that never finishes means a grandchild still holds the write end;
+            // the handles then close when the reader finally returns and lets go.
+            let waitForDrain = { () -> Bool in
+                guard drained.wait(timeout: .now() + 1) == .success else { return false }
+                stdout.closeBothEnds()
+                stderr.closeBothEnds()
+                return true
+            }
+
+            let deadline: DispatchTime = .now() + (timeout ?? commandResultFallbackTimeout)
+            if completion.wait(timeout: deadline) == .timedOut {
+                process.terminate()
+                if completion.wait(timeout: .now() + 0.2) == .timedOut {
+                    kill(process.processIdentifier, SIGKILL)
+                    _ = completion.wait(timeout: .now() + 0.2)
+                }
+                _ = waitForDrain()
+                return CommandResult(
+                    stdout: nil,
+                    stderr: nil,
+                    exitStatus: nil,
+                    timedOut: true,
+                    executionError: nil
+                )
+            }
+
+            let drainedInTime = waitForDrain()
             return CommandResult(
-                stdout: nil,
-                stderr: nil,
-                exitStatus: nil,
-                timedOut: true,
+                stdout: drainedInTime ? String(data: stdoutData, encoding: .utf8) : nil,
+                stderr: drainedInTime ? String(data: stderrData, encoding: .utf8) : nil,
+                exitStatus: process.terminationStatus,
+                timedOut: false,
                 executionError: nil
             )
-        } else if timeout == nil {
-            completion.wait()
         }
-
-        let stdoutData = stdout.fileHandleForReading.readDataToEndOfFile()
-        let stderrData = stderr.fileHandleForReading.readDataToEndOfFile()
-        return CommandResult(
-            stdout: String(data: stdoutData, encoding: .utf8),
-            stderr: String(data: stderrData, encoding: .utf8),
-            exitStatus: process.terminationStatus,
-            timedOut: false,
-            executionError: nil
-        )
     }
 
     nonisolated static func githubRepositorySlugs(fromGitRemoteVOutput output: String) -> [String] {

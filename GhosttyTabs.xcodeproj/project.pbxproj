@@ -20,6 +20,7 @@
 			A5001534 /* BrowserWindowPortal.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001533 /* BrowserWindowPortal.swift */; };
 		A5001540 /* PortScanner.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001541 /* PortScanner.swift */; };
 		A5001A10 /* TmuxSessionReaper.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001A11 /* TmuxSessionReaper.swift */; };
+		A5001C10 /* PipeCloseOnExec.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001C11 /* PipeCloseOnExec.swift */; };
 		A5001B10 /* ActiveLaneSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001B11 /* ActiveLaneSnapshot.swift */; };
 		14D4FD45A95D3F9DF64B315F /* ActiveWorkspaceMirror.swift in Sources */ = {isa = PBXBuildFile; fileRef = E73D0D2F1A1A680D5F9020FA /* ActiveWorkspaceMirror.swift */; };
 		A5001542 /* TerminalImageTransfer.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001544 /* TerminalImageTransfer.swift */; };
@@ -230,6 +231,7 @@
 			A5001533 /* BrowserWindowPortal.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserWindowPortal.swift; sourceTree = "<group>"; };
 		A5001541 /* PortScanner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PortScanner.swift; sourceTree = "<group>"; };
 		A5001A11 /* TmuxSessionReaper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TmuxSessionReaper.swift; sourceTree = "<group>"; };
+		A5001C11 /* PipeCloseOnExec.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PipeCloseOnExec.swift; sourceTree = "<group>"; };
 		A5001B11 /* ActiveLaneSnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActiveLaneSnapshot.swift; sourceTree = "<group>"; };
 		E73D0D2F1A1A680D5F9020FA /* ActiveWorkspaceMirror.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActiveWorkspaceMirror.swift; sourceTree = "<group>"; };
 		A5001544 /* TerminalImageTransfer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalImageTransfer.swift; sourceTree = "<group>"; };
@@ -496,6 +498,7 @@
 				A5001019 /* TerminalController.swift */,
 				A5001541 /* PortScanner.swift */,
 				A5001A11 /* TmuxSessionReaper.swift */,
+				A5001C11 /* PipeCloseOnExec.swift */,
 				A5001B11 /* ActiveLaneSnapshot.swift */,
 				E73D0D2F1A1A680D5F9020FA /* ActiveWorkspaceMirror.swift */,
 				A5001544 /* TerminalImageTransfer.swift */,
@@ -831,6 +834,7 @@
 				A5001007 /* TerminalController.swift in Sources */,
 				A5001540 /* PortScanner.swift in Sources */,
 				A5001A10 /* TmuxSessionReaper.swift in Sources */,
+				A5001C10 /* PipeCloseOnExec.swift in Sources */,
 				A5001B10 /* ActiveLaneSnapshot.swift in Sources */,
 				14D4FD45A95D3F9DF64B315F /* ActiveWorkspaceMirror.swift in Sources */,
 				A5001542 /* TerminalImageTransfer.swift in Sources */,

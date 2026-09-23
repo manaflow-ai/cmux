@@ -204,34 +204,38 @@ enum TmuxSessionReaper {
     /// Output is drained on a background queue and the wait is a plain semaphore, so a
     /// hung child costs at most `timeout` and is then terminated.
     static func run(_ launchPath: String, _ arguments: [String], timeout: TimeInterval = 3) -> String? {
-        let process = Process()
-        let pipe = Pipe()
-        process.executableURL = URL(fileURLWithPath: launchPath)
-        process.arguments = arguments
-        process.standardOutput = pipe
-        process.standardError = FileHandle.nullDevice
+        autoreleasepool { () -> String? in
+            let process = Process()
+            let pipe = Pipe.closeOnExec()
+            process.executableURL = URL(fileURLWithPath: launchPath)
+            process.arguments = arguments
+            process.standardOutput = pipe
+            process.standardError = FileHandle.nullDevice
 
-        let exited = DispatchSemaphore(value: 0)
-        process.terminationHandler = { _ in exited.signal() }
-        do {
-            try process.run()
-        } catch {
-            return nil
-        }
+            let exited = DispatchSemaphore(value: 0)
+            process.terminationHandler = { _ in exited.signal() }
+            do {
+                try process.run()
+            } catch {
+                pipe.closeBothEnds()
+                return nil
+            }
 
-        var data = Data()
-        let drained = DispatchSemaphore(value: 0)
-        DispatchQueue.global(qos: .utility).async {
-            data = pipe.fileHandleForReading.readDataToEndOfFile()
-            drained.signal()
-        }
+            var data = Data()
+            let drained = DispatchSemaphore(value: 0)
+            DispatchQueue.global(qos: .utility).async {
+                data = pipe.fileHandleForReading.readDataToEndOfFile()
+                drained.signal()
+            }
 
-        guard exited.wait(timeout: .now() + timeout) == .success else {
-            process.terminate()
-            return nil
+            guard exited.wait(timeout: .now() + timeout) == .success else {
+                process.terminate()
+                return nil
+            }
+            guard drained.wait(timeout: .now() + 1) == .success else { return nil }
+            pipe.closeBothEnds()
+            guard process.terminationStatus == 0 else { return nil }
+            return String(data: data, encoding: .utf8)
         }
-        guard drained.wait(timeout: .now() + 1) == .success else { return nil }
-        guard process.terminationStatus == 0 else { return nil }
-        return String(data: data, encoding: .utf8)
     }
 }

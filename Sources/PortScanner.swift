@@ -24,7 +24,13 @@ final class PortScanner: @unchecked Sendable {
 
     // MARK: - State (all guarded by `queue`)
 
-    private let queue = DispatchQueue(label: "com.cmux.port-scanner", qos: .utility)
+    // `.workItem` so the Pipes each scan autoreleases are drained per run rather
+    // than pinned for the life of the queue (see `runCapturingStdout`).
+    private let queue = DispatchQueue(
+        label: "com.cmux.port-scanner",
+        qos: .utility,
+        autoreleaseFrequency: .workItem
+    )
 
     /// TTY name per (workspace, panel).
     private var ttyNames: [PanelKey: String] = [:]
@@ -489,25 +495,53 @@ final class PortScanner: @unchecked Sendable {
         return pidToWorkspaces
     }
 
+    /// Run a command and return its stdout, or nil on failure or timeout.
+    ///
+    /// Stdout is drained on a background queue before the exit wait, so a child
+    /// with more than a pipe buffer to say cannot deadlock the scan queue, and the
+    /// pipe is close-on-exec so the terminals cmux spawns do not inherit it.
+    private func runCapturingStdout(
+        _ launchPath: String,
+        _ arguments: [String],
+        timeout: TimeInterval = 10
+    ) -> String? {
+        autoreleasepool { () -> String? in
+            let process = Process()
+            let pipe = Pipe.closeOnExec()
+            process.executableURL = URL(fileURLWithPath: launchPath)
+            process.arguments = arguments
+            process.standardOutput = pipe
+            process.standardError = FileHandle.nullDevice
+
+            let exited = DispatchSemaphore(value: 0)
+            process.terminationHandler = { _ in exited.signal() }
+            do {
+                try process.run()
+            } catch {
+                pipe.closeBothEnds()
+                return nil
+            }
+
+            var data = Data()
+            let drained = DispatchSemaphore(value: 0)
+            DispatchQueue.global(qos: .utility).async {
+                data = pipe.fileHandleForReading.readDataToEndOfFile()
+                drained.signal()
+            }
+
+            guard exited.wait(timeout: .now() + timeout) == .success else {
+                process.terminate()
+                return nil
+            }
+            guard drained.wait(timeout: .now() + 1) == .success else { return nil }
+            pipe.closeBothEnds()
+            return String(data: data, encoding: .utf8)
+        }
+    }
+
     private func runPS(ttyList: String) -> [Int: String] {
         // `ps -t tty1,tty2,... -o pid=,tty=` — targeted scan, much cheaper than -ax.
-        let process = Process()
-        let pipe = Pipe()
-        process.executableURL = URL(fileURLWithPath: "/bin/ps")
-        process.arguments = ["-t", ttyList, "-o", "pid=,tty="]
-        process.standardOutput = pipe
-        process.standardError = FileHandle.nullDevice
-
-        do {
-            try process.run()
-        } catch {
-            return [:]
-        }
-
-        let data = pipe.fileHandleForReading.readDataToEndOfFile()
-        process.waitUntilExit()
-
-        guard let output = String(data: data, encoding: .utf8) else { return [:] }
+        guard let output = runCapturingStdout("/bin/ps", ["-t", ttyList, "-o", "pid=,tty="]) else { return [:] }
 
         var mapping: [Int: String] = [:]
         for line in output.split(separator: "\n") {
@@ -520,23 +554,7 @@ final class PortScanner: @unchecked Sendable {
     }
 
     private func runAllProcesses() -> [Int: Int] {
-        let process = Process()
-        let pipe = Pipe()
-        process.executableURL = URL(fileURLWithPath: "/bin/ps")
-        process.arguments = ["-ax", "-o", "pid=,ppid="]
-        process.standardOutput = pipe
-        process.standardError = FileHandle.nullDevice
-
-        do {
-            try process.run()
-        } catch {
-            return [:]
-        }
-
-        let data = pipe.fileHandleForReading.readDataToEndOfFile()
-        process.waitUntilExit()
-
-        guard let output = String(data: data, encoding: .utf8) else { return [:] }
+        guard let output = runCapturingStdout("/bin/ps", ["-ax", "-o", "pid=,ppid="]) else { return [:] }
 
         var mapping: [Int: Int] = [:]
         for line in output.split(separator: "\n") {
@@ -551,23 +569,7 @@ final class PortScanner: @unchecked Sendable {
 
     private func runLsof(pidsCsv: String) -> [Int: Set<Int>] {
         // `lsof -nP -a -p <pids> -iTCP -sTCP:LISTEN -F pn`
-        let process = Process()
-        let pipe = Pipe()
-        process.executableURL = URL(fileURLWithPath: "/usr/sbin/lsof")
-        process.arguments = ["-nP", "-a", "-p", pidsCsv, "-iTCP", "-sTCP:LISTEN", "-Fpn"]
-        process.standardOutput = pipe
-        process.standardError = FileHandle.nullDevice
-
-        do {
-            try process.run()
-        } catch {
-            return [:]
-        }
-
-        let data = pipe.fileHandleForReading.readDataToEndOfFile()
-        process.waitUntilExit()
-
-        guard let output = String(data: data, encoding: .utf8) else { return [:] }
+        guard let output = runCapturingStdout("/usr/sbin/lsof", ["-nP", "-a", "-p", pidsCsv, "-iTCP", "-sTCP:LISTEN", "-Fpn"]) else { return [:] }
 
         // Parse lsof -F output: lines starting with 'p' = PID, 'n' = name (host:port).
         var result: [Int: Set<Int>] = [:]
