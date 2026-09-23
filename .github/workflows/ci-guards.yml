@@ -31,6 +31,8 @@ jobs:
       matrix:
         group: ${{ fromJSON(inputs.linux_guard_test_groups) }}
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    # Its three sibling guard jobs are bounded at 15; 65 recent runs peaked at 0.8 min.
+    timeout-minutes: 15
     # This job executes scripts from the pull request. It needs only read
     # access for checkout, never workflow, issue, or repository write access.
     permissions:
