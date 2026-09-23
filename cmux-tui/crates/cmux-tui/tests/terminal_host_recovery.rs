@@ -511,19 +511,27 @@ fn keep_on_exit_retains_tab_and_final_screen_until_close_and_degrades_on_restart
     );
     assert!(history["rows"].is_array(), "kept terminal lost its history: {history}");
 
-    // Input to the dead PTY is a harmless no-op, not an error.
-    resource_request(
+    // A retained screen has no live PTY owner to acknowledge receipted input.
+    // Reject delivery without changing the final output or the exit receipt.
+    let dead_write = request_response(
         &harness.socket,
-        "keep-dead-write",
-        "terminal.input.write",
         serde_json::json!({
-            "machine":"current",
-            "session":"current",
-            "terminal":terminal,
-            "text":"ignored\n",
+            "protocol":"cmux.protocol/2",
+            "type":"request",
+            "id":"keep-dead-write",
+            "operation":"terminal.input.write",
+            "idempotency_key":"keep-dead-write",
+            "params":{
+                "machine":"current",
+                "session":"current",
+                "terminal":terminal,
+                "text":"ignored\n",
+            },
         }),
-        Some("keep-dead-write"),
     );
+    assert_eq!(dead_write["ok"], false);
+    assert_eq!(dead_write["error"]["code"], "operation.failed");
+    assert_eq!(dead_write["error"]["message"], "terminal_input_delivery_failed");
     let latched = resource_request(
         &harness.socket,
         "keep-wait-again",
