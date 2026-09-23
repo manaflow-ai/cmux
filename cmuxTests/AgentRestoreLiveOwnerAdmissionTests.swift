@@ -399,6 +399,27 @@ struct AgentRestoreLiveOwnerAdmissionTests {
         ) == nil)
     }
 
+    @Test("Claude session switching does not authorize a reused PID")
+    func claudeInProcessSwitchRejectsReusedProcess() throws {
+        let fixture = try makeFixture(
+            kind: .claude,
+            ownerState: .staleGeneration,
+            launchSessionArguments: ["--resume", "11111111-2222-3333-4444-555555555555"],
+            scopedProcess: true
+        )
+        defer { fixture.cleanup() }
+        #expect(fixture.index.liveSessionOwner(
+            kind: "claude",
+            sessionID: fixture.sessionID,
+            revalidateProcessEvidence: false
+        ) == nil)
+        #expect(fixture.index.entryForStablePanel(
+            workspaceId: fixture.ownerWorkspaceID,
+            panelId: fixture.ownerSurfaceID,
+            revalidateProcessEvidence: false
+        )?.processLiveness != .running)
+    }
+
     @Test("A reused Claude PID with another session id is not an owner")
     func claudeSessionArgumentMustMatch() {
         let expectedSessionID = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
@@ -739,6 +760,11 @@ struct AgentRestoreLiveOwnerAdmissionTests {
             at: storeURL.deletingLastPathComponent(),
             withIntermediateDirectories: true
         )
+        let transcriptPath = URL(fileURLWithPath: workingDirectory)
+            .appendingPathComponent("\(sessionID).jsonl").path
+        if kind == .claude {
+            try Data("{\"type\":\"user\"}\n".utf8).write(to: URL(fileURLWithPath: transcriptPath))
+        }
         let store: [String: Any] = [
             "version": 1,
             "sessions": [
@@ -751,6 +777,7 @@ struct AgentRestoreLiveOwnerAdmissionTests {
                     "pidStartMicroseconds": processIdentity.startMicroseconds,
                     "cwd": workingDirectory,
                     "isRestorable": true,
+                    "transcriptPath": transcriptPath,
                     "updatedAt": 1_800_110_043,
                     "launchCommand": [
                         "launcher": kind.rawValue,
