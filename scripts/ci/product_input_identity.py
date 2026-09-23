@@ -10,11 +10,13 @@ import re
 import subprocess
 import sys
 from pathlib import Path
-from typing import Iterable
+from typing import Iterable, Optional
 
 CI_WORKFLOW = ".github/workflows/ci-macos.yml"
-IDENTITY_SCHEMA = "cmux-app-host-product-inputs/v1"
+E2E_WORKFLOW = ".github/workflows/test-e2e.yml"
+IDENTITY_SCHEMA = "cmux-app-host-product-inputs/v2"
 MACOS_ADMISSION_JOB = "macos-compile-admission"
+E2E_BUILD_JOB = "build"
 
 # These checked-in CI helpers can change the actual product or its relocation
 # contract. Other scripts/ci files are admission/control-plane implementation,
@@ -37,6 +39,13 @@ REQUIRED_PRODUCT_JOB_ENV_KEYS = frozenset({
     "CMUX_CI_XCODE_APP",
     "CMUX_CI_REQUIRED_MACOS_SDK_MAJOR",
     "CMUX_SKIP_ZIG_BUILD",
+})
+
+E2E_REQUIRED_PRODUCT_JOB_ENV_KEYS = frozenset({
+    "TEST_REF",
+    "CMUX_CI_MAX_MACOS_SDK_MAJOR",
+    "CMUX_SKIP_ZIG_BUILD",
+    "CMUX_PRODUCT_RUNNER",
 })
 
 NON_PRODUCT_JOB_ENV_KEYS = frozenset({
@@ -308,17 +317,96 @@ def recipe_fingerprint(workflow: str) -> str:
     return hashlib.sha256(raw).hexdigest()
 
 
+def _e2e_product_job_environment(block: str) -> dict[str, str]:
+    """Keep every E2E build env value so new build controls fail closed."""
+    lines = block.splitlines()
+    if not lines or lines[0].strip() != "env:":
+        raise ValueError("E2E build env block is unreadable")
+
+    values: dict[str, str] = {}
+    seen: set[str] = set()
+    for line in lines[1:]:
+        if not line.strip() or line.lstrip().startswith("#"):
+            continue
+        match = re.match(r"^      ([A-Za-z_][A-Za-z0-9_]*):\s*(.*?)\s*$", line)
+        if match is None:
+            raise ValueError("E2E build env contains an unsupported value shape")
+        name, value = match.groups()
+        if name in seen:
+            raise ValueError(f"E2E build env key is not unique: {name!r}")
+        seen.add(name)
+        values[name] = value
+
+    missing = E2E_REQUIRED_PRODUCT_JOB_ENV_KEYS - seen
+    if missing:
+        raise ValueError(
+            "E2E build is missing required product env keys: "
+            + ", ".join(sorted(missing))
+        )
+    return values
+
+
+def e2e_recipe_projection(workflow: str) -> dict[str, object]:
+    """Project the dispatch build recipe conservatively.
+
+    Every named step is retained. That is intentionally broader than the
+    compile-admission projection: this workflow is now a reusable-product
+    producer, so an inserted pre-build source mutation, a new build env value,
+    or a changed setup action must invalidate its products.
+    """
+    job = _job_block(workflow, E2E_BUILD_JOB)
+    controls: dict[str, object] = {}
+    seen_job_keys: set[str] = set()
+    for name, block in _job_level_blocks(job):
+        seen_job_keys.add(name)
+        if name in IGNORED_JOB_LEVEL_KEYS:
+            continue
+        if name == "env":
+            controls["env"] = _e2e_product_job_environment(block)
+            continue
+        if name == "defaults":
+            controls["defaults"] = block
+            continue
+        if name == "steps":
+            continue
+        raise ValueError(f"unclassified E2E build job-level key: {name!r}")
+
+    if "env" not in controls or "steps" not in seen_job_keys:
+        raise ValueError("E2E build job is missing product controls")
+
+    steps = dict(_step_blocks(job))
+    if not steps:
+        raise ValueError("E2E build product recipe is empty")
+    return {"job_controls": controls, "steps": steps}
+
+
+def e2e_recipe_fingerprint(workflow: str) -> str:
+    raw = json.dumps(
+        e2e_recipe_projection(workflow),
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return hashlib.sha256(raw).hexdigest()
+
+
 def algorithm_fingerprint() -> str:
     return hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
 
 
-def identity_from_tree_lines(tree_lines: Iterable[str], workflow: str) -> dict[str, str]:
-    return {
+def identity_from_tree_lines(
+    tree_lines: Iterable[str],
+    workflow: str,
+    e2e_workflow: Optional[str] = None,
+) -> dict[str, str]:
+    value = {
         "schema": IDENTITY_SCHEMA,
         "algorithm": algorithm_fingerprint(),
         "source": source_fingerprint(tree_lines),
         "recipe": recipe_fingerprint(workflow),
     }
+    if e2e_workflow is not None:
+        value["e2e_recipe"] = e2e_recipe_fingerprint(e2e_workflow)
+    return value
 
 
 def local_identity(revision: str = "HEAD") -> dict[str, str]:
@@ -330,7 +418,11 @@ def local_identity(revision: str = "HEAD") -> dict[str, str]:
         ["git", "show", f"{revision}:{CI_WORKFLOW}"],
         text=True,
     )
-    return identity_from_tree_lines(tree_lines, workflow)
+    e2e_workflow = subprocess.check_output(
+        ["git", "show", f"{revision}:{E2E_WORKFLOW}"],
+        text=True,
+    )
+    return identity_from_tree_lines(tree_lines, workflow, e2e_workflow)
 
 
 def main(argv: list[str]) -> int:

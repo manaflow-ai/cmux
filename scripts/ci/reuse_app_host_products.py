@@ -137,25 +137,29 @@ def github_product_identity(api, revision):
     if not isinstance(entries, list):
         raise ValueError("GitHub tree is unavailable")
 
-    workflow_entry = next(
-        (
-            entry for entry in entries
-            if isinstance(entry, dict)
-            and entry.get("path") == product_inputs.CI_WORKFLOW
-            and entry.get("type") == "blob"
-        ),
-        None,
-    )
-    if workflow_entry is None or not isinstance(workflow_entry.get("sha"), str):
-        raise ValueError("CI workflow blob is unavailable")
-    blob = api.get(f"git/blobs/{workflow_entry['sha']}")
-    if blob.get("encoding") != "base64" or not isinstance(blob.get("content"), str):
-        raise ValueError("CI workflow blob encoding is invalid")
-    workflow = base64.b64decode(blob["content"]).decode("utf-8")
+    def workflow_text(path):
+        workflow_entry = next(
+            (
+                entry for entry in entries
+                if isinstance(entry, dict)
+                and entry.get("path") == path
+                and entry.get("type") == "blob"
+            ),
+            None,
+        )
+        if workflow_entry is None or not isinstance(workflow_entry.get("sha"), str):
+            raise ValueError(f"workflow blob is unavailable: {path}")
+        blob = api.get(f"git/blobs/{workflow_entry['sha']}")
+        if blob.get("encoding") != "base64" or not isinstance(blob.get("content"), str):
+            raise ValueError(f"workflow blob encoding is invalid: {path}")
+        return base64.b64decode(blob["content"]).decode("utf-8")
 
+    workflow = workflow_text(product_inputs.CI_WORKFLOW)
+    e2e_workflow = workflow_text(product_inputs.E2E_WORKFLOW)
     value = product_inputs.identity_from_tree_lines(
         product_inputs.github_tree_lines(entries),
         workflow,
+        e2e_workflow,
     )
     cache[revision] = value
     return value
@@ -244,17 +248,19 @@ def attested_producer_revision(api, run, revision, product_inputs):
     not just the head it names -- has to carry these product inputs.
     """
     head = run.get("head_sha")
+    if run.get("event") == "workflow_dispatch":
+        # A dispatch's head names the workflow definition, while its sealed
+        # revision names the checkout it compiled. Bind both: the actual E2E
+        # build recipe GitHub ran must equal the recipe in the product identity,
+        # and the sealed checkout must still re-fingerprint to that identity.
+        if not isinstance(head, str) or not re.fullmatch(r"[0-9a-f]{6,40}", head):
+            return False
+        actual_workflow = github_product_identity(api, head)
+        if actual_workflow.get("e2e_recipe") != product_inputs.get("e2e_recipe"):
+            return False
+        return github_product_identity(api, revision) == product_inputs
     if revision == head:
         return True
-    if run.get("event") == "workflow_dispatch":
-        # A dispatch compiles a revision handed to it as a workflow input, so
-        # its `head_sha` names the workflow definition's ref and attests
-        # nothing about what was built. Re-fingerprinting the sealed revision
-        # is the whole check here, and it is the same one every other producer
-        # ends at: the artifact name already pinned these exact product inputs,
-        # and a receipt cannot name a revision whose tree carries different
-        # ones without GitHub's own copy disagreeing.
-        return github_product_identity(api, revision) == product_inputs
     if run.get("event") != "pull_request":
         return False
     parents = api.get(f"git/commits/{revision}").get("parents")
@@ -427,20 +433,21 @@ def select(api, value, current_run, current_attempt, consumer, reasons):
             # establish product compatibility before download. Admission-only
             # source changes may differ while compiled-product inputs stay exact.
             #
-            # A dispatch producer's `head_sha` names its workflow ref rather
-            # than what it compiled, so there is nothing to check here for one.
-            # Its binding is not skipped, only deferred: the artifact name
-            # already encodes this contract's product inputs, and `restore`
-            # re-fingerprints the revision the receipt names against GitHub
-            # before the products are moved anywhere.
-            if run.get("event") != "workflow_dispatch":
-                head = run.get("head_sha")
-                if not isinstance(head, str) or not re.fullmatch(r"[0-9a-f]{6,40}", head):
-                    record_reason(reasons, "producer_revision_invalid")
+            head = run.get("head_sha")
+            if not isinstance(head, str) or not re.fullmatch(r"[0-9a-f]{6,40}", head):
+                record_reason(reasons, "producer_revision_invalid")
+                continue
+            if run.get("event") == "workflow_dispatch":
+                # The dispatch head attests the workflow recipe, not the checkout.
+                # Reject a product before download when that actual recipe differs
+                # from the E2E recipe sealed into this contract.
+                actual_workflow = github_product_identity(api, head)
+                if actual_workflow.get("e2e_recipe") != value["product_inputs"].get("e2e_recipe"):
+                    record_reason(reasons, "producer_recipe_mismatch")
                     continue
-                if github_product_identity(api, head) != value["product_inputs"]:
-                    record_reason(reasons, "producer_product_inputs_mismatch")
-                    continue
+            elif github_product_identity(api, head) != value["product_inputs"]:
+                record_reason(reasons, "producer_product_inputs_mismatch")
+                continue
             jobs = []
             for page in range(1, 4):
                 batch = api.get(
