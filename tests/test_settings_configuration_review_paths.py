@@ -1,12 +1,26 @@
 #!/usr/bin/env python3
-"""Every cmux.json path a settings row advertises must be one the store accepts.
+"""Every cmux.json path a settings row advertises must appear in the declared
+supported-path set.
 
 `CmuxSettingsFileStore+SupportedPaths.swift` says of its set: "Settings UI rows
 validate against this set so new persisted settings need an explicit cmux.json
-review." Nothing enforced that. A row could declare
-`configurationReview: .json("terminal.textEditingGestures")` while the store
-rejected the path, so the row displayed a cmux.json key that silently did
-nothing when a user wrote it.
+review." Nothing enforced that, so a row could advertise a path absent from the
+set and nobody noticed.
+
+Be precise about what this proves. `supportedSettingsJSONPaths` has **no
+production consumer** -- it is read by this guard and one test, and by nothing
+that parses cmux.json. What actually accepts a key is the hand-written section
+parsers in `KeyboardShortcutSettingsFileStore.swift` and
+`CmuxSettingsFileStore+AppSection.swift`. So this is a consistency check between
+two declarations (the UI row and the documented set), not proof that writing the
+key does anything.
+
+The gap is real in both directions. `canvas.paneGap` and
+`canvas.snappingEnabled` are advertised by rows, are listed in the supported
+set, and therefore pass this guard -- yet `root["canvas"]` is never read by any
+parser, so writing them does nothing. Catching that class needs an oracle
+derived from the parsers; see the tracking issue. Until then, a pass here means
+"the row and the documented set agree", nothing stronger.
 """
 
 import re
@@ -26,18 +40,32 @@ SYMBOL = re.compile(r"^([A-Z][A-Za-z0-9_]*)\.([A-Za-z0-9_]+)\s*,?$")
 
 
 def _resolve_symbol(type_name, member):
-    """Find `static let <member> = "<value>"` inside `<type_name>`'s file."""
+    """Find `static let <member> = "<value>"` in the file that DECLARES the type.
+
+    Matching on "the file mentions the type name" picks the first file in
+    filesystem order that merely references it, which is both wrong and
+    machine-dependent. `settingsPath` is already declared by two different
+    types, so the collision class exists. A decoy that resolves to a shorter
+    path would silently widen the ancestor match below and hide real failures,
+    so an ambiguous resolution is reported rather than guessed at.
+    """
+    declares = re.compile(
+        r"\b(?:enum|struct|class|extension|actor|protocol)\s+" + re.escape(type_name) + r"\b"
+    )
     pattern = re.compile(
         r"static\s+let\s+" + re.escape(member) + r"\s*(?::\s*String\s*)?=\s*\"([^\"]+)\""
     )
+    values = set()
     for root in SOURCE_ROOTS:
         for path in root.rglob("*.swift"):
             text = path.read_text(encoding="utf-8", errors="replace")
-            if type_name not in text:
+            if not declares.search(text):
                 continue
             found = pattern.search(text)
             if found:
-                return found.group(1)
+                values.add(found.group(1))
+    if len(values) == 1:
+        return values.pop()
     return None
 
 
@@ -73,19 +101,24 @@ def advertised_paths():
                 yield value, path.relative_to(REPO_ROOT), line
 
 
-# Rows that already advertised an unsupported path when this guard was added.
-# Each is a real defect: the row shows a cmux.json key that does nothing when a
-# user writes it. They are recorded rather than fixed here so the guard can stop
-# new instances immediately; see the tracking issue. Fixing one means deleting
-# its entry below, which this test enforces, so the list can only shrink.
+# Rows advertising a path absent from the supported set when this guard was
+# added. Each was checked against the parsers by hand: none of these five has a
+# reader, so writing them into cmux.json genuinely does nothing.
+# `cloud`, `computerUse` and `customSidebars` have no top-level case in the
+# section dispatch at all, and the parsed `automation` section has no
+# `codexIntegration` key. See the tracking issue.
+#
+# This list is NOT automatically ratcheted -- nothing compares it to a baseline,
+# so a new failure could be parked here in the same change that introduces it.
+# The staleness test below only reaps entries that have since become supported
+# or are no longer advertised. Treat additions as needing review on their own
+# merits.
 KNOWN_UNSUPPORTED = frozenset({
-    "app.globalFontMagnification",
     "automation.codexIntegration",
     "cloud.beta.machines.enabled",
     "computerUse.enabled",
     "computerUse.showInMenuBar",
     "customSidebars.renderer",
-    "shortcuts.showModifierHoldHints",
 })
 
 
@@ -122,13 +155,23 @@ class ConfigurationReviewPathsTests(unittest.TestCase):
 
 
     def test_known_unsupported_list_has_no_stale_entries(self):
-        """A fixed row must be removed from the allowlist, so it can only shrink."""
+        """A path that became supported, or lost its row, must leave the list."""
         supported, _ = supported_paths()
         advertised = {value for value, _, _ in advertised_paths()}
+
+        def is_supported(path):
+            # Mirror the ancestor matching the main test uses. Checking exact
+            # membership instead would strand an entry that became supported
+            # via an ancestor, leaving it permanently un-reapable dead weight.
+            parts = path.split(".")
+            return bool(
+                {".".join(parts[: i + 1]) for i in range(len(parts))} & supported
+            )
+
         stale = sorted(
             path
             for path in KNOWN_UNSUPPORTED
-            if path not in advertised or path in supported
+            if path not in advertised or is_supported(path)
         )
         self.assertEqual(
             stale,
