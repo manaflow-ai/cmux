@@ -300,10 +300,11 @@ struct TerminalViewportSpacingTests {
 
     /// Mac window resize arriving as a DAEMON PUSH (`applyViewSize`, the
     /// remote-grid output-stream path) rather than a report echo: a shrink
-    /// stretches via the font fit, a grow restores the base font, and a shrink
-    /// too deep for the maximum font falls back to the bottom-pinned letterbox
-    /// with the separator border (all slack at the top, none at the bottom).
-    @Test("daemon-push shrink stretches, grow restores, extreme shrink letterboxes")
+    /// letterboxes at the base font, a grow restores the fill, and a shrink
+    /// too deep still lands on the bottom-pinned letterbox with the separator
+    /// border (all slack at the top, none at the bottom). #10616 removed the
+    /// stretch-to-fill auto-fit, so no push changes the user's chosen font.
+    @Test("daemon-push shrink letterboxes at base font, grow restores, extreme shrink letterboxes")
     func macResizeShrinkGrowRestoresFill() async throws {
         let harness = try ViewportSpacingHarness()
         defer { harness.tearDown() }
@@ -316,13 +317,13 @@ struct TerminalViewportSpacingTests {
         // renegotiation echoes flow automatically from here.
         harness.delegate.autoEchoMacGrid = (cols: initial.columns + 100, rows: initial.rows - 10)
         await harness.view.applyViewSizeAndWait(cols: initial.columns, rows: initial.rows - 10)
-        let stretched = await harness.pump(timeout: 8) {
+        let shrunkToLetterbox = await harness.pump(timeout: 8) {
             let snap = harness.snapshot
-            return harness.topGap <= harness.cellHeightPoints * 1.5
-                && harness.bottomGap <= 1
-                && snap.liveFontSize > snap.baseFontSize + 0.25
+            return harness.bottomGap <= 1
+                && harness.topGap > harness.cellHeightPoints
+                && abs(snap.liveFontSize - snap.baseFontSize) < 0.5
         }
-        #expect(stretched, "push shrink: top gap \(harness.topGap)pt, live font \(harness.snapshot.liveFontSize)")
+        #expect(shrunkToLetterbox, "push shrink: top gap \(harness.topGap)pt, live font \(harness.snapshot.liveFontSize)")
 
         // Mac window grows back: daemon pushes the full grid again; the font
         // decays to base and the phone still fills.
