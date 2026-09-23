@@ -65,11 +65,26 @@ extension AppDelegate {
         }
     }
 
+    /// The window a finished Cloud creation is allowed to navigate: the window
+    /// that started the creation, and only while that window is still key.
+    /// A creation that lands while the user is working in another window must
+    /// not pull them away from it.
+    ///
+    /// This asks the window itself, the same way every other focus-gated path
+    /// in the app does, rather than comparing against `NSApp.keyWindow`. The
+    /// two agree in the running app, and the window-scoped question is the one
+    /// this rule is actually about.
+    func cloudWorkspaceCreationFocusWindow(windowID: UUID) -> NSWindow? {
+        guard let context = mainWindowContexts.values.first(where: { $0.windowId == windowID }),
+              let window = resolvedWindow(for: context),
+              window.isKeyWindow else { return nil }
+        return window
+    }
+
     private func focusCreatedCloudWorkspace(_ workspaceID: UUID, manager: TabManager?, revision: UInt64, windowID: UUID) {
         guard let manager, manager.cloudWorkspaceSelection.revision == revision,
               tabManagerFor(windowId: windowID) === manager,
-              let window = mainWindowContexts.values.first(where: { $0.windowId == windowID }).flatMap({ resolvedWindow(for: $0) }),
-              window === NSApp.keyWindow,
+              cloudWorkspaceCreationFocusWindow(windowID: windowID) != nil,
               let workspace = manager.workspacesById[workspaceID] else { return }
         manager.selectWorkspace(workspace)
     }

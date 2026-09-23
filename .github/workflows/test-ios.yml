@@ -1,4 +1,7 @@
 name: iOS simulator tests
+run-name: >-
+  iOS tests · ${{ inputs.ref || github.ref_name }} · ${{ inputs.swift_package || 'simulator' }} ·
+  ${{ inputs.test_filter || 'full suite' }} · ${{ inputs.device_family || 'both' }} · iOS ${{ inputs.ios_version || 'default' }}
 
 on:
   # Temporarily manual-only beginning 2026-07-13 to pause automatic CI.
@@ -79,7 +82,19 @@ jobs:
       should_run: ${{ steps.detect.outputs.should_run }}
       should_lint: ${{ steps.detect.outputs.should_lint }}
       target_sha: ${{ steps.target.outputs.sha }}
+      device_families: ${{ steps.families.outputs.json }}
     steps:
+      - name: Select requested simulator families
+        id: families
+        env:
+          DEVICE_FAMILY: ${{ inputs.device_family }}
+        run: |
+          case "${DEVICE_FAMILY:-both}" in
+            both) echo 'json=["iphone","ipad"]' >> "$GITHUB_OUTPUT" ;;
+            iphone|ipad) printf 'json=["%s"]\n' "$DEVICE_FAMILY" >> "$GITHUB_OUTPUT" ;;
+            *) echo "::error::Unsupported simulator device family" >&2; exit 1 ;;
+          esac
+
       - name: Checkout workflow revision
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -342,23 +357,22 @@ jobs:
           swift test "${args[@]}" 2>&1 | tee "$log_path"
           ./scripts/ci/require_selected_test_execution.sh "$log_path" "${SWIFT_TEST_FILTER:-CmuxMobileShellModel}"
 
-  ios-simulator:
+  ios-simulator-build:
     needs: detect-ios-changes
     if: ${{ needs.detect-ios-changes.outputs.should_run == 'true' && inputs.swift_package == '' }}
-    # Blacksmith, not the bare `macos-26` label (which our self-hosted fleet
-    # carries). iOS simulator XCTest runs inside the Simulator, not as a
-    # foregrounded Mac app, so the Blacksmith macOS foreground limitation that
-    # blocks macOS app-host XCTest does not apply here; this lane is verified
-    # green on blacksmith-6vcpu-macos-26.
     runs-on: ${{ (!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_IOS || 'blacksmith-6vcpu-macos-26') || inputs.runner }}
     timeout-minutes: 35
-    strategy:
-      fail-fast: false
-      matrix:
-        family: [iphone, ipad]
+    outputs:
+      artifact_id: ${{ steps.upload-product.outputs.artifact-id }}
+      artifact_digest: ${{ steps.upload-product.outputs.artifact-digest }}
+      archive_sha256: ${{ steps.package-product.outputs.sha256 }}
+      archive_bytes: ${{ steps.package-product.outputs.bytes }}
+      compile_seconds: ${{ steps.compile-product.outputs.seconds }}
+      package_seconds: ${{ steps.package-product.outputs.seconds }}
+      upload_seconds: ${{ steps.upload-metrics.outputs.seconds }}
     steps:
       - name: Validate Tart runner identity
-        if: ${{ startsWith((!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_IOS || 'blacksmith-6vcpu-macos-26') || inputs.runner, 'tart-') && !(github.event_name == 'workflow_dispatch' && inputs.device_family != 'both' && inputs.device_family != matrix.family) }}
+        if: ${{ startsWith((!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_IOS || 'blacksmith-6vcpu-macos-26') || inputs.runner, 'tart-') }}
         env:
           RUNNER_CONTEXT_NAME: ${{ runner.name }}
         run: |
@@ -372,13 +386,7 @@ jobs:
             exit 1
           }
 
-      - name: Skip unrequested family
-        if: ${{ github.event_name == 'workflow_dispatch' && inputs.device_family != 'both' && inputs.device_family != matrix.family }}
-        run: |
-          echo "Skipping ${{ matrix.family }}"
-
       - name: Checkout
-        if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.device_family != 'both' && inputs.device_family != matrix.family) }}
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: ${{ needs.detect-ios-changes.outputs.target_sha }}
@@ -386,7 +394,6 @@ jobs:
           submodules: recursive
 
       - name: Select Xcode
-        if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.device_family != 'both' && inputs.device_family != matrix.family) }}
         run: |
           set -euo pipefail
           if [ -d "/Applications/Xcode.app/Contents/Developer" ]; then
@@ -404,25 +411,19 @@ jobs:
           xcodebuild -version
 
       - name: Install zig
-        if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.device_family != 'both' && inputs.device_family != matrix.family) }}
         run: ./scripts/install-zig-ci.sh
 
       - name: Capture Ghostty revision
-        if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.device_family != 'both' && inputs.device_family != matrix.family) }}
         id: ghostty-revision
         run: echo "sha=$(git -C ghostty rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
       - name: Prepare shared iOS cache paths
-        if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.device_family != 'both' && inputs.device_family != matrix.family) }}
         run: |
           set -euo pipefail
           echo "IOS_SPM_CACHE=$PWD/.ci-ios-source-packages" >> "$GITHUB_ENV"
           echo "CMUX_GHOSTTYKIT_CACHE_DIR=$RUNNER_TEMP/cmux-ghosttykit-cache" >> "$GITHUB_ENV"
 
-      # PR and ordinary manual runs restore only. The explicit main-only seed
-      # path below keeps cache writes out of feature branches and fork runs.
       - name: Restore iOS SwiftPM cache
-        if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.device_family != 'both' && inputs.device_family != matrix.family) }}
         uses: ./.github/actions/cache-restore
         with:
           backend: ${{ inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND || 'r2' }}
@@ -432,7 +433,6 @@ jobs:
             ios-spm-${{ runner.os }}-${{ runner.arch }}-
 
       - name: Restore iOS GhosttyKit cache
-        if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.device_family != 'both' && inputs.device_family != matrix.family) }}
         uses: ./.github/actions/cache-restore
         with:
           backend: ${{ inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND || 'r2' }}
@@ -442,11 +442,9 @@ jobs:
             ios-ghosttykit-${{ runner.os }}-${{ runner.arch }}-
 
       - name: Sanitize iOS SwiftPM cache
-        if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.device_family != 'both' && inputs.device_family != matrix.family) }}
         run: python3 scripts/ci/sanitize-xcode-source-packages-cache.py "$IOS_SPM_CACHE"
 
       - name: Ensure iOS simulator runtime
-        if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.device_family != 'both' && inputs.device_family != matrix.family) }}
         env:
           IOS_VERSION: ${{ inputs.ios_version }}
         run: |
@@ -476,7 +474,6 @@ jobs:
           xcrun simctl list runtimes available | grep -Eq '\biOS\b'
 
       - name: Provision GhosttyKit
-        if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.device_family != 'both' && inputs.device_family != matrix.family) }}
         run: |
           # Downloads the prebuilt GhosttyKit.xcframework pinned in
           # scripts/ghosttykit-checksums.txt for the current ghostty SHA, or
@@ -484,115 +481,26 @@ jobs:
           # a local-path binaryTarget, so it must exist before package resolve.
           ./scripts/ensure-ghosttykit.sh
 
-      - name: Pick simulator
-        if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.device_family != 'both' && inputs.device_family != matrix.family) }}
+      - name: Pick build simulator
         env:
-          DEVICE_FAMILY: ${{ matrix.family }}
+          DEVICE_FAMILY: ${{ github.event_name == 'workflow_dispatch' && inputs.device_family == 'ipad' && 'ipad' || 'iphone' }}
           IOS_VERSION: ${{ inputs.ios_version }}
         run: |
           set -euo pipefail
-          SIMULATOR_ENV="${RUNNER_TEMP:-$PWD/.tmp}/simulator-${DEVICE_FAMILY}.env"
-          mkdir -p "$(dirname "$SIMULATOR_ENV")"
-          python3 - <<'PY' > "$SIMULATOR_ENV"
-          import json
-          import os
-          import subprocess
-          import sys
-
-          def simctl_json(*args):
-              return json.loads(subprocess.check_output(["xcrun", "simctl", "list", *args, "-j"]))
-
-          def version_key(runtime):
-              raw = str(runtime.get("version") or "")
-              parts = []
-              for part in raw.split("."):
-                  try:
-                      parts.append(int(part))
-                  except ValueError:
-                      parts.append(0)
-              return tuple(parts)
-
-          family = os.environ["DEVICE_FAMILY"]
-          data = simctl_json("devices", "available")
-          devices = [
-              device
-              for runtimes in data.get("devices", {}).values()
-              for device in runtimes
-              if device.get("isAvailable", True)
-          ]
-          prefix = "iPad" if family == "ipad" else "iPhone"
-          preferred = ["iPad Pro 13-inch (M4)", "iPad Air 13-inch (M3)"] if family == "ipad" else ["iPhone 17", "iPhone 16"]
-          selected = next((d for name in preferred for d in devices if d.get("name") == name), None)
-          selected = selected or next((d for d in devices if d.get("name", "").startswith(prefix)), None)
-          requested_version = os.environ.get("IOS_VERSION", "")
-          if requested_version:
-              # Explicit compatibility runs always get their own simulator.
-              selected = None
-          if selected is None:
-              runtimes = [
-                  runtime
-                  for runtime in simctl_json("runtimes").get("runtimes", [])
-                  if runtime.get("isAvailable", True)
-                  and (
-                      runtime.get("platform") == "iOS"
-                      or "iOS" in runtime.get("name", "")
-                      or runtime.get("identifier", "").startswith("com.apple.CoreSimulator.SimRuntime.iOS")
-                  )
-              ]
-              device_types = [
-                  device_type
-                  for device_type in simctl_json("devicetypes").get("devicetypes", [])
-                  if device_type.get("name", "").startswith(prefix)
-              ]
-              if requested_version:
-                  runtimes = [r for r in runtimes if r.get("version") == requested_version
-                              or r.get("version", "").startswith(requested_version + ".")]
-              runtime = max(runtimes, key=version_key, default=None)
-              if requested_version and runtime:
-                  supported = {d["identifier"] for d in runtime.get("supportedDeviceTypes", [])}
-                  if supported:
-                      device_types = [d for d in device_types if d["identifier"] in supported]
-                  # These devices also run on iOS 17; newer hardware may not.
-                  preferred = ["iPad Pro (11-inch) (4th generation)"] if family == "ipad" else ["iPhone 15", "iPhone 14"]
-              device_type = next((d for name in preferred for d in device_types if d.get("name") == name), None)
-              device_type = device_type or (device_types[-1] if device_types else None)
-              if runtime is None or device_type is None:
-                  raise SystemExit(f"No available {family} simulator or creatable iOS runtime/device type found")
-              created_name = f"cmux CI {os.environ.get('GITHUB_RUN_ID', 'local')} {device_type['name']}"
-              udid = subprocess.check_output([
-                  "xcrun",
-                  "simctl",
-                  "create",
-                  created_name,
-                  device_type["identifier"],
-                  runtime["identifier"],
-              ], text=True).strip()
-              selected = {"udid": udid, "name": created_name}
-              print(
-                  f"Created {selected['name']} ({udid}) with {runtime['identifier']}",
-                  file=sys.stderr,
-              )
-          print(f"SIMULATOR_ID={selected['udid']}")
-          print(f"SIMULATOR_NAME={selected['name']}")
-          if requested_version:
-              print(f"IOS_TEST_RUNTIME={runtime['version']}")
-          PY
+          SIMULATOR_ENV="${RUNNER_TEMP:-$PWD/.tmp}/simulator-build.env"
+          python3 scripts/ci/select_ios_simulator.py > "$SIMULATOR_ENV"
           cat "$SIMULATOR_ENV"
           cat "$SIMULATOR_ENV" >> "$GITHUB_ENV"
 
       - name: Prepare iOS build paths
-        if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.device_family != 'both' && inputs.device_family != matrix.family) }}
-        env:
-          DEVICE_FAMILY: ${{ matrix.family }}
         run: |
           set -euo pipefail
-          IOS_DERIVED_DATA="${RUNNER_TEMP:-$PWD/.tmp}/cmux-ios-${DEVICE_FAMILY}"
+          IOS_DERIVED_DATA="${RUNNER_TEMP:-$PWD/.tmp}/cmux-ios-build"
           rm -rf "$IOS_DERIVED_DATA"
           mkdir -p "$IOS_DERIVED_DATA/logs"
           echo "IOS_DERIVED_DATA=$IOS_DERIVED_DATA" >> "$GITHUB_ENV"
 
       - name: Resolve packages
-        if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.device_family != 'both' && inputs.device_family != matrix.family) }}
         run: |
           xcodebuild -workspace ios/cmux.xcworkspace \
             -scheme cmux-ios \
@@ -601,23 +509,348 @@ jobs:
             -clonedSourcePackagesDirPath "$IOS_SPM_CACHE" \
             -resolvePackageDependencies
 
-      - name: Run iOS simulator tests
-        if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.device_family != 'both' && inputs.device_family != matrix.family) }}
+      - name: Build iOS simulator test product
+        id: compile-product
         env:
           TEST_FILTER: ${{ inputs.test_filter }}
         run: |
           set -euo pipefail
+          started_ns="$(python3 -c 'import time; print(time.monotonic_ns())')"
           XCODEBUILD_ARGS=(
             -workspace ios/cmux.xcworkspace
             -scheme cmux-ios
+            -configuration Debug
             -destination "platform=iOS Simulator,id=$SIMULATOR_ID"
             -derivedDataPath "$IOS_DERIVED_DATA"
             -clonedSourcePackagesDirPath "$IOS_SPM_CACHE"
           )
+          # The build action emits every scheme plan unless one is named.
+          # Match ordinary test's default plan and keep the product unambiguous.
+          if [[ "${TEST_FILTER:-}" == cmuxUITests/* ]]; then
+            XCODEBUILD_ARGS+=(-testPlan cmux-ui)
+          else
+            XCODEBUILD_ARGS+=(-testPlan cmux)
+          fi
+          set +e
+          xcodebuild "${XCODEBUILD_ARGS[@]}" -showBuildTimingSummary build-for-testing \
+            2>&1 | tee "$IOS_DERIVED_DATA/logs/build-for-testing.log"
+          status="${PIPESTATUS[0]}"
+          set -e
+          seconds="$(STARTED_NS="$started_ns" python3 - <<'PY'
+          import os, time
+          print(f"{(time.monotonic_ns() - int(os.environ['STARTED_NS'])) / 1_000_000_000:.3f}")
+          PY
+          )"
+          echo "seconds=$seconds" >> "$GITHUB_OUTPUT"
+          echo "IOS_BUILD_ONCE_METRIC producer_compile_seconds=$seconds"
+          echo "Producer compile: ${seconds}s" >> "$GITHUB_STEP_SUMMARY"
+          exit "$status"
+
+      - name: Stage and stamp iOS test product
+        env:
+          CMUX_IOS_TEST_PLAN: ${{ startsWith(inputs.test_filter, 'cmuxUITests/') && 'cmux-ui' || 'cmux-ios-default' }}
+          CMUX_IOS_TEST_FILTER: ${{ inputs.test_filter }}
+          CMUX_IOS_VERSION: ${{ inputs.ios_version }}
+        run: |
+          set -euo pipefail
+          IOS_PRODUCT_STAGE="$RUNNER_TEMP/cmux-ios-test-product"
+          rm -rf "$IOS_PRODUCT_STAGE"
+          mkdir -p "$IOS_PRODUCT_STAGE/Build/Products"
+          rsync -aL "$IOS_DERIVED_DATA/Build/Products/" "$IOS_PRODUCT_STAGE/Build/Products/"
+          python3 scripts/ci/ios_simulator_test_product.py stamp \
+            "$IOS_PRODUCT_STAGE" "$IOS_DERIVED_DATA"
+          echo "IOS_PRODUCT_STAGE=$IOS_PRODUCT_STAGE" >> "$GITHUB_ENV"
+
+      - name: Package iOS test product
+        id: package-product
+        run: |
+          set -euo pipefail
+          started_ns="$(python3 -c 'import time; print(time.monotonic_ns())')"
+          archive="$RUNNER_TEMP/ios-test-product.tar.gz"
+          rm -f "$archive"
+          tar -czf "$archive" -C "$IOS_PRODUCT_STAGE" Build/Products
+          sha256="$(shasum -a 256 "$archive" | awk '{print $1}')"
+          bytes="$(stat -f '%z' "$archive")"
+          seconds="$(STARTED_NS="$started_ns" python3 - <<'PY'
+          import os, time
+          print(f"{(time.monotonic_ns() - int(os.environ['STARTED_NS'])) / 1_000_000_000:.3f}")
+          PY
+          )"
+          echo "sha256=$sha256" >> "$GITHUB_OUTPUT"
+          echo "bytes=$bytes" >> "$GITHUB_OUTPUT"
+          echo "seconds=$seconds" >> "$GITHUB_OUTPUT"
+          echo "IOS_BUILD_ONCE_METRIC archive_bytes=$bytes package_seconds=$seconds archive_sha256=$sha256"
+          printf 'Artifact archive: %s bytes; package: %ss; sha256:%s\n' "$bytes" "$seconds" "$sha256" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Start iOS product upload timer
+        run: echo "IOS_UPLOAD_STARTED_NS=$(python3 -c 'import time; print(time.monotonic_ns())')" >> "$GITHUB_ENV"
+
+      - name: Upload iOS test product
+        id: upload-product
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ios-test-product-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/ios-test-product.tar.gz
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 1
+
+      - name: Record iOS product upload metrics
+        id: upload-metrics
+        env:
+          ARCHIVE_BYTES: ${{ steps.package-product.outputs.bytes }}
+          PROVIDER_DIGEST: ${{ steps.upload-product.outputs.artifact-digest }}
+        run: |
+          set -euo pipefail
+          seconds="$(python3 - <<'PY'
+          import os, time
+          print(f"{(time.monotonic_ns() - int(os.environ['IOS_UPLOAD_STARTED_NS'])) / 1_000_000_000:.3f}")
+          PY
+          )"
+          echo "seconds=$seconds" >> "$GITHUB_OUTPUT"
+          echo "IOS_BUILD_ONCE_METRIC upload_seconds=$seconds archive_bytes=$ARCHIVE_BYTES provider_digest=$PROVIDER_DIGEST"
+          printf 'Artifact upload: %ss for %s bytes; provider digest %s\n' "$seconds" "$ARCHIVE_BYTES" "$PROVIDER_DIGEST" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Seed iOS caches from main
+        if: ${{ inputs.seed_cache && github.ref == 'refs/heads/main' }}
+        env:
+          AWS_ACCESS_KEY_ID: ${{ (inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND) == 'r2' && secrets.CI_CACHE_R2_ACCESS_KEY_ID || '' }}
+          AWS_SECRET_ACCESS_KEY: ${{ (inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND) == 'r2' && secrets.CI_CACHE_R2_SECRET_ACCESS_KEY || '' }}
+          CI_CACHE_R2_ENDPOINT: ${{ (inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND) == 'r2' && format('https://{0}.r2.cloudflarestorage.com', secrets.CI_CACHE_R2_ACCOUNT_ID) || '' }}
+          CI_CACHE_R2_BUCKET: ${{ vars.CI_CACHE_R2_BUCKET }}
+        run: |
+          set -euo pipefail
+          cache_backend="${{ inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND || 'r2' }}"
+          if [[ "$cache_backend" == "r2" && -z "${AWS_ACCESS_KEY_ID:-}" ]]; then
+            echo "::error::R2 cache seeding requested but CI_CACHE_R2 credentials are unavailable"
+            exit 1
+          fi
+          echo "Seeding iOS caches through $cache_backend"
+
+      - name: Save iOS SwiftPM cache
+        if: ${{ inputs.seed_cache && github.ref == 'refs/heads/main' }}
+        uses: ./.github/actions/cache-save
+        with:
+          backend: ${{ inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND || 'r2' }}
+          path: .ci-ios-source-packages
+          key: ios-spm-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('.xcode-version') }}-${{ hashFiles('ios/cmux.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
+
+      - name: Save iOS GhosttyKit cache
+        if: ${{ inputs.seed_cache && github.ref == 'refs/heads/main' }}
+        uses: ./.github/actions/cache-save
+        with:
+          backend: ${{ inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND || 'r2' }}
+          path: ${{ runner.temp }}/cmux-ghosttykit-cache
+          key: ios-ghosttykit-${{ runner.os }}-${{ runner.arch }}-${{ steps.ghostty-revision.outputs.sha }}-${{ hashFiles('scripts/ghosttykit-checksums.txt') }}
+
+      - name: Upload producer log
+        if: ${{ always() && env.IOS_DERIVED_DATA != '' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ios-test-product-build-log
+          path: ${{ env.IOS_DERIVED_DATA }}/logs/*.log
+          retention-days: 7
+
+      - name: Remove compatibility simulator
+        if: ${{ always() && inputs.ios_version != '' && env.SIMULATOR_ID != '' }}
+        run: |
+          xcrun simctl shutdown "$SIMULATOR_ID" >/dev/null 2>&1 || true
+          xcrun simctl delete "$SIMULATOR_ID"
+
+  ios-simulator:
+    permissions:
+      contents: read
+      actions: read
+    needs:
+      - detect-ios-changes
+      - ios-simulator-build
+    if: ${{ needs.detect-ios-changes.outputs.should_run == 'true' && inputs.swift_package == '' }}
+    # Runtime-only consumers share the producer's exact Build/Products tree.
+    runs-on: ${{ (!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_IOS || 'blacksmith-6vcpu-macos-26') || inputs.runner }}
+    timeout-minutes: 35
+    strategy:
+      fail-fast: false
+      matrix:
+        family: ${{ fromJSON(needs.detect-ios-changes.outputs.device_families) }}
+    steps:
+      - name: Validate Tart runner identity
+        if: ${{ startsWith((!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_IOS || 'blacksmith-6vcpu-macos-26') || inputs.runner, 'tart-') }}
+        env:
+          RUNNER_CONTEXT_NAME: ${{ runner.name }}
+        run: |
+          set -euo pipefail
+          [[ "$RUNNER_CONTEXT_NAME" == tart-cmux-* ]] || {
+            echo "::error::tart-ios resolved to unexpected runner $RUNNER_CONTEXT_NAME"
+            exit 1
+          }
+          test -f /etc/cmux-tart-ci || {
+            echo "::error::tart-ios runner is missing the immutable VM identity marker"
+            exit 1
+          }
+
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ needs.detect-ios-changes.outputs.target_sha }}
+          persist-credentials: false
+          submodules: false
+
+      - name: Select Xcode
+        run: |
+          set -euo pipefail
+          if [ -d "/Applications/Xcode.app/Contents/Developer" ]; then
+            XCODE_DIR="/Applications/Xcode.app/Contents/Developer"
+          else
+            XCODE_APP="$(find /Applications -maxdepth 1 -type d -name 'Xcode*.app' -print 2>/dev/null | sort | tail -n 1 || true)"
+            if [ -z "$XCODE_APP" ]; then
+              echo "No Xcode.app found under /Applications" >&2
+              exit 1
+            fi
+            XCODE_DIR="$XCODE_APP/Contents/Developer"
+          fi
+          echo "DEVELOPER_DIR=$XCODE_DIR" >> "$GITHUB_ENV"
+          export DEVELOPER_DIR="$XCODE_DIR"
+          xcodebuild -version
+
+      - name: Ensure iOS simulator runtime
+        env:
+          IOS_VERSION: ${{ inputs.ios_version }}
+        run: |
+          set -euo pipefail
+          if [ -n "$IOS_VERSION" ]; then
+            if xcrun simctl list runtimes available -j | python3 -c '
+          import json, os, re, sys
+          version = os.environ["IOS_VERSION"]
+          if not re.fullmatch(r"[0-9]+(?:\.[0-9]+){0,2}", version):
+              raise SystemExit("Invalid iOS version")
+          raise SystemExit(0 if any(
+              r.get("isAvailable", True)
+              and "iOS" in r.get("identifier", "")
+              and (r.get("version") == version or r.get("version", "").startswith(version + "."))
+              for r in json.load(sys.stdin)["runtimes"]
+          ) else 1)'; then
+              exit 0
+            fi
+            xcodebuild -downloadPlatform iOS -buildVersion "$IOS_VERSION"
+            exit 0
+          fi
+          if xcrun simctl list runtimes available | grep -Eq '\biOS\b'; then
+            exit 0
+          fi
+          echo "No available iOS simulator runtime; downloading the iOS platform."
+          xcodebuild -downloadPlatform iOS
+          xcrun simctl list runtimes available | grep -Eq '\biOS\b'
+
+      - name: Pick simulator
+        env:
+          DEVICE_FAMILY: ${{ matrix.family }}
+          IOS_VERSION: ${{ inputs.ios_version }}
+        run: |
+          set -euo pipefail
+          SIMULATOR_ENV="${RUNNER_TEMP:-$PWD/.tmp}/simulator-${DEVICE_FAMILY}.env"
+          python3 scripts/ci/select_ios_simulator.py > "$SIMULATOR_ENV"
+          cat "$SIMULATOR_ENV"
+          cat "$SIMULATOR_ENV" >> "$GITHUB_ENV"
+
+      - name: Prepare iOS consumer paths
+        env:
+          DEVICE_FAMILY: ${{ matrix.family }}
+        run: |
+          set -euo pipefail
+          IOS_DERIVED_DATA="${RUNNER_TEMP:-$PWD/.tmp}/cmux-ios-${DEVICE_FAMILY}"
+          rm -rf "$IOS_DERIVED_DATA"
+          mkdir -p "$IOS_DERIVED_DATA/logs" "$IOS_DERIVED_DATA/Logs/Test"
+          echo "IOS_DERIVED_DATA=$IOS_DERIVED_DATA" >> "$GITHUB_ENV"
+          echo "IOS_PRODUCT_DOWNLOAD=$RUNNER_TEMP/ios-test-product" >> "$GITHUB_ENV"
+
+      - name: Start iOS product download timer
+        run: echo "IOS_DOWNLOAD_STARTED_NS=$(python3 -c 'import time; print(time.monotonic_ns())')" >> "$GITHUB_ENV"
+
+      - name: Try parallel GitHub artifact transport
+        id: parallel-product
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_ID: ${{ needs.ios-simulator-build.outputs.artifact_id }}
+          ARTIFACT_PROVIDER_DIGEST: ${{ needs.ios-simulator-build.outputs.artifact_digest }}
+          ARTIFACT_PRODUCT_KIND: ios
+        run: python3 scripts/ci/parallel_artifact_download.py
+
+      - name: Download iOS test product
+        if: ${{ steps.parallel-product.outputs.hit != 'true' }}
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          artifact-ids: ${{ needs.ios-simulator-build.outputs.artifact_id }}
+          path: ${{ runner.temp }}/ios-test-product
+
+      - name: Record iOS product download metrics
+        id: download-metrics
+        run: |
+          set -euo pipefail
+          seconds="$(python3 - <<'PY'
+          import os, time
+          print(f"{(time.monotonic_ns() - int(os.environ['IOS_DOWNLOAD_STARTED_NS'])) / 1_000_000_000:.3f}")
+          PY
+          )"
+          echo "seconds=$seconds" >> "$GITHUB_OUTPUT"
+          echo "IOS_BUILD_ONCE_METRIC download_seconds=$seconds"
+          echo "Artifact download: ${seconds}s" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Verify and restore iOS test product
+        id: restore-product
+        env:
+          EXPECTED_SHA256: ${{ needs.ios-simulator-build.outputs.archive_sha256 }}
+          EXPECTED_BYTES: ${{ needs.ios-simulator-build.outputs.archive_bytes }}
+          CMUX_IOS_TEST_PLAN: ${{ startsWith(inputs.test_filter, 'cmuxUITests/') && 'cmux-ui' || 'cmux-ios-default' }}
+          CMUX_IOS_TEST_FILTER: ${{ inputs.test_filter }}
+          CMUX_IOS_VERSION: ${{ inputs.ios_version }}
+        run: |
+          set -euo pipefail
+          started_ns="$(python3 -c 'import time; print(time.monotonic_ns())')"
+          archive="$IOS_PRODUCT_DOWNLOAD/ios-test-product.tar.gz"
+          test -f "$archive"
+          actual_bytes="$(stat -f '%z' "$archive")"
+          [[ "$actual_bytes" == "$EXPECTED_BYTES" ]] || {
+            echo "::error::iOS test product size mismatch: expected $EXPECTED_BYTES, got $actual_bytes"
+            exit 1
+          }
+          echo "$EXPECTED_SHA256  $archive" | shasum -a 256 -c -
+          tar -xzf "$archive" -C "$IOS_DERIVED_DATA"
+          python3 scripts/ci/ios_simulator_test_product.py restore "$IOS_DERIVED_DATA"
+          seconds="$(STARTED_NS="$started_ns" python3 - <<'PY'
+          import os, time
+          print(f"{(time.monotonic_ns() - int(os.environ['STARTED_NS'])) / 1_000_000_000:.3f}")
+          PY
+          )"
+          echo "seconds=$seconds" >> "$GITHUB_OUTPUT"
+          echo "IOS_BUILD_ONCE_METRIC restore_seconds=$seconds"
+          echo "Product verify/restore: ${seconds}s" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Run iOS simulator tests
+        id: simulator-tests
+        env:
+          TEST_FILTER: ${{ inputs.test_filter }}
+        run: |
+          set -euo pipefail
+          started_ns="$(python3 -c 'import time; print(time.monotonic_ns())')"
+          record_test_seconds() {
+            local seconds
+            seconds="$(STARTED_NS="$started_ns" python3 - <<'PY'
+          import os, time
+          print(f"{(time.monotonic_ns() - int(os.environ['STARTED_NS'])) / 1_000_000_000:.3f}")
+          PY
+          )"
+            echo "seconds=$seconds" >> "$GITHUB_OUTPUT"
+            echo "IOS_BUILD_ONCE_METRIC consumer_test_seconds=$seconds"
+            echo "Consumer test time: ${seconds}s" >> "$GITHUB_STEP_SUMMARY"
+          }
+          trap record_test_seconds EXIT
+          XCODEBUILD_ARGS=(
+            -xctestrun "$CMUX_IOS_XCTESTRUN"
+            -destination "platform=iOS Simulator,id=$SIMULATOR_ID"
+          )
           if [ -n "${TEST_FILTER:-}" ]; then
-            if [[ "$TEST_FILTER" == cmuxUITests/* ]]; then
-              XCODEBUILD_ARGS+=(-testPlan cmux-ui)
-            else
+            if [[ "$TEST_FILTER" != cmuxUITests/* ]]; then
               # Keep focused package assertions bounded on virtualized iOS
               # runners; failed sysdiagnose collection can otherwise take 10m.
               XCODEBUILD_ARGS+=(
@@ -629,20 +862,13 @@ jobs:
             fi
             XCODEBUILD_ARGS+=(-only-testing:"$TEST_FILTER")
           else
-            # Full UI tests currently exceed the pull-request simulator budget
-            # on macos-26. Keep them runnable via workflow_dispatch +
-            # test_filter, while the PR lane still builds the app and runs
-            # non-UI iOS tests.
+            # The producer compiled the same default plan with UI tests skipped;
+            # retain the runtime selector so the default lane stays non-UI.
             XCODEBUILD_ARGS+=(-skip-testing:cmuxUITests)
           fi
-          XCODEBUILD_ARGS+=(test)
+          XCODEBUILD_ARGS+=(test-without-building)
           selected_tests_passed_despite_xcodebuild_status() {
             local log_path="$1"
-            # The negative grep must catch BOTH XCTest failure output and Swift
-            # Testing failure output (✘ markers): the final "Failing tests:"
-            # section is not always flushed into the tee'd log, and without the
-            # ✘ patterns a real Swift Testing failure exiting 65 was
-            # misclassified as a runner cleanup failure and turned the job green.
             (
               grep -Eq "Executed [1-9][0-9]* tests, with 0 failures \\(0 unexpected\\)" "$log_path" ||
                 grep -Eq "Test run with [1-9][0-9]* tests?( in [1-9][0-9]* suites?)? passed" "$log_path"
@@ -651,12 +877,13 @@ jobs:
           }
           for attempt in 1 2; do
             LOG_PATH="$IOS_DERIVED_DATA/logs/attempt-${attempt}.log"
+            RESULT_PATH="$IOS_DERIVED_DATA/Logs/Test/attempt-${attempt}.xcresult"
             echo "Preparing $SIMULATOR_NAME ($SIMULATOR_ID), attempt $attempt"
             xcrun simctl shutdown "$SIMULATOR_ID" >/dev/null 2>&1 || true
             xcrun simctl erase "$SIMULATOR_ID"
             xcrun simctl boot "$SIMULATOR_ID" >/dev/null 2>&1 || true
             xcrun simctl bootstatus "$SIMULATOR_ID" -b
-            if xcodebuild "${XCODEBUILD_ARGS[@]}" 2>&1 | tee "$LOG_PATH"; then
+            if xcodebuild "${XCODEBUILD_ARGS[@]}" -resultBundlePath "$RESULT_PATH" 2>&1 | tee "$LOG_PATH"; then
               ./scripts/ci/require_selected_test_execution.sh \
                 "$LOG_PATH" \
                 "${TEST_FILTER:-}"
@@ -674,37 +901,28 @@ jobs:
             exit "$status"
           done
 
-      - name: Seed iOS caches from main
-        if: ${{ inputs.seed_cache && github.ref == 'refs/heads/main' && matrix.family == 'iphone' && !(github.event_name == 'workflow_dispatch' && inputs.device_family != 'both' && inputs.device_family != matrix.family) }}
+      - name: Summarize iOS product transfer
+        if: ${{ always() }}
         env:
-          AWS_ACCESS_KEY_ID: ${{ (inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND) == 'r2' && secrets.CI_CACHE_R2_ACCESS_KEY_ID || '' }}
-          AWS_SECRET_ACCESS_KEY: ${{ (inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND) == 'r2' && secrets.CI_CACHE_R2_SECRET_ACCESS_KEY || '' }}
-          CI_CACHE_R2_ENDPOINT: ${{ (inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND) == 'r2' && format('https://{0}.r2.cloudflarestorage.com', secrets.CI_CACHE_R2_ACCOUNT_ID) || '' }}
-          CI_CACHE_R2_BUCKET: ${{ vars.CI_CACHE_R2_BUCKET }}
+          ARCHIVE_BYTES: ${{ needs.ios-simulator-build.outputs.archive_bytes }}
+          PRODUCER_COMPILE_SECONDS: ${{ needs.ios-simulator-build.outputs.compile_seconds }}
+          PRODUCER_PACKAGE_SECONDS: ${{ needs.ios-simulator-build.outputs.package_seconds }}
+          PRODUCER_UPLOAD_SECONDS: ${{ needs.ios-simulator-build.outputs.upload_seconds }}
+          DOWNLOAD_SECONDS: ${{ steps.download-metrics.outputs.seconds }}
+          RESTORE_SECONDS: ${{ steps.restore-product.outputs.seconds }}
+          TEST_SECONDS: ${{ steps.simulator-tests.outputs.seconds }}
         run: |
-          set -euo pipefail
-          cache_backend="${{ inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND || 'r2' }}"
-          if [[ "$cache_backend" == "r2" && -z "${AWS_ACCESS_KEY_ID:-}" ]]; then
-            echo "::error::R2 cache seeding requested but CI_CACHE_R2 credentials are unavailable"
-            exit 1
-          fi
-          echo "Seeding iOS caches through $cache_backend"
+          cat >> "$GITHUB_STEP_SUMMARY" <<EOF
+          ### iOS build-once metrics (${{ matrix.family }})
 
-      - name: Save iOS SwiftPM cache
-        if: ${{ inputs.seed_cache && github.ref == 'refs/heads/main' && matrix.family == 'iphone' && !(github.event_name == 'workflow_dispatch' && inputs.device_family != 'both' && inputs.device_family != matrix.family) }}
-        uses: ./.github/actions/cache-save
-        with:
-          backend: ${{ inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND || 'r2' }}
-          path: .ci-ios-source-packages
-          key: ios-spm-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('.xcode-version') }}-${{ hashFiles('ios/cmux.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
-
-      - name: Save iOS GhosttyKit cache
-        if: ${{ inputs.seed_cache && github.ref == 'refs/heads/main' && matrix.family == 'iphone' && !(github.event_name == 'workflow_dispatch' && inputs.device_family != 'both' && inputs.device_family != matrix.family) }}
-        uses: ./.github/actions/cache-save
-        with:
-          backend: ${{ inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND || 'r2' }}
-          path: ${{ runner.temp }}/cmux-ghosttykit-cache
-          key: ios-ghosttykit-${{ runner.os }}-${{ runner.arch }}-${{ steps.ghostty-revision.outputs.sha }}-${{ hashFiles('scripts/ghosttykit-checksums.txt') }}
+          - archive bytes: ${ARCHIVE_BYTES:-unknown}
+          - producer compile: ${PRODUCER_COMPILE_SECONDS:-unknown}s
+          - product package: ${PRODUCER_PACKAGE_SECONDS:-unknown}s
+          - artifact upload: ${PRODUCER_UPLOAD_SECONDS:-unknown}s
+          - artifact download: ${DOWNLOAD_SECONDS:-unknown}s
+          - verify/restore: ${RESTORE_SECONDS:-unknown}s
+          - consumer test: ${TEST_SECONDS:-unknown}s
+          EOF
 
       - name: Upload iOS test results
         if: ${{ always() && env.IOS_DERIVED_DATA != '' }}
@@ -732,6 +950,7 @@ jobs:
       - detect-ios-changes
       - package-conventions-lint
       - mobile-core-package
+      - ios-simulator-build
       - ios-simulator
     if: ${{ always() }}
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}

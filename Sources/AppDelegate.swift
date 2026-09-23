@@ -9719,8 +9719,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // An addressable duplicate window can fail closed during reindexing;
         // retain the validated active owner until routing resolves rather than
         // pruning it merely because its cached AppKit identity is transiently
-        // absent. Windowless app shortcuts still prune as before.
-        if (event == nil || eventContext != nil) && pruneWindowlessActiveMainWindowContext() {
+        // absent. That race only exists when the event names a window, so gate
+        // the deferral on the event's addressability: an event that carries no
+        // window at all (windowNumber 0 responder-chain shortcuts) has no
+        // reindexing candidate to protect, and must still prune as before.
+        let eventDefersActiveContextPrune = event.map { event in
+            eventContext == nil && shortcutEventHasAddressableWindow(event)
+        } ?? false
+        if !eventDefersActiveContextPrune && pruneWindowlessActiveMainWindowContext() {
 #if DEBUG
             logWorkspaceCreationRouting(
                 phase: "choose",

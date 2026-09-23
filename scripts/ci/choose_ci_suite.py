@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
-"""Decide whether a CI run gets the full macOS suite or only compile admission.
+"""Select the full macOS suite policy or the reduced PR suite policy.
 
-The full suite (app-host shards, package tests, the lag build, the Release
-build) is what proves a change. Compile admission is the cheap check that a
-push still builds. With a merge queue the full suite runs on the commit that
-will land, so running it on every push as well spends most Mac time on commits
-that never merge.
+The full policy permits expensive app-host shards, package tests, lag builds,
+and Release lanes, subject to each lane's path routing and dependencies.
+The reduced policy still runs compile admission and independently routed tests;
+it is not a request to skip all tests. `full-ci` explicitly opts into the broad
+policy, not normal PR validation or a generic review/merge prerequisite. Choose
+coverage appropriate to the change and verify which tests actually executed.
 
 The answer is "full" unless everything says otherwise: only a pull_request
 event, under the compile-only policy, without the opt-in label, gets less.
