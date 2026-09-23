@@ -22,6 +22,7 @@ a candidate path on disk.
 from __future__ import annotations
 
 import argparse
+import json
 import re
 import sys
 
@@ -117,9 +118,30 @@ def decide(rows: list[list[str]], limit: int, expected_count: int | None = None)
     return False, "no production web source or complexity policy file changed", []
 
 
+def decide_compare(response: dict, base: str, expected_count: int) -> tuple[bool, str, list[str]]:
+    """Trust a three-dot listing only when it equals the current-base tree diff."""
+    if not isinstance(base, str) or not re.fullmatch(r"[0-9a-f]{40}", base) or not isinstance(expected_count, int):
+        return True, "missing immutable comparison metadata", []
+    if not isinstance(response, dict) or response.get("merge_base_commit", {}).get("sha") != base:
+        return True, "comparison is not based on the trusted revision", []
+    files = response.get("files")
+    if not isinstance(files, list) or any(not isinstance(row, dict) for row in files):
+        return True, "comparison has no complete file list", []
+    rows = []
+    for row in files:
+        name = row.get("filename")
+        previous = row.get("previous_filename", "")
+        if not isinstance(name, str) or not name or not isinstance(previous, str):
+            return True, "comparison contains malformed paths", []
+        rows.append([row.get("status", ""), name, previous])
+    return decide(rows, 300, expected_count)
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--changed-files", required=True, help="TSV of status\\tfilename\\tprevious_filename")
+    parser.add_argument("--compare-json")
+    parser.add_argument("--trusted-base")
+    parser.add_argument("--changed-files", help="TSV of status\\tfilename\\tprevious_filename")
     parser.add_argument("--limit", type=int, default=300, help="GitHub's compare-endpoint changed-file ceiling")
     parser.add_argument(
         "--expected-count",
@@ -128,6 +150,17 @@ def main(argv: list[str] | None = None) -> int:
         help="github.event.pull_request.changed_files; a short listing means a partial read",
     )
     args = parser.parse_args(argv)
+
+    if args.compare_json:
+        try:
+            with open(args.compare_json, encoding="utf-8") as handle:
+                response = json.load(handle)
+            scan, reason, _ = decide_compare(response, args.trusted_base, args.expected_count)
+        except (OSError, ValueError, TypeError, AttributeError):
+            scan, reason = True, "unreadable comparison"
+        print(reason, file=sys.stderr)
+        print("scan=true" if scan else "scan=false")
+        return 0
 
     try:
         # surrogateescape so a non-UTF-8 byte in a filename cannot turn a

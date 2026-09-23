@@ -227,6 +227,33 @@ def test_compare_response_requires_current_base():
     check("incomplete compare response falls back", scope.decide_compare(docs, base, 2)[0] is True)
 
 
+def test_real_workflow_api_step_keeps_stale_base_fallback():
+    import json
+    import os
+    import yaml
+    workflow = yaml.safe_load((ROOT / ".github/workflows/web-complexity-trusted.yml").read_text())
+    step = next(step for step in workflow["jobs"]["complexity"]["steps"] if step.get("id") == "api_scope")
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        (root / "trusted").symlink_to(ROOT, target_is_directory=True)
+        gh = root / "gh"
+        gh.write_text('#!/bin/sh\ncat "$COMPARE_FIXTURE"\n')
+        gh.chmod(0o755)
+        fixture = root / "fixture.json"
+        output = root / "output"
+        env = dict(os.environ, PATH=str(root) + os.pathsep + os.environ["PATH"],
+                   GITHUB_WORKSPACE=str(root), RUNNER_TEMP=str(root), GITHUB_OUTPUT=str(output),
+                   GITHUB_REPOSITORY="owner/repo", TRUSTED_SHA="a" * 40,
+                   CANDIDATE_SHA="c" * 40, CHANGED_FILES="1", COMPARE_FIXTURE=str(fixture))
+        for merge_base, expected in (("a" * 40, "scan=false"), ("b" * 40, "scan=true")):
+            fixture.write_text(json.dumps({"merge_base_commit": {"sha": merge_base},
+                                          "files": [{"status": "modified", "filename": "README.md"}]}))
+            output.write_text("")
+            result = subprocess.run(["bash", "-c", step["run"]], env=env, capture_output=True, text=True)
+            check("real API step " + expected, result.returncode == 0 and output.read_text().strip() == expected,
+                  result.stderr)
+
+
 def main() -> int:
     for name, fn in sorted(globals().items()):
         if name.startswith("test_") and callable(fn):
