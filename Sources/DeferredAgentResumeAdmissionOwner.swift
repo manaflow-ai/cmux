@@ -18,6 +18,10 @@ protocol DeferredAgentResumeAdmissionOwner: AnyObject {
     func resolveDeferredAgentResumeRestores(using index: RestorableAgentSessionIndex)
     /// Presents pending restores as still checking when no index is available.
     func presentPendingAgentResumeRestores()
+    /// Fresh evidence for this owner's pending requests.
+    var deferredAgentResumeIndexProvider: @MainActor @Sendable () async -> SharedLiveAgentIndexRefreshOutcome { get }
+    /// Waits for the next evidence event; cancellation releases the wait.
+    var deferredAgentResumeEvidenceWait: @Sendable () async -> Void { get }
 }
 
 extension DeferredAgentResumeAdmissionOwner {
@@ -27,19 +31,33 @@ extension DeferredAgentResumeAdmissionOwner {
         restore: DeferredAgentResumeRestore
     ) {
         deferredAgentResumeRestoresByPanelId[panelId] = restore
-        guard deferredAgentResumeIndexTask == nil else { return }
+        // A newly transferred pane is new work, even if the prior pass is
+        // waiting on an unrelated owner's file or process event.
+        deferredAgentResumeIndexTask?.cancel()
+        let refresh = deferredAgentResumeIndexProvider
+        let waitForEvidence = deferredAgentResumeEvidenceWait
         deferredAgentResumeIndexTask = Task { @MainActor [weak self] in
             while !Task.isCancelled {
-                let outcome = await SharedLiveAgentIndex.shared.indexForOwnershipDecision()
+                let outcome = await refresh()
                 // Do not hold the owner across the evidence wait: teardown must
                 // not be delayed by a restore that is still observing evidence.
                 guard !Task.isCancelled,
                       self?.applyDeferredAgentResumeOutcome(outcome) == true else { return }
-                await AgentRestoreEvidenceObservation().wait(
-                    process: nil,
-                    paths: [RestorableAgentKind.claude.hookStoreFileURL().deletingLastPathComponent().path]
-                )
+                await waitForEvidence()
             }
+        }
+    }
+
+    var deferredAgentResumeIndexProvider: @MainActor @Sendable () async -> SharedLiveAgentIndexRefreshOutcome {
+        { await SharedLiveAgentIndex.shared.indexForOwnershipDecision() }
+    }
+
+    var deferredAgentResumeEvidenceWait: @Sendable () async -> Void {
+        {
+            await AgentRestoreEvidenceObservation().wait(
+                process: nil,
+                paths: [RestorableAgentKind.claude.hookStoreFileURL().deletingLastPathComponent().path]
+            )
         }
     }
 

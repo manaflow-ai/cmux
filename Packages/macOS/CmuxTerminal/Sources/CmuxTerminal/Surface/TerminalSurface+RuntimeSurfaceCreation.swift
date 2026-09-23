@@ -223,7 +223,7 @@ extension TerminalSurface {
             )
         }
 
-        var managedShellCommand: String?
+        var managedShellPlan = TerminalManagedShellStartupPlan(command: nil, reportsPromptReadiness: false)
         var appliedShellIntegrationDirectory: String?
         if spawnPolicy.shellIntegrationEnabled,
            let integrationDir = Bundle.main.resourceURL?.appendingPathComponent("shell-integration").path,
@@ -239,7 +239,7 @@ extension TerminalSurface {
             )
 
             if let shell = engine.resolvedUserShell {
-                managedShellCommand = Self.applyManagedShellSpecificStartupEnvironment(
+                managedShellPlan = Self.applyManagedShellStartupPlan(
                     shell: shell,
                     integrationDir: integrationDir,
                     userGhosttyShellIntegrationMode: engine.userGhosttyShellIntegrationMode,
@@ -283,7 +283,7 @@ extension TerminalSurface {
             initialCommand: configuredInitialCommand,
             surfaceCommand: baseConfig.command,
             hasUserGhosttyCommand: engine.hasUserGhosttyCommand,
-            managedShellCommand: managedShellCommand,
+            managedShellCommand: managedShellPlan.command,
             resolvedShell: engine.resolvedUserShell
         )
         let runtimeInitialInput = nextRuntimeInitialInput
@@ -307,8 +307,9 @@ extension TerminalSurface {
                 resolvedCommand: resolvedCommand,
                 hasUserGhosttyCommand: engine.hasUserGhosttyCommand,
                 resolvedShell: engine.resolvedUserShell,
-                managedShellCommand: managedShellCommand,
-                environment: env
+                managedShellCommand: managedShellPlan.command,
+                environment: env,
+                managedShellReportsPromptReadiness: managedShellPlan.reportsPromptReadiness
             )
         let createdSurface = withOptionalCString(resolvedCommand) { cCommand in
             surfaceConfig.command = cCommand

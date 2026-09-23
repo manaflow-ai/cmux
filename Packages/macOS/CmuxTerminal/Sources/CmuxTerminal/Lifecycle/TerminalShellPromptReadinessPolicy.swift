@@ -16,6 +16,7 @@ public struct TerminalShellPromptReadinessPolicy: Sendable {
     ///   - resolvedShell: The user shell cmux resolved for this surface.
     ///   - managedShellCommand: cmux's shell-integration wrapper command, when the shell needs one.
     ///   - environment: The final startup environment passed to the shell.
+    ///   - managedShellReportsPromptReadiness: Whether the actual managed payload installs prompt hooks.
     /// - Returns: True only when the launched process is a shell whose cmux integration was installed.
     public func reportsPromptReadiness(
         integrationDirectory: String?,
@@ -23,7 +24,8 @@ public struct TerminalShellPromptReadinessPolicy: Sendable {
         hasUserGhosttyCommand: Bool,
         resolvedShell: String?,
         managedShellCommand: String?,
-        environment: [String: String]
+        environment: [String: String],
+        managedShellReportsPromptReadiness: Bool = false
     ) -> Bool {
         guard let integrationDirectory, let resolvedShell, !hasUserGhosttyCommand else { return false }
         if let resolvedCommand, !resolvedCommand.isEmpty,
@@ -36,7 +38,7 @@ public struct TerminalShellPromptReadinessPolicy: Sendable {
         case "bash":
             return environment["PROMPT_COMMAND"]?.isEmpty == false
         case "fish", "nu":
-            return managedShellCommand != nil && resolvedCommand == managedShellCommand
+            return managedShellReportsPromptReadiness && managedShellCommand != nil && resolvedCommand == managedShellCommand
         default:
             return false
         }

@@ -549851,6 +549851,72 @@
             "state": "translated",
             "value": "正在還原已儲存的代理程式工作階段…"
           }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vraćanje sačuvane sesije agenta…"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gendanner gemt agentsession…"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ripristino della sessione salvata dell’agente…"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កំពុងស្ដារសម័យភ្នាក់ងារដែលបានរក្សាទុក…"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gjenoppretter lagret agentøkt…"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Przywracanie zapisanej sesji agenta…"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Restaurando a sessão salva do agente…"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Восстановление сохранённого сеанса агента…"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "กำลังกู้คืนเซสชันเอเจนต์ที่บันทึกไว้…"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kaydedilmiş aracı oturumu geri yükleniyor…"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Відновлення збереженого сеансу агента…"
+          }
         }
       }
     },
@@ -549909,6 +549975,72 @@
           "stringUnit": {
             "state": "translated",
             "value": "%1$@ 工作階段正在程序 %2$@ 中執行。正在等待寫入權限釋出…"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sesija %1$@ radi u procesu %2$@. Čeka se oslobađanje prava pisanja…"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sessionen %1$@ kører i proces %2$@. Venter på, at skriveadgangen bliver ledig…"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La sessione %1$@ è in esecuzione nel processo %2$@. In attesa che l’accesso in scrittura sia disponibile…"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "សម័យ %1$@ កំពុងដំណើរការក្នុងដំណើរការ %2$@។ កំពុងរង់ចាំសិទ្ធិសរសេរឱ្យទំនេរ…"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Økten %1$@ kjører i prosess %2$@. Venter på at skrivetilgangen blir ledig…"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sesja %1$@ działa w procesie %2$@. Oczekiwanie na zwolnienie dostępu do zapisu…"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A sessão %1$@ está em execução no processo %2$@. Aguardando a liberação do acesso de escrita…"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сеанс %1$@ выполняется в процессе %2$@. Ожидание освобождения доступа для записи…"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เซสชัน %1$@ กำลังทำงานในโพรเซส %2$@ กำลังรอให้สิทธิ์การเขียนว่าง…"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ oturumu %2$@ işleminde çalışıyor. Yazma erişiminin serbest kalması bekleniyor…"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сеанс %1$@ виконується в процесі %2$@. Очікування звільнення доступу для запису…"
           }
         }
       }

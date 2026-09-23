@@ -97,51 +97,6 @@ extension CMUXCLI {
             }
         }
 
-        let environment = processEnvironment.merging(record.environment) { _, restored in
-            restored
-        }
-        if record.launchCommand == nil,
-           record.preparedArguments == nil,
-           let legacyCommand = record.legacyCommand {
-            let admissionClaim = try requireRestoreLaunchAdmission(
-                record: record,
-                recordSessionID: surfaceRecordCheckpointID,
-                restorePayload: payload,
-                client: client
-            )
-            if codexRestoreBindingRequiresClaim(record),
-               !claimCodexRestoreBinding(
-                   record: record,
-                   bindingPayload: bindingPayload,
-                   surfaceID: params["surface_id"] as? String,
-                   client: client
-               ) {
-                releaseRestoreLaunchAdmission(admissionClaim, client: client)
-                try handleRejectedCodexRestore(
-                    .bindingChanged,
-                    record: record,
-                    bindingPayload: bindingPayload,
-                    surfaceID: params["surface_id"] as? String,
-                    workspaceID: payload["workspace_id"] as? String
-                        ?? processEnvironment["CMUX_WORKSPACE_ID"],
-                    client: client,
-                    workingDirectoryBeforeRestore: workingDirectoryBeforeRestore
-                )
-                return
-            }
-            do {
-                try execLegacyRestoreRecord(
-                    legacyCommand,
-                    record: record,
-                    environment: environment,
-                    client: client
-                )
-            } catch {
-                releaseRestoreLaunchAdmission(admissionClaim, client: client)
-                throw error
-            }
-        }
-
         guard let mode = AgentRestoreRequestMode(rawValue: record.mode) else {
             throw loggedRestoreError(
                 stage: "record.mode",
@@ -176,122 +131,26 @@ extension CMUXCLI {
             ),
             observedPermissionMode: record.permissionMode
         )
-        guard let invocation = AgentRestorePlanner(
+        let legacyOnly = record.launchCommand == nil && record.preparedArguments == nil && record.legacyCommand != nil
+        let invocation = legacyOnly ? nil : AgentRestorePlanner(
             executableFileResolver: AgentRestoreExecutableFileResolver()
-        ).invocation(
-            for: request,
-            ambientEnvironment: processEnvironment
-        ) else {
-            if let legacyCommand = record.legacyCommand {
-                let admissionClaim = try requireRestoreLaunchAdmission(
-                    record: record,
-                    recordSessionID: surfaceRecordCheckpointID,
-                    restorePayload: payload,
-                    client: client
-                )
-                if codexRestoreBindingRequiresClaim(record),
-                   !claimCodexRestoreBinding(
-                       record: record,
-                       bindingPayload: bindingPayload,
-                       surfaceID: params["surface_id"] as? String,
-                       client: client
-                   ) {
-                    releaseRestoreLaunchAdmission(admissionClaim, client: client)
-                    try handleRejectedCodexRestore(
-                        .bindingChanged,
-                        record: record,
-                        bindingPayload: bindingPayload,
-                        surfaceID: params["surface_id"] as? String,
-                        workspaceID: payload["workspace_id"] as? String
-                            ?? processEnvironment["CMUX_WORKSPACE_ID"],
-                        client: client,
-                        workingDirectoryBeforeRestore: workingDirectoryBeforeRestore
-                    )
-                    return
-                }
-                do {
-                    try execLegacyRestoreRecord(
-                        legacyCommand,
-                        record: record,
-                        environment: environment,
-                        client: client
-                    )
-                } catch {
-                    releaseRestoreLaunchAdmission(admissionClaim, client: client)
-                    throw error
-                }
-            }
-            throw loggedRestoreError(
-                stage: "record.incomplete",
-                detail: "mode=\(record.mode) kind=\(record.kind)",
-                message: String(
-                    localized: "cli.restore.error.incompleteData",
-                    defaultValue: "restore: this session's saved restore data is not compatible. Start the agent again in this terminal."
-                )
+        ).invocation(for: request, ambientEnvironment: processEnvironment)
+        let execution: RestoreExecution
+        if let invocation {
+            execution = .invocation(invocation)
+        } else {
+            execution = try legacyRestoreExecution(
+                record: record, processEnvironment: processEnvironment,
+                workingDirectory: effectiveWorkingDirectory
             )
         }
-
-        let launchLease = try acquireRestoreLaunchLease(
-            record: record, invocation: invocation, restorePayload: payload, client: client,
-            workingDirectory: effectiveWorkingDirectory ?? FileManager.default.currentDirectoryPath
+        try runAdmittedRestore(
+            execution: execution, record: record, recordSessionID: surfaceRecordCheckpointID,
+            payload: payload, bindingPayload: bindingPayload, client: client,
+            surfaceID: surfaceID, workspaceID: payload["workspace_id"] as? String ?? processEnvironment["CMUX_WORKSPACE_ID"],
+            effectiveWorkingDirectory: effectiveWorkingDirectory,
+            workingDirectoryBeforeRestore: workingDirectoryBeforeRestore
         )
-        defer { launchLease?.release() }
-        let admissionClaim = try requireRestoreLaunchAdmission(
-            record: record,
-            recordSessionID: surfaceRecordCheckpointID,
-            restorePayload: payload,
-            client: client,
-            // A remote provider has no local writer lock; omitting the home makes
-            // the app require complete process evidence, matching the lease.
-            effectiveCodexHome: record.kind == "codex"
-                && !CodexRestoreAccount().usesRemoteProvider(arguments: invocation.arguments)
-                ? CodexRestoreAccount().home(
-                    environment: invocation.environment,
-                    workingDirectory: effectiveWorkingDirectory ?? FileManager.default.currentDirectoryPath,
-                    fallbackHome: NSHomeDirectory()
-                )
-                : nil
-        )
-        do {
-            for preflight in invocation.preflightInvocations {
-                try runRestorePreflight(
-                    preflight,
-                    appliedWorkingDirectory: effectiveWorkingDirectory
-                )
-            }
-            if codexRestoreBindingRequiresClaim(record),
-               !claimCodexRestoreBinding(
-                   record: record,
-                   bindingPayload: bindingPayload,
-                   surfaceID: params["surface_id"] as? String,
-                   client: client
-               ) {
-                releaseRestoreLaunchAdmission(admissionClaim, client: client)
-                try handleRejectedCodexRestore(
-                    .bindingChanged,
-                    record: record,
-                    bindingPayload: bindingPayload,
-                    surfaceID: params["surface_id"] as? String,
-                    workspaceID: payload["workspace_id"] as? String
-                        ?? processEnvironment["CMUX_WORKSPACE_ID"],
-                    client: client,
-                    workingDirectoryBeforeRestore: workingDirectoryBeforeRestore
-                )
-                return
-            }
-            // The watcher holds the lease for exactly this process's lifetime;
-            // exec closes our descriptor so the agent's children never inherit it.
-            if let launchLease { try transferRestoreLaunchLease(launchLease) }
-            client.close()
-            try execRestoreInvocation(
-                invocation,
-                appliedWorkingDirectory: effectiveWorkingDirectory,
-                admittedScope: admissionClaim
-            )
-        } catch {
-            releaseRestoreLaunchAdmission(admissionClaim, client: client)
-            throw error
-        }
     }
 
     func currentRestoreSurfaceID(

@@ -109,9 +109,10 @@ struct AgentRestoreLaunchLeaseTests {
 
         let finished = DispatchSemaphore(value: 0)
         let registered = LockedFlag()
+        let readyDescriptor = ready[1]
         Thread.detachNewThread {
             registered.set(AgentRestoreLaunchLease.runExitWatcher(
-                processID: agent.pid, leaseDescriptor: watcherLease, readyDescriptor: ready[1]
+                processID: agent.pid, leaseDescriptor: watcherLease, readyDescriptor: readyDescriptor
             ))
             finished.signal()
         }

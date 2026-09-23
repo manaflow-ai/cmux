@@ -61,7 +61,7 @@ struct TerminalShellPromptReadinessPolicyTests {
         #expect(policy.reportsPromptReadiness(
             integrationDirectory: integration, resolvedCommand: "fish-wrapper",
             hasUserGhosttyCommand: false, resolvedShell: "/opt/homebrew/bin/fish",
-            managedShellCommand: "fish-wrapper", environment: [:]
+            managedShellCommand: "fish-wrapper", environment: [:], managedShellReportsPromptReadiness: true
         ))
         #expect(!policy.reportsPromptReadiness(
             integrationDirectory: integration, resolvedCommand: "/opt/homebrew/bin/fish",
