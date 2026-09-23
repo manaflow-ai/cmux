@@ -235,6 +235,9 @@ struct WorkspaceCoordinatorTests {
         #expect(!reorder.isRefusedWorkspacePlacement(tabId: a.id, toIndex: -5))
         #expect(!reorder.isRefusedWorkspacePlacement(tabId: a.id, after: b.id))
         #expect(!reorder.isRefusedWorkspacePlacement(tabId: UUID(), toIndex: 0))
+        a.isPinned = true
+        #expect(!reorder.isRefusedWorkspacePlacement(tabId: b.id, toIndex: -5))
+        #expect(!reorder.isRefusedWorkspacePlacement(tabId: a.id, toIndex: 99))
     }
 
     @Test

@@ -10,6 +10,33 @@ struct SidebarJSRuntimeTests {
         for _ in 0..<5 { await Task.yield() }
     }
 
+    @Test func refusedDropReturnsToUnchangedItemsAfterSettlement() throws {
+        let runtime = SidebarJSRuntime()
+        #expect(runtime.start(source: """
+        sidebar(() => Reorderable({
+            items: [{id: "anchor"}, {id: "member"}],
+            key: w => w.id,
+            onMove: () => {}, // A refused command leaves host data unchanged.
+        }, w => Text(() => w().id)))
+        """))
+        let root = try #require(runtime.store.rootId.flatMap { runtime.store.node($0) })
+        let original = root.children
+        let presentation = ReorderDragModel()
+        presentation.draggedId = original[1]
+        presentation.localOrder = Array(original.reversed())
+        presentation.isSettling = true
+        presentation.settledId = original[1]
+        presentation.settledIndent = 0
+        runtime.dispatchEvent(nodeId: root.id, event: "move", payload: [
+            "id": "member", "index": 0, "side": "above", "block": false,
+        ])
+        #expect(root.children == original)
+        presentation.finishSettlement()
+        #expect((presentation.localOrder ?? root.children) == original)
+        #expect(presentation.settledId == nil)
+        #expect(presentation.settledIndent == nil)
+    }
+
     @Test func buildsRetainedScene() {
         let runtime = SidebarJSRuntime()
         let ok = runtime.start(source: """
