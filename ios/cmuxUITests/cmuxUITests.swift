@@ -1920,22 +1920,27 @@ final class cmuxUITests: XCTestCase {
         ])
         defer { app.terminate() }
 
-        func picker() -> XCUIElement {
+        func picker() throws -> XCUIElement {
             waitForWorkspaceShell(in: app)
             let back = app.buttons["MobileWorkspaceBackButton"]
             if back.exists { tap(back, in: app) }
             let picker = app.buttons["MobileWorkspaceMacPicker"]
-            XCTAssertTrue(picker.waitForExistence(timeout: 15))
-            return picker
+            return try XCTUnwrap(
+                picker.waitForExistence(timeout: 15) ? picker : nil,
+                "The production computer picker must appear before interacting"
+            )
         }
 
-        func expectTitle(_ title: String) {
-            let control = picker()
+        func expectTitle(_ title: String) throws {
+            let control = try picker()
             let restored = XCTNSPredicateExpectation(
                 predicate: NSPredicate(format: "label == %@", title),
                 object: control
             )
-            XCTAssertEqual(XCTWaiter.wait(for: [restored], timeout: 15), .completed)
+            _ = try XCTUnwrap(
+                XCTWaiter.wait(for: [restored], timeout: 15) == .completed ? control : nil,
+                "Expected picker title \(title), got \(control.label)"
+            )
         }
 
         func capture(_ name: String) {
@@ -1946,34 +1951,40 @@ final class cmuxUITests: XCTestCase {
         }
 
         // Start through the real picker, without seeding its saved preference.
-        tap(picker(), in: app)
-        tapMenuItem(app.buttons["MobileWorkspaceMacPickerAll"], in: app)
-        expectTitle("All Computers")
-        tap(picker(), in: app)
+        tapCompactToolbarTitleMenu(try picker(), in: app)
+        let allComputers = try XCTUnwrap(waitForVisibleElement(
+            identifier: "MobileWorkspaceMacPickerAll", in: app, timeout: 5
+        ))
+        tapMenuItem(allComputers, in: app)
+        try expectTitle("All Computers")
+        tapCompactToolbarTitleMenu(try picker(), in: app)
         let computer = app.buttons.matching(NSPredicate(
             format: "identifier BEGINSWITH %@",
             "MobileWorkspaceMacPickerMachine-ui-test-mac"
         )).firstMatch
-        XCTAssertTrue(computer.waitForExistence(timeout: 5))
+        _ = try XCTUnwrap(
+            computer.waitForExistence(timeout: 5) ? computer : nil,
+            "The computer menu must be open before selecting its Mac"
+        )
         let computerName = computer.label
         XCTAssertNotEqual(computerName, "All Computers")
         tapMenuItem(computer, in: app)
-        expectTitle(computerName)
+        try expectTitle(computerName)
         capture("computer-selected-before-termination")
 
         app.terminate()
         app.launch()
-        expectTitle(computerName)
+        try expectTitle(computerName)
         capture("computer-restored-after-relaunch")
 
-        tap(picker(), in: app)
+        tapCompactToolbarTitleMenu(try picker(), in: app)
         tapMenuItem(app.buttons["MobileWorkspaceMacPickerAll"], in: app)
-        expectTitle("All Computers")
+        try expectTitle("All Computers")
         capture("all-computers-selected-before-termination")
 
         app.terminate()
         app.launch()
-        expectTitle("All Computers")
+        try expectTitle("All Computers")
         capture("all-computers-restored-after-relaunch")
     }
 
