@@ -19642,6 +19642,45 @@ mod tests {
         );
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn retained_exited_terminal_socket_attach_preserves_output() {
+        for mode in ["bytes", "render"] {
+            let mux = test_mux();
+            let workspace = mux.create_empty_workspace(None, None, None).unwrap();
+            let id = mux.seed_running_terminal_with_on_exit_for_test(
+                "00000000000040008000000000013290",
+                "10000000000040008000000000013290",
+                &workspace.key,
+                crate::workspace_registry::TerminalOnExit::Keep,
+            ).unwrap();
+            let surface = mux.surface(id).unwrap();
+            assert!(surface.is_dead());
+            surface.with_terminal(|terminal| terminal.vt_write(b"finished-agent-output"));
+            let (writer, outbound) = captured_writer();
+            let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+            handle_command(&mux, client, Command::AttachSurface {
+                surface: Some(id),
+                mode: Some(mode.into()),
+                cols: None,
+                rows: None,
+                expected_generation: None,
+                expected_terminal_id: None,
+            }, &writer).expect("retained output must remain attachable after child exit");
+            let initial = pop_json(&outbound);
+            if mode == "bytes" {
+                assert_eq!(initial["event"], "vt-state");
+                let replay = base64::engine::general_purpose::STANDARD
+                    .decode(initial["data"].as_str().unwrap()).unwrap();
+                assert!(String::from_utf8_lossy(&replay).contains("finished-agent-output"));
+            } else {
+                assert!(initial.to_string().contains("finished-agent-output"));
+            }
+            disconnect_client(&mux, client, false);
+            mux.shutdown();
+        }
+    }
+
     #[test]
     fn creation_attachment_identity_rejects_wrong_generation_and_terminal() {
         let mux = test_mux();
