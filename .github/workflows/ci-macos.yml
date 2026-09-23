@@ -2056,6 +2056,7 @@ jobs:
             exit 1
           fi
 
+          python3 tests/test_cli_workflow_catalog_translation.py
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_workflow_catalog.py
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_vm_transfer_progress.py
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_vm_resize.py

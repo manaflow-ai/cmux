@@ -125,6 +125,16 @@ def paired(left: list, right: list):
     return zip(left, right)
 
 
+def check_localized_field(original, localized, label: str) -> None:
+    require(original != localized, f"{label}: untranslated")
+    if isinstance(original, list):
+        for original_item, localized_item in paired(original, localized):
+            if original_item in {"codex", "claude"}:
+                require(original_item == localized_item, f"{label}: executable name changed")
+            else:
+                require(original_item != localized_item, f"{label}: untranslated item")
+
+
 def check_localized_catalog(cli_path: str) -> None:
     """Exercise shipped translations through the executable's app-bundle lookup."""
     with tempfile.TemporaryDirectory(prefix="cmux-workflow-localization-") as tmpdir:
@@ -164,13 +174,7 @@ def check_localized_catalog(cli_path: str) -> None:
                 for field in ["id", "config_files", "source"]:
                     require(base[field] == translated[field], f"{language}: invariant {field} changed")
                 for field in ["title", "summary", "fit", "creates", "requires", "instantiate", "adapt"]:
-                    require(base[field] != translated[field], f"{language}: untranslated {base['id']}.{field}")
-                    if isinstance(base[field], list):
-                        for original_item, localized_item in paired(base[field], translated[field]):
-                            if original_item in {"codex", "claude"}:
-                                require(original_item == localized_item, f"{language}: executable name changed")
-                            else:
-                                require(original_item != localized_item, f"{language}: untranslated item in {base['id']}.{field}")
+                    check_localized_field(base[field], translated[field], f"{language}: {base['id']}.{field}")
                     require(literals.findall(str(base[field])) == literals.findall(str(translated[field])),
                             f"{language}: command/path syntax changed in {base['id']}.{field}")
                 for primitive in base["primitives"]:
