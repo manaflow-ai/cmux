@@ -25,6 +25,7 @@ struct WorkspaceListTable: UIViewControllerRepresentable {
     let connectionStatus: MobileMacConnectionStatus
     var workspaceOwnerID: String? = nil
     var workspaceOwnerInstanceTag: String? = nil
+    var showsWorkspaceEmptyState = true
     /// Whether the connected Mac advertises `workspace.changes.v1`.
     let workspaceChangesCapable: Bool
     /// Changes chips keyed by the workspace's RPC identifier

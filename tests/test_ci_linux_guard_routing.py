@@ -27,6 +27,7 @@ from test_ci_change_areas import (
 ROOT = Path(__file__).resolve().parents[1]
 HELPER = ROOT / "scripts/ci/detect_linux_guard_changes.py"
 sys.path.insert(0, str(ROOT / "scripts" / "ci"))
+import detect_linux_guard_changes
 import workflow_guard_groups
 from workflow_guard_groups import (
     GROUPS, GUARD_WORKFLOW, direct_path_owners, groups_for_path, guard_steps, step_owners,
@@ -168,9 +169,14 @@ class LinuxGuardRoutingTests(unittest.TestCase):
             "ios/scripts/upload-testflight.sh",
             "tests/test_ios_appstore_lane_identity.py",
         ])
-        # Preserve the outer fail-open routes for workflow edits while trimming
-        # only the expensive workflow-guard-tests matrix.
-        self.assertEqual(outputs, dict.fromkeys(JOBS, "true"))
+        # ci-guards.yml shows workflow-guard-tests running the TestFlight lane
+        # identity test, and PATH_OWNERS declares the other two as its indirect
+        # inputs. No history, CLI, or source-lint step reads any of them.
+        self.assertEqual(outputs, {
+            "linux_guard_tests": "true", "linux_guard_history": "false",
+            "linux_guard_cli": "false", "linux_guard_source": "false",
+            "ghosttykit_release": "false",
+        })
         self.assertEqual(
             groups,
             ("preflight", "ci", "release-ios", "quality-determinism"),
@@ -241,6 +247,65 @@ class LinuxGuardRoutingTests(unittest.TestCase):
             frozenset({"release-ios"}),
         )
         self.assertEqual(step_owners(extended)["Validate a brand-new guard"], "release-ios")
+
+    def test_route_inputs_come_from_the_guard_workflow(self):
+        # WORKFLOW_TEST_INPUTS, CLI_INPUTS, and HISTORY_INPUTS used to be three
+        # hand-kept copies of what the guard jobs run. A step rename left the
+        # copy narrowing for a guard that no longer read the path, which no
+        # single pull request could notice. Each route's inputs now come from
+        # its own job in ci-guards.yml.
+        inputs = detect_linux_guard_changes.route_inputs()
+        self.assertEqual(set(inputs), set(detect_linux_guard_changes.GUARD_ROUTES))
+        self.assertEqual(inputs["linux_guard_history"], frozenset({
+            "scripts/check-package-resolved-policy.py",
+            "tests/test_check_package_resolved_policy.py",
+            "tests/test_package_resolved_policy_remote_inputs.py",
+        }))
+        self.assertIn("tests/test_start_cmux_profiling.sh", inputs["linux_guard_cli"])
+        self.assertIn("tests/test_ci_source_lint_guard_structure.py", inputs["linux_guard_source"])
+        # A routing-policy path keeps the conservative fallback even though a
+        # guard step runs it, so a candidate router cannot narrow its own guards.
+        for path in sorted(workflow_guard_groups.ROUTING_POLICY_PATHS):
+            for route in detect_linux_guard_changes.GUARD_ROUTES:
+                self.assertNotIn(path, inputs[route])
+
+    def test_a_new_guard_step_needs_no_second_list_edit(self):
+        text = GUARD_WORKFLOW.read_text(encoding="utf-8")
+        new_step = (
+            "      - name: Validate a brand-new lockfile contract\n"
+            "        run: python3 tests/test_brand_new_lockfile_contract.py\n"
+            "\n"
+        )
+        marker = "      - name: Validate SwiftPM lockfile policy\n"
+        self.assertIn(marker, text)
+        extended = text.replace(marker, new_step + marker, 1)
+        derived = workflow_guard_groups.route_direct_paths(extended)
+        self.assertIn(
+            "tests/test_brand_new_lockfile_contract.py", derived["linux_guard_history"]
+        )
+        for route in ("linux_guard_tests", "linux_guard_cli", "linux_guard_source"):
+            self.assertNotIn(
+                "tests/test_brand_new_lockfile_contract.py", derived[route]
+            )
+
+    def test_unreadable_guard_workflow_routes_every_guard(self):
+        # A workflow this module cannot read must not produce a narrow route.
+        original = detect_linux_guard_changes.GUARD_WORKFLOW
+        with tempfile.TemporaryDirectory() as temp:
+            broken = Path(temp) / "ci-guards.yml"
+            broken.write_text("jobs:\n  something-else:\n    steps: []\n", encoding="utf-8")
+            detect_linux_guard_changes.GUARD_WORKFLOW = broken
+            try:
+                self.assertIsNone(detect_linux_guard_changes.route_inputs())
+                self.assertEqual(
+                    detect_linux_guard_changes.classify(
+                        ["tests/test_build_graph_health.py"],
+                        event="pull_request", macos="false",
+                    ),
+                    dict.fromkeys(detect_linux_guard_changes.ROUTES, True),
+                )
+            finally:
+                detect_linux_guard_changes.GUARD_WORKFLOW = original
 
     def test_unreadable_guard_workflow_fails_open(self):
         original = workflow_guard_groups.GUARD_WORKFLOW
@@ -439,7 +504,7 @@ class LinuxGuardRoutingTests(unittest.TestCase):
             ".github/workflows/ci.yml", "scripts/ci/detect_linux_guard_changes.py",
             "tests/test_ci_linux_guard_routing.py", "new-area/input",
             "scripts/build-ghostty-cli-helper.sh", "scripts/ghostty-zig-version.sh",
-            "tests/test_ghostty_cli_helper_cache.sh", "tests/test_ghostty_cli_helper_cache_failures.py",
+            "tests/test_ghostty_cli_helper_cache_failures.py",
             "../README.md",
         ):
             with self.subTest(path=path):

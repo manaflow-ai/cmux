@@ -18,6 +18,14 @@ permissions:
   # apart from a failure in a job the cask does not consume.
   actions: read
 
+env:
+  # The file that must carry the display name in the trigger above. Renaming a
+  # workflow silently stops every `workflow_run` consumer of it, so
+  # tests/test_ci_workflow_run_sources.py derives the expected name from this
+  # path and fails the pull request that renames it. The job name the gate
+  # below matches is pinned the same way, by tests/test_release_homebrew_gate.py.
+  SOURCE_WORKFLOW_PATHS: .github/workflows/release.yml
+
 jobs:
   gate:
     name: Require a signed macOS build
