@@ -3403,14 +3403,28 @@ final class TerminalNotificationDirectInteractionTests: XCTestCase {
             XCTFail("Expected terminal surface view")
             return
         }
-
+        // Runtime creation is asynchronous in the app host. Focusing before it
+        // finishes leaves becomeFirstResponder no surface to focus, and the
+        // surface-ready focus apply skips this standalone surface because it is
+        // not a workspace panel.
+        XCTAssertTrue(
+            waitUntil(timeout: 5.0) { surface.surface != nil },
+            "Expected runtime surface before focusing the terminal"
+        )
+        // makeFirstResponder skips becomeFirstResponder for the view that already
+        // holds first responder, so start the focus change from the probe.
+        XCTAssertTrue(window.makeFirstResponder(otherResponder))
         XCTAssertTrue(window.makeFirstResponder(surfaceView))
         RunLoop.current.run(until: Date().addingTimeInterval(0.05))
         // First-responder focus reaches the surface through the deferred main-actor
         // scheduler; wait for it rather than sampling after a fixed spin.
         XCTAssertTrue(
             waitUntil(timeout: 2.0) { surface.debugDesiredFocusState() },
-            "Focused terminal should start with desired Ghostty focus"
+            "Focused terminal should start with desired Ghostty focus " +
+                "(firstResponder=\(String(describing: window.firstResponder)) " +
+                "runtimeSurface=\(surface.surface != nil) " +
+                "visibleInUI=\(hostedView.debugPortalVisibleInUI) active=\(hostedView.debugPortalActive) " +
+                "viewDesiredFocus=\(surfaceView.desiredFocus) surfaceSize=\(surfaceView.bounds.size))"
         )
 
         surface.releaseSurfaceForTesting()
