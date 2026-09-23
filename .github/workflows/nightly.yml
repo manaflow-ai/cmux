@@ -21,7 +21,7 @@ on:
   workflow_dispatch:
     inputs:
       force:
-        description: Force a nightly build even if main has no new commits
+        description: Rebuild an already published main commit. Manual runs always bypass the push throttle.
         required: false
         default: false
         type: boolean
@@ -257,15 +257,35 @@ jobs:
                 core.warning(`Could not read the published ${channelIdentity.releaseTag} commit; building: ${error.message}`);
               }
             }
-            if (pushThrottled) {
-              core.notice(
+            // Explain the final app workload separately from the eligibility
+            // outputs: the six-hour schedule only warms caches downstream.
+            const scheduledCacheOnly = context.eventName === 'schedule' &&
+              context.payload?.schedule === '17 */6 * * *';
+            let decisionReason;
+            if (seedOnly) {
+              decisionReason = 'Manual cache-only run: refresh compilation caches without building or publishing an app.';
+            } else if (scheduledCacheOnly) {
+              decisionReason = 'Scheduled cache warmup: refresh compilation caches only. The daily 08:47 UTC schedule is the app catch-up run.';
+            } else if (!shouldBuild) {
+              decisionReason = 'This main commit is already published. Use force=true in Run workflow to rebuild the same commit; manual runs already bypass the push throttle.';
+            } else if (pushThrottled) {
+              decisionReason =
                 `Skipping this push: ${channelIdentity.releaseTag} published ${nightlySha.slice(0, 7)}, ` +
                 `committed ${publishedCommitAgeHours.toFixed(2)}h ago (minimum ${minIntervalHours}h). ` +
-                'A later push past the interval, the 08:47 UTC schedule, or a manual dispatch publishes this commit.'
-              );
+                'A later eligible push or the 08:47 UTC catch-up can publish an updated main revision. Run workflow bypasses this throttle; force is only needed to rebuild an already published commit.';
+            } else if (buildOnly) {
+              decisionReason = 'Manual build-only measurement: build the unsigned app without publishing.';
+            } else if (fastBuild) {
+              decisionReason = 'Manual fast dogfood build: build an arm64 artifact without publishing the Nightly feed.';
+            } else if (context.eventName === 'workflow_dispatch') {
+              decisionReason = 'Manual dispatch bypasses the push throttle; build the selected revision.';
+            } else {
+              decisionReason = 'The selected revision needs an app build and is not push-throttled.';
             }
+            core.notice(decisionReason);
 
             const shouldPublish = !seedOnly && (isMainRef || isRcRef) && !buildOnly && !fastBuild;
+            const appBuildSelected = shouldBuild && !pushThrottled && !scheduledCacheOnly;
             core.setOutput('should_build', shouldBuild && !pushThrottled ? 'true' : 'false');
             core.setOutput('head_sha', headSha);
             core.setOutput('short_sha', headSha.slice(0, 7));
@@ -277,10 +297,13 @@ jobs:
                 [{data: 'channel', header: true}, channel],
                 [{data: 'build HEAD', header: true}, headSha],
                 [{data: 'nightly tag', header: true}, nightlySha ?? '(missing)'],
+                [{data: 'reason', header: true}, decisionReason],
                 [{data: 'force build', header: true}, String(forceBuild)],
+                [{data: 'push minimum commit age (hours)', header: true}, Number.isFinite(minIntervalHours) && minIntervalHours > 0 ? String(minIntervalHours) : '(disabled)'],
+                [{data: 'published commit age (hours)', header: true}, publishedCommitAgeHours === null ? '(not checked)' : publishedCommitAgeHours.toFixed(2)],
                 [{data: 'push throttled', header: true}, String(pushThrottled)],
-                [{data: 'should build', header: true}, String(shouldBuild && !pushThrottled)],
-                [{data: 'should publish', header: true}, String(shouldPublish)],
+                [{data: 'app build selected', header: true}, String(appBuildSelected)],
+                [{data: 'publish app this run', header: true}, String(appBuildSelected && shouldPublish)],
                 [{data: 'fast dogfood build', header: true}, String(fastBuild)],
                 [{data: 'build-only measurement', header: true}, String(buildOnly)],
                 [{data: 'cold compilation cache', header: true}, String(coldCache)],
