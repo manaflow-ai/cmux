@@ -23,6 +23,7 @@ struct ConversationSidebarView: View {
     @State private var searchDebounceScheduler = MainActorDeferredActionScheduler()
     @State private var searchTasks = MainActorTaskStore<String>()
     @State private var expandedHistory: [SessionEntry] = []
+    @State private var paginatedProviderAgentsByID: [String: SessionAgent] = [:]
     @State private var historyErrors: [String] = []
     @State private var isLoadingMoreHistory = false
     @State private var canLoadMoreHistory = true
@@ -30,6 +31,7 @@ struct ConversationSidebarView: View {
     @State private var visibleHistoryCount = 24
     @State private var liveSessionRevision: UInt64 = 0
     @State private var livePresentationAgentsByDirectory: [String: [String: SessionAgent]] = [:]
+    @State private var selectedProviderID: String?
 
     private static let pageSize = 24
     private static let searchDebounceDelay: Duration = .milliseconds(150)
@@ -127,7 +129,10 @@ struct ConversationSidebarView: View {
     }
 
     var body: some View {
-        let projected = projectedRows(liveSessionRevision: liveSessionRevision)
+        let projected = projectedRows(
+            liveSessionRevision: liveSessionRevision,
+            selectedProviderID: selectedProviderID
+        )
         let rows = projected.rows
         let openRows = rows.filter(\.isOpen)
         let visibleHistoryRows = rows.filter { !$0.isOpen }
@@ -144,7 +149,7 @@ struct ConversationSidebarView: View {
         )
 
         VStack(spacing: 0) {
-            searchField
+            searchField(providerOptions: projected.providerOptions)
 
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 2) {
@@ -234,7 +239,7 @@ struct ConversationSidebarView: View {
                         .padding(.vertical, 10)
                     } else if rows.isEmpty, !showsHistorySection {
                         Text(
-                            trimmedSearch.isEmpty
+                            trimmedSearch.isEmpty && selectedProviderID == nil
                                 ? String(localized: "sessionIndex.empty.title", defaultValue: "Vault is empty")
                                 : String(localized: "sessionIndex.search.noResults", defaultValue: "No matching sessions")
                         )
@@ -262,6 +267,9 @@ struct ConversationSidebarView: View {
             revision: $liveSessionRevision,
             presentationAgentsByDirectory: $livePresentationAgentsByDirectory
         ))
+        .onChange(of: selectedProviderID) { _, _ in
+            visibleHistoryCount = Self.pageSize
+        }
         .onChange(of: searchText) { _, newValue in
             visibleHistoryCount = Self.pageSize
             searchResults = []
@@ -274,7 +282,7 @@ struct ConversationSidebarView: View {
         }
     }
 
-    private var searchField: some View {
+    private func searchField(providerOptions: [SessionAgent]) -> some View {
         HStack(spacing: 7) {
             Image(systemName: "magnifyingglass")
                 .font(.system(size: 11, weight: .medium))
@@ -288,6 +296,38 @@ struct ConversationSidebarView: View {
             )
             .textFieldStyle(.plain)
             .font(.system(size: 12))
+
+            Menu {
+                Picker(
+                    String(localized: "sessionIndex.filter.agent", defaultValue: "Agent"),
+                    selection: $selectedProviderID
+                ) {
+                    Text(String(localized: "sessionIndex.filter.agent.all", defaultValue: "All agents"))
+                        .tag(String?.none)
+                    ForEach(providerOptions) { agent in
+                        Text(agent.displayName)
+                            .tag(Optional(agent.rawValue))
+                    }
+                }
+            } label: {
+                Image(
+                    systemName: selectedProviderID == nil
+                        ? "line.3.horizontal.decrease.circle"
+                        : "line.3.horizontal.decrease.circle.fill"
+                )
+                .font(.system(size: 13, weight: .medium))
+                .foregroundStyle(selectedProviderID == nil ? Color.secondary : Color.accentColor)
+            }
+            .menuStyle(.borderlessButton)
+            .fixedSize()
+            .help(String(localized: "sessionIndex.allSessions.filterTooltip", defaultValue: "Filter sessions"))
+            .accessibilityLabel(String(localized: "sessionIndex.allSessions.filterTooltip", defaultValue: "Filter sessions"))
+            .accessibilityValue(
+                selectedProviderID.flatMap { id in
+                    providerOptions.first(where: { $0.rawValue == id })?.displayName
+                } ?? selectedProviderID
+                    ?? String(localized: "sessionIndex.filter.agent.all", defaultValue: "All agents")
+            )
         }
         .padding(.horizontal, 9)
         .frame(height: 32)
@@ -310,8 +350,9 @@ struct ConversationSidebarView: View {
     }
 
     private func projectedRows(
-        liveSessionRevision: UInt64
-    ) -> (rows: [Row], hasMoreLoadedHistory: Bool) {
+        liveSessionRevision: UInt64,
+        selectedProviderID: String?
+    ) -> (rows: [Row], hasMoreLoadedHistory: Bool, providerOptions: [SessionAgent]) {
         _ = liveSessionRevision
         let trimmedSearch = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
         let matchedKeys = Set(searchResults.map(VaultLiveSessionKeys.key(for:)))
@@ -357,6 +398,9 @@ struct ConversationSidebarView: View {
 
         let visibleOpen = (live + fallbackOpen)
             .filter { row in
+                projection.providerFilterMatches(agent: row.agent, selectedProviderID: selectedProviderID)
+            }
+            .filter { row in
                 trimmedSearch.isEmpty
                     || projection.metadataMatches(
                         title: row.title,
@@ -375,7 +419,8 @@ struct ConversationSidebarView: View {
         let visibleHistory = projection.visibleHistoryEntries(
             source: historySource,
             excludingOpenIDs: openIDs,
-            limit: visibleHistoryCount
+            limit: visibleHistoryCount,
+            selectedProviderID: selectedProviderID
         )
         let history = visibleHistory.entries.map { entry in
             Row(
@@ -390,7 +435,22 @@ struct ConversationSidebarView: View {
             )
         }
 
-        return (visibleOpen + history, visibleHistory.hasMore)
+        // SessionIndexStore maintains its filter snapshot when the indexed
+        // source changes. Keep provider-menu construction on that bounded
+        // snapshot instead of rescanning expanded history during every body
+        // evaluation; live rows are added separately for newly-running agents.
+        let cachedHistoryAgents = store.agentFilterOptions.compactMap {
+            SessionAgent(rawValue: $0.id)
+        }
+        let providerOptions = projection.providerFilterOptions(
+            agents: (live + fallbackOpen).map(\.agent)
+                + store.agentOrder
+                + cachedHistoryAgents
+                + Array(paginatedProviderAgentsByID.values),
+            preferredOrder: store.agentOrder,
+            selectedProviderID: selectedProviderID
+        )
+        return (visibleOpen + history, visibleHistory.hasMore, providerOptions)
     }
 
     private func authoritativeLiveRows() -> [Row] {
@@ -455,6 +515,10 @@ struct ConversationSidebarView: View {
         guard !Task.isCancelled else { return }
 
         historyErrors = outcome.errors
+        paginatedProviderAgentsByID = projection.mergingProviderAgents(
+            outcome.entries,
+            into: paginatedProviderAgentsByID
+        )
         let previousIDs = Set(previousEntries.map(\.id))
         let mergedHistory = projection.recentHistory(
             initial: expandedHistory.isEmpty ? store.entries : expandedHistory,
