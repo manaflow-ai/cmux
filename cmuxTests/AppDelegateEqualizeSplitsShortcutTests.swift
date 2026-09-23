@@ -444,7 +444,16 @@ final class AppDelegateEqualizeSplitsShortcutTests {
     }
 
     @Test
-    func testConfiguredEqualizeSplitsShortcutBalancesWorkspaceDividers() {
+    func testConfiguredEqualizeSplitsShortcutBalancesWorkspaceDividers() async {
+        await AppContextSerialGate.withExclusiveAppContext {
+            await self.equalizeSplitsShortcutBalancesWorkspaceDividersBody()
+        }
+    }
+
+    /// Body of the above. Split out so the gate wraps exactly one `@MainActor`
+    /// async closure rather than the whole `@Test` attribute surface.
+    @MainActor
+    private func equalizeSplitsShortcutBalancesWorkspaceDividersBody() async {
         guard let appDelegate = AppDelegate.shared else {
             XCTFail("Expected AppDelegate.shared")
             return
@@ -492,8 +501,8 @@ final class AppDelegateEqualizeSplitsShortcutTests {
         }
 
         workspace.splitTabBar(workspace.bonsplitController, didChangeGeometry: workspace.bonsplitController.layoutSnapshot())
-        guard let seededLayoutSnapshot = shortcutRoutingWaitForPublishedLayout(workspace) else {
-            XCTFail("Expected cached layout snapshot after seeding split geometry")
+        guard let seededLayoutSnapshot = await shortcutRoutingAwaitPublishedLayout(workspace) else {
+            XCTFail("tmuxLayoutSnapshot never caught up to the seeded 3-pane tree; the geometry publish Task did not run")
             return
         }
         let expectedEqualizedPositions = shortcutRoutingExpectedEqualizedDividerPositions(
@@ -527,8 +536,8 @@ final class AppDelegateEqualizeSplitsShortcutTests {
             XCTAssertEqual(split.dividerPosition, expectedPosition, accuracy: 0.000_1)
         }
 
-        guard let cachedEqualizedLayout = shortcutRoutingWaitForPublishedLayout(workspace) else {
-            XCTFail("Expected cached layout snapshot after equalizing split geometry")
+        guard let cachedEqualizedLayout = await shortcutRoutingAwaitPublishedLayout(workspace) else {
+            XCTFail("tmuxLayoutSnapshot never caught up to the equalized tree; the geometry publish Task did not run")
             return
         }
         let liveEqualizedLayout = workspace.bonsplitController.layoutSnapshot()
@@ -8019,29 +8028,29 @@ final class AppDelegateEqualizeSplitsShortcutTests {
         Dictionary(uniqueKeysWithValues: snapshot.panes.map { ($0.paneId, $0.frame) })
     }
 
-    /// The cached snapshot that catches up to the controller's live tree, or
-    /// the stale cache once the deadline passes so the caller's assertion
-    /// reports the drift.
+    /// The published `tmuxLayoutSnapshot` once it catches up to the live tree.
     ///
-    /// Since a27969a38b the geometry callback publishes `tmuxLayoutSnapshot`
-    /// through `geometryNotificationScheduler` instead of assigning it in the
-    /// synchronous `splitTabBar(_:didChangeGeometry:)` body, so a read taken
-    /// right after driving geometry still sees the previous cache — at the
-    /// start of a workspace, the one-pane value written at init.
-    /// `PaneResizeShortcutTests.expectCachedFramesMatch` waits the same way.
-    private func shortcutRoutingWaitForPublishedLayout(
+    /// Since a27969a38b the geometry callback hands its work to
+    /// `geometryNotificationScheduler.schedule(zeroDelayPolicy: .yieldOnce)`,
+    /// which is `Task { await Task.yield(); action() }` on the MainActor
+    /// executor. A synchronous test body owns that executor for its whole
+    /// duration, so the continuation cannot run and the cache keeps the
+    /// one-pane value written at workspace init — no amount of
+    /// `RunLoop.main.run` helps, because spinning the run loop does not let
+    /// the MainActor's cooperative executor drain queued tasks. The caller
+    /// must be `async` and this must suspend.
+    private func shortcutRoutingAwaitPublishedLayout(
         _ workspace: Workspace,
-        timeout: TimeInterval = 3
-    ) -> LayoutSnapshot? {
-        let deadline = Date(timeIntervalSinceNow: timeout)
-        while Date() < deadline {
+        yields: Int = 200
+    ) async -> LayoutSnapshot? {
+        for _ in 0..<yields {
+            await Task.yield()
             let live = workspace.bonsplitController.layoutSnapshot()
             if let cached = workspace.tmuxLayoutSnapshot, cached.panes == live.panes {
                 return cached
             }
-            RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.01))
         }
-        return workspace.tmuxLayoutSnapshot
+        return nil
     }
 
     private func shortcutRoutingAssertPaneFramesMatch(
