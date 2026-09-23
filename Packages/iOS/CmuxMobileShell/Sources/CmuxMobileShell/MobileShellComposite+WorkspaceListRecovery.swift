@@ -187,6 +187,18 @@ extension MobileShellComposite {
         workspaceListRecoveryActive
     }
 
+    /// Whether the active workspace-list recovery belongs to the supplied Mac
+    /// pairing. The UI uses this to keep a disappearing retry row alive only
+    /// for the recovery it started.
+    public func isWorkspaceListRecoveryOwned(
+        byMacDeviceID macDeviceID: String?,
+        instanceTag: String?
+    ) -> Bool {
+        workspaceListRecoveryActive
+            && workspaceListRecoveryOwnerID == macDeviceID
+            && workspaceListRecoveryOwnerInstanceTag == instanceTag
+    }
+
     /// Reserves the recovery token used by the empty-state Retry action.
     /// Cancellation passes this token back so a stale row cannot cancel a
     /// later retry for another Mac.

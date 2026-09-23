@@ -2547,27 +2547,37 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn hermes_command_reaps_child_when_reaper_spawn_fails() {
-        let (pid_sender, pid_receiver) = std::sync::mpsc::channel();
+        let root = tempfile::tempdir().unwrap();
+        let pid_path = root.path().join("hermes.pid");
+        let script = format!(
+            // `exec` keeps the long-running process at the shell's PID and
+            // avoids a second fork. Hosted macOS runners may deny that fork
+            // while still allowing the process under test to run.
+            "printf '%s' $$ > {}; exec /bin/sleep 30",
+            shell_quote(pid_path.to_string_lossy().as_ref()),
+        );
         let (result_sender, result_receiver) = std::sync::mpsc::sync_channel(1);
         let started = Instant::now();
         let worker = std::thread::spawn(move || {
             FORCE_HERMES_REAPER_SPAWN_FAILURE.with(|failure| failure.set(true));
-            HERMES_TEST_CHILD_SENDER.with(|sender| sender.replace(Some(pid_sender)));
             let result = run_hermes_command_with_timeout(
-                Path::new("/bin/sleep"),
-                &["30"],
+                Path::new("/bin/sh"),
+                &["-c", &script],
                 Duration::from_secs(2),
             );
             result_sender.send(result).unwrap();
         });
 
-        let pid = libc::pid_t::try_from(
-            pid_receiver
-                .recv_timeout(Duration::from_secs(1))
-                .expect("Hermes child did not complete startup"),
-        )
-        .unwrap();
-
+        let startup_deadline = Instant::now() + Duration::from_secs(1);
+        let pid = loop {
+            if let Ok(contents) = fs::read_to_string(&pid_path)
+                && let Ok(pid) = contents.trim().parse::<libc::pid_t>()
+            {
+                break pid;
+            }
+            assert!(Instant::now() < startup_deadline, "Hermes child did not complete startup");
+            std::thread::sleep(Duration::from_millis(5));
+        };
         let error = result_receiver
             .recv_timeout(Duration::from_secs(4))
             .expect("Hermes timeout worker did not return")

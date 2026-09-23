@@ -3,8 +3,8 @@
 
 cmux watches the file and auto-reloads on save, so writes take effect
 immediately. The file is JSONC (JSON with // and /* */ comments); this
-script writes comment-free formatting (2-space indent, trailing newline)
-and only writes when the parsed value actually changes.
+set/unset edits retain comments and unrelated formatting, and only write when
+the parsed value actually changes.
 
 Usage:
   cmux-settings path                    print the config path
@@ -27,16 +27,23 @@ Examples:
 from __future__ import annotations
 
 import argparse
+import contextlib
+import ctypes
+import fcntl
 import json
 import os
 import re
 import shlex
 import shutil
+import stat
 import subprocess
 import sys
 import tempfile
+import signal
 from pathlib import Path
 from typing import Any
+
+from cmux_jsonc_edit import JSONCEditError, remove_jsonc_path, set_jsonc_path
 
 DEFAULT_PATH = Path.home() / ".config" / "cmux" / "cmux.json"
 SCHEMA_URL = (
@@ -128,16 +135,183 @@ def load_settings(path: Path) -> dict[str, Any]:
         raise SystemExit(f"error: {path} is not valid JSONC: {e}")
 
 
-def atomic_write(path: Path, data: dict[str, Any]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    encoded = json.dumps(data, indent=2, ensure_ascii=False) + "\n"
-    with tempfile.NamedTemporaryFile(
-        mode="w", encoding="utf-8", dir=path.parent, delete=False, suffix=".tmp"
-    ) as tmp:
-        tmp.write(encoded)
-        tmp_path = Path(tmp.name)
-    os.replace(tmp_path, path)
+def resolved_write_path(path: Path) -> Path:
+    """Canonical lock/write target, including symlinked parent directories."""
+    return path.resolve(strict=False)
 
+
+@contextlib.contextmanager
+def mutation_lock(configured: Path):
+    """Serialize participating cmux writers on one stable sidecar inode."""
+    target = resolved_write_path(configured)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    fd = os.open(
+        str(target) + ".cmux-write.lock",
+        os.O_RDWR | os.O_CREAT | os.O_CLOEXEC | os.O_NOFOLLOW,
+        0o600,
+    )
+    try:
+        info = os.fstat(fd)
+        if not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid() or info.st_nlink != 1:
+            raise SystemExit("error: refusing unsafe cmux config writer lock")
+        previous_alarm_handler = signal.getsignal(signal.SIGALRM)
+
+        def lock_timeout(_signum, _frame):
+            raise TimeoutError
+
+        signal.signal(signal.SIGALRM, lock_timeout)
+        signal.setitimer(signal.ITIMER_REAL, 2.0)
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX)
+        except TimeoutError:
+            raise SystemExit("error: another cmux config write is in progress; retry")
+        finally:
+            signal.setitimer(signal.ITIMER_REAL, 0)
+            signal.signal(signal.SIGALRM, previous_alarm_handler)
+        if resolved_write_path(configured) != target:
+            raise SystemExit("error: cmux config target changed while preparing the edit; retry")
+        yield target
+    finally:
+        fcntl.flock(fd, fcntl.LOCK_UN)
+        os.close(fd)
+
+
+def current_revision(path: Path) -> tuple[bytes, int, int] | None:
+    try:
+        with path.open("rb") as source:
+            info = os.fstat(source.fileno())
+            return (source.read(), info.st_dev, info.st_ino)
+    except FileNotFoundError:
+        return None
+
+
+def source_for_edit(path: Path, data: dict[str, Any]) -> str:
+    if path.exists():
+        with path.open("r", encoding="utf-8", newline="") as source:
+            return source.read()
+    return json.dumps(data, indent=2, ensure_ascii=False) + "\n"
+
+
+_UNCONDITIONAL_REVISION = object()
+_RENAME_EXCHANGE = 0x2
+
+
+def exchange_paths(left: Path, right: Path) -> None:
+    """Atomically exchange two path entries on the supported host platforms."""
+    libc = ctypes.CDLL(None, use_errno=True)
+    left_bytes = os.fsencode(left)
+    right_bytes = os.fsencode(right)
+    if sys.platform == "darwin":
+        rename = libc.renamex_np
+        rename.argtypes = [ctypes.c_char_p, ctypes.c_char_p, ctypes.c_uint]
+        rename.restype = ctypes.c_int
+        result = rename(left_bytes, right_bytes, _RENAME_EXCHANGE)
+    elif sys.platform.startswith("linux"):
+        rename = libc.renameat2
+        rename.argtypes = [
+            ctypes.c_int,
+            ctypes.c_char_p,
+            ctypes.c_int,
+            ctypes.c_char_p,
+            ctypes.c_uint,
+        ]
+        rename.restype = ctypes.c_int
+        result = rename(-100, left_bytes, -100, right_bytes, _RENAME_EXCHANGE)
+    else:
+        raise OSError(f"atomic config exchange is unsupported on {sys.platform}")
+
+    if result != 0:
+        code = ctypes.get_errno()
+        raise OSError(code, os.strerror(code), str(right))
+
+
+def atomic_write_text(
+    path: Path,
+    text: str,
+    *,
+    expected_revision: tuple[bytes, int, int] | None | object = _UNCONDITIONAL_REVISION,
+) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    candidate = text.encode("utf-8")
+    with tempfile.NamedTemporaryFile(
+        mode="wb", dir=path.parent, delete=False, suffix=".tmp"
+    ) as tmp:
+        tmp.write(candidate)
+        tmp.flush()
+        os.fsync(tmp.fileno())
+        tmp_path = Path(tmp.name)
+
+    staging_contains_recovery = False
+    try:
+        if expected_revision is _UNCONDITIONAL_REVISION:
+            os.replace(tmp_path, path)
+            return
+
+        if expected_revision is None:
+            try:
+                os.link(tmp_path, path)
+            except FileExistsError:
+                raise SystemExit(
+                    "error: cmux config changed while preparing the edit; retry"
+                )
+            tmp_path.unlink()
+            return
+
+        try:
+            current_mode = stat.S_IMODE(os.stat(path, follow_symlinks=False).st_mode)
+        except FileNotFoundError:
+            raise SystemExit(
+                "error: cmux config changed while preparing the edit; retry"
+            )
+        if current_revision(path) != expected_revision:
+            raise SystemExit(
+                "error: cmux config changed while preparing the edit; retry"
+            )
+        os.chmod(tmp_path, current_mode)
+
+        # Exchange publication and source capture in one filesystem operation.
+        # The previous live entry becomes tmp_path, so the revision comparison
+        # happens after publication without a check/replace race.
+        exchange_paths(tmp_path, path)
+        staging_contains_recovery = True
+        recovered = current_revision(tmp_path)
+        if recovered != expected_revision:
+            # The exchange proved a non-participating writer raced the
+            # publication. A second exchange would introduce another TOCTOU
+            # window and could displace an even newer writer. Keep the exact
+            # displaced entry as recovery evidence instead.
+            raise SystemExit(
+                "error: cmux config changed during publication; "
+                f"recovery retained at {tmp_path}"
+            )
+
+        published = current_revision(path)
+        if (
+            published is None
+            or published[0] != candidate
+            or current_revision(tmp_path) != expected_revision
+        ):
+            raise SystemExit(
+                "error: cmux config changed during publication; "
+                f"recovery retained at {tmp_path}"
+            )
+
+        tmp_path.unlink()
+        staging_contains_recovery = False
+    finally:
+        if tmp_path.exists() and not staging_contains_recovery:
+            tmp_path.unlink()
+
+
+def atomic_write(
+    path: Path,
+    data: dict[str, Any],
+    *,
+    expected_revision: tuple[bytes, int, int] | None | object = _UNCONDITIONAL_REVISION,
+) -> None:
+    write_path = resolved_write_path(path)
+    encoded = json.dumps(data, indent=2, ensure_ascii=False) + "\n"
+    atomic_write_text(write_path, encoded, expected_revision=expected_revision)
 
 def split_path(dotted: str) -> list[str]:
     if not dotted:
@@ -210,8 +384,15 @@ def find_cmux_cli() -> str | None:
     return shutil.which("cmux")
 
 
-def discovered_project_config() -> Path | None:
-    current = Path.cwd().resolve()
+def discovered_project_config(start: Path | None = None) -> Path | None:
+    """Find the project config for the working directory (default: process CWD).
+
+    The walk stops before `$HOME`: a `cmux.json` sitting directly in the home
+    directory is a user-level file, not the config of an enclosing project.
+    """
+    current = (start or Path.cwd()).expanduser().resolve()
+    if current.is_file():
+        current = current.parent
     home = Path.home().resolve()
     while current != home:
         for candidate in (current / ".cmux" / "cmux.json", current / "cmux.json"):
@@ -237,6 +418,12 @@ def semantic_scope_for(path: Path, explicit_scope: str | None = None) -> str:
         return "global"
     if resolved.parent.name == ".cmux":
         return "project"
+    # Discovery must start from the working directory, never from the target's
+    # own directory: seeding the walk at `resolved.parent` makes the target its
+    # own first candidate, so every `cmux.json` outside the known global paths
+    # matches itself and gets misclassified as project-local. A custom global
+    # config is only project-local when it is the config the current project
+    # would actually load.
     if discovered_project_config() == resolved:
         return "project"
     return "global"
@@ -424,30 +611,55 @@ def cmd_get(args: argparse.Namespace) -> int:
 
 
 def cmd_set(args: argparse.Namespace) -> int:
-    path = Path(args.file)
-    data = load_settings(path)
+    configured_path = Path(args.file)
     parts = split_path(args.key)
     value = parse_value(args.value)
-    changed = set_at(data, parts, value)
-    if not changed:
-        print(f"unchanged: {args.key} = {json.dumps(value)}")
-        return 0
-    if not validate_candidate(data, path, args.scope):
-        return 1
-    atomic_write(path, data)
+    with mutation_lock(configured_path) as path:
+        original = current_revision(path)
+        data = load_settings(path)
+        source = source_for_edit(path, data)
+        changed = set_at(data, parts, value)
+        if not changed:
+            print(f"unchanged: {args.key} = {json.dumps(value)}")
+            return 0
+        if not validate_candidate(data, path, args.scope):
+            return 1
+
+        try:
+            updated = set_jsonc_path(source, parts, value)
+            json.loads(strip_jsonc(updated))
+        except (JSONCEditError, json.JSONDecodeError) as error:
+            raise SystemExit(f"error: refusing unsafe JSONC edit for {args.key}: {error}")
+
+        if resolved_write_path(configured_path) != path:
+            raise SystemExit("error: cmux config target changed while preparing the edit; retry")
+        atomic_write_text(path, updated, expected_revision=original)
     print(f"set: {args.key} = {json.dumps(value)}")
     return 0
 
 
 def cmd_unset(args: argparse.Namespace) -> int:
-    path = Path(args.file)
-    data = load_settings(path)
-    if not unset_at(data, split_path(args.key)):
-        print(f"unchanged: {args.key} (not present)")
-        return 0
-    if not validate_candidate(data, path, args.scope):
-        return 1
-    atomic_write(path, data)
+    configured_path = Path(args.file)
+    parts = split_path(args.key)
+    with mutation_lock(configured_path) as path:
+        original = current_revision(path)
+        data = load_settings(path)
+        source = source_for_edit(path, data)
+        if not unset_at(data, parts):
+            print(f"unchanged: {args.key} (not present)")
+            return 0
+        if not validate_candidate(data, path, args.scope):
+            return 1
+
+        try:
+            updated = remove_jsonc_path(source, parts)
+            json.loads(strip_jsonc(updated))
+        except (JSONCEditError, json.JSONDecodeError) as error:
+            raise SystemExit(f"error: refusing unsafe JSONC edit for {args.key}: {error}")
+
+        if resolved_write_path(configured_path) != path:
+            raise SystemExit("error: cmux config target changed while preparing the edit; retry")
+        atomic_write_text(path, updated, expected_revision=original)
     print(f"unset: {args.key}")
     return 0
 
@@ -483,7 +695,11 @@ def cmd_open(args: argparse.Namespace) -> int:
     path = Path(args.file)
     path.parent.mkdir(parents=True, exist_ok=True)
     if not path.exists():
-        atomic_write(path, {"$schema": SCHEMA_URL, "schemaVersion": 1})
+        atomic_write(
+            path,
+            {"$schema": SCHEMA_URL, "schemaVersion": 1},
+            expected_revision=None,
+        )
     editor = os.environ.get("EDITOR") or os.environ.get("VISUAL")
     if editor:
         try:

@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "7042c629f34d3606581d07b2d2c03b65116c2467810724163c54674865825cc0";
+pub const ir_sha256 = "133bac0154f8f94aa30e40c11ff7ed38b10dd4d82974aec87c02d404fcd12619";
 
 pub const AgentRecord = struct {
     session: wire.Nullable([]const u8),
@@ -36,11 +36,13 @@ pub const AgentReportSource = enum {
 };
 
 pub const AgentSource = enum {
+    plugin,
     detected,
     socket,
     hook,
 
     pub fn fromWire(value: []const u8) !@This() {
+        if (std.mem.eql(u8, value, "plugin")) return .plugin;
         if (std.mem.eql(u8, value, "detected")) return .detected;
         if (std.mem.eql(u8, value, "socket")) return .socket;
         if (std.mem.eql(u8, value, "hook")) return .hook;
@@ -49,6 +51,7 @@ pub const AgentSource = enum {
 
     pub fn toWire(self: @This()) []const u8 {
         return switch (self) {
+            .plugin => "plugin",
             .detected => "detected",
             .socket => "socket",
             .hook => "hook",
@@ -795,6 +798,8 @@ pub const ProcessInfoResult = struct {
     cwd: wire.Nullable([]const u8),
     /// Working directory of the process group that owns the PTY, read at request time. Null when the lookup fails; absent from daemons that predate the field. Clients treat absence as null.
     foreground_cwd: wire.Field([]const u8) = .absent,
+    /// Executable path or name of the PTY foreground process-group leader, read at request time. Null when the lookup fails; absent from daemons that predate the field. Clients treat absence as null.
+    foreground_executable: wire.Field([]const u8) = .absent,
     pid: wire.Nullable(u32),
 };
 
@@ -4423,6 +4428,8 @@ pub fn zoomPane(client: anytype, request: ZoomPaneRequest) !wire.Decoded(ZoomPan
 }
 
 pub const AgentChangedEvent = struct {
+    /// Adapter identity when the producer knows it; absent from protocol-11 event senders and null when no adapter was identified.
+    agent: wire.Field([]const u8) = .absent,
     event: []const u8,
     session: wire.Nullable([]const u8),
     source: AgentSource,
