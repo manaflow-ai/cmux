@@ -17,8 +17,12 @@ fi
 # before treating the gap as unknown history; `git diff` only needs both trees,
 # not a connected history between them.
 if ! git cat-file -e "${previous_sha}^{commit}" 2>/dev/null; then
-  git fetch --no-tags --no-recurse-submodules --quiet --depth=1 \
-    origin "$previous_sha" 2>/dev/null || true
+  # Never let this hold the build open: without a terminal prompt disabled and
+  # a ceiling, a stalled or credential-prompting remote would hang the ignore
+  # step for the whole build timeout with nothing on stdout. Any failure here,
+  # including a missing `timeout`, falls through to the build below.
+  GIT_TERMINAL_PROMPT=0 timeout 60 git fetch --no-tags --no-recurse-submodules \
+    --quiet --depth=1 origin "$previous_sha" 2>/dev/null || true
 fi
 
 if ! git cat-file -e "${previous_sha}^{commit}" 2>/dev/null; then

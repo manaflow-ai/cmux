@@ -16,6 +16,7 @@ const ignoreBuildScript = fileURLToPath(
   new URL("../tools/vercel-ignore-build.sh", import.meta.url),
 );
 let repository: string;
+let shallowClone: string | undefined;
 
 function git(...args: string[]): string {
   return execFileSync("git", args, {
@@ -88,6 +89,12 @@ afterEach(() => {
   if (repository && existsSync(repository)) {
     rmSync(repository, { recursive: true, force: true });
   }
+  // Also on a failing assertion: a leaked shallow clone is ~130 MB, and a few
+  // reruns of a red test would fill a runner's tmpfs.
+  if (shallowClone && existsSync(shallowClone)) {
+    rmSync(shallowClone, { recursive: true, force: true });
+  }
+  shallowClone = undefined;
 });
 
 test("skips commits that do not change web build inputs", () => {
@@ -195,6 +202,7 @@ test("recovers the previous deployment from outside a shallow clone", () => {
   const head = git("rev-parse", "HEAD");
 
   const shallow = mkdtempSync(join(tmpdir(), "cmux-vercel-shallow-"));
+  shallowClone = shallow;
   rmSync(shallow, { recursive: true, force: true });
   execFileSync("git", [
     "clone", "--depth", "1", "--branch", git("rev-parse", "--abbrev-ref", "HEAD"),
@@ -208,12 +216,12 @@ test("recovers the previous deployment from outside a shallow clone", () => {
   // Nothing under web/ changed, so the build must be skipped even though the
   // marker is outside the clone. Before the fetch, this returned 1.
   expect(ignoreBuild(deployed, head, shallow)).toBe(0);
-  rmSync(shallow, { recursive: true, force: true });
 }, 30000);
 
 test("still builds when the previous deployment cannot be fetched at all", () => {
   const base = commit("base");
   const shallow = mkdtempSync(join(tmpdir(), "cmux-vercel-unreachable-"));
+  shallowClone = shallow;
   rmSync(shallow, { recursive: true, force: true });
   execFileSync("git", [
     "clone", "--depth", "1", "--branch", git("rev-parse", "--abbrev-ref", "HEAD"),
@@ -223,7 +231,6 @@ test("still builds when the previous deployment cannot be fetched at all", () =>
   // A commit no remote has: the fetch fails and the build still runs.
   expect(ignoreBuild("0".repeat(40), base, shallow)).toBe(1);
   expect(ignoreBuild(undefined, base, shallow)).toBe(1);
-  rmSync(shallow, { recursive: true, force: true });
 }, 30000);
 
 test("the deployment exclusions keep the history this script reads", () => {
