@@ -197,9 +197,6 @@ extension Workspace {
             }
         }
         if refreshPorts { refreshTrackedAgentPorts() }
-        for changedPanelID in Set([previous.panelId, panelId].compactMap { $0 }) {
-            syncTerminalTabAgentIconAsset(forPanelId: changedPanelID)
-        }
         return didClearOtherStructuredAgentRuntime
     }
 
@@ -346,16 +343,12 @@ extension Workspace {
         if didChange, refreshPorts {
             refreshTrackedAgentPorts()
         }
-        if didChange, let changedPanelId = ownedPanelId ?? panelId {
-            syncTerminalTabAgentIconAsset(forPanelId: changedPanelId)
-        }
         return didChange
     }
 
     /// Clears a panel's restored agent snapshot and resume metadata.
     func clearRestoredAgentSnapshot(panelId: UUID) {
         restoredAgentLifecycle.clearSessionRestore(panelId: panelId)
-        syncTerminalTabAgentIconAsset(forPanelId: panelId)
     }
 
     func refreshTrackedAgentPorts() {

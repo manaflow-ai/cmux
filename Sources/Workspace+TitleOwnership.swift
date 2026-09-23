@@ -167,10 +167,6 @@ extension Workspace {
             }
         }
 
-        if !isRemoteTmuxMirror {
-            syncTerminalTabAgentIconAsset(forPanelId: panelId)
-        }
-
         let previousWorkspaceTitle = self.title
         if applyFocusedPanelTitle(panelId: panelId) {
             didMutate = true
