@@ -16,6 +16,7 @@ IOS_PATHS = (
     "ios/**",
     "Packages/iOS/**",
     "Packages/Shared/**",
+    "Packages/macOS/CmuxPhonePush/**",
     "Sources/Mobile/**",
     "vendor/stack-auth-swift-sdk-prerelease/**",
     "ghostty",
@@ -625,6 +626,18 @@ def test_schedule_decision_executes_ios_path_filter() -> None:
         for ios_change in ios_changes
     )
     assert non_ios_change["compareCalls"] == expected_compare
+
+
+def test_phone_push_dependency_change_schedules_ios_upload() -> None:
+    # Despite its macOS directory, ios/cmuxPackage directly imports this package.
+    result = run_decision_scenario(
+        event_name="schedule",
+        schedule=IOS_SCHEDULES[0],
+        prior_sha="base-sha",
+        head_sha="head-sha",
+        changed_files=("Packages/macOS/CmuxPhonePush/Sources/CmuxPhonePush/PhonePush.swift",),
+    )
+    assert result["outputs"]["should_build"] == "true", result
 
 
 def test_truncated_schedule_comparison_fails_open() -> None:
@@ -1364,6 +1377,7 @@ if __name__ == "__main__":
     test_scheduled_uploads_filter_for_ios_affecting_main_changes()
     test_internal_schedule_polls_every_twenty_minutes()
     test_schedule_decision_executes_ios_path_filter()
+    test_phone_push_dependency_change_schedules_ios_upload()
     test_truncated_schedule_comparison_fails_open()
     test_schedule_comparison_failure_fails_open()
     test_unchanged_scheduled_head_skips_without_comparing()

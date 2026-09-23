@@ -20,11 +20,19 @@ class ChangeAreas:
     web: bool
     agent_session_web: bool
     cli: bool
+    swift_packages: bool
     release_build: bool
 
     @classmethod
     def all(cls) -> ChangeAreas:
-        return cls(macos=True, web=True, agent_session_web=True, cli=True, release_build=True)
+        return cls(
+            macos=True,
+            web=True,
+            agent_session_web=True,
+            cli=True,
+            swift_packages=True,
+            release_build=True,
+        )
 
     def as_output_lines(self) -> list[str]:
         return [
@@ -32,6 +40,7 @@ class ChangeAreas:
             f"web={bool_output(self.web)}",
             f"agent_session_web={bool_output(self.agent_session_web)}",
             f"cli={bool_output(self.cli)}",
+            f"swift_packages={bool_output(self.swift_packages)}",
             f"release_build={bool_output(self.release_build)}",
         ]
 
@@ -54,6 +63,7 @@ MACOS_WORKFLOW_PATH = ".github/workflows/ci-macos.yml"
 CLI_WORKFLOW_PATH = ".github/workflows/cli-pipe-regressions.yml"
 MACOS_XCODE_PROJECT_PATH = "cmux.xcodeproj/project.pbxproj"
 MACOS_PRODUCT_TARGET = "cmux"
+CLI_PRODUCT_TARGET = "cmux-cli"
 
 _LOCAL_PATH_DEPENDENCY_RE = re.compile(
     r'\.package\(\s*(?:name:\s*"[^"]*"\s*,\s*)?path:\s*"([^"]+)"'
@@ -295,24 +305,199 @@ SHARED_WEB_WORKFLOW_PREFIXES = (
 )
 
 
-def is_cli_change(path: str) -> bool:
-    if path.startswith((
-        "CLI/",
-        "cmux.xcodeproj/",
-        "Packages/macOS/CmuxFoundation/",
-    )):
+# Everything cli-pipe-regressions.yml runs besides the cmux-cli target's own
+# compile inputs, which cli_target_inputs() reads from the Xcode project.
+CLI_LANE_EXACT_INPUTS = frozenset({
+    CLI_WORKFLOW_PATH,
+    # Checked-out submodules: bonsplit is a local package of the project the
+    # lane resolves, and ghostty supplies the GhosttyKit.xcframework binary
+    # target that CmuxTerminalCore (in the cmux-cli closure) re-vends.
+    "vendor/bonsplit",
+    "ghostty",
+    "scripts/download-prebuilt-ghosttykit.sh",
+    "scripts/ghosttykit-checksums.txt",
+    "scripts/validate-xcframework-archive.py",
+    "scripts/select-ci-xcode.sh",
+    "scripts/install-rust-ci.sh",
+    # install-rust-ci.sh installs the toolchain this file names.
+    "Native/DiffSidecar/rust-toolchain.toml",
+    # .github/actions/cache-restore runs these two.
+    "scripts/ci/r2-cache.sh",
+    "scripts/ci/cache_restore_receipt.py",
+    "scripts/ci/sanitize-xcode-source-packages-cache.py",
+    # The regression scripts the lane runs, and what they import or read.
+    "tests/test_cli_broken_pipe_writes.py",
+    "tests/test_cli_socket_operation_deadline.py",
+    "tests/test_cli_config_doctor.py",
+    "tests/test_cli_glaeda_execution.py",
+    "tests/fixtures/glaeda-external-request.json",
+    "tests/fixtures/glaeda-external-result.json",
+    "scripts/generate-cmux-config-schema.py",
+    "web/data/cmux.schema.json",
+    "skills/cmux-settings/scripts/cmux-settings",
+})
+
+CLI_LANE_INPUT_PREFIXES = (
+    "CLI/",
+    # The lane builds the cmux-cli scheme of this project and keys its package
+    # cache on the project's Package.resolved.
+    "cmux.xcodeproj/",
+    ".github/actions/cache-restore/",
+    # The lane runs `swift test` in this package directly.
+    "Packages/macOS/CmuxFoundation/",
+)
+
+# ---------------------------------------------------------------------------
+# swift-package-tests lane
+#
+# ci-macos.yml's swift-package-tests job already narrows which packages it
+# builds, with scripts/ci/select_package_tests.py. This area answers the prior
+# question the job cannot answer for itself: is the lane worth a macOS runner
+# on this pull request at all? The answer is yes exactly when that same script
+# would pick at least one package, so the two cannot disagree.
+#
+# Only paths that feed a package are offered to the selector. That is
+# deliberate on both sides:
+#
+#   * select_package_tests.py fails open, so an unrecognized path (or an edit
+#     to the lane's own workflow) selects all 33 packages. On main that is
+#     right, because the lane is running regardless and only its list is in
+#     question. Routing a pull request that way would be the 30-minute sweep
+#     under another name: over the last 200 merged pull requests it would have
+#     queued 34 full 33-package runs. Those changes keep their existing
+#     coverage from the push to main.
+#   * A package outside the job's own list selects nothing, so the lane would
+#     start, check out submodules, and test zero packages. Asking the selector
+#     instead of matching `Packages/` by prefix keeps those runs unqueued.
+# ---------------------------------------------------------------------------
+
+SWIFT_PACKAGE_ROOT_PREFIX = "Packages/"
+# The job's package list, as a shell array inside its "Select package tests"
+# step. Reading it here keeps one list rather than a copy that can drift.
+_SWIFT_PACKAGE_JOB_LIST_RE = re.compile(
+    r"(?m)^[ \t]*PACKAGES=\(\n(?P<body>(?:[ \t]*[A-Za-z0-9_]+\n)+)[ \t]*\)\n"
+)
+
+
+@lru_cache(maxsize=1)
+def _select_package_tests() -> Optional[object]:
+    """Import the package-test job's own selector, or None when unavailable."""
+    directory = str(Path(__file__).resolve().parent)
+    sys.path.insert(0, directory)
+    try:
+        import select_package_tests
+
+        return select_package_tests
+    except Exception as error:  # pragma: no cover - defensive
+        print(f"Could not load the package-test selector: {error}", file=sys.stderr)
+        return None
+    finally:
+        if sys.path and sys.path[0] == directory:
+            sys.path.pop(0)
+
+
+@lru_cache(maxsize=1)
+def swift_package_test_packages() -> Optional[tuple[str, ...]]:
+    """The packages ci-macos.yml's swift-package-tests job runs, in job order."""
+    root = Path(__file__).resolve().parents[2]
+    try:
+        workflow = (root / MACOS_WORKFLOW_PATH).read_text(encoding="utf-8")
+    except OSError as error:
+        print(f"Could not read {MACOS_WORKFLOW_PATH}: {error}", file=sys.stderr)
+        return None
+    matches = _SWIFT_PACKAGE_JOB_LIST_RE.findall(workflow)
+    if len(matches) != 1:
+        print(
+            f"Expected one PACKAGES=( ... ) list in {MACOS_WORKFLOW_PATH}, "
+            f"found {len(matches)}",
+            file=sys.stderr,
+        )
+        return None
+    return tuple(dict.fromkeys(matches[0].split()))
+
+
+def is_swift_package_input(path: str) -> bool:
+    """True for a path that can feed a package's tests and nothing wider.
+
+    The lane's global inputs (its workflow, the scripts its steps run, the
+    pinned toolchain) are excluded on purpose: they make the selector pick
+    every package, which is the sweep this routing exists to avoid.
+    """
+    select = _select_package_tests()
+    return select is not None and select.is_routed_input(path)
+
+
+def swift_package_test_selection(paths: Iterable[str]) -> tuple[str, ...]:
+    """The job's packages that `paths` can affect, or () when none can."""
+    candidates = [path for path in paths if is_swift_package_input(path)]
+    if not candidates:
+        return ()
+    select = _select_package_tests()
+    packages = swift_package_test_packages()
+    if select is None or not packages:
+        # The lane's own list is unreadable. Keep the existing behaviour
+        # (unrouted on pull requests, full suite on main) rather than guess.
+        return ()
+    try:
+        root = Path(__file__).resolve().parents[2]
+        return tuple(select.select(root, list(packages), candidates))
+    except (Exception, SystemExit) as error:
+        print(f"Could not select package tests: {error}", file=sys.stderr)
+        return ()
+
+
+# The lane runs `python3 scripts/ci/<helper>.py`, which puts scripts/ci first
+# on sys.path. A new scripts/ci module named like a stdlib module would shadow
+# that import in the lane's helpers.
+_STDLIB_MODULE_NAMES: Optional[frozenset[str]] = (
+    frozenset(sys.stdlib_module_names) if hasattr(sys, "stdlib_module_names") else None
+)
+
+
+def shadows_cli_lane_import(path: str) -> bool:
+    if not path.startswith("scripts/ci/"):
+        return False
+    name = path[len("scripts/ci/") :].split("/", 1)[0]
+    if "/" not in path[len("scripts/ci/") :]:
+        if not name.endswith(".py"):
+            return False
+        name = name[: -len(".py")]
+    if _STDLIB_MODULE_NAMES is None:
         return True
-    return path in {
-        "tests/test_cli_broken_pipe_writes.py",
-        "tests/test_cli_socket_operation_deadline.py",
-        "tests/test_cli_config_doctor.py",
-        "tests/test_cli_glaeda_execution.py",
-        "tests/fixtures/glaeda-external-request.json",
-        "tests/fixtures/glaeda-external-result.json",
-        "scripts/generate-cmux-config-schema.py",
-        "web/data/cmux.schema.json",
-        CLI_WORKFLOW_PATH,
-    }
+    return name in _STDLIB_MODULE_NAMES
+
+
+@dataclass(frozen=True)
+class CliTargetInputs:
+    """Compile inputs of the cmux-cli Xcode target outside CLI/."""
+
+    package_directories: frozenset[str]
+    source_file_names: frozenset[str]
+
+
+def is_cli_change(
+    path: str,
+    cli_inputs: Optional[CliTargetInputs] = None,
+    macos_ios_packages: Optional[frozenset[str]] = None,
+) -> bool:
+    if path in CLI_LANE_EXACT_INPUTS or path.startswith(CLI_LANE_INPUT_PREFIXES):
+        return True
+    if shadows_cli_lane_import(path):
+        return True
+    if cli_inputs is None:
+        # The target graph could not be read: anything that could reach an
+        # Xcode build keeps the lane, except CI implementation files the lane
+        # never runs.
+        if path.startswith("scripts/ci/") or is_other_workflow_config(path):
+            return False
+        return is_macos_change(path, macos_ios_packages)
+    for directory in cli_inputs.package_directories:
+        if path == directory or path.startswith(f"{directory}/"):
+            # A package's test sources never reach the cmux-cli binary.
+            # CmuxFoundation's tests, which the lane runs, matched above.
+            return not path.startswith(f"{directory}/Tests/")
+    return path.rsplit("/", 1)[-1] in cli_inputs.source_file_names
+
 
 def is_web_change(path: str) -> bool:
     # The diff-sidecar validation lives in ci-web.yml even for native-only
@@ -503,15 +688,21 @@ def _local_path_dependencies(root: Path, directory: str, manifest: str) -> set[s
     return dependencies
 
 
-def _reachable_macos_target_products(project: str) -> list[str]:
+def _native_target(project: str, target_name: str) -> tuple[dict[str, str], str]:
     native_targets = _pbx_objects(_pbx_section(project, "PBXNativeTarget"))
     roots = [
         identifier
         for identifier, body in native_targets.items()
-        if _pbx_field(body, "name") == MACOS_PRODUCT_TARGET
+        if _pbx_field(body, "name") == target_name
     ]
     if len(roots) != 1:
-        raise ValueError(f"expected one {MACOS_PRODUCT_TARGET} native target")
+        raise ValueError(f"expected one {target_name} native target")
+    return native_targets, roots[0]
+
+
+def _reachable_target_products(project: str, target_name: str = MACOS_PRODUCT_TARGET) -> list[str]:
+    native_targets, root = _native_target(project, target_name)
+    roots = [root]
 
     target_dependencies: dict[str, str] = {}
     dependency_ids = {
@@ -546,7 +737,7 @@ def _reachable_macos_target_products(project: str) -> list[str]:
                 raise ValueError(f"unresolved target dependency {dependency}")
             pending.append(target)
     if not products:
-        raise ValueError(f"{MACOS_PRODUCT_TARGET} target reaches no package products")
+        raise ValueError(f"{target_name} target reaches no package products")
     return products
 
 
@@ -558,6 +749,15 @@ def macos_ios_package_closure(root: Path) -> frozenset[str]:
     edge. Anything the lightweight parsers cannot prove is rejected so the
     caller can keep conservative macOS routing.
     """
+    return frozenset(
+        directory
+        for directory in local_package_closure(root, MACOS_PRODUCT_TARGET)
+        if directory.startswith("Packages/iOS/")
+    )
+
+
+def local_package_closure(root: Path, target_name: str) -> frozenset[str]:
+    """Return every local package directory `target_name` can compile."""
     project_path = root / MACOS_XCODE_PROJECT_PATH
     project = project_path.read_text(encoding="utf-8")
 
@@ -576,7 +776,7 @@ def macos_ios_package_closure(root: Path) -> frozenset[str]:
 
     explicit_roots: set[str] = set()
     unowned_products: set[str] = set()
-    for identifier in _reachable_macos_target_products(project):
+    for identifier in _reachable_target_products(project, target_name):
         body = product_dependencies.get(identifier)
         if body is None:
             raise ValueError(f"missing package product dependency {identifier}")
@@ -612,7 +812,7 @@ def macos_ios_package_closure(root: Path) -> frozenset[str]:
         explicit_roots.add(owners[0])
 
     if not explicit_roots:
-        raise ValueError("macOS target has no readable local package roots")
+        raise ValueError(f"{target_name} target has no readable local package roots")
 
     visited: set[str] = set()
     pending = list(explicit_roots)
@@ -630,9 +830,87 @@ def macos_ios_package_closure(root: Path) -> frozenset[str]:
             if dependency not in visited:
                 pending.append(dependency)
 
-    return frozenset(
-        directory for directory in visited if directory.startswith("Packages/iOS/")
+    return frozenset(visited)
+
+
+_PBX_FLAT_OBJECT_RE = re.compile(
+    # An Xcode object identifier: at least eight characters and, unlike the
+    # lowerCamelCase field names of a nested dictionary, never lowercase first.
+    r"(?<![A-Za-z0-9])([A-Z0-9][A-Za-z0-9]{7,})(?:\s+/\*[^*]*\*/)?\s*=\s*\{([^{}]*)\};"
+)
+
+
+def _pbx_flat_objects(project: str) -> dict[str, str]:
+    """Index every brace-free pbx object by identifier.
+
+    Build phases, build files and file references hold no nested dictionary, so
+    one pass indexes them all. The Sources build phase section has no End
+    marker in this project and some lines hold two build files, so this does
+    not go through _pbx_section. A repeated identifier is unreadable input.
+    """
+    objects: dict[str, str] = {}
+    for identifier, body in _PBX_FLAT_OBJECT_RE.findall(project):
+        if identifier in objects:
+            raise ValueError(f"duplicate pbx object {identifier}")
+        objects[identifier] = body
+    if not objects:
+        raise ValueError("project file contained no readable objects")
+    return objects
+
+
+def _flat_object(objects: dict[str, str], identifier: str) -> str:
+    body = objects.get(identifier)
+    if body is None:
+        raise ValueError(f"missing pbx object {identifier}")
+    return body
+
+
+def cli_target_inputs(root: Path) -> CliTargetInputs:
+    """Read the cmux-cli target's compiled file names and package closure.
+
+    Files outside CLI/ that the target compiles (shared Sources/ helpers) are
+    matched by file name; Swift requires those to be unique within the module.
+    """
+    project = (root / MACOS_XCODE_PROJECT_PATH).read_text(encoding="utf-8")
+    native_targets, target = _native_target(project, CLI_PRODUCT_TARGET)
+    if _pbx_list_ids(native_targets[target], "dependencies"):
+        raise ValueError(f"{CLI_PRODUCT_TARGET} gained target dependencies")
+    objects = _pbx_flat_objects(project)
+    names: set[str] = set()
+    for phase_id in _pbx_list_ids(native_targets[target], "buildPhases", required=True):
+        phase = _flat_object(objects, phase_id)
+        kind = _pbx_field(phase, "isa")
+        if kind == "PBXFrameworksBuildPhase":
+            # Frameworks come from packageProductDependencies, read below.
+            continue
+        if kind != "PBXSourcesBuildPhase":
+            raise ValueError(f"{CLI_PRODUCT_TARGET} has an unrouted {kind}")
+        for build_file in _pbx_list_ids(phase, "files"):
+            reference = _pbx_reference_id(
+                _pbx_field(_flat_object(objects, build_file), "fileRef")
+            )
+            file_path = _pbx_field(_flat_object(objects, reference), "path")
+            names.add(file_path.rsplit("/", 1)[-1])
+    if not names:
+        raise ValueError(f"{CLI_PRODUCT_TARGET} compiles no sources")
+    return CliTargetInputs(
+        package_directories=local_package_closure(root, CLI_PRODUCT_TARGET),
+        source_file_names=frozenset(names),
     )
+
+
+@lru_cache(maxsize=1)
+def load_cli_target_inputs() -> Optional[CliTargetInputs]:
+    root = Path(__file__).resolve().parents[2]
+    try:
+        return cli_target_inputs(root)
+    except Exception as error:
+        print(
+            "Could not derive the cmux-cli target inputs; routing every "
+            f"macOS-relevant change to the CLI lane: {error}",
+            file=sys.stderr,
+        )
+        return None
 
 
 @lru_cache(maxsize=1)
@@ -710,6 +988,8 @@ def is_macos_neutral(
             "web/",
             "webviews/",
             "cmux-tui/",
+            "cmux-browser/",
+            "daemon/remote/",
         )
     ):
         return True
@@ -761,23 +1041,36 @@ def classify_files(paths: Iterable[str], *, ci_workflow_linux_only: bool = False
     agent_session_web = False
     cli = False
     release_build = False
+    # Collected across the diff: the lane is selected from the whole change,
+    # not path by path, because the selector resolves package dependencies.
+    swift_package_candidates: list[str] = []
     test_references = load_macos_job_test_references()
     macos_ios_packages = load_macos_ios_package_closure()
+    cli_inputs = load_cli_target_inputs()
 
     for raw_path in paths:
         path = normalize_path(raw_path)
         if not path:
             continue
-        if is_cli_change(path):
+        if is_cli_change(path, cli_inputs, macos_ios_packages):
             cli = True
         if path == CI_WORKFLOW_PATH and ci_workflow_linux_only:
             continue
+        # Before every `continue` below: a package source or test selects the
+        # package-test lane even when the path is otherwise macOS-neutral (a
+        # Packages/iOS package outside the desktop closure) or test-only.
+        if is_swift_package_input(path):
+            swift_package_candidates.append(path)
         if forces_all_areas(path):
             macos = True
             web = True
             agent_session_web = True
-            cli = True
             release_build = True
+            # ci.yml calls the CLI lane. An unowned scripts/ci helper cannot
+            # reach it: is_cli_change() above already routed the helpers the
+            # lane runs and any module that could shadow their imports.
+            if path == CI_WORKFLOW_PATH:
+                cli = True
             continue
         if path in CI_MACOS_ADMISSION_CONTROL_INPUTS:
             # These helpers decide whether compile admission is required.
@@ -820,6 +1113,7 @@ def classify_files(paths: Iterable[str], *, ci_workflow_linux_only: bool = False
         web=web,
         agent_session_web=agent_session_web,
         cli=cli,
+        swift_packages=bool(swift_package_test_selection(swift_package_candidates)),
         release_build=release_build,
     )
 

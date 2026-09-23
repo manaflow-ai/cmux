@@ -55,6 +55,15 @@ unset is the intended state, and setting one overrides just that lane without
 touching required CI. That makes a rollback a variable edit rather than a
 revert.
 
+A job that also reports its own pool in an env value must read that value from
+the same expression its `runs-on` uses, not from the lane variable alone.
+`macos-compile-admission` puts `CMUX_PRODUCT_RUNNER` in the compiled product
+contract and `tests-build-and-lag` validates `REQUESTED_RUNNER`; on a pull
+request both resolve through `MACOS_RUNNER_PR`, so a job reading only
+`MACOS_RUNNER_15` or `MACOS_RUNNER_DISPLAY` would stamp and check a pool it is
+not on. `check_macos_runner_identity_env_tracks_routing` in
+`tests/test_ci_self_hosted_guard.sh` enforces that.
+
 Workflows reference them as `runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}`.
 If a variable is unset the job uses the fallback, so CI is never broken by a
 missing variable. Pull requests from forks never see repository variables, so
