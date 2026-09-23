@@ -1712,20 +1712,47 @@ _cmux_preexec() {
     _cmux_start_git_head_watch
 }
 
-# Run after startup files and zsh's initial global-history load. fc -p gives
-# this shell a fresh history list, then reads only its persisted surface file.
-_cmux_initialize_terminal_history() {
-    [[ -n "${CMUX_HISTORY_FILE:-}" && -z "${_CMUX_HISTORY_INITIALIZED:-}" \
-       && -n "${HISTFILE:-}" && "$HISTFILE" != /dev/null ]] || return 0
-    # An unset SAVEHIST means zsh persists nothing; keep that, not a default.
-    builtin fc -p "$CMUX_HISTORY_FILE" "${HISTSIZE:-2000}" "${SAVEHIST:-0}" || return
-    setopt inc_append_history
-    typeset -g _CMUX_HISTORY_INITIALIZED=1
+# Per-terminal history, layered on the shell's own. HISTFILE is left alone,
+# so a new terminal recalls global history and every command still reaches
+# the global file exactly as in any other terminal. Alongside it, each
+# command is appended to this surface's file; when a restored terminal finds
+# entries there, they are read on top of global history so Up recalls what
+# was typed in this terminal first. With SAVEHIST unset or zero zsh persists
+# nothing, and neither does this.
+_cmux_terminal_history_precmd() {
+    [[ -n "${CMUX_HISTORY_FILE:-}" && -n "${HISTFILE:-}" && "$HISTFILE" != /dev/null ]] || return 0
+    (( ${SAVEHIST:-0} > 0 )) || return 0
+    local entry
+    if [[ -z "${_CMUX_HISTORY_INITIALIZED:-}" ]]; then
+        typeset -g _CMUX_HISTORY_INITIALIZED=1
+        if [[ -s "$CMUX_HISTORY_FILE" ]]; then
+            local -a lines
+            lines=("${(@f)$(<"$CMUX_HISTORY_FILE")}")
+            if (( ${#lines} > SAVEHIST )); then
+                print -rl -- "${(@)lines[-SAVEHIST,-1]}" >| "$CMUX_HISTORY_FILE"
+            fi
+            builtin fc -R "$CMUX_HISTORY_FILE"
+        fi
+        # Anything already in the list came from a file, not from this
+        # terminal's prompt; start recording after it.
+        entry="$(builtin fc -l -1 2>/dev/null)"
+        [[ "$entry" =~ '^ *([0-9]+)' ]] && typeset -g _CMUX_HISTORY_LAST="$match[1]"
+        return 0
+    fi
+    entry="$(builtin fc -l -1 2>/dev/null)"
+    [[ "$entry" =~ '^ *([0-9]+)\*? +(.*)$' ]] || return 0
+    [[ "$match[1]" != "${_CMUX_HISTORY_LAST:-}" ]] || return 0
+    typeset -g _CMUX_HISTORY_LAST="$match[1]"
+    # hist_ignore_space leaves the last such line in the list until the next
+    # command; it was never meant to be kept, so it is not recorded either.
+    local line="$(builtin fc -ln -1 2>/dev/null)"
+    [[ -o hist_ignore_space && "$line" == ' '* ]] && return 0
+    print -r -- "$line" >> "$CMUX_HISTORY_FILE"
 }
 
 _cmux_precmd() {
     local last_status=$?
-    _cmux_initialize_terminal_history
+    _cmux_terminal_history_precmd
     # Ghostty integration can initialize after this file, so retry its job-table
     # guards when each prompt begins.
     _cmux_patch_ghostty_job_table_guard
