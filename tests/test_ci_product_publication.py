@@ -1,4 +1,5 @@
 """Exercise the workflow's publication decision and all product consumers."""
+import json
 import os
 from pathlib import Path
 import re
@@ -136,6 +137,28 @@ class ProductPublicationTests(unittest.TestCase):
         index = {s["name"]: i for i, s in enumerate(self.job["steps"])}
         self.assertIn("Choose product artifact publication", index)
         self.assertLess(index["Run early CLI binary smoke checks"], index["Choose product artifact publication"])
+
+
+    def macos_status(self, compile_admitted, *, full_suite="true", results="success"):
+        step = next(
+            s for s in self.workflow["jobs"]["macos-status"]["steps"]
+            if s.get("name") == "Check routed macOS jobs"
+        )
+        needs = {name: {"result": results} for name in self.workflow["jobs"]["macos-status"]["needs"]}
+        inputs = {"macos": "true", "full_suite": full_suite, "compile_admitted": compile_admitted, "release_build": "true"}
+        env = {**os.environ, "MACOS_INPUTS": json.dumps(inputs), "MACOS_NEEDS": json.dumps(needs)}
+        return subprocess.run(["bash", "-c", step["run"]], env=env, text=True, capture_output=True)
+
+    def test_macos_status_reads_unset_compile_admitted_as_compile(self):
+        # ci.yml leaves compile_admitted unset on full-suite runs, which skip
+        # both build-input reuse steps. That must not fail an all-green run.
+        passed = self.macos_status("")
+        self.assertEqual(passed.returncode, 0, passed.stderr)
+        self.assertNotIn("invalid route", passed.stderr)
+        failed = self.macos_status("", results="failure")
+        self.assertNotEqual(failed.returncode, 0)
+        garbage = self.macos_status("maybe")
+        self.assertIn("invalid route compile_admitted='maybe'", garbage.stderr)
 
 
 if __name__ == "__main__":

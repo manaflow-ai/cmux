@@ -7,12 +7,15 @@ from __future__ import annotations
 import importlib.util
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
 import tempfile
 import textwrap
 from pathlib import Path
+
+import yaml
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -70,6 +73,22 @@ assert web_subareas_spec and web_subareas_spec.loader
 web_subareas = importlib.util.module_from_spec(web_subareas_spec)
 sys.modules[web_subareas_spec.name] = web_subareas
 web_subareas_spec.loader.exec_module(web_subareas)
+
+TEST_EXECUTION_VALIDATOR = ROOT / "scripts" / "ci" / "validate_test_execution_registry.py"
+validator_spec = importlib.util.spec_from_file_location("validate_test_execution_registry", TEST_EXECUTION_VALIDATOR)
+assert validator_spec and validator_spec.loader
+test_execution_validator = importlib.util.module_from_spec(validator_spec)
+sys.modules[validator_spec.name] = test_execution_validator
+validator_spec.loader.exec_module(test_execution_validator)
+
+
+def test_execution_registry_lane_discovery_ignores_yaml_comments() -> None:
+    workflow = """
+# scripts/ci/run_python_test_lane.py --lane full-line-comment
+run: echo ok # scripts/ci/run_python_test_lane.py --lane inline-comment
+run: scripts/ci/run_python_test_lane.py --lane live-lane # trailing comment
+"""
+    assert test_execution_validator.runner_lanes_from_workflow_text(workflow) == {"live-lane"}
 
 
 def assert_areas(
@@ -150,8 +169,177 @@ def test_cli_workflow_inputs_route_the_required_cli_lane() -> None:
         "cmux.xcodeproj/project.pbxproj",
         "Packages/macOS/CmuxFoundation/Sources/CmuxFoundation/Process/AgentPIDProcessIdentity.swift",
         ".github/workflows/cli-pipe-regressions.yml",
+        # Steps of cli-pipe-regressions.yml other than the build.
+        "scripts/select-ci-xcode.sh",
+        "scripts/install-rust-ci.sh",
+        "Native/DiffSidecar/rust-toolchain.toml",
+        "scripts/download-prebuilt-ghosttykit.sh",
+        "scripts/ghosttykit-checksums.txt",
+        "ghostty",
+        "vendor/bonsplit",
+        ".github/actions/cache-restore/action.yml",
+        "scripts/ci/r2-cache.sh",
+        "scripts/ci/cache_restore_receipt.py",
+        "scripts/ci/sanitize-xcode-source-packages-cache.py",
+        # test_cli_config_doctor.py runs this helper.
+        "skills/cmux-settings/scripts/cmux-settings",
     ):
         assert module.classify_files([path]).cli is True, path
+
+
+def test_every_declared_cli_lane_input_exists() -> None:
+    for path in module.CLI_LANE_EXACT_INPUTS:
+        assert (ROOT / path).exists(), path
+    for prefix in module.CLI_LANE_INPUT_PREFIXES:
+        assert (ROOT / prefix).is_dir(), prefix
+
+
+def test_cli_lane_routes_the_cmux_cli_target_closure() -> None:
+    inputs = module.load_cli_target_inputs()
+    assert inputs is not None
+    # Products the cmux-cli target links, so a change to them can break its
+    # build even though the app-host suite would also catch it.
+    assert "Packages/macOS/CmuxCore" in inputs.package_directories
+    assert "Packages/macOS/CmuxFoundation" in inputs.package_directories
+    assert "Packages/Shared/CMUXMobileCore" in inputs.package_directories
+    # Packages no cmux-cli product reaches.
+    assert "Packages/macOS/CmuxTerminal" not in inputs.package_directories
+    assert not any(
+        directory.startswith("Packages/iOS/") for directory in inputs.package_directories
+    )
+
+    assert module.classify_files(["Packages/macOS/CmuxCore/Sources/CmuxCore/Cmux.swift"]).cli is True
+    # Shared app sources the cmux-cli target compiles.
+    assert module.classify_files(["Sources/AutomationRule.swift"]).cli is True
+    # A package's test sources cannot reach the cmux-cli binary.
+    assert module.classify_files([
+        "Packages/macOS/CmuxCore/Tests/CmuxCoreTests/CmuxCoreTests.swift"
+    ]).cli is False
+
+
+def test_cli_lane_routes_stdlib_shadowing_ci_helpers() -> None:
+    # The lane runs `python3 scripts/ci/cache_restore_receipt.py`, which puts
+    # scripts/ci first on sys.path.
+    assert module.classify_files(["scripts/ci/json.py"]).cli is True
+    assert module.classify_files(["scripts/ci/subprocess.py"]).cli is True
+    assert module.classify_files(["scripts/ci/queue_janitor.py"]).cli is False
+
+
+def test_app_and_web_only_changes_skip_the_cli_lane() -> None:
+    for path in (
+        "Sources/AppDelegate.swift",
+        "Packages/macOS/CmuxTerminal/Sources/CmuxTerminal/TerminalEngine.swift",
+        "webviews/src/agent-session/index.tsx",
+        "Resources/Localizable.xcstrings",
+        "docs/ci.md",
+    ):
+        assert module.classify_files([path]).cli is False, path
+
+
+def test_ci_script_only_change_skips_the_cli_lane_but_keeps_linux_guards() -> None:
+    # PR #13721 (ci/queue-janitor) and its neighbours queued the macOS CLI lane
+    # behind the Blacksmith pool for CI work the lane never runs.
+    changed = [
+        ".github/workflows/ci-guards.yml",
+        ".github/workflows/ci-queue-janitor.yml",
+        "scripts/ci/queue_janitor.py",
+        "scripts/ci/workflow_guard_groups.py",
+        "tests/test-execution.toml",
+        "tests/test_ci_queue_janitor.py",
+    ]
+    assert module.classify_files(changed).cli is False
+
+    with tempfile.TemporaryDirectory() as temp_dir:
+        files_path = Path(temp_dir) / "files.txt"
+        files_path.write_text("\n".join(changed) + "\n", encoding="utf-8")
+        result = subprocess.run(
+            [
+                sys.executable,
+                str(ROOT / "scripts/ci/detect_linux_guard_changes.py"),
+                "--event-name",
+                "pull_request",
+                "--macos",
+                "false",
+                "--files-from",
+                str(files_path),
+            ],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+    guards = dict(
+        line.split("=", 1) for line in result.stdout.splitlines() if "=" in line
+    )
+    assert guards["linux_guard_tests"] == "true", result.stdout
+
+
+HANG_WORKFLOW = ROOT / ".github" / "workflows" / "terminal-hang-diagnostics.yml"
+
+
+def hang_diagnostics_paths() -> list[str]:
+    workflow = yaml.safe_load(HANG_WORKFLOW.read_text(encoding="utf-8"))
+    return list(workflow[True]["pull_request"]["paths"])
+
+
+def runs_hang_diagnostics(path: str) -> bool:
+    for pattern in hang_diagnostics_paths():
+        expression = "".join(
+            ".*" if part == "**" else ("[^/]*" if part == "*" else re.escape(part))
+            for part in re.split(r"(\*\*|\*)", pattern)
+        )
+        if re.fullmatch(expression, path):
+            return True
+    return False
+
+
+def test_terminal_sources_the_hang_jobs_build_run_the_diagnostics() -> None:
+    for path in (
+        "Sources/TerminalPortalReconciliationScheduler.swift",
+        "cmuxTests/TerminalPortalReconciliationReentrancyTests.swift",
+        "tests/run_terminal_portal_reconciliation_tests.sh",
+        "Packages/Shared/CMUXMobileCore/Sources/CMUXMobileCore/TerminalWorkInterval.swift",
+        "Packages/Shared/CmuxSentryTelemetry/Sources/CmuxSentryTelemetry/TerminalWorkSentryContext.swift",
+        "cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved",
+        "scripts/select-ci-xcode.sh",
+        "scripts/terminal-hang-release-gate.py",
+        "tests/test_terminal_hang_release_gate.py",
+        ".github/workflows/terminal-hang-diagnostics.yml",
+    ):
+        assert runs_hang_diagnostics(path), path
+
+
+def test_unrelated_app_changes_skip_the_two_macos_hang_diagnostics_jobs() -> None:
+    for path in (
+        "Sources/Workspace.swift",
+        "Sources/AppDelegate.swift",
+        "Sources/GhosttyTerminalView.swift",
+        "Packages/macOS/CmuxTerminal/Sources/CmuxTerminal/TerminalEngine.swift",
+        "Packages/iOS/CmuxMobileTerminal/Sources/CmuxMobileTerminal/Terminal.swift",
+        "web/app/page.tsx",
+    ):
+        assert not runs_hang_diagnostics(path), path
+
+
+def test_hang_diagnostics_paths_cover_every_file_its_jobs_read() -> None:
+    workflow = HANG_WORKFLOW.read_text(encoding="utf-8")
+    jobs = workflow.partition("\njobs:\n")[2]
+    # Keeps the filter honest as the jobs change: every repository file the job
+    # steps name must be routed, and every routed pattern must match something.
+    references = {
+        reference.lstrip("./")
+        for reference in re.findall(r"[\w./+-]+\.(?:swift|sh|py|json|resolved|toml)", jobs)
+    }
+    references |= {
+        f"{package}/Package.swift" for package in re.findall(r"--package-path (\S+)", jobs)
+    }
+    assert "tests/run_terminal_portal_reconciliation_tests.sh" in references
+    for reference in sorted(references):
+        if not (ROOT / reference).exists():
+            continue
+        assert runs_hang_diagnostics(reference), reference
+    for pattern in hang_diagnostics_paths():
+        assert list(ROOT.glob(pattern)), pattern
+    assert "workflow_dispatch:" in workflow
 
 
 def test_release_build_follows_the_other_areas_when_macos_is_skipped_or_forced() -> None:
@@ -289,6 +477,33 @@ def test_cmux_tui_only_skips_macos() -> None:
 def test_website_only_does_not_run_agent_session_resource_check() -> None:
     assert_areas(["web/app/page.tsx"], macos=False, web=True, agent_session_web=False)
     assert_areas(["scripts/ci/web_validation.py"], macos=False, web=True, agent_session_web=False)
+
+
+def test_review_rules_skip_app_builds_but_preserve_unknown_and_mixed_inputs() -> None:
+    paths = [".coderabbit.yaml", ".greptile/rules.md",
+             ".github/review-bot-rules/user-facing-errors.md"]
+    for changed in [[path] for path in paths] + [paths]:
+        assert module.classify_files(changed) == module.ChangeAreas(False, False, False, False, False)
+    for unknown in (".greptile/new-policy.json", ".github/review-bot-rules/new-rule.md",
+                    ".coderabbit.yml", ".github/swift-warning-budget.tsv"):
+        actual = module.classify_files(paths + [unknown])
+        assert actual.macos and actual.release_build, (unknown, actual)
+    actual = module.classify_files(paths + ["Sources/App.swift"])
+    assert actual.macos and actual.release_build, actual
+    actual = module.classify_files(paths + ["web/app/page.tsx"])
+    assert not actual.macos and actual.web, actual
+
+
+def test_review_rules_workflow_skips_native_but_still_requires_linux_guards() -> None:
+    _, outputs = run_detect_step_for_paths([
+        ".coderabbit.yaml", ".greptile/rules.md",
+        ".github/review-bot-rules/user-facing-errors.md",
+    ])
+    assert outputs == ["macos=false", "web=false", "agent_session_web=false", "cli=false", "release_build=false"]
+    result = run_linux_preflight(linux_preflight_needs(
+        outputs=dict(line.split("=", 1) for line in outputs), results={"guards": "failure"},
+    ))
+    assert result.returncode != 0, result.stdout
 
 
 def test_agent_session_webview_sources_run_bundled_asset_check() -> None:
@@ -731,8 +946,16 @@ def test_macos_test_product_ci_helpers_run_admission_without_web_or_release() ->
         assert actual.release_build is False, (path, actual)
 
 
-def test_unknown_ci_helper_still_fails_open_to_every_area() -> None:
-    assert module.classify_files(["scripts/ci/future_unknown_helper.py"]) == module.ChangeAreas.all()
+def test_unknown_ci_helper_still_fails_open_to_every_area_the_lane_can_reach() -> None:
+    actual = module.classify_files(["scripts/ci/future_unknown_helper.py"])
+    assert actual.macos is True
+    assert actual.web is True
+    assert actual.agent_session_web is True
+    assert actual.release_build is True
+    # cli-pipe-regressions.yml runs no unowned scripts/ci helper, so a new one
+    # cannot change its result unless it shadows an import of a helper the lane
+    # does run; test_cli_lane_routes_stdlib_shadowing_ci_helpers covers that.
+    assert actual.cli is False
 
 
 def test_guard_workflow_and_persistent_router_skip_product_areas() -> None:
@@ -892,6 +1115,7 @@ def run_detect_step_for_ci_workflow_edit(base: str, head: str) -> tuple[subproce
     script = detect_step_script()
     with tempfile.TemporaryDirectory() as temp_dir:
         repo = Path(temp_dir)
+        runner_temp = Path(temp_dir) / "runner-temp"
         subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
         subprocess.run(["git", "config", "user.email", "ci@example.test"], cwd=repo, check=True)
         subprocess.run(["git", "config", "user.name", "CI Test"], cwd=repo, check=True)
@@ -915,6 +1139,10 @@ def run_detect_step_for_ci_workflow_edit(base: str, head: str) -> tuple[subproce
             "HEAD_SHA": head_sha,
             "MERGE_SHA": head_sha,
             "GITHUB_OUTPUT": str(output_path),
+            # The trusted base router lays its checkout out under $RUNNER_TEMP,
+            # and the step runs under `set -u`. GitHub sets it; a local run
+            # does not, so without this the suite only passes inside CI.
+            "RUNNER_TEMP": os.environ.get("RUNNER_TEMP") or str(runner_temp),
         }
         result = subprocess.run(
             ["bash", "-c", script], cwd=repo, env=env, text=True,
@@ -966,6 +1194,15 @@ def test_ci_router_runs_on_every_pr_and_merge_group() -> None:
     workflow = CI_WORKFLOW.read_text(encoding="utf-8")
     assert "  pull_request:\n    types: [opened, synchronize, reopened, labeled, unlabeled]\n  merge_group:" in workflow
     assert "    paths:" not in workflow
+
+
+def test_ci_label_only_reruns_preserve_inflight_compile() -> None:
+    workflow = CI_WORKFLOW.read_text(encoding="utf-8")
+    expected = (
+        "cancel-in-progress: ${{ github.event_name == 'pull_request' "
+        "&& github.event.action != 'labeled' && github.event.action != 'unlabeled' }}"
+    )
+    assert expected in workflow
 
     fallback = CI_STATUS_FALLBACK_WORKFLOW.read_text(encoding="utf-8")
     assert "  workflow_dispatch: {}" in fallback
@@ -1049,6 +1286,8 @@ def run_linux_preflight(needs: dict[str, object]) -> subprocess.CompletedProcess
 
 def run_app_host_unit_test_step(
     shard_mode: str = "selectors",
+    *,
+    known_failure: bool = False,
 ) -> tuple[subprocess.CompletedProcess[str], bool]:
     script = workflow_job_step_script("app-host-unit-tests", "Run unit tests", MACOS_WORKFLOW)
     script = script.replace("${{ matrix.shard }}", "1")
@@ -1064,6 +1303,40 @@ def run_app_host_unit_test_step(
         shutil.copy2(
             ROOT / "scripts/ci/classify-app-host-test-output.py",
             ci_scripts / "classify-app-host-test-output.py",
+        )
+        shutil.copy2(
+            ROOT / "scripts/ci/app_host_result_accounting.py",
+            ci_scripts / "app_host_result_accounting.py",
+        )
+        known_catalog = ci_scripts / "app-host-known-failures.json"
+        shutil.copy2(
+            ROOT / "scripts/ci/app-host-known-failures.json",
+            known_catalog,
+        )
+        if known_failure:
+            known_catalog.write_text(
+                json.dumps({
+                    "bootstrap_main_sha": "1" * 40,
+                    "version": 1,
+                    "tests": {
+                        "FakeTests/testOne()": {
+                            "classification": "test bug",
+                            "issue": 13095,
+                        }
+                    },
+                }),
+                encoding="utf-8",
+            )
+        inventory = runner_temp / "cmux-app-host-test-inventory.json"
+        inventory.write_text(
+            json.dumps({
+                "version": 1,
+                "tests": [
+                    "FakeTests/testOne()",
+                    "FakeTests/testTwo()",
+                ],
+            }),
+            encoding="utf-8",
         )
 
         shard_helper = ci_scripts / "cmux_unit_test_shard.py"
@@ -1097,8 +1370,22 @@ if [ -f "$counter" ]; then
 fi
 iteration=$((iteration + 1))
 printf '%s\n' "$iteration" > "$counter"
+result_root="${CMUX_APP_HOST_RESULT_BUNDLE_ROOT:-$RUNNER_TEMP/cmux-app-host-xcresults}"
+mkdir -p "$result_root"
+if [ "${CMUX_TEST_KNOWN_FAILURE_MODE:-0}" = "1" ]; then
+  cat >"$result_root/cmux-app-host-xcodebuild-${CMUX_TAG}-pid-${iteration}.tests.json" <<'JSON'
+{"testNodes":[{"nodeType":"Test Suite","children":[{"nodeType":"Test Case","nodeIdentifier":"FakeTests/testOne()","result":"Failed"},{"nodeType":"Test Case","nodeIdentifier":"FakeTests/testTwo()","result":"Passed"}]}]}
+JSON
+  echo "Executed 2 tests, with 1 failure (0 unexpected)"
+  echo "** TEST FAILED **"
+  exit 65
+fi
 if [ "$iteration" -eq 1 ]; then
+  cat >"$result_root/cmux-app-host-xcodebuild-${CMUX_TAG}-pid-1.tests.json" <<'JSON'
+{"testNodes":[{"nodeType":"Test Suite","children":[{"nodeType":"Test Case","nodeIdentifier":"FakeTests/testOne()","result":"Failed"},{"nodeType":"Test Case","nodeIdentifier":"FakeTests/testTwo()","result":"Failed"}]}]}
+JSON
   echo "Executed 2 tests, with 2 failures (0 unexpected)"
+  echo "** TEST FAILED **"
   exit 65
 fi
 echo "simulated app-host crash before test summary" >&2
@@ -1126,13 +1413,14 @@ exit 9
                 "CMUX_TEST_BATCH_COUNTER": str(root / "batch-counter"),
                 "CMUX_TEST_RUNNER_MARKER": str(runner_marker),
                 "CMUX_TEST_SHARD_MODE": shard_mode,
+                "CMUX_TEST_KNOWN_FAILURE_MODE": "1" if known_failure else "0",
+                "CMUX_APP_HOST_TEST_INVENTORY": str(inventory),
             },
             text=True,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
         )
         return result, runner_marker.exists()
-
 
 def linux_preflight_needs(
     *,
@@ -1295,6 +1583,7 @@ def run_detect_step_for_paths(
     script = detect_step_script(workflow_path)
     with tempfile.TemporaryDirectory() as temp_dir:
         repo = Path(temp_dir)
+        runner_temp = Path(temp_dir) / "runner-temp"
         subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
         subprocess.run(["git", "config", "user.email", "ci@example.test"], cwd=repo, check=True)
         subprocess.run(["git", "config", "user.name", "CI Test"], cwd=repo, check=True)
@@ -1307,6 +1596,9 @@ def run_detect_step_for_paths(
             WEB_WORKFLOW,
             MACOS_WORKFLOW,
             ROOT / "scripts" / "ci" / "workloads" / "ci-guard.sh",
+            # The trusted base router reads the cmux-cli target from these.
+            ROOT / "cmux.xcodeproj" / "project.pbxproj",
+            *sorted(ROOT.glob("Packages/*/*/Package.swift")),
         ):
             relative = support.relative_to(ROOT)
             target = repo / relative
@@ -1336,6 +1628,10 @@ def run_detect_step_for_paths(
             "HEAD_SHA": head_sha,
             "MERGE_SHA": head_sha,
             "GITHUB_OUTPUT": str(output_path),
+            # The trusted base router lays its checkout out under $RUNNER_TEMP,
+            # and the step runs under `set -u`. GitHub sets it; a local run
+            # does not, so without this the suite only passes inside CI.
+            "RUNNER_TEMP": os.environ.get("RUNNER_TEMP") or str(runner_temp),
         }
         result = subprocess.run(
             ["bash", "-c", script],
@@ -1404,6 +1700,7 @@ def test_workflow_diff_failure_runs_all_areas() -> None:
     script = detect_step_script()
     with tempfile.TemporaryDirectory() as temp_dir:
         repo = Path(temp_dir)
+        runner_temp = Path(temp_dir) / "runner-temp"
         output_path = repo / "github-output.txt"
         env = {
             **os.environ,
@@ -1412,6 +1709,10 @@ def test_workflow_diff_failure_runs_all_areas() -> None:
             "HEAD_SHA": "missing-head",
             "MERGE_SHA": "missing-merge",
             "GITHUB_OUTPUT": str(output_path),
+            # The trusted base router lays its checkout out under $RUNNER_TEMP,
+            # and the step runs under `set -u`. GitHub sets it; a local run
+            # does not, so without this the suite only passes inside CI.
+            "RUNNER_TEMP": os.environ.get("RUNNER_TEMP") or str(runner_temp),
         }
         result = subprocess.run(
             ["bash", "-c", script],
@@ -1437,6 +1738,7 @@ def run_detect_step_on_shallow_synthetic_merge(*, stale_event_base: bool) -> tup
     script = detect_step_script()
     with tempfile.TemporaryDirectory() as temp_dir:
         root = Path(temp_dir)
+        runner_temp = Path(temp_dir) / "runner-temp"
         source = root / "source"
         shallow = root / "shallow"
         source.mkdir()
@@ -1505,6 +1807,10 @@ def run_detect_step_on_shallow_synthetic_merge(*, stale_event_base: bool) -> tup
                 "HEAD_SHA": head_sha,
                 "MERGE_SHA": merge_sha,
                 "GITHUB_OUTPUT": str(output_path),
+                # The trusted base router lays its checkout out under $RUNNER_TEMP,
+                # and the step runs under `set -u`. GitHub sets it; a local run
+                # does not, so without this the suite only passes inside CI.
+                "RUNNER_TEMP": os.environ.get("RUNNER_TEMP") or str(runner_temp),
             },
             text=True,
             stdout=subprocess.PIPE,
@@ -1605,6 +1911,73 @@ def test_workflow_only_pr_uses_trusted_base_without_product_work() -> None:
     result, outputs = run_detect_step_for_paths([".github/workflows/ci.yml"])
 
     assert "CI routing-policy-only PR; skipping product-area CI." in result.stdout
+    # This fixture replaces ci.yml with unreadable content, so the CLI lane's
+    # call site cannot be compared and the lane stays routed.
+    assert outputs == [
+        "macos=false",
+        "web=false",
+        "agent_session_web=false",
+        "cli=true",
+        "release_build=false",
+    ]
+
+
+CI_DIFF_BASE_WITH_CLI_LANE = """name: CI
+on:
+  pull_request:
+env:
+  FOO: "1"
+jobs:
+  changes:
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    steps:
+      - run: route
+  workflow-guard-tests:
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    steps:
+      - run: guard
+  cli:
+    needs: [changes]
+    if: ${{ needs.changes.outputs.cli == 'true' }}
+    uses: ./.github/workflows/cli-pipe-regressions.yml
+  ci-status:
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    steps:
+      - run: gate
+"""
+
+
+def test_ci_workflow_edit_to_the_cli_call_site_runs_the_cli_lane() -> None:
+    # The router strips ci.yml before the trusted base classifies the diff, so
+    # the detect step compares the `cli` job itself.
+    for head in (
+        CI_DIFF_BASE_WITH_CLI_LANE.replace(
+            "uses: ./.github/workflows/cli-pipe-regressions.yml",
+            "uses: ./.github/workflows/cli-pipe-regressions.yml\n    secrets: inherit",
+        ),
+        # Triggers and permissions before `jobs:` reach every called workflow.
+        CI_DIFF_BASE_WITH_CLI_LANE.replace(
+            "  pull_request:", "  pull_request:\n  merge_group:"
+        ),
+    ):
+        result, outputs = run_detect_step_for_ci_workflow_edit(
+            CI_DIFF_BASE_WITH_CLI_LANE, head
+        )
+        assert "CLI lane call site changed" in result.stdout, result.stdout
+        assert outputs == [
+            "macos=false",
+            "web=false",
+            "agent_session_web=false",
+            "cli=true",
+            "release_build=false",
+        ], outputs
+
+
+def test_ci_workflow_edit_elsewhere_leaves_the_cli_lane_skipped() -> None:
+    _, outputs = run_detect_step_for_ci_workflow_edit(
+        CI_DIFF_BASE_WITH_CLI_LANE,
+        CI_DIFF_BASE_WITH_CLI_LANE.replace("- run: guard", "- run: guard\n      - run: more"),
+    )
     assert outputs == [
         "macos=false",
         "web=false",
@@ -1885,6 +2258,24 @@ def test_macos_workflow_call_starts_after_cheap_static_gate() -> None:
     assert "inputs.source_parent1" in admission
 
 
+def test_macos_admission_waits_for_pull_request_debounce() -> None:
+    debounce = workflow_job_block("macos-debounce")
+    assert "    needs: changes" in debounce
+    assert "github.event_name == 'pull_request'" in debounce
+    assert "needs.changes.outputs.macos != 'false'" in debounce
+    assert "vars.CI_MACOS_ADMISSION_DEBOUNCE_SECONDS || '180'" in debounce
+    assert "macos" not in debounce.split("runs-on:", 1)[1].split("\n", 1)[0]
+    assert '[ "$current" != "$HEAD_SHA" ]' in debounce
+
+    caller = workflow_job_block("macos")
+    assert "      - macos-debounce" in caller
+    assert (
+        "(needs.macos-debounce.result == 'success' || needs.macos-debounce.result == 'skipped')"
+        in caller
+    )
+    assert "      - macos-debounce" in workflow_job_block("ci-status")
+
+
 def run_tests_gate(needs: dict) -> subprocess.CompletedProcess:
     script = workflow_job_step_script("tests", "Check platform workflow routing")
     body = script.split("python3 - <<'PY'\n", 1)[1].rsplit("\nPY", 1)[0]
@@ -2106,8 +2497,15 @@ def admission_run(run_id: int, owner: str = "manaflow-ai/cmux") -> dict:
     return {"id": run_id, "head_repository": {"full_name": owner}, "html_url": f"https://example/{run_id}"}
 
 
+# ci.yml reaches the admission job through ci-macos.yml, so GitHub reports it
+# as "<caller job> / <job name>". The fixture must use the composed name the
+# API actually returns; using the bare name hid a regression in which both
+# reuse lookups silently matched nothing.
+ADMISSION_JOB_API_NAME = "macos / macOS compile admission"
+
+
 def admission_job(conclusion: str, run_attempt: int = 1) -> dict:
-    return {"name": "macOS compile admission", "conclusion": conclusion, "run_attempt": run_attempt}
+    return {"name": ADMISSION_JOB_API_NAME, "conclusion": conclusion, "run_attempt": run_attempt}
 
 
 def test_only_an_in_org_run_with_a_passed_admission_counts_as_admitted() -> None:
@@ -2422,6 +2820,41 @@ def test_only_pull_requests_under_the_compile_only_policy_skip_the_suite() -> No
     assert wants_full_suite("pull_request", "full", []) is True
     for event in ("merge_group", "workflow_dispatch", "push"):
         assert wants_full_suite(event, "compile-only", []) is True
+
+
+def test_a_skipped_suite_is_refused_when_only_the_suite_could_judge_the_diff() -> None:
+    sys.path.insert(0, str(ROOT / "scripts/ci"))
+    from choose_ci_suite import coverage_gap
+
+    tests_diff = ["cmuxTests/WorkspaceUnitTests.swift"]
+
+    # Compile admission builds the bundle and stops, so a test-only change is
+    # unobserved when the suite is skipped.
+    assert coverage_gap("pull_request", False, tests_diff, []) is True
+    assert coverage_gap("pull_request", False, ["cmuxUITests/A.swift"], []) is True
+    # Running the suite is the whole point; there is nothing to refuse.
+    assert coverage_gap("pull_request", True, tests_diff, []) is False
+    # Product sources still compile, which is what the policy claims to check.
+    assert coverage_gap("pull_request", False, ["Sources/A.swift"], []) is False
+    assert coverage_gap("pull_request", False, ["web/app/page.tsx"], []) is False
+    # The skip may be deliberate, but it has to be recorded on the pull request.
+    assert coverage_gap("pull_request", False, tests_diff, ["no-full-ci"]) is False
+    # An unreadable diff must not be the reason a change goes unobserved.
+    assert coverage_gap("pull_request", False, None, []) is True
+    # Only pull requests take the cheap path at all.
+    for event in ("merge_group", "workflow_dispatch", "push"):
+        assert coverage_gap(event, False, tests_diff, []) is False
+
+
+def test_ci_status_requires_the_suite_coverage_gate() -> None:
+    block = workflow_job_block("ci-status")
+    assert "      - suite-coverage" in block
+
+    gate = workflow_job_block("suite-coverage")
+    assert "needs.changes.outputs.coverage_gap == 'true'" in gate
+    # A Linux job, so refusing a run never costs a macOS runner.
+    assert "vars.LINUX_RUNNER" in gate
+    assert "exit 1" in gate
 
 
 def test_suite_labels_are_read_from_the_run_event_snapshot() -> None:
@@ -2873,6 +3306,7 @@ def test_r2_transport_is_an_explicit_optional_remote_broker() -> None:
     expected_condition = (
         "if: steps.node-products.outputs.hit != 'true' && "
         "steps.peer-products.outputs.hit != 'true' && "
+        "steps.restore-layers.outputs.hit != 'true' && "
         "vars.CI_ARTIFACT_R2_URL != ''"
     )
     for job_name in ("app-host-unit-tests", "tests-build-and-lag"):
@@ -2993,6 +3427,29 @@ def test_app_host_multi_batch_failure_cannot_reuse_prior_expected_summary() -> N
     assert runner_invoked
     assert result.returncode != 0, result.stdout
     assert "simulated app-host crash before test summary" in result.stdout
+
+
+def test_app_host_catalogued_failure_is_tolerated_with_red_xcode_status() -> None:
+    result, runner_invoked = run_app_host_unit_test_step(known_failure=True)
+
+    assert runner_invoked
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "RATCHET_KNOWN_FAILURE FakeTests/testOne()" in result.stdout
+
+
+def test_app_host_ratchet_uses_built_inventory_and_typed_results() -> None:
+    app_host = workflow_job_block("app-host-unit-tests", MACOS_WORKFLOW)
+    run_script = workflow_job_step_script(
+        "app-host-unit-tests", "Run unit tests", MACOS_WORKFLOW
+    )
+
+    assert "- name: Enumerate built app-host tests" in app_host
+    assert "-enumerate-tests" in app_host
+    assert "CMUX_APP_HOST_TEST_INVENTORY" in app_host
+    assert "app_host_result_accounting.py inventory" in app_host
+    assert "app_host_result_accounting.py check-run" in run_script
+    assert "--tests-json" in run_script
+    assert "app-host-known-failures.json" in run_script
 
 
 def run_focused_app_host_step(
@@ -3206,10 +3663,13 @@ def test_guard_python_setup_is_scoped_to_owning_groups() -> None:
     prepare_block = block[
         prepare:block.index("      - name: Validate Blacksmith Testbox broker trust boundary", prepare)
     ]
+    # release-notary joined when test_release_homebrew_gate.py was wired there:
+    # it imports yaml, and that was the one group running Python guards without
+    # the venv.
     assert (
         "if: ${{ matrix.group == 'ci' || matrix.group == 'app-host-execution' || "
         "matrix.group == 'app-host-process' || matrix.group == 'app-host-cache' || "
-        "matrix.group == 'release-tooling' }}"
+        "matrix.group == 'release-notary' || matrix.group == 'release-tooling' }}"
     ) in prepare_block
     assert "python3 -m venv" in prepare_block
     assert "packages=(PyYAML==6.0.3)" in prepare_block
@@ -3226,6 +3686,89 @@ def test_pipe_safe_capture_guard_runs_once_in_app_host_execution_group() -> None
     step = block[start:end]
     assert "if: ${{ matrix.group == 'app-host-execution' }}" in step
     assert block.count("Validate pipe-safe CI capture") == 1
+
+
+def test_reuse_lookups_match_the_job_name_github_actually_reports() -> None:
+    """The producer lookups must survive ci.yml reaching admission indirectly.
+
+    `.github/workflows/ci.yml` calls `ci-macos.yml`, so the admission job is
+    reported as "<caller job key> / <job name>", not by its bare name. Both
+    reuse paths previously compared the whole string and therefore stopped
+    finding any producer the moment that indirection was introduced, with no
+    failing test and no CI signal. Derive the composed name from the workflows
+    themselves so a future move breaks this test instead of reuse.
+    """
+    import yaml
+
+    ci = yaml.safe_load((ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8"))
+    caller = next(
+        (key for key, job in ci["jobs"].items()
+         if str(job.get("uses", "")).endswith("/ci-macos.yml")),
+        None,
+    )
+    assert caller, "no ci.yml job calls ci-macos.yml"
+
+    macos = yaml.safe_load((ROOT / ".github/workflows/ci-macos.yml").read_text(encoding="utf-8"))
+    inner = macos["jobs"]["macos-compile-admission"]["name"]
+    composed = f"{caller} / {inner}"
+
+    sys.path.insert(0, str(ROOT / "scripts/ci"))
+    from find_admitted_build import ADMISSION_JOB, admission_job_name
+
+    assert inner == ADMISSION_JOB, f"ci-macos.yml job name {inner!r} != ADMISSION_JOB {ADMISSION_JOB!r}"
+    assert admission_job_name(composed), f"find_admitted_build does not match {composed!r}"
+    assert admission_job_name(inner), "the bare name must still match for inlined callers"
+    assert not admission_job_name("macos / some other job")
+    assert not admission_job_name(None)
+
+    reuse = (ROOT / "scripts/ci/reuse_app_host_products.py").read_text(encoding="utf-8")
+    assert '.rsplit(" / ", 1)[-1] == "macOS compile admission"' in reuse, (
+        "reuse_app_host_products.py must match the final segment of the job name"
+    )
+
+
+
+def test_trusted_router_reads_new_guard_tests_from_the_pr_head() -> None:
+    # A routing-policy PR is classified by the base router, whose workflows
+    # have never named a guard test the PR adds. Merging the head's references
+    # keeps that test Linux-only; a head macOS job naming it still counts.
+    def write_root(root: Path, guards_block: str, macos_block: str) -> None:
+        (root / "scripts/ci/workloads").mkdir(parents=True)
+        (root / "scripts/ci/workloads/ci-guard.sh").write_text(
+            "python3 tests/test_existing_guard.py\n", encoding="utf-8"
+        )
+        (root / ".github/workflows").mkdir(parents=True)
+        linux = "name: fixture\njobs:\n  guard:\n    runs-on: ubuntu-24.04\n    steps:\n      - run: python3 tests/test_existing_guard.py\n"
+        for name in ("ci.yml", "ci-web.yml"):
+            (root / ".github/workflows" / name).write_text(linux, encoding="utf-8")
+        (root / ".github/workflows/ci-guards.yml").write_text(linux + guards_block, encoding="utf-8")
+        (root / ".github/workflows/ci-macos.yml").write_text(
+            "name: fixture\njobs:\n  mac:\n    runs-on: macos-15\n    steps:\n      - run: echo mac\n" + macos_block,
+            encoding="utf-8",
+        )
+
+    with tempfile.TemporaryDirectory() as base_dir, tempfile.TemporaryDirectory() as head_dir:
+        base, head = Path(base_dir), Path(head_dir)
+        write_root(base, "", "")
+        write_root(head, "      - run: python3 tests/test_new_guard.py\n", "")
+        previous = os.environ.pop(module.HEAD_TEST_REFERENCE_ROOT_ENV, None)
+        try:
+            base_only = module.load_macos_job_test_references(base)
+            assert not module.is_guard_only_test("tests/test_new_guard.py", base_only)
+
+            os.environ[module.HEAD_TEST_REFERENCE_ROOT_ENV] = str(head)
+            merged = module.load_macos_job_test_references(base)
+            assert module.is_guard_only_test("tests/test_new_guard.py", merged)
+
+            shutil.rmtree(head)
+            head.mkdir()
+            write_root(head, "", "      - run: python3 tests/test_new_guard.py\n")
+            macos_named = module.load_macos_job_test_references(base)
+            assert not module.is_guard_only_test("tests/test_new_guard.py", macos_named)
+        finally:
+            os.environ.pop(module.HEAD_TEST_REFERENCE_ROOT_ENV, None)
+            if previous is not None:
+                os.environ[module.HEAD_TEST_REFERENCE_ROOT_ENV] = previous
 
 
 if __name__ == "__main__":
