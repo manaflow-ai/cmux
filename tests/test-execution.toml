@@ -372,6 +372,10 @@ path = "tests/test_ci_health_report.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_runner_label_policy.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_linux_guard_routing.py"
 lane = "linux-guard"
 
