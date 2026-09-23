@@ -77,7 +77,7 @@ def resolve_thresholds(
         return default
 
     return Thresholds(
-        min_commits=parse(min_commits, default_min_commits, 1, "min commits"),
+        min_commits=parse(min_commits, default_min_commits, 0, "min commits"),
         max_age_minutes=parse(max_age_minutes, default_max_age_minutes, 0, "max age minutes"),
     )
 
@@ -96,11 +96,13 @@ def decide(
     n, t = thresholds.min_commits, thresholds.max_age_minutes
     if count == 0:
         return Decision(False, f"skipped: 0/{n} {label} since the last upload")
+    if n == 0 and t == 0:
+        return Decision(True, f"upload: batching disabled ({count} {label} pending)")
     age = max(0, (now - min(commit_times)) // 60)
     detail = f"{count}/{n} {label}, oldest {age}/{t} min"
-    if count >= n:
+    if n > 0 and count >= n:
         return Decision(True, f"upload: {detail} (count reached)")
-    if age >= t:
+    if t > 0 and age >= t:
         return Decision(True, f"upload: {detail} (age reached)")
     return Decision(False, f"skipped: {detail}")
 
@@ -134,23 +136,28 @@ def first_parent_commits(base: str, head: str = "HEAD", cwd: Optional[Path] = No
         raise LookupError(f"{base[:12]} is not an ancestor of {head} in this checkout")
     output = subprocess.run(
         [
-            "git", "-c", "core.quotePath=false", "log",
+            "git", "log", "-z",
             "--first-parent", "--diff-merges=first-parent",
-            "--name-only", "--no-renames", "--format=%x00%H %ct",
+            "--name-only", "--no-renames", "--format=%x00%H%x00%ct",
             f"{base}..{head}",
         ],
         cwd=cwd,
         capture_output=True,
         text=True,
+        errors="surrogateescape",
         check=True,
     ).stdout
     commits = []
-    for record in output.split("\x00"):
-        lines = [line for line in record.splitlines() if line.strip()]
-        if not lines:
+    # The header's leading NUL follows the previous record's terminating NUL.
+    # Pathnames cannot contain NUL, including names with newlines or tabs.
+    for record in output.removeprefix("\x00").split("\x00\x00"):
+        if not record:
             continue
-        sha, committed = lines[0].split()
-        commits.append((sha, int(committed), tuple(lines[1:])))
+        sha, _, rest = record.partition("\x00")
+        committed, _, files = rest.partition("\x00")
+        # Git inserts exactly one newline before the first changed path.
+        names = tuple(name for name in files.removeprefix("\n").split("\x00") if name)
+        commits.append((sha, int(committed), names))
     return commits
 
 
@@ -212,12 +219,17 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         with args.github_output.open("a", encoding="utf-8") as handle:
             handle.write(f"{args.output_name}={value}\n")
     if args.summary:
+        conditions = []
+        if thresholds.min_commits:
+            conditions.append(f"at {thresholds.min_commits} {label}")
+        if thresholds.max_age_minutes:
+            conditions.append(f"when the oldest is {thresholds.max_age_minutes} min old")
+        rule = "upload " + " or ".join(conditions) if conditions else "batching disabled"
         with args.summary.open("a", encoding="utf-8") as handle:
             handle.write(
                 "\n### Upload batching\n\n"
                 f"- Decision: {decision.reason}\n"
-                f"- Rule: upload at {thresholds.min_commits} {label} or when the oldest "
-                f"is {thresholds.max_age_minutes} min old\n"
+                f"- Rule: {rule}\n"
             )
     return 0
 

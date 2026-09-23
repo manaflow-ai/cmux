@@ -78,6 +78,20 @@ class DecisionRuleTests(unittest.TestCase):
 
 
 class ThresholdTests(unittest.TestCase):
+    def test_zero_disables_each_threshold_and_both_disable_batching(self):
+        for count, age, times, upload in (
+            (0, 180, minutes_ago(1), False),
+            (0, 180, minutes_ago(181), True),
+            (5, 0, minutes_ago(1000), False),
+            (5, 0, minutes_ago(1, 2, 3, 4, 5), True),
+            (0, 0, minutes_ago(1), True),
+            (0, 0, [], False),
+        ):
+            with self.subTest(count=count, age=age, times=times):
+                thresholds = batch.resolve_thresholds(str(count), str(age), 5, 180)
+                self.assertEqual(thresholds, batch.Thresholds(count, age))
+                self.assertEqual(batch.decide("schedule", times, NOW, thresholds).upload, upload)
+
     def test_unset_variables_use_defaults(self):
         for unset in (None, "", "  "):
             with self.subTest(value=unset):
@@ -95,7 +109,7 @@ class ThresholdTests(unittest.TestCase):
 
     def test_invalid_variables_warn_and_use_defaults(self):
         warnings = []
-        for bad_count, bad_age in (("0", "-5"), ("five", "1.5")):
+        for bad_count, bad_age in (("-1", "-5"), ("five", "1.5")):
             with self.subTest(values=(bad_count, bad_age)):
                 self.assertEqual(
                     batch.resolve_thresholds(bad_count, bad_age, 5, 180, warnings.append),
@@ -209,6 +223,24 @@ class HistoryTests(unittest.TestCase):
         self.assertEqual(sorted(times), [NOW - 90 * 60, NOW - 20 * 60])
         # Without a path filter (the official lane) every main commit counts.
         self.assertEqual(len(batch.relevant_commit_times(commits, None)), 4)
+
+    def test_control_characters_in_paths_are_not_quoted_or_split(self):
+        base = git(self.repo, "rev-parse", "HEAD")
+        paths = ("ios/a\nb.swift", "ios/tab\tname.swift", 'ios/quoted"name.swift', "\nroot.swift")
+        for index, path in enumerate(paths):
+            commit_file(self.repo, path, NOW - index * 60)
+        commits = batch.first_parent_commits(base, cwd=self.repo)
+        self.assertEqual({name for _, _, files in commits for name in files}, set(paths))
+        self.assertEqual(len(batch.relevant_commit_times(commits, ("ios/",))), 3)
+
+    def test_empty_commit_keeps_the_following_record_boundaries(self):
+        base = git(self.repo, "rev-parse", "HEAD")
+        git(self.repo, "commit", "--allow-empty", "-qm", "empty", when=NOW - 120)
+        commit_file(self.repo, "ios/after.swift", NOW - 60)
+        commits = batch.first_parent_commits(base, cwd=self.repo)
+        self.assertEqual(len(commits), 2)
+        self.assertEqual(commits[0][2], ("ios/after.swift",))
+        self.assertEqual(commits[1][2], ())
 
     def test_end_to_end_skip_then_age_upload(self):
         output, summary = self.run_main("--base", self.base)
