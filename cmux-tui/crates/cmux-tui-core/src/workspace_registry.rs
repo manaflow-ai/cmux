@@ -77,10 +77,11 @@ pub use resource_store::{
 };
 use resource_store::{
     apply_resource_patch, complete_terminal_close_patch, create_resource_schema,
-    initialize_resource_mutation_retention, migrate_resource_agent_projections,
-    migrate_resource_browser_metadata, migrate_resource_mutations_to_session_scope,
-    migrate_resource_tabs_to_multiview, repair_dangling_terminal_resources,
-    resource_tabs_needs_multiview_normalization, validate_resource_invariants,
+    initialize_resource_mutation_retention, migrate_legacy_display_names,
+    migrate_resource_agent_projections, migrate_resource_browser_metadata,
+    migrate_resource_mutations_to_session_scope, migrate_resource_tabs_to_multiview,
+    repair_dangling_terminal_resources, resource_tabs_needs_multiview_normalization,
+    validate_resource_invariants,
 };
 pub use session_journal::{
     JournalAuthority, JournalClass, JournalProducer, JournalReplayPolicy, JournalSensitivity,
@@ -106,6 +107,7 @@ pub(crate) const RESOURCE_API_FRONTEND_PROJECTION_SCHEMA_VERSION: u32 = 2;
 const RESOURCE_EFFECT_PEPPER_SCHEMA_VERSION: i64 = 7;
 const MAX_ID_LEN: usize = 128;
 const MAX_WORKSPACE_KEY_LEN: usize = 256;
+pub(crate) const DISPLAY_NAME_MAX_BYTES: usize = 1_024;
 const MAX_PROJECTION_BYTES: usize = 1024 * 1024;
 const MAX_LAUNCH_SPEC_BYTES: usize = 1024 * 1024;
 #[cfg(not(test))]
@@ -127,6 +129,44 @@ const RESOURCE_EFFECT_PEPPER_META_KEY: &str = "resource_effect_pepper_id";
 const RESOURCE_EFFECT_PEPPER_CLEANUP_META_KEY: &str = "resource_effect_pepper_cleanup_pending";
 const RESOURCE_EFFECT_PEPPER_ID_DOMAIN: &[u8] = b"cmux.resource-effect-pepper-id.v1";
 const RESOURCE_INPUT_RECEIPT_DOMAIN: &[u8] = b"cmux.resource-input-receipt.v2";
+
+/// Validate text that is persisted as a user-visible workspace, screen, pane,
+/// or tab label. Labels cross terminal, log, and JSON boundaries, so control
+/// and line-separator characters must never enter the durable projection.
+pub(crate) fn validate_display_name(label: &str, value: &str) -> anyhow::Result<()> {
+    if value.len() > DISPLAY_NAME_MAX_BYTES {
+        anyhow::bail!("{label} exceeds {DISPLAY_NAME_MAX_BYTES} bytes");
+    }
+    if value.chars().any(|character| {
+        character.is_control() || matches!(character, '\u{0085}' | '\u{2028}' | '\u{2029}')
+    }) {
+        anyhow::bail!("{label} contains a control or line-separator character");
+    }
+    Ok(())
+}
+
+/// Convert a legacy label into safe, visible text without allowing control
+/// characters to cross a terminal, log, or JSON boundary. Invalid code points
+/// use an explicit notation so the repair does not silently hide their value.
+pub(crate) fn sanitize_display_name(value: &str) -> String {
+    use std::fmt::Write as _;
+
+    let mut output = String::with_capacity(value.len().min(DISPLAY_NAME_MAX_BYTES));
+    for character in value.chars() {
+        let start = output.len();
+        if character.is_control() || matches!(character, '\u{0085}' | '\u{2028}' | '\u{2029}') {
+            let _ = write!(&mut output, "\\u{{{:04X}}}", character as u32);
+        } else {
+            output.push(character);
+        }
+        if output.len() > DISPLAY_NAME_MAX_BYTES {
+            output.truncate(start);
+            break;
+        }
+    }
+    output
+}
+
 const WORKSPACE_REGISTRY_FILE: &str = "workspace-registry.sqlite3";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -2621,6 +2661,14 @@ impl WorkspaceRegistry {
             migrate_resource_tabs_to_multiview(&tx)?;
             tx.commit()?;
         }
+        if migrate_existing_registry
+            && meta_value(&connection, "display_name_boundary_v1")?.is_none()
+        {
+            let tx = connection.unchecked_transaction()?;
+            migrate_legacy_display_names(&tx)?;
+            tx.execute("INSERT INTO meta(key, value) VALUES('display_name_boundary_v1', '1')", [])?;
+            tx.commit()?;
+        }
         {
             let tx = connection.unchecked_transaction()?;
             resource_store::migrate_tab_name_authority(&tx)?;
@@ -2770,7 +2818,7 @@ impl WorkspaceRegistry {
                     id: u64::try_from(id).context("stored workspace id is negative")?,
                     public_id: WorkspacePublicId::parse(public_id)?,
                     key,
-                    name,
+                    name: sanitize_display_name(&name),
                     group_key,
                 })
             })
@@ -2842,7 +2890,7 @@ impl WorkspaceRegistry {
                         id: u64::try_from(id).context("staged workspace id is negative")?,
                         public_id: WorkspacePublicId::parse(public_id)?,
                         key,
-                        name,
+                        name: sanitize_display_name(&name),
                         group_key,
                     },
                 ))
@@ -4707,6 +4755,7 @@ fn validate_registry(workspaces: &[RegistryWorkspace]) -> anyhow::Result<()> {
     let mut public_ids = HashSet::new();
     for workspace in workspaces {
         validate_workspace_key(&workspace.key)?;
+        validate_display_name("workspace name", &workspace.name)?;
         validate_identifier("workspace group key", &workspace.group_key)?;
         if workspace.id == 0 {
             anyhow::bail!("workspace id cannot be zero");
