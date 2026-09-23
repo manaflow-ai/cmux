@@ -48,8 +48,10 @@ private final class RejectedClient {
             if count == 0 {
                 return (String(decoding: collected, as: UTF8.self), true)
             }
+            // A read error (ECONNRESET, EIO) is an abrupt disconnect, not
+            // the clean close the responder promises.
             if count < 0, errno != EAGAIN, errno != EINTR {
-                return (String(decoding: collected, as: UTF8.self), true)
+                return (String(decoding: collected, as: UTF8.self), false)
             }
         }
         return (String(decoding: collected, as: UTF8.self), false)
