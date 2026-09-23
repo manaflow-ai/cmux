@@ -18,6 +18,9 @@ import uuid
 
 REPO = "manaflow-ai/cmux"
 WORKFLOW = "test-e2e.yml"
+# The branch `gh workflow run` takes the workflow definition from when no
+# --workflow-ref is given: the repository default branch.
+DEFAULT_WORKFLOW_REF = "main"
 ROOT = Path(__file__).resolve().parents[2]
 RUN_DISCOVERY_ATTEMPTS = 12
 RUN_DISCOVERY_TIMEOUT_SECONDS = 60.0
@@ -183,7 +186,7 @@ def recent_dispatches() -> list[dict]:
         payload = output(
             "gh", "run", "list", "--repo", REPO, "--workflow", WORKFLOW,
             "--event", "workflow_dispatch", "--limit", str(PRIOR_ATTEMPT_LIMIT),
-            "--json", "databaseId,displayTitle,conclusion,status,url",
+            "--json", "databaseId,displayTitle,conclusion,status,url,headBranch",
             timeout=PRIOR_ATTEMPT_TIMEOUT_SECONDS,
         )
     except (subprocess.SubprocessError, OSError, ValueError):
@@ -455,7 +458,16 @@ def main() -> int:
         raise ValueError("GitHub revision differs from local HEAD; push the intended commit first")
 
     if not args.force:
-        history = recent_dispatches()
+        # A dispatch's headBranch is the branch its workflow definition came
+        # from. A run of another definition answers a different question:
+        # attaching to it, or refusing because it failed, would mean the
+        # definition under --workflow-ref never runs. Every guard below reads
+        # this filtered history.
+        workflow_ref = args.workflow_ref or DEFAULT_WORKFLOW_REF
+        history = [
+            run for run in recent_dispatches()
+            if run.get("headBranch") == workflow_ref
+        ]
         # Which pool this dispatch will actually land on. None means the
         # answer could not be established, and the in-flight guards below stay
         # silent rather than compare against a runner they guessed.
