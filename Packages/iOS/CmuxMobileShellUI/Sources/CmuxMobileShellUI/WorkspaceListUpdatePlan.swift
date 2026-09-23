@@ -24,6 +24,16 @@ struct WorkspaceListUpdatePlan<Model: Equatable, ActionKey: Equatable> {
     /// Surviving rows whose native swipe actions changed.
     private(set) var nativeActionChangedIDs: Set<String> = []
     let structureChanged: Bool
+    /// The minimal edit script from the rendered order to the target order,
+    /// with moves inferred. Empty when the order is unchanged.
+    let difference: CollectionDifference<String>
+    /// Surviving rows that keep their place relative to their neighbors.
+    ///
+    /// Everything the edit script does not delete, insert or move holds its
+    /// place, so these are the only safe viewport anchors: pinning the
+    /// viewport to a row that itself jumped (a notification moving it to the
+    /// top) would carry the viewport with it.
+    let stableIDs: Set<String>
 
     var needsGeometryCommit: Bool {
         structureChanged || !heightChangedIDs.isEmpty || !nativeActionChangedIDs.isEmpty
@@ -40,6 +50,15 @@ struct WorkspaceListUpdatePlan<Model: Equatable, ActionKey: Equatable> {
         targetRows: [String: Row]
     ) {
         structureChanged = renderedIDs != targetIDs
+        difference = targetIDs.difference(from: renderedIDs).inferringMoves()
+        var unstable = Set<String>()
+        for change in difference {
+            switch change {
+            case .insert(_, let element, _), .remove(_, let element, _):
+                unstable.insert(element)
+            }
+        }
+        stableIDs = Set(renderedIDs).intersection(targetIDs).subtracting(unstable)
         for id in targetIDs {
             guard let rendered = renderedRows[id], let target = targetRows[id] else { continue }
             if rendered.height != target.height {
@@ -51,26 +70,5 @@ struct WorkspaceListUpdatePlan<Model: Equatable, ActionKey: Equatable> {
                 nativeActionChangedIDs.insert(id)
             }
         }
-    }
-}
-
-/// Which surviving rows keep their relative order across an identity change.
-///
-/// A minimal edit script moves as few rows as possible; everything it does not
-/// delete, insert or move holds its place relative to its neighbors. Those
-/// rows are the only safe viewport anchors: pinning the viewport to a row that
-/// itself jumped (a notification moving it to the top) would carry the
-/// viewport with it.
-enum WorkspaceListStableRows {
-    static func ids(from old: [String], to new: [String]) -> Set<String> {
-        let difference = new.difference(from: old).inferringMoves()
-        var unstable = Set<String>()
-        for change in difference {
-            switch change {
-            case .insert(_, let element, _), .remove(_, let element, _):
-                unstable.insert(element)
-            }
-        }
-        return Set(old).intersection(new).subtracting(unstable)
     }
 }

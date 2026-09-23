@@ -174,7 +174,7 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDataSource,
         }
 
         if plan.needsGeometryCommit, canCommitGeometry(in: tableView) {
-            commitGeometry(target, in: tableView)
+            commitGeometry(target, plan: plan, in: tableView)
             #if DEBUG
             lastPayloadApplyRoute = .geometryCommitted
             #endif
@@ -235,17 +235,10 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDataSource,
     /// update, keeping the first visible stable row where it was on screen.
     private func commitGeometry(
         _ target: (items: [WorkspaceListTableItem], rows: [String: Row]),
+        plan: WorkspaceListUpdatePlan<WorkspaceListRowModel, WorkspaceListNativeActionKey>,
         in tableView: UITableView
     ) {
-        let oldIDs = renderedItems.map(\.id)
-        let newIDs = target.items.map(\.id)
-        let previousRows = renderedRows
-        let nativeActionReloadIDs = newIDs.filter { id in
-            guard let previous = previousRows[id] else { return false }
-            return previous.nativeActions != target.rows[id]?.nativeActions
-        }
-
-        guard tableView.window != nil, !oldIDs.isEmpty else {
+        guard tableView.window != nil, !renderedItems.isEmpty else {
             renderedItems = target.items
             renderedRows = target.rows
             rebuildRowIndex()
@@ -253,15 +246,14 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDataSource,
             return
         }
 
-        let anchor = viewportAnchor(from: oldIDs, to: newIDs, in: tableView)
-        let difference = newIDs.difference(from: oldIDs).inferringMoves()
+        let anchor = viewportAnchor(stableIDs: plan.stableIDs, in: tableView)
 
         UIView.performWithoutAnimation {
             tableView.performBatchUpdates {
                 renderedItems = target.items
                 renderedRows = target.rows
                 rebuildRowIndex()
-                for change in difference {
+                for change in plan.difference {
                     switch change {
                     case .remove(let offset, _, let movedTo):
                         if let movedTo {
@@ -285,7 +277,7 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDataSource,
                     }
                 }
             }
-            let reloadIndexPaths = nativeActionReloadIDs.compactMap(indexPath(forID:))
+            let reloadIndexPaths = plan.nativeActionChangedIDs.compactMap(indexPath(forID:))
             if !reloadIndexPaths.isEmpty {
                 // UIKit caches swipe-derived accessibility actions on a row;
                 // only a reload refreshes them. Heights are unchanged here.
@@ -303,22 +295,16 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDataSource,
     /// to its neighbors. `nil` when the list rests at its top, so rows that
     /// arrive above stay visible instead of being scrolled past.
     private func viewportAnchor(
-        from oldIDs: [String],
-        to newIDs: [String],
+        stableIDs: Set<String>,
         in tableView: UITableView
     ) -> ViewportAnchor? {
         let offset = tableView.contentOffset.y
         let topInset = tableView.adjustedContentInset.top
         guard offset > -topInset + 0.5 else { return nil }
 
-        let stableIDs = oldIDs == newIDs
-            ? Set(oldIDs)
-            : WorkspaceListStableRows.ids(from: oldIDs, to: newIDs)
         let visibleTop = offset + topInset
         for indexPath in (tableView.indexPathsForVisibleRows ?? []).sorted() {
-            guard oldIDs.indices.contains(indexPath.row) else { continue }
-            let id = oldIDs[indexPath.row]
-            guard stableIDs.contains(id) else { continue }
+            guard let id = item(at: indexPath)?.id, stableIDs.contains(id) else { continue }
             let rect = tableView.rectForRow(at: indexPath)
             guard rect.height > 0, rect.maxY > visibleTop else { continue }
             return ViewportAnchor(rowID: id, distanceFromOffset: rect.minY - offset)

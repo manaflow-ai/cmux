@@ -78,11 +78,18 @@ import UIKit
     }
 
     @Test func stableRowsExcludeRowsTheEditScriptMoves() {
-        let stable = WorkspaceListStableRows.ids(
-            from: ["a", "b", "c", "d"],
-            to: ["c", "a", "b", "d", "e"]
+        typealias Row = WorkspaceListRenderedRow<String, Bool>
+        let rows = Dictionary(uniqueKeysWithValues: ["a", "b", "c", "d", "e"].map {
+            ($0, Row(model: $0, nativeActions: nil, height: 60))
+        })
+        let plan = WorkspaceListUpdatePlan(
+            renderedIDs: ["a", "b", "c", "d"],
+            renderedRows: rows,
+            targetIDs: ["c", "a", "b", "d", "e"],
+            targetRows: rows
         )
-        #expect(stable == ["a", "b", "d"])
+        #expect(plan.structureChanged)
+        #expect(plan.stableIDs == ["a", "b", "d"])
     }
 
     @Test func planSeparatesHeightNeutralContentFromGeometry() {
