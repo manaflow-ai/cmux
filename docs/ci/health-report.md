@@ -73,6 +73,14 @@ them wait. When p90 climbs while minutes-per-job stay flat, no build regressed
 - **Fork pull requests.** Fork PRs cannot read the repository's Actions cache,
   so their minutes are cache misses somebody pays for twice. The line reports
   sampled fork jobs and their minutes.
+- **Paid runner capacity.** Minutes on metered third-party labels (`warp-*`,
+  `depot-*`), split by label. Blacksmith is sponsored for this organization and
+  GitHub-hosted runners are free on a public repo, so neither appears here.
+  The runner label is the only place the difference shows: a lane that drifts
+  onto metered capacity reads as an ordinary row everywhere else in the report.
+  Check any entry against the intended steady state in `docs/ci-runners.md` —
+  minutes that are not a deliberate, temporary overflow mean a
+  `MACOS_RUNNER_*` variable has drifted.
 
 ### Comparison against the previous window
 

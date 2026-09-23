@@ -205,7 +205,9 @@ struct CloudPortRoutePlanTests {
 
     @Test("Cloud browser opening starts app-owned access without a system VPN")
     func cloudBrowserStartsUserspaceAccess() async throws {
-        let catalog = SurfaceCatalog()
+        let live = LiveWorkspaceFixture()
+        defer { live.tearDown() }
+        let catalog = SurfaceCatalog(live: live)
         let links = CloudMachineLinkManager(clientURL: nil, hostThemeColors: { nil })
         let provider = CmuxTuiSurfaceProvider(
             summary: VMSummary(id: "vm-userspace", provider: "freestyle", status: "running", image: "fixture", createdAt: 0, base: nil, addressIPv4: "10.16.0.7"),
@@ -213,7 +215,7 @@ struct CloudPortRoutePlanTests {
             catalog: catalog
         )
         catalog.register(provider)
-        let panel = BrowserPanel(workspaceId: UUID(), websiteDataStore: .nonPersistent())
+        let panel = BrowserPanel(workspaceId: live.id(), websiteDataStore: .nonPersistent())
         defer { panel.close() }
         provider.configureBrowser(panel, url: URL(string: "http://10.16.0.7:8000/path?q=1#fragment")!)
         let model = try #require(panel.cloudAccess.model)

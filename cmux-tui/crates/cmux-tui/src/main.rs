@@ -2121,6 +2121,7 @@ fn run_server(
         owner_host_colors,
     ));
     mux.configure_sidebar_plugin(config.sidebar.plugin.clone());
+    mux.configure_journal_plugin(config.agents.plugin.clone());
     #[cfg(target_os = "linux")]
     let _provider_management = provider_management_listener
         .map(|listener| cmux_tui_core::provider_management::serve(listener, mux.clone()))
@@ -2217,6 +2218,7 @@ fn run_server(
         );
     }
     let served_socket = pending_server.into_bound_path();
+    mux.start_journal_plugin(served_socket.clone());
     let mut served_mux_cleanup = ServedMuxCleanup::new(mux.clone(), served_socket);
     // Cloud VMs carry coderouter identity in their model-plane env; every
     // other host resolves no source and gets no poller.

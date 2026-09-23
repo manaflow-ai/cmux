@@ -191,7 +191,16 @@ struct CmuxTuiSnapshotParser: Sendable {
         }
         let agents = ((snapshot["agents"] as? [[String: Any]]) ?? []).compactMap { raw -> CloudVMAgentState? in
             guard let terminalID = nonEmptyString(raw["terminal_id"]), let state = nonEmptyString(raw["state"]) else { return nil }
-            return CloudVMAgentState(id: nonEmptyString(raw["id"]), terminalID: terminalID, state: state, source: nonEmptyString(raw["source"]))
+            return CloudVMAgentState(
+                id: nonEmptyString(raw["id"]),
+                terminalID: terminalID,
+                state: state,
+                source: nonEmptyString(raw["source"]),
+                agent: nonEmptyString((raw["extra"] as? [String: Any])?["agent"])
+                    ?? nonEmptyString(raw["agent"])
+                    ?? nonEmptyString(raw["agent_type"])
+                    ?? nonEmptyString(raw["provider"])
+            )
         }
 
         return CloudVMState(
@@ -536,7 +545,7 @@ struct CmuxTuiSnapshotParser: Sendable {
                     lifecycle: SurfaceLifecycle(rawValue: terminal.lifecycle)
                         ?? (terminal.running == true ? .running : .exited),
                     agent: state.lookupIndex.agent(terminalID: terminal.id).map {
-                        SurfaceAgentBadge(state: $0.state, source: $0.source)
+                        SurfaceAgentBadge(state: $0.state, source: $0.source, agent: $0.agent)
                     },
                     remoteWorkspace: nil,
                     port: nil,
@@ -1019,7 +1028,11 @@ struct CmuxTuiSnapshotParser: Sendable {
             id: nonEmptyString(value["id"]),
             terminalID: terminalID,
             state: state,
-            source: nonEmptyString(value["source"])
+            source: nonEmptyString(value["source"]),
+            agent: nonEmptyString((value["extra"] as? [String: Any])?["agent"])
+                    ?? nonEmptyString(value["agent"])
+                ?? nonEmptyString(value["agent_type"])
+                ?? nonEmptyString(value["provider"])
         )
     }
 
@@ -1421,7 +1434,14 @@ struct CmuxTuiSnapshotParser: Sendable {
         var agentByTerminal: [String: SurfaceAgentBadge] = [:]
         for agent in agentsRaw {
             guard let terminalID = agent["terminal_id"] as? String, let state = agent["state"] as? String else { continue }
-            agentByTerminal[terminalID] = SurfaceAgentBadge(state: state, source: agent["source"] as? String)
+            agentByTerminal[terminalID] = SurfaceAgentBadge(
+                state: state,
+                source: agent["source"] as? String,
+                agent: (agent["extra"] as? [String: Any])?["agent"] as? String
+                    ?? (agent["agent"] as? String)
+                    ?? (agent["agent_type"] as? String)
+                    ?? (agent["provider"] as? String)
+            )
         }
 
         let workspaces = Self.workspaces(fromSnapshot: snapshot)

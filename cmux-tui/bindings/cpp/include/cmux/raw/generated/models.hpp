@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "e70a42c9950ea12f14d23b229dd37993221719ef87d62212e94e603c3101eddb";
+inline constexpr std::string_view kProtocolIrSha256 = "777f696fd9712c810db456e8a41a27b48deb5340fa86390dcf0f9e82c7cbb0c2";
 
 struct AgentRecord;
 enum class AgentReportSource;
@@ -332,6 +332,7 @@ enum class ClientAttachedEventTransport;
 enum class GraphicsStatusEventKind;
 
 enum class AgentSource {
+    plugin,
     detected,
     socket,
     hook,
@@ -351,6 +352,7 @@ struct Id {
 };
 
 struct AgentChangedEvent {
+    Field<std::string> agent{};
     std::optional<std::string> session{};
     AgentSource source{};
     AgentState state{};
@@ -1857,6 +1859,7 @@ struct ProcessInfoResult {
     std::optional<std::string> command{};
     std::optional<std::string> cwd{};
     Field<std::string> foreground_cwd{};
+    Field<std::string> foreground_executable{};
     std::optional<std::uint32_t> pid{};
     friend bool operator==(const ProcessInfoResult&, const ProcessInfoResult&) = default;
 };

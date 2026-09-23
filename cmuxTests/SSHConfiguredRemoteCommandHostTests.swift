@@ -145,6 +145,9 @@ struct SSHConfiguredRemoteCommandHostTests {
             case "workspace.remote.pty_bridge":
                 return processSupport.v2Response(id: id, ok: true, result: [
                     "host": "127.0.0.1",
+                    // ssh-pty-attach rejects a daemon whose version it cannot
+                    // verify before it connects to the bridge (#12726).
+                    "daemon_version": BundledCLITestSupport.appVersion,
                     "port": bridge.port,
                     "token": "bridge-token",
                     "session_id": sessionID,

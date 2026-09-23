@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR e70a42c9950ea12f14d23b229dd37993221719ef87d62212e94e603c3101eddb.
+// cmux-tui mux protocol 12, IR 777f696fd9712c810db456e8a41a27b48deb5340fa86390dcf0f9e82c7cbb0c2.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use crate::{Nullable, Optional};
@@ -37,6 +37,8 @@ pub enum AgentReportSource {
 #[rustfmt::skip]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum AgentSource {
+    #[serde(rename = "plugin")]
+    Plugin,
     #[serde(rename = "detected")]
     Detected,
     #[serde(rename = "socket")]
@@ -671,6 +673,9 @@ pub struct ProcessInfoResult {
     /// Working directory of the process group that owns the PTY, read at request time. Null when the lookup fails; absent from daemons that predate the field. Clients treat absence as null.
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub foreground_cwd: Optional<String>,
+    /// Executable path or name of the PTY foreground process-group leader, read at request time. Null when the lookup fails; absent from daemons that predate the field. Clients treat absence as null.
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub foreground_executable: Optional<String>,
     pub pid: Nullable<u32>,
 }
 

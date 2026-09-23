@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR e70a42c9950ea12f14d23b229dd37993221719ef87d62212e94e603c3101eddb. */
+/* cmux-tui mux protocol 12, IR 777f696fd9712c810db456e8a41a27b48deb5340fa86390dcf0f9e82c7cbb0c2. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -16,7 +16,7 @@ export type AgentRecord = {
 
 export type AgentReportSource = "socket" | "hook";
 
-export type AgentSource = "detected" | "socket" | "hook";
+export type AgentSource = "plugin" | "detected" | "socket" | "hook";
 
 export type AgentState = "working" | "blocked" | "idle" | "done" | "unknown";
 
@@ -406,6 +406,8 @@ export type ProcessInfoResult = {
   "cwd": (string) | null;
   /** Working directory of the process group that owns the PTY, read at request time. Null when the lookup fails; absent from daemons that predate the field. Clients treat absence as null. */
   "foreground_cwd"?: (string) | null;
+  /** Executable path or name of the PTY foreground process-group leader, read at request time. Null when the lookup fails; absent from daemons that predate the field. Clients treat absence as null. */
+  "foreground_executable"?: (string) | null;
   "pid": (number) | null;
 };
 

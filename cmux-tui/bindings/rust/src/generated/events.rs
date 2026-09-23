@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR e70a42c9950ea12f14d23b229dd37993221719ef87d62212e94e603c3101eddb.
+// cmux-tui mux protocol 12, IR 777f696fd9712c810db456e8a41a27b48deb5340fa86390dcf0f9e82c7cbb0c2.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -12,6 +12,9 @@ use std::collections::BTreeMap;
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AgentChangedEvent {
+    /// Adapter identity when the producer knows it; absent from protocol-11 event senders and null when no adapter was identified.
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub agent: Optional<String>,
     pub session: Nullable<String>,
     pub source: T::AgentSource,
     pub state: T::AgentState,

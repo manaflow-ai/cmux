@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR e70a42c9950ea12f14d23b229dd37993221719ef87d62212e94e603c3101eddb. */
+/* cmux-tui mux protocol 12, IR 777f696fd9712c810db456e8a41a27b48deb5340fa86390dcf0f9e82c7cbb0c2. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "e70a42c9950ea12f14d23b229dd37993221719ef87d62212e94e603c3101eddb" as const;
+export const SDK_IR_SHA256 = "777f696fd9712c810db456e8a41a27b48deb5340fa86390dcf0f9e82c7cbb0c2" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -1840,6 +1840,7 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
   "AgentSource": {
     "kind": "enum",
     "values": [
+      "plugin",
       "detected",
       "socket",
       "hook"
@@ -4114,6 +4115,16 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
       },
       "foreground_cwd": {
         "description": "Working directory of the process group that owns the PTY, read at request time. Null when the lookup fails; absent from daemons that predate the field. Clients treat absence as null.",
+        "nullable": true,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "foreground_executable": {
+        "description": "Executable path or name of the PTY foreground process-group leader, read at request time. Null when the lookup fails; absent from daemons that predate the field. Clients treat absence as null.",
         "nullable": true,
         "presence": "optional",
         "since": 12,
@@ -11661,6 +11672,16 @@ export const EVENT_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
   "agent-changed": {
     "additional_properties": false,
     "fields": {
+      "agent": {
+        "description": "Adapter identity when the producer knows it; absent from protocol-11 event senders and null when no adapter was identified.",
+        "nullable": true,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
       "event": {
         "nullable": false,
         "presence": "required",
