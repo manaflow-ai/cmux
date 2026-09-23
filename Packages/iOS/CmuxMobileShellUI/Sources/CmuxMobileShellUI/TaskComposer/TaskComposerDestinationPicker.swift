@@ -140,9 +140,9 @@ struct TaskComposerDestinationPicker: View {
                     select: selectWorkspaceGroup
                 )
                 .padding(.vertical, 4)
+                .opacity(isNewWorkspaceSelected ? 1 : 0.5)
             }
         }
-        .opacity(isNewWorkspaceSelected ? 1 : 0.5)
         .background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
     }
 
