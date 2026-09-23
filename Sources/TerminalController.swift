@@ -1824,7 +1824,7 @@ class TerminalController {
             return v2VmCall(id: request.id, timeoutSeconds: 245) {
                 let check = await DevBackendStartup()
                 await check.observe()
-                let state = await check.status?.state ?? "disabled"
+                let state = await MainActor.run { check.status?.state ?? "disabled" }
                 return ["state": state, "pending_diagnostics": await DevBackendDiagnostics.shared.pendingCount]
             }
         case "debug.sidebar.simulate_drag":
