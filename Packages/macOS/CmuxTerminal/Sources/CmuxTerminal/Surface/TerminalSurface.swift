@@ -33,6 +33,7 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     // nested TerminalSurface.NamedKeySendResult/.InputSendResult names that
     // other files use.
     public typealias NamedKeySendResult = CmuxTerminalCore.NamedKeySendResult
+    public typealias TextSendResult = CmuxTerminalCore.TextSendResult
     public typealias InputSendResult = CmuxTerminalCore.InputSendResult
     public typealias AgentCommandShimSet = TerminalSurfaceAgentCommandShimSet
     public typealias CmuxContextEnvironment = TerminalSurfaceCmuxContextEnvironment

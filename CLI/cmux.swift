@@ -11756,7 +11756,7 @@ struct CMUXCLI {
             } else {
                 let splitAttachCommand = [
                     "env",
-                    "CMUX_SSH_RECONNECT_LIMIT=${CMUX_SSH_RECONNECT_LIMIT:-86400}",
+                    "CMUX_SSH_RECONNECT_LIMIT=${CMUX_SSH_RECONNECT_LIMIT:-\(SSHReconnectBudget().maximumLimit)}",
                     "CMUX_SSH_RECONNECT_DELAY_SECONDS=${CMUX_SSH_RECONNECT_DELAY_SECONDS:-2}",
                     shellQuote(executablePath),
                     "vm",
@@ -11769,7 +11769,7 @@ struct CMUXCLI {
                     sshCommand: splitAttachCommand,
                     shellFeatures: shellFeaturesValue,
                     remoteRelayPort: 0,
-                    reconnectLimitDefault: 86400
+                    reconnectLimitDefault: SSHReconnectBudget().maximumLimit
                 )
             }
         } else {
@@ -13410,7 +13410,7 @@ struct CMUXCLI {
         let quotedVMID = shellQuote(vmID)
         let lines = [
             "cmux_freestyle_cli=\(quotedCLI)",
-            "CMUX_SSH_RECONNECT_LIMIT=\"${CMUX_SSH_RECONNECT_LIMIT:-86400}\"",
+            "CMUX_SSH_RECONNECT_LIMIT=\"${CMUX_SSH_RECONNECT_LIMIT:-\(SSHReconnectBudget().maximumLimit)}\"",
             "CMUX_SSH_RECONNECT_DELAY_SECONDS=\"${CMUX_SSH_RECONNECT_DELAY_SECONDS:-2}\"",
             "CMUX_DEFAULT_FREESTYLE_ATTACH_RETRY_LIMIT=\"${CMUX_DEFAULT_FREESTYLE_ATTACH_RETRY_LIMIT:-$CMUX_SSH_RECONNECT_LIMIT}\"",
             "CMUX_DEFAULT_FREESTYLE_ATTACH_RETRY_DELAY_SECONDS=\"${CMUX_DEFAULT_FREESTYLE_ATTACH_RETRY_DELAY_SECONDS:-$CMUX_SSH_RECONNECT_DELAY_SECONDS}\"",

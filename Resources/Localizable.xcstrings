@@ -374718,6 +374718,183 @@
         }
       }
     },
+    "settings.terminal.textEditingGestures": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Text Editing Gestures"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "テキスト編集ジェスチャー"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "文本编辑手势"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Textbearbeitungsgesten"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gestes d’édition de texte"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إيماءات تحرير النص"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gestos de edición de texto"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "文字編輯手勢"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "텍스트 편집 제스처"
+          }
+        }
+      }
+    },
+    "settings.terminal.textEditingGestures.subtitleOn": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Command and Option arrow keys move by line and word, and the Command and Option delete keys kill by line and word. Applications receive these chords instead of the gesture, so turn this off before working in a full-screen TUI."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Command と Option の矢印キーで行単位・単語単位に移動し、Command と Option の削除キーで行単位・単語単位に削除します。アプリケーションにはジェスチャーではなくこれらのキーの組み合わせが送られるため、フルスクリーンの TUI で作業する前にオフにしてください。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Command 和 Option 加方向键按行和按词移动，Command 和 Option 加删除键按行和按词删除。应用程序收到的是这些组合键而不是手势，因此在全屏 TUI 中工作前请关闭此项。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Befehls- und Wahltaste mit Pfeiltasten bewegen zeilen- und wortweise, Befehls- und Wahltaste mit der Löschtaste löschen zeilen- und wortweise. Programme erhalten diese Tastenkombinationen statt der Geste, deshalb vor der Arbeit in einer Vollbild-TUI ausschalten."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les flèches avec Commande et Option déplacent par ligne et par mot, et la touche Supprimer avec Commande et Option supprime par ligne et par mot. Les applications reçoivent ces combinaisons au lieu du geste ; désactivez donc cette option avant de travailler dans une TUI plein écran."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تنقل مفاتيح الأسهم مع Command وOption حسب السطر والكلمة، وتحذف مفاتيح الحذف مع Command وOption حسب السطر والكلمة. تتلقى التطبيقات هذه التركيبات بدلاً من الإيماءة، لذا أوقف هذا الخيار قبل العمل في واجهة TUI بملء الشاشة."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Las flechas con Comando y Opción mueven por línea y por palabra, y la tecla Eliminar con Comando y Opción borra por línea y por palabra. Las aplicaciones reciben estas combinaciones en lugar del gesto, así que desactívelo antes de trabajar en una TUI a pantalla completa."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Command 與 Option 加方向鍵可依行與依字移動，Command 與 Option 加刪除鍵可依行與依字刪除。應用程式收到的是這些組合鍵而非手勢，因此在全螢幕 TUI 中工作前請關閉此項。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Command 및 Option 화살표 키로 줄 및 단어 단위로 이동하고, Command 및 Option 삭제 키로 줄 및 단어 단위로 삭제합니다. 애플리케이션은 제스처 대신 이 키 조합을 받으므로 전체 화면 TUI에서 작업하기 전에 이 설정을 끄세요."
+          }
+        }
+      }
+    },
+    "settings.terminal.textEditingGestures.subtitleOff": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Command and Option key combinations reach the terminal unchanged."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Command と Option のキーの組み合わせは変更されずにターミナルに送られます。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Command 和 Option 组合键会原样传递给终端。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tastenkombinationen mit Befehls- und Wahltaste erreichen das Terminal unverändert."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les combinaisons avec Commande et Option parviennent au terminal sans modification."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تصل تركيبات مفاتيح Command وOption إلى الطرفية دون تغيير."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Las combinaciones con Comando y Opción llegan a la terminal sin cambios."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Command 與 Option 組合鍵會原封不動傳送到終端機。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Command 및 Option 키 조합이 변경 없이 터미널로 전달됩니다."
+          }
+        }
+      }
+    },
     "settings.textBox.betaWarning": {
       "extractionState": "manual",
       "localizations": {
@@ -442236,6 +442413,381 @@
           "stringUnit": {
             "state": "translated",
             "value": "Mosh 終端傳輸需要由 SSH 管理的工作區。"
+          }
+        }
+      }
+    },
+    "socket.workspace.reorder.indexNotAnInteger": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يجب أن يكون index عددًا صحيحًا"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "index must be an integer"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "index must be an integer"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "index muss eine ganze Zahl sein"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "index must be an integer"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "index debe ser un número entero"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "index doit être un entier"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "index must be an integer"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "index は整数である必要があります"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "index must be an integer"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "index는 정수여야 합니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "index must be an integer"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "index must be an integer"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "index must be an integer"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "index must be an integer"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "index must be an integer"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "index must be an integer"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "index must be an integer"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "index 必须是整数"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "index 必須是整數"
+          }
+        }
+      }
+    },
+    "socket.workspace.reorder.missingWorkspaceID": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "قيمة workspace_id مفقودة أو غير صالحة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Missing or invalid workspace_id"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Missing or invalid workspace_id"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fehlende oder ungültige workspace_id"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Missing or invalid workspace_id"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Falta workspace_id o no es válido"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "workspace_id manquant ou invalide"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Missing or invalid workspace_id"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "workspace_id がないか無効です"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Missing or invalid workspace_id"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "workspace_id가 없거나 유효하지 않습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Missing or invalid workspace_id"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Missing or invalid workspace_id"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Missing or invalid workspace_id"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Missing or invalid workspace_id"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Missing or invalid workspace_id"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Missing or invalid workspace_id"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Missing or invalid workspace_id"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "缺少或无效的 workspace_id"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "缺少或無效的 workspace_id"
+          }
+        }
+      }
+    },
+    "socket.workspace.reorder.targetRequired": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "حدّد هدفًا واحدًا فقط: index أو before_workspace_id أو after_workspace_id"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Specify exactly one target: index, before_workspace_id, or after_workspace_id"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Specify exactly one target: index, before_workspace_id, or after_workspace_id"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Genau ein Ziel angeben: index, before_workspace_id oder after_workspace_id"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Specify exactly one target: index, before_workspace_id, or after_workspace_id"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Especifica exactamente un destino: index, before_workspace_id o after_workspace_id"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Indiquez exactement une cible : index, before_workspace_id ou after_workspace_id"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Specify exactly one target: index, before_workspace_id, or after_workspace_id"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "index、before_workspace_id、after_workspace_id のいずれか 1 つだけを指定してください"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Specify exactly one target: index, before_workspace_id, or after_workspace_id"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "index, before_workspace_id, after_workspace_id 중 정확히 하나만 지정하세요"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Specify exactly one target: index, before_workspace_id, or after_workspace_id"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Specify exactly one target: index, before_workspace_id, or after_workspace_id"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Specify exactly one target: index, before_workspace_id, or after_workspace_id"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Specify exactly one target: index, before_workspace_id, or after_workspace_id"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Specify exactly one target: index, before_workspace_id, or after_workspace_id"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Specify exactly one target: index, before_workspace_id, or after_workspace_id"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Specify exactly one target: index, before_workspace_id, or after_workspace_id"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请只指定一个目标：index、before_workspace_id 或 after_workspace_id"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "請只指定一個目標：index、before_workspace_id 或 after_workspace_id"
           }
         }
       }

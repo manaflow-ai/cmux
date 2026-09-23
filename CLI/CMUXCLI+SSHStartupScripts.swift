@@ -344,13 +344,14 @@ extension CMUXCLI {
             scriptLines += ["cmux_ssh_foreground_auth() {", trimmedOneTimeCommand, "}"]
             scriptLines.append(authRetryPolicy.processTreeTerminationShellFunction())
         }
-        let reconnectConfiguration = retryPTYAttachStatus ? [
-            // A missing limit used to mean infinity, which left a corrupt or
-            // permanently unavailable daemon spinning forever in the pane.
-            // Keep the supervisor finite even when an old persisted launcher
-            // omitted CMUX_SSH_RECONNECT_LIMIT.
-            "cmux_ssh_reconnect_limit=\"${CMUX_SSH_RECONNECT_LIMIT:-20}\"",
-            "case \"$cmux_ssh_reconnect_limit\" in ''|*[!0-9]*) cmux_ssh_reconnect_limit=20 ;; *) while [ \"${cmux_ssh_reconnect_limit#0}\" != \"$cmux_ssh_reconnect_limit\" ] && [ \"$cmux_ssh_reconnect_limit\" != 0 ]; do cmux_ssh_reconnect_limit=\"${cmux_ssh_reconnect_limit#0}\"; done; case \"$cmux_ssh_reconnect_limit\" in [1-9]|1[0-9]|20) ;; *) cmux_ssh_reconnect_limit=20 ;; esac ;; esac",
+        // A missing limit used to mean infinity, which left a corrupt or
+        // permanently unavailable daemon spinning forever in the pane.
+        // Keep the supervisor finite even when an old persisted launcher
+        // omitted CMUX_SSH_RECONNECT_LIMIT.
+        let reconnectLimitLines = SSHReconnectBudget().limitNormalizationShellLines(
+            variable: "cmux_ssh_reconnect_limit"
+        )
+        let reconnectConfiguration = retryPTYAttachStatus ? reconnectLimitLines + [
             "cmux_ssh_reconnect_delay=\"${CMUX_SSH_RECONNECT_DELAY_SECONDS:-2}\"",
             "case \"$cmux_ssh_reconnect_delay\" in ''|*[!0-9]*|0*) cmux_ssh_reconnect_delay=2 ;; esac",
             "cmux_ssh_reconnect_max_delay=\"${CMUX_SSH_RECONNECT_MAX_DELAY_SECONDS:-30}\"",
