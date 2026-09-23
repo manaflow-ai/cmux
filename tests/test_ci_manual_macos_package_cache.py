@@ -2,6 +2,7 @@
 """Exercise the manual macOS workflow's real package-resolution script."""
 import os
 from pathlib import Path
+import shutil
 import subprocess
 import tempfile
 import unittest
@@ -38,7 +39,12 @@ if mode == 'resolve-error' and n == 1:
     raise SystemExit(1)
 if mode == 'missing' or (mode == 'incomplete' and n == 1):
     raise SystemExit(0)
-for path in ('sparkle/Sparkle/Sparkle.xcframework', 'sentry-cocoa/Sentry/Sentry.xcframework'):
+paths = ('sparkle/Sparkle/Sparkle.xcframework', 'sentry-cocoa/Sentry/Sentry.xcframework')
+if n == 1 and mode == 'only-sparkle':
+    paths = paths[:1]
+if n == 1 and mode == 'only-sentry':
+    paths = paths[1:]
+for path in paths:
     Path('.ci-source-packages/artifacts', path).mkdir(parents=True, exist_ok=True)
 ''')
         xcode.chmod(0o755)
@@ -67,8 +73,10 @@ for path in ('sparkle/Sparkle/Sparkle.xcframework', 'sentry-cocoa/Sentry/Sentry.
         self.assertEqual(self.counter.read_text(), '1')
 
     def test_incomplete_artifacts_and_resolve_errors_retry_cleanly(self):
-        for mode in ('incomplete', 'resolve-error'):
+        for mode in ('incomplete', 'only-sparkle', 'only-sentry', 'resolve-error'):
             with self.subTest(mode=mode):
+                shutil.rmtree(self.packages)
+                self.packages.mkdir()
                 self.counter.write_text('0')
                 sentinel = self.packages / 'poisoned-source'
                 sentinel.write_text('old state')
