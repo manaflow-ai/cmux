@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { execFileSync, spawnSync } from "node:child_process";
 import {
+  copyFileSync,
   existsSync,
   mkdtempSync,
   mkdirSync,
@@ -224,3 +225,25 @@ test("still builds when the previous deployment cannot be fetched at all", () =>
   expect(ignoreBuild(undefined, base, shallow)).toBe(1);
   rmSync(shallow, { recursive: true, force: true });
 }, 30000);
+
+test("the deployment exclusions keep the history this script reads", () => {
+  // Every decision here comes from Git. If .vercelignore excludes .git, and
+  // Vercel applies it before the ignored-build command, nothing can be
+  // compared and every push builds. Assert with the repository's real rules.
+  // Copy before the baseline: .vercelignore is itself a build input, so
+  // changing it inside the compared range would correctly force a build.
+  copyFileSync(
+    fileURLToPath(new URL("../../.vercelignore", import.meta.url)),
+    join(repository, ".vercelignore"),
+  );
+  const base = commit("base");
+  const excluded = spawnSync(
+    "git",
+    ["-c", "core.excludesFile=.vercelignore", "check-ignore", "--no-index", ".git/HEAD"],
+    { cwd: repository },
+  );
+  expect(excluded.status).not.toBe(0);
+
+  writeFileSync(join(repository, "Sources", "App.swift"), "let app = false\n");
+  expect(ignoreBuild(base, commit("native change"))).toBe(0);
+});

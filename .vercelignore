@@ -1,6 +1,7 @@
 # Large directories
 ghostty/
-.git/
+# .git stays: web/tools/vercel-ignore-build.sh needs history to decide
+# whether anything under web/ changed. Excluding it makes every push build.
 
 # Build artifacts
 build/
