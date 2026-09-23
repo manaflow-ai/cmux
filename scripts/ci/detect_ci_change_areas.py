@@ -976,6 +976,17 @@ def is_macos_neutral(
     # executable inputs, so only Markdown outside that folder is neutral.
     if path.rsplit("/", 1)[-1] in {"CLAUDE.md", "AGENTS.md"}:
         return True
+    # Contributor-facing prose. These are read by people, never by a build:
+    # none is a bundle resource or an Xcode input. Keep this an exact list --
+    # THIRD_PARTY_LICENSES.md is also root Markdown, but it ships in
+    # Resources/ and is read by AboutLicenseContent.swift, so it stays
+    # macOS-relevant.
+    if path in {
+        "STYLE.md",
+        "CONTRIBUTING.md",
+        ".github/pull_request_template.md",
+    }:
+        return True
 
     if (
         path.startswith("Packages/iOS/")
