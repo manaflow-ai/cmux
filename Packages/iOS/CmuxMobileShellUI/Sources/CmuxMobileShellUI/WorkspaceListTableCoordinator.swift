@@ -174,15 +174,6 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDataSource,
     private func reconcile(in tableView: UITableView) {
         #if DEBUG
         reconcilesSinceFrame += 1
-        let startedAt = CACurrentMediaTime()
-        defer {
-            let milliseconds = (CACurrentMediaTime() - startedAt) * 1000
-            if milliseconds > 2 {
-                MobileDebugLog.anchormux(
-                    "workspace-list.reconcile-slow ms=\(String(format: "%.1f", milliseconds)) rows=\(renderedItems.count) scrolling=\(tableView.isDragging || tableView.isDecelerating)"
-                )
-            }
-        }
         #endif
         let target = targetRows(in: tableView)
         let plan = WorkspaceListUpdatePlan(
@@ -315,15 +306,11 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDataSource,
         tableView.layoutIfNeeded()
         let clamp = anchor.map { restore($0, in: tableView) }
         #if DEBUG
-        let drift = anchor.flatMap { anchor in
-            indexPath(forID: anchor.rowID).map {
-                tableView.rectForRow(at: $0).minY - tableView.contentOffset.y
-                    - anchor.distanceFromOffset
-            }
+        if let anchor, let clamp, clamp != .exact {
+            MobileDebugLog.anchormux(
+                "workspace-list.commit-clamped anchor=\(anchor.rowID) clamp=\(clamp) offset=\(String(format: "%.1f", tableView.contentOffset.y)) content=\(String(format: "%.1f", tableView.contentSize.height))"
+            )
         }
-        MobileDebugLog.anchormux(
-            "workspace-list.commit changes=\(plan.difference.count) heights=\(plan.heightChangedIDs.count) actions=\(plan.nativeActionChangedIDs.count) anchor=\(anchor?.rowID ?? "top") drift=\(drift.map { String(format: "%.2f", $0) } ?? "n/a") clamp=\(clamp.map { "\($0)" } ?? "n/a") offset=\(String(format: "%.1f", tableView.contentOffset.y)) content=\(String(format: "%.1f", tableView.contentSize.height))"
-        )
         lastObservedOffsetY = tableView.contentOffset.y
         #endif
     }
