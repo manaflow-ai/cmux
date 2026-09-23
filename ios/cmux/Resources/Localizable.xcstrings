@@ -10185,7 +10185,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Este ordenador se elimina de tus dispositivos guardados y se revoca su acceso actual. Si el Mac sigue conectado, cmux puede restaurar el acceso la próxima vez que se abra o vuelva a primer plano."
+            "value": "Este ordenador se elimina de tus dispositivos guardados y se revoca su acceso actual. Si la sesión del Mac sigue iniciada, cmux puede restaurar el acceso la próxima vez que se abra o vuelva a primer plano."
           }
         },
         "zh-Hant": {
