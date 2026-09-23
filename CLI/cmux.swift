@@ -17810,14 +17810,6 @@ struct CMUXCLI {
             } else {
                 // Resolve ref to UUID — search across all windows.
                 //
-                // Only claim the ref is absent after actually reading at least one
-                // window's workspaces. `window.list`, and `workspace.list` carrying a
-                // `window_id`, are both off the remote CLI relay allowlist
-                // (`RemoteRelayRoutingSchema`), so over `cmux ssh` this scan cannot run
-                // at all. Returning the ref unresolved in that case preserves the
-                // historical behavior: the relay's host resolves the ref against its own
-                // handle registry. Inventing a "not found" here would instead break every
-                // ref-taking command on a relay session.
                 // Try the parameterless read first. It is served from the
                 // published snapshot rather than a live main-actor hop, and it is
                 // on the relay allowlist, so the common case costs one cheap RPC

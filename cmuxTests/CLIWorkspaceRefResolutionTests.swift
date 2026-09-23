@@ -24,7 +24,7 @@ struct CLIWorkspaceRefResolutionTests {
     @Test func staleRefWithoutWindowFailsClientSide() throws {
         let (requests, result) = try runReorderWorkspace(
             arguments: ["--workspace", Self.staleRef, "--index", "0"],
-            windowListSucceeds: true
+            topology: .oneWindow
         )
 
         #expect(result.status != 0, Comment(rawValue: "expected nonzero exit, got \(result.status)"))
@@ -42,7 +42,7 @@ struct CLIWorkspaceRefResolutionTests {
     @Test func liveRefWithoutWindowResolvesToUUID() throws {
         let (requests, result) = try runReorderWorkspace(
             arguments: ["--workspace", Self.liveRef, "--index", "0"],
-            windowListSucceeds: true
+            topology: .oneWindow
         )
 
         #expect(result.status == 0, Comment(rawValue: result.stderr + result.stdout))
@@ -58,7 +58,7 @@ struct CLIWorkspaceRefResolutionTests {
     @Test func staleBeforeTargetWithoutWindowFailsClientSide() throws {
         let (requests, result) = try runReorderWorkspace(
             arguments: ["--workspace", Self.liveRef, "--before", Self.staleRef],
-            windowListSucceeds: true
+            topology: .oneWindow
         )
 
         #expect(result.status != 0, Comment(rawValue: "expected nonzero exit, got \(result.status)"))
@@ -76,7 +76,7 @@ struct CLIWorkspaceRefResolutionTests {
     @Test func windowListDeniedFallsBackToPassThrough() throws {
         let (requests, result) = try runReorderWorkspace(
             arguments: ["--workspace", Self.liveRef, "--index", "0"],
-            windowListSucceeds: false
+            topology: .windowListDenied
         )
 
         #expect(result.status == 0, Comment(rawValue: result.stderr + result.stdout))
@@ -85,12 +85,51 @@ struct CLIWorkspaceRefResolutionTests {
         #expect(params["workspace_id"] as? String == Self.liveRef)
     }
 
+    /// A window that goes away between `window.list` and its `workspace.list` leaves
+    /// a hole in the scan. The CLI must hand the ref to the host rather than claim it
+    /// is absent — a ref living in the window that failed would otherwise come back as
+    /// "not found", which is the same confidently-wrong error this change removes, and
+    /// worse than what it replaced: the old code surfaced the transport failure.
+    ///
+    /// Reordering workspaces is exactly what closes windows, so this is ordinary, not
+    /// exotic.
+    @Test func partialWindowScanFallsBackToPassThrough() throws {
+        let (requests, result) = try runReorderWorkspace(
+            arguments: ["--workspace", Self.staleRef, "--index", "0"],
+            topology: .twoWindowsSecondFails
+        )
+
+        #expect(result.status == 0, Comment(rawValue: result.stderr + result.stdout))
+        let reorder = try #require(requests.last { $0["method"] as? String == "workspace.reorder" })
+        let params = try #require(reorder["params"] as? [String: Any])
+        #expect(params["workspace_id"] as? String == Self.staleRef)
+        #expect(
+            !result.stderr.contains("not found"),
+            Comment(rawValue: "a hole in the scan must not be reported as absence: \(result.stderr)")
+        )
+    }
+
+    /// `window.list` succeeding with an empty list is not the same evidence as having
+    /// read every window: no `workspace.list` ran, so nothing was observed. The CLI
+    /// stays conservative and passes the ref through.
+    @Test func emptyWindowListFallsBackToPassThrough() throws {
+        let (requests, result) = try runReorderWorkspace(
+            arguments: ["--workspace", Self.staleRef, "--index", "0"],
+            topology: .noWindows
+        )
+
+        #expect(result.status == 0, Comment(rawValue: result.stderr + result.stdout))
+        let reorder = try #require(requests.last { $0["method"] as? String == "workspace.reorder" })
+        let params = try #require(reorder["params"] as? [String: Any])
+        #expect(params["workspace_id"] as? String == Self.staleRef)
+    }
+
     /// `reorder-workspace --index 0` must report the missing `--workspace` instead of
     /// reading the literal `--index` as the workspace selector.
     @Test func leadingFlagIsNotReadAsPositionalWorkspace() throws {
         let (requests, result) = try runReorderWorkspace(
             arguments: ["--index", "0"],
-            windowListSucceeds: true
+            topology: .oneWindow
         )
 
         #expect(result.status != 0, Comment(rawValue: "expected nonzero exit, got \(result.status)"))
@@ -111,7 +150,7 @@ struct CLIWorkspaceRefResolutionTests {
     @Test func positionalWorkspaceAfterFlagStillResolves() throws {
         let (requests, result) = try runReorderWorkspace(
             arguments: ["--index", "0", Self.liveRef],
-            windowListSucceeds: true
+            topology: .oneWindow
         )
 
         #expect(result.status == 0, Comment(rawValue: result.stderr + result.stdout))
@@ -123,11 +162,25 @@ struct CLIWorkspaceRefResolutionTests {
     /// Drives `reorder-workspace` against a mock socket holding one window with one
     /// workspace, and returns the recorded JSON-RPC requests plus the process result.
     ///
-    /// `windowListSucceeds: false` answers `window.list` with a relay-shaped denial so
+    /// `topology: .windowListDenied` answers `window.list` with a relay-shaped denial so
     /// the caller can assert the pass-through carve-out.
+    /// What the mock host's `window.list` / `workspace.list` pair reports, so a
+    /// test can pick the shape of the scan the CLI has to survive.
+    private enum Topology {
+        /// One window holding ``liveRef``.
+        case oneWindow
+        /// `window.list` answers with a relay-shaped denial.
+        case windowListDenied
+        /// `window.list` succeeds and reports no windows at all.
+        case noWindows
+        /// Two windows; the second one's `workspace.list` fails, the way a window
+        /// closing mid-scan or an admission backoff leaves a hole.
+        case twoWindowsSecondFails
+    }
+
     private func runReorderWorkspace(
         arguments: [String],
-        windowListSucceeds: Bool
+        topology: Topology
     ) throws -> ([[String: Any]], ProcessRunResult) {
         let socketPath = Self.makeSocketPath("ws-ref")
         let listenerFD = try Self.bindUnixSocket(at: socketPath)
@@ -146,16 +199,39 @@ struct CLIWorkspaceRefResolutionTests {
             }
             switch method {
             case "window.list":
-                guard windowListSucceeds else {
+                switch topology {
+                case .windowListDenied:
                     return Self.v2Response(id: id, ok: false, error: [
                         "code": "forbidden",
                         "message": "method 'window.list' is not permitted through a remote relay",
                     ])
+                case .noWindows:
+                    return Self.v2Response(id: id, ok: true, result: ["windows": []])
+                case .oneWindow:
+                    return Self.v2Response(id: id, ok: true, result: [
+                        "windows": [["id": Self.windowId, "ref": "window:1000000001", "index": 0]],
+                    ])
+                case .twoWindowsSecondFails:
+                    return Self.v2Response(id: id, ok: true, result: [
+                        "windows": [
+                            ["id": Self.windowId, "ref": "window:1000000001", "index": 0],
+                            ["id": Self.secondWindowId, "ref": "window:1000000002", "index": 1],
+                        ],
+                    ])
                 }
-                return Self.v2Response(id: id, ok: true, result: [
-                    "windows": [["id": Self.windowId, "ref": "window:1000000001", "index": 0]],
-                ])
             case "workspace.list":
+                let requestedWindow = (payload["params"] as? [String: Any])?["window_id"] as? String
+                // The window that went away answers the way the host does when the
+                // id no longer routes. The CLI must treat that as a hole in the
+                // scan, not as proof the ref is absent.
+                if requestedWindow == Self.secondWindowId {
+                    return Self.v2Response(id: id, ok: false, error: [
+                        "code": "not_found", "message": "Window not found",
+                    ])
+                }
+                if topology == .noWindows, requestedWindow == nil {
+                    return Self.v2Response(id: id, ok: true, result: ["workspaces": []])
+                }
                 return Self.v2Response(id: id, ok: true, result: [
                     "workspaces": [[
                         "id": Self.liveWorkspaceId,
@@ -204,6 +280,7 @@ struct CLIWorkspaceRefResolutionTests {
     private static let staleRef = "workspace:1000000009"
     private static let liveWorkspaceId = "33333333-3333-3333-3333-333333333333"
     private static let windowId = "55555555-5555-5555-5555-555555555555"
+    private static let secondWindowId = "66666666-6666-6666-6666-666666666666"
 
     private final class CLIWorkspaceRefResolutionBundleToken {}
 
