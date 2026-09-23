@@ -4,16 +4,16 @@
 /// several entrypoints. Each used to hard-code its own numbers, so one name
 /// carried a 20-attempt ceiling in the attach supervisor and an 86400 default
 /// in the freestyle supervisors. Both sides now read these constants.
-public enum SSHReconnectBudget: Sendable {
+public struct SSHReconnectBudget: Sendable {
     /// Environment variable that carries an operator-chosen reconnect budget.
-    public static let limitEnvironmentName = "CMUX_SSH_RECONNECT_LIMIT"
+    public let limitEnvironmentName: String
 
     /// Attempts used when the variable is unset or carries unusable text.
     ///
     /// Failing closed to a small finite budget is deliberate: a persisted
     /// launcher that predates the retry policy, or a typo, must not leave a
     /// corrupt or permanently unavailable daemon spinning forever in a pane.
-    public static let fallbackLimit = 20
+    public let fallbackLimit: Int
 
     /// Largest reconnect budget an operator can ask for.
     ///
@@ -22,7 +22,17 @@ public enum SSHReconnectBudget: Sendable {
     /// requests. Keeping it finite preserves the fail-closed property above;
     /// at the capped 30s backoff, 86400 attempts is a supervisor that gives up
     /// only after the host has been gone for weeks.
-    public static let maximumLimit = 86400
+    public let maximumLimit: Int
+
+    public init(
+        limitEnvironmentName: String = "CMUX_SSH_RECONNECT_LIMIT",
+        fallbackLimit: Int = 20,
+        maximumLimit: Int = 86400
+    ) {
+        self.limitEnvironmentName = limitEnvironmentName
+        self.fallbackLimit = fallbackLimit
+        self.maximumLimit = maximumLimit
+    }
 
     /// Shell lines that resolve ``limitEnvironmentName`` into `variable`.
     ///
@@ -40,10 +50,11 @@ public enum SSHReconnectBudget: Sendable {
     ///     `\(variable)_rejected`.
     ///   - fallback: Budget used when the supplied value is unusable.
     /// - Returns: POSIX `/bin/sh` lines.
-    public static func limitNormalizationShellLines(
+    public func limitNormalizationShellLines(
         variable: String,
-        fallback: Int = fallbackLimit
+        fallback: Int? = nil
     ) -> [String] {
+        let fallback = fallback ?? fallbackLimit
         let ceilingDigits = String(maximumLimit).count
         return [
             "\(variable)=\"${\(limitEnvironmentName):-\(fallback)}\"",

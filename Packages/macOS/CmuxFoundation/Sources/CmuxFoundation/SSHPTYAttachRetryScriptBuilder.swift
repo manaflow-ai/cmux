@@ -78,7 +78,7 @@ public struct SSHPTYAttachRetryScriptBuilder: Sendable {
         // malformed limit must fail closed to the same finite supervisor used
         // by newly generated SSH startup scripts; a well-formed larger budget
         // is honored up to the shared ceiling.
-        let reconnectLimitLines = SSHReconnectBudget.limitNormalizationShellLines(
+        let reconnectLimitLines = SSHReconnectBudget().limitNormalizationShellLines(
             variable: "cmux_ssh_attach_reconnect_limit"
         )
         var lines = [

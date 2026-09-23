@@ -348,7 +348,7 @@ extension CMUXCLI {
         // permanently unavailable daemon spinning forever in the pane.
         // Keep the supervisor finite even when an old persisted launcher
         // omitted CMUX_SSH_RECONNECT_LIMIT.
-        let reconnectLimitLines = SSHReconnectBudget.limitNormalizationShellLines(
+        let reconnectLimitLines = SSHReconnectBudget().limitNormalizationShellLines(
             variable: "cmux_ssh_reconnect_limit"
         )
         let reconnectConfiguration = retryPTYAttachStatus ? reconnectLimitLines + [
