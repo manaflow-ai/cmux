@@ -355,6 +355,10 @@ path = "tests/test_ci_guard_workflow_structure.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_reusable_job_name_lookups.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_health_report.py"
 lane = "linux-guard"
 
@@ -853,6 +857,10 @@ lane = "legacy"
 [[test]]
 path = "tests/test_opencode_plugin_install.py"
 lane = "legacy"
+
+[[test]]
+path = "tests/test_pairing_scheme_is_explicit_in_tests.py"
+lane = "linux-guard"
 
 [[test]]
 path = "tests/test_plain_text_paste_worker.py"

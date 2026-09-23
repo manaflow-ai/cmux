@@ -78,6 +78,10 @@ PATH_OWNERS = {
     "scripts/ci/reuse_app_host_products.py": frozenset(("preflight",)),
     "scripts/ci/run_python_test_lane.py": frozenset(("preflight",)),
     "scripts/ci/sanitize-xcode-source-packages-cache.py": frozenset(("preflight",)),
+    # detect_ci_change_areas.py imports this to decide the swift-package-tests
+    # route, so the ci group's router tests observe an edit to it even though
+    # no guard step names it in a `run:`.
+    "scripts/ci/select_package_tests.py": frozenset(("ci",)),
     "scripts/ci/swift_incremental_diagnostics.py": frozenset(("preflight",)),
     "scripts/ci/test_execution_registry.py": frozenset(("preflight",)),
     "skills/cmux-cloud-vm/SKILL.md": frozenset(("preflight",)),
