@@ -3,6 +3,7 @@
 
 from pathlib import Path
 import os
+import re
 import subprocess
 import tempfile
 import xml.etree.ElementTree as ET
@@ -181,6 +182,57 @@ def acceptance_gate_problem(condition: object, preparation_id: str) -> str:
     return ""
 
 
+def published_derived_data_value(job, steps) -> str | None:
+    """Return the CMUX_DERIVED_DATA_PATH a job publishes, before expansion.
+
+    Both callers compute the path in a shell variable and export it through
+    `GITHUB_ENV`, so the literal that matters is the assignment, not the echo.
+    """
+    environment = job.get("env")
+    if isinstance(environment, dict) and environment.get("CMUX_DERIVED_DATA_PATH"):
+        return str(environment["CMUX_DERIVED_DATA_PATH"])
+    for step in steps:
+        script = str(step.get("run", ""))
+        export = re.search(
+            r'CMUX_DERIVED_DATA_PATH=(?P<value>[^"\n]*)"?\s*>>\s*"?\$(?:\{)?GITHUB_ENV',
+            script,
+        )
+        if export is None:
+            continue
+        value = export.group("value").strip()
+        name = re.fullmatch(r"\$\{?(?P<name>[A-Za-z_][A-Za-z0-9_]*)\}?", value)
+        if name is None:
+            return value
+        assignment = re.search(
+            rf'^\s*{name.group("name")}="(?P<path>[^"]*)"', script, re.MULTILINE
+        )
+        return assignment.group("path") if assignment else None
+    return None
+
+
+def require_derived_data_under_runner_temp(where, job, steps) -> None:
+    """Hold app-host callers to the boundary cleanup enforces at runtime.
+
+    `cleanup-app-host-home.sh` refuses to inspect a host whose DerivedData
+    lives outside `RUNNER_TEMP`, and it runs under `if: always()`, so a job
+    that parks DerivedData anywhere else goes red *after* its tests pass.
+    `test-e2e.yml` shipped exactly that: the split lane inherited a
+    workspace-rooted path from the single-job form, which no other check
+    looked at because no earlier version of that lane cleaned up at all.
+    """
+    value = published_derived_data_value(job, steps)
+    if value is None:
+        raise SystemExit(
+            f"FAIL: {where} prepares an app-host home without publishing "
+            "CMUX_DERIVED_DATA_PATH; cleanup requires it"
+        )
+    if not re.match(r"\$\{?RUNNER_TEMP\}?/", value):
+        raise SystemExit(
+            f"FAIL: {where} puts DerivedData at {value!r}; app-host cleanup "
+            "only inspects hosts whose DerivedData is under RUNNER_TEMP"
+        )
+
+
 def check_every_app_host_home_is_identified_and_cleaned() -> None:
     """Hold every job that prepares an app-host home to the same contract.
 
@@ -216,6 +268,7 @@ def check_every_app_host_home_is_identified_and_cleaned() -> None:
                     f"FAIL: {where} must publish CMUX_APP_HOST_SHARD; "
                     "cmux_resolve_app_host_identity rejects an empty shard"
                 )
+            require_derived_data_under_runner_temp(where, job, steps)
             cleanups = [
                 step for step in steps
                 if "cleanup-app-host-home.sh" in str(step.get("run", ""))
@@ -265,6 +318,8 @@ def check_e2e_test_derived_data_scope() -> None:
             {
                 "GITHUB_WORKSPACE": str(workspace),
                 "RUNNER_TEMP": str(runner_temp),
+                "GITHUB_RUN_ID": "9000000000",
+                "GITHUB_RUN_ATTEMPT": "1",
                 "GITHUB_ENV": str(github_env),
                 "GITHUB_OUTPUT": str(github_output),
                 "PATH": f"{tool_bin}:{environment.get('PATH', '')}",
@@ -293,14 +348,17 @@ def check_e2e_test_derived_data_scope() -> None:
             raise SystemExit(
                 "FAIL: E2E test DerivedData preparation must publish one path"
             )
-        derived_data = Path(derived_data_values[0]).resolve()
-        expected = (runner_temp / "cmux-e2e").resolve()
+        derived_data_raw = derived_data_values[0]
+        derived_data = Path(derived_data_raw).resolve()
+        expected = (
+            runner_temp / "cmux-e2e-products-9000000000-1"
+        ).resolve()
         if derived_data != expected:
             raise SystemExit(
                 "FAIL: E2E test DerivedData must be owned under RUNNER_TEMP; "
                 f"got {derived_data}, expected {expected}"
             )
-        if not derived_data.is_dir():
+        if not Path(derived_data_raw).is_dir():
             raise SystemExit(
                 f"FAIL: E2E test DerivedData target was not created: {derived_data}"
             )
@@ -311,7 +369,7 @@ def check_e2e_test_derived_data_scope() -> None:
 
         cleanup_environment = {
             **environment,
-            "CMUX_DERIVED_DATA_PATH": str(derived_data),
+            "CMUX_DERIVED_DATA_PATH": derived_data_raw,
             "CMUX_E2E_COMPILATION_CACHE": "",
         }
         cleaned = subprocess.run(
@@ -326,7 +384,7 @@ def check_e2e_test_derived_data_scope() -> None:
                 "FAIL: E2E test DerivedData cleanup rejected its prepared target: "
                 f"{cleaned.stderr}"
             )
-        if derived_data.exists():
+        if Path(derived_data_raw).exists() or derived_data.exists():
             raise SystemExit(
                 "FAIL: E2E test DerivedData cleanup left its owned target behind"
             )

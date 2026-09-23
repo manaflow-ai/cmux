@@ -1,3 +1,4 @@
+import CMUXMobileCore
 import Foundation
 import Testing
 @testable import CmuxMobileShell
@@ -68,7 +69,7 @@ import Testing
     #expect(firstDelivered)
 
     await router.holdNextReplayResponses()
-    store.requestTerminalReplay(surfaceID: surfaceID)
+    store.requestTerminalReplay(surfaceID: surfaceID, trigger: .coldAttach)
     await router.waitForCount(of: "mobile.terminal.replay", atLeast: replayCountAfterMount + 1)
     #expect(store.terminalReplaySurfaceIDsInFlight.contains(surfaceID))
 
