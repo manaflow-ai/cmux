@@ -2,6 +2,11 @@ name: SSH remote daemon
 
 on:
   workflow_call:
+    inputs:
+      native_tests:
+        description: Exercise native Go behavior when daemon inputs changed
+        type: boolean
+        default: true
   push:
     branches: [main]
     paths:
@@ -68,6 +73,9 @@ jobs:
         run: go -C daemon/remote test -race ./...
 
   remote-daemon-macos-tests:
+    # Direct pushes/manual runs retain their full coverage; PR callers can
+    # request only Linux packaging validation for publishing-only changes.
+    if: ${{ github.event_name != 'pull_request' || inputs.native_tests }}
     needs: remote-daemon-admission
     runs-on: ${{ vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
     timeout-minutes: 15
