@@ -17839,8 +17839,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #if DEBUG
     static func isDuplicateApplicationExecutableForTesting(
         _ executableURL: URL,
-        mainExecutableURL: URL,
-        embeddedCLIURL: URL
+        mainExecutableURL: URL
     ) -> Bool {
         executableURL.standardizedFileURL.resolvingSymlinksInPath() ==
             mainExecutableURL.standardizedFileURL.resolvingSymlinksInPath()
@@ -17852,10 +17851,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             StartupBreadcrumbLog.append("singleInstance.observe.skip", fields: ["reason": "missingBundleId"])
             return
         }
-        let embeddedCLIURL = Bundle.main.bundleURL
-            .appendingPathComponent("Contents/Resources/bin/cmux", isDirectory: false)
-            .standardizedFileURL
-            .resolvingSymlinksInPath()
         let currentPid = ProcessInfo.processInfo.processIdentifier
         StartupBreadcrumbLog.append(
             "singleInstance.observe.install",
@@ -17874,8 +17869,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             guard let app = notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication else { return }
             guard app.bundleIdentifier == bundleId, app.processIdentifier != currentPid else { return }
             guard let executableURL = app.executableURL else { return }
-            let normalizedExecutableURL = executableURL.standardizedFileURL.resolvingSymlinksInPath()
-            guard normalizedExecutableURL == Bundle.main.executableURL?.standardizedFileURL.resolvingSymlinksInPath() else {
+            guard Self.isDuplicateApplicationExecutableForTesting(
+                executableURL,
+                mainExecutableURL: Bundle.main.executableURL ?? URL(fileURLWithPath: "")
+            ) else {
                 return
             }
 

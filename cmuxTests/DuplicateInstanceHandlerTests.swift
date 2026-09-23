@@ -15,8 +15,8 @@ struct DuplicateInstanceHandlerTests {
         let cli = URL(fileURLWithPath: "/Applications/cmux.app/Contents/Resources/bin/cmux")
         let helper = URL(fileURLWithPath: "/usr/bin/osascript")
 
-        #expect(AppDelegate.isDuplicateApplicationExecutableForTesting(app, mainExecutableURL: app, embeddedCLIURL: cli))
-        #expect(!AppDelegate.isDuplicateApplicationExecutableForTesting(cli, mainExecutableURL: app, embeddedCLIURL: cli))
-        #expect(!AppDelegate.isDuplicateApplicationExecutableForTesting(helper, mainExecutableURL: app, embeddedCLIURL: cli))
+        #expect(AppDelegate.isDuplicateApplicationExecutableForTesting(app, mainExecutableURL: app))
+        #expect(!AppDelegate.isDuplicateApplicationExecutableForTesting(cli, mainExecutableURL: app))
+        #expect(!AppDelegate.isDuplicateApplicationExecutableForTesting(helper, mainExecutableURL: app))
     }
 }
