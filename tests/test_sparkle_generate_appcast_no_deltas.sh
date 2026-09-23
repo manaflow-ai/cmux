@@ -82,6 +82,7 @@ SU
 # back to generate_appcast without calling it.
 cat > "$FAKE_TOOLS/BinaryDelta" <<'BD'
 #!/usr/bin/env bash
+touch "$CMUX_TEST_BINARY_DELTA_MARKER"
 echo "fake BinaryDelta must not run for fixture archives" >&2
 exit 1
 BD
@@ -93,6 +94,7 @@ run_script() {
   PATH="$FAKE_BIN:$PATH" \
   CMUX_TEST_FAKE_TOOLS="$FAKE_TOOLS" \
   CMUX_TEST_ARGV_LOG="$TMP_DIR/argv.log" \
+  CMUX_TEST_BINARY_DELTA_MARKER="$TMP_DIR/binary-delta-called" \
   SPARKLE_PRIVATE_KEY="Zml4dHVyZS1rZXk" \
   SPARKLE_VERSION="0.0.0-test" \
   "$@" \
@@ -138,6 +140,7 @@ for bash_bin in "${candidates[@]}"; do
     fail "bash $version: script failed with SPARKLE_TOOLS_DIR: $(tail -n 5 "$out_dir/run-tools.log")"
   fi
   grep -q 'sparkle:edSignature' "$out_dir/appcast-tools.xml" || fail "bash $version: SPARKLE_TOOLS_DIR appcast lacks sparkle:edSignature"
+  [ ! -e "$TMP_DIR/binary-delta-called" ] || fail "BinaryDelta ran for unmountable fixtures"
   echo "ok: bash $version generates a signed appcast with and without previous archives"
 done
 
@@ -148,3 +151,48 @@ grep -q 'test -s appcast.xml' <<<"$step" || fail "release.yml must verify appcas
 grep -q "grep -q 'sparkle:edSignature' appcast.xml" <<<"$step" || fail "release.yml must verify the appcast is signed after generation"
 
 echo "PASS: sparkle_generate_appcast.sh produces a signed appcast on the no-delta release path under every local bash"
+
+# Duplicate archive versions must not compete for the same output path or
+# consume both slots, excluding an older distinct version.
+mkdir -p "$TMP_DIR/dedup"
+for archive in new-103 old-102 duplicate-102 old-101; do
+  touch "$TMP_DIR/dedup/$archive.dmg"
+done
+cat > "$TMP_DIR/dedup/BinaryDelta" <<'BD'
+#!/usr/bin/env bash
+if [ "$1" = create ]; then
+  basename "$4" >> "$CMUX_TEST_DELTA_CALLS"
+  sleep 0.1
+  touch "$4"
+fi
+BD
+chmod +x "$TMP_DIR/dedup/BinaryDelta"
+export CMUX_TEST_DELTA_CALLS="$TMP_DIR/dedup/calls"
+# Supply filesystem-backed DMG/plist doubles while executing the full worker
+# pipeline unchanged, including its background processes and output promotion.
+bash -c '
+  hdiutil() {
+    [ "$1" = attach ] || return 0
+    archive="$2"
+    shift 2
+    while [ "$1" != -mountpoint ]; do shift; done
+    mkdir -p "$2/cmux.app/Contents"
+    version="${archive%.dmg}"
+    printf "%s" "${version##*-}" > "$2/cmux.app/Contents/Info.plist"
+  }
+  ditto() { cp -R "$1" "$2"; }
+  function /usr/libexec/PlistBuddy() {
+    case "$3" in
+      *Frameworks*) echo 2041 ;;
+      *) cat "$3" ;;
+    esac
+  }
+  script="$1"
+  shift
+  source "$script"
+' _ "$ROOT_DIR/scripts/prebuild_sparkle_deltas.sh" "$TMP_DIR/dedup/BinaryDelta" "$TMP_DIR/dedup" "$TMP_DIR/dedup/new-103.dmg" 2
+[ "$(sort "$CMUX_TEST_DELTA_CALLS" | uniq | wc -l | tr -d ' ')" = 2 ] || fail "duplicate versions consumed a delta slot"
+[ "$(wc -l < "$CMUX_TEST_DELTA_CALLS" | tr -d ' ')" = 2 ] || fail "duplicate delta workers ran"
+[ -f "$TMP_DIR/dedup/cmux103-101.delta" ] || fail "older distinct version was excluded"
+[ -f "$TMP_DIR/dedup/cmux103-102.delta" ] || fail "newest prior version was excluded"
+echo "PASS: duplicate archive versions produce distinct delta workers"
