@@ -32,6 +32,7 @@ struct WorkspaceDetailDelayedTerminalPreviewView: View {
             signOut: {},
             showAddDevice: nil
         )
+        .preferredColorScheme(Self.showsToolbarComparison ? .dark : nil)
         .environment(browserStore)
         .environment(browserStreamStore)
         .environment(simulatorStreamStore)

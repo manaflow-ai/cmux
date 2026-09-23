@@ -8372,7 +8372,12 @@ final class cmuxUITests: XCTestCase {
             launchEnvironment[key] = value
         }
         let app = launchApp(mockData: false, environment: launchEnvironment)
-        XCTAssertTrue(workspaceTitleElement(in: app).waitForExistence(timeout: 8))
+        if environment["CMUX_UITEST_WORKSPACE_TOOLBAR_COMPARISON"] == "1" {
+            XCTAssertTrue(app.otherElements["MobileWorkspaceShell"].waitForExistence(timeout: 8))
+            XCTAssertNoThrow(try dismissLaunchAnnouncements(in: app))
+        } else {
+            XCTAssertTrue(workspaceTitleElement(in: app).waitForExistence(timeout: 8))
+        }
         return app
     }
 
@@ -8437,7 +8442,7 @@ final class cmuxUITests: XCTestCase {
     }
 
     @MainActor
-    private func openSelectedWorkspaceIfNeeded(_ app: XCUIApplication) throws {
+    private func dismissLaunchAnnouncements(in app: XCUIApplication) throws {
         grantNotificationAuthorizationIfRequested()
         let whatsNewSheet = app.collectionViews["MobileWhatsNewSheet"].firstMatch
         if whatsNewSheet.waitForExistence(timeout: 4) {
@@ -8455,6 +8460,14 @@ final class cmuxUITests: XCTestCase {
                 "Dismiss What's New before checking the workspace toolbar"
             )
         }
+        let banner = XCUIApplication(bundleIdentifier: "com.apple.springboard")
+            .descendants(matching: .any)["NotificationShortLookView"].firstMatch
+        _ = try XCTUnwrap(banner.waitForNonExistence(timeout: 15) ? true : nil)
+    }
+
+    @MainActor
+    private func openSelectedWorkspaceIfNeeded(_ app: XCUIApplication) throws {
+        try dismissLaunchAnnouncements(in: app)
         if app.otherElements["MobileTerminalSurface"].waitForExistence(timeout: 8) {
             return
         }
