@@ -530,6 +530,7 @@ jobs:
           python3 scripts/ci/build_metrics.py "${args[@]}"
 
       - name: Upload Xcode build metrics receipt
+        id: upload-build-metrics
         if: always() && !cancelled() && steps.build-metrics.outcome == 'success'
         continue-on-error: true
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -863,6 +864,7 @@ jobs:
           PY
 
       - name: Upload compile admission metrics
+        id: upload-admission-metrics
         if: always() && !cancelled() && steps.admission-metrics.outputs.path != ''
         continue-on-error: true
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -872,6 +874,45 @@ jobs:
           if-no-files-found: error
           retention-days: 14
           compression-level: 0
+
+      - name: Report evidence collection outcomes
+        if: ${{ always() }}
+        env:
+          EVIDENCE_OUTCOMES: >-
+            upload-admission-metrics=${{ steps.upload-admission-metrics.outcome }}
+            upload-build-metrics=${{ steps.upload-build-metrics.outcome }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import os
+
+          rows = []
+          for entry in os.environ["EVIDENCE_OUTCOMES"].split():
+              label, _, outcome = entry.partition("=")
+              # An empty outcome means the step never ran, which is the same
+              # thing as skipped for this purpose.
+              rows.append((label, outcome or "skipped"))
+
+          # A green job skips every evidence step by design, so stay silent
+          # rather than adding a section to every summary in the repository.
+          if any(outcome != "skipped" for _, outcome in rows):
+              summary = os.environ.get("GITHUB_STEP_SUMMARY")
+              if summary:
+                  with open(summary, "a", encoding="utf-8") as handle:
+                      handle.write("### Evidence collection\n\n")
+                      for label, outcome in rows:
+                          handle.write(f"- {label}: `{outcome}`\n")
+                      handle.write("\n")
+
+          # Annotations go to stdout, where the runner reads them, and surface
+          # at the top of the run instead of inside a step nobody opens.
+          for label, outcome in rows:
+              if outcome == "failure":
+                  print(
+                      f"::warning title=Evidence not captured::{label} failed, "
+                      "so its evidence does not exist for this job"
+                  )
+          PY
 
       - name: Seed node-local compiled product cache
         if: steps.publish-products.outputs.publish == 'true'
@@ -1550,6 +1591,7 @@ jobs:
           done
 
       - name: Collect RemoteTmuxMirror crash diagnostics
+        id: collect-mirror-diagnostics
         if: ${{ failure() && steps.remote-tmux-mirror.outcome == 'failure' }}
         continue-on-error: true
         shell: bash
@@ -1605,6 +1647,7 @@ jobs:
           find "$diagnostics" -type f -print || true
 
       - name: Upload RemoteTmuxMirror crash diagnostics
+        id: upload-mirror-diagnostics
         if: ${{ failure() && steps.remote-tmux-mirror.outcome == 'failure' }}
         continue-on-error: true
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -2328,6 +2371,7 @@ jobs:
           CMUX_CLI_BIN="$CLI_BIN" python3 scripts/ci/run_python_test_lane.py --lane macos-cli-no-socket-post-fish
 
       - name: Collect app-host failure diagnostics
+        id: collect-app-host-diagnostics
         if: ${{ failure() || cancelled() }}
         continue-on-error: true
         shell: bash
@@ -2402,6 +2446,7 @@ jobs:
           find "$diagnostics" -type f -print | sort || true
 
       - name: Upload app-host failure diagnostics
+        id: upload-app-host-diagnostics
         if: ${{ failure() || cancelled() }}
         continue-on-error: true
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -2410,6 +2455,47 @@ jobs:
           path: ${{ runner.temp }}/cmux-app-host-diagnostics-shard-${{ matrix.shard }}-run-${{ github.run_attempt }}
           if-no-files-found: warn
           retention-days: 7
+
+      - name: Report evidence collection outcomes
+        if: ${{ always() }}
+        env:
+          EVIDENCE_OUTCOMES: >-
+            collect-mirror-diagnostics=${{ steps.collect-mirror-diagnostics.outcome }}
+            upload-mirror-diagnostics=${{ steps.upload-mirror-diagnostics.outcome }}
+            collect-app-host-diagnostics=${{ steps.collect-app-host-diagnostics.outcome }}
+            upload-app-host-diagnostics=${{ steps.upload-app-host-diagnostics.outcome }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import os
+
+          rows = []
+          for entry in os.environ["EVIDENCE_OUTCOMES"].split():
+              label, _, outcome = entry.partition("=")
+              # An empty outcome means the step never ran, which is the same
+              # thing as skipped for this purpose.
+              rows.append((label, outcome or "skipped"))
+
+          # A green job skips every evidence step by design, so stay silent
+          # rather than adding a section to every summary in the repository.
+          if any(outcome != "skipped" for _, outcome in rows):
+              summary = os.environ.get("GITHUB_STEP_SUMMARY")
+              if summary:
+                  with open(summary, "a", encoding="utf-8") as handle:
+                      handle.write("### Evidence collection\n\n")
+                      for label, outcome in rows:
+                          handle.write(f"- {label}: `{outcome}`\n")
+                      handle.write("\n")
+
+          # Annotations go to stdout, where the runner reads them, and surface
+          # at the top of the run instead of inside a step nobody opens.
+          for label, outcome in rows:
+              if outcome == "failure":
+                  print(
+                      f"::warning title=Evidence not captured::{label} failed, "
+                      "so its evidence does not exist for this job"
+                  )
+          PY
 
       - name: Clean up isolated app-host home
         if: ${{ always() }}
@@ -2699,9 +2785,9 @@ jobs:
           output="$(swift test --package-path vendor/bonsplit 2>&1)" || test_status=$?
           printf '%s\n' "$output"
           if [ "$test_status" -ne 0 ] \
-            && printf '%s\n' "$output" | grep -Fq 'Build complete!' \
-            && printf '%s\n' "$output" | grep -Eq 'Exited with unexpected signal code [56]([^0-9]|$)' \
-            && ! printf '%s\n' "$output" | grep -Eq '^(Test Suite|Test Case|◇ |↳ |✔ |✘ )'; then
+            && grep -Fq 'Build complete!' <<<"$output" \
+            && grep -Eq 'Exited with unexpected signal code [56]([^0-9]|$)' <<<"$output" \
+            && ! grep -Eq '^(Test Suite|Test Case|◇ |↳ |✔ |✘ )' <<<"$output"; then
             echo "Test runner crashed at startup (runner flake); retrying Bonsplit once."
             test_status=0
             output="$(swift test --package-path vendor/bonsplit 2>&1)" || test_status=$?
@@ -2710,6 +2796,7 @@ jobs:
           if [ "$test_status" -ne 0 ]; then
             exit "$test_status"
           fi
+          printf '%s\n' "$output" | python3 scripts/ci/require_swift_test_execution.py --log /dev/stdin
 
       - name: Run Swift package unit tests
         env:
@@ -2779,13 +2866,18 @@ jobs:
               output="$(swift test "${swift_test_args[@]}" 2>&1)" || test_status=$?
               printf '%s\n' "$output"
               if [ "$test_status" -ne 0 ]; then
-                if printf '%s\n' "$output" | grep -Eq 'Test run with [0-9]+ tests( in [0-9]+ suites)? passed' \
-                  && ! printf '%s\n' "$output" | grep -Eq 'with [1-9][0-9]* failures?' \
-                  && ! printf '%s\n' "$output" | grep -v 'unexpected binary' | grep -Eq '(^|[^a-zA-Z])error:'; then
+                if [ "$test_status" -eq 1 ] \
+                  && grep -Eq 'error:.*unexpected binary' <<<"$output" \
+                  && python3 scripts/ci/require_swift_test_execution.py --log /dev/stdin <<<"$output" \
+                  && ! grep -Eq 'with [1-9][0-9]* failures?' <<<"$output" \
+                  && ! grep -Fq 'Exited with unexpected signal code' <<<"$output" \
+                  && ! grep -Eq '(^|[^a-zA-Z])error:' <<<"$(grep -v 'unexpected binary' <<<"$output")"; then
                   echo "Tolerated cosmetic GhosttyKit binaryTarget diagnostic; all tests passed."
                 else
                   exit "$test_status"
                 fi
+              else
+                printf '%s\n' "$output" | python3 scripts/ci/require_swift_test_execution.py --log /dev/stdin
               fi
               ;;
             *)
@@ -2798,9 +2890,9 @@ jobs:
               output="$(swift test "${swift_test_args[@]}" 2>&1)" || test_status=$?
               printf '%s\n' "$output"
               if [ "$test_status" -ne 0 ] \
-                && printf '%s\n' "$output" | grep -Fq 'Build complete!' \
-                && printf '%s\n' "$output" | grep -Eq 'Exited with unexpected signal code [56]([^0-9]|$)' \
-                && ! printf '%s\n' "$output" | grep -Eq '^(Test Suite|Test Case|◇ |↳ |✔ |✘ )'; then
+                && grep -Fq 'Build complete!' <<<"$output" \
+                && grep -Eq 'Exited with unexpected signal code [56]([^0-9]|$)' <<<"$output" \
+                && ! grep -Eq '^(Test Suite|Test Case|◇ |↳ |✔ |✘ )' <<<"$output"; then
                 echo "Test runner crashed at startup (runner flake); retrying $pkg once."
                 test_status=0
                 output="$(swift test "${swift_test_args[@]}" 2>&1)" || test_status=$?
@@ -2809,6 +2901,7 @@ jobs:
               if [ "$test_status" -ne 0 ]; then
                 exit "$test_status"
               fi
+              printf '%s\n' "$output" | python3 scripts/ci/require_swift_test_execution.py --log /dev/stdin
               ;;
             esac
             echo "::endgroup::"

@@ -52,6 +52,8 @@ jobs:
     outputs:
       macos: ${{ steps.detect.outputs.macos }}
       cli: ${{ steps.detect.outputs.cli }}
+      browser: ${{ steps.standalone.outputs.browser }}
+      remote_daemon: ${{ steps.standalone.outputs.remote_daemon }}
       # Empty until the base revision of the router knows this area, so the
       # consumers below read a missing value as "not routed".
       swift_packages: ${{ steps.detect.outputs.swift_packages || 'false' }}
@@ -139,6 +141,8 @@ jobs:
             # Keep both sides of renames visible to path-based guard routing.
             # A guarded file moved into docs/ must still run its owning checks.
             if ! git diff --no-renames --name-only "$BASE_SHA" "$MERGE_SHA" > /tmp/cmux-ci-changed-files.txt; then
+              # Absence means unavailable; an existing empty file means a known empty diff.
+              rm -f /tmp/cmux-ci-changed-files.txt
               echo "Could not compute PR diff; running all CI areas." >&2
               emit_all_areas
               exit 0
@@ -155,6 +159,16 @@ jobs:
                 echo "release_build=false"
               } >> "$GITHUB_OUTPUT"
               exit 0
+            fi
+
+            # Registry edits that only register Linux guards do not change the
+            # native test lanes. Missing history keeps the detector fail-open.
+            registry_base_args=()
+            if grep -Fxq 'tests/test-execution.toml' /tmp/cmux-ci-changed-files.txt; then
+              registry_base="$(mktemp "${RUNNER_TEMP:-/tmp}/cmux-test-registry-base.XXXXXX")"
+              if git show "$BASE_SHA:tests/test-execution.toml" > "$registry_base"; then
+                registry_base_args=(--test-registry-base "$registry_base")
+              fi
             fi
 
             # A provenance-only PR gets the cheap Linux guard and avoids
@@ -308,6 +322,11 @@ jobs:
               fi
 
               echo "CI routing policy changed; classifying product inputs with the trusted base router."
+              if [ "${#registry_base_args[@]}" -gt 0 ] && ! python3 "$trusted_root/scripts/ci/detect_ci_change_areas.py" --help | grep -q -- '--test-registry-base'; then
+                echo "Trusted router predates registry comparison; running all CI areas."
+                emit_all_areas
+                exit 0
+              fi
               trusted_areas=/tmp/cmux-ci-trusted-areas.txt
               : > "$trusted_areas"
               (
@@ -316,6 +335,7 @@ jobs:
                 python3 scripts/ci/detect_ci_change_areas.py \
                   --event-name "$EVENT_NAME" \
                   --files-from "$product_files" \
+                  ${registry_base_args[@]+"${registry_base_args[@]}"} \
                   --github-output "$trusted_areas"
               )
               if [ "$cli_call_site_changed" = true ]; then
@@ -342,6 +362,7 @@ jobs:
             python3 scripts/ci/detect_ci_change_areas.py \
               --event-name "$EVENT_NAME" \
               --files-from /tmp/cmux-ci-changed-files.txt \
+              ${registry_base_args[@]+"${registry_base_args[@]}"} \
               ${workflow_base_args[@]+"${workflow_base_args[@]}"}
             exit 0
           fi
@@ -350,6 +371,37 @@ jobs:
             --event-name "$EVENT_NAME" \
             --base-sha "$BASE_SHA" \
             --head-sha "$HEAD_SHA"
+
+      - name: Route standalone project workflows
+        id: standalone
+        run: |
+          set -euo pipefail
+          browser=false
+          remote_daemon=false
+          if [ -f /tmp/cmux-ci-changed-files.txt ]; then
+            while IFS= read -r path; do
+              case "$path" in
+                .github/workflows/ci.yml)
+                  # The caller owns both reusable jobs' conditions and targets.
+                  browser=true
+                  remote_daemon=true
+                  ;;
+                cmux-browser/*|.github/workflows/cmux-browser.yml)
+                  browser=true
+                  ;;
+                daemon/remote/*|scripts/*remote_daemon*|scripts/release_asset_guard*|tests/*remote_daemon*|.github/workflows/remote-daemon.yml|.github/workflows/release.yml|.github/workflows/nightly.yml)
+                  remote_daemon=true
+                  ;;
+              esac
+            done < /tmp/cmux-ci-changed-files.txt
+          else
+            browser=true
+            remote_daemon=true
+          fi
+          {
+            echo "browser=$browser"
+            echo "remote_daemon=$remote_daemon"
+          } >> "$GITHUB_OUTPUT"
 
       # Compile admission runs on every routed push. The rest of the macOS suite
       # runs on merge groups and dispatches always, and on pull requests unless
@@ -700,6 +752,19 @@ jobs:
           GHOSTTYKIT_DOWNLOAD_RETRY_DELAY: "1"
         run: ./scripts/download-prebuilt-ghosttykit.sh --verify-only
 
+  browser:
+    needs: [changes, static-preflight]
+    if: ${{ needs.changes.outputs.browser == 'true' }}
+    uses: ./.github/workflows/cmux-browser.yml
+
+  remote-daemon:
+    needs: [changes, static-preflight]
+    if: ${{ needs.changes.outputs.remote_daemon == 'true' }}
+    permissions:
+      contents: read
+      pull-requests: read
+    uses: ./.github/workflows/remote-daemon.yml
+
   cli:
     needs: [changes, static-preflight]
     if: ${{ needs.changes.outputs.cli == 'true' }}
@@ -995,6 +1060,8 @@ jobs:
       - static-preflight
       - guards
       - ghosttykit-release-check
+      - browser
+      - remote-daemon
       - cli
       - web
       - linux-preflight
