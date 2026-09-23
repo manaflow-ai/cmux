@@ -17818,21 +17818,47 @@ struct CMUXCLI {
                 // historical behavior: the relay's host resolves the ref against its own
                 // handle registry. Inventing a "not found" here would instead break every
                 // ref-taking command on a relay session.
-                guard let windows = try? client.sendV2(method: "window.list", responseTimeout: responseTimeout, deadline: deadline) else {
-                    return raw
-                }
-                let windowList = windows["windows"] as? [[String: Any]] ?? []
-                var readAnyWorkspaceList = false
-                for window in windowList {
-                    guard let windowId = window["id"] as? String else { continue }
-                    guard let listed = try? client.sendV2(method: "workspace.list", params: ["window_id": windowId], responseTimeout: responseTimeout, deadline: deadline) else { continue }
-                    readAnyWorkspaceList = true
+                // Try the parameterless read first. It is served from the
+                // published snapshot rather than a live main-actor hop, and it is
+                // on the relay allowlist, so the common case costs one cheap RPC
+                // on both the local and the relay path.
+                if let listed = try? client.sendV2(method: "workspace.list", responseTimeout: responseTimeout, deadline: deadline) {
                     let items = listed["workspaces"] as? [[String: Any]] ?? []
                     for item in items where (item["ref"] as? String) == raw {
                         if let id = item["id"] as? String { return id }
                     }
                 }
-                guard readAnyWorkspaceList else { return raw }
+                // Over a relay the cross-window scan cannot run at all: both
+                // `window.list` and `workspace.list` carrying a `window_id` are off
+                // the allowlist (`RemoteRelayRoutingSchema`). Hand the ref to the
+                // host, which resolves it against its own handle registry, rather
+                // than spending a doomed round trip to learn that.
+                if client.isRelayBacked { return raw }
+                var scannedEveryWindow = false
+                if let windows = try? client.sendV2(method: "window.list", responseTimeout: responseTimeout, deadline: deadline) {
+                    let windowList = windows["windows"] as? [[String: Any]] ?? []
+                    scannedEveryWindow = !windowList.isEmpty
+                    for window in windowList {
+                        guard let windowId = window["id"] as? String else {
+                            scannedEveryWindow = false
+                            continue
+                        }
+                        guard let listed = try? client.sendV2(method: "workspace.list", params: ["window_id": windowId], responseTimeout: responseTimeout, deadline: deadline) else {
+                            // A window that closed between the two calls, or an
+                            // admission backoff, leaves a hole in the scan.
+                            scannedEveryWindow = false
+                            continue
+                        }
+                        let items = listed["workspaces"] as? [[String: Any]] ?? []
+                        for item in items where (item["ref"] as? String) == raw {
+                            if let id = item["id"] as? String { return id }
+                        }
+                    }
+                }
+                // Only claim the ref is absent after actually reading every window.
+                // A partial scan that reported "not found" would be the same
+                // confidently-wrong error this change exists to remove.
+                guard scannedEveryWindow else { return raw }
             }
             throw CLIError(message: "Workspace ref not found: \(raw)")
         }
