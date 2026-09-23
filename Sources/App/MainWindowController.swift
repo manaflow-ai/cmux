@@ -8,6 +8,10 @@ final class MainWindowController: ReleasingWindowController {
     var onFrameRestorationCheckpoint: ((NSWindow) -> Void)?
     /// Reports AppKit geometry callbacks for this window to its lifecycle owner.
     var onGeometryChanged: ((NSWindow) -> Void)?
+    /// Lifecycle policy for treating a non-live-resize callback as deliberate placement.
+    var shouldRetireZoomIntentForProgrammaticResize: ((CmuxMainWindow) -> Bool) = { _ in true }
+
+    private var isFullScreenTransitionInProgress = false
 
 #if DEBUG
     private func logWindowEvent(_ event: String, notification: Notification) {
@@ -23,8 +27,31 @@ final class MainWindowController: ReleasingWindowController {
         onClose?(window)
     }
 
+    func windowWillEnterFullScreen(_ notification: Notification) {
+        setFullScreenTransitionInProgress(true, notification: notification)
+    }
+
+    func windowDidEnterFullScreen(_ notification: Notification) {
+        setFullScreenTransitionInProgress(false, notification: notification)
+    }
+
+    func windowDidFailToEnterFullScreen(_ window: NSWindow) {
+        guard window === self.window else { return }
+        isFullScreenTransitionInProgress = false
+    }
+
+    func windowWillExitFullScreen(_ notification: Notification) {
+        setFullScreenTransitionInProgress(true, notification: notification)
+    }
+
     func windowDidExitFullScreen(_ notification: Notification) {
+        setFullScreenTransitionInProgress(false, notification: notification)
         handleFrameRestorationCheckpoint("didExitFullScreen", notification: notification)
+    }
+
+    func windowDidFailToExitFullScreen(_ window: NSWindow) {
+        guard window === self.window else { return }
+        isFullScreenTransitionInProgress = false
     }
 
     func windowDidDeminiaturize(_ notification: Notification) {
@@ -48,8 +75,9 @@ final class MainWindowController: ReleasingWindowController {
         handleGeometryChange(notification)
     }
 
-    /// Forwards a completed AppKit resize callback for the managed window.
+    /// Treats an unowned resize callback as deliberate placement, then forwards it.
     func windowDidResize(_ notification: Notification) {
+        handleProgrammaticResizePlacement(notification)
         handleGeometryChange(notification)
     }
 
@@ -105,6 +133,38 @@ final class MainWindowController: ReleasingWindowController {
         logWindowEvent(event, notification: notification)
 #endif
         onFrameRestorationCheckpoint?(restoredWindow)
+    }
+
+    /// Retires stale zoom intent for external/programmatic frame assignment while
+    /// preserving cmux-owned repair and native fullscreen transition frames.
+    private func handleProgrammaticResizePlacement(_ notification: Notification) {
+        guard let placedWindow = notification.object as? CmuxMainWindow,
+              placedWindow === window,
+              placedWindow.cmuxWantsZoomedFrame else {
+            return
+        }
+        if placedWindow.isApplyingManagedPlacement
+            || placedWindow.consumeManagedPlacementResizeCallback() {
+            return
+        }
+        guard !placedWindow.isZoomed,
+              !isFullScreenTransitionInProgress,
+              !placedWindow.styleMask.contains(.fullScreen),
+              shouldRetireZoomIntentForProgrammaticResize(placedWindow) else {
+            return
+        }
+        placedWindow.recordUserPlacement()
+    }
+
+    private func setFullScreenTransitionInProgress(
+        _ isInProgress: Bool,
+        notification: Notification
+    ) {
+        guard let changedWindow = notification.object as? NSWindow,
+              changedWindow === window else {
+            return
+        }
+        isFullScreenTransitionInProgress = isInProgress
     }
 
     /// Delivers a geometry callback only when it belongs to the managed window.

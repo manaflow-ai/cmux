@@ -9,6 +9,7 @@ from __future__ import annotations
 import argparse
 import contextlib
 import datetime as dt
+import errno
 import fcntl
 import hashlib
 import json
@@ -28,6 +29,8 @@ from typing import Any, Iterator, Sequence
 
 SCHEMA = 1
 TERM_GRACE_SECONDS = 10.0
+CLEANUP_TERM_GRACE_SECONDS = 1.0
+EVENT_JOURNAL_MAX_BYTES = 16 * 1024 * 1024
 IDENTIFIER_CHARS = frozenset(
     "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._:@+-"
 )
@@ -292,7 +295,10 @@ class Layout:
         self.preempt_fifo = machine / "warmer-preempt.fifo"
         self.checkout_locks = machine / "checkout-locks"
         self.events = machine / "events.jsonl"
+        self.events_archive = machine / "events.jsonl.1"
         self.events_lock = machine / "events.lock"
+        self.cleanup_lock = machine / "cold-cleanup.lock"
+        self.retired_cold_tasks = self.cache / "retired-cold-tasks"
 
 
 @contextlib.contextmanager
@@ -309,6 +315,614 @@ def locked(path: Path, blocking: bool = True) -> Iterator[None]:
             stream.close()
 
 
+def cold_task_generation_id(value: Any) -> str:
+    if (
+        not isinstance(value, str)
+        or len(value) != 32
+        or any(character not in "0123456789abcdef" for character in value)
+    ):
+        raise ValueError("cold task generation id must be 32 lowercase hex characters")
+    return value
+
+
+def cold_task_root(layout: Layout, generation_id: str) -> Path:
+    return layout.cache / "cold-tasks" / cold_task_generation_id(generation_id)
+
+
+def retired_cold_task_root(layout: Layout, generation_id: str) -> Path:
+    return layout.retired_cold_tasks / cold_task_generation_id(generation_id)
+
+
+_DIRECTORY_OPEN_FLAGS = (
+    os.O_RDONLY
+    | getattr(os, "O_DIRECTORY", 0)
+    | getattr(os, "O_NOFOLLOW", 0)
+)
+_PATH_CONFUSION_ERRNOS = {errno.ELOOP, errno.ENOTDIR}
+
+
+def _directory_error_state(error: OSError) -> str:
+    return "path_confusion" if error.errno in _PATH_CONFUSION_ERRNOS else "unavailable"
+
+
+def _open_cache_directory_fd(
+    layout: Layout,
+    directory: Path,
+    *,
+    create: bool,
+) -> tuple[str, int | None]:
+    """Open a fixed slot-cache directory chain without following symlinks."""
+    try:
+        relative = directory.relative_to(layout.cache)
+    except ValueError:
+        return "path_confusion", None
+
+    try:
+        current_fd = os.open(layout.machine, _DIRECTORY_OPEN_FLAGS)
+    except FileNotFoundError:
+        return "absent", None
+    except OSError as error:
+        return _directory_error_state(error), None
+
+    try:
+        for component in ("slots", layout.slot_id, "cache", *relative.parts):
+            while True:
+                try:
+                    child_fd = os.open(
+                        component,
+                        _DIRECTORY_OPEN_FLAGS,
+                        dir_fd=current_fd,
+                    )
+                    break
+                except FileNotFoundError:
+                    if not create:
+                        os.close(current_fd)
+                        return "absent", None
+                    try:
+                        os.mkdir(component, mode=0o700, dir_fd=current_fd)
+                    except FileExistsError:
+                        continue
+                    except OSError as error:
+                        os.close(current_fd)
+                        return _directory_error_state(error), None
+                except OSError as error:
+                    os.close(current_fd)
+                    return _directory_error_state(error), None
+            os.close(current_fd)
+            current_fd = child_fd
+        return "ready", current_fd
+    except BaseException:
+        with contextlib.suppress(OSError):
+            os.close(current_fd)
+        raise
+
+
+def _same_directory(left: os.stat_result, right: os.stat_result) -> bool:
+    return (left.st_dev, left.st_ino) == (right.st_dev, right.st_ino)
+
+
+def _directory_entry_state(
+    parent_fd: int,
+    name: str,
+) -> tuple[str, os.stat_result | None]:
+    try:
+        info = os.stat(name, dir_fd=parent_fd, follow_symlinks=False)
+    except FileNotFoundError:
+        return "absent", None
+    except OSError as error:
+        return _directory_error_state(error), None
+    if not stat.S_ISDIR(info.st_mode):
+        return "path_confusion", info
+    return "ready", info
+
+
+def _open_child_directory_fd(
+    parent_fd: int,
+    name: str,
+) -> tuple[str, int | None, os.stat_result | None]:
+    state, before = _directory_entry_state(parent_fd, name)
+    if state != "ready" or before is None:
+        return state, None, before
+    try:
+        child_fd = os.open(name, _DIRECTORY_OPEN_FLAGS, dir_fd=parent_fd)
+    except FileNotFoundError:
+        return "absent", None, None
+    except OSError as error:
+        return _directory_error_state(error), None, None
+    after = os.fstat(child_fd)
+    if not _same_directory(before, after):
+        os.close(child_fd)
+        return "path_confusion", None, None
+    return "ready", child_fd, after
+
+
+def _directory_bytes_fd(directory_fd: int) -> int:
+    total = 0
+    for name in os.listdir(directory_fd):
+        try:
+            info = os.stat(name, dir_fd=directory_fd, follow_symlinks=False)
+        except FileNotFoundError:
+            continue
+        if stat.S_ISDIR(info.st_mode):
+            state, child_fd, _ = _open_child_directory_fd(directory_fd, name)
+            if state == "absent":
+                continue
+            if state != "ready" or child_fd is None:
+                raise OSError(errno.ELOOP, "directory changed during byte measurement", name)
+            try:
+                total += _directory_bytes_fd(child_fd)
+            finally:
+                os.close(child_fd)
+        else:
+            total += int(info.st_size)
+    return total
+
+
+def _remove_tree_contents_fd(directory_fd: int) -> None:
+    """Recursively empty one already-open directory without pathname traversal."""
+    for name in os.listdir(directory_fd):
+        try:
+            info = os.stat(name, dir_fd=directory_fd, follow_symlinks=False)
+        except FileNotFoundError:
+            continue
+
+        if not stat.S_ISDIR(info.st_mode):
+            try:
+                os.unlink(name, dir_fd=directory_fd)
+            except FileNotFoundError:
+                pass
+            continue
+
+        state, child_fd, opened = _open_child_directory_fd(directory_fd, name)
+        if state == "absent":
+            continue
+        if state != "ready" or child_fd is None or opened is None:
+            raise OSError(errno.ELOOP, "directory changed during cleanup", name)
+        try:
+            _remove_tree_contents_fd(child_fd)
+            try:
+                current = os.stat(name, dir_fd=directory_fd, follow_symlinks=False)
+            except FileNotFoundError:
+                continue
+            if not stat.S_ISDIR(current.st_mode) or not _same_directory(opened, current):
+                raise OSError(errno.ELOOP, "directory changed during cleanup", name)
+            os.rmdir(name, dir_fd=directory_fd)
+        finally:
+            os.close(child_fd)
+
+
+def _launch_cleanup_worker(
+    generation_fd: int,
+    generation: str,
+) -> subprocess.Popen:
+    del generation  # correlation is for tests/logging; authority is the inherited fd.
+    return subprocess.Popen(
+        [
+            sys.executable,
+            str(Path(__file__).resolve()),
+            "_cleanup-generation",
+            "--directory-fd",
+            str(generation_fd),
+        ],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        start_new_session=True,
+        pass_fds=(generation_fd,),
+    )
+
+
+def retire_cold_task(layout: Layout, generation_id: Any) -> dict[str, Any]:
+    try:
+        generation = cold_task_generation_id(generation_id)
+    except ValueError:
+        return {"status": "invalid_identity"}
+
+    active_namespace = layout.cache / "cold-tasks"
+    active_state, active_fd = _open_cache_directory_fd(
+        layout,
+        active_namespace,
+        create=False,
+    )
+    if active_state == "absent":
+        return {"status": "absent", "cold_task_generation_id": generation}
+    if active_state != "ready" or active_fd is None:
+        reason = (
+            "active_namespace_path_confusion"
+            if active_state == "path_confusion"
+            else "active_namespace_unavailable"
+        )
+        event(
+            layout,
+            "cold_task_retirement_deferred",
+            cold_task_generation_id=generation,
+            reason=reason,
+        )
+        return {
+            "status": "invalid_namespace" if active_state == "path_confusion" else "deferred",
+            "reason": reason,
+            "cold_task_generation_id": generation,
+        }
+
+    retired_fd: int | None = None
+    try:
+        retired_state, retired_fd = _open_cache_directory_fd(
+            layout,
+            layout.retired_cold_tasks,
+            create=True,
+        )
+        if retired_state != "ready" or retired_fd is None:
+            reason = (
+                "retired_namespace_path_confusion"
+                if retired_state == "path_confusion"
+                else "retired_namespace_unavailable"
+            )
+            event(
+                layout,
+                "cold_task_retirement_deferred",
+                cold_task_generation_id=generation,
+                reason=reason,
+            )
+            return {
+                "status": "invalid_namespace" if retired_state == "path_confusion" else "deferred",
+                "reason": reason,
+                "cold_task_generation_id": generation,
+            }
+
+        active_generation_state, _ = _directory_entry_state(active_fd, generation)
+        retired_generation_state, _ = _directory_entry_state(retired_fd, generation)
+
+        if retired_generation_state == "path_confusion":
+            event(
+                layout,
+                "cold_task_retirement_deferred",
+                cold_task_generation_id=generation,
+                reason="retired_generation_path_confusion",
+            )
+            return {
+                "status": "invalid_namespace",
+                "reason": "retired_generation_path_confusion",
+                "cold_task_generation_id": generation,
+            }
+        if retired_generation_state == "unavailable":
+            return {
+                "status": "deferred",
+                "reason": "retired_generation_unreadable",
+                "cold_task_generation_id": generation,
+            }
+        if active_generation_state == "path_confusion":
+            event(
+                layout,
+                "cold_task_retirement_deferred",
+                cold_task_generation_id=generation,
+                reason="active_generation_path_confusion",
+            )
+            return {
+                "status": "invalid_namespace",
+                "reason": "active_generation_path_confusion",
+                "cold_task_generation_id": generation,
+            }
+        if active_generation_state == "unavailable":
+            return {
+                "status": "deferred",
+                "reason": "active_generation_unreadable",
+                "cold_task_generation_id": generation,
+            }
+
+        if retired_generation_state == "ready":
+            return {
+                "status": "already_retired" if active_generation_state == "absent" else "conflict",
+                "cold_task_generation_id": generation,
+            }
+        if active_generation_state == "absent":
+            return {"status": "absent", "cold_task_generation_id": generation}
+
+        try:
+            os.rename(
+                generation,
+                generation,
+                src_dir_fd=active_fd,
+                dst_dir_fd=retired_fd,
+            )
+        except OSError:
+            event(
+                layout,
+                "cold_task_retirement_deferred",
+                cold_task_generation_id=generation,
+                reason="rename_failed",
+            )
+            return {
+                "status": "deferred",
+                "reason": "rename_failed",
+                "cold_task_generation_id": generation,
+            }
+
+        post_state, _ = _directory_entry_state(retired_fd, generation)
+        if post_state != "ready":
+            reason = (
+                "retired_generation_path_confusion"
+                if post_state == "path_confusion"
+                else "retired_generation_unreadable"
+            )
+            event(
+                layout,
+                "cold_task_retirement_deferred",
+                cold_task_generation_id=generation,
+                reason=reason,
+            )
+            return {
+                "status": "invalid_namespace" if post_state == "path_confusion" else "deferred",
+                "reason": reason,
+                "cold_task_generation_id": generation,
+            }
+
+        event(layout, "cold_task_retired", cold_task_generation_id=generation)
+        return {"status": "retired", "cold_task_generation_id": generation}
+    finally:
+        os.close(active_fd)
+        if retired_fd is not None:
+            os.close(retired_fd)
+
+
+def _wait_cleanup_process(
+    proc: subprocess.Popen,
+    preempt_fd: int | None,
+) -> bool:
+    """Wait for cleanup completion while allowing foreground work to preempt it."""
+    if preempt_fd is None:
+        proc.wait()
+        return False
+
+    done_read, done_write = os.pipe()
+    waiter_error: list[BaseException] = []
+
+    def wait_for_exit() -> None:
+        try:
+            proc.wait()
+        except BaseException as error:
+            waiter_error.append(error)
+        finally:
+            with contextlib.suppress(OSError):
+                os.write(done_write, b"1")
+            with contextlib.suppress(OSError):
+                os.close(done_write)
+
+    waiter = threading.Thread(
+        target=wait_for_exit,
+        name="cmux-cold-cleanup-waiter",
+        daemon=True,
+    )
+    waiter.start()
+    try:
+        while True:
+            ready, _, _ = select.select([done_read, preempt_fd], [], [])
+            if done_read in ready:
+                with contextlib.suppress(OSError):
+                    os.read(done_read, 1)
+                waiter.join()
+                if waiter_error:
+                    raise waiter_error[0]
+                return False
+            if preempt_fd in ready and consume_preempt(preempt_fd):
+                with contextlib.suppress(ProcessLookupError):
+                    os.killpg(proc.pid, signal.SIGTERM)
+                waiter.join(CLEANUP_TERM_GRACE_SECONDS)
+                if waiter.is_alive():
+                    with contextlib.suppress(ProcessLookupError):
+                        os.killpg(proc.pid, signal.SIGKILL)
+                    waiter.join()
+                if waiter_error:
+                    raise waiter_error[0]
+                return True
+    finally:
+        with contextlib.suppress(OSError):
+            os.close(done_read)
+
+
+def cleanup_retired_cold_tasks(
+    layout: Layout,
+    *,
+    preempt_fd: int | None = None,
+    max_generations: int = 1,
+    measure_bytes: bool = False,
+) -> dict[str, Any]:
+    """Reclaim bounded retired cold-task generations outside foreground locks."""
+    started = time.monotonic()
+    reclaimed_bytes = 0
+
+    def finished(result: dict[str, Any]) -> dict[str, Any]:
+        result["wall_seconds"] = round(time.monotonic() - started, 6)
+        if measure_bytes:
+            result["reclaimed_bytes"] = reclaimed_bytes
+        return result
+
+    if max_generations <= 0 or max_generations > 32:
+        return finished({
+            "status": "failed",
+            "reason": "invalid_cleanup_budget",
+            "reclaimed": 0,
+        })
+    try:
+        cleanup_lock = locked(layout.cleanup_lock, blocking=False)
+        cleanup_lock.__enter__()
+    except BlockingIOError:
+        event(layout, "cold_task_cleanup_deferred", reason="cleanup_already_running")
+        return finished({"status": "deferred", "reason": "cleanup_already_running", "reclaimed": 0})
+
+    reclaimed = 0
+    failures: list[dict[str, str]] = []
+    attempts = 0
+    retired_fd: int | None = None
+    try:
+        retired_state, retired_fd = _open_cache_directory_fd(
+            layout,
+            layout.retired_cold_tasks,
+            create=False,
+        )
+        if retired_state == "absent":
+            return finished({"status": "idle", "reclaimed": 0})
+        if retired_state != "ready" or retired_fd is None:
+            reason = (
+                "retired_namespace_path_confusion"
+                if retired_state == "path_confusion"
+                else "retired_namespace_unreadable"
+            )
+            event(layout, "cold_task_cleanup_failed", reason=reason)
+            return finished({"status": "failed", "reason": reason, "reclaimed": 0})
+
+        try:
+            retired_entries = sorted(os.listdir(retired_fd))
+        except OSError:
+            event(layout, "cold_task_cleanup_failed", reason="retired_namespace_unreadable")
+            return finished({
+                "status": "failed",
+                "reason": "retired_namespace_unreadable",
+                "reclaimed": 0,
+            })
+
+        for generation in retired_entries:
+            if reclaimed >= max_generations or attempts >= 32:
+                break
+            try:
+                cold_task_generation_id(generation)
+            except ValueError:
+                continue
+
+            attempts += 1
+            generation_state, generation_fd, generation_info = _open_child_directory_fd(
+                retired_fd,
+                generation,
+            )
+            if generation_state == "absent":
+                continue
+            if generation_state != "ready" or generation_fd is None or generation_info is None:
+                failure = {
+                    "cold_task_generation_id": generation,
+                    "reason": (
+                        "cleanup_generation_path_confusion"
+                        if generation_state == "path_confusion"
+                        else "cleanup_generation_unreadable"
+                    ),
+                }
+                failures.append(failure)
+                event(layout, "cold_task_cleanup_failed", **failure)
+                continue
+
+            try:
+                try:
+                    candidate_bytes = _directory_bytes_fd(generation_fd) if measure_bytes else 0
+                except OSError:
+                    failure = {
+                        "cold_task_generation_id": generation,
+                        "reason": "cleanup_generation_path_confusion",
+                    }
+                    failures.append(failure)
+                    event(layout, "cold_task_cleanup_failed", **failure)
+                    continue
+
+                try:
+                    proc = _launch_cleanup_worker(generation_fd, generation)
+                except OSError:
+                    failure = {
+                        "cold_task_generation_id": generation,
+                        "reason": "cleanup_launch_failed",
+                    }
+                    failures.append(failure)
+                    event(layout, "cold_task_cleanup_failed", **failure)
+                    continue
+
+                try:
+                    preempted = _wait_cleanup_process(proc, preempt_fd)
+                except (OSError, RuntimeError) as error:
+                    failure = {
+                        "cold_task_generation_id": generation,
+                        "reason": "cleanup_wait_failed",
+                    }
+                    failures.append(failure)
+                    event(
+                        layout,
+                        "cold_task_cleanup_failed",
+                        **failure,
+                        detail=str(error),
+                    )
+                    continue
+
+                if preempted:
+                    event(
+                        layout,
+                        "cold_task_cleanup_preempted",
+                        cold_task_generation_id=generation,
+                    )
+                    result: dict[str, Any] = {
+                        "status": "preempted",
+                        "reclaimed": reclaimed,
+                        "cold_task_generation_id": generation,
+                    }
+                    if failures:
+                        result["failures"] = failures
+                    return finished(result)
+
+                if proc.returncode != 0:
+                    failure = {
+                        "cold_task_generation_id": generation,
+                        "reason": "cleanup_failed",
+                    }
+                    failures.append(failure)
+                    event(layout, "cold_task_cleanup_failed", **failure)
+                    continue
+
+                current_state, current_info = _directory_entry_state(retired_fd, generation)
+                if (
+                    current_state != "ready"
+                    or current_info is None
+                    or not _same_directory(generation_info, current_info)
+                ):
+                    failure = {
+                        "cold_task_generation_id": generation,
+                        "reason": "cleanup_generation_path_confusion",
+                    }
+                    failures.append(failure)
+                    event(layout, "cold_task_cleanup_failed", **failure)
+                    continue
+
+                try:
+                    os.rmdir(generation, dir_fd=retired_fd)
+                except OSError:
+                    failure = {
+                        "cold_task_generation_id": generation,
+                        "reason": "cleanup_failed",
+                    }
+                    failures.append(failure)
+                    event(layout, "cold_task_cleanup_failed", **failure)
+                    continue
+
+                reclaimed += 1
+                reclaimed_bytes += candidate_bytes
+                event(
+                    layout,
+                    "cold_task_reclaimed",
+                    cold_task_generation_id=generation,
+                    reclaimed_bytes=candidate_bytes if measure_bytes else None,
+                )
+            finally:
+                os.close(generation_fd)
+
+        result = {
+            "status": "reclaimed" if reclaimed else ("failed" if failures else "idle"),
+            "reclaimed": reclaimed,
+        }
+        if failures:
+            result["failures"] = failures
+            if not reclaimed:
+                result["reason"] = failures[0]["reason"]
+                if "cold_task_generation_id" in failures[0]:
+                    result["cold_task_generation_id"] = failures[0]["cold_task_generation_id"]
+        return finished(result)
+    finally:
+        if retired_fd is not None:
+            os.close(retired_fd)
+        cleanup_lock.__exit__(None, None, None)
+
+
 def checkout_lock_path(layout: Layout, checkout: Path) -> Path:
     """Return one machine-local lock path for a physical checkout."""
     key = hashlib.sha256(str(checkout.resolve()).encode()).hexdigest()[:32]
@@ -323,14 +937,59 @@ def warm_slot_lock(layout: Layout, checkout: Path) -> Iterator[None]:
             yield
 
 
+def _trim_partial_event_tail(fd: int, size: int) -> int:
+    """Discard one crash-torn JSONL tail before appending new telemetry."""
+    if size <= 0 or os.pread(fd, 1, size - 1) == b"\n":
+        return max(size, 0)
+    offset = size
+    while offset > 0:
+        start = max(0, offset - 65536)
+        chunk = os.pread(fd, offset - start, start)
+        newline = chunk.rfind(b"\n")
+        if newline >= 0:
+            complete = start + newline + 1
+            os.ftruncate(fd, complete)
+            return complete
+        offset = start
+    os.ftruncate(fd, 0)
+    return 0
+
+
+def _append_event_line(layout: Layout, payload: bytes) -> None:
+    """Append advisory telemetry without a foreground durability barrier."""
+    if len(payload) > EVENT_JOURNAL_MAX_BYTES:
+        raise OSError("event journal row exceeds retention limit")
+    flags = os.O_RDWR | os.O_CREAT | os.O_APPEND
+    fd = os.open(layout.events, flags, 0o600)
+    try:
+        size = _trim_partial_event_tail(fd, os.lseek(fd, 0, os.SEEK_END))
+        if size and size + len(payload) > EVENT_JOURNAL_MAX_BYTES:
+            os.close(fd)
+            fd = -1
+            os.replace(layout.events, layout.events_archive)
+            fd = os.open(layout.events, flags, 0o600)
+
+        view = memoryview(payload)
+        while view:
+            written = os.write(fd, view)
+            if written <= 0:
+                raise OSError("event journal write made no progress")
+            view = view[written:]
+    finally:
+        if fd >= 0:
+            os.close(fd)
+
+
 def event(layout: Layout, kind: str, **fields: Any) -> None:
+    """Best-effort observational telemetry; lease/inflight state owns recovery."""
     row = {"schema_version": SCHEMA, "event": kind, "at": now_iso(), "slot_id": layout.slot_id, **fields}
-    with locked(layout.events_lock):
-        layout.events.parent.mkdir(parents=True, exist_ok=True)
-        with layout.events.open("a", encoding="utf-8") as stream:
-            stream.write(json.dumps(row, sort_keys=True) + "\n")
-            stream.flush()
-            os.fsync(stream.fileno())
+    payload = (json.dumps(row, sort_keys=True) + "\n").encode("utf-8")
+    try:
+        with locked(layout.events_lock):
+            layout.events.parent.mkdir(parents=True, exist_ok=True)
+            _append_event_line(layout, payload)
+    except OSError as error:
+        print(f"warning: warm-slot telemetry event dropped: {error}", file=sys.stderr)
 
 
 def live_foreground(layout: Layout, prune: bool = True) -> list[dict[str, Any]]:
@@ -652,6 +1311,7 @@ def run_native(
     preemptible: bool,
     low_priority: bool,
     preempt_fd: int | None = None,
+    cold_task_generation_id: str | None = None,
 ) -> dict[str, Any]:
     """Execute one native build with durable launch and event-driven cancellation."""
     log.parent.mkdir(parents=True, exist_ok=True)
@@ -686,6 +1346,8 @@ def run_native(
         "started_at": started_iso,
         "command_identity": command_identity,
     }
+    if cold_task_generation_id is not None:
+        inflight["cold_task_generation_id"] = cold_task_generation_id
     atomic_json(layout.inflight, inflight)
 
     preexec = None
@@ -896,6 +1558,11 @@ def warm(args: argparse.Namespace) -> dict[str, Any]:
             return {"status": "deferred", "reason": "foreground_waiting"}
         else:
             gate.__exit__(None, None, None)
+
+        cleanup = cleanup_retired_cold_tasks(layout, preempt_fd=preempt_fd, max_generations=1)
+        if cleanup.get("status") == "preempted":
+            return {"status": "deferred", "reason": "foreground_waiting_during_cleanup"}
+
         try:
             slot_lock = warm_slot_lock(layout, checkout)
             slot_lock.__enter__()
@@ -978,7 +1645,7 @@ def warm(args: argparse.Namespace) -> dict[str, Any]:
                 tag = args.tag or f"warm-{args.slot}-{args.target[:8]}"
                 argv = build_command(checkout, tag, args.command)
                 env = build_env(derived, tag)
-                before_bytes = disk_bytes(layout.cache)
+                before_bytes = disk_bytes(layout.cache) if args.measure_disk else None
                 receipt = {
                     "schema_version": SCHEMA,
                     "kind": "warm",
@@ -995,9 +1662,10 @@ def warm(args: argparse.Namespace) -> dict[str, Any]:
                     layout.logs / f"warm-{int(time.time())}-{log_token(args.target)}.log",
                     "warm", True, True, preempt_fd,
                 ))
-                receipt["disk_bytes_before"] = before_bytes
-                receipt["disk_bytes_after"] = disk_bytes(layout.cache)
-                receipt["disk_growth_bytes"] = receipt["disk_bytes_after"] - before_bytes
+                if before_bytes is not None:
+                    receipt["disk_bytes_before"] = before_bytes
+                    receipt["disk_bytes_after"] = disk_bytes(layout.cache)
+                    receipt["disk_growth_bytes"] = receipt["disk_bytes_after"] - before_bytes
                 atomic_json(layout.slot / "last-warm-receipt.json", receipt)
                 event(layout, "warm_finished", receipt=receipt)
 
@@ -1221,6 +1889,7 @@ def task_run(args: argparse.Namespace) -> dict[str, Any]:
             match = "exact" if warm_distance == 0 else "near" if warm_distance is not None else "cold"
             fallback_reason = None if use_warm else p["reason"]
 
+            cold_generation: str | None = None
             if use_warm:
                 derived = Path(str(gen["derived_data_path"]))
                 try:
@@ -1234,7 +1903,8 @@ def task_run(args: argparse.Namespace) -> dict[str, Any]:
                     switch_exact(checkout, args.target)
                 except RuntimeError as error:
                     return {"status": "cold_fallback_required", "reason": str(error), "plan": p}
-                derived = layout.cache / "cold-tasks" / f"{closed_identifier(args.task_id, 'task id', 160)}-{uuid.uuid4().hex[:10]}" / "DerivedData"
+                cold_generation = uuid.uuid4().hex
+                derived = cold_task_root(layout, cold_generation) / "DerivedData"
 
             tag = args.tag or f"task-{args.task_id[:24]}"
             argv = build_command(checkout, tag, args.command)
@@ -1247,13 +1917,15 @@ def task_run(args: argparse.Namespace) -> dict[str, Any]:
                 reserved_generation_id=reserved_generation,
                 match_class=match,
                 fallback_reason=fallback_reason,
+                cold_task_generation_id=cold_generation,
             ):
-                before_bytes = disk_bytes(layout.cache)
+                before_bytes = disk_bytes(layout.cache) if args.measure_disk else None
                 build_started = time.time()
                 run = run_native(
                     layout, checkout, argv, env,
                     layout.logs / f"task-{log_token(closed_identifier(args.task_id, 'task id', 160))}-{int(build_started)}.log",
                     f"task:{args.task_id}", False, False, None,
+                    cold_task_generation_id=cold_generation,
                 )
                 receipt = {
                     "schema_version": SCHEMA,
@@ -1272,21 +1944,37 @@ def task_run(args: argparse.Namespace) -> dict[str, Any]:
                     "fallback_reason": fallback_reason,
                     "reservation_lease_id": active_lease_id,
                     "reserved_generation_id": reserved_generation,
+                    "cold_task_generation_id": cold_generation,
                     "warmer_in_flight_at_task_known": warmer_at_known,
                     "toolchain": p["toolchain"],
                     "toolchain_fingerprint": p["toolchain_fingerprint"],
                     "derived_data_path": str(derived),
-                    "disk_bytes_before": before_bytes,
                 }
+                if before_bytes is not None:
+                    receipt["disk_bytes_before"] = before_bytes
                 receipt.update(run)
-                receipt["disk_bytes_after"] = disk_bytes(layout.cache)
-                receipt["disk_growth_bytes"] = receipt["disk_bytes_after"] - before_bytes
+                if before_bytes is not None:
+                    receipt["disk_bytes_after"] = disk_bytes(layout.cache)
+                    receipt["disk_growth_bytes"] = receipt["disk_bytes_after"] - before_bytes
                 receipt["source_after"] = head(checkout)
                 receipt["source_clean_after"] = clean(checkout)
                 try:
                     receipt["build_input_fingerprint"] = input_fingerprint(checkout, args.target)
                 except (OSError, subprocess.SubprocessError, ValueError):
                     receipt["build_input_fingerprint"] = None
+
+                if cold_generation is not None:
+                    retirement_started = time.monotonic()
+                    if receipt["outcome"] == "recovery_required":
+                        retirement = {"status": "deferred_recovery_required"}
+                    else:
+                        retirement = retire_cold_task(layout, cold_generation)
+                    receipt["cold_cache_retirement"] = retirement["status"]
+                    receipt["cold_cache_retirement_seconds"] = round(
+                        time.monotonic() - retirement_started,
+                        6,
+                    )
+
                 if args.receipt:
                     atomic_json(args.receipt, receipt)
                 atomic_json(layout.slot / "last-task-receipt.json", receipt)
@@ -1344,13 +2032,14 @@ def recover(args: argparse.Namespace) -> dict[str, Any]:
         with locked(layout.slot_lock, blocking=False):
             unreadable_inflight = False
             try:
+                recovery_lease = read_json(layout.lease) or {}
+            except (OSError, ValueError, json.JSONDecodeError):
+                recovery_lease = {}
+            try:
                 inflight = read_json(layout.inflight)
             except (OSError, ValueError, json.JSONDecodeError):
                 unreadable_inflight = True
-                try:
-                    backup_lease = read_json(layout.lease) or {}
-                except (OSError, ValueError, json.JSONDecodeError):
-                    backup_lease = {}
+                backup_lease = recovery_lease
                 backup_run = backup_lease.get("native_run_id")
                 backup_group = backup_lease.get("native_process_group")
                 if backup_run and backup_run != args.run_id:
@@ -1373,9 +2062,54 @@ def recover(args: argparse.Namespace) -> dict[str, Any]:
                     pid = lease.get("pid")
                     if isinstance(pid, int) and pid > 0 and same_process(pid, lease.get("process_identity")):
                         return {"status": "blocked", "reason": "lease_owner_alive", "pid": pid}
+
+                    lease_run = lease.get("native_run_id")
+                    lease_group = lease.get("native_process_group")
+                    if lease_run is not None or lease_group is not None:
+                        if not isinstance(lease_run, str) or not lease_run:
+                            return {
+                                "status": "blocked",
+                                "reason": "stale_lease_without_durable_run_identity",
+                            }
+                        if lease_run != args.run_id:
+                            return {
+                                "status": "blocked",
+                                "reason": "run_id_mismatch",
+                                "expected_run_id": lease_run,
+                            }
+                        if not isinstance(lease_group, int) or lease_group <= 0:
+                            return {
+                                "status": "blocked",
+                                "reason": "stale_lease_without_durable_child_identity",
+                            }
+                        if group_alive(lease_group):
+                            return {
+                                "status": "blocked",
+                                "reason": "process_group_alive",
+                                "process_group": lease_group,
+                            }
+
+                    cold_retirement = None
+                    if lease.get("kind") == "task" and lease.get("cold_task_generation_id") is not None:
+                        cold_retirement = retire_cold_task(layout, lease.get("cold_task_generation_id"))
                     layout.lease.unlink(missing_ok=True)
-                    event(layout, "stale_active_lease_recovered", lease_id=lease.get("lease_id"), kind=lease.get("kind"))
-                    return {"status": "recovered", "reason": "stale_active_lease", "cold_lineage_required": False}
+                    event(
+                        layout,
+                        "stale_active_lease_recovered",
+                        lease_id=lease.get("lease_id"),
+                        lease_kind=lease.get("kind"),
+                        cold_cache_retirement=(
+                            cold_retirement.get("status") if cold_retirement is not None else None
+                        ),
+                    )
+                    result = {
+                        "status": "recovered",
+                        "reason": "stale_active_lease",
+                        "cold_lineage_required": False,
+                    }
+                    if cold_retirement is not None:
+                        result["cold_cache_retirement"] = cold_retirement["status"]
+                    return result
                 return {"status": "clear", "reason": "no_inflight"}
             if inflight.get("run_id") != args.run_id:
                 return {"status": "blocked", "reason": "run_id_mismatch", "expected_run_id": inflight.get("run_id")}
@@ -1387,8 +2121,20 @@ def recover(args: argparse.Namespace) -> dict[str, Any]:
             except (OSError, ValueError, json.JSONDecodeError):
                 record = None
             quarantine(layout, record, "interrupted_native_run")
+
+            cold_generation = inflight.get("cold_task_generation_id")
+            if cold_generation is None:
+                cold_generation = recovery_lease.get("cold_task_generation_id")
+            cold_retirement = (
+                retire_cold_task(layout, cold_generation)
+                if cold_generation is not None
+                else None
+            )
+
             layout.recovery.mkdir(parents=True, exist_ok=True)
             recovered = {**inflight, "recovered_at": now_iso(), "recovery": "quarantined_cold_lineage_required"}
+            if cold_retirement is not None:
+                recovered["cold_cache_retirement"] = cold_retirement["status"]
             atomic_json(layout.recovery / f"{args.run_id}.json", recovered)
             layout.inflight.unlink(missing_ok=True)
             layout.lease.unlink(missing_ok=True)
@@ -1399,14 +2145,20 @@ def recover(args: argparse.Namespace) -> dict[str, Any]:
                 run_id=args.run_id,
                 ambiguous_child_launch=ambiguous,
                 unreadable_inflight=unreadable_inflight,
+                cold_cache_retirement=(
+                    cold_retirement.get("status") if cold_retirement is not None else None
+                ),
             )
-            return {
+            result = {
                 "status": "recovered",
                 "run_id": args.run_id,
                 "cold_lineage_required": True,
                 "ambiguous_child_launch": ambiguous,
                 "unreadable_inflight": unreadable_inflight,
             }
+            if cold_retirement is not None:
+                result["cold_cache_retirement"] = cold_retirement["status"]
+            return result
     except BlockingIOError:
         return {"status": "blocked", "reason": "slot_leased"}
 
@@ -1457,6 +2209,11 @@ def make_parser() -> argparse.ArgumentParser:
     p.add_argument("--owner", default="main-warmer")
     p.add_argument("--tag")
     p.add_argument("--ready-fd", type=int)
+    p.add_argument(
+        "--measure-disk",
+        action="store_true",
+        help="recursively measure cache bytes before/after native work; intended for benchmarks/diagnostics",
+    )
     p.add_argument("command", nargs=argparse.REMAINDER)
 
     p = sub.add_parser("task-base")
@@ -1481,6 +2238,11 @@ def make_parser() -> argparse.ArgumentParser:
     p.add_argument("--tag")
     p.add_argument("--known-at", type=float)
     p.add_argument("--receipt", type=Path)
+    p.add_argument(
+        "--measure-disk",
+        action="store_true",
+        help="recursively measure cache bytes before/after native work; intended for benchmarks/diagnostics",
+    )
     p.add_argument("command", nargs=argparse.REMAINDER)
 
     p = sub.add_parser("release")
@@ -1493,6 +2255,19 @@ def make_parser() -> argparse.ArgumentParser:
     p.add_argument("--machine-state", type=Path, required=True)
     p.add_argument("--slot", type=slot_id, required=True)
     p.add_argument("--run-id", required=True)
+
+    p = sub.add_parser("cleanup")
+    p.add_argument("--machine-state", type=Path, required=True)
+    p.add_argument("--slot", type=slot_id, required=True)
+    p.add_argument("--max-generations", type=int, default=1)
+    p.add_argument(
+        "--measure-bytes",
+        action="store_true",
+        help="recursively count reclaimed bytes; intended for benchmarks/diagnostics",
+    )
+
+    p = sub.add_parser("_cleanup-generation", help=argparse.SUPPRESS)
+    p.add_argument("--directory-fd", type=int, required=True)
     return parser
 
 
@@ -1500,6 +2275,15 @@ def main() -> int:
     args = make_parser().parse_args()
     if getattr(args, "command", None) and args.command and args.command[0] == "--":
         args.command = args.command[1:]
+    if args.action == "_cleanup-generation":
+        try:
+            info = os.fstat(args.directory_fd)
+            if not stat.S_ISDIR(info.st_mode):
+                return 1
+            _remove_tree_contents_fd(args.directory_fd)
+            return 0
+        except (OSError, RuntimeError):
+            return 1
     if args.action == "classify":
         print(json.dumps(classify(args.checkout.resolve(), args.from_commit, args.to_commit), indent=2, sort_keys=True))
         return 0
@@ -1517,6 +2301,14 @@ def main() -> int:
         return emit(release_reservation(args))
     if args.action == "recover":
         return emit(recover(args))
+    if args.action == "cleanup":
+        return emit(
+            cleanup_retired_cold_tasks(
+                Layout(args.machine_state.resolve(), args.slot),
+                max_generations=args.max_generations,
+                measure_bytes=args.measure_bytes,
+            )
+        )
     raise AssertionError(args.action)
 
 
