@@ -2,8 +2,8 @@
 import PackageDescription
 
 // Deliberately dependency-free and platform-neutral: the prediction policy is
-// the whole correctness story, so it runs on the Linux CI runner rather than
-// waiting for a macOS slot.
+// the whole correctness story, so it builds and tests with plain `swift test`
+// on Linux as well as in the macOS `swift-package-tests` CI job.
 let package = Package(
     name: "CmuxTerminalPrediction",
     platforms: [.macOS(.v14), .iOS(.v17)],

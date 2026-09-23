@@ -63,6 +63,16 @@ struct TerminalOutputScannerTests {
         #expect(scan(["\u{1B}]133;C\u{1B}", "\\x"]) == [.ignorable, .printable(0x78)])
     }
 
+    @Test func anOverlongControlSequenceStaysBoundedAndClassifies() {
+        // The remote controls sequence length; parameters past the cap are
+        // dropped, not stored, and must not truncate into a false match.
+        let digits = String(repeating: "9", count: 100_000)
+        #expect(scan("\u{1B}[?1049\(digits)h") == [.disruptive])
+        #expect(scan("\u{1B}[38;2;\(digits)mx") == [.ignorable, .printable(0x78)])
+        // The cap resets per sequence.
+        #expect(scan("\u{1B}[\(digits)H\u{1B}[?1049h") == [.disruptive, .alternateScreen(true)])
+    }
+
     @Test func anUnknownEscapeIsDisruptiveAndRecovers() {
         #expect(scan("\u{1B}Mx") == [.disruptive, .printable(0x78)])
     }

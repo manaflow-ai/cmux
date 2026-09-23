@@ -26,8 +26,10 @@ public struct TerminalOutputScanner: Sendable {
     private enum State: Sendable, Equatable {
         case ground
         case escape
-        /// Collected parameter bytes of a CSI sequence, final byte pending.
-        case controlSequence(parameters: [UInt8])
+        /// Inside a CSI sequence, final byte pending. Its parameter bytes
+        /// live in `parameters`, not here, so collecting one is an in-place
+        /// append rather than a copy of everything collected so far.
+        case controlSequence
         /// Operating system command, running to BEL or ST.
         case operatingSystemCommand
         /// Saw ESC inside an OSC: the next byte decides ST versus a new escape.
@@ -35,6 +37,13 @@ public struct TerminalOutputScanner: Sendable {
     }
 
     private var state: State = .ground
+    /// Parameter and intermediate bytes of the current CSI sequence, up to
+    /// `maximumParameterBytes`. The remote controls how long a sequence is, and
+    /// classification only ever compares against short mode numbers, so bytes
+    /// past the cap are counted as overflow rather than stored.
+    private var parameters: [UInt8] = []
+    private var parametersOverflowed = false
+    private static let maximumParameterBytes = 16
 
     public init() {}
 
@@ -66,7 +75,9 @@ public struct TerminalOutputScanner: Sendable {
         case .escape:
             switch byte {
             case UInt8(ascii: "["):
-                state = .controlSequence(parameters: [])
+                state = .controlSequence
+                parameters.removeAll(keepingCapacity: true)
+                parametersOverflowed = false
                 return nil
             case UInt8(ascii: "]"):
                 state = .operatingSystemCommand
@@ -76,15 +87,23 @@ public struct TerminalOutputScanner: Sendable {
                 return .disruptive
             }
 
-        case .controlSequence(let parameters):
+        case .controlSequence:
             // Parameter and intermediate bytes accumulate; 0x40...0x7E ends it.
             if (0x20...0x3F).contains(byte) {
-                state = .controlSequence(parameters: parameters + [byte])
+                if parameters.count < Self.maximumParameterBytes {
+                    parameters.append(byte)
+                } else {
+                    parametersOverflowed = true
+                }
                 return nil
             }
             state = .ground
             guard (0x40...0x7E).contains(byte) else { return .disruptive }
-            return Self.classifyControlSequence(parameters: parameters, final: byte)
+            return Self.classifyControlSequence(
+                parameters: parameters,
+                overflowed: parametersOverflowed,
+                final: byte
+            )
 
         case .operatingSystemCommand:
             if byte == 0x07 {
@@ -109,6 +128,7 @@ public struct TerminalOutputScanner: Sendable {
 
     private static func classifyControlSequence(
         parameters: [UInt8],
+        overflowed: Bool,
         final: UInt8
     ) -> TerminalOutputSignal {
         // SGR only repaints existing cells, which is how shells colour the line
@@ -117,6 +137,9 @@ public struct TerminalOutputScanner: Sendable {
         if final == UInt8(ascii: "m") { return .ignorable }
 
         guard final == UInt8(ascii: "h") || final == UInt8(ascii: "l") else { return .disruptive }
+        // A truncated parameter list could spuriously match a mode below, and
+        // no alternate-screen form is anywhere near the cap.
+        guard !overflowed else { return .disruptive }
         let entering = final == UInt8(ascii: "h")
         // 1049 is the modern alternate screen; 47 and 1047 are the older forms
         // still emitted by some remotes.
