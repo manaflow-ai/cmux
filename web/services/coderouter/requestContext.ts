@@ -17,6 +17,7 @@ import { resolveTeam } from "../subrouter/routeHelpers";
 import {
   authenticateRequestRouteToken,
   VM_ID_HEADER,
+  VM_AUTHORIZATION_HEADER,
   ROUTE_TOKEN_HEADER,
   routeTokenFromRequest,
 } from "./routeTokenAuth";
@@ -55,7 +56,7 @@ export async function resolveCoderouterControlContext(
   | { readonly ok: false; readonly response: Response }
 > {
   const token = routeTokenFromRequest(request);
-  if (token?.startsWith("crt_") || request.headers.has(VM_ID_HEADER) || request.headers.has(ROUTE_TOKEN_HEADER)) {
+  if (request.headers.has(VM_AUTHORIZATION_HEADER) || token?.startsWith("crt_") || request.headers.has(VM_ID_HEADER) || request.headers.has(ROUTE_TOKEN_HEADER)) {
     const auth = await authenticateRequestRouteToken(request);
     if (!auth.ok) return { ok: false, response: jsonResponse({ error: auth.reason }, 401) };
     if (!auth.identity.vmId) {
@@ -95,7 +96,7 @@ export async function resolveCoderouterUsageTeam(
   | { readonly ok: false; readonly response: Response }
 > {
   const token = routeTokenFromRequest(request);
-  if (token?.startsWith("crt_") || token?.startsWith("crk_") || request.headers.has(VM_ID_HEADER) || request.headers.has(ROUTE_TOKEN_HEADER)) {
+  if (request.headers.has(VM_AUTHORIZATION_HEADER) || token?.startsWith("crt_") || token?.startsWith("crk_") || request.headers.has(VM_ID_HEADER) || request.headers.has(ROUTE_TOKEN_HEADER)) {
     const auth = await authenticateRequestRouteToken(request);
     if (!auth.ok) return { ok: false, response: jsonResponse({ error: auth.reason }, 401) };
     const routed = auth.identity;
@@ -121,7 +122,7 @@ export async function resolveCodeRouterRequestContext(
 > {
   // A guest's injected identity must never fall through to a browser session,
   // selected organization, or another credential it supplies alongside it.
-  if (request.headers.has(VM_ID_HEADER)) {
+  if (request.headers.has(VM_AUTHORIZATION_HEADER) || request.headers.has(VM_ID_HEADER)) {
     return { ok: false, response: jsonResponse({ error: "vm_management_forbidden" }, 403) };
   }
   return await withSubrouterAuthorizationDeadline(async (signal) => {

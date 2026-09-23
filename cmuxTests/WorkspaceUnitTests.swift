@@ -1327,6 +1327,56 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
         XCTAssertEqual(defaults.object(forKey: SidebarWorkspaceTitleWrapSettings.key) as? Bool, true)
     }
 
+    func testSettingsFileStoreParsesSidebarWorkspaceDescriptionColor() throws {
+        let defaults = UserDefaults.standard
+        let managedKey = SettingCatalog().sidebar.workspaceDescriptionColorHex.userDefaultsKey
+        let previousValue = defaults.object(forKey: managedKey)
+        let previousBackups = defaults.data(forKey: settingsFileBackupsDefaultsKey)
+        defer {
+            if let previousValue {
+                defaults.set(previousValue, forKey: managedKey)
+            } else {
+                defaults.removeObject(forKey: managedKey)
+            }
+
+            if let previousBackups {
+                defaults.set(previousBackups, forKey: settingsFileBackupsDefaultsKey)
+            } else {
+                defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
+            }
+        }
+
+        defaults.removeObject(forKey: managedKey)
+        defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
+
+        let directoryURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+        try writeSettingsFile(
+            """
+            {
+              "sidebar": {
+                "workspaceDescriptionColor": "#a6e3a1"
+              }
+            }
+            """,
+            to: settingsFileURL
+        )
+
+        _ = KeyboardShortcutSettingsFileStore(
+            primaryPath: settingsFileURL.path,
+            fallbackPath: nil,
+            startWatching: false
+        )
+
+        XCTAssertEqual(defaults.string(forKey: managedKey), "#A6E3A1")
+        XCTAssertEqual(
+            SidebarTabItemSettingsSnapshot(defaults: defaults).workspaceDescriptionColorHex,
+            "#A6E3A1"
+        )
+    }
+
     func testSettingsFileStoreParsesWorkspaceTodoControlsBetaSetting() throws {
         let defaults = UserDefaults.standard
         let managedKey = SettingCatalog().betaFeatures.workspaceTodoControls.userDefaultsKey

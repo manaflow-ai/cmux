@@ -30,6 +30,11 @@ public struct AutomationSection: View {
     @State private var showOpenAccessConfirmation: Bool = false
     @State private var pendingOpenAccessMode: SocketControlMode?
     @State private var modeBeforePendingOpenAccess: SocketControlMode?
+    @State private var automationRulesStatus: AutomationRulesStatus?
+    @State private var automationRulesActionMessage: String?
+    @State private var automationRulesActionIsError = false
+    @State private var automationRulesRefreshID = 0
+
     private struct SocketPasswordStatus: Equatable {
         let message: String
         let isError: Bool
@@ -81,6 +86,7 @@ public struct AutomationSection: View {
         Group {
             SettingsSectionHeader(String(localized: "settings.section.automation", defaultValue: "Automation"), section: .automation)
             socketControlCard
+            automationRulesCard
             claudeCodeCard
             codexCard
             claudePathCard
@@ -122,13 +128,108 @@ public struct AutomationSection: View {
                 localized: "settings.automation.openAccess.dialog.message",
                 defaultValue: "This disables ancestry and password checks and opens the socket to all local users. Only enable when you understand the risk."
             ))
-        }.task { startSettingsObservation([socketPasswordModel, modeModel, claudeCodeModel, codexModel, claudePathModel, autoNamingModel, autoNamingAgentModel, autoNamingStatusModel, ripgrepPathModel, suppressSubagentModel, ampModel, cursorModel, geminiModel, kiroModel, kiroLevelModel, portBaseModel, portRangeModel]) }
+        }
+        .task {
+            startSettingsObservation([socketPasswordModel, modeModel, claudeCodeModel, codexModel, claudePathModel, autoNamingModel, autoNamingAgentModel, autoNamingStatusModel, ripgrepPathModel, suppressSubagentModel, ampModel, cursorModel, geminiModel, kiroModel, kiroLevelModel, portBaseModel, portRangeModel])
+        }
+        .task(id: automationRulesRefreshID) {
+            await refreshAutomationRulesStatus()
+        }
         .task {
             for await _ in ManagedDevicePolicy.changeSignals() {
                 socketPolicyResolution = socketPolicyResolver.resolve()
             }
         }
     }
+
+    /// Thin native exposure of the existing JSON-backed automation engine.
+    @ViewBuilder
+    private var automationRulesCard: some View {
+        SettingsCard {
+            SettingsCardRow(
+                configurationReview: .action,
+                String(localized: "settings.automation.rules", defaultValue: "Automation Rules", bundle: .module),
+                subtitle: automationRulesSubtitle
+            ) {
+                HStack(spacing: 8) {
+                    Button(String(localized: "settings.automation.rules.edit", defaultValue: "Edit Rules", bundle: .module)) {
+                        automationRulesActionMessage = nil
+                        hostActions.openAutomationRulesInExternalEditor()
+                        automationRulesRefreshID += 1
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .accessibilityIdentifier("SettingsAutomationRulesEditButton")
+
+                    Button(String(localized: "settings.automation.rules.reload", defaultValue: "Reload", bundle: .module)) {
+                        let didRequestReload = hostActions.reloadAutomationRules()
+                        automationRulesActionIsError = !didRequestReload
+                        automationRulesActionMessage = didRequestReload
+                            ? String(localized: "settings.automation.rules.reload.requested", defaultValue: "Reload requested.", bundle: .module)
+                            : String(localized: "settings.automation.rules.reload.unavailable", defaultValue: "Automation engine unavailable.", bundle: .module)
+                        automationRulesRefreshID += 1
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .accessibilityIdentifier("SettingsAutomationRulesReloadButton")
+                }
+            }
+            .accessibilityIdentifier("SettingsAutomationRulesStatus")
+
+            SettingsCardDivider()
+            SettingsCardNote(String(
+                localized: "settings.automation.rules.note",
+                defaultValue: "Rules live in ~/.cmuxterm/automations.json. Edit the JSON directly, then reload the running engine. The cmux automation CLI remains available for test and log diagnostics.",
+                bundle: .module
+            ))
+
+            if let automationRulesActionMessage {
+                SettingsCardDivider()
+                Text(automationRulesActionMessage)
+                    .cmuxFont(.caption)
+                    .foregroundStyle(automationRulesActionIsError ? Color.red : Color.secondary)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 8)
+                    .accessibilityIdentifier("SettingsAutomationRulesActionStatus")
+            }
+        }
+    }
+
+    /// Current rule-count or configuration-state summary shown under the card title.
+    private var automationRulesSubtitle: String {
+        guard let status = automationRulesStatus else {
+            return String(localized: "settings.automation.rules.loading", defaultValue: "Loading rules…", bundle: .module)
+        }
+        if status.hasError {
+            return String(
+                localized: "settings.automation.rules.error",
+                defaultValue: "The automation rules file could not be loaded. Edit the JSON file and reload.",
+                bundle: .module
+            )
+        }
+        if status.ruleCount == 0 {
+            return status.configExists
+                ? String(localized: "settings.automation.rules.empty", defaultValue: "No rules configured yet.", bundle: .module)
+                : String(localized: "settings.automation.rules.missing", defaultValue: "No rules file yet.", bundle: .module)
+        }
+        let format = String(
+            localized: "settings.automation.rules.counts",
+            defaultValue: "%1$lld total • %2$lld enabled • %3$lld disabled",
+            bundle: .module
+        )
+        return String.localizedStringWithFormat(
+            format,
+            Int64(status.ruleCount),
+            Int64(status.enabledCount),
+            Int64(status.disabledCount)
+        )
+    }
+
+    /// Refreshes the card from the authoritative config store through the host bridge.
+    private func refreshAutomationRulesStatus() async {
+        automationRulesStatus = await hostActions.automationRulesStatus()
+    }
+
     @ViewBuilder
     private var socketControlCard: some View {
         let isManaged = socketPolicyResolution.isManaged

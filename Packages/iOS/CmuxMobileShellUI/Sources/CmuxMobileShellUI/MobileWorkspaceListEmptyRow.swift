@@ -144,9 +144,13 @@ struct MobileWorkspaceListEmptyRow: View {
         .onDisappear {
             let hasActiveRetry = isRetrying || retryTask != nil
             if hasActiveRetry {
-                retryTask?.cancel()
                 let ownerIsCurrent = isRetryOwnerCurrentOnDisappear?() ?? true
-                if !ownerIsCurrent || shouldCancelRetryOnDisappear?() ?? true {
+                // A missing predicate means this row has no owner that can
+                // safely cancel recovery during structural removal. Preserve
+                // the task until its explicit completion or timeout.
+                let shouldCancel = shouldCancelRetryOnDisappear?() ?? false
+                if !ownerIsCurrent || shouldCancel {
+                    retryTask?.cancel()
                     if let cancelRetryOnDisappear {
                         cancelRetryOnDisappear(retryRecoveryGeneration)
                     } else if let cancelRetryAttempt {
@@ -154,14 +158,14 @@ struct MobileWorkspaceListEmptyRow: View {
                     } else {
                         cancelRetry?()
                     }
+                    retryTimeoutTask?.cancel()
+                    retryTask = nil
+                    retryAttemptID = nil
+                    retryTimeoutTask = nil
+                    retryRecoveryGeneration = nil
+                    isRetrying = false
+                    retryTimedOut = false
                 }
-                retryTimeoutTask?.cancel()
-                retryTask = nil
-                retryAttemptID = nil
-                retryTimeoutTask = nil
-                retryRecoveryGeneration = nil
-                isRetrying = false
-                retryTimedOut = false
             } else if !hasActiveRetry {
                 retryTimeoutTask?.cancel()
                 retryTask = nil
