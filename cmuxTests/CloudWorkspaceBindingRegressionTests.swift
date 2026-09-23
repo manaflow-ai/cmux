@@ -130,6 +130,27 @@ struct CloudWorkspaceBindingRegressionTests {
         )
     }
 
+    @Test func authoritativeDeletionUsesTheSharedResourceLookup() throws {
+        let service = CloudWorkspaceRenameService()
+        let state = try Self.state(workspaces: [["id": "ws_api", "name": "api"]])
+        let resource = SurfaceResource(
+            id: SurfaceResourceID(machine: Self.machine, kind: .terminal, key: "term_1"),
+            title: "term_1", detail: nil, lifecycle: .running, agent: nil,
+            remoteWorkspace: Self.workspace,
+            remoteViews: [SurfaceRemoteView(tabID: "tab_1", workspace: Self.workspace)],
+            port: nil, url: nil
+        )
+        let projection = SurfaceProjection(
+            resource: resource.id, workspaceID: UUID(), panelID: UUID(),
+            remoteWorkspaceID: "ws_api", remoteTabID: "tab_1"
+        )
+        #expect(service.bindingReconciliation(
+            binding: WorkspaceCloudVMBinding(vmID: "vivid-newt", isBase: false, remoteWorkspaceID: "ws_deleted"),
+            machine: Self.machine, state: state, observation: .current,
+            projections: [projection], resources: [], resourcesByID: [resource.id: resource]
+        ) == .rebind(machine: Self.machine, remoteWorkspaceID: "ws_api"))
+    }
+
     @Test func authoritativeDeletionClearsMixedOrEmptyBindingWithoutMovingPanes() throws {
         let service = CloudWorkspaceRenameService()
         let other = SurfaceRemoteWorkspace(id: "ws_other", name: "other", index: 1, focused: false)
