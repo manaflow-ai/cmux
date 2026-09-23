@@ -5855,11 +5855,20 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         _ event: NSEvent,
         surface: ghostty_surface_t
     ) -> Bool {
-        guard textEditingGesturesEnabled, !hasMarkedText() else { return false }
+        // Keyboard copy mode owns the keyboard while it is active. It lets
+        // Command-modified events through on purpose so menu shortcuts still
+        // fire, and every gesture that survives its filter is Command-modified,
+        // so without this guard reading scrollback with a half-typed command at
+        // the prompt would replay Ctrl+U/Ctrl+K and destroy that line.
+        guard !keyboardCopyModeActive, !hasMarkedText() else { return false }
         guard let chord = terminalTextEditingResolve(
             keyCode: event.keyCode,
             modifiers: textEditingModifiers(from: event.modifierFlags)
         ) else { return false }
+        // The defaults read is the costly half, so it runs only after the pure
+        // resolver has confirmed this keystroke is gesture-shaped at all. Every
+        // other keystroke leaves this path having done no I/O.
+        guard textEditingGesturesEnabled else { return false }
         guard
             let chordKeyCode = Self.textEditingChordKeyCodes[chord.letter],
             let scalar = chord.letter.unicodeScalars.first
@@ -5873,7 +5882,19 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         keyEvent.composing = false
         keyEvent.unshifted_codepoint = scalar.value
         keyEvent.text = nil
-        return sendGhosttyKey(surface, keyEvent)
+        if sendGhosttyKey(surface, keyEvent) { return true }
+        // Only an Option chord can legitimately encode nothing. libghostty
+        // prefixes ESC for Alt only when `macos-option-as-alt` resolves true,
+        // and `detectOptionAsAlt` returns true solely for the US and
+        // US-International layouts, so a synthesized Alt+b writes nothing at
+        // all on AZERTY, German, Dvorak and friends -- and on any layout when
+        // the setting is `false` or a `right` that the synthesized left bit
+        // cannot match. Under the kitty protocol the key event already
+        // succeeded, so this runs only for the legacy encoding that `esc:`
+        // matches. A false return means nothing reached the pty, so re-sending
+        // here cannot double-write.
+        guard chord.modifier == .option else { return false }
+        return performBindingAction("esc:\(chord.letter)")
     }
 
     private func handleKeyboardCopyModeIfNeeded(_ event: NSEvent, surface: ghostty_surface_t) -> Bool {
@@ -6148,6 +6169,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         if result {
             imeConsumedKeyUps.removeAll()
             manualNamedKeyConsumedKeyUps.removeAll()
+            textEditingGestureConsumedKeyUps.removeAll()
             if let terminalSurface,
                AppDelegate.shared?.allowsTerminalKeyboardFocus(
                    workspaceId: terminalSurface.tabId,
@@ -6252,6 +6274,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         if result {
             imeConsumedKeyUps.removeAll()
             manualNamedKeyConsumedKeyUps.removeAll()
+            textEditingGestureConsumedKeyUps.removeAll()
             desiredFocus = false
             deferReleaseAllGhosttyMouseButtons(
                 reason: "resignFirstResponder"
@@ -6612,7 +6635,14 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             // sendGhosttyKey already reported the accepted input; only the
             // originating gesture's key-up still needs suppressing, because the
             // synthesized press has no matching release.
-            textEditingGestureConsumedKeyUps.insert(event.keyCode)
+            //
+            // AppKit never delivers a Command-modified key-up to the responder
+            // chain, so recording one would strand the code in this set and
+            // swallow the next *unmodified* release of the same physical key --
+            // leaving a stuck arrow in any app that reads releases.
+            if !event.modifierFlags.contains(.command) {
+                textEditingGestureConsumedKeyUps.insert(event.keyCode)
+            }
             return
         }
 #if DEBUG

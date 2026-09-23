@@ -39,6 +39,7 @@ extension CmuxSettingsFileStore {
         "terminal.showScrollBar",
         "terminal.scrollSpeed",
         "terminal.copyOnSelect",
+        "terminal.textEditingGestures",
         "terminal.autoResumeAgentSessions",
         "terminal.showTextBoxOnNewTerminals",
         "terminal.focusTextBoxOnNewTerminals",
