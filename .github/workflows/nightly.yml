@@ -1610,8 +1610,20 @@ jobs:
           # configured" on self-hosted runners) nor overlay a second
           # Authorization header on top of them (which makes GitHub reject the
           # push with `remote: Duplicate header: "Authorization"`).
-          git push "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" \
-            "refs/tags/${CHANNEL_RELEASE_TAG}" --force
+          # GitHub can transiently time out checking workflow permissions on
+          # a tag push. Retrying the same fixed commit is idempotent; never
+          # mark publication complete if all attempts fail.
+          for attempt in 1 2 3; do
+            if git push "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" \
+              "refs/tags/${CHANNEL_RELEASE_TAG}" --force; then
+              break
+            fi
+            if [ "$attempt" -eq 3 ]; then
+              echo "::error::Channel release tag push failed after 3 attempts"
+              exit 1
+            fi
+            sleep "$((attempt * 5))"
+          done
 
   # A nightly that fails on main stalls every NIGHTLY install silently. Keep
   # one open issue per breakage so the failure is visible without watching Actions.
