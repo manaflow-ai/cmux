@@ -3333,6 +3333,39 @@ def test_macos_compile_admission_precedes_expensive_shards() -> None:
     )
 
 
+def test_static_preflight_rejects_stale_embedded_schema_before_native_work() -> None:
+    steps = yaml.safe_load(CI_WORKFLOW.read_text())["jobs"]["static-preflight"]["steps"]
+    scripts = [step["run"] for step in steps if "run" in step]
+    with tempfile.TemporaryDirectory(prefix="cmux-schema-preflight-") as tmp:
+        repo = Path(tmp)
+        # Isolate this gate's schema behavior; unrelated validators succeed.
+        for script in scripts:
+            for name in re.findall(r"(?:python3 |\./)([\w/.-]+\.(?:py|sh))", script):
+                target = repo / name
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_text("#!/usr/bin/env bash\nexit 0\n" if name.endswith(".sh") else "pass\n")
+                target.chmod(0o755)
+        generator = repo / "scripts/generate-cmux-config-schema.py"
+        generator.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(ROOT / "scripts/generate-cmux-config-schema.py", generator)
+        schema = repo / "web/data/cmux.schema.json"
+        schema.parent.mkdir(parents=True)
+        schema.write_text('{"type":"object"}\n')
+        generated = repo / "Packages/macOS/CmuxFoundation/Sources/CmuxFoundation/ConfigValidation"
+        generated.mkdir(parents=True)
+        subprocess.run([sys.executable, str(generator)], cwd=repo, check=True)
+        def run_gate():
+            return subprocess.run(["bash", "-e", "-c", "\n".join(scripts)], cwd=repo,
+                                  capture_output=True, text=True)
+        assert run_gate().returncode == 0
+        schema.write_text('{"type":"object","title":"changed"}\n')
+        stale = run_gate()
+        assert stale.returncode != 0, "stale schema reached native admission"
+        assert "is stale" in stale.stdout
+        subprocess.run([sys.executable, str(generator)], cwd=repo, check=True)
+        assert run_gate().returncode == 0
+
+
 def test_guard_workflow_call_preserves_routes_and_static_gate() -> None:
     block = workflow_job_block("guards")
 
