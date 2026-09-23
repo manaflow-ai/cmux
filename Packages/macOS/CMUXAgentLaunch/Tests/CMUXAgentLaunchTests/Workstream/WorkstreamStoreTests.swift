@@ -63,6 +63,27 @@ struct WorkstreamStoreTests {
         } else {
             Issue.record("expected resolved decision after restart")
         }
+        #expect(second.revision >= 3)
+    }
+
+    @Test("Feed revision remains above the previous snapshot after restart")
+    func durableRevisionRoundTrip() async throws {
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-workstream-revision-\(UUID().uuidString).jsonl")
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        let persistence = WorkstreamPersistence(fileURL: tmp)
+        let first = WorkstreamStore(persistence: persistence, ringCapacity: 10)
+        first.ingest(.permission("revision", requestId: "r1"))
+        let id = try #require(first.items.first?.id)
+        first.markResolved(id, decision: .permission(.once))
+        #expect(first.recordTerminalReply(id, text: "continue"))
+        let oldRevision = first.revision
+        try await Task.sleep(for: .milliseconds(50))
+
+        let second = WorkstreamStore(persistence: persistence, ringCapacity: 10)
+        await second.start()
+        #expect(second.revision >= oldRevision)
+        #expect(second.items.first?.reply?.text == "continue")
     }
 
     @Test("Ring buffer evicts oldest items past capacity")

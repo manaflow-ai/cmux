@@ -96,6 +96,7 @@ public final class WorkstreamStore {
 
     public func start() async {
         if let persistence {
+            revision = (try? await persistence.loadRevision()) ?? 0
             if let loaded = try? await persistence.loadLatest(limit: min(initialLoadLimit, ringCapacity)) {
                 items = loaded.map(normalizedWorkstreamItem)
                 if let page = try? await persistence.loadPage(limit: min(initialLoadLimit, ringCapacity)) {

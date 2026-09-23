@@ -88,6 +88,23 @@ public actor WorkstreamPersistence {
             .map { $0 }
     }
 
+    /// Returns a durable generation for the append-only log. The mobile Feed
+    /// uses this as its cache validator, so a Mac restart cannot reset the
+    /// revision below the phone's last-known snapshot and hide a reply or
+    /// resolution behind a stale `feed.changed` event.
+    public func loadRevision() throws -> Int {
+        guard FileManager.default.fileExists(atPath: fileURL.path) else { return 0 }
+        let data = try Data(contentsOf: fileURL)
+        var revision = 0
+        for line in data.split(separator: 0x0A) {
+            guard (try? decoder.decode(WorkstreamItem.self, from: Data(line))) != nil else {
+                continue
+            }
+            revision += 1
+        }
+        return revision
+    }
+
     /// Loads up to `limit` items ending before `endOffset`. Order in the
     /// returned array is oldest-first. `startOffset` can be passed back
     /// as `endOffset` to page older history without depending on line
