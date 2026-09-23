@@ -4188,9 +4188,13 @@ def test_required_macos_topology_collapses_display_and_release_helper_jobs() -> 
     assert "Run display UI regressions" in runtime_block
     assert "scripts/ci/run-display-ui-regressions.sh" in runtime_block
     assert runtime_block.index("Run display UI regressions") < runtime_block.index("Create virtual display")
-    assert 'kill -9 "$VDISPLAY_PID"' in runtime_block
-    assert "scripts/ci/virtual-display-lock.sh reap-strays" in runtime_block
-    assert runtime_block.rfind("scripts/ci/virtual-display-lock.sh reap-strays") < runtime_block.rfind("scripts/ci/virtual-display-lock.sh release")
+    # The workflow owns the lifecycle; virtual-display.sh owns the cleanup
+    # implementation. test_ci_self_hosted_guard.sh pins force-kill -> reap ->
+    # release inside that script, so this topology test should follow the
+    # extracted interface instead of requiring those commands inline.
+    assert "scripts/ci/virtual-display.sh start cmux-build-lag" in runtime_block
+    assert "scripts/ci/virtual-display.sh stop" in runtime_block
+    assert runtime_block.index("Create virtual display") < runtime_block.index("Cleanup virtual display")
     assert "timeout-minutes: 40" in package_block
     assert "CMUX_CI_HELPER_XCODE_APP" in package_block
     assert "/Applications/Xcode_16.4.app" not in package_block
