@@ -100,6 +100,36 @@ def main() -> int:
             full = subprocess.run(command + PACKAGES, text=True, capture_output=True, check=True)
             assert full.stdout.splitlines() == PACKAGES, full
 
+        # Targeted PR selection must preserve declared local dependencies,
+        # including submodule revision paths, rather than dropping them before
+        # the dependency-aware selector sees the diff.
+        for path in ("vendor/bonsplit", "vendor/bonsplit/Sources/Bonsplit/A.swift"):
+            changed_file = root / "changed.txt"
+            changed_file.write_text(path + "\n.github/workflows/ci-macos.yml\n")
+            result = subprocess.run(
+                [sys.executable, str(ROOT / "scripts/ci/select_package_tests.py"),
+                 "--root", str(root), "--changed-files", str(changed_file),
+                 "--routed-inputs-only", *PACKAGES],
+                text=True, capture_output=True, check=True,
+            )
+            assert result.stdout.splitlines() == ["Splitter"], (path, result.stdout)
+
+        # Check the actual PR router too: a normal package selector result is
+        # insufficient if the lane never starts. These are current declared
+        # local dependencies of packages in the workflow's test inventory.
+        for path in ("vendor/bonsplit", "vendor/stack-auth-swift-sdk-prerelease"):
+            changed_file = root / "router-changed.txt"
+            changed_file.write_text(path + "\n")
+            outputs = root / "router-outputs.txt"
+            outputs.unlink(missing_ok=True)
+            result = subprocess.run(
+                [sys.executable, str(ROOT / "scripts/ci/detect_ci_change_areas.py"),
+                 "--event-name", "pull_request", "--files-from", str(changed_file),
+                 "--github-output", str(outputs)],
+                cwd=ROOT, text=True, capture_output=True, check=True,
+            )
+            assert "swift_packages=true" in outputs.read_text().splitlines(), (path, result.stdout)
+
         try:
             select(root, ["Missing"], [])
         except SystemExit:

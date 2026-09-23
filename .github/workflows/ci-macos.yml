@@ -2796,6 +2796,7 @@ jobs:
           if [ "$test_status" -ne 0 ]; then
             exit "$test_status"
           fi
+          printf '%s\n' "$output" | python3 scripts/ci/require_swift_test_execution.py --log /dev/stdin
 
       - name: Run Swift package unit tests
         env:
@@ -2865,13 +2866,18 @@ jobs:
               output="$(swift test "${swift_test_args[@]}" 2>&1)" || test_status=$?
               printf '%s\n' "$output"
               if [ "$test_status" -ne 0 ]; then
-                if printf '%s\n' "$output" | grep -Eq 'Test run with [0-9]+ tests( in [0-9]+ suites)? passed' \
+                if [ "$test_status" -eq 1 ] \
+                  && printf '%s\n' "$output" | grep -Eq 'error:.*unexpected binary' \
+                  && printf '%s\n' "$output" | python3 scripts/ci/require_swift_test_execution.py --log /dev/stdin \
                   && ! printf '%s\n' "$output" | grep -Eq 'with [1-9][0-9]* failures?' \
+                  && ! printf '%s\n' "$output" | grep -Fq 'Exited with unexpected signal code' \
                   && ! printf '%s\n' "$output" | grep -v 'unexpected binary' | grep -Eq '(^|[^a-zA-Z])error:'; then
                   echo "Tolerated cosmetic GhosttyKit binaryTarget diagnostic; all tests passed."
                 else
                   exit "$test_status"
                 fi
+              else
+                printf '%s\n' "$output" | python3 scripts/ci/require_swift_test_execution.py --log /dev/stdin
               fi
               ;;
             *)
@@ -2895,6 +2901,7 @@ jobs:
               if [ "$test_status" -ne 0 ]; then
                 exit "$test_status"
               fi
+              printf '%s\n' "$output" | python3 scripts/ci/require_swift_test_execution.py --log /dev/stdin
               ;;
             esac
             echo "::endgroup::"
