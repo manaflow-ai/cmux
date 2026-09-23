@@ -4,6 +4,7 @@ import SwiftUI
 
 struct ClaudeDesktopAgentSurface: View {
     let panelID: UUID
+    let profile: String
     let isFocused: Bool
     let isVisibleInUI: Bool
     let backgroundColor: NSColor
@@ -29,10 +30,7 @@ struct ClaudeDesktopAgentSurface: View {
                 "external-apps/claude",
                 isDirectory: true
             )
-            .appendingPathComponent(
-                panelID.uuidString.lowercased(),
-                isDirectory: true
-            )
+            .appendingPathComponent(profile, isDirectory: true)
 
         let preferredApplicationURL = ProcessInfo.processInfo.environment[
             "CMUX_CLAUDE_DESKTOP_APP_PATH"

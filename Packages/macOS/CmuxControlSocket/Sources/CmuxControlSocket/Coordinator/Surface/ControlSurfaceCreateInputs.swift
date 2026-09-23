@@ -15,6 +15,8 @@ public struct ControlSurfaceCreateInputs: Sendable, Equatable {
     public let providerRaw: String?
     /// The raw `renderer_kind`/`renderer` token, or `nil` (defaults to react).
     public let rendererRaw: String?
+    /// The trimmed-non-empty `profile` name for a Claude Desktop surface, or `nil`.
+    public let profileRaw: String?
     /// The raw `url` string, or `nil`.
     public let urlRaw: String?
     /// The trimmed-non-empty `working_directory`, or `nil`.
@@ -55,11 +57,13 @@ public struct ControlSurfaceCreateInputs: Sendable, Equatable {
         startupEnvironment: [String: String],
         requestedPaneID: UUID?,
         requestedFocus: Bool,
-        placementRaw: String? = nil
+        placementRaw: String? = nil,
+        profileRaw: String? = nil
     ) {
         self.typeRaw = typeRaw
         self.providerRaw = providerRaw
         self.rendererRaw = rendererRaw
+        self.profileRaw = profileRaw
         self.urlRaw = urlRaw
         self.workingDirectory = workingDirectory
         self.initialCommand = initialCommand

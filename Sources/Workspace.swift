@@ -10414,6 +10414,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         providerID: AgentSessionProviderID = .codex,
         rendererKind: AgentSessionRendererKind,
         workingDirectory: String? = nil,
+        desktopProfile: String? = nil,
         focus: Bool? = nil,
         targetIndex: Int? = nil
     ) -> AgentSessionPanel? {
@@ -10434,7 +10435,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             workspaceId: id,
             rendererKind: rendererKind,
             initialProviderID: providerID,
-            workingDirectory: directory
+            workingDirectory: directory,
+            desktopProfile: desktopProfile
         )
         panels[agentPanel.id] = agentPanel
         panelTitles[agentPanel.id] = agentPanel.displayTitle

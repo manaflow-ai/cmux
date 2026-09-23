@@ -18,6 +18,7 @@ struct AgentSessionPanelView: View {
             if panel.rendererKind == .claudeDesktop {
                 ClaudeDesktopAgentSurface(
                     panelID: panel.id,
+                    profile: panel.desktopProfile,
                     isFocused: isFocused,
                     isVisibleInUI: isVisibleInUI,
                     backgroundColor: appearance.contentBackgroundColor

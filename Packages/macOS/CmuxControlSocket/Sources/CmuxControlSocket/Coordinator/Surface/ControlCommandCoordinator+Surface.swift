@@ -539,7 +539,8 @@ extension ControlCommandCoordinator {
             startupEnvironment: trimmedStringMap(params, keys: ["startup_environment", "initial_env"]),
             requestedPaneID: uuid(params, "pane_id"),
             requestedFocus: bool(params, "focus") ?? false,
-            placementRaw: string(params, "placement")
+            placementRaw: string(params, "placement"),
+            profileRaw: optionalTrimmedRawString(params, "profile")
         )
 
         let resolution = context?.controlSurfaceCreate(routing: routing, inputs: inputs)

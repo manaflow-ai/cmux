@@ -6970,6 +6970,7 @@ struct CMUXCLI {
             let url = optionValue(commandArgs, name: "--url")
             let provider = optionValue(commandArgs, name: "--provider") ?? optionValue(commandArgs, name: "--provider-id")
             let renderer = optionValue(commandArgs, name: "--renderer") ?? optionValue(commandArgs, name: "--renderer-kind")
+            let desktopProfile = optionValue(commandArgs, name: "--profile")
             let workingDirectory = optionValue(commandArgs, name: "--working-directory") ?? optionValue(commandArgs, name: "--cwd")
             let placement = optionValue(commandArgs, name: "--placement")
             let focusOpt = optionValue(commandArgs, name: "--focus")
@@ -6995,6 +6996,7 @@ struct CMUXCLI {
             if let placement { params["placement"] = placement }
             if let provider { params["provider_id"] = provider }
             if let renderer { params["renderer_kind"] = renderer }
+            if let desktopProfile { params["profile"] = desktopProfile }
             if let workingDirectory = workingDirectory?.trimmingCharacters(in: .whitespacesAndNewlines),
                !workingDirectory.isEmpty {
                 params["working_directory"] = resolvePath(workingDirectory)

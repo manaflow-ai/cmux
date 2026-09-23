@@ -10,6 +10,8 @@ final class AgentSessionPanel: Panel {
     let rendererKind: AgentSessionRendererKind
     let initialProviderID: AgentSessionProviderID
     private(set) var workingDirectory: String?
+    /// Claude Desktop profile (account) name; each name keeps its own sign-in.
+    let desktopProfile: String
     let rendererSession = AgentSessionWebRendererSession()
 
     private(set) var currentProviderID: AgentSessionProviderID
@@ -31,7 +33,8 @@ final class AgentSessionPanel: Panel {
         workspaceId: UUID,
         rendererKind: AgentSessionRendererKind,
         initialProviderID: AgentSessionProviderID = .codex,
-        workingDirectory: String? = nil
+        workingDirectory: String? = nil,
+        desktopProfile: String? = nil
     ) {
         let resolvedProviderID: AgentSessionProviderID = rendererKind == .claudeDesktop
             ? .claude
@@ -42,7 +45,10 @@ final class AgentSessionPanel: Panel {
         self.initialProviderID = resolvedProviderID
         self.currentProviderID = resolvedProviderID
         self.workingDirectory = workingDirectory
-        self.displayTitle = Self.title(provider: resolvedProviderID, rendererKind: rendererKind)
+        self.desktopProfile = Self.normalizedDesktopProfile(desktopProfile)
+        self.displayTitle = rendererKind == .claudeDesktop
+            ? Self.desktopTitle(profile: self.desktopProfile)
+            : Self.title(provider: resolvedProviderID, rendererKind: rendererKind)
         self.rendererSession.onHasActiveProviderChanged = { [weak self] hasActiveProvider in
             self?.setHasActiveProvider(hasActiveProvider)
         }
@@ -57,6 +63,20 @@ final class AgentSessionPanel: Panel {
     ) -> String {
         let format = String(localized: "agentSession.panel.title", defaultValue: "%@ · %@")
         return String(format: format, provider.displayName, rendererKind.displayName)
+    }
+
+    /// Maps a user-supplied profile name to a safe directory component.
+    nonisolated static func normalizedDesktopProfile(_ raw: String?) -> String {
+        let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "-_."))
+        let cleaned = String((raw ?? "").lowercased().unicodeScalars.map {
+            allowed.contains($0) ? Character($0) : "-"
+        }).trimmingCharacters(in: CharacterSet(charactersIn: "-."))
+        return cleaned.isEmpty ? "default" : cleaned
+    }
+
+    nonisolated static func desktopTitle(profile: String) -> String {
+        let format = String(localized: "agentSession.panel.title", defaultValue: "%@ · %@")
+        return String(format: format, AgentSessionProviderID.claude.displayName, profile)
     }
 
     func focus() {

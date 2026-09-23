@@ -69,6 +69,28 @@ struct AgentSessionSocketSurfaceTests {
         expectEqual(panel.rendererKind, .claudeDesktop)
         expectEqual(panel.initialProviderID, .claude)
         expectEqual(panel.currentProviderID, .claude)
+        expectEqual(panel.desktopProfile, "default")
+    }
+
+    @Test
+    func testClaudeDesktopProfileNamesAreStableDirectoryComponents() throws {
+        let manager = TabManager()
+        let workspace = try #require(manager.selectedWorkspace)
+        let paneId = try #require(workspace.bonsplitController.focusedPaneId)
+
+        let panel = try #require(
+            workspace.newAgentSessionSurface(
+                inPane: paneId,
+                rendererKind: .claudeDesktop,
+                desktopProfile: "Work",
+                focus: false
+            )
+        )
+
+        expectEqual(panel.desktopProfile, "work")
+        expectEqual(AgentSessionPanel.normalizedDesktopProfile("../Personal Acct"), "personal-acct")
+        expectEqual(AgentSessionPanel.normalizedDesktopProfile("  "), "default")
+        expectEqual(AgentSessionPanel.normalizedDesktopProfile(nil), "default")
     }
 
     @Test

@@ -439,6 +439,7 @@ extension TerminalController {
                 providerID: providerID,
                 rendererKind: rendererKind,
                 workingDirectory: inputs.workingDirectory,
+                desktopProfile: inputs.profileRaw,
                 focus: focus
             )?.id
         } else {
