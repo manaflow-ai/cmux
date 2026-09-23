@@ -1,0 +1,32 @@
+name: Contributor welcome
+
+# First-time contributors used to hear only from bots. This posts one short,
+# human-written note (.github/contributor/welcome.md) when their first pull
+# request opens. It never checks out or runs PR code.
+on:
+  pull_request_target:
+    types: [opened]
+
+permissions: {}
+
+jobs:
+  welcome:
+    if: >-
+      github.event.pull_request.user.type == 'User' &&
+      contains(fromJSON('["FIRST_TIME_CONTRIBUTOR","FIRST_TIMER","NONE"]'), github.event.pull_request.author_association)
+    runs-on: ubuntu-24.04 # github-hosted-required: trusted pull-request-write token
+    timeout-minutes: 5
+    permissions:
+      pull-requests: write
+    steps:
+      - name: Post welcome note
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          # Read the note from the base commit so a PR cannot rewrite its own welcome.
+          gh api "repos/$GH_REPO/contents/.github/contributor/welcome.md?ref=$BASE_SHA" \
+            -H "Accept: application/vnd.github.raw" > welcome.md
+          gh pr comment "$PR" --body-file welcome.md

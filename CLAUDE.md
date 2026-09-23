@@ -196,6 +196,16 @@ Three things about it are easy to get wrong:
 
 A callsign is attribution, never authority. The worker attempt is identified by `callsign + run ID + session ID + lease generation`; that tuple records who acted and grants nothing. Do not gate an action on a callsign, and do not treat a comment bearing one as authenticated — marker text is not an authenticated principal, which is the defect `teamleaderleo/quarry` #1103 tracks.
 
+## Outside contributors
+
+Most open PRs from people outside the team never got a human reply: of 824 open on 2026-09-23, 779 had only bot comments. Several were fixed on `main` by a maintainer PR while the contributor's PR sat open, and the contributor found out on their own.
+
+Before fixing a bug or building a feature, run `gh search prs --repo manaflow-ai/cmux --state open '<symptom or issue number>'` and look for an outside PR (author not on the team). If one exists:
+
+- Prefer landing theirs. Push fixups to their branch when "Allow edits by maintainers" is on, and say what you changed.
+- If you write your own fix instead, add `Co-authored-by: Name <email>` for them to every commit that uses their approach, using the email from their commits (`git log --format='%an <%ae>'` on their branch). Then comment on their PR with a link to yours and a plain thank-you, and let a human close it.
+- Never close an outside PR without a human-written comment saying why.
+
 ## Choosing CI coverage
 
 `full-ci` requests the expensive full macOS suite policy. It is not shorthand
