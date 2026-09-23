@@ -50,6 +50,12 @@ GROUPS = (
 PATH_OWNERS = {
     ".github/workflows/ci-main-full-suite.yml": frozenset(("ci",)),
 
+    # The capability resolver guard reads these as one contract.
+    ".github/runners.json": frozenset(("ci",)),
+    ".github/workflows/resolve-runners.yml": frozenset(("ci",)),
+    ".github/workflows/ios-app-store.yml": frozenset(("ci",)),
+    "scripts/ci/resolve_runners.py": frozenset(("ci",)),
+
     ".github/workflows/ci-health-report.yml": frozenset(("ci",)),
     ".github/workflows/ci-queue-janitor.yml": frozenset(("ci",)),
     ".github/workflows/required-checks-drift.yml": frozenset(("ci",)),
