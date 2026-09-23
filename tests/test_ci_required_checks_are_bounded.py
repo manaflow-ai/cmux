@@ -26,6 +26,8 @@ from pathlib import Path
 
 import yaml
 
+from test_web_complexity_trusted_workflow import REQUIRED_CHECK, validate_metadata_routing
+
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOWS = ROOT / ".github/workflows"
@@ -81,8 +83,17 @@ def reachable(roots: set[Path], workflows: dict[Path, dict]) -> set[Path]:
     return seen
 
 
-def context_of(job_id: str, job: dict) -> str:
-    return job.get("name") or job_id
+def context_of(job_id: str, job: dict, path: Path, workflow: dict) -> str:
+    name = job.get("name") or job_id
+    if path.name == "web-complexity-trusted.yml" and job_id == "complexity" and "${{" in name:
+        # Interpret only the validated routing contract. Unknown expressions
+        # must remain unmatched instead of silently dropping timeout coverage.
+        try:
+            validate_metadata_routing(workflow)
+        except (AssertionError, KeyError, TypeError):
+            return name
+        return REQUIRED_CHECK
+    return name
 
 
 def main() -> int:
@@ -95,7 +106,7 @@ def main() -> int:
         for job_id, job in (workflow.get("jobs") or {}).items():
             if not isinstance(job, dict):
                 continue
-            context = context_of(job_id, job)
+            context = context_of(job_id, job, path, workflow)
             if context in REQUIRED_CONTEXTS:
                 owners[context] = path
 
