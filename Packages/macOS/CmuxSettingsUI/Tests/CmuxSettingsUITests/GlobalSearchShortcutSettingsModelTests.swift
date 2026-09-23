@@ -5,7 +5,7 @@ import Testing
 
 @MainActor
 @Suite(.serialized)
-struct GlobalSearchShortcutSettingsModelTests {
+final class GlobalSearchShortcutSettingsModelTests {
     @Test func distinctChordSuffixesCanShareAPrefix() async throws {
         let directory = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }
