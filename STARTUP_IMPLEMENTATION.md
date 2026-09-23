@@ -63,3 +63,31 @@ No new snapshot or live E2E produced. Existing handoff snapshot lacks exact plug
 - Tagged backend preflight; isolated real app New Machine, prompt input, agents
   and provider icon E2E; cleanup only owned test resources.
 - Fresh Axiom and benchmark evidence, PR bot feedback and mergeability audit.
+
+## New Machine latency (measured 2026-09-22, dev backend :4319, tag v7)
+
+Warm runs, click-equivalent `cmux vm new` to usable terminal: 1.56-1.81 s wall
+(n=3; was 5.9 s). Server create 0.39-0.60 s, of which Freestyle vms.create
+0.36-0.50 s. Guest: listener first seen 558-932 ms after create start (n=4),
+daemon start inside the clone 145-180 ms, supervisor steps <20 ms each.
+
+Landed: hub connector redials every 200 ms (fresh VMs lose early SYNs; single
+attempts waited 3.7 s or failed at 15 s); create response carries address and
+cmuxTuiContract so the app registers and links from the receipt with no attach
+request or fleet re-read; graph publishes before stats and the port scan;
+create usage events off the critical path; createTunnel recovers after 5xx or
+timeout; clone detection in 50 ms, announce first, housekeeping timers and
+watchdogs parked for 10 min; rebake cmux-devbox-pr13299-fastboot3.
+
+Not landed, with reasons:
+- Warm daemon in the snapshot: the running daemon holds the builder's
+  machine-id, resource-effect-pepper and session public id, so every clone
+  would share them. Needs registry support to rotate them on activation
+  (workspace_registry.rs load_or_create_machine_id,
+  load_or_create_resource_effect_pepper, mux.rs machine_public_id). Saves at
+  most ~150-300 ms. Prototype: activation-gate patch (not committed).
+- Paused standby pool: Freestyle resume costs 0.77-1.22 s server time, slower
+  than create. Only a running standby per active user can get under 1 s;
+  that is a cost decision for the owner.
+- Bake still pins daemon 01dc721, not this PR's head; no reference-plugin
+  install step exists in the bake.
