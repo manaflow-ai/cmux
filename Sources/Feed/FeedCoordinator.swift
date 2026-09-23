@@ -92,7 +92,7 @@ final class FeedCoordinator: @unchecked Sendable {
         guard notifications > 0 else { return max(0, workstream) }
         let high = UInt64(max(0, workstream)) & 0xFFFF_FFFF
         let low = UInt64(max(0, notifications)) & 0xFFFF_FFFF
-        return Int(bitPattern: (high << 32) | low)
+        return Int(truncatingIfNeeded: (high << 32) | low)
     }
 
     /// Must be called once at app launch to install the store.

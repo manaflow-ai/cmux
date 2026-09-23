@@ -6,7 +6,7 @@ This is the living scope record for the Feed work continued in this session. It 
 - Branch: `task-ios-feed-tab`.
 - Initial feature inventory snapshot: `c8ec337d105`. Later changes are recorded below.
 - [Pull request 10218](https://github.com/manaflow-ai/cmux/pull/10218), author: Abdulaziz Albahar (`azooz2003-bit`).
-- Current development tag: `fdtext`. Mac is installed/authenticated at `6dd5a1ad6f4960d52db2aed614079289a8c02a3a`. The matching signed phone update is queued because Aziz is unreachable. The last verified phone pair used `86eabf9ee333924300e9de4ccb6a9890ec7bba42`; historical `xfd2` records remain below.
+- Current development tag: `feedsim` is being rebuilt from `32a5891c772eeb3b3ce2db75dc8747be95ae84ed`. The helper simulator pane is `surface:1000000218`; the prior `fdtext` Mac remains installed/authenticated at `6dd5a1ad6f4`. The physical phone update remains queued while Aziz is unreachable. No current phone dogfood claim is made.
 - Original workspace: `workspace:38`, pane `pane:53`, surface `surface:117`.
 
 ## Changing scope
@@ -61,6 +61,8 @@ These capabilities were already on this feature branch when this session continu
 | F29 | Preserve the computer picker, computer list, and settings access across every primary tab, including Feed. | Built | Shared root toolbar is mounted in Feed. Computer selection filters Feed rows and its count using exact Mac/tag identity. Hosted UI checks passed (V36). Installed on Mac; phone update is signed and queued while the device is unreachable (V39). |
 | F30 | Search the active tab, including Feed; hide search for future tabs that do not support it. | Built | Feed has independent query state, a Search Feed placeholder, and loaded-preview/context filtering. Tabs without a search scope hide search. Hosted UI checks passed (V36). Installed on Mac; phone update is signed and queued while the device is unreachable (V39). |
 | F31 | Open an event’s workspace or tab from its row context menu, using its exact owning Mac. | Built | Context menu offers available workspace/tab actions; the store switches to the exact Mac and validates the target. Missing destinations show an alert. UI menu and destination store tests passed (V35–V36). Installed on Mac; phone update is signed and queued while the device is unreachable (V39). |
+| F32 | Notifications also appear in the Feed timeline, with stable notification IDs, workspace/surface provenance, and full-text reading. | Built | `feed.list` merges the durable notification history with Workstream rows and emits `feed.changed` for either source. Hosted runtime build and notification fixture verification remain pending. |
+| F33 | Persist every Feed event mutation, including terminal reply text and its exact event identity. | Built | Workstream JSONL replays the latest version per event; resolution, expiry, and terminal replies append durable versions. Replies carry `feed_event_id` equal to the row UUID. Focused persistence test added; hosted package/build verification remains pending. |
 
 ## Decisions
 
@@ -91,6 +93,8 @@ These capabilities were already on this feature branch when this session continu
 | D23 | Measure rendered text and reserve space for “… See more”; also honor explicit Mac truncation metadata. | User rejected an always-visible separate full-text button. Native TextKit handles width/font wrapping and composed Unicode characters. |
 | D24 | Share computer controls and search coordination across primary tabs. Feed search covers loaded previews/context, not unfetched full messages or disk history. | User requested consistent controls and active-tab search. The search extent is an implementation limit. |
 | D25 | Context actions validate the event’s exact Mac/tag and current workspace/tab after any connection switch, then open Workspaces. | User requested workspace/tab access from row menus. Missing targets show a localized error and cannot redirect to another tab. |
+| D26 | Treat notification history as a second Feed input, while keeping the Notifications tab and its read state intact. | Notifications serve more use cases than agent prompts. Feed rows use the notification UUID as `event_id`, preserve workspace/surface routing, and deduplicate only when the UUID is already represented by a Workstream row. |
+| D27 | The event UUID is the reply identity. The phone sends it as `feed_event_id`; the Mac stores the reply on that WorkstreamItem and exposes it again as `reply_text`. | This gives the agent and the UI one concise, durable reference for the exact event that received a reply. |
 
 ## Provider coverage
 
@@ -189,6 +193,7 @@ These are outstanding parts of existing scope or limits that affect its acceptan
 
 | Date | Change |
 | --- | --- |
+| 2026-09-23 | Added notification-to-Feed projection, combined source revisions, durable Workstream mutation replay, and explicit `feed_event_id` reply identity. Started a fresh `feedsim` Mac/simulator rebuild from `32a5891c772e`; physical phone remains unreachable and queued. |
 | 2026-09-23 | Built F28–F31, verified inline expansion, shared controls, Feed search, and event context menus in hosted UI, and passed focused routing/search tests. Saved screenshot/video proof and updated the HTML walkthrough. Installed/authenticated Mac 6dd5a1ad6f4; signed and queued the matching phone update after the device became unreachable (V35–V39). |
 | 2026-09-23 | Completed authenticated Mac/iPhone delivery and persisted reconnect (V34). Added the source-backed HTML architecture walkthrough (F27), with durability/ownership/compatibility findings clearly separated from approved implementation scope. User added inline expansion, shared computer controls, active-tab search, and event context navigation (F28–F31). |
 | 2026-09-23 | Verified full-text reading in hosted iPhone UI, focused packages, and seven actual CLI hook paths. Installed/authenticated the Mac; documented controller packaging repairs and pending phone delivery in V28–V33. |
