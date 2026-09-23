@@ -260,7 +260,7 @@ final class ForeignWindowSession {
         CFRunLoopAddSource(
             CFRunLoopGetMain(),
             AXObserverGetRunLoopSource(observer),
-            kCFRunLoopCommonModes
+            .commonModes
         )
     }
 
@@ -269,7 +269,7 @@ final class ForeignWindowSession {
         CFRunLoopRemoveSource(
             CFRunLoopGetMain(),
             AXObserverGetRunLoopSource(accessibilityObserver),
-            kCFRunLoopCommonModes
+            .commonModes
         )
         self.accessibilityObserver = nil
     }
