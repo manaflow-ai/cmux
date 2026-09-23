@@ -249,8 +249,9 @@ worth re-measuring before any plan depends on splitting them.
 
 **The compile is close to binary, and one file decides it.** Against the same
 restored compilation cache, a revision with no changed native sources compiled
-in 280 s; a revision differing by a single file in `Sources/` took 737 s. Swift
-rebuilds the app module wholesale, so "small diff" does not mean "short build",
+in 280 s; a revision differing by a single file in `Sources/` took 737 s. The
+cause is not established (Debug builds are not whole-module), but "small diff"
+does not mean "short build",
 and a cache seeded from a commit that has since drifted is worth much less than
 its hit rate suggests. Prefer adopting an already-compiled product over
 reasoning about cache warmth.
