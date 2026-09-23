@@ -2930,6 +2930,30 @@ jobs:
             echo "::endgroup::"
           done < "$selected"
 
+      - name: Diagnose Settings UI package crash
+        if: ${{ failure() }}
+        continue-on-error: true
+        timeout-minutes: 3
+        run: |
+          set -euo pipefail
+          package="$PWD/Packages/macOS/CmuxSettingsUI"
+          bundle="$(find "$package/.build" -path '*/CmuxSettingsUIPackageTests.xctest/Contents/MacOS/CmuxSettingsUIPackageTests' -type f -print -quit)"
+          [ -n "$bundle" ] || exit 0
+          toolchain_usr="$(dirname "$(dirname "$(xcrun --find swift)")")"
+          helper="$RUNNER_TEMP/cmux-settings-testing-helper"
+          cp "$toolchain_usr/libexec/swift/pm/swiftpm-testing-helper" "$helper"
+          cat > "$RUNNER_TEMP/cmux-settings-debug.plist" <<'PLIST'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0"><dict><key>com.apple.security.get-task-allow</key><true/></dict></plist>
+          PLIST
+          codesign --force --sign - --entitlements "$RUNNER_TEMP/cmux-settings-debug.plist" "$helper"
+          python3 scripts/ci/run_with_timeout.py --timeout-seconds 120 -- \
+            xcrun lldb --batch \
+              -o 'settings set target.disable-aslr false' \
+              -o run -o 'thread backtrace all' \
+              -- "$helper" --test-bundle-path "$bundle" --testing-library swift-testing
+
       # A package test runner that dies on a signal prints one line from
       # SwiftPM ("Exited with unexpected signal code N") and nothing else: no
       # faulting address, no thread, no frames. That is why the only tool this
