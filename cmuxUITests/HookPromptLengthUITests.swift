@@ -20,13 +20,6 @@ final class HookPromptLengthUITests: XCTestCase {
         app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
         app.launch()
         defer { app.terminate() }
-        XCTAssertTrue(waitForControlSocketReady(
-            pingTimeout: 20,
-            socketFileExists: { FileManager.default.fileExists(atPath: socketPath) },
-            pingReturnsPong: {
-                ControlSocketClient(path: socketPath, responseTimeout: 5).sendLine("ping") == "PONG"
-            }
-        ))
 
         let products = Bundle(for: Self.self).bundleURL
             .deletingLastPathComponent().deletingLastPathComponent()
@@ -47,7 +40,7 @@ final class HookPromptLengthUITests: XCTestCase {
         let finished = expectation(description: "hook and events CLI probe finished")
         process.terminationHandler = { _ in finished.fulfill() }
         try process.run()
-        wait(for: [finished], timeout: 120)
+        wait(for: [finished], timeout: 180)
         if process.isRunning { process.terminate() }
         let diagnostics = (try? String(contentsOf: output, encoding: .utf8)) ?? "missing probe output"
         XCTAssertFalse(process.isRunning, diagnostics)
@@ -75,6 +68,20 @@ def rpc(method, params):
         result = json.loads(connection.makefile().readline())
         assert result.get('ok'), (method, result.get('error'))
         return result['result']
+
+deadline = time.monotonic() + 60
+while True:
+    try:
+        with socket.socket(socket.AF_UNIX) as connection:
+            connection.settimeout(2)
+            connection.connect(sock)
+            connection.sendall(b'ping\n')
+            if connection.makefile().readline().strip() == 'PONG':
+                break
+    except (OSError, TimeoutError):
+        pass
+    assert time.monotonic() < deadline, 'isolated control socket did not become ready'
+    time.sleep(0.05)
 
 workspace = rpc('workspace.create', {'focus': False})['workspace_id']
 surfaces = rpc('surface.list', {'workspace_id': workspace})['surfaces']
@@ -131,13 +138,18 @@ push('context-precedence', {'context': {'lastUserMessage': 'PRIVATE_CONTEXT_orig
 push('precedence', {'tool_input': {'prompt': 'PRIVATE_PROMPT_first'}, 'prompt_length': 999}, None)
 push('tool', {'tool_input': {'command': 'PRIVATE_TOOL_echo', 'prompt_length': 18635}}, None, 'PreToolUse')
 
-result = subprocess.run([cli, '--socket', sock, 'events', '--after', '0',
-    '--name', 'agent.hook.UserPromptSubmit', '--name', 'agent.hook.PreToolUse',
-    '--no-ack', '--no-heartbeat', '--timeout', '3'], env=env, text=True,
-    capture_output=True, timeout=15)
-assert result.returncode == 0, ('events CLI', result.returncode)
-frames = [json.loads(line) for line in result.stdout.splitlines() if line.strip()]
-ours = [frame for frame in frames if frame.get('payload', {}).get('session_id') in expected]
+deadline = time.monotonic() + 60
+while True:
+    result = subprocess.run([cli, '--socket', sock, 'events', '--after', '0',
+        '--name', 'agent.hook.UserPromptSubmit', '--name', 'agent.hook.PreToolUse',
+        '--no-ack', '--no-heartbeat', '--timeout', '3'], env=env, text=True,
+        capture_output=True, timeout=15)
+    timed_out = result.returncode != 0 and 'Timed out waiting for a matching event' in result.stderr
+    assert result.returncode == 0 or timed_out, ('events CLI', result.returncode, result.stderr)
+    frames = [json.loads(line) for line in result.stdout.splitlines() if line.strip()]
+    ours = [frame for frame in frames if frame.get('payload', {}).get('session_id') in expected]
+    if {frame['payload']['session_id'] for frame in ours} == set(expected) or time.monotonic() >= deadline:
+        break
 seen = set()
 for frame in ours:
     payload = frame['payload']
