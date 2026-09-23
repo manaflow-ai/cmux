@@ -141,7 +141,7 @@ extension WorkspaceListView {
         }
         return WorkspaceListTable(
             items: workspaceTableItems(groupedItems: groupedItems),
-            preservesItemOrderDuringLiveUpdates: appliesRecencySort,
+            preservesItemOrderDuringLiveUpdates: pendingWorkspaceMoveCount == 0,
             presentationOrderIdentity: workspaceTablePresentationOrderIdentity,
             workspacesByID: workspacesByID,
             groupsByID: groupsByID,
@@ -175,11 +175,30 @@ extension WorkspaceListView {
                 )
                 : nil,
             enablesReorder: enablesReorder,
-            moveRows: enablesReorder ? { sourceOffsets, destination in
+            moveRows: enablesReorder ? { presentedItems, sourceOffsets, destination in
                 if grouped {
-                    moveGroupedRows(from: sourceOffsets, to: destination)
+                    let itemsByID = Dictionary(uniqueKeysWithValues: groupedItems.map { item in
+                        let id: String
+                        if case .groupHeader(let group, _) = item {
+                            id = "groupHeader.\(group.id.rawValue)"
+                        } else {
+                            id = item.id
+                        }
+                        return (id, item)
+                    })
+                    moveGroupedRows(
+                        from: sourceOffsets,
+                        to: destination,
+                        presentedItems: presentedItems.compactMap { itemsByID[$0.id] }
+                    )
                 } else {
-                    moveFlatRows(from: sourceOffsets, to: destination)
+                    moveFlatRows(
+                        from: sourceOffsets,
+                        to: destination,
+                        presentedWorkspaces: presentedItems.compactMap { item in
+                            item.workspaceID.flatMap { workspacesByID[$0] }
+                        }
+                    )
                 }
             } : nil,
             canDropIntoGroup: enablesReorder && grouped ? { workspaceID, groupID in
@@ -228,9 +247,12 @@ extension WorkspaceListView {
         )
     }
 
-    /// Inputs that can intentionally change the order of the list. Activity
-    /// timestamps are deliberately absent, so Recent Activity can update row
-    /// payloads without turning every notification into a table move.
+    /// The table owns its displayed order while this presentation is alive.
+    /// The Mac can reorder its source array on every notification, even when
+    /// iOS uses Automatic sorting. Compare membership and grouping without
+    /// source order so those updates cannot rearrange rows under the reader.
+    /// Sort/scope choices, pinning, and grouping still reset the presentation;
+    /// local drag/drop updates the table's order directly.
     private var workspaceTablePresentationOrderIdentity: [String] {
         var identity = workspaces.map { workspace in
             [
@@ -254,7 +276,19 @@ extension WorkspaceListView {
                 String(group.isEmpty),
             ].joined(separator: "\u{1F}")
         })
-        return identity
+        let scope: String
+        switch visibleMacSelection {
+        case .all: scope = "all"
+        case .automatic: scope = "automatic"
+        case .machine(let id): scope = "machine:\(id)"
+        }
+        return [
+            "sort:\(workspaceSortMode.rawValue)",
+            "scope:\(scope)",
+            "moveEpoch:\(workspaceMoveEpoch)",
+        ]
+            + workspaceComputerPriority.map { "priority:\($0)" }
+            + identity.sorted()
     }
 }
 #endif

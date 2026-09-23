@@ -216,8 +216,8 @@ import UIKit
         #expect(replacementTable.cellForRow(at: IndexPath(row: 0, section: 0)) === firstCell)
         #expect(replacementTable.cellForRow(at: IndexPath(row: 1, section: 0)) === secondCell)
 
-        // An explicit source-order change still reaches the native table.
-        next.presentationOrderIdentity.reverse()
+        // An explicit presentation choice still reaches the native table.
+        next.presentationOrderIdentity.append("sort:computerPriority")
         replacementCoordinator.update(configuration: next, in: replacementTable)
         #expect(replacementCoordinator.lastPayloadApplyRoute == .tableBatchUpdate)
         #expect(replacementCoordinator.configuration.items == next.items)

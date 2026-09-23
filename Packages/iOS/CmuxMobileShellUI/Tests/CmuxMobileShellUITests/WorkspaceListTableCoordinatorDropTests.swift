@@ -66,7 +66,7 @@ import UIKit
             initialConnectionDescription: nil,
             enablesReorder: true,
             moveRows: {
-                recorder.moveRowsCalls.append(($0, $1))
+                recorder.moveRowsCalls.append(($1, $2))
                 recorder.dropLifecycleEvents.append("model")
             },
             canDropIntoGroup: { workspaceID, groupID in

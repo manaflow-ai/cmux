@@ -48,7 +48,7 @@ struct WorkspaceListTable: UIViewControllerRepresentable {
     let initialConnectionTitle: String?
     let initialConnectionDescription: String?
     let enablesReorder: Bool
-    let moveRows: ((IndexSet, Int) -> Void)?
+    let moveRows: (([WorkspaceListTableItem], IndexSet, Int) -> Void)?
     let canDropIntoGroup: ((MobileWorkspacePreview.ID, MobileWorkspaceGroupPreview.ID) -> Bool)?
     let dropIntoGroup: ((MobileWorkspacePreview.ID, MobileWorkspaceGroupPreview.ID) -> Void)?
     /// Builds the row's "Move to Group" picker on demand (context-menu open),

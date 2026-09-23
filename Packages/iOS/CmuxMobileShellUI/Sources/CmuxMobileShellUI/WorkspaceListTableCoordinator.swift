@@ -193,12 +193,11 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
         #endif
     }
 
-    /// Recent Activity is a payload presentation policy, not a reason to move
-    /// rows while the user is reading the list. The authoritative SwiftUI
-    /// projection may rank a workspace differently after every notification,
-    /// but UIKit keeps its current order until a non-activity order input
-    /// changes. This makes activity updates equivalent to visible cell
-    /// reconfiguration and removes batch updates from the live scroll path.
+    /// UIKit owns the order already on screen. Both Recent Activity and the
+    /// Mac's Reorder on Notification can permute incoming rows on every tick.
+    /// Keep the displayed order until membership or a presentation choice
+    /// changes. Native drag/drop updates `appliedItems` before reconciliation,
+    /// so an intentional local move becomes the new displayed order.
     private func stabilizedLiveOrderConfiguration(
         _ next: WorkspaceListTable
     ) -> WorkspaceListTable {
@@ -691,6 +690,7 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
             row: min(insertionRow, configuration.items.count - 1),
             section: destinationIndexPath.section
         )
+        let presentedItems = Array(configuration.items.dropFirst(chromePrefixCount))
         dataSource?.moveItem(
             from: sourceIndexPath,
             to: landingIndexPath,
@@ -698,7 +698,7 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
         )
         appliedItems = dataSource?.items ?? appliedItems
         coordinator.drop(dropItem.dragItem, toRowAt: landingIndexPath)
-        moveRows(IndexSet(integer: source), swiftUIDestination)
+        moveRows(presentedItems, IndexSet(integer: source), swiftUIDestination)
     }
 
     private func workspacePreviewParameters(
