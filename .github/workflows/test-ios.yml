@@ -524,8 +524,12 @@ jobs:
             -derivedDataPath "$IOS_DERIVED_DATA"
             -clonedSourcePackagesDirPath "$IOS_SPM_CACHE"
           )
+          # The build action emits every scheme plan unless one is named.
+          # Match ordinary test's default plan and keep the product unambiguous.
           if [[ "${TEST_FILTER:-}" == cmuxUITests/* ]]; then
             XCODEBUILD_ARGS+=(-testPlan cmux-ui)
+          else
+            XCODEBUILD_ARGS+=(-testPlan cmux)
           fi
           set +e
           xcodebuild "${XCODEBUILD_ARGS[@]}" -showBuildTimingSummary build-for-testing \
