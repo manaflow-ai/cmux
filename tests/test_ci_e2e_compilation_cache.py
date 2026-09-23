@@ -142,26 +142,59 @@ exit 97
         values = self.prepare()
         cache = Path(values['CMUX_E2E_COMPILATION_CACHE'])
         (cache / 'compiler-entry').write_bytes(b'cached')
-        for ref, selected, outcome, allowed in (
-            ('refs/heads/main', 'a' * 40, 'success', True),
-            ('refs/heads/main', 'b' * 40, 'success', False),
-            ('refs/heads/topic', 'a' * 40, 'success', False),
-            ('refs/heads/main', 'a' * 40, 'failure', False),
+        for ref, selected, on_main, outcome, allowed in (
+            # A revision main already contains seeds, whether or not it is the tip.
+            ('refs/heads/main', 'a' * 40, 'true', 'success', True),
+            ('refs/heads/main', 'b' * 40, 'true', 'success', True),
+            ('refs/heads/main', 'a' * 40, 'false', 'success', False),
+            # An unreachable containment check leaves the cache read-only.
+            ('refs/heads/main', 'a' * 40, '', 'success', False),
+            ('refs/heads/main', 'not-a-sha', 'true', 'success', False),
+            ('refs/heads/topic', 'a' * 40, 'true', 'success', False),
+            ('refs/heads/main', 'a' * 40, 'true', 'failure', False),
         ):
             (self.root / 'output').write_text('')
             result = self.run_step('Bound E2E compilation cache', **values,
-                                  WORKFLOW_REF=ref, WORKFLOW_SHA='a' * 40,
+                                  WORKFLOW_REF=ref, REVISION_ON_MAIN=on_main,
                                   TEST_REF=selected, TEST_OUTCOME=outcome)
             self.assertEqual(result.returncode, 0, result.stderr)
             outputs = dict(line.split('=', 1) for line in (self.root / 'output').read_text().splitlines())
-            self.assertEqual(outputs['save'], str(allowed).lower())
+            self.assertEqual(outputs['save'], str(allowed).lower(),
+                             f'{ref} {selected} on_main={on_main!r} {outcome}')
+
+    def test_containment_maps_compare_status_to_seeding_permission(self):
+        sys.path.insert(0, str(ROOT / 'scripts/ci'))
+        import revision_on_main
+
+        sha = 'a' * 40
+        for status, contained in (('identical', True), ('behind', True),
+                                  ('ahead', False), ('diverged', False), (None, False)):
+            with self.subTest(status=status):
+                self.assertEqual(
+                    revision_on_main.contained_in_main(
+                        'o/r', sha, 'token', compare=lambda *_, s=status: s),
+                    contained,
+                )
+        # Missing repository, token or a non-SHA revision never reaches the API.
+        for repository, revision, token in (('', sha, 't'), ('o/r', 'main', 't'), ('o/r', sha, '')):
+            with self.subTest(revision=revision, repository=repository, token=token):
+                self.assertFalse(revision_on_main.contained_in_main(
+                    repository, revision, token,
+                    compare=lambda *_: self.fail('API must not be called')))
+        # A transport failure is not evidence of containment.
+        def explode(*_):
+            raise OSError('unreachable')
+        self.assertFalse(revision_on_main.contained_in_main('o/r', sha, 't', compare=explode))
 
     def test_empty_and_oversized_caches_are_not_published(self):
         values = self.prepare()
-        env = dict(values, WORKFLOW_REF='refs/heads/main', WORKFLOW_SHA='a' * 40,
+        # A revision main contains, so both runs reach the cache checks rather
+        # than stopping at the containment gate ahead of them.
+        env = dict(values, WORKFLOW_REF='refs/heads/main', REVISION_ON_MAIN='true',
                    TEST_REF='a' * 40, TEST_OUTCOME='success')
         result = self.run_step('Bound E2E compilation cache', **env)
         self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn('cache is empty', result.stdout)
         self.assertNotIn('save=true', (self.root / 'output').read_text())
         (Path(values['CMUX_E2E_COMPILATION_CACHE']) / 'compiler-entry').write_bytes(b'cached')
         fake_du = self.root / 'bin' / 'du'
@@ -169,6 +202,7 @@ exit 97
         fake_du.chmod(0o755)
         result = self.run_step('Bound E2E compilation cache', **env)
         self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn('exceeds 5 GiB', result.stdout)
         self.assertNotIn('save=true', (self.root / 'output').read_text())
 
     def test_failed_restore_discards_partial_cache_without_removing_products(self):
