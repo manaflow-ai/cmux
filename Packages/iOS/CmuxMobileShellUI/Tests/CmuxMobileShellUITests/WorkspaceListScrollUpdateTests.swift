@@ -34,6 +34,34 @@ import UIKit
         )
     }
 
+    @Test func hostedContentCannotInvalidateExactRowHeights() {
+        #expect(makeTableView().selfSizingInvalidation == .disabled)
+    }
+
+    @Test func retainedCellReadsCurrentStateBeforeDisplay() throws {
+        let group = MobileWorkspaceGroupPreview(
+            id: "group-1", name: "Release", anchorWorkspaceID: "workspace-1"
+        )
+        let initial = configuration(
+            workspaceIDs: ["workspace-1"],
+            groups: [group],
+            items: [.groupFooter(group.id)]
+        )
+        let table = makeTableView()
+        let coordinator = WorkspaceListTableCoordinator(configuration: initial)
+        coordinator.attach(to: table)
+        let path = IndexPath(row: 0, section: 0)
+        // A prefetched cell exists without being visible, so a visible-only
+        // update cannot reach it. UIKit can display this same instance later.
+        let retained = try #require(table.dataSource?.tableView(table, cellForRowAt: path))
+        #expect(retained.accessibilityIdentifier == "MobileWorkspaceGroupFooterBoundary-group-1-inactive")
+        coordinator.tableView(table, dragSessionWillBegin: ScrollDragSession(dragItems: []))
+
+        coordinator.tableView(table, willDisplay: retained, forRowAt: path)
+
+        #expect(retained.accessibilityIdentifier == "MobileWorkspaceGroupFooterBoundary-group-1-active")
+    }
+
     @Test func coordinatorLeavesPanLifecycleToUIKit() {
         let initial = configuration(workspaceIDs: ["workspace-1"])
         let coordinator = WorkspaceListTableCoordinator(configuration: initial)
