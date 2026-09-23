@@ -92,7 +92,7 @@ class ApprovedLabelsPass(unittest.TestCase):
 
 class ForbiddenLabelsAreCaught(unittest.TestCase):
     def test_the_label_that_motivated_this_module(self) -> None:
-        # Live in MACOS_RUNNER_26_RELEASE and MACOS_RUNNER_26_NIGHTLY_BUILD
+        # Live in MACOS_RUNNER_26 and MACOS_RUNNER_26_LARGE
         # from 2026-09-20. It matches the guard's `macos-26` fleet pattern and
         # is absent from the allow-list, which only carries the 6x macOS 15 Warp
         # label, so the guard would reject it on sight in a workflow file.
@@ -122,10 +122,10 @@ class DriftReportingOverVariables(unittest.TestCase):
         drifted = drifted_runner_variables(
             {
                 "CI_HEALTH_REPORT_ISSUE": "cmux-persistent-compile",
-                "MACOS_RUNNER_26_RELEASE": "warp-macos-26-arm64-12x",
+                "MACOS_RUNNER_26": "warp-macos-26-arm64-12x",
             }
         )
-        self.assertEqual([name for name, _, _ in drifted], ["MACOS_RUNNER_26_RELEASE"])
+        self.assertEqual([name for name, _, _ in drifted], ["MACOS_RUNNER_26"])
 
     def test_clean_configuration_reports_nothing(self) -> None:
         self.assertEqual(
@@ -142,13 +142,13 @@ class DriftReportingOverVariables(unittest.TestCase):
     def test_findings_are_sorted_so_two_reports_diff_cleanly(self) -> None:
         drifted = drifted_runner_variables(
             {
-                "MACOS_RUNNER_26_RELEASE": "warp-macos-26-arm64-12x",
-                "MACOS_RUNNER_26_NIGHTLY_BUILD": "warp-macos-26-arm64-12x",
+                "MACOS_RUNNER_26": "warp-macos-26-arm64-12x",
+                "MACOS_RUNNER_26_LARGE": "warp-macos-26-arm64-12x",
             }
         )
         self.assertEqual(
             [name for name, _, _ in drifted],
-            ["MACOS_RUNNER_26_NIGHTLY_BUILD", "MACOS_RUNNER_26_RELEASE"],
+            ["MACOS_RUNNER_26", "MACOS_RUNNER_26_LARGE"],
         )
 
     def test_surrounding_whitespace_does_not_hide_a_bad_label(self) -> None:
@@ -205,8 +205,8 @@ class TheReportParsesItsInput(unittest.TestCase):
         )
 
     def test_a_drifted_value_is_named(self) -> None:
-        line = self.lines("MACOS_RUNNER_26_RELEASE=warp-macos-26-arm64-12x\n")[0]
-        self.assertIn("MACOS_RUNNER_26_RELEASE", line)
+        line = self.lines("MACOS_RUNNER_26=warp-macos-26-arm64-12x\n")[0]
+        self.assertIn("MACOS_RUNNER_26", line)
         self.assertIn("1 variable(s)", line)
 
     def test_a_malformed_line_is_unreadable_not_clean(self) -> None:
