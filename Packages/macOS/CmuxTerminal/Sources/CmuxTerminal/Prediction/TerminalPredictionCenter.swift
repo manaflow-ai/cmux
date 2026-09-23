@@ -29,6 +29,8 @@ public final class TerminalPredictionCenter {
     private var isEnabled = false
 
     private var settingObserver: (any NSObjectProtocol)?
+    private var settingKey: String?
+    private var settingDefaults: UserDefaults?
 
     private init() {}
 
@@ -43,22 +45,25 @@ public final class TerminalPredictionCenter {
         if let settingObserver {
             NotificationCenter.default.removeObserver(settingObserver)
         }
-        setEnabled(defaults.bool(forKey: userDefaultsKey))
+        settingKey = userDefaultsKey
+        settingDefaults = defaults
+        refreshEnabledFromSetting()
+        // The closure captures nothing but the singleton: `UserDefaults` is not
+        // Sendable, so the store stays main-actor state and is read there.
         settingObserver = NotificationCenter.default.addObserver(
             forName: UserDefaults.didChangeNotification,
             object: defaults,
             queue: .main
         ) { _ in
             MainActor.assumeIsolated {
-                TerminalPredictionCenter.shared.setEnabled(
-                    defaults.bool(forKey: userDefaultsKey)
-                )
+                TerminalPredictionCenter.shared.refreshEnabledFromSetting()
             }
         }
     }
 
-    nonisolated private var now: PredictionInstant {
-        ContinuousClock.now - origin
+    private func refreshEnabledFromSetting() {
+        guard let settingKey, let settingDefaults else { return }
+        setEnabled(settingDefaults.bool(forKey: settingKey))
     }
 
     // MARK: Lifecycle
