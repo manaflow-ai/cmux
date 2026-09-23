@@ -245,13 +245,29 @@ public struct ReadOnlyVimNavigation {
     private mutating func search(backwards: Bool) {
         guard !searchPattern.isEmpty,
               let expression = try? NSRegularExpression(pattern: searchPattern, options: .anchorsMatchLines) else { return }
-        let matches = expression.matches(in: buffer.text as String, range: NSRange(location: 0, length: buffer.length))
-        let target = backwards
-            ? matches.last(where: { $0.range.location < cursor }) ?? matches.last
-            : matches.first(where: { $0.range.location > cursor }) ?? matches.first
+        let source = buffer.text as String
+        let whole = NSRange(location: 0, length: buffer.length)
+        let target: Int?
+        if backwards {
+            // Retain two offsets, not one result object for every match in a large file.
+            let current = cursor
+            var previous: Int?
+            var last: Int?
+            expression.enumerateMatches(in: source, range: whole) { result, _, _ in
+                guard let offset = result?.range.location else { return }
+                last = offset
+                if offset < current { previous = offset }
+            }
+            target = previous ?? last
+        } else {
+            let start = buffer.next(cursor)
+            let remainder = NSRange(location: start, length: buffer.length - start)
+            target = expression.firstMatch(in: source, options: .withoutAnchoringBounds, range: remainder)?.range.location
+                ?? expression.firstMatch(in: source, range: whole)?.range.location
+        }
         guard let target else { return }
         recordJump()
-        cursor = buffer.clamp(target.range.location)
+        cursor = buffer.clamp(target)
         desiredColumn = nil
     }
 }
