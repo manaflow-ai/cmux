@@ -8555,10 +8555,28 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
     func testTextBoxSubmitKeepsQueuedRunForStillActiveSurfaceWhenAnotherSurfaceFinishes() throws {
 #if DEBUG
         try withPreservedGeneralPasteboard {
+            // A previous app-host batch may have been interrupted while a
+            // pasteboard lane was awaiting its fake read, which leaves the
+            // process-wide pasteboard run reserved and silently queues this
+            // run instead of starting it. Start from an empty debug runner.
+            TextBoxSubmit.debugResetForTesting()
             let activeSurface = FakeTextBoxSubmitSurface()
             let finishingSurface = FakeTextBoxSubmitSurface()
             TextBoxSubmit.debugWaitTimeoutSecondsOverride = 10
             defer { TextBoxSubmit.debugWaitTimeoutSecondsOverride = nil }
+            // The file paste publishes through the managed pasteboard lane,
+            // whose previous-contents capture runs in a re-exec'd helper
+            // process. Wait on the binding callback itself instead of a
+            // wall-clock deadline sized for a warm spawn: on a loaded CI host
+            // that cold helper launch alone has been observed taking longer
+            // than the old 5s poll, which turned a correct run into a failure.
+            let bindingPerformed = expectation(
+                description: "file paste performs the clipboard paste binding"
+            )
+            activeSurface.performExplicitInputBindingActionHandler = {
+                bindingPerformed.fulfill()
+                return true
+            }
             let imageURL = try makeTemporaryPNGFile(named: "moon.png")
             var completions: [String] = []
 
@@ -8586,10 +8604,10 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
                 completions.append("finishing")
             }
 
-            waitFor(timeout: 5.0, until: {
-                completions == ["finishing"] &&
-                    activeSurface.sentKeys == ["paste_from_clipboard"]
-            })
+            // The binding callback is the real signal that the lane published
+            // the temporary clipboard; the timeout only bounds the failure path.
+            wait(for: [bindingPerformed], timeout: 60.0)
+            XCTAssertEqual(completions, ["finishing"])
             XCTAssertEqual(finishingSurface.sentText, ["finishing"])
             XCTAssertEqual(activeSurface.sentText, [])
             XCTAssertEqual(activeSurface.sentKeys, ["paste_from_clipboard"])

@@ -1,25 +1,24 @@
 // Shared credential authentication for every coderouter data-plane surface
 // (codex responses/models, opencode config/proxy, the Claude messages leg).
 //
-// A route token may be bound to one Cloud VM (`coderouter_route_tokens.vm_id`).
-// Long-lived user API keys are unbound and carry their own opaque key id for
-// usage attribution.
-// Such a token is only ever delivered by the Freestyle edge, which injects
-// both `x-coderouter-route-token` and `x-cmux-vm-id` into the guest's session
-// (the guest itself never holds the token). The database binding is the
-// authority: a bound token whose request carries a different or missing
-// `x-cmux-vm-id` is rejected, so a rule that was mis-provisioned for another
-// machine, or a guest that forges the header, cannot spend a token that is
-// not its own. Unbound tokens (the `cr` CLI) ignore the header.
+// VM credentials arrive only in x-cmux-authorization. Their verified claims
+// supply identity; the repository checks revocation and current ownership.
+// Unbound CLI sessions and user API keys keep their existing authentication.
 import {
   authenticateApiKey,
   authenticateRouteToken,
   type RouteTokenPrincipal,
 } from "./repository";
+import {
+  VM_AUTHORIZATION_HEADER,
+  type VmAuthorizationClaims,
+  verifyVmAuthorization,
+} from "./vmAuthorization";
 import { recordCoderouterIdentity, recordCoderouterSpan } from "./requestTelemetry";
 
 export const ROUTE_TOKEN_HEADER = "x-coderouter-route-token";
 export const VM_ID_HEADER = "x-cmux-vm-id";
+export { VM_AUTHORIZATION_HEADER };
 
 /**
  * The public, non-secret value a VM-wired harness sends as its API key. It
@@ -56,6 +55,9 @@ export type RouteTokenAuthResult =
  * `x-api-key` (Anthropic-style clients). A placeholder is never a credential.
  */
 export function routeTokenFromRequest(request: Request): string | null {
+  if (request.headers.has(VM_AUTHORIZATION_HEADER)) {
+    return /^Bearer[ \t]+([^\s,]+)$/i.exec(request.headers.get(VM_AUTHORIZATION_HEADER)?.trim() ?? "")?.[1] ?? null;
+  }
   const routed = request.headers.get(ROUTE_TOKEN_HEADER)?.trim();
   if (routed) return routed;
   const authorization = request.headers.get("authorization")?.trim() ?? "";
@@ -99,21 +101,21 @@ async function authenticateUnobserved(
   request: Request,
   authenticate: Authenticate,
 ): Promise<RouteTokenAuthResult> {
+  const signedHeader = request.headers.has(VM_AUTHORIZATION_HEADER);
   const token = routeTokenFromRequest(request);
-  if (!token) return { ok: false, reason: "missing_route_token" };
+  if (!token) return { ok: false, reason: signedHeader ? "invalid_route_token" : "missing_route_token" };
+  const claims = signedHeader ? await verifyVmAuthorization(token) : null;
+  if (signedHeader && !claims) return { ok: false, reason: "invalid_route_token" };
   const identity = await authenticate(token);
   if (!identity) return { ok: false, reason: "invalid_route_token" };
-  const vmId = identity.vmId ?? null;
-  if (vmId === null && request.headers.has(VM_ID_HEADER)) return { ok: false, reason: "vm_mismatch" };
-  if (vmId !== null) {
-    const claimed = request.headers.get(VM_ID_HEADER)?.trim() ?? "";
-    if (claimed !== vmId) return { ok: false, reason: "vm_mismatch" };
-  }
+  if (!validVmBinding(request, identity, claims)) return { ok: false, reason: "vm_mismatch" };
+  const legacyVmId = identity.vmId ?? null;
+  const vmId = claims?.vm_id ?? legacyVmId;
   return {
     ok: true,
     identity: {
-      teamId: identity.teamId,
-      stackUserId: identity.stackUserId,
+      teamId: claims?.team_id ?? identity.teamId,
+      stackUserId: claims?.owner_id ?? identity.stackUserId,
       vmId,
       token,
       ...(identity.poolId ? { poolId: identity.poolId } : {}),
@@ -128,4 +130,19 @@ export async function authenticateCoderouterCredential(
 ): Promise<RouteTokenPrincipal | null> {
   if (token.startsWith("crk_")) return await authenticateApiKey(token);
   return await authenticateRouteToken(token);
+}
+
+function matchesVmClaims(identity: Awaited<ReturnType<Authenticate>> & {}, claims: VmAuthorizationClaims): boolean {
+  return identity.vmId === claims.vm_id && identity.teamId === claims.team_id && identity.stackUserId === claims.owner_id;
+}
+
+function validVmBinding(
+  request: Request,
+  identity: Awaited<ReturnType<Authenticate>> & {},
+  claims: VmAuthorizationClaims | null,
+): boolean {
+  if (claims) return matchesVmClaims(identity, claims);
+  const vmId = identity.vmId ?? null;
+  if (vmId === null) return !request.headers.has(VM_ID_HEADER);
+  return request.headers.get(VM_ID_HEADER)?.trim() === vmId;
 }

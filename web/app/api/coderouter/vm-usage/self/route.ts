@@ -1,7 +1,7 @@
 import { coderouterControlRoute } from "@/services/coderouter/requestTelemetry";
 // Usage for the machine a VM-bound route token belongs to. cmux-tui inside
 // the VM calls this through the Freestyle edge, which injects the real
-// `x-coderouter-route-token` and `x-cmux-vm-id` headers; the guest itself
+// `x-cmux-authorization` header; the guest itself
 // only sends the public placeholder bearer.
 import {
   authenticateRequestRouteToken,

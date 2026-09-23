@@ -1772,6 +1772,10 @@ fi
 # Audience: --external uses the External audience; the default internal cut uses
 # the terse Internal block. SHIPPED_BUILD_NUMBER is the CFBundleVersion that
 # actually shipped (post-guard, or the reused archive's embedded version).
+if [[ -n "${CMUX_TESTFLIGHT_NOTES_REQUEST_FILE:-}" ]]; then
+  # Reused runner directories must never upload a previous build's request.
+  rm -f "$CMUX_TESTFLIGHT_NOTES_REQUEST_FILE"
+fi
 if [[ "$TESTFLIGHT_NOTES_LANE" -ne 1 ]]; then
   echo "note: lane '$LANE' is not a TestFlight lane; skipping TestFlight What to Test notes" >&2
 elif [[ "$SKIP_NOTES" -eq 1 ]]; then
@@ -1820,7 +1824,25 @@ else
     NOTES_SOURCE_ARGS=( --expect-marketing-version "$NOTES_MARKETING_VERSION" )
   fi
   echo "setting TestFlight '$NOTES_AUDIENCE' What to Test notes for build $SHIPPED_BUILD_NUMBER (${NOTES_MARKETING_VERSION:-unknown version}) from ${NOTES_SOURCE_DESC}" >&2
-  if ASC_API_KEY_ID="$ASC_API_KEY_ID" ASC_API_ISSUER_ID="$ASC_API_ISSUER_ID" \
+  # CI can release the Mac before Apple's processing wait. Keep the exact
+  # validated/generated arguments; credentials stay in the downstream job.
+  # Standalone callers retain the synchronous behavior below.
+  if [[ -n "${CMUX_TESTFLIGHT_NOTES_REQUEST_FILE:-}" ]]; then
+    if ! python3 - "$CMUX_TESTFLIGHT_NOTES_REQUEST_FILE" \
+      --build-number "$SHIPPED_BUILD_NUMBER" \
+      --audience "$NOTES_AUDIENCE" \
+      --bundle-id "$PRODUCT_BUNDLE_IDENTIFIER" \
+      ${NOTES_SOURCE_ARGS[@]+"${NOTES_SOURCE_ARGS[@]}"} <<'PY_NOTES'
+import json
+import pathlib
+import sys
+
+pathlib.Path(sys.argv[1]).write_text(json.dumps(sys.argv[2:]) + "\n")
+PY_NOTES
+    then
+      echo "warning: could not defer TestFlight notes (the upload succeeded); re-run set-testflight-notes.sh later" >&2
+    fi
+  elif ASC_API_KEY_ID="$ASC_API_KEY_ID" ASC_API_ISSUER_ID="$ASC_API_ISSUER_ID" \
      ASC_API_KEY_PATH="${ASC_API_KEY_PATH:-}" ASC_API_KEY_P8_BASE64="${ASC_API_KEY_P8_BASE64:-}" \
      "$SCRIPT_DIR/set-testflight-notes.sh" \
        --build-number "$SHIPPED_BUILD_NUMBER" \

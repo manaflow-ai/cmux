@@ -16,6 +16,7 @@ import Bonsplit
 @Suite(.serialized)
 final class WorkspaceContentViewVisibilityTests {
     private final class MinimalModeBodyProbeCounts {
+        var isMeasuringInvalidations = false
         var contentViewBody = 0
         var workspaceContentBody = 0
         var verticalTabsSidebarBody = 0
@@ -236,6 +237,7 @@ final class WorkspaceContentViewVisibilityTests {
             .environment(
                 \.minimalModeInvalidationProbe,
                 MinimalModeInvalidationProbe(
+                    shouldTraceBodyChanges: { counts.isMeasuringInvalidations },
                     contentViewBody: { counts.contentViewBody += 1 },
                     workspaceContentBody: { counts.workspaceContentBody += 1 },
                     verticalTabsSidebarBody: { counts.verticalTabsSidebarBody += 1 }
@@ -263,11 +265,14 @@ final class WorkspaceContentViewVisibilityTests {
         #expect(counts.workspaceContentBody > 0)
         #expect(counts.verticalTabsSidebarBody > 0)
         counts.reset()
+        counts.isMeasuringInvalidations = true
+        defer { counts.isMeasuringInvalidations = false }
         defaults.set(
             WorkspacePresentationModeSettings.Mode.minimal.rawValue,
             forKey: WorkspacePresentationModeSettings.modeKey
         )
         await Self.drainMainRunLoop(for: window)
+        counts.isMeasuringInvalidations = false
 
         #expect(
             counts.contentViewBody == 0,

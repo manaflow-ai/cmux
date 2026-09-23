@@ -36,6 +36,12 @@ assert driver_spec.loader is not None
 driver_spec.loader.exec_module(driver)
 
 
+HEAD_SHA = "a" * 40
+SOURCE_SHA = "b" * 40
+SOURCE_PARENT1 = "c" * 40
+SOURCE_TREE = "d" * 40
+
+
 def args(**overrides):
     values = {
         "selector": "pilot",
@@ -46,9 +52,41 @@ def args(**overrides):
         "cohort": "13198,feature/persistent",
         "pr_number": "13198",
         "head_ref": "feature/persistent",
+        "head_sha": HEAD_SHA,
+        "source_sha": SOURCE_SHA,
+        "source_parent1": SOURCE_PARENT1,
+        "source_tree": SOURCE_TREE,
     }
     values.update(overrides)
     return argparse.Namespace(**values)
+
+
+def live_pull_request(**overrides):
+    """The live GitHub observation that matches the request envelope exactly."""
+    payload = {
+        "state": "open",
+        "author_association": "MEMBER",
+        "head": {"sha": HEAD_SHA, "repo": {"full_name": "manaflow-ai/cmux"}},
+        "base": {"sha": SOURCE_PARENT1},
+        "merge_commit_sha": SOURCE_SHA,
+    }
+    payload.update(overrides)
+    return payload
+
+
+class FakeGitHub:
+    """Serves canned `gh api` payloads and records the exact paths requested."""
+
+    def __init__(self, payloads: dict[str, object]):
+        self.payloads = payloads
+        self.paths: list[str] = []
+
+    def api(self, path: str, *, method: str = "GET") -> object:
+        self.paths.append(path)
+        try:
+            return self.payloads[path]
+        except KeyError:  # pragma: no cover - a miss is always a test bug
+            raise AssertionError(f"unexpected API read: {path}") from None
 
 
 class RoutingTests(unittest.TestCase):
@@ -166,6 +204,132 @@ class RoutingTests(unittest.TestCase):
         self.assertFalse(route.valid_budget(121, 480))
         self.assertFalse(route.valid_budget(120, 481))
         self.assertFalse(route.valid_budget(120, 500))
+
+    def test_live_reverification_accepts_only_the_exact_requested_source(self):
+        # The route request artifact is published by the PR-side `changes` job,
+        # so by the time the default-branch router reads it the pull request may
+        # already have moved. `verify_live_request` is the whole defence: it
+        # re-reads the live PR and refuses to spend an owned-Mac allocation on
+        # anything but the exact commit, tree, base and author it was asked for.
+        paths = {
+            f"pulls/{args().pr_number}": live_pull_request(),
+            f"git/commits/{SOURCE_SHA}": {"tree": {"sha": SOURCE_TREE}},
+        }
+        api = FakeGitHub(paths)
+        self.assertEqual(route.verify_live_request(api, args()), (True, "verified"))
+        self.assertEqual(
+            api.paths,
+            [f"pulls/{args().pr_number}", f"git/commits/{SOURCE_SHA}"],
+        )
+
+        # Each stale or untrusted observation names itself, so the hosted
+        # fallback reason in the metrics says which invariant moved.
+        stale = {
+            "pr_closed": live_pull_request(state="closed"),
+            "untrusted_repository": live_pull_request(
+                head={"sha": HEAD_SHA, "repo": {"full_name": "someone/cmux"}}
+            ),
+            "untrusted_author": live_pull_request(author_association="COLLABORATOR"),
+            "head_changed": live_pull_request(
+                head={"sha": "e" * 40, "repo": {"full_name": "manaflow-ai/cmux"}}
+            ),
+            "base_changed": live_pull_request(base={"sha": "f" * 40}),
+            "merge_changed": live_pull_request(merge_commit_sha="0" * 40),
+        }
+        for reason, payload in stale.items():
+            with self.subTest(reason=reason):
+                api = FakeGitHub({f"pulls/{args().pr_number}": payload})
+                self.assertEqual(route.verify_live_request(api, args()), (False, reason))
+                # A refused PR observation never costs a second API read.
+                self.assertEqual(api.paths, [f"pulls/{args().pr_number}"])
+
+        # A merge commit that kept its SHA but not its tree is still stale.
+        api = FakeGitHub(
+            {
+                f"pulls/{args().pr_number}": live_pull_request(),
+                f"git/commits/{SOURCE_SHA}": {"tree": {"sha": "9" * 40}},
+            }
+        )
+        self.assertEqual(route.verify_live_request(api, args()), (False, "tree_changed"))
+
+        for commit in ({}, {"tree": {}}, "not-a-commit"):
+            with self.subTest(commit=commit):
+                api = FakeGitHub(
+                    {
+                        f"pulls/{args().pr_number}": live_pull_request(),
+                        f"git/commits/{SOURCE_SHA}": commit,
+                    }
+                )
+                self.assertEqual(
+                    route.verify_live_request(api, args()), (False, "tree_changed")
+                )
+
+        # An unreadable PR body is a refusal, not a crash and not a pass.
+        for payload in ([], "", None):
+            with self.subTest(payload=payload):
+                api = FakeGitHub({f"pulls/{args().pr_number}": payload})
+                self.assertEqual(
+                    route.verify_live_request(api, args()), (False, "pr_observation_invalid")
+                )
+
+        # Repository comparison is case-insensitive, matching `eligibility`.
+        api = FakeGitHub(
+            {
+                f"pulls/{args().pr_number}": live_pull_request(
+                    head={"sha": HEAD_SHA, "repo": {"full_name": "Manaflow-AI/CMUX"}}
+                ),
+                f"git/commits/{SOURCE_SHA}": {"tree": {"sha": SOURCE_TREE}},
+            }
+        )
+        self.assertEqual(route.verify_live_request(api, args()), (True, "verified"))
+
+    def test_producer_discovery_requires_the_exact_dispatch_title_on_main(self):
+        # The producer is found by its run-name, so a run dispatched from any
+        # other ref, or for any other request, must never be adopted: its
+        # artifact would be a compile of source this router did not verify.
+        request_id = "4242-1"
+        title = f"persistent-mac-compile-{request_id}"
+        listing = "actions/workflows/persistent-macos-compile.yml/runs?event=workflow_dispatch&per_page=50"
+
+        def api_for(runs):
+            return FakeGitHub({listing: {"workflow_runs": runs}})
+
+        self.assertIsNone(route.matching_run(api_for([]), request_id))
+        self.assertIsNone(
+            route.matching_run(
+                api_for([{"id": 1, "display_title": title, "head_branch": "attacker"}]),
+                request_id,
+            )
+        )
+        self.assertIsNone(
+            route.matching_run(
+                api_for(
+                    [
+                        {
+                            "id": 1,
+                            "display_title": "persistent-mac-compile-9999-1",
+                            "head_branch": "main",
+                        }
+                    ]
+                ),
+                request_id,
+            )
+        )
+
+        # A redispatch of the same request adopts the newest run.
+        newest = route.matching_run(
+            api_for(
+                [
+                    {"id": 10, "display_title": title, "head_branch": "main"},
+                    {"id": 30, "display_title": title, "head_branch": "main"},
+                    {"id": 20, "display_title": title, "head_branch": "main"},
+                    {"id": 40, "display_title": title, "head_branch": "topic"},
+                ]
+            ),
+            request_id,
+        )
+        self.assertIsNotNone(newest)
+        self.assertEqual(newest["id"], 30)
 
     def test_output_helpers_record_hosted_fallback_and_persistent_success(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -513,6 +677,47 @@ class WorkflowContractTests(unittest.TestCase):
         self.assertNotIn(
             '(number("ROUTE_WALL_SECONDS") or 0.0) + (number("ADMISSION_SECONDS") or 0.0)',
             admission,
+        )
+
+    def _admission_step(self, name: str) -> str:
+        admission = self.macos_ci.split("  macos-compile-admission:", 1)[1].split(
+            "  app-host-unit-tests:", 1
+        )[0]
+        start = admission.index(f"      - name: {name}")
+        return admission[start:].split("\n      - name:", 1)[0]
+
+    def test_refused_persistent_product_leaves_no_bytes_for_the_fallback_compile(self):
+        """A refused product must not become the fallback compile's input.
+
+        Every identity check in this step runs *after* the archive has been expanded
+        into `CMUX_COMPILE_ADMISSION_DERIVED_DATA` and relocated by
+        `app_host_test_products.py restore`. The step is `continue-on-error`, and the
+        compile steps that replace it are gated only on
+        `steps.persistent-restore.outputs.hit != 'true'` -- they run in that same
+        DerivedData. So a refusal that leaves the tree in place hands unvalidated
+        producer output to the compile that was supposed to replace it.
+
+        `reuse_app_host_products.py` already states this rule for the artifact path
+        ("a miss never leaves partial products in DerivedData") and removes the tree
+        on any error. The owned-Mac path needs the same property, and it needs it
+        armed before the first byte is written rather than on individual error paths.
+        """
+        step = self._admission_step("Revalidate persistent Mac compile product")
+        self.assertIn("continue-on-error: true", step)
+        self.assertIn('rm -rf "$CMUX_COMPILE_ADMISSION_DERIVED_DATA"', step)
+        self.assertLess(
+            step.index("trap "),
+            step.index('tar -xzf "$archive"'),
+            "cleanup must be armed before anything is extracted",
+        )
+        # The cleanup must key off this step reaching its own success, not off the
+        # shell merely exiting: `set -e` aborts inside the identity checks exit
+        # non-zero, but so would a later unrelated failure after a genuine hit.
+        self.assertIn("revalidated=true", step)
+        self.assertLess(
+            step.index("revalidated=true"),
+            step.index('echo "hit=true"'),
+            "success must be recorded before the hit is published",
         )
 
     def test_persistent_product_revalidation_retains_admission_checks(self):

@@ -150,6 +150,36 @@ extension AppDelegate {
             TerminalController.shared.setActiveTabManager(previousActive)
         }
     }
+
+    /// Registers a windowless context whose selected workspace holds portal
+    /// rendering authority, for fixtures that build a `TerminalSurface` directly.
+    /// `setVisibleInUI` and `setActive` fold every request through
+    /// `Workspace.portalRenderingEnabled(for:)`, which denies a workspace id that
+    /// no registered manager has selected, so a surface built with a made-up
+    /// `tabId` is never actually shown or activated. Build the surface with the
+    /// returned id and call `tearDown` once the surface is gone.
+    func registerLivePortalWorkspaceForTesting() -> (id: UUID, tearDown: @MainActor () -> Void)? {
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        guard let workspace = manager.selectedWorkspace else { return nil }
+        let windowId = registerMainWindowContextForTesting(tabManager: manager)
+        return (workspace.id, { [self] in
+            unregisterMainWindowContextForTesting(windowId: windowId)
+            forgetRecoverableMainWindowRoute(windowId: windowId)
+            manager.finalizeAllWorkspacesForWindowClose()
+        })
+    }
+}
+
+/// A window that reports key status the way the focused main window does in
+/// the running app. The app-host test process runs headless under
+/// `xcodebuild test` and is usually not the active app, so
+/// `makeKeyAndOrderFront` never makes a programmatic window key; whether it
+/// does then depends on whether an earlier test happened to activate the app.
+/// Terminal focus paths gate on `isKeyWindow` (automatic first-responder
+/// apply, focus redraws, deferred focus reapply), so focus tests that do not
+/// pin key status pass or fail by test order instead of by behavior.
+final class KeyStatusTestWindow: NSWindow {
+    override var isKeyWindow: Bool { true }
 }
 
 /// A window that reports key status the way the focused main window does in
