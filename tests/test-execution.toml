@@ -79,7 +79,7 @@ lane = "macos-cli-no-socket"
 
 [[test]]
 path = "tests/test_claude_wrapper_hooks.py"
-lane = "macos-cli-no-socket"
+lane = "macos-claude-wrapper"
 
 [[test]]
 path = "tests/test_codex_wrapper_computer_use_mcp.py"
