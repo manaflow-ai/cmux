@@ -1266,9 +1266,10 @@ struct PortScannerPortRetirementTests {
     /// fifth that a kick issued at the fifth scan reliably lands while the
     /// burst still owes exactly one scan — the case the late-burst test covers.
     private static let fastLateBurstOffsets: [TimeInterval] = [0.05, 0.15, 0.3, 0.45, 0.6, 1.6]
-    /// Well under the 25ms poll the kicking test uses: a kick that lands
-    /// before the coalesce timer fires reschedules it, so a poll faster than
-    /// this window would starve the burst.
+    /// The compressed stand-in for the production 200ms coalesce step. No test
+    /// here kicks repeatedly while it waits, so nothing is racing this window:
+    /// each kick is issued once and the scanner's own guarantee of
+    /// `minimumScansPerKick` scans per kick carries the rest.
     private static let fastCoalesceDelay: TimeInterval = 0.01
 
     /// The compressed schedules above only stand in for production if the
@@ -1325,7 +1326,6 @@ struct PortScannerPortRetirementTests {
         let didPublishListeningPort = await Self.waitForPublication(
             in: publishedPorts,
             matching: { $0 == [listeningPort] },
-            onKick: { scanner.kick(workspaceId: workspaceId, panelId: panelId) },
             pollInterval: .milliseconds(25)
         )
         try #require(didPublishListeningPort, "the listening port was never published")
@@ -1334,12 +1334,15 @@ struct PortScannerPortRetirementTests {
         // retirement; an earlier empty publication is registration noise.
         let publicationsBeforeStop = publishedPorts.withLock { $0.count }
         await runner.stopListening()
+        // One kick, not one per poll: a kick guarantees `minimumScansPerKick`
+        // scans, which is exactly the number of complete misses the reconciler
+        // needs to retire the port.
+        scanner.kick(workspaceId: workspaceId, panelId: panelId)
 
         let didRetirePort = await Self.waitForPublication(
             in: publishedPorts,
             after: publicationsBeforeStop,
             matching: \.isEmpty,
-            onKick: { scanner.kick(workspaceId: workspaceId, panelId: panelId) },
             pollInterval: .milliseconds(25)
         )
 
@@ -1384,7 +1387,6 @@ struct PortScannerPortRetirementTests {
         let didPublishListeningPort = await Self.waitForPublication(
             in: publishedPorts,
             matching: { $0 == [listeningPort] },
-            onKick: {},
             pollInterval: .milliseconds(10)
         )
         try #require(didPublishListeningPort, "the listening port was never published")
@@ -1404,7 +1406,6 @@ struct PortScannerPortRetirementTests {
             in: publishedPorts,
             after: publicationsBeforeStop,
             matching: \.isEmpty,
-            onKick: {},
             timeout: .seconds(12),
             pollInterval: .milliseconds(10)
         )
@@ -1454,7 +1455,6 @@ struct PortScannerPortRetirementTests {
         let didPublishListeningPort = await Self.waitForPublication(
             in: publishedPorts,
             matching: { $0 == [listeningPort] },
-            onKick: { scanner.kick(workspaceId: workspaceId, panelId: panelId) },
             timeout: .seconds(6)
         )
 
@@ -1465,14 +1465,18 @@ struct PortScannerPortRetirementTests {
     /// on real timers whose spacing shifts under load. The deadline bounds only
     /// the failure path: a satisfied predicate returns immediately.
     ///
-    /// A caller that kicks on every poll must keep the interval above the
-    /// scanner's coalesce window: each kick reschedules that timer, so polling
-    /// faster than it starves the burst and no scan ever runs.
+    /// This only observes; it never kicks. Kicking from the poll loop is a
+    /// flake vector, not a nudge: `PortScanner.kick()` re-arms the coalesce
+    /// timer whenever no burst is running, so on a loaded runner — where timer
+    /// jitter is the same order as the coalesce window — a stream of polls can
+    /// cancel that timer forever and no scan ever runs. Each caller kicks once
+    /// instead, which the scanner already answers with a guaranteed
+    /// `minimumScansPerKick` scans. That makes the poll interval a pure
+    /// latency/CPU tradeoff, independent of the coalesce delay.
     private static func waitForPublication(
         in publishedPorts: OSAllocatedUnfairLock<[[Int]]>,
         after startIndex: Int = 0,
         matching predicate: @Sendable ([Int]) -> Bool,
-        onKick: @Sendable () -> Void,
         timeout: Duration = .seconds(20),
         pollInterval: Duration = .milliseconds(500)
     ) async -> Bool {
@@ -1482,7 +1486,6 @@ struct PortScannerPortRetirementTests {
         let deadline = ContinuousClock.now + timeout
         while ContinuousClock.now < deadline {
             if isSatisfied() { return true }
-            onKick()
             // Cancellation makes the sleep throw immediately; without this the
             // poll would spin until the wall-clock deadline.
             do {
