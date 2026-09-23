@@ -128,6 +128,8 @@ def run_wrapper(
     setup_sandbox=None,
     process_timeout: float | None = None,
     generated_hook_settings: str | None = None,
+    help_output: str | None = None,
+    help_behavior: str = "success",
 ) -> tuple[int, list[str], list[str], str, str, str, str, str, str, str]:
     with tempfile.TemporaryDirectory(prefix="cmux-claude-wrapper-test-") as td:
         tmp = Path(td)
@@ -165,16 +167,12 @@ for arg in "$@"; do
   printf '%s\\n' "$arg" >> "$FAKE_REAL_ARGS_LOG"
 done
 if [[ "${1:-}" == "--help" ]]; then
-  cat <<'HELP'
-Usage: claude [options] [command] [prompt]
-
-Commands:
-  agents             Manage agents
-  doctor             Check Claude health
-  experimental-next  Future command exposed by the real CLI help
-  plugin|plugins     Manage plugins
-  update|upgrade     Update Claude
-HELP
+  printf 'probe\\n' >> "$FAKE_REAL_HELP_CALLS_LOG"
+  case "${FAKE_REAL_HELP_BEHAVIOR:-success}" in
+    fail) printf '%s' "${FAKE_REAL_HELP_OUTPUT-}"; exit 1 ;;
+    hang) sleep 30 & wait ;;
+  esac
+  printf '%s' "${FAKE_REAL_HELP_OUTPUT-}"
   exit 0
 fi
 exec node "$FAKE_REAL_NODE_SCRIPT" "$@"
@@ -264,6 +262,19 @@ exit 0
         env["FAKE_REAL_CHILD_NODE_OPTIONS_LOG"] = str(real_child_node_options_log)
         env["FAKE_REAL_LAUNCH_ARGV_B64_LOG"] = str(real_launch_argv_b64_log)
         env["FAKE_REAL_NODE_SCRIPT"] = str(real_dir / "claude-real.js")
+        env["FAKE_REAL_HELP_CALLS_LOG"] = str(tmp / "help-calls.log")
+        env["FAKE_REAL_HELP_BEHAVIOR"] = help_behavior
+        env["FAKE_REAL_HELP_OUTPUT"] = (
+            "Usage: claude [options] [command] [prompt]\n\n"
+            "Commands:\n"
+            "  agents             Manage agents\n"
+            "  doctor             Check Claude health\n"
+            "  experimental-next  Future command exposed by the real CLI help\n"
+            "  plugin|plugins     Manage plugins\n"
+            "  update|upgrade     Update Claude\n"
+            if help_output is None
+            else help_output
+        )
         env["FAKE_HOOK_CMUX_BIN_LOG"] = str(hook_cmux_bin_log)
         env["FAKE_CMUX_LOG"] = str(cmux_log)
         env["FAKE_CMUX_PING_OK"] = "1" if socket_state == "live" else "0"
@@ -353,6 +364,7 @@ def run_wrapper_terminal_env_probe(
     hooks_disabled: bool = False,
     socket_state: str = "live",
     restore_token: str | None = None,
+    help_output: str = "",
 ) -> tuple[int, dict[str, str], list[str], str, set[str]]:
     with tempfile.TemporaryDirectory(prefix="cmux-claude-wrapper-env-probe-") as td:
         tmp = Path(td)
@@ -394,6 +406,10 @@ def run_wrapper_terminal_env_probe(
             real_dir / "claude",
             f"""#!/usr/bin/env bash
 set -euo pipefail
+if [[ "${{1:-}}" == "--help" ]]; then
+  printf '%s' "$FAKE_REAL_HELP_OUTPUT"
+  exit 0
+fi
 : > "$FAKE_REAL_ENV_LOG"
 : > "$FAKE_REAL_ARGS_LOG"
 keys=(
@@ -441,6 +457,7 @@ exit 0
             env.update(fingerprint_env)
             env["FAKE_REAL_ENV_LOG"] = str(env_log)
             env["FAKE_REAL_ARGS_LOG"] = str(args_log)
+            env["FAKE_REAL_HELP_OUTPUT"] = help_output
             env["FAKE_CMUX_PING_OK"] = "1" if socket_state == "live" else "0"
 
             proc = subprocess.run(
@@ -1123,6 +1140,14 @@ def test_command_like_invocations_bypass_hook_injection(failures: list[str]) -> 
         "remote-control",
         "agents",
         "doctor",
+        "attach",
+        "logs",
+        "stop",
+        "kill",
+        "rm",
+        "respawn",
+        "gateway",
+        "import",
         "update",
         "upgrade",
         "auth",
@@ -1168,6 +1193,154 @@ def test_hidden_attach_subcommand_bypasses_hook_injection(failures: list[str]) -
     expect("--settings" not in real_argv, f"attach passthrough: expected no --settings injection, got {real_argv}", failures)
     expect("--session-id" not in real_argv, f"attach passthrough: expected no --session-id injection, got {real_argv}", failures)
     expect(node_options == "__UNSET__", f"attach passthrough: expected no NODE_OPTIONS injection, got {node_options!r}", failures)
+
+
+def test_discovered_subcommands_and_aliases_pass_through(failures: list[str]) -> None:
+    """New advertised commands use the same argv/environment boundary as builtins."""
+    help_output = (
+        "Usage: claude [options] [command] [prompt]\n\n"
+        "Options:\n  --model <model>  Pick a model\n\n"
+        "Commands:\n"
+        "  future-command|future-alias [options] <id>  A new command\n"
+        "                                              wrapped description\n"
+        "  another-command [id]                       Another command\n"
+        "\nExamples:\n  example-word  A usage example, not a command\n"
+    )
+    for argv in (
+        ["future-command", "abc123"],
+        ["future-alias"],
+        ["another-command"],
+        ["--model", "sonnet", "future-command", "abc123"],
+    ):
+        code, env, real_argv, stderr, keys = run_wrapper_terminal_env_probe(
+            argv, help_output=help_output,
+        )
+        expect(code == 0, f"discovery {argv}: exit {code}: {stderr}", failures)
+        expect(real_argv == argv, f"discovery {argv}: argv changed: {real_argv}", failures)
+        expect(all(env.get(key) == "__UNSET__" for key in keys),
+               f"discovery {argv}: cmux environment leaked: {env}", failures)
+    for prompt in ("hello", "wrapped", "example-word"):
+        code, argv, _, stderr, *_ = run_wrapper(
+            socket_state="live", argv=[prompt], help_output=help_output,
+        )
+        expect(code == 0 and "--settings" in argv and "--session-id" in argv,
+               f"prompt {prompt}: expected hooks and session id: {argv}: {stderr}", failures)
+
+
+def test_subcommand_discovery_cache_and_binary_identity(failures: list[str]) -> None:
+    """Reuse help until the binary path or mtime changes; ignore obsolete commands."""
+    for change in ("mtime", "path", "symlink"):
+        with tempfile.TemporaryDirectory(prefix="cmux-help-calls-") as td:
+            calls = Path(td) / "calls"
+
+            def setup(tmp: Path, env: dict) -> None:
+                home = tmp / "home"
+                home.mkdir()
+                env["HOME"] = str(home)
+                env["FAKE_REAL_HELP_CALLS_LOG"] = str(calls)
+                real = tmp / "real-bin" / "claude"
+                wrapper = tmp / "cmux.app/Contents/Resources/bin/cmux-claude-wrapper"
+                env["CMUX_CUSTOM_CLAUDE_PATH"] = str(real)
+                if change == "symlink":
+                    link = tmp / "claude-link"
+                    link.symlink_to(real)
+                    env["CMUX_CUSTOM_CLAUDE_PATH"] = str(link)
+
+                def invoke(word: str, *, passthrough: bool) -> None:
+                    proc = subprocess.run([str(wrapper), word], cwd=tmp, env=env,
+                                          capture_output=True, text=True, timeout=5)
+                    observed = read_lines(Path(env["FAKE_REAL_ARGS_LOG"]))
+                    expect(proc.returncode == 0, f"cache {change}: {proc.stderr}", failures)
+                    expect((observed == [word]) == passthrough,
+                           f"cache {change}, {word}: unexpected argv {observed}", failures)
+
+                env["FAKE_REAL_HELP_OUTPUT"] = "Commands:\n  future-first  First command\n"
+                invoke("future-first", passthrough=True)
+                env["FAKE_REAL_HELP_OUTPUT"] = "Commands:\n  future-second  Replacement command\n"
+                invoke("future-first", passthrough=True)
+                expect(read_lines(calls) == ["probe"],
+                       f"cache {change}: expected one help call: {read_lines(calls)}", failures)
+                if change == "mtime":
+                    before = real.stat()
+                    os.utime(real, ns=(before.st_atime_ns, before.st_mtime_ns + 2_000_000_000))
+                else:
+                    replacement = tmp / "replacement-claude"
+                    shutil.copy2(real, replacement)
+                    if change == "symlink":
+                        link.unlink()
+                        link.symlink_to(replacement)
+                    else:
+                        env["CMUX_CUSTOM_CLAUDE_PATH"] = str(replacement)
+                invoke("future-first", passthrough=False)
+
+            code, argv, _, stderr, *_ = run_wrapper(
+                socket_state="live", argv=["future-second", "abc123"], setup_sandbox=setup,
+                process_timeout=5,
+            )
+            expect(code == 0 and argv == ["future-second", "abc123"],
+                   f"cache {change}: new command not recognized: {argv}: {stderr}", failures)
+            expect(read_lines(calls) == ["probe", "probe"],
+                   f"cache {change}: expected exactly one refresh: {read_lines(calls)}", failures)
+
+
+def test_subcommand_help_failure_falls_back_and_is_cached(failures: list[str]) -> None:
+    """Failed, empty, or hung help never changes prompt or hidden-command dispatch."""
+    for behavior, output in (("fail", "Commands:\n  hello  Partial output\n"),
+                             ("success", ""), ("hang", "")):
+        with tempfile.TemporaryDirectory(prefix="cmux-help-fallback-") as td:
+            calls = Path(td) / "calls"
+
+            def setup(tmp: Path, env: dict) -> None:
+                home = tmp / "home"
+                home.mkdir()
+                env["HOME"] = str(home)
+                env["FAKE_REAL_HELP_CALLS_LOG"] = str(calls)
+                wrapper = tmp / "cmux.app/Contents/Resources/bin/cmux-claude-wrapper"
+                proc = subprocess.run([str(wrapper), "hello"], cwd=tmp, env=env,
+                                      capture_output=True, text=True, timeout=5)
+                observed = read_lines(Path(env["FAKE_REAL_ARGS_LOG"]))
+                expect(proc.returncode == 0 and "--session-id" in observed and "--settings" in observed,
+                       f"fallback {behavior}: prompt launch failed: {observed}: {proc.stderr}", failures)
+
+            code, argv, _, stderr, *_ = run_wrapper(
+                socket_state="live", argv=["hello"], setup_sandbox=setup,
+                help_behavior=behavior, help_output=output, process_timeout=5,
+            )
+            expect(code == 0 and "--settings" in argv and "--session-id" in argv,
+                   f"fallback {behavior}: lost prompt integration: {argv}: {stderr}", failures)
+            expect(read_lines(calls) == ["probe"],
+                   f"fallback {behavior}: failure was not cached: {read_lines(calls)}", failures)
+        for command in ("attach", "logs", "stop", "kill", "rm", "respawn", "gateway", "import"):
+            code, argv, _, stderr, *_ = run_wrapper(
+                socket_state="live", argv=[command, "abc123"],
+                help_behavior=behavior, help_output=output, process_timeout=5,
+            )
+            expect(code == 0 and argv == [command, "abc123"],
+                   f"fallback {behavior}, {command}: argv changed: {argv}: {stderr}", failures)
+
+
+def test_explicit_prompt_modes_skip_subcommand_discovery(failures: list[str]) -> None:
+    """Session entry flags and non-command text do not need a help subprocess."""
+    for argv in ([], ["hello world"], ["--", "future-command"],
+                 ["-p", "future-command"], ["--print", "future-command"],
+                 ["--continue"], ["--resume", "abc123"], ["--worktree", "tree"],
+                 ["--remote-control"], ["--from-pr", "123"]):
+        with tempfile.TemporaryDirectory(prefix="cmux-help-fast-path-") as td:
+            calls = Path(td) / "calls"
+
+            def setup(tmp: Path, env: dict) -> None:
+                home = tmp / "home"
+                home.mkdir()
+                env["HOME"] = str(home)
+                env["FAKE_REAL_HELP_CALLS_LOG"] = str(calls)
+
+            code, observed, _, stderr, *_ = run_wrapper(
+                socket_state="live", argv=argv, setup_sandbox=setup,
+                help_behavior="hang", process_timeout=5,
+            )
+            expect(code == 0 and "--settings" in observed,
+                   f"session entry {argv}: missing hooks: {observed}: {stderr}", failures)
+            expect(not calls.exists(), f"session entry {argv}: unexpectedly probed help", failures)
 
 
 def test_passthrough_flags_bypass_hook_injection(failures: list[str]) -> None:
@@ -2738,6 +2911,10 @@ def main() -> int:
     test_plain_claude_launch_argv_has_no_empty_argument(failures)
     test_command_like_invocations_bypass_hook_injection(failures)
     test_hidden_attach_subcommand_bypasses_hook_injection(failures)
+    test_discovered_subcommands_and_aliases_pass_through(failures)
+    test_subcommand_discovery_cache_and_binary_identity(failures)
+    test_subcommand_help_failure_falls_back_and_is_cached(failures)
+    test_explicit_prompt_modes_skip_subcommand_discovery(failures)
     test_passthrough_flags_bypass_hook_injection(failures)
     test_live_socket_attaches_cmux_cua_when_available(failures)
     test_computer_use_wrapper_is_a_pure_proxy(failures)
