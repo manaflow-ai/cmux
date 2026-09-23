@@ -7528,7 +7528,12 @@ final class cmuxUITests: XCTestCase {
         let port = try await server.start()
         defer { server.stop() }
 
-        let app = try launchConnectedApp(port: port)
+        // This host implements the local RPC fixture, not Iroh discovery.
+        // Keep the fixture on its manual route while exercising the toolbar.
+        let app = try launchConnectedApp(
+            port: port,
+            launchArguments: ["-dev.cmux.mobile.connectionMethod.v1", "tailscale"]
+        )
         try openSelectedWorkspaceIfNeeded(app)
 
         XCTAssertTrue(
@@ -8434,9 +8439,12 @@ final class cmuxUITests: XCTestCase {
         }
 
         let row = app.descendants(matching: .any)["MobileWorkspaceRow-workspace-main"]
-        XCTAssertTrue(row.waitForExistence(timeout: 8))
+        _ = try XCTUnwrap(row.waitForExistence(timeout: 8) ? true : nil, "Workspace fixture must connect")
         row.tap()
-        XCTAssertTrue(app.otherElements["MobileTerminalSurface"].waitForExistence(timeout: 8))
+        _ = try XCTUnwrap(
+            app.otherElements["MobileTerminalSurface"].waitForExistence(timeout: 8) ? true : nil,
+            "Open the workspace before checking its controls"
+        )
     }
 
     @MainActor

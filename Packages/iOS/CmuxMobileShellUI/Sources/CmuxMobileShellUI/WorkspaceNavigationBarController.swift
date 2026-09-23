@@ -8,14 +8,6 @@ final class WorkspaceNavigationBarController: UIViewController {
     private let item = UINavigationItem()
     private let titleHost = UIHostingController(rootView: AnyView(EmptyView()))
     private lazy var titleCapsule = WorkspaceNavigationTitleView(host: titleHost)
-    // This is a fixed UIKit group because these actions are part of the
-    // workspace detail chrome, rather than user-customizable navigation
-    // content. A nil representative deliberately keeps each action visible;
-    // the titleView is the compressible part of this bar.
-    private let trailingGroup = UIBarButtonItemGroup.fixedGroup(
-        withRepresentativeItem: nil,
-        items: []
-    )
     private var controls: [WorkspaceNavigationBar.Item.ID: HostedControl] = [:]
     private var leadingIDs: [WorkspaceNavigationBar.Item.ID] = []
     private var trailingIDs: [WorkspaceNavigationBar.Item.ID] = []
@@ -44,10 +36,6 @@ final class WorkspaceNavigationBarController: UIViewController {
         addChild(titleHost)
         item.largeTitleDisplayMode = .never
         item.titleView = titleCapsule
-        // Unlike trailingItemGroups, this group cannot move into More.
-        // Every new essential action must join this group so UIKit includes
-        // its actual intrinsic width before sizing the title.
-        item.pinnedTrailingGroup = trailingGroup
         bar.setItems([item], animated: false)
         titleHost.didMove(toParent: self)
     }
@@ -95,7 +83,12 @@ final class WorkspaceNavigationBarController: UIViewController {
         }
         if trailingIDs != nextTrailingIDs {
             trailingIDs = nextTrailingIDs
-            trailingGroup.barButtonItems = trailingIDs.compactMap { controls[$0]?.button }
+            // UIKit places rightBarButtonItems from the trailing edge inward.
+            // Our input order follows the visual leading-to-trailing order.
+            item.setRightBarButtonItems(
+                trailingIDs.reversed().compactMap { controls[$0]?.button },
+                animated: false
+            )
         }
 
         let visibleIDs = Set(leadingIDs + trailingIDs)
