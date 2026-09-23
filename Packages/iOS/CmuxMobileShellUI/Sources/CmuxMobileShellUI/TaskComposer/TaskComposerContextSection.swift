@@ -12,19 +12,14 @@ struct TaskComposerContextSection: View {
     let buildLabelsByID: [String: String]
     let workspaceGroups: [MobileWorkspaceGroupPreview]
     let selectedWorkspaceGroupID: MobileWorkspaceGroupPreview.ID?
-    let workspaceGroupSelectionPending: Bool
-    let workspaceGroupSelectionRequiresResolution: Bool
-    let showsWorkspaceGroupPicker: Bool
     let paneWorkspaces: [MobileWorkspacePreview]
     let selectedTargetWorkspaceID: MobileWorkspacePreview.ID?
     let selectedTargetPaneID: MobilePanePreview.ID?
-    let selectTargetPane: (MobileWorkspacePreview.ID?, MobilePanePreview.ID?) -> Void
     let presentDestinationPicker: () -> Void
     let directory: String
     let isDisabled: Bool
     let endWorkspaceNameEditing: () -> Void
     let selectMachine: (String, String?) -> Void
-    let selectWorkspaceGroup: (MobileWorkspaceGroupPreview.ID?) -> Void
     let selectDirectory: () -> Void
 
     var body: some View {
@@ -42,18 +37,13 @@ struct TaskComposerContextSection: View {
                 buildLabelsByID: buildLabelsByID,
                 workspaceGroups: workspaceGroups,
                 selectedWorkspaceGroupID: selectedWorkspaceGroupID,
-                workspaceGroupSelectionPending: workspaceGroupSelectionPending,
-                workspaceGroupSelectionRequiresResolution: workspaceGroupSelectionRequiresResolution,
-                showsWorkspaceGroupPicker: showsWorkspaceGroupPicker,
                 paneWorkspaces: paneWorkspaces,
                 selectedTargetWorkspaceID: selectedTargetWorkspaceID,
                 selectedTargetPaneID: selectedTargetPaneID,
-                selectTargetPane: selectTargetPane,
                 presentDestinationPicker: presentDestinationPicker,
                 directory: directory,
                 isDisabled: isDisabled,
                 selectMachine: selectMachine,
-                selectWorkspaceGroup: selectWorkspaceGroup,
                 selectDirectory: selectDirectory
             )
             .background(cardBackground, in: cardShape)
