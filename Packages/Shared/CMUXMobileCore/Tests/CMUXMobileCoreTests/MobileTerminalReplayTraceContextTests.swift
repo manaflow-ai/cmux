@@ -39,7 +39,61 @@ struct MobileTerminalReplayTraceContextTests {
             attempt: -4
         )
         #expect(context.attempt == 0)
-        #expect(context.encoded == MobileTerminalReplayTrigger.coldAttach.rawValue)
+        #expect(MobileTerminalReplayTraceContext(encoded: context.encoded)?.attempt == 0)
+    }
+
+    /// The fields that separate "waiting on a repair" from "nothing is
+    /// coming", and "the lane is dead" from "the surface stopped asking".
+    @Test func repairStateRoundTrips() {
+        for inFlight in [true, false] {
+            for exhausted in [true, false] {
+                for connected in [true, false] {
+                    let context = MobileTerminalReplayTraceContext(
+                        trigger: .retryExhausted,
+                        surfaceIsBlank: true,
+                        barrierActive: false,
+                        attempt: 2,
+                        replayInFlight: inFlight,
+                        retryExhausted: exhausted,
+                        isConnected: connected,
+                        terminalEventAgeSeconds: 9
+                    )
+                    let decoded = MobileTerminalReplayTraceContext(encoded: context.encoded)
+                    #expect(decoded == context)
+                    #expect(decoded?.replayInFlight == inFlight)
+                    #expect(decoded?.retryExhausted == exhausted)
+                    #expect(decoded?.isConnected == connected)
+                    // 9s rounds down to the 8s bucket.
+                    #expect(decoded?.terminalEventAgeSeconds == 8)
+                }
+            }
+        }
+    }
+
+    @Test func aLaneThatNeverDeliveredHasNoAge() {
+        let never = MobileTerminalReplayTraceContext(
+            trigger: .coldAttach, surfaceIsBlank: true, barrierActive: false,
+            attempt: 0, terminalEventAgeSeconds: nil
+        )
+        #expect(MobileTerminalReplayTraceContext(encoded: never.encoded)?
+            .terminalEventAgeSeconds == nil)
+        let fresh = MobileTerminalReplayTraceContext(
+            trigger: .coldAttach, surfaceIsBlank: true, barrierActive: false,
+            attempt: 0, terminalEventAgeSeconds: 1
+        )
+        #expect(MobileTerminalReplayTraceContext(encoded: fresh.encoded)?
+            .terminalEventAgeSeconds == 1)
+    }
+
+    @Test func aVeryOldAgeSaturatesInsteadOfWrapping() {
+        let ancient = MobileTerminalReplayTraceContext(
+            trigger: .coldAttach, surfaceIsBlank: true, barrierActive: false,
+            attempt: 0, terminalEventAgeSeconds: 1_000_000
+        )
+        let decoded = MobileTerminalReplayTraceContext(encoded: ancient.encoded)
+        #expect(decoded?.terminalEventAgeSeconds != nil)
+        #expect((decoded?.terminalEventAgeSeconds ?? 0) > 0)
+        #expect(decoded == ancient)
     }
 
     /// An older consumer must not read a future trigger as `unknown`: that

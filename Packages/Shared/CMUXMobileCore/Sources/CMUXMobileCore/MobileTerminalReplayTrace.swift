@@ -69,18 +69,60 @@ public struct MobileTerminalReplayTraceContext: Equatable, Sendable {
     public let barrierActive: Bool
     /// Zero-based retry index within the current replay episode.
     public let attempt: Int
+    /// Whether a replay request is outstanding for this surface.
+    public let replayInFlight: Bool
+    /// Whether the surface has spent its replay retry budget. Combined with
+    /// ``replayInFlight`` this separates "waiting on a repair" from "nothing
+    /// is coming".
+    public let retryExhausted: Bool
+    /// Whether the app considered itself connected. A repair path that
+    /// returns early on connection state leaves no other trace of the
+    /// decision.
+    public let isConnected: Bool
+    /// Seconds since the last terminal event arrived, rounded down to a power
+    /// of two; `nil` when nothing has ever arrived. This is the "is the lane
+    /// alive" signal: a small age beside a blank surface means the transport
+    /// is fine and the surface simply stopped asking.
+    public let terminalEventAgeSeconds: Int?
 
     public init(
         trigger: MobileTerminalReplayTrigger,
         surfaceIsBlank: Bool,
         barrierActive: Bool,
-        attempt: Int
+        attempt: Int,
+        replayInFlight: Bool = false,
+        retryExhausted: Bool = false,
+        isConnected: Bool = true,
+        terminalEventAgeSeconds: Int? = nil
     ) {
         self.trigger = trigger
         self.surfaceIsBlank = surfaceIsBlank
         self.barrierActive = barrierActive
         self.attempt = min(max(0, attempt), Self.maxAttempt)
+        self.replayInFlight = replayInFlight
+        self.retryExhausted = retryExhausted
+        self.isConnected = isConnected
+        self.terminalEventAgeSeconds = terminalEventAgeSeconds.map {
+            Self.bucketedSeconds($0)
+        }
     }
+
+    /// Rounds an age down to a power of two, capped at the encodable range.
+    /// Exact seconds carry no diagnostic value here and would spend payload
+    /// bits that the packed slot does not have.
+    static func bucketedSeconds(_ seconds: Int) -> Int {
+        guard seconds > 0 else { return 0 }
+        var bucket = 0
+        var value = 1
+        while value * 2 <= seconds, bucket < Self.maxAgeExponent - 1 {
+            value *= 2
+            bucket += 1
+        }
+        return value
+    }
+
+    /// Exponents 1...15 encode ages; 0 means "nothing has ever arrived".
+    static let maxAgeExponent = 15
 
     /// Packs the context into one non-negative integer payload slot.
     public var encoded: Int {
@@ -88,7 +130,23 @@ public struct MobileTerminalReplayTraceContext: Equatable, Sendable {
         if surfaceIsBlank { value |= 1 << 8 }
         if barrierActive { value |= 1 << 9 }
         value |= (attempt & 0xF) << 10
+        if replayInFlight { value |= 1 << 14 }
+        if retryExhausted { value |= 1 << 15 }
+        if isConnected { value |= 1 << 16 }
+        value |= (Self.ageExponent(terminalEventAgeSeconds) & 0xF) << 17
         return value
+    }
+
+    /// 0 means absent; otherwise the exponent of the power-of-two bucket.
+    static func ageExponent(_ seconds: Int?) -> Int {
+        guard let seconds, seconds > 0 else { return 0 }
+        var exponent = 1
+        var value = 1
+        while value * 2 <= seconds, exponent < maxAgeExponent {
+            value *= 2
+            exponent += 1
+        }
+        return exponent
     }
 
     /// Unpacks a context previously produced by ``encoded``.
@@ -104,5 +162,10 @@ public struct MobileTerminalReplayTraceContext: Equatable, Sendable {
         self.surfaceIsBlank = (encoded & (1 << 8)) != 0
         self.barrierActive = (encoded & (1 << 9)) != 0
         self.attempt = (encoded >> 10) & 0xF
+        self.replayInFlight = (encoded & (1 << 14)) != 0
+        self.retryExhausted = (encoded & (1 << 15)) != 0
+        self.isConnected = (encoded & (1 << 16)) != 0
+        let exponent = (encoded >> 17) & 0xF
+        self.terminalEventAgeSeconds = exponent == 0 ? nil : 1 << (exponent - 1)
     }
 }

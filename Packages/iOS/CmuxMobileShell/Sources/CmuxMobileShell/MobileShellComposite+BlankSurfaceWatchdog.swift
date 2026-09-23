@@ -74,7 +74,11 @@ extension MobileShellComposite {
             trigger: terminalSurfaceGaveUpTriggersBySurfaceID[surfaceID] ?? .unknown,
             surfaceIsBlank: true,
             barrierActive: false,
-            attempt: terminalReplayFailureRetryCountsBySurfaceID[surfaceID] ?? 0
+            attempt: terminalReplayFailureRetryCountsBySurfaceID[surfaceID] ?? 0,
+            replayInFlight: false,
+            retryExhausted: terminalReplayFailureRetryExhausted(surfaceID: surfaceID),
+            isConnected: connectionState == .connected,
+            terminalEventAgeSeconds: terminalEventAgeSecondsForDiagnostics()
         )
         terminalBlankSurfaceWatchdogTraceIDsBySurfaceID[surfaceID] = traceID
         terminalBlankSurfaceWatchdogStartedAtBySurfaceID[surfaceID] = startedAt
@@ -106,13 +110,27 @@ extension MobileShellComposite {
                 guard !Task.isCancelled, let self,
                       self.terminalBlankSurfaceWatchdogTraceIDsBySurfaceID[surfaceID] == traceID,
                       self.terminalSurfaceIsUnattendedBlank(surfaceID: surfaceID) else { return }
+                // Re-read rather than reusing the opening snapshot: the lane
+                // or the connection can recover while the surface stays
+                // blank, and that difference is the whole diagnosis.
                 self.recordTerminalTrace(
                     operation: .blankSurface,
                     phase: .stalled,
                     traceID: traceID,
                     surfaceID: surfaceID,
                     startedAt: startedAt,
-                    replayContext: context
+                    replayContext: MobileTerminalReplayTraceContext(
+                        trigger: context.trigger,
+                        surfaceIsBlank: true,
+                        barrierActive: false,
+                        attempt: self.terminalReplayFailureRetryCountsBySurfaceID[surfaceID] ?? 0,
+                        replayInFlight: false,
+                        retryExhausted: self.terminalReplayFailureRetryExhausted(
+                            surfaceID: surfaceID
+                        ),
+                        isConnected: self.connectionState == .connected,
+                        terminalEventAgeSeconds: self.terminalEventAgeSecondsForDiagnostics()
+                    )
                 )
             }
         }
