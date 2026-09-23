@@ -234,7 +234,7 @@ jobs:
           python-version: "3.9"
 
       - name: Prepare workflow guard Python dependencies
-        if: ${{ matrix.group == 'ci' || matrix.group == 'app-host-execution' || matrix.group == 'app-host-process' || matrix.group == 'app-host-cache' || matrix.group == 'release-notary' || matrix.group == 'release-tooling' }}
+        if: ${{ matrix.group == 'preflight' || matrix.group == 'ci' || matrix.group == 'app-host-execution' || matrix.group == 'app-host-process' || matrix.group == 'app-host-cache' || matrix.group == 'release-notary' || matrix.group == 'release-tooling' }}
         run: |
           set -euo pipefail
           python3 -m venv "$RUNNER_TEMP/workflow-guard-venv"
