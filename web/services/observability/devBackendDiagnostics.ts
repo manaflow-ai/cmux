@@ -50,7 +50,7 @@ export async function deliverDevBackendDiagnostics(events: DevBackendEvent[], en
     outcome:event.outcome, duration_ms:event.durationMs, attempt:event.attempt,
     error_number:event.errorNumber, http_status:event.httpStatus,
   }));
-  const result = await doFetch('https://api.axiom.co/v1/datasets/cmux-dev-otel-traces/ingest', {
+  const result = await doFetch('https://us-east-1.aws.edge.axiom.co/v1/ingest/cmux-dev-otel-traces', {
     method:'POST',redirect:'error',signal:AbortSignal.timeout(10_000),
     headers:{authorization:`Bearer ${token}`,'content-type':'application/json'},body:JSON.stringify(rows),
   });

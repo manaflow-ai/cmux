@@ -1820,6 +1820,13 @@ class TerminalController {
         case "sidebar.custom.open":
             return v2Result(id: request.id, v2CustomSidebarOpen(params: request.params))
 #if DEBUG
+        case "debug.dev_backend.check":
+            return v2VmCall(id: request.id, timeoutSeconds: 245) {
+                let check = await DevBackendStartup()
+                await check.observe()
+                let state = await MainActor.run { check.status?.state ?? "disabled" }
+                return ["state": state, "pending_diagnostics": await DevBackendDiagnostics.shared.pendingCount]
+            }
         case "debug.sidebar.simulate_drag":
             return v2Result(id: request.id, v2DebugSidebarSimulateDrag(params: request.params))
         case "debug.cloudtree.gallery":
@@ -1978,7 +1985,8 @@ class TerminalController {
             // its worker case above is compiled out; the Release main lane
             // answers method_not_found for debug verbs, so mirror that reply
             // instead of the internal-error backstop below.
-            if request.method == "debug.sidebar.simulate_drag"
+            if request.method == "debug.dev_backend.check"
+                || request.method == "debug.sidebar.simulate_drag"
                 || request.method == "debug.window.screenshot"
                 || request.method == "debug.mobile.transport.disconnect"
                 || request.method == "debug.cloudtree.gallery" {

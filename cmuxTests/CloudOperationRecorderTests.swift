@@ -1,6 +1,7 @@
 import CmuxAuthRuntime
 import AppKit
 import Foundation
+import Network
 import Testing
 
 #if canImport(cmux_DEV)
@@ -247,5 +248,159 @@ private actor CapturedCloudDiagnostics: CloudTelemetrySending {
     private(set) var spans: [CloudTelemetrySpan] = []
     func enqueue(_ span: CloudTelemetrySpan, identity: AuthenticatedSessionIdentity) { spans.append(span) }
     func clearForSignOut() { spans.removeAll() }
+}
+
+@Suite struct DevBackendDiagnosticsTests {
+    @Test func failureSurvivesRestartWithoutAnAuthenticatedSession() async throws {
+        let file = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString).appendingPathComponent("outbox.json")
+        defer { try? FileManager.default.removeItem(at: file.deletingLastPathComponent()) }
+        let event = try #require(DevBackendDiagnostics.event(outcome: "unreachable", startedAt: Date(), durationMs: 10, attempt: 0,
+            errorNumber: -1004, environment: ["CMUX_TAG":"test-dev"], info:["CMUXCommit":String(repeating:"a",count:40)]))
+        let failed = DevBackendDiagnostics(queueURL: file, enabled: true, automaticallyFlush: false, sender: { _ in throw URLError(.cannotConnectToHost) })
+        await failed.record(event)
+        #expect(await failed.flushOnce() == false)
+        #expect(await failed.pendingCount == 1)
+        let sink = DevBackendDiagnosticCapture()
+        let restarted = DevBackendDiagnostics(queueURL: file, enabled: true, automaticallyFlush: false, sender: { await sink.capture($0) })
+        #expect(await restarted.flushOnce())
+        #expect(await sink.events == [event])
+        #expect(await restarted.pendingCount == 0)
+        let wire = try String(decoding: JSONEncoder().encode(event), as: UTF8.self)
+        #expect(!wire.contains("Authorization"))
+        #expect(!wire.contains("localhost"))
+    }
+
+    @Test func unfinishedCollectorResponseLeavesTheBatchPending() async throws {
+        let server = try UnfinishedDevDiagnosticServer()
+        let endpoint = try await server.start()
+        defer { server.stop() }
+        let session = DevBackendDiagnostics.makeUploadSession(resourceTimeout: 1)
+        defer { session.invalidateAndCancel() }
+        let file = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString).appendingPathComponent("outbox.json")
+        defer { try? FileManager.default.removeItem(at: file.deletingLastPathComponent()) }
+        let event = try #require(DevBackendDiagnostics.event(outcome: "unreachable", startedAt: Date(), durationMs: 1, attempt: 0, environment: ["CMUX_TAG":"deadline-test"]))
+        let failure = DevBackendSendFailure()
+        let queue = DevBackendDiagnostics(queueURL: file, enabled: true, automaticallyFlush: false, sender: {
+            do { try await DevBackendDiagnostics.send($0, session: session, endpoint: endpoint) }
+            catch { await failure.capture(error); throw error }
+        })
+        await queue.record(event)
+        #expect(await queue.flushOnce() == false)
+        #expect(await failure.code == URLError.timedOut.rawValue)
+        #expect(await queue.pendingCount == 1)
+    }
+
+    @Test @MainActor func legacyRouteDoesNotProduceAFalseFailure() async {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [LegacyDevBackendProtocol.self]
+        let session = URLSession(configuration: configuration)
+        defer { session.invalidateAndCancel() }
+        let sink = DevBackendDiagnosticCapture()
+        let check = DevBackendStartup(endpoint: URL(string: "https://legacy.invalid/events")!, session: session,
+            diagnosticsEnvironment: ["CMUX_TAG":"legacy-test"], emit: { await sink.capture([$0]) })
+        await check.observe()
+        #expect(check.status == nil)
+        #expect(await sink.events.isEmpty)
+    }
+
+    @Test func rejectedFutureRecordDoesNotBlockAValidRecord() async throws {
+        let file = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString).appendingPathComponent("outbox.json")
+        defer { try? FileManager.default.removeItem(at: file.deletingLastPathComponent()) }
+        let bad = try #require(DevBackendDiagnostics.event(outcome: "unreachable", startedAt: Date().addingTimeInterval(3600), durationMs: 1, attempt: 0, environment: ["CMUX_TAG":"clock-test"]))
+        let good = try #require(DevBackendDiagnostics.event(outcome: "ready", startedAt: Date(), durationMs: 1, attempt: 1, environment: ["CMUX_TAG":"clock-test"]))
+        let sink = DevBackendDiagnosticCapture()
+        let queue = DevBackendDiagnostics(queueURL: file, enabled: true, automaticallyFlush: false, sender: { events in
+            if events.contains(where: { $0.eventId == bad.eventId }) { throw DevBackendDiagnostics.RejectedBatch(status: 400) }
+            await sink.capture(events)
+        })
+        await queue.record(bad)
+        await queue.record(good)
+        #expect(await queue.flushOnce())
+        #expect(await queue.pendingCount == 0)
+        #expect(await sink.events == [good])
+    }
+
+    @Test func disabledDiagnosticsNeverWriteOrSend() async throws {
+        let file = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let sink = DevBackendDiagnosticCapture()
+        let disabled = DevBackendDiagnostics(queueURL: file, enabled: false, sender: { await sink.capture($0) })
+        let event = try #require(DevBackendDiagnostics.event(outcome:"unreachable", startedAt:Date(), durationMs:1, attempt:0, environment:["CMUX_TAG":"test-dev"]))
+        await disabled.record(event)
+        #expect(await disabled.pendingCount == 0)
+        #expect(await sink.events.isEmpty)
+        #expect(!FileManager.default.fileExists(atPath: file.path))
+    }
+}
+
+private actor DevBackendDiagnosticCapture {
+    var events: [DevBackendDiagnostics.Event] = []
+    func capture(_ values: [DevBackendDiagnostics.Event]) { events += values }
+}
+
+private actor DevBackendSendFailure {
+    var code: Int?
+    func capture(_ error: Error) { code = (error as? URLError)?.code.rawValue }
+}
+
+private final class LegacyDevBackendProtocol: URLProtocol {
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+    override func startLoading() {
+        let response = HTTPURLResponse(url: request.url!, statusCode: 404, httpVersion: nil, headerFields: nil)!
+        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+        client?.urlProtocolDidFinishLoading(self)
+    }
+    override func stopLoading() {}
+}
+
+/// All mutable listener/connection state is confined to queue.
+private final class UnfinishedDevDiagnosticServer: @unchecked Sendable {
+    private let queue = DispatchQueue(label: "test.dev-diagnostic-unfinished")
+    private let listener: NWListener
+    private var connections: [NWConnection] = []
+    private var timers: [DispatchSourceTimer] = []
+    init() throws {
+        let parameters = NWParameters.tcp
+        parameters.requiredLocalEndpoint = .hostPort(host: "127.0.0.1", port: .any)
+        listener = try NWListener(using: parameters)
+    }
+    func start() async throws -> URL {
+        try await withCheckedThrowingContinuation { continuation in
+            listener.stateUpdateHandler = { [self] state in
+                switch state {
+                case .ready:
+                    listener.stateUpdateHandler = nil
+                    continuation.resume(returning: URL(string: "http://127.0.0.1:\(listener.port!.rawValue)/")!)
+                case .failed(let error):
+                    listener.stateUpdateHandler = nil
+                    continuation.resume(throwing: error)
+                default: break
+                }
+            }
+            listener.newConnectionHandler = { [self] connection in
+                connections.append(connection)
+                connection.start(queue: queue)
+                let partial = Data("HTTP/1.1 202 Accepted\r\nContent-Type: application/json\r\nContent-Length: 10000000\r\n\r\n{".utf8)
+                connection.send(content: partial, completion: .contentProcessed { _ in })
+                // Continuous data prevents an idle timeout; only the whole-resource deadline can finish the task.
+                let timer = DispatchSource.makeTimerSource(queue: queue)
+                timer.schedule(deadline: .now(), repeating: .milliseconds(100))
+                timer.setEventHandler { connection.send(content: Data(" ".utf8), completion: .contentProcessed { _ in }) }
+                timers.append(timer)
+                timer.resume()
+            }
+            listener.start(queue: queue)
+        }
+    }
+    func stop() {
+        queue.async { [self] in
+            listener.cancel()
+            listener.newConnectionHandler = nil
+            for timer in timers { timer.cancel() }
+            timers.removeAll()
+            for connection in connections { connection.cancel() }
+            connections.removeAll()
+        }
+    }
 }
 #endif
