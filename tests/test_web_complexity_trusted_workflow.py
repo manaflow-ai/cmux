@@ -169,7 +169,9 @@ def validate_scope_python(scope_run: str) -> None:
 
 
 EXPECTED_CHECKS = [{'env': {'SCOPE_MODE': "${{ steps.selected_scope.outputs.mode || 'full' }}",
-          'SELECTED_COUNT': '${{ steps.selected_scope.outputs.selected_count }}'},
+          'SELECTED_COUNT': '${{ steps.selected_scope.outputs.selected_count }}',
+          'MERGE_REPO': '${{ steps.merge.outputs.repo }}',
+          'MERGE_TREE': '${{ steps.merge.outputs.tree }}'},
   'if': "github.event_name != 'push' && steps.scope.outputs.run == 'true'",
   'name': 'Check pull-request or merge-group source with trusted policy',
   'run': 'set -euo pipefail\n'
@@ -181,6 +183,9 @@ EXPECTED_CHECKS = [{'env': {'SCOPE_MODE': "${{ steps.selected_scope.outputs.mode
          '  --base-baseline "$GITHUB_WORKSPACE/trusted/web/oxlint-complexity-baseline.txt"\n'
          '  --head "$CANDIDATE_SHA"\n'
          ')\n'
+         'if [[ -n "$MERGE_REPO" && -n "$MERGE_TREE" ]]; then\n'
+         '  checker+=(--merge-repo "$MERGE_REPO" --merge-tree "$MERGE_TREE")\n'
+         'fi\n'
          'case "$SCOPE_MODE" in\n'
          '  full|skip)\n'
          '    echo "Web complexity: selected $SELECTED_COUNT production file(s) for conservative '
@@ -594,6 +599,95 @@ def test_checker_protects_trusted_scoper() -> None:
         temp.cleanup()
 
 
+def test_checker_judges_trusted_files_in_the_merge() -> None:
+    if shutil.which("node") is None:
+        raise AssertionError("node is required for the checker merge regression")
+
+    temp = tempfile.TemporaryDirectory()
+    try:
+        root = Path(temp.name)
+        repo = root / "repo"
+        repo.mkdir()
+        git(repo, "init", "-q", "-b", "main")
+        git(repo, "config", "user.email", "ci@example.com")
+        git(repo, "config", "user.name", "CI")
+        (repo / "web/scripts").mkdir(parents=True)
+        shutil.copy2(CHECKER, repo / "web/scripts/check-complexity.mjs")
+        write(repo, ".github/workflows/web-complexity-trusted.yml", "old\n")
+        write(repo, "scripts/ci/scope-web-complexity.py", "old\n")
+        branch_point = commit(repo, "branch point")
+
+        # Main updates a trusted file after the branch point.
+        write(repo, "scripts/ci/scope-web-complexity.py", "main\n")
+        main = commit(repo, "main updates the scoper")
+
+        # The trusted checkout is main, with the checker's module dependency.
+        trusted = root / "trusted"
+        git(repo, "worktree", "add", "-q", "--detach", str(trusted), main)
+        (trusted / "web/node_modules/typescript").mkdir(parents=True)
+        write(
+            trusted,
+            "web/node_modules/typescript/package.json",
+            '{"type":"module","exports":"./index.js"}\n',
+        )
+        write(trusted, "web/node_modules/typescript/index.js", "export {};\n")
+
+        def branch(name: str, change) -> tuple[Path, str]:
+            candidate = root / name
+            git(repo, "worktree", "add", "-q", "-b", name, str(candidate), branch_point)
+            change(candidate)
+            head = commit(candidate, name)
+            tree = git(repo, "merge-tree", "--write-tree", main, head).decode().split("\n")[0]
+            return candidate, tree
+
+        def check(candidate: Path, *extra: str) -> subprocess.CompletedProcess[bytes]:
+            return run(
+                [
+                    "node",
+                    str(trusted / "web/scripts/check-complexity.mjs"),
+                    "--repo-root",
+                    str(candidate),
+                    "--tool-root",
+                    str(trusted),
+                    *extra,
+                ],
+                check=False,
+            )
+
+        # A stale branch that leaves the trusted files alone.
+        stale, stale_tree = branch("stale", lambda path: write(path, "README.md", "docs\n"))
+        result = check(stale)
+        assert result.returncode == 2, "without a merge the stale head is compared strictly"
+        assert b"is a trusted policy file" in result.stderr
+        result = check(stale, "--merge-repo", str(repo / ".git"), "--merge-tree", stale_tree)
+        # Past the trusted-file gate, the next check reads the complexity config,
+        # which this fixture does not provide.
+        assert b".oxlintrc.json" in result.stderr, result.stderr
+
+        # A branch that edits a trusted file main did not touch.
+        edited, edited_tree = branch(
+            "edited",
+            lambda path: write(path, ".github/workflows/web-complexity-trusted.yml", "edit\n"),
+        )
+        result = check(edited, "--merge-repo", str(repo / ".git"), "--merge-tree", edited_tree)
+        assert result.returncode == 2
+        assert b".github/workflows/web-complexity-trusted.yml is a trusted policy file" in result.stderr
+
+        # A symlink to identical content is not the trusted file.
+        def symlink_workflow(path: Path) -> None:
+            write(path, "web/copy.yml", "old\n")
+            workflow = path / ".github/workflows/web-complexity-trusted.yml"
+            workflow.unlink()
+            workflow.symlink_to("../../web/copy.yml")
+
+        linked, linked_tree = branch("linked", symlink_workflow)
+        result = check(linked, "--merge-repo", str(repo / ".git"), "--merge-tree", linked_tree)
+        assert result.returncode == 2
+        assert b".github/workflows/web-complexity-trusted.yml is a trusted policy file" in result.stderr
+    finally:
+        temp.cleanup()
+
+
 def test_checker_baseline_ratchet() -> None:
     if shutil.which("node") is None:
         raise AssertionError("node is required for the checker ratchet regression")
@@ -717,6 +811,7 @@ def main() -> int:
     test_policy_symlink_fails_closed()
     test_selected_symlink_fails_closed()
     test_checker_protects_trusted_scoper()
+    test_checker_judges_trusted_files_in_the_merge()
     test_checker_baseline_ratchet()
     print("PASS: trusted web complexity scopes work before Bun and runs checks from the trusted checkout")
     return 0
