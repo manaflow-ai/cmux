@@ -692,6 +692,11 @@ jobs:
           python3 tests/test_normalize_pbxproj.py
           ./scripts/check-pbxproj.sh
 
+      # Pure source generation check: fail before reserving a Mac, rather than
+      # discovering stale schema after the app-host build's CLI smoke tests.
+      - name: Validate embedded cmux.json schema generation
+        run: python3 scripts/generate-cmux-config-schema.py --check
+
       - name: Validate Claude launch environment policy generation
         run: python3 scripts/generate-claude-launch-environment-policy.py --check
 
