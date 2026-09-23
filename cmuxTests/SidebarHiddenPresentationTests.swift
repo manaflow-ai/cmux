@@ -227,6 +227,7 @@ struct SidebarHiddenPresentationTests {
         let sidebarState = SidebarState()
         let notificationStore = TerminalNotificationStore.shared
         var revealRowInputProjections = 0
+        var isMeasuringRevealInvalidations = false
         let root = ContentView(
             updateViewModel: UpdateStateModel(),
             windowId: UUID(),
@@ -241,6 +242,7 @@ struct SidebarHiddenPresentationTests {
             .environment(
                 \.sidebarLazyContractProbe,
                 SidebarLazyContractProbe(
+                    shouldTraceBodyChanges: { isMeasuringRevealInvalidations },
                     workspaceRowInputProjection: { revealRowInputProjections += 1 }
                 )
             )
@@ -330,10 +332,13 @@ struct SidebarHiddenPresentationTests {
             }
         }
         revealRowInputProjections = 0
+        isMeasuringRevealInvalidations = true
+        defer { isMeasuringRevealInvalidations = false }
         sidebarState.toggle()
         await drainMainRunLoop(for: window, iterations: 1)
         let projectionsAfterFirstRevealTurn = revealRowInputProjections
         await drainMainRunLoop(for: window)
+        isMeasuringRevealInvalidations = false
         let reopenedContainers = descendants(
             of: SidebarWorkspaceTableContainerView.self,
             in: window.contentView
