@@ -420,6 +420,44 @@ struct AgentRestoreLiveOwnerAdmissionTests {
         )?.processLiveness != .running)
     }
 
+    @Test("A replacement Claude hook session clears only the old completion", arguments: [false, true])
+    func replacementClaudeHookSessionClearsCompletion(useDock: Bool) throws {
+        let workspace = Workspace()
+        defer { workspace.teardownAllPanels() }
+        let dock = DockSplitStore(workspaceId: UUID(), baseDirectoryProvider: { nil })
+        defer { dock.closeAllPanels() }
+        let dockPanel = TerminalPanel(workspaceId: dock.workspaceId)
+        dock.panels[dockPanel.id] = dockPanel
+        let panelID = useDock ? dockPanel.id : try #require(workspace.focusedPanelId)
+        let lifecycle = useDock ? dock.restoredAgentLifecycle : workspace.restoredAgentLifecycle
+        var binding = SurfaceResumeBindingSnapshot(
+            kind: "claude",
+            command: "claude --resume old-session",
+            checkpointId: "old-session",
+            source: "agent-hook",
+            autoResume: true
+        )
+        func publish() -> Bool {
+            useDock ? dock.setSurfaceResumeBinding(binding, panelId: panelID)
+                : workspace.setSurfaceResumeBinding(binding, panelId: panelID)
+        }
+        #expect(publish())
+        if useDock {
+            #expect(dock.clearSurfaceResumeBinding(panelId: panelID, agentSessionEnded: true))
+        } else {
+            #expect(workspace.clearSurfaceResumeBinding(panelId: panelID, agentSessionEnded: true))
+        }
+        #expect(lifecycle.resumeStatesByPanelId[panelID] == .completedAgentExit)
+        #expect(publish())
+        #expect(lifecycle.resumeStatesByPanelId[panelID] == .completedAgentExit)
+        binding.checkpointId = "new-session"
+        binding.command = "claude --resume new-session"
+        #expect(publish())
+        #expect(lifecycle.resumeStatesByPanelId[panelID] != .completedAgentExit)
+        #expect(lifecycle.completedGeneration(panelId: panelID) == nil)
+        #expect(lifecycle.snapshotsByPanelId[panelID]?.sessionId == "new-session")
+    }
+
     @Test("A reused Claude PID with another session id is not an owner")
     func claudeSessionArgumentMustMatch() {
         let expectedSessionID = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
