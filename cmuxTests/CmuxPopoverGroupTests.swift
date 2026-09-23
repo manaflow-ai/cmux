@@ -175,4 +175,78 @@ struct CmuxPopoverGroupTests {
         group.handleClick(windowNumber: nil, point: .zero)
         #expect(closed == [first, second])
     }
+
+    @Test func openingHelpClosesTheTeamPickerBeforeTheAccountMenu() {
+        let group = CmuxPopoverGroup()
+        let account = UUID()
+        let picker = UUID()
+        let help = UUID()
+        var closed: [UUID] = []
+        group.register(id: account, parent: nil, contains: { _, _ in true }, close: {
+            closed.append(account)
+            group.unregister(account)
+        })
+        group.register(id: picker, parent: account, contains: { _, _ in true }, close: {
+            closed.append(picker)
+            group.unregister(picker)
+        })
+        #expect(closed.isEmpty)
+
+        group.register(id: help, parent: nil, contains: { _, point in point.x < 220 }, close: {
+            closed.append(help)
+            group.unregister(help)
+        })
+        #expect(closed == [picker, account])
+
+        group.handleClick(windowNumber: nil, point: CGPoint(x: 40, y: 80))
+        #expect(closed == [picker, account])
+        group.handleClick(windowNumber: nil, point: CGPoint(x: 600, y: 80))
+        #expect(closed == [picker, account, help])
+    }
+
+    @Test(arguments: [false, true])
+    func switchingBetweenFooterMenusLeavesOnlyTheLatestRoot(startWithAccount: Bool) {
+        let group = CmuxPopoverGroup()
+        let names = startWithAccount ? ["account", "help", "account"] : ["help", "account", "help"]
+        var closed: [String] = []
+        var previousID: UUID?
+
+        for (index, name) in names.enumerated() {
+            let id = UUID()
+            group.register(id: id, parent: nil, contains: { _, _ in true }, close: {
+                closed.append(name)
+                group.unregister(id)
+            })
+            // Cleanup from the old root cannot retire the newly registered menu.
+            if let previousID { group.unregister(previousID) }
+            #expect(closed == Array(names.prefix(index)))
+            previousID = id
+        }
+
+        group.dismissAll()
+        #expect(closed == names)
+        group.dismissAll()
+        #expect(closed == names)
+    }
+
+    @Test func replacingAFooterRootDoesNotDismissAnotherWindowsGroup() {
+        let firstWindow = CmuxPopoverGroup()
+        let secondWindow = CmuxPopoverGroup()
+        var firstClosed = 0
+        var secondClosed = 0
+        firstWindow.register(id: UUID(), parent: nil, contains: { _, _ in true }, close: {
+            firstClosed += 1
+        })
+        secondWindow.register(id: UUID(), parent: nil, contains: { _, _ in true }, close: {
+            secondClosed += 1
+        })
+
+        firstWindow.register(id: UUID(), parent: nil, contains: { _, _ in true }, close: {})
+        #expect(firstClosed == 1)
+        #expect(secondClosed == 0)
+        firstWindow.dismissAll()
+        #expect(secondClosed == 0)
+        secondWindow.dismissAll()
+        #expect(secondClosed == 1)
+    }
 }
