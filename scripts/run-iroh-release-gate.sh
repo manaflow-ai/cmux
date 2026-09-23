@@ -361,7 +361,7 @@ cleanup() {
   defaults delete "$MAC_BUNDLE_ID" cmux.iroh.v2.force-relay >/dev/null 2>&1 || true
   defaults delete "$MAC_BUNDLE_ID" presenceServiceURL >/dev/null 2>&1 || true
   pkill -f "cmux DEV ${SLUG}.app/Contents/MacOS/cmux DEV" 2>/dev/null || true
-  if [[ "$PRODUCTION" -eq 1 ]]; then
+  if [[ "$PRODUCTION" -eq 1 && "$SKIP_BUILD" -eq 0 ]]; then
     # Production uses a disposable account and must remove its local tokens.
     # The endpoint key and verified-policy cache live outside the ordinary
     # tagged app support directory, so clear that exact tagged identity too.
@@ -417,7 +417,11 @@ trap cleanup EXIT
 trap handle_interrupt INT
 trap handle_termination TERM
 
-if [[ "$PRODUCTION" -eq 1 ]]; then
+if [[ "$PRODUCTION" -eq 1 && "$SKIP_BUILD" -eq 1 ]]; then
+  # Reuse the validated account for the installed pair. Only a build run owns
+  # disposable account creation and deletion.
+  PROD_CREDENTIALS_FILE="$DOGFOOD_CREDENTIALS_FILE"
+elif [[ "$PRODUCTION" -eq 1 ]]; then
   # macOS normally exports TMPDIR with a trailing slash. Resolve its logical
   # spelling once so every protected path given to the account helper is
   # absolute and syntactically normalized without changing symlink identity.
@@ -454,9 +458,6 @@ if [[ "$PRODUCTION" -eq 1 ]]; then
     --state-file "$PROD_ACCOUNT_STATE_FILE" \
     --credentials-file "$PROD_CREDENTIALS_FILE" >/dev/null
   echo "==> temporary production Stack account ready (credentials redacted)"
-elif [[ "$PRODUCTION" -eq 1 ]]; then
-  cmux_dev_secrets_validate_file "$DOGFOOD_CREDENTIALS_FILE"
-  PROD_CREDENTIALS_FILE="$DOGFOOD_CREDENTIALS_FILE"
 fi
 
 if [[ -n "$PROVIDED_SIMULATOR_ID" ]]; then
