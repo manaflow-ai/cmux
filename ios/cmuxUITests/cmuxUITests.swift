@@ -7526,6 +7526,7 @@ final class cmuxUITests: XCTestCase {
             XCUIDevice.shared.orientation = .portrait
             let app = launchWorkspaceDetailDelayedTerminalPreviewApp(environment: [
                 "CMUX_UITEST_WORKSPACE_TOOLBAR_COMPARISON": "1",
+                "CMUX_UITEST_WORKSPACE_TOOLBAR_UNREAD": "1",
                 "CMUX_UITEST_WORKSPACE_DETAIL_LONG_TITLE": scenario == "reference" ? "0" : "1",
                 "CMUX_UITEST_WORKSPACE_TOOLBAR_ALT_SCREEN": scenario == "alternate-screen" ? "1" : "0",
             ])
@@ -7534,12 +7535,20 @@ final class cmuxUITests: XCTestCase {
             try XCTUnwrap(app.buttons["MobileChangesButton"].waitForExistence(timeout: 8) ? true : nil)
             // Capture before assertions so a visual regression still leaves usable evidence.
             captureWorkspaceToolbarPresentation(in: app, name: "\(scenario)-portrait")
+            if app.navigationBars["MobileWorkspaceNavigationBar"].exists {
+                assertNativeWorkspaceToolbarFits(in: app, includesChanges: true,
+                                                 includesAlternateScreen: scenario == "alternate-screen")
+            }
             tap(surface, in: app)
             XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 4))
             captureWorkspaceToolbarPresentation(in: app, name: "\(scenario)-keyboard")
             XCUIDevice.shared.orientation = .landscapeLeft
             RunLoop.current.run(until: Date().addingTimeInterval(1))
             captureWorkspaceToolbarPresentation(in: app, name: "\(scenario)-landscape")
+            if app.navigationBars["MobileWorkspaceNavigationBar"].exists {
+                assertNativeWorkspaceToolbarFits(in: app, includesChanges: true,
+                                                 includesAlternateScreen: scenario == "alternate-screen")
+            }
             XCUIDevice.shared.orientation = .portrait
             RunLoop.current.run(until: Date().addingTimeInterval(1))
             let picker = app.buttons["MobileTerminalDropdown"]
@@ -7559,12 +7568,15 @@ final class cmuxUITests: XCTestCase {
             "CMUX_UITEST_WORKSPACE_TOOLBAR_COMPARISON": "1",
             "CMUX_UITEST_WORKSPACE_DETAIL_LONG_TITLE": "1",
             "CMUX_UITEST_WORKSPACE_TOOLBAR_ALT_SCREEN": "1",
+            "CMUX_UITEST_WORKSPACE_TOOLBAR_UNREAD": "1",
         ])
         try XCTUnwrap(app.otherElements["MobileTerminalSurface"].waitForExistence(timeout: 8) ? true : nil)
         try XCTUnwrap(app.buttons["MobileTerminalAltScreenNoticeButton"].waitForExistence(timeout: 8) ? true : nil)
         defer { XCUIDevice.shared.orientation = .portrait }
         for orientation in [UIDeviceOrientation.portrait, .landscapeLeft, .portrait] {
             XCUIDevice.shared.orientation = orientation
+            RunLoop.current.run(until: Date().addingTimeInterval(1))
+            captureWorkspaceToolbarPresentation(in: app, name: "crowded-\(orientation.rawValue)")
             assertNativeWorkspaceToolbarFits(in: app, includesChanges: true, includesAlternateScreen: true)
             tap(app.buttons["MobileTerminalDropdown"], in: app)
             assertTerminalMenuItemExists("terminal-delayed", in: app)
@@ -8369,7 +8381,12 @@ final class cmuxUITests: XCTestCase {
             launchEnvironment[key] = value
         }
         let app = launchApp(mockData: false, environment: launchEnvironment)
-        XCTAssertTrue(workspaceTitleElement(in: app).waitForExistence(timeout: 8))
+        if environment["CMUX_UITEST_WORKSPACE_TOOLBAR_COMPARISON"] == "1" {
+            XCTAssertTrue(app.otherElements["MobileWorkspaceShell"].waitForExistence(timeout: 8))
+            XCTAssertNoThrow(try dismissLaunchAnnouncements(in: app))
+        } else {
+            XCTAssertTrue(workspaceTitleElement(in: app).waitForExistence(timeout: 8))
+        }
         return app
     }
 
@@ -8434,7 +8451,7 @@ final class cmuxUITests: XCTestCase {
     }
 
     @MainActor
-    private func openSelectedWorkspaceIfNeeded(_ app: XCUIApplication) throws {
+    private func dismissLaunchAnnouncements(in app: XCUIApplication) throws {
         grantNotificationAuthorizationIfRequested()
         let whatsNewSheet = app.collectionViews["MobileWhatsNewSheet"].firstMatch
         if whatsNewSheet.waitForExistence(timeout: 4) {
@@ -8452,6 +8469,14 @@ final class cmuxUITests: XCTestCase {
                 "Dismiss What's New before checking the workspace toolbar"
             )
         }
+        let banner = XCUIApplication(bundleIdentifier: "com.apple.springboard")
+            .descendants(matching: .any)["NotificationShortLookView"].firstMatch
+        _ = try XCTUnwrap(banner.waitForNonExistence(timeout: 15) ? true : nil)
+    }
+
+    @MainActor
+    private func openSelectedWorkspaceIfNeeded(_ app: XCUIApplication) throws {
+        try dismissLaunchAnnouncements(in: app)
         if app.otherElements["MobileTerminalSurface"].waitForExistence(timeout: 8) {
             return
         }
