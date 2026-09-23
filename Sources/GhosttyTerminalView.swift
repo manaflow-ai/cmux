@@ -4240,6 +4240,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             return
         }
         let style = predictedEchoStyle(
+            surface: surface,
             cellSize: CGSize(width: metrics.cell_width, height: metrics.cell_height)
         )
 
@@ -4263,17 +4264,24 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         setPredictedEchoRenderedFrameTrackingActive(false)
     }
 
-    private func predictedEchoStyle(cellSize: CGSize) -> TerminalPredictionOverlayView.Style {
+    private func predictedEchoStyle(
+        surface: ghostty_surface_t,
+        cellSize: CGSize
+    ) -> TerminalPredictionOverlayView.Style {
         let app = GhosttyApp.shared
-        // The applied percent, not the stored one: the overlay has to match
+        // The applied percent, not the stored one: the fallback has to match
         // the font Ghostty is rendering right now.
         let configuration = GhosttyConfig.loadForCmux(
             globalFontMagnificationPercent: app.appliedGlobalFontMagnificationPercent
         )
+        // The surface's live size, so Cmd+= and Cmd+- on this terminal (which
+        // the configured size knows nothing about) resize the overlay too.
+        let fontSize = cmuxCurrentSurfaceFontSizePoints(surface).map { CGFloat($0) }
+            ?? configuration.fontSize
         // Only printable ASCII is ever predicted, so the configured family
         // always carries the glyph and no fallback chain is involved.
-        let font = NSFont(name: configuration.fontFamily, size: configuration.fontSize)
-            ?? NSFont.monospacedSystemFont(ofSize: configuration.fontSize, weight: .regular)
+        let font = NSFont(name: configuration.fontFamily, size: fontSize)
+            ?? NSFont.monospacedSystemFont(ofSize: fontSize, weight: .regular)
         return TerminalPredictionOverlayView.Style(
             font: font,
             foreground: app.defaultForegroundColor,
