@@ -243,7 +243,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             scannedPorts = portsCache?.ports
         }
         guard isCurrentRefresh(lifecycle: lifecycle, refresh: generation) else { return false }
-        var currentPorts = scannedPorts ?? portsCache?.ports ?? []
+        let currentPorts = scannedPorts ?? portsCache?.ports ?? []
         guard isAwake, let client = vmClient else {
             tabByTerminal = [:]
             let remoteWorkspaces = remoteWorkspaces(for: cloudState)
