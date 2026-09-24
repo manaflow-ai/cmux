@@ -322,7 +322,7 @@ extension Workspace {
     /// one remote create, projection adopting the reserved pane, and pane-local
     /// failure and retry. `onStart`/`onFinish` bracket the projection-suppression
     /// scope the caller chose.
-    private func runOptimisticCloudTerminalCreation(
+    func runOptimisticCloudTerminalCreation(
         reservation: CloudTerminalPaneReservation,
         requestID: UUID,
         destination: SurfaceDestination,
