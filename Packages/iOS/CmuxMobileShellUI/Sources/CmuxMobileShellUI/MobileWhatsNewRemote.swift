@@ -110,10 +110,11 @@ struct MobileAppVersionCompare: Sendable {
     func version(
         _ version: String,
         isWithinMin minVersion: String,
-        max maxVersion: String
+        max maxVersion: String?
     ) -> Bool {
-        compare(version, minVersion) != .orderedAscending
-            && compare(version, maxVersion) != .orderedDescending
+        guard compare(version, minVersion) != .orderedAscending else { return false }
+        guard let maxVersion else { return true }
+        return compare(version, maxVersion) != .orderedDescending
     }
 
     private func components(of version: String) -> [Int] {
