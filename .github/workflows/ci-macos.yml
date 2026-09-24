@@ -609,7 +609,7 @@ jobs:
         run: |
           scripts/ci/canary-cmuxtests-incremental.sh \
             "$CMUX_COMPILE_ADMISSION_DERIVED_DATA" "$CMUX_COMPILE_ADMISSION_CAS" \
-            cached uncached uncached-implicit
+            tests-uncached tests-uncached-implicit cached-remarks
           tar -C "$RUNNER_TEMP" -czf "$RUNNER_TEMP/canary-probe-logs.tgz" $(cd "$RUNNER_TEMP" && ls probe-*.txt)
 
       - name: Canary upload probe logs

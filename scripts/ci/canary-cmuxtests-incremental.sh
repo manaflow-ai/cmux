@@ -57,9 +57,9 @@ for raw in open(log, errors="replace"):
         in_timing = True
         continue
     if in_timing:
-        if not line.strip() or line.startswith("**"):
+        if line.startswith("**"):
             in_timing = False
-        else:
+        elif line.strip():
             timing.append(line.rstrip())
 out = [f"### {series} / {name}: {seconds}s"]
 for t in ("cmux", "cmuxTests"):
@@ -85,10 +85,23 @@ PY
 }
 
 build() {
-  local series="$1" name="$2" log="$RUNNER_TEMP/probe-$1-$2.txt" started=$SECONDS
+  local series="$1" name="$2" scheme="${3:-cmux-unit}" log="$RUNNER_TEMP/probe-$1-$2.txt" started=$SECONDS
   local -a extra=()
+  # Per-target settings: the command line is evaluated in each target's
+  # context, so the app and packages keep the cache and identical arguments.
+  local -a pertarget=(
+    'COMPILATION_CACHE_ENABLE_CACHING=$(CMUX_CI_TARGET_CACHE_$(TARGET_NAME):default=YES)'
+    'OTHER_SWIFT_FLAGS=$(inherited) $(CMUX_CI_TARGET_FLAGS_$(TARGET_NAME))'
+    'CMUX_CI_TARGET_FLAGS_cmuxTests=-driver-show-incremental'
+  )
   case "$series" in
     cached) extra=(COMPILATION_CACHE_ENABLE_CACHING=YES) ;;
+    cached-remarks) extra=("${pertarget[@]}") ;;
+    tests-uncached) extra=("${pertarget[@]}" CMUX_CI_TARGET_CACHE_cmuxTests=NO) ;;
+    tests-uncached-implicit)
+      extra=("${pertarget[@]}" CMUX_CI_TARGET_CACHE_cmuxTests=NO
+        'SWIFT_ENABLE_EXPLICIT_MODULES=$(CMUX_CI_TARGET_EXPLICIT_$(TARGET_NAME):default=YES)'
+        CMUX_CI_TARGET_EXPLICIT_cmuxTests=NO) ;;
     uncached)
       extra=(COMPILATION_CACHE_ENABLE_CACHING=NO 'OTHER_SWIFT_FLAGS=$(inherited) -driver-show-incremental') ;;
     uncached-implicit)
@@ -97,7 +110,7 @@ build() {
   (
     cd "$src" || exit 1
     # A pty keeps xcodebuild line-buffered so the timestamps are real.
-    script -q /dev/null xcodebuild -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
+    script -q /dev/null xcodebuild -project cmux.xcodeproj -scheme "$scheme" -configuration Debug \
       -derivedDataPath "$derived" \
       -clonedSourcePackagesDirPath "$src/.ci-source-packages" \
       -disableAutomaticPackageResolution \
@@ -116,8 +129,19 @@ build() {
   report "$series" "$name" "$log" "$((SECONDS - started))"
 }
 
+remarks_run() {
+  local s="$1"
+  restore
+  build "$s" baseline
+  build "$s" null
+  perl -0pi -e 's/(func testParsesSSHURLWithExplicitHostUserPortAndTitle\(\) throws \{\n)/$1        let cmuxProbeTestBody = 6; _ = cmuxProbeTestBody\n/' "$test_file"
+  build "$s" test-body-only
+  restore
+}
+
 series_run() {
   local s="$1"
+  [ "$s" = cached-remarks ] && { remarks_run "$s"; return; }
   restore
   build "$s" baseline
   build "$s" null
@@ -139,6 +163,10 @@ series_run() {
   # 6. body-only edit of one cmuxTests file.
   perl -0pi -e 's/(func testParsesSSHURLWithExplicitHostUserPortAndTitle\(\) throws \{\n)/$1        let cmuxProbeTestBody = 6; _ = cmuxProbeTestBody\n/' "$test_file"
   build "$s" test-body-only
+  # Admission builds cmux-numeric-locale after cmux-unit; does it reset the
+  # cmuxTests build record for the next cmux-unit build?
+  build "$s" numeric-locale cmux-numeric-locale
+  build "$s" unit-after-numeric-locale
   restore
 }
 
