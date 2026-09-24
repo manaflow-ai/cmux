@@ -1,3 +1,4 @@
+import CmuxFoundation
 import Darwin
 import Foundation
 import Testing
@@ -818,7 +819,11 @@ struct CLICodexHookTimeoutRegressionTests {
         #expect(session["terminalPromptTurnIds"] as? [String] == ["turn-done"])
     }
 
-    @Test func codexSessionStartDoesNotOverwriteExistingTurnState() throws {
+    /// An active turn stays put when its owner is unknown (no recorded PID)
+    /// and when the recorded PID is still the same live process. Dead and
+    /// reused-PID owners are covered by CodexSessionStartDeadTurnTests.
+    @Test(arguments: [false, true])
+    func codexSessionStartDoesNotOverwriteExistingTurnState(recordsLiveOwner: Bool) throws {
         let cliPath = try bundledCLIPath()
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-codex-stale-start-\(UUID().uuidString)", isDirectory: true)
@@ -840,24 +845,29 @@ struct CLICodexHookTimeoutRegressionTests {
         }
 
         let now = Date().timeIntervalSince1970
+        var record: [String: Any] = [
+            "sessionId": sessionId,
+            "workspaceId": workspaceId,
+            "surfaceId": surfaceId,
+            "cwd": root.path,
+            "agentLifecycle": "running",
+            "runtimeStatus": "running",
+            "activePromptDepth": 1,
+            "activePromptTurnId": "turn-active",
+            "activePromptTurnIds": ["turn-active"],
+            "lastPromptTurnId": "turn-active",
+            "startedAt": now,
+            "updatedAt": now,
+        ]
+        if recordsLiveOwner {
+            let owner = try #require(AgentPIDProcessIdentity(pid: getpid()))
+            record["pid"] = Int(owner.pid)
+            record["pidStartSeconds"] = owner.startSeconds
+            record["pidStartMicroseconds"] = owner.startMicroseconds
+        }
         let store: [String: Any] = [
             "version": 1,
-            "sessions": [
-                sessionId: [
-                    "sessionId": sessionId,
-                    "workspaceId": workspaceId,
-                    "surfaceId": surfaceId,
-                    "cwd": root.path,
-                    "agentLifecycle": "running",
-                    "runtimeStatus": "running",
-                    "activePromptDepth": 1,
-                    "activePromptTurnId": "turn-active",
-                    "activePromptTurnIds": ["turn-active"],
-                    "lastPromptTurnId": "turn-active",
-                    "startedAt": now,
-                    "updatedAt": now,
-                ],
-            ],
+            "sessions": [sessionId: record],
         ]
         try JSONSerialization.data(withJSONObject: store, options: [.prettyPrinted, .sortedKeys])
             .write(to: stateURL, options: .atomic)
