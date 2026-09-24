@@ -2440,7 +2440,7 @@ private final class AboutWindowController: ReleasingWindowController {
         )
         window.identifier = NSUserInterfaceItemIdentifier("cmux.about")
         window.center()
-        window.contentView = NSHostingView(rootView: AboutPanelView())
+        window.contentView = NSHostingView(rootView: AboutPanelView().environment(\.settingsRuntime, AppDelegate.shared?.settingsRuntime))
         AppDelegate.shared?.aboutTitlebarDebugStore.applyCurrentOptions(to: window, for: .about)
         AppDelegate.shared?.applyWindowDecorations(to: window)
         return window
@@ -3416,8 +3416,8 @@ private struct SidebarFooterHelpIconReference: View {
 private struct AboutPanelView: View {
     @Environment(\.openURL) private var openURL
 
-    private let githubURL = URL(string: "https://github.com/manaflow-ai/cmux")
-    private let docsURL = URL(string: "https://cmux.com/docs")
+    private let githubURL = URL(string: "https://github.com/manaflow-ai/cmux"), docsURL = URL(string: "https://cmux.com/docs")
+    @LiveSetting(\.updates.channel) private var updateChannel
 
     private var version: String? { Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String }
     private var build: String? { Bundle.main.infoDictionary?["CFBundleVersion"] as? String }
@@ -3454,7 +3454,7 @@ private struct AboutPanelView: View {
 
                 VStack(spacing: 2) {
                     if let version {
-                        AboutPropertyRow(label: String(localized: "about.version", defaultValue: "Version"), text: version)
+                        AboutPropertyRow(label: String(localized: "about.version", defaultValue: "Version"), text: updateChannel == .rc ? "\(version) \(String(localized: "about.version.rcChannel", defaultValue: "(Release candidate channel)"))" : version)
                     }
                     if let build {
                         AboutPropertyRow(label: String(localized: "about.build", defaultValue: "Build"), text: build)

@@ -20,18 +20,20 @@ VERIFY_METADATA_TOOL="${CMUX_VERIFY_METADATA_TOOL:-$ROOT_DIR/scripts/verify-app-
 VERIFY_LICENSES_TOOL="${CMUX_VERIFY_LICENSES_TOOL:-$ROOT_DIR/scripts/verify-app-bundle-licenses.sh}"
 NOTARIZE_COMPUTER_USE_HELPER_TOOL="${CMUX_NOTARIZE_COMPUTER_USE_HELPER_TOOL:-$ROOT_DIR/scripts/ci/notarize-computer-use-helper.sh}"
 COMPUTER_USE_NOTARY_SUBMISSION_FILE="${CMUX_COMPUTER_USE_NOTARY_SUBMISSION_FILE:-}"
-# Release channel of the app being packaged: `nightly` (default) or `rc`. It
-# selects the entitlements file and the bundle-metadata check; the packaging,
-# notarization, and stapling steps are identical for both.
+# Bundle identity of the app being packaged: `nightly` (default) or `stable`.
+# A release candidate is packaged as `stable` because it carries the stable
+# identity. The value selects the default entitlements file and the
+# bundle-metadata check; packaging, notarization, and stapling are identical.
 CHANNEL="${CMUX_CHANNEL:-nightly}"
 case "$CHANNEL" in
-  nightly|rc) ;;
+  nightly) DEFAULT_ENTITLEMENTS="$ROOT_DIR/cmux.nightly.entitlements" ;;
+  stable) DEFAULT_ENTITLEMENTS="$ROOT_DIR/cmux.release.entitlements" ;;
   *)
-    echo "Unsupported CMUX_CHANNEL: $CHANNEL (expected nightly or rc)" >&2
+    echo "Unsupported CMUX_CHANNEL: $CHANNEL (expected nightly or stable)" >&2
     exit 2
     ;;
 esac
-APP_ENTITLEMENTS="${CMUX_APP_ENTITLEMENTS:-$ROOT_DIR/cmux.${CHANNEL}.entitlements}"
+APP_ENTITLEMENTS="${CMUX_APP_ENTITLEMENTS:-$DEFAULT_ENTITLEMENTS}"
 
 if [ ! -d "$APP_PATH/Contents" ]; then
   echo "Signed app not found: $APP_PATH" >&2

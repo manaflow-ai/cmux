@@ -156,6 +156,7 @@ public struct AppSection: View {
             SettingsSectionHeader(String(localized: "settings.section.app", defaultValue: "App"), section: .app)
                 .accessibilityIdentifier("SettingsAppSection")
             mainCard
+            UpdateChannelCard()
         }
         .task {
             startSettingsObservation([language, appearance, appIcon, placement, inheritDir, minimalMode, keepWorkspaceOpen, firstClick, focusHistoryIncludesPanesAndTabs, fileDrop, preferredEditor, openSupported, openMarkdown, globalFontMagnification, markdownFontSize, markdownFontFamily, markdownMaxWidth, canvasPaneGap, canvasSnapping, fileEditorWordWrap, fileEditorSyntaxHighlighting, fileEditorLineNumbers, fileEditorIndentGuides, fileEditorCurrentLineHighlight, fileEditorTabWidth, iMessage, reorder, dockBadge, menuBarOnly, showInMenuBar, paneRing, paneFlash, desktopNotifications, agentPermissionPrompt, agentTurnComplete, agentIdleReminder, soundName, soundCommand, customSoundFile, soundOverrides, telemetry, confirmQuit, warnCloseTab, warnCloseX, hideCloseButton, renameSelects, paletteAllSurfaces])
@@ -838,8 +839,7 @@ public struct AppSection: View {
                     Text(String(localized: "settings.app.confirmQuit.dirtyOnly", defaultValue: "Dirty Only")).tag(ConfirmQuitMode.dirtyOnly)
                     Text(String(localized: "settings.app.confirmQuit.never", defaultValue: "Never")).tag(ConfirmQuitMode.never)
                 }
-                .labelsHidden()
-                .pickerStyle(.segmented)
+                .labelsHidden().pickerStyle(.segmented)
                 .controlSize(.small)
             }
             SettingsCardDivider()

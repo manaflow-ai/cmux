@@ -1,4 +1,5 @@
 import AppKit
+import CmuxSettings
 import Foundation
 import PostHog
 
@@ -31,6 +32,8 @@ final class PostHogAnalytics: @unchecked Sendable {
     private let flushPostHog: @Sendable () -> Void
     private let environment: [String: String]
     private let telemetryEnabled: @Sendable () -> Bool
+    /// The `updates.channel` selection, read per event so RC-channel installs stay distinguishable.
+    private let updateChannel: @Sendable () -> UpdateChannel
     private let previousLaunchIdentity: [String: Any]
     private let launchStartedAt: Date
 
@@ -47,7 +50,8 @@ final class PostHogAnalytics: @unchecked Sendable {
         },
         flushPostHog: @escaping @Sendable () -> Void = { PostHogSDK.shared.flush() },
         environment: [String: String] = ProcessInfo.processInfo.environment,
-        telemetryEnabled: @escaping @Sendable () -> Bool = { TelemetrySettings.enabledForCurrentLaunch }
+        telemetryEnabled: @escaping @Sendable () -> Bool = { TelemetrySettings.enabledForCurrentLaunch },
+        updateChannel: @escaping @Sendable () -> UpdateChannel = PostHogAnalytics.configFileUpdateChannelReader()
     ) {
         self.workQueue = workQueue
         self.didStart = didStart
@@ -57,6 +61,7 @@ final class PostHogAnalytics: @unchecked Sendable {
         self.flushPostHog = flushPostHog
         self.environment = environment
         self.telemetryEnabled = telemetryEnabled
+        self.updateChannel = updateChannel
         self.previousLaunchIdentity = userDefaults.dictionary(forKey: "posthog.previousLaunchIdentity") ?? [:]
         self.launchStartedAt = now()
         utcHourFormatter = Self.makeUTCFormatter("yyyy-MM-dd'T'HH")
@@ -126,7 +131,7 @@ final class PostHogAnalytics: @unchecked Sendable {
             self.startIfNeededOnWorkQueue()
             guard self.didStart else { return }
             var merged = properties
-            merged.merge(Self.versionProperties(infoDictionary: Bundle.main.infoDictionary ?? [:])) { current, _ in current }
+            merged.merge(Self.versionProperties(infoDictionary: Bundle.main.infoDictionary ?? [:], updateChannel: self.updateChannel())) { current, _ in current }
             self.capturePostHog(event, merged)
         }
     }
@@ -151,7 +156,8 @@ final class PostHogAnalytics: @unchecked Sendable {
             let reported = GhosttyCrashReportMetadata.reportedException(in: pendingCrash.fileURL)
             var properties = Self.crashExceptionProperties(
                 reported: reported,
-                infoDictionary: Bundle.main.infoDictionary ?? [:]
+                infoDictionary: Bundle.main.infoDictionary ?? [:],
+                updateChannel: self.updateChannel()
             )
             // Prefer the artifact's identity. A launch record only describes
             // crashes newer than that launch, never older historical files.
@@ -210,7 +216,7 @@ final class PostHogAnalytics: @unchecked Sendable {
 
         // Tag every event so PostHog can distinguish desktop from web and
         // break events down by released app version/build.
-        PostHogSDK.shared.register(Self.superProperties(infoDictionary: Bundle.main.infoDictionary ?? [:]))
+        PostHogSDK.shared.register(Self.superProperties(infoDictionary: Bundle.main.infoDictionary ?? [:], updateChannel: updateChannel()))
 
         // The SDK automatically generates and persists an anonymous distinct ID.
 
@@ -252,7 +258,8 @@ final class PostHogAnalytics: @unchecked Sendable {
             Self.dailyActiveProperties(
                 dayUTC: today,
                 reason: reason,
-                infoDictionary: Bundle.main.infoDictionary ?? [:]
+                infoDictionary: Bundle.main.infoDictionary ?? [:],
+                updateChannel: updateChannel()
             )
         )
 
@@ -283,7 +290,8 @@ final class PostHogAnalytics: @unchecked Sendable {
             Self.hourlyActiveProperties(
                 hourUTC: hour,
                 reason: reason,
-                infoDictionary: Bundle.main.infoDictionary ?? [:]
+                infoDictionary: Bundle.main.infoDictionary ?? [:],
+                updateChannel: updateChannel()
             )
         )
 
@@ -320,35 +328,48 @@ final class PostHogAnalytics: @unchecked Sendable {
         return formatter
     }
 
-    nonisolated static func superProperties(infoDictionary: [String: Any]) -> [String: Any] {
+    /// Reads `updates.channel` from the shared cmux.json on every call. One store is built
+    /// up front so per-event reads do not allocate a file watcher.
+    nonisolated static func configFileUpdateChannelReader() -> @Sendable () -> UpdateChannel {
+        let store = JSONConfigStore(fileURL: CmuxConfigLocation().userConfigFile)
+        let key = SettingCatalog().updates.channel
+        return { store.snapshotValue(for: key) }
+    }
+
+    nonisolated static func superProperties(
+        infoDictionary: [String: Any],
+        updateChannel: UpdateChannel = .stable
+    ) -> [String: Any] {
         var properties: [String: Any] = ["platform": "cmuxterm"]
-        properties.merge(versionProperties(infoDictionary: infoDictionary)) { _, new in new }
+        properties.merge(versionProperties(infoDictionary: infoDictionary, updateChannel: updateChannel)) { _, new in new }
         return properties
     }
 
     nonisolated static func dailyActiveProperties(
         dayUTC: String,
         reason: String,
-        infoDictionary: [String: Any]
+        infoDictionary: [String: Any],
+        updateChannel: UpdateChannel = .stable
     ) -> [String: Any] {
         var properties: [String: Any] = [
             "day_utc": dayUTC,
             "reason": reason,
         ]
-        properties.merge(versionProperties(infoDictionary: infoDictionary)) { _, new in new }
+        properties.merge(versionProperties(infoDictionary: infoDictionary, updateChannel: updateChannel)) { _, new in new }
         return properties
     }
 
     nonisolated static func hourlyActiveProperties(
         hourUTC: String,
         reason: String,
-        infoDictionary: [String: Any]
+        infoDictionary: [String: Any],
+        updateChannel: UpdateChannel = .stable
     ) -> [String: Any] {
         var properties: [String: Any] = [
             "hour_utc": hourUTC,
             "reason": reason,
         ]
-        properties.merge(versionProperties(infoDictionary: infoDictionary)) { _, new in new }
+        properties.merge(versionProperties(infoDictionary: infoDictionary, updateChannel: updateChannel)) { _, new in new }
         return properties
     }
 
@@ -359,7 +380,8 @@ final class PostHogAnalytics: @unchecked Sendable {
     /// automatic `$app_version`/`$app_build`/`$app_namespace` at capture time.
     nonisolated static func crashExceptionProperties(
         reported: GhosttyCrashReportMetadata.ReportedException?,
-        infoDictionary: [String: Any]
+        infoDictionary: [String: Any],
+        updateChannel: UpdateChannel = .stable
     ) -> [String: Any] {
         let type = sanitizedExceptionToken(reported?.type) ?? "UnknownCrash"
         let mechanism: [String: Any] = [
@@ -389,7 +411,7 @@ final class PostHogAnalytics: @unchecked Sendable {
         if let appNamespace = reported?.appNamespace, !appNamespace.isEmpty {
             properties["crash_app_namespace"] = appNamespace
         }
-        properties.merge(versionProperties(infoDictionary: infoDictionary)) { _, new in new }
+        properties.merge(versionProperties(infoDictionary: infoDictionary, updateChannel: updateChannel)) { _, new in new }
         return properties
     }
 
@@ -417,11 +439,17 @@ final class PostHogAnalytics: @unchecked Sendable {
 
     nonisolated private static func versionProperties(
         infoDictionary: [String: Any],
-        flavor: BuildFlavor = BuildFlavor.current
+        flavor: BuildFlavor = BuildFlavor.current,
+        updateChannel: UpdateChannel
     ) -> [String: Any] {
         // `channel` answers "stable, RC, NIGHTLY or DEV?" for every Mac event; the
         // web side carries the same value on checkout as `checkout_channel`.
-        var properties: [String: Any] = ["channel": flavor.rawValue]
+        // `update_channel` is the user's `updates.channel` feed selection: RC and
+        // stable share one bundle, so `channel` alone cannot tell them apart.
+        var properties: [String: Any] = [
+            "channel": flavor.rawValue,
+            "update_channel": updateChannel.rawValue,
+        ]
         if let value = infoDictionary["CFBundleShortVersionString"] as? String, !value.isEmpty {
             properties["app_version"] = value
         }

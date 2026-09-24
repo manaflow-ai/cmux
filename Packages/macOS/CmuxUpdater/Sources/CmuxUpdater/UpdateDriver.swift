@@ -15,6 +15,10 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
     let log: any UpdateLogging
     private let clock: any UpdateClock
     let infoFeedURLProvider: () -> String?
+    /// The user's `updates.channel` selection, read on every feed resolution so a change takes
+    /// effect on the next update check without a relaunch.
+    let selectedChannelProvider: () -> UpdateChannelSelection
+    let feedResolver: UpdateFeedResolver
     /// Whether the running build is a cmux DEV/staging build that is not on the public release
     /// train. When `true`, the driver must never surface the public appcast's update pill (see
     /// ``UpdateController/isDevLikeBundleIdentifier(_:)``).
@@ -42,12 +46,16 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
         isDevLikeBundle: Bool = false,
         infoFeedURLProvider: @escaping () -> String? = {
             Bundle.main.object(forInfoDictionaryKey: "SUFeedURL") as? String
-        }
+        },
+        selectedChannelProvider: @escaping () -> UpdateChannelSelection = { .stable },
+        feedResolver: UpdateFeedResolver = UpdateFeedResolver()
     ) {
         self.model = model
         self.log = log
         self.clock = clock
         self.infoFeedURLProvider = infoFeedURLProvider
+        self.selectedChannelProvider = selectedChannelProvider
+        self.feedResolver = feedResolver
         self.isDevLikeBundle = isDevLikeBundle
         super.init()
     }
@@ -332,7 +340,12 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
         if let lastFeedURLString {
             return lastFeedURLString
         }
-        return UpdateFeedResolver().resolve(infoFeedURL: infoFeedURLProvider()).url
+        return resolveFeed().url
+    }
+
+    /// Resolves the effective feed from the build-time feed and the current channel selection.
+    func resolveFeed() -> UpdateFeedResolver.Resolution {
+        feedResolver.resolve(infoFeedURL: infoFeedURLProvider(), selectedChannel: selectedChannelProvider())
     }
 
     func recordFeedURLString(_ feedURLString: String, usedFallback: Bool) {

@@ -87,6 +87,23 @@ Values: `right`, `left`, `top`, `bottom`, `newTab`, `newWorkspace`.
 
 Default: `right`.
 
+## `updates.channel`
+
+Picks which Sparkle feed the app polls for updates. Release candidates are the same app bits as stable and share the stable bundle identifier; this key is the only difference between an RC install and a stable one.
+
+- `stable` (default): follow the shipping release feed.
+- `rc`: follow the release-candidate feed, the next stable build published a few days early.
+
+```json
+{
+  "updates": {
+    "channel": "rc"
+  }
+}
+```
+
+A change applies to the next update check and triggers one immediately; no relaunch is needed. Switching back to `stable` stops release-candidate updates but does not downgrade. Nightly builds carry their own feed and ignore this key. Also editable in Settings > App > Update channel.
+
 ## `terminal.agentHibernation`
 
 Routine Agent Hibernation is opt-in. cmux hibernates idle background agent

@@ -12,9 +12,16 @@ import Foundation
 /// for the host machine, so a universal build migrates itself onto the thin build and an
 /// x86_64 build running under Rosetta moves to the native one.
 ///
+/// Release candidates share the stable bundle identifier, so the user picks the channel in
+/// settings (``UpdateChannelSelection``). Selecting `rc` on a stable build-time feed swaps in
+/// ``rcFeedURL`` before the per-architecture rewrite; nightly builds ignore the selection.
+///
 /// ```swift
 /// let resolver = UpdateFeedResolver()
-/// let resolution = resolver.resolve(infoFeedURL: Bundle.main.object(forInfoDictionaryKey: "SUFeedURL") as? String)
+/// let resolution = resolver.resolve(
+///     infoFeedURL: Bundle.main.object(forInfoDictionaryKey: "SUFeedURL") as? String,
+///     selectedChannel: .rc
+/// )
 /// updater.setFeedURL(resolution.url)
 /// ```
 public struct UpdateFeedResolver: Sendable {
@@ -70,6 +77,9 @@ public struct UpdateFeedResolver: Sendable {
 
     /// The appcast URL used when the `Info.plist` feed URL is missing or empty.
     public let fallbackFeedURL: String
+    /// The release-candidate appcast a stable build switches to when the user selects the
+    /// `rc` channel. Rewritten per architecture like a CI-injected RC feed.
+    public let rcFeedURL: String
     /// The architecture nightly and RC feeds are resolved for.
     public let hostArchitecture: UpdateHostArchitecture
 
@@ -78,29 +88,45 @@ public struct UpdateFeedResolver: Sendable {
     /// - Parameters:
     ///   - fallbackFeedURL: The appcast URL to fall back to when the build-time feed URL is
     ///     absent. Defaults to the project's latest-release appcast.
+    ///   - rcFeedURL: The release-candidate appcast used when the user selects the `rc`
+    ///     channel on a stable build. Defaults to the project's RC appcast.
     ///   - hostArchitecture: The architecture to select nightly and RC feeds for. Defaults to the
     ///     machine's native architecture.
     public init(
         fallbackFeedURL: String = "https://github.com/manaflow-ai/cmux/releases/latest/download/appcast.xml",
+        rcFeedURL: String = "https://files.cmux.com/rc/appcast.xml",
         hostArchitecture: UpdateHostArchitecture = .current
     ) {
         self.fallbackFeedURL = fallbackFeedURL
+        self.rcFeedURL = rcFeedURL
         self.hostArchitecture = hostArchitecture
     }
 
     /// Resolves the feed URL to use.
     ///
-    /// - Parameter infoFeedURL: The `SUFeedURL` value from the app's `Info.plist`, if any.
+    /// - Parameters:
+    ///   - infoFeedURL: The `SUFeedURL` value from the app's `Info.plist`, if any.
+    ///   - selectedChannel: The channel the user selected in settings. Defaults to `stable`,
+    ///     which leaves the build-time feed untouched. `rc` replaces a stable build-time feed
+    ///     (or the fallback) with ``rcFeedURL``; a nightly or CI-injected RC feed is kept.
     /// - Returns: The resolved URL plus its channel and whether the fallback was used.
-    public func resolve(infoFeedURL: String?) -> Resolution {
-        guard let infoFeedURL, !infoFeedURL.isEmpty else {
-            return Resolution(url: fallbackFeedURL, channel: .stable, usedFallback: true)
+    public func resolve(infoFeedURL: String?, selectedChannel: UpdateChannelSelection = .stable) -> Resolution {
+        let buildFeed: Resolution
+        if let infoFeedURL, !infoFeedURL.isEmpty {
+            buildFeed = Resolution(url: infoFeedURL, channel: Channel.classify(feedURL: infoFeedURL), usedFallback: false)
+        } else {
+            buildFeed = Resolution(url: fallbackFeedURL, channel: .stable, usedFallback: true)
         }
-        let channel = Channel.classify(feedURL: infoFeedURL)
-        let url = channel.usesPerArchitectureFeeds
-            ? Self.architectureSpecificFeedURL(infoFeedURL, architecture: hostArchitecture)
-            : infoFeedURL
-        return Resolution(url: url, channel: channel, usedFallback: false)
+        let selected: Resolution
+        if buildFeed.channel == .stable, selectedChannel == .rc {
+            selected = Resolution(url: rcFeedURL, channel: .rc, usedFallback: false)
+        } else {
+            selected = buildFeed
+        }
+        let url = selected.channel.usesPerArchitectureFeeds
+            ? Self.architectureSpecificFeedURL(selected.url, architecture: hostArchitecture)
+            : selected.url
+        return Resolution(url: url, channel: selected.channel, usedFallback: selected.usedFallback)
     }
 
     /// Rewrites a nightly or RC feed URL whose file name is the legacy `appcast.xml` or

@@ -167,7 +167,7 @@ class ReconcileEntitlementsTests(unittest.TestCase):
         self.assertIn("com.apple.developer.web-browser.public-key-credential", effective)
 
     def test_repo_entitlement_files_request_the_tunnel(self):
-        for name in ("cmux.release.entitlements", "cmux.nightly.entitlements", "cmux.rc.entitlements"):
+        for name in ("cmux.release.entitlements", "cmux.nightly.entitlements"):
             desired = plistlib.load((ROOT / name).open("rb"))
             proc, effective = run(desired, PROFILE_WITHOUT_TUNNEL)
             self.assertEqual(proc.returncode, 0, proc.stderr)
