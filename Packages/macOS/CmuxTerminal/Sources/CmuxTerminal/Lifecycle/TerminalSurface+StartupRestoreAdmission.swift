@@ -1,4 +1,9 @@
 extension TerminalSurface {
+    /// Whether the owning container still holds this terminal for restore admission.
+    public var isAwaitingStartupRestoreAdmission: Bool {
+        startupRestoreAdmissionPhase == .awaitingAdmission
+    }
+
     /// Releases a startup-restore terminal after its owner commits responder state.
     ///
     /// The transition is idempotent. The first admission synchronously requests
