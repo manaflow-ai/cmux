@@ -372,6 +372,12 @@ extension GhosttyTerminalView {
                 instanceSerial: host.instanceSerial,
                 reason: "dismantle"
             )
+            // A same-shape rebuild keeps the terminal at this host's frame until
+            // the replacement binds. After a layout-shape change that frame
+            // belongs to the old layout, so hide with the old pane chrome.
+            if let hostedView {
+                TerminalWindowPortalRegistry.hideIfAnchorLayoutShapeRetired(hostedView, dismantling: host)
+            }
         }
 
         // Preserve the portal lease across transient rebuilds, but reset the
