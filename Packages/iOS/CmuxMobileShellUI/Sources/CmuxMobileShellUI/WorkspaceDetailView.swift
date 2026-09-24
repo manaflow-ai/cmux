@@ -477,7 +477,9 @@ struct WorkspaceDetailView: View {
             ComposerStoreProbe(
                 isComposerPresented: store.isComposerPresented,
                 composerFocusRequest: store.composerFocusRequest,
-                draftLength: store.terminalInputText.count
+                draftLength: store.terminalInputText.count,
+                terminalTopContentInset: terminalSurfaceTopContentInset,
+                terminalCapturedTopInset: terminalCapturedTopInset
             )
         }
         #endif
