@@ -35,6 +35,11 @@ final class WorkspaceNavigationBarController: UIViewController {
         applyConfiguration()
     }
 
+    override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        applyConfiguration()
+    }
+
     func update(
         title: AnyView,
         leadingItems: [WorkspaceNavigationBar.Item],
@@ -99,6 +104,19 @@ final class WorkspaceNavigationBarController: UIViewController {
         }
         let item = target.navigationItem
         navigation.navigationBar.accessibilityIdentifier = "MobileWorkspaceNavigationBar"
+        let isLandscape = navigation.navigationBar.bounds.width > navigation.navigationBar.bounds.height
+        for value in leadingGroup.barButtonItems {
+            (value.customView as? WorkspaceNavigationControlView)?.update(
+                placement: .leading,
+                isLandscape: isLandscape
+            )
+        }
+        for value in trailingGroup.barButtonItems {
+            (value.customView as? WorkspaceNavigationControlView)?.update(
+                placement: .trailing,
+                isLandscape: isLandscape
+            )
+        }
         item.style = .browser
         item.largeTitleDisplayMode = .never
         if item.titleView !== titleCapsule {

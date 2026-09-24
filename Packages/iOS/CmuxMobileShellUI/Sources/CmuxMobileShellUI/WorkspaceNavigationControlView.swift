@@ -6,12 +6,20 @@ import UIKit
 /// Its natural width changes with the label instead of a per-control estimate.
 @MainActor
 final class WorkspaceNavigationControlView: UIView {
+    enum Placement {
+        case leading
+        case trailing
+    }
+
     private let contentView: UIView & UIContentView
     private var width: NSLayoutConstraint?
+    private var placement: Placement = .leading
+    private var isLandscape = false
 
     init(content: AnyView) {
         contentView = UIHostingConfiguration { content.ignoresSafeArea() }.margins(.all, 0).minSize(width: 0, height: 0).makeContentView()
         super.init(frame: .zero)
+        layoutMargins = UIEdgeInsets(top: 8, left: 8, bottom: 8, right: 8)
         // The bar already places items around the device's safe area. Adding
         // it again here enlarges the end items by 17 points in landscape.
         insetsLayoutMarginsFromSafeArea = false
@@ -50,6 +58,16 @@ final class WorkspaceNavigationControlView: UIView {
 
     func update(content: AnyView) {
         contentView.configuration = UIHostingConfiguration { content.ignoresSafeArea() }.margins(.all, 0).minSize(width: 0, height: 0)
+        refreshContentSize()
+    }
+
+    func update(placement: Placement, isLandscape: Bool) {
+        guard self.placement != placement || self.isLandscape != isLandscape else { return }
+        self.placement = placement
+        self.isLandscape = isLandscape
+        let leading = placement == .trailing && isLandscape ? 3 : 8
+        let trailing = placement == .leading && isLandscape ? -3 : 8
+        layoutMargins = UIEdgeInsets(top: 8, left: leading, bottom: 8, right: trailing)
         refreshContentSize()
     }
 
