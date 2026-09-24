@@ -4313,7 +4313,9 @@ def test_the_unit_tier_closes_only_the_gap_its_job_can_judge() -> None:
 
 def test_the_unit_tier_is_routed_end_to_end() -> None:
     caller = CI_WORKFLOW.read_text(encoding="utf-8")
-    assert "      unit_suite: ${{ steps.suite.outputs.unit_suite }}" in caller
+    # The changes job forwards the chooser's unit tier (less a consumer canary
+    # dropped for a reused compile; see the canary test for the full form).
+    assert "|| steps.suite.outputs.unit_suite }}" in yaml.safe_load(caller)["jobs"]["changes"]["outputs"]["unit_suite"]
     assert "      unit_suite: ${{ needs.changes.outputs.unit_suite }}" in caller
 
     # The macOS workflow must be reachable for a unit-ci run whose compile was
