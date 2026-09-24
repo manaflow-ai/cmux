@@ -400,6 +400,18 @@ jobs:
           defaults write com.apple.dt.XCBuild IgnoreFileSystemDeviceInodeChanges -bool YES
           python3 scripts/ci/e2e_warm_derived_data.py restore "$GITHUB_WORKSPACE" "$CMUX_DERIVED_DATA_PATH" "$WARM_KEY"
 
+      # The restore script wipes a half-extracted DerivedData when it raises,
+      # but a step timeout kills it before that cleanup runs. What remains is
+      # main's intermediates with some of this revision's files stamped old,
+      # and the build trusts them: runs 35937847074 and 35938349258 failed to
+      # compile or link against symbols their revisions define. Start cold.
+      - name: Discard a DerivedData adoption that did not finish
+        if: ${{ steps.reuse.outputs.hit != 'true' && steps.warm.outcome != 'success' }}
+        run: |
+          set -euo pipefail
+          rm -rf -- "$CMUX_DERIVED_DATA_PATH"
+          mkdir -p "$CMUX_DERIVED_DATA_PATH"
+
       - name: Record build input times
         id: record-inputs
         if: ${{ steps.reuse.outputs.hit != 'true' }}
