@@ -1,4 +1,5 @@
 import Foundation
+import CmuxCore
 
 /// One headless cmux-tui carrier for a remote machine, over SSH or the Cloud network.
 /// Native panes and control requests share its daemon-owned session and local socket.

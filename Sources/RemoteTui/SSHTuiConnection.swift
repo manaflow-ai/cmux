@@ -36,9 +36,13 @@ struct SSHTuiConnection: Sendable {
             return configuration.terminalProfile.remoteCommandArguments
         }
         if let command = configuration.configuredRemoteCommand, !command.isEmpty {
-            return ["/bin/sh", "-lc", command]
+            return commandArguments(command)
         }
         return ["/bin/sh", "-c", "exec \"${SHELL:-/bin/sh}\" -l"]
+    }
+
+    func commandArguments(_ command: String) -> [String] {
+        ["/bin/sh", "-c", "exec \"${SHELL:-/bin/sh}\" -lc \"$1\"", "cmux-ssh", command]
     }
 
     func arguments(stateDirectory: String, deviceName: String) -> [String] {

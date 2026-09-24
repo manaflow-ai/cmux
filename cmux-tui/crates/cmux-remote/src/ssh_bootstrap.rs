@@ -255,7 +255,10 @@ impl SshBootstrapper {
         let remote = self.remote_platform().await?;
         let local = Platform::local();
         let artifact = crate::ssh_artifacts::payload(
-            source, &self.config.build_identity, &remote.os, &remote.arch,
+            source,
+            &self.config.build_identity,
+            &remote.os,
+            &remote.arch,
         )?;
         if artifact.is_none() && !local.compatible_with(&remote) {
             return Err(BootstrapError::LocalBinaryIncompatible {
