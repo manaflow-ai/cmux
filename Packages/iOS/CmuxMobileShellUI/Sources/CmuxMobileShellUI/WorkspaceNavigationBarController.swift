@@ -106,7 +106,8 @@ final class WorkspaceNavigationBarController: UIViewController {
         }
         let item = target.navigationItem
         navigation.navigationBar.accessibilityIdentifier = "MobileWorkspaceNavigationBar"
-        let isLandscape = target.view.bounds.width > target.view.bounds.height
+        let orientation = navigation.view.window?.windowScene?.interfaceOrientation
+        let isLandscape = orientation == .landscapeLeft || orientation == .landscapeRight
         for (id, control) in controls {
             let placement: WorkspaceNavigationControlView.Placement = leadingIDs.contains(id) ? .leading : .trailing
             let visualOffset: CGFloat
