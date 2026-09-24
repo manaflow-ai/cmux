@@ -234,6 +234,11 @@ struct TaskComposerLayout: View {
 
     private var optionsButton: some View {
         Button {
+            // Keep UIKit menus inside the options sheet above the sheet's
+            // content. A focused prompt leaves the keyboard in the presenting
+            // scene, which can intercept a workspace-group menu item.
+            isPromptFocused = false
+            UIApplication.shared.dismissMobileKeyboard()
             isOptionsPresented = true
         } label: {
             // Adjustments glyph, not "+": the button configures the task
