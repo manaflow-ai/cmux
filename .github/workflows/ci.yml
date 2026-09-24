@@ -119,9 +119,12 @@ jobs:
       # it stays busy. This marker tells ci-owned-pool-rescue.yml, running from
       # main, to watch the run and re-run it on Blacksmith when a job waits past
       # CI_OWNED_POOL_RESCUE_SECONDS. No persistent pool, no marker, no watching.
+      # Fail-safe like the picker: a missing marker only means the run is not
+      # watched, which is how every run behaved before the rescue existed.
       - name: Mark a run on a persistent macOS pool
         id: macos-pool-marker
         if: ${{ steps.macos-pool.outputs.persistent == 'true' }}
+        continue-on-error: true
         env:
           POOL: ${{ steps.macos-pool.outputs.runner }}
         run: |
@@ -132,6 +135,7 @@ jobs:
 
       - name: Upload the persistent pool marker
         if: ${{ steps.macos-pool-marker.outputs.path != '' }}
+        continue-on-error: true
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: macos-pool-persistent-${{ github.run_id }}-${{ github.run_attempt }}

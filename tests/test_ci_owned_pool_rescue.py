@@ -225,7 +225,7 @@ class Rescuing(unittest.TestCase):
         api = FakeAPI(clock, persistent_run(), marker=True)
         code, summary = run_main(api, clock)
         self.assertEqual(code, 0)
-        self.assertEqual(api.calls[-3:], ["cancel", "run", "rerun"])
+        self.assertEqual(api.calls[-4:], ["cancel", "run", "pull", "rerun"])
         self.assertIn(f"queued on {MINI} for at least 90s", summary)
         self.assertIn("attempt 2 takes an ephemeral pool", summary)
         # Rescued at the first look past 40 + 90 seconds.
@@ -252,6 +252,52 @@ class Rescuing(unittest.TestCase):
         _, summary = run_main(api, clock)
         self.assertNotIn("rerun", api.calls)
         self.assertIn("someone else already re-ran", summary)
+
+    def test_a_push_during_the_cancel_is_not_overwritten(self):
+        clock = Clock()
+        api = FakeAPI(clock, persistent_run(), marker=True)
+        heads = iter([HEAD, "b" * 40])
+        original = api.pull
+        api.pull = lambda number: {**original(number), "head": {"sha": next(heads)}}
+        _, summary = run_main(api, clock)
+        self.assertIn("cancel", api.calls)
+        self.assertNotIn("rerun", api.calls)
+        self.assertIn("cancelled but not re-run", summary)
+
+    def test_a_rerun_by_someone_else_during_the_cancel_is_left_alone(self):
+        clock = Clock()
+        api = FakeAPI(clock, persistent_run(), marker=True, settles_after=10_000)
+        original = api.run
+        api.run = lambda run_id: ({"status": "queued", "run_attempt": 2} if api.cancelled_at is not None
+                                  else original(run_id))
+        code, summary = run_main(api, clock)
+        self.assertEqual(code, 0)
+        self.assertNotIn("force-cancel", api.calls)
+        self.assertNotIn("rerun", api.calls)
+        self.assertIn("someone else already re-ran", summary)
+
+    def test_a_transient_read_error_does_not_end_the_watch(self):
+        clock = Clock()
+        api = FakeAPI(clock, persistent_run(), marker=True)
+        original, failures = api.jobs, iter([True, False])
+
+        def flaky(run_id, attempt):
+            if clock.seconds > 60 and next(failures, False):
+                raise rescue.urllib.error.URLError("502")
+            return original(run_id, attempt)
+        api.jobs = flaky
+        code, summary = run_main(api, clock)
+        self.assertEqual(code, 0)
+        self.assertIn("rerun", api.calls)
+        self.assertIn("retrying", summary)
+
+    def test_wait_counts_from_first_sight_when_created_at_is_early(self):
+        clock = Clock()
+        # The record claims it queued at 0 s, but the job first appears at 300 s.
+        jobs = lambda s: [changes()(s)] + ([job("late consumer", labels=[MINI], created=0)] if s >= 300 else [])
+        api = FakeAPI(clock, jobs, marker=True)
+        run_main(api, clock)
+        self.assertGreaterEqual(api.cancelled_at, 300 + 90)
 
     def test_force_cancel_then_give_up_without_rerun(self):
         clock = Clock()
@@ -287,6 +333,15 @@ class Workflow(unittest.TestCase):
         step = self.doc["jobs"]["rescue"]["steps"][-1]
         self.assertEqual(step["run"], "python3 scripts/ci/owned_pool_rescue.py")
         self.assertEqual(step["env"]["RESCUE_SECONDS"], "${{ vars.CI_OWNED_POOL_RESCUE_SECONDS }}")
+
+    def test_polls_from_a_github_hosted_runner(self):
+        self.assertEqual(self.doc["jobs"]["rescue"]["runs-on"], "ubuntu-24.04")
+
+    def test_marker_steps_never_fail_the_changes_job(self):
+        steps = yaml.safe_load((ROOT / ".github/workflows/ci.yml").read_text())["jobs"]["changes"]["steps"]
+        for name in ("Mark a run on a persistent macOS pool", "Upload the persistent pool marker"):
+            step = next(step for step in steps if step.get("name") == name)
+            self.assertIs(step.get("continue-on-error"), True, name)
 
     def test_job_timeout_covers_the_watch_and_the_cancel_wait(self):
         limit = (rescue.WATCH_LIMIT_SECONDS + rescue.CANCEL_WAIT_SECONDS + rescue.FIRST_LOOK_SECONDS) / 60

@@ -9,11 +9,12 @@ run-name: owned-pool-rescue-${{ github.event.workflow_run.id }}-${{ github.event
 # pool, so it lands on Blacksmith. scripts/ci/owned_pool_rescue.py has the rule.
 #
 # It needs actions: write, so it is triggered by workflow_run and its code comes
-# from main: a pull request cannot change it. `requested` fires once when the
-# CI run is created and is not delivered for a re-run, so the re-run this
-# workflow starts is never watched again. It is off unless
-# CI_OWNED_POOL_RESCUE is 1, and it makes no API request while POOLS has no
-# persistent pool.
+# from main: a pull request cannot change it. Only attempt 1 is watched, in the
+# job condition below and again in the script, so the re-run this workflow
+# starts is never watched, whether or not GitHub delivers `requested` for it.
+# It is off unless CI_OWNED_POOL_RESCUE is 1, and it makes no API request while
+# POOLS has no persistent pool. It only polls, so it runs on a GitHub-hosted
+# runner rather than holding a slot in the Linux pool CI's own jobs use.
 on:
   workflow_run:
     workflows: [CI]
@@ -28,17 +29,17 @@ env:
   SOURCE_WORKFLOW_PATHS: .github/workflows/ci.yml
 
 concurrency:
-  group: owned-pool-rescue-${{ github.event.workflow_run.id }}
+  group: owned-pool-rescue-${{ github.event.workflow_run.id }}-${{ github.event.workflow_run.run_attempt }}
   cancel-in-progress: true
 
 jobs:
   rescue:
     name: Rescue a run stuck on a persistent pool
     if: ${{ vars.CI_OWNED_POOL_RESCUE == '1' && github.event.workflow_run.event == 'pull_request' && github.event.workflow_run.head_repository.full_name == github.repository && github.event.workflow_run.run_attempt == 1 }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
-    # The watch limit is 40 minutes and a rescue waits up to 3 more for the
-    # cancel to settle.
-    timeout-minutes: 50
+    runs-on: ubuntu-24.04 # github-hosted-required: polls the Actions API; keeps CI's Linux pool free
+    # The watch limit is 60 minutes, reads may retry, and a rescue waits up to
+    # 3 more for the cancel to settle.
+    timeout-minutes: 70
     permissions:
       actions: write
       contents: read
