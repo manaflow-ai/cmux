@@ -124,17 +124,14 @@ struct CmuxTuiSurfaceProviderRegistryPollingTests {
         #expect(registry.isPolling == false)
     }
 
-    @Test("Cloud activation prepares the carrier once the first fleet read returns")
+    @Test("Cloud activation starts carrier preparation before fleet discovery finishes")
     @MainActor
-    func activationPreparesCarrierAfterFleetReadReturns() async {
+    func activationStartsCarrierBeforeFleetReadFinishes() async {
         let listStarted = CloudLinkFirstValue<Bool>()
         let releaseList = CloudLinkFirstValue<Bool>()
-        let listReturned = Switch()
         let enrollmentStarted = CloudLinkFirstValue<Bool>()
         let h = makeHub {
-            // Discovery awaits the fleet read before it prepares the carrier,
-            // so enrollment that starts while the read is parked resolves false.
-            enrollmentStarted.resolve(listReturned.isOn)
+            enrollmentStarted.resolve(true)
             return .init(configPath: "/tmp/cmux-preparation.conf", routes: ["10.0.0.0/8"])
         }
         let registry = CmuxTuiSurfaceProviderRegistry(
@@ -144,15 +141,14 @@ struct CmuxTuiSurfaceProviderRegistryPollingTests {
             listPage: {
                 listStarted.resolve(true)
                 _ = await releaseList.result
-                listReturned.isOn = true
                 return VMListPage(vms: [], limits: nil)
             },
             notificationCenter: NotificationCenter()
         )
         registry.start(catalog: SurfaceCatalog())
+        #expect(await received(enrollmentStarted))
         #expect(await received(listStarted))
         releaseList.resolve(true)
-        #expect(await received(enrollmentStarted))
         await registry.accessDidEnd()
     }
 

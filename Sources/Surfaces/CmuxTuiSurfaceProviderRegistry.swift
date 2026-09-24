@@ -293,6 +293,7 @@ final class CmuxTuiSurfaceProviderRegistry {
             pollTask = nil
             return
         }
+        Task { await wireGuardHub?.prepareForCloudUse() }
         guard pollTask == nil else { return }
         pollTask = Task { [weak self] in
             while !Task.isCancelled {
