@@ -45,6 +45,22 @@ struct AgentLifecycleReducerTests {
         return state
     }
 
+    @Test func resumedSessionStartProjectsIdleWithoutOverridingActiveTurn() {
+        var notifications = AgentNotificationReconciler()
+        var state = AgentLifecycleReducerState()
+        let start = event(1, .sessionStarted, declaredPhase: .idle)
+        _ = notifications.apply(start)
+        reducer.apply(notifications.lifecycleEvent(start), to: &state)
+        #expect(state.combinedPhase(surfaceId: surface, agentKey: "claude_code") == .idle)
+        let prompt = event(2, .turnStarted)
+        _ = notifications.apply(prompt)
+        reducer.apply(notifications.lifecycleEvent(prompt), to: &state)
+        let duplicate = event(3, .sessionStarted, declaredPhase: .idle)
+        _ = notifications.apply(duplicate)
+        reducer.apply(notifications.lifecycleEvent(duplicate), to: &state)
+        #expect(state.combinedPhase(surfaceId: surface, agentKey: "claude_code") == .running)
+    }
+
     @Test func basicTurnLifecycle() {
         let state = fold([
             event(1, .sessionStarted),
