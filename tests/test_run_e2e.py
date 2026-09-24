@@ -477,6 +477,35 @@ class FocusedLauncherTests(unittest.TestCase):
         self.assertEqual(
             wrapper["env"].get("CMUX_MACOS_RUNNER_TESTS"), "${{ vars.MACOS_RUNNER_TESTS }}"
         )
+        # The split switch too: without it the wrapper would pin a routed
+        # commit to the large pool after the workflow stopped splitting.
+        self.assertEqual(
+            wrapper["env"].get("CMUX_CI_E2E_LARGE_POOL_SPLIT"),
+            "${{ vars.CI_E2E_LARGE_POOL_SPLIT }}",
+        )
+
+    def test_the_split_switch_keeps_routed_commits_on_the_default_pool(self):
+        # REMOTE_HEAD ends in b and would be routed. With the switch off the
+        # workflow's auto stays on the 6vcpu pool, so the dispatcher must not
+        # pin the commit to the large pool behind its back.
+        result = self.launch(
+            "cmuxTests/ExampleTests", "--ref", "topic/fix",
+            LAUNCHER_VARIABLES=json.dumps([
+                {"name": "CI_E2E_LARGE_POOL_SPLIT", "value": "0"},
+            ]),
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn("runner", self.dispatch())
+
+    def test_a_workflow_job_passes_the_split_switch_it_cannot_list(self):
+        result = self.launch(
+            "cmuxTests/ExampleTests", "--ref", "topic/fix",
+            LAUNCHER_VARIABLES="not json",
+            CMUX_MACOS_RUNNER_TESTS="", CMUX_CI_E2E_LARGE_POOL_SPLIT="0",
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn("runner", self.dispatch())
+        self.assertNotIn(["variable", "list"], [call[:2] for call in self.calls()])
 
     def test_a_run_without_a_dispatch_id_is_still_seen(self):
         # A run started from the GitHub UI shares the concurrency group and its
@@ -611,6 +640,124 @@ class RunDiscoveryTests(unittest.TestCase):
         with mock.patch.object(self.dispatch, "output", return_value=json.dumps([run, run])):
             with self.assertRaisesRegex(ValueError, "refusing to guess"):
                 self.dispatch.find_run(HEAD, "cmuxTests/Example", "mine")
+
+
+class WorkflowRunnerPoolTests(unittest.TestCase):
+    """test-e2e.yml's `auto` splits commits across pools the way run-e2e.sh does.
+
+    A direct dispatch with runner=auto used to land every commit on the 6vcpu
+    pool, which queued for hours while the 12vcpu pool sat idle. The workflow
+    now resolves the pool itself, with the dispatcher's rule, so the two agree
+    on the runner label that product reuse and in-flight matching key on.
+    """
+
+    SMALL = "blacksmith-6vcpu-macos-26"
+    LARGE = "blacksmith-12vcpu-macos-26"
+    # Every possible last hex digit, so both parities are covered.
+    COMMITS = ["0123456789abcdef0123456789abcdef0123456" + digit for digit in "0123456789abcdef"]
+
+    @classmethod
+    def setUpClass(cls):
+        cls.workflow = yaml.safe_load((ROOT / ".github/workflows/test-e2e.yml").read_text())
+        cls.jobs = cls.workflow["jobs"]
+        spec = importlib.util.spec_from_file_location(
+            "e2e_runner_pool", ROOT / "scripts/ci/e2e_runner_pool.py"
+        )
+        cls.pool = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(cls.pool)
+        spec = importlib.util.spec_from_file_location(
+            "focused_dispatch_pool", ROOT / "scripts/ci/dispatch-focused-test.py"
+        )
+        cls.dispatch = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(cls.dispatch)
+
+    def pool_step(self):
+        steps = self.jobs["runner"]["steps"]
+        return next(step for step in steps if "e2e_runner_pool.py" in step.get("run", ""))
+
+    def run_pool_step(self, *, requested="auto", variable="", split="", commit):
+        """Run the workflow's own step script with the values GitHub would pass."""
+        step = self.pool_step()
+        env = dict(os.environ)
+        values = {
+            "${{ inputs.runner }}": requested,
+            "${{ vars.MACOS_RUNNER_TESTS }}": variable,
+            "${{ vars.CI_E2E_LARGE_POOL_SPLIT }}": split,
+            "${{ needs.resolve-ref.outputs.sha }}": commit,
+        }
+        for name, expression in step["env"].items():
+            self.assertIn(expression, values, f"unexpected input {name}: {expression}")
+            env[name] = values[expression]
+        with tempfile.TemporaryDirectory() as temp:
+            output = Path(temp) / "output"
+            output.write_text("")
+            env["GITHUB_OUTPUT"] = str(output)
+            subprocess.run(["bash", "-e", "-c", step["run"]], cwd=ROOT, env=env, check=True,
+                           capture_output=True, text=True)
+            lines = dict(line.split("=", 1) for line in output.read_text().splitlines() if "=" in line)
+        return lines["label"]
+
+    def test_auto_splits_commits_across_both_pools(self):
+        for commit in self.COMMITS:
+            with self.subTest(commit=commit):
+                expected = self.LARGE if int(commit[-1], 16) % 2 else self.SMALL
+                self.assertEqual(self.pool.resolve("auto", "", "", commit), expected)
+                self.assertEqual(self.pool.resolve("", "", "", commit), expected)
+                self.assertEqual(self.run_pool_step(commit=commit), expected)
+
+    def test_the_workflow_and_the_dispatcher_route_every_commit_alike(self):
+        for commit in self.COMMITS:
+            for variable in ("", self.SMALL, "blacksmith-6vcpu-macos-15"):
+                for split in ("", "1", "0"):
+                    with self.subTest(commit=commit, variable=variable, split=split):
+                        default = variable or self.SMALL
+                        self.assertEqual(
+                            self.run_pool_step(variable=variable, split=split, commit=commit),
+                            self.dispatch.routed_runner(
+                                commit, default, self.pool.split_enabled(split)
+                            ),
+                        )
+
+    def test_an_explicit_choice_or_admin_variable_is_never_rerouted(self):
+        odd = self.COMMITS[1]
+        self.assertEqual(self.pool.resolve(self.SMALL, "", "", odd), self.SMALL)
+        self.assertEqual(self.pool.resolve("tart-canary", "", "", odd), "tart-canary")
+        self.assertEqual(self.pool.resolve("auto", "blacksmith-6vcpu-macos-15", "", odd),
+                         "blacksmith-6vcpu-macos-15")
+        self.assertEqual(self.pool.resolve("auto", "", "0", odd), self.SMALL)
+        self.assertEqual(self.run_pool_step(requested="tart-small", commit=odd), "tart-small")
+
+    def test_an_unresolved_commit_is_refused(self):
+        for commit in ("", "main", "B" * 40, "b" * 39):
+            with self.subTest(commit=commit), self.assertRaises(ValueError):
+                self.pool.resolve("auto", "", "", commit)
+
+    def test_the_pool_job_resolves_after_the_commit_on_linux(self):
+        job = self.jobs["runner"]
+        self.assertIn("resolve-ref", job["needs"])
+        self.assertIn("ubuntu", job["runs-on"])
+        self.assertEqual(job["outputs"]["label"], "${{ steps.pool.outputs.label }}")
+        self.assertEqual(self.pool_step()["id"], "pool")
+        checkout = next(step for step in job["steps"] if "actions/checkout" in step.get("uses", ""))
+        self.assertIn("scripts/ci/e2e_runner_pool.py", checkout["with"]["sparse-checkout"])
+        self.assertIs(checkout["with"]["persist-credentials"], False)
+
+    def test_macos_jobs_run_on_the_resolved_pool(self):
+        label = "${{ needs.runner.outputs.label }}"
+        for name in ("build", "test"):
+            with self.subTest(job=name):
+                job = self.jobs[name]
+                self.assertIn("runner", job["needs"])
+                self.assertEqual(job["runs-on"], label)
+                tart = next(step for step in job["steps"]
+                            if step.get("name") == "Validate Tart canary identity")
+                self.assertEqual(tart["if"], "${{ startsWith(needs.runner.outputs.label, 'tart-') }}")
+                self.assertEqual(tart["env"]["REQUESTED_RUNNER"], label)
+                # Nothing in a macOS job may resolve the pool a second way.
+                text = yaml.safe_dump(job)
+                self.assertNotIn("inputs.runner", text)
+                self.assertNotIn("vars.MACOS_RUNNER_TESTS", text)
+        self.assertEqual(self.jobs["build"]["env"]["CMUX_PRODUCT_RUNNER"], label)
 
 
 class SuiteWorkflowForwardsFocusedRuns(unittest.TestCase):
