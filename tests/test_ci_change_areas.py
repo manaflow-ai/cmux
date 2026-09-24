@@ -4186,8 +4186,17 @@ def test_an_app_host_consumer_edit_runs_a_canary_after_the_compile() -> None:
     # So is a ci-macos.yml hunk inside the shards' job, first line to last.
     for line in (job_start, job_start + 20, job_end):
         assert consumer_canary_selectors(ROOT, [workflow_path], hunk(line)) == canary, line
+    # Compile admission's outputs, and the route and Xcode env they carry,
+    # decide where the shards run and which Xcode loads the product (#14163).
+    admission_start = lines.index("  macos-compile-admission:")
+    admission_steps = lines.index("    steps:", admission_start)
+    for key in ("    outputs:", "      runner: ", "      CMUX_PRODUCT_RUNNER: ", "      CMUX_CI_XCODE_APP: "):
+        line = next(number for number, text in enumerate(lines[admission_start:admission_steps],
+                                                       start=admission_start + 1) if text.startswith(key))
+        assert consumer_canary_selectors(ROOT, [workflow_path], hunk(line)) == canary, key
     # A ci-macos.yml hunk elsewhere is judged by the job it sits in.
     assert consumer_canary_selectors(ROOT, [workflow_path], hunk(compile_line)) == []
+    assert consumer_canary_selectors(ROOT, [workflow_path], hunk(admission_steps + 3)) == []
     assert consumer_canary_selectors(ROOT, [workflow_path], hunk(job_end + 5)) == []
     # A pure deletion at the job's last line still sits inside it.
     assert consumer_canary_selectors(ROOT, [workflow_path], hunk(job_end, 0)) == canary
