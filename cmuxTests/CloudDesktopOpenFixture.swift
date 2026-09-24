@@ -1,5 +1,6 @@
 import AppKit
 import Bonsplit
+import CmuxSurfaceCatalogModel
 import Testing
 
 #if canImport(cmux_DEV)
@@ -135,13 +136,23 @@ final class CloudDesktopOpenFixture {
         let token = NotificationCenter.default.addObserver(forName: SurfaceCatalog.didChangeNotification,
             object: catalog, queue: .main) { _ in
                 MainActor.assumeIsolated {
-                    if catalog.projections(of: resource).count == expected { committed.resolve(true) }
+                    if catalog.projections(of: resource).count >= expected { committed.resolve(true) }
                 }
             }
         defer { NotificationCenter.default.removeObserver(token) }
         #expect(workspace.handleSurfaceResourceDrop(group: group,
             destination: .split(targetPane: pane, orientation: .vertical, insertFirst: false), catalog: catalog))
-        _ = await committed.result
+        // The commit can land before the next catalog notification, and an
+        // unbounded wait turns a missed commit into the suite's 60 s time limit,
+        // which restarts the app host and discards the rest of the shard.
+        if catalog.projections(of: resource).count >= expected { committed.resolve(true) }
+        let deadline = Task {
+            try? await Task.sleep(for: .seconds(10))
+            committed.resolve(false)
+        }
+        defer { deadline.cancel() }
+        let didCommit = await committed.result
+        #expect(didCommit == true, "the drop never committed a second Desktop projection")
     }
 
     func close() {

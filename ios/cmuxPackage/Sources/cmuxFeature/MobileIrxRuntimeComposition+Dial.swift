@@ -108,7 +108,7 @@ extension MobileIrxRuntimeComposition {
                 // A separate transport is needed because relay policy is endpoint-wide.
                 directEndpointSupervisor = IrxEndpointSupervisor(configuration: IrxEndpointConfiguration(
                     identity: identity, pathMode: .directOnly, initialRemoteBiStreams: 0,
-                    initialRemoteUniStreams: 0), journal: journal)
+                    initialRemoteUniStreams: 0), journal: journal, diagnosticLog: diagnosticLog)
             }
             selectedSupervisor = directEndpointSupervisor
         }
