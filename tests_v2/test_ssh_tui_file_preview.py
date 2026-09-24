@@ -24,19 +24,20 @@ from cmux import cmux
 
 
 WORKLOAD = r'''
-import os, pathlib, shutil, sys, tempfile
+import os, pathlib, shutil, socket, sys, tempfile
 token = sys.argv[1]
 directory = tempfile.mkdtemp(prefix='cmux-preview-' + token + '-')
 owners = []
 pid = os.getpid()
 while pid > 1:
     root = pathlib.Path('/proc') / str(pid)
-    owners.append(root.joinpath('comm').read_text().strip())
+    owners.append(pathlib.Path(os.readlink(str(root / 'exe')).removesuffix(' (deleted)')).name)
     pid = int(root.joinpath('stat').read_text().rsplit(')', 1)[1].split()[1])
 try:
     os.chdir(directory)
     pathlib.Path('preview file.txt').write_text('REMOTE_PREVIEW_' + token + '\n')
     print('\033[2J\033[H', end='')
+    print('\033]7;file://' + socket.gethostname() + directory + '\033\\', end='')
     for _ in range(48):
         print('preview file.txt    OtherFile')
     print('@' + token + ':cwd=' + directory)
@@ -48,6 +49,9 @@ try:
 finally:
     shutil.rmtree(directory)
     print('@' + token + ':cleaned', flush=True)
+    for line in sys.stdin:
+        if line.strip() == token + ':exit':
+            break
 '''
 
 
@@ -90,7 +94,7 @@ def main():
                 value = predicate()
                 if value:
                     return value
-                time.sleep(0.1)
+                time.sleep(0.3)
             raise AssertionError('Timed out waiting for managed SSH preview assertion')
 
         def line(pattern):
@@ -113,7 +117,7 @@ def main():
             for value in ssh_options:
                 args += ['--ssh-option', value]
             identify()
-            launched = subprocess.run([str(cli), '--socket', socket_path, '--json', *args],
+            launched = subprocess.run([str(cli), '--socket', socket_path, '--id-format', 'uuids', '--json', *args],
                                       env=environment, capture_output=True, text=True, timeout=120)
             assert launched.returncode == 0, f'cmux ssh exited {launched.returncode}'
             workspace = json.loads(launched.stdout)['workspace_id']
@@ -125,9 +129,8 @@ def main():
             legacy = wait_for(lambda: line('@' + token + r':legacy=([01])')).group(1)
             evidence['ownership'] = {'cmux_tui': tui, 'cmuxd_remote': legacy}
             assert (tui, legacy) == ('1', '0'), evidence['ownership']
-            # The test owns cwd reporting; the actual session owns execution.
-            mutate('surface.report_pwd', {'workspace_id': workspace,
-                                         'surface_id': surface, 'path': cwd})
+            evidence['catalog_before_click'] = client._call('surface.catalog', {})
+            mutate('window.focus', {'window_id': window})
             mutate('workspace.select', {'workspace_id': workspace})
 
             def harness_ready():
@@ -158,6 +161,8 @@ def main():
                     mutate('surface.send_text', {'workspace_id': workspace,
                                                 'surface_id': surface, 'text': token + ':quit\n'})
                     wait_for(lambda: line('@' + token + ':cleaned'), timeout=10)
+                    mutate('surface.send_text', {'workspace_id': workspace,
+                                                'surface_id': surface, 'text': token + ':exit\n'})
             finally:
                 mutate('window.close', {'window_id': window})
                 print(json.dumps(evidence, indent=2))
