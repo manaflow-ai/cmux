@@ -845,6 +845,7 @@ final class CloudTuiManualMirrorSession {
             claimInFlight = false
             if ok, surface?.isRendererPortalVisible == true {
                 geometryClaimed = true
+                explicitGeometryClaimPending = false
                 claimUnsupported = false
             } else if Self.isUnsupportedClaimError(error) {
                 // Keep compatibility with protocol-v5/v6 peers. Their
@@ -894,7 +895,6 @@ final class CloudTuiManualMirrorSession {
                 requestID: requestID
             )
         )
-        explicitGeometryClaimPending = false
     }
 
     private func sendAttach() {
