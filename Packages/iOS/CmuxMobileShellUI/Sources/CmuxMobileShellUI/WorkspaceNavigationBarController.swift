@@ -18,6 +18,8 @@ final class WorkspaceNavigationBarController: UINavigationController {
         bar.accessibilityIdentifier = "MobileWorkspaceNavigationBar"
         bar.tintColor = .label
         bar.prefersLargeTitles = false
+        bar.preservesSuperviewLayoutMargins = false
+        bar.insetsLayoutMarginsFromSafeArea = false
         updateLandscapeMargins()
         contentHost.view.backgroundColor = .clear
         setViewControllers([contentHost], animated: false)
@@ -39,7 +41,7 @@ final class WorkspaceNavigationBarController: UINavigationController {
         // SwiftUI's original toolbar extends 6 points farther into the
         // landscape leading safe area. Keep UIKit's native safe-area handling
         // and express that difference through the bar's public margins.
-        let landscapeLeadingAdjustment: CGFloat = view.safeAreaInsets.left > 0 ? -6 : 0
+        let landscapeLeadingAdjustment: CGFloat = view.safeAreaInsets.left > 0 ? 39 : 16
         bar.directionalLayoutMargins = NSDirectionalEdgeInsets(
             top: 0,
             leading: landscapeLeadingAdjustment,
