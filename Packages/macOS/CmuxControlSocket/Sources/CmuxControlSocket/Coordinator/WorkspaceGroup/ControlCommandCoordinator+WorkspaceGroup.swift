@@ -354,14 +354,34 @@ extension ControlCommandCoordinator {
 
     // MARK: - Color / Icon
 
+    /// Reads a setter value that `cmux.json` spells differently from the RPC:
+    /// `color` for `hex` and `icon` for `symbol` (docs/workspace-groups.md).
+    /// Without the alias the config spelling was read as "absent" and cleared
+    /// the value while the call still reported success. Supplying both is
+    /// allowed only when they agree after trimming.
+    private func workspaceGroupAliasedValue(
+        _ params: [String: JSONValue],
+        primary: String,
+        alias: String
+    ) -> (value: String?, error: ControlCallResult?) {
+        let primaryValue = rawString(params, primary).map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+        let aliasValue = rawString(params, alias).map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+        if let primaryValue, let aliasValue, primaryValue != aliasValue {
+            return (nil, .err(code: "invalid_params", message: "\(primary) and \(alias) must match", data: nil))
+        }
+        let value = primaryValue ?? aliasValue
+        return ((value?.isEmpty == false) ? value : nil, nil)
+    }
+
     /// `workspace.group.set_color` — set or clear a group's custom color.
     func workspaceGroupSetColor(_ params: [String: JSONValue]) -> ControlCallResult {
         guard let gid = uuid(params, "group_id") else {
             return .err(code: "invalid_params", message: "Missing or invalid group_id", data: nil)
         }
-        // Accept "hex": null to clear the override, or omit it entirely.
-        let hex: String? = rawString(params, "hex").map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-        let normalized: String? = (hex?.isEmpty == false) ? hex : nil
+        // Accept "hex" (or its alias "color"): null to clear the override, or omit it entirely.
+        let color = workspaceGroupAliasedValue(params, primary: "hex", alias: "color")
+        if let error = color.error { return error }
+        let normalized = color.value
         guard let ok = context?.controlSetWorkspaceGroupColor(
             routing: routingSelectors(params), groupID: gid, hex: normalized
         ) else {
@@ -377,8 +397,9 @@ extension ControlCommandCoordinator {
         guard let gid = uuid(params, "group_id") else {
             return .err(code: "invalid_params", message: "Missing or invalid group_id", data: nil)
         }
-        let symbol: String? = rawString(params, "symbol").map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-        let normalized: String? = (symbol?.isEmpty == false) ? symbol : nil
+        let icon = workspaceGroupAliasedValue(params, primary: "symbol", alias: "icon")
+        if let error = icon.error { return error }
+        let normalized = icon.value
         guard let result = context?.controlSetWorkspaceGroupIcon(
             routing: routingSelectors(params), groupID: gid, symbol: normalized
         ) else {

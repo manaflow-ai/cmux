@@ -79,6 +79,13 @@ Use a stable `--idempotency-key` (or `--external-id`) when more than one control
 
 `delete` dissolves the group and keeps its workspaces by default. Pass `--close-workspaces` only when you intend to close every member workspace and terminate its processes. The response reports whether the group was dissolved or its workspaces were closed, including the affected count.
 
+Color and icon have no subcommand yet; set them over the v2 socket with `workspace.group.set_color` (`hex`, or its alias `color`) and `workspace.group.set_icon` (`symbol`, or its alias `icon`). The aliases match the keys used in [Configuration](#configuration). A `null` or omitted value clears the override; passing both spellings with different values is rejected with `invalid_params`.
+
+```bash
+cmux rpc workspace.group.set_color '{"group_id":"<id>","hex":"#7A4FD8"}'
+cmux rpc workspace.group.set_icon  '{"group_id":"<id>","symbol":"ladybug.fill"}'
+```
+
 ### Examples
 
 Group two explicitly chosen workspaces under a name:
