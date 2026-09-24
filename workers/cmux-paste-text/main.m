@@ -121,10 +121,7 @@ static BOOL isPlainTextType(NSString *typeIdentifier) {
 }
 
 static BOOL hasDisallowedType(NSString *typeIdentifier) {
-    if ([typeIdentifier isEqualToString:NSPasteboardTypeHTML] ||
-        [typeIdentifier isEqualToString:NSPasteboardTypeRTF] ||
-        [typeIdentifier isEqualToString:NSPasteboardTypeRTFD] ||
-        [typeIdentifier isEqualToString:NSPasteboardTypeFileURL] ||
+    if ([typeIdentifier isEqualToString:NSPasteboardTypeFileURL] ||
         [typeIdentifier isEqualToString:NSPasteboardTypeURL] ||
         [typeIdentifier isEqualToString:@"NSFilenamesPboardType"] ||
         [typeIdentifier isEqualToString:@"com.apple.pasteboard.promised-file-url"] ||
@@ -190,13 +187,12 @@ static int runWorker(NSArray<NSString *> *arguments) {
 
     NSArray<NSPasteboardType> *types = pasteboard.types ?: @[];
     BOOL hasPlainText = NO;
+    BOOL hasDisallowedPayload = NO;
     for (NSPasteboardType type in types) {
-        if (hasDisallowedType(type)) {
-            return kIneligibleStatus;
-        }
         hasPlainText = hasPlainText || isPlainTextType(type);
+        hasDisallowedPayload = hasDisallowedPayload || hasDisallowedType(type);
     }
-    if (!hasPlainText) {
+    if (!hasPlainText || hasDisallowedPayload) {
         return kIneligibleStatus;
     }
 
