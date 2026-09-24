@@ -103,6 +103,20 @@ class RejectsErrnoInsideAssertions(unittest.TestCase):
             [(2, "#expect"), (3, "#expect")],
         )
 
+    def test_closure_whose_first_call_takes_errno_as_an_argument(self) -> None:
+        # The argument is evaluated before the call runs, so each closure reads
+        # errno set outside it, after the assertion started.
+        self.assertEqual(
+            lines(
+                """\
+                #expect({ POSIXErrorCode(rawValue: errno) == .ESRCH }())
+                #expect(pid.map { _ in String(cString: strerror(errno)) } == "No such process")
+                #expect({ ESRCH == Int32(errno) }())
+                """
+            ),
+            [(1, "#expect"), (2, "#expect"), (3, "#expect")],
+        )
+
     def test_division_is_not_a_regex_literal(self) -> None:
         self.assertEqual(
             lines(
