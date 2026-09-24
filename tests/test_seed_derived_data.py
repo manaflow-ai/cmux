@@ -372,7 +372,7 @@ def evaluate(expression, context):
 
     `a && b` is b when a is truthy, else a; `a || b` is a when truthy,
     else b. Names resolve by dotted path in `context`; a missing one is null,
-    which compares equal to ''. startsWith() compares case-insensitively.
+    which compares equal to ''. startsWith() and endsWith() compare case-insensitively.
     `<`, `>`, `<=` and `>=` compare as numbers, the way Actions coerces: null
     and '' are 0, and a string that is not a number never compares true.
     """
@@ -410,7 +410,7 @@ def evaluate(expression, context):
             return token == "true"
         if token[0].isdigit():
             return float(token)
-        if token in ("startsWith", "contains") and peek() == "(":
+        if token in ("startsWith", "endsWith", "contains") and peek() == "(":
             take()
             haystack = either()
             if take() != ",":
@@ -420,7 +420,9 @@ def evaluate(expression, context):
                 raise ValueError("unbalanced parentheses")
             haystack = ("" if haystack is None else str(haystack)).lower()
             needle = ("" if needle is None else str(needle)).lower()
-            return haystack.startswith(needle) if token == "startsWith" else needle in haystack
+            if token == "startsWith":
+                return haystack.startswith(needle)
+            return haystack.endswith(needle) if token == "endsWith" else needle in haystack
         value = context
         for part in token.split("."):
             value = value.get(part) if isinstance(value, dict) else None
@@ -566,7 +568,11 @@ class Wiring(unittest.TestCase):
         nightly = load("nightly.yml")["jobs"]["refresh-test-compilation-cache"]
         job = workflow["jobs"]["seed"]
         self.assertIn(nightly["runs-on"], job["strategy"]["matrix"]["pool"])
-        self.assertEqual(job["env"]["CMUX_CI_XCODE_APP"], nightly["env"]["CMUX_CI_XCODE_APP"])
+        # On the lane's pools the seeder uses the nightly's Xcode.
+        context = github_context("push", MACOS_RUNNER_PR="blacksmith-6vcpu-macos-26")
+        context["matrix"] = {"pool": "blacksmith-6vcpu-macos-26"}
+        self.assertEqual(evaluate(job["env"]["CMUX_CI_XCODE_APP"], context),
+                         evaluate(nightly["env"]["CMUX_CI_XCODE_APP"], context))
 
         # Resolve against the same Swift package cache admission restores, so
         # a layout change invalidates both keys together.
@@ -582,7 +588,9 @@ class Wiring(unittest.TestCase):
         self.assertIs(job["strategy"]["fail-fast"], False)
         context = github_context("push", MACOS_RUNNER_PR="blacksmith-6vcpu-macos-26")
         pools = {evaluate(pool, context) for pool in job["strategy"]["matrix"]["pool"]}
-        self.assertEqual(pools, {"blacksmith-6vcpu-macos-26", "blacksmith-12vcpu-macos-26"})
+        # macOS 15 too: pull requests overflow there, on its own Xcode.
+        self.assertEqual(pools, {"blacksmith-6vcpu-macos-26", "blacksmith-12vcpu-macos-26",
+                                 "blacksmith-6vcpu-macos-15"})
         admission = load("ci-macos.yml")["jobs"]["macos-compile-admission"]["runs-on"]
         self.assertIn(evaluate(admission, github_context("pull_request", ref="refs/pull/1/merge",
                                                          MACOS_RUNNER_PR="blacksmith-6vcpu-macos-26")), pools)
@@ -613,7 +621,7 @@ class Wiring(unittest.TestCase):
         # another image or Xcode.
         # The 12 vCPU pool comes first: it starts in seconds, and the first
         # entry alone publishes the app-host product.
-        runs_on, own = load("seed-derived-data.yml")["jobs"]["seed"]["strategy"]["matrix"]["pool"]
+        runs_on, own, _ = load("seed-derived-data.yml")["jobs"]["seed"]["strategy"]["matrix"]["pool"]
         admission = load("ci-macos.yml")["jobs"]["macos-compile-admission"]["runs-on"]
         larger = "vars.MACOS_RUNNER_PR == 'blacksmith-6vcpu-macos-26' && 'blacksmith-12vcpu-macos-26'"
         self.assertIn(larger, runs_on)
@@ -622,6 +630,22 @@ class Wiring(unittest.TestCase):
         self.assertTrue(runs_on.rstrip("} ").endswith(f"{larger} || {fallback}"), runs_on)
         self.assertTrue(own.rstrip("} ").endswith(f"'macos-26' || {fallback}"), own)
         self.assertIn(fallback, admission)
+
+    def test_the_macos_15_pool_seeds_with_the_xcode_an_overflowed_run_compiles_with(self):
+        import sys as _sys
+        _sys.path.insert(0, str(ROOT / "scripts" / "ci"))
+        import pr_runner_pool
+
+        job = load("seed-derived-data.yml")["jobs"]["seed"]
+        *_, overflow = job["strategy"]["matrix"]["pool"]
+        context = github_context("push", MACOS_RUNNER_PR="blacksmith-6vcpu-macos-26")
+        pool = evaluate(overflow, context)
+        self.assertEqual(pool, pr_runner_pool.MACOS_15_RUNNER)
+        context["matrix"] = {"pool": pool}
+        self.assertEqual(evaluate(job["env"]["CMUX_CI_XCODE_APP"], context), "/Applications/Xcode-15.app")
+        self.assertEqual(pr_runner_pool.POOLS[pool], "CMUX_CI_XCODE_APP_MACOS_15")
+        # Only the first entry publishes the product, never this one.
+        self.assertNotEqual(job["strategy"]["matrix"]["pool"][0], overflow)
 
     def test_main_push_publishes_the_product_admission_would_compile(self):
         """Pull requests adopt this product in place of compiling, so it has to

@@ -83,14 +83,19 @@ jobs:
     # each seed by its width. The first entry is the 12 vCPU pool of the same
     # image and Xcode, which starts in seconds and alone publishes the
     # product; the second is admission's own pool, the same pool again under
-    # any other MACOS_RUNNER_PR. GitHub names these jobs "seed (<pool>)";
-    # seed_decide.py and reuse_app_host_products.py match that.
+    # any other MACOS_RUNNER_PR. The third is the macOS 15 pool, which
+    # pr_runner_pool.py overflows pull requests to, on its own Xcode
+    # (CMUX_CI_XCODE_APP_MACOS_15): without a seed of its own every admission
+    # there compiled cold for 17 to 25 minutes (2026-09-24). GitHub names these
+    # jobs "seed (<pool>)"; seed_decide.py and reuse_app_host_products.py match
+    # that.
     strategy:
       fail-fast: false
       matrix:
         pool:
           - ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.MACOS_RUNNER_PR == 'blacksmith-6vcpu-macos-26' && 'blacksmith-12vcpu-macos-26' || vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15' }}
           - ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15' }}
+          - ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-6vcpu-macos-15' }}
     runs-on: ${{ matrix.pool }}
     # One seed at a time per pool, and never cancel-in-progress. main takes
     # several merges an hour and a cold seed takes 15-20 minutes, so
@@ -106,7 +111,9 @@ jobs:
     environment: ${{ github.ref == 'refs/heads/main' && 'ci-cache-writer' || '' }}
     timeout-minutes: 60
     env:
-      CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_PR || vars.CMUX_CI_XCODE_APP_MACOS_15 }}
+      # The macOS 15 pool compiles with its own Xcode, as a pull request run
+      # pr_runner_pool.py overflows there does; every other pool, the lane's.
+      CMUX_CI_XCODE_APP: ${{ endsWith(matrix.pool, 'vcpu-macos-15') && vars.CMUX_CI_XCODE_APP_MACOS_15 || vars.CMUX_CI_XCODE_APP_PR || vars.CMUX_CI_XCODE_APP_MACOS_15 }}
       CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
       CMUX_SKIP_ZIG_BUILD: "1"
     steps:
