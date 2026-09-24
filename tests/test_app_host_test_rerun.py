@@ -188,6 +188,22 @@ class PullRequestProductTests(unittest.TestCase):
         self.assertEqual(planned["source_sha"], self.merge)
         self.assertEqual(planned["changed_tests"], "cmuxTests/BTests.swift")
 
+    def test_automatic_plan_passes_over_a_merge_with_base_app_changes(self) -> None:
+        # The newer pull_request run for this head built a merge that also
+        # carries the base's app change; the older push run built the head.
+        runs = [
+            {**self.pull_request_run(run_id=2), "created_at": "2026-01-02"},
+            {"id": 1, "event": "push", "head_sha": self.head, "created_at": "2026-01-01"},
+        ]
+
+        def api(path: str) -> dict:
+            if "head_sha=" in path:
+                return {"workflow_runs": runs if f"head_sha={self.head}" in path else []}
+            return {"artifacts": [self.PRODUCTS]}
+
+        planned = self.plan(self.head, "", api)
+        self.assertEqual((planned["source_run_id"], planned["source_sha"]), ("1", self.head))
+
     def test_lookup_reports_the_built_revision_and_skips_ineligible_merges(self) -> None:
         runs = {"h": [{"id": 1, "created_at": "2026-01-02"}, {"id": 2, "created_at": "2026-01-01"}]}
 
