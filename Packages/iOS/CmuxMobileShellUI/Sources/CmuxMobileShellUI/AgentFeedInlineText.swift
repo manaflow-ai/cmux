@@ -169,7 +169,7 @@ final class AgentFeedInlineTextView: UIView {
             options: []
         ) { value, range, _ in
             guard let rawValue = (value as? NSNumber)?.intValue else { return }
-            let intent = InlinePresentationIntent(rawValue: rawValue)
+            let intent = InlinePresentationIntent(rawValue: UInt(rawValue))
             var runFont = font
             if intent.contains(.code) {
                 runFont = UIFont.monospacedSystemFont(ofSize: font.pointSize, weight: .regular)
