@@ -54,6 +54,19 @@ struct TerminalPredictionEngineTests {
         #expect(session.engine.status(at: session.clock) == .listening)
     }
 
+    @Test func anUnterminatedStringSequenceDoesNotHideAPasswordPrompt() {
+        // An interrupted image transfer leaves an APC open. Ghostty closes it
+        // at the next ESC and prints the prompt; the engine must see the
+        // prompt too, or it keeps the echo run alive and draws the password.
+        var session = armedSession()
+        session.remote("\u{1B}_Gi=1\u{1B}[2J\r\n[sudo] password for leo: ")
+
+        for character in ["h", "u", "n", "t", "e", "r", "2"] {
+            session.type(character)
+            #expect(session.drawn == "")
+        }
+    }
+
     @Test func predictsOnceTheEchoRunIsEstablished() {
         var session = armedSession()
 

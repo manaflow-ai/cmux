@@ -29,9 +29,26 @@ struct TerminalOutputScannerTests {
         #expect(scan("\u{1B}]7;file:///home/leo\u{1B}\\") == [.ignorable])
     }
 
-    @Test func anEscapeInsideAnOperatingSystemCommandDoesNotEndItEarly() {
-        // Only ESC \ terminates; a bare ESC is still payload.
-        #expect(scan("\u{1B}]0;title\u{1B}x more\u{7}") == [.ignorable])
+    @Test func anEscapeEndsAStringSequenceAndStartsTheNextOne() {
+        // Ghostty leaves any string sequence at the first ESC and parses what
+        // follows as a new sequence. A scanner still inside the string would
+        // miss the echoes, prompts and screen changes ghostty applies.
+        #expect(scan("\u{1B}]0;title\u{1B}x more\u{7}") == [
+            .disruptive,
+            .printable(0x20), .printable(0x6D), .printable(0x6F), .printable(0x72), .printable(0x65),
+            .disruptive
+        ])
+        #expect(scan("\u{1B}_x\u{1B}[31m hi\u{1B}[?1049h") == [
+            .ignorable, .printable(0x20), .printable(0x68), .printable(0x69), .alternateScreen(true)
+        ])
+    }
+
+    @Test func eightBitControlsEndADeviceControlString() {
+        // In DCS, APC, PM and SOS, ghostty leaves the string on any C1 byte;
+        // 0x9C is the 8-bit string terminator.
+        var scanner = TerminalOutputScanner()
+        #expect(scanner.scan(Array("\u{1B}Pabc".utf8) + [0x9C, 0x78]) == [.ignorable, .printable(0x78)])
+        #expect(scanner.scan(Array("\u{1B}_abc".utf8) + [0x85, 0x78]) == [.disruptive, .printable(0x78)])
     }
 
     @Test func deviceControlAndApplicationStringsAreIgnorable() {
@@ -43,11 +60,12 @@ struct TerminalOutputScannerTests {
         #expect(scan("\u{1B}Xstart of string\u{1B}\\x") == [.ignorable, .printable(0x78)])
     }
 
-    @Test func onlyStringTerminatorEndsADeviceControlString() {
+    @Test func belIsPayloadInADeviceControlString() {
         // BEL is payload here, unlike in an OSC.
         #expect(scan("\u{1B}Pq#0;2;0;0;0\u{7}#0!7~\u{1B}\\") == [.ignorable])
-        // tmux passthrough doubles each ESC inside its DCS.
-        #expect(scan("\u{1B}Ptmux;\u{1B}\u{1B}]0;title\u{7}\u{1B}\\") == [.ignorable])
+        // tmux passthrough doubles each ESC inside its DCS. Ghostty ends the
+        // DCS at the first ESC and runs the inner sequence, and so does this.
+        #expect(scan("\u{1B}Ptmux;\u{1B}\u{1B}]0;title\u{7}\u{1B}\\") == [.ignorable, .ignorable])
     }
 
     @Test func aDeviceControlStringSplitAcrossChunksIsStillOneSignal() {
