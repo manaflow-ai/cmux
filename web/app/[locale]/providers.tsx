@@ -1,19 +1,18 @@
 "use client";
 
-import { StackProvider } from "@hexclave/next";
 import { ThemeProvider } from "next-themes";
-import { stackClientApp } from "../lib/stack-client";
 import { PostHogProvider } from "./posthog";
 
+/**
+ * Shared by every localized page, including the public landing pages. It must
+ * not mount Hexclave: its client fetches the session on load and throws into
+ * the tree when that fetch fails. Routes that need auth mount their own
+ * provider (dashboard, handler), where auth failures are contained.
+ */
 export function Providers({ children }: { children: React.ReactNode }) {
-  const content = (observesStackAuth: boolean) => (
+  return (
     <ThemeProvider attribute="class" defaultTheme="dark" disableTransitionOnChange>
-      <PostHogProvider observesStackAuth={observesStackAuth}>
-        {children}
-      </PostHogProvider>
+      <PostHogProvider>{children}</PostHogProvider>
     </ThemeProvider>
   );
-  return stackClientApp
-    ? <StackProvider app={stackClientApp}>{content(true)}</StackProvider>
-    : content(false);
 }

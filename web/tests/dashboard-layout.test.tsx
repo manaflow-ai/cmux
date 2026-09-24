@@ -37,6 +37,7 @@ process.env.NEXT_PUBLIC_STACK_PROJECT_ID = TEST_STACK_PROJECT_ID;
 mock.module("@hexclave/next", () => ({
   StackProvider: ({ children }: React.PropsWithChildren) => children,
   StackTheme: ({ children }: React.PropsWithChildren) => children,
+  useUser: () => null,
 }));
 
 mock.module("next/navigation", () => ({

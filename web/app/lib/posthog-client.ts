@@ -10,6 +10,10 @@ if (typeof window !== "undefined") {
     capture_pageview: false,
     capture_pageleave: true,
     advanced_disable_feature_flags: true,
+    // The default target inserts before the first `body > script`, which is a
+    // React-owned JSON-LD tag in the locale layout. When this module loads
+    // before hydration, that insertion fails hydration for the whole page.
+    external_scripts_inject_target: "head",
     // The route tracker opens this gate only after resolving the current
     // server-authenticated identity.
     before_send: () => null,

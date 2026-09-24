@@ -1,4 +1,5 @@
 import { StackProvider, StackTheme } from "@hexclave/next";
+import { IsolatedStackAuthObserver } from "../[locale]/stack-auth-observer";
 import { getStackServerApp, isStackConfigured } from "../lib/stack";
 
 export const instant = false;
@@ -15,7 +16,10 @@ export default function HandlerLayout({
   const stackServerApp = getStackServerApp();
   return stackServerApp ? (
     <StackProvider app={stackServerApp}>
-      <StackTheme>{children}</StackTheme>
+      <StackTheme>
+        <IsolatedStackAuthObserver />
+        {children}
+      </StackTheme>
     </StackProvider>
   ) : (
     children
