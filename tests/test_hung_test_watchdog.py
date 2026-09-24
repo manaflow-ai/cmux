@@ -6,6 +6,7 @@ from __future__ import annotations
 import importlib.util
 import os
 import pathlib
+import select
 import shutil
 import signal
 import subprocess
@@ -340,18 +341,20 @@ class WatchdogProcessTests(unittest.TestCase):
 
     def test_steady_output_slower_than_the_window_in_total_passes(self) -> None:
         completed = self.watchdog(
-            "--silence-seconds", "1",
+            "--silence-seconds", "3",
             command=fake_test_command("""
                 import time
                 for index in range(8):
                     print(f"◇ Test t{index}() started.")
-                    time.sleep(0.3)
-                    print(f"✔ Test t{index}() passed after 0.3 seconds.")
+                    time.sleep(0.5)
+                    print(f"✔ Test t{index}() passed after 0.5 seconds.")
             """),
         )
-        # Eight 0.3 s tests span more than the 1 s window, yet all finish.
+        # Eight 0.5 s tests span more than the 3 s window, yet all finish. The
+        # window starts at spawn, so it also absorbs interpreter startup on a
+        # loaded host.
         self.assertEqual(completed.returncode, 0, completed.stdout)
-        self.assertEqual(completed.stdout.count(" passed after 0.3 seconds."), 8)
+        self.assertEqual(completed.stdout.count(" passed after 0.5 seconds."), 8)
         self.assertNotIn("::error", completed.stdout)
 
     def test_exit_status_and_output_pass_through_and_log_is_written(self) -> None:
@@ -455,6 +458,10 @@ class WatchdogProcessTests(unittest.TestCase):
             stderr=subprocess.STDOUT,
         )
         try:
+            # Without a deadline, a watchdog that forwards nothing would block
+            # this read until the job timeout.
+            readable, _, _ = select.select([process.stdout], [], [], 20)
+            self.assertTrue(readable, "watchdog forwarded no output within 20 s")
             first = process.stdout.readline()
             self.assertIn("waitsForever() started", first)
             process.send_signal(signal.SIGTERM)
