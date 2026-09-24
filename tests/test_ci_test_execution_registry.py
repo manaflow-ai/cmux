@@ -176,6 +176,23 @@ class RegistryBlastRadiusTests(unittest.TestCase):
         self.assertIn('lane = "<lane>"', message)
         self.assertIn("macos-cli-no-socket", message)
 
+    def test_write_registers_a_test_a_workflow_already_runs(self) -> None:
+        root = self.make_root(tests=["test_kept.py", "test_new.py"], registry=self.kept_registry())
+        workflow = root / ".github" / "workflows" / "ci-guards.yml"
+        workflow.write_text(GUARD_WORKFLOW + "      - run: python3 tests/test_new.py\n", encoding="utf-8")
+
+        self.assertEqual(validator.register_derivable(root), ["tests/test_new.py"])
+        errors, _, _ = validator.validate(root, added={"tests/test_new.py"})
+        self.assertEqual(errors, [])
+        self.assertEqual(validator.register_derivable(root), [])  # idempotent
+
+    def test_write_leaves_a_test_no_workflow_runs_for_a_person_to_place(self) -> None:
+        root = self.make_root(tests=["test_kept.py", "test_orphan.py"], registry=self.kept_registry())
+        before = (root / "tests" / "test-execution.toml").read_text(encoding="utf-8")
+
+        self.assertEqual(validator.register_derivable(root), [])
+        self.assertEqual((root / "tests" / "test-execution.toml").read_text(encoding="utf-8"), before)
+
     def test_added_tests_are_measured_from_the_merge_base(self) -> None:
         root = Path(tempfile.mkdtemp(prefix="cmux-test-execution-registry-git-"))
         self.addCleanup(shutil.rmtree, root, ignore_errors=True)

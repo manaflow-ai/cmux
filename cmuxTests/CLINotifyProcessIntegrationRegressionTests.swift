@@ -5032,12 +5032,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         allowBridgeResponse.signal()
         XCTAssertEqual(handshakeReceived.wait(timeout: .now() + 5), .success)
 
-        let exited = DispatchSemaphore(value: 0)
-        DispatchQueue.global(qos: .userInitiated).async {
-            process.waitUntilExit()
-            exited.signal()
-        }
-        XCTAssertEqual(exited.wait(timeout: .now() + 5), .success)
+        XCTAssertEqual(waitForProcessExit(process, timeout: 5), .success)
         wait(for: [socketHandled, bridgeHandled], timeout: 5)
 
         let stderr = String(data: stderrPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
@@ -5244,12 +5239,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         wait(for: [bridgeHandled], timeout: 5)
         allowResizeResponse.signal()
 
-        let exited = DispatchSemaphore(value: 0)
-        DispatchQueue.global(qos: .userInitiated).async {
-            process.waitUntilExit()
-            exited.signal()
-        }
-        XCTAssertEqual(exited.wait(timeout: .now() + 5), .success)
+        XCTAssertEqual(waitForProcessExit(process, timeout: 5), .success)
 
         wait(for: [socketHandled, unexpectedReadinessAfterAcknowledgement], timeout: 0.5)
         let stdout = String(data: stdoutPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
@@ -5436,12 +5426,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
 
         closeBridge.signal()
         wait(for: [bridgeHandled], timeout: 5)
-        let exited = DispatchSemaphore(value: 0)
-        DispatchQueue.global(qos: .userInitiated).async {
-            process.waitUntilExit()
-            exited.signal()
-        }
-        XCTAssertEqual(exited.wait(timeout: .now() + 5), .success)
+        XCTAssertEqual(waitForProcessExit(process, timeout: 5), .success)
         wait(for: [socketHandled], timeout: 5)
 
         let stdout = String(

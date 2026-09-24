@@ -410,7 +410,12 @@ struct SSHDeepSleepReattachTests {
                 sessionID: "ssh-test-session",
                 foregroundAuth: Self.foregroundAuth()
             ).replacingOccurrences(of: "/usr/bin/ssh", with: fakeSSH.path),
-            environment: environment
+            environment: environment,
+            // Every attach attempt spawns uuidgen, the fake ssh, cmux and
+            // sleep, so the full budget costs ~4.5 s on an idle runner and
+            // more under shard load. The deadline only bounds a hang; it
+            // scales with the attempts the case expects to run.
+            timeout: max(5, Double(expectedSleepCount + 1) * 2)
         )
 
         #expect(!result.timedOut, Comment(rawValue: result.stderr))
@@ -596,22 +601,21 @@ struct SSHDeepSleepReattachTests {
         } catch {
             return (-1, "", String(describing: error), false)
         }
-        let exitSignal = DispatchSemaphore(value: 0)
-        DispatchQueue.global(qos: .userInitiated).async {
-            process.waitUntilExit()
-            exitSignal.signal()
-        }
-        let timedOut = exitSignal.wait(timeout: .now() + 10) == .timedOut
+        let timedOut = waitForProcessExit(process, timeout: 10) == .timedOut
         if timedOut {
             process.terminate()
-            _ = exitSignal.wait(timeout: .now() + 1)
+            _ = waitForProcessExit(process, timeout: 1)
         }
         let stdout = String(data: stdoutPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
         let stderr = String(data: stderrPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
         return (process.terminationStatus, stdout, stderr, timedOut)
     }
 
-    private static func runProcess(command: String, environment: [String: String]) -> ProcessRunResult {
+    private static func runProcess(
+        command: String,
+        environment: [String: String],
+        timeout: TimeInterval = 5
+    ) -> ProcessRunResult {
         let process = Process()
         let stderrPipe = Pipe()
         process.executableURL = URL(fileURLWithPath: "/bin/sh")
@@ -625,15 +629,10 @@ struct SSHDeepSleepReattachTests {
         } catch {
             return ProcessRunResult(status: -1, stderr: String(describing: error), timedOut: false)
         }
-        let exitSignal = DispatchSemaphore(value: 0)
-        DispatchQueue.global(qos: .userInitiated).async {
-            process.waitUntilExit()
-            exitSignal.signal()
-        }
-        let timedOut = exitSignal.wait(timeout: .now() + 5) == .timedOut
+        let timedOut = waitForProcessExit(process, timeout: timeout) == .timedOut
         if timedOut {
             process.terminate()
-            _ = exitSignal.wait(timeout: .now() + 1)
+            _ = waitForProcessExit(process, timeout: 1)
         }
         let stderr = String(data: stderrPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
         return ProcessRunResult(status: process.terminationStatus, stderr: stderr, timedOut: timedOut)

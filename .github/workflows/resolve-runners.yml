@@ -1,0 +1,97 @@
+name: Resolve runners
+
+# Publishes the capability -> runner label map for the repository this run is
+# on. Callers consume it as:
+#
+#   jobs:
+#     runners:
+#       uses: ./.github/workflows/resolve-runners.yml
+#     build:
+#       needs: runners
+#       runs-on: ${{ fromJSON(needs.runners.outputs.map).macos_26 }}
+#
+# The map itself is .github/runners.json, resolved by
+# scripts/ci/resolve_runners.py. A fork resolves to the GitHub-hosted fleet
+# with no configuration at all: Blacksmith is an organization-level GitHub App,
+# and a blacksmith-* label on a personal account does not error -- the job sits
+# queued forever and holds the workflow's concurrency group.
+#
+# fromJSON() here is safe because `map` is always a non-empty JSON object: the
+# resolver fails the job rather than print a partial map. The two override
+# variables are read as plain strings and parsed in Python, never with
+# fromJSON(vars.X), which fails the whole workflow when the variable is unset.
+
+on:
+  workflow_call:
+    inputs:
+      fleet:
+        description: >-
+          Force a fleet declared in .github/runners.json (for example "hosted").
+          Empty means resolve from the repository owner.
+        required: false
+        type: string
+        default: ""
+    outputs:
+      map:
+        description: JSON object of capability key -> runner label.
+        value: ${{ jobs.resolve.outputs.map }}
+      fleet:
+        description: Name of the fleet the map came from.
+        value: ${{ jobs.resolve.outputs.fleet }}
+
+permissions:
+  contents: read
+
+jobs:
+  resolve:
+    name: Resolve runner capabilities
+    # Not a variable and not the map: the job that resolves the fleet cannot
+    # depend on the fleet. A Blacksmith fallback here queued forever on a fork,
+    # the one case this workflow exists for. GitHub-hosted Linux runs anywhere.
+    runs-on: ubuntu-24.04  # github-hosted-required: resolves the fleet, so cannot run on one
+    timeout-minutes: 5
+    outputs:
+      map: ${{ steps.resolve.outputs.map }}
+      fleet: ${{ steps.resolve.outputs.fleet }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          submodules: false
+          sparse-checkout: |
+            .github/runners.json
+            scripts/ci/resolve_runners.py
+          sparse-checkout-cone-mode: false
+
+      - name: Resolve capability map
+        id: resolve
+        env:
+          # Unset repository variables expand to the empty string, which the
+          # resolver reads as "no override". Nothing here is fromJSON()-ed.
+          INPUT_FLEET: ${{ inputs.fleet }}
+          CMUX_CI_RUNNER_FLEET: ${{ vars.CMUX_CI_RUNNER_FLEET }}
+          CMUX_CI_RUNNER_OVERRIDES: ${{ vars.CMUX_CI_RUNNER_OVERRIDES }}
+        run: |
+          set -euo pipefail
+          if [ -n "${INPUT_FLEET}" ]; then
+            CMUX_CI_RUNNER_FLEET="${INPUT_FLEET}"
+            export CMUX_CI_RUNNER_FLEET
+          fi
+          python3 scripts/ci/resolve_runners.py
+
+      - name: Report the resolved map
+        env:
+          RESOLVED_FLEET: ${{ steps.resolve.outputs.fleet }}
+          RESOLVED_MAP: ${{ steps.resolve.outputs.map }}
+        run: |
+          set -euo pipefail
+          {
+            echo "### Runner capability map"
+            echo
+            echo "Owner \`${GITHUB_REPOSITORY_OWNER}\` resolved to fleet \`${RESOLVED_FLEET}\`."
+            echo
+            echo '```json'
+            echo "${RESOLVED_MAP}"
+            echo '```'
+          } >>"${GITHUB_STEP_SUMMARY}"
