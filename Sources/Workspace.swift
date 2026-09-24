@@ -637,7 +637,7 @@ extension Workspace {
                             processPresence: agentProcessPresence
                         ) ?? false
                 }
-                guard let effectiveRestorableAgent else { return nil }; if CodexTurnRestoreIntentPolicy.shouldPreserveAfterOwnerExit(snapshot: effectiveRestorableAgent, binding: resumeBinding, processLiveness: matchingObservation?.processLiveness) { return true }
+                guard let effectiveRestorableAgent else { return nil }
                 let confirmedRuntimeProcessIdentities = confirmedRuntimeAgentProcessIdentities(
                     for: effectiveRestorableAgent,
                     panelId: panelId,
@@ -647,6 +647,11 @@ extension Workspace {
                     kind: effectiveRestorableAgent.kind.rawValue,
                     sessionId: effectiveRestorableAgent.sessionId
                 )
+                if CodexTurnRestoreIntentPolicy.shouldPreserveAfterOwnerExit(
+                    snapshot: effectiveRestorableAgent,
+                    binding: resumeBinding,
+                    processLiveness: matchingObservation?.processLiveness
+                ) { return true }
                 return (matchingObservation?.processLiveness ?? .unknown)
                     .wasRunning(
                         fallingBackTo: panelShellActivityStates[panelId],
