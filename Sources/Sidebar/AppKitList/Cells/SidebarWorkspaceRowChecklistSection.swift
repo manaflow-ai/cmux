@@ -147,8 +147,12 @@ final class SidebarRowChecklistSection: NSView {
             awaitingPopoverDismissAck = false
             lastAddFieldToken = 0
             lastPopoverModel = nil
-            if popoverPresenter.isShown {
-                popoverPresenter.close()
+            // A close deferred across a reparent has already hidden the
+            // popover but not yet written the old workspace back.
+            if popoverPresenter.isShown || popoverAnchorDetachedWhilePresented {
+                if popoverPresenter.isShown {
+                    popoverPresenter.close()
+                }
                 // Reused for another workspace: write the OLD workspace's
                 // presentation state back to closed (captured at present
                 // time), or scrolling back would re-present a popover the
@@ -156,6 +160,10 @@ final class SidebarRowChecklistSection: NSView {
                 activePopoverDismissContext?()
             }
             activePopoverDismissContext = nil
+            // Retire any deferred close so it cannot latch the dismiss ack
+            // on the workspace this cell now shows.
+            popoverAnchorDetachedWhilePresented = false
+            popoverPresentationGeneration &+= 1
             // Fresh scroll position per workspace (legacy rows are distinct
             // SwiftUI views, so offsets never carry across workspaces).
             scrollView.contentView.scroll(to: .zero)
@@ -420,6 +428,10 @@ final class SidebarRowChecklistSection: NSView {
             consumeToken()
         }
         let presentedWorkspaceId = model.workspaceId
+        // A new session starts attached. A detach flag left by the previous
+        // session must not turn this session's real click-away into a
+        // deferred re-present.
+        popoverAnchorDetachedWhilePresented = false
         popoverPresentationGeneration &+= 1
         let generation = popoverPresentationGeneration
         popoverPresenter.onExternalDismiss = { [weak self] in
