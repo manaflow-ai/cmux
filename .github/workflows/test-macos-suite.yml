@@ -93,8 +93,8 @@ jobs:
           # runner the wrapper cannot see an identical run already in flight.
           CMUX_MACOS_RUNNER_TESTS: ${{ vars.MACOS_RUNNER_TESTS }}
           CMUX_CI_E2E_LARGE_POOL_OVERFLOW: ${{ vars.CI_E2E_LARGE_POOL_OVERFLOW }}
-          CMUX_CI_E2E_OVERFLOW_MIN_QUEUED: ${{ vars.CI_E2E_OVERFLOW_MIN_QUEUED }}
-          CMUX_CI_E2E_OVERFLOW_MAX_LARGE_RUNNING: ${{ vars.CI_E2E_OVERFLOW_MAX_LARGE_RUNNING }}
+          CMUX_CI_PR_POOL_ORDER: ${{ vars.CI_PR_POOL_ORDER }}
+          CMUX_CI_PR_POOL_MAX_QUEUED: ${{ vars.CI_PR_POOL_MAX_QUEUED }}
           UNIT_TEST_SUITES: ${{ inputs.unit_test_suites }}
           TEST_REF: ${{ inputs.ref || github.sha }}
           TEST_TIMEOUT: ${{ inputs.test_timeout }}

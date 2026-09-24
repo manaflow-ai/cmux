@@ -47,8 +47,8 @@ Every sweep can also write what it saw per pool (``--pool-load``): queued and
 running macOS jobs, the oldest queued job's age, and the queued jobs that
 belong to release or nightly runs. ci-queue-janitor.yml uploads it as the
 ``macos-pool-load`` artifact, and pr_runner_pool.py reads the newest one to
-pick a pull request run's pool without listing every in-flight run's jobs
-itself.
+pick a pull request run's pool (and, through it, e2e_runner_pool.py an E2E
+run's) without listing every in-flight run's jobs itself.
 
 Orphaned runs are a separate pass (find_orphans): a job the runner scheduler
 lost holds nothing on any pool, so that pass ignores the queue threshold,
