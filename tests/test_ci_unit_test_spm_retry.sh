@@ -1,104 +1,62 @@
 #!/usr/bin/env bash
-# Exercise the workflow resolver with controlled xcodebuild/cache failures.
+# The legacy filename stays wired into workflow-guard-tests. Its contract now
+# protects the build-once/test-many path: SwiftPM resolution belongs to compile
+# admission, while app-host shards execute only the restored compiled product.
 set -euo pipefail
 cd "$(dirname "$0")/.."
+
 python3 - <<'PY'
-import os
 from pathlib import Path
-import subprocess
-import tempfile
-import unittest
-lines = Path('.github/workflows/ci.yml').read_text().splitlines()
-start = lines.index('      - name: Resolve Swift packages')
-run_start = lines.index('        run: |', start) + 1
-end = next(i for i in range(run_start, len(lines))
-           if lines[i].startswith('      - name: '))
-script = '\n'.join(line[10:] for line in lines[run_start:end])
-script = script.replace('${{ matrix.shard }}', '1')
+import re
 
-class ResolverTests(unittest.TestCase):
-    def exercise(self, mode):
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            bindir = root / 'bin'
-            bindir.mkdir()
-            home = root / 'home'
-            collision = home / 'Library/Caches/org.swift.swiftpm/artifacts/iroh'
-            collision.mkdir(parents=True)
-            marker = root / '.ci-source-packages/partial'
-            marker.parent.mkdir()
-            marker.write_text('stale')
-            diagnostics = root / 'scripts/ci/capture-network-diagnostics.sh'
-            diagnostics.parent.mkdir(parents=True)
-            diagnostics.write_text('#!/bin/bash\necho diagnostic >> "$FIXTURE_ROOT/diagnostics"\n')
-            diagnostics.chmod(0o755)
-            sleep = bindir / 'sleep'
-            sleep.write_text('#!/bin/bash\nexit 0\n')
-            sleep.chmod(0o755)
-            resolver = bindir / 'xcodebuild'
-            resolver.write_text('''#!/bin/bash
-set -eu
-count=0
-[ ! -f "$FIXTURE_ROOT/count" ] || count=$(cat "$FIXTURE_ROOT/count")
-count=$((count + 1))
-echo "$count" > "$FIXTURE_ROOT/count"
-if [ "$FIXTURE_MODE" = permanent ] || { [ "$FIXTURE_MODE" = collision ] && [ -d "$HOME/Library/Caches/org.swift.swiftpm/artifacts/iroh" ]; }; then
-  echo "failed downloading Iroh: $HOME/Library/Caches/org.swift.swiftpm/artifacts/iroh already exists in file system"
-  exit 74
-fi
-if [ "$FIXTURE_MODE" = network ]; then
-  echo 'Could not resolve package dependencies: host unavailable'
-  exit 74
-fi
-if [ "$FIXTURE_MODE" = missing ] && [ "$count" = 1 ]; then
-  exit 0
-fi
-mkdir -p .ci-source-packages/artifacts/sparkle/Sparkle/Sparkle.xcframework
-mkdir -p .ci-source-packages/artifacts/sentry-cocoa/Sentry/Sentry.xcframework
-''')
-            resolver.chmod(0o755)
-            env = dict(os.environ, HOME=str(home), RUNNER_TEMP=str(root),
-                       GITHUB_RUN_ID='1', GITHUB_RUN_ATTEMPT='1',
-                       CMUX_DERIVED_DATA_PATH=str(root / 'derived'),
-                       FIXTURE_ROOT=str(root), FIXTURE_MODE=mode,
-                       PATH=str(bindir) + os.pathsep + os.environ['PATH'])
-            result = subprocess.run(['bash', '-c', script], cwd=root, env=env,
-                                    text=True, capture_output=True, timeout=10)
-            return (result, int((root / 'count').read_text()),
-                    collision.exists(), marker.exists())
+workflow = Path(".github/workflows/ci-macos.yml").read_text(encoding="utf-8")
 
-    def test_collision_recovers_on_second_attempt(self):
-        result, attempts, collision, partial = self.exercise('collision')
-        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertEqual(attempts, 2)
-        self.assertFalse(collision)
-        self.assertFalse(partial)
+def job(name: str) -> str:
+    match = re.search(
+        rf"(?ms)^  {re.escape(name)}:\n(.*?)(?=^  [A-Za-z0-9_-]+:\n|\Z)",
+        workflow,
+    )
+    if match is None:
+        raise AssertionError(f"missing workflow job {name}")
+    return match.group(0)
 
-    def test_persistent_collision_stays_red_after_three_attempts(self):
-        result, attempts, _, _ = self.exercise('permanent')
-        self.assertNotEqual(result.returncode, 0)
-        self.assertEqual(attempts, 3)
+admission = job("macos-compile-admission")
+consumer = job("app-host-unit-tests")
+packages = job("swift-package-tests")
+restore = Path("scripts/ci/restore-app-host-test-product.sh").read_text(encoding="utf-8")
 
-    def test_network_failure_stays_red_without_clearing_cache(self):
-        result, attempts, collision, partial = self.exercise('network')
-        self.assertNotEqual(result.returncode, 0)
-        self.assertEqual(attempts, 3)
-        self.assertTrue(collision)
-        self.assertTrue(partial)
+# Admission drives the canonical-root recipes; the bare subcommands remain for
+# callers that already sit at a stable source root.
+assert "scripts/ci/compile-app-host-test-product.sh canonical-resolve" in admission
+assert "scripts/ci/compile-app-host-test-product.sh canonical-build" in admission
+assert "Restore compiled app-host test product" in consumer
+assert "test-without-building" in consumer
 
-    def test_success_keeps_cache(self):
-        result, attempts, collision, partial = self.exercise('success')
-        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertEqual(attempts, 1)
-        self.assertTrue(collision)
-        self.assertTrue(partial)
+# CmuxTerminalCore's split-theme coverage belongs to the strict package gate.
+# Do not rebuild/relink the same package test product inside an app-host shard.
+package_array = re.search(r"(?ms)^\s*PACKAGES=\(\n(.*?)^\s*\)", packages)
+assert package_array is not None
+package_entries = {
+    line.strip()
+    for line in package_array.group(1).splitlines()
+    if line.strip() and not line.lstrip().startswith("#")
+}
+assert "CmuxTerminalCore" in package_entries
+assert "CmuxTerminalCore-Package" not in consumer
+assert "cmux-terminal-core-split-theme" not in consumer
 
-    def test_missing_binary_artifacts_retry(self):
-        result, attempts, collision, partial = self.exercise('missing')
-        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertEqual(attempts, 2)
-        self.assertTrue(collision)
-        self.assertFalse(partial)
+for forbidden in (
+    "-resolvePackageDependencies",
+    ".ci-source-packages",
+    "-project cmux.xcodeproj",
+):
+    assert forbidden not in consumer, f"app-host consumer reintroduced {forbidden}"
 
-unittest.main()
+assert "PackageFrameworks" in restore
+assert "app_host_test_products.py restore" in restore
+
+print(
+    "PASS: SwiftPM resolution stays in compile admission; "
+    "app-host shards consume restored compiled products"
+)
 PY

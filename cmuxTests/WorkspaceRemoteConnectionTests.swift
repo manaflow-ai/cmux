@@ -159,16 +159,11 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
             )
         }
 
-        let exitSignal = DispatchSemaphore(value: 0)
-        DispatchQueue.global(qos: .userInitiated).async {
-            process.waitUntilExit()
-            exitSignal.signal()
-        }
 
-        let timedOut = exitSignal.wait(timeout: .now() + timeout) == .timedOut
+        let timedOut = waitForProcessExit(process, timeout: timeout) == .timedOut
         if timedOut {
             process.terminate()
-            _ = exitSignal.wait(timeout: .now() + 1)
+            _ = waitForProcessExit(process, timeout: 1)
         }
 
         let stdout = String(data: stdoutPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
@@ -2776,6 +2771,26 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         )
     }
 
+    func testIgnoresForegroundNonInteractiveSSHHelperForTTY() {
+        let session = TerminalSSHSessionDetector.detectForTesting(
+            ttyName: "/dev/ttys004",
+            processes: [
+                .init(pid: 2144, pgid: 1967, tpgid: 1967, tty: "ttys004", executableName: "herdr"),
+                .init(pid: 2145, pgid: 1967, tpgid: 1967, tty: "ttys004", executableName: "ssh"),
+            ],
+            argumentsByPID: [
+                2145: [
+                    "ssh",
+                    "-T",
+                    "helper.example.com",
+                    "remote-command",
+                ],
+            ]
+        )
+
+        XCTAssertNil(session)
+    }
+
     func testDetectsForegroundSSHSessionWithShortControlPathFlag() {
         let session = TerminalSSHSessionDetector.detectForTesting(
             ttyName: "/dev/ttys004",
@@ -5045,15 +5060,10 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         process.standardError = stderrPipe
         try process.run()
 
-        let exitSignal = DispatchSemaphore(value: 0)
-        DispatchQueue.global(qos: .userInitiated).async {
-            process.waitUntilExit()
-            exitSignal.signal()
-        }
         defer {
             if process.isRunning {
                 process.terminate()
-                _ = exitSignal.wait(timeout: .now() + 1)
+                _ = waitForProcessExit(process, timeout: 1)
             }
             _ = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
             _ = stderrPipe.fileHandleForReading.readDataToEndOfFile()
@@ -5145,15 +5155,10 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         process.standardError = stderrPipe
         try process.run()
 
-        let exitSignal = DispatchSemaphore(value: 0)
-        DispatchQueue.global(qos: .userInitiated).async {
-            process.waitUntilExit()
-            exitSignal.signal()
-        }
         defer {
             if process.isRunning {
                 process.terminate()
-                _ = exitSignal.wait(timeout: .now() + 1)
+                _ = waitForProcessExit(process, timeout: 1)
             }
             _ = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
             _ = stderrPipe.fileHandleForReading.readDataToEndOfFile()
@@ -5332,11 +5337,6 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
             }
         }
 
-        let exitSignal = DispatchSemaphore(value: 0)
-        DispatchQueue.global(qos: .userInitiated).async {
-            process.waitUntilExit()
-            exitSignal.signal()
-        }
 
         XCTAssertTrue(
             waitForProcess(process, toHoldOpenFile: transcriptURL.path, timeout: 2),
@@ -5354,10 +5354,10 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         try appendHandle.close()
 
         let serverTimedOut = serverHandled.wait(timeout: .now() + 5) == .timedOut
-        let timedOut = exitSignal.wait(timeout: .now() + 5) == .timedOut
+        let timedOut = waitForProcessExit(process, timeout: 5) == .timedOut
         if timedOut {
             process.terminate()
-            _ = exitSignal.wait(timeout: .now() + 1)
+            _ = waitForProcessExit(process, timeout: 1)
         }
         let stdout = String(data: stdoutPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
         let stderr = String(data: stderrPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""

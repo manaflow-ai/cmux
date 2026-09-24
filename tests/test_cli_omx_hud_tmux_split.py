@@ -52,7 +52,7 @@ class FakeCmuxState:
                     "focused": True,
                     "pane_id": PANE_ID,
                     "pane_ref": "pane:1",
-                    "title": "leader",
+                    "title": "leader #{unknown}",
                 }
             ]
             if self.split_created:
@@ -429,6 +429,69 @@ def assert_omx_hud_absolute_height_resize_does_not_override_user_layout(
         raise AssertionError(f"expected fake HUD rows to remain user-controlled, got {state.hud_rows}")
 
 
+def assert_tmux_short_formats_are_expanded(
+    cli_path: str,
+    socket_path: Path,
+    fake_home: Path,
+) -> None:
+    short = run_cli(
+        cli_path,
+        socket_path,
+        fake_home,
+        [
+            "__tmux-compat",
+            "display-message",
+            "-p",
+            "#S:#I.#P #W #T #D #F",
+        ],
+    )
+    long = run_cli(
+        cli_path,
+        socket_path,
+        fake_home,
+        [
+            "__tmux-compat",
+            "display-message",
+            "-p",
+            "#{session_name}:#{window_index}.#{pane_index} "
+            "#{window_name} #{pane_title} #{pane_id} #{window_flags}",
+        ],
+    )
+    if short.returncode != 0 or long.returncode != 0:
+        raise AssertionError(
+            "tmux format probe returned non-zero\n"
+            f"short stdout={short.stdout.strip()} stderr={short.stderr.strip()}\n"
+            f"long stdout={long.stdout.strip()} stderr={long.stderr.strip()}"
+        )
+    if short.stdout != long.stdout or "#S" in short.stdout or "#{unknown}" in short.stdout:
+        raise AssertionError(
+            "short tmux formats did not match their long forms or leaked unresolved tokens\n"
+            f"short={short.stdout!r}\nlong={long.stdout!r}"
+        )
+
+    unclosed = run_cli(
+        cli_path,
+        socket_path,
+        fake_home,
+        ["__tmux-compat", "display-message", "-p", "#{unclosed"],
+    )
+    if unclosed.returncode != 0 or unclosed.stdout.strip() != "#{unclosed":
+        raise AssertionError(
+            f"tmux unclosed marker should remain literal: {unclosed.stdout!r} {unclosed.stderr!r}"
+        )
+
+    escaped = run_cli(
+        cli_path,
+        socket_path,
+        fake_home,
+        ["__tmux-compat", "display-message", "-p", "##S #S"],
+    )
+    if escaped.returncode != 0 or escaped.stdout.strip() != "#S cmux":
+        raise AssertionError(
+            f"tmux ## escape/short format mismatch: {escaped.stdout!r} {escaped.stderr!r}"
+        )
+
+
 def assert_omx_hud_feature_probe_is_supported(
     cli_path: str,
     socket_path: Path,
@@ -512,6 +575,7 @@ def main() -> int:
             thread = threading.Thread(target=server.serve_forever, daemon=True)
             thread.start()
             try:
+                assert_tmux_short_formats_are_expanded(cli_path, socket_path, fake_home)
                 assert_omx_hud_feature_probe_is_supported(cli_path, socket_path, fake_home)
                 assert_omx_hud_unsupported_feature_probe_fails(cli_path, socket_path, fake_home)
                 assert_omx_hud_splits_down_with_compact_size(

@@ -10,7 +10,6 @@ import getpass
 import json
 import os
 import pty
-import select
 from pathlib import Path
 import shlex
 import socket
@@ -23,6 +22,18 @@ import time
 
 def run(argv, **kwargs):
     return subprocess.run(argv, text=True, capture_output=True, timeout=45, **kwargs)
+
+
+def drain_terminal(master, sink):
+    """Collects a pty's output until every process holding its slave has exited."""
+    while True:
+        try:
+            chunk = os.read(master, 65536)
+        except OSError:
+            return
+        if not chunk:
+            return
+        sink.extend(chunk)
 
 
 def main(cli):
@@ -270,28 +281,46 @@ LogLevel ERROR
                     wrong_host_key = fails
                     destination = f"human-{tty}-{fails}"
                     master, slave = pty.openpty() if tty else (None, None)
+                    terminal_output = bytearray()
+                    reader = None
                     try:
-                        result = subprocess.run(
+                        process = subprocess.Popen(
                             [cli, "vm", "push", "test-vm", str(payload), destination],
                             env=env, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
-                            stderr=slave if tty else subprocess.PIPE, timeout=30,
+                            stderr=slave if tty else subprocess.PIPE,
                         )
-                        stderr = result.stderr or b""
-                        if master is not None:
-                            while select.select([master], [], [], 0)[0]:
-                                stderr += os.read(master, 65536)
+                        if slave is not None:
+                            # The CLI owns the slave now. A terminal's output queue
+                            # holds only about 1 KiB and the host-key failure report is
+                            # longer, so the master must be drained while the CLI runs
+                            # or its stderr writes block until the timeout.
+                            os.close(slave)
+                            slave = None
+                            reader = threading.Thread(target=drain_terminal, args=(master, terminal_output), daemon=True)
+                            reader.start()
+                        try:
+                            stdout, piped_stderr = process.communicate(timeout=30)
+                        except subprocess.TimeoutExpired:
+                            process.kill()
+                            process.communicate()
+                            raise
+                        if reader is not None:
+                            # Returns once every process holding the slave has exited.
+                            reader.join(timeout=10)
+                            assert not reader.is_alive(), "terminal stderr stayed open after the CLI exited"
+                        stderr = piped_stderr if piped_stderr is not None else bytes(terminal_output)
                     finally:
                         if slave is not None: os.close(slave)
                         if master is not None: os.close(master)
                         wrong_host_key = False
-                    assert result.returncode == (1 if fails else 0), stderr
+                    assert process.returncode == (1 if fails else 0), stderr
                     if fails:
                         assert b"Host key verification failed" in stderr, stderr
                         assert b"Cloud diagnostic reference:" in stderr, stderr
-                        assert b"Pushed" not in result.stdout, result.stdout
+                        assert b"Pushed" not in stdout, stdout
                         assert not (guest / destination).exists()
                     else:
-                        assert b"Pushed" in result.stdout and destination.encode() in result.stdout, result.stdout
+                        assert b"Pushed" in stdout and destination.encode() in stdout, stdout
                         assert stderr == b"", stderr
                         assert (guest / destination).read_bytes() == payload.read_bytes()
             print("PASS SCP human output and errors over pipes and terminals", flush=True)

@@ -259,8 +259,10 @@ struct CLISSHPTYAttachReplayBoundaryTests {
             #expect(TerminalFlags(fd: attach.slaveFD) == attach.initialFlags)
             _ = fcntl(attach.slaveFD, F_SETFL, O_NONBLOCK)
             var buffer = [UInt8](repeating: 0, count: 128)
-            #expect(Darwin.read(attach.slaveFD, &buffer, buffer.count) == -1)
-            #expect(errno == EAGAIN)
+            let readResult = Darwin.read(attach.slaveFD, &buffer, buffer.count)
+            let readErrno = errno
+            #expect(readResult == -1)
+            #expect(readErrno == EAGAIN)
         }
     }
 }
