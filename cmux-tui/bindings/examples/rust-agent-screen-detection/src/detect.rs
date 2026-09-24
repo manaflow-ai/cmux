@@ -865,6 +865,7 @@ mod tests {
             visible_idle: false,
             visible_blocker: false,
             visible_working: false,
+            agent_reported: false,
         }
     }
 
@@ -1093,6 +1094,7 @@ mod tests {
             visible_idle: false,
             visible_blocker: true,
             visible_working: false,
+            agent_reported: false,
         };
         assert!(
             tracker
@@ -1162,6 +1164,7 @@ mod tests {
             visible_idle: false,
             visible_blocker: false,
             visible_working: false,
+            agent_reported: false,
         };
         assert_eq!(tracker.record_detection("term_a", Some(("codex", viewer))), None);
 
@@ -1489,6 +1492,7 @@ mod tests {
             visible_idle: false,
             visible_blocker: false,
             visible_working: false,
+            agent_reported: false,
         };
         let presence = tracker.record_detection("term_a", Some(("codex", viewer)));
         assert_eq!(
