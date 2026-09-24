@@ -426,6 +426,38 @@ class PlanTests(unittest.TestCase):
         result = plan(runs, jobs, prs, threshold=10)
         self.assertEqual([d.action for d in result.decisions], ["cancel", "cancel", "skip"])
 
+    def test_stale_pr_runs_are_cancelled_below_the_threshold(self):
+        # No pool is backed up, yet runs for merged, closed and superseded PRs
+        # produce results nobody reads, so they go whatever the queue.
+        merged_run = make_run(branch="merged-branch", age=50)
+        closed_run = make_run(branch="closed-branch", age=40)
+        superseded_run = make_run(branch="moved-branch", sha="old", age=30)
+        current_run = make_run(branch="current-branch", age=20)
+        exp_run = make_run(event="push", branch="exp/idle", age=10)
+        runs = [merged_run, closed_run, superseded_run, current_run, exp_run]
+        jobs = {run["id"]: mac_jobs(running=1, label="macos-26") for run in runs}
+        prs = {
+            "merged-branch": [make_pr(1, state="MERGED")],
+            "closed-branch": [make_pr(2, state="CLOSED")],
+            "moved-branch": [make_pr(3, head="new")],
+            "current-branch": [make_pr(4)],
+        }
+        result = plan(runs, jobs, prs, threshold=6)
+        self.assertFalse(result.over_threshold)
+        self.assertEqual(
+            [(d.candidate.run["id"], d.action) for d in result.decisions],
+            [(exp_run["id"], "skip"), (merged_run["id"], "cancel"), (closed_run["id"], "cancel"),
+             (superseded_run["id"], "cancel")])
+        summary = janitor.render_summary(result, dry_run=True, now=NOW)
+        self.assertNotIn("nothing is cancelled", summary)
+
+    def test_stale_pr_runs_still_respect_the_cancel_cap(self):
+        runs = [make_run(branch=f"merged-{i}", age=10 + i) for i in range(3)]
+        jobs = {run["id"]: mac_jobs(running=1) for run in runs}
+        prs = {f"merged-{i}": [make_pr(i + 1, state="MERGED")] for i in range(3)}
+        result = plan(runs, jobs, prs, max_cancels=2)
+        self.assertEqual([d.action for d in result.decisions], ["cancel", "cancel", "skip"])
+
     def test_cancel_cap(self):
         main_run, main_jobs = busy_main_push(queued=30)
         exps = [make_run(event="push", branch=f"exp/incremental-{i}") for i in range(4)]
