@@ -443,12 +443,18 @@ class Wiring(unittest.TestCase):
         self.assertLess(adopt_at, compile_at)
         self.assertLess(compile_at, forget_at)
         self.assertEqual(adopt["env"]["SEED_PREFIX"], written[: -len(suffix)])
-        self.assertIn("steps.seed-derived-data.outputs.hit == 'true'", forget["if"])
+        # Adopt writes the override before it can time out, so clear it
+        # whenever adopt ran, not only when it reported a hit.
+        self.assertIn("steps.seed-derived-data.outcome != 'skipped'", forget["if"])
 
         for path in (ROOT / ".github/workflows").glob("*.yml"):
             text = path.read_text()
-            if "admission-derived-data-" in text and path.name not in {"nightly.yml", "ci-macos.yml", "seed-derived-data.yml"}:
+            if "admission-derived-data-" in text and path.name not in {"nightly.yml", "ci-macos.yml", "seed-derived-data.yml", "test-e2e.yml"}:
                 self.fail(f"{path.name} names the admission DerivedData seed")
+        # E2E builds adopt the same seed but only read it.
+        e2e = (ROOT / ".github/workflows/test-e2e.yml").read_text()
+        for command in re.findall(r"seed_derived_data\.py (\w+)", e2e):
+            self.assertIn(command, {"start", "adopt"})
         self.assertNotIn("secrets.", json.dumps(adopt))
 
     def test_every_main_push_seeds_incrementally_under_the_key_admission_reads(self):
