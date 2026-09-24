@@ -53,8 +53,8 @@ struct FilePreviewVimNavigationTests {
         defer { panel.close() }
         let view = SavingTextView.makeFilePreviewTextView()
         view.panel = panel
-        view.updateVimNavigation(enabled: true)
         view.string = "one two\nthree four\nfive six\n"
+        view.updateVimNavigation(enabled: true)
         let original = view.string
         for key in ["2", "j", "0", "w"] {
             view.keyDown(with: try #require(NSEvent.keyEvent(
