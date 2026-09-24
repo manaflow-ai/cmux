@@ -13019,6 +13019,9 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         fileManager: FileManager = .default,
         temporaryDirectory: URL = FileManager.default.temporaryDirectory
     ) -> AgentConversationForkWorkspaceLaunch? {
+        if machineOwningSurface(panelId)?.isSSH == true {
+            return nativeSSHAgentForkWorkspaceLaunch(fromPanelId: panelId, snapshot: snapshot)
+        }
         let workingDirectory = forkAgentWorkingDirectory(fromPanelId: panelId, snapshot: snapshot)
         let launchSnapshot = snapshot.retargetingForkWorkingDirectory(workingDirectory)
         let remoteStartupCommand = forkAgentRemoteStartupCommand(fromPanelId: panelId)
@@ -13055,6 +13058,13 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         fileManager: FileManager = .default,
         temporaryDirectory: URL = FileManager.default.temporaryDirectory
     ) -> TerminalPanel? {
+        if machineOwningSurface(panelId)?.isSSH == true {
+            guard let paneID = paneId(forPanelId: panelId) else { return nil }
+            let split: SurfaceSplitDirection = direction.orientation == .horizontal
+                ? (direction.insertFirst ? .left : .right) : (direction.insertFirst ? .up : .down)
+            return forkNativeSSHAgentConversation(fromPanelId: panelId, snapshot: snapshot,
+                destination: .split(workspaceID: id, paneID: paneID.id.uuidString, direction: split))
+        }
         let workingDirectory = forkAgentWorkingDirectory(fromPanelId: panelId, snapshot: snapshot)
         let launchSnapshot = snapshot.retargetingForkWorkingDirectory(workingDirectory)
         let remoteStartupCommand = forkAgentRemoteStartupCommand(fromPanelId: panelId)
@@ -13125,6 +13135,11 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         fileManager: FileManager = .default,
         temporaryDirectory: URL = FileManager.default.temporaryDirectory
     ) -> TerminalPanel? {
+        if machineOwningSurface(panelId)?.isSSH == true {
+            return forkNativeSSHAgentConversation(fromPanelId: panelId, snapshot: snapshot,
+                destination: .tab(workspaceID: id, paneID: paneId.id.uuidString,
+                                  index: insertionIndexToRight(of: anchorTabId, inPane: paneId)))
+        }
         let workingDirectory = forkAgentWorkingDirectory(fromPanelId: panelId, snapshot: snapshot)
         let launchSnapshot = snapshot.retargetingForkWorkingDirectory(workingDirectory)
         let remoteStartupCommand = forkAgentRemoteStartupCommand(fromPanelId: panelId)
