@@ -347,7 +347,13 @@ extension Array where Element == CuratedSettingEntry {
                 paths: ["cloud.beta.machines.enabled"],
                 synonyms: "cloud machines vm virtual machine right sidebar persistent computer beta unstable"
             ),
-            .init(section: .betaFeatures, id: "conversationSidebar", title: String(localized: "settings.betaFeatures.conversationSidebar", defaultValue: "Conversation Sidebar"), synonyms: "Conversation Sidebar conversations agent sessions Claude Codex OpenCode history beta"),
+            .init(
+                section: .betaFeatures,
+                id: "conversationSidebar",
+                title: String(localized: "settings.betaFeatures.conversationSidebar", defaultValue: "Conversation Sidebar"),
+                paths: ["sidebar.beta.conversations.enabled"],
+                synonyms: "Conversation Sidebar conversations agent sessions Claude Codex OpenCode history beta"
+            ),
             .init(section: .betaFeatures, id: "customSidebars", title: String(localized: "settings.betaFeatures.customSidebars", defaultValue: "Custom Sidebars"), synonyms: "Custom Sidebars custom sidebars swift json interpreted vibe beta unstable"),
             .init(section: .betaFeatures, id: "remoteTmux", title: String(localized: "settings.betaFeatures.remoteTmux", defaultValue: "Remote tmux"), synonyms: "Remote tmux remote tmux ssh control mode -CC mirror session window pane sidebar workspace beta unstable"),
             .init(

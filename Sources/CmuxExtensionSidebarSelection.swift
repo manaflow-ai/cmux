@@ -42,8 +42,8 @@ enum CmuxExtensionSidebarSelection {
     /// suffix after the prefix is the sidebar's file base name.
     static let customSidebarProviderPrefix = "cmux.sidebar.custom."
 
-    /// Synchronous read of the experimental custom-sidebars flag, mirroring
-    /// ``isEnabled`` for the AppKit/static paths (the picker menu).
+    /// Synchronous read of the Conversations sidebar gate: the local beta
+    /// opt-in and the remote release flag must both be on.
     static var conversationSidebarEnabled: Bool {
         let key = BetaFeaturesCatalogSection().conversationSidebar
         let localOptIn = Bool.decodeFromUserDefaults(
@@ -58,6 +58,8 @@ enum CmuxExtensionSidebarSelection {
         return localOptIn && releaseEnabled
     }
 
+    /// Synchronous read of the experimental custom-sidebars flag, mirroring
+    /// ``isEnabled`` for the AppKit/static paths (the picker menu).
     static var customSidebarsEnabled: Bool {
         // `DisableCustomSidebars` (MDM): interpreted sidebars are user- or
         // agent-authored code that can dispatch `cmux(...)` commands.
@@ -139,11 +141,7 @@ enum CmuxExtensionSidebarSelection {
         return name == (name as NSString).lastPathComponent
     }
 
-    /// The always-available built-in views: the default workspaces sidebar plus
-    /// the bundled preset providers (Project Worktrees, Attention Queue, Dev
-    /// Servers, Last Prompt, Super Compact, Browser Stack). These ship
-    /// independently of the experimental Extensions feature, so they stay in
-    /// the switcher menu regardless of the beta flag.
+    /// Picker descriptor for the built-in Conversations sidebar.
     static var conversationSidebarDescriptor: CmuxSidebarProviderDescriptor {
         CmuxSidebarProviderDescriptor(
             id: conversationSidebarProviderId,
@@ -160,6 +158,11 @@ enum CmuxExtensionSidebarSelection {
         )
     }
 
+    /// The always-available built-in views: the default workspaces sidebar plus
+    /// the bundled preset providers (Project Worktrees, Attention Queue, Dev
+    /// Servers, Last Prompt, Super Compact, Browser Stack). These ship
+    /// independently of the experimental Extensions feature, so they stay in
+    /// the switcher menu regardless of the beta flag.
     static var builtInDescriptors: [CmuxSidebarProviderDescriptor] {
         [.defaultWorkspaces] + providers.map { $0.descriptor }
     }

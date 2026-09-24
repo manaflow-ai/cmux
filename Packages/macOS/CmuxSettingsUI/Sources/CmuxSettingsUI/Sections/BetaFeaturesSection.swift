@@ -92,7 +92,7 @@ public struct BetaFeaturesSection: View {
     private var conversationSidebarRow: some View {
         SettingsCardRow(
             configurationReview: .json("sidebar.beta.conversations.enabled"),
-            searchAnchorID: "setting:betaFeatures:conversation-sidebar",
+            searchAnchorID: "setting:betaFeatures:conversationSidebar",
             String(localized: "settings.betaFeatures.conversationSidebar", defaultValue: "Conversation Sidebar"),
             subtitle: conversationSidebar.current
                 ? String(localized: "settings.betaFeatures.conversationSidebar.subtitleOn", defaultValue: "Shows Conversations in the left sidebar picker.")

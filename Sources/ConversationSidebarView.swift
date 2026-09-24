@@ -32,6 +32,11 @@ struct ConversationSidebarView: View {
     @State private var liveSessionRevision: UInt64 = 0
     @State private var livePresentationAgentsByDirectory: [String: [String: SessionAgent]] = [:]
     @State private var selectedProviderID: String?
+    /// Merged history (or search results) and its live-key subset, recomputed
+    /// only when their inputs change. The body reads these instead of merging
+    /// and scanning up to `searchMaxFiles` entries per agent on every render.
+    @State private var historySource: [SessionEntry] = []
+    @State private var liveHistoryCandidates: [SessionEntry] = []
 
     private static let pageSize = 24
     private static let searchDebounceDelay: Duration = .milliseconds(150)
@@ -261,6 +266,15 @@ struct ConversationSidebarView: View {
             if store.entries.isEmpty && !store.isLoading {
                 store.reload()
             }
+            recomputeHistorySource()
+            SharedLiveAgentIndex.shared.scheduleRefreshIfStale()
+        }
+        .onChange(of: store.entries) { _, _ in recomputeHistorySource() }
+        .onChange(of: expandedHistory) { _, _ in recomputeHistorySource() }
+        .onChange(of: searchResults) { _, _ in recomputeHistorySource() }
+        .onChange(of: store.liveSessionKeys) { _, _ in recomputeLiveHistoryCandidates() }
+        .onChange(of: liveSessionRevision) { _, _ in
+            SharedLiveAgentIndex.shared.scheduleRefreshIfStale()
         }
         .modifier(ConversationSidebarLiveRefreshModifier(
             store: store,
@@ -274,6 +288,7 @@ struct ConversationSidebarView: View {
             visibleHistoryCount = Self.pageSize
             searchResults = []
             searchErrors = []
+            recomputeHistorySource()
             scheduleSearch(newValue)
         }
         .onDisappear {
@@ -363,16 +378,16 @@ struct ConversationSidebarView: View {
         // The live chat registry is authoritative for new sessions. Retained
         // restore snapshots/live-process observations provide a fallback for a
         // managed session that is active but has not reached that registry.
-        let historySource = trimmedSearch.isEmpty
-            ? projection.recentHistory(initial: store.entries, expanded: expandedHistory)
-            : searchResults
+        // Only history entries already known to be live are candidates, and
+        // the lookup reads the cached live index without scheduling a refresh.
         var fallbackOpen: [Row] = []
-        for entry in historySource {
+        for entry in liveHistoryCandidates {
             let key = VaultLiveSessionKeys.key(for: entry)
             guard !openIDs.contains(key), store.liveSessionKeys.contains(key),
                   let target = SessionEntryResumeCoordinator.activeTarget(
                     for: entry,
-                    tabManager: tabManager
+                    tabManager: tabManager,
+                    schedulingIndexRefresh: false
                   ) else {
                 continue
             }
@@ -451,6 +466,21 @@ struct ConversationSidebarView: View {
             selectedProviderID: selectedProviderID
         )
         return (visibleOpen + history, visibleHistory.hasMore, providerOptions)
+    }
+
+    private func recomputeHistorySource() {
+        let trimmedSearch = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        historySource = trimmedSearch.isEmpty
+            ? projection.recentHistory(initial: store.entries, expanded: expandedHistory)
+            : searchResults
+        recomputeLiveHistoryCandidates()
+    }
+
+    private func recomputeLiveHistoryCandidates() {
+        let liveKeys = store.liveSessionKeys
+        liveHistoryCandidates = liveKeys.isEmpty
+            ? []
+            : historySource.filter { liveKeys.contains(VaultLiveSessionKeys.key(for: $0)) }
     }
 
     private func authoritativeLiveRows() -> [Row] {

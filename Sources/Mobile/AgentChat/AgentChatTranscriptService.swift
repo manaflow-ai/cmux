@@ -668,6 +668,7 @@ final class AgentChatTranscriptService {
         }
         return completedAt
     }
+
     private func handleRecordChange(_ record: AgentChatSessionRecord, previous: AgentChatSessionRecord?) {
         let endedRecordIsListable: Bool
         if record.state == .ended {
@@ -679,7 +680,7 @@ final class AgentChatTranscriptService {
         }
         let stateChanged = previous?.state != record.state
         let transcriptBecameAvailable = previous?.transcriptPath == nil && record.transcriptPath != nil
-        let liveProjectionChanged = Self.descriptorChangedMeaningfully(previous: previous, current: record)
+        let liveProjectionChanged = Self.sidebarProjectionChangedMeaningfully(previous: previous, current: record)
         let historyChanged = record.state == .ended && (stateChanged || transcriptBecameAvailable)
         publishSidebarChange(liveChanged: liveProjectionChanged, historyChanged: historyChanged)
         if transcriptBecameAvailable {
@@ -715,10 +716,11 @@ final class AgentChatTranscriptService {
         // Pure activity bumps (every pre/postToolUse moves lastActivityAt)
         // don't merit a descriptor push to every phone; emit only when the
         // descriptor changed beyond the activity timestamp.
-        if liveProjectionChanged {
+        if Self.descriptorChangedMeaningfully(previous: previous, current: record) {
             emit(frame: ChatSessionEventFrame(sessionID: record.sessionID, event: .descriptorChanged(record.descriptor)))
         }
     }
+
     private func handleRecordRemoval(_ record: AgentChatSessionRecord) {
         publishSidebarChange(liveChanged: true, historyChanged: false)
         fallbackResolutionCoordinator.cancel(sessionID: record.sessionID)
@@ -732,6 +734,7 @@ final class AgentChatTranscriptService {
         guard hasEventSubscribers() else { return }
         emit(frame: ChatSessionEventFrame(sessionID: record.sessionID, event: .sessionRemoved(version: record.version)))
     }
+
     private func emit(frame: ChatSessionEventFrame) {
         guard let payload = wirePayload(frame) else { return }
         emitEventPayload(payload)

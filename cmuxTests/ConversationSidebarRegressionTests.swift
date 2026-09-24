@@ -353,6 +353,33 @@ struct ConversationSidebarRegressionTests {
     }
 
     @Test
+    func activityBumpStillChangesPhoneDescriptorButNotSidebarProjection() {
+        let previous = AgentChatSessionRecord(
+            sessionID: "sidebar-phone-parity-session",
+            agentKind: .claude,
+            workspaceID: UUID().uuidString,
+            surfaceID: UUID().uuidString,
+            workingDirectory: "/Users/example/project",
+            transcriptPath: nil,
+            state: .idle,
+            lastActivityAt: Date(timeIntervalSince1970: 10),
+            title: "Conversation",
+            pid: nil
+        )
+        var current = previous
+        current.lastActivityAt = Date(timeIntervalSince1970: 20)
+        current.version = previous.version + 1
+
+        // Phones keep receiving descriptorChanged on a version bump, as on main.
+        #expect(AgentChatTranscriptService.descriptorChangedMeaningfully(previous: previous, current: current))
+        #expect(!AgentChatTranscriptService.sidebarProjectionChangedMeaningfully(previous: previous, current: current))
+
+        current.title = "Renamed"
+        #expect(AgentChatTranscriptService.descriptorChangedMeaningfully(previous: previous, current: current))
+        #expect(AgentChatTranscriptService.sidebarProjectionChangedMeaningfully(previous: previous, current: current))
+    }
+
+    @Test
     func refreshSchedulerKeepsReplacementOwnedAfterOlderTaskFinishes() async {
         let oldStarted = AsyncStream<Void>.makeStream()
         let oldGate = AsyncStream<Void>.makeStream()
