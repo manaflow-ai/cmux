@@ -26,7 +26,7 @@ jobs:
       - name: Probe Blacksmith sticky disk support
         id: sticky
         continue-on-error: true
-        uses: useblacksmith/stickydisk@d772031fe58cbff5fc373915e826050382b1fe3e # v1
+        uses: useblacksmith/stickydisk@94697d49e77d0dd78b77deb85ad3de63a28b4b8a # v1
         with:
           key: cmux-incremental-dd-probe
           path: ${{ runner.temp }}/sticky-probe
