@@ -169,25 +169,27 @@ _To be written after D1-D7._
 - **App Store**: SSH clients are allowed (Termius, Blink ship). No review risk expected.
 - Terminal rendering reuses the Ghostty surface; resize must send SSH `window-change`.
 
-## Build status (2026-09-23)
+## Build status (2026-09-24)
 
-Branch `feat-ios-direct-ssh`, dev tag `dssh`.
+Branch `feat-ios-direct-ssh`, PR https://github.com/manaflow-ai/cmux/pull/14149, dev tag `dssh`. Videos in `artifacts/dssh/` (simulator, isolated device `cmux-dev-dssh`, lab sshd on 127.0.0.1:2222).
 
 | Area | Status | Evidence |
 |---|---|---|
-| SSH engine (`Packages/iOS/CmuxMobileSSH`): connect, host keys, key auth, exec, PTY + resize, jump hosts, subsystems | Built | Lab tests vs real sshd |
-| Key import (Ed25519/ECDSA, passphrase: bcrypt_pbkdf + AES-CTR/CBC), Secure Enclave keys, Keychain store | Built | Parser tests incl. OpenBSD vectors |
-| Password-once key install (D16) | Built | Lab test (append idempotent, quotes, 0600) |
-| SFTP v3 client | Built | Lab tests (1 MiB round trip) |
-| Local port forwarding (D7) | Built | Lab test (HTTP through tunnel) |
-| cmux-tui client (bytes attach, phone geometry, workspaces) | Built | Lab tests (persistence across reconnect) |
-| cmux-tui upload from npm (D10) | Built | Not yet lab-tested (would overwrite ~/.local/bin on the lab Mac) |
-| Shell runtime: SSH computers as workspace rows; plain/tmux/cmux-tui | Built | Runtime lab tests, all three modes |
-| Terminal: phone answers queries (plain/tmux), cmux-tui filter, local pixel scroll, local mouse clicks | Built | Filter unit tests; UI verification pending |
-| UI: Computers SSH section, host editor, keys, prompts, signed-out entry | In progress | |
-| UI: SFTP browser, port forward → native browser, image paste via SFTP | In progress | |
-| D13 idle close | **Not built**: needs a cmux-tui feature (no idle reaping exists) + release | |
-| D23 cmux-tui browser surfaces | Pending | |
+| No-account entry, add host, import key, TOFU trust (D5, D16-prompt, D17 first-use) | Verified on video | `01-*.mp4`: fingerprint matches `ssh-keygen -lf` |
+| cmux-tui session: create, type, phone geometry (D19), survive app kill (exact screen) | Verified on video | `01-*.mp4`: `stty size` 52x66; PERSIST-MARK after kill |
+| SFTP browse, text/image preview, new folder, photo upload (D7) | Verified on video | `02-*.mp4` + server `ls` |
+| Port forward into native browser (D7) | Verified on video | `02-*.mp4` + server access log |
+| Computers SSH section, jump host, tmux persistence across app kill (D2, D6, D9) | Verified on video | `03-*.mp4`: same `top` PID after relaunch |
+| Host identity changed: stop and ask, cancel blocks login, trust new key (D17) | Verified on video | `04-*.mp4`: sshd auth count unchanged on cancel |
+| Secure Enclave key generate + login; encrypted key import wrong/right passphrase (D3, D18) | Verified on video | `05-*.mp4` + sshd `Accepted publickey ECDSA SHA256:Up8z…` |
+| Engine: exec, PTY, resize, jump hosts, SFTP, forwards, key parsing/decryption, installer, cmux-tui client | Lab tests (51 + 11) | `swift test` vs real sshd |
+| cmux-tui idle close policy (D13) | Hosted CI green (Linux + macOS) | Needs a cmux-tui release; phone gated on capability |
+| Bugs found on video and fixed (timeout during trust prompt, cancel message, auto-connect, Mac sheets in SSH mode, autocorrect, replayed query leak) | Fixed + tests; re-verification pending on rebuild | |
+| tmux first open sometimes blank (B6) | **Open**: renders after reopen; root cause unconfirmed | |
+| Password-once key install (D16) | **Unverified in app**: lab sshd has no password auth; installer command lab-tested with key auth | |
+| cmux-tui browser surfaces (D23) | **Unverified live**: no cmux-browser provider in lab; wire tests only | |
+| Native pixel scrolling on SSH surfaces | **Unverified**: simulator harness cannot synthesize scroll gestures | |
+| Scrollback above a running full-screen app after reattach | Needs cmux-tui server change (`vt-state` sends only the alternate screen) | |
 
 ## Backlog
 
