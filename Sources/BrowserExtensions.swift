@@ -384,15 +384,14 @@ struct BrowserExtensionsToolbarButton: View {
     @State private var storeLink = ""
 
     var body: some View {
-        if !extensions.installed.isEmpty || isPresented {
-            Button { isPresented.toggle() } label: {
-                Image(systemName: "puzzlepiece.extension")
-                    .frame(width: 24, height: 24)
-            }
-            .buttonStyle(.plain)
-            .help("Extensions")
-            .popover(isPresented: $isPresented, arrowEdge: .top) {
-                VStack(alignment: .leading, spacing: 10) {
+        Button { isPresented.toggle() } label: {
+            Image(systemName: "puzzlepiece.extension")
+                .frame(width: 24, height: 24)
+        }
+        .buttonStyle(.plain)
+        .help("Extensions")
+        .popover(isPresented: $isPresented, arrowEdge: .top) {
+            VStack(alignment: .leading, spacing: 10) {
                     Text("Extensions").font(.headline)
                     if extensions.installed.isEmpty { Text("No extensions installed.").foregroundStyle(.secondary) }
                     ForEach(extensions.installed) { item in
@@ -416,10 +415,9 @@ struct BrowserExtensionsToolbarButton: View {
                     }
                     if let error = extensions.lastError { Text(error).font(.caption).foregroundStyle(.red) }
                     if #unavailable(macOS 15.4) { Text("Requires macOS 15.4 or later.") }
-                }
-                .padding(14)
-                .frame(width: 340)
             }
+            .padding(14)
+            .frame(width: 340)
         }
     }
 }
