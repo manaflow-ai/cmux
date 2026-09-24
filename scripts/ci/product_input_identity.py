@@ -24,7 +24,6 @@ E2E_BUILD_JOB = "build"
 PRODUCT_CI_INPUTS = frozenset({
     "scripts/ci/app_host_test_products.py",
     "scripts/ci/compile-app-host-test-product.sh",
-    "scripts/ci/e2e_warm_derived_data.py",
     "scripts/ci/canonical-build-root.sh",
     "scripts/ci/sanitize-xcode-source-packages-cache.py",
 })
@@ -399,6 +398,7 @@ def identity_from_tree_lines(
     workflow: str,
     e2e_workflow: Optional[str] = None,
 ) -> dict[str, str]:
+    tree_lines = list(tree_lines)
     value = {
         "schema": IDENTITY_SCHEMA,
         "algorithm": algorithm_fingerprint(),
@@ -406,8 +406,29 @@ def identity_from_tree_lines(
         "recipe": recipe_fingerprint(workflow),
     }
     if e2e_workflow is not None:
-        value["e2e_recipe"] = e2e_recipe_fingerprint(e2e_workflow)
+        value["e2e_recipe"] = e2e_identity_fingerprint(e2e_workflow, tree_lines)
     return value
+
+
+_CI_HELPER_REFERENCE_RE = re.compile(r"scripts/ci/[A-Za-z0-9_.-]+")
+
+
+def e2e_identity_fingerprint(workflow: str, tree_lines: Iterable[str]) -> str:
+    """The E2E recipe plus the content of every scripts/ci file its build job names.
+
+    reaches_product() keeps scripts/ci out of the shared source fingerprint,
+    so an E2E-only helper would otherwise
+    change E2E products without changing their key. Deriving the list from the
+    job, rather than naming helpers here, keeps them out of the macOS identity.
+    """
+    helpers = set(_CI_HELPER_REFERENCE_RE.findall(_job_block(workflow, E2E_BUILD_JOB)))
+    helper_lines = sorted(line for line in tree_lines if line.rpartition("\t")[2] in helpers)
+    raw = json.dumps(
+        {"recipe": e2e_recipe_fingerprint(workflow), "helpers": helper_lines},
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return hashlib.sha256(raw).hexdigest()
 
 
 def local_identity(revision: str = "HEAD") -> dict[str, str]:
