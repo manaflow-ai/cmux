@@ -30,7 +30,7 @@ concurrency:
 
 jobs:
   seed:
-    if: github.ref == 'refs/heads/main'
+    if: github.repository_owner == 'manaflow-ai' && github.ref == 'refs/heads/main'
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-15' || 'blacksmith-6vcpu-macos-15' }}
     environment: ${{ github.ref == 'refs/heads/main' && 'ci-cache-writer' || '' }}
     timeout-minutes: 20
