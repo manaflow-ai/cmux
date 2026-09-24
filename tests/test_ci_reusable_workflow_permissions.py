@@ -479,7 +479,7 @@ MANUAL_REF_TARGETS = {
     "reload-build.yml": {
         "build": "ref: ${{ needs.resolve-ref.outputs.sha }}",
     },
-    "test-depot.yml": {
+    "test-macos-suite.yml": {
         "tests": "ref: ${{ needs.resolve-ref.outputs.sha }}",
     },
     "test-e2e.yml": {

@@ -24,7 +24,6 @@ E2E_BUILD_JOB = "build"
 PRODUCT_CI_INPUTS = frozenset({
     "scripts/ci/app_host_test_products.py",
     "scripts/ci/compile-app-host-test-product.sh",
-    "scripts/ci/e2e_warm_derived_data.py",
     "scripts/ci/canonical-build-root.sh",
     "scripts/ci/sanitize-xcode-source-packages-cache.py",
 })
@@ -35,6 +34,28 @@ PRODUCT_CI_INPUTS = frozenset({
 # bundle as bin/cmux-paste-text-worker, which cmuxTests loads and executes.
 # Changing it changes product bytes, so it has to invalidate reuse.
 PRODUCT_WORKER_PREFIXES = ("workers/cmux-paste-text/",)
+
+# Developer and maintenance tooling that neither the Xcode build nor any macOS
+# CI lane reads: no build phase, compile helper, bundled-resource script, or
+# ci-macos.yml / test-e2e.yml step names them, and no native test executes
+# them. agent-chat/ is the standalone chat server a user starts with cmux-chat;
+# the app only connects to it. Each keeps its own Linux guard. Keep this exact:
+# scripts/ also holds the build phases' helpers, which must stay product inputs.
+NON_PRODUCT_TOOLING_PREFIXES = (
+    ".claude/",
+    "agent-chat/",
+    "scripts/git-hooks/",
+)
+NON_PRODUCT_TOOLING = frozenset({
+    "scripts/benchmark-dev-fleet-warm-slots.py",
+    "scripts/check-pbxproj.sh",
+    "scripts/check-test-determinism.py",
+    "scripts/dev-fleet-warm-slot.py",
+    "scripts/install-git-hooks.sh",
+    "scripts/merge-xcstrings.py",
+    "scripts/normalize-pbxproj.py",
+    "scripts/prune_nightly_release_assets.py",
+})
 
 REQUIRED_PRODUCT_JOB_ENV_KEYS = frozenset({
     "CMUX_CI_XCODE_APP",
@@ -115,6 +136,8 @@ def reaches_product(path: str) -> bool:
     if path.startswith(PRODUCT_WORKER_PREFIXES):
         return True
     if path.startswith("scripts/ci/"):
+        return False
+    if path in NON_PRODUCT_TOOLING or path.startswith(NON_PRODUCT_TOOLING_PREFIXES):
         return False
     if path.startswith((".github/", "tests/", "tests_v2/", "docs/", "design/", "plans/", "ios/", "web/", "workers/", "config/iroh/", "cmux-tui/", "cmux-browser/", "daemon/remote/")):
         return False
@@ -399,6 +422,7 @@ def identity_from_tree_lines(
     workflow: str,
     e2e_workflow: Optional[str] = None,
 ) -> dict[str, str]:
+    tree_lines = list(tree_lines)
     value = {
         "schema": IDENTITY_SCHEMA,
         "algorithm": algorithm_fingerprint(),
@@ -406,8 +430,29 @@ def identity_from_tree_lines(
         "recipe": recipe_fingerprint(workflow),
     }
     if e2e_workflow is not None:
-        value["e2e_recipe"] = e2e_recipe_fingerprint(e2e_workflow)
+        value["e2e_recipe"] = e2e_identity_fingerprint(e2e_workflow, tree_lines)
     return value
+
+
+_CI_HELPER_REFERENCE_RE = re.compile(r"scripts/ci/[A-Za-z0-9_.-]+")
+
+
+def e2e_identity_fingerprint(workflow: str, tree_lines: Iterable[str]) -> str:
+    """The E2E recipe plus the content of every scripts/ci file its build job names.
+
+    reaches_product() keeps scripts/ci out of the shared source fingerprint,
+    so an E2E-only helper would otherwise
+    change E2E products without changing their key. Deriving the list from the
+    job, rather than naming helpers here, keeps them out of the macOS identity.
+    """
+    helpers = set(_CI_HELPER_REFERENCE_RE.findall(_job_block(workflow, E2E_BUILD_JOB)))
+    helper_lines = sorted(line for line in tree_lines if line.rpartition("\t")[2] in helpers)
+    raw = json.dumps(
+        {"recipe": e2e_recipe_fingerprint(workflow), "helpers": helper_lines},
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return hashlib.sha256(raw).hexdigest()
 
 
 def local_identity(revision: str = "HEAD") -> dict[str, str]:
