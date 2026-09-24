@@ -13,25 +13,26 @@ import Network
 /// (1 s, then 2 s, ...) left New Machine waiting ~3.7 s, or failing at the 15 s
 /// deadline, for a daemon that was reachable ~0.4 s after the create response.
 /// A fresh attempt costs one local SOCKS connect, so hedging is cheap.
-///
-/// Redials continue until `timeout`: fast (`redialInterval`) during
-/// `fastRedialWindow`, then every `slowRedialInterval`. Each attempt gives up
-/// after `attemptTimeout`, so an attempt whose SYNs were lost is replaced
-/// instead of waiting on retransmit backoff, and open attempts stay bounded
-/// (about attemptTimeout / interval per address). A cold snapshot restore
-/// once took 13 s to open its listener; capping redials at 3 s left the next
-/// retransmit past the 15 s deadline and New Machine failed.
 struct CloudHubConnector: Sendable {
     var timeout: Duration = .seconds(15)
     /// A cancellable head start for the preferred family, driven by the injected clock.
     var fallbackDelay: Duration = .milliseconds(250)
-    /// How often a still-unanswered address gets another, independent attempt
-    /// while a fresh machine is expected to come up.
+    /// How often a still-unanswered address gets another, independent attempt.
+    /// Each address keeps its own timer from its first attempt.
     var redialInterval: Duration = .milliseconds(50)
+    /// Redials per address after its first attempt. The fresh-machine window is well under a
+    /// second; after 3 s the in-flight attempts ride normal retransmits, so a
+    /// blackholed family never holds more than this many sockets per address.
+    var maxRedials: Int = 60
+    /// After `fastRedialWindow`, an address that has not connected keeps a new
+    /// attempt every `slowRedialInterval` until `timeout`, instead of stopping
+    /// at `maxRedials`. A cold snapshot restore once opened its listener 13 s
+    /// after create; with only the fast window, the in-flight attempts rode
+    /// TCP retransmit backoff past the 15 s deadline and New Machine failed.
     var fastRedialWindow: Duration = .seconds(1)
-    /// Redial cadence after the fast window, until `timeout`.
     var slowRedialInterval: Duration = .milliseconds(250)
-    /// One attempt's own deadline (SOCKS connect plus handshake).
+    /// One attempt's own deadline, so a stale attempt is replaced rather than
+    /// kept open; with the slow phase this bounds open attempts per address.
     var attemptTimeout: Duration = .seconds(2)
     var clock: any Clock<Duration> = ContinuousClock()
 
@@ -49,11 +50,9 @@ struct CloudHubConnector: Sendable {
         return try await Self.hedged(
             candidates: hosts.count,
             fallbackDelay: fallbackDelay,
-            schedule: CloudHubRedialSchedule(
-                fastInterval: redialInterval,
-                fastWindow: fastRedialWindow,
-                slowInterval: slowRedialInterval
-            ),
+            redialInterval: redialInterval,
+            maxRedials: maxRedials,
+            slowPhase: CloudHubSlowRedialPhase(after: fastRedialWindow, interval: slowRedialInterval),
             timeout: timeout,
             clock: clock,
             attempt: { index in
@@ -71,14 +70,29 @@ struct CloudHubConnector: Sendable {
     }
 
     /// Runs `attempt(candidate)` for every candidate (each later one delayed by
-    /// `fallbackDelay`) and starts a new attempt for every candidate on each
-    /// `schedule` tick, until the first success or `timeout`. Every other
-    /// in-flight or later success is passed to `discard`. Throws the last
-    /// failure (or a timeout) when nothing succeeds within `timeout`.
+    /// `fallbackDelay`) and gives each started candidate a new attempt every
+    /// `redialInterval`, up to `maxRedials` attempts, until the first success.
+    /// Every other in-flight or later success is passed to `discard`. Throws the
+    /// last failure (or a timeout) when nothing succeeds within `timeout`.
+    ///
+    /// Redials serve addresses that have not answered. A candidate whose last
+    /// attempt failed outright (a SOCKS refusal) is not redialed while another
+    /// candidate is still waiting for its head start, or has had an attempt in
+    /// flight for less than `fallbackDelay`: the refusal already answered, and
+    /// redialing it would dial the failed family on every connection of a
+    /// burst. A family silent for longer than that may be blackholed, so the
+    /// refused one is redialed again, which covers a new machine whose listener
+    /// is not open yet while its other family never answers. Once every
+    /// candidate has failed, all of them are redialed. A skipped tick does not
+    /// count against `maxRedials`, so waiting never spends a refused family's
+    /// redials. Each candidate keeps its own redial timer, so a redial never
+    /// starts a fallback before its `fallbackDelay` ends.
     static func hedged<Value: Sendable>(
         candidates: Int,
         fallbackDelay: Duration,
-        schedule: CloudHubRedialSchedule,
+        redialInterval: Duration,
+        maxRedials: Int,
+        slowPhase: CloudHubSlowRedialPhase? = nil,
         timeout: Duration,
         clock: any Clock<Duration>,
         attempt: @escaping @Sendable (Int) async throws -> Value,
@@ -86,56 +100,100 @@ struct CloudHubConnector: Sendable {
     ) async throws -> Value {
         guard candidates > 0 else { throw CancellationError() }
         return try await withThrowingTaskGroup(of: CloudHubHedgeEvent<Value>.self) { group in
-            func launch(round: Int) {
-                for index in 0..<candidates {
-                    let delay = index > 0 && round == 0 ? fallbackDelay : .zero
-                    group.addTask {
-                        do {
-                            if delay > .zero { try await clock.sleep(for: delay) }
-                            try Task.checkCancellation()
-                            return .success(try await attempt(index))
-                        } catch {
-                            return .failure(error)
-                        }
+            var started = Array(repeating: false, count: candidates)
+            var inFlight = Array(repeating: 0, count: candidates)
+            var failed = Array(repeating: false, count: candidates)
+            // Redial attempts launched, capped by `maxRedials`.
+            var redials = Array(repeating: 0, count: candidates)
+            // Redial ticks elapsed since the candidate started, launched or skipped.
+            var ticks = Array(repeating: 0, count: candidates)
+            // Time scheduled since the candidate started, for the slow phase.
+            var scheduled = Array(repeating: Duration.zero, count: candidates)
+            var expired = false
+            var lastError: any Error = CloudPortForwardRelay.RelayError.handshakeTimedOut(timeout)
+            var winner: Value?
+
+            func scheduleRedial(_ index: Int) {
+                let interval: Duration
+                if let slowPhase, scheduled[index] >= slowPhase.after {
+                    // Past the fast window: keep trying until the deadline.
+                    interval = slowPhase.interval
+                } else {
+                    guard slowPhase != nil || redials[index] < maxRedials else { return }
+                    interval = redialInterval
+                }
+                scheduled[index] += interval
+                group.addTask {
+                    try? await clock.sleep(for: interval)
+                    return .redial(index)
+                }
+            }
+            func launch(_ index: Int) {
+                started[index] = true
+                inFlight[index] += 1
+                failed[index] = false
+                group.addTask {
+                    do {
+                        try Task.checkCancellation()
+                        return .success(index, try await attempt(index))
+                    } catch {
+                        return .failure(index, error)
                     }
                 }
             }
-            launch(round: 0)
-            // Elapsed time on the schedule, advanced by each tick's interval.
-            var scheduled = schedule.interval(after: .zero)
-            group.addTask { [scheduled] in
-                try? await clock.sleep(for: scheduled)
-                return .tick
+            func anotherCandidateIsPending(besides index: Int) -> Bool {
+                (0..<candidates).contains { other in
+                    guard other != index else { return false }
+                    guard started[other] else { return true }
+                    // Redial ticks measure how long the other family has gone
+                    // unanswered; past its head start it may be blackholed.
+                    return inFlight[other] > 0 && !failed[other] && redialInterval * ticks[other] < fallbackDelay
+                }
+            }
+
+            for index in 0..<candidates {
+                if index == 0 || fallbackDelay <= .zero {
+                    launch(index)
+                    scheduleRedial(index)
+                } else {
+                    group.addTask {
+                        try? await clock.sleep(for: fallbackDelay)
+                        return .start(index)
+                    }
+                }
             }
             group.addTask {
                 try? await clock.sleep(for: timeout)
                 return .deadline
             }
-            var round = 1
-            var expired = false
-            var lastError: any Error = CloudPortForwardRelay.RelayError.handshakeTimedOut(timeout)
-            var winner: Value?
             while let event = try await group.next() {
                 switch event {
-                case .success(let value):
+                case .success(let index, let value):
+                    inFlight[index] -= 1
                     if winner == nil {
                         winner = value
                         group.cancelAll()
                     } else {
                         discard(value)
                     }
-                case .failure(let error):
-                    if !(error is CancellationError) { lastError = error }
-                case .tick:
-                    guard winner == nil, !expired else { continue }
-                    launch(round: round)
-                    round += 1
-                    let next = schedule.interval(after: scheduled)
-                    scheduled += next
-                    group.addTask {
-                        try? await clock.sleep(for: next)
-                        return .tick
+                case .failure(let index, let error):
+                    inFlight[index] -= 1
+                    if !(error is CancellationError) {
+                        lastError = error
+                        failed[index] = true
                     }
+                case .start(let index):
+                    guard winner == nil, !expired, !Task.isCancelled else { continue }
+                    launch(index)
+                    scheduleRedial(index)
+                case .redial(let index):
+                    guard winner == nil, !expired, !Task.isCancelled else { continue }
+                    ticks[index] += 1
+                    if !(failed[index] && anotherCandidateIsPending(besides: index)) {
+                        redials[index] += 1
+                        launch(index)
+                    }
+                    scheduleRedial(index)
                 case .deadline:
                     expired = true
                     if winner == nil { group.cancelAll() }
@@ -184,20 +242,16 @@ struct CloudHubConnector: Sendable {
 }
 
 enum CloudHubHedgeEvent<Value: Sendable>: Sendable {
-    case success(Value)
-    case failure(any Error)
-    case tick
+    case success(Int, Value)
+    case failure(Int, any Error)
+    case start(Int)
+    case redial(Int)
     case deadline
 }
 
-/// The redial cadence: `fastInterval` until `fastWindow` has elapsed since the
-/// first attempt, then `slowInterval`.
-struct CloudHubRedialSchedule: Sendable, Equatable {
-    var fastInterval: Duration
-    var fastWindow: Duration
-    var slowInterval: Duration
-
-    func interval(after elapsed: Duration) -> Duration {
-        elapsed < fastWindow ? fastInterval : slowInterval
-    }
+/// The redial pace once a candidate has gone `after` without connecting.
+struct CloudHubSlowRedialPhase: Sendable, Equatable {
+    var after: Duration
+    var interval: Duration
 }
+

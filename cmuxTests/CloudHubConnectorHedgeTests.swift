@@ -30,7 +30,9 @@ struct CloudHubConnectorHedgeTests {
         let value = try await CloudHubConnector.hedged(
             candidates: 1,
             fallbackDelay: .milliseconds(50),
-            schedule: CloudHubRedialSchedule(fastInterval: .milliseconds(20), fastWindow: .seconds(10), slowInterval: .milliseconds(20)),
+            redialInterval: .milliseconds(20),
+            maxRedials: 1_000,
+            slowPhase: CloudHubSlowRedialPhase(after: .seconds(10), interval: .milliseconds(20)),
             timeout: .seconds(10),
             clock: ContinuousClock(),
             attempt: { _ in
@@ -57,7 +59,9 @@ struct CloudHubConnectorHedgeTests {
             _ = try await CloudHubConnector.hedged(
                 candidates: 2,
                 fallbackDelay: .milliseconds(5),
-                schedule: CloudHubRedialSchedule(fastInterval: .milliseconds(10), fastWindow: .milliseconds(50), slowInterval: .milliseconds(100)),
+                redialInterval: .milliseconds(10),
+            maxRedials: 1_000,
+            slowPhase: CloudHubSlowRedialPhase(after: .milliseconds(50), interval: .milliseconds(100)),
                 timeout: .milliseconds(400),
                 clock: ContinuousClock(),
                 attempt: { _ -> Int in
@@ -81,7 +85,9 @@ struct CloudHubConnectorHedgeTests {
         let value = try await CloudHubConnector.hedged(
             candidates: 1,
             fallbackDelay: .zero,
-            schedule: CloudHubRedialSchedule(fastInterval: .milliseconds(10), fastWindow: .milliseconds(50), slowInterval: .milliseconds(40)),
+            redialInterval: .milliseconds(10),
+            maxRedials: 1_000,
+            slowPhase: CloudHubSlowRedialPhase(after: .milliseconds(50), interval: .milliseconds(40)),
             timeout: .seconds(5),
             clock: ContinuousClock(),
             attempt: { _ in
@@ -95,13 +101,138 @@ struct CloudHubConnectorHedgeTests {
         #expect(value > 1)
     }
 
+    private final class PerCandidateLedger: @unchecked Sendable {
+        private let lock = NSLock()
+        private var starts: [Int: [ContinuousClock.Instant]] = [:]
+        func start(_ index: Int) { lock.withLock { starts[index, default: []].append(.now) } }
+        func count(_ index: Int) -> Int { lock.withLock { starts[index]?.count ?? 0 } }
+        func first(_ index: Int) -> ContinuousClock.Instant? { lock.withLock { starts[index]?.first } }
+    }
+
+    private struct Refused: Error {}
+
+    @Test("A refused family is not redialed, and the fallback keeps its head start, while the other family is untried")
+    func refusedFamilyWaitsForFallbackWithoutRedialing() async throws {
+        let ledger = PerCandidateLedger()
+        let began = ContinuousClock.now
+        let value = try await CloudHubConnector.hedged(
+            candidates: 2,
+            fallbackDelay: .milliseconds(200),
+            redialInterval: .milliseconds(20),
+            maxRedials: 50,
+            timeout: .seconds(10),
+            clock: ContinuousClock(),
+            attempt: { index in
+                ledger.start(index)
+                // The preferred family answers with a refusal; the other works.
+                if index == 0 { throw Refused() }
+                return index
+            },
+            discard: { _ in }
+        )
+        #expect(value == 1)
+        #expect(ledger.count(0) == 1, "A refusal is an answer; redialing it only adds load while the other family is pending")
+        #expect(ledger.count(1) == 1)
+        let fallbackStart = try #require(ledger.first(1))
+        #expect(fallbackStart - began >= .milliseconds(180),
+                "A redial must not start the fallback family before its head start ends")
+    }
+
+    @Test("When every family refuses, refused addresses are redialed until one comes up")
+    func everyFamilyRefusingKeepsRedialing() async throws {
+        let ledger = PerCandidateLedger()
+        let reachableAt = ContinuousClock.now + .milliseconds(150)
+        let value = try await CloudHubConnector.hedged(
+            candidates: 2,
+            fallbackDelay: .milliseconds(10),
+            redialInterval: .milliseconds(20),
+            maxRedials: 50,
+            timeout: .seconds(10),
+            clock: ContinuousClock(),
+            attempt: { index in
+                ledger.start(index)
+                // A new machine refuses until its listener opens.
+                if index == 1 || ContinuousClock.now < reachableAt { throw Refused() }
+                return index
+            },
+            discard: { _ in }
+        )
+        #expect(value == 0)
+        #expect(ledger.count(0) > 1)
+    }
+
+    @Test("A refused family is redialed once the other family stays silent past its head start")
+    func refusedFamilyIsRedialedWhileTheOtherIsBlackholed() async throws {
+        let ledger = PerCandidateLedger()
+        let reachableAt = ContinuousClock.now + .milliseconds(150)
+        let value = try await CloudHubConnector.hedged(
+            candidates: 2,
+            fallbackDelay: .milliseconds(50),
+            redialInterval: .milliseconds(20),
+            maxRedials: 50,
+            timeout: .seconds(2),
+            clock: ContinuousClock(),
+            attempt: { index in
+                ledger.start(index)
+                // The other family is blackholed: its attempts never answer.
+                if index == 1 {
+                    try await Task.sleep(for: .seconds(60))
+                    return index
+                }
+                // The preferred family refuses until its listener opens.
+                if ContinuousClock.now < reachableAt { throw Refused() }
+                return index
+            },
+            discard: { _ in }
+        )
+        #expect(value == 0)
+        #expect(ledger.count(0) > 1)
+    }
+
+    private final class DialCounter: @unchecked Sendable {
+        private let lock = NSLock()
+        private var dials = 0
+        func next() -> Int { lock.withLock { dials += 1; return dials } }
+    }
+
+    @Test("Ticks skipped while the other family is pending do not spend the refused family's redials")
+    func skippedTicksDoNotSpendRedials() async throws {
+        let ledger = PerCandidateLedger()
+        let preferredDials = DialCounter()
+        let value = try await CloudHubConnector.hedged(
+            candidates: 2,
+            fallbackDelay: .milliseconds(50),
+            redialInterval: .milliseconds(20),
+            maxRedials: 3,
+            timeout: .seconds(2),
+            clock: ContinuousClock(),
+            attempt: { index in
+                ledger.start(index)
+                // The other family is blackholed: its attempts never answer.
+                if index == 1 {
+                    try await Task.sleep(for: .seconds(60))
+                    return index
+                }
+                // The preferred family refuses its first dial; its listener is
+                // open by the next one.
+                if preferredDials.next() == 1 { throw Refused() }
+                return index
+            },
+            discard: { _ in }
+        )
+        #expect(value == 0)
+        #expect(ledger.count(0) == 2, "Only launched redials count against the cap")
+    }
+
     @Test("Every success other than the winner is discarded, so no stream leaks")
     func extraSuccessesAreDiscarded() async throws {
         let ledger = Ledger()
         let value = try await CloudHubConnector.hedged(
             candidates: 2,
             fallbackDelay: .zero,
-            schedule: CloudHubRedialSchedule(fastInterval: .milliseconds(5), fastWindow: .milliseconds(25), slowInterval: .seconds(10)),
+            redialInterval: .milliseconds(5),
+            maxRedials: 1_000,
+            slowPhase: CloudHubSlowRedialPhase(after: .milliseconds(25), interval: .seconds(10)),
             timeout: .seconds(5),
             clock: ContinuousClock(),
             attempt: { index in

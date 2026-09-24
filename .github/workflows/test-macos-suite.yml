@@ -4,7 +4,9 @@
 # instead. It runs the same app-host tests through test-e2e.yml, reuses a run
 # already in flight at that commit, refuses a selector that already failed
 # there, and batches several selectors against one compile. This workflow does
-# none of that, so a single-test dispatch here pays a full cold build.
+# none of that. A dispatch that names unit selectors and skips UI tests is
+# therefore handed to that wrapper by the `focused` job, which links the
+# test-e2e run and fails so that nobody reads this run as the test's result.
 name: Run macOS test suite
 run-name: >-
   macOS tests @ ${{ inputs.ref || github.ref_name }} ·
@@ -49,7 +51,7 @@ on:
         default: false
         type: boolean
       unit_test_suites:
-        description: "Comma-separated unit suites; empty runs the full unit target. For one test use ./scripts/run-e2e.sh, which reuses compiles and in-flight runs"
+        description: "Comma-separated unit suites; empty runs the full unit target. With UI tests skipped, these run through ./scripts/run-e2e.sh instead of a cold build here"
         required: false
         default: ""
       test_filter:
@@ -67,13 +69,77 @@ jobs:
     with:
       ref: ${{ inputs.ref }}
 
+  focused:
+    # Selectors with UI tests off are a focused run. Compiled here, each one
+    # paid a cold build of the whole app, about 20 minutes, for one test.
+    # The wrapper dispatches to manaflow-ai/cmux, so a fork keeps its own
+    # `tests` job.
+    if: ${{ github.repository == 'manaflow-ai/cmux' && github.event_name == 'workflow_dispatch' && inputs.unit_test_suites != '' && inputs.skip_ui_tests && !inputs.skip_unit_tests }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 5
+    permissions:
+      actions: write
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Run the selectors through run-e2e.sh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          # The job token cannot list repository variables, and without the
+          # runner the wrapper cannot see an identical run already in flight.
+          CMUX_MACOS_RUNNER_TESTS: ${{ vars.MACOS_RUNNER_TESTS }}
+          CMUX_CI_E2E_LARGE_POOL_OVERFLOW: ${{ vars.CI_E2E_LARGE_POOL_OVERFLOW }}
+          CMUX_CI_PR_POOL_ORDER: ${{ vars.CI_PR_POOL_ORDER }}
+          CMUX_CI_PR_POOL_MAX_QUEUED: ${{ vars.CI_PR_POOL_MAX_QUEUED }}
+          UNIT_TEST_SUITES: ${{ inputs.unit_test_suites }}
+          TEST_REF: ${{ inputs.ref || github.sha }}
+          TEST_TIMEOUT: ${{ inputs.test_timeout }}
+        run: |
+          set -euo pipefail
+          selectors=()
+          IFS=',' read -r -a suites <<< "$UNIT_TEST_SUITES"
+          for suite in "${suites[@]}"; do
+            suite="${suite// /}"
+            # The suite path ran a repeated entry twice; the wrapper refuses one.
+            [ -n "$suite" ] && [[ " ${selectors[*]} " != *" cmuxTests/$suite "* ]] && selectors+=("cmuxTests/$suite")
+          done
+          ./scripts/run-e2e.sh "${selectors[@]}" --ref "$TEST_REF" --timeout "$TEST_TIMEOUT" | tee dispatch.log
+          url="$(grep -oE 'https://github.com/[^ ]+/actions/runs/[0-9]+' dispatch.log | tail -1)"
+          echo "Forwarded to $url" >> "$GITHUB_STEP_SUMMARY"
+          # Exit red: this run did not test anything, and a green one would
+          # read as a pass.
+          echo "::error title=Forwarded, not tested::The result is in $url"
+          exit 1
+
   tests:
     needs: resolve-ref
+    if: ${{ !(github.repository == 'manaflow-ai/cmux' && github.event_name == 'workflow_dispatch' && inputs.unit_test_suites != '' && inputs.skip_ui_tests && !inputs.skip_unit_tests) }}
     # Keep this lane on the repository's normal macOS runner and do not
     # expose a provider override.
-    runs-on: ${{ vars.MACOS_RUNNER_TESTS || 'blacksmith-6vcpu-macos-15' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.MACOS_RUNNER_TESTS || 'blacksmith-6vcpu-macos-15' }}
     timeout-minutes: ${{ inputs.unit_test_suites != '' && 35 || 20 }}
     steps:
+      - name: Verify GitHub-hosted route
+        env:
+          RUNNER_ENVIRONMENT: ${{ runner.environment }}
+          REQUESTED_RUNNER: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.MACOS_RUNNER_TESTS || 'blacksmith-6vcpu-macos-15' }}
+          RUNNER_CONTEXT_NAME: ${{ runner.name }}
+        run: |
+          # The self-hosted fleet also carries a macos-26 label, so a macos-*
+          # request must prove it landed on GitHub-hosted capacity before any
+          # checkout.
+          case "$REQUESTED_RUNNER" in
+            macos-*)
+              if [ "$RUNNER_ENVIRONMENT" != "github-hosted" ]; then
+                echo "::error::$REQUESTED_RUNNER resolved outside GitHub-hosted capacity: $RUNNER_CONTEXT_NAME"
+                exit 1
+              fi
+              ;;
+          esac
       - name: Clear stale git locks (self-hosted reused workspace)
         shell: bash
         run: |
@@ -329,12 +395,25 @@ jobs:
             ONLY_TESTING="-only-testing:cmuxUITests"
           fi
 
+          UI_TEST_LOG="$RUNNER_TEMP/cmux-ui-tests.log"
+          set +e
           xcodebuild -project cmux.xcodeproj -scheme cmux -configuration Debug \
             -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
             -disableAutomaticPackageResolution \
             -destination "platform=macOS" \
             -maximum-test-execution-time-allowance "$TEST_TIMEOUT" \
-            "$ONLY_TESTING" test
+            "$ONLY_TESTING" test 2>&1 | tee "$UI_TEST_LOG"
+          UI_TEST_STATUS=${PIPESTATUS[0]}
+          set -e
+          if [ "$UI_TEST_STATUS" -ne 0 ]; then
+            exit "$UI_TEST_STATUS"
+          fi
+          # A filter that matches nothing exits 0 after executing zero tests.
+          if [ -n "$TEST_FILTER" ] && ! scripts/ci/require_selected_test_execution.sh \
+            "$UI_TEST_LOG" "cmuxUITests/$TEST_FILTER" >/dev/null; then
+            echo "::error::test_filter cmuxUITests/$TEST_FILTER executed zero tests; check the class and method names"
+            exit 1
+          fi
 
       - name: Upload unit test results
         if: ${{ always() && !inputs.skip_unit_tests }}

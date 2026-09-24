@@ -46,3 +46,39 @@ checks repeated writes and rejects a conflicting identity without adding rows:
 `IROH_V2_OWNERSHIP_SMOKE_DATABASE_URL` selects the database for
 `bun test ./live/ownership-database.test.ts`. Supply the URL through a private
 environment file. Keep this live check separate from the local workerd suite.
+
+## Production deployment and client rule dependencies
+
+Production (`cmux-iroh-v2`) is deployed by hand; no workflow deploys it. The
+Mac app depends on directory rules the Worker implements (`src/rules.ts`, for
+example `cmux.mac-peer-inbound.v1`, which lets a same-account Mac enter a host
+that opted into incoming access). The app reads `directory.rules` and shows
+"The Devices service is out of date" for other Macs until the rule is live, so a
+client that ships ahead of the Worker fails truthfully instead of retrying an
+admission denial forever (https://github.com/manaflow-ai/cmux/issues/13458).
+
+Deploy from a clean checkout of the revision you intend to run. The scripts
+publish that revision as `CMUX_SOURCE_REVISION`, and `GET /v2/health` reports
+it together with the implemented rules:
+
+```sh
+cd workers/iroh-v2
+bun install --frozen-lockfile
+CLOUDFLARE_ACCOUNT_ID=<production account> bun run deploy:production   # needs wrangler login
+curl -sS https://cmux-iroh-v2.debussy.workers.dev/v2/health
+```
+
+Verify a Mac pair after deploying: on the host Mac, the cached directory under
+`~/Library/Application Support/<bundle id>/cmux-iroh-v2/state/*.json` must list
+the other Mac in `directory.inboundPeers` after its next directory refresh, and
+the dialing Mac's My Devices row connects on Refresh.
+
+`bun run drift:check` compares the deployed Worker with `origin/main` (rules,
+published revision, ancestry). `.github/workflows/iroh-v2-production-drift.yml`
+runs it every six hours and on pushes to `main` that touch the Worker, and files
+an `iroh-v2-production-drift` issue until production catches up.
+
+When a client change starts depending on a new Worker rule: add the identifier
+to `src/rules.ts`, cover it in `e2e/permissions-runtime.test.ts`, make the
+client read it from `directory.rules`, and deploy production before or with the
+client release. Never rename or remove a rule a shipped client still requires.

@@ -1,6 +1,7 @@
 import CMUXMobileCore
 import CmuxIrohTransport
 import CmuxIrxTransport
+import CmuxSurfaceCatalogModel
 import Foundation
 import Testing
 
@@ -609,9 +610,9 @@ struct DeviceDirectoryMergeTests {
         #expect(state(phase: .waiting(attempt: 1, delay: .seconds(1))).linkState == .connecting)
         #expect(state(phase: .waiting(attempt: 2, delay: .seconds(2)), lastFailure: "Relay unavailable").linkError == "Relay unavailable")
         #expect(state(phase: .connecting(attempt: 3), lastFailure: "Relay unavailable").linkError == "Relay unavailable")
-        let blocked = state(phase: .blocked(reason: "nope"))
-        #expect(blocked.linkState == .error)
-        #expect(blocked.linkError == "nope")
+        let refusal = DeviceLinkFailure(kind: .hostDenied, code: "invalid-grant", message: "Studio has not authorized this Mac.")
+        #expect(state(phase: .blocked(refusal)).linkState == .error, "a refusal is an error row, never a Connecting child row")
+        #expect(state(phase: .blocked(refusal)).linkError == refusal.message)
         #expect(state(routes: []).linkError == "This Mac has not published a route yet.")
         #expect(state(trust: .unknown).linkState == .unavailable)
         let unpaired = state(needsAuthorization: true)
