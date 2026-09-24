@@ -384,6 +384,13 @@ class LinuxGuardRoutingTests(unittest.TestCase):
         })
         self.assertEqual(groups, ("preflight", "ci", "quality-determinism"))
 
+    def test_host_free_cli_test_sources_reach_the_determinism_lints(self):
+        for path in ("cmuxTests/ProbeTests.swift", "cmuxCLITests/ProbeTests.swift",
+                     "cmuxCLITestSupport/ProbeSupport.swift"):
+            with self.subTest(path=path):
+                _, groups = route_decision([path], macos="true")
+                self.assertIn("quality-determinism", groups)
+
     def test_native_edit_keeps_source_contracts_without_history_or_cli_guards(self):
         outputs = route(["Sources/Settings.swift", "CLAUDE.md"], macos="true")
         self.assertEqual(outputs, {
