@@ -274,6 +274,8 @@ RUN curl -fsSL https://github.com/akinomyoga/ble.sh/releases/download/nightly/bl
   && rm -f /tmp/ble.tar.xz \
   && test -f /usr/local/share/blesh/ble.sh
 COPY cmux-bashrc /etc/cmux/bashrc
+COPY cmux-prompt.bash /etc/cmux/prompt.bash
+RUN echo cmux > /etc/cmux/vm-name
 COPY seed-history /etc/cmux/seed-history
 COPY cmux-terminfo.sh /etc/profile.d/cmux-terminfo.sh
 # The cmux app's terminfo overlay (Resources/terminfo-overlay as infocmp
@@ -332,6 +334,11 @@ RUN mkdir -p /etc/cmux/blesh-cache-seed \
 # proves the persisted-env re-source path, then proves the image itself
 # ships no generated config.
 COPY agent-config.sh /etc/cmux/agent-config.sh
+COPY cmux-opencode /etc/cmux/opencode
+RUN mkdir -p /usr/local/libexec \
+  && ln -s "$(readlink -f /usr/local/bin/opencode)" /usr/local/libexec/cmux-opencode-real \
+  && rm -f /usr/local/bin/opencode \
+  && chmod 755 /etc/cmux/opencode && ln -s /etc/cmux/opencode /usr/local/bin/opencode
 RUN bash -n /etc/cmux/agent-config.sh \
   && echo '[ -f /etc/cmux/agent-config.sh ] && . /etc/cmux/agent-config.sh' > /etc/profile.d/cmux-agents.sh \
   && echo '[ -f /etc/cmux/agent-config.sh ] && . /etc/cmux/agent-config.sh' >> /etc/bash.bashrc \

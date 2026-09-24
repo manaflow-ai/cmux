@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 8ff10c20fef75f9aaa1498eaf5e1107f084bdcf3febdcf8806fb4e7fc1c90b86. */
+/* cmux-tui mux protocol 12, IR 133bac0154f8f94aa30e40c11ff7ed38b10dd4d82974aec87c02d404fcd12619. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -16,7 +16,7 @@ export type AgentRecord = {
 
 export type AgentReportSource = "socket" | "hook";
 
-export type AgentSource = "detected" | "socket" | "hook";
+export type AgentSource = "plugin" | "detected" | "socket" | "hook";
 
 export type AgentState = "working" | "blocked" | "idle" | "done" | "unknown";
 
@@ -215,6 +215,22 @@ export type GetCellPixelsResult = {
   "width_px": number;
 };
 
+export type GuestUrlAcknowledgeResult = {
+  "accepted": boolean;
+};
+
+export type GuestUrlClaimResult = {
+  "claimed": boolean;
+};
+
+export type GuestUrlOpenResult = {
+  "opened": boolean;
+};
+
+export type GuestUrlSubscribeResult = {
+  "url_open_ready": boolean;
+};
+
 export type Id = bigint;
 
 export type IdMapping = {
@@ -390,6 +406,8 @@ export type ProcessInfoResult = {
   "cwd": (string) | null;
   /** Working directory of the process group that owns the PTY, read at request time. Null when the lookup fails; absent from daemons that predate the field. Clients treat absence as null. */
   "foreground_cwd"?: (string) | null;
+  /** Executable path or name of the PTY foreground process-group leader, read at request time. Null when the lookup fails; absent from daemons that predate the field. Clients treat absence as null. */
+  "foreground_executable"?: (string) | null;
   "pid": (number) | null;
 };
 
@@ -672,12 +690,19 @@ export type Tab = {
   "title": string;
 };
 
+export type TerminalColorOverrides = {
+  "bg": (ColorHex) | null;
+  "cursor": (ColorHex) | null;
+  "fg": (ColorHex) | null;
+};
+
 export type TerminalColors = {
   "bg": (ColorHex) | null;
   "cursor"?: (ColorHex) | null;
   "cursor_blink"?: (boolean) | null;
   "cursor_style"?: (CursorStyle) | null;
   "fg": (ColorHex) | null;
+  "overrides"?: TerminalColorOverrides;
   "palette"?: Record<string, ColorHex>;
   "selection_bg": (ColorHex) | null;
   "selection_fg": (ColorHex) | null;

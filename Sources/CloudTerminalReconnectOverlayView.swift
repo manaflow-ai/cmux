@@ -1,111 +1,65 @@
 import AppKit
+import SwiftUI
 
+/// A native, pane-owned host. Connection state and creation failures share the
+/// same responsive card, so a narrow terminal never gets a 260pt minimum dialog.
 @MainActor
 final class CloudTerminalReconnectOverlayView: NSView {
-    var onReconnect: (() -> Void)?
+    /// Identifies the card host inside the overlay. The card itself is SwiftUI,
+    /// so its AppKit class is an implementation detail; this identifier is the
+    /// stable handle for locating the laid-out card.
+    static let cardAccessibilityIdentifier = "CloudTerminalReconnectCard"
 
-    private let cardView = NSVisualEffectView(frame: .zero)
-    private let iconView = NSImageView(frame: .zero)
-    private let spinner = NSProgressIndicator(frame: .zero)
-    private let titleLabel = NSTextField(labelWithString: "")
-    private let detailLabel = NSTextField(wrappingLabelWithString: "")
-    private let reconnectButton = NSButton(frame: .zero)
+    var onReconnect: (() -> Void)?
+    var onDismiss: (() -> Void)?
     private(set) var currentPresentation: CloudTerminalReconnectOverlayPolicy.Presentation?
+    /// The action wired to the card's Retry control, or nil when the current
+    /// presentation offers no retry. This is the value handed to the card, so
+    /// it is the same path the control invokes.
+    private(set) var reconnectAction: (() -> Void)?
+    private let hostingView = NSHostingView(rootView: AnyView(EmptyView()))
+    private var renderedWidth: CGFloat = 0
+    private var needsContentUpdate = true
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
-        wantsLayer = true
-        layer?.backgroundColor = NSColor.black.withAlphaComponent(0.12).cgColor
         autoresizingMask = [.width, .height]
-
-        cardView.translatesAutoresizingMaskIntoConstraints = false
-        cardView.material = .hudWindow
-        cardView.blendingMode = .withinWindow
-        cardView.state = .active
-        cardView.wantsLayer = true
-        cardView.layer?.cornerRadius = 12
-        cardView.layer?.masksToBounds = true
-        cardView.layer?.borderWidth = 1
-        cardView.layer?.borderColor = NSColor.white.withAlphaComponent(0.11).cgColor
-        addSubview(cardView)
-
-        iconView.translatesAutoresizingMaskIntoConstraints = false
-        iconView.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 24, weight: .medium)
-        iconView.contentTintColor = NSColor.secondaryLabelColor
-
-        spinner.translatesAutoresizingMaskIntoConstraints = false
-        spinner.style = .spinning
-        spinner.controlSize = .regular
-        spinner.isDisplayedWhenStopped = false
-
-        titleLabel.translatesAutoresizingMaskIntoConstraints = false
-        titleLabel.alignment = .center
-        titleLabel.font = .systemFont(ofSize: 15, weight: .semibold)
-        titleLabel.textColor = .labelColor
-
-        detailLabel.translatesAutoresizingMaskIntoConstraints = false
-        detailLabel.alignment = .center
-        detailLabel.font = .systemFont(ofSize: 12, weight: .medium)
-        detailLabel.textColor = .secondaryLabelColor
-        detailLabel.maximumNumberOfLines = 3
-
-        reconnectButton.translatesAutoresizingMaskIntoConstraints = false
-        reconnectButton.title = String(localized: "cloud.overlay.reconnect.button", defaultValue: "Reconnect")
-        reconnectButton.image = NSImage(
-            systemSymbolName: "arrow.clockwise",
-            accessibilityDescription: nil
-        )
-        reconnectButton.imagePosition = .imageLeading
-        reconnectButton.bezelStyle = .rounded
-        reconnectButton.controlSize = .regular
-        reconnectButton.target = self
-        reconnectButton.action = #selector(handleReconnect)
-
-        let stack = NSStackView(views: [iconView, spinner, titleLabel, detailLabel, reconnectButton])
-        stack.translatesAutoresizingMaskIntoConstraints = false
-        stack.orientation = .vertical
-        stack.alignment = .centerX
-        stack.spacing = 10
-        cardView.addSubview(stack)
-
-        NSLayoutConstraint.activate([
-            cardView.centerXAnchor.constraint(equalTo: centerXAnchor),
-            cardView.centerYAnchor.constraint(equalTo: centerYAnchor),
-            cardView.widthAnchor.constraint(lessThanOrEqualToConstant: 360),
-            cardView.widthAnchor.constraint(greaterThanOrEqualToConstant: 260),
-            stack.topAnchor.constraint(equalTo: cardView.topAnchor, constant: 22),
-            stack.bottomAnchor.constraint(equalTo: cardView.bottomAnchor, constant: -22),
-            stack.leadingAnchor.constraint(equalTo: cardView.leadingAnchor, constant: 24),
-            stack.trailingAnchor.constraint(equalTo: cardView.trailingAnchor, constant: -24),
-            iconView.widthAnchor.constraint(equalToConstant: 28),
-            iconView.heightAnchor.constraint(equalToConstant: 28),
-            spinner.widthAnchor.constraint(equalToConstant: 24),
-            spinner.heightAnchor.constraint(equalToConstant: 24),
-            detailLabel.widthAnchor.constraint(lessThanOrEqualToConstant: 300),
-        ])
+        hostingView.sizingOptions = [.intrinsicContentSize]
+        hostingView.wantsLayer = true
+        hostingView.layer?.backgroundColor = NSColor.clear.cgColor
+        hostingView.setAccessibilityIdentifier(Self.cardAccessibilityIdentifier)
+        addSubview(hostingView)
     }
 
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) not implemented")
+    required init?(coder: NSCoder) { fatalError("init(coder:) not implemented") }
+
+    override func layout() {
+        super.layout()
+        guard let presentation = currentPresentation else { return }
+        let width = max(1, min(360, bounds.width - 24))
+        if needsContentUpdate || renderedWidth != width {
+            renderedWidth = width
+            needsContentUpdate = false
+            hostingView.rootView = AnyView(
+                Content(
+                    presentation: presentation,
+                    onReconnect: reconnectAction,
+                    onDismiss: { [weak self] in self?.onDismiss?() }
+                )
+                .frame(width: width)
+                .fixedSize(horizontal: false, vertical: true)
+            )
+        }
+        let height = ceil(hostingView.fittingSize.height)
+        let frame = NSRect(x: bounds.midX - width / 2, y: bounds.midY - height / 2, width: width, height: height)
+        if hostingView.frame != frame { hostingView.frame = frame }
     }
 
     override func hitTest(_ point: NSPoint) -> NSView? {
         guard !isHidden, alphaValue > 0 else { return nil }
-        if let buttonHit = reconnectButton.hitTest(convert(point, to: reconnectButton)) {
-            return buttonHit
-        }
-        if cardView.frame.contains(point) {
-            return self
-        }
-        return nil
-    }
-
-    override func mouseDown(with event: NSEvent) {
-        let pointInButton = reconnectButton.convert(event.locationInWindow, from: nil)
-        if reconnectButton.isHidden == false,
-           reconnectButton.bounds.contains(pointInButton) {
-            onReconnect?()
-        }
+        let localPoint = convert(point, from: superview)
+        guard hostingView.frame.contains(localPoint) else { return nil }
+        return hostingView.hitTest(localPoint) ?? self
     }
 
     override func menu(for event: NSEvent) -> NSMenu? {
@@ -115,24 +69,41 @@ final class CloudTerminalReconnectOverlayView: NSView {
     func apply(_ presentation: CloudTerminalReconnectOverlayPolicy.Presentation) {
         guard currentPresentation != presentation else { return }
         currentPresentation = presentation
-        titleLabel.stringValue = presentation.title
-        detailLabel.stringValue = presentation.detail
-        reconnectButton.menu = CloudErrorCopy.menu(presentation.copyableError)
-        reconnectButton.isHidden = !presentation.showsReconnectButton
-        spinner.isHidden = !presentation.showsProgress
-        iconView.isHidden = presentation.showsProgress
-        if presentation.showsProgress {
-            spinner.startAnimation(nil)
-        } else {
-            spinner.stopAnimation(nil)
-        }
-        iconView.image = NSImage(
-            systemSymbolName: presentation.showsReconnectButton ? "wifi.exclamationmark" : "arrow.triangle.2.circlepath",
-            accessibilityDescription: nil
-        )
+        reconnectAction = presentation.showsReconnectButton
+            ? { [weak self] in self?.onReconnect?() }
+            : nil
+        needsContentUpdate = true
+        needsLayout = true
     }
 
-    @objc private func handleReconnect() {
-        onReconnect?()
+    private struct Content: View {
+        let presentation: CloudTerminalReconnectOverlayPolicy.Presentation
+        let onReconnect: (() -> Void)?
+        let onDismiss: () -> Void
+        #if DEBUG
+        @AppStorage("cloudPaneFailurePrototypeStyle") private var prototypeStyle = "compact-bordered"
+        #endif
+
+        private var style: CloudFailureCard.Style {
+            #if DEBUG
+            CloudFailureCard.Style(rawValue: prototypeStyle) ?? .compactBordered
+            #else
+            .compactBordered
+            #endif
+        }
+
+        var body: some View {
+            VStack(spacing: 10) {
+                if presentation.showsProgress { ProgressView().controlSize(.small) }
+                CloudFailureCard(
+                    title: presentation.title,
+                    detail: presentation.detail,
+                    copyableText: presentation.copyableError,
+                    style: style,
+                    onRetry: onReconnect,
+                    onDismiss: onDismiss
+                )
+            }
+        }
     }
 }

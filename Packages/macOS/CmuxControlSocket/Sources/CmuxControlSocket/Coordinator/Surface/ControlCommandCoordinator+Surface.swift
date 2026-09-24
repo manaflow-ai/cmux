@@ -1,5 +1,4 @@
 internal import Foundation
-
 /// The surface domain (`surface.*` plus `debug.terminals`), lifted byte-faithfully
 /// from the former `TerminalController.v2Surface*` / `v2DebugTerminals` bodies.
 /// Each payload is built directly as a ``JSONValue``; the encoded wire bytes match.
@@ -164,11 +163,13 @@ extension ControlCommandCoordinator {
                 if let dev = surface.developerToolsVisible {
                     item["developer_tools_visible"] = .bool(dev)
                 }
-                if surface.isTerminal {
+                let relayScoped = params["_cmux_remote_workspace_id"] != nil
+                if surface.isTerminal, !relayScoped {
                     item["requested_working_directory"] = orNull(surface.requestedWorkingDirectory)
                     item["initial_command"] = orNull(surface.initialCommand)
                     item["tmux_start_command"] = orNull(surface.tmuxStartCommand)
                     item["resume_binding"] = surfaceResumeBindingPayload(surface.resumeBinding)
+                    item["render_health"] = orNull(surface.renderHealthRawValue)
                 }
                 if surface.typeRawValue == "simulator" {
                     item["simulator_id"] = orNull(surface.simulatorDeviceID)
@@ -253,7 +254,6 @@ extension ControlCommandCoordinator {
             ]))
         }
     }
-
     // MARK: - health
 
     /// `surface.health` — render health for the resolved workspace's surfaces.
@@ -273,6 +273,7 @@ extension ControlCommandCoordinator {
                 "type": .string(entry.typeRawValue),
                 "in_window": entry.inWindow.map { .bool($0) } ?? .null,
                 "socket_binding": entry.socketBindingRawValue.map { .string($0) } ?? .null,
+                "render_health": entry.renderHealthRawValue.map { .string($0) } ?? .null,
             ])
         }
         return .ok(.object([
@@ -283,7 +284,6 @@ extension ControlCommandCoordinator {
             "window_ref": ref(.window, snapshot.windowID),
         ]))
     }
-
     // MARK: - focus
 
     /// `surface.focus` — focus a surface in the resolved workspace.

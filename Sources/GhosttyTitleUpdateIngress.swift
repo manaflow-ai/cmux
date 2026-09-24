@@ -79,7 +79,10 @@ final class GhosttyTitleUpdateIngress {
     ) -> Bool {
         let stableTitle: String
         if let titleOverride {
-            stableTitle = titleOverride
+            guard let boundedTitle = AutomaticTerminalTitle(titleOverride)?.value else {
+                return false
+            }
+            stableTitle = boundedTitle
         } else if let churnStableTitle = titleChurnFilter.stableTitle(for: title) {
             stableTitle = churnStableTitle
         } else {

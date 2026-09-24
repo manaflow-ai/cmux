@@ -609,10 +609,10 @@ public actor DeviceRegistryService: DeviceRegistryRefreshing {
                 return nil
             }
             if http.statusCode == 429 {
-                let seconds = CmxRetryAfterPolicy.seconds(
+                let seconds = CmxRetryAfterPolicy().seconds(
                     from: http,
-                    defaultSeconds: CmxRetryAfterPolicy.defaultRateLimitSeconds
-                ) ?? CmxRetryAfterPolicy.defaultRateLimitSeconds
+                    defaultSeconds: CmxRetryAfterPolicy().defaultRateLimitSeconds
+                ) ?? CmxRetryAfterPolicy().defaultRateLimitSeconds
                 await retryAfterGate.extend(by: seconds)
             }
             return RegistryResponse(data: data, statusCode: http.statusCode)
@@ -813,14 +813,22 @@ public extension MobileIOSAppNamespace {
         deviceWitness: String? = nil,
         evidence: any SameDeviceEvidenceProbing = IrohEndpointIdentityEvidenceProbe()
     ) -> String? {
-        DeviceRegistryService.durableDeviceID(
-            store: KeychainDeviceIdentityStore(
-                service: keychainService(
-                    base: "com.cmuxterm.deviceRegistry.iosDeviceID.v1"
-                ),
-                accessGroup: keychainAccessGroup,
-                legacyService: "com.cmuxterm.deviceRegistry.iosDeviceID.v1"
+        #if targetEnvironment(simulator)
+        let store: any DeviceIdentityStoring = SimulatorDeviceIdentityStore(
+            defaults: defaults,
+            seededDeviceID: ProcessInfo.processInfo.environment["CMUX_SIMULATOR_DEVICE_ID"]
+        )
+        #else
+        let store: any DeviceIdentityStoring = KeychainDeviceIdentityStore(
+            service: keychainService(
+                base: "com.cmuxterm.deviceRegistry.iosDeviceID.v1"
             ),
+            accessGroup: keychainAccessGroup,
+            legacyService: "com.cmuxterm.deviceRegistry.iosDeviceID.v1"
+        )
+        #endif
+        return DeviceRegistryService.durableDeviceID(
+            store: store,
             defaults: defaults,
             deviceWitness: deviceWitness,
             evidence: evidence

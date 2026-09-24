@@ -28,7 +28,14 @@ struct CloudOperationDetailsView: View {
                             HStack {
                                 Text(operation.operation.label).font(.subheadline.bold())
                                 Spacer()
-                                Text(operation.startedAt, style: .time).font(.caption).foregroundStyle(.secondary)
+                                VStack(alignment: .trailing, spacing: 2) {
+                                    Text(operation.startedAt, style: .time)
+                                    if let duration = operation.durationMs {
+                                        Text(Duration.milliseconds(duration), format: .units(allowed: [.seconds, .milliseconds], width: .abbreviated))
+                                    }
+                                }
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
                             }
                             ForEach(operation.steps) { step in
                                 HStack {

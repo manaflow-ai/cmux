@@ -11,13 +11,15 @@ a peer unless it later becomes a direct Cloud network client.
 
 | role | traffic | implementation | first user action |
 | --- | --- | --- | --- |
-| terminal | cmux-tui terminal and metadata; explicitly forwarded ports | user-space WireGuard hub | none |
+| terminal | cmux-tui terminal and in-app HTTP browser/Desktop traffic | user-space WireGuard hub | none |
 | browser | a system-wide route for other apps on this Mac (`cmux vpn up`) | Apple Network Extension | allow the cmux network extension |
 
 The terminal role does not create a system interface or require macOS VPN
-approval. The browser role starts only when the user connects Cloud VPN.
-Browser and Desktop pages show setup controls when private access is unavailable.
-Port forwarding is available only through the explicit Ports controls.
+approval. In-app HTTP browser and Desktop pages use an authenticated loopback
+forward over the same hub, so they work with the optional system VPN off. The
+system VPN remains the path for other Mac apps that need the VM private address.
+Browser and Desktop show inline connection errors with a Reload action.
+They never offer VPN setup.
 
 ## Terminal path
 
@@ -47,35 +49,44 @@ no connection ticket and no Freestyle call.
 
 ## Ports and Desktop path
 
-Browser panes open each machine's private address and original port by default.
-A native connection panel is shown until VPN access is ready and the page loads.
-It includes VPN setup, loading and failure states, and an explicit Ports table.
-Opening a page, copying a link, restoring a pane, and losing VPN access never
-create a local forward or fall back to a public preview.
+A Cloud browser keeps the machine's private IP and original port as its actual
+URL and document origin. Command-clicking `http://0.0.0.0:8000/` or
+`http://localhost:8000/` in a Cloud terminal opens the page to the right at that
+terminal's machine address, for example `http://10.16.0.7:8000/`. Another VM can
+use the same port at `http://10.16.0.8:8000/`; their routes and origins are distinct.
 
-**Forward Port** is a deliberate action. It starts an HTTP loopback forward
-through the terminal WireGuard hub. The table shows the machine port, assigned
-local address, status, Copy, and Stop Forwarding. Every browser pane for the same
-machine and port shares its access choice. Active forwards are also listed in
-VPN setup. Stop closes the listener and active connections. Sign-out, machine
-removal, and process exit also end the forwards. HTTPS uses the private VPN
-address because changing the host would invalidate its certificate identity.
+Each machine has one app-owned authenticated HTTP CONNECT proxy. WebKit sends
+only that machine's private-address requests through it, with direct fallback
+disabled. The proxy opens the existing daemon's `LoopbackOnly` TCP route over
+an authenticated carrier through the shared userspace WireGuard hub. The daemon
+connects to `127.0.0.1:<port>` inside the VM, so loopback-only development servers
+work as well as servers listening on all interfaces. No guest firewall rule,
+system network route, public preview, or macOS VPN approval is needed.
 
-Command-click on a Cloud terminal's localhost, 127.0.0.1, or 0.0.0.0 web link
-replaces only its host with the VM's private address. The browser follows the
-same connection flow. Local terminals and external sites keep their own URLs.
+Browser data stores are isolated per pane, profile, and machine, with stable
+identifiers across session restore. A new proxy for one VM cannot reconfigure
+another pane's networking. HTTP request bodies and WebSocket bytes are relayed
+without changing the private-IP Host header or document origin. Cleartext
+localhost fetch, XHR, WebSocket, and EventSource URLs inside the page are mapped
+to its VM address. HTTPS keeps its normal certificate validation against the
+visible private address.
+
+Opening a page starts the userspace connection automatically. Loading and failure
+states remain in the same browser pane and Reload retries the connection.
+The local proxy requires a fresh per-process credential exchanged only through
+the app's private stdout pipe; it accepts only the configured VM addresses and
+refuses the daemon port. Machine removal, sign-out, and process exit close the
+proxy and its WireGuard claim. Explicit loopback forwards for other local clients
+remain separate from the browser's stable private-IP URL.
 
 ## System-wide route (`cmux vpn up`)
 
-The Machines panel has an optional **Set Up cmux VPN…** entry. The same action
-is available in the workspace plus-button menu, the command palette, and the
-context menus for Cloud machines and private port URLs. Each opens the same
-native setup pane, like iPhone pairing. Opening it only reads connection status;
-**Connect Cloud VPN** explicitly starts and pins the existing tunnel coordinator.
-The pane explains extension approval and VPN configuration permission, follows
-approval automatically, reports errors, and supports cancellation and disconnect.
-It reports builds without a signed extension as unavailable without prompting.
-Automation can open it through `workspace.action {action: "cloud_vpn_setup"}`.
+The system VPN is controlled explicitly through `cmux vpn up`, `cmux vpn down`,
+and `cmux vpn status`. These commands retain the existing authenticated tunnel
+coordinator, macOS extension approval, and cancellation behavior. There are no
+VPN setup rows, buttons, menu items, Settings entries, or setup panes in the app.
+HTTP Desktop uses the userspace hub regardless of system VPN state. HTTPS retains
+its original private host and requires a private network connection.
 
 
 `cmux vpn up` creates a separate browser peer through `POST /api/vm/tunnel`,
@@ -208,11 +219,9 @@ so its TCP maximum segment size stays within the tunnel packet size.
 - `cargo test -p cmux-tui`: hub command and required capability.
 - Web tests: one physical Mac with two role peers, multiple Stack sessions,
   rename, sign-out revoke, remote revoke, and no iOS registry coupling.
-- Tagged Mac build: with system VPN off, two VM terminals work through one
-  hub. Opening a Ports row shows native connection controls and creates no
-  listener. Forward Port opens `http://127.0.0.1:<port>` through the same hub;
-  Stop Forwarding closes it. With VPN connected, opening the same row uses
-  the VM private address and original port.
+- Tagged Mac build: with system VPN off, HTTP Desktop and browser ports use
+  `http://127.0.0.1:<port>` through the shared hub. noVNC assets and websockify
+  share that listener; private URLs remain the copied link metadata.
 - `CloudLoopbackPortForwardTests`: a loopback client, the real forward, and a
   fake SOCKS5 hub; bytes relay both ways, a refused CONNECT closes the client,
   the hub lease follows each connection, and one machine port keeps one local

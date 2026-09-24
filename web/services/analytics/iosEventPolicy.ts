@@ -62,6 +62,7 @@ const ALLOWED_EVENTS: ReadonlySet<string> = new Set([
   "ios_connection_lost",
   "ios_connection_recovered",
   "ios_connection_recovery_failed",
+  "ios_initial_connection",
   // Workspace + terminal
   "ios_workspace_opened",
   "ios_first_frame_latency",

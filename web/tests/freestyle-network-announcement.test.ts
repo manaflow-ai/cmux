@@ -58,7 +58,9 @@ describe("Freestyle private network readiness", () => {
     };
     const vm = {
       exec: async ({ command }: { command: string }) => {
-        events.push(command.startsWith("python3 -c ") ? "guest-network" : "guest-daemon");
+        // Adapter, reporter, and hook preparation can add probes. This test
+        // guards publication/rollback ordering, not the number of setup execs.
+        if (command.includes("Private network addresses are not ready")) events.push("guest-network");
         return { statusCode: 0, stdout: "", stderr: "" };
       },
       fs: {
@@ -70,26 +72,61 @@ describe("Freestyle private network readiness", () => {
     const client = { vms: {
       create: async () => { events.push("allocated"); return { vm, vmId: data.id, data }; },
       get: async () => data,
+      ref: (id: string) => {
+        if (id !== data.id) throw new Error(`unexpected VM ref: ${id}`);
+        return vm;
+      },
     } } as unknown as Freestyle;
     const provider = new FreestyleProvider({
       client: () => client,
-      resolveDaemonSource: async () => { throw new Error("No daemon install is needed"); },
     });
 
     const allocation = operation === "create"
       ? provider.create({ image: "sh-fixture", network: { id: "vpc-fixture" } })
       : provider.restore("sh-fixture", { network: { id: "vpc-fixture" } });
-    const preparation = operation === "restore"
-      ? ["allocated", "guest-daemon", "guest-daemon"]
-      : ["allocated", "guest-daemon"];
     if (hasAddresses) {
       await allocation;
       events.push("published");
-      expect(events).toEqual([...preparation, "guest-network", "published"]);
+      expect(events).toEqual(["allocated", "published"]);
     } else {
       await expect(allocation).rejects.toThrow();
-      expect(events).toEqual([...preparation, "delete"]);
+      expect(events).toEqual(["allocated", "delete"]);
     }
+  });
+
+  test("create does not wait for a guest network announcement after allocation", async () => {
+    const events: string[] = [];
+    const data = {
+      id: "vm-network-create-fast", state: "running", snapshotId: "sh-fixture",
+      resources: { cpu: 64, memory: 131072, storage: 1048576 },
+      vpcs: [{ ipv4: "10.16.0.2", ipv6: "fd00::2" }],
+    };
+    const vm = {
+      exec: async ({ command }: { command: string }) => {
+        if (command.includes("Private network addresses are not ready")) {
+          events.push("guest-network");
+          return { statusCode: 124, stdout: "", stderr: "network state probe timed out" };
+        }
+        return { statusCode: 0, stdout: "", stderr: "" };
+      },
+      fs: { writeTextFile: async () => {}, remove: async () => {} },
+      delete: async () => { events.push("delete"); },
+    };
+    const client = { vms: {
+      create: async () => { events.push("allocated"); return { vm, vmId: data.id, data }; },
+      ref: (id: string) => {
+        if (id !== data.id) throw new Error(`unexpected VM ref: ${id}`);
+        return vm;
+      },
+    } } as unknown as Freestyle;
+    const provider = new FreestyleProvider({
+      client: () => client,
+    });
+
+    const handle = await provider.create({ image: "sh-fixture", network: { id: "vpc-fixture" } });
+    events.push("published");
+    expect(handle.providerVmId).toBe(data.id);
+    expect(events).toEqual(["allocated", "published"]);
   });
 
   test("the guest announces assigned IPv4 and IPv6 without touching other addresses", () => {

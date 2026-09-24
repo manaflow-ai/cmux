@@ -2,6 +2,7 @@ import { dirname } from "node:path";
 import { DEVBOX_WORK_HOME, DEVBOX_WORK_USER } from "../images/workUser";
 import {
   ProviderError,
+  ProviderArtifactUnavailableError,
   type CmuxRemoteEndpoint,
   type ExecResult,
   type ProviderId,
@@ -170,7 +171,7 @@ export function parseCmuxTuiManifest(
     throw new ProviderError(provider, `cmux-tui manifest at ${manifestUrl} has no ${CMUX_TUI_LINUX_TARGET} sha256 — publish artifacts from a main with the musl target`);
   }
   if (!/^[0-9a-f]{64}$/.test(hookSha256)) {
-    throw new ProviderError(provider, `cmux-tui manifest at ${manifestUrl} has no ${CMUX_TUI_HOOK_LINUX_TARGET} sha256 — the hook helper ships beside the daemon since cmux-tui-artifacts publishes both`);
+    throw new ProviderArtifactUnavailableError(provider, { manifestUrl, target: CMUX_TUI_HOOK_LINUX_TARGET });
   }
   const base = manifestUrl.replace(/\/manifest\.json$/, "");
   return {
@@ -280,7 +281,7 @@ function pinnedFile(sha256: string, path: string): string {
 
 function fetchTo(path: string, url: string): string {
   return (
-    `if command -v curl >/dev/null 2>&1; then curl -fsSL --retry 3 --retry-delay 2 -o ${path} ${shellQuote(url)}; ` +
+    `if command -v curl >/dev/null 2>&1; then curl -fsSL --retry 3 -o ${path} ${shellQuote(url)}; ` +
     `elif command -v wget >/dev/null 2>&1; then wget -q -O ${path} ${shellQuote(url)}; ` +
     `else false; fi`
   );

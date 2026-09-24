@@ -62,6 +62,7 @@ pub(super) struct PluginPlan {
     pub name: Option<String>,
     pub force: bool,
     pub builtin: bool,
+    pub kind: crate::plugin_manager::PluginKind,
 }
 
 #[derive(Clone, Debug)]
@@ -149,6 +150,7 @@ struct Tokens {
 
 pub(super) fn parse(args: &[String]) -> Result<CommandPlan, UsageError> {
     let mut tokens = tokenize(args)?;
+    super::shorthand::normalize_words(&mut tokens.words);
     let scope = tokens
         .words
         .first()
@@ -297,7 +299,7 @@ const BOOLEAN_FLAGS: &[&str] = &[
     "ignore-case",
 ];
 
-fn is_boolean_flag(name: &str) -> bool {
+pub(super) fn is_boolean_flag(name: &str) -> bool {
     BOOLEAN_FLAGS.contains(&name)
 }
 
@@ -914,6 +916,7 @@ fn parse_tab_strings(
         }
         [selector, "rename"] => {
             selectors.insert("tab", "tab", selector)?;
+            add_optional_parent_selectors(selectors, flags, &["workspace", "screen", "pane"])?;
             request_with_required_name(ResourceOperation::TabRename, selectors, flags)
         }
         [selector, "move"] => {
@@ -1479,6 +1482,9 @@ fn parse_notify(words: &[String], flags: &mut Flags) -> Result<CommandPlan, Usag
 fn parse_agent(words: &[String], flags: &mut Flags) -> Result<CommandPlan, UsageError> {
     let selectors = Selectors::default();
     match strs(words).as_slice() {
+        ["plugin", tail @ ..] => {
+            parse_plugin(tail, flags, crate::plugin_manager::PluginKind::Agent)
+        }
         ["hook", action @ ("install" | "uninstall" | "status"), providers @ ..] => {
             let action = match *action {
                 "install" => crate::agent_hook_install::Action::Install,
@@ -1649,12 +1655,18 @@ fn parse_sidebar(
             insert_selector_or_current(selectors, flags, "view", "sidebar_view", "sidebar_view")?;
             request(ResourceOperation::SidebarViewReload, selectors, flags, Map::new())
         }
-        ["plugin", tail @ ..] => parse_plugin(tail, flags),
+        ["plugin", tail @ ..] => {
+            parse_plugin(tail, flags, crate::plugin_manager::PluginKind::Sidebar)
+        }
         _ => usage("sidebar action"),
     }
 }
 
-fn parse_plugin(words: &[&str], flags: &mut Flags) -> Result<CommandPlan, UsageError> {
+fn parse_plugin(
+    words: &[&str],
+    flags: &mut Flags,
+    kind: crate::plugin_manager::PluginKind,
+) -> Result<CommandPlan, UsageError> {
     let mut positionals = vec![];
     let mut builtin = false;
     match words {
@@ -1679,13 +1691,14 @@ fn parse_plugin(words: &[&str], flags: &mut Flags) -> Result<CommandPlan, UsageE
             positionals.push("remove".into());
             positionals.push((*name).into());
         }
-        _ => return usage("sidebar plugin action"),
+        _ => return usage("plugin action"),
     }
     let plan = PluginPlan {
         positionals,
         name: flags.take("name"),
         force: flags.boolean("force"),
         builtin,
+        kind,
     };
     Ok(CommandPlan::Plugin(plan))
 }
@@ -1800,7 +1813,10 @@ fn parse_raw(words: &[String], flags: &mut Flags) -> Result<CommandPlan, UsageEr
         if !request.is_object() {
             return Err(UsageError::new("--request-json must be a JSON object"));
         }
-        return Ok(CommandPlan::RawCommand(super::raw::RawCommandPlan { request }));
+        return Ok(CommandPlan::RawCommand(super::raw::RawCommandPlan {
+            request,
+            stream: flags.boolean("stream"),
+        }));
     }
     let operation = match refs.as_slice() {
         ["operation", operation] => *operation,
@@ -2235,6 +2251,17 @@ fn request_with_required_name(
 ) -> Result<CommandPlan, UsageError> {
     let mut params = Map::new();
     params.insert("name".into(), Value::String(flags.required("name")?));
+    if operation == ResourceOperation::TabRename {
+        if let Some(source) = flags.take("source") {
+            validate_one_of("--source", &source, &["user", "auto"])?;
+            params.insert("source".into(), Value::String(source));
+        }
+        insert_optional_string(&mut params, flags, "expected-generation", "expected_generation");
+        if let Some(revision) = flags.take("expected-name-revision") {
+            validate_decimal("--expected-name-revision", &revision)?;
+            params.insert("expected_name_revision".into(), Value::String(revision));
+        }
+    }
     request(operation, selectors, flags, params)
 }
 
@@ -2780,6 +2807,7 @@ pub(super) fn run_plugin(global: GlobalArgs, plan: PluginPlan) -> i32 {
             force: plan.force,
             builtin: plan.builtin,
         },
+        plan.kind,
     ) {
         Ok(result) => super::wire::print_local_success(&result, global.output),
         Err(error) => {
@@ -3353,6 +3381,43 @@ mod tests {
             vec!["stream", "stream_0000000000000000000000000000000a", "cancel"],
         ] {
             assert!(parse(&strings(&unreachable)).is_err(), "{unreachable:?}");
+        }
+    }
+
+    #[test]
+    fn cloud_rename_authority_validates_name_source_and_revision() {
+        const TAB: &str = "tab_00000000000000000000000000000007";
+        for source in ["user", "auto"] {
+            for revision in ["0", "18446744073709551615"] {
+                let plan = protocol(&[
+                    "tab",
+                    TAB,
+                    "rename",
+                    "--name",
+                    "logs",
+                    "--source",
+                    source,
+                    "--expected-generation",
+                    "daemon",
+                    "--expected-name-revision",
+                    revision,
+                ]);
+                assert_eq!(operation(&plan), "tab.rename");
+                assert_eq!(plan.params["source"], source);
+                assert_eq!(plan.params["expected_generation"], "daemon");
+                assert_eq!(plan.params["expected_name_revision"], revision);
+            }
+        }
+
+        for invalid in ["", "01", "-1", "+1", "18446744073709551616"] {
+            let args =
+                ["tab", TAB, "rename", "--name", "logs", "--expected-name-revision", invalid];
+            assert!(parse(&strings(&args)).is_err(), "accepted invalid revision {invalid:?}");
+        }
+
+        for invalid in ["", "process", "USER"] {
+            let args = ["tab", TAB, "rename", "--name", "logs", "--source", invalid];
+            assert!(parse(&strings(&args)).is_err(), "accepted invalid source {invalid:?}");
         }
     }
 
@@ -4068,6 +4133,25 @@ mod tests {
     }
 
     #[test]
+    fn agent_plugin_management_stays_local_and_can_be_disabled() {
+        let cases = [
+            (vec!["agent", "plugin", "list"], false),
+            (vec!["agent", "plugin", "install", "https://example.com/plugin.git"], false),
+            (vec!["agent", "plugin", "use", "screen-detector"], false),
+            (vec!["agent", "plugin", "update", "screen-detector"], false),
+            (vec!["agent", "plugin", "remove", "screen-detector"], false),
+            (vec!["agent", "plugin", "use", "--builtin"], true),
+        ];
+        for (args, builtin) in cases {
+            let CommandPlan::Plugin(plan) = parse(&strings(&args)).unwrap() else {
+                panic!("agent plugin command did not stay local: {args:?}");
+            };
+            assert_eq!(plan.kind, crate::plugin_manager::PluginKind::Agent);
+            assert_eq!(plan.builtin, builtin);
+        }
+    }
+
+    #[test]
     fn every_safe_transport_operation_has_a_noun_first_path() {
         const MACHINE: &str = "machine_00000000000000000000000000000001";
         const SESSION: &str = "session_00000000000000000000000000000002";
@@ -4470,7 +4554,22 @@ mod tests {
                 ],
                 "tab.create_browser",
             ),
-            (vec!["tab", TAB, "rename", "--name", "logs"], "tab.rename"),
+            (
+                vec![
+                    "tab",
+                    TAB,
+                    "rename",
+                    "--name",
+                    "logs",
+                    "--source",
+                    "auto",
+                    "--expected-generation",
+                    "daemon",
+                    "--expected-name-revision",
+                    "0",
+                ],
+                "tab.rename",
+            ),
             (
                 vec![
                     "tab",

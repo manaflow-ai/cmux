@@ -1,0 +1,42 @@
+name: cmux-tui registry delivery
+
+on:
+  workflow_dispatch:
+  workflow_run:
+    workflows: [cmux-tui release binaries]
+    types: [completed]
+  schedule:
+    - cron: "17 */6 * * *"
+
+permissions:
+  contents: read
+
+env:
+  # The file that must carry the display name in the trigger above. Renaming a
+  # workflow silently stops every `workflow_run` consumer of it, so
+  # tests/test_ci_workflow_run_sources.py derives the expected name from this
+  # path and fails the pull request that renames it.
+  SOURCE_WORKFLOW_PATHS: .github/workflows/cmux-tui-release.yml
+
+concurrency:
+  group: cmux-tui-registry-delivery
+  cancel-in-progress: false
+
+jobs:
+  delivery:
+    name: verify registry delivery
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 5
+    steps:
+      # Always use the trusted default branch, never workflow_run's source.
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: main
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Check newest stable TUI release on PyPI and npm
+        env:
+          GH_TOKEN: ${{ github.token }}
+        # The post-build check may still be inside the two-hour delivery grace
+        # period. The scheduled check catches forgotten approvals after it.
+        run: python3 cmux-tui/scripts/check_release_delivery.py

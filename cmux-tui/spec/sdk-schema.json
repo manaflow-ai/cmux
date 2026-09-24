@@ -585,6 +585,7 @@
   "AgentSource": {
    "kind": "enum",
    "values": [
+    "plugin",
     "detected",
     "socket",
     "hook"
@@ -3597,6 +3598,16 @@
      "nullable": true,
      "since": 12,
      "description": "Working directory of the process group that owns the PTY, read at request time. Null when the lookup fails; absent from daemons that predate the field. Clients treat absence as null."
+    },
+    "foreground_executable": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": true,
+     "since": 12,
+     "description": "Executable path or name of the PTY foreground process-group leader, read at request time. Null when the lookup fails; absent from daemons that predate the field. Clients treat absence as null."
     }
    },
    "additional_properties": false
@@ -4459,6 +4470,36 @@
    },
    "additional_properties": false
   },
+  "TerminalColorOverrides": {
+   "kind": "object",
+   "fields": {
+    "fg": {
+     "type": {
+      "kind": "ref",
+      "name": "ColorHex"
+     },
+     "presence": "required",
+     "nullable": true
+    },
+    "bg": {
+     "type": {
+      "kind": "ref",
+      "name": "ColorHex"
+     },
+     "presence": "required",
+     "nullable": true
+    },
+    "cursor": {
+     "type": {
+      "kind": "ref",
+      "name": "ColorHex"
+     },
+     "presence": "required",
+     "nullable": true
+    }
+   },
+   "additional_properties": false
+  },
   "TerminalColors": {
    "kind": "object",
    "fields": {
@@ -4486,6 +4527,15 @@
      "presence": "optional",
      "nullable": true,
      "since": 6
+    },
+    "overrides": {
+     "type": {
+      "kind": "ref",
+      "name": "TerminalColorOverrides"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "since": 12
     },
     "selection_bg": {
      "type": {
@@ -5219,6 +5269,62 @@
     "journal_writer is null for ephemeral sessions without a durable journal.",
     "Counters accumulate since daemon start; reading them never touches SQLite or the journal."
    ]
+  },
+  "GuestUrlOpenResult": {
+   "kind": "object",
+   "fields": {
+    "opened": {
+     "type": {
+      "kind": "scalar",
+      "name": "boolean"
+     },
+     "presence": "required",
+     "nullable": false
+    }
+   },
+   "additional_properties": false
+  },
+  "GuestUrlSubscribeResult": {
+   "kind": "object",
+   "fields": {
+    "url_open_ready": {
+     "type": {
+      "kind": "scalar",
+      "name": "boolean"
+     },
+     "presence": "required",
+     "nullable": false
+    }
+   },
+   "additional_properties": false
+  },
+  "GuestUrlClaimResult": {
+   "kind": "object",
+   "fields": {
+    "claimed": {
+     "type": {
+      "kind": "scalar",
+      "name": "boolean"
+     },
+     "presence": "required",
+     "nullable": false
+    }
+   },
+   "additional_properties": false
+  },
+  "GuestUrlAcknowledgeResult": {
+   "kind": "object",
+   "fields": {
+    "accepted": {
+     "type": {
+      "kind": "scalar",
+      "name": "boolean"
+     },
+     "presence": "required",
+     "nullable": false
+    }
+   },
+   "additional_properties": false
   }
  },
  "commands": {
@@ -6622,8 +6728,8 @@
       "nullable": false,
       "constraints": [
        {
-        "pattern": "^[0-9a-f]{32}$",
-        "format": "UUIDv4 hex without dashes"
+        "pattern": "^(term_)?[0-9a-f]{32}$",
+        "format": "terminal host id (UUIDv4 hex without dashes) or public term_ resource id"
        }
       ]
      }
@@ -9853,8 +9959,8 @@
        "kind": "ref",
        "name": "Id"
       },
-      "presence": "required",
-      "nullable": false
+      "presence": "optional",
+      "nullable": true
      },
      "mode": {
       "type": {
@@ -9888,12 +9994,33 @@
       "nullable": true,
       "default": null,
       "capability": "attach-initial-size"
+     },
+     "expected_generation": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "capability": "attach-identity-v1"
+     },
+     "expected_terminal_id": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "capability": "attach-identity-v1"
      }
     },
     "additional_properties": false,
     "constraints": [
      "cols and rows must be supplied together.",
-     "Browser surfaces reject mode:render."
+     "Browser surfaces reject mode:render.",
+     "expected_generation and expected_terminal_id must be supplied together and match the current daemon and terminal."
     ]
    },
    "result": {
@@ -10319,6 +10446,281 @@
    "constraints": [
     "Owner-only diagnostics; never journaled and safe to poll."
    ]
+  },
+  "paste-image": {
+   "authority": "control",
+   "since": 12,
+   "capability": "terminal-image-paste-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "terminal_id": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "lease": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "upload_id": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "op": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "surface": {
+      "type": {
+       "kind": "ref",
+       "name": "Id"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "mime": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     },
+     "data": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     },
+     "size": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     },
+     "offset": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "object",
+    "fields": {
+     "accepted": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
+   },
+   "stream": null,
+   "constraints": [
+    "Requires terminal-image-paste-v1 and a current connection-owned attachment lease for the exact public terminal. Begin(mime,size), chunk(offset,data), commit, cancel. No caller-supplied paths. 20 MiB per image; 48 KiB chunks; generated temporary files expire after 600 seconds."
+   ]
+  },
+  "url-open": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": null,
+   "request": {
+    "kind": "object",
+    "fields": {
+     "terminal_id": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "url": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "GuestUrlOpenResult"
+   },
+   "stream": null,
+   "constraints": [
+    "Private frontend URL delivery; no resource or journal mutation. HTTP(S) only, exact projected terminal identity, 16 pending requests maximum, five-second expiry. A request ID is an ephemeral acknowledgement capability."
+   ]
+  },
+  "url-open-subscribe": {
+   "authority": "frontend",
+   "since": 12,
+   "capability": null,
+   "request": {
+    "kind": "object",
+    "fields": {
+     "terminal_ids": {
+      "type": {
+       "kind": "array",
+       "items": {
+        "kind": "scalar",
+        "name": "string"
+       }
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "GuestUrlSubscribeResult"
+   },
+   "stream": {
+    "kind": "subscribe",
+    "event_names": [
+     "url-open"
+    ],
+    "ordering": "Registration response followed by targeted requests; no replay. Closing the connection rejects its pending requests.",
+    "terminal_event": null
+   },
+   "constraints": [
+    "Private frontend URL delivery; no resource or journal mutation. HTTP(S) only, exact projected terminal identity, 16 pending requests maximum, five-second expiry. A request ID is an ephemeral acknowledgement capability."
+   ]
+  },
+  "url-open-claim": {
+   "authority": "frontend",
+   "since": 12,
+   "capability": null,
+   "request": {
+    "kind": "object",
+    "fields": {
+     "request_id": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "GuestUrlClaimResult"
+   },
+   "stream": null,
+   "constraints": [
+    "Private frontend URL delivery; no resource or journal mutation. HTTP(S) only, exact projected terminal identity, 16 pending requests maximum, five-second expiry. A request ID is an ephemeral acknowledgement capability."
+   ]
+  },
+  "url-open-result": {
+   "authority": "frontend",
+   "since": 12,
+   "capability": null,
+   "request": {
+    "kind": "object",
+    "fields": {
+     "request_id": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "opened": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "GuestUrlAcknowledgeResult"
+   },
+   "stream": null,
+   "constraints": [
+    "Private frontend URL delivery; no resource or journal mutation. HTTP(S) only, exact projected terminal identity, 16 pending requests maximum, five-second expiry. A request ID is an ephemeral acknowledgement capability."
+   ]
+  },
+  "move-tab-to-workspace": {
+   "authority": "control",
+   "since": 12,
+   "capability": "tab-workspace-move-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "surface": {
+      "type": {
+       "kind": "ref",
+       "name": "Id"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "workspace": {
+      "type": {
+       "kind": "ref",
+       "name": "Id"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "EmptyResult"
+   },
+   "stream": null,
+   "constraints": [
+    "Moves the existing tab to the selected workspace or atomically creates a workspace when workspace is omitted."
+   ]
   }
  },
  "events": {
@@ -10332,6 +10734,16 @@
    "payload": {
     "kind": "object",
     "fields": {
+     "agent": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "since": 12,
+      "description": "Adapter identity when the producer knows it; absent from protocol-11 event senders and null when no adapter was identified."
+     },
      "event": {
       "type": {
        "kind": "literal",
@@ -10718,6 +11130,15 @@
       },
       "presence": "optional",
       "nullable": true
+     },
+     "overrides": {
+      "type": {
+       "kind": "ref",
+       "name": "TerminalColorOverrides"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "since": 12
      },
      "selection_bg": {
       "type": {
@@ -13019,6 +13440,52 @@
       },
       "presence": "required",
       "nullable": true
+     }
+    },
+    "additional_properties": false
+   }
+  },
+  "url-open": {
+   "since": 12,
+   "capability": null,
+   "streams": [
+    "control"
+   ],
+   "emission": "emitted",
+   "payload": {
+    "kind": "object",
+    "fields": {
+     "event": {
+      "type": {
+       "kind": "literal",
+       "value": "url-open"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "request_id": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "terminal_id": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "url": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
      }
     },
     "additional_properties": false

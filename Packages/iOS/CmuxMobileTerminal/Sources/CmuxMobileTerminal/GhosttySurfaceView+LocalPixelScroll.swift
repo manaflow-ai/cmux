@@ -89,7 +89,7 @@ extension GhosttySurfaceView {
         #if DEBUG
         let enqueuedAt = CACurrentMediaTime()
         #endif
-        workQueue.async { [weak self] in
+        workQueue.asyncPriority { [weak self] in
             #if DEBUG
             let batchStartedAt = CACurrentMediaTime()
             #endif
@@ -169,6 +169,7 @@ extension GhosttySurfaceView {
         operation: LocalPixelScrollSurfaceOperation,
         deltaPixels: Double,
         rebaseFromHeldPosition: Bool,
+        // Carve-out: the gesture snapshot must be read atomically inside this synchronous libghostty batch.
         pixelState: OSAllocatedUnfairLock<LocalPixelScrollState>,
         // lint:allow lock - the view's cumulative push counter threaded to the
         // serial batch; same discipline as pixelState above.
