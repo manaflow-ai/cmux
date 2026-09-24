@@ -17,7 +17,7 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: |
           python3 - <<'PY_CHECK'
-          import json, os, urllib.request, urllib.error
+          import hashlib, json, os, urllib.request, urllib.error
           expected = "0c1675e0def6de1ab3a50a4e17dc5656"
           configured = os.environ.get("CLOUDFLARE_ACCOUNT_ID", "")
           token = os.environ.get("CLOUDFLARE_API_TOKEN", "")
@@ -55,6 +55,13 @@ jobs:
               print(json.dumps({"target": label, "settingsSuccess": settings.get("success"), "bindingNamesAndTypes": bindings}))
               canonical = next((item.get("service") for item in result.get("bindings", []) if item.get("name") == "CANONICAL" and item.get("type") == "service"), None)
               if isinstance(canonical, str) and canonical in {"cmux-v2-development"} and all(c.isalnum() or c in "-_" for c in canonical):
+                  content_request = urllib.request.Request("https://api.cloudflare.com/client/v4/accounts/" + account + "/workers/scripts/" + canonical, headers={"Authorization": "Bearer " + token})
+                  try:
+                      with urllib.request.urlopen(content_request, timeout=20) as response:
+                          content = response.read(8 * 1024 * 1024)
+                      print(json.dumps({"canonical": canonical, "sourceSHA256": hashlib.sha256(content).hexdigest(), "sourceBytes": len(content), "usesConnectedWorkspaceBinding": b"HYPERDRIVE_CONNECTED_WORKSPACES" in content, "usesWorkspacePublisherSecret": b"WORKSPACE_PUBLISHER_SECRET" in content, "advertisesMacPeerRule": b"cmux.mac-peer-inbound.v1" in content, "implementsMacHostCapability": b"cmux.mac-host.v1" in content}))
+                  except urllib.error.HTTPError as error:
+                      print(json.dumps({"canonical": canonical, "sourceHttp": error.code}))
                   for suffix in ["settings", "secrets"]:
                       request = urllib.request.Request("https://api.cloudflare.com/client/v4/accounts/" + account + "/workers/scripts/" + canonical + "/" + suffix, headers={"Authorization": "Bearer " + token})
                       try:
