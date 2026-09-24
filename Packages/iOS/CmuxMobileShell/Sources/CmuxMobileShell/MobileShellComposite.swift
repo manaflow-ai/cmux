@@ -3103,6 +3103,17 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     ) async -> StoredMacReconnectOutcome {
         lastReconnectStackUserID = stackUserID
         startObservingNetworkPathChanges()
+        // A hydrating restore is the launch/team-change lifecycle attempt:
+        // fresh user-visible intent, like a manual retry. Transient pacing
+        // left by earlier attempts (possibly run against half-initialized
+        // launch state, or under the previous team scope) must not filter
+        // Iroh out of its candidates and settle the restore as noRoute while
+        // the Mac is reachable. A broker Retry-After survives: only the
+        // transient cooldown is cleared.
+        if hydratePairedMacs,
+           let accountID = stackUserID ?? identityProvider?.currentUserID {
+            clearTransientAutomaticReconnectBackoff(accountID: accountID)
+        }
         // Lifecycle/auth callbacks may request restoration after an explicit
         // attach already established the foreground session. Treat the live
         // client as authoritative instead of replacing it with another client
