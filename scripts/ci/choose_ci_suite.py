@@ -69,6 +69,14 @@ TOP_LEVEL_DECLARATION_RE = re.compile(
     r"([A-Za-z_][A-Za-z0-9_]*)"
 )
 FILE_LOCAL_MODIFIERS = {"private", "fileprivate"}
+# A member one level inside a top-level extension. Name-less kinds leave the
+# name group empty.
+EXTENSION_MEMBER_RE = re.compile(
+    r"^    (?:@[A-Za-z_][A-Za-z0-9_]*(?:\([^)]*\))?\s+)*"
+    r"((?:[a-z]+\s+)*)"
+    r"(?:(?:func|var|let|enum|struct|class|actor|typealias)\s+([A-Za-z_][A-Za-z0-9_]*)"
+    r"|(?:init|subscript|func\s+[^A-Za-z_\s(]))"
+)
 
 
 def diff_needs_the_suite(paths: Iterable[str] | None) -> bool:
@@ -124,51 +132,133 @@ def wants_unit_suite(
     return any(path.strip().startswith(UNIT_JUDGED_PREFIXES) for path in paths)
 
 
-def suites_declared_in(
+def _declarations(lines: list[str]) -> tuple[set[str], set[str], bool]:
+    """(suites, helpers other files can see, whether a helper is untraceable).
+
+    A helper is traced by searching for its name. An extension of a type that
+    is not a suite is traced through the names of the members it adds. What
+    has no name to search for is untraceable: a conformance, an init, a
+    subscript, or an operator.
+    """
+    suites: set[str] = set()
+    helpers: set[str] = set()
+    untraceable = False
+    in_extension = False
+    for line in lines:
+        match = TOP_LEVEL_DECLARATION_RE.match(line)
+        if match is not None:
+            modifiers, kind, name = match.groups()
+            in_extension = False
+            if name.endswith("Tests") and kind in {"class", "struct", "actor", "extension"}:
+                suites.add(name)
+            elif FILE_LOCAL_MODIFIERS & set(modifiers.split()):
+                continue
+            elif kind == "extension":
+                if re.match(rf"[^{{]*\b{re.escape(name)}\s*:", line[match.start(3):]):
+                    untraceable = True
+                in_extension = True
+            else:
+                helpers.add(name)
+            continue
+        if not in_extension:
+            continue
+        member = EXTENSION_MEMBER_RE.match(line)
+        if member is None:
+            continue
+        modifiers, name = member.groups()
+        if FILE_LOCAL_MODIFIERS & set(modifiers.split()):
+            continue
+        if name is None:
+            untraceable = True
+        else:
+            helpers.add(name)
+    return suites, helpers, untraceable
+
+
+def suites_affected_by(
     root: Path, paths: Iterable[str] | None, added: Iterable[str] = ()
 ) -> list[str]:
-    """The cmuxTests/ suites declared or extended in the changed files.
+    """The cmuxTests/ suites a diff can change the behavior of.
 
-    Returns an empty list, meaning "run every suite", whenever the answer could
+    That is every suite a changed file declares or extends, plus every suite in
+    a file that names a helper a changed file declares, followed transitively.
+    Returns an empty list, meaning "run every suite", whenever that answer could
     be incomplete: an unreadable diff, a changed file under cmuxTests/ that is
-    not Swift, or an existing one that declares no suite or declares anything
-    else other files can see. A helper like that can change the behavior of
-    any suite, and nothing here can say which. A file `added` by this diff is
-    the exception: nothing called it before, so only files this diff also
-    changed can use it.
+    not Swift, or a helper whose users no name search finds. A file `added` by
+    this diff needs no search: nothing called it before, so only files this
+    diff also changed can use it.
     """
     if paths is None:
         return []
     new_files = {path.strip() for path in added}
-    suites: set[str] = set()
+    test_files: dict[str, list[str]] = {}
+    for source in sorted((root / "cmuxTests").glob("**/*.swift")):
+        try:
+            test_files[source.relative_to(root).as_posix()] = source.read_text(
+                encoding="utf-8"
+            ).splitlines()
+        except (OSError, UnicodeError):
+            return []
+    pending: list[str] = []
     for path in (path.strip() for path in paths):
         if not path.startswith(UNIT_JUDGED_PREFIXES):
             continue
-        source = root / path
-        if not source.exists():
-            # Deleted: nothing of it is left to run.
+        if not (root / path).exists():
+            # Deleted: nothing of it is left to run, and whatever used it
+            # changed in this diff too or no longer compiles.
             continue
-        if not path.endswith(".swift"):
+        if path not in test_files:
             return []
-        try:
-            lines = source.read_text(encoding="utf-8").splitlines()
-        except (OSError, UnicodeError):
-            return []
-        declared: set[str] = set()
-        shares_helpers = False
-        for line in lines:
-            match = TOP_LEVEL_DECLARATION_RE.match(line)
-            if match is None:
-                continue
-            modifiers, kind, name = match.groups()
-            if name.endswith("Tests") and kind in {"class", "struct", "actor", "extension"}:
-                declared.add(name)
-            elif not FILE_LOCAL_MODIFIERS & set(modifiers.split()):
-                shares_helpers = True
-        if (shares_helpers or not declared) and path not in new_files:
-            return []
+        pending.append(path)
+
+    suites: set[str] = set()
+    visited: set[str] = set()
+    while pending:
+        path = pending.pop()
+        if path in visited:
+            continue
+        visited.add(path)
+        declared, helpers, untraceable = _declarations(test_files[path])
         suites |= declared
+        if path in new_files:
+            continue
+        if untraceable:
+            return []
+        for helper in helpers:
+            used = re.compile(rf"\b{re.escape(helper)}\b")
+            pending.extend(
+                other
+                for other, lines in test_files.items()
+                if other not in visited and any(used.search(line) for line in lines)
+            )
     return sorted(f"cmuxTests/{name}" for name in suites)
+
+
+def strict_steps(workflow: str, suites: Iterable[str]) -> list[str] | None:
+    """Names of the app-host steps that run `suites` a strict step owns.
+
+    Such a suite gets an app host and settings of its own from its step, so a
+    changed-suites run runs that step rather than putting the suite in its
+    shared batch. None when a selected strict suite has no step that names it.
+    """
+    job = workflow[workflow.index("\n  app-host-unit-tests:\n") :]
+    job = job[: re.search(r"\n  [A-Za-z0-9_-]+:\n", job[1:]).start() + 1]
+    owners: dict[str, set[str]] = {}
+    for block in job.split("\n      - name: ")[1:]:
+        name = block.split("\n", 1)[0].strip()
+        condition = re.search(r"^        if: (.*)$", block, re.M)
+        if condition is None or "_SHARD)" not in condition.group(1) or "!=" in condition.group(1):
+            continue
+        for selector in FOCUSED_GATE_SELECTORS:
+            if re.search(rf"\b{selector.split('/', 1)[1]}\b", block):
+                owners.setdefault(selector, set()).add(name)
+    names: set[str] = set()
+    for suite in suites:
+        if suite in FOCUSED_GATE_SELECTORS:
+            if suite not in owners:
+                return None
+            names |= owners[suite]
+    return sorted(names)
 
 
 def changed_unit_selectors(
@@ -178,12 +268,14 @@ def changed_unit_selectors(
 
     A pull request that edits a few tests needs those tests run, not the
     other few thousand across seven shards. An empty answer keeps the full
-    unit suite: see suites_declared_in(), plus a suite a strict step owns
-    (those need an app host of their own, which one shared batch is not) and
-    a changed set whose measured time would not fit one batch.
+    unit suite: see suites_affected_by(), strict_steps(), and a shared batch
+    whose measured time would not fit one worker's.
     """
-    suites = suites_declared_in(root, paths, added)
-    if not suites or FOCUSED_GATE_SELECTORS & set(suites):
+    suites = suites_affected_by(root, paths, added)
+    if not suites:
+        return []
+    workflow = (root / ".github/workflows/ci-macos.yml").read_text(encoding="utf-8")
+    if strict_steps(workflow, suites) is None:
         return []
     wanted = {suite.split("/", 1)[1] for suite in suites}
     selectors, _ = reweight_selectors(discover_selectors(root), load_timings(DEFAULT_TIMINGS_PATH))
@@ -305,10 +397,15 @@ def main(argv: list[str]) -> int:
     # explicit requests for every suite.
     asked_for_every_suite = full or UNIT_SUITE_LABEL in {label.strip() for label in labels or ()}
     selectors = [] if not unit or asked_for_every_suite else changed_unit_selectors(args.root, paths, added)
+    steps: list[str] = []
+    if selectors:
+        workflow = (args.root / ".github/workflows/ci-macos.yml").read_text(encoding="utf-8")
+        steps = strict_steps(workflow, selectors) or []
     lines = [
         f"full_suite={'true' if full else 'false'}",
         f"unit_suite={'true' if unit else 'false'}",
         f"unit_selectors={' '.join(selectors)}",
+        f"unit_strict_steps={''.join(f'|{step}' for step in steps) + '|' if steps else ''}",
         f"coverage_gap={'true' if gap else 'false'}",
     ]
     for line in lines:

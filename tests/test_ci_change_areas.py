@@ -3619,12 +3619,14 @@ def test_a_cmux_tests_diff_selects_the_unit_tests_without_a_label() -> None:
 
 def test_a_diff_that_edits_a_few_suites_runs_only_those_suites() -> None:
     sys.path.insert(0, str(ROOT / "scripts/ci"))
-    from choose_ci_suite import changed_unit_selectors, suites_declared_in
+    from choose_ci_suite import changed_unit_selectors, strict_steps, suites_affected_by
 
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory)
         tests = root / "cmuxTests"
         tests.mkdir()
+        (root / ".github/workflows").mkdir(parents=True)
+        (root / ".github/workflows/ci-macos.yml").write_text(MACOS_WORKFLOW.read_text(encoding="utf-8"))
         (tests / "AlphaTests.swift").write_text(
             "import XCTest\nfinal class AlphaTests: XCTestCase {\n    func testA() {}\n}\n"
         )
@@ -3633,46 +3635,70 @@ def test_a_diff_that_edits_a_few_suites_runs_only_those_suites() -> None:
             "extension AlphaTests {\n    func testC() {}\n}\n"
         )
         (tests / "Helper.swift").write_text("func sharedHelper() {}\n")
+        (tests / "UsesHelperTests.swift").write_text(
+            "import XCTest\nfinal class UsesHelperTests: XCTestCase {\n"
+            "    func testU() { sharedHelper() }\n}\n"
+        )
         (tests / "GammaTests.swift").write_text(
             "import XCTest\nenum GammaSupport { static let value = 1 }\n"
             "final class GammaTests: XCTestCase {\n    func testG() {}\n}\n"
+        )
+        (tests / "EpsilonTests.swift").write_text(
+            "import XCTest\nfinal class EpsilonTests: XCTestCase {\n"
+            "    func testE() { _ = GammaSupport.value }\n}\n"
         )
         (tests / "DeltaTests.swift").write_text(
             "import XCTest\nprivate func deltaOnly() {}\n"
             "final class DeltaTests: XCTestCase {\n    func testD() {}\n}\n"
         )
+        (tests / "StringExtras.swift").write_text("extension String {\n    var shouted: String { uppercased() }\n}\n")
+        (tests / "ShoutTests.swift").write_text(
+            "import XCTest\nfinal class ShoutTests: XCTestCase {\n"
+            "    func testS() { _ = \"a\".shouted }\n}\n"
+        )
+        (tests / "Conformances.swift").write_text("extension Int: @retroactive Identifiable {\n    public var id: Int { self }\n}\n")
+        (tests / "NewHelper.swift").write_text("func newHelper() {}\n")
         (tests / "FeedCoordinatorTests.swift").write_text(
             "import Testing\n@Suite struct FeedCoordinatorTests {\n    @Test func testF() {}\n}\n"
         )
-        (tests / "NewHelper.swift").write_text("func newHelper() {}\n")
         (tests / "Fixture.json").write_text("{}\n")
 
         alpha = ["cmuxTests/AlphaTests.swift", "Sources/Workspace.swift"]
-        assert suites_declared_in(root, alpha) == ["cmuxTests/AlphaTests"]
+        assert suites_affected_by(root, alpha) == ["cmuxTests/AlphaTests"]
         # A file that extends another suite runs that suite too.
-        assert suites_declared_in(root, ["cmuxTests/BetaTests.swift"]) == [
+        assert suites_affected_by(root, ["cmuxTests/BetaTests.swift"]) == [
             "cmuxTests/AlphaTests",
             "cmuxTests/BetaTests",
         ]
-        # An existing helper can change any suite, so every suite runs.
-        assert suites_declared_in(root, alpha + ["cmuxTests/Helper.swift"]) == []
+        # A changed helper runs the suites that use it, wherever it lives.
+        assert suites_affected_by(root, ["cmuxTests/Helper.swift"]) == ["cmuxTests/UsesHelperTests"]
+        assert suites_affected_by(root, ["cmuxTests/GammaTests.swift"]) == [
+            "cmuxTests/EpsilonTests",
+            "cmuxTests/GammaTests",
+        ]
+        # A file-local helper cannot reach another suite.
+        assert suites_affected_by(root, ["cmuxTests/DeltaTests.swift"]) == ["cmuxTests/DeltaTests"]
+        # Members added to another type are traced by their names.
+        assert suites_affected_by(root, ["cmuxTests/StringExtras.swift"]) == ["cmuxTests/ShoutTests"]
+        # A conformance has no name to search for.
+        assert suites_affected_by(root, ["cmuxTests/Conformances.swift"]) == []
         # A helper this diff adds is used only by files this diff changes.
-        assert suites_declared_in(
+        assert suites_affected_by(
             root, alpha + ["cmuxTests/NewHelper.swift"], added=["cmuxTests/NewHelper.swift"]
         ) == ["cmuxTests/AlphaTests"]
-        # A suite file that also shares a helper with other files is a helper.
-        assert suites_declared_in(root, ["cmuxTests/GammaTests.swift"]) == []
-        # A file-local helper cannot reach another suite.
-        assert suites_declared_in(root, ["cmuxTests/DeltaTests.swift"]) == ["cmuxTests/DeltaTests"]
-        # A suite a strict step owns needs its own app host, not a shared batch.
-        assert changed_unit_selectors(root, ["cmuxTests/FeedCoordinatorTests.swift"]) == []
-        # Non-Swift inputs and an unreadable diff also run everything.
-        assert suites_declared_in(root, alpha + ["cmuxTests/Fixture.json"]) == []
-        assert suites_declared_in(root, None) == []
+        # Non-Swift inputs and an unreadable diff run everything.
+        assert suites_affected_by(root, alpha + ["cmuxTests/Fixture.json"]) == []
+        assert suites_affected_by(root, None) == []
         # A deleted suite leaves nothing of itself to run.
-        assert suites_declared_in(root, alpha + ["cmuxTests/GoneTests.swift"]) == ["cmuxTests/AlphaTests"]
+        assert suites_affected_by(root, alpha + ["cmuxTests/GoneTests.swift"]) == ["cmuxTests/AlphaTests"]
         assert changed_unit_selectors(root, ["cmuxTests/GoneTests.swift"]) == []
         assert changed_unit_selectors(root, alpha) == ["cmuxTests/AlphaTests"]
+        # A suite a strict step owns runs through that step, on the same worker.
+        feed = ["cmuxTests/FeedCoordinatorTests.swift"]
+        assert changed_unit_selectors(root, feed) == ["cmuxTests/FeedCoordinatorTests"]
+        workflow = MACOS_WORKFLOW.read_text(encoding="utf-8")
+        assert strict_steps(workflow, ["cmuxTests/FeedCoordinatorTests"]) == ["Run Pi Feed ownership regressions"]
+        assert strict_steps(workflow, ["cmuxTests/AlphaTests"]) == []
 
 
 def test_changed_suites_run_on_one_worker_and_labels_still_run_everything() -> None:
@@ -3684,6 +3710,17 @@ def test_changed_suites_run_on_one_worker_and_labels_still_run_everything() -> N
     # Shard 8 must own none of the strict steps the numbered shards run.
     owners = {key: value for key, value in job["env"].items() if key.endswith("_SHARD")}
     assert "8" not in owners.values(), owners
+    # Every strict suite has a step, and each such step runs when selected.
+    from choose_ci_suite import strict_steps
+    from cmux_unit_test_shard import FOCUSED_GATE_SELECTORS
+
+    text = MACOS_WORKFLOW.read_text(encoding="utf-8")
+    owners = strict_steps(text, sorted(FOCUSED_GATE_SELECTORS))
+    assert owners, "a strict suite has no step that runs it"
+    for step in job["steps"]:
+        if step.get("name") in owners:
+            assert f"contains(inputs.unit_strict_steps, '|{step['name']}|')" in step["if"], step["name"]
+    assert yaml.safe_load(CI_WORKFLOW.read_text(encoding="utf-8"))["jobs"]["macos"]["with"]["unit_strict_steps"] == "${{ needs.changes.outputs.unit_strict_steps }}"
     # A moved helper is not new, so the added list must detect renames.
     assert '--diff-filter=A "$BASE_SHA"' in CI_WORKFLOW.read_text(encoding="utf-8")
     assert "git diff -M --name-only --diff-filter=A" in CI_WORKFLOW.read_text(encoding="utf-8")
