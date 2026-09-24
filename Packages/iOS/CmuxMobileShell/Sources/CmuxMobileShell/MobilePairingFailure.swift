@@ -93,7 +93,7 @@ public enum MobilePairingFailureCategory: Equatable, Sendable {
     /// `requiredVersion` is the channel-specific minimum to name in copy.
     case macAppVersionTooOld(
         macVersion: String?,
-        requiredVersion: String,
+        requiredVersion: String?,
         isNightlyChannel: Bool
     )
     /// The pairing code carried only an untrusted manual route that cannot carry
@@ -346,7 +346,7 @@ extension MobilePairingFailureCategory {
         case .invalidCode:
             return L10n.string(
                 "mobile.pairing.invalidCode",
-                defaultValue: "This isn't a cmux pairing QR. On cmux 0.64.17, scan the Pair iPhone code. On newer versions, scan the code in Tailscale Pairing."
+                defaultValue: "This isn't a cmux pairing QR. On cmux 0.64.17, scan the Pair iPhone code. On newer versions, scan the code in Mobile Pairing."
             )
         case .unrecognizedVersion:
             return L10n.string(
@@ -358,7 +358,7 @@ extension MobilePairingFailureCategory {
                 "mobile.pairing.loopbackRejected",
                 defaultValue: """
                 This code points at the Mac itself (localhost), so your iPhone can't use it. \
-                On cmux 0.64.17, open Pair iPhone. On newer versions, open Tailscale Pairing. \
+                On cmux 0.64.17, open Pair iPhone. On newer versions, open Mobile Pairing. \
                 Then scan a fresh code.
                 """
             )
@@ -368,6 +368,12 @@ extension MobilePairingFailureCategory {
                 defaultValue: "Update cmux on this Mac to connect securely."
             )
         case let .macAppVersionTooOld(macVersion, requiredVersion, isNightlyChannel):
+            guard let requiredVersion else {
+                return L10n.string(
+                    "mobile.pairing.guidance.macUpdateRequired",
+                    defaultValue: "Update cmux on this Mac to connect securely."
+                )
+            }
             // Product-neutral copy on every channel: versions carry no internal
             // lane vocabulary, so there is no separate official variant.
             if isNightlyChannel {
@@ -375,7 +381,7 @@ extension MobilePairingFailureCategory {
                     return String(
                         format: L10n.string(
                             "mobile.pairing.macVersionTooOld.nightlyUnknownFormat",
-                            defaultValue: "This version of the app needs a newer cmux Nightly on this Mac (%1$@ or later)."
+                            defaultValue: "This Mac needs a newer cmux Nightly. Update cmux on this Mac to %1$@ or later to connect."
                         ),
                         requiredVersion
                     )
@@ -383,7 +389,7 @@ extension MobilePairingFailureCategory {
                 return String(
                     format: L10n.string(
                         "mobile.pairing.macVersionTooOld.nightlyFormat",
-                        defaultValue: "This Mac is running cmux %1$@, but this version of the app needs a newer cmux Nightly (%2$@ or later)."
+                        defaultValue: "This Mac is running cmux %1$@. Update cmux on this Mac to Nightly %2$@ or later to connect."
                     ),
                     macVersion,
                     requiredVersion
@@ -393,7 +399,7 @@ extension MobilePairingFailureCategory {
                 return String(
                     format: L10n.string(
                         "mobile.pairing.macVersionTooOld.unknownFormat",
-                        defaultValue: "This Mac is running an older version of cmux. This version of the app requires cmux %1$@ or newer on the Mac."
+                        defaultValue: "This Mac is running an older version of cmux. Update cmux on this Mac to %1$@ or newer to connect."
                     ),
                     requiredVersion
                 )
@@ -401,7 +407,7 @@ extension MobilePairingFailureCategory {
             return String(
                 format: L10n.string(
                     "mobile.pairing.macVersionTooOld.format",
-                    defaultValue: "This Mac is running cmux %1$@, but this version of the app requires cmux %2$@ or newer on the Mac."
+                    defaultValue: "This Mac is running cmux %1$@. Update cmux on this Mac to %2$@ or newer to connect."
                 ),
                 macVersion,
                 requiredVersion
@@ -511,7 +517,7 @@ extension MobilePairingFailureCategory {
         case .ticketExpired, .unsupportedRoute, .noSupportedRoute:
             return L10n.string(
                 "mobile.pairing.guidance.rescanFresh",
-                defaultValue: "Open Tailscale Pairing on the Mac and scan a fresh QR, or enter the Mac's numeric Tailscale IP and port."
+                defaultValue: "Open Mobile Pairing on the Mac and scan a fresh QR, or enter the Mac's numeric Tailscale IP and port."
             )
         case .unrecognizedVersion:
             guard buildType.usesInternalBuildVocabulary else {

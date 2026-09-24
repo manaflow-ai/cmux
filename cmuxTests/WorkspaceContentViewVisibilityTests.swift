@@ -16,6 +16,7 @@ import Bonsplit
 @Suite(.serialized)
 final class WorkspaceContentViewVisibilityTests {
     private final class MinimalModeBodyProbeCounts {
+        var isMeasuringInvalidations = false
         var contentViewBody = 0
         var workspaceContentBody = 0
         var verticalTabsSidebarBody = 0
@@ -220,9 +221,9 @@ final class WorkspaceContentViewVisibilityTests {
             forKey: WorkspacePresentationModeSettings.modeKey
         )
 
-        let tabManager = TabManager()
-        for _ in 0..<6 {
-            tabManager.addWorkspace(autoWelcomeIfNeeded: false)
+        let tabManager = TabManager(autoWelcomeIfNeeded: false, createInitialWorkspace: false)
+        for _ in 0..<7 {
+            tabManager.addWorkspace(initialSurface: .cloudVMLoading, select: tabManager.tabs.isEmpty, autoWelcomeIfNeeded: false)
         }
         let notificationStore = TerminalNotificationStore.shared
         let counts = MinimalModeBodyProbeCounts()
@@ -236,6 +237,7 @@ final class WorkspaceContentViewVisibilityTests {
             .environment(
                 \.minimalModeInvalidationProbe,
                 MinimalModeInvalidationProbe(
+                    shouldTraceBodyChanges: { counts.isMeasuringInvalidations },
                     contentViewBody: { counts.contentViewBody += 1 },
                     workspaceContentBody: { counts.workspaceContentBody += 1 },
                     verticalTabsSidebarBody: { counts.verticalTabsSidebarBody += 1 }
@@ -249,23 +251,28 @@ final class WorkspaceContentViewVisibilityTests {
             backing: .buffered,
             defer: false
         )
+        window.isReleasedWhenClosed = false
         window.contentView = MainWindowHostingView(rootView: root)
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
         defer {
             window.contentView = nil
+            tabManager.finalizeAllWorkspacesForWindowClose()
             window.close()
         }
-
         await Self.drainMainRunLoop(for: window)
         #expect(counts.contentViewBody > 0)
         #expect(counts.workspaceContentBody > 0)
         #expect(counts.verticalTabsSidebarBody > 0)
-
         counts.reset()
+        counts.isMeasuringInvalidations = true
+        defer { counts.isMeasuringInvalidations = false }
         defaults.set(
             WorkspacePresentationModeSettings.Mode.minimal.rawValue,
             forKey: WorkspacePresentationModeSettings.modeKey
         )
         await Self.drainMainRunLoop(for: window)
+        counts.isMeasuringInvalidations = false
 
         #expect(
             counts.contentViewBody == 0,
@@ -537,36 +544,6 @@ final class WorkspaceContentViewVisibilityTests {
 
     private static func descendants(of view: NSView) -> [NSView] {
         view.subviews + view.subviews.flatMap { descendants(of: $0) }
-    }
-
-    @Test
-    func testNonSelectedNonRetiringWorkspaceIsFullyHidden() {
-        #expect(
-            MountedWorkspacePresentation.resolve(
-                isSelectedWorkspace: false,
-                isRetiringWorkspace: false
-            ) ==
-            MountedWorkspacePresentation(
-                isRenderedVisible: false,
-                isPanelVisible: false,
-                renderOpacity: 0
-            )
-        )
-    }
-
-    @Test
-    func testRetiringWorkspaceStaysPanelVisibleDuringHandoff() {
-        #expect(
-            MountedWorkspacePresentation.resolve(
-                isSelectedWorkspace: false,
-                isRetiringWorkspace: true
-            ) ==
-            MountedWorkspacePresentation(
-                isRenderedVisible: true,
-                isPanelVisible: true,
-                renderOpacity: 1
-            )
-        )
     }
 
     @Test

@@ -131,6 +131,7 @@ export const agentReadablePages = [
   { path: "/", title: "Home" },
   { path: "/ios", title: "cmux iOS" },
   { path: "/browser", title: "cmux Browser" },
+  { path: "/cua", title: "cmux Computer Use" },
   ...agentReadableDownloadPages,
   {
     path: "/jobs",
@@ -140,6 +141,11 @@ export const agentReadablePages = [
   {
     path: "/jobs/founding-designer",
     title: "Founding Designer jobs at cmux",
+    locales: jobsContentLocales,
+  },
+  {
+    path: "/jobs/founding-chromium-engineer",
+    title: "Founding Chromium Engineer jobs at cmux",
     locales: jobsContentLocales,
   },
   { path: "/pricing", title: "Pricing", locales: fallbackContentLocales },
@@ -205,6 +211,7 @@ export const agentReadablePages = [
   { path: "/docs/keyboard-shortcuts", title: "Keyboard Shortcuts" },
   { path: "/docs/api", title: "CLI Reference" },
   { path: "/docs/browser-automation", title: "Browser Automation" },
+  { path: "/docs/computer-use", title: "Computer Use" },
   { path: "/docs/skills", title: "Skills" },
   { path: "/docs/notifications", title: "Notifications" },
   { path: "/docs/ssh", title: "SSH" },

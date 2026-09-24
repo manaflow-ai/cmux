@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
+  appPricingCheckoutRelayURL,
   appPricingCheckoutURL,
   withCheckoutInterval,
   withCheckoutExternalBrowserIntent,
@@ -61,6 +62,32 @@ describe("billing links", () => {
     ).toBe(
       "http://localhost:9210/api/billing/checkout?plan=team&cmux_external_browser=1&cmux_scheme=cmux-dev-test&interval=year",
     );
+  });
+
+  test("relay forwards attribution unsigned next to the signed plan and scheme", () => {
+    const previous = process.env.CMUX_APP_PRICING_CHECKOUT_URL;
+    process.env.CMUX_APP_PRICING_CHECKOUT_URL = "https://billing.example/checkout";
+    try {
+      const relay = appPricingCheckoutRelayURL(
+        new URL(
+          "http://localhost:9210/api/billing/checkout?plan=pro&interval=year&cmux_app_checkout=1" +
+            "&cmux_source=mac_help_menu&cmux_client=mac&cmux_channel=dev&cmux_app_version=0.65.1",
+        ),
+        { plan: "pro", interval: "year", cmuxScheme: "cmux" },
+      );
+      expect(relay?.origin).toBe("https://billing.example");
+      expect(relay?.searchParams.get("cmux_source")).toBe("mac_help_menu");
+      expect(relay?.searchParams.get("cmux_client")).toBe("mac");
+      expect(relay?.searchParams.get("cmux_channel")).toBe("dev");
+      expect(relay?.searchParams.get("cmux_app_version")).toBe("0.65.1");
+      expect(relay?.searchParams.get("plan")).toBe("pro");
+    } finally {
+      if (previous === undefined) {
+        delete process.env.CMUX_APP_PRICING_CHECKOUT_URL;
+      } else {
+        process.env.CMUX_APP_PRICING_CHECKOUT_URL = previous;
+      }
+    }
   });
 
   test("app pricing checkout relays an explicit override through its trusted origin", () => {

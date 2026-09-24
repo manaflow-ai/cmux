@@ -16,10 +16,15 @@ const releaseDocsOrigin =
 const nightlyDocsOrigin =
   process.env.CMUX_NIGHTLY_DOCS_ORIGIN ?? "https://cmux-docs-nightly.vercel.app";
 // The embedded browser reaches a dev server through its per-instance
-// Tailscale Serve hostname. Next.js blocks cross-origin HMR and RSC resources
-// unless that hostname is explicitly allowed. Keep this opt-in and validated
-// so production and SSH-backed development retain the default protection.
+// Tailscale Serve hostname. Published development VMs also use generated
+// `*.cmux.sh` hostnames. Next.js blocks cross-origin HMR and RSC resources
+// unless those origins are explicitly allowed. This setting is used only by
+// `next dev`; production keeps the default protection.
 const directDevBackendAllowedHost = directDevBackendHost();
+const developmentPublicationOrigins = [
+  ...(directDevBackendAllowedHost ? [directDevBackendAllowedHost] : []),
+  "*.cmux.sh",
+];
 
 // Agent landing pages moved under /agents/<agent>. Keep the old top-level
 // slugs working with permanent redirects, for the bare English path and every
@@ -62,13 +67,24 @@ const tuiInstallerHeaderRules = [
 
 const nextConfig: NextConfig = {
   poweredByHeader,
-  allowedDevOrigins: directDevBackendAllowedHost
-    ? [directDevBackendAllowedHost]
-    : undefined,
+  typescript: {
+    // The full project typecheck runs as its own CI job. Keep test and tool
+    // files out of Next's production-build check so the same work is not done
+    // twice and application errors still fail the build.
+    tsconfigPath:
+      process.env.NODE_ENV === "production"
+        ? "tsconfig.next.json"
+        : "tsconfig.json",
+  },
+  allowedDevOrigins: developmentPublicationOrigins,
   cacheComponents: true,
   partialPrefetching: true,
   experimental: {
     exposeTestingApiInProductionBuild: process.env.NEXT_INSTANT_TEST === "1",
+    // Vercel restores .next/cache between deployments. Local and CI builds do
+    // not have a durable cache, so avoid writing and compacting a large cache
+    // database that cannot be reused by the next build.
+    turbopackFileSystemCacheForBuild: process.env.VERCEL === "1",
     instantInsights: {
       validationLevel: "warning",
     },
@@ -81,6 +97,12 @@ const nextConfig: NextConfig = {
     if (isDocsZone) {
       return {
         beforeFiles: [
+          // Direct docs previews use the same search URLs as the main site.
+          // Serve their own index instead of requiring the outer site router.
+          {
+            source: `/_docs-search/${docsChannel}/:path*`,
+            destination: "/pagefind/:path*",
+          },
           {
             source: `/_docs-assets/${docsChannel}/_next/:path*`,
             destination: "/_next/:path*",
@@ -180,6 +202,14 @@ const nextConfig: NextConfig = {
     root: webRoot,
   },
   outputFileTracingIncludes: {
+    // Cloud VM lifecycle routes load these templates at runtime when building
+    // the guest prompt command. Keep the source assets in every traced server
+    // function; static analysis cannot follow the URL-relative fs reads after
+    // Turbopack bundles the module.
+    "/*": [
+      "./services/vms/images/devbox/cmux-bashrc",
+      "./services/vms/images/devbox/cmux-prompt.bash",
+    ],
     "**/opengraph-image": [
       "./app/lib/open-graph-fonts/**/*",
       "./app/**/assets/landing-image.png",
@@ -191,6 +221,8 @@ const nextConfig: NextConfig = {
     "**/docs/changelog": ["./CHANGELOG.md"],
     "**/docs/changelog/**": ["./CHANGELOG.md"],
     "**/sitemap.xml": ["./CHANGELOG.md"],
+    // IndexNow also reads the sitemap when its deployed function starts.
+    "/api/cron/indexnow": ["./CHANGELOG.md"],
   },
   images: {
     // AVIF first: for the detailed hero screenshot (crisp terminal text +

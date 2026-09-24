@@ -78,9 +78,17 @@ import {
   listPhoneReplies,
   PHONE_REPLY_NUDGE_REVISION,
   type EnqueuePhoneReplyResult,
+  type PhoneReplyTarget,
   type StoredPhoneReply,
 } from "./replies";
+import {
+  ackLegacyPhoneReplies,
+  enqueueLegacyPhoneReply,
+  listLegacyPhoneReplies,
+  type StoredLegacyPhoneReply,
+} from "./legacyReplies";
 import { captureSentryException, type SentryEnv } from "./sentry";
+import { rateLimitedJson } from "./retryAfterResponse";
 
 const INSTANCE_PREFIX = "inst:";
 /** `owner:<deviceId>` -> Stack user id pinned on first heartbeat. Durable:
@@ -486,6 +494,9 @@ export class TeamPresence extends DurableObject<SentryEnv> {
     accountId: string,
     reply: Omit<StoredPhoneReply, "createdAtMs" | "expiresAtMs">,
   ): Promise<EnqueuePhoneReplyResult> {
+    if (reply.encryptedPayload.tuple.accountID !== accountId) {
+      return { ok: false, error: "account_mismatch" };
+    }
     const result = await enqueuePhoneReply(this.ctx.storage, reply, Date.now());
     if (result.ok && !result.duplicate) {
       const nudge = await this.invalidateConnectivity(accountId, PHONE_REPLY_NUDGE_REVISION);
@@ -495,13 +506,36 @@ export class TeamPresence extends DurableObject<SentryEnv> {
   }
 
   /** Pending replies for one Mac, oldest first. */
-  async listPhoneReplies(macDeviceId: string): Promise<StoredPhoneReply[]> {
-    return listPhoneReplies(this.ctx.storage, macDeviceId, Date.now());
+  async listPhoneReplies(target: PhoneReplyTarget): Promise<StoredPhoneReply[]> {
+    return listPhoneReplies(this.ctx.storage, target, Date.now());
   }
 
   /** Remove replies the Mac has finished processing. Idempotent. */
-  async ackPhoneReplies(replyIds: string[]): Promise<{ removed: number }> {
-    return ackPhoneReplies(this.ctx.storage, replyIds, Date.now());
+  async ackPhoneReplies(replyIds: string[], target: PhoneReplyTarget): Promise<{ removed: number }> {
+    return ackPhoneReplies(this.ctx.storage, replyIds, target, Date.now());
+  }
+
+  async enqueueLegacyPhoneReply(
+    accountId: string,
+    reply: Omit<StoredLegacyPhoneReply, "createdAtMs" | "expiresAtMs">,
+  ) {
+    const result = await enqueueLegacyPhoneReply(this.ctx.storage, reply, Date.now());
+    if (result.ok && !result.duplicate) {
+      const nudge = await this.invalidateConnectivity(
+        accountId,
+        PHONE_REPLY_NUDGE_REVISION,
+      );
+      return { ...result, nudged: nudge.delivered };
+    }
+    return result;
+  }
+
+  async listLegacyPhoneReplies(macDeviceId: string): Promise<StoredLegacyPhoneReply[]> {
+    return listLegacyPhoneReplies(this.ctx.storage, macDeviceId, Date.now());
+  }
+
+  async ackLegacyPhoneReplies(replyIds: string[]): Promise<{ removed: number }> {
+    return ackLegacyPhoneReplies(this.ctx.storage, replyIds, Date.now());
   }
 
   // ---- Subscribe transports (worker forwards the original Request) ----
@@ -553,10 +587,7 @@ export class TeamPresence extends DurableObject<SentryEnv> {
     const userId = request.headers.get("x-presence-user-id")?.trim() || undefined;
 
     if (this.presenceSubscriberCount() >= MAX_SUBSCRIBERS_PER_TEAM) {
-      return new Response(JSON.stringify({ error: "too_many_subscribers" }), {
-        status: 429,
-        headers: { "content-type": "application/json" },
-      });
+      return rateLimitedJson({ error: "too_many_subscribers" });
     }
 
     if (request.headers.get("upgrade")?.toLowerCase() === "websocket") {
@@ -634,10 +665,7 @@ export class TeamPresence extends DurableObject<SentryEnv> {
       (ws) => wsConnectivityAccountId(ws) !== null && wsExpiresAt(ws) > now,
     ).length;
     if (connected >= MAX_CONNECTIVITY_SUBSCRIBERS_PER_ACCOUNT) {
-      return new Response(JSON.stringify({ error: "too_many_subscribers" }), {
-        status: 429,
-        headers: { "content-type": "application/json" },
-      });
+      return rateLimitedJson({ error: "too_many_subscribers" });
     }
     const pair = new WebSocketPair();
     const client = pair[0];

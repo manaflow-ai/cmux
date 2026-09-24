@@ -1,4 +1,5 @@
 public import Foundation
+internal import CmuxFoundation
 internal import CMUXAgentLaunch
 internal import Darwin
 internal import OSLog
@@ -90,26 +91,7 @@ extension TerminalSurface {
 
     /// Prepends `directory` to a `PATH`-style string exactly once.
     public static func pathByPrependingUniqueDirectory(_ directory: String, to path: String) -> String {
-        let trimmedDirectory = directory.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedDirectory.isEmpty else { return path }
-        let standardizedDirectory = URL(fileURLWithPath: trimmedDirectory, isDirectory: true)
-            .standardizedFileURL
-            .path
-        guard !path.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            return standardizedDirectory
-        }
-        var entries = path
-            .split(separator: ":", omittingEmptySubsequences: false)
-            .map(String.init)
-            .filter { entry in
-                let trimmedEntry = entry.trimmingCharacters(in: .whitespacesAndNewlines)
-                guard !trimmedEntry.isEmpty else { return true }
-                return URL(fileURLWithPath: trimmedEntry, isDirectory: true)
-                    .standardizedFileURL
-                    .path != standardizedDirectory
-            }
-        entries.insert(standardizedDirectory, at: 0)
-        return entries.joined(separator: ":")
+        CmuxPathEnvironment().prependingUniqueDirectory(directory, to: path)
     }
 
     /// Merges base, additional, and override environments with key
@@ -243,6 +225,23 @@ extension TerminalSurface {
         protectedKeys: inout Set<String>,
         readFile: (String) throws -> String = { try String(contentsOfFile: $0, encoding: .utf8) }
     ) -> String? {
+        applyManagedShellStartupPlan(
+            shell: shell, integrationDir: integrationDir,
+            userGhosttyShellIntegrationMode: userGhosttyShellIntegrationMode,
+            to: &environment, protectedKeys: &protectedKeys, readFile: readFile
+        ).command
+    }
+
+    /// Installs the command and its readiness capability from the same integration payload.
+    public static func applyManagedShellStartupPlan(
+        shell: String,
+        integrationDir: String,
+        userGhosttyShellIntegrationMode: String,
+        to environment: inout [String: String],
+        protectedKeys: inout Set<String>,
+        readFile: (String) throws -> String = { try String(contentsOfFile: $0, encoding: .utf8) }
+    ) -> TerminalManagedShellStartupPlan {
+        let unavailable = TerminalManagedShellStartupPlan(command: nil, reportsPromptReadiness: false)
         let shellName = URL(fileURLWithPath: shell).lastPathComponent
         func setManagedEnvironmentValue(_ key: String, _ value: String) {
             environment[key] = value
@@ -266,7 +265,7 @@ extension TerminalSurface {
         }
         switch shellName {
         case "zsh":
-            guard bundledBootstrapIsReadable(".zshenv") else { return nil }
+            guard bundledBootstrapIsReadable(".zshenv") else { return unavailable }
             if userGhosttyShellIntegrationMode != "none" { setManagedEnvironmentValue("CMUX_LOAD_GHOSTTY_ZSH_INTEGRATION", "1") }
             let candidateZdotdir = (environment["ZDOTDIR"]?.isEmpty == false ? environment["ZDOTDIR"] : nil)
                 ?? getenv("ZDOTDIR").map { String(cString: $0) }
@@ -279,6 +278,7 @@ extension TerminalSurface {
                 if candidateZdotdir != ghosttyZdotdir { setManagedEnvironmentValue("CMUX_ZSH_ZDOTDIR", candidateZdotdir) }
             }
             setManagedEnvironmentValue("ZDOTDIR", integrationDir)
+            return TerminalManagedShellStartupPlan(command: nil, reportsPromptReadiness: true)
         case "bash":
             if userGhosttyShellIntegrationMode != "none" { setManagedEnvironmentValue("CMUX_LOAD_GHOSTTY_BASH_INTEGRATION", "1") }
             let bashBootstrapPath = (integrationDir as NSString).appendingPathComponent("cmux-bash-bootstrap.bash")
@@ -290,35 +290,44 @@ extension TerminalSurface {
                         return !trimmed.isEmpty && !trimmed.hasPrefix("#")
                     }
                     .joined(separator: "\n")
-                if !bootstrap.isEmpty { setManagedEnvironmentValue("PROMPT_COMMAND", bootstrap) }
+                if !bootstrap.isEmpty {
+                    setManagedEnvironmentValue("PROMPT_COMMAND", bootstrap)
+                    return TerminalManagedShellStartupPlan(command: nil, reportsPromptReadiness: true)
+                }
             } catch {
                 Logger(subsystem: "com.cmuxterm.app", category: "ghostty.initialization")
                     .error("cmux bash bootstrap unreadable at \(bashBootstrapPath, privacy: .private): \(error.localizedDescription, privacy: .public); bash shell integration will not load")
             }
         case "fish":
-            guard bundledBootstrapIsReadable("fish/config.fish") else { return nil }
+            guard bundledBootstrapIsReadable("fish/config.fish") else { return unavailable }
             applyManagedFishStartupEnvironment(integrationDir: integrationDir, to: &environment, protectedKeys: &protectedKeys)
-            return managedFishShellCommand(shell: shell)
+            return TerminalManagedShellStartupPlan(command: managedFishShellCommand(shell: shell), reportsPromptReadiness: true)
         case "nu":
-            guard bundledBootstrapIsReadable("nushell/cmux-nushell-bootstrap.nu") else { return nil }
+            guard bundledBootstrapIsReadable("nushell/cmux-nushell-bootstrap.nu") else { return unavailable }
             let bootstrapPath = (integrationDir as NSString)
                 .appendingPathComponent("nushell/cmux-nushell-bootstrap.nu")
             do {
+                let integrationPath = (integrationDir as NSString).appendingPathComponent("nushell/cmux-nushell-integration.nu")
+                let integrationSourced = FileManager.default.isReadableFile(atPath: integrationPath)
                 let payload = nushellStartupPayload(
                     bootstrapContents: try readFile(bootstrapPath),
-                    integrationDir: integrationDir
+                    integrationDir: integrationDir,
+                    integrationFileIsReadable: { _ in integrationSourced }
                 )
-                guard !payload.isEmpty else { return nil }
-                return managedNushellShellCommand(shell: shell, startupPayload: payload)
+                guard !payload.isEmpty else { return unavailable }
+                return TerminalManagedShellStartupPlan(
+                    command: managedNushellShellCommand(shell: shell, startupPayload: payload),
+                    reportsPromptReadiness: integrationSourced
+                )
             } catch {
                 Logger(subsystem: "com.cmuxterm.app", category: "ghostty.initialization")
                     .error("cmux nushell bootstrap unreadable at \(bootstrapPath, privacy: .private): \(error.localizedDescription, privacy: .public); nushell shell integration will not load")
-                return nil
+                return unavailable
             }
         default:
             break
         }
-        return nil
+        return unavailable
     }
 
     /// Builds the nushell `-e` payload: the bootstrap squashed to one line

@@ -30,23 +30,13 @@ public struct MobileCatalogSection: SettingCatalogSection {
         userDefaultsKey: "mobile.artifactFolderAccess"
     )
 
-    /// Mac-side iOS pairing host. Release defaults OFF so macOS never asks for
-    /// Local Network permission until the user opts in from Settings. DEBUG
-    /// (dev) builds default ON so a dev Mac advertises its attach route without a
-    /// manual Settings toggle — this is what lets a fresh dev iOS build discover
-    /// the Mac automatically (see MacPairedMacBackupPublisher). An explicit user
-    /// toggle still wins on either build.
+    /// Mac-side iOS pairing and Iroh networking. Every build defaults OFF until
+    /// the user explicitly enables this setting.
     public let iOSPairingHost = DefaultsKey<Bool>(
         id: "mobile.iOSPairingHost.enabled",
-        defaultValue: Self.iOSPairingHostDefault,
+        defaultValue: false,
         userDefaultsKey: "mobile.iOSPairingHost.enabled"
     )
-
-    #if DEBUG
-    private static let iOSPairingHostDefault = true
-    #else
-    private static let iOSPairingHostDefault = false
-    #endif
 
     /// Port both Mac-side iOS listeners prefer to bind: the legacy TCP
     /// pairing listener and the Iroh endpoint's UDP socket (the port Direct

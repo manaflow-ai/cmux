@@ -19,138 +19,7 @@ private final class LayoutSyncingAnchorView: NSView {
     }
 }
 
-/// Test window whose native resize phase can be held across notifications.
-private final class LiveResizeProbeWindow: NSWindow {
-    /// Simulates AppKit's native `inLiveResize` value for ordering tests.
-    var liveResizeActive = false
-
-    /// Returns the simulated native live-resize state.
-    override var inLiveResize: Bool { liveResizeActive }
-}
-
 extension TerminalWindowPortalLifecycleTests {
-
-    /// A late native didResize notification can arrive after the portal has
-    /// committed the end pass while AppKit still reports inLiveResize. That
-    /// callback must not reopen the renderer gate without a new resize start.
-    @MainActor
-    func testLateDidResizeAfterEndDoesNotRelatchRendererPhase() throws {
-        let window = trackTestWindow(LiveResizeProbeWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 520, height: 340),
-            styleMask: [.titled, .closable, .resizable],
-            backing: .buffered,
-            defer: false
-        ))
-        defer {
-            NotificationCenter.default.post(name: NSWindow.willCloseNotification, object: window)
-            window.orderOut(nil)
-        }
-        realizeWindowLayout(window)
-        guard let contentView = window.contentView else {
-            XCTFail("Expected content view")
-            return
-        }
-
-        let portal = makeTrackedPortal(window: window)
-        let anchor = NSView(frame: NSRect(x: 8, y: 8, width: 240, height: 160))
-        contentView.addSubview(anchor)
-        let surface = makeTrackedTerminalSurface()
-        portal.bind(hostedView: surface.hostedView, to: anchor, visibleInUI: true)
-        portal.synchronizeHostedViewForAnchor(anchor)
-        drainMainQueue()
-        realizeWindowLayout(window)
-
-        let committedRendererSize = surface.hostedView.surfaceView.frame.size
-        window.liveResizeActive = true
-        portal.isWindowLiveResizeActiveOverrideForTesting = true
-        anchor.setFrameSize(NSSize(width: 200, height: 140))
-        portal.synchronizeHostedViewForAnchor(anchor)
-        XCTAssertEqual(surface.hostedView.surfaceView.frame.size, committedRendererSize)
-
-        // Keep AppKit's native signal true while the queued end pass commits;
-        // this models the ordering where didEnd clears later than the portal.
-        portal.isWindowLiveResizeActiveOverrideForTesting = false
-        let endTarget = NSSize(width: 220, height: 150)
-        anchor.setFrameSize(endTarget)
-        NotificationCenter.default.post(name: NSWindow.didEndLiveResizeNotification, object: window)
-        drainMainQueue()
-        drainMainQueue()
-        let rendererSizeAfterEnd = surface.hostedView.surfaceView.frame.size
-        XCTAssertNotEqual(rendererSizeAfterEnd, committedRendererSize)
-
-        // A stale didResize must not reopen the phase after the end pass.
-        NotificationCenter.default.post(name: NSWindow.didResizeNotification, object: window)
-        window.liveResizeActive = false
-        let settledTarget = NSSize(width: 196, height: 132)
-        anchor.setFrameSize(settledTarget)
-        portal.synchronizeHostedViewForAnchor(anchor)
-        drainMainQueue()
-        drainMainQueue()
-
-        XCTAssertEqual(surface.hostedView.frame.size, settledTarget)
-        XCTAssertNotEqual(
-            surface.hostedView.surfaceView.frame.size,
-            rendererSizeAfterEnd,
-            "A late didResize callback must not strand the renderer in the deferred phase"
-        )
-        withExtendedLifetime(surface) {}
-    }
-
-    /// A refresh queued by a pre-resize layout callback may execute after the
-    /// window enters live resize. Delivery must re-check the current phase and
-    /// wait for the final geometry pass instead of presenting in that gap.
-    @MainActor
-    func testQueuedRefreshCrossingLiveResizeBoundaryWaitsForFinalPass() throws {
-        let window = makeTestWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 520, height: 340),
-            styleMask: [.titled, .closable, .resizable]
-        )
-        defer {
-            NotificationCenter.default.post(name: NSWindow.willCloseNotification, object: window)
-            window.orderOut(nil)
-        }
-        realizeWindowLayout(window)
-        guard let contentView = window.contentView else {
-            XCTFail("Expected content view")
-            return
-        }
-
-        let portal = makeTrackedPortal(window: window)
-        let anchor = NSView(frame: NSRect(x: 8, y: 8, width: 240, height: 160))
-        contentView.addSubview(anchor)
-        let surface = makeTrackedTerminalSurface()
-        portal.bind(hostedView: surface.hostedView, to: anchor, visibleInUI: true)
-        portal.synchronizeHostedViewForAnchor(anchor)
-        drainMainQueue()
-        realizeWindowLayout(window)
-
-        surface.resetDebugForceRefreshCount()
-        anchor.setFrameSize(NSSize(width: 220, height: 150))
-        portal.synchronizeHostedViewForAnchor(anchor, syncLayout: false)
-
-        // The refresh was queued while the portal was at rest. Enter the live
-        // phase before that queue block runs to exercise the boundary race.
-        portal.isWindowLiveResizeActiveOverrideForTesting = true
-        portal.synchronizeHostedViewForAnchor(anchor, syncLayout: false)
-        drainMainQueue()
-        XCTAssertEqual(
-            surface.debugForceRefreshCount(),
-            0,
-            "A refresh queued before live resize must not present until final geometry commits"
-        )
-
-        portal.isWindowLiveResizeActiveOverrideForTesting = false
-        NotificationCenter.default.post(name: NSWindow.didEndLiveResizeNotification, object: window)
-        drainMainQueue()
-        drainMainQueue()
-        XCTAssertGreaterThan(
-            surface.debugForceRefreshCount(),
-            0,
-            "The held refresh must be delivered after the final live-resize pass"
-        )
-        withExtendedLifetime(surface) {}
-    }
-
     /// A geometry sync that runs inside an AppKit layout pass must not force a
     /// synchronous surface redraw. displayIfNeeded there reaches ghostty's
     /// Metal drawFrame while the window's transaction is still open, and
@@ -219,7 +88,7 @@ extension TerminalWindowPortalLifecycleTests {
     /// host containers inside the SwiftUI update, and the dragged panes'
     /// surfaces hold transaction-coupled presents at exactly that moment.
     @MainActor
-    func testDragPathFailsafeReconcileDefersSurfaceRefreshInsideLayout() throws {
+    func testDragPathFailsafeReconcileDefersSurfaceRefreshInsideLayout() async throws {
         let window = makeTestWindow(
             contentRect: NSRect(x: 0, y: 0, width: 520, height: 340)
         )
@@ -242,19 +111,24 @@ extension TerminalWindowPortalLifecycleTests {
 
         let dragSurface = makeTrackedTerminalSurface()
         let otherSurface = makeTrackedTerminalSurface()
+        dragSurface.hostedView.setVisibleInUI(true)
+        otherSurface.hostedView.setVisibleInUI(true)
         portal.bind(hostedView: dragSurface.hostedView, to: dragAnchor, visibleInUI: true)
         portal.bind(hostedView: otherSurface.hostedView, to: otherAnchor, visibleInUI: true)
         portal.synchronizeHostedViewForAnchor(dragAnchor)
         portal.synchronizeHostedViewForAnchor(otherAnchor)
-        drainMainQueue()
-        realizeWindowLayout(window)
+        guard await waitForSettledPortalGeometry(dragSurface, anchor: dragAnchor),
+              await waitForSettledPortalGeometry(otherSurface, anchor: otherAnchor) else {
+            XCTFail("Both surfaces must establish runtime geometry before the drag")
+            return
+        }
 
         TerminalWindowPortalRegistry.isPointerDragActiveForTesting = true
         dragSurface.resetDebugForceRefreshCount()
         otherSurface.resetDebugForceRefreshCount()
 
-        // Stale-ify the OTHER surface's inner geometry without a portal-visible
-        // frame delta: the failsafe reconcile is what notices and redraws it.
+        // The sibling's stale inner frame must recover after the drag without
+        // forcing a synchronous present from the anchor's layout callback.
         otherSurface.hostedView.surfaceView.setFrameSize(NSSize(width: 10, height: 10))
 
         var refreshCountDuringLayout = -1
@@ -275,13 +149,19 @@ extension TerminalWindowPortalLifecycleTests {
                 "while the anchor callback is inside a layout pass"
         )
 
-        drainMainQueue()
-        drainMainQueue()
-        XCTAssertGreaterThan(
-            otherSurface.debugForceRefreshCount(),
-            0,
-            "The deferred failsafe refresh must still repaint once the layout pass is over"
-        )
+        let presentationBeforeEnd = otherSurface.hostedView.debugRenderStats()
+        // Include a missed final sibling callback: ending the interaction must
+        // discover this new size and repaint it through the normal runtime.
+        otherAnchor.postsFrameChangedNotifications = false
+        otherAnchor.postsBoundsChangedNotifications = false
+        otherAnchor.setFrameSize(NSSize(width: 200, height: 140))
+        TerminalWindowPortalRegistry.isPointerDragActiveForTesting = false
+        // This fixture owns a direct portal rather than a registry portal.
+        NotificationCenter.default.post(name: NSWindow.didEndLiveResizeNotification, object: window)
+        let settled = await waitForSettledPortalGeometry(otherSurface, anchor: otherAnchor)
+        XCTAssertTrue(settled, "Resize end must commit the sibling's final viewport and runtime size")
+        let repainted = await waitForPortalPresentation(otherSurface, after: presentationBeforeEnd)
+        XCTAssertTrue(repainted, "The final geometry must present a new frame after the drag ends")
         withExtendedLifetime((dragSurface, otherSurface)) {}
     }
 
@@ -343,4 +223,189 @@ extension TerminalWindowPortalLifecycleTests {
         )
         withExtendedLifetime(surface) {}
     }
+
+    func testInteractiveGeometryResizeEndFlushesFinalTerminalSize() async {
+        let window = makeTestWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 760, height: 420)
+        )
+        let surface = makeTrackedTerminalSurface()
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        let container = NSView(frame: NSRect(x: 40, y: 60, width: 420, height: 220))
+        contentView.addSubview(container)
+        let anchor = NSView(frame: container.bounds)
+        container.addSubview(anchor)
+
+        TerminalWindowPortalRegistry.bind(
+            hostedView: surface.hostedView,
+            to: anchor,
+            visibleInUI: true,
+            expectedSurfaceId: surface.id,
+            expectedGeneration: surface.portalBindingGeneration()
+        )
+        TerminalWindowPortalRegistry.synchronizeForAnchor(anchor)
+        realizeWindowLayout(window)
+        guard await waitForSettledPortalGeometry(surface, anchor: anchor) else {
+            XCTFail("Expected initial committed geometry before starting the resize")
+            return
+        }
+        let initialPixelSize = surface.debugCurrentPixelSize()
+        XCTAssertGreaterThan(initialPixelSize.width, 0)
+
+        // With frame notifications disabled, only the interaction zero
+        // crossing can discover and apply this final geometry.
+        anchor.postsFrameChangedNotifications = false
+        TerminalWindowPortalRegistry.beginInteractiveGeometryResize(in: window)
+        var interactionIsActive = true
+        defer {
+            if interactionIsActive {
+                TerminalWindowPortalRegistry.endInteractiveGeometryResize(in: window)
+            }
+        }
+        anchor.frame.size.width -= 120
+        XCTAssertEqual(surface.debugCurrentPixelSize().width, initialPixelSize.width)
+
+        TerminalWindowPortalRegistry.endInteractiveGeometryResize(in: window)
+        interactionIsActive = false
+        let committedFinalSize = await waitForSettledPortalGeometry(surface, anchor: anchor)
+        XCTAssertTrue(committedFinalSize, "Resize end must settle the final geometry")
+        XCTAssertLessThan(surface.debugCurrentPixelSize().width, initialPixelSize.width)
+    }
+
+    func testInteractiveGeometryResizeRegistryRequestsAreScopedToOwningWindow() async {
+        let firstWindow = makeTestWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 760, height: 420)
+        )
+        defer {
+            NotificationCenter.default.post(name: NSWindow.willCloseNotification, object: firstWindow)
+            firstWindow.orderOut(nil)
+        }
+        let secondWindow = makeTestWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 760, height: 420)
+        )
+        defer {
+            NotificationCenter.default.post(name: NSWindow.willCloseNotification, object: secondWindow)
+            secondWindow.orderOut(nil)
+        }
+
+        let firstSurface = makeTrackedTerminalSurface()
+        let secondSurface = makeTrackedTerminalSurface()
+        guard let firstContentView = firstWindow.contentView,
+              let secondContentView = secondWindow.contentView else {
+            XCTFail("Expected content views")
+            return
+        }
+
+        let firstAnchor = NSView(frame: NSRect(x: 40, y: 60, width: 420, height: 220))
+        firstContentView.addSubview(firstAnchor)
+        let secondAnchor = NSView(frame: NSRect(x: 40, y: 60, width: 420, height: 220))
+        secondContentView.addSubview(secondAnchor)
+        TerminalWindowPortalRegistry.bind(
+            hostedView: firstSurface.hostedView,
+            to: firstAnchor,
+            visibleInUI: true,
+            expectedSurfaceId: firstSurface.id,
+            expectedGeneration: firstSurface.portalBindingGeneration()
+        )
+        TerminalWindowPortalRegistry.bind(
+            hostedView: secondSurface.hostedView,
+            to: secondAnchor,
+            visibleInUI: true,
+            expectedSurfaceId: secondSurface.id,
+            expectedGeneration: secondSurface.portalBindingGeneration()
+        )
+        TerminalWindowPortalRegistry.synchronizeForAnchor(firstAnchor)
+        TerminalWindowPortalRegistry.synchronizeForAnchor(secondAnchor)
+        realizeWindowLayout(firstWindow)
+        realizeWindowLayout(secondWindow)
+        guard await waitForSettledPortalGeometry(firstSurface, anchor: firstAnchor),
+              await waitForSettledPortalGeometry(secondSurface, anchor: secondAnchor) else {
+            XCTFail("Expected both window portals to establish initial geometry")
+            return
+        }
+        guard let firstPortal = TerminalWindowPortalRegistry.portalsByWindowId[ObjectIdentifier(firstWindow)],
+              let secondPortal = TerminalWindowPortalRegistry.portalsByWindowId[ObjectIdentifier(secondWindow)] else {
+            XCTFail("Expected both registered window portals")
+            return
+        }
+
+        let initialFirstWidth = firstSurface.debugCurrentPixelSize().width
+        let initialSecondWidth = secondSurface.debugCurrentPixelSize().width
+        XCTAssertGreaterThan(initialFirstWidth, 0)
+        XCTAssertGreaterThan(initialSecondWidth, 0)
+
+        firstAnchor.postsFrameChangedNotifications = false
+        firstAnchor.postsBoundsChangedNotifications = false
+        secondAnchor.postsFrameChangedNotifications = false
+        secondAnchor.postsBoundsChangedNotifications = false
+        let outerInteractionOwner = NSObject()
+        let nestedInteractionOwner = NSObject()
+        TerminalWindowPortalRegistry.beginInteractiveGeometryResize(
+            owner: outerInteractionOwner,
+            in: firstWindow
+        )
+        TerminalWindowPortalRegistry.beginInteractiveGeometryResize(
+            owner: nestedInteractionOwner,
+            in: firstWindow
+        )
+        var outerInteractionIsActive = true
+        var nestedInteractionIsActive = true
+        defer {
+            if outerInteractionIsActive {
+                TerminalWindowPortalRegistry.endInteractiveGeometryResize(owner: outerInteractionOwner)
+            }
+            if nestedInteractionIsActive {
+                TerminalWindowPortalRegistry.endInteractiveGeometryResize(owner: nestedInteractionOwner)
+            }
+        }
+
+        XCTAssertTrue(TerminalWindowPortalRegistry.isInteractiveGeometryResizeActive(in: firstWindow))
+        XCTAssertFalse(TerminalWindowPortalRegistry.isInteractiveGeometryResizeActive(in: secondWindow))
+        firstAnchor.frame.size.width -= 120
+        secondAnchor.frame.size.width -= 120
+        let firstRequests = firstPortal.externalGeometrySyncRequestCountForTesting
+        let secondRequests = secondPortal.externalGeometrySyncRequestCountForTesting
+
+        TerminalWindowPortalRegistry.endInteractiveGeometryResize(owner: outerInteractionOwner)
+        outerInteractionIsActive = false
+        XCTAssertTrue(
+            TerminalWindowPortalRegistry.isInteractiveGeometryResizeActive(in: firstWindow),
+            "Nested resize ownership should keep the window coalescing until every owner ends"
+        )
+        XCTAssertEqual(firstPortal.externalGeometrySyncRequestCountForTesting, firstRequests)
+        XCTAssertEqual(secondPortal.externalGeometrySyncRequestCountForTesting, secondRequests)
+        TerminalWindowPortalRegistry.endInteractiveGeometryResize(owner: nestedInteractionOwner)
+        nestedInteractionIsActive = false
+        XCTAssertEqual(firstPortal.externalGeometrySyncRequestCountForTesting, firstRequests + 1)
+        XCTAssertEqual(secondPortal.externalGeometrySyncRequestCountForTesting, secondRequests)
+        XCTAssertEqual(secondSurface.debugCurrentPixelSize().width, initialSecondWidth)
+        // Assert registry routing before yielding: global resize-end subscribers
+        // and each runtime's scrollbar callbacks can independently enqueue layout.
+        let firstSettled = await waitForSettledPortalGeometry(firstSurface, anchor: firstAnchor)
+        XCTAssertTrue(firstSettled, "The owning window must settle after its last resize owner ends")
+
+        XCTAssertLessThan(
+            firstSurface.debugCurrentPixelSize().width,
+            initialFirstWidth,
+            "Drag end should flush the owning window's final terminal width"
+        )
+        let secondWidthBeforeExplicitSync = secondSurface.debugCurrentPixelSize().width
+        secondAnchor.frame.size.width -= 40
+        XCTAssertEqual(secondSurface.debugCurrentPixelSize().width, secondWidthBeforeExplicitSync)
+        TerminalWindowPortalRegistry.scheduleExternalGeometrySynchronize(
+            for: secondWindow,
+            forceImmediate: false
+        )
+        let secondSettled = await waitForSettledPortalGeometry(secondSurface, anchor: secondAnchor)
+        XCTAssertTrue(secondSettled, "Explicit synchronization must settle the other window")
+        XCTAssertLessThan(
+            secondSurface.debugCurrentPixelSize().width,
+            secondWidthBeforeExplicitSync,
+            "The unrelated window should still adopt its geometry when explicitly synchronized"
+        )
+    }
+
 }

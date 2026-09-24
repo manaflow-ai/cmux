@@ -1,3 +1,4 @@
+import CmuxComputerUse
 import AppKit
 import SwiftUI
 
@@ -15,7 +16,6 @@ struct ComputerUseOnboardingView: View {
     let initialStep: ComputerUseOnboardingStep
     let initialDirectCaptureReady: Bool
     let onPermissionSetupStarted: @MainActor (ComputerUseOnboardingStep) -> Void
-    let onPermissionCompanionLayoutReady: @MainActor () -> Void
     let onExpandedRequested: @MainActor () -> Void
     let onOnboardingCompleted: @MainActor () -> Void
 
@@ -24,7 +24,6 @@ struct ComputerUseOnboardingView: View {
     @State private var screenRecordingGranted = false
     @State private var permissionStatusIsKnown = false
     @State private var refreshInFlight = false
-    @State private var permissionChangeRefreshInFlight = false
     @State private var permissionCheckArmed = false
     @State private var helperAppURL: URL?
     @State private var initialPermissionFlowStarted = false
@@ -40,7 +39,6 @@ struct ComputerUseOnboardingView: View {
         initialStep: ComputerUseOnboardingStep = .overview,
         initialDirectCaptureReady: Bool = false,
         onPermissionSetupStarted: @escaping @MainActor (ComputerUseOnboardingStep) -> Void = { _ in },
-        onPermissionCompanionLayoutReady: @escaping @MainActor () -> Void = {},
         onExpandedRequested: @escaping @MainActor () -> Void = {},
         onOnboardingCompleted: @escaping @MainActor () -> Void = {}
     ) {
@@ -49,15 +47,10 @@ struct ComputerUseOnboardingView: View {
         self.initialStep = initialStep
         self.initialDirectCaptureReady = initialDirectCaptureReady
         self.onPermissionSetupStarted = onPermissionSetupStarted
-        self.onPermissionCompanionLayoutReady = onPermissionCompanionLayoutReady
         self.onExpandedRequested = onExpandedRequested
         self.onOnboardingCompleted = onOnboardingCompleted
         _step = State(initialValue: initialStep)
         _directCaptureReady = State(initialValue: initialDirectCaptureReady)
-    }
-
-    private var isPermissionCompanionVisible: Bool {
-        presentationState.permissionCompanionVisible
     }
 
     @Environment(\.colorScheme) private var colorScheme
@@ -67,20 +60,10 @@ struct ComputerUseOnboardingView: View {
     }
 
     var body: some View {
-        Group {
-            if isPermissionCompanionVisible {
-                permissionCompanion
-            } else {
-                expandedOnboarding
-            }
-        }
+        expandedOnboarding
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .ignoresSafeArea()
-        .background {
-            if !isPermissionCompanionVisible {
-                onboardingBackground
-            }
-        }
+        .background(onboardingBackground)
         .onAppear {
             prepareHelperForOnboarding()
         }
@@ -189,7 +172,7 @@ struct ComputerUseOnboardingView: View {
 
                 Text(String(
                     localized: "computerUse.onboarding.hero.helperNote",
-                    defaultValue: "Permissions go to the separate cmux Computer Use helper — the cmux terminal itself never receives them."
+                    defaultValue: "Permissions belong to a separate Computer Use helper. You can quit or reopen it without closing cmux or your terminal sessions."
                 ))
                 .font(.system(size: 11))
                 .foregroundStyle(Color(nsColor: .tertiaryLabelColor))
@@ -302,13 +285,13 @@ struct ComputerUseOnboardingView: View {
     }
 
     /// Once ordinary Screen Recording is on, the remaining blocker is Tahoe's
-    /// direct-capture consent alert — say so instead of re-explaining
+    /// direct-capture consent alert. Say so instead of re-explaining
     /// screenshots while a scary system dialog is (or is about to be) up.
     private var screenshotsCardDetail: String {
         if permissionStatusIsKnown, screenRecordingGranted, !directCaptureReady {
             return String(
                 localized: "computerUse.onboarding.screenshots.confirmDetail",
-                defaultValue: "macOS asks to confirm — allow screen capture"
+                defaultValue: "macOS asks for confirmation. Allow screen capture."
             )
         }
         return String(
@@ -419,25 +402,6 @@ struct ComputerUseOnboardingView: View {
         }
     }
 
-    private var permissionCompanion: some View {
-        ComputerUsePermissionCompanionView(
-            permissionStep: step,
-            presentationState: presentationState,
-            applicationName: runtimeService.applicationName,
-            helperAppURL: helperAppURL,
-            onBack: {
-                onExpandedRequested()
-                refreshPermissions()
-            },
-            onDragEnded: handleHelperDragEnded,
-            onLayoutReady: {
-                if presentationState.markPermissionCompanionLayoutReady() {
-                    onPermissionCompanionLayoutReady()
-                }
-            }
-        )
-    }
-
     private func refreshPermissions() {
         Task { @MainActor in
             await refreshPermissionsNow()
@@ -449,29 +413,6 @@ struct ComputerUseOnboardingView: View {
         refreshInFlight = true
         defer { refreshInFlight = false }
         let status = await runtimeService.refreshHelperStatus()
-        guard !Task.isCancelled else { return }
-        refreshHelperPresentation()
-        applyPermissions(
-            statusIsKnown: runtimeService.permissionStatusIsKnown,
-            accessibilityGranted: status.accessibility,
-            screenRecordingGranted: status.screenRecording
-        )
-    }
-
-    private func handleHelperDragEnded(operation: NSDragOperation) {
-        guard operation != [] else { return }
-        permissionCheckArmed = true
-        Task { @MainActor in
-            await refreshPermissionsAfterPermissionChange()
-        }
-    }
-
-    private func refreshPermissionsAfterPermissionChange() async {
-        guard !permissionChangeRefreshInFlight else { return }
-        permissionChangeRefreshInFlight = true
-        defer { permissionChangeRefreshInFlight = false }
-        let status = await runtimeService
-            .refreshHelperStatusAfterPermissionChange()
         guard !Task.isCancelled else { return }
         refreshHelperPresentation()
         applyPermissions(

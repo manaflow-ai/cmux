@@ -4,7 +4,8 @@ import { useTheme } from "next-themes";
 import { flushSync } from "react-dom";
 import { darkThemeColor, lightThemeColor } from "./theme-colors";
 
-export function ThemeToggle() {
+/** Flips light/dark with a view transition when the platform allows one. */
+export function useThemeToggle() {
   const { resolvedTheme, setTheme } = useTheme();
 
   const toggle = () => {
@@ -34,6 +35,12 @@ export function ThemeToggle() {
       flushSync(apply);
     });
   };
+
+  return { resolvedTheme, toggle };
+}
+
+export function ThemeToggle() {
+  const { toggle } = useThemeToggle();
 
   return (
     <button

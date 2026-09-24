@@ -1,3 +1,4 @@
+import AppKit
 import XCTest
 
 /// Behavioral XCUITests for the Settings **App** section.
@@ -93,6 +94,104 @@ import XCTest
 ///     and nothing should hit the network from a test. Verify via the
 ///     telemetry client's unit tests instead.
 final class SettingsAppBehaviorUITests: SettingsUITestCase {
+    func testMobilePairingSettingsLightAndDarkCaptures() throws {
+        for appearance in ["light", "dark"] {
+            let app = XCUIApplication.cmuxTestApplication()
+            app.launchArguments += settingsLaunchArguments + ["-appearanceMode", appearance]
+            app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
+            launchAndActivate(app)
+            defer { app.terminate() }
+            let window = openSettings(app)
+            navigate(window, to: "Mobile")
+            let pairingToggle = window.checkBoxes["SettingsMobileIOSPairingHostToggle"].firstMatch
+            XCTAssertTrue(pairingToggle.waitForExistence(timeout: 5))
+            let detail = window.staticTexts["Allows iOS pairing and Iroh networking for this Mac."].firstMatch
+            if !detail.exists {
+                pairingToggle.click()
+            }
+            let title = window.staticTexts["Enable iOS pairing"].firstMatch
+            XCTAssertTrue(title.waitForExistence(timeout: 5))
+            XCTAssertTrue(detail.waitForExistence(timeout: 5))
+            let header = try XCTUnwrap(window.staticTexts.matching(identifier: "Mobile").allElementsBoundByIndex.first {
+                $0.frame.minX > window.frame.minX + 150
+            })
+            XCTAssertLessThan(title.frame.minY, window.staticTexts["Forward Notifications to iPhone"].firstMatch.frame.minY)
+            let crop = header.frame.union(title.frame).union(detail.frame).insetBy(dx: -12, dy: -12)
+            let source = try XCTUnwrap(window.screenshot().image.cgImage(forProposedRect: nil, context: nil, hints: nil))
+            let scale = CGFloat(source.width) / window.frame.width
+            let pixels = CGRect(
+                x: (crop.minX - window.frame.minX) * scale,
+                y: (crop.minY - window.frame.minY) * scale,
+                width: crop.width * scale,
+                height: crop.height * scale
+            ).integral
+            let cropped = try XCTUnwrap(source.cropping(to: pixels))
+            let capture = XCTAttachment(image: NSImage(cgImage: cropped, size: crop.size))
+            capture.name = "MacSettingsMobilePairing-\(appearance)"
+            capture.lifetime = .keepAlways
+            add(capture)
+            let full = XCTAttachment(screenshot: window.screenshot())
+            full.name = "Mac Settings - \(appearance)"
+            full.lifetime = .keepAlways
+            add(full)
+            pairingToggle.click()
+            app.terminate()
+        }
+    }
+
+    func testGermanSettingsNavigationAndSearchUseTranslations() {
+        assertLocalizedNavigation(
+            language: "de", account: "Konto", shortcuts: "Tastaturkurzbefehle",
+            searchLabel: "Suchen", languageLabel: "Sprache", rightToLeft: false
+        )
+    }
+
+    func testArabicSettingsNavigationAndSearchUseTranslations() {
+        assertLocalizedNavigation(
+            language: "ar", account: "حساب", shortcuts: "اختصارات لوحة المفاتيح",
+            searchLabel: "بحث", languageLabel: "اللغة", rightToLeft: true
+        )
+    }
+
+    private func assertLocalizedNavigation(
+        language: String, account: String, shortcuts: String,
+        searchLabel: String, languageLabel: String, rightToLeft: Bool
+    ) {
+        let app = XCUIApplication.cmuxTestApplication()
+        app.launchArguments += [
+            "-AppleLanguages", "(\(language))", "-appLanguage", "system",
+            "-ApplePersistenceIgnoreState", "YES", "-NSQuitAlwaysKeepsWindows", "NO",
+            "-menuBarOnly", "false",
+            "-AppleTextDirection", rightToLeft ? "YES" : "NO",
+            "-NSForceRightToLeftWritingDirection", rightToLeft ? "YES" : "NO",
+        ]
+        app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
+        launchAndActivate(app)
+        defer { app.terminate() }
+        // Open Settings after launch activation so the main window cannot
+        // cover its search field during the startup window ordering.
+        app.typeKey(",", modifierFlags: .command)
+        let window = app.windows["cmux.settings"]
+        XCTAssertTrue(window.waitForExistence(timeout: 8))
+        let sidebar = window.outlines.firstMatch
+        XCTAssertTrue(sidebar.waitForExistence(timeout: 5))
+        XCTAssertTrue(sidebar.staticTexts[account].firstMatch.waitForExistence(timeout: 5))
+        XCTAssertTrue(sidebar.staticTexts[shortcuts].firstMatch.exists)
+        XCTAssertEqual(sidebar.frame.midX > window.frame.midX, rightToLeft)
+
+        let search = requireElement(
+            candidates: [window.searchFields.firstMatch, window.textFields[searchLabel].firstMatch],
+            timeout: 5,
+            description: "localized Settings search field"
+        )
+        search.click()
+        search.typeText(languageLabel)
+        XCTAssertTrue(sidebar.staticTexts[languageLabel].firstMatch.waitForExistence(timeout: 5))
+        search.typeKey("a", modifierFlags: .command)
+        search.typeText("Language")
+        XCTAssertTrue(sidebar.staticTexts[languageLabel].firstMatch.waitForExistence(timeout: 5))
+    }
+
     // UserDefaults keys (the catalog `userDefaultsKey`s) touched here, so
     // each test starts from the documented default regardless of prior
     // local state.

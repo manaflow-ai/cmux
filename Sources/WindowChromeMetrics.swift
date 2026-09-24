@@ -45,6 +45,15 @@ enum RightSidebarChromeMetrics {
         return max(baseHeight, scaledContentHeight)
     }
     static let controlHorizontalPadding: CGFloat = 8
+    static let contentIconLeadingPadding: CGFloat = 12
+    static let contentIconFrameSize: CGFloat = 14
+    static let contentIconTextSpacing: CGFloat = 4
+    static var contentTextLeadingPadding: CGFloat {
+        contentIconLeadingPadding + contentIconFrameSize + contentIconTextSpacing
+    }
+    static var contentIconCenter: CGFloat {
+        contentIconLeadingPadding + contentIconFrameSize / 2
+    }
     static var controlCornerRadius: CGFloat {
         min(10, max(5, controlHeight * 0.25))
     }
@@ -52,6 +61,11 @@ enum RightSidebarChromeMetrics {
     static let headerIconSize: CGFloat = 10
     static let headerIconFrameSize: CGFloat = headerIconSize
     static let headerControlSpacing: CGFloat = 4
+    /// Outer insets of the right-sidebar chrome bars. The mode bar, the Vault
+    /// grouping pills, and the Vault search row all use these, so their
+    /// controls share one leading column and one trailing column.
+    static let headerLeadingPadding: CGFloat = HeaderChromeControlMetrics.titlebarControlsLeadingPadding
+    static let headerTrailingPadding: CGFloat = 6
     static let headerControlCornerRadius: CGFloat = HeaderChromeControlMetrics.cornerRadius
     static let headerControlCenterAlignmentAdjustment: CGFloat = 0
 }

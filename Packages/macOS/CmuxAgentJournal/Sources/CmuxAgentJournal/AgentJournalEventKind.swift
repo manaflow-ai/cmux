@@ -29,6 +29,12 @@ public enum AgentJournalEventKind: String, Codable, Sendable, CaseIterable, Equa
     /// Catch-all for native events with no stronger semantic mapping. Only
     /// reduces to a lifecycle phase when the event declares one explicitly.
     case stateChanged = "agent.state.changed"
+    /// The agent observed an idle prompt, without a blocking tool/input request.
+    case idleObserved = "agent.idle.observed"
+    /// A specific approval, question, or plan request was resolved.
+    case attentionResolved = "agent.attention.resolved"
+    /// An explicit agent message, independent of turn completion or input waits.
+    case messagePublished = "agent.message.published"
     /// The session ended (teardown, replacement, or finalize).
     case sessionEnded = "agent.session.ended"
 }

@@ -1,0 +1,6 @@
+#!/bin/sh
+# Compatibility entrypoint; the bundled Swift CLI owns the shared implementation.
+set -eu
+
+script_directory=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+exec "$script_directory/cmux" sudo "$@"

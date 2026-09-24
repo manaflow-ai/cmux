@@ -8,6 +8,10 @@ fi
 if [ "${CMUX_MOCK_XCODEBUILD_PROCESS:-0}" = "1" ]; then
   printf '%s\n' "$@" >> "$CMUX_CAPTURE_XCODEBUILD_ARGS"
   printf '%s\n' "${TEST_RUNNER_CMUX_TEST_PROCESS:-<unset>}" >> "$CMUX_CAPTURE_TEST_RUNNER_ENV"
+  if [ -n "${CMUX_CAPTURE_TEST_RUNNER_CI_ENV:-}" ]; then
+    printf '%s|%s\n' "${TEST_RUNNER_CI-<unset>}" "${TEST_RUNNER_GITHUB_ACTIONS-<unset>}" \
+      >> "$CMUX_CAPTURE_TEST_RUNNER_CI_ENV"
+  fi
   printf '%s|%s|%s\n' \
     "${HOME:-<unset>}" \
     "${CFFIXED_USER_HOME:-<unset>}" \
@@ -24,6 +28,10 @@ if [ "${CMUX_MOCK_XCODEBUILD_PROCESS:-0}" = "1" ]; then
     "${TEST_RUNNER_CMUX_APP_HOST_KEY:-<unset>}" \
     "${TEST_RUNNER_CMUX_APP_HOST_RECEIPT_DIR:-<unset>}" \
     >> "$CMUX_CAPTURE_TEST_RUNNER_HOME_ENV"
+  if [ -n "${CMUX_CAPTURE_TEST_RUNNER_TOOL_ENV:-}" ]; then
+    printf '%s|%s\n' "${TEST_RUNNER_PATH-<unset>}" "${TEST_RUNNER_BUN_INSTALL-<unset>}" \
+      >> "$CMUX_CAPTURE_TEST_RUNNER_TOOL_ENV"
+  fi
   config_home="${TEST_RUNNER_HOME:-${HOME:-/tmp}}"
   config_category=default
   config_message="reading configuration file"
@@ -68,6 +76,37 @@ if [ "${CMUX_MOCK_XCODEBUILD_PROCESS:-0}" = "1" ]; then
     echo "cmux DEV [$config_category] $config_message path=$config_home/$config_suffix"
   fi
   [ "${CMUX_MOCK_XCODEBUILD_MODE:-timeout}" != "leak" ] || exit 0
+  if [ "${CMUX_MOCK_XCODEBUILD_MODE:-timeout}" = "assertion-then-success" ]; then
+    sequence_file="${CMUX_MOCK_XCODEBUILD_SEQUENCE_FILE:?missing mock sequence file}"
+    sequence_attempt=1
+    if [ -r "$sequence_file" ]; then
+      sequence_attempt=$(( $(cat "$sequence_file") + 1 ))
+    fi
+    printf '%s\n' "$sequence_attempt" >"$sequence_file"
+    if [ "$sequence_attempt" -eq 1 ]; then
+      echo "Test Suite 'Selected tests' started at 2026-09-21 00:00:00."
+      echo "Test Case '-[cmuxTests.ExampleTests testExample]' started."
+      echo "/tmp/ExampleTests.swift:1: error: -[cmuxTests.ExampleTests testExample] : XCTAssertTrue failed"
+      echo "Executed 1 test, with 1 failure (0 unexpected)"
+      echo "Failed to establish communication with the test runner"
+      exit 65
+    fi
+    echo 'cmux DEV message = "socket.listener.start"'
+    echo "Executed 1 test, with 0 failures (0 unexpected)"
+    exit 0
+  fi
+  if [ "${CMUX_MOCK_XCODEBUILD_MODE:-timeout}" = "crash-loop" ]; then
+    # xcodebuild relaunching an app host that crashes on contact: the run is
+    # resumed after every crash and never ends on its own.
+    echo 'cmux DEV message = "socket.listener.start"'
+    for _ in 1 2 3 4 5 6 7 8; do
+      echo "Test Case '-[cmuxTests.ExampleTests testExample]' started."
+      echo "Restarting after unexpected exit, crash, or test timeout; summary will include totals from previous launches."
+      sleep 0.2
+    done
+    sleep 600
+    exit 0
+  fi
   if [ "${CMUX_MOCK_XCODEBUILD_MODE:-timeout}" = "success" ] \
     || [ "${CMUX_MOCK_XCODEBUILD_MODE:-timeout}" = "xdg-config-leak" ] \
     || [ "${CMUX_MOCK_XCODEBUILD_MODE:-timeout}" = "xdg-default-leak" ] \
@@ -138,10 +177,13 @@ RESOLVED_APP_HOST_XDG_CONFIG_HOME="$(cd "$APP_HOST_XDG_CONFIG_HOME" && pwd -P)"
 set +e
 /usr/bin/env -u CMUX_APP_HOST_HOME -u CMUX_APP_HOST_XDG_CONFIG_HOME \
   -u CFFIXED_USER_HOME -u XDG_CONFIG_HOME \
+  -u TEST_RUNNER_CI -u TEST_RUNNER_GITHUB_ACTIONS \
+  CI=true GITHUB_ACTIONS=true \
   PATH="$BASH32_BIN_DIR:$TMP_DIR:$PATH" \
   RUNNER_TEMP="$RUNNER_TEMP_DIR" \
   CMUX_CAPTURE_XCODEBUILD_ARGS="$TMP_DIR/non-isolated-xcodebuild-args.log" \
   CMUX_CAPTURE_TEST_RUNNER_ENV="$TMP_DIR/non-isolated-test-runner-env.log" \
+  CMUX_CAPTURE_TEST_RUNNER_CI_ENV="$TMP_DIR/non-isolated-ci-env.log" \
   CMUX_CAPTURE_XCODEBUILD_PARENT_ENV="$TMP_DIR/non-isolated-parent-env.log" \
   CMUX_CAPTURE_TEST_RUNNER_HOME_ENV="$TMP_DIR/non-isolated-runner-home-env.log" \
   CMUX_MOCK_XCODEBUILD_PROCESS=1 \
@@ -160,16 +202,24 @@ if [ "$non_isolated_status" -ne 0 ] \
   exit 1
 fi
 
+if ! grep -Fxq 'true|true' "$TMP_DIR/non-isolated-ci-env.log"; then
+  cat "$TMP_DIR/non-isolated-ci-env.log"
+  echo "FAIL: CI identity must reach the app host through Xcode's TEST_RUNNER_ channel"
+  exit 1
+fi
+
 AMBIENT_XDG_CONFIG_HOME="$TMP_DIR/ambient-xdg"
 mkdir -p "$AMBIENT_XDG_CONFIG_HOME"
 set +e
 /usr/bin/env -u CMUX_APP_HOST_HOME -u CMUX_APP_HOST_XDG_CONFIG_HOME \
   -u CFFIXED_USER_HOME \
+  -u CI -u GITHUB_ACTIONS -u TEST_RUNNER_CI -u TEST_RUNNER_GITHUB_ACTIONS \
   PATH="$BASH32_BIN_DIR:$TMP_DIR:$PATH" \
   RUNNER_TEMP="$RUNNER_TEMP_DIR" \
   XDG_CONFIG_HOME="$AMBIENT_XDG_CONFIG_HOME" \
   CMUX_CAPTURE_XCODEBUILD_ARGS="$TMP_DIR/ambient-xdg-xcodebuild-args.log" \
   CMUX_CAPTURE_TEST_RUNNER_ENV="$TMP_DIR/ambient-xdg-test-runner-env.log" \
+  CMUX_CAPTURE_TEST_RUNNER_CI_ENV="$TMP_DIR/ambient-xdg-ci-env.log" \
   CMUX_CAPTURE_XCODEBUILD_PARENT_ENV="$TMP_DIR/ambient-xdg-parent-env.log" \
   CMUX_CAPTURE_TEST_RUNNER_HOME_ENV="$TMP_DIR/ambient-xdg-runner-home-env.log" \
   CMUX_MOCK_XCODEBUILD_PROCESS=1 \
@@ -180,6 +230,12 @@ set +e
     >"$TMP_DIR/ambient-xdg-output.log" 2>&1
 ambient_xdg_status=$?
 set -e
+
+if ! grep -Fxq '<unset>|<unset>' "$TMP_DIR/ambient-xdg-ci-env.log"; then
+  cat "$TMP_DIR/ambient-xdg-ci-env.log"
+  echo "FAIL: local app-host launches must not acquire CI identity"
+  exit 1
+fi
 
 if [ "$ambient_xdg_status" -ne 0 ] \
   || [ "$(grep -cx 'test' "$TMP_DIR/ambient-xdg-xcodebuild-args.log" 2>/dev/null || true)" -ne 1 ] \
@@ -229,12 +285,15 @@ CMUX_CAPTURE_XCODEBUILD_ARGS="$TMP_DIR/xcodebuild-args.log" \
 CMUX_CAPTURE_TEST_RUNNER_ENV="$TMP_DIR/test-runner-env.log" \
 CMUX_CAPTURE_XCODEBUILD_PARENT_ENV="$TMP_DIR/xcodebuild-parent-env.log" \
 CMUX_CAPTURE_TEST_RUNNER_HOME_ENV="$TMP_DIR/test-runner-home-env.log" \
+CMUX_CAPTURE_TEST_RUNNER_TOOL_ENV="$TMP_DIR/test-runner-tool-env.log" \
 CMUX_MOCK_XCODEBUILD_PROCESS=1 \
 CMUX_APP_HOST_XCODEBUILD_ATTEMPTS=2 \
 CMUX_XCODEBUILD_NONINTERACTIVE_IDLE_TIMEOUT_SECONDS=0.1 \
 CMUX_CI_APP_HOST_ISOLATION_REQUIRED=1 \
 CMUX_APP_HOST_HOME="$APP_HOST_HOME" \
 CMUX_APP_HOST_XDG_CONFIG_HOME="$APP_HOST_XDG_CONFIG_HOME" \
+TEST_RUNNER_PATH="/ci/node/bin:/usr/bin" \
+TEST_RUNNER_BUN_INSTALL="/ci/bun" \
 CFFIXED_USER_HOME="$XCODE_PARENT_FIXED_HOME" \
 XDG_CONFIG_HOME="$XCODE_PARENT_XDG_CONFIG_HOME" \
   bash "$ROOT_DIR/scripts/ci/run-app-host-xcodebuild.sh" test >"$TMP_DIR/output.log" 2>&1
@@ -265,6 +324,20 @@ runner_marker_count="$(grep -cx '1' "$TMP_DIR/test-runner-env.log" || true)"
 if [ "$runner_marker_count" -eq 0 ] || [ "$runner_marker_count" -ne "$invocation_count" ]; then
   cat "$TMP_DIR/test-runner-env.log"
   echo "FAIL: expected every app-host launch to receive TEST_RUNNER_CMUX_TEST_PROCESS=1"
+  exit 1
+fi
+
+if [ "$(grep -Fxc -- '-test-timeouts-enabled' "$TMP_DIR/xcodebuild-args.log" || true)" -ne "$invocation_count" ] \
+  || [ "$(grep -Fxc -- '-default-test-execution-time-allowance' "$TMP_DIR/xcodebuild-args.log" || true)" -ne "$invocation_count" ] \
+  || [ "$(grep -Fxc -- '-maximum-test-execution-time-allowance' "$TMP_DIR/xcodebuild-args.log" || true)" -ne "$invocation_count" ]; then
+  cat "$TMP_DIR/xcodebuild-args.log"
+  echo "FAIL: every app-host launch must carry an explicit per-test execution allowance"
+  exit 1
+fi
+
+if [ "$(grep -Fxc '/ci/node/bin:/usr/bin|/ci/bun' "$TMP_DIR/test-runner-tool-env.log" || true)" -ne "$invocation_count" ]; then
+  cat "$TMP_DIR/test-runner-tool-env.log"
+  echo "FAIL: focused test-runner tool paths must reach every app-host launch"
   exit 1
 fi
 
@@ -493,4 +566,139 @@ for regression in \
   fi
 done
 
-echo "PASS: app-host xcodebuild wrapper retries idle timeouts"
+# A caller-supplied maximum allowance is authoritative. The wrapper may fill
+# the missing enable/default options, but it must not append a later maximum.
+set +e
+/usr/bin/env -u CMUX_APP_HOST_HOME -u CMUX_APP_HOST_XDG_CONFIG_HOME \
+  -u CFFIXED_USER_HOME -u XDG_CONFIG_HOME \
+  PATH="$BASH32_BIN_DIR:$TMP_DIR:$PATH" \
+  RUNNER_TEMP="$RUNNER_TEMP_DIR" \
+  CMUX_CAPTURE_XCODEBUILD_ARGS="$TMP_DIR/caller-timeout-xcodebuild-args.log" \
+  CMUX_CAPTURE_TEST_RUNNER_ENV="$TMP_DIR/caller-timeout-test-runner-env.log" \
+  CMUX_CAPTURE_XCODEBUILD_PARENT_ENV="$TMP_DIR/caller-timeout-parent-env.log" \
+  CMUX_CAPTURE_TEST_RUNNER_HOME_ENV="$TMP_DIR/caller-timeout-runner-home-env.log" \
+  CMUX_MOCK_XCODEBUILD_PROCESS=1 \
+  CMUX_MOCK_XCODEBUILD_MODE=success \
+  CMUX_APP_HOST_XCODEBUILD_ATTEMPTS=1 \
+  CMUX_XCODEBUILD_NONINTERACTIVE_IDLE_TIMEOUT_SECONDS=5 \
+  /bin/bash "$ROOT_DIR/scripts/ci/run-app-host-xcodebuild.sh" \
+    test -maximum-test-execution-time-allowance 120 \
+    >"$TMP_DIR/caller-timeout-output.log" 2>&1
+caller_timeout_status=$?
+set -e
+
+if [ "$caller_timeout_status" -ne 0 ] \
+  || [ "$(grep -Fxc -- '-maximum-test-execution-time-allowance' "$TMP_DIR/caller-timeout-xcodebuild-args.log" || true)" -ne 1 ] \
+  || ! awk '
+    previous == "-maximum-test-execution-time-allowance" && $0 == "120" { found = 1 }
+    { previous = $0 }
+    END { exit found ? 0 : 1 }
+  ' "$TMP_DIR/caller-timeout-xcodebuild-args.log"; then
+  cat "$TMP_DIR/caller-timeout-output.log"
+  cat "$TMP_DIR/caller-timeout-xcodebuild-args.log" 2>/dev/null || true
+  echo "FAIL: wrapper must preserve the caller-supplied maximum test allowance"
+  exit 1
+fi
+
+set +e
+/usr/bin/env -u CMUX_APP_HOST_HOME -u CMUX_APP_HOST_XDG_CONFIG_HOME \
+  -u CFFIXED_USER_HOME -u XDG_CONFIG_HOME \
+  PATH="$BASH32_BIN_DIR:$TMP_DIR:$PATH" \
+  RUNNER_TEMP="$RUNNER_TEMP_DIR" \
+  CMUX_TAG=sticky-retry \
+  CMUX_CAPTURE_XCODEBUILD_ARGS="$TMP_DIR/sticky-retry-xcodebuild-args.log" \
+  CMUX_CAPTURE_TEST_RUNNER_ENV="$TMP_DIR/sticky-retry-test-runner-env.log" \
+  CMUX_CAPTURE_XCODEBUILD_PARENT_ENV="$TMP_DIR/sticky-retry-parent-env.log" \
+  CMUX_CAPTURE_TEST_RUNNER_HOME_ENV="$TMP_DIR/sticky-retry-runner-home-env.log" \
+  CMUX_MOCK_XCODEBUILD_PROCESS=1 \
+  CMUX_MOCK_XCODEBUILD_MODE=assertion-then-success \
+  CMUX_MOCK_XCODEBUILD_SEQUENCE_FILE="$TMP_DIR/sticky-retry-sequence" \
+  CMUX_APP_HOST_XCODEBUILD_ATTEMPTS=2 \
+  CMUX_XCODEBUILD_NONINTERACTIVE_IDLE_TIMEOUT_SECONDS=5 \
+  /bin/bash "$ROOT_DIR/scripts/ci/run-app-host-xcodebuild.sh" test \
+    >"$TMP_DIR/sticky-retry-output.log" 2>&1
+sticky_retry_status=$?
+set -e
+
+if [ "$sticky_retry_status" -ne 65 ]; then
+  cat "$TMP_DIR/sticky-retry-output.log"
+  echo "FAIL: an assertion-bearing attempt must remain red, got $sticky_retry_status"
+  exit 1
+fi
+if [ "$(cat "$TMP_DIR/sticky-retry-sequence")" -ne 1 ]; then
+  cat "$TMP_DIR/sticky-retry-output.log"
+  echo "FAIL: wrapper launched a later green attempt after test execution"
+  exit 1
+fi
+if grep -Fq "Retrying app-host xcodebuild after" "$TMP_DIR/sticky-retry-output.log" \
+  || ! grep -Fq "retry blocked after test execution evidence" "$TMP_DIR/sticky-retry-output.log"; then
+  cat "$TMP_DIR/sticky-retry-output.log"
+  echo "FAIL: sticky failure retry decision was not reported"
+  exit 1
+fi
+metadata_path="$(find "$RUNNER_TEMP_DIR" -maxdepth 1 \
+  -name 'cmux-app-host-xcodebuild-sticky-retry-pid-*-attempt-1.meta' -print -quit)"
+if [ -z "$metadata_path" ] || ! grep -Fxq "attempt=1" "$metadata_path" \
+  || ! grep -Fxq "arg=test" "$metadata_path"; then
+  cat "${metadata_path:-/dev/null}" 2>/dev/null || true
+  echo "FAIL: wrapper must retain per-invocation attempt metadata"
+  exit 1
+fi
+if find "$RUNNER_TEMP_DIR" -maxdepth 1 \
+  -name 'cmux-app-host-xcodebuild-sticky-retry-pid-*-attempt-2.meta' -print -quit \
+  | grep -q .; then
+  echo "FAIL: blocked retry created a second attempt artifact"
+  exit 1
+fi
+if find "$RUNNER_TEMP_DIR" -maxdepth 1 -name 'cmux-app-host-xcodebuild-*-pid-$-*' -print -quit \
+  | grep -q .; then
+  echo "FAIL: per-invocation artifact stem contains a literal dollar sign instead of the process id"
+  exit 1
+fi
+
+# A crash-looping app host must abort the invocation once its restart budget
+# is spent, and must not be retried: each attempt would loop again and spend
+# the same runner time. https://github.com/manaflow-ai/cmux/issues/13707
+set +e
+/usr/bin/env -u CMUX_APP_HOST_HOME -u CMUX_APP_HOST_XDG_CONFIG_HOME \
+  -u CFFIXED_USER_HOME -u XDG_CONFIG_HOME \
+  PATH="$BASH32_BIN_DIR:$TMP_DIR:$PATH" \
+  RUNNER_TEMP="$RUNNER_TEMP_DIR" \
+  CMUX_TAG=crash-loop \
+  CMUX_CAPTURE_XCODEBUILD_ARGS="$TMP_DIR/crash-loop-xcodebuild-args.log" \
+  CMUX_CAPTURE_TEST_RUNNER_ENV="$TMP_DIR/crash-loop-test-runner-env.log" \
+  CMUX_CAPTURE_XCODEBUILD_PARENT_ENV="$TMP_DIR/crash-loop-parent-env.log" \
+  CMUX_CAPTURE_TEST_RUNNER_HOME_ENV="$TMP_DIR/crash-loop-runner-home-env.log" \
+  CMUX_MOCK_XCODEBUILD_PROCESS=1 \
+  CMUX_MOCK_XCODEBUILD_MODE=crash-loop \
+  CMUX_APP_HOST_XCODEBUILD_ATTEMPTS=3 \
+  CMUX_XCODEBUILD_NONINTERACTIVE_RESTART_BUDGET=2 \
+  CMUX_XCODEBUILD_NONINTERACTIVE_IDLE_TIMEOUT_SECONDS=60 \
+  /bin/bash "$ROOT_DIR/scripts/ci/run-app-host-xcodebuild.sh" test \
+    >"$TMP_DIR/crash-loop-output.log" 2>&1
+crash_loop_status=$?
+set -e
+
+if [ "$crash_loop_status" -ne 123 ]; then
+  cat "$TMP_DIR/crash-loop-output.log"
+  echo "FAIL: expected restart-budget abort status 123, got $crash_loop_status"
+  exit 1
+fi
+if ! grep -Fq "Aborted by the app-host restart budget" "$TMP_DIR/crash-loop-output.log"; then
+  cat "$TMP_DIR/crash-loop-output.log"
+  echo "FAIL: restart-budget abort did not explain itself in the job log"
+  exit 1
+fi
+if ! grep -Fq "App-host restart budget exceeded on attempt 1/3; not retrying" \
+  "$TMP_DIR/crash-loop-output.log"; then
+  cat "$TMP_DIR/crash-loop-output.log"
+  echo "FAIL: wrapper did not report that it declined to retry a crash loop"
+  exit 1
+fi
+if [ "$(grep -cx 'test' "$TMP_DIR/crash-loop-xcodebuild-args.log")" -ne 1 ]; then
+  cat "$TMP_DIR/crash-loop-output.log"
+  echo "FAIL: wrapper retried a crash loop instead of stopping after one attempt"
+  exit 1
+fi
+
+echo "PASS: app-host xcodebuild wrapper retries only before test execution, and aborts a crash loop without retrying"

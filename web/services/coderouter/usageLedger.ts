@@ -25,6 +25,8 @@ export type UsageEventInput = {
   readonly requestId: string;
   readonly teamId: string;
   readonly stackUserId: string;
+  /** Opaque API-key UUID; null for route-token and VM requests. */
+  readonly apiKeyId?: string | null;
   readonly vmId: string | null;
   readonly provider: string;
   /** Claude only; empty for every other provider. */
@@ -33,6 +35,9 @@ export type UsageEventInput = {
   readonly upstreamAccountId?: string;
   readonly agent: string;
   readonly model: string | undefined;
+  /** cmux-tui workspace and terminal that launched the agent; null when unknown. */
+  readonly workspaceId?: string | null;
+  readonly surfaceId?: string | null;
   readonly inputTokens: number;
   readonly cachedInputTokens: number;
   readonly outputTokens: number;
@@ -44,6 +49,9 @@ export type RouteEventInput = {
   readonly requestId: string;
   /** Absent before authentication succeeds. */
   readonly teamId?: string;
+  /** Absent before route-token authentication succeeds. */
+  readonly stackUserId?: string;
+  readonly apiKeyId?: string | null;
   readonly vmId?: string | null;
   readonly provider: string;
   readonly agent: string;
@@ -62,6 +70,7 @@ export type UsageEventRow = {
   readonly event_time: string;
   readonly team_id: string;
   readonly stack_user_id: string;
+  readonly api_key_id?: string | null;
   readonly vm_id: string | null;
   readonly provider: string;
   readonly upstream_kind: string;
@@ -77,12 +86,16 @@ export type UsageEventRow = {
   readonly request_id: string;
   readonly status: number;
   readonly upstream_account_id: string;
+  readonly workspace_id: string;
+  readonly surface_id: string;
 };
 
 /** Column-for-column shape of `route_events`. */
 export type RouteEventRow = {
   readonly event_time: string;
   readonly team_id: string;
+  readonly stack_user_id: string | null;
+  readonly api_key_id?: string | null;
   readonly vm_id: string | null;
   readonly provider: string;
   readonly agent: string;
@@ -163,6 +176,7 @@ export function usageEventRow(
     event_time: clickHouseDateTime(now),
     team_id: boundedText(input.teamId, 128),
     stack_user_id: boundedText(input.stackUserId, 128),
+    ...(input.apiKeyId ? { api_key_id: ledgerApiKeyId(input.apiKeyId) } : {}),
     vm_id: ledgerVmId(input.vmId),
     provider: boundedText(input.provider, 64) || "unknown",
     upstream_kind: boundedText(input.upstreamKind, 64),
@@ -178,13 +192,24 @@ export function usageEventRow(
     request_id: boundedText(input.requestId, 64),
     status: boundedInteger(input.status, MAX_UINT16),
     upstream_account_id: ledgerAccountId(input.upstreamAccountId),
+    workspace_id: ledgerOriginId(input.workspaceId),
+    surface_id: ledgerOriginId(input.surfaceId),
   };
+}
+
+const ORIGIN_ID_PATTERN = /^[A-Za-z0-9_.:-]{1,128}$/;
+
+function ledgerOriginId(value: string | null | undefined): string {
+  const trimmed = value?.trim() ?? "";
+  return ORIGIN_ID_PATTERN.test(trimmed) ? trimmed : "";
 }
 
 export function routeEventRow(input: RouteEventInput, now: Date): RouteEventRow {
   return {
     event_time: clickHouseDateTime(now),
     team_id: boundedText(input.teamId, 128),
+    stack_user_id: ledgerUserId(input.stackUserId),
+    ...(input.apiKeyId ? { api_key_id: ledgerApiKeyId(input.apiKeyId) } : {}),
     vm_id: ledgerVmId(input.vmId ?? null),
     provider: boundedText(input.provider, 64) || "unknown",
     agent: boundedText(input.agent, 64) || "unknown",
@@ -236,6 +261,16 @@ function ledgerVmId(value: string | null | undefined): string | null {
 /** Empty when the provider has no per-account attribution (codex today). */
 function ledgerAccountId(value: string | undefined): string {
   return typeof value === "string" && ID_PATTERN.test(value) ? value : "";
+}
+
+function ledgerUserId(value: string | undefined): string | null {
+  return typeof value === "string" && ID_PATTERN.test(value) ? value : null;
+}
+
+function ledgerApiKeyId(value: string | null | undefined): string | null {
+  return typeof value === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value)
+    ? value
+    : null;
 }
 
 function boundedText(value: string | undefined, max: number): string {

@@ -31,6 +31,30 @@ if [ "$#" -eq 0 ]; then
   exit 2
 fi
 
+# Every app-host test command must write to a regular file before crossing into
+# the console session. Test-launched tmux/SSH descendants may intentionally
+# outlive xcodebuild; inheriting the Actions stdout pipe from this wrapper would
+# let one detached child keep the CI step alive after the test runner exits.
+# run-and-capture owns the live follower separately, so descendants inherit only
+# the regular capture file. Explicit callers already inside run-and-capture set
+# CMUX_CI_FILE_CAPTURE_ACTIVE and skip this one common boundary.
+if [ "${CMUX_CI_FILE_CAPTURE_ACTIVE:-0}" != "1" ]; then
+  app_host_command=0
+  for command_arg in "$@"; do
+    case "$command_arg" in
+      */run-app-host-xcodebuild.sh|run-app-host-xcodebuild.sh)
+        app_host_command=1
+        break
+        ;;
+    esac
+  done
+  if [ "$app_host_command" = "1" ]; then
+    capture_tag="${CMUX_TAG:-untagged}"
+    capture_tag="$(printf '%s' "$capture_tag" | tr -c 'A-Za-z0-9._-' '_')"
+    capture_path="${RUNNER_TEMP:-/tmp}/cmux-app-host-console-capture-${capture_tag}-pid-$$.log"
+    exec /bin/bash "$ci_script_dir/run-and-capture.sh" "$capture_path" "$0" "$@"
+  fi
+fi
 cleanup_app_host_home_requested=0
 case "$1" in
   scripts/ci/cleanup-app-host-home.sh|"$ci_script_dir/cleanup-app-host-home.sh")
@@ -205,14 +229,16 @@ if [ -n "$console_user" ] && [ "$console_user" != "root" ] \
   # values, so we mirror the current environment exactly. Never inject an empty
   # value for an unset var (that would defeat a `${VAR:-default}` downstream).
   # HOME is set explicitly to the console user's home.
-  forward=(PATH DEVELOPER_DIR GITHUB_WORKSPACE RUNNER_TEMP \
+  forward=(PATH DEVELOPER_DIR GITHUB_WORKSPACE RUNNER_TEMP CI GITHUB_ACTIONS \
     CMUX_DERIVED_DATA_PATH CMUX_TAG CMUX_SKIP_ZIG_BUILD \
     CMUX_UNIT_TEST_TIMEOUT_SECONDS \
     CMUX_XCODEBUILD_NONINTERACTIVE_IDLE_TIMEOUT_SECONDS \
     CMUX_XCODEBUILD_NONINTERACTIVE_POST_TEST_TIMEOUT_SECONDS \
     CMUX_XCODEBUILD_NONINTERACTIVE_TIMEOUT_SECONDS \
     CMUX_APP_HOST_XCODEBUILD_ATTEMPTS \
-    GITHUB_REPOSITORY_ID GITHUB_RUN_ID GITHUB_RUN_ATTEMPT CMUX_APP_HOST_SHARD CMUX_CI_APP_HOST_ISOLATION_REQUIRED CMUX_APP_HOST_KEY CMUX_APP_HOST_HOME CMUX_APP_HOST_XDG_CONFIG_HOME CMUX_APP_HOST_RECEIPT_DIR CMUX_APP_HOST_CLEANUP_CONFIRMATION CMUX_APP_HOST_CONFIRMATION_FILE \
+    CMUX_RENDERER_MEMORY_REGRESSION \
+    CMUX_APP_HOST_CAPTURE_XCRESULTS CMUX_APP_HOST_RESULT_BUNDLE_ROOT CMUX_APP_HOST_TEST_CASE_TIMEOUT_SECONDS \
+    GITHUB_REPOSITORY_ID GITHUB_RUN_ID GITHUB_RUN_ATTEMPT CMUX_APP_HOST_SHARD CMUX_APP_HOST_XCTESTRUN CMUX_NUMERIC_LOCALE_XCTESTRUN CMUX_CI_APP_HOST_ISOLATION_REQUIRED CMUX_APP_HOST_KEY CMUX_APP_HOST_HOME CMUX_APP_HOST_XDG_CONFIG_HOME CMUX_APP_HOST_RECEIPT_DIR CMUX_APP_HOST_CLEANUP_CONFIRMATION CMUX_APP_HOST_CONFIRMATION_FILE \
     CFFIXED_USER_HOME XDG_CONFIG_HOME CARGO_HOME RUSTUP_HOME)
   if [ "${CMUX_CI_APP_HOST_CLEANUP_TEST_HELPER:-0}" = "1" ]; then
     forward+=(CMUX_CI_APP_HOST_CLEANUP_TEST_HELPER CMUX_APP_HOST_LSOF CMUX_FAKE_LSOF_STATE)

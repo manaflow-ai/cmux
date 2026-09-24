@@ -5,6 +5,8 @@ import {
   accountAnalyticsForwardLeases,
   accountDeletionTombstones,
   accountMutationLeases,
+  cloudOrganizations,
+  cloudRuntimes,
   cloudVmBaseGenerations,
   cloudVmBases,
   cloudVmBillingGrants,
@@ -863,9 +865,12 @@ describe("account deletion route", () => {
     expect(deletedTables).not.toContain(cloudVmDomains);
     expect(deletedTables).toContain(devices);
     expect(deletedTables).toContain(proWelcomeFulfillments);
+    expect(deletedTables).toContain(cloudOrganizations);
+    expect(updatedRows.filter(({ table }) => table === cloudOrganizations)).toHaveLength(2);
     const nonStripeUpdates = updatedRows.filter(({ table }) =>
       table !== stripeSubscriptions &&
       table !== stripeCustomers &&
+      table !== cloudOrganizations &&
       table !== cloudVmDomains
     );
     expect(nonStripeUpdates.map(({ table, values }) => ({
@@ -880,6 +885,7 @@ describe("account deletion route", () => {
       { table: cloudVmBaseGenerations, values: { createdByUserId: "deleted-account" } },
     ]);
     for (const update of updatedRows) {
+      if (update.table === cloudOrganizations) continue; // Organization metadata has no updatedAt column.
       expect((update.values as { readonly updatedAt?: unknown }).updatedAt).toBeInstanceOf(Date);
     }
     expect(deletedVaultObjects).toEqual([
@@ -2105,6 +2111,28 @@ describe("account deletion route", () => {
       "account.delete.partial_after_destructive_cleanup",
       "Error: Personal cloud VM provider teardown or creation is still pending for 1 row",
     );
+  });
+
+  test("deletes detached runtimes by owner even when no machine rows remain", async () => {
+    transactionSelectResults = [[]];
+    const response = await DELETE(accountDeletionRequest());
+    expect(response.status).toBe(200);
+    const deletion = deletedWhere.find(({ table }) => table === cloudRuntimes);
+    expect(deletion).toBeDefined();
+    expect(conditionColumnNames(deletion?.condition)).toEqual(["owner_team_id"]);
+  });
+
+  test("runtime cleanup uses durable ownership rather than machine billing scope", async () => {
+    transactionSelectResults = [[{
+      id: "00000000-0000-4000-8000-000000000768",
+      billingTeamId: ACCOUNT_USER_ID,
+      providerVmId: null,
+      status: "destroyed",
+    }]];
+    const response = await DELETE(accountDeletionRequest());
+    expect(response.status).toBe(200);
+    const deletion = deletedWhere.find(({ table }) => table === cloudRuntimes);
+    expect(conditionColumnNames(deletion?.condition)).toEqual(["owner_team_id"]);
   });
 
   test("deletes destroyed personal VM rows after provider teardown completed", async () => {

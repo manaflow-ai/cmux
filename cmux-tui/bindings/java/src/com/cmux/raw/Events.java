@@ -20,6 +20,7 @@ public final class Events {
     public static final EventMetadata CLIENT_LIST_INVALIDATED = new EventMetadata("client-list-invalidated", 9, null, List.of("subscribe"), false);
     public static final EventMetadata COLORS_CHANGED = new EventMetadata("colors-changed", 6, null, List.of("attach-byte"), true);
     public static final EventMetadata CONFIG_RELOAD_REQUESTED = new EventMetadata("config-reload-requested", 6, null, List.of("subscribe"), true);
+    public static final EventMetadata DAEMON_SHUTDOWN = new EventMetadata("daemon-shutdown", 12, null, List.of("control"), true);
     public static final EventMetadata DETACHED = new EventMetadata("detached", 5, null, List.of("attach-byte", "attach-render", "attach-browser"), true);
     public static final EventMetadata EMPTY = new EventMetadata("empty", 5, null, List.of("subscribe"), true);
     public static final EventMetadata FRAME = new EventMetadata("frame", 6, null, List.of("attach-browser"), true);
@@ -52,6 +53,7 @@ public final class Events {
     public static final EventMetadata TERMINAL_REGISTRY_CHANGED = new EventMetadata("terminal-registry-changed", 9, null, List.of("subscribe"), true);
     public static final EventMetadata TITLE_CHANGED = new EventMetadata("title-changed", 5, null, List.of("subscribe"), true);
     public static final EventMetadata TREE_CHANGED = new EventMetadata("tree-changed", 5, null, List.of("subscribe"), true);
+    public static final EventMetadata URL_OPEN = new EventMetadata("url-open", 12, null, List.of("control"), true);
     public static final EventMetadata VT_STATE = new EventMetadata("vt-state", 5, null, List.of("attach-byte"), true);
     public static final EventMetadata WINDOW_TITLE_REQUESTED = new EventMetadata("window-title-requested", 6, null, List.of("subscribe"), true);
     public static final EventMetadata WORKSPACE_ADDED = new EventMetadata("workspace-added", 7, null, List.of("subscribe-deltas"), true);
@@ -71,6 +73,7 @@ public final class Events {
         values.put("client-list-invalidated", CLIENT_LIST_INVALIDATED);
         values.put("colors-changed", COLORS_CHANGED);
         values.put("config-reload-requested", CONFIG_RELOAD_REQUESTED);
+        values.put("daemon-shutdown", DAEMON_SHUTDOWN);
         values.put("detached", DETACHED);
         values.put("empty", EMPTY);
         values.put("frame", FRAME);
@@ -103,6 +106,7 @@ public final class Events {
         values.put("terminal-registry-changed", TERMINAL_REGISTRY_CHANGED);
         values.put("title-changed", TITLE_CHANGED);
         values.put("tree-changed", TREE_CHANGED);
+        values.put("url-open", URL_OPEN);
         values.put("vt-state", VT_STATE);
         values.put("window-title-requested", WINDOW_TITLE_REQUESTED);
         values.put("workspace-added", WORKSPACE_ADDED);

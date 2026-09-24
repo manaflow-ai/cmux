@@ -1,0 +1,360 @@
+name: App-host test rerun
+run-name: >-
+  app-host test rerun @ ${{ inputs.ref }} · ${{ inputs.only_testing }}
+
+# Reruns app-host tests for a change that touches only cmuxTests/. Instead of
+# compiling the app, it adopts the app-host products an upstream CI run already
+# compiled from a revision whose app is identical, recompiles only the cmuxTests
+# bundle against them, and runs the selected tests. See
+# scripts/ci/app_host_test_rerun.py for how the products are chosen and how the
+# test target is cut loose from its dependencies.
+#
+# A change outside cmuxTests/ fails the plan job and names the files; use
+# test-depot.yml for a full build then.
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Branch, tag, or full SHA to test. Everything outside cmuxTests/ must match a revision CI built.
+        required: true
+      only_testing:
+        description: "Selectors, space/comma/newline separated: Suite/testName (XCTest) or Suite/testName() (Swift Testing). The cmuxTests/ prefix is optional."
+        required: true
+      test_iterations:
+        description: Run each selected test this many times (xcodebuild -test-iterations).
+        required: false
+        default: "1"
+      source_run_id:
+        description: Upstream CI run whose products to use. Empty picks the nearest eligible one.
+        required: false
+        default: ""
+      source_repository:
+        description: Repository whose CI products to adopt.
+        required: false
+        default: manaflow-ai/cmux
+      baseline:
+        description: Also run the same selectors against the unmodified CI-built bundle, for a before/after.
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  plan:
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 10
+    outputs:
+      sha: ${{ steps.plan.outputs.sha }}
+      source_sha: ${{ steps.plan.outputs.source_sha }}
+      source_run_id: ${{ steps.plan.outputs.source_run_id }}
+      artifact_id: ${{ steps.plan.outputs.artifact_id }}
+      artifact_name: ${{ steps.plan.outputs.artifact_name }}
+      selectors: ${{ steps.plan.outputs.selectors }}
+      runner: ${{ steps.plan.outputs.runner }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ inputs.ref }}
+          fetch-depth: 0
+          filter: blob:none
+          persist-credentials: false
+
+      # The helper comes from this workflow's revision, not the tested one,
+      # which may predate it.
+      - name: Checkout rerun helper
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          path: .rerun-tools
+          sparse-checkout: scripts/ci
+          persist-credentials: false
+
+      - name: Find products CI already compiled for this app
+        id: plan
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REF: ${{ inputs.ref }}
+          ONLY_TESTING: ${{ inputs.only_testing }}
+          SOURCE_RUN_ID: ${{ inputs.source_run_id }}
+          SOURCE_REPOSITORY: ${{ inputs.source_repository }}
+        run: |
+          set -euo pipefail
+          python3 "$GITHUB_WORKSPACE/.rerun-tools/scripts/ci/app_host_test_rerun.py" plan \
+            --ref HEAD \
+            --repository "$SOURCE_REPOSITORY" \
+            --only-testing "$ONLY_TESTING" \
+            --source-run-id "$SOURCE_RUN_ID" | tee "$RUNNER_TEMP/plan.json"
+          {
+            echo "### App-host test rerun plan"
+            echo
+            echo "Testing \`$REF\` against products from $SOURCE_REPOSITORY run"
+            python3 -c 'import json,sys; p=json.load(open(sys.argv[1])); print(p["source_run_id"], "built at", p["source_sha"])' "$RUNNER_TEMP/plan.json"
+            echo
+            echo '```json'
+            cat "$RUNNER_TEMP/plan.json"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  rerun:
+    needs: plan
+    # A fork has no Blacksmith installation and no runner variables; the owner
+    # check comes first so a fork is never pointed at a label it cannot run.
+    # Otherwise run on the Blacksmith pool whose macOS matches the one that
+    # compiled the products (plan reads it from the source run's compile
+    # admission): only that image carries the products' Xcode.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || needs.plan.outputs.runner || 'blacksmith-6vcpu-macos-15' }}
+    timeout-minutes: 60
+    env:
+      CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
+      CMUX_CI_APP_HOST_ISOLATION_REQUIRED: "1"
+      CMUX_APP_HOST_SHARD: "1"
+      CMUX_APP_HOST_CAPTURE_XCRESULTS: "1"
+      CMUX_APP_HOST_XCODEBUILD_ATTEMPTS: "1"
+      CMUX_SKIP_ZIG_BUILD: "1"
+      CMUX_UNIT_TEST_TIMEOUT_SECONDS: "900"
+      CMUX_XCODEBUILD_NONINTERACTIVE_IDLE_TIMEOUT_SECONDS: "600"
+      CI_CACHE_R2_PUBLIC_URL: ${{ vars.CI_CACHE_R2_PUBLIC_URL || 'https://ci-cache.cmux.com' }}
+      # The products were compiled at these fixed paths (see
+      # scripts/ci/canonical-build-root.sh). Rebuilding the bundle at the same
+      # paths keeps it consistent with the swiftmodules it imports.
+      CANONICAL_ROOT: /private/tmp/cmux-ci
+      COMPILE_DERIVED_DATA: /private/tmp/cmux-ci/derived-data-compile-admission
+      SOURCE_SHA: ${{ needs.plan.outputs.source_sha }}
+      TEST_SHA: ${{ needs.plan.outputs.sha }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ needs.plan.outputs.sha }}
+          persist-credentials: false
+
+      # The helper comes from this workflow's revision, not the tested one,
+      # which may predate it.
+      - name: Checkout rerun helper
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          path: .rerun-tools
+          sparse-checkout: scripts/ci
+          persist-credentials: false
+
+      - name: Fetch the products' revision and package submodules
+        run: |
+          set -euo pipefail
+          git fetch --no-tags --depth=1 origin "$SOURCE_SHA"
+          # Only vendor/bonsplit is a Swift package; GhosttyKit is downloaded
+          # by the submodule's recorded SHA without checking it out.
+          git submodule update --init --depth 1 vendor/bonsplit
+          echo "GHOSTTY_SHA=$(git ls-tree HEAD ghostty | awk '{print $3}')" >> "$GITHUB_ENV"
+          mkdir -p "$RUNNER_TEMP/rerun-out"
+
+      - name: Download app-host products
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_REPOSITORY: ${{ inputs.source_repository }}
+          SOURCE_RUN_ID: ${{ needs.plan.outputs.source_run_id }}
+          ARTIFACT_ID: ${{ needs.plan.outputs.artifact_id }}
+          ARTIFACT_NAME: ${{ needs.plan.outputs.artifact_name }}
+        run: |
+          set -euo pipefail
+          python3 "$GITHUB_WORKSPACE/.rerun-tools/scripts/ci/app_host_test_rerun.py" download \
+            --repository "$SOURCE_REPOSITORY" --run-id "$SOURCE_RUN_ID" \
+            --artifact-id "$ARTIFACT_ID" --artifact-name "$ARTIFACT_NAME" \
+            --destination "$RUNNER_TEMP/app-host-products"
+          ls -la "$RUNNER_TEMP/app-host-products"
+
+      - name: Unpack products at the path CI compiled them
+        run: |
+          set -euo pipefail
+          rm -rf "$COMPILE_DERIVED_DATA"
+          mkdir -p "$COMPILE_DERIVED_DATA"
+          tar -xzf "$RUNNER_TEMP/app-host-products/app-host-products.tar.gz" -C "$COMPILE_DERIVED_DATA"
+          rm -f "$RUNNER_TEMP/app-host-products/app-host-products.tar.gz"
+          # Stage the package frameworks the way restore-app-host-test-product.sh
+          # does, before the bundle build can rewrite PackageFrameworks. The app
+          # host loads them from these stable copies at test time.
+          framework_source="$(find "$COMPILE_DERIVED_DATA/Build/Products/Debug" -type d -name 'CmuxAgentJournal*_PackageProduct.framework' -print -quit)"
+          test -n "$framework_source"
+          for dest in "$RUNNER_TEMP/cmux-app-host-package-frameworks" /private/tmp/cmux-app-host-package-frameworks; do
+            mkdir -p "$dest"
+            rsync -aL "$(dirname "$framework_source")/" "$dest/"
+          done
+          receipt="$COMPILE_DERIVED_DATA/Build/Products/cmux-test-products.json"
+          cat "$receipt"
+          test "$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["revision"])' "$receipt")" = "$SOURCE_SHA"
+          # Swift modules only load in the compiler that wrote them, so the
+          # bundle must be built with the products' Xcode.
+          developer="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["developer"])' "$receipt")"
+          echo "CMUX_CI_XCODE_APP=${developer%/Contents/Developer}" >> "$GITHUB_ENV"
+          echo "PRODUCT_ARCH=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["architecture"])' "$receipt")" >> "$GITHUB_ENV"
+
+      - name: Select the products' Xcode
+        run: ./scripts/select-ci-xcode.sh
+
+      - name: Download pre-built GhosttyKit.xcframework
+        run: ./scripts/download-prebuilt-ghosttykit.sh
+
+      - name: Restore Swift packages
+        uses: ./.github/actions/cache-restore
+        with:
+          backend: r2
+          path: .ci-source-packages
+          key: spm-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
+          restore-keys: spm-
+
+      - name: Resolve Swift packages
+        run: |
+          set -euo pipefail
+          python3 scripts/ci/sanitize-xcode-source-packages-cache.py .ci-source-packages
+          # Resolves into a scratch DerivedData so the unpacked products stay
+          # untouched; the checkouts land in $CANONICAL_ROOT/src.
+          scripts/ci/compile-app-host-test-product.sh canonical-resolve \
+            "$CANONICAL_ROOT/derived-data-rerun-resolve" "$PWD/.ci-source-packages"
+
+      - name: Compile only the cmuxTests bundle
+        run: |
+          set -euo pipefail
+          bundle="$COMPILE_DERIVED_DATA/Build/Products/Debug/cmux DEV.app/Contents/PlugIns/cmuxTests.xctest"
+          ditto "$bundle" "$RUNNER_TEMP/prebuilt-cmuxTests.xctest"
+          cd "$CANONICAL_ROOT/src"
+          python3 "$GITHUB_WORKSPACE/.rerun-tools/scripts/ci/app_host_test_rerun.py" detach \
+            --project cmux.xcodeproj/project.pbxproj \
+            --derived-data "$COMPILE_DERIVED_DATA" \
+            --xcconfig "$RUNNER_TEMP/cmuxTests-detached.xcconfig" \
+            --package-root "$PWD/Packages" \
+            --package-root "$PWD/vendor" \
+            --package-root "$PWD/Examples" \
+            --package-root "$PWD/.ci-source-packages/checkouts"
+          rm -f "$bundle/Contents/MacOS/cmuxTests"
+          # shellcheck disable=SC2016 # Xcode expands $(inherited), not the shell
+          xcodebuild -project cmux.xcodeproj -target cmuxTests -configuration Debug \
+            -clonedSourcePackagesDirPath "$PWD/.ci-source-packages" \
+            -disableAutomaticPackageResolution \
+            -xcconfig "$RUNNER_TEMP/cmuxTests-detached.xcconfig" \
+            "SYMROOT=$COMPILE_DERIVED_DATA/Build/Products" \
+            "OBJROOT=$COMPILE_DERIVED_DATA/Build/Intermediates.noindex" \
+            "ARCHS=$PRODUCT_ARCH" \
+            COMPILER_INDEX_STORE_ENABLE=NO \
+            'SWIFT_ACTIVE_COMPILATION_CONDITIONS=$(inherited) CMUX_CI_APP_HOST_ISOLATION_REQUIRED' \
+            'LD_RUNPATH_SEARCH_PATHS=$(inherited) @executable_path/../Frameworks /private/tmp/cmux-app-host-package-frameworks' \
+            -showBuildTimingSummary \
+            build 2>&1 | tee "$RUNNER_TEMP/rerun-out/cmuxTests-build.log"
+          test -f "$bundle/Contents/MacOS/cmuxTests"
+
+      - name: Stage and validate products
+        run: |
+          set -euo pipefail
+          # App-host isolation only inspects hosts under RUNNER_TEMP. Clone the
+          # products there (APFS clones, so no data is copied) rather than
+          # moving them: Xcode's symlinks inside point at the compile location.
+          derived="$RUNNER_TEMP/cmux-derived-data-rerun"
+          rm -rf "$derived"
+          mkdir -p "$derived/Build"
+          cp -cR "$COMPILE_DERIVED_DATA/Build/Products" "$derived/Build/"
+          echo "CMUX_DERIVED_DATA_PATH=$derived" >> "$GITHUB_ENV"
+          bundle="Debug/cmux DEV.app/Contents/PlugIns/cmuxTests.xctest/Contents/MacOS/cmuxTests"
+          {
+            echo "### Test bundle"
+            echo
+            echo "- CI-built: \`$(shasum -a 256 "$RUNNER_TEMP/prebuilt-cmuxTests.xctest/Contents/MacOS/cmuxTests" | cut -c1-16)\`"
+            echo "- rebuilt for \`$TEST_SHA\`: \`$(shasum -a 256 "$derived/Build/Products/$bundle" | cut -c1-16)\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+          products="$derived/Build/Products/Debug"
+          find "$products/PackageFrameworks" -maxdepth 1 | head -n 5
+          if [ -L "$products/PackageFrameworks" ]; then rm "$products/PackageFrameworks"; fi
+          mkdir -p "$products/PackageFrameworks"
+          rsync -aL "$RUNNER_TEMP/cmux-app-host-package-frameworks/" "$products/PackageFrameworks/"
+          find "$products/PackageFrameworks" -maxdepth 1 -type d -name 'CmuxAgentJournal*_PackageProduct.framework' | grep -q .
+          # The receipt binds the products to the revision they were built
+          # from, so validate with that revision checked out; the plan job
+          # proved it differs from the tested one only under cmuxTests/.
+          git checkout -q --detach "$SOURCE_SHA"
+          python3 scripts/ci/app_host_test_products.py restore "$derived"
+          git checkout -q --detach "$TEST_SHA"
+
+      - name: Prepare isolated app-host home
+        run: scripts/ci/prepare-app-host-home.sh
+
+      - name: Enable XCTest automation mode
+        run: sudo -n automationmodetool enable-automationmode-without-authentication || true
+
+      - name: Run selected tests
+        id: tests
+        env:
+          SELECTORS: ${{ needs.plan.outputs.selectors }}
+          TEST_ITERATIONS: ${{ inputs.test_iterations }}
+        run: |
+          set -euo pipefail
+          read -r -a selectors <<< "$SELECTORS"
+          args=()
+          for selector in "${selectors[@]}"; do args+=("-only-testing:$selector"); done
+          case "$TEST_ITERATIONS" in ''|*[!0-9]*) echo "test_iterations must be a number" >&2; exit 2 ;; esac
+          if [ "$TEST_ITERATIONS" -gt 1 ]; then args+=(-test-iterations "$TEST_ITERATIONS"); fi
+          sudo rm -f /tmp/cmux-debug*.log /private/tmp/cmux-debug*.log
+          sw_vers
+          scripts/ci/run-in-console-session.sh \
+            scripts/ci/run-app-host-xcodebuild.sh \
+            -xctestrun "$CMUX_APP_HOST_XCTESTRUN" \
+            -destination "platform=macOS" \
+            -parallel-testing-enabled NO \
+            "${args[@]}" \
+            test-without-building
+
+      - name: Run the same tests against the CI-built bundle
+        if: ${{ always() && inputs.baseline && steps.tests.outcome != 'skipped' }}
+        continue-on-error: true
+        env:
+          SELECTORS: ${{ needs.plan.outputs.selectors }}
+          TEST_ITERATIONS: ${{ inputs.test_iterations }}
+        run: |
+          set -euo pipefail
+          sudo sh -c "mkdir -p '$RUNNER_TEMP/rerun-out/rebuilt' && cp /tmp/cmux-debug*.log '$RUNNER_TEMP/rerun-out/rebuilt/' 2>/dev/null" || true
+          sudo rm -f /tmp/cmux-debug*.log /private/tmp/cmux-debug*.log
+          bundle="$CMUX_DERIVED_DATA_PATH/Build/Products/Debug/cmux DEV.app/Contents/PlugIns/cmuxTests.xctest"
+          rm -rf "$bundle"
+          ditto "$RUNNER_TEMP/prebuilt-cmuxTests.xctest" "$bundle"
+          read -r -a selectors <<< "$SELECTORS"
+          args=()
+          for selector in "${selectors[@]}"; do args+=("-only-testing:$selector"); done
+          if [ "$TEST_ITERATIONS" -gt 1 ]; then args+=(-test-iterations "$TEST_ITERATIONS"); fi
+          CMUX_TAG=baseline scripts/ci/run-in-console-session.sh \
+            scripts/ci/run-app-host-xcodebuild.sh \
+            -xctestrun "$CMUX_APP_HOST_XCTESTRUN" \
+            -destination "platform=macOS" \
+            -parallel-testing-enabled NO \
+            "${args[@]}" \
+            test-without-building
+
+      - name: Collect logs
+        if: always()
+        run: |
+          set -u
+          out="$RUNNER_TEMP/rerun-out"
+          mkdir -p "$out"
+          sudo sh -c "cp /tmp/cmux-debug*.log /private/tmp/cmux-debug*.log '$out'/ 2>/dev/null" || true
+          cp "$RUNNER_TEMP"/cmux-app-host-xcodebuild-*.log "$RUNNER_TEMP"/cmux-app-host-xcodebuild-*.meta "$out"/ 2>/dev/null || true
+          cp "$RUNNER_TEMP/cmuxTests-detached.xcconfig" "$out"/ 2>/dev/null || true
+          if [ -d "$RUNNER_TEMP/cmux-app-host-xcresults" ]; then
+            cp -R "$RUNNER_TEMP/cmux-app-host-xcresults" "$out"/
+          fi
+          sudo chown -R "$(id -u)" "$out"
+          ls -la "$out"
+
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: app-host-test-rerun-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/rerun-out
+          retention-days: 7
+          if-no-files-found: warn
+
+      - name: Clean up app-host home
+        if: always()
+        run: |
+          if [ -n "${CMUX_APP_HOST_KEY:-}" ]; then
+            scripts/ci/run-in-console-session.sh scripts/ci/cleanup-app-host-home.sh
+          fi

@@ -85,6 +85,7 @@ pub(crate) fn apply_config_to_local_owner(mux: &Mux, config: &crate::config::Con
         crate::config::apply_browser_to_surface_options(config, options);
     });
     mux.configure_sidebar_plugin(config.sidebar.plugin.clone());
+    mux.configure_journal_plugin(config.agents.plugin.clone());
 }
 
 #[derive(Clone)]
@@ -169,6 +170,13 @@ pub(crate) fn is_remote_transport_failure(error: &anyhow::Error) -> bool {
     error
         .downcast_ref::<remote::RemoteRequestError>()
         .is_some_and(remote::RemoteRequestError::is_transport_failure)
+}
+
+pub(crate) fn is_expected_remote_shutdown(error: &anyhow::Error) -> bool {
+    matches!(
+        error.downcast_ref::<remote::RemoteRequestError>(),
+        Some(remote::RemoteRequestError::DaemonShutdown)
+    )
 }
 
 pub(crate) fn is_remote_timeout(error: &anyhow::Error) -> bool {
@@ -329,6 +337,9 @@ pub struct AgentInfo {
     pub state: String,
     pub source: String,
     pub session: Option<String>,
+    /// The reporting adapter id (`claude`, `codex`, ...), when known.
+    #[serde(default)]
+    pub agent: Option<String>,
     pub updated_at_ms: u64,
 }
 
@@ -695,7 +706,7 @@ impl Session {
     pub fn daemon_shutdown_requested(&self) -> bool {
         match self {
             Session::Local(mux) => mux.daemon_shutdown_requested(),
-            Session::Remote(_) => false,
+            Session::Remote(remote) => remote.daemon_shutdown_requested(),
         }
     }
     pub fn invalidate_remote_tree(&self) {
@@ -972,6 +983,7 @@ impl Session {
                     state: agent.state.as_str().to_string(),
                     source: agent.source.as_str().to_string(),
                     session: agent.session,
+                    agent: agent.agent,
                     updated_at_ms: agent.updated_at_ms,
                 })
                 .collect(),
@@ -2055,6 +2067,35 @@ impl Session {
                     "surface": surface,
                     "pane": pane,
                     "index": index
+                }))
+                .map(|_| ()),
+        }
+    }
+
+    pub fn supports_tab_workspace_moves(&self) -> bool {
+        match self {
+            Session::Local(_) => true,
+            Session::Remote(remote) => {
+                remote.supports_capability(cmux_tui_core::server::TAB_WORKSPACE_MOVE_CAPABILITY)
+            }
+        }
+    }
+
+    pub fn move_tab_to_workspace(
+        &self,
+        surface: SurfaceId,
+        workspace: Option<WorkspaceId>,
+    ) -> anyhow::Result<()> {
+        anyhow::ensure!(
+            self.supports_tab_workspace_moves(),
+            "{}",
+            crate::localization::catalog().menu.move_tab_workspace_unsupported
+        );
+        match self {
+            Session::Local(mux) => mux.move_tab_to_workspace(surface, workspace),
+            Session::Remote(remote) => remote
+                .request(json!({
+                    "cmd":"move-tab-to-workspace", "surface":surface, "workspace":workspace
                 }))
                 .map(|_| ()),
         }

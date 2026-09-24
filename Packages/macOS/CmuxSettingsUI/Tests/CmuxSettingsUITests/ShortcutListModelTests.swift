@@ -68,6 +68,51 @@ import CmuxSettings
         #expect(model.numberedDigitRejections.contains(action.rawValue))
     }
 
+    @Test func hostDefaultResolversStayIsolated() async throws {
+        let (firstStore, firstCatalog, firstErrorLog) = makeStore()
+        let (secondStore, secondCatalog, secondErrorLog) = makeStore()
+        let action = ShortcutAction.switchRightSidebarToFiles
+        let firstDefault = StoredShortcut(first: ShortcutStroke(key: "2", control: true))
+        let secondDefault = StoredShortcut(first: ShortcutStroke(key: "7", control: true))
+
+        let first = ShortcutListModel(
+            jsonStore: firstStore,
+            catalog: firstCatalog,
+            errorLog: firstErrorLog,
+            defaultShortcutResolver: ShortcutDefaultResolver { candidate in
+                candidate == action
+                    ? .stroke(firstDefault.first)
+                    : .useBuiltIn
+            }
+        )
+        let second = ShortcutListModel(
+            jsonStore: secondStore,
+            catalog: secondCatalog,
+            errorLog: secondErrorLog,
+            defaultShortcutResolver: ShortcutDefaultResolver { candidate in
+                candidate == action
+                    ? .stroke(secondDefault.first)
+                    : .useBuiltIn
+            }
+        )
+        let hidden = ShortcutListModel(
+            jsonStore: JSONConfigStore(
+                fileURL: FileManager.default.temporaryDirectory
+                    .appendingPathComponent("shortcut-list-hidden-(UUID().uuidString).json")
+            ),
+            catalog: SettingCatalog(),
+            errorLog: SettingsErrorLog(),
+            defaultShortcutResolver: ShortcutDefaultResolver { candidate in
+                candidate == action ? .stroke(nil) : .useBuiltIn
+            }
+        )
+
+        #expect(first.effective(for: action) == firstDefault)
+        #expect(second.effective(for: action) == secondDefault)
+        #expect(first.effective(for: action) == firstDefault)
+        #expect(hidden.effective(for: action) == nil)
+    }
+
     @Test func assignRejectsBareKeyAtModelBoundary() async throws {
         // WHY: the model is the persistence boundary; callers must not bypass
         // recorder UI validation and write bare app-level shortcuts.

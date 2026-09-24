@@ -279,39 +279,14 @@ describe("claude proxy direct Anthropic upstreams", () => {
   test("captures usage from the pass-through stream without buffering it", async () => {
     const response = await messages(messagesRequest());
     await response.text();
-    const usage = events.find((event) => event.event === "coderouter_model_request_completed");
-    const { duration_ms: usageDurationMs, request_id: usageRequestId, ...usageProperties } = usage?.properties ?? {};
-    expect(typeof usageDurationMs).toBe("number");
-    expect(usageRequestId).toBe("unscoped");
-    expect({ ...usage, properties: usageProperties }).toEqual({
-      event: "coderouter_model_request_completed",
-      teamId: "team-1",
-      properties: {
-        provider: "claude",
-        upstream_account_id: "acct-api-1",
-        upstream_kind: "anthropic_api_key",
-        model: "claude-sonnet-4-5-20250929",
-        input_tokens: 115,
-        cached_input_tokens: 100,
-        output_tokens: 42,
-        total_tokens: 157,
-        vm_id: "vm-1",
-        // Trace linkage for the PostHog `$ai_generation`: the ledger request
-        // id shared with the ClickHouse route row, latency to stream end, the
-        // upstream status and whether the body streamed.
-        status: 200,
-        response_streamed: true,
-      },
-    });
-    expect(usageRequestId).toBe("unscoped");
+    expect(events.find((event) => event.event === "coderouter_model_request_completed")).toBeUndefined();
   });
 
   test("omits vm_id for an unbound CLI token", async () => {
     authResult = ok(null);
     const response = await messages(messagesRequest());
     await response.text();
-    const usage = events.find((event) => event.event === "coderouter_model_request_completed");
-    expect(usage?.properties).not.toHaveProperty("vm_id");
+    expect(events.find((event) => event.event === "coderouter_model_request_completed")).toBeUndefined();
   });
 
   test("uses a bearer OAuth token and adds the oauth beta flag", async () => {
@@ -411,13 +386,7 @@ describe("claude proxy Bedrock upstream", () => {
     const json = await response.json();
     expect(json.model).toBe("claude-sonnet-4-5");
     expect(response.headers.get("request-id")).toBe("aws-req-1");
-    const usage = events.find((event) => event.event === "coderouter_model_request_completed");
-    expect(usage?.properties).toMatchObject({
-      upstream_kind: "bedrock",
-      model: "claude-sonnet-4-5",
-      input_tokens: 3,
-      output_tokens: 4,
-    });
+    expect(events.find((event) => event.event === "coderouter_model_request_completed")).toBeUndefined();
   });
 
   test("converts the AWS event stream into Anthropic SSE", async () => {
@@ -475,14 +444,7 @@ describe("claude proxy Bedrock upstream", () => {
       'event: content_block_delta\ndata: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"ok"}}',
     );
     expect(blocks[3]).toBe('event: message_stop\ndata: {"type":"message_stop"}');
-    const usage = events.find((event) => event.event === "coderouter_model_request_completed");
-    expect(usage?.properties).toMatchObject({
-      upstream_kind: "bedrock",
-      model: "claude-sonnet-4-5",
-      input_tokens: 20,
-      output_tokens: 7,
-      total_tokens: 27,
-    });
+    expect(events.find((event) => event.event === "coderouter_model_request_completed")).toBeUndefined();
   });
 
   test("surfaces stream exceptions as Anthropic error events", async () => {
@@ -578,6 +540,63 @@ describe("claude proxy failover across accounts", () => {
     accountId: "acct-api-2",
     secret: { kind: "anthropic_api_key", apiKey: "sk-ant-api03-second-key-value-5678" },
   };
+
+  test("keeps probing through metadata before an overloaded SSE event", async () => {
+    upstream = apiKeyUpstream;
+    moreAccounts = [secondApiKey];
+    const responses = [
+      () => new Response([
+        sseStream([{ type: "message_start", data: { message: { id: "msg-metadata" } } }]),
+        'event: error\ndata: {"type":"error","error":{"type":"overloaded_error","message":"Overloaded"}}\n\n',
+      ].join(""), { status: 200, headers: { "content-type": "text/event-stream" } }),
+      () => Response.json({ id: "msg-after-metadata", model: "claude-sonnet-4-5", usage: { input_tokens: 1, output_tokens: 1 } }),
+    ];
+    upstreamResponse = () => responses.shift()!();
+    const { response } = await routed(messagesRequest({ model: "claude-sonnet-4-5", max_tokens: 8, messages: [{ role: "user", content: "hi" }] }));
+    expect(response.status).toBe(200);
+    expect(fetchCalls).toHaveLength(2);
+    expect(cooldowns).toEqual([{ accountId: "acct-api-1", durationMs: 20_000, failureCode: "upstream_unavailable" }]);
+    expect((await response.json()).id).toBe("msg-after-metadata");
+  });
+
+  test("aborts an idle Claude probe when the request is cancelled", async () => {
+    let resolveFetch: (() => void) | undefined;
+    const fetchStarted = new Promise<void>((resolve) => { resolveFetch = resolve; });
+    let cancelled = false;
+    upstreamResponse = () => {
+      resolveFetch?.();
+      return new Response(new ReadableStream<Uint8Array>({
+        cancel() {
+          cancelled = true;
+        },
+      }), { status: 200, headers: { "content-type": "text/event-stream" } });
+    };
+    const controller = new AbortController();
+    const request = new Request(messagesRequest(), { signal: controller.signal });
+    const pending = messages(request);
+    await fetchStarted;
+    controller.abort();
+    await expect(pending).rejects.toMatchObject({ name: "AbortError" });
+    expect(cancelled).toBe(true);
+  });
+
+  test("fails over an overloaded error embedded in a 200 SSE stream", async () => {
+    upstream = apiKeyUpstream;
+    moreAccounts = [secondApiKey];
+    const responses = [
+      () => new Response(
+        'event: error\ndata: {"type":"error","error":{"type":"overloaded_error","message":"Overloaded"}}\n\n',
+        { status: 200, headers: { "content-type": "text/event-stream" } },
+      ),
+      () => Response.json({ id: "msg-stream-2", model: "claude-sonnet-4-5", usage: { input_tokens: 1, output_tokens: 1 } }),
+    ];
+    upstreamResponse = () => responses.shift()!();
+    const { response } = await routed(messagesRequest({ model: "claude-sonnet-4-5", max_tokens: 8, messages: [{ role: "user", content: "hi" }] }));
+    expect(response.status).toBe(200);
+    expect(fetchCalls).toHaveLength(2);
+    expect(cooldowns).toEqual([{ accountId: "acct-api-1", durationMs: 20_000, failureCode: "upstream_unavailable" }]);
+    expect((await response.json()).id).toBe("msg-stream-2");
+  });
 
   test("a 429 cools the account down for retry-after and replays the body on the next account", async () => {
     upstream = apiKeyUpstream;
@@ -750,8 +769,7 @@ describe("claude proxy failover across accounts", () => {
     upstreamResponse = () => Response.json({ id: "msg_5", model: "claude-sonnet-4-5", usage: { input_tokens: 5, output_tokens: 6 } });
     const response = await messages(messagesRequest());
     await response.text();
-    const usage = events.find((event) => event.event === "coderouter_model_request_completed");
-    expect(usage?.properties).toMatchObject({ upstream_kind: "anthropic_api_key", upstream_account_id: "acct-api-1" });
+    expect(events.find((event) => event.event === "coderouter_model_request_completed")).toBeUndefined();
   });
 });
 

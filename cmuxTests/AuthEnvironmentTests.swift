@@ -10,6 +10,34 @@ import Testing
 
 @Suite("Auth environment")
 struct AuthEnvironmentTests {
+    @Test("debug file overrides win over stale inherited routing values and never import unknown keys")
+    func debugFileOverridesWinOverStaleInheritedRoutingValues() {
+        let merged = AuthEnvironment.mergedRuntimeEnvironment(
+            environment: [
+                "CMUX_API_BASE_URL": "https://stale.example",
+                "CMUX_VM_API_BASE_URL": "https://stale.example",
+                "CMUX_AUTH_ENVIRONMENT": "development",
+                "UNSAFE_SECRET": "process-secret",
+            ],
+            fileOverrides: [
+                "CMUX_API_BASE_URL": " https://fresh.example:4626/ ",
+                "CMUX_VM_API_BASE_URL": "https://fresh.example:4626/",
+                "UNSAFE_SECRET": "file-secret",
+            ]
+        )
+
+        #expect(merged["CMUX_API_BASE_URL"] == "https://fresh.example:4626/")
+        #expect(merged["CMUX_VM_API_BASE_URL"] == "https://fresh.example:4626/")
+        #expect(merged["UNSAFE_SECRET"] == "process-secret")
+    }
+
+    @Test("debug override parser accepts quoted values and ignores comments")
+    func debugOverrideParserAcceptsQuotedValues() {
+        let contents = "# comment\nCMUX_VM_API_BASE_URL = \"https://fresh.example:4626/\"\nOTHER=ignored\n"
+        #expect(AuthEnvironment.parseDebugOverride(key: "CMUX_VM_API_BASE_URL", contents: contents) == "https://fresh.example:4626/")
+        #expect(AuthEnvironment.parseDebugOverride(key: "CMUX_API_BASE_URL", contents: contents) == nil)
+    }
+
     @Test("macOS production auth override selects the production Stack project")
     func macOSProductionAuthOverrideSelectsProductionStackProject() {
         #expect(AuthEnvironment.resolvedStackAuthEnvironment(
@@ -687,5 +715,93 @@ private func isLocalePathSegment(_ segment: String) -> Bool {
     }
     return parts.dropFirst().allSatisfy { subtag in
         (2...4).contains(subtag.count) && subtag.allSatisfy(\.isLetter)
+    }
+}
+
+@Suite("Checkout attribution")
+struct CheckoutAttributionTests {
+    @Test
+    func queryItemsCarrySourceClientChannelAndVersion() throws {
+        let items = CheckoutAttribution.queryItems(
+            source: .sidebarBadge,
+            flavor: .nightly,
+            infoDictionary: ["CFBundleShortVersionString": "0.65.1", "CFBundleVersion": "2026090101"]
+        )
+        let values = Dictionary(uniqueKeysWithValues: items.compactMap { item in item.value.map { (item.name, $0) } })
+
+        #expect(values["cmux_source"] == "mac_sidebar_badge")
+        #expect(values["cmux_client"] == "mac")
+        #expect(values["cmux_channel"] == "nightly")
+        #expect(values["cmux_app_version"] == "0.65.1")
+        #expect(values["cmux_app_build"] == "2026090101")
+    }
+
+    @Test
+    func applyingReplacesStaleAttributionAndKeepsOtherQuery() throws {
+        let base = try #require(URL(string: "https://cmux.com/app-pricing?cmux_app=1&cmux_source=mac_help_menu&cmux_channel=stable"))
+        let url = CheckoutAttribution.applying(
+            to: base,
+            source: .commandPalette,
+            flavor: .dev,
+            infoDictionary: [:]
+        )
+        let items = try #require(URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems)
+
+        #expect(items.filter { $0.name == "cmux_source" }.map(\.value) == ["mac_command_palette"])
+        #expect(items.filter { $0.name == "cmux_channel" }.map(\.value) == ["dev"])
+        #expect(items.contains { $0.name == "cmux_app" && $0.value == "1" })
+        #expect(!items.contains { $0.name == "cmux_app_version" })
+    }
+
+    @Test
+    func everySourceIsAServerSafeToken() {
+        for source in ProUpgradeSource.allCases {
+            let token = source.rawValue
+            #expect(token.hasPrefix("mac_"), "\(token)")
+            #expect(token.count <= 64, "\(token)")
+            #expect(token.unicodeScalars.allSatisfy { ("a"..."z").contains($0) || ("0"..."9").contains($0) || $0 == "_" }, "\(token)")
+        }
+    }
+
+    @Test
+    func vmRequiresProErrorTextLinksWithATypedSource() {
+        let text = defaultCloudVMAction(status: 402, errorCode: "vm_requires_pro")
+        #expect(text.contains("cmux_source=\(ProUpgradeSource.vmRequiresProError.rawValue)"))
+        #expect(text.contains("cmux_client=mac"))
+    }
+
+    @Test
+    func vmMemoryRequiresPlanErrorTextNamesMaxAndLinksTheMaxCheckout() {
+        let text = defaultCloudVMAction(status: 402, errorCode: "vm_memory_requires_plan")
+        #expect(text.contains("cmux Max"))
+        #expect(text.contains(ProUpgradePresenter.checkoutURL(source: .vmMemoryRequiresPlanError, plan: .max).absoluteString))
+        #expect(text.contains("cmux_source=\(ProUpgradeSource.vmMemoryRequiresPlanError.rawValue)"))
+        #expect(text.contains("cmux_client=mac"))
+    }
+
+    /// Pro is the server's default plan, so its checkout carries no `plan`;
+    /// Max sends `plan=max` next to the source attribution, and a stale
+    /// `plan` on the base URL is replaced rather than duplicated.
+    @Test
+    func checkoutURLCarriesThePlanOnlyForMax() throws {
+        let base = try #require(URL(string: "https://cmux.com/api/billing/checkout?cmux_external_browser=1&plan=pro"))
+        let pro = ProUpgradePresenter.checkoutURL(source: .newMachineSheetMaxUpgrade, plan: .pro, base: base)
+        let max = ProUpgradePresenter.checkoutURL(source: .newMachineSheetMaxUpgrade, plan: .max, base: base)
+        let proItems = try #require(URLComponents(url: pro, resolvingAgainstBaseURL: false)?.queryItems)
+        let maxItems = try #require(URLComponents(url: max, resolvingAgainstBaseURL: false)?.queryItems)
+        #expect(!proItems.contains { $0.name == "plan" })
+        #expect(maxItems.filter { $0.name == "plan" }.map(\.value) == ["max"])
+        #expect(maxItems.filter { $0.name == "cmux_source" }.map(\.value) == ["mac_new_machine_sheet_max_upgrade"])
+        #expect(maxItems.contains { $0.name == "cmux_external_browser" && $0.value == "1" })
+        #expect(pro.path == "/api/billing/checkout")
+        #expect(max.path == "/api/billing/checkout")
+    }
+
+    @Test
+    func intentPropertiesNameSurfaceAndChannel() {
+        let properties = CheckoutAttribution.intentProperties(source: .helpMenu, flavor: .stable)
+        #expect(properties["source"] as? String == "mac_help_menu")
+        #expect(properties["client"] as? String == "mac")
+        #expect(properties["channel"] as? String == "stable")
     }
 }

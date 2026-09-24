@@ -1,15 +1,16 @@
 #!/usr/bin/env node
 // Local stand-in for the Freestyle TLS egress edge, for verifying the coderouter
 // model plane end to end on one machine: it terminates TLS with a private CA,
-// OVERWRITES the two edge headers (`x-coderouter-route-token`, `x-cmux-vm-id`)
-// on every request like the real edge does, and re-originates to a coderouter
+// OVERWRITES the signed `x-cmux-authorization` header on new VM rules, or the
+// legacy route-token plus VM-id headers for old VM rules, like the real
+// edge does, and re-originates to a coderouter
 // origin (a local `bun dev`, a tunnel, or a preview). Real agent CLIs (codex,
 // claude, pi, curl) then run against it with placeholder keys, exactly as a
 // Cloud machine would, and the origin's routing, VM binding, and usage ledger
 // can be checked without a VM.
 //
 //   node scripts/coderouter/local-edge.mjs --origin http://127.0.0.1:4682 \
-//     --route-token crt_... --vm-id <cloud_vms.id> [--port 8443] [--no-inject] \
+//     --route-token <signed-jwt-or-crt-token> --vm-id <cloud_vms.id> [--port 8443] [--no-inject] \
 //     [--origin-header name=value] [--state-dir <dir>]
 //
 // It prints the `export` lines a client shell needs (CA bundle for Node, rustls,
@@ -22,8 +23,7 @@ import https from "node:https";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
-const ROUTE_TOKEN_HEADER = "x-coderouter-route-token";
-const VM_ID_HEADER = "x-cmux-vm-id";
+const VM_AUTHORIZATION_HEADER = "x-cmux-authorization";
 const PLACEHOLDER = "cmux-vm-edge-placeholder";
 
 const args = process.argv.slice(2);
@@ -61,12 +61,14 @@ const extraOriginHeaders = Object.fromEntries(
     return [pair.slice(0, eq).toLowerCase(), pair.slice(eq + 1)];
   }),
 );
-if (inject && (!routeToken || !vmId)) {
-  console.error("--route-token and --vm-id are required unless --no-inject is set");
+if (inject && !routeToken) {
+  console.error("--route-token is required unless --no-inject is set");
   process.exit(2);
 }
-if (inject && !/^crt_[A-Za-z0-9._-]+$/.test(routeToken)) {
-  console.error("--route-token must be a crt_ route token");
+const legacyInjection = /^crt_[A-Za-z0-9._-]+$/.test(routeToken);
+const signedInjection = /^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(routeToken);
+if (inject && !legacyInjection && !signedInjection) {
+  console.error("--route-token must be a signed JWT or legacy crt_ route token");
   process.exit(2);
 }
 
@@ -105,13 +107,20 @@ const server = https.createServer({ key: readFileSync(leafKey), cert: readFileSy
   const headers = { ...req.headers };
   // The guest never legitimately sends these; a value here is a forgery attempt
   // that the real edge replaces. Record it, then overwrite (or strip).
-  const forgedToken = headers[ROUTE_TOKEN_HEADER];
-  const forgedVmId = headers[VM_ID_HEADER];
-  delete headers[ROUTE_TOKEN_HEADER];
-  delete headers[VM_ID_HEADER];
+  const forgedAuthorization = headers.authorization;
+  const forgedAuthorizationHeader = headers[VM_AUTHORIZATION_HEADER];
+  delete headers.authorization;
+  delete headers[VM_AUTHORIZATION_HEADER];
+  delete headers["x-coderouter-route-token"];
+  delete headers["x-cmux-vm-id"];
   if (inject) {
-    headers[ROUTE_TOKEN_HEADER] = routeToken;
-    headers[VM_ID_HEADER] = vmId;
+    if (legacyInjection) {
+      headers.authorization = `Bearer ${routeToken}`;
+      headers["x-coderouter-route-token"] = routeToken;
+      headers["x-cmux-vm-id"] = vmId;
+    } else {
+      headers[VM_AUTHORIZATION_HEADER] = `Bearer ${routeToken}`;
+    }
   }
   headers.host = origin.host;
   Object.assign(headers, extraOriginHeaders);
@@ -139,13 +148,15 @@ const server = https.createServer({ key: readFileSync(leafKey), cert: readFileSy
       upstreamRes.on("end", () => {
         if (dumpBase) {
           const requestHeaders = { ...req.headers };
-          delete requestHeaders[ROUTE_TOKEN_HEADER];
+          delete requestHeaders[VM_AUTHORIZATION_HEADER];
           delete requestHeaders["authorization"];
           delete requestHeaders["x-api-key"];
           writeFileSync(`${dumpBase}.req.json`, JSON.stringify({ headers: requestHeaders, body: Buffer.concat(reqChunks).toString("utf8") }, null, 2));
           writeFileSync(`${dumpBase}.res.txt`, `HTTP ${upstreamRes.statusCode}\n${JSON.stringify(upstreamRes.headers)}\n\n${Buffer.concat(resChunks).toString("utf8")}`);
         }
-        const forged = forgedToken || forgedVmId ? ` forged-headers-overwritten(token=${forgedToken ? "yes" : "no"},vm=${forgedVmId ? "yes" : "no"})` : "";
+        const forged = forgedAuthorization || forgedAuthorizationHeader
+          ? ` forged-headers-overwritten(auth=${forgedAuthorization ? "yes" : "no"},signed=${forgedAuthorizationHeader ? "yes" : "no"})`
+          : "";
         const agent = (req.headers["user-agent"] ?? "").toString().slice(0, 40);
         console.error(`[edge] #${id} ${req.method} ${req.url} -> ${upstreamRes.statusCode} ${Date.now() - startedAt}ms ua="${agent}"${forged}`);
       });
@@ -161,7 +172,7 @@ const server = https.createServer({ key: readFileSync(leafKey), cert: readFileSy
 
 server.listen(port, "127.0.0.1", () => {
   const base = `https://127.0.0.1:${port}`;
-  console.error(`[edge] listening on ${base} -> ${origin.origin} (${inject ? `injecting ${VM_ID_HEADER}=${vmId}` : "NOT injecting"})`);
+  console.error(`[edge] listening on ${base} -> ${origin.origin} (${inject ? `injecting signed VM authorization` : "NOT injecting"})`);
   console.log(`export SSL_CERT_FILE=${caCert} NODE_EXTRA_CA_CERTS=${caCert} CURL_CA_BUNDLE=${caCert}`);
   console.log(`export OPENAI_BASE_URL=${base}/v1 OPENAI_API_KEY=${PLACEHOLDER}`);
   console.log(`export ANTHROPIC_BASE_URL=${base} ANTHROPIC_API_KEY=${PLACEHOLDER}`);

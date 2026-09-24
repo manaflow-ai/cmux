@@ -42,6 +42,83 @@ struct VaultSessionLiveStatusTests {
     }
 
     @Test
+    func compactIndicatorUsesOnlyBinaryActiveState() {
+        #expect(VaultSessionLiveStatus.live.isActiveForIndicator)
+        #expect(!VaultSessionLiveStatus.idle.isActiveForIndicator)
+        #expect(!VaultSessionLiveStatus.exited.isActiveForIndicator)
+        #expect(
+            VaultSessionLiveStatus.live.indicatorLabel
+                == String(localized: "sessionIndex.status.activeIndicator", defaultValue: "Active")
+        )
+        #expect(
+            VaultSessionLiveStatus.idle.indicatorLabel
+                == String(localized: "sessionIndex.status.inactiveIndicator", defaultValue: "Inactive")
+        )
+    }
+
+    @Test
+    func compactIndicatorTreatsEveryRowAsActiveOrInactive() {
+        let inPane = SessionIndexStatusIndicatorModel.make(
+            isInPane: true,
+            liveStatus: .live
+        )
+        #expect(inPane.isActive)
+        #expect(
+            inPane.label
+                == String(
+                    localized: "sessionIndex.status.activeInPane",
+                    defaultValue: "Active in pane"
+                )
+        )
+
+        let exitedInPane = SessionIndexStatusIndicatorModel.make(
+            isInPane: true,
+            liveStatus: .exited
+        )
+        #expect(exitedInPane.isActive)
+        #expect(
+            exitedInPane.label
+                == String(
+                    localized: "sessionIndex.status.activeInPane",
+                    defaultValue: "Active in pane"
+                )
+        )
+
+        let liveIndexed = SessionIndexStatusIndicatorModel.make(
+            isInPane: false,
+            liveStatus: .live
+        )
+        #expect(!liveIndexed.isActive)
+        #expect(
+            liveIndexed.label
+                == String(
+                    localized: "sessionIndex.status.inactiveIndicator",
+                    defaultValue: "Inactive"
+                )
+        )
+
+        let idleIndexed = SessionIndexStatusIndicatorModel.make(
+            isInPane: false,
+            liveStatus: .idle
+        )
+        #expect(!idleIndexed.isActive)
+        #expect(
+            idleIndexed.label
+                == String(
+                    localized: "sessionIndex.status.inactiveIndicator",
+                    defaultValue: "Inactive"
+                )
+        )
+
+        let unknownIndexed = SessionIndexStatusIndicatorModel.make(
+            isInPane: false,
+            liveStatus: nil
+        )
+        #expect(!unknownIndexed.isActive)
+        #expect(unknownIndexed.label == idleIndexed.label)
+    }
+
+    @Test
     func joinKeyUsesKindAndCanonicalSessionID() {
         // Canonicalization lowercases UUID-shaped ids for pi-family kinds and
         // passes other ids through; the key is always kind-prefixed.
