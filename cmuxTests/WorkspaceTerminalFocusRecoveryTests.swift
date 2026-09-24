@@ -314,6 +314,12 @@ struct WorkspaceTerminalFocusRecoverySwiftTests {
 
             let surfaceView = try #require(findSurfaceView(in: panel.hostedView), "Expected terminal surface view")
 
+            // Surface startup focuses the workspace's focused panel, and that
+            // focus pass reconciles the portal back to visible. Hide it again
+            // once startup has settled so the reveal below is a real 0->1
+            // transition that schedules the automatic first-responder apply.
+            panel.hostedView.setVisibleInUI(false)
+            #expect(!panel.hostedView.debugPortalVisibleInUI)
             window.makeFirstResponder(nil)
             panel.surface.setFocus(false)
             surfaceView.frame = NSRect(x: 0, y: 0, width: 0, height: 0)
@@ -402,6 +408,12 @@ struct WorkspaceTerminalFocusRecoverySwiftTests {
 
             let surfaceView = try #require(findSurfaceView(in: panel.hostedView), "Expected terminal surface view")
 
+            // Surface startup focuses the workspace's focused panel, and that
+            // focus pass reconciles the portal back to visible. Hide it again
+            // once startup has settled so the reveal below is a real 0->1
+            // transition that schedules the automatic first-responder apply.
+            panel.hostedView.setVisibleInUI(false)
+            #expect(!panel.hostedView.debugPortalVisibleInUI)
             window.makeFirstResponder(nil)
             panel.surface.setFocus(false)
             surfaceView.frame = NSRect(x: 0, y: 0, width: 0, height: 0)
