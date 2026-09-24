@@ -82,6 +82,12 @@ jobs:
       source_tree: ${{ steps.source-identity.outputs.tree }}
       source_parent1: ${{ steps.source-identity.outputs.parent1 }}
       source_identity_valid: ${{ steps.source-identity.outputs.valid }}
+      # The macOS pool every pull-request macOS job in this run uses, chosen
+      # once so a run is never split across pools (see pr_runner_pool.py).
+      # Empty keeps each job's own MACOS_RUNNER_PR fallback: every event but a
+      # pull request, and any uncertainty.
+      macos_pr_runner: ${{ steps.macos-pool.outputs.runner }}
+      macos_pr_xcode_app: ${{ steps.macos-pool.outputs.xcode_app }}
     permissions:
       actions: read
       contents: read
@@ -91,6 +97,23 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           fetch-depth: 2
+
+      - name: Choose the pull request macOS pool
+        id: macos-pool
+        # Fail-safe: any error leaves the outputs empty, which is today's route.
+        continue-on-error: true
+        timeout-minutes: 1
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT_NAME: ${{ github.event_name }}
+          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+          DEFAULT_RUNNER: ${{ vars.MACOS_RUNNER_PR }}
+          POOL_OVERFLOW: ${{ vars.CI_PR_POOL_OVERFLOW }}
+          POOL_ORDER: ${{ vars.CI_PR_POOL_ORDER }}
+          POOL_MAX_QUEUED: ${{ vars.CI_PR_POOL_MAX_QUEUED }}
+          # Handed to the macOS 15 pool's jobs only when the run lands there.
+          CMUX_CI_XCODE_APP_MACOS_15: ${{ vars.CMUX_CI_XCODE_APP_MACOS_15 }}
+        run: python3 scripts/ci/pr_runner_pool.py
 
       - name: Record GitHub-selected source identity
         id: source-identity
@@ -713,8 +736,9 @@ jobs:
           # Both steps are pull-request-only, and the xcode= extra exists so the
           # fingerprint moves when the pinned toolchain does. Read the same lane
           # the pull-request macOS jobs compile under, or a lane move would reuse
-          # a build admitted under the previous Xcode and skip the compile.
-          XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_PR || vars.CMUX_CI_XCODE_APP_MACOS_15 }}
+          # a build admitted under the previous Xcode and skip the compile. A run
+          # pr_runner_pool.py moved to the macOS 15 pool compiles under its Xcode.
+          XCODE_APP: ${{ steps.macos-pool.outputs.xcode_app || vars.CMUX_CI_XCODE_APP_PR || vars.CMUX_CI_XCODE_APP_MACOS_15 }}
         run: |
           set -euo pipefail
           fingerprint="$(python3 scripts/ci/build_input_fingerprint.py --extra "xcode=$XCODE_APP")"
@@ -729,8 +753,9 @@ jobs:
           # Both steps are pull-request-only, and the xcode= extra exists so the
           # fingerprint moves when the pinned toolchain does. Read the same lane
           # the pull-request macOS jobs compile under, or a lane move would reuse
-          # a build admitted under the previous Xcode and skip the compile.
-          XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_PR || vars.CMUX_CI_XCODE_APP_MACOS_15 }}
+          # a build admitted under the previous Xcode and skip the compile. A run
+          # pr_runner_pool.py moved to the macOS 15 pool compiles under its Xcode.
+          XCODE_APP: ${{ steps.macos-pool.outputs.xcode_app || vars.CMUX_CI_XCODE_APP_PR || vars.CMUX_CI_XCODE_APP_MACOS_15 }}
           HEAD_FINGERPRINT: ${{ steps.inputs.outputs.fingerprint }}
         run: |
           set -euo pipefail
@@ -776,9 +801,12 @@ jobs:
 
       # The PR workflow only publishes immutable request evidence. Dispatch and
       # cancellation authority live in persistent-macos-router.yml on main.
+      # A run pr_runner_pool.py moved to another Xcode (the macOS 15 pool) skips
+      # it: the owned-Mac producer builds with the lane's Xcode, and compile
+      # admission would refuse that product.
       - name: Publish persistent Mac route request
         id: persistent-route-request
-        if: ${{ github.event_name == 'pull_request' && steps.source-identity.outputs.valid == 'true' && steps.detect.outputs.macos == 'true' && steps.unchanged_inputs.outputs.compile_admitted != 'true' && steps.admitted.outputs.compile_admitted != 'true' && (vars.CI_PERSISTENT_MAC_COMPILE == 'pilot' || vars.CI_PERSISTENT_MAC_COMPILE == 'all' || vars.CI_PERSISTENT_MAC_COMPILE == 'on' || vars.CI_PERSISTENT_MAC_COMPILE == 'true' || vars.CI_PERSISTENT_MAC_COMPILE == '1') && github.event.pull_request.head.repo.full_name == github.repository && (github.event.pull_request.author_association == 'MEMBER' || github.event.pull_request.author_association == 'OWNER') }}
+        if: ${{ github.event_name == 'pull_request' && steps.source-identity.outputs.valid == 'true' && steps.detect.outputs.macos == 'true' && steps.unchanged_inputs.outputs.compile_admitted != 'true' && steps.admitted.outputs.compile_admitted != 'true' && steps.macos-pool.outputs.xcode_app == '' && (vars.CI_PERSISTENT_MAC_COMPILE == 'pilot' || vars.CI_PERSISTENT_MAC_COMPILE == 'all' || vars.CI_PERSISTENT_MAC_COMPILE == 'on' || vars.CI_PERSISTENT_MAC_COMPILE == 'true' || vars.CI_PERSISTENT_MAC_COMPILE == '1') && github.event.pull_request.head.repo.full_name == github.repository && (github.event.pull_request.author_association == 'MEMBER' || github.event.pull_request.author_association == 'OWNER') }}
         env:
           PR_NUMBER: ${{ github.event.pull_request.number }}
           HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name }}
@@ -900,12 +928,16 @@ jobs:
       pull-requests: read
     uses: ./.github/workflows/remote-daemon.yml
     with:
+      pr_runner: ${{ needs.changes.outputs.macos_pr_runner }}
       native_tests: ${{ needs.changes.outputs.remote_daemon_native == 'true' || contains(github.event.pull_request.labels.*.name, 'full-ci') }}
 
   cli:
     needs: [changes, static-preflight]
     if: ${{ needs.changes.outputs.cli == 'true' }}
     uses: ./.github/workflows/cli-pipe-regressions.yml
+    with:
+      pr_runner: ${{ needs.changes.outputs.macos_pr_runner }}
+      pr_xcode_app: ${{ needs.changes.outputs.macos_pr_xcode_app }}
 
   web:
     # Beside static-preflight for the same reason as guards.
@@ -921,7 +953,7 @@ jobs:
     name: Claude wrapper regressions
     needs: [changes, static-preflight]
     if: ${{ !cancelled() && needs.changes.result == 'success' && needs.static-preflight.result == 'success' && (needs.changes.outputs.claude_wrapper == 'true' || (needs.changes.outputs.macos == 'true' && needs.changes.outputs.full_suite == 'true')) }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (github.event_name == 'pull_request' && (vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15') || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15') }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (github.event_name == 'pull_request' && (needs.changes.outputs.macos_pr_runner || vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15') || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15') }}
     timeout-minutes: 10
     steps:
       - name: Checkout wrapper and test inputs
@@ -1053,6 +1085,8 @@ jobs:
       source_parent1: ${{ needs.changes.outputs.source_parent1 }}
       cache_backend: ${{ inputs.cache_backend }}
       release_archs: ${{ inputs.release_archs }}
+      pr_runner: ${{ needs.changes.outputs.macos_pr_runner }}
+      pr_xcode_app: ${{ needs.changes.outputs.macos_pr_xcode_app }}
 
   tests:
     name: tests

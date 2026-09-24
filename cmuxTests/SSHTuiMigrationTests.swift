@@ -1,5 +1,6 @@
 import CmuxCore
 import CmuxFoundation
+import CmuxSurfaceCatalogModel
 import Foundation
 import Testing
 
@@ -95,6 +96,36 @@ struct SSHTuiMigrationTests {
         #expect(SSHTuiConnection(configuration: original).id == SSHTuiConnection(configuration: restored).id)
     }
 
+    @MainActor
+    @Test("A legacy relay configuration keeps its relay lifecycle and startup command")
+    func legacyRelayConfigurationIsNotClaimedByCmuxTui() {
+        let native = configuration()
+        #expect(native.routesThroughSSHTui)
+        // The shape the CLI's no-TTY `cmux ssh` path sends to workspace.remote.configure.
+        let legacy = WorkspaceRemoteConfiguration(
+            destination: "alice@example.invalid", port: nil, identityFile: nil, sshOptions: [],
+            localProxyPort: nil, relayPort: 64007, relayID: String(repeating: "a", count: 16),
+            relayToken: String(repeating: "b", count: 64), localSocketPath: "/tmp/cmux-debug-test.sock",
+            terminalStartupCommand: "ssh -T alice@example.invalid", preserveAfterTerminalExit: false
+        )
+        #expect(!legacy.routesThroughSSHTui)
+        let workspace = Workspace()
+        defer { workspace.teardownAllPanels() }
+        #expect(workspace.configureRemoteConnection(legacy, autoConnect: false))
+        #expect(!workspace.usesSSHTui)
+        #expect(workspace.effectiveRemoteTerminalStartupCommand(from: workspace.remoteConfiguration) == "ssh -T alice@example.invalid")
+        // Only cmux-tui-owned persistent sessions drop the startup command; a
+        // persistent relay configuration still runs its own.
+        let persistentLegacy = WorkspaceRemoteConfiguration(
+            destination: "alice@example.invalid", port: nil, identityFile: nil, sshOptions: [],
+            localProxyPort: nil, relayPort: 64007, relayID: String(repeating: "a", count: 16),
+            relayToken: String(repeating: "b", count: 64), localSocketPath: "/tmp/cmux-debug-test.sock",
+            terminalStartupCommand: "ssh-pty-attach", preserveAfterTerminalExit: true
+        )
+        #expect(workspace.effectiveRemoteTerminalStartupCommand(from: persistentLegacy) == "ssh-pty-attach")
+        #expect(workspace.effectiveRemoteTerminalStartupCommand(from: native) == nil)
+    }
+
     @Test("SSH projection identities survive session serialization without becoming Cloud machines")
     func projectionRoundTripRetainsSSHBackend() throws {
         let id = SSHTuiConnection(configuration: configuration()).id
@@ -175,7 +206,18 @@ struct SSHTuiMigrationTests {
     @Test("Native SSH respawn preserves its surface and executes only through the provider")
     @MainActor
     func nativeSSHRespawnUsesProviderReplacement() async throws {
-        let workspace = Workspace()
+        // Projection validates its destination through Workspace.liveWorkspace, so
+        // the workspace must belong to the app's TabManager. A detached Workspace()
+        // fails with destinationNotFound and the provider never materializes.
+        let appDelegate = AppDelegate.shared ?? AppDelegate()
+        let originalTabManager = appDelegate.tabManager
+        let manager = originalTabManager ?? TabManager()
+        appDelegate.tabManager = manager
+        let workspace = manager.addWorkspace(select: false)
+        defer {
+            if manager.tabs.contains(where: { $0.id == workspace.id }) { manager.closeWorkspace(workspace, recordHistory: false) }
+            appDelegate.tabManager = originalTabManager
+        }
         let panelID = try #require(workspace.focusedPanelId)
         let tabID = try #require(workspace.surfaceIdFromPanelId(panelID))
         let config = configuration()
@@ -187,7 +229,6 @@ struct SSHTuiMigrationTests {
         defer {
             provider.release.resolve(true)
             catalog.unregister(machine: provider.machine)
-            workspace.teardownAllPanels()
         }
         let original = provider.resource(key: "original")
         catalog.upsert(original, from: provider)

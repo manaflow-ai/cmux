@@ -22,6 +22,10 @@ name: CI queue janitor
 # a newer job on the same labels got one, or a run still queued after a day.
 # These are lost runner assignments, not demand, so no queue threshold gates
 # them; release, tag and merge-queue orphans are only reported.
+#
+# Each sweep also publishes the per-pool macOS queue it saw as the
+# `macos-pool-load` artifact, which pull request CI reads to overflow off a
+# backed-up pool.
 on:
   schedule:
     - cron: "*/10 * * * *"
@@ -63,4 +67,24 @@ jobs:
           QUEUE_THRESHOLD: ${{ vars.CI_JANITOR_QUEUE_THRESHOLD }}
           CI_PULL_REQUEST_SUITE: ${{ vars.CI_PULL_REQUEST_SUITE || 'compile-only' }}
           ORPHAN_MINUTES: ${{ vars.CI_JANITOR_ORPHAN_MINUTES }}
+          POOL_LOAD_OUT: ${{ runner.temp }}/macos-pool-load.json
+          # Copied into the snapshot for fork pull requests, which get no
+          # repository variables of their own (scripts/ci/pr_runner_pool.py).
+          PR_POOL_LANE: ${{ vars.MACOS_RUNNER_PR }}
+          PR_POOL_OVERFLOW: ${{ vars.CI_PR_POOL_OVERFLOW }}
+          PR_POOL_ORDER: ${{ vars.CI_PR_POOL_ORDER }}
+          PR_POOL_MAX_QUEUED: ${{ vars.CI_PR_POOL_MAX_QUEUED }}
         run: python3 scripts/ci/queue_janitor.py
+
+      # What this sweep saw on each macOS pool. ci.yml's `changes` job reads
+      # the newest copy (scripts/ci/pr_runner_pool.py) to pick the pool a
+      # pull request run lands on, for two API requests instead of one job
+      # listing per in-flight run.
+      - name: Publish macOS pool load
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: macos-pool-load
+          path: ${{ runner.temp }}/macos-pool-load.json
+          retention-days: 1
+          if-no-files-found: ignore

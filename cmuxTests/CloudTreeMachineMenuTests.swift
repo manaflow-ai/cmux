@@ -1,6 +1,7 @@
 import AppKit
 import SwiftUI
 import CmuxCloudMachines
+import CmuxSurfaceCatalogModel
 import Testing
 import Observation
 

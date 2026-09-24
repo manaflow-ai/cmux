@@ -18,6 +18,9 @@ CI_MACOS_FILE="$ROOT_DIR/.github/workflows/ci-macos.yml"
 CI_WEB_FILE="$ROOT_DIR/.github/workflows/ci-web.yml"
 PERSISTENT_COMPILE_FILE="$ROOT_DIR/.github/workflows/persistent-macos-compile.yml"
 PERSISTENT_ROUTER_FILE="$ROOT_DIR/.github/workflows/persistent-macos-router.yml"
+NIGHTLY_MINI_FILE="$ROOT_DIR/.github/workflows/nightly-mini-build.yml"
+NIGHTLY_FILE="$ROOT_DIR/.github/workflows/nightly.yml"
+NIGHTLY_MINI_RUNS_ON='    runs-on: ${{ github.repository_owner != '"'"'manaflow-ai'"'"' && '"'"'macos-26'"'"' || fromJSON('"'"'{"group":"cmux-nightly-mini","labels":["self-hosted","macOS","ARM64","cmux-nightly-mini-build"]}'"'"') }}'
 GHOSTTYKIT_FILE="$ROOT_DIR/.github/workflows/build-ghosttykit.yml"
 COMPAT_FILE="$ROOT_DIR/.github/workflows/ci-macos-compat.yml"
 E2E_FILE="$ROOT_DIR/.github/workflows/test-e2e.yml"
@@ -1175,7 +1178,7 @@ check_no_self_hosted_fleet_runners() {
   # NOTE: reload-build.yml is the dev-build offload path (workflow_dispatch,
   # not required CI) and intentionally targets the fleet via a free-form input;
   # this guard only inspects runner-selection lines, not its input description.
-  local fleet='macos-26|warp-macos-26-arm64-6x|cmux-aws-macos|cmux-macos|cmux-local-macos|cmux-persistent-compile|macfleet|tart-[a-z0-9-]+|(^|[^a-z0-9-])mac4([^a-z0-9]|$)|(^|[^a-z0-9-])mac-mini([^a-z0-9]|$)|slot-[0-9]|xcode-[0-9]+-[0-9]|(^|[^a-z0-9-])cmux([^a-z0-9-]|$)'
+  local fleet='macos-26|warp-macos-26-arm64-6x|cmux-aws-macos|cmux-macos|cmux-local-macos|cmux-persistent-compile|cmux-nightly-mini|macfleet|tart-[a-z0-9-]+|(^|[^a-z0-9-])mac4([^a-z0-9]|$)|(^|[^a-z0-9-])mac-mini([^a-z0-9]|$)|slot-[0-9]|xcode-[0-9]+-[0-9]|(^|[^a-z0-9-])cmux([^a-z0-9-]|$)'
   local allowed='blacksmith-(6|12)vcpu-macos-(15|26|latest)|warp-macos-15-arm64-6x'
   # A fork running CI in its own repository has no fleet, so its hosted
   # branch may name GitHub's macos-26 image. Only this exact short-circuit is
@@ -1198,7 +1201,8 @@ check_no_self_hosted_fleet_runners() {
                '- cmux-aws-macos-15' '- cmux-macos-26' '- self-hosted' '- macOS' '- ARM64' \
                'runs-on: [self-hosted, macOS, ARM64]' \
                '      labels: [self-hosted, macOS, ARM64, cmux-persistent-macos-compile]' \
-               '      group: cmux-persistent-compile'; do
+               '      group: cmux-persistent-compile' '      group: cmux-nightly-mini' '- cmux-nightly-mini-build' \
+               "\"labels\":[\"self-hosted\",\"macOS\",\"ARM64\",\"cmux-nightly-mini-build\"]"; do
     if ! printf '%s\n' "$probe" | grep -Eq "($forbidden)"; then
       echo "FAIL: fleet-runner guard self-test missed a known fleet/self-hosted label: $probe"
       exit 1
@@ -1277,6 +1281,9 @@ check_no_self_hosted_fleet_runners() {
     if [[ "$line" == "$PERSISTENT_COMPILE_FILE:"* ]] && \
        { [[ "$content" == '      group: cmux-persistent-compile' ]] || \
          [[ "$content" == '      labels: [self-hosted, macOS, ARM64, cmux-persistent-macos-compile]' ]]; }; then
+      continue
+    fi
+    if [[ "$line" == "$NIGHTLY_MINI_FILE:"* ]] && [[ "$content" == "$NIGHTLY_MINI_RUNS_ON" ]]; then
       continue
     fi
     printf '%s\n' "$content_without_allowed" | grep -Eq "($forbidden)" || continue
@@ -1369,6 +1376,72 @@ check_persistent_compile_lane() {
   echo "PASS: persistent compile producer is dispatch-only, credential-minimized, pinned, and cohort-gated"
 }
 
+check_nightly_mini_lane() {
+  # The nightly owned-Mac producer is the second direct-host exception
+  # (docs/ci/mac-fleet.md, "Nightly lane"). It compiles; it never signs or
+  # publishes, and the hosted nightly job adopts its products only after
+  # rechecking source and toolchain.
+  if [ ! -f "$NIGHTLY_MINI_FILE" ]; then
+    echo "FAIL: nightly owned-Mac producer workflow is missing"
+    exit 1
+  fi
+  local triggers
+  triggers="$(awk '
+    /^on:$/ { in_on=1; next }
+    in_on && /^[^[:space:]#]/ { in_on=0 }
+    in_on && /^  [A-Za-z0-9_-]+:/ { key=$1; sub(/:$/, "", key); print key }
+  ' "$NIGHTLY_MINI_FILE")"
+  if [ "$triggers" != "workflow_dispatch" ]; then
+    echo "FAIL: nightly owned-Mac producer must have workflow_dispatch as its only trigger"
+    exit 1
+  fi
+  if ! grep -Fqx 'permissions: {}' "$NIGHTLY_MINI_FILE" || ! grep -Fqx '    permissions: {}' "$NIGHTLY_MINI_FILE"; then
+    echo "FAIL: nightly owned-Mac producer must have empty GitHub token permissions at workflow and job level"
+    exit 1
+  fi
+  if [ "$(grep -Fxc -- "$NIGHTLY_MINI_RUNS_ON" "$NIGHTLY_MINI_FILE")" -ne 1 ] || \
+     [ "$(grep -c 'runs-on:' "$NIGHTLY_MINI_FILE")" -ne 1 ]; then
+    echo "FAIL: nightly owned-Mac producer must use exactly the dedicated cmux-nightly-mini group and label"
+    exit 1
+  fi
+  if grep -Eq 'secrets\.|secrets\[|SPARKLE|APPLE_|SENTRY' "$NIGHTLY_MINI_FILE"; then
+    echo "FAIL: nightly owned-Mac producer must not reference secrets or signing material"
+    exit 1
+  fi
+  if grep -Fq 'actions/checkout@' "$NIGHTLY_MINI_FILE"; then
+    echo "FAIL: nightly owned-Mac producer must fetch public source explicitly instead of receiving checkout credentials"
+    exit 1
+  fi
+  if grep -Fq 'nightly-mini-build.yml' <(awk '/^  build-sign-notarize-nightly:$/,/^  publish-nightly:$/' "$NIGHTLY_FILE") || \
+     grep -Eq 'cmux-nightly-mini' "$NIGHTLY_FILE"; then
+    echo "FAIL: nightly signing and publication must stay on hosted runners"
+    exit 1
+  fi
+  if ! grep -Fq "steps.adopt.outputs.adopted != 'true'" "$NIGHTLY_FILE" || \
+     ! grep -Fq '"source": product.get("source_sha") == os.environ["HEAD_SHA"]' "$NIGHTLY_FILE" || \
+     ! grep -Fq '"xcode": product.get("xcode_version") == os.environ["XCODE"]' "$NIGHTLY_FILE"; then
+    echo "FAIL: hosted nightly build must revalidate owned-Mac products and keep its compile fallback"
+    exit 1
+  fi
+  # route-nightly-mini is skipped whenever the selector is unset. An `if:`
+  # without a status function is an implicit success(), which also checks that
+  # skipped ancestor and would silently skip signing and publication.
+  local job job_if
+  for job in build-nightly-app build-sign-notarize-nightly publish-nightly close-nightly-failure-issue; do
+    job_if="$(awk -v want="  ${job}:" '
+      $0 == want { in_job=1; next }
+      in_job && /^  [A-Za-z0-9_-]+:$/ { exit }
+      in_job && /^    if: / { print; exit }
+    ' "$NIGHTLY_FILE")"
+    if [[ "$job_if" != *'!cancelled()'* ]] && [[ "$job_if" != *'always()'* ]]; then
+      echo "FAIL: nightly.yml $job must gate on !cancelled() and explicit results, or a skipped owned-Mac route skips it"
+      printf '%s\n' "$job_if"
+      exit 1
+    fi
+  done
+  echo "PASS: nightly owned-Mac producer is dispatch-only, credential-free, compile-only, and revalidated"
+}
+
 # Print a job's CMUX_CI_XCODE_APP / CMUX_CI_REQUIRED_MACOS_SDK_MAJOR pins, so the
 # owned Mac and the hosted job that revalidates its product can be compared.
 #
@@ -1401,14 +1474,22 @@ persistent_compile_toolchain_pin() {
 import re
 import sys
 
+# Compile admission also sends main'"'"'s full-suite dispatch down the PR lane.
 PR_LANE = re.compile(
-    r"\$\{\{\s*github\.event_name == .pull_request.\s*&&\s*\((?P<pr>.+?)\)\s*\|\|.+?\}\}"
+    r"\$\{\{\s*(?:github\.event_name == .pull_request."
+    r"|\(github\.event_name == .pull_request. \|\| github\.event_name == .workflow_dispatch. && github\.ref == .refs/heads/main.\))"
+    r"\s*&&\s*\((?P<pr>.+?)\)\s*\|\|.+?\}\}"
 )
+
+# A pull request run that pr_runner_pool.py overflowed to the macOS 15 pool
+# carries the Xcode of that pool in inputs.pr_xcode_app. The owned-Mac producer
+# builds for the lane itself, so compare what the lane resolves to without it.
+OVERFLOW_PIN = re.compile(r"\binputs\.pr_xcode_app\s*\|\|\s*")
 
 normalize = len(sys.argv) > 1 and sys.argv[1] == "--pr-lane"
 for line in sys.stdin:
     if normalize:
-        line = PR_LANE.sub(lambda m: "${{ " + m.group("pr").strip() + " }}", line)
+        line = PR_LANE.sub(lambda m: "${{ " + OVERFLOW_PIN.sub("", m.group("pr").strip()) + " }}", line)
     sys.stdout.write(line)
 ' ${3:+--pr-lane} | sort
 }
@@ -1656,6 +1737,7 @@ check_cla_guard_runner
 check_no_bare_github_hosted_runners
 check_no_self_hosted_fleet_runners
 check_persistent_compile_lane
+check_nightly_mini_lane
 check_persistent_compile_owned_mac_occupancy
 check_persistent_compile_router
 check_macos_runner "$CI_MACOS_FILE" "app-host-unit-tests"
@@ -1877,6 +1959,8 @@ EXEMPT = {
         "builds the SDK 15 Ghostty helper; stays on MACOS_RUNNER_DUAL_XCODE",
     ("ci-macos.yml", "swift-package-tests", "CMUX_CI_HELPER_XCODE_APP"):
         "same job's SDK 15 release-helper pin",
+    ("ci.yml", "changes", "CMUX_CI_XCODE_APP_MACOS_15"):
+        "a Linux job; pr_runner_pool.py hands this pin on only to a run it routes to the macOS 15 pool",
 }
 
 PINNED = ("CMUX_CI_XCODE_APP_MACOS_15", "CMUX_CI_HELPER_XCODE_APP_MACOS_15")

@@ -59,11 +59,11 @@ GLAEDA_URL = "https://github.com/teamleaderleo/glaeda.git"
 # The reviewed Glaeda candidate a mini runs (#13491, docs/FLEET_DISTRIBUTION.md in
 # Glaeda). The node installs these exact bytes and builds no Rust. Actions keeps the
 # artifact for 30 days; replace all four values together from the new run's receipt.
-CANDIDATE_RUN = "35879163562"
+CANDIDATE_RUN = "35991372390"
 CANDIDATE_ARTIFACT = "glaeda-candidate-aarch64-apple-darwin"
-CANDIDATE_SOURCE = "36e07e36ea7b9bc9e04c366547a5312dd348024d"
-CANDIDATE_SHA256 = "c2ceaa2df44d82d8a972fbe2ae6c33a8ceb11247f010cd837fa403313ec8f66e"
-CANDIDATE_EXPIRES = "2026-10-23T15:08:05Z"  # the artifact's expires_at; a new mini cannot enroll after it
+CANDIDATE_SOURCE = "59ca9c9bd1bb56679aabbde994fd8f3e55fee935"
+CANDIDATE_SHA256 = "f31ab3a17feb1d8d955c5527f193478a1c871790ab2ea67058b0f9d4e2395b55"
+CANDIDATE_EXPIRES = "2026-10-24T11:18:03Z"  # the artifact's expires_at; a new mini cannot enroll after it
 TOKEN_ENV = "CMUX_RUNNER_TOKEN"
 
 RUNNER_VERSION = "2.336.0"

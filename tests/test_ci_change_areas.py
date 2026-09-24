@@ -4147,16 +4147,16 @@ def test_app_host_product_consumers_run_on_the_producers_pool_and_xcode() -> Non
 
 
 def test_product_consumer_guard_follows_a_new_admission_route() -> None:
-    # Give the admission a new route, as main's full-suite dispatch taking the
+    # Give the admission a new route, as sending merge groups to the
     # pull-request pool and Xcode would. Consumers that read the outputs stay
     # compliant; one that restates the old expression is reported.
     workflow = yaml.safe_load(MACOS_WORKFLOW.read_text(encoding="utf-8"))
     producer = workflow["jobs"]["macos-compile-admission"]
     pull_request = "github.event_name == 'pull_request'"
-    main_dispatch = "(github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main')"
+    new_route = "(github.event_name == 'pull_request' || github.event_name == 'merge_group')"
     for key in ("CMUX_PRODUCT_RUNNER", "CMUX_CI_XCODE_APP"):
         assert pull_request in producer["env"][key], key
-        producer["env"][key] = producer["env"][key].replace(pull_request, main_dispatch, 1)
+        producer["env"][key] = producer["env"][key].replace(pull_request, new_route, 1)
     producer["runs-on"] = producer["env"]["CMUX_PRODUCT_RUNNER"]
     violations = product_consumer_route_violations(workflow)
     assert [line.split(":", 1)[0] for line in violations] == ["tests-build-and-lag"], violations
@@ -5217,7 +5217,7 @@ def test_r2_transport_is_an_explicit_optional_remote_broker() -> None:
 
 PR_LANE_XCODE_PIN = (
     "${{ github.event_name == 'pull_request' "
-    "&& (vars.CMUX_CI_XCODE_APP_PR || vars.CMUX_CI_XCODE_APP_MACOS_15) "
+    "&& (inputs.pr_xcode_app || vars.CMUX_CI_XCODE_APP_PR || vars.CMUX_CI_XCODE_APP_MACOS_15) "
     "|| vars.CMUX_CI_XCODE_APP_MACOS_15 }}"
 )
 
@@ -5231,12 +5231,21 @@ def test_macos_jobs_use_lane_specific_xcode_pin_vars() -> None:
     # than a queued one. Require the pin to resolve through the pull-request
     # escape hatch exactly as runs-on does, with the macos-15 pin as the default
     # on both branches so an unset variable keeps today's behavior.
-    for job_name in [
-        "macos-compile-admission",
-        "tests-build-and-lag",
+    # Compile admission, and tests-build-and-lag which restates its route,
+    # also send main's full-suite dispatch down the pull-request lane, where
+    # seed-derived-data.yml builds the seed admission adopts
+    # (tests/test_seed_derived_data.py evaluates both against the seeder).
+    admission_pin = PR_LANE_XCODE_PIN.replace(
+        "github.event_name == 'pull_request'",
+        "(github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main')",
+        1,
+    )
+    for job_name, pin in [
+        ("macos-compile-admission", admission_pin),
+        ("tests-build-and-lag", admission_pin),
     ]:
         block = workflow_job_block(job_name, MACOS_WORKFLOW)
-        assert f"CMUX_CI_XCODE_APP: {PR_LANE_XCODE_PIN}" in block, job_name
+        assert f"CMUX_CI_XCODE_APP: {pin}" in block, job_name
         assert "vars.CMUX_CI_XCODE_APP_MACOS_26" not in block, job_name
         assert 'CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"' in block
 

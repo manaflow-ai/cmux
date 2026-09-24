@@ -1,8 +1,10 @@
 name: Seed DerivedData
 
 # Keeps a warm DerivedData for every main commit that changes the app-host
-# build, so pull-request compile admission starts from its base commit's build
-# instead of a cold compile (ci-macos.yml "Adopt the nightly DerivedData seed").
+# build, so pull-request compile admission starts from its base commit's build,
+# and main's full-suite run (ci-main-full-suite.yml) from its own commit's or
+# the newest earlier one, instead of a cold compile (ci-macos.yml "Adopt the
+# nightly DerivedData seed").
 #
 # Each seed builds incrementally from the newest earlier seed, so a merge costs
 # the Mac time of its own diff: 30-130 s for one to five app files, measured in
@@ -81,8 +83,9 @@ jobs:
   seed:
     needs: decide
     if: needs.decide.outputs.build == 'true'
-    # Must match pull-request compile admission: the seed key carries the
-    # toolchain and the build paths, so a mismatch is a miss, not a wrong hit.
+    # Must match pull-request and main full-suite compile admission: the seed
+    # key carries the toolchain and the build paths, so a mismatch is a miss,
+    # not a wrong hit. tests/test_seed_derived_data.py evaluates both routes.
     # The 12 vCPU macOS 26 pool runs the same image and Xcode as the 6 vCPU
     # one admission uses, but pull requests do not queue on it: on 2026-09-24
     # seeds waited 19-25 minutes for a 6 vCPU runner while 12 vCPU jobs

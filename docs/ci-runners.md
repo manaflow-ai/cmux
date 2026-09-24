@@ -122,6 +122,49 @@ the same cost profile or the same urgency.
   real focused-run traffic. It splits only that free default: a
   `MACOS_RUNNER_TESTS` value naming any other pool is used unchanged.
 
+### Pull request pool preference
+
+When `MACOS_RUNNER_PR` is `blacksmith-6vcpu-macos-26`, `ci.yml`'s `changes`
+job picks one pool for the whole pull request run with
+`scripts/ci/pr_runner_pool.py`, and every pull-request macOS job in the run
+reads it: compile admission and its product consumers, `tests-build-and-lag`,
+`claude-wrapper`, `cli-pipe-regressions.yml` and `remote-daemon.yml`. A run is
+never split across pools, so the app-host product always meets the Xcode that
+linked it. The run takes the first pool in `CI_PR_POOL_ORDER` with fewer than
+`CI_PR_POOL_MAX_QUEUED` (default 3) jobs queued and no queued release or
+nightly job, or else the pool with the fewest queued jobs.
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `CI_PR_POOL_OVERFLOW` | unset (on) | `0` turns the preference off; every job takes its `MACOS_RUNNER_PR` route |
+| `CI_PR_POOL_ORDER` | `blacksmith-12vcpu-macos-26,blacksmith-6vcpu-macos-26,blacksmith-6vcpu-macos-15` | preference order; only pools whose Xcode pin `pr_runner_pool.py` knows are accepted, and an unknown label turns the preference off |
+| `CI_PR_POOL_MAX_QUEUED` | `3` | a pool has headroom below this many queued macOS jobs |
+
+The two macOS 26 pools share the lane's Xcode. A run on
+`blacksmith-6vcpu-macos-15` builds with `CMUX_CI_XCODE_APP_MACOS_15`, the pool
+and Xcode `main`'s own compile admission uses, and the build-input fingerprint
+follows that Xcode. Every Blacksmith pool is sponsored, so cost does not rank
+them; the order is speed first.
+
+The queue comes from the queue janitor: each sweep publishes the per-pool demand
+it already listed as the `macos-pool-load` artifact, and the `changes` job
+reads the newest copy uploaded from `main` of this repository. Pull request
+runs created since that sweep and still in flight are replayed through the
+same rule first, each
+filling a pool's idle slots (about 10 per Blacksmith macOS pool, less what is
+running) before it counts as queued, so a burst of pushes spreads across
+pools. The whole choice costs three API
+requests. A snapshot older than 45 minutes, an API error, or any event other
+than `pull_request` keeps today's route. The step summary of `changes` names
+the pool, the reason, and the queue it saw.
+
+A fork pull request gets no repository variables, so the janitor copies
+`MACOS_RUNNER_PR` and the three settings above into the snapshot and fork runs
+follow those: `CI_PR_POOL_OVERFLOW=0` or a lane other than
+`blacksmith-6vcpu-macos-26` keeps them on the Blacksmith macOS 15 fallback as
+before. Fork runs never pin an Xcode (each job selects its pool's newest SDK
+26 Xcode) and only use ephemeral `blacksmith-*` pools.
+
 `MACOS_RUNNER_PR` does not move a lane on its own. A runner change and its
 Xcode pin still have to agree, because `scripts/select-ci-xcode.sh` exits
 non-zero on a pinned path that is absent.
@@ -400,8 +443,15 @@ admission or is draining, pressured, or unavailable.
 
 ## Break-glass: switch a runner type to a paid provider
 
-There is no automatic overflow. If the Tart pool is unavailable or its queue is
-too long, set the affected variable to a paid provider. Restore Tart after the
+There is no automatic overflow for the runner variables. If the Tart pool is
+unavailable or its queue is too long, set the affected variable to a paid
+provider.
+
+The two owned-Mac producer lanes are the exception, because they never own a
+result: the persistent compile route and the nightly route
+(`scripts/ci/nightly_mini_route.py`) wait a bounded time for a mini and fall
+back to the hosted build automatically on a queue timeout, an overrun, a
+producer failure or a refused product. Restore Tart after the
 fleet recovers.
 
 Four runner variables exist to name **metered WarpBuild capacity**, so they are
@@ -535,6 +585,10 @@ The sole direct-host exception is the dispatch-only
 workflow-restricted `cmux-persistent-compile` runner group and
 `cmux-persistent-macos-compile` label. It performs compile-only Debug work,
 carries no repository secrets, and grants its hot state zero result authority.
+The second is the dispatch-only nightly producer (`nightly-mini-build.yml`,
+`cmux-nightly-mini` group, `cmux-nightly-mini-build` label), which compiles the
+unsigned nightly app for a hosted job that revalidates and signs it; see
+[mac-fleet.md, Nightly lane](ci/mac-fleet.md#nightly-lane).
 Every required macOS fallback still routes to the paid hosted path.
 `check_no_self_hosted_fleet_runners` in
 `tests/test_ci_self_hosted_guard.sh` enforces that exact exception and rejects
