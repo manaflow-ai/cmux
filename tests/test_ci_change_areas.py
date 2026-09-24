@@ -784,9 +784,9 @@ def test_diff_failure_does_not_look_like_a_known_empty_standalone_diff() -> None
         env = {**os.environ, "PATH": str(root) + os.pathsep + os.environ["PATH"],
                "EVENT_NAME": "pull_request", "BASE_SHA": "missing", "MERGE_SHA": "missing",
                "CHANGED_FILES": str(changed), "GITHUB_OUTPUT": str(output)}
-        subprocess.run(["bash", "-c", detector], env=env, capture_output=True, check=True)
+        subprocess.run(["bash", "-c", isolate_ci_tmp(detector, root)], env=env, capture_output=True, check=True)
         assert not changed.exists(), "failed git diff must not leave its truncated output behind"
-        subprocess.run(["bash", "-c", route], env=env, capture_output=True, check=True)
+        subprocess.run(["bash", "-c", isolate_ci_tmp(route, root)], env=env, capture_output=True, check=True)
         assert output.read_text().splitlines()[-3:] == ["browser=true", "remote_daemon=true", "remote_daemon_native=true"]
 
 
@@ -805,7 +805,7 @@ def test_remote_daemon_rejects_stale_heads_before_allocating_macos() -> None:
             env = {**os.environ, "PATH": str(root) + os.pathsep + os.environ["PATH"],
                    "GITHUB_REPOSITORY": "example/repo", "PR_NUMBER": "1",
                    "RUN_HEAD_SHA": "head", "CURRENT_HEAD": current}
-            result = subprocess.run(["bash", "-c", isolate_ci_tmp(script, root)], env=env, capture_output=True)
+            result = subprocess.run(["bash", "-c", script], env=env, capture_output=True)
             assert result.returncode == expected, (current, result.stderr)
 
 
