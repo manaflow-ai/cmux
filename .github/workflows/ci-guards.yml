@@ -793,6 +793,10 @@ jobs:
         if: ${{ matrix.group == 'release-notary' }}
         run: ./tests/test_strip_release_bundle.sh
 
+      - name: Validate cmux-tui SSH payload thinning and signing
+        if: ${{ matrix.group == 'release-notary' }}
+        run: ./tests/test_cmux_tui_ssh_payload_bundle.sh
+
       - name: Validate current GhosttyKit checksum pin
         if: ${{ matrix.group == 'release-tooling' }}
         run: ./tests/test_ci_ghosttykit_checksum_present.sh
