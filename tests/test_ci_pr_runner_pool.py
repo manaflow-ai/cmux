@@ -283,7 +283,7 @@ class FailSafe(unittest.TestCase):
             finally:
                 sys.stdout = old
             self.assertEqual(out.read_text(), f"runner={LARGE}\nxcode_app=\npersistent=false\n"
-                                              f"retry_runner=\njobs={pool.MAX_RUN_JOBS}\nowned_gui=true\nowned_jobs=\n")
+                                              f"retry_runner=\njobs={pool.MAX_RUN_JOBS}\nowned_jobs=\n")
             text = summary.read_text()
             self.assertIn(f"Pool: `{LARGE}`", text)
             self.assertIn(f"{SMALL}: 21 queued, 10 running", text)
@@ -806,15 +806,18 @@ class PerJobPlacement(unittest.TestCase):
         self.assertEqual((partial["runner"], partial["retry_runner"]), (MINI, LARGE))
         self.assertEqual(partial["owned_jobs"], " admission shard-1 shard-2 shard-3 ")
         # The marker (and so the janitor) counts the owned machines placed.
-        self.assertEqual((partial["jobs"], partial["owned_gui"]), ("3", "true"))
+        self.assertEqual(partial["jobs"], "3")
         # 11 machines for a 12-machine run: the last light job overflows.
         most = self.output(busy=0, **full)
         self.assertEqual(most["owned_jobs"].split()[-3:], ["cli-product", "cli-pipe", "remote-daemon"])
         self.assertEqual(most["jobs"], "11")
-        # GUI jobs off: only admission and the light jobs, and owned_gui says so.
+        # GUI jobs off: only admission and the light jobs.
         light = self.output(busy=9, gui="0", **full)
-        self.assertEqual((light["owned_jobs"], light["jobs"], light["owned_gui"]),
-                         (" admission cli-product cli-pipe ", "2", "false"))
+        self.assertEqual((light["owned_jobs"], light["jobs"]), (" admission cli-product cli-pipe ", "2"))
+        # Selected suites a compile admission would run itself move to shard 8.
+        suites = self.output(busy=0, RUN_UNIT_SUITE="true", RUN_UNIT_IN_ADMISSION="true",
+                             RUN_UNIT_SELECTORS="cmuxTests/SomeSuite")
+        self.assertEqual(suites["owned_jobs"], " admission shard-8 ")
         # Split off: the whole-run rule over the owned-eligible jobs only.
         self.assertEqual(self.output(busy=7, split="", gui="0", **full)["runner"], MINI)
         off = self.output(busy=8, split="", gui="0", **full)

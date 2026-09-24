@@ -85,9 +85,9 @@ split off, a run takes an owned pool only when all its owned-eligible jobs fit.
 GUI jobs (app-host shards, tests-build-and-lag) take an owned pool unless
 `vars.CI_PR_POOL_OWNED_GUI == '0'`: the minis' runners are LaunchAgents in
 the logged-in user's Aqua session, and each mini runs one job at a time. With
-it 0 they take `retry_runner`, and ci.yml turns off `unit_in_admission` for a
-persistent pick (output `owned_gui`), so the changed suites a compile
-admission would run itself move to a Blacksmith shard. A run's owned peak
+it 0 they take `retry_runner`. ci.yml turns off `unit_in_admission` for every
+persistent pick, so the changed suites a compile admission would run itself
+move to shard 8: glaeda gives admission the compile token, not the gui token. A run's owned peak
 (`jobs`, and the marker's) counts only the jobs that may take the pool.
 
 The queue comes from the queue janitor, which lists every in-flight run's
@@ -988,7 +988,9 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
     # run is charged the most machines any run can hold.
     plan = FULL_RUN if "RUN_MACOS" not in env else run_plan(
         macos=env.get("RUN_MACOS"), full_suite=env.get("RUN_FULL_SUITE"), unit_suite=env.get("RUN_UNIT_SUITE"),
-        unit_in_admission=env.get("RUN_UNIT_IN_ADMISSION"), claude_wrapper=env.get("RUN_CLAUDE_WRAPPER"),
+        # A persistent pick moves the changed suites out of admission to
+        # shard 8 (ci.yml), so the plan always counts that shard.
+        unit_in_admission="false", claude_wrapper=env.get("RUN_CLAUDE_WRAPPER"),
         cli=env.get("RUN_CLI"), remote_daemon=env.get("RUN_REMOTE_DAEMON"),
         unit_selectors=env.get("RUN_UNIT_SELECTORS"))
     # What an owned pool must have free for the whole run: its owned-eligible
@@ -1031,8 +1033,6 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
             handle.write(f"runner={choice.runner}\nxcode_app={choice.xcode_app}\n"
                          f"persistent={'true' if persistent(choice.runner) else 'false'}\n"
                          f"retry_runner={choice.retry_runner}\njobs={held}\n"
-                         # Whether compile admission may run app-host suites on the pool.
-                         f"owned_gui={'true' if gui else 'false'}\n"
                          # Space-delimited with a space at each end, so each job's
                          # contains(' <key> ') test matches whole keys only.
                          f"owned_jobs={' ' + ' '.join(owned_jobs) + ' ' if owned_jobs else ''}\n")

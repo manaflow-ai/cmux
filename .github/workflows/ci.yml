@@ -76,10 +76,11 @@ jobs:
       unit_strict_steps: ${{ steps.suite.outputs.unit_strict_steps }}
       # Only ever true for a changed-suites run the diff selected, which never
       # takes the canary drop above.
-      # With GUI jobs kept off the owned Macs (CI_PR_POOL_OWNED_GUI=0), a
-      # compile admission there does not run app-host suites; the changed
-      # suites run on the one Blacksmith shard instead (pr_runner_pool.py).
-      unit_in_admission: ${{ (steps.macos-pool.outputs.persistent != 'true' || steps.macos-pool.outputs.owned_gui == 'true') && steps.suite.outputs.unit_in_admission || 'false' }}
+      # A compile admission on an owned Mac never runs app-host suites: glaeda
+      # gives it the compile token, not the gui token, so the suites would
+      # collide with a GUI shard on the same mini. The changed suites run on
+      # the one shard (shard 8) instead, owned or Blacksmith (pr_runner_pool.py).
+      unit_in_admission: ${{ steps.macos-pool.outputs.persistent != 'true' && steps.suite.outputs.unit_in_admission || 'false' }}
       coverage_gap: ${{ steps.suite.outputs.coverage_gap }}
       compile_admitted: ${{ steps.unchanged_inputs.outputs.compile_admitted == 'true' && 'true' || steps.admitted.outputs.compile_admitted }}
       source_parent1: ${{ steps.source-identity.outputs.parent1 }}

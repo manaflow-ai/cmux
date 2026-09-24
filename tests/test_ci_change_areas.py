@@ -4441,11 +4441,10 @@ def test_compile_admission_runs_changed_suites_that_need_no_worker() -> None:
         assert outputs(["Sources/Workspace.swift"])["unit_in_admission"] == "false"
 
     ci = yaml.safe_load(CI_WORKFLOW.read_text(encoding="utf-8"))
-    # With GUI jobs kept off the owned Macs, a persistent pick moves the
-    # changed suites from compile admission to a Blacksmith shard.
+    # A compile admission on an owned Mac holds glaeda's compile token, not the
+    # gui token, so a persistent pick moves the changed suites to shard 8.
     assert ci["jobs"]["changes"]["outputs"]["unit_in_admission"] == (
-        "${{ (steps.macos-pool.outputs.persistent != 'true' || steps.macos-pool.outputs.owned_gui == 'true') "
-        "&& steps.suite.outputs.unit_in_admission || 'false' }}")
+        "${{ steps.macos-pool.outputs.persistent != 'true' && steps.suite.outputs.unit_in_admission || 'false' }}")
     assert ci["jobs"]["macos"]["with"]["unit_in_admission"] == "${{ needs.changes.outputs.unit_in_admission }}"
 
     workflow = yaml.safe_load(MACOS_WORKFLOW.read_text(encoding="utf-8"))
