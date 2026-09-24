@@ -282,6 +282,22 @@ pub struct TrackedScreenPoint {
     terminal_instance_id: u64,
 }
 
+/// One absolute coordinate in the active screen, including retained
+/// scrollback rows.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SelectionPoint {
+    pub column: u16,
+    pub row: u32,
+}
+
+/// A selection range returned by Ghostty's terminal selection rules.
+/// Endpoints preserve the direction supplied by the terminal.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SelectionRange {
+    pub start: SelectionPoint,
+    pub end: SelectionPoint,
+}
+
 // The C handle is owned by this value and Ghostty permits freeing it after
 // its terminal is gone. All other access requires the originating Terminal,
 // whose callers already serialize mutation.
@@ -2968,6 +2984,174 @@ impl Terminal {
         check(unsafe { sys::ghostty_tracked_grid_ref_set(tracked.raw, self.raw, point) })
     }
 
+    /// Move a screen selection point from a wide grapheme continuation cell
+    /// to the grapheme's lead cell. Ghostty represents a wide grapheme that
+    /// wraps at the right edge as a spacer head on one row and a wide lead on
+    /// the next row. The spacer head has no text of its own, so semantic
+    /// selection must address the lead cell.
+    pub fn normalize_selection_point_screen(
+        &self,
+        point: SelectionPoint,
+    ) -> Option<SelectionPoint> {
+        let width = self.cell_width_screen(point)?;
+        match width {
+            CellWidth::SpacerTail if point.column > 0 => {
+                let leading = SelectionPoint { column: point.column - 1, ..point };
+                (self.cell_width_screen(leading) == Some(CellWidth::Wide)).then_some(leading)
+            }
+            CellWidth::SpacerHead => {
+                let leading = SelectionPoint { column: 0, row: point.row.checked_add(1)? };
+                (self.cell_width_screen(leading) == Some(CellWidth::Wide)).then_some(leading)
+            }
+            _ => Some(point),
+        }
+    }
+
+    fn cell_width_screen(&self, point: SelectionPoint) -> Option<CellWidth> {
+        let grid_ref =
+            self.grid_ref(sys::GHOSTTY_POINT_TAG_SCREEN, point.column, u64::from(point.row))?;
+        let mut raw = sys::GhosttyCell::default();
+        check(unsafe { sys::ghostty_grid_ref_cell(&grid_ref, &mut raw) }).ok()?;
+        Some(crate::render::cell_width(raw))
+    }
+
+    /// Select the word containing an absolute screen coordinate using
+    /// Ghostty's configured word-boundary rules.
+    pub fn select_word_screen(&self, point: SelectionPoint) -> Result<Option<SelectionRange>> {
+        let grid_ref = self
+            .grid_ref(sys::GHOSTTY_POINT_TAG_SCREEN, point.column, u64::from(point.row))
+            .ok_or(Error::InvalidValue)?;
+        let options = sys::GhosttyTerminalSelectWordOptions {
+            size: size_of::<sys::GhosttyTerminalSelectWordOptions>(),
+            ref_: grid_ref,
+            boundary_codepoints: ptr::null(),
+            boundary_codepoints_len: 0,
+        };
+        let mut selection = sys::GhosttySelection {
+            size: size_of::<sys::GhosttySelection>(),
+            ..Default::default()
+        };
+        let result =
+            unsafe { sys::ghostty_terminal_select_word(self.raw, &options, &mut selection) };
+        if result == sys::GHOSTTY_NO_VALUE {
+            return Ok(None);
+        }
+        check(result)?;
+        self.selection_range(&selection).map(Some)
+    }
+
+    /// Select the nearest word between two absolute screen coordinates.
+    /// This is useful while dragging because it skips whitespace and other
+    /// empty cells without inventing boundaries in the UI layer.
+    pub fn select_word_between_screen(
+        &self,
+        start: SelectionPoint,
+        end: SelectionPoint,
+    ) -> Result<Option<SelectionRange>> {
+        let start_ref = self
+            .grid_ref(sys::GHOSTTY_POINT_TAG_SCREEN, start.column, u64::from(start.row))
+            .ok_or(Error::InvalidValue)?;
+        let end_ref = self
+            .grid_ref(sys::GHOSTTY_POINT_TAG_SCREEN, end.column, u64::from(end.row))
+            .ok_or(Error::InvalidValue)?;
+        let options = sys::GhosttyTerminalSelectWordBetweenOptions {
+            size: size_of::<sys::GhosttyTerminalSelectWordBetweenOptions>(),
+            start: start_ref,
+            end: end_ref,
+            boundary_codepoints: ptr::null(),
+            boundary_codepoints_len: 0,
+        };
+        let mut selection = sys::GhosttySelection {
+            size: size_of::<sys::GhosttySelection>(),
+            ..Default::default()
+        };
+        let result = unsafe {
+            sys::ghostty_terminal_select_word_between(self.raw, &options, &mut selection)
+        };
+        if result == sys::GHOSTTY_NO_VALUE {
+            return Ok(None);
+        }
+        check(result)?;
+        self.selection_range(&selection).map(Some)
+    }
+
+    /// Select the logical line containing an absolute screen coordinate.
+    pub fn select_line_screen(&self, point: SelectionPoint) -> Result<Option<SelectionRange>> {
+        self.select_line_screen_with_whitespace(point, ptr::null(), 0)
+    }
+
+    /// Select a logical line without trimming its leading or trailing cells.
+    /// This is used only as the blank-line fallback for a triple-click drag.
+    pub fn select_line_screen_untrimmed(
+        &self,
+        point: SelectionPoint,
+    ) -> Result<Option<SelectionRange>> {
+        // A non-null pointer with a zero length tells Ghostty to use an
+        // explicitly empty whitespace set instead of its default trim set.
+        const EMPTY_WHITESPACE: u32 = 0;
+        let selection = self.select_line_screen_with_whitespace(point, &EMPTY_WHITESPACE, 0)?;
+        if selection.is_some() {
+            return Ok(selection);
+        }
+
+        // Ghostty still returns no value when every cell lacks text. The
+        // validated blank row remains a selectable line for a line-wise drag.
+        let Some(last_column) = self.cols().checked_sub(1) else { return Ok(None) };
+        Ok(Some(SelectionRange {
+            start: SelectionPoint { column: 0, row: point.row },
+            end: SelectionPoint { column: last_column, row: point.row },
+        }))
+    }
+
+    fn select_line_screen_with_whitespace(
+        &self,
+        point: SelectionPoint,
+        whitespace: *const u32,
+        whitespace_len: usize,
+    ) -> Result<Option<SelectionRange>> {
+        let grid_ref = self
+            .grid_ref(sys::GHOSTTY_POINT_TAG_SCREEN, point.column, u64::from(point.row))
+            .ok_or(Error::InvalidValue)?;
+        let options = sys::GhosttyTerminalSelectLineOptions {
+            size: size_of::<sys::GhosttyTerminalSelectLineOptions>(),
+            ref_: grid_ref,
+            whitespace,
+            whitespace_len,
+            semantic_prompt_boundary: true,
+        };
+        let mut selection = sys::GhosttySelection {
+            size: size_of::<sys::GhosttySelection>(),
+            ..Default::default()
+        };
+        let result =
+            unsafe { sys::ghostty_terminal_select_line(self.raw, &options, &mut selection) };
+        if result == sys::GHOSTTY_NO_VALUE {
+            return Ok(None);
+        }
+        check(result)?;
+        self.selection_range(&selection).map(Some)
+    }
+
+    fn selection_range(&self, selection: &sys::GhosttySelection) -> Result<SelectionRange> {
+        Ok(SelectionRange {
+            start: self.selection_point(&selection.start)?,
+            end: self.selection_point(&selection.end)?,
+        })
+    }
+
+    fn selection_point(&self, grid_ref: &sys::GhosttyGridRef) -> Result<SelectionPoint> {
+        let mut coordinate = sys::GhosttyPointCoordinate::default();
+        check(unsafe {
+            sys::ghostty_terminal_point_from_grid_ref(
+                self.raw,
+                grid_ref,
+                sys::GHOSTTY_POINT_TAG_SCREEN,
+                &mut coordinate,
+            )
+        })?;
+        Ok(SelectionPoint { column: coordinate.x, row: coordinate.y })
+    }
+
     /// Plain text of a selection range given in viewport coordinates
     /// (inclusive). Returns `None` when either endpoint is out of bounds.
     pub fn selection_text(&mut self, start: (u16, u16), end: (u16, u16)) -> Option<String> {
@@ -3390,12 +3574,19 @@ impl Terminal {
             return Ok(None);
         };
         let insert_at_start = placement_rows.overlaps(range.start);
+        let has_placement_anchor =
+            placement_rows.anchors.range(range.start..=range.end).next().is_some();
         let mut segment_ends =
             placement_rows.anchors.range(range.start..=range.end).copied().collect::<BTreeSet<_>>();
         if insert_at_start {
             segment_ends.insert(range.start);
         }
         segment_ends.insert(range.end);
+        // A replay without image placement anchors can let the target terminal
+        // recreate soft wraps naturally. Placement commands depend on physical
+        // row cursor positions, so retain the legacy row-delimited form for any
+        // range that intersects an occupied placement span.
+        let preserve_soft_wrap = !insert_at_start && !has_placement_anchor;
 
         let mut bytes = Vec::new();
         let mut insertion_offsets = BTreeMap::new();
@@ -3413,16 +3604,24 @@ impl Terminal {
             let last = segment_end == range.end;
             let remaining = format_max_bytes.saturating_sub(bytes.len());
             let Some(chunk) = self.format_bounded(
-                Self::vt_replay_segment_options(&selection, first, last, include_palette),
+                Self::vt_replay_segment_options(
+                    &selection,
+                    first,
+                    last,
+                    include_palette,
+                    preserve_soft_wrap,
+                ),
                 remaining,
             )?
             else {
                 return Ok(None);
             };
-            emitted_breaks = emitted_breaks
-                .saturating_add(chunk.windows(2).filter(|bytes| *bytes == b"\r\n").count());
+            if !preserve_soft_wrap {
+                emitted_breaks = emitted_breaks
+                    .saturating_add(chunk.windows(2).filter(|bytes| *bytes == b"\r\n").count());
+            }
             bytes.extend_from_slice(&chunk);
-            if history_bearing {
+            if !preserve_soft_wrap && history_bearing {
                 let expected_breaks =
                     usize::try_from(segment_end - range.start).unwrap_or(usize::MAX);
                 while emitted_breaks < expected_breaks {
@@ -3439,19 +3638,17 @@ impl Terminal {
                 insertion_offsets.insert(segment_end, bytes.len());
             }
             if !last {
-                if bytes.len().saturating_add(2) > format_max_bytes {
-                    return Ok(None);
+                if !preserve_soft_wrap {
+                    if bytes.len().saturating_add(2) > format_max_bytes {
+                        return Ok(None);
+                    }
+                    bytes.extend_from_slice(b"\r\n");
+                    emitted_breaks = emitted_breaks.saturating_add(1);
                 }
-                bytes.extend_from_slice(b"\r\n");
-                emitted_breaks = emitted_breaks.saturating_add(1);
                 segment_start = segment_end.saturating_add(1);
             }
         }
-        if history_bearing {
-            // A history-bearing selection must advance once per row so the
-            // reconstructed scrollback keeps Kitty anchors aligned. A
-            // viewport-only selection may use direct cursor positioning for
-            // sparse rows; padding that case would scroll visible text away.
+        if !preserve_soft_wrap && history_bearing {
             let expected_breaks = usize::try_from(replay_rows - 1).unwrap_or(usize::MAX);
             for _ in emitted_breaks..expected_breaks {
                 if bytes.len().saturating_add(2) > format_max_bytes {
@@ -3568,8 +3765,10 @@ impl Terminal {
         first: bool,
         last: bool,
         include_palette: bool,
+        unwrap_soft_wrap: bool,
     ) -> sys::GhosttyFormatterTerminalOptions {
-        let mut options = Self::vt_replay_options(Some(selection), include_palette);
+        let mut options =
+            Self::vt_replay_options(Some(selection), include_palette, unwrap_soft_wrap);
         options.extra.palette = include_palette && first;
         options.extra.modes = first;
         options.extra.scrolling_region = last;
@@ -3588,11 +3787,12 @@ impl Terminal {
     fn vt_replay_options(
         selection: Option<&sys::GhosttySelection>,
         include_palette: bool,
+        unwrap_soft_wrap: bool,
     ) -> sys::GhosttyFormatterTerminalOptions {
         sys::GhosttyFormatterTerminalOptions {
             size: size_of::<sys::GhosttyFormatterTerminalOptions>(),
             emit: sys::GHOSTTY_FORMATTER_FORMAT_VT,
-            unwrap: false,
+            unwrap: unwrap_soft_wrap,
             trim: false,
             extra: sys::GhosttyFormatterTerminalExtra {
                 size: size_of::<sys::GhosttyFormatterTerminalExtra>(),

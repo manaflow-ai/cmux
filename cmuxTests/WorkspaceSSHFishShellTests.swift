@@ -1,8 +1,6 @@
 import XCTest
 
 final class WorkspaceSSHFishShellTests: XCTestCase {
-    private struct ProcessRunResult { let status: Int32; let stderr: String; let timedOut: Bool }
-
     private final class MockSocketServerState: @unchecked Sendable {
         private let lock = NSLock(); private(set) var commands: [String] = []
 
@@ -83,7 +81,7 @@ final class WorkspaceSSHFishShellTests: XCTestCase {
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
         environment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
 
-        let result = runProcess(
+        let result = SSHFishProcessRunner.runProcess(
             executablePath: cliPath,
             arguments: [
                 "ssh",
@@ -119,6 +117,8 @@ final class WorkspaceSSHFishShellTests: XCTestCase {
         let fakeSSHLog = tempRoot.appendingPathComponent("fake-ssh.jsonl")
         let fakeSSHMasterMarker = tempRoot.appendingPathComponent("fake-ssh-master")
         let fakeSSH = fakeBin.appendingPathComponent("ssh")
+        let fakeCLI = fakeBin.appendingPathComponent("cmux")
+        let fakeAttachLog = tempRoot.appendingPathComponent("pty-attach.log")
 
         try fileManager.createDirectory(at: fakeBin, withIntermediateDirectories: true)
         defer { try? fileManager.removeItem(at: tempRoot) }
@@ -153,6 +153,31 @@ final class WorkspaceSSHFishShellTests: XCTestCase {
         try fakeSSHScript.write(to: fakeSSH, atomically: true, encoding: .utf8)
         try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: fakeSSH.path)
 
+        // The default shell now attaches a persistent PTY after authentication.
+        // Complete that transport locally while the real CLI reports readiness
+        // to the mock socket, so this test still checks every authentication.
+        let fakeCLIScript = """
+        #!/bin/sh
+        for arg in "$@"; do
+          case "$arg" in
+            ssh-pty-attach) printf '%s\\n' attached >> "$CMUX_TEST_ATTACH_LOG"; exit 0 ;;
+            ssh-session-end|workspace.remote.terminal_session_launching) exit 0 ;;
+          esac
+        done
+        exec "$CMUX_TEST_REAL_CLI" "$@"
+        """
+        try fakeCLIScript.write(to: fakeCLI, atomically: true, encoding: .utf8)
+        try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: fakeCLI.path)
+
+        // Managed SSH startup artifacts pin the system OpenSSH executable. Keep
+        // that production security invariant, and substitute the fixture only
+        // in the generated test artifact rather than relying on PATH lookup.
+        let executableInitialCommand = try startupCommandUsingFakeSSH(
+            initialCommand,
+            fakeSSHPath: fakeSSH.path,
+            rewriteRoot: tempRoot
+        )
+
         var startupEnvironment = ProcessInfo.processInfo.environment
         startupEnvironment["HOME"] = tempRoot.path
         startupEnvironment["PATH"] = "\(fakeBin.path):/usr/bin:/bin:/usr/sbin:/sbin"
@@ -160,8 +185,12 @@ final class WorkspaceSSHFishShellTests: XCTestCase {
         startupEnvironment["CMUX_FAKE_SSH_MASTER_MARKER"] = fakeSSHMasterMarker.path
         startupEnvironment["CMUX_TEST_PYTHON3"] = python3Path
         startupEnvironment["CMUX_TEST_LOCAL_SHELL"] = fishExecutable
+        startupEnvironment["CMUX_BUNDLED_CLI_PATH"] = fakeCLI.path
+        startupEnvironment["CMUX_TEST_REAL_CLI"] = cliPath
+        startupEnvironment["CMUX_TEST_ATTACH_LOG"] = fakeAttachLog.path
         startupEnvironment["CMUX_SOCKET_PATH"] = socketPath
         startupEnvironment["CMUX_WORKSPACE_ID"] = workspaceID
+        startupEnvironment["CMUX_SURFACE_ID"] = surfaceID
         startupEnvironment["CMUX_CLI_SENTRY_DISABLED"] = "1"
         startupEnvironment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
 
@@ -198,9 +227,11 @@ final class WorkspaceSSHFishShellTests: XCTestCase {
         }
 
         let startupResults = (0..<2).map { _ in
-            runProcess(
+            SSHFishProcessRunner.runProcess(
                 executablePath: "/bin/sh",
-                arguments: ["-c", initialCommand],
+                // Execute the materialized script by path so the fixture does
+                // not re-parse a large reusable command through `sh -c`.
+                arguments: [executableInitialCommand],
                 environment: startupEnvironment,
                 timeout: 5
             )
@@ -221,6 +252,9 @@ final class WorkspaceSSHFishShellTests: XCTestCase {
         }
         let foregroundAuthInvocations = invocations.filter { $0.last == "true" }
         XCTAssertEqual(foregroundAuthInvocations.count, 2)
+        let attachments = try String(contentsOf: fakeAttachLog, encoding: .utf8)
+            .split(separator: "\n")
+        XCTAssertEqual(attachments.count, 2, "Each authenticated startup must reach PTY attachment")
         XCTAssertFalse(
             invocations.contains(where: { invocation in
                 invocation.contains(where: { $0.hasPrefix("LocalCommand=") })
@@ -259,50 +293,68 @@ final class WorkspaceSSHFishShellTests: XCTestCase {
         return path
     }
 
-    private func runProcess(
-        executablePath: String,
-        arguments: [String],
-        environment: [String: String],
-        timeout: TimeInterval
-    ) -> ProcessRunResult {
-        let process = Process()
-        let stdoutPipe = Pipe()
-        let stderrPipe = Pipe()
-        process.executableURL = URL(fileURLWithPath: executablePath)
-        process.arguments = arguments
-        process.environment = environment
-        process.standardInput = FileHandle.nullDevice
-        process.standardOutput = stdoutPipe
-        process.standardError = stderrPipe
+    private func startupCommandUsingFakeSSH(
+        _ startupCommand: String,
+        fakeSSHPath: String,
+        rewriteRoot: URL
+    ) throws -> String {
+        let systemSSHPath = "/usr/bin/ssh"
+        let trimmedCommand = startupCommand.trimmingCharacters(in: .whitespacesAndNewlines)
+        let commandURL = URL(fileURLWithPath: trimmedCommand)
+            .standardizedFileURL
+            .resolvingSymlinksInPath()
+        var isDirectory: ObjCBool = false
 
-        do {
-            try process.run()
-        } catch {
-            return ProcessRunResult(
-                status: -1,
-                stderr: String(describing: error),
-                timedOut: false
+        if FileManager.default.fileExists(atPath: commandURL.path, isDirectory: &isDirectory),
+           !isDirectory.boolValue {
+            let contents = try String(contentsOf: commandURL, encoding: .utf8)
+            guard contents.contains(systemSSHPath) else {
+                throw NSError(
+                    domain: "WorkspaceSSHFishShellTests",
+                    code: 1,
+                    userInfo: [NSLocalizedDescriptionKey: "Generated startup script did not pin (systemSSHPath)"]
+                )
+            }
+            let rewrittenURL = rewriteRoot.appendingPathComponent("startup-with-fake-ssh.sh")
+            try contents
+                .replacingOccurrences(of: systemSSHPath, with: fakeSSHPath)
+                .write(to: rewrittenURL, atomically: true, encoding: .utf8)
+            try FileManager.default.setAttributes(
+                [.posixPermissions: 0o700],
+                ofItemAtPath: rewrittenURL.path
             )
+            return rewrittenURL.path
         }
 
-        let exitSignal = DispatchSemaphore(value: 0)
-        DispatchQueue.global(qos: .userInitiated).async {
-            process.waitUntilExit()
-            exitSignal.signal()
+        if startupCommand.contains(systemSSHPath) {
+            let rewrittenURL = rewriteRoot.appendingPathComponent("startup-with-fake-ssh.sh")
+            let rewrittenCommand = startupCommand.replacingOccurrences(of: systemSSHPath, with: fakeSSHPath)
+            try "#!/bin/sh\n\(rewrittenCommand)\n".write(
+                to: rewrittenURL,
+                atomically: true,
+                encoding: .utf8
+            )
+            try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: rewrittenURL.path)
+            return rewrittenURL.path
         }
 
-        let timedOut = exitSignal.wait(timeout: .now() + timeout) == .timedOut
-        if timedOut {
-            process.terminate()
-            _ = exitSignal.wait(timeout: .now() + 1)
+        if let rewritten = SSHStartupCommandTestSupport.replacingPinnedSSH(
+            in: startupCommand, with: fakeSSHPath
+        ) {
+            let rewrittenURL = rewriteRoot.appendingPathComponent("startup-with-fake-ssh.sh")
+            try "#!/bin/sh\n\(rewritten)\n".write(
+                to: rewrittenURL,
+                atomically: true,
+                encoding: .utf8
+            )
+            try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: rewrittenURL.path)
+            return rewrittenURL.path
         }
 
-        _ = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
-        let stderr = String(data: stderrPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
-        return ProcessRunResult(
-            status: process.terminationStatus,
-            stderr: stderr,
-            timedOut: timedOut
+        throw NSError(
+            domain: "WorkspaceSSHFishShellTests",
+            code: 2,
+            userInfo: [NSLocalizedDescriptionKey: "Generated startup command did not pin (systemSSHPath)"]
         )
     }
 

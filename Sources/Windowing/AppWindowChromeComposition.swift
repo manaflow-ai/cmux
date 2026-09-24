@@ -13,6 +13,7 @@ typealias SidebarPresetOption = WindowChromeSidebarPresetOption
 struct AppWindowChromeComposition {
     let glassEffect: WindowGlassEffect
     let nativeTitlebarBackdropCoordinator: NativeTitlebarBackdropCoordinator
+    let contentOverlayTargetResolver: WindowContentOverlayTargetResolver
 
     init(fullscreenAuxiliaryWindows: (@MainActor @Sendable () -> [NSWindow])? = nil) {
         self.init(
@@ -31,6 +32,7 @@ struct AppWindowChromeComposition {
         nativeTitlebarBackdropCoordinator = NativeTitlebarBackdropCoordinator(
             fullscreenAuxiliaryWindows: resolvedFullscreenAuxiliaryWindows
         )
+        contentOverlayTargetResolver = WindowContentOverlayTargetResolver(glassEffect: glassEffect)
     }
 
     var windowBackgroundPolicy: WindowBackgroundPolicy {
@@ -41,10 +43,6 @@ struct AppWindowChromeComposition {
         WindowBackdropController(
             dependencies: AppWindowBackdropControllerDependencies(glassEffect: glassEffect)
         )
-    }
-
-    var contentOverlayTargetResolver: WindowContentOverlayTargetResolver {
-        WindowContentOverlayTargetResolver(glassEffect: glassEffect)
     }
 
     func terminalAppearanceSnapshot(app: GhosttyApp = .shared) -> WindowTerminalAppearanceSnapshot {

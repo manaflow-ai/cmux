@@ -80,6 +80,15 @@ if [ ! -x "$HELPER_PATH" ]; then
   exit 1
 fi
 
+# Submit the independently signed Computer Use helper now. Apple can process
+# its first ticket while this script finishes bundle metadata and signing.
+COMPUTER_USE_NOTARY_STATE="build/computer-use-notarization.state"
+./scripts/ci/notarize-computer-use-helper.sh \
+  --start "$COMPUTER_USE_NOTARY_STATE" \
+  "$APP_PATH" \
+  "$ENTITLEMENTS" \
+  "$SIGN_HASH"
+
 # --- Inject Sparkle keys ---
 echo "Injecting Sparkle keys..."
 SPARKLE_PUBLIC_KEY_DERIVED=$(swift scripts/derive_sparkle_public_key.swift "$SPARKLE_PRIVATE_KEY")
@@ -96,11 +105,17 @@ echo "Sparkle keys injected"
 
 # --- Codesign ---
 echo "Codesigning..."
-./scripts/sign-cmux-bundle.sh "$APP_PATH" "$ENTITLEMENTS" "$SIGN_HASH"
+CMUX_SIGN_MODE=all-except-computer-use \
+  ./scripts/sign-cmux-bundle.sh "$APP_PATH" "$ENTITLEMENTS" "$SIGN_HASH"
 echo "Codesign verified"
 
 # --- Notarize app ---
 echo "Notarizing app..."
+./scripts/ci/notarize-computer-use-helper.sh \
+  --finish "$COMPUTER_USE_NOTARY_STATE" \
+  "$APP_PATH" \
+  "$ENTITLEMENTS" \
+  "$SIGN_HASH"
 ditto -c -k --sequesterRsrc --keepParent "$APP_PATH" cmux-notary.zip
 xcrun notarytool submit cmux-notary.zip \
   --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$APPLE_APP_SPECIFIC_PASSWORD" --wait

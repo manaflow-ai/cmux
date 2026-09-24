@@ -33,17 +33,21 @@ struct TerminalViewportCoordinator {
                 keyboardHeight: inputs.keyboardHeight,
                 bottomSafeAreaInset: inputs.bottomSafeAreaInset
             )
+        let topContentInset = max(0, inputs.topContentInset)
         let containerSize = TerminalLetterboxGeometry.terminalContainerSize(
             bounds: bounds,
             composerBandHeight: inputs.composerBandHeight,
             toolbarHeight: inputs.reservedToolbarHeight,
             bottomSafeAreaInset: inputs.bottomSafeAreaInset,
-            chromeHidden: inputs.chromeHidden
+            chromeHidden: inputs.chromeHidden,
+            topContentInset: topContentInset
         )
 
+        // The grid viewport starts below the top scroll-edge band; the band
+        // above it belongs to the render layer's overscan rows only.
         let layoutViewport = CGRect(
             x: 0,
-            y: 0,
+            y: topContentInset,
             width: bounds.width,
             height: max(1, containerSize.height)
         )

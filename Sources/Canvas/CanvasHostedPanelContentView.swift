@@ -21,6 +21,7 @@ struct CanvasHostedPanelContentView: View {
     let settingsRuntime: SettingsRuntime?
     let customSidebarTabManager: TabManager?
     let onRequestPanelFocus: () -> Void
+    let onRequestDeferredBrowserMaterialization: () -> Void
 
     var body: some View {
         PanelContentView(
@@ -43,7 +44,8 @@ struct CanvasHostedPanelContentView: View {
             onRequestPanelFocus: onRequestPanelFocus,
             onResumeAgentHibernation: {},
             onAutoResumeAgentHibernation: {},
-            onTriggerFlash: {}
+            onTriggerFlash: {},
+            onRequestDeferredBrowserMaterialization: onRequestDeferredBrowserMaterialization
         )
         .environment(\.settingsRuntime, settingsRuntime)
         .environment(\.workspaceAttentionColor, presentation.workspaceAttentionColor)

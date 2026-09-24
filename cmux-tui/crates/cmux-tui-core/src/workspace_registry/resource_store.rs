@@ -1,4 +1,7 @@
 use super::*;
+use crate::JournalIngress;
+use crate::resource::{NotificationPublicId, TerminalPublicId};
+use serde_json::json;
 
 /// Completed pure mutations keep a finite exactly-once replay window. Pruning
 /// runs in batches, so a live registry may temporarily retain the interval as
@@ -7,6 +10,33 @@ use super::*;
 pub(super) const RESOURCE_MUTATION_REPLAY_CAPACITY: usize = 4096;
 pub(super) const RESOURCE_MUTATION_PRUNE_INTERVAL: u64 = 128;
 const RESOURCE_EVENT_PAGE_SIZE: usize = 1024;
+pub(super) const AGENT_HOOK_RETRY_PAGE_SIZE: i64 = 64;
+// Rows that reach this cap stay durable as dead-letter records. Selectors
+// exclude them, so a permanent projection failure cannot spin forever.
+pub(crate) const AGENT_HOOK_MAX_ATTEMPTS: i64 = 8;
+pub(crate) const AGENT_HOOK_MAX_RETRY_PAGES_PER_WAKE: usize = 16;
+pub(crate) const AGENT_HOOK_DEAD_LETTER_CAP: i64 = 1024;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum AgentHookRetryClass {
+    Transient,
+    Permanent,
+}
+
+/// Why a durable hook projection stays pending, bounded by the retry budget
+/// that `retry_class` selects.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct AgentHookPendingFailure<'a> {
+    pub error: &'a str,
+    pub retry_class: AgentHookRetryClass,
+}
+
+/// `(producer_id, origin, idempotency_key, event_sequence, ingress)` of one
+/// pending hook projection row.
+pub(crate) type PendingAgentHookProjection = (String, String, String, u64, JournalIngress);
+
+/// `(event_sequence, idempotency_key, rowid)` resume cursor for paged reads.
+pub(crate) type PendingAgentHookCursor = (u64, String, i64);
 
 pub(super) fn create_resource_schema(transaction: &Transaction<'_>) -> anyhow::Result<()> {
     transaction.execute_batch(
@@ -150,6 +180,40 @@ pub(super) fn create_resource_schema(transaction: &Transaction<'_>) -> anyhow::R
              )
            )
          );
+         CREATE TABLE IF NOT EXISTS resource_agent_hook_state (
+           terminal_id TEXT PRIMARY KEY NOT NULL
+             REFERENCES resource_terminals(public_id) ON DELETE CASCADE,
+           agent_session_id TEXT NOT NULL,
+           applied_sequence INTEGER NOT NULL CHECK(applied_sequence >= 0),
+           ended INTEGER NOT NULL CHECK(ended IN (0, 1)),
+           committed_revision INTEGER NOT NULL CHECK(committed_revision >= 0)
+         );
+         CREATE TABLE IF NOT EXISTS resource_agent_hook_apply_cursor (
+           id INTEGER PRIMARY KEY CHECK(id = 1),
+           sequence INTEGER NOT NULL CHECK(sequence >= 0)
+         );
+         CREATE TABLE IF NOT EXISTS resource_agent_hook_pending (
+           producer_id TEXT NOT NULL,
+           origin TEXT NOT NULL,
+           idempotency_key TEXT NOT NULL,
+           terminal_id TEXT,
+           event_sequence INTEGER NOT NULL CHECK(event_sequence >= 0),
+           ingress_json TEXT NOT NULL CHECK(json_valid(ingress_json)),
+           error TEXT NOT NULL,
+           attempt INTEGER NOT NULL CHECK(attempt >= 0),
+           PRIMARY KEY(producer_id, origin, idempotency_key)
+         );
+         CREATE TABLE IF NOT EXISTS resource_notification_clears (
+           notification_id TEXT PRIMARY KEY NOT NULL,
+           committed_revision INTEGER NOT NULL CHECK(committed_revision >= 0)
+         );
+         CREATE TABLE IF NOT EXISTS resource_notification_reads (
+           notification_id TEXT NOT NULL,
+           client_id TEXT NOT NULL,
+           read_at_ms INTEGER NOT NULL CHECK(read_at_ms >= 0),
+           committed_revision INTEGER NOT NULL CHECK(committed_revision >= 0),
+           PRIMARY KEY(notification_id, client_id)
+         );
          DROP TRIGGER IF EXISTS resource_agent_projection_terminal_tombstone;
          CREATE INDEX IF NOT EXISTS resource_mutations_by_operation_revision
            ON resource_mutations(operation, committed_revision DESC);
@@ -161,6 +225,97 @@ pub(super) fn create_resource_schema(transaction: &Transaction<'_>) -> anyhow::R
              committed_revision DESC,
              terminal_id DESC
            );",
+    )?;
+    let has_scoped_pending = transaction
+        .prepare("PRAGMA table_info(resource_agent_hook_pending)")?
+        .query_map([], |row| row.get::<_, String>(1))?
+        .collect::<Result<Vec<_>, _>>()?
+        .iter()
+        .any(|column| column == "producer_id");
+    if !has_scoped_pending {
+        transaction.execute_batch(
+            "ALTER TABLE resource_agent_hook_pending RENAME TO resource_agent_hook_pending_legacy;
+             CREATE TABLE resource_agent_hook_pending (
+               producer_id TEXT NOT NULL,
+               origin TEXT NOT NULL,
+               idempotency_key TEXT NOT NULL,
+               terminal_id TEXT,
+               event_sequence INTEGER NOT NULL CHECK(event_sequence >= 0),
+               ingress_json TEXT NOT NULL CHECK(json_valid(ingress_json)),
+               error TEXT NOT NULL,
+               attempt INTEGER NOT NULL CHECK(attempt >= 0),
+               PRIMARY KEY(producer_id, origin, idempotency_key)
+             );
+             INSERT INTO resource_agent_hook_pending(
+               producer_id, origin, idempotency_key, terminal_id, event_sequence, ingress_json, error, attempt
+             ) SELECT COALESCE(NULLIF(json_extract(ingress_json, '$.producer_id'), ''), 'cmux_agent'),
+               'agent-hook', idempotency_key,
+               (SELECT json_extract(value, '$.id')
+                FROM json_each(resource_agent_hook_pending_legacy.ingress_json, '$.subjects')
+                WHERE json_extract(value, '$.kind') = 'terminal' LIMIT 1),
+               event_sequence, ingress_json, error, attempt
+             FROM resource_agent_hook_pending_legacy;
+             DROP TABLE resource_agent_hook_pending_legacy;",
+         )?;
+    }
+    transaction.execute(
+        "INSERT OR IGNORE INTO resource_agent_hook_apply_cursor(id, sequence) VALUES(1, 0)",
+        [],
+    )?;
+    let has_pending_terminal_id = transaction
+        .prepare("PRAGMA table_info(resource_agent_hook_pending)")?
+        .query_map([], |row| row.get::<_, String>(1))?
+        .collect::<Result<Vec<_>, _>>()?
+        .iter()
+        .any(|column| column == "terminal_id");
+    if !has_pending_terminal_id {
+        transaction
+            .execute("ALTER TABLE resource_agent_hook_pending ADD COLUMN terminal_id TEXT", [])?;
+        transaction.execute(
+            "UPDATE resource_agent_hook_pending
+             SET terminal_id = (
+               SELECT json_extract(value, '$.id')
+               FROM json_each(resource_agent_hook_pending.ingress_json, '$.subjects')
+               WHERE json_extract(value, '$.kind') = 'terminal' LIMIT 1
+             )
+             WHERE terminal_id IS NULL",
+            [],
+        )?;
+    }
+    transaction.execute_batch(
+        "DROP INDEX IF EXISTS resource_agent_hook_pending_by_terminal;
+         CREATE INDEX IF NOT EXISTS resource_agent_hook_pending_by_terminal
+           ON resource_agent_hook_pending(terminal_id, event_sequence, idempotency_key);",
+    )?;
+    migrate_tab_name_authority(transaction)
+}
+
+/// Additive migration: pre-authority labels remain user-owned.
+pub(super) fn migrate_tab_name_authority(connection: &Connection) -> anyhow::Result<()> {
+    let columns = connection
+        .prepare("PRAGMA table_info(resource_tabs)")?
+        .query_map([], |row| row.get::<_, String>(1))?
+        .collect::<Result<Vec<_>, _>>()?;
+    if !columns.iter().any(|column| column == "name_source") {
+        connection.execute_batch(
+            "ALTER TABLE resource_tabs ADD COLUMN name_source TEXT NOT NULL DEFAULT 'user';",
+        )?;
+    }
+    if !columns.iter().any(|column| column == "name_revision") {
+        connection.execute_batch(
+            "ALTER TABLE resource_tabs ADD COLUMN name_revision INTEGER NOT NULL DEFAULT 0;",
+        )?;
+    }
+    // Older daemons omit the new columns. Their actual name edits must claim
+    // user ownership instead of inheriting a prior automatic writer's source.
+    connection.execute_batch(
+        "CREATE TRIGGER IF NOT EXISTS resource_tab_legacy_name_owner
+         AFTER UPDATE OF name ON resource_tabs
+         WHEN NEW.name IS NOT OLD.name AND NEW.name_revision = OLD.name_revision
+         BEGIN
+           UPDATE resource_tabs SET name_source = 'user', name_revision = NEW.updated_revision
+           WHERE public_id = NEW.public_id;
+         END;",
     )?;
     Ok(())
 }
@@ -274,6 +429,13 @@ pub(super) fn resource_tabs_needs_multiview_normalization(
         }
     }
     Ok(!saw_browser_view_index)
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct AgentHookProjectionState {
+    pub agent_session_id: String,
+    pub applied_sequence: u64,
+    pub ended: bool,
 }
 
 pub(super) fn migrate_resource_agent_projections(
@@ -407,7 +569,320 @@ pub(super) fn migrate_resource_browser_metadata(
     Ok(())
 }
 
+fn advance_agent_hook_apply_cursor_transaction(
+    transaction: &Transaction<'_>,
+    sequence: u64,
+) -> anyhow::Result<()> {
+    let sequence = i64::try_from(sequence).context("agent hook sequence exceeds SQLite range")?;
+    let changed = transaction.execute(
+        "UPDATE resource_agent_hook_apply_cursor
+         SET sequence = CASE WHEN sequence < ?1 THEN ?1 ELSE sequence END
+         WHERE id = 1",
+        [sequence],
+    )?;
+    anyhow::ensure!(changed == 1, "agent hook apply cursor row is missing");
+    Ok(())
+}
+
 impl WorkspaceRegistry {
+    /// Return the highest journal sequence committed with a hook projection.
+    /// This recovery watermark is not an admission cursor. It advances only
+    /// after the projection transaction commits.
+    pub fn agent_hook_apply_cursor(&self) -> anyhow::Result<u64> {
+        self.connection
+            .query_row(
+                "SELECT sequence FROM resource_agent_hook_apply_cursor WHERE id = 1",
+                [],
+                |row| row.get::<_, i64>(0),
+            )
+            .map(|value| u64::try_from(value).context("agent hook apply cursor is negative"))?
+    }
+
+    pub fn advance_agent_hook_apply_cursor(&mut self, sequence: u64) -> anyhow::Result<()> {
+        let tx = self.connection.transaction()?;
+        advance_agent_hook_apply_cursor_transaction(&tx, sequence)?;
+        tx.commit()?;
+        Ok(())
+    }
+    pub(super) fn stage_agent_hook_pending(
+        transaction: &Transaction<'_>,
+        producer_id: &str,
+        origin: &str,
+        idempotency_key: &str,
+        sequence: u64,
+        ingress: &JournalIngress,
+    ) -> anyhow::Result<()> {
+        let ingress_json = serde_json::to_string(ingress)?;
+        let terminal_id = ingress
+            .subjects
+            .iter()
+            .find(|subject| subject.kind == "terminal")
+            .map(|subject| subject.id.as_str());
+        transaction.execute(
+            "INSERT INTO resource_agent_hook_pending(
+               producer_id, origin, idempotency_key, terminal_id, event_sequence, ingress_json, error, attempt
+             ) VALUES(?1, ?2, ?3, ?4, ?5, ?6, '', 0)
+             ON CONFLICT(producer_id, origin, idempotency_key) DO UPDATE SET
+               terminal_id = excluded.terminal_id,
+               event_sequence = excluded.event_sequence,
+               ingress_json = excluded.ingress_json",
+            params![producer_id, origin, idempotency_key, terminal_id, i64::try_from(sequence)?, ingress_json],
+        )?;
+        Ok(())
+    }
+
+    // These fields mirror the durable retry key and payload columns. Keep the
+    // storage boundary explicit so callers cannot accidentally omit a field.
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn enqueue_agent_hook_pending(
+        &mut self,
+        producer_id: &str,
+        origin: &str,
+        idempotency_key: &str,
+        sequence: u64,
+        ingress: &JournalIngress,
+        failure: AgentHookPendingFailure<'_>,
+    ) -> anyhow::Result<()> {
+        const MAX_ERROR_CHARS: usize = 1_024;
+        let AgentHookPendingFailure { error, retry_class } = failure;
+        let ingress_json = serde_json::to_string(ingress)?;
+        let terminal_id = ingress
+            .subjects
+            .iter()
+            .find(|subject| subject.kind == "terminal")
+            .map(|subject| subject.id.as_str());
+        let bounded_error = error.chars().take(MAX_ERROR_CHARS).collect::<String>();
+        // Projection failures caused by temporary availability or storage
+        // conditions keep the attempt budget unchanged. Other failures consume
+        // the bounded budget and become quarantined at the cap.
+        let transient = matches!(retry_class, AgentHookRetryClass::Transient);
+        self.connection.execute(
+            "INSERT INTO resource_agent_hook_pending(
+               producer_id, origin, idempotency_key, terminal_id, event_sequence, ingress_json, error, attempt
+             ) VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, 1)
+             ON CONFLICT(producer_id, origin, idempotency_key) DO UPDATE SET
+               terminal_id = excluded.terminal_id,
+               event_sequence = excluded.event_sequence,
+               ingress_json = excluded.ingress_json,
+               error = CASE
+                 WHEN ?8 = 1 THEN excluded.error
+                 WHEN resource_agent_hook_pending.attempt + 1 >= ?9
+                 THEN 'agent hook retry limit reached'
+                 ELSE excluded.error
+               END,
+               attempt = CASE
+                 WHEN ?8 = 1 THEN resource_agent_hook_pending.attempt
+                 WHEN resource_agent_hook_pending.attempt < ?9
+                 THEN resource_agent_hook_pending.attempt + 1
+                 ELSE resource_agent_hook_pending.attempt
+               END",
+            params![
+                producer_id,
+                origin,
+                idempotency_key,
+                terminal_id,
+                i64::try_from(sequence)?,
+                ingress_json,
+                bounded_error,
+                transient as i64,
+                AGENT_HOOK_MAX_ATTEMPTS,
+            ],
+        )?;
+        // Keep quarantined failures bounded. Live retry rows remain untouched;
+        // only the oldest dead letters beyond the retention cap are evicted.
+        self.connection.execute(
+            "DELETE FROM resource_agent_hook_pending
+             WHERE attempt >= ?1
+               AND rowid NOT IN (
+                 SELECT rowid
+                 FROM resource_agent_hook_pending
+                 WHERE attempt >= ?1
+                 ORDER BY rowid DESC
+                 LIMIT ?2
+               )",
+            params![AGENT_HOOK_MAX_ATTEMPTS, AGENT_HOOK_DEAD_LETTER_CAP],
+        )?;
+        Ok(())
+    }
+
+    pub(crate) fn purge_agent_hook_pending_for_terminal(
+        &mut self,
+        terminal_id: &TerminalPublicId,
+    ) -> anyhow::Result<()> {
+        self.connection.execute(
+            "DELETE FROM resource_agent_hook_pending WHERE terminal_id = ?1",
+            [terminal_id.as_str()],
+        )?;
+        Ok(())
+    }
+
+    pub fn clear_agent_hook_pending(
+        &mut self,
+        producer_id: &str,
+        origin: &str,
+        idempotency_key: &str,
+    ) -> anyhow::Result<()> {
+        self.connection.execute(
+            "DELETE FROM resource_agent_hook_pending
+             WHERE producer_id = ?1 AND origin = ?2 AND idempotency_key = ?3",
+            params![producer_id, origin, idempotency_key],
+        )?;
+        Ok(())
+    }
+
+    fn record_agent_hook_pending_failure(
+        &self,
+        producer_id: &str,
+        origin: &str,
+        idempotency_key: &str,
+    ) -> anyhow::Result<()> {
+        self.connection.execute(
+            "UPDATE resource_agent_hook_pending
+             SET error = CASE
+                   WHEN attempt + 1 >= ?4 THEN 'agent hook retry limit reached'
+                   ELSE 'invalid pending agent hook payload'
+                 END,
+                 attempt = CASE
+                   WHEN attempt < ?4 THEN attempt + 1
+                   ELSE attempt
+                 END
+             WHERE producer_id = ?1 AND origin = ?2 AND idempotency_key = ?3",
+            params![producer_id, origin, idempotency_key, AGENT_HOOK_MAX_ATTEMPTS],
+        )?;
+        Ok(())
+    }
+
+    #[cfg(test)]
+    pub(crate) fn pending_agent_hook_projections(
+        &self,
+    ) -> anyhow::Result<Vec<PendingAgentHookProjection>> {
+        let mut statement = self.connection.prepare(
+            "SELECT producer_id, origin, idempotency_key, event_sequence, ingress_json
+             FROM resource_agent_hook_pending ORDER BY event_sequence ASC, idempotency_key ASC",
+        )?;
+        statement
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, i64>(3)?,
+                    row.get::<_, String>(4)?,
+                ))
+            })?
+            .map(|row| {
+                let (producer_id, origin, key, sequence, ingress_json) = row?;
+                Ok((
+                    producer_id,
+                    origin,
+                    key,
+                    u64::try_from(sequence).context("pending hook sequence is negative")?,
+                    serde_json::from_str(&ingress_json)?,
+                ))
+            })
+            .collect()
+    }
+
+    pub(crate) fn pending_agent_hook_projections_for_terminal(
+        &self,
+        terminal_id: &TerminalPublicId,
+    ) -> anyhow::Result<Vec<PendingAgentHookProjection>> {
+        let mut statement = self.connection.prepare(
+            "SELECT producer_id, origin, idempotency_key, event_sequence, ingress_json
+             FROM resource_agent_hook_pending
+             WHERE terminal_id = ?1 AND attempt < ?2
+             ORDER BY event_sequence ASC, idempotency_key ASC
+             LIMIT ?3",
+        )?;
+        let rows = statement
+            .query_map(
+                params![terminal_id.as_str(), AGENT_HOOK_MAX_ATTEMPTS, AGENT_HOOK_RETRY_PAGE_SIZE],
+                |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, String>(2)?,
+                        row.get::<_, i64>(3)?,
+                        row.get::<_, String>(4)?,
+                    ))
+                },
+            )?
+            .collect::<Result<Vec<_>, _>>()?;
+        drop(statement);
+        let mut pending = Vec::with_capacity(rows.len());
+        for (producer_id, origin, key, sequence, ingress_json) in rows {
+            let ingress = match serde_json::from_str(&ingress_json) {
+                Ok(ingress) => ingress,
+                Err(_) => {
+                    self.record_agent_hook_pending_failure(&producer_id, &origin, &key)?;
+                    continue;
+                }
+            };
+            pending.push((
+                producer_id,
+                origin,
+                key,
+                u64::try_from(sequence).context("pending hook sequence is negative")?,
+                ingress,
+            ));
+        }
+        Ok(pending)
+    }
+
+    pub(crate) fn pending_agent_hook_projections_page(
+        &self,
+        after: Option<PendingAgentHookCursor>,
+    ) -> anyhow::Result<(Vec<PendingAgentHookProjection>, Option<PendingAgentHookCursor>)> {
+        let (after_sequence, after_key, after_rowid) = after.unwrap_or((0, String::new(), 0));
+        let mut statement = self.connection.prepare(
+            "SELECT rowid, producer_id, origin, idempotency_key, event_sequence, ingress_json
+             FROM resource_agent_hook_pending
+             WHERE attempt < ?1
+               AND (event_sequence > ?2
+                    OR (event_sequence = ?2 AND idempotency_key > ?3)
+                    OR (event_sequence = ?2 AND idempotency_key = ?3 AND rowid > ?4))
+             ORDER BY event_sequence ASC, idempotency_key ASC, rowid ASC
+             LIMIT ?5",
+        )?;
+        let rows = statement
+            .query_map(
+                params![
+                    AGENT_HOOK_MAX_ATTEMPTS,
+                    i64::try_from(after_sequence)?,
+                    after_key,
+                    after_rowid,
+                    AGENT_HOOK_RETRY_PAGE_SIZE
+                ],
+                |row| {
+                    Ok((
+                        row.get::<_, i64>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, String>(2)?,
+                        row.get::<_, String>(3)?,
+                        row.get::<_, i64>(4)?,
+                        row.get::<_, String>(5)?,
+                    ))
+                },
+            )?
+            .collect::<Result<Vec<_>, _>>()?;
+        drop(statement);
+        let mut pending = Vec::with_capacity(rows.len());
+        let mut next_cursor = None;
+        for (rowid, producer_id, origin, key, sequence, ingress_json) in rows {
+            let sequence = u64::try_from(sequence).context("pending hook sequence is negative")?;
+            next_cursor = Some((sequence, key.clone(), rowid));
+            let ingress = match serde_json::from_str(&ingress_json) {
+                Ok(ingress) => ingress,
+                Err(_) => {
+                    self.record_agent_hook_pending_failure(&producer_id, &origin, &key)?;
+                    continue;
+                }
+            };
+            pending.push((producer_id, origin, key, sequence, ingress));
+        }
+        Ok((pending, next_cursor))
+    }
+
     pub fn replay_resource_patch(
         &self,
         mutation: &WorkspaceMutation,
@@ -421,7 +896,8 @@ impl WorkspaceRegistry {
         resource_patch_replay(&self.connection, mutation, operation, &fingerprint)
     }
 
-    pub fn commit_agent_projection(
+    #[cfg(test)]
+    pub(crate) fn commit_agent_projection(
         &mut self,
         mutation: &WorkspaceMutation,
         fingerprint: &Value,
@@ -430,6 +906,30 @@ impl WorkspaceRegistry {
         result: &Value,
         deltas: &Value,
     ) -> anyhow::Result<ResourcePatchCommit> {
+        self.commit_agent_projection_with_hook_state(
+            mutation,
+            fingerprint,
+            expected_revision,
+            terminal_id,
+            result,
+            deltas,
+            None,
+            None,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn commit_agent_projection_with_hook_state(
+        &mut self,
+        mutation: &WorkspaceMutation,
+        fingerprint: &Value,
+        expected_revision: Option<u64>,
+        terminal_id: &TerminalPublicId,
+        result: &Value,
+        deltas: &Value,
+        hook_state: Option<&AgentHookProjectionState>,
+        journal_sequence: Option<u64>,
+    ) -> anyhow::Result<ResourcePatchCommit> {
         const OPERATION: &str = "agent.report";
         validate_identifier("mutation id", &mutation.id)?;
         validate_identifier("mutation origin", &mutation.origin)?;
@@ -437,10 +937,15 @@ impl WorkspaceRegistry {
             result.get("terminal_id").and_then(Value::as_str) == Some(terminal_id.as_str()),
             "agent projection terminal does not match {terminal_id}"
         );
+        let socket_report = fingerprint.get("source").and_then(Value::as_str) == Some("socket");
         let fingerprint = canonical_json(fingerprint)?;
         let result_json = canonical_json(result)?;
         let tx = self.connection.transaction()?;
         if let Some(replayed) = resource_patch_replay(&tx, mutation, OPERATION, &fingerprint)? {
+            if let Some(sequence) = journal_sequence {
+                advance_agent_hook_apply_cursor_transaction(&tx, sequence)?;
+                tx.commit()?;
+            }
             return Ok(replayed);
         }
         let terminal_is_live = tx
@@ -461,6 +966,51 @@ impl WorkspaceRegistry {
                 "resource revision conflict: expected {expected}, current {previous_revision}"
             );
         }
+        // Socket reporters are observers, not a freshness clock. A second
+        // client can report the same effective state while the first report
+        // is still current. Record the new mutation key at the existing
+        // revision, then return it as a replay-equivalent no-op so this path
+        // does not churn resource events or roster recency. Hook and plugin
+        // projections keep their timestamp semantics for arbitration.
+        if socket_report && hook_state.is_none() && journal_sequence.is_none() {
+            let existing = tx
+                .query_row(
+                    "SELECT result_json FROM resource_agent_projections
+                     WHERE terminal_id = ?1",
+                    [terminal_id.as_str()],
+                    |row| row.get::<_, String>(0),
+                )
+                .optional()?;
+            if let Some(existing_json) = existing {
+                let existing_value: Value = serde_json::from_str(&existing_json)
+                    .context("stored agent projection is not valid JSON")?;
+                if same_agent_projection_ignoring_timestamp(&existing_value, result)? {
+                    let stored_result_json = canonical_json(&existing_value)?;
+                    tx.execute(
+                        "INSERT INTO resource_mutations(
+                           origin, idempotency_key, operation, fingerprint, result_json,
+                           committed_revision
+                         ) VALUES(?1, ?2, ?3, ?4, ?5, ?6)",
+                        params![
+                            mutation.origin,
+                            mutation.id,
+                            OPERATION,
+                            fingerprint,
+                            stored_result_json,
+                            i64::try_from(previous_revision)
+                                .context("resource revision exceeds SQLite range")?,
+                        ],
+                    )?;
+                    prune_resource_mutations(&tx)?;
+                    tx.commit()?;
+                    return Ok(ResourcePatchCommit {
+                        revision: previous_revision,
+                        result: existing_value,
+                        replayed: true,
+                    });
+                }
+            }
+        }
         let revision = previous_revision
             .checked_add(1)
             .ok_or_else(|| anyhow::anyhow!("resource revision exhausted"))?;
@@ -475,6 +1025,112 @@ impl WorkspaceRegistry {
                committed_revision = excluded.committed_revision",
             params![terminal_id.as_str(), result_json, sqlite_revision],
         )?;
+        if let Some(hook_state) = hook_state {
+            let applied_sequence = i64::try_from(hook_state.applied_sequence)
+                .context("agent hook sequence exceeds SQLite range")?;
+            tx.execute(
+                "INSERT INTO resource_agent_hook_state(
+                   terminal_id, agent_session_id, applied_sequence, ended, committed_revision
+                 ) VALUES(?1, ?2, ?3, ?4, ?5)
+                 ON CONFLICT(terminal_id) DO UPDATE SET
+                   agent_session_id = excluded.agent_session_id,
+                   applied_sequence = excluded.applied_sequence,
+                   ended = excluded.ended,
+                   committed_revision = excluded.committed_revision",
+                params![
+                    terminal_id.as_str(),
+                    hook_state.agent_session_id,
+                    applied_sequence,
+                    hook_state.ended,
+                    sqlite_revision,
+                ],
+            )?;
+        }
+        tx.execute(
+            "UPDATE meta SET value = ?1 WHERE key = 'resource_revision'",
+            [revision.to_string()],
+        )?;
+        tx.execute(
+            "INSERT INTO resource_mutations(
+               origin, idempotency_key, operation, fingerprint, result_json, committed_revision
+             ) VALUES(?1, ?2, ?3, ?4, ?5, ?6)",
+            params![
+                mutation.origin,
+                mutation.id,
+                OPERATION,
+                fingerprint,
+                result_json,
+                sqlite_revision,
+            ],
+        )?;
+        append_resource_journal_record(
+            &tx,
+            revision,
+            previous_revision,
+            &mutation.origin,
+            &mutation.id,
+            OPERATION,
+            None,
+            result,
+            deltas,
+        )?;
+        prune_resource_mutations(&tx)?;
+        if let Some(sequence) = journal_sequence {
+            advance_agent_hook_apply_cursor_transaction(&tx, sequence)?;
+        }
+        tx.commit()?;
+        Ok(ResourcePatchCommit { revision, result: result.clone(), replayed: false })
+    }
+
+    /// Record that `client_id` has read `acknowledged` notifications and
+    /// publish the refreshed notification rows as one resource revision.
+    /// Only the requested marks are written; eviction pruning is a separate
+    /// exact step (`prune_notification_reads`) driven by committed creates.
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn commit_notification_ack(
+        &mut self,
+        mutation: &WorkspaceMutation,
+        fingerprint: &Value,
+        expected_revision: Option<u64>,
+        client_id: &str,
+        acknowledged: &[NotificationPublicId],
+        read_at_ms: u64,
+        result: &Value,
+        deltas: &Value,
+    ) -> anyhow::Result<ResourcePatchCommit> {
+        const OPERATION: &str = "notification.ack";
+        validate_identifier("mutation id", &mutation.id)?;
+        validate_identifier("mutation origin", &mutation.origin)?;
+        let fingerprint = canonical_json(fingerprint)?;
+        let result_json = canonical_json(result)?;
+        let tx = self.connection.transaction()?;
+        if let Some(replayed) = resource_patch_replay(&tx, mutation, OPERATION, &fingerprint)? {
+            return Ok(replayed);
+        }
+        let previous_revision = transaction_resource_revision(&tx)?;
+        if let Some(expected) = expected_revision
+            && expected != previous_revision
+        {
+            anyhow::bail!(
+                "resource revision conflict: expected {expected}, current {previous_revision}"
+            );
+        }
+        let revision = previous_revision
+            .checked_add(1)
+            .ok_or_else(|| anyhow::anyhow!("resource revision exhausted"))?;
+        let sqlite_revision =
+            i64::try_from(revision).context("resource revision exceeds SQLite range")?;
+        let sqlite_read_at =
+            i64::try_from(read_at_ms).context("notification read time exceeds SQLite range")?;
+        for notification_id in acknowledged {
+            tx.execute(
+                "INSERT INTO resource_notification_reads(
+                   notification_id, client_id, read_at_ms, committed_revision
+                 ) VALUES(?1, ?2, ?3, ?4)
+                 ON CONFLICT(notification_id, client_id) DO NOTHING",
+                params![notification_id.as_str(), client_id, sqlite_read_at, sqlite_revision],
+            )?;
+        }
         tx.execute(
             "UPDATE meta SET value = ?1 WHERE key = 'resource_revision'",
             [revision.to_string()],
@@ -506,6 +1162,150 @@ impl WorkspaceRegistry {
         prune_resource_mutations(&tx)?;
         tx.commit()?;
         Ok(ResourcePatchCommit { revision, result: result.clone(), replayed: false })
+    }
+
+    /// Notification ids among `candidates` whose `notification.create` receipt
+    /// is committed. A row can sit in the live ledger before its receipt
+    /// commits; clearing such a row would mask a receipt that lands later, so
+    /// a clear names only what is durable.
+    pub(crate) fn committed_notification_ids(
+        &self,
+        candidates: &[NotificationPublicId],
+    ) -> anyhow::Result<Vec<NotificationPublicId>> {
+        let mut committed = Vec::with_capacity(candidates.len());
+        for candidate in candidates {
+            let exists: bool = self.connection.query_row(
+                "SELECT EXISTS(
+                   SELECT 1 FROM resource_effect_receipts
+                   WHERE operation = 'notification.create'
+                     AND state = 'committed'
+                     AND json_extract(outcome_json, '$.kind') = 'success'
+                     AND json_extract(outcome_json, '$.value.id') = ?1
+                 )",
+                [candidate.as_str()],
+                |row| row.get(0),
+            )?;
+            if exists {
+                committed.push(candidate.clone());
+            }
+        }
+        Ok(committed)
+    }
+
+    /// Mask cleared notifications from every later rebuild and drop their read
+    /// marks, publishing the delete deltas as one revision.
+    pub(crate) fn commit_notification_clear(
+        &mut self,
+        mutation: &WorkspaceMutation,
+        fingerprint: &Value,
+        expected_revision: Option<u64>,
+        cleared: &[NotificationPublicId],
+        result: &Value,
+        deltas: &Value,
+    ) -> anyhow::Result<ResourcePatchCommit> {
+        const OPERATION: &str = "notification.clear";
+        validate_identifier("mutation id", &mutation.id)?;
+        validate_identifier("mutation origin", &mutation.origin)?;
+        let fingerprint = canonical_json(fingerprint)?;
+        let result_json = canonical_json(result)?;
+        let tx = self.connection.transaction()?;
+        if let Some(replayed) = resource_patch_replay(&tx, mutation, OPERATION, &fingerprint)? {
+            return Ok(replayed);
+        }
+        let previous_revision = transaction_resource_revision(&tx)?;
+        if let Some(expected) = expected_revision
+            && expected != previous_revision
+        {
+            anyhow::bail!(
+                "resource revision conflict: expected {expected}, current {previous_revision}"
+            );
+        }
+        let revision = previous_revision
+            .checked_add(1)
+            .ok_or_else(|| anyhow::anyhow!("resource revision exhausted"))?;
+        let sqlite_revision =
+            i64::try_from(revision).context("resource revision exceeds SQLite range")?;
+        for id in cleared {
+            tx.execute(
+                "INSERT INTO resource_notification_clears(notification_id, committed_revision)
+                 VALUES(?1, ?2) ON CONFLICT(notification_id) DO NOTHING",
+                params![id.as_str(), sqlite_revision],
+            )?;
+            tx.execute(
+                "DELETE FROM resource_notification_reads WHERE notification_id = ?1",
+                [id.as_str()],
+            )?;
+        }
+        tx.execute(
+            "UPDATE meta SET value = ?1 WHERE key = 'resource_revision'",
+            [revision.to_string()],
+        )?;
+        tx.execute(
+            "INSERT INTO resource_mutations(
+               origin, idempotency_key, operation, fingerprint, result_json, committed_revision
+             ) VALUES(?1, ?2, ?3, ?4, ?5, ?6)",
+            params![
+                mutation.origin,
+                mutation.id,
+                OPERATION,
+                fingerprint,
+                result_json,
+                sqlite_revision,
+            ],
+        )?;
+        append_resource_journal_record(
+            &tx,
+            revision,
+            previous_revision,
+            &mutation.origin,
+            &mutation.id,
+            OPERATION,
+            None,
+            result,
+            deltas,
+        )?;
+        prune_resource_mutations(&tx)?;
+        tx.commit()?;
+        Ok(ResourcePatchCommit { revision, result: result.clone(), replayed: false })
+    }
+
+    /// Delete read marks for `candidates` that the committed notification
+    /// receipts no longer retain. Returns the candidates still retained, so
+    /// the caller keeps them queued. Retention here is the same query the
+    /// projection rebuild uses, so memory and disk agree after a restart.
+    pub(crate) fn prune_notification_reads(
+        &mut self,
+        candidates: &[NotificationPublicId],
+    ) -> anyhow::Result<Vec<NotificationPublicId>> {
+        let tx = self.connection.transaction()?;
+        let mut remaining = Vec::new();
+        for candidate in candidates {
+            let retained: bool = tx.query_row(
+                "SELECT EXISTS(
+                       SELECT 1 FROM (
+                         SELECT json_extract(outcome_json, '$.value.id') AS id
+                         FROM resource_effect_receipts
+                         WHERE operation = 'notification.create'
+                           AND state = 'committed'
+                           AND json_extract(outcome_json, '$.kind') = 'success'
+                         ORDER BY committed_revision DESC, idempotency_key DESC
+                         LIMIT 256
+                       ) WHERE id = ?1
+                     )",
+                [candidate.as_str()],
+                |row| row.get(0),
+            )?;
+            if retained {
+                remaining.push(candidate.clone());
+            } else {
+                tx.execute(
+                    "DELETE FROM resource_notification_reads WHERE notification_id = ?1",
+                    [candidate.as_str()],
+                )?;
+            }
+        }
+        tx.commit()?;
+        Ok(remaining)
     }
 
     pub fn terminal_resource_id(
@@ -574,6 +1374,25 @@ impl WorkspaceRegistry {
             )
             .optional()
             .map_err(Into::into)
+    }
+
+    /// A missing in-memory surface can be a startup race only while the
+    /// durable terminal is launching, adopting, or running. Exited and
+    /// tombstoned terminals cannot recover a hook projection.
+    pub fn agent_hook_terminal_retryable(
+        &self,
+        public_id: &TerminalPublicId,
+    ) -> anyhow::Result<bool> {
+        let Some(host_id) = self.live_terminal_host_id(public_id)? else {
+            return Ok(false);
+        };
+        let Some(terminal) = self.terminal_record(&host_id)? else {
+            return Ok(false);
+        };
+        Ok(matches!(
+            terminal.lifecycle,
+            TerminalLifecycle::Launching | TerminalLifecycle::Adopting | TerminalLifecycle::Running
+        ))
     }
 
     pub fn resource_topology_snapshot(&self) -> anyhow::Result<ResourceTopologySnapshot> {
@@ -685,7 +1504,7 @@ impl WorkspaceRegistry {
         let tabs = {
             let mut statement = self.connection.prepare(
                 "SELECT t.public_id, t.pane_id, t.position, t.content_kind,
-                        t.content_id, t.name, b.url, rt.terminal_id
+                        t.content_id, t.name, b.url, rt.terminal_id, t.name_source, t.name_revision
                  FROM resource_tabs t
                  LEFT JOIN resource_browsers b ON b.public_id = t.content_id
                  LEFT JOIN resource_terminals rt ON rt.public_id = t.content_id
@@ -703,6 +1522,8 @@ impl WorkspaceRegistry {
                         row.get::<_, Option<String>>(5)?,
                         row.get::<_, Option<String>>(6)?,
                         row.get::<_, Option<String>>(7)?,
+                        row.get::<_, String>(8)?,
+                        row.get::<_, i64>(9)?,
                     ))
                 })?
                 .map(|row| {
@@ -715,6 +1536,8 @@ impl WorkspaceRegistry {
                         name,
                         browser_url,
                         terminal_id,
+                        name_source,
+                        name_revision,
                     ) = row?;
                     let content_id = match kind.as_str() {
                         "terminal" => {
@@ -730,6 +1553,9 @@ impl WorkspaceRegistry {
                             .context("stored tab position is negative")?,
                         content_id,
                         name,
+                        name_source: serde_json::from_value(json!(name_source))?,
+                        name_revision: u64::try_from(name_revision)
+                            .context("negative name revision")?,
                         browser_url,
                         terminal_id,
                     })
@@ -790,6 +1616,33 @@ impl WorkspaceRegistry {
         result: &Value,
         deltas: &Value,
     ) -> anyhow::Result<ResourcePatchCommit> {
+        self.commit_resource_patch_with_workspace_ledger(
+            mutation,
+            operation,
+            fingerprint,
+            expected_generation,
+            expected_revision,
+            patch,
+            result,
+            deltas,
+            None,
+        )
+        .map(|(commit, _)| commit)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn commit_resource_patch_with_workspace_ledger(
+        &mut self,
+        mutation: &WorkspaceMutation,
+        operation: &str,
+        fingerprint: &Value,
+        expected_generation: Option<&str>,
+        expected_revision: Option<u64>,
+        patch: &ResourcePatch,
+        result: &Value,
+        deltas: &Value,
+        workspace_ledger: Option<&ResourceWorkspaceLedger>,
+    ) -> anyhow::Result<(ResourcePatchCommit, Option<u64>)> {
         validate_identifier("mutation id", &mutation.id)?;
         validate_identifier("mutation origin", &mutation.origin)?;
         validate_identifier("resource operation", operation)?;
@@ -798,7 +1651,7 @@ impl WorkspaceRegistry {
         let result_json = canonical_json(result)?;
         let tx = self.connection.transaction()?;
         if let Some(replayed) = resource_patch_replay(&tx, mutation, operation, &fingerprint)? {
-            return Ok(replayed);
+            return Ok((replayed, None));
         }
         if let Some(expected) = expected_generation
             && expected != self.generation
@@ -821,6 +1674,25 @@ impl WorkspaceRegistry {
             .ok_or_else(|| anyhow::anyhow!("resource revision exhausted"))?;
         let sqlite_revision =
             i64::try_from(revision).context("resource revision exceeds SQLite range")?;
+
+        // The legacy ledger commit runs first, mirroring the resource close
+        // path: its full-registry rewrite is then corrected in place by the
+        // patch's own upserts inside this same transaction.
+        let workspace_revision = workspace_ledger
+            .map(|ledger| {
+                commit_workspace_registry_in_transaction(
+                    &tx,
+                    mutation,
+                    &fingerprint,
+                    None,
+                    ledger.event_kind,
+                    &ledger.workspace_key,
+                    &ledger.workspaces,
+                    &canonical_json(&ledger.legacy_result)?,
+                )
+                .map(|(revision, _)| revision)
+            })
+            .transpose()?;
 
         apply_resource_patch(&tx, patch, sqlite_revision)?;
         tx.execute(
@@ -853,7 +1725,10 @@ impl WorkspaceRegistry {
         )?;
         prune_resource_mutations(&tx)?;
         tx.commit()?;
-        Ok(ResourcePatchCommit { revision, result: result.clone(), replayed: false })
+        Ok((
+            ResourcePatchCommit { revision, result: result.clone(), replayed: false },
+            workspace_revision,
+        ))
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -981,6 +1856,7 @@ impl WorkspaceRegistry {
             self.connection.execute_batch(
                 "CREATE TEMP TRIGGER cmux_test_fail_resource_patch
                  BEFORE INSERT ON session_journal
+                 WHEN NEW.resource_revision IS NOT NULL
                  BEGIN SELECT RAISE(ABORT, 'forced resource patch failure'); END;",
             )?;
         } else {
@@ -1008,6 +1884,45 @@ impl WorkspaceRegistry {
         )?;
         u64::try_from(count).context("resource agent projection count is negative")
     }
+
+    #[cfg(test)]
+    pub(crate) fn agent_hook_pending_retry_state_for_test(
+        &self,
+        producer_id: &str,
+        origin: &str,
+        idempotency_key: &str,
+    ) -> anyhow::Result<Option<(i64, String)>> {
+        self.connection
+            .query_row(
+                "SELECT attempt, error
+                 FROM resource_agent_hook_pending
+                 WHERE producer_id = ?1 AND origin = ?2 AND idempotency_key = ?3",
+                params![producer_id, origin, idempotency_key],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .optional()
+            .map_err(Into::into)
+    }
+}
+
+/// Compare two agent projections while ignoring the local observation clock.
+/// The caller has already restricted this to a socket report, so a matching
+/// semantic value is safe to acknowledge without another resource revision.
+fn same_agent_projection_ignoring_timestamp(
+    existing: &Value,
+    incoming: &Value,
+) -> anyhow::Result<bool> {
+    let mut existing = existing.clone();
+    let mut incoming = incoming.clone();
+    let Some(existing_object) = existing.as_object_mut() else {
+        return Ok(false);
+    };
+    let Some(incoming_object) = incoming.as_object_mut() else {
+        return Ok(false);
+    };
+    existing_object.remove("updated_at_ms");
+    incoming_object.remove("updated_at_ms");
+    Ok(canonical_json(&existing)? == canonical_json(&incoming)?)
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -1146,6 +2061,10 @@ pub struct RegistryTab {
     pub position: usize,
     pub content_id: ContentPublicId,
     pub name: Option<String>,
+    #[serde(default)]
+    pub name_source: crate::resource_name::NameSource,
+    #[serde(default)]
+    pub name_revision: u64,
     pub browser_url: Option<String>,
     pub terminal_id: Option<String>,
 }
@@ -1224,6 +2143,21 @@ pub struct ResourcePatchCommit {
     pub revision: u64,
     pub result: Value,
     pub replayed: bool,
+}
+
+/// Legacy workspace-ledger commit to run inside the same transaction as a
+/// resource patch that changes the workspace projection. The legacy CAS
+/// (`create-workspace`/`rename-workspace`/`move-workspace`/`close-workspace`)
+/// compares client snapshot revisions against this ledger, so any resource
+/// commit that changes the reported workspace registry without advancing the
+/// ledger permanently wedges every later legacy mutation (issue: packaged
+/// browsers fail alt+n forever after a receipted `workspace.create`).
+#[derive(Debug, Clone)]
+pub struct ResourceWorkspaceLedger {
+    pub event_kind: &'static str,
+    pub workspace_key: String,
+    pub workspaces: Vec<RegistryWorkspace>,
+    pub legacy_result: Value,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -1645,6 +2579,141 @@ pub(crate) fn validate_registry_screen_projection(
     }
     let layout_pane_refs = layout_panes.iter().collect::<HashSet<_>>();
     validate_registry_viewport(&screen.viewport, &screen.layout, &layout_pane_refs, &layout_splits)
+}
+
+pub(super) fn complete_terminal_close_patch(
+    transaction: &Transaction<'_>,
+    terminals: &[(String, Option<String>)],
+    patch: &ResourcePatch,
+    deltas: &Value,
+) -> anyhow::Result<(ResourcePatch, Value)> {
+    let mut patch = patch.clone();
+    let mut deltas = deltas.clone();
+    let changes =
+        deltas.as_array_mut().context("terminal close resource deltas are not an array")?;
+
+    for (terminal_id, expected_incarnation) in terminals {
+        let Some(public_id) = transaction
+            .query_row(
+                "SELECT public_id FROM resource_terminals
+                 WHERE terminal_id = ?1 AND deleted_revision IS NULL",
+                [terminal_id],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()?
+        else {
+            continue;
+        };
+        let public_id = TerminalPublicId::parse(public_id)?;
+        let has_tombstone = patch.changes.iter().any(|change| {
+            matches!(
+                change,
+                ResourceChange::TombstoneTerminal { public_id: candidate, .. }
+                    if candidate == &public_id
+            )
+        });
+        if !has_tombstone {
+            patch.changes.push(ResourceChange::TombstoneTerminal {
+                public_id: public_id.clone(),
+                expected_incarnation: expected_incarnation.clone(),
+            });
+        }
+        let has_delete_delta = changes.iter().any(|change| {
+            change["kind"] == "delete"
+                && change["resource"] == "terminal"
+                && change["id"].as_str() == Some(public_id.as_str())
+        });
+        if !has_delete_delta {
+            changes.push(json!({
+                "kind": "delete",
+                "sequence": changes.len(),
+                "resource": "terminal",
+                "id": public_id,
+            }));
+        }
+    }
+
+    validate_resource_patch(&patch)?;
+    Ok((patch, deltas))
+}
+
+/// Repair terminal rows left live by older close implementations. This is a
+/// load-time migration for the durable invariant: a terminal resource is live
+/// only while both its host and identity ledger are live. The repair advances
+/// the resource revision and emits a resource journal batch so revision-based
+/// consumers observe the tombstones after restart.
+pub(super) fn repair_dangling_terminal_resources(
+    transaction: &Transaction<'_>,
+) -> anyhow::Result<()> {
+    let current_revision = current_resource_revision(transaction)?;
+    let dangling = {
+        let mut statement = transaction.prepare(
+            "SELECT rt.public_id
+             FROM resource_terminals rt
+             JOIN resource_identities ri ON ri.public_id = rt.public_id
+             LEFT JOIN terminal_hosts h ON h.terminal_id = rt.terminal_id
+             WHERE (rt.deleted_revision IS NULL AND (
+                        h.terminal_id IS NULL OR h.lifecycle = 'tombstoned'
+                    ))
+                OR (rt.deleted_revision IS NULL AND ri.deleted_revision IS NOT NULL)
+                OR (rt.deleted_revision IS NOT NULL AND ri.deleted_revision IS NULL)",
+        )?;
+        statement.query_map([], |row| row.get::<_, String>(0))?.collect::<Result<Vec<_>, _>>()?
+    };
+    if dangling.is_empty() {
+        return Ok(());
+    }
+
+    let repair_revision = current_revision
+        .checked_add(1)
+        .ok_or_else(|| anyhow::anyhow!("resource revision exhausted during terminal repair"))?;
+    let sqlite_revision = i64::try_from(repair_revision)
+        .context("resource repair revision exceeds SQLite integer range")?;
+    let changes = Value::Array(
+        dangling
+            .iter()
+            .enumerate()
+            .map(|(sequence, public_id)| {
+                json!({
+                    "kind": "delete",
+                    "sequence": sequence,
+                    "resource": "terminal",
+                    "id": public_id,
+                })
+            })
+            .collect(),
+    );
+
+    for public_id in &dangling {
+        transaction.execute(
+            "UPDATE resource_terminals
+             SET lifecycle = 'tombstoned', updated_revision = ?1, deleted_revision = ?1
+             WHERE public_id = ?2",
+            params![sqlite_revision, public_id],
+        )?;
+        transaction.execute(
+            "UPDATE resource_identities
+             SET updated_revision = ?1, deleted_revision = ?1
+             WHERE public_id = ?2",
+            params![sqlite_revision, public_id],
+        )?;
+    }
+    transaction.execute(
+        "UPDATE meta SET value = ?1 WHERE key = 'resource_revision'",
+        [repair_revision.to_string()],
+    )?;
+    append_resource_journal_record(
+        transaction,
+        repair_revision,
+        current_revision,
+        "cmux-startup-repair",
+        &format!("terminal-close-repair-{repair_revision}"),
+        "terminal.close.repair",
+        None,
+        &json!({"repaired_terminals": dangling}),
+        &changes,
+    )?;
+    Ok(())
 }
 
 pub(super) fn apply_resource_patch(
@@ -2325,12 +3394,14 @@ fn upsert_resource_tab(
     transaction.execute(
         "INSERT INTO resource_tabs(
            public_id, pane_id, position, content_kind, content_id, name,
-           created_revision, updated_revision, deleted_revision
-         ) VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?7, NULL)
+           created_revision, updated_revision, deleted_revision, name_source, name_revision
+         ) VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?7, NULL, ?8, ?9)
          ON CONFLICT(public_id) DO UPDATE SET
            pane_id=excluded.pane_id,
            position=excluded.position,
            name=excluded.name,
+           name_source=excluded.name_source,
+           name_revision=excluded.name_revision,
            updated_revision=excluded.updated_revision",
         params![
             tab.public_id.as_str(),
@@ -2340,6 +3411,8 @@ fn upsert_resource_tab(
             content_id,
             tab.name,
             revision,
+            serde_json::to_value(tab.name_source)?.as_str().context("invalid name source")?,
+            i64::try_from(tab.name_revision).context("name revision exceeds SQLite range")?,
         ],
     )?;
     Ok(())

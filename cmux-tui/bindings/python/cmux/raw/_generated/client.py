@@ -15,8 +15,8 @@ class GeneratedClientMixin:
     def apply_layout(self, layout: DeclarativeLayout, *, workspace: Union[Id, None, MissingType] = MISSING, name: Union[str, None, MissingType] = MISSING, cols: Union[int, None, MissingType] = MISSING, rows: Union[int, None, MissingType] = MISSING) -> ApplyLayoutResult:
         return self._invoke_command('apply-layout', ApplyLayoutRequest(layout=layout, workspace=workspace, name=name, cols=cols, rows=rows))
 
-    def attach_surface(self, surface: Id, *, cols: Union[int, None, MissingType] = MISSING, mode: Union[Literal['bytes', 'render'], None, MissingType] = MISSING, rows: Union[int, None, MissingType] = MISSING) -> Any:
-        return self._open_command_stream('attach-surface', AttachSurfaceRequest(surface=surface, cols=cols, mode=mode, rows=rows))
+    def attach_surface(self, surface: Union[Id, None, MissingType] = MISSING, *, cols: Union[int, None, MissingType] = MISSING, expected_generation: Union[str, None, MissingType] = MISSING, expected_terminal_id: Union[str, None, MissingType] = MISSING, mode: Union[Literal['bytes', 'render'], None, MissingType] = MISSING, rows: Union[int, None, MissingType] = MISSING) -> Any:
+        return self._open_command_stream('attach-surface', AttachSurfaceRequest(surface=surface, cols=cols, expected_generation=expected_generation, expected_terminal_id=expected_terminal_id, mode=mode, rows=rows))
 
     def browser_activate(self, surface: Id) -> EmptyResult:
         return self._invoke_command('browser-activate', BrowserActivateRequest(surface=surface))
@@ -141,6 +141,12 @@ class GeneratedClientMixin:
     def list_workspaces(self) -> Tree:
         return self._invoke_command('list-workspaces', ListWorkspacesRequest())
 
+    def machine_listening_tcp(self) -> MachineListeningTcpResult:
+        return self._invoke_command('machine-listening-tcp', MachineListeningTcpRequest())
+
+    def machine_usage(self) -> MachineUsageResult:
+        return self._invoke_command('machine-usage', MachineUsageRequest())
+
     def mark_workspaces_provider_managed(self, authority: str) -> EmptyResult:
         return self._invoke_command('mark-workspaces-provider-managed', MarkWorkspacesProviderManagedRequest(authority=authority))
 
@@ -152,6 +158,9 @@ class GeneratedClientMixin:
 
     def move_tab(self, surface: Id, pane: Id, index: int) -> EmptyResult:
         return self._invoke_command('move-tab', MoveTabRequest(surface=surface, pane=pane, index=index))
+
+    def move_tab_to_workspace(self, surface: Id, *, workspace: Union[Id, None, MissingType] = MISSING) -> EmptyResult:
+        return self._invoke_command('move-tab-to-workspace', MoveTabToWorkspaceRequest(surface=surface, workspace=workspace))
 
     def move_terminal(self, terminal_id: str, workspace_key: str, *, terminal_incarnation: Union[str, None, MissingType] = MISSING, expected_revision: Union[int, None, MissingType] = MISSING, expected_generation: Union[str, None, MissingType] = MISSING, origin: Union[str, None, MissingType] = MISSING, mutation_id: Union[str, None, MissingType] = MISSING) -> MoveTerminalResult:
         return self._invoke_command('move-terminal', MoveTerminalRequest(terminal_id=terminal_id, workspace_key=workspace_key, terminal_incarnation=terminal_incarnation, expected_revision=expected_revision, expected_generation=expected_generation, origin=origin, mutation_id=mutation_id))
@@ -185,6 +194,9 @@ class GeneratedClientMixin:
 
     def pane_neighbor(self, pane: Id, dir: PaneDirection) -> PaneNeighborResult:
         return self._invoke_command('pane-neighbor', PaneNeighborRequest(pane=pane, dir=dir))
+
+    def paste_image(self, surface: Id, terminal_id: str, lease: str, op: str, upload_id: str, *, data: Union[str, None, MissingType] = MISSING, mime: Union[str, None, MissingType] = MISSING, offset: Union[int, None, MissingType] = MISSING, size: Union[int, None, MissingType] = MISSING) -> PasteImageResult:
+        return self._invoke_command('paste-image', PasteImageRequest(surface=surface, terminal_id=terminal_id, lease=lease, op=op, upload_id=upload_id, data=data, mime=mime, offset=offset, size=size))
 
     def ping(self) -> PingResult:
         return self._invoke_command('ping', PingRequest())
@@ -264,6 +276,9 @@ class GeneratedClientMixin:
     def send_key(self, surface: Id, keys: List[str]) -> EmptyResult:
         return self._invoke_command('send-key', SendKeyRequest(surface=surface, keys=keys))
 
+    def server_stats(self) -> ServerStatsResult:
+        return self._invoke_command('server-stats', ServerStatsRequest())
+
     def set_cell_pixels(self, width_px: int, height_px: int) -> SetCellPixelsResult:
         return self._invoke_command('set-cell-pixels', SetCellPixelsRequest(width_px=width_px, height_px=height_px))
 
@@ -311,6 +326,18 @@ class GeneratedClientMixin:
 
     def unregister_browser_provider(self) -> BrowserProviderUnregisterResult:
         return self._invoke_command('unregister-browser-provider', UnregisterBrowserProviderRequest())
+
+    def url_open(self, terminal_id: str, url: str) -> GuestUrlOpenResult:
+        return self._invoke_command('url-open', UrlOpenRequest(terminal_id=terminal_id, url=url))
+
+    def url_open_claim(self, request_id: str) -> GuestUrlClaimResult:
+        return self._invoke_command('url-open-claim', UrlOpenClaimRequest(request_id=request_id))
+
+    def url_open_result(self, opened: bool, request_id: str) -> GuestUrlAcknowledgeResult:
+        return self._invoke_command('url-open-result', UrlOpenResultRequest(opened=opened, request_id=request_id))
+
+    def url_open_subscribe(self, terminal_ids: List[str]) -> Any:
+        return self._open_command_stream('url-open-subscribe', UrlOpenSubscribeRequest(terminal_ids=terminal_ids))
 
     def vt_state(self, surface: Id) -> VtStateResult:
         return self._invoke_command('vt-state', VtStateRequest(surface=surface))
@@ -365,10 +392,13 @@ GeneratedClientMixin.list_agents.__cmux_command__ = COMMANDS['list-agents']
 GeneratedClientMixin.list_clients.__cmux_command__ = COMMANDS['list-clients']
 GeneratedClientMixin.list_terminals.__cmux_command__ = COMMANDS['list-terminals']
 GeneratedClientMixin.list_workspaces.__cmux_command__ = COMMANDS['list-workspaces']
+GeneratedClientMixin.machine_listening_tcp.__cmux_command__ = COMMANDS['machine-listening-tcp']
+GeneratedClientMixin.machine_usage.__cmux_command__ = COMMANDS['machine-usage']
 GeneratedClientMixin.mark_workspaces_provider_managed.__cmux_command__ = COMMANDS['mark-workspaces-provider-managed']
 GeneratedClientMixin.mint_terminal_renderer.__cmux_command__ = COMMANDS['mint-terminal-renderer']
 GeneratedClientMixin.mint_terminal_renderer_by_terminal.__cmux_command__ = COMMANDS['mint-terminal-renderer-by-terminal']
 GeneratedClientMixin.move_tab.__cmux_command__ = COMMANDS['move-tab']
+GeneratedClientMixin.move_tab_to_workspace.__cmux_command__ = COMMANDS['move-tab-to-workspace']
 GeneratedClientMixin.move_terminal.__cmux_command__ = COMMANDS['move-terminal']
 GeneratedClientMixin.move_workspace.__cmux_command__ = COMMANDS['move-workspace']
 GeneratedClientMixin.new_browser_tab.__cmux_command__ = COMMANDS['new-browser-tab']
@@ -380,6 +410,7 @@ GeneratedClientMixin.new_workspace.__cmux_command__ = COMMANDS['new-workspace']
 GeneratedClientMixin.notify.__cmux_command__ = COMMANDS['notify']
 GeneratedClientMixin.pairing_response.__cmux_command__ = COMMANDS['pairing-response']
 GeneratedClientMixin.pane_neighbor.__cmux_command__ = COMMANDS['pane-neighbor']
+GeneratedClientMixin.paste_image.__cmux_command__ = COMMANDS['paste-image']
 GeneratedClientMixin.ping.__cmux_command__ = COMMANDS['ping']
 GeneratedClientMixin.process_info.__cmux_command__ = COMMANDS['process-info']
 GeneratedClientMixin.put_frontend_projection.__cmux_command__ = COMMANDS['put-frontend-projection']
@@ -406,6 +437,7 @@ GeneratedClientMixin.select_tab.__cmux_command__ = COMMANDS['select-tab']
 GeneratedClientMixin.select_workspace.__cmux_command__ = COMMANDS['select-workspace']
 GeneratedClientMixin.send.__cmux_command__ = COMMANDS['send']
 GeneratedClientMixin.send_key.__cmux_command__ = COMMANDS['send-key']
+GeneratedClientMixin.server_stats.__cmux_command__ = COMMANDS['server-stats']
 GeneratedClientMixin.set_cell_pixels.__cmux_command__ = COMMANDS['set-cell-pixels']
 GeneratedClientMixin.set_client_info.__cmux_command__ = COMMANDS['set-client-info']
 GeneratedClientMixin.set_client_sizing.__cmux_command__ = COMMANDS['set-client-sizing']
@@ -422,6 +454,10 @@ GeneratedClientMixin.swap_pane.__cmux_command__ = COMMANDS['swap-pane']
 GeneratedClientMixin.terminal_events.__cmux_command__ = COMMANDS['terminal-events']
 GeneratedClientMixin.undo_layout.__cmux_command__ = COMMANDS['undo-layout']
 GeneratedClientMixin.unregister_browser_provider.__cmux_command__ = COMMANDS['unregister-browser-provider']
+GeneratedClientMixin.url_open.__cmux_command__ = COMMANDS['url-open']
+GeneratedClientMixin.url_open_claim.__cmux_command__ = COMMANDS['url-open-claim']
+GeneratedClientMixin.url_open_result.__cmux_command__ = COMMANDS['url-open-result']
+GeneratedClientMixin.url_open_subscribe.__cmux_command__ = COMMANDS['url-open-subscribe']
 GeneratedClientMixin.vt_state.__cmux_command__ = COMMANDS['vt-state']
 GeneratedClientMixin.wait_for.__cmux_command__ = COMMANDS['wait-for']
 GeneratedClientMixin.zoom_pane.__cmux_command__ = COMMANDS['zoom-pane']

@@ -4,6 +4,10 @@ import UIKit
 import QuartzCore
 
 /// Layer-backed remote browser mirror with native scroll mechanics and a local zoom lens.
+///
+/// Streamed browser pixels live in a plain `CALayer`, which Sentry session
+/// replay's text/image masking defaults cannot classify, so this class is
+/// exported for masking through ``BrowserStreamReplayMasking``.
 @MainActor
 final class BrowserStreamContentView: UIView, UIScrollViewDelegate, UIGestureRecognizerDelegate {
     weak var delegate: (any BrowserStreamContentViewDelegate)?

@@ -55,7 +55,8 @@ public struct CustomSidebarView: View {
             swiftRender: model.swiftRender,
             hasRenderedSwift: model.hasRenderedSwift,
             dispatch: dispatch,
-            contentInsets: contentInsets
+            contentInsets: contentInsets,
+            dataContext: dataContext
         )
         .onAppear { model.start() }
         .onDisappear { model.stop() }

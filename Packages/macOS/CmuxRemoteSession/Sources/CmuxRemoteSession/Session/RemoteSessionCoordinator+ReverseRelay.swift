@@ -364,14 +364,23 @@ extension RemoteSessionCoordinator {
             relayToken: relayToken,
             persistentDaemonSlot: configuration.persistentDaemonSlot
         )
-        let command = "sh -c \(script.shellSingleQuoted)"
-        let result = try sshExec(arguments: sshCommonArguments(batchMode: true) + [configuration.destination, command], timeout: 8)
+        // Relay credentials are deliberately stored on the remote host, so
+        // never place the token-bearing script in SSH argv (argv is visible to
+        // other users and is retained in debug command logs). Feed it to
+        // `sh -s` over stdin instead.
+        let arguments = sshCommonArguments(batchMode: true) + [configuration.destination, "sh -s"]
+        let result = try sshExec(
+            arguments: arguments,
+            stdin: Data(script.utf8),
+            timeout: 8
+        )
         guard result.status == 0 else {
             let detail = Self.bestErrorLine(stderr: result.stderr, stdout: result.stdout) ?? "ssh exited \(result.status)"
             throw NSError(domain: "cmux.remote.relay", code: 70, userInfo: [
                 NSLocalizedDescriptionKey: "failed to install remote relay metadata: \(detail)",
             ])
         }
+        didInstallRelayMetadata = true
     }
 
     private func removeRemoteRelayMetadataLocked(cleanupScope: RemoteRelayCleanupScope) -> Bool {
@@ -445,6 +454,19 @@ extension RemoteSessionCoordinator {
                     relayPort: nil
                 )
             }
+            if result.status == 64, case .transport = cleanupScope, !didInstallRelayMetadata {
+                // 64 is the script's "no relay metadata owned by this relay
+                // namespace" answer. A coordinator that never installed any
+                // (its daemon never bootstrapped) has nothing to remove, so
+                // this is a completed cleanup. Reporting it as failed blocked
+                // every later Reconnect of the workspace behind a cleanup
+                // that could never succeed.
+                debugLog(
+                    "remote.relay.cleanup.vacuous reason=never-provisioned " +
+                        "relayPort=\(relayPort.map(String.init) ?? "nil") \(debugConfigSummary())"
+                )
+                return true
+            }
             guard result.status == 0 else {
                 let detail = Self.bestErrorLine(stderr: result.stderr, stdout: result.stdout)
                     ?? "ssh exited \(result.status)"
@@ -463,29 +485,5 @@ extension RemoteSessionCoordinator {
             remoteRelayLogger.error("cleanup error: \(error.localizedDescription, privacy: .private(mask: .hash))")
             return false
         }
-    }
-
-    /// Returns whether OpenSSH reported that this relay's remote listener is
-    /// already bound.
-    static func isReverseRelayPortBindingFailure(_ detail: String, relayPort: Int) -> Bool {
-        reverseRelayPortBindingFailureLine(in: detail, relayPort: relayPort) != nil
-    }
-
-    /// Extracts the exact bind diagnostic from standalone or multiplexed
-    /// OpenSSH stderr. Multiplexing adds a prefix and may append a later
-    /// summary line, so classification must inspect every line.
-    static func reverseRelayPortBindingFailureLine(
-        in detail: String,
-        relayPort: Int
-    ) -> String? {
-        let expected = "remote port forwarding failed for listen port \(relayPort)"
-        return detail
-            .split(whereSeparator: \.isNewline)
-            .map {
-                $0.trimmingCharacters(in: .whitespacesAndNewlines)
-            }
-            .first(where: {
-                $0 == expected || $0.hasSuffix(": \(expected)")
-            })
     }
 }

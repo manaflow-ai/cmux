@@ -51,7 +51,7 @@ The default session is `main`. Default sockets live at `$TMPDIR/cmux-tui-<uid>/<
 
 `attach --terminal <id>` attaches one PTY terminal by its stable ID from `cmux terminal list`. It uses the full host terminal without the sidebar, status bar, pane border, or other tabs.
 
-Pane layout stays tiled by default. Press `Ctrl-b g` to append a terminal to the right at two-thirds of the viewport width. The existing layout keeps its width, so a continuous horizontal scrollbar appears in the status bar. Focusing a pane reveals it with an animated viewport movement. `Alt-n` reapplies Zellij's automatic layout inside the focused horizontal column. `Ctrl-b U` undoes the latest structural layout action on the focused screen; undoing pane creation asks for confirmation before closing the pane.
+Pane layout stays tiled by default. Press `Ctrl-b g` to append a terminal to the right at two-thirds of the viewport width. The existing layout keeps its width, so a continuous horizontal scrollbar appears in the status bar. Focusing a pane reveals it with an animated viewport movement. `Ctrl-b N` or `Alt-n` reapplies Zellij's automatic layout inside the focused horizontal column. `Ctrl-b +` and `Ctrl-b -` grow and shrink the focused split or column. `Ctrl-b U` undoes the latest structural layout action on the focused screen; undoing pane creation asks for confirmation before closing the pane.
 
 The public control CLI is noun-first:
 
@@ -68,7 +68,7 @@ Shared routing options can precede the scope, as in
 `cmux --session agents server status`. Lifecycle JSON errors use stable codes
 and do not expose raw transport or server error text.
 Use the `remote` command group for authenticated network access:
-`cmux remote connect|ssh|forward|rpc`, `remote enroll`, and
+`cmux remote connect|ssh|forward|browser-proxy|rpc`, `remote enroll`, and
 `remote known-daemons`. `remote stop` stops only a replaceable SSH sidecar.
 Use `server stop` for a listener owned by `server start`; it also stops the
 local owner and its workspaces. Start the owning process with `server start`
@@ -76,6 +76,14 @@ and explicit remote-listener flags.
 The old top-level remote commands and `remote-stop` remain compatibility
 aliases for one release cycle. Detached local startup is deferred until cmux
 has an explicit supervisor and readiness contract.
+
+Cloud links can share one user-space WireGuard peer through `cmux wg hub`.
+The hub reads an owner-only WireGuard config, exposes an owner-only Unix SOCKS5
+socket, and accepts only literal IP addresses inside `AllowedIPs`. Clients use
+`remote connect --wireguard-hub <socket>`. Packagers must check that
+`remote-probe --json` reports both the `wireguard-hub` and `browser-proxy`
+capabilities before they ship a desktop build that requires private Cloud
+routes.
 
 Resource IDs are opaque typed strings. Selectors also accept `current` or an exact name. Duplicate names return `selector.ambiguous` with every candidate ID; use an ID to choose one. Prefix a reserved or ID-shaped name with `name:`.
 

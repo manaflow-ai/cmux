@@ -1,3 +1,4 @@
+import CMUXMobileCore
 import Foundation
 import Testing
 @testable import CmuxMobileShell
@@ -35,6 +36,7 @@ import Testing
     let replayBarrierToken = store.beginTerminalReplayBarrier(surfaceID: "live-terminal")
     store.requestTerminalReplay(
         surfaceID: "live-terminal",
+        trigger: .coldAttach,
         replayBarrierToken: replayBarrierToken
     )
     await router.waitForCount(

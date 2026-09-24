@@ -52,6 +52,9 @@ import type { DiffViewerLabelResolver } from "./labels";
 import type { DiffViewerStatus } from "./status";
 import type { DiffViewerConfig } from "./types";
 import { createDiffTransport, DiffTransportError, type DiffTransport } from "./diff/transport";
+import { FindBar } from "./find/FindBar";
+import { useDiffFind, type DiffFindController } from "./find/useDiffFind";
+import { useFindKeyboard } from "./find/useFindKeyboard";
 import type { DiffSource, DiffTransportConfig } from "./diff/generated/protocol";
 import { createDiffWorkerPoolOptions } from "./worker-pool";
 
@@ -78,6 +81,9 @@ type AppState = {
   fileSearchRequest: number;
   filesWidth: number;
   filesVisible: boolean;
+  findOpen: boolean;
+  findQuery: string;
+  findRequest: number;
   items: DiffItem[];
   languages: string[];
   metrics: StreamMetrics | null;
@@ -98,6 +104,9 @@ type AppAction =
   | { type: "set-draft"; draft: CommentDraft | null }
   | { type: "set-file-search-open"; open: boolean }
   | { type: "request-file-search" }
+  | { type: "set-find-open"; open: boolean }
+  | { type: "set-find-query"; query: string }
+  | { type: "request-find" }
   | { type: "set-files-width"; width: number }
   | { type: "set-files-visible"; visible: boolean }
   | { type: "set-metrics"; metrics: StreamMetrics }
@@ -125,6 +134,9 @@ function initialAppState(config: DiffViewerConfig, initialStatus: DiffViewerStat
     fileSearchRequest: 0,
     filesWidth: 252,
     filesVisible: true,
+    findOpen: false,
+    findQuery: "",
+    findRequest: 0,
     items: [],
     languages: ["text"],
     metrics: null,
@@ -219,6 +231,13 @@ function reducer(state: AppState, action: AppAction): AppState {
     return { ...state, fileSearchOpen: action.open, filesVisible: action.open ? true : state.filesVisible };
   case "request-file-search":
     return { ...state, fileSearchOpen: true, fileSearchRequest: state.fileSearchRequest + 1, filesVisible: true };
+  case "set-find-open":
+    // The query is kept when closing so reopening recovers the last search.
+    return { ...state, findOpen: action.open };
+  case "set-find-query":
+    return { ...state, findQuery: action.query };
+  case "request-find":
+    return { ...state, findOpen: true, findRequest: state.findRequest + 1 };
   case "set-files-width":
     return { ...state, filesWidth: action.width };
   case "set-files-visible":
@@ -296,6 +315,34 @@ export function App({ config, initialStatus }: ConfigProps) {
   const highlighterOptions = workerHighlighterOptions(state.options, appearance, state.languages);
   const payloadRepoRoot = typeof payload.repoRoot === "string" && payload.repoRoot !== "" ? payload.repoRoot : null;
   const commentRepoRoot = diffSourceRepoRoot(resolvedSessionSource ?? activeSessionSource) ?? payloadRepoRoot;
+  useEffect(() => {
+    const configuredTitle =
+      typeof payload.title === "string" ? payload.title.trim() : "";
+    if (configuredTitle === "") {
+      return;
+    }
+
+    const activeSource = resolvedSessionSource ?? activeSessionSource;
+    if (activeSource?.kind === "patch") {
+      document.title = configuredTitle;
+      return;
+    }
+
+    const repoRoot = diffSourceRepoRoot(activeSource) ?? payloadRepoRoot;
+    const repoOption = Array.isArray(payload.repoOptions)
+      ? payload.repoOptions.find((option) => option?.value === repoRoot)
+      : undefined;
+    const repoLabel =
+      typeof repoOption?.label === "string" ? repoOption.label.trim() : "";
+    document.title =
+      repoLabel === "" ? configuredTitle : `${configuredTitle} — ${repoLabel}`;
+  }, [
+    activeSessionSource,
+    payload.repoOptions,
+    payload.title,
+    payloadRepoRoot,
+    resolvedSessionSource,
+  ]);
   const bridgeAvailable = diffCommentsBridgeAvailable() && commentRepoRoot != null;
   const commentLabels = resolveCommentLabels(payload);
   const comments = useDiffComments({
@@ -432,7 +479,17 @@ export function App({ config, initialStatus }: ConfigProps) {
   const handleCodeViewScroll = useCallback((scrollTop: number) => {
     codeViewScrollTopRef.current = scrollTop;
   }, []);
-  useNativeViewerNavigation(viewerContainerRef, dispatch, jumpAdjacentFile);
+  const find = useDiffFind({
+    items: state.items,
+    open: state.findOpen,
+    query: state.findQuery,
+    dispatch,
+    codeViewRef,
+    viewerContainerRef,
+  });
+  const findBridgeRef = useSyncedRef({ open: state.findOpen, controller: find });
+  useFindKeyboard(dispatch, findBridgeRef);
+  useNativeViewerNavigation(viewerContainerRef, dispatch, jumpAdjacentFile, findBridgeRef);
   const setStatus = (status: DiffViewerStatus) => {
     applyDiffViewerStatusToDocument(status);
     dispatch({ type: "set-status", status });
@@ -509,6 +566,14 @@ export function App({ config, initialStatus }: ConfigProps) {
           state={state}
         />
         <main id="viewer" aria-label={label("diffViewer")}>
+          {state.findOpen ? (
+            <FindBar
+              controller={find}
+              label={label}
+              query={state.findQuery}
+              requestToken={state.findRequest}
+            />
+          ) : null}
           {state.items.length > 0 ? (
             <WorkerPoolContextProvider
               poolOptions={workerPoolOptions}
@@ -933,6 +998,7 @@ function SourceControls({
           onSelectSessionSource={(source) => onSelectSessionSource(
             repoSelectionWithActiveSource(source, activeSessionSource),
           )}
+          selectedOptionTitle
           selectedValue={diffSourceRepoRoot(activeSessionSource)}
         />
       ) : null}
@@ -1096,6 +1162,7 @@ function NavigationSelect({
   onNavigate,
   onSelectSessionSource,
   options,
+  selectedOptionTitle = false,
   selectedValue,
 }: {
   ariaLabel: string;
@@ -1104,6 +1171,7 @@ function NavigationSelect({
   onNavigate: (url: string) => void;
   onSelectSessionSource?: (source: DiffSource) => void;
   options: any[] | undefined;
+  selectedOptionTitle?: boolean;
   selectedValue?: string | null;
 }) {
   if (!Array.isArray(options) || options.length < 2) {
@@ -1112,12 +1180,19 @@ function NavigationSelect({
   const selected = options.find((option) => option.value === selectedValue)
     ?? options.find((option) => option.selected)
     ?? options.find((option) => !option.disabled);
+  const selectedTitle = selectedOptionTitle
+    ? (
+        typeof selected?.message === "string" && selected.message.trim() !== ""
+          ? selected.message
+          : (String(selected?.value ?? fallbackValue).trim() || ariaLabel)
+      )
+    : ariaLabel;
   return (
     <select
       id={id}
       aria-label={ariaLabel}
       value={selected?.value ?? fallbackValue}
-      title={ariaLabel}
+      title={selectedTitle}
       onChange={(event) => {
         const next = options.find((option) => option.value === event.currentTarget.value);
         if (validDiffSource(next?.sessionSource) && onSelectSessionSource) {
@@ -1720,7 +1795,12 @@ function useRenderDiff(
         }
         const empty = error instanceof DiffTransportError && error.code === "emptyDiff";
         if (!empty) {
-          console.error("cmux diff viewer render failed", error);
+          // Error objects JSON.stringify to {} in the native console mirror,
+          // so serialize the message and stack explicitly.
+          console.error(
+            "cmux diff viewer render failed",
+            String((error as any)?.stack ?? (error as any)?.message ?? error),
+          );
         }
         const emptyMessage = typeof payload.emptyMessage === "string" ? payload.emptyMessage : label("noFileDiffs");
         dispatch({
@@ -1932,6 +2012,7 @@ function useNativeViewerNavigation(
   viewerRef: React.MutableRefObject<HTMLDivElement | null>,
   dispatch: React.Dispatch<AppAction>,
   onJumpAdjacentFile: (direction: -1 | 1) => void,
+  findBridgeRef: React.MutableRefObject<{ open: boolean; controller: DiffFindController }>,
 ) {
   useEffect(() => {
     window.__cmuxPerformDiffViewerNavigationAction = (action: string) => {
@@ -1939,6 +2020,7 @@ function useNativeViewerNavigation(
       if (viewer && CmuxViewerNavigation.performAction(action, viewer)) {
         return true;
       }
+      const findBridge = findBridgeRef.current;
       switch (action) {
         case "diffViewerOpenFileSearch":
           dispatch({ type: "request-file-search" });
@@ -1950,6 +2032,21 @@ function useNativeViewerNavigation(
         case "diffViewerPreviousFile":
           if (viewer) CmuxViewerNavigation.resetSmoothTarget(viewer);
           onJumpAdjacentFile(-1);
+          return true;
+        case "diffViewerOpenFind":
+          dispatch({ type: "request-find" });
+          return true;
+        case "diffViewerFindNext":
+          if (!findBridge.open) return false;
+          findBridge.controller.goToNext();
+          return true;
+        case "diffViewerFindPrevious":
+          if (!findBridge.open) return false;
+          findBridge.controller.goToPrevious();
+          return true;
+        case "diffViewerCloseFind":
+          if (!findBridge.open) return false;
+          findBridge.controller.closeFind();
           return true;
       }
       return false;
@@ -1966,7 +2063,7 @@ function useNativeViewerNavigation(
       document.dispatchEvent(new window.Event("cmux-diff-viewer-navigation-readiness-change"));
       disposeManualInputReset();
     };
-  }, [dispatch, onJumpAdjacentFile, viewerRef]);
+  }, [dispatch, findBridgeRef, onJumpAdjacentFile, viewerRef]);
 }
 
 function useOptionsDismiss(optionsOpen: boolean, dispatch: React.Dispatch<AppAction>) {

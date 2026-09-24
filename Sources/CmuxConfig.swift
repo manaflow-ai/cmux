@@ -1682,8 +1682,16 @@ struct CmuxConfigIssue: Identifiable, Equatable, Sendable {
 
 @MainActor
 final class CmuxConfigStore: ObservableObject {
-    private static let defaultNewWorkspaceContextMenu: [CmuxConfigContextMenuItem] = [
+    /// Plus-menu rows when `ui.newWorkspace.contextMenu` is not configured.
+    /// Feature-gated rows (Cloud, browser) are filtered at menu-build time by
+    /// `AppDelegate.isBuiltInActionAvailableInNewWorkspaceMenu` so a flag flip
+    /// takes effect without a config reload.
+    static let defaultNewWorkspaceContextMenu: [CmuxConfigContextMenuItem] = [
         .action(CmuxConfigContextMenuActionItem(action: CmuxSurfaceTabBarBuiltInAction.newWorkspace.configID)),
+        .action(CmuxConfigContextMenuActionItem(action: CmuxSurfaceTabBarBuiltInAction.newCloudWorkspace.configID)),
+        .action(CmuxConfigContextMenuActionItem(action: CmuxSurfaceTabBarBuiltInAction.newCloudMachine.configID)),
+        .action(CmuxConfigContextMenuActionItem(action: CmuxSurfaceTabBarBuiltInAction.newTerminal.configID)),
+        .action(CmuxConfigContextMenuActionItem(action: CmuxSurfaceTabBarBuiltInAction.newBrowser.configID)),
     ]
 
     @Published private(set) var loadedCommands: [CmuxCommandDefinition] = []
@@ -1692,7 +1700,6 @@ final class CmuxConfigStore: ObservableObject {
     @Published private(set) var newWorkspaceActionID: String?
     @Published private(set) var newWorkspaceContextMenuItems: [CmuxResolvedConfigContextMenuItem] = []
     @Published private(set) var newWorkspaceContextMenuIsConfigured = false
-    @Published private(set) var newWorkspaceMenuSectionOrder: CmuxNewWorkspaceMenuSectionOrder = .default
     @Published private(set) var agentChat: CmuxAgentChatConfiguration = .default
     /// Resolved per-cwd workspace group customization, keyed by the JSON cwd key.
     /// Use `resolveWorkspaceGroupConfig(forCwd:)` to find the best match for an
@@ -1957,7 +1964,6 @@ final class CmuxConfigStore: ObservableObject {
         var configuredNewWorkspaceActionSourcePath: String?
         var configuredNewWorkspaceContextMenu: [CmuxConfigContextMenuItem]?
         var configuredNewWorkspaceContextMenuSourcePath: String?
-        var configuredNewWorkspaceMenuSectionOrder: CmuxNewWorkspaceMenuSectionOrder?
         var configuredSurfaceTabBarButtons: [CmuxSurfaceTabBarButton]?
         var configuredSurfaceTabBarButtonSourcePath: String?
         let localPath = localConfigPath
@@ -1994,9 +2000,6 @@ final class CmuxConfigStore: ObservableObject {
                 configuredNewWorkspaceContextMenu = contextMenu
                 configuredNewWorkspaceContextMenuSourcePath = localPath
             }
-            if let menuSectionOrder = localConfig.ui?.newWorkspace?.menuSectionOrder {
-                configuredNewWorkspaceMenuSectionOrder = menuSectionOrder
-            }
             if configuredNewWorkspaceActionID == nil,
                let newWorkspaceCommand = localConfig.newWorkspaceCommand {
                 configuredNewWorkspaceCommandName = newWorkspaceCommand
@@ -2029,10 +2032,6 @@ final class CmuxConfigStore: ObservableObject {
                let contextMenu = globalConfig.ui?.newWorkspace?.contextMenu {
                 configuredNewWorkspaceContextMenu = contextMenu
                 configuredNewWorkspaceContextMenuSourcePath = globalConfigPath
-            }
-            if configuredNewWorkspaceMenuSectionOrder == nil,
-               let menuSectionOrder = globalConfig.ui?.newWorkspace?.menuSectionOrder {
-                configuredNewWorkspaceMenuSectionOrder = menuSectionOrder
             }
             if configuredNewWorkspaceActionID == nil,
                configuredNewWorkspaceCommandName == nil,
@@ -2120,7 +2119,6 @@ final class CmuxConfigStore: ObservableObject {
         newWorkspaceCommandName = configuredNewWorkspaceCommandName
         newWorkspaceContextMenuItems = resolvedNewWorkspaceContextMenuItems.items
         newWorkspaceContextMenuIsConfigured = configuredNewWorkspaceContextMenu != nil
-        newWorkspaceMenuSectionOrder = configuredNewWorkspaceMenuSectionOrder ?? .default
         agentChat = CmuxAgentChatConfiguration.resolved(
             local: localConfig?.agentChat, global: globalConfig?.agentChat,
             localSourcePath: localConfig?.agentChat == nil ? nil : localPath, globalSourcePath: globalConfig?.agentChat == nil ? nil : globalConfigPath

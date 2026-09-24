@@ -148,6 +148,133 @@ struct SSHConnectionSharingOptionsTests {
         ).contains("ControlPath=/tmp/cmux-ssh-501-%C"))
     }
 
+    @Test("Supported OpenSSH normalization drives host opt-out detection")
+    func detectsHostOptOutUsingRealOpenSSHNormalization() throws {
+        let host = "cmux-normalization.invalid"
+        let baseline = try resolvedSSHConfiguration(
+            host: host,
+            configurationFile: "/dev/null"
+        )
+        let configURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-ssh-normalization-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: configURL) }
+        try """
+        Host cmux-normalization.invalid
+          ControlMaster no
+          ControlPath none
+          ControlPersist no
+        """.write(to: configURL, atomically: true, encoding: .utf8)
+
+        let configured = try resolvedSSHConfiguration(
+            host: host,
+            configurationFile: configURL.path
+        )
+
+        // The supported macOS OpenSSH currently normalizes ControlMaster=no
+        // to the same controlmaster=false value as its built-in default.
+        // The product compares these exact ssh -G outputs, so this test owns
+        // that resolver boundary instead of inventing distinct text.
+        #expect(controlSettings(in: configured) == controlSettings(in: baseline))
+        #expect(options.userConfiguredControlOptions(
+            fromSSHConfigOutput: configured,
+            baselineSSHConfigOutput: baseline,
+            explicitOptions: []
+        ) == nil)
+    }
+
+    @Test("A baseline that omits unset keys still reads as OpenSSH defaults")
+    func baselineOmittingUnsetKeysMatchesDefaults() {
+        let baseline = """
+        controlmaster false
+        controlpersist no
+        """
+        #expect(options.userConfiguredControlOptions(
+            fromSSHConfigOutput: baseline,
+            baselineSSHConfigOutput: baseline,
+            explicitOptions: []
+        ) == nil)
+        let configured = """
+        controlmaster false
+        controlpath /Users/alice/.ssh/control-a1b2
+        controlpersist no
+        """
+        #expect(options.userConfiguredControlOptions(
+            fromSSHConfigOutput: configured,
+            baselineSSHConfigOutput: baseline,
+            explicitOptions: []
+        ) == [
+            "ControlMaster=false",
+            "ControlPath=/Users/alice/.ssh/control-a1b2",
+            "ControlPersist=no",
+        ])
+    }
+
+    @Test("An explicit persistence flag does not import OpenSSH's disabled sharing defaults", arguments: [
+        ("ControlPersist=0", "yes"),
+        ("ControlPersist=10", "10"),
+    ])
+    func explicitPersistenceKeepsMissingSharingDefaults(option: String, resolvedValue: String) {
+        let configured = options.userConfiguredControlOptions(
+            fromSSHConfigOutput: """
+            controlmaster false
+            controlpath none
+            controlpersist \(resolvedValue)
+            """,
+            explicitOptions: [option]
+        )
+        let merged = options.mergingDefaults(into: [option], userConfiguredControlOptions: configured)
+
+        #expect(configured == nil)
+        #expect(merged == [option, "ControlMaster=auto", "ControlPath=/tmp/cmux-ssh-501-%C"])
+        #expect(options.cmuxOwnedControlPath(in: merged) == "/tmp/cmux-ssh-501-%C")
+    }
+
+    @Test("An explicit master flag does not import OpenSSH's absent control path")
+    func explicitMasterKeepsMissingSharingDefaults() {
+        let configured = options.userConfiguredControlOptions(
+            fromSSHConfigOutput: """
+            controlmaster auto
+            controlpath none
+            controlpersist no
+            """,
+            explicitOptions: ["ControlMaster=auto"]
+        )
+        let merged = options.mergingDefaults(
+            into: ["ControlMaster=auto"],
+            userConfiguredControlOptions: configured
+        )
+
+        #expect(configured == nil)
+        #expect(merged == [
+            "ControlMaster=auto",
+            "ControlPersist=600",
+            "ControlPath=/tmp/cmux-ssh-501-%C",
+        ])
+    }
+
+    @Test("Explicit persistence preserves independently configured host control settings", arguments: ["auto", "false"])
+    func explicitPersistencePreservesCustomHostPath(controlMaster: String) {
+        let configured = options.userConfiguredControlOptions(
+            fromSSHConfigOutput: """
+            controlmaster \(controlMaster)
+            controlpath /Users/alice/.ssh/configured-%C
+            controlpersist yes
+            """,
+            explicitOptions: ["ControlPersist=0"]
+        )
+        let merged = options.mergingDefaults(
+            into: ["ControlPersist=0"],
+            userConfiguredControlOptions: configured
+        )
+
+        #expect(merged == [
+            "ControlPersist=0",
+            "ControlMaster=\(controlMaster)",
+            "ControlPath=/Users/alice/.ssh/configured-%C",
+        ])
+        #expect(options.cmuxOwnedControlPath(in: merged) == nil)
+    }
+
     @Test("Explicit CLI control options win per key over resolved ssh_config settings")
     func explicitOptionsWinOverResolvedConfiguration() {
         let configured = [
@@ -193,6 +320,38 @@ struct SSHConnectionSharingOptionsTests {
             "ControlMaster=no",
             "ControlPath=/tmp/cmux-ssh-501-%C",
         ]) == nil)
+    }
+
+    private func resolvedSSHConfiguration(
+        host: String,
+        configurationFile: String
+    ) throws -> String {
+        let process = Process()
+        let output = Pipe()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/ssh")
+        process.arguments = ["-G", "-F", configurationFile, host]
+        process.standardOutput = output
+        process.standardError = Pipe()
+        try process.run()
+        process.waitUntilExit()
+        #expect(process.terminationStatus == 0)
+        return String(
+            data: output.fileHandleForReading.readDataToEndOfFile(),
+            encoding: .utf8
+        ) ?? ""
+    }
+
+    private func controlSettings(in output: String) -> [String: String] {
+        var values: [String: String] = [:]
+        for line in output.split(whereSeparator: \.isNewline) {
+            let parts = line.split(maxSplits: 1, whereSeparator: \.isWhitespace)
+            guard parts.count == 2 else { continue }
+            let key = parts[0].lowercased()
+            if ["controlmaster", "controlpath", "controlpersist"].contains(key) {
+                values[key] = String(parts[1])
+            }
+        }
+        return values
     }
 
     @Test("Only enabled cmux-owned paths create an authentication lock")

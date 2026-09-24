@@ -165,6 +165,7 @@ public struct CmxIrohSettingsSnapshot: Equatable, Sendable {
     public let policySequence: Int64?
     public let policyExpiresAt: Date?
     public let staleRelayIDs: Set<String>
+    /// Safe local display text; excluded from shared diagnostic exports.
     public let failureDescription: String?
     /// Debug-only path constraint, or `nil` when the current app cannot control it.
     public let debugTransportVerificationMode: CmxIrohTransportVerificationMode?

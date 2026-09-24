@@ -4,7 +4,6 @@ import { subrouterErrorResponse } from "../../../../services/subrouter/routeHelp
 
 export async function POST(request: Request): Promise<Response> {
   const resolved = await resolveSubrouterRequestContext(request, {
-    permission: "use-or-manage",
     allowCookie: false,
   });
   if (!resolved.ok) return resolved.response;

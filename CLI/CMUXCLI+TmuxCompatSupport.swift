@@ -1,7 +1,146 @@
 import CMUXAgentLaunch
+import CmuxFoundation
 import Foundation
 
 extension CMUXCLI {
+    func tmuxStripUnresolvedLongFormatTokens(_ value: String) -> String {
+        var cleaned = ""
+        cleaned.reserveCapacity(value.count)
+        var index = value.startIndex
+
+        while index < value.endIndex {
+            guard value[index] == "#" else {
+                cleaned.append(value[index])
+                index = value.index(after: index)
+                continue
+            }
+
+            let markerIndex = value.index(after: index)
+            guard markerIndex < value.endIndex, value[markerIndex] == "{" else {
+                cleaned.append("#")
+                index = markerIndex
+                continue
+            }
+
+            let keyStart = value.index(after: markerIndex)
+            guard let close = value[keyStart...].firstIndex(of: "}") else {
+                cleaned.append(contentsOf: value[index...])
+                break
+            }
+            index = value.index(after: close)
+        }
+
+        return cleaned
+    }
+
+    func tmuxRenderFormatContent(
+        _ format: String,
+        context: [String: String]
+    ) -> String {
+        let shortKeys: [Character: String] = [
+            "D": "pane_id",
+            "F": "window_flags",
+            "I": "window_index",
+            "P": "pane_index",
+            "S": "session_name",
+            "T": "pane_title",
+            "W": "window_name",
+        ]
+
+        var rendered = ""
+        rendered.reserveCapacity(format.count)
+        var index = format.startIndex
+        while index < format.endIndex {
+            let character = format[index]
+            guard character == "#" else {
+                rendered.append(character)
+                index = format.index(after: index)
+                continue
+            }
+
+            let markerIndex = format.index(after: index)
+            guard markerIndex < format.endIndex else {
+                rendered.append(character)
+                break
+            }
+            let marker = format[markerIndex]
+
+            if marker == "#" {
+                rendered.append("#")
+                index = format.index(after: markerIndex)
+                continue
+            }
+
+            if marker == "{" {
+                let keyStart = format.index(after: markerIndex)
+                guard let close = format[keyStart...].firstIndex(of: "}") else {
+                    rendered.append(contentsOf: format[index...])
+                    break
+                }
+                let key = String(format[keyStart..<close])
+                if let value = context[key] {
+                    rendered.append(tmuxStripUnresolvedLongFormatTokens(value))
+                }
+                index = format.index(after: close)
+                continue
+            }
+
+            if let key = shortKeys[marker] {
+                if let value = context[key] {
+                    rendered.append(tmuxStripUnresolvedLongFormatTokens(value))
+                }
+                index = format.index(after: markerIndex)
+                continue
+            }
+
+            rendered.append("#")
+            index = markerIndex
+        }
+
+        return rendered
+    }
+
+    func tmuxPaneHasTargetableSurface(_ pane: [String: Any]) -> Bool {
+        if let surfaceCount = intFromAny(pane["surface_count"]) {
+            return surfaceCount > 0
+        }
+        if let surfaceIDs = pane["surface_ids"] as? [String] {
+            return !surfaceIDs.isEmpty
+        }
+        if let surfaces = pane["surfaces"] as? [[String: Any]] {
+            return !surfaces.isEmpty
+        }
+        if let selectedSurfaceID = pane["selected_surface_id"] as? String {
+            return !selectedSurfaceID.isEmpty
+        }
+        return false
+    }
+
+    /// Returns nil only when pane.surfaces succeeds with an empty surface list.
+    func tmuxSelectedSurfaceIdIfPresent(
+        workspaceId: String,
+        paneId: String,
+        client: SocketClient
+    ) throws -> String? {
+        let payload = try client.sendV2(
+            method: "pane.surfaces",
+            params: ["workspace_id": workspaceId, "pane_id": paneId]
+        )
+        guard let surfaces = payload["surfaces"] as? [[String: Any]] else {
+            throw CLIError(message: "Pane has no surface to target")
+        }
+        guard !surfaces.isEmpty else { return nil }
+        if let selected = surfaces.first(where: { boolFromAny($0["selected"]) == true }),
+           let id = selected["id"] as? String,
+           !id.isEmpty {
+            return id
+        }
+        if let id = surfaces.lazy.compactMap({ $0["id"] as? String }).first(where: { !$0.isEmpty }) {
+            return id
+        }
+        throw CLIError(message: "Pane has no surface to target")
+    }
+
     func tmuxEnrichContextWithGeometry(
         _ context: inout [String: String],
         pane: [String: Any],
@@ -421,14 +560,7 @@ extension CMUXCLI {
     }
 
     func prependPathEntries(_ newEntries: [String], to currentPath: String?) -> String {
-        var ordered: [String] = []
-        var seen: Set<String> = []
-        for entry in newEntries + (currentPath?.split(separator: ":").map(String.init) ?? []) where !entry.isEmpty {
-            if seen.insert(entry).inserted {
-                ordered.append(entry)
-            }
-        }
-        return ordered.joined(separator: ":")
+        CmuxPathEnvironment().prependingUniqueEntries(newEntries, to: currentPath)
     }
 
 }

@@ -56,12 +56,19 @@ final class GhosttyDesktopNotificationIngress: Sendable {
             return
         }
         let workspace = owningManager.workspacesById[target.tabId]
+        // A remote origin never resolves project hooks from a local directory: the
+        // emitter runs elsewhere, so the pane's cwd would name the wrong config.
+        let hookDirectory = (workspace?.isRemoteWorkspace == true || request.origin.isRemote)
+            ? nil
+            : request.hookDirectory
         await TerminalNotificationStore.shared.addDesktopNotificationResolvingHooks(
             tabId: request.tabId,
             surfaceId: request.surfaceId,
-            hookDirectory: workspace?.isRemoteWorkspace == true ? nil : request.hookDirectory,
+            hookDirectory: hookDirectory,
             title: request.title,
-            body: request.body
+            body: request.body,
+            subtitle: request.subtitle,
+            origin: request.origin
         )
     }
 }

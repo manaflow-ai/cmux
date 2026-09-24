@@ -20,11 +20,12 @@ struct PairingView: View {
     /// when the headline is already the full instruction.
     let connectionErrorGuidance: String?
     let versionWarning: String?
-    let connectPairingCode: () async -> Void
-    let acceptVersionWarning: () async -> Void
-    let connectManualHost: (String, String, Int) async -> Void
+    let connectPairingCode: () async -> MobilePairingURLConnectionResult
+    let acceptVersionWarning: () async -> MobilePairingURLConnectionResult
+    let connectManualHost: (String, String, Int) async -> MobilePairingURLConnectionResult
     let cancelPairing: () -> Void
     let cancel: () -> Void
+    let onPairingResult: ((MobilePairingURLConnectionResult) -> Void)?
 
     @State private var isShowingScanner: Bool
     @State private var deviceName = UITestConfig.addDeviceName
@@ -45,11 +46,12 @@ struct PairingView: View {
         connectionError: String?,
         connectionErrorGuidance: String?,
         versionWarning: String?,
-        connectPairingCode: @escaping () async -> Void,
-        acceptVersionWarning: @escaping () async -> Void,
-        connectManualHost: @escaping (String, String, Int) async -> Void,
+        connectPairingCode: @escaping () async -> MobilePairingURLConnectionResult,
+        acceptVersionWarning: @escaping () async -> MobilePairingURLConnectionResult,
+        connectManualHost: @escaping (String, String, Int) async -> MobilePairingURLConnectionResult,
         cancelPairing: @escaping () -> Void,
-        cancel: @escaping () -> Void
+        cancel: @escaping () -> Void,
+        onPairingResult: ((MobilePairingURLConnectionResult) -> Void)? = nil
     ) {
         _pairingCode = pairingCode
         self.initialPresentation = initialPresentation
@@ -61,6 +63,7 @@ struct PairingView: View {
         self.connectManualHost = connectManualHost
         self.cancelPairing = cancelPairing
         self.cancel = cancel
+        self.onPairingResult = onPairingResult
         _isShowingScanner = State(initialValue: initialPresentation.showsScanner)
     }
 
@@ -79,7 +82,7 @@ struct PairingView: View {
                         .accessibilityIdentifier("MobileAddDeviceNameField")
 
                         TextField(
-                            L10n.string("mobile.addDevice.hostPlaceholder", defaultValue: "127.0.0.1 (simulator only)"),
+                            L10n.string("mobile.addDevice.hostPlaceholder", defaultValue: "100.x.x.x (Tailscale IP; 127.0.0.1 in Simulator)"),
                             text: $host
                         )
                         .focused($focusedField, equals: .host)
@@ -102,7 +105,7 @@ struct PairingView: View {
                             Text(MobilePairingScannerSheet.guidanceText)
                             Text(L10n.string(
                                 "mobile.addDevice.help",
-                                defaultValue: "Manual host and port entry is an advanced fallback for reconnecting an already paired Mac."
+                                defaultValue: "Scan the Mac's pairing QR, or enter its numeric Tailscale IP and port. In the Simulator, 127.0.0.1 can connect to a local Mac. MagicDNS names and local or LAN hosts aren't supported for account-authenticated pairing."
                             ))
                         }
                     }
@@ -136,7 +139,7 @@ struct PairingView: View {
                                     .textSelection(.enabled)
                                     .accessibilityIdentifier("MobileAddDeviceSignedInAccount")
 
-                                Text(L10n.string("mobile.addDevice.accountHelp", defaultValue: "Manual pairing uses this account. If it does not match the Mac, scan a QR/link from the Mac."))
+                                Text(L10n.string("mobile.addDevice.accountHelp", defaultValue: "Pairing uses this account. If it does not match the Mac, sign in to the same account, then scan the Mac QR or enter its numeric Tailscale IP."))
                                     .font(.footnote)
                                     .foregroundStyle(.secondary)
                             }
@@ -187,7 +190,8 @@ struct PairingView: View {
 
                             Button(role: .destructive) {
                                 startPairingTask {
-                                    await acceptVersionWarning()
+                                    let result = await acceptVersionWarning()
+                                    onPairingResult?(result)
                                 }
                             } label: {
                                 Text(L10n.string("mobile.pairing.versionWarningContinue", defaultValue: "Continue anyway"))
@@ -294,6 +298,12 @@ struct PairingView: View {
                 defaultValue: "Add Tailscale Connection"
             )
         }
+        if initialPresentation == .tailscaleReplacement {
+            return L10n.string(
+                "mobile.connections.tailscale.replace",
+                defaultValue: "Replace Tailscale Connection"
+            )
+        }
         if initialPresentation.showsManualPairingControls {
             return L10n.string("mobile.connections.add", defaultValue: "Add Computer")
         }
@@ -331,7 +341,8 @@ struct PairingView: View {
             pairingCode = scannedCode
             isShowingScanner = false
             startPairingTask {
-                await connectPairingCode()
+                let result = await connectPairingCode()
+                onPairingResult?(result)
             }
         }
     }
@@ -376,7 +387,7 @@ struct PairingView: View {
         }
         return L10n.string(
             "mobile.addDevice.manualRouteWarning",
-            defaultValue: "Manual credentials work only in the simulator. On a device, choose Tailscale and scan the Mac QR."
+            defaultValue: "For account-authenticated pairing, enter the Mac's numeric Tailscale IP or scan its QR. MagicDNS names and local or LAN hosts aren't supported."
         )
     }
 
@@ -411,7 +422,8 @@ struct PairingView: View {
         if CmxPairingURLScheme(urlString: trimmedHost) != nil {
             pairingCode = trimmedHost
             startPairingTask {
-                await connectPairingCode()
+                let result = await connectPairingCode()
+                onPairingResult?(result)
             }
             return
         }
@@ -426,7 +438,8 @@ struct PairingView: View {
         }
 
         startPairingTask {
-            await connectManualHost(deviceName, trimmedHost, parsedPort)
+            let result = await connectManualHost(deviceName, trimmedHost, parsedPort)
+            onPairingResult?(result)
         }
     }
 
@@ -449,7 +462,10 @@ struct PairingView: View {
     }
 
     private func cancelDirectScanner() {
-        cancel()
+        // The camera is a nested sheet over PairingView. Cancelling it should
+        // return to the pairing form so the user can enter a code manually or
+        // try the scanner again, without losing the setup context.
+        isShowingScanner = false
     }
 }
 

@@ -1,0 +1,1 @@
+../../Packages/macOS/CmuxSettingsUI/Sources/CmuxSettingsUI/Resources/CustomSidebars/focus.js

@@ -1,0 +1,20 @@
+{
+  "name": "@cmux/ci-artifacts",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "types:generate": "wrangler types --include-runtime false",
+    "typecheck": "tsc --noEmit",
+    "build:test": "wrangler deploy --dry-run --outdir .test-dist",
+    "test": "npm run build:test && node --test test/*.test.mjs",
+    "check": "npm run typecheck && npm test"
+  },
+  "devDependencies": {
+    "@actions/expressions": "0.3.61",
+    "@cloudflare/workers-types": "5.20260920.1",
+    "miniflare": "5.20260918.0-alpha",
+    "typescript": "7.0.2",
+    "wrangler": "4.135.0",
+    "yaml": "2.9.1"
+  }
+}

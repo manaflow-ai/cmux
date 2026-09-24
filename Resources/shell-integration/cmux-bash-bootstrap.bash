@@ -37,6 +37,9 @@ if [[ "${CMUX_SHELL_INTEGRATION:-1}" != "0" && -n "${CMUX_SHELL_INTEGRATION_DIR:
     _cmux_bash_integration="$CMUX_SHELL_INTEGRATION_DIR/cmux-bash-integration.bash"
     [[ -r "$_cmux_bash_integration" ]] && source "$_cmux_bash_integration"
 fi
+# The bootstrap must be exported for its first evaluation, but the composed
+# function names are shell-local and must not leak into child processes.
+export -n PROMPT_COMMAND 2>/dev/null || true
 unset _cmux_ghostty_bash _cmux_bash_integration
 if declare -F _cmux_prompt_command >/dev/null 2>&1; then _cmux_prompt_command; fi
 : __cmux_bash_bootstrap_marker__

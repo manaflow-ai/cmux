@@ -4,7 +4,10 @@ import CmuxMobileSupport
 import SwiftUI
 
 struct WorkspaceRow: View {
-    private static let unreadDotRailVisualGap: CGFloat = 8
+    /// Daylight between the unread badge's trailing edge and the color rail.
+    /// Internal (not private) so layout tests can assert the reservation math
+    /// against the shipped constant.
+    static let unreadDotRailVisualGap: CGFloat = 8
     private static let railTextVisualGap: CGFloat = 10
     private static let railVerticalInset: CGFloat = 5
 
@@ -138,14 +141,12 @@ struct WorkspaceRow: View {
     }
 
     private var unreadDotRailLayoutGap: CGFloat {
-        // Indicators are leading-aligned in the gutter, so the badge ends at
-        // its diameter. Reserving for it keeps the visual gap promise for
-        // badge rows and one uniform rail column for every row.
-        let indicatorTrailing = CGFloat(unreadBadgeDiameter)
-            - CGFloat(unreadIndicatorLeftShift)
-        return max(
-            0,
-            Self.unreadDotRailVisualGap + indicatorTrailing - WorkspaceUnreadDot.gutterWidth
+        // Reserving the badge's gutter overflow keeps the visual gap promise
+        // for badge rows and one uniform rail column for every row.
+        WorkspaceUnreadDot.layoutGap(
+            afterGutterForDiameter: unreadBadgeDiameter,
+            leftShift: unreadIndicatorLeftShift,
+            visualGap: Self.unreadDotRailVisualGap
         )
     }
 

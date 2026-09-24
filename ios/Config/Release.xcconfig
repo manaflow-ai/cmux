@@ -4,8 +4,24 @@
 
 #include "Shared.xcconfig"
 
-PRODUCT_BUNDLE_IDENTIFIER = dev.cmux.app.beta
+CMUX_APP_BUNDLE_IDENTIFIER = dev.cmux.app.beta
+PRODUCT_BUNDLE_IDENTIFIER = $(CMUX_APP_BUNDLE_IDENTIFIER)
+// The notification service extension derives its identifier from this value.
+// The App Store lane overrides CMUX_APP_BUNDLE_IDENTIFIER at archive time and
+// passes the same value as CMUX_HOST_BUNDLE_IDENTIFIER so the extension stays
+// under the production app's bundle identifier.
+CMUX_HOST_BUNDLE_IDENTIFIER = $(CMUX_APP_BUNDLE_IDENTIFIER)
 DEVELOPMENT_TEAM = 7WLXT3NR37
+
+// Release/TestFlight/App Store artifacts always use production authorities.
+// Keep these defaults in the configuration as a second line of defense behind
+// the archive scripts, so a new Release workflow cannot inherit staging from a
+// runner environment or a tagged development build.
+CMUX_IOS_AUTH_ENV = production
+CMUX_API_BASE_URL = https://cmux.com
+CMUX_IROH_BROKER_BASE_URL = https://cmux.com
+CMUX_PRESENCE_BASE_URL = https://presence.cmux.dev
+CMUX_DEV_TAG =
 
 // Distinguish the TestFlight beta on-device from a future App Store "cmux"
 // (overrides PRODUCT_DISPLAY_NAME = cmux from Shared.xcconfig). Debug stays "cmux".
@@ -13,4 +29,5 @@ PRODUCT_DISPLAY_NAME = cmux BETA
 
 // TestFlight/App Store builds use production APNs. Debug keeps
 // Config/cmux.entitlements from Shared.xcconfig.
-CODE_SIGN_ENTITLEMENTS = Config/cmux-release.entitlements
+CMUX_APP_CODE_SIGN_ENTITLEMENTS = Config/cmux-release.entitlements
+CODE_SIGN_ENTITLEMENTS = $(CMUX_APP_CODE_SIGN_ENTITLEMENTS)

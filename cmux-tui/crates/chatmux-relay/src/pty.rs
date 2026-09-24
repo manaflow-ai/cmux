@@ -20,10 +20,15 @@
 //! empty frames; unknown ptyIds tolerated; refusals answer pty_error.
 
 use std::collections::{HashMap, VecDeque};
+#[cfg(unix)]
+use std::fs::File;
+#[cfg(unix)]
+use std::os::fd::AsRawFd;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use tokio::sync::Notify;
+use tokio_util::sync::CancellationToken;
 
 use async_trait::async_trait;
 use base64::Engine as _;
@@ -55,6 +60,17 @@ const MAX_ENUM_SURFACES: usize = 8;
 const RAW_ATTACH_BACKLOG_CAP: usize = 1024 * 1024;
 const PTY_INPUT_B64_CAP: usize = 4 * 1024 * 1024;
 
+/// Random lowercase-hex identity for transports and tunnel attachments.
+pub fn random_hex(bytes: usize) -> String {
+    let mut buffer = vec![0_u8; bytes];
+    let _ = getrandom::fill(&mut buffer);
+    let mut out = String::with_capacity(bytes * 2);
+    for byte in buffer {
+        out.push_str(&format!("{byte:02x}"));
+    }
+    out
+}
+
 pub fn session_name_ok(name: &str) -> bool {
     let invalid = name.is_empty()
         || matches!(name, "." | "..")
@@ -74,14 +90,30 @@ pub fn surface_ref_ok(value: &str) -> bool {
         && value.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | ':' | '-'))
 }
 
+/// A cwd validated against the relay root policy and pinned to its directory
+/// descriptor on Unix. Child processes use the descriptor, not the pathname,
+/// so a same-uid rename or symlink swap cannot redirect the cwd after checks.
+#[derive(Clone)]
+pub struct ResolvedCwd {
+    pub path: PathBuf,
+    #[cfg(unix)]
+    pub directory: Arc<File>,
+}
+
+#[cfg(unix)]
+#[derive(Clone, Copy, PartialEq, Eq)]
+struct DirectoryIdentity {
+    dev: u64,
+    ino: u64,
+}
+
 /// Resolve a PTY working directory and enforce every configured root list.
-/// Canonicalization closes symlink escapes before the path reaches spawn.
 fn scoped_cwd(
     requested: Option<&str>,
     home: &Path,
     local_roots: Option<&[String]>,
     server_roots: Option<&[String]>,
-) -> Result<PathBuf, String> {
+) -> Result<ResolvedCwd, String> {
     // Keep PTY paths on the same wire policy as file actions. The relay sends
     // this error to the peer, so the validator only returns policy text and
     // filesystem failures below are deliberately redacted.
@@ -138,21 +170,115 @@ fn scoped_cwd(
         &raw_owned
     };
     let path = expand_path(raw, home, home);
-    let canonical = std::fs::canonicalize(&path).map_err(|_| "cwd is not accessible".to_owned())?;
+    if path.components().any(|component| component == std::path::Component::ParentDir) {
+        return Err("cwd parent traversal is not supported".to_owned());
+    }
+    let path = std::fs::canonicalize(&path).map_err(|_| "cwd is not accessible".to_owned())?;
+    #[cfg(unix)]
+    let allowed_root_groups: Vec<Vec<Vec<DirectoryIdentity>>> =
+        [local_roots.filter(|r| !r.is_empty()), server_roots.filter(|r| !r.is_empty())]
+            .into_iter()
+            .flatten()
+            .map(|roots| {
+                roots
+                    .iter()
+                    .filter_map(|root| {
+                        let canonical_root =
+                            std::fs::canonicalize(expand_path(root, home, home)).ok()?;
+                        Some(open_pinned_directory(&canonical_root).ok()?.1)
+                    })
+                    .collect()
+            })
+            .collect();
+    #[cfg(not(unix))]
+    let allowed_root_groups: Vec<Vec<Vec<()>>> = Vec::new();
+    #[cfg(not(unix))]
     for roots in [local_roots.filter(|r| !r.is_empty()), server_roots.filter(|r| !r.is_empty())]
         .into_iter()
         .flatten()
     {
+        let canonical =
+            std::fs::canonicalize(&path).map_err(|_| "cwd is not accessible".to_owned())?;
         if !roots.iter().map(|root| expand_path(root, home, home)).any(|root| {
             std::fs::canonicalize(root).map(|root| canonical.starts_with(root)).unwrap_or(false)
         }) {
             return Err("cwd is outside the allowed roots".to_owned());
         }
     }
-    if !canonical.is_dir() {
-        return Err("cwd is not a directory".to_owned());
+    if allowed_root_groups.iter().any(|group| group.is_empty()) {
+        return Err("cwd is outside the allowed roots".to_owned());
     }
-    Ok(canonical)
+    #[cfg(unix)]
+    {
+        let (directory, ancestry) = open_pinned_directory(&path)?;
+        if allowed_root_groups
+            .iter()
+            .any(|group| !group.iter().any(|root| ancestry.starts_with(root)))
+        {
+            return Err("cwd is outside the allowed roots".to_owned());
+        }
+        Ok(ResolvedCwd { path, directory: Arc::new(directory) })
+    }
+    #[cfg(not(unix))]
+    {
+        if !path.is_dir() {
+            return Err("cwd is not a directory".to_owned());
+        }
+        Ok(ResolvedCwd { path })
+    }
+}
+
+#[cfg(unix)]
+fn open_pinned_directory(path: &Path) -> Result<(File, Vec<DirectoryIdentity>), String> {
+    use std::ffi::CString;
+    use std::os::unix::ffi::OsStrExt;
+    use std::os::unix::fs::MetadataExt;
+    use std::os::unix::io::FromRawFd;
+
+    // Linux O_PATH avoids requiring read permission. Darwin's O_EXEC combined
+    // with O_DIRECTORY requests search-only directory access, so execute-only
+    // cwd directories remain valid without relying on a pathname after checks.
+    #[cfg(target_os = "linux")]
+    const ACCESS_MODE: libc::c_int = libc::O_PATH;
+    #[cfg(target_os = "macos")]
+    const ACCESS_MODE: libc::c_int = libc::O_EXEC;
+    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
+    const ACCESS_MODE: libc::c_int = libc::O_RDONLY;
+    let flags = ACCESS_MODE | libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC;
+    let root = CString::new("/").expect("literal root path has no NUL");
+    // SAFETY: `root` is a valid NUL-terminated path and `flags` requests a
+    // directory descriptor with the platform-specific access mode above.
+    let root_fd = unsafe { libc::open(root.as_ptr(), flags) };
+    if root_fd < 0 {
+        return Err("cwd is not accessible".to_owned());
+    }
+    // SAFETY: `root_fd` is a newly-owned descriptor from `open`.
+    let mut parent = unsafe { File::from_raw_fd(root_fd) };
+    let mut expected_path = PathBuf::from("/");
+    let mut ancestry = Vec::new();
+    for component in path.components() {
+        let std::path::Component::Normal(name) = component else {
+            continue;
+        };
+        expected_path.push(name);
+        let expected =
+            std::fs::metadata(&expected_path).map_err(|_| "cwd is not accessible".to_owned())?;
+        ancestry.push(DirectoryIdentity { dev: expected.dev(), ino: expected.ino() });
+        let name = CString::new(name.as_bytes()).map_err(|_| "cwd is not accessible".to_owned())?;
+        // SAFETY: `parent` is an open directory and `name` is NUL-free.
+        let fd = unsafe { libc::openat(parent.as_raw_fd(), name.as_ptr(), flags) };
+        if fd < 0 {
+            return Err("cwd is not accessible".to_owned());
+        }
+        // SAFETY: `fd` is a newly-owned descriptor from openat.
+        let child = unsafe { File::from_raw_fd(fd) };
+        let observed = child.metadata().map_err(|_| "cwd is not accessible".to_owned())?;
+        if expected.dev() != observed.dev() || expected.ino() != observed.ino() {
+            return Err("the selected folder changed; select it again".to_owned());
+        }
+        parent = child;
+    }
+    Ok((parent, ancestry))
 }
 
 fn clamp_dim(value: Option<&Value>) -> Option<u16> {
@@ -214,8 +340,9 @@ pub struct SpawnSpec {
     pub args: Vec<String>,
     pub cols: u16,
     pub rows: u16,
-    pub cwd: PathBuf,
+    pub cwd: ResolvedCwd,
     pub env: HashMap<String, String>,
+    pub cancellation: CancellationToken,
 }
 
 /// A resolved cmux-tui binary: file plus an argv prefix.
@@ -239,7 +366,7 @@ pub trait PtyDeps: Send + Sync {
         cmux_tui: &CmuxTui,
         session: &str,
         socket_dir: &Path,
-        cwd: &Path,
+        cwd: &ResolvedCwd,
         env: &HashMap<String, String>,
     ) -> Result<EnsureDaemon, String>;
     async fn connect_control(&self, socket_path: &Path) -> Result<Arc<dyn ControlHandle>, String>;
@@ -259,6 +386,15 @@ pub struct FrameContext {
     pub trust: String,
     pub local_roots: Option<Vec<String>>,
     pub owner_user_id: Option<String>,
+    /// Identity of the transport this frame arrived on. The PtyManager is
+    /// shared between the relay WebSocket and the managed tunnel listener;
+    /// an attachment may only be written to, resized, flow-controlled, or
+    /// closed by the transport that opened it, and a dropped transport
+    /// detaches only its own attachments. `None` preserves the legacy
+    /// owns-everything behavior for callers that own the whole manager.
+    pub transport_id: Option<String>,
+    /// Raised when the transport that requested this work disconnects.
+    pub cancellation: CancellationToken,
 }
 
 #[derive(Clone)]
@@ -309,6 +445,8 @@ struct Attachment {
     /// kill a viewer PTY) — never kills a shared session.
     control: Arc<dyn PtyControl>,
     actor_id: String,
+    /// Transport that opened this attachment (see FrameContext::transport_id).
+    transport_id: Option<String>,
 }
 
 struct Inner {
@@ -319,7 +457,8 @@ struct Inner {
     scrollback_limit: usize,
     output_cap: u64,
     attachments: Mutex<HashMap<String, Attachment>>,
-    opening_ids: Mutex<std::collections::HashSet<String>>,
+    /// ptyId -> transport that reserved it (None = legacy whole-manager owner).
+    opening_ids: Mutex<HashMap<String, Option<String>>>,
     cancelled_openings: Mutex<std::collections::HashSet<String>>,
     shell_sessions: Mutex<HashMap<String, Arc<ShellSession>>>,
     shell_starting: Mutex<HashMap<String, Arc<Notify>>>,
@@ -370,7 +509,7 @@ impl PtyManager {
                 scrollback_limit: SCROLLBACK_LIMIT,
                 output_cap: OUTPUT_BUFFER_CAP,
                 attachments: Mutex::new(HashMap::new()),
-                opening_ids: Mutex::new(std::collections::HashSet::new()),
+                opening_ids: Mutex::new(HashMap::new()),
                 cancelled_openings: Mutex::new(std::collections::HashSet::new()),
                 shell_sessions: Mutex::new(HashMap::new()),
                 shell_starting: Mutex::new(HashMap::new()),
@@ -396,7 +535,7 @@ impl PtyManager {
                 scrollback_limit,
                 output_cap,
                 attachments: Mutex::new(HashMap::new()),
-                opening_ids: Mutex::new(std::collections::HashSet::new()),
+                opening_ids: Mutex::new(HashMap::new()),
                 cancelled_openings: Mutex::new(std::collections::HashSet::new()),
                 shell_sessions: Mutex::new(HashMap::new()),
                 shell_starting: Mutex::new(HashMap::new()),
@@ -418,6 +557,9 @@ impl PtyManager {
             "pty_open" => self.inner.clone().open(frame, context).await,
             "pty_input" => {
                 let Some(pty_id) = frame.get("ptyId").and_then(Value::as_str) else { return };
+                if !self.inner.transport_owns(pty_id, context.transport_id.as_deref()) {
+                    return;
+                }
                 let Some(data) = frame
                     .get("dataB64")
                     .and_then(Value::as_str)
@@ -432,6 +574,9 @@ impl PtyManager {
             }
             "pty_resize" => {
                 let Some(pty_id) = frame.get("ptyId").and_then(Value::as_str) else { return };
+                if !self.inner.transport_owns(pty_id, context.transport_id.as_deref()) {
+                    return;
+                }
                 let (Some(cols), Some(rows)) =
                     (clamp_dim(frame.get("cols")), clamp_dim(frame.get("rows")))
                 else {
@@ -443,6 +588,9 @@ impl PtyManager {
             }
             "pty_flow" => {
                 let Some(pty_id) = frame.get("ptyId").and_then(Value::as_str) else { return };
+                if !self.inner.transport_owns(pty_id, context.transport_id.as_deref()) {
+                    return;
+                }
                 let pause = frame.get("pause").and_then(Value::as_bool).unwrap_or(false);
                 if let Some(attachment) = self.inner.authorize(pty_id, context, "flow") {
                     if pause {
@@ -454,6 +602,9 @@ impl PtyManager {
             }
             "pty_close" => {
                 let Some(pty_id) = frame.get("ptyId").and_then(Value::as_str) else { return };
+                if !self.inner.transport_owns(pty_id, context.transport_id.as_deref()) {
+                    return;
+                }
                 self.inner.close_authorized(pty_id, context);
             }
             "surface_list" => self.inner.clone().list_surfaces(frame, context).await,
@@ -461,10 +612,52 @@ impl PtyManager {
         }
     }
 
+    /// True while `pty_id` has a live attachment. The tunnel listener uses
+    /// this after a pty_error reply to tell a fatal refusal (attachment gone,
+    /// connection ends) from a non-fatal one (oversized input, stream lives).
+    pub fn has_attachment(&self, pty_id: &str) -> bool {
+        self.inner.attachments.lock().expect("attach lock").contains_key(pty_id)
+    }
+
+    /// Live attachment count (viewers, not sessions). Diagnostics and tests.
+    pub fn attachment_count(&self) -> usize {
+        self.inner.attachments.lock().expect("attach lock").len()
+    }
+
     /// The relay socket dropped: release every attachment (sessions live on).
+    /// Callers that own the whole manager only; a per-connection transport
+    /// must use `detach_transport` so it cannot detach attachments the
+    /// managed tunnel listener (or another socket) owns.
     pub fn detach_all(&self) {
-        let ids: Vec<String> =
-            self.inner.attachments.lock().expect("attach lock").keys().cloned().collect();
+        self.detach_matching(|_| true);
+    }
+
+    /// One transport dropped: release only its attachments and cancel only
+    /// its in-flight opens. Sessions live on either way (docs/TERMINAL.md).
+    pub fn detach_transport(&self, transport_id: &str) {
+        self.detach_matching(|owner| owner == Some(transport_id));
+    }
+
+    fn detach_matching(&self, owns: impl Fn(Option<&str>) -> bool) {
+        // Openings first: close() records cancellation for a reserved id, so
+        // a late open cannot install an attachment after its transport died.
+        let mut ids: Vec<String> = {
+            let opening = self.inner.opening_ids.lock().expect("opening lock");
+            opening
+                .iter()
+                .filter(|(_, owner)| owns(owner.as_deref()))
+                .map(|(id, _)| id.clone())
+                .collect()
+        };
+        {
+            let attachments = self.inner.attachments.lock().expect("attach lock");
+            ids.extend(
+                attachments
+                    .iter()
+                    .filter(|(_, attachment)| owns(attachment.transport_id.as_deref()))
+                    .map(|(id, _)| id.clone()),
+            );
+        }
         for id in ids {
             self.inner.close(&id);
         }
@@ -507,7 +700,7 @@ impl Inner {
         let reservation_result = {
             let mut opening = self.opening_ids.lock().expect("opening lock");
             let attached = self.attachments.lock().expect("attach lock").contains_key(&pty_id);
-            if attached || opening.contains(&pty_id) {
+            if attached || opening.contains_key(&pty_id) {
                 Err(("bad_request", "ptyId is already attached".to_owned()))
             } else if self.attachments.lock().expect("attach lock").len() + opening.len()
                 >= self.max_ptys
@@ -517,7 +710,7 @@ impl Inner {
                     format!("this relay caps concurrent terminals at {}", self.max_ptys),
                 ))
             } else {
-                opening.insert(pty_id.clone());
+                opening.insert(pty_id.clone(), context.transport_id.clone());
                 Ok(())
             }
         };
@@ -689,6 +882,7 @@ impl Inner {
                 closing: opened.closing,
                 control: opened.control,
                 actor_id: actor.to_owned(),
+                transport_id: context.transport_id.clone(),
             },
         );
         if let Some(previous) = previous {
@@ -795,7 +989,7 @@ impl Inner {
         // Match `open`'s lock order. If opening still owns the reservation,
         // record cancellation and let it dispose the newly opened PTY.
         let opening = self.opening_ids.lock().expect("opening lock");
-        if opening.contains(pty_id) {
+        if opening.contains_key(pty_id) {
             self.cancelled_openings
                 .lock()
                 .expect("cancelled openings lock")
@@ -808,6 +1002,20 @@ impl Inner {
             attachment.closing.store(true, Ordering::SeqCst);
             attachment.control.kill();
         }
+    }
+
+    /// Frame-level transport fence. Unknown ids retain the protocol's silent
+    /// no-op behavior; once an id is reserved or attached, a different
+    /// transport may not act on it. A `None` caller owns everything (legacy).
+    fn transport_owns(&self, pty_id: &str, transport_id: Option<&str>) -> bool {
+        let Some(transport_id) = transport_id else { return true };
+        if let Some(attachment) = self.attachments.lock().expect("attach lock").get(pty_id) {
+            return attachment.transport_id.as_deref() == Some(transport_id);
+        }
+        if let Some(owner) = self.opening_ids.lock().expect("opening lock").get(pty_id) {
+            return owner.as_deref() == Some(transport_id);
+        }
+        true
     }
 
     fn authorize(&self, pty_id: &str, context: &FrameContext, action: &str) -> Option<Attachment> {
@@ -883,7 +1091,7 @@ impl Inner {
         session: &str,
         cols: u16,
         rows: u16,
-        cwd: &Path,
+        cwd: &ResolvedCwd,
         env: &HashMap<String, String>,
         pty_id: &str,
         server_roots: Option<&[String]>,
@@ -984,8 +1192,9 @@ impl Inner {
                 args,
                 cols,
                 rows,
-                cwd: cwd.to_path_buf(),
+                cwd: cwd.clone(),
                 env: env.clone(),
+                cancellation: context.cancellation.clone(),
             })
             .await;
         let control = Arc::clone(&handle.control);
@@ -1009,7 +1218,7 @@ impl Inner {
         session: &str,
         cols: u16,
         rows: u16,
-        cwd: &Path,
+        cwd: &ResolvedCwd,
         env: &HashMap<String, String>,
         pty_id: &str,
         server_roots: Option<&[String]>,
@@ -1067,8 +1276,9 @@ impl Inner {
                         args: Vec::new(),
                         cols,
                         rows,
-                        cwd: cwd.to_path_buf(),
+                        cwd: cwd.clone(),
                         env: env.clone(),
+                        cancellation: context.cancellation.clone(),
                     })
                     .await;
                 let PtyHandle { control, output, banner } = handle;
@@ -1559,7 +1769,7 @@ impl Inner {
         surface_ref: &str,
         cols: u16,
         rows: u16,
-        cwd: &Path,
+        cwd: &ResolvedCwd,
         env: &HashMap<String, String>,
         pty_id: &str,
         server_roots: Option<&[String]>,
@@ -1899,6 +2109,10 @@ mod tests {
     use super::*;
     use crate::control::{CloseHandler, EventHandler};
     use std::future::Future;
+    #[cfg(unix)]
+    use std::os::unix::fs::MetadataExt;
+    #[cfg(target_os = "macos")]
+    use std::os::unix::fs::PermissionsExt;
     use std::sync::atomic::{AtomicUsize, Ordering as AtomicOrdering};
     use std::sync::{Arc as TestArc, Barrier, Mutex as StdMutex};
     use std::thread;
@@ -2021,7 +2235,7 @@ mod tests {
             let pty = FakePty {
                 state: Arc::new(StdMutex::new(FakeState::default())),
                 spawn_file: spec.file.clone(),
-                spawn_cwd: spec.cwd.clone(),
+                spawn_cwd: spec.cwd.path.clone(),
                 spawn_term: spec.env.get("TERM").cloned().unwrap_or_default(),
             };
             self.recorded.lock().unwrap().spawned.push(pty.clone());
@@ -2037,7 +2251,7 @@ mod tests {
             _cmux_tui: &CmuxTui,
             session: &str,
             socket_dir: &Path,
-            _cwd: &Path,
+            _cwd: &ResolvedCwd,
             _env: &HashMap<String, String>,
         ) -> Result<EnsureDaemon, String> {
             self.recorded
@@ -2151,7 +2365,37 @@ mod tests {
                 trust: trust.to_owned(),
                 local_roots: None,
                 owner_user_id: owner,
+                transport_id: None,
+                cancellation: CancellationToken::new(),
             }
+        }
+
+        fn context_with_transport(
+            &self,
+            trust: &str,
+            owner: Option<String>,
+            transport_id: Option<&str>,
+        ) -> FrameContext {
+            let mut context = self.context(trust, owner);
+            context.transport_id = transport_id.map(str::to_owned);
+            context
+        }
+
+        async fn open_with_transport(&self, pty_id: &str, session: &str, transport_id: &str) {
+            let frame = serde_json::json!({
+                "version": 4,
+                "type": "pty_open",
+                "ptyId": pty_id,
+                "session": session,
+                "cols": 80,
+                "rows": 24,
+                "actorId": "user_owner",
+                "trust": "supervised",
+                "allowedRoots": Value::Null,
+            });
+            let context =
+                self.context_with_transport("supervised", self.owner.clone(), Some(transport_id));
+            self.manager.handle_frame(&frame, &context).await;
         }
 
         async fn open(
@@ -2650,6 +2894,42 @@ mod tests {
         assert_eq!(h.spawned().len(), 1);
     }
 
+    #[tokio::test]
+    async fn a_foreign_transport_cannot_write_resize_or_close_an_owned_pty() {
+        let h = harness(None, None);
+        h.open_with_transport("p1", "main", "transport-a").await;
+        let foreign = h.context_with_transport("supervised", h.owner.clone(), Some("transport-b"));
+        let input = serde_json::json!({
+            "version": 4,
+            "type": "pty_input",
+            "ptyId": "p1",
+            "dataB64": b64("stolen"),
+        });
+        h.manager.handle_frame(&input, &foreign).await;
+        assert!(h.spawned()[0].state.lock().unwrap().written.is_empty());
+        let close = serde_json::json!({ "version": 4, "type": "pty_close", "ptyId": "p1" });
+        h.manager.handle_frame(&close, &foreign).await;
+        assert!(h.manager.has_attachment("p1"), "a foreign close must be a silent no-op");
+        let owner = h.context_with_transport("supervised", h.owner.clone(), Some("transport-a"));
+        h.manager.handle_frame(&input, &owner).await;
+        assert_eq!(h.spawned()[0].written_string(0), "stolen");
+        // A caller with no transport identity owns the whole manager (legacy).
+        h.manager.handle_frame(&close, &h.context("supervised", h.owner.clone())).await;
+        assert!(!h.manager.has_attachment("p1"));
+    }
+
+    #[tokio::test]
+    async fn detach_transport_releases_only_that_transports_attachments() {
+        let h = harness(None, None);
+        h.open_with_transport("p-relay", "relay-side", "transport-relay").await;
+        h.open_with_transport("p-tunnel", "tunnel-side", "transport-tunnel").await;
+        h.manager.detach_transport("transport-relay");
+        assert!(!h.manager.has_attachment("p-relay"), "the relay transport's viewer must detach");
+        assert!(h.manager.has_attachment("p-tunnel"), "the tunnel viewer must survive");
+        h.manager.detach_all();
+        assert!(!h.manager.has_attachment("p-tunnel"));
+    }
+
     #[test]
     fn pty_env_scrubs_secrets_but_keeps_a_real_term() {
         let home = TestDirectory::new("env");
@@ -2668,11 +2948,11 @@ mod tests {
         std::fs::create_dir_all(&nested).unwrap();
         let home = root.path.to_string_lossy().into_owned();
         assert_eq!(
-            scoped_cwd(Some(&home), Path::new(&home), None, None).unwrap(),
+            scoped_cwd(Some(&home), Path::new(&home), None, None).unwrap().path,
             std::fs::canonicalize(&root.path).unwrap()
         );
         assert_eq!(
-            scoped_cwd(Some("~/nested"), Path::new(&home), None, None).unwrap(),
+            scoped_cwd(Some("~/nested"), Path::new(&home), None, None).unwrap().path,
             std::fs::canonicalize(nested).unwrap()
         );
     }
@@ -2681,17 +2961,79 @@ mod tests {
     fn scoped_cwd_rejects_relative_requests_and_defaults_null_or_empty() {
         let root = TestDirectory::new("cwd-default");
         assert_eq!(
-            scoped_cwd(Some("relative"), &root.path, None, None).unwrap_err(),
+            match scoped_cwd(Some("relative"), &root.path, None, None) {
+                Ok(_) => panic!("relative cwd must be rejected"),
+                Err(error) => error,
+            },
             "cwd must be absolute or home-relative"
         );
         assert_eq!(
-            scoped_cwd(None, &root.path, None, None).unwrap(),
+            scoped_cwd(None, &root.path, None, None).unwrap().path,
             std::fs::canonicalize(&root.path).unwrap()
         );
         assert_eq!(
-            scoped_cwd(Some(""), &root.path, None, None).unwrap(),
+            scoped_cwd(Some(""), &root.path, None, None).unwrap().path,
             std::fs::canonicalize(&root.path).unwrap()
         );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn scoped_cwd_descriptor_remains_pinned_after_path_rebind() {
+        let root = TestDirectory::new("cwd-pinned");
+        let scope = root.path.join("scope");
+        let checked = scope.join("checked");
+        let outside = root.path.join("outside");
+        std::fs::create_dir(&scope).unwrap();
+        std::fs::create_dir(&checked).unwrap();
+        std::fs::create_dir_all(outside.join("checked")).unwrap();
+        let resolved = scoped_cwd(Some(checked.to_str().unwrap()), &root.path, None, None).unwrap();
+        let before = resolved.directory.metadata().unwrap();
+        std::fs::rename(&scope, root.path.join("moved")).unwrap();
+        std::os::unix::fs::symlink(&outside, &scope).unwrap();
+        let after = resolved.directory.metadata().unwrap();
+        assert_eq!(before.dev(), after.dev());
+        assert_eq!(before.ino(), after.ino());
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn scoped_cwd_accepts_execute_only_directory() {
+        let root = TestDirectory::new("cwd-search-only");
+        let directory = root.path.join("search-only");
+        std::fs::create_dir(&directory).unwrap();
+        std::fs::set_permissions(&directory, std::fs::Permissions::from_mode(0o111)).unwrap();
+
+        // `open_pinned_directory` intentionally rejects symlink components.
+        // Canonicalize the temporary path because macOS commonly exposes /var
+        // through a symlink, while preserving the execute-only target.
+        let canonical = std::fs::canonicalize(&directory).unwrap();
+        open_pinned_directory(&canonical).expect("O_EXEC|O_DIRECTORY must open search-only cwd");
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn scoped_cwd_resolves_execute_only_directory() {
+        let root = TestDirectory::new("cwd-search-only-scoped");
+        let directory = root.path.join("search-only");
+        std::fs::create_dir(&directory).unwrap();
+        std::fs::set_permissions(&directory, std::fs::Permissions::from_mode(0o111)).unwrap();
+
+        let resolved = scoped_cwd(Some(directory.to_str().unwrap()), &root.path, None, None)
+            .expect("execute-only cwd must resolve through its pinned descriptor");
+        assert_eq!(resolved.path, std::fs::canonicalize(directory).unwrap());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn scoped_cwd_resolves_symlink_components_before_spawn() {
+        let root = TestDirectory::new("cwd-symlink");
+        let target = root.path.join("target");
+        let link = root.path.join("link");
+        std::fs::create_dir(&target).unwrap();
+        std::os::unix::fs::symlink(&target, &link).unwrap();
+        let resolved = scoped_cwd(Some(link.to_str().unwrap()), &root.path, None, None).unwrap();
+        assert_eq!(resolved.path, std::fs::canonicalize(target).unwrap());
     }
 
     #[test]

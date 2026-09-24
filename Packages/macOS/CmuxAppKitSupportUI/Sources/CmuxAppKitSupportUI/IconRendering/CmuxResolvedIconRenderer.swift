@@ -51,7 +51,9 @@ public final class CmuxResolvedIconRenderer {
         }
         appearance.performAsCurrentDrawingAppearance {
             for candidate in sources {
-                guard let sourceImage = resolvedSourceImage(for: candidate.source, request: request),
+                guard let sourceImage = resolvedSourceImage(
+                    for: candidate.source, request: request, isTinted: candidate.tintColor != nil
+                ),
                       let bitmap = bitmapRepresentation(size: imageSize) else {
                     continue
                 }
@@ -66,7 +68,11 @@ public final class CmuxResolvedIconRenderer {
                 NSRect(origin: .zero, size: imageSize).fill()
                 NSGraphicsContext.current?.imageInterpolation = .high
 
-                let drawRect = drawingRect(for: sourceImage.size, in: imageSize)
+                let drawRect = drawingRect(
+                    for: sourceImage.size,
+                    in: imageSize,
+                    preservesNaturalSize: request.drawsSymbolAtNaturalSize(candidate.source)
+                )
                 sourceImage.draw(
                     in: drawRect,
                     from: .zero,
@@ -77,8 +83,13 @@ public final class CmuxResolvedIconRenderer {
                 )
 
                 if let tintColor = candidate.tintColor {
+                    // Use the source alpha as a mask for the tint. `sourceAtop`
+                    // blends a translucent semantic color with multicolor SF
+                    // Symbols (for example, leaving Calendar's red header
+                    // visible), so two icons that request the same neutral
+                    // tint can still render in different hues.
                     tintColor.setFill()
-                    NSRect(origin: .zero, size: imageSize).fill(using: .sourceAtop)
+                    NSRect(origin: .zero, size: imageSize).fill(using: .sourceIn)
                 }
                 let isVisible = containsVisiblePixels(in: bitmap)
                 NSGraphicsContext.restoreGraphicsState()
@@ -112,7 +123,8 @@ public final class CmuxResolvedIconRenderer {
 
     private func resolvedSourceImage(
         for source: CmuxResolvedIconSource,
-        request: CmuxResolvedIconRequest
+        request: CmuxResolvedIconRequest,
+        isTinted: Bool
     ) -> NSImage? {
         switch source {
         case .systemSymbol(let name, let accessibilityDescription):
@@ -122,11 +134,17 @@ public final class CmuxResolvedIconRenderer {
             ) else {
                 return nil
             }
-            let pointSize = max(1, min(request.size.width, request.size.height))
-            let configuration = NSImage.SymbolConfiguration(
+            let pointSize = max(1, request.symbolPointSize ?? min(request.size.width, request.size.height))
+            var configuration = NSImage.SymbolConfiguration(
                 pointSize: pointSize,
                 weight: request.symbolWeight
             )
+            if isTinted {
+                // Tinting consumes alpha only. Multicolor symbols may paint
+                // an opaque interior glyph, which would become a solid shape.
+                // Monochrome preserves that glyph as a transparent cutout.
+                configuration = configuration.applying(.preferringMonochrome())
+            }
             let configured = baseImage.withSymbolConfiguration(configuration) ?? baseImage
             let image = copiedImage(configured)
             return image
@@ -188,14 +206,24 @@ public final class CmuxResolvedIconRenderer {
         return NSSize(width: ceil(size.width), height: ceil(size.height))
     }
 
-    private func drawingRect(for sourceSize: NSSize, in targetSize: NSSize) -> NSRect {
+    /// Fits `sourceSize` into `targetSize`. With `preservesNaturalSize`, the
+    /// source keeps its own size (centered) unless it overflows the target,
+    /// matching how a configured SF Symbol lays out at its point size.
+    private func drawingRect(
+        for sourceSize: NSSize,
+        in targetSize: NSSize,
+        preservesNaturalSize: Bool = false
+    ) -> NSRect {
         guard sourceSize.width.isFinite,
               sourceSize.height.isFinite,
               sourceSize.width > 0,
               sourceSize.height > 0 else {
             return NSRect(origin: .zero, size: targetSize)
         }
-        let scale = min(targetSize.width / sourceSize.width, targetSize.height / sourceSize.height)
+        var scale = min(targetSize.width / sourceSize.width, targetSize.height / sourceSize.height)
+        if preservesNaturalSize {
+            scale = min(scale, 1)
+        }
         let width = sourceSize.width * scale
         let height = sourceSize.height * scale
         return NSRect(

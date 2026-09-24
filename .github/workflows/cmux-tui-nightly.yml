@@ -4,6 +4,12 @@ on:
   # CI pause: the macOS Nightly and rolling iOS beta remain automatic; this
   # separate TUI package build remains available on demand.
   workflow_dispatch:
+    inputs:
+      include_windows:
+        description: "Include experimental Windows packages (requires registry publisher setup)"
+        required: true
+        default: false
+        type: boolean
 
 permissions: {}
 
@@ -86,8 +92,12 @@ jobs:
       pypi_version: ${{ needs.version.outputs.pypi_version }}
       package_npm: true
       package_pypi: true
-      include_windows: true
+      include_windows: ${{ inputs.include_windows == true }}
       attest_packages: true
+      # Match stable native packages; the Cloudflare Worker deploys separately.
+      # On-demand nightly packages are off the PR critical path: build the
+      # macOS legs on the background lane. See docs/ci-runners.md.
+      macos_runner: ${{ vars.MACOS_RUNNER_BACKGROUND || 'macos-15' }}
       # Pin the exact sha the version job resolved so every matrix leg builds
       # the same commit even if main advances mid-run.
       checkout_ref: ${{ needs.version.outputs.head_sha }}
@@ -219,3 +229,8 @@ jobs:
         with:
           packages-dir: dist
           attestations: true
+
+      - name: Verify every nightly PyPI wheel after upload
+        env:
+          VERSION: ${{ needs.version.outputs.pypi_version }}
+        run: bash cmux-tui/scripts/verify-pypi-tui-upload.sh dist "$VERSION"
