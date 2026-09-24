@@ -662,6 +662,42 @@ jobs:
           echo "seconds=$seconds" >> "$GITHUB_OUTPUT"
           exit "$status"
 
+      # CANARY (do not merge): what checksum-only costs and absorbs at cmux scale.
+      - name: Canary probe checksum-only rebuilds
+        if: always() && steps.hosted-compile.outcome == 'success'
+        continue-on-error: true
+        timeout-minutes: 45
+        run: |
+          set +e -u
+          dd="$CMUX_COMPILE_ADMISSION_DERIVED_DATA"; src=/private/tmp/cmux-ci/src
+          echo "manifest modes: $(grep -rho '"file-system":"[a-z-]*"' "$dd"/Build/Intermediates.noindex/XCBuildData/*.xcbuilddata/manifest.json 2>/dev/null | sort | uniq -c | tr '\n' ' ')"
+          for f in SwiftDriver SwiftEmitModule SwiftCompile CompileC ScanDependencies Copy CpResource Ld; do
+            printf '%s=%s ' "$f" "$(grep -cE "^$f " "$RUNNER_TEMP/cmux-compile-admission.txt")"
+          done; echo "<- admission compile"
+          probe() {
+            local name="$1" log="$RUNNER_TEMP/probe-$1.txt" started=$SECONDS
+            scripts/ci/compile-app-host-test-product.sh canonical-build "$dd" "$PWD/.ci-source-packages" \
+              "$CMUX_COMPILE_ADMISSION_CAS" "$log" > /dev/null 2>&1 || echo "probe $name build failed"
+            local line="probe $name: $((SECONDS - started))s"
+            for f in SwiftDriver SwiftEmitModule SwiftCompile CompileC Copy CpResource Ld; do
+              line+=" $f=$(grep -cE "^$f " "$log")"
+            done
+            echo "$line"; echo "- $line" >> "$GITHUB_STEP_SUMMARY"
+          }
+          probe null
+          # A fresh runner: every checkout file, directory and package checkout
+          # gets a new mtime with the same bytes, and so do the generated
+          # module maps Xcode rewrites after adoption.
+          find "$src" -name .git -prune -o -print0 | xargs -0 touch -h
+          find "$dd/Build/Intermediates.noindex/GeneratedModuleMaps" -type f -print0 | xargs -0 touch -h
+          xcode_sdk="$(xcrun --show-sdk-path)"
+          touch -h "$xcode_sdk/usr/include/stdio.h" 2>&1 | head -1; stat -f 'sdk stdio.h mtime %Sm' "$xcode_sdk/usr/include/stdio.h"
+          sudo -n find "$xcode_sdk/usr/include" -maxdepth 1 -type f -exec touch -h {} + 2>&1 | head -2
+          stat -f 'after sudo touch %Sm' "$xcode_sdk/usr/include/stdio.h"
+          probe touch-everything
+          printf '\n// canary\n' >> "$src/Sources/Sidebar/GPUSpinner.swift"
+          probe app-file-edit
+
       # Adoption sets a per-user Xcode default. Only a build whose inputs were
       # just replayed should ignore inode changes, so a reused runner does not
       # carry it into an unrelated job.
