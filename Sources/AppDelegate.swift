@@ -1327,12 +1327,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     var didObserveUnknownDisplayConfiguration = false
     var visibleFrameFitTopologyRetryBudget = 0
     var screenChangeReconcileRetryBudget = 0
-    /// Prevents display/frame notifications emitted by AppKit while a repair
-    /// is applying a frame from recursively entering the same repair pass.
-    /// AppKit's display reconfiguration handler is not re-entrant: calling
-    /// NSWindow.setFrame from that callback can synchronously trigger layout
-    /// and another screen-change callback (issue #14037).
-    var isReconcilingMainWindowFrames = false
     var isScreenChangeCaptureSuppressed = false
     var screenChangeCaptureSuppressionSignature: String?
     var screenChangeCaptureSuppressionSignatureGeneration: Int?
