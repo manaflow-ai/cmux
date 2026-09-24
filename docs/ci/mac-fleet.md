@@ -347,10 +347,10 @@ not a relabelled dev-build machine.
 ### 3.3 Xcode versions
 
 The mini must carry the exact app at `vars.CMUX_CI_XCODE_APP_PR ||
-vars.CMUX_CI_XCODE_APP_MACOS_15` (currently `/Applications/Xcode_26.3.app`)
-with a macOS SDK major of 26, and `scripts/select-ci-xcode.sh` must resolve it.
-`scripts/persistent-compile` reads those variables rather than a copy of the
-path, so `up` and the doctor check each mini against the value CI uses today.
+vars.CMUX_CI_XCODE_APP_MACOS_15` with a macOS SDK major of 26, and
+`scripts/select-ci-xcode.sh` must resolve it. `scripts/persistent-compile`
+reads those variables rather than a copy of the path, so `up` and the doctor
+check each mini against the value CI uses today and print it.
 The build number matters too: revalidation compares the full `xcodebuild
 -version`, so the mini's Xcode must be the same build as the hosted image's.
 
@@ -571,9 +571,8 @@ token is valid for one hour.
       `glaeda-cmux-fleet-acceptance/v2` receipt and state `eligible` (#13491).
 - [ ] That mini registered as an Actions runner in that group with exactly the
       labels in 3.2.
-- [ ] The Xcode that `scripts/persistent-compile` names (from the CI
-      variables, currently `/Applications/Xcode_26.3.app`) present and
-      selected by `scripts/select-ci-xcode.sh`.
+- [ ] The Xcode that `scripts/persistent-compile` names from the CI
+      variables present and selected by `scripts/select-ci-xcode.sh`.
 - [ ] Free space above one full cold build plus three cache generations.
 
 ### Stage 1 - canary, one mini, one lane, one PR

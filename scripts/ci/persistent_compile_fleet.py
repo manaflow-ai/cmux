@@ -52,7 +52,7 @@ COHORT_VARIABLE = "CI_PERSISTENT_MAC_COMPILE_COHORT"
 # Xcode compiles products that the hosted job refuses, so the variables are the
 # pin; XCODE_APP is only the fallback when they cannot be read.
 XCODE_VARIABLES = ("CMUX_CI_XCODE_APP_PR", "CMUX_CI_XCODE_APP_MACOS_15")
-XCODE_APP = "/Applications/Xcode_26.3.app"
+XCODE_APP = "/Applications/Xcode_26.6.app"
 ROLE = "cmux_macos_native_build"
 GLAEDA_URL = "https://github.com/teamleaderleo/glaeda.git"
 # The reviewed Glaeda candidate a mini runs (#13491, docs/FLEET_DISTRIBUTION.md in
@@ -245,6 +245,12 @@ def read_github() -> GitHubState:
         state.error = "gh is not signed in (run: gh auth login)"
         return state
     state.auth = me if isinstance(me, str) else str(me)
+    # Before the runner groups: variables need only repository access, and the doctor
+    # checks a non-admin operator's mini against the Xcode pin they hold.
+    try:
+        state.variables = read_variables()
+    except Failure as error:
+        state.variables_error = str(error)
     try:
         repo_id = int(gh_api(f"repos/{REPO}")["id"])
         groups = gh_api(f"orgs/{ORG}/actions/runner-groups?per_page=100").get("runner_groups", [])
@@ -268,10 +274,6 @@ def read_github() -> GitHubState:
             state.runners = data.get("runners", [])
         except Failure as error:
             state.runners_error = str(error)
-    try:
-        state.variables = read_variables()
-    except Failure as error:
-        state.variables_error = str(error)
     return state
 
 
