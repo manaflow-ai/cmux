@@ -55,9 +55,12 @@ final class WorkspaceNavigationBarController: UIViewController {
         titleCapsule.frame.size = titleCapsule.intrinsicContentSize
 
         for value in leadingItems + trailingItems {
+            let horizontalPadding: CGFloat = value.id == .back ? 6 : 7
             let content = AnyView(value.content
                 .imageScale(.large)
                 .fixedSize()
+                .padding(.horizontal, horizontalPadding)
+                .frame(minHeight: 36)
                 .environment(\.self, environment))
             if let control = controls[value.id] {
                 control.view.configuration = UIHostingConfiguration { content.ignoresSafeArea() }
