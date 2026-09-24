@@ -217,10 +217,12 @@ struct AgentFeedRow: View, Equatable {
             RoundedRectangle(cornerRadius: 1.5)
                 .fill(Color.secondary.opacity(0.35))
                 .frame(width: 3)
-            Text(message)
-                .font(.footnote)
-                .foregroundStyle(.secondary)
-                .lineLimit(3)
+            AgentFeedMarkdownText(
+                markdown: message,
+                font: .footnote,
+                color: .secondary,
+                lineLimit: 3
+            )
         }
         .fixedSize(horizontal: false, vertical: true)
     }
@@ -300,9 +302,7 @@ struct AgentFeedRow: View, Equatable {
                     bundle: .module
                 ))
                 .font(.footnote.weight(.semibold))
-                Text(reply)
-                    .font(.footnote)
-                    .foregroundStyle(.primary)
+                AgentFeedMarkdownText(markdown: reply, font: .footnote)
                     .fixedSize(horizontal: false, vertical: true)
             }
             .padding(.horizontal, 10)
@@ -726,8 +726,8 @@ private struct AgentFeedQuestionControls: View {
                     .foregroundStyle(.secondary)
             }
             if !question.prompt.isEmpty {
-                Text(question.prompt)
-                    .font(.subheadline.weight(.medium))
+                AgentFeedMarkdownText(markdown: question.prompt,
+                                      font: .subheadline.weight(.medium))
                     .fixedSize(horizontal: false, vertical: true)
             }
             if question.multiSelect {
@@ -785,13 +785,13 @@ private struct AgentFeedQuestionControls: View {
         } label: {
             HStack(alignment: .top, spacing: 10) {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(option.label)
-                        .font(.subheadline.weight(.medium))
+                    AgentFeedMarkdownText(markdown: option.label,
+                                          font: .subheadline.weight(.medium))
                         .multilineTextAlignment(.leading)
                     if let description = option.description, !description.isEmpty {
-                        Text(description)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
+                        AgentFeedMarkdownText(markdown: description,
+                                              font: .caption,
+                                              color: .secondary)
                             .fixedSize(horizontal: false, vertical: true)
                     }
                 }

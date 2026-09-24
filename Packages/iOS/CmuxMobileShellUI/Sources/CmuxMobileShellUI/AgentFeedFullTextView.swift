@@ -1,4 +1,5 @@
 #if os(iOS)
+import CmuxAgentChatUI
 import CmuxMobileShellModel
 import SwiftUI
 
@@ -13,29 +14,28 @@ struct AgentFeedFullTextView: View {
 
     var body: some View {
         NavigationStack {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 16) {
-                    if let text {
-                        Text(verbatim: text)
-                            .font(.body)
-                            .textSelection(.enabled)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .accessibilityIdentifier("MobileAgentFeedFullTextBody")
-                    } else if failed {
-                        Text(String(localized: "mobile.agentFeed.fullText.unavailable",
-                                    defaultValue: "Couldn’t load the full text from this Mac. Reconnect and try again.",
-                                    bundle: .module))
-                        Button(String(localized: "mobile.agentFeed.fullText.retry",
-                                      defaultValue: "Try again", bundle: .module)) {
-                            attempt += 1
+            if let text {
+                ChatArtifactEmbeddedMarkdown(markdown: text)
+                    .accessibilityIdentifier("MobileAgentFeedFullTextBody")
+            } else {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 16) {
+                        if failed {
+                            Text(String(localized: "mobile.agentFeed.fullText.unavailable",
+                                        defaultValue: "Couldn’t load the full text from this Mac. Reconnect and try again.",
+                                        bundle: .module))
+                            Button(String(localized: "mobile.agentFeed.fullText.retry",
+                                          defaultValue: "Try again", bundle: .module)) {
+                                attempt += 1
+                            }
+                        } else {
+                            ProgressView(String(localized: "mobile.agentFeed.fullText.loading",
+                                                defaultValue: "Loading full text…", bundle: .module))
+                                .frame(maxWidth: .infinity)
                         }
-                    } else {
-                        ProgressView(String(localized: "mobile.agentFeed.fullText.loading",
-                                            defaultValue: "Loading full text…", bundle: .module))
-                            .frame(maxWidth: .infinity)
                     }
+                    .padding()
                 }
-                .padding()
             }
             .navigationTitle(String(localized: "mobile.agentFeed.fullText.title",
                                     defaultValue: "Full text", bundle: .module))

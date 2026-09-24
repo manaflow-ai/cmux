@@ -1,4 +1,5 @@
 #if os(iOS)
+import Foundation
 import SwiftUI
 import UIKit
 
@@ -143,7 +144,55 @@ final class AgentFeedInlineTextView: UIView {
     }
 
     private func attributed(_ value: String) -> NSMutableAttributedString {
-        NSMutableAttributedString(string: value, attributes: [.font: font, .foregroundColor: textColor])
+        var options = AttributedString.MarkdownParsingOptions()
+        options.interpretedSyntax = .inlineOnlyPreservingWhitespace
+        options.failurePolicy = .returnPartiallyParsedIfPossible
+
+        guard let markdown = try? AttributedString(markdown: value, options: options) else {
+            return NSMutableAttributedString(
+                string: value,
+                attributes: [.font: font, .foregroundColor: textColor]
+            )
+        }
+
+        let rendered = NSMutableAttributedString(markdown)
+        let fullRange = NSRange(location: 0, length: rendered.length)
+        rendered.addAttributes([.font: font, .foregroundColor: textColor], range: fullRange)
+
+        // Foundation carries Markdown's inline intents through the bridge, but
+        // TextKit needs concrete UIKit attributes to draw them. Keep this
+        // conversion here so the same rendering applies to previews and the
+        // full-text sheet.
+        rendered.enumerateAttribute(
+            .inlinePresentationIntent,
+            in: fullRange,
+            options: []
+        ) { value, range, _ in
+            guard let rawValue = (value as? NSNumber)?.intValue else { return }
+            let intent = InlinePresentationIntent(rawValue: rawValue)
+            var runFont = font
+            if intent.contains(.code) {
+                runFont = UIFont.monospacedSystemFont(ofSize: font.pointSize, weight: .regular)
+            }
+            if intent.contains(.stronglyEmphasized) {
+                runFont = Self.font(runFont, adding: .traitBold)
+            } else if intent.contains(.emphasized) {
+                runFont = Self.font(runFont, adding: .traitItalic)
+            }
+            rendered.addAttribute(.font, value: runFont, range: range)
+            if intent.contains(.strikethrough) {
+                rendered.addAttribute(.strikethroughStyle, value: NSUnderlineStyle.single.rawValue,
+                                      range: range)
+            }
+        }
+        return rendered
+    }
+
+    private static func font(_ font: UIFont,
+                             adding traits: UIFontDescriptor.SymbolicTraits) -> UIFont {
+        let combined = font.fontDescriptor.symbolicTraits.union(traits)
+        let descriptor = font.fontDescriptor.withSymbolicTraits(combined) ?? font.fontDescriptor
+        return UIFont(descriptor: descriptor, size: font.pointSize)
     }
 
     private func lineCount(_ value: NSAttributedString, width: CGFloat) -> Int {
