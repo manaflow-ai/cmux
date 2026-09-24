@@ -163,10 +163,14 @@ final class WorkspaceNavigationBarController: UIViewController {
             } else {
                 representative = nil
             }
-            groups.append(UIBarButtonItemGroup(
+            let group = UIBarButtonItemGroup(
                 barButtonItems: collapsible,
                 representativeItem: representative
-            ))
+            )
+            if representative != nil {
+                group.alwaysAvailable = true
+            }
+            groups.append(group)
         }
         return groups
     }
