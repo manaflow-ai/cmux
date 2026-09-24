@@ -52,6 +52,10 @@ purpose, so its cancelled minutes are the session itself.
 ### Queue wait (created → started) per runner label
 
 `started_at - created_at` per job, as p50 / p90 / p99 / worst, per runner label.
+A job cancelled while still queued counts with its wait up to the cancel, a
+lower bound on what it would have waited. These used to count as zero, so the
+first reports after that change show a higher macOS p90 without any real
+regression.
 Labels are joined when a job asks for several, so `self-hosted+macos` is not
 silently pooled with `macos`.
 
