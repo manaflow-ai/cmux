@@ -17,9 +17,10 @@ after the budget (CI_OWNED_POOL_RESCUE_SECONDS, 90 by default), it confirms the
 pull request head has not moved, cancels the run, waits for it to finish, and
 re-runs it. The re-run is attempt 2, and pr_runner_pool.py never gives a
 retry attempt a persistent pool, so every macOS job of the re-run lands on
-Blacksmith together. A run is never split
-across pools, because app-host products only load under the Xcode that linked
-them (#14163); that is why the whole run is re-run, not one job.
+Blacksmith together. Attempt 1 may already be split between the minis and
+Blacksmith (owned_shard_placement.py), which only works because both run the
+same Xcode build; app-host products only load under the Xcode that linked
+them (#14163). A queued job cannot be moved, so the whole run is re-run.
 
 An owned runner can also refuse a job it was handed: glaeda's job-started
 hook exits 1 when the host is busy (its lock is held), and the job fails

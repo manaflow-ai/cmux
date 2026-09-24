@@ -52,7 +52,9 @@ snapshot is older than OWNED_MAX_AGE_MINUTES. An offline machine still counts
 as a slot; what that gets wrong, ci-owned-pool-rescue.yml catches: a run whose
 job waits on an owned pool past its budget is re-run on Blacksmith. A re-run
 of failed jobs reuses this run's outputs, so a persistent choice also names
-`retry_runner`, the Blacksmith pool every macOS job takes from attempt 2 on. The owned order is `std` (48 GB minis),
+`retry_runner`, the Blacksmith pool on the same Xcode: every macOS job takes it
+from attempt 2 on, and on attempt 1 the app-host shards and cli-product-tests
+that owned_shard_placement.py finds no free mini for. The owned order is `std` (48 GB minis),
 then `light` (16 GB), then the Blacksmith pools: one order for every job type.
 
 The queue comes from the queue janitor, which lists every in-flight run's
@@ -777,7 +779,7 @@ def summary(choice: Choice, snapshot: Mapping[str, Any] | None, *, now: dt.datet
     if choice.xcode_app:
         lines.append(f"- Xcode: `{choice.xcode_app}`")
     if choice.retry_runner:
-        lines.append(f"- A re-run of failed jobs goes to: `{choice.retry_runner}`")
+        lines.append(f"- Overflow consumers and any re-run go to: `{choice.retry_runner}`")
     for problem in problems:
         lines.append(f"- **Warning:** {problem}; that pool gets no machines")
     if isinstance(snapshot, Mapping) and isinstance(snapshot.get("pools"), Mapping):

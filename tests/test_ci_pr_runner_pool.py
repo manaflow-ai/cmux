@@ -732,13 +732,14 @@ class Wiring(unittest.TestCase):
             self.assertTrue(lanes, name)
             self.assertEqual(set(lanes), {lane}, name)
 
-    def test_shards_leave_the_owned_pool_on_every_attempt(self):
-        # pr_retry_runner is set only on an owned pick, so this is admission's
-        # pool everywhere else, and Blacksmith on the same Xcode on an owned one.
+    def test_consumers_take_a_placed_mini_then_the_retry_pool(self):
         jobs = self.workflow("ci-macos.yml")["jobs"]
-        for name in ("app-host-unit-tests", "cli-product-tests"):
-            self.assertEqual(jobs[name]["runs-on"], "${{ inputs.pr_retry_runner "
-                                                    "|| needs.macos-compile-admission.outputs.runner }}", name)
+        for name, key in (("app-host-unit-tests", "format('{0}', matrix.shard)"), ("cli-product-tests", "'cli'")):
+            self.assertEqual(jobs[name]["runs-on"], (
+                "${{ github.run_attempt > 1 && inputs.pr_retry_runner || github.run_attempt == 1 && "
+                "github.event.pull_request.head.repo.full_name == github.repository && "
+                f"fromJSON(needs.macos-compile-admission.outputs.consumer_placement || '{{}}')[{key}] "
+                "|| inputs.pr_retry_runner || needs.macos-compile-admission.outputs.runner }}"), name)
         wrapper = self.workflow("ci.yml")["jobs"]["claude-wrapper"]["runs-on"]
         self.assertIn("github.run_attempt > 1 && needs.changes.outputs.macos_pr_retry_runner", wrapper)
 

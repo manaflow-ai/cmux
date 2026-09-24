@@ -4110,11 +4110,21 @@ def app_host_product_consumers(workflow: dict) -> dict[str, dict]:
     }
 
 
-# On a run the picker put on an owned pool, the product's consumers take the
-# Blacksmith pool it named on the same Xcode (pr_runner_pool.py).
-PRODUCT_RUNNER_OUTPUT = (
-    "${{ inputs.pr_retry_runner || needs.macos-compile-admission.outputs.runner }}"
-)
+# A consumer takes the owned pool compile admission placed it on (the owned
+# labels pin the lane's Xcode, owned_shard_placement.py), else on a run the
+# picker put on an owned pool the Blacksmith pool it named on the same Xcode
+# (pr_runner_pool.py), else admission's own pool.
+def product_runner_output(key: str) -> str:
+    return (
+        "${{ github.run_attempt > 1 && inputs.pr_retry_runner || github.run_attempt == 1 && "
+        "github.event.pull_request.head.repo.full_name == github.repository && "
+        f"fromJSON(needs.macos-compile-admission.outputs.consumer_placement || '{{}}')[{key}] "
+        "|| inputs.pr_retry_runner || needs.macos-compile-admission.outputs.runner }}"
+    )
+
+
+PRODUCT_RUNNER_OUTPUT = product_runner_output("format('{0}', matrix.shard)")
+CONSUMER_RUNNER_OUTPUTS = {PRODUCT_RUNNER_OUTPUT, product_runner_output("'cli'")}
 PRODUCT_XCODE_OUTPUT = "${{ needs.macos-compile-admission.outputs.xcode_app }}"
 
 
@@ -4138,7 +4148,7 @@ def product_consumer_route_violations(workflow: dict) -> list[str]:
     for name, job in app_host_product_consumers(workflow).items():
         runs_on = job.get("runs-on", "")
         xcode = (job.get("env") or {}).get("CMUX_CI_XCODE_APP")
-        if runs_on == PRODUCT_RUNNER_OUTPUT and xcode == PRODUCT_XCODE_OUTPUT:
+        if runs_on in CONSUMER_RUNNER_OUTPUTS and xcode == PRODUCT_XCODE_OUTPUT:
             continue
         if (
             name == "tests-build-and-lag"
