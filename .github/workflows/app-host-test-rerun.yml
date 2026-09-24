@@ -1,13 +1,14 @@
 name: App-host test rerun
 run-name: >-
-  app-host test rerun @ ${{ inputs.ref }} · ${{ inputs.only_testing }}
+  app-host test rerun @ ${{ inputs.ref }} · ${{ inputs.only_testing }}${{ inputs.dispatch_id != '' && format(' [{0}]', inputs.dispatch_id) || '' }}
 
 # Reruns app-host tests for a change that touches only cmuxTests/. Instead of
 # compiling the app, it adopts the app-host products an upstream CI run already
 # compiled from a revision whose app is identical, recompiles only the cmuxTests
 # bundle against them, and runs the selected tests. See
 # scripts/ci/app_host_test_rerun.py for how the products are chosen and how the
-# test target is cut loose from its dependencies.
+# test target is cut loose from its dependencies. A pull_request run compiled
+# refs/pull/N/merge, not its head_sha, so the plan compares against that merge.
 #
 # A change outside cmuxTests/ fails the plan job and names the files; use
 # test-depot.yml for a full build then.
@@ -33,6 +34,10 @@ on:
         description: Repository whose CI products to adopt.
         required: false
         default: manaflow-ai/cmux
+      dispatch_id:
+        description: Optional caller-generated id echoed into the run name so dispatchers can find their run
+        required: false
+        default: ""
       baseline:
         description: Also run the same selectors against the unmodified CI-built bundle, for a before/after.
         required: false

@@ -19,11 +19,18 @@ from urllib.parse import quote
 import uuid
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import app_host_test_rerun as rerun  # noqa: E402
 import e2e_runner_pool as pool  # noqa: E402
 from e2e_runner_pool import SMALL_RUNNER  # noqa: E402
 
 REPO = "manaflow-ai/cmux"
 WORKFLOW = "test-e2e.yml"
+# Runs cmuxTests against app-host products a CI run already compiled; see
+# reuse_ci_products().
+RERUN_WORKFLOW = "app-host-test-rerun.yml"
+CI_WORKFLOW_PATH = ".github/workflows/ci.yml"
+PRODUCTS_WAIT_SECONDS = 50 * 60
+PRODUCTS_POLL_SECONDS = 60.0
 # The branch `gh workflow run` takes the workflow definition from when no
 # --workflow-ref is given: the repository default branch.
 DEFAULT_WORKFLOW_REF = "main"
@@ -484,17 +491,24 @@ def find_run(
     dispatch_id: str,
     *,
     cancel_event: threading.Event | None = None,
+    workflow: str = WORKFLOW,
 ) -> dict:
     """Correlate this dispatch, never assume the newest run belongs to us."""
     cancel_event = cancel_event or threading.Event()
     suffix = f" @ {commit} [{dispatch_id}]"
+    if workflow == WORKFLOW:
+        def ours(title: str) -> bool:
+            return title.startswith(f"{selector} on ") and title.endswith(suffix)
+    else:
+        def ours(title: str) -> bool:
+            return title.endswith(f" [{dispatch_id}]")
     deadline = time.monotonic() + RUN_DISCOVERY_TIMEOUT_SECONDS
     for attempt in range(RUN_DISCOVERY_ATTEMPTS):
         remaining = deadline - time.monotonic()
         if remaining <= 0:
             break
         runs = json.loads(output(
-            "gh", "run", "list", "--repo", REPO, "--workflow", WORKFLOW,
+            "gh", "run", "list", "--repo", REPO, "--workflow", workflow,
             "--event", "workflow_dispatch", "--limit", "100",
             "--json", "databaseId,displayTitle,url",
             timeout=remaining,
@@ -502,11 +516,7 @@ def find_run(
         ))
         if cancel_event.is_set():
             raise ValueError("focused-run discovery cancelled")
-        matches = [
-            run for run in runs
-            if run["displayTitle"].startswith(f"{selector} on ")
-            and run["displayTitle"].endswith(suffix)
-        ]
+        matches = [run for run in runs if ours(run["displayTitle"])]
         if len(matches) == 1:
             return matches[0]
         if matches:
@@ -522,9 +532,159 @@ def find_run(
             raise ValueError("focused-run discovery cancelled")
     raise ValueError(
         f"dispatch accepted but its run was not found; request {dispatch_id}. "
-        f"Check https://github.com/{REPO}/actions/workflows/{WORKFLOW} "
+        f"Check https://github.com/{REPO}/actions/workflows/{workflow} "
         "before dispatching again."
     )
+
+
+@contextmanager
+def chdir(path: Path):
+    """contextlib.chdir, which needs Python 3.11; run-e2e.sh may get macOS's 3.9."""
+    previous = os.getcwd()
+    os.chdir(path)
+    try:
+        yield
+    finally:
+        os.chdir(previous)
+
+
+def planned_products(commit: str, only_testing: str, source_run_id: str = "") -> dict | None:
+    """app_host_test_rerun.py's plan for this commit, or None when it finds no products."""
+    args = argparse.Namespace(
+        ref=commit, repository=REPO, only_testing=only_testing,
+        source_run_id=source_run_id, max_commits=200,
+    )
+    try:
+        with chdir(ROOT):
+            return rerun.plan(args)
+    except SystemExit as error:
+        print(f"note: no reusable CI products: {str(error).splitlines()[0]}", file=sys.stderr, flush=True)
+    except (KeyError, ValueError, subprocess.CalledProcessError, json.JSONDecodeError):
+        pass
+    return None
+
+
+def building_producer(commit: str) -> dict | None:
+    """A CI run of this commit still compiling products the commit can use.
+
+    A pull_request run builds the merge with its base, so it qualifies only
+    while that merge differs from the commit under cmuxTests/ alone. Main's
+    ci.yml runs are dispatched by ci-main-full-suite.yml. The
+    guards in main() already refuse a second test-e2e.yml compile of a commit.
+    """
+    try:
+        listing = rerun.gh_api(f"repos/{REPO}/actions/runs?head_sha={commit}&per_page=50")
+        runs = sorted(listing.get("workflow_runs", []), key=lambda run: run.get("created_at", ""), reverse=True)
+    except (subprocess.CalledProcessError, json.JSONDecodeError):
+        runs = []
+    for run in runs:
+        if (run.get("path") != CI_WORKFLOW_PATH or run.get("status") not in UNFINISHED
+                or run.get("event") not in ("push", "pull_request", "workflow_dispatch")):
+            continue
+        try:
+            with chdir(ROOT):
+                if rerun.non_test_changes(rerun.built_revision(run), commit):
+                    continue
+        except (KeyError, ValueError, subprocess.CalledProcessError):
+            continue
+        return {"id": run["id"], "url": run.get("html_url", "")}
+    return None
+
+
+def skips_macos(run_id: int) -> bool:
+    """Whether a CI run decided not to compile for macOS, so it will leave no products."""
+    listing = rerun.gh_api(f"repos/{REPO}/actions/runs/{run_id}/jobs?filter=latest&per_page=100")
+    return any(
+        job.get("name", "").endswith(rerun.ADMISSION_JOB) and job.get("conclusion") == "skipped"
+        for job in listing.get("jobs", [])
+    )
+
+
+def awaited_products(producer: dict, commit: str, only_testing: str) -> dict | None:
+    """Wait for a building run's products, then plan against them."""
+    print(
+        f"{producer['url']} is already compiling {commit}; waiting for its app-host "
+        "products instead of compiling them a second time.",
+        flush=True,
+    )
+    deadline = time.monotonic() + PRODUCTS_WAIT_SECONDS
+    with cancellation_scope() as cancel_event:
+        while True:
+            if rerun.products_artifact(REPO, str(producer["id"]), rerun.gh_api):
+                return planned_products(commit, only_testing, str(producer["id"]))
+            state = rerun.gh_api(f"repos/{REPO}/actions/runs/{producer['id']}")
+            if state.get("status") not in UNFINISHED:
+                print(f"note: {producer['url']} finished without app-host products", file=sys.stderr, flush=True)
+                return None
+            if skips_macos(producer["id"]):
+                print(f"note: {producer['url']} skipped its macOS compile", file=sys.stderr, flush=True)
+                return None
+            if time.monotonic() > deadline:
+                print(f"note: {producer['url']} has not produced app-host products yet", file=sys.stderr, flush=True)
+                return None
+            if wait_for_retry(cancel_event, PRODUCTS_POLL_SECONDS):
+                raise ValueError("waiting for CI products cancelled")
+
+
+def reuse_ci_products(commit: str, entries: list[str], workflow_ref: str | None, wait: bool) -> int | None:
+    """Run cmuxTests selectors against app-host products CI compiled, if any.
+
+    A test-e2e.yml run compiles the whole app, 12 to 27 minutes, to run a few
+    minutes of tests. When CI already compiled this commit's app, or is
+    compiling it now, app-host-test-rerun.yml recompiles only cmuxTests
+    against those products. Returns the exit status, or None to fall back to
+    a full build.
+    """
+    try:
+        only_testing = " ".join(rerun.parse_selectors(" ".join(entries)))
+    except ValueError:
+        return None
+    try:
+        with chdir(ROOT):
+            rerun.fetch_commit(commit)
+    except subprocess.CalledProcessError:
+        return None
+    try:
+        found = planned_products(commit, only_testing)
+        if found is None:
+            producer = building_producer(commit)
+            if producer is None:
+                return None
+            found = awaited_products(producer, commit, only_testing)
+    except (subprocess.CalledProcessError, json.JSONDecodeError, KeyError):
+        return None
+    if found is None:
+        return None
+    dispatch_id = uuid.uuid4().hex
+    command = ["gh", "workflow", "run", RERUN_WORKFLOW, "--repo", REPO]
+    if workflow_ref:
+        command.extend(["--ref", workflow_ref])
+    for key, value in {
+        "ref": commit,
+        "only_testing": only_testing,
+        "source_run_id": found["source_run_id"],
+        "dispatch_id": dispatch_id,
+    }.items():
+        command.extend(["-f", f"{key}={value}"])
+    print(
+        f"Testing {only_testing} at {commit} against the products run {found['source_run_id']} "
+        f"compiled from {found['source_sha']}; only cmuxTests recompiles (request {dispatch_id})",
+        flush=True,
+    )
+    try:
+        subprocess.run(command, cwd=ROOT, check=True)
+    except subprocess.CalledProcessError:
+        # A --workflow-ref whose rerun workflow predates dispatch_id rejects it.
+        print("note: the rerun dispatch was refused; compiling in full instead", file=sys.stderr, flush=True)
+        return None
+    with cancellation_scope() as cancel_event:
+        run = find_run(commit, only_testing, dispatch_id, cancel_event=cancel_event, workflow=RERUN_WORKFLOW)
+    print(f"Run: {run['url']}", flush=True)
+    if wait:
+        return subprocess.run([
+            "gh", "run", "watch", "--repo", REPO, str(run["databaseId"]), "--exit-status",
+        ], cwd=ROOT).returncode
+    return 0
 
 
 def main() -> int:
@@ -549,6 +709,12 @@ def main() -> int:
     parser.add_argument("--job-timeout", type=positive_integer, default=45, help="job timeout in minutes, including compilation (default: 45)")
     parser.add_argument("--workflow-ref", help="workflow-definition branch/tag (default: repository default branch)")
     parser.add_argument("--runner", choices=RUNNERS, help="runner override (default: workflow's configured runner)")
+    parser.add_argument(
+        "--full-build",
+        action="store_true",
+        help="compile the whole app even when CI already compiled this commit's app-host products; "
+        "without it, a cmuxTests run waits (up to 50 min) for a CI run still compiling this commit",
+    )
     parser.add_argument(
         "--force",
         action="store_true",
@@ -692,6 +858,13 @@ def main() -> int:
                     "same answer. Read that run, fix the branch, push, and dispatch "
                     "the new commit. Pass --force to dispatch anyway."
                 )
+
+    # A pinned runner asks about that pool; reused products run on the pool
+    # that compiled them.
+    if test_target == "cmuxTests" and not pinned and not args.full_build:
+        status = reuse_ci_products(commit, args.test_filter, args.workflow_ref, args.wait)
+        if status is not None:
+            return status
 
     runner = args.runner if pinned else routed_runner(default)
     dispatch_id = uuid.uuid4().hex

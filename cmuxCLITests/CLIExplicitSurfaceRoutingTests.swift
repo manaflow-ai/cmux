@@ -313,13 +313,13 @@ struct CLIExplicitSurfaceRoutingTests {
         #expect((result.stderr + result.stdout).contains("Surface ref not found: surface:99999"))
         #expect(state.mutationCountSnapshot() == 0)
 
-        // The CLI first tries to resolve the workspace ref client-side (#13964).
-        // This host answers neither `workspace.list` nor `window.list`, so the ref
-        // passes through to the host unresolved on the one listing request.
+        // #13964 resolves a workspace ref client-side: the parameterless
+        // workspace.list snapshot, then the window scan. This host answers
+        // neither, so the ref passes through unresolved on the one listing.
         let requests = try state.requestObjects()
-            .filter { !["workspace.list", "window.list"].contains($0["method"] as? String ?? "") }
-        #expect(requests.compactMap { $0["method"] as? String } == ["surface.list"])
-        let listParams = try #require(requests.first?["params"] as? [String: Any])
+        #expect(requests.compactMap { $0["method"] as? String } == ["workspace.list", "window.list", "surface.list"])
+        let listRequest = try #require(requests.first { $0["method"] as? String == "surface.list" })
+        let listParams = try #require(listRequest["params"] as? [String: Any])
         #expect(listParams["workspace_id"] as? String == Self.reproWorkspaceRef)
     }
 
@@ -483,9 +483,9 @@ struct CLIExplicitSurfaceRoutingTests {
         #expect((result.stderr + result.stdout).contains("Surface not found: \(Self.missingSurfaceUUID)"))
         #expect(state.mutationCountSnapshot() == 0)
 
+        let requests = try state.requestObjects()
         // #13964 resolves the workspace ref from the parameterless workspace.list
         // snapshot first, so the window scan is no longer needed here.
-        let requests = try state.requestObjects()
         #expect(requests.compactMap { $0["method"] as? String } == ["workspace.list", "surface.list"])
         let listParams = try #require(requests.last?["params"] as? [String: Any])
         #expect(listParams["workspace_id"] as? String == Self.reproWorkspaceId)
