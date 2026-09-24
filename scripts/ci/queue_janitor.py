@@ -119,7 +119,8 @@ CATEGORY_ORDER = ("experiment", "stale-pr", "label-dropped", "doomed")
 # The jobs whose failure decides ci-status. ci-macos.yml shards the app-host
 # suite and the reusable-call prefix makes the API name "macos / app-host unit
 # tests (3/6)", so match on the substring. A failed compile admission fails
-# the same `macos` call before any shard starts.
+# the same `macos` call before any shard starts, and so do the changed suites
+# it runs itself (ci-macos.yml inputs.unit_in_admission).
 DOOMED_JOB_NAME = "app-host unit tests"
 
 
@@ -140,7 +141,11 @@ DOOMED_GRACE = dt.timedelta(minutes=10)
 # is not a rule. JANITOR_OPT_OUT_LABEL covers a fix that lives only there.
 DOOMED_INPUT_PREFIXES = ("cmuxTests/", "scripts/ci/workloads/")
 DOOMED_INPUT_MARKERS = ("app-host", "app_host")
-DOOMED_INPUT_FILES = (".github/workflows/ci-macos.yml", "scripts/ci/cmux_unit_test_shard.py")
+DOOMED_INPUT_FILES = (
+    ".github/workflows/ci-macos.yml",
+    "scripts/ci/cmux_unit_test_shard.py",
+    "scripts/ci/enable-xctest-automation-mode.sh",
+)
 JANITOR_OPT_OUT_LABEL = "no-janitor"
 
 PROTECTED_EVENTS = frozenset({"merge_group", "release", "create", "delete", "deployment", "deployment_status"})
