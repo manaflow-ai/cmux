@@ -109,6 +109,25 @@ struct CLIWorkspaceRefResolutionTests {
         )
     }
 
+    /// A window whose `workspace.list` answers `ok` but carries no readable
+    /// `workspaces` array was not actually read. Treating it as an empty window
+    /// would complete the scan and report a ref that may live there as "not found".
+    @Test func unreadableWindowPayloadFallsBackToPassThrough() throws {
+        let (requests, result) = try runReorderWorkspace(
+            arguments: ["--workspace", Self.staleRef, "--index", "0"],
+            topology: .twoWindowsSecondUnreadable
+        )
+
+        #expect(result.status == 0, Comment(rawValue: result.stderr + result.stdout))
+        let reorder = try #require(requests.last { $0["method"] as? String == "workspace.reorder" })
+        let params = try #require(reorder["params"] as? [String: Any])
+        #expect(params["workspace_id"] as? String == Self.staleRef)
+        #expect(
+            !result.stderr.contains("not found"),
+            Comment(rawValue: "an unreadable window must not be reported as absence: \(result.stderr)")
+        )
+    }
+
     /// `window.list` succeeding with an empty list is not the same evidence as having
     /// read every window: no `workspace.list` ran, so nothing was observed. The CLI
     /// stays conservative and passes the ref through.
@@ -176,6 +195,9 @@ struct CLIWorkspaceRefResolutionTests {
         /// Two windows; the second one's `workspace.list` fails, the way a window
         /// closing mid-scan or an admission backoff leaves a hole.
         case twoWindowsSecondFails
+        /// Two windows; the second one's `workspace.list` succeeds but has no
+        /// readable `workspaces` array.
+        case twoWindowsSecondUnreadable
     }
 
     private func runReorderWorkspace(
@@ -211,7 +233,7 @@ struct CLIWorkspaceRefResolutionTests {
                     return Self.v2Response(id: id, ok: true, result: [
                         "windows": [["id": Self.windowId, "ref": "window:1000000001", "index": 0]],
                     ])
-                case .twoWindowsSecondFails:
+                case .twoWindowsSecondFails, .twoWindowsSecondUnreadable:
                     return Self.v2Response(id: id, ok: true, result: [
                         "windows": [
                             ["id": Self.windowId, "ref": "window:1000000001", "index": 0],
@@ -224,6 +246,9 @@ struct CLIWorkspaceRefResolutionTests {
                 // The window that went away answers the way the host does when the
                 // id no longer routes. The CLI must treat that as a hole in the
                 // scan, not as proof the ref is absent.
+                if requestedWindow == Self.secondWindowId, topology == .twoWindowsSecondUnreadable {
+                    return Self.v2Response(id: id, ok: true, result: ["workspaces": NSNull()])
+                }
                 if requestedWindow == Self.secondWindowId {
                     return Self.v2Response(id: id, ok: false, error: [
                         "code": "not_found", "message": "Window not found",
