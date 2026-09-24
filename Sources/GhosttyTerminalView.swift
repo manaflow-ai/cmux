@@ -4231,8 +4231,11 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         // is not usable here: it places the active-screen cursor without
         // regard to the viewport and does not report the column count.
         var metrics = ghostty_surface_grid_metrics_s()
+        // On a wide character the reported column is the character's first
+        // cell, not where the next printable lands, so offsets would be off.
         guard ghostty_surface_grid_metrics(surface, &metrics),
               metrics.cursor_in_viewport,
+              metrics.cursor_width_cells == 1,
               metrics.cell_width.isFinite, metrics.cell_width > 0,
               metrics.cell_height.isFinite, metrics.cell_height > 0,
               metrics.padding_left.isFinite, metrics.padding_top.isFinite else {

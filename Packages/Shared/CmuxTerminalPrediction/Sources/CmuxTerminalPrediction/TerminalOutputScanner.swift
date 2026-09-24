@@ -30,8 +30,9 @@ public struct TerminalOutputScanner: Sendable {
         /// OSC, which also ends at BEL.
         case operatingSystemCommand
         /// DCS, SOS, PM and APC (`ESC P`, `ESC X`, `ESC ^`, `ESC _`), which end
-        /// only at ST. Ghostty passes BEL through as payload here, so ending
-        /// on it would read the rest of, say, a sixel image as printed text.
+        /// at ST, at any other ESC, or at a C1 byte. Ghostty passes BEL through
+        /// as payload here, so ending on it would read the rest of, say, a
+        /// sixel image as printed text.
         case other
     }
 
@@ -98,6 +99,13 @@ public struct TerminalOutputScanner: Sendable {
             case UInt8(ascii: "P"), UInt8(ascii: "X"), UInt8(ascii: "^"), UInt8(ascii: "_"):
                 state = .controlString(.other)
                 return nil
+            case 0x1B:
+                // Another ESC restarts the escape, as it does in ghostty.
+                return nil
+            case UInt8(ascii: "\\"):
+                // A string terminator with no string open changes nothing.
+                state = .ground
+                return .ignorable
             default:
                 state = .ground
                 return .disruptive
@@ -133,20 +141,28 @@ public struct TerminalOutputScanner: Sendable {
             case 0x1B:
                 state = .controlStringEscape(kind)
                 return nil
+            case 0x9C where kind == .other:
+                // The 8-bit string terminator.
+                state = .ground
+                return .ignorable
+            case 0x80...0x9F where kind == .other:
+                // Ghostty leaves a DCS, APC, PM or SOS at any other C1 byte.
+                state = .ground
+                return .disruptive
             default:
                 return nil
             }
 
-        case .controlStringEscape(let kind):
+        case .controlStringEscape:
             if byte == UInt8(ascii: "\\") {
                 state = .ground
                 return .ignorable
             }
-            // Not a string terminator, so the sequence is still running.
-            // tmux passthrough relies on this: it doubles every ESC inside
-            // its DCS payload.
-            state = .controlString(kind)
-            return nil
+            // Ghostty leaves the string at any ESC, not only at ST, and
+            // parses the next byte as the start of a new sequence. Staying in
+            // the string here would miss everything ghostty then applies.
+            state = .escape
+            return consume(byte)
         }
     }
 
