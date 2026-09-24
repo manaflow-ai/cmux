@@ -1,3 +1,5 @@
+import CmuxCloudTui
+import CmuxSurfaceCatalogModel
 import Foundation
 
 /// Maps a public `term_…` id to the daemon-local numeric surface a byte

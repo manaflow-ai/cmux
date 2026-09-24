@@ -1,3 +1,4 @@
+import CmuxBrowser
 import Foundation
 import CoreServices
 import ImageIO

@@ -7,6 +7,8 @@ on:
       - Sources/Cloud/CloudTelemetry*.swift
       - Sources/Cloud/CloudRemoteOperationStep.swift
       - scripts/select-ci-xcode.sh
+      - scripts/ci/xcode-pins.txt
+      - .xcode-version
       - tests/cloud_task_local/**
       - tests/test_cloud_task_local_lifecycle.py
       - .github/workflows/cloud-task-local-tests.yml
@@ -21,7 +23,7 @@ concurrency:
 
 jobs:
   lifecycle:
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-15' || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
     timeout-minutes: 5
     env:
       CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_26 }}

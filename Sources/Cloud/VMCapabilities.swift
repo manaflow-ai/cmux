@@ -1,3 +1,4 @@
+import CmuxSurfaceCatalogModel
 import Foundation
 
 /// What a machine's provider can do; the app offers only verbs that can succeed

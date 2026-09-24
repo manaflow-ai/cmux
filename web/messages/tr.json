@@ -1,4 +1,18 @@
 {
+  "agentHarness": {
+    "title": "Algılanan harness yapılandırması",
+    "selectionNotice": "Bir sağlayıcı seçmek bu harnessleri başlatmaz veya etkinleştirmez.",
+    "selectProvider": "{provider} seç",
+    "foundPath": "{path} bulundu",
+    "foundCommand": "{command} komutu bulundu",
+    "installed": "Sağlayıcı yüklü",
+    "missing": "Sağlayıcı yüklü değil",
+    "install": "Şununla yükle: {command}",
+    "benefitPi": "Sıkıştırma, bellek ve sağlayıcı yönlendirmesi",
+    "benefitOpenagent": "OpenCode için paralel uzmanlar ve kurtarma",
+    "benefitClaude": "Claude Code için ekipler ve doğrulama",
+    "benefitSuperpowers": "Planlama, TDD, alt aracılar ve inceleme"
+  },
   "vmErrors": {
     "guestInstall": {
       "title": "Cloud VM kurulumu tamamlanamadı",
@@ -1259,6 +1273,10 @@
       "schemaDescriptions": {
         "root": "cmux yapılandırması. Genel cmux.json; uygulama ayarlarını, kısayolları, eylemleri, özel komutları, bildirim hook'larını ve çalışma alanı düzenlerini destekler. Projeye özel .cmux/cmux.json veya cmux.json; eylemleri, komutları, bildirim hook'larını, UI eylem bağlantılarını, Agent Chat geçersiz kılmalarını, vault ajanlarını, çalışma alanı grubu geçersiz kılmalarını ve çalışma alanı başlatma ile düğme yapılandırmasını destekler.",
         "rightSidebar": "cmux.json içinde korunan eski ve uzantılara ait sağ kenar çubuğu yapılandırması.",
+        "packs": {
+          "description": "Bu yapılandırmadan önce yüklenen yerel cmux paket dosyaları veya dizinleri. Dizinler cmux.pack.json olarak çözümlenir. Bir yol dizesi veya path alanı olan bir nesne kullanın.",
+          "path": "Mutlak değilse bu yapılandırma dosyasına göre belirlenen yerel dosya veya dizin yolu."
+        },
         "paneBorderColor": "Bölünmüş çalışma alanlarında cmux bölme ayırıcı rengini geçersiz kılar. Bu, Ghostty iç bölmelerini değil cmux bölme sınırlarını etkiler.",
         "activePaneBorderColor": "Bölünmüş çalışma alanlarında odaktaki cmux bölmesinin etrafına çizilen isteğe bağlı kenarlık rengi.",
         "automation": {
@@ -1270,6 +1288,7 @@
         "app": {
           "confirmQuit": "cmux'un çıkmadan önce ne zaman onay isteyeceğini denetler. DEV derlemeleri bu ayardan bağımsız olarak her zaman hemen çıkar. Eski app.warnBeforeQuit boolean yedeği olarak kabul edilmeye devam eder.",
           "windowTitleTemplate": "İsteğe bağlı NSWindow başlık şablonu. Boş bırakılırsa geçerli dizin yedeği dahil cmux'un mevcut varsayılan başlık davranışı korunur. Desteklenen yer tutucular: '{windowId}', '{windowToken}', '{activeWorkspace}', '{activeDirectory}', '{defaultTitle}', '{appName}'.",
+          "devWindowDisplay": "Yeni pencereler açılırken yalnızca DEBUG derlemelerinde kullanılan ekran adı. Boş değer sistem varsayılanını kullanır.",
           "warnBeforeQuit": "Çıkış onayı için eski boolean yedeği. Yeni yapılandırmalar için app.confirmQuit kullanın.",
           "warnBeforeClosingTabXButton": "Sekme kapatma düğmesiyle bir sekme kapatılmadan önce onay göster.",
           "hideTabCloseButton": "Bölme sekme çubuğundaki sekme kapatma düğmelerini gizle.",
@@ -4036,5 +4055,15 @@
     "organization": "Kuruluş",
     "personalAccount": "kişisel hesap",
     "switchAccountButton": "Farklı bir hesap kullan"
+  },
+  "MobileRelease106": {
+    "title": "1.0.6 sürümündeki yenilikler",
+    "releaseLabel": "1.0.6 · Eylül 2026",
+    "connectionTitle": "Mac bağlantıları güncellendi",
+    "connectionDetail": "Bu güncelleme yeni bağlantı hizmetini ve Iroh aktarımını kullanır. Eski Mac derlemelerinin bağlanabilmesi için güncellenmesi gerekir.",
+    "updateTitle": "Mac’inizde cmux’u güncelleyin",
+    "updateDetail": "cmux {stableVersion} veya üstü ya da NIGHTLY {nightlyVersion} veya üstü gerekir. Her Mac’te Ayarlar > Mobil bölümünden iOS eşleştirmesini etkinleştirin.",
+    "rollbackTitle": "Eski bir Mac derlemesini kullanmanız mı gerekiyor?",
+    "rollbackDetail": "Kullanılabilir olduğu sürece TestFlight > Önceki Derlemeler’den cmux BETA 1.0.5 ({rollbackBuild}) sürümünü kullanın. Sonraki derlemeler daha yeni bir bağlantı hizmeti kullandığı için tam olarak bu derlemeyi seçin."
   }
 }

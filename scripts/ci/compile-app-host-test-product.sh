@@ -66,11 +66,34 @@ fingerprint() {
 # without the Sparkle and Sentry binary artifacts would fail it. A restored
 # source-packages cache can do that, and a failed resolve can leave a partial
 # clone behind, so every retry starts from an empty package directory.
+#
+# CMUX_CI_SWIFTPM_CACHE_EXACT_HIT=true says the caller restored the exact
+# `spm-` key for this Package.resolved. That cache was saved after a resolve of
+# the same pins, so its repositories already hold every pinned revision; try
+# once without fetching each package remote. Pins are exact revisions, so
+# skipping the fetch cannot change what is checked out. If it fails for any
+# reason, fall through to the normal resolve of the same cache.
 resolve() {
   local derived_data="$1" source_packages="$2" attempt
+  if [ "${CMUX_CI_SWIFTPM_CACHE_EXACT_HIT:-}" = true ]; then
+    mkdir -p "$source_packages" "$derived_data"
+    if "$SCRIPT_DIR/swiftpm-manifest-cache.sh" run \
+      xcodebuild -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
+      -derivedDataPath "$derived_data" \
+      -clonedSourcePackagesDirPath "$source_packages" \
+      -packageCachePath "$source_packages/.package-cache" \
+      -skipPackageUpdates \
+      -resolvePackageDependencies \
+      && [ -d "$source_packages/artifacts/sparkle/Sparkle/Sparkle.xcframework" ] \
+      && [ -d "$source_packages/artifacts/sentry-cocoa/Sentry/Sentry.xcframework" ]; then
+      return 0
+    fi
+    echo "Offline resolve from the exact package cache failed; resolving normally" >&2
+  fi
   for attempt in 1 2 3; do
     mkdir -p "$source_packages" "$derived_data"
-    if xcodebuild -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
+    if "$SCRIPT_DIR/swiftpm-manifest-cache.sh" run \
+      xcodebuild -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
       -derivedDataPath "$derived_data" \
       -clonedSourcePackagesDirPath "$source_packages" \
       -packageCachePath "$source_packages/.package-cache" \
@@ -104,7 +127,7 @@ build() {
   # Build the app/UI scheme first so its warning log retains the old runtime
   # job warning-budget scope; subsequent schemes reuse the same app objects.
   # shellcheck disable=SC2016 # Xcode expands $(inherited), not the shell
-  for scheme in cmux cmux-unit cmux-numeric-locale; do
+  for scheme in cmux cmux-unit cmux-numeric-locale cmux-cli-tests; do
     xcodebuild -project cmux.xcodeproj -scheme "$scheme" -configuration Debug \
       -derivedDataPath "$derived_data" \
       -clonedSourcePackagesDirPath "$source_packages" \
