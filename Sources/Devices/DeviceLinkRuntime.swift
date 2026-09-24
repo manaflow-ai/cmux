@@ -3,6 +3,7 @@ import CmuxAuthRuntime
 import CmuxIrohTransport
 import CmuxMobileRPC
 import CmuxMobileTransport
+import CmuxSurfaceCatalogModel
 import Foundation
 
 /// The Mac's `MobileSyncRuntime`: what the shared RPC client needs from the

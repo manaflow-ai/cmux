@@ -1,3 +1,4 @@
+import CmuxSurfaceCatalogModel
 import Foundation
 
 /// A bounded, read-only projection of existing work owners for CLI and Find Work.

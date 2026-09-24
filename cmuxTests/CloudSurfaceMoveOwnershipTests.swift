@@ -2,6 +2,7 @@ import AppKit
 import Bonsplit
 import CmuxCore
 import CmuxRemoteSession
+import CmuxSurfaceCatalogModel
 import Testing
 
 #if canImport(cmux_DEV)

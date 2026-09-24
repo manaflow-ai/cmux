@@ -1,3 +1,4 @@
+import CmuxSurfaceCatalogModel
 import Foundation
 
 /// One guest-issued display resource with a stable slot and noVNC target.

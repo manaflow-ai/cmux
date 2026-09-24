@@ -1,3 +1,4 @@
+import CmuxSurfaceCatalogModel
 import Foundation
 
 /// Another Mac's header row in the Cloud-style outline: the same slot a cloud

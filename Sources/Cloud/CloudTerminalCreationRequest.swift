@@ -1,3 +1,4 @@
+import CmuxSurfaceCatalogModel
 import Foundation
 
 /// Retains one UI intent's daemon identity across explicit retries.

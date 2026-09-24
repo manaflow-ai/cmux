@@ -1,6 +1,7 @@
 import CMUXMobileCore
 import CmuxAuthRuntime
 import CmuxIrohTransport
+import CmuxSurfaceCatalogModel
 import Foundation
 import Observation
 import OSLog

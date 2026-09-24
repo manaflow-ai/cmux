@@ -1,5 +1,6 @@
 import Bonsplit
 import CmuxSettings
+import CmuxSurfaceCatalogModel
 import Foundation
 import Testing
 

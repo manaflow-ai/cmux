@@ -1,3 +1,4 @@
+import CmuxSurfaceCatalogModel
 import Foundation
 import Observation
 /// The single owner of surface identities and projections on this Mac.

@@ -1,5 +1,6 @@
 import CMUXMobileCore
 import CmuxMobileRPC
+import CmuxSurfaceCatalogModel
 import Foundation
 
 /// A Mac the person paired in Settings › Computers, as the directory lists it:

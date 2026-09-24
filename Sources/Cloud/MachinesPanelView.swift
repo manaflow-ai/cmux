@@ -1,6 +1,7 @@
 import AppKit
 import CmuxCloudMachines
 import CmuxSettings
+import CmuxSurfaceCatalogModel
 import SwiftUI
 
 /// Right-sidebar Machines tab: the user's cloud machine fleet as a Finder-like

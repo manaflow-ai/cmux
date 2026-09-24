@@ -1,3 +1,4 @@
+import CmuxSurfaceCatalogModel
 import Foundation
 
 /// Materializes the accepted Cloud graph into bound native workspaces. The graph

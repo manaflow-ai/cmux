@@ -1,4 +1,5 @@
 import Bonsplit
+import CmuxSurfaceCatalogModel
 import Foundation
 
 extension AppDelegate {

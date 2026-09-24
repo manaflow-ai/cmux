@@ -1,5 +1,6 @@
 import CMUXMobileCore
 import CmuxMobileRPC
+import CmuxSurfaceCatalogModel
 import Foundation
 import Testing
 

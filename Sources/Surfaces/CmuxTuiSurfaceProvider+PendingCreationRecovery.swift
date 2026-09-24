@@ -1,3 +1,4 @@
+import CmuxSurfaceCatalogModel
 import Foundation
 
 /// Read-your-write overlays for Cloud terminal creation and rename receipts.

@@ -1,6 +1,7 @@
 import CMUXMobileCore
 import CmuxIrohTransport
 import CmuxIrxTransport
+import CmuxSurfaceCatalogModel
 import Foundation
 
 /// Owns outgoing control sessions while borrowing the Mac's single registered endpoint.

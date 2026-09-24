@@ -1,3 +1,4 @@
+import CmuxSurfaceCatalogModel
 import Foundation
 
 /// The authoritative remote result of one reserved pane, shared with child creates.

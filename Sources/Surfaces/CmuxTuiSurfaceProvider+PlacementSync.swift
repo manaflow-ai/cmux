@@ -1,3 +1,4 @@
+import CmuxSurfaceCatalogModel
 import Foundation
 
 /// Revision-fenced placement edits, retried once with fresh destination coordinates.

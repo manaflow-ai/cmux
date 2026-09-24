@@ -1,3 +1,4 @@
+import CmuxSurfaceCatalogModel
 import Foundation
 
 /// A guest-issued catalog. Connection targets are derived from validated guest

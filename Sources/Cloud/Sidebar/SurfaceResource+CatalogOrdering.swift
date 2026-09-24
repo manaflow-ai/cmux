@@ -1,3 +1,5 @@
+import CmuxSurfaceCatalogModel
+
 extension SurfaceResource {
     /// Stable catalog order shared by whole-fleet and machine-scoped snapshots.
     func catalogPrecedes(_ other: SurfaceResource) -> Bool {

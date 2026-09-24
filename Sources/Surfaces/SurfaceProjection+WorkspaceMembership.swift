@@ -1,3 +1,5 @@
+import CmuxSurfaceCatalogModel
+
 extension SurfaceProjection {
     /// Desktop and port previews created on this Mac have no daemon tab.
     var isLocalWorkspaceView: Bool {

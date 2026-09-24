@@ -1,4 +1,5 @@
 import CmuxSettings
+import CmuxSurfaceCatalogModel
 import CryptoKit
 import Foundation
 

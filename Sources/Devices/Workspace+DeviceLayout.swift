@@ -1,5 +1,6 @@
 import Bonsplit
 import CmuxCore
+import CmuxSurfaceCatalogModel
 import Foundation
 
 extension Workspace {

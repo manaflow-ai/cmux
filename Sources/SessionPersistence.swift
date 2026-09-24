@@ -1,3 +1,4 @@
+import CmuxSurfaceCatalogModel
 import CoreGraphics
 import CmuxBrowser
 import CmuxCore

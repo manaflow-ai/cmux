@@ -1,5 +1,6 @@
 #if DEBUG
 import AppKit
+import CmuxSurfaceCatalogModel
 import SwiftUI
 
 /// Debug-only Cloud tree style picker (Debug → Debug Windows → Cloud Tree Style

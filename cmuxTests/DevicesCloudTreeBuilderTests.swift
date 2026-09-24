@@ -1,4 +1,5 @@
 import AppKit
+import CmuxSurfaceCatalogModel
 import Foundation
 import Testing
 

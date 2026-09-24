@@ -1,3 +1,4 @@
+import CmuxSurfaceCatalogModel
 import Foundation
 
 /// Immutable surface rows available even before the terminal link supplies a graph.

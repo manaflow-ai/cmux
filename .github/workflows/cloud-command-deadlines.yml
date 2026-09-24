@@ -4,7 +4,7 @@ on:
     paths:
       - Sources/Cloud/CloudTuiPersistent*.swift
       - Sources/Cloud/CloudTuiManualIO*.swift
-      - Sources/Cloud/CloudTuiTerminalProjectionTarget.swift
+      - Packages/macOS/CmuxSurfaceCatalogModel/Sources/CmuxSurfaceCatalogModel/CloudTuiTerminalProjectionTarget.swift
       - Sources/Cloud/CloudTuiRemoteColors.swift
       - cmuxTests/CloudCommand*.swift
       - cmuxTests/CloudTuiManualIOConnectionTests.swift

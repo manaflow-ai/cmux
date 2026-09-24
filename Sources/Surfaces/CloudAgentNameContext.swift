@@ -1,3 +1,4 @@
+import CmuxSurfaceCatalogModel
 import Foundation
 
 /// A callback's read precondition, captured before an agent computes its title.

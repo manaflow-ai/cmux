@@ -1,5 +1,6 @@
 import CmuxCore
 import CmuxFoundation
+import CmuxSurfaceCatalogModel
 import Foundation
 
 extension TerminalController {

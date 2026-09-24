@@ -1,3 +1,4 @@
+import CmuxSurfaceCatalogModel
 import Foundation
 
 /// A provider owns the resources of one machine and knows how to put one on screen.

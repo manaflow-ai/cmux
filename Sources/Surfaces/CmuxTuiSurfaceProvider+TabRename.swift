@@ -1,3 +1,4 @@
+import CmuxSurfaceCatalogModel
 import Foundation
 
 /// Placement rename writes share the provider revision/receipt fence for user and agent calls.

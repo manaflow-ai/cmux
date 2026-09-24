@@ -1,4 +1,5 @@
 import AppKit
+import CmuxSurfaceCatalogModel
 import Foundation
 
 /// One request to expand and select a row, identified by token so SwiftUI

@@ -2,6 +2,7 @@
 import AppKit
 import CmuxAppKitSupportUI
 import CmuxFoundation
+import CmuxSurfaceCatalogModel
 import SwiftUI
 
 // MARK: - Cloud sidebar spacing lab

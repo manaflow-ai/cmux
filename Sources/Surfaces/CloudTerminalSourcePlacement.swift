@@ -1,3 +1,4 @@
+import CmuxSurfaceCatalogModel
 import Foundation
 
 /// Immutable Cloud identity captured at a terminal-create boundary.

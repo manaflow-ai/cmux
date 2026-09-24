@@ -3,6 +3,8 @@
 # Reduce counts when warnings are fixed. CI fails if new warnings exceed this budget.
 1	CLI/cmux.swift	literal value is already handled by previous pattern; consider removing it
 2	CLI/cmux.swift	variable 'groups' was never mutated; consider changing to 'let' constant
+1	Packages/macOS/CmuxSurfaceCatalogModel/Sources/CmuxSurfaceCatalogModel/CmuxTuiSnapshotParser.swift	default will never be executed
+1	Packages/macOS/CmuxSurfaceCatalogModel/Sources/CmuxSurfaceCatalogModel/SurfaceCatalogModel.swift	immutable value 'rowID' was never used; consider replacing with '_' or removing it
 1	Sources/App/TerminalDirectoryOpenSupport.swift	'fullPath(forApplication:)' was deprecated in macOS 11.0: Use -[NSWorkspace URLForApplicationWithBundleIdentifier:] instead.
 2	Sources/AppDelegate+PaneMemoryGuardrail.swift	trailing closure in this context is confusable with the body of the statement; pass as a parenthesized argument to silence this warning
 1	Sources/AppDelegate.swift	'accessibilityAttributeValue' was deprecated in macOS 10.10: Use the NSAccessibility protocol methods instead (see NSAccessibilityProtocols.h)
@@ -78,8 +80,6 @@
 1	Sources/SessionIndexTableController.swift	main actor-isolated property 'isApplyingRows' can not be referenced from a Sendable closure
 2	Sources/SessionIndexView.swift	'onChange(of:perform:)' was deprecated in macOS 14.0: Use `onChange` with a two or zero parameter action closure instead.
 1	Sources/Settings/ConfigSettingsView.swift	'onChange(of:perform:)' was deprecated in macOS 14.0: Use `onChange` with a two or zero parameter action closure instead.
-1	Sources/Surfaces/CmuxTuiSnapshotParser.swift	default will never be executed
-1	Sources/Surfaces/SurfaceCatalogModel.swift	immutable value 'rowID' was never used; consider replacing with '_' or removing it
 17	Sources/TabManager.swift	result of call to 'closePanel(_:force:)' is unused
 1	Sources/TerminalController.swift	'CGWindowListCreateImage' was deprecated in macOS 14.0: Please use ScreenCaptureKit instead.
 2	Sources/TerminalController.swift	'activateIgnoringOtherApps' was deprecated in macOS 14.0: ignoringOtherApps is deprecated in macOS 14 and will have no effect.

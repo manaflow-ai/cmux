@@ -1,5 +1,6 @@
 import CmuxAuthRuntime
 import CMUXMobileCore
+import CmuxSurfaceCatalogModel
 import Foundation
 
 extension URLError.Code {

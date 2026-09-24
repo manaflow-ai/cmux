@@ -7,6 +7,7 @@ import CmuxBrowser
 import CmuxCommandPalette
 import CmuxPanes
 import CmuxControlSocket
+import CmuxSurfaceCatalogModel
 import CmuxWindowing
 import CmuxNotifications
 import CmuxTerminalCore

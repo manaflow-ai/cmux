@@ -1,3 +1,4 @@
+import CmuxSurfaceCatalogModel
 import Foundation
 
 /// Owns user-requested inventory refreshes for one panel, coalescing a burst

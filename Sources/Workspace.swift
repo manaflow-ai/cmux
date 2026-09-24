@@ -1,6 +1,7 @@
 import CmuxAppKitSupportUI
 import CMUXMobileCore
 import CmuxFoundation
+import CmuxSurfaceCatalogModel
 import Foundation
 import CmuxCore
 import CmuxRemoteDaemon

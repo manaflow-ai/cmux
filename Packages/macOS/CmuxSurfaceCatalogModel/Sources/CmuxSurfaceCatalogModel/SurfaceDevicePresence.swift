@@ -4,8 +4,8 @@ import Foundation
 /// carried on ``SurfaceMachineInfo`` so the Devices tree, `surface.catalog`, and
 /// `cmux vm tree --json` all render the same liveness. Nil on local and cloud
 /// machines, which have no presence record.
-struct SurfaceDevicePresence: Hashable, Codable, Sendable {
-    enum State: String, Codable, Sendable {
+public struct SurfaceDevicePresence: Hashable, Codable, Sendable {
+    public enum State: String, Codable, Sendable {
         case online
         case offline
         /// No presence report: the stream is down, or the device is known only
@@ -16,7 +16,7 @@ struct SurfaceDevicePresence: Hashable, Codable, Sendable {
     /// Whether this Mac's account may drive the device. The host authorizes only
     /// the account that is signed in on it, so the viewer never dials (and never
     /// presents its bearer token to) a Mac owned by another team member.
-    enum AccountTrust: String, Codable, Sendable {
+    public enum AccountTrust: String, Codable, Sendable {
         /// The device is owned by the signed-in account.
         case sameAccount
         /// The device belongs to another member of the team.
@@ -25,20 +25,34 @@ struct SurfaceDevicePresence: Hashable, Codable, Sendable {
         case unknown
     }
 
-    var state: State
+    public var state: State
     /// Freshest heartbeat the service reported, when it reported any.
-    var lastSeenAt: Date?
+    public var lastSeenAt: Date?
     /// The app-instance tag (`default` for stable builds).
-    var tag: String
+    public var tag: String
     /// The host app's bundle id, for build-channel labels; nil for older hosts.
-    var bundleID: String?
-    var accountTrust: AccountTrust
+    public var bundleID: String?
+    public var accountTrust: AccountTrust
 
-    var isOnline: Bool { state == .online }
+    public init(
+        state: State,
+        lastSeenAt: Date? = nil,
+        tag: String,
+        bundleID: String? = nil,
+        accountTrust: AccountTrust
+    ) {
+        self.state = state
+        self.lastSeenAt = lastSeenAt
+        self.tag = tag
+        self.bundleID = bundleID
+        self.accountTrust = accountTrust
+    }
+
+    public var isOnline: Bool { state == .online }
 
     /// "DEV · issue-8001" for tagged dev builds, "Nightly" / "RC" for those
     /// channels, nil for a stable instance (whose name needs no qualifier).
-    var buildLabel: String? {
+    public var buildLabel: String? {
         let lowered = (bundleID ?? "").lowercased()
         let taggedName = tag != SurfaceDeviceInstanceID.defaultTag ? tag : nil
         let channel: String

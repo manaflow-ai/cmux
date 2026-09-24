@@ -1,5 +1,6 @@
 import AppKit
 import Bonsplit
+import CmuxSurfaceCatalogModel
 import Foundation
 
 /// Identifies one remote workspace placement for a local projection.

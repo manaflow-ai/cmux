@@ -14,25 +14,25 @@ import Foundation
 /// compatible with persisted sessions, `cloudTree.collapsedMachineIDs`, and the
 /// `surface.catalog` JSON older CLIs already read. The UUID contains no `@`, so the
 /// first `@` after the prefix splits identity from tag even for tags that contain one.
-struct SurfaceDeviceInstanceID: Hashable, Codable, Sendable, CustomStringConvertible {
-    static let wirePrefix = "device:"
-    static let tagSeparator: Character = "@"
+public struct SurfaceDeviceInstanceID: Hashable, Codable, Sendable, CustomStringConvertible {
+    public static let wirePrefix = "device:"
+    public static let tagSeparator: Character = "@"
     /// The registry tag of the stable channel; every other tag is a build channel or dev launch tag.
-    static let defaultTag = "default"
+    public static let defaultTag = "default"
 
     /// Canonical lowercase device UUID (``cmxCanonicalDeviceID``).
-    let deviceID: String
+    public let deviceID: String
     /// Normalized app-instance tag; empty input becomes ``defaultTag``.
-    let tag: String
+    public let tag: String
 
-    init(deviceID: String, tag: String) {
+    public init(deviceID: String, tag: String) {
         self.deviceID = cmxCanonicalDeviceID(deviceID.trimmingCharacters(in: .whitespacesAndNewlines))
         let trimmedTag = tag.trimmingCharacters(in: .whitespacesAndNewlines)
         self.tag = trimmedTag.isEmpty ? Self.defaultTag : trimmedTag
     }
 
     /// Parses the wire form; nil for anything that is not a `device:` value.
-    init?(wireValue: String) {
+    public init?(wireValue: String) {
         guard wireValue.hasPrefix(Self.wirePrefix) else { return nil }
         let body = wireValue.dropFirst(Self.wirePrefix.count)
         guard let separator = body.firstIndex(of: Self.tagSeparator) else { return nil }
@@ -42,15 +42,15 @@ struct SurfaceDeviceInstanceID: Hashable, Codable, Sendable, CustomStringConvert
         self.init(deviceID: deviceID, tag: tag)
     }
 
-    var wireValue: String { "\(Self.wirePrefix)\(deviceID)\(Self.tagSeparator)\(tag)" }
-    var description: String { wireValue }
+    public var wireValue: String { "\(Self.wirePrefix)\(deviceID)\(Self.tagSeparator)\(tag)" }
+    public var description: String { wireValue }
 
     /// Whether this instance is the stable-channel app on its device.
-    var isDefaultTag: Bool { tag == Self.defaultTag }
+    public var isDefaultTag: Bool { tag == Self.defaultTag }
 
     /// Other physical Macs are visible in the viewer's channel. Dev viewers
     /// additionally see stable and nightly, but never unrelated dev tags.
-    func isVisible(from viewer: SurfaceDeviceInstanceID) -> Bool {
+    public func isVisible(from viewer: SurfaceDeviceInstanceID) -> Bool {
         guard deviceID != viewer.deviceID else { return false }
         if tag == viewer.tag { return true }
         switch viewer.tag {
@@ -62,7 +62,7 @@ struct SurfaceDeviceInstanceID: Hashable, Codable, Sendable, CustomStringConvert
     }
 
     /// The shared cross-app spelling used by pairing and presence code.
-    var appInstanceIdentity: CmxMacAppInstanceIdentity {
+    public var appInstanceIdentity: CmxMacAppInstanceIdentity {
         CmxMacAppInstanceIdentity(macDeviceID: deviceID, instanceTag: isDefaultTag ? nil : tag)
     }
 }

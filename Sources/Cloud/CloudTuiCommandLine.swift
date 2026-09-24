@@ -1,3 +1,4 @@
+import CmuxSurfaceCatalogModel
 import Foundation
 
 /// The exact argv the app hands the cmux-tui client for each cloud-tree operation.
