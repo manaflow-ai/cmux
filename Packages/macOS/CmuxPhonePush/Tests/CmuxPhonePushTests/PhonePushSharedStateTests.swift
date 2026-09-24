@@ -1,3 +1,4 @@
+import CmuxAuthRuntime
 import CryptoKit
 import Foundation
 import Testing
@@ -137,6 +138,34 @@ struct PhonePushSharedStateTests {
         #expect(PhonePushActiveAccountStore(bundle: try extensionBundle, storage: shared).current() == "account-1")
         PhonePushActiveAccountStore(bundle: try hostBundle, storage: shared).clear()
         #expect(PhonePushActiveAccountStore(bundle: try extensionBundle, storage: shared).current() == nil)
+    }
+
+    private func mirroredAccount(
+        after identities: [AuthenticatedSessionIdentity?],
+        storage: MemoryStorage
+    ) async throws -> String? {
+        let (stream, continuation) = AsyncStream<AuthenticatedSessionIdentity?>.makeStream()
+        for identity in identities { continuation.yield(identity) }
+        continuation.finish()
+        await PhonePushActiveAccountStore(bundle: try hostBundle, storage: storage).mirror(stream)
+        return PhonePushActiveAccountStore(bundle: try extensionBundle, storage: storage).current()
+    }
+
+    @Test("a session restored at launch reaches the extension without a sign-in")
+    func restoredSessionWritesAccount() async throws {
+        let restored = AuthenticatedSessionIdentity(generation: 3, accountID: "account-1")
+        #expect(try await mirroredAccount(after: [restored], storage: MemoryStorage()) == "account-1")
+    }
+
+    @Test("the mirrored account follows account switches and sign-out")
+    func mirrorFollowsTransitions() async throws {
+        let first = AuthenticatedSessionIdentity(generation: 1, accountID: "account-1")
+        let second = AuthenticatedSessionIdentity(generation: 2, accountID: "account-2")
+        #expect(try await mirroredAccount(after: [nil, first, second], storage: MemoryStorage()) == "account-2")
+
+        let signedOut = MemoryStorage()
+        PhonePushActiveAccountStore(bundle: try hostBundle, storage: signedOut).set("stale-account")
+        #expect(try await mirroredAccount(after: [first, nil], storage: signedOut) == nil)
     }
 
     @Test("pins beyond the cap evict the least recently pinned Mac")

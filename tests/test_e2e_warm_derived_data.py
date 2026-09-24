@@ -13,6 +13,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts/ci"))
 import e2e_warm_derived_data as warm
 
 BUILD_TIME_NS = 1_700_000_000_000_000_000
+PRODUCER = "a" * 40
+TESTED = "b" * 40
 
 
 class ReplayTimes(unittest.TestCase):
@@ -87,12 +89,80 @@ class ProviderDigest(unittest.TestCase):
             Path(target).write_bytes(b"zip!")
 
         with mock.patch.dict(os.environ, {"GITHUB_REPOSITORY": "o/r"}), \
-                mock.patch.object(warm, "newest", return_value=artifact), \
+                mock.patch.object(warm, "candidates", return_value=iter([artifact])), \
+                mock.patch.object(warm, "api", return_value={"display_title": "t on r @ " + PRODUCER}), \
+                mock.patch.object(warm, "tested_revision", return_value=PRODUCER), \
                 mock.patch.object(warm.transport, "download_zip", side_effect=download), \
                 mock.patch.object(warm, "extract") as extract:
             with self.assertRaises(ValueError):
                 warm.restore(derived, derived, "key")
         extract.assert_not_called()
+
+
+class ProducerDistance(unittest.TestCase):
+    """A producer whose app sources differ recompiles the whole app anyway."""
+
+    def restore_with(self, title, files, older=None):
+        """`older` is (title, files) for a second, older candidate."""
+        runs = {7: (title, files)}
+        artifacts = [{"id": 3, "size_in_bytes": 4, "digest": "sha256:" + "0" * 64, "workflow_run": {"id": 7}}]
+        if older is not None:
+            runs[8] = older
+            artifacts.append({"id": 4, "size_in_bytes": 4, "digest": "sha256:" + "0" * 64, "workflow_run": {"id": 8}})
+        producers = {7: PRODUCER, 8: "c" * 40}
+
+        def api(path):
+            if "/compare/" in path:
+                run_id = next(r for r, sha in producers.items() if sha in path)
+                return {"files": [{"filename": name} for name in runs[run_id][1]]}
+            run_id = int(path.rsplit("/", 1)[1])
+            return {"display_title": runs[run_id][0].replace("PRODUCER", producers[run_id]), "head_sha": producers[run_id]}
+
+        derived = Path(tempfile.mkdtemp())
+        with mock.patch.dict(os.environ, {"GITHUB_REPOSITORY": "o/r"}), \
+                mock.patch.object(warm, "candidates", return_value=iter(artifacts)), \
+                mock.patch.object(warm, "api", side_effect=api), \
+                mock.patch.object(warm, "tested_revision", return_value=TESTED), \
+                mock.patch.object(warm.transport, "download_zip") as download:
+            try:
+                result = warm.restore(derived, derived, "key")
+            except Exception:  # the download mock leaves nothing to verify
+                result = {"hit": "attempted"}
+        self.downloaded_ids = [call.args[1] for call in download.call_args_list]
+        return result, download.called
+
+    def test_an_app_source_change_since_the_producer_skips_the_download(self):
+        result, downloaded = self.restore_with(
+            "t on r @ PRODUCER", ["cmuxTests/AppTests.swift", "Packages/macOS/CmuxFoundation/Sources/A.swift"],
+        )
+        self.assertFalse(downloaded)
+        self.assertEqual(result["hit"], "false")
+        self.assertIn("app-build-changed-since-producer", result["reason"])
+
+    def test_a_test_only_difference_adopts(self):
+        _, downloaded = self.restore_with("t on r @ PRODUCER", ["cmuxTests/AppTests.swift", "docs/x.md"])
+        self.assertTrue(downloaded)
+
+    def test_a_producer_built_from_main_uses_the_run_head(self):
+        _, downloaded = self.restore_with("t on r @ main [seed]", ["cmuxTests/AppTests.swift"])
+        self.assertTrue(downloaded)
+
+    def test_an_older_matching_seed_is_adopted_past_a_newer_distant_one(self):
+        _, downloaded = self.restore_with(
+            "t on r @ PRODUCER", ["Sources/App.swift"], older=("t on r @ PRODUCER", ["cmuxTests/A.swift"]),
+        )
+        self.assertTrue(downloaded)
+        self.assertEqual(self.downloaded_ids, [4])
+
+    def test_a_truncated_title_starts_cold(self):
+        result, downloaded = self.restore_with("t on r @ 8994e2989013a19c5bb1614ddcfc...", [])
+        self.assertEqual((result["reason"], downloaded), ("producer-revision-unknown", False))
+
+    def test_an_unknown_producer_revision_or_huge_diff_starts_cold(self):
+        result, downloaded = self.restore_with("t on r @ some-branch", [])
+        self.assertEqual((result["reason"], downloaded), ("producer-revision-unknown", False))
+        result, downloaded = self.restore_with("t on r @ PRODUCER", [f"cmuxTests/T{i}.swift" for i in range(300)])
+        self.assertEqual((result["reason"], downloaded), ("producer-too-far", False))
 
 
 class ArchiveBounds(unittest.TestCase):

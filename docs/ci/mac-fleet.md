@@ -416,18 +416,22 @@ gh run list --repo manaflow-ai/cmux --workflow ci.yml --limit 50 \
 done | sort | uniq -c | sort -rn
 ```
 
-Drain one mini:
+Drain one mini, on the mini:
 
 ```sh
-python3 scripts/cmux_fleet.py transition-apply "$ENROLLMENT" --to draining
-bash scripts/cmux-fleet status "$ENROLLMENT" --acceptance "$ACCEPTANCE"
+scripts/persistent-compile drain          # waits for a running job; --now does not
+scripts/persistent-compile resume         # back to eligible, service started
 ```
 
-Then remove the runner from the `cmux-persistent-compile` group, or stop its
-launchd job. **Draining in Glaeda does not stop GitHub from assigning jobs** -
-they are separate control planes, and this is the sharpest operational trap in
-the whole design. Until glaeda #1058's drain primitive lands, draining is two
-actions, and doing only the first one leaves the machine taking work.
+**Draining in Glaeda does not stop GitHub from assigning jobs** - they are
+separate control planes, and this is the sharpest operational trap in the
+whole design. `drain` does both: it moves the enrollment to `draining` and,
+once the runner is idle, stops and disables its launchd agent so it stays
+stopped across logins and reboots. A job GitHub assigns in the seconds between
+the last one ending and the stop is cancelled and falls back to the hosted
+compile. Until glaeda #1058's drain
+primitive lands, do not drain with `cmux_fleet.py transition-apply` alone; that
+leaves the machine taking work.
 
 Quarantine, with one of the eight reviewed reasons (`toolchain_mismatch`,
 `disk_pressure`, `failed_acceptance`, `dirty_canonical_checkout`,
@@ -519,6 +523,34 @@ after) and is where that requirement belongs.
 
 ## 5. Rollout
 
+`scripts/persistent-compile` runs every step below that can be scripted. Run
+it with no arguments from anywhere to see what is set up and the one command
+to run next. Commands that change something show their plan and ask first
+(`-y` skips the question).
+
+| Who | Where | Command |
+| --- | --- | --- |
+| Org admin | anywhere with `gh` | `scripts/persistent-compile group` |
+| Operator | the mini, in a cmux checkout | `scripts/persistent-compile up --node-id cmux-mac-NNN` |
+| Maintainer | anywhere | `scripts/persistent-compile pilot <PR>`, later `all` |
+
+Before `up`, reserve the mini through its existing owner (#13491 step 1); `up`
+does not take machines from other schedulers. `up` clones Glaeda if needed and
+runs `glaeda-mini-setup`. It then downloads the reviewed Glaeda candidate
+pinned in `scripts/ci/persistent_compile_fleet.py` (`CANDIDATE_*`) and has
+`glaeda-mini-enroll` verify and stage those exact bytes, then enroll and
+accept the mini with them; no Rust is built on the node. Last, it registers
+the runner and starts it. It stops at the first
+step that needs sudo or a human, prints that step, and resumes from there when
+run again. It refuses to register a mini whose Glaeda enrollment is not
+`eligible`. The runner is the pinned `actions-runner` (sha256 checked) in
+`~/actions-runner-cmux-persistent-compile`, registered with the exact labels in
+3.2 and run as a launchd agent. The registration token comes from the
+operator's `gh` login. An operator who is not an org admin gets one from an
+admin instead: the admin runs `scripts/persistent-compile token`, and the
+operator runs `CMUX_RUNNER_TOKEN=<token> scripts/persistent-compile up`. The
+token is valid for one hour.
+
 ### Stage 0 - preconditions (maintainer only)
 
 - [ ] Organization runner group `cmux-persistent-compile` exists, allows this
@@ -535,9 +567,11 @@ after) and is where that requirement belongs.
 ### Stage 1 - canary, one mini, one lane, one PR
 
 ```sh
-gh variable set CI_PERSISTENT_MAC_COMPILE        --repo manaflow-ai/cmux -b pilot
-gh variable set CI_PERSISTENT_MAC_COMPILE_COHORT --repo manaflow-ai/cmux -b 13198
+scripts/persistent-compile pilot 13198
 ```
+
+That sets `CI_PERSISTENT_MAC_COMPILE=pilot` and
+`CI_PERSISTENT_MAC_COMPILE_COHORT=13198`.
 
 `pilot` + a cohort restricts routing to matching PR numbers or head branch
 names. Every other PR is untouched. Leave it here for at least 20 routed runs.
