@@ -65,14 +65,14 @@ extension Workspace {
         // A disconnected provider may remove its graph while the native remote
         // transport remains. Absence of graph metadata is not local ownership.
         if let machineID = (panels[panelID] as? TerminalPanel)?.cloudAttachment?.machineID {
-            return CloudTerminalSourcePlacement(machine: .cloud(machineID))
+            return CloudTerminalSourcePlacement(machine: SurfaceMachineID(rawValue: machineID))
         }
         // Legacy managed-Cloud SSH and transferred panels can be Cloud-owned
         // without a catalog projection or manual-mirror attachment. Reuse the
         // same owner resolver used by drag rejection; if its workspace binding
         // is missing, the create route fails closed instead of repairing locally.
         if let machine = machineOwningSurface(panelID), !machine.isLocal {
-            let remoteWorkspaceID = cloudVMBinding?.vmID == machine.cloudMachineID
+            let remoteWorkspaceID = cloudVMBinding?.vmID == machine.tuiMachineID
                 ? cloudVMBinding?.remoteWorkspaceID
                 : nil
             return CloudTerminalSourcePlacement(
@@ -181,7 +181,8 @@ extension Workspace {
             if let pendingPane { closeUntouchedPane(pendingPane) }
             return true
         }
-        let request = CloudTerminalCreationRequest(id: requestID, remoteWorkspaceID: source.remoteWorkspaceID)
+        let commandOverride = machine.isSSH ? remoteConfiguration.map { SSHTuiConnection(configuration: $0).shellCommand } : nil
+        let request = CloudTerminalCreationRequest(id: requestID, remoteWorkspaceID: source.remoteWorkspaceID, commandOverride: commandOverride)
         let reservationDestination: SurfaceDestination = pendingPane.map {
             .tab(workspaceID: id, paneID: $0.id.uuidString, index: nil)
         } ?? destination
