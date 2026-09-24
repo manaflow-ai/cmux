@@ -21,6 +21,11 @@ on:
 permissions:
   contents: read
 
+# r2-cache.sh restores through the public URL and refuses to save without it,
+# so without this env every restore missed and every save wrote nothing.
+env:
+  CI_CACHE_R2_PUBLIC_URL: ${{ vars.CI_CACHE_R2_PUBLIC_URL || 'https://ci-cache.cmux.com' }}
+
 # One seed at a time per runner pool, and never cancel-in-progress. main
 # takes several merges an hour and a cold seed takes 15-20 minutes, so
 # cancelling the running seed for each newer push would starve publishing for
