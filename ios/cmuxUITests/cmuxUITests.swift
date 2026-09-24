@@ -4597,12 +4597,17 @@ final class cmuxUITests: XCTestCase {
 
     @MainActor
     func testEraseAllLocalDataResetsPersistedSettingsAfterRelaunch() throws {
-        var app = launchApp(
-            mockData: false,
-            environment: ["CMUX_UITEST_WORKSPACE_LIST_PREVIEW": "1"]
-        )
+        // The mock shell mounts the real root view, which owns the reset flow;
+        // layout previews bypass it.
+        var app = launchApp(mockData: true)
 
         func openSettings(in app: XCUIApplication) {
+            grantNotificationAuthorizationIfRequested()
+            let whatsNewContinue = app.buttons["MobileWhatsNewSheet"].firstMatch
+            if whatsNewContinue.waitForExistence(timeout: 3) {
+                tap(whatsNewContinue, in: app)
+                XCTAssertTrue(whatsNewContinue.waitForNonExistence(timeout: 4))
+            }
             let settings = app.buttons["MobileWorkspaceSettingsMenu"]
             XCTAssertTrue(settings.waitForExistence(timeout: 8))
             tap(settings, in: app)
@@ -4654,9 +4659,7 @@ final class cmuxUITests: XCTestCase {
         XCTAssertFalse(app.buttons["MobileWorkspaceSettingsMenu"].exists)
 
         app.terminate()
-        app = launchApp(mockData: false, environment: [
-            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW": "1",
-        ])
+        app = launchApp(mockData: true)
         defer { app.terminate() }
         openSettings(in: app)
         let freshHaptics = revealed(app.switches["MobileSettingsHapticFeedbackToggle"], in: app)
