@@ -157,18 +157,23 @@ public struct TerminalPredictionEngine: Sendable {
     /// Round trip from keystroke to echo, smoothed. `nil` until the first echo.
     public var observedEchoLatency: Duration? { smoothedEchoLatency }
 
-    /// When the oldest glyph on screen ages out, or `nil` when none is.
+    /// When the next change to what is drawn falls due, or `nil` when
+    /// nothing is drawn.
     ///
     /// Nothing renders a terminal that has gone quiet, so the host has to set
     /// a timer for this; otherwise a prediction made just before the link died
-    /// would stay drawn until the user typed again.
+    /// would stay drawn until the user typed again. Any speculative entry
+    /// expiring withdraws everything, so while anything is drawn the undrawn
+    /// ones count too: an erase that never arrives expires on its own
+    /// keystroke's clock, not on that of a glyph typed after it.
     public var nextExpiry: PredictionInstant? {
-        entries.compactMap { entry -> PredictionInstant? in
-            guard entry.isDrawn else { return nil }
-            if let confirmedAt = entry.confirmedAt {
-                return confirmedAt + configuration.confirmationHold
+        guard entries.contains(where: \.isDrawn) else { return nil }
+        return entries.compactMap { entry -> PredictionInstant? in
+            if entry.standing == .speculative {
+                return entry.typedAt + configuration.speculativeLifetime
             }
-            return entry.typedAt + configuration.speculativeLifetime
+            guard entry.isDrawn, let confirmedAt = entry.confirmedAt else { return nil }
+            return confirmedAt + configuration.confirmationHold
         }.min()
     }
 
@@ -285,8 +290,12 @@ public struct TerminalPredictionEngine: Sendable {
             case .disruptive:
                 // The remote moved the screen somewhere we did not predict, so
                 // every offset we are holding is now measured from the wrong
-                // cursor.
-                changed = withdrawAll(countingMisprediction: true, at: now) || changed
+                // cursor. Where an erase was due, that is a shell erasing in a
+                // form not modelled here, not a wrong guess.
+                changed = withdrawAll(
+                    countingMisprediction: !isAwaitingErase,
+                    at: now
+                ) || changed
 
             case .printable(let byte):
                 changed = consumePrintable(byte, at: now) || changed
@@ -364,13 +373,27 @@ public struct TerminalPredictionEngine: Sendable {
         return advanceErase(at: index, by: signal, at: now)
     }
 
+    /// Whether the next echo expected is (the rest of) an erase.
+    private var isAwaitingErase: Bool {
+        guard let next = entries.first(where: { $0.standing == .speculative }),
+              case .erase = next.keystroke else { return false }
+        return true
+    }
+
+    /// Advances the erase at `index`, the next echo expected.
+    ///
+    /// A mismatch withdraws without counting toward suspension. Line editors
+    /// erase in more forms than the ones modelled here (a full repaint after
+    /// a carriage return, zsh redrawing an autosuggestion), and a shell that
+    /// always uses one of those is not mispredicting; counting it would
+    /// suspend prediction after a few corrections.
     private mutating func advanceErase(
         at index: Int,
         by signal: TerminalOutputSignal,
         at now: PredictionInstant
     ) -> Bool {
         guard case .erase(let progress) = entries[index].keystroke else {
-            return withdrawAll(countingMisprediction: true, at: now)
+            return withdrawAll(countingMisprediction: false)
         }
         switch (progress, signal) {
         case (.awaitingMoveLeft, .cursorLeft):
@@ -382,11 +405,11 @@ public struct TerminalPredictionEngine: Sendable {
             // the entry just before it is the glyph it took back, and the
             // pair together occupies no cells.
             guard index > 0, entries[index - 1].isRetracted else {
-                return withdrawAll(countingMisprediction: true, at: now)
+                return withdrawAll(countingMisprediction: false)
             }
             entries.removeSubrange((index - 1)...index)
         default:
-            return withdrawAll(countingMisprediction: true, at: now)
+            return withdrawAll(countingMisprediction: false)
         }
         return entries.contains { $0.isDrawn }
     }

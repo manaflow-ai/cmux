@@ -40,7 +40,12 @@ public struct PredictionOverlayLayout: Sendable, Equatable {
               let lastTyped = glyphs.map(\.offset).max() else { return nil }
 
         let caret = lastTyped + 1
-        let caretOffset = cursorColumn + caret < columns ? caret : nil
+        // Left of the cursor with nothing speculative, the caret would mark
+        // where typing resumes once a pending erase lands, beside the live
+        // cursor ghostty already draws. Only a drawn prediction justifies a
+        // second one.
+        let caretIsAhead = caret >= 0 || glyphs.contains { $0.standing == .speculative }
+        let caretOffset = caretIsAhead && cursorColumn + caret < columns ? caret : nil
 
         self.glyphs = onRow
         self.leadingOffset = first
