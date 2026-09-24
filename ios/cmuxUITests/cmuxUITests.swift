@@ -22,6 +22,10 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(open.waitForExistence(timeout: 10))
         XCTAssertEqual(open.label, "See more")
         XCTAssertFalse(app.buttons["MobileAgentFeedFullText-short-text-preview"].exists)
+        let preview = app.textViews.matching(NSPredicate(format: "label BEGINSWITH %@", "Markdown preview with emphasis, inline code, and a link.")).firstMatch
+        XCTAssertTrue(preview.exists)
+        XCTAssertFalse(preview.label.contains("**"))
+        XCTAssertFalse(preview.label.contains("https://example.com"))
         for identifier in ["MobileWorkspaceSettingsMenu", "MobileWorkspaceMacPicker", "MobileWorkspaceDevicesButton"] {
             XCTAssertTrue(app.buttons[identifier].exists, identifier)
         }
@@ -33,11 +37,15 @@ final class cmuxUITests: XCTestCase {
         let retry = app.buttons["Try again"]
         XCTAssertTrue(retry.waitForExistence(timeout: 5))
         retry.tap()
-        let body = app.staticTexts["MobileAgentFeedFullTextBody"]
-        XCTAssertTrue(body.waitForExistence(timeout: 5))
-        XCTAssertTrue(body.label.contains("FINAL PARAGRAPH: The complete response ends here."))
-        XCTAssertTrue(body.label.contains("👩🏽‍💻"))
-        for _ in 0..<8 { app.scrollViews.firstMatch.swipeUp() }
+        let heading = app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "Implementation notes")).firstMatch
+        XCTAssertTrue(heading.waitForExistence(timeout: 15))
+        let formatted = XCTAttachment(screenshot: app.screenshot())
+        formatted.name = "feed-markdown-heading-list-code"
+        formatted.lifetime = .keepAlways
+        add(formatted)
+        let finalParagraph = app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "FINAL PARAGRAPH: The complete response ends here.")).firstMatch
+        for _ in 0..<16 where !finalParagraph.isHittable { app.swipeUp() }
+        XCTAssertTrue(finalParagraph.isHittable)
         let after = XCTAttachment(screenshot: app.screenshot())
         after.name = "feed-full-text-final-paragraph"
         after.lifetime = .keepAlways

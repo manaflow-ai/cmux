@@ -93,28 +93,39 @@ final class AgentFeedInlineTextView: UIView {
         let complete = attributed(source)
         let needsExpansion = hasMoreText || lineCount(complete, width: width) > lineLimit
         if needsExpansion {
-            let characters = Array(source)
+            // Markdown delimiters and link destinations are absent from the
+            // rendered string. Truncate that string, preserving its attributes
+            // and composed characters, then append an unformatted control.
+            let characters = Array(complete.string)
+            func preview(_ count: Int) -> NSMutableAttributedString {
+                var prefix = String(characters.prefix(count))
+                while prefix.last?.isWhitespace == true { prefix.removeLast() }
+                let result = NSMutableAttributedString(attributedString: complete.attributedSubstring(
+                    from: NSRange(location: 0, length: prefix.utf16.count)
+                ))
+                result.append(NSAttributedString(string: "… " + moreTitle,
+                    attributes: [.font: font, .foregroundColor: textColor]))
+                return result
+            }
             var low = 0
             var high = characters.count
             while low < high {
                 let middle = (low + high + 1) / 2
-                let prefix = String(characters.prefix(middle)).trimmingCharacters(in: .whitespacesAndNewlines)
-                if lineCount(attributed(prefix + "… " + moreTitle), width: width) <= lineLimit {
+                if lineCount(preview(middle), width: width) <= lineLimit {
                     low = middle
                 } else {
                     high = middle - 1
                 }
             }
-            let prefix = String(characters.prefix(low)).trimmingCharacters(in: .whitespacesAndNewlines)
-            let displayed = attributed(prefix + "… " + moreTitle)
-            let range = NSRange(location: (prefix + "… ").utf16.count, length: moreTitle.utf16.count)
+            let displayed = preview(low)
+            let range = NSRange(location: displayed.length - moreTitle.utf16.count, length: moreTitle.utf16.count)
             displayed.addAttribute(.foregroundColor, value: tintColor ?? UIColor.systemBlue, range: range)
             textView.attributedText = displayed
-            textView.accessibilityLabel = prefix + "…"
+            textView.accessibilityLabel = String(displayed.string.dropLast(moreTitle.count))
             linkRange = range
         } else {
             textView.attributedText = complete
-            textView.accessibilityLabel = source
+            textView.accessibilityLabel = complete.string
             linkRange = nil
         }
         moreButton.isHidden = !needsExpansion
@@ -161,8 +172,7 @@ final class AgentFeedInlineTextView: UIView {
 
         // Foundation carries Markdown's inline intents through the bridge, but
         // TextKit needs concrete UIKit attributes to draw them. Keep this
-        // conversion here so the same rendering applies to previews and the
-        // full-text sheet.
+        // conversion here so measurement and preview drawing agree.
         rendered.enumerateAttribute(
             .inlinePresentationIntent,
             in: fullRange,
@@ -176,7 +186,8 @@ final class AgentFeedInlineTextView: UIView {
             }
             if intent.contains(.stronglyEmphasized) {
                 runFont = Self.font(runFont, adding: .traitBold)
-            } else if intent.contains(.emphasized) {
+            }
+            if intent.contains(.emphasized) {
                 runFont = Self.font(runFont, adding: .traitItalic)
             }
             rendered.addAttribute(.font, value: runFont, range: range)

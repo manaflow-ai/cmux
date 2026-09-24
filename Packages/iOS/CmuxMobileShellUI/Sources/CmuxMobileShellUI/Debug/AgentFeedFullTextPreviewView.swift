@@ -15,7 +15,19 @@ public struct AgentFeedFullTextPreviewView: View {
 
     public init(failsOnce: Bool = false) {
         self.failsOnce = failsOnce
-        let text = (1...24).map { number in
+        let text = """
+        **Markdown preview** with *emphasis*, `inline code`, and [a link](https://example.com/feed).
+
+        ## Implementation notes
+
+        - First item
+        - Second item
+
+        ```swift
+        let message = "Hello, Feed"
+        ```
+
+        """ + (1...24).map { number in
             "Paragraph \(number). This response keeps its complete explanation, line breaks, and Unicode 👩🏽‍💻."
         }.joined(separator: "\n\n") + "\n\nFINAL PARAGRAPH: The complete response ends here."
         fullText = text

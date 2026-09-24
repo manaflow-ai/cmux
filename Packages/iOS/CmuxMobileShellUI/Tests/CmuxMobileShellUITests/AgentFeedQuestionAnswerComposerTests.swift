@@ -1,5 +1,7 @@
+#if os(iOS)
 import CmuxMobileShellModel
 import Testing
+@testable import CmuxMobileShellUI
 
 @Suite struct AgentFeedQuestionAnswerComposerTests {
     @Test func answersUseHumanLabelsInQuestionOrder() {
@@ -84,3 +86,4 @@ import Testing
         )
     }
 }
+#endif
