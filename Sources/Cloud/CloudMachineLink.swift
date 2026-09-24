@@ -203,6 +203,7 @@ actor CloudMachineLink {
         session: String,
         carrier: Bool = false,
         timeout: Duration = .seconds(60),
+        sshArguments: [String] = [],
         wireguardHubSocket: String? = nil,
         releaseHubLease: (@Sendable () async -> Void)? = nil
     ) async throws -> Connected {
@@ -221,7 +222,9 @@ actor CloudMachineLink {
             deviceName: CloudTuiClientPaths.deviceName(),
             stateDir: paths.stateDir.path,
             carrier: carrier,
-            wireguardHubSocket: wireguardHubSocket
+            wireguardHubSocket: wireguardHubSocket,
+            session: route.hasPrefix("ssh://") ? session : nil,
+            sshArguments: sshArguments
         )
         var environment = ProcessInfo.processInfo.environment
         environment["CMUX_REMOTE_STATE_DIR"] = paths.stateDir.path
