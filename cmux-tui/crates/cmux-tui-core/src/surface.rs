@@ -176,6 +176,10 @@ pub struct SurfaceOptions {
     /// Where to publish the adopted template terminal's new session and
     /// terminal ids (`KEY=value` lines) once adoption commits.
     pub template_bound_file: Option<PathBuf>,
+    /// Name of the workspace created for the adopted template terminal. The
+    /// template's own registry was wiped with the snapshot, so its name is
+    /// not recoverable from the host record. `None` uses the default name.
+    pub template_workspace_name: Option<String>,
 }
 
 /// Default TERM for child shells.
@@ -229,6 +233,7 @@ impl Default for SurfaceOptions {
             terminal_host_root: None,
             adopt_template_terminal: false,
             template_bound_file: None,
+            template_workspace_name: None,
         }
     }
 }

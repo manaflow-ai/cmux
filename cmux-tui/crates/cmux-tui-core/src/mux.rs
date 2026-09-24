@@ -3279,7 +3279,11 @@ impl Mux {
                     // Recreate the host's workspace under its recorded key in
                     // this registry; the import below then gives the host a
                     // placement there with freshly generated public ids.
-                    self.create_empty_workspace(None, Some(record.workspace_key.clone()), None)?;
+                    self.create_empty_workspace(
+                        options.template_workspace_name.clone(),
+                        Some(record.workspace_key.clone()),
+                        None,
+                    )?;
                     template_claimed = true;
                     template_terminal = Some(terminal_id.clone());
                 }
