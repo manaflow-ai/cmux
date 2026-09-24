@@ -9,24 +9,12 @@ Before committing, setup or a native build, [choose verification for the changed
 ## Dev builds on the Mac mini fleet
 
 For team dev builds, use the controller client `~/.local/bin/cmux-ci`. The Mac
-mini fleet is **dev-build-only** except for the bounded compile-admission pilot
-in `.github/workflows/persistent-macos-compile.yml`. That dispatch-only producer
-may compile Debug app-host products for trusted same-repository organization
-pull requests behind `CI_PERSISTENT_MAC_COMPILE`; dispatch/cancellation live
-only in the default-branch `persistent-macos-router.yml` workflow so PR CI
-retains read-only Actions permission. Its owned runner must live in the
-workflow-restricted `cmux-persistent-compile` runner group pinned to the
-producer workflow on `refs/heads/main`. The required
-`macOS compile admission` job remains the check/log/artifact owner and
-revalidates the producer before adoption. The nightly app compile may likewise
-run first on an owned Mac through `.github/workflows/nightly-mini-build.yml`
-behind `NIGHTLY_MAC_MINI`, with the hosted nightly job revalidating, signing
-and publishing (`docs/ci/mac-fleet.md`, "Nightly lane"). Release, signing,
-notarization, nightly signing and publication, TestFlight, merge-queue policy,
-generic agent execution, and every GUI or runtime test remain on their existing
-lanes. The producer receives no
-repository secrets, and hosted compile fallback remains live. A successful dev
-build or persistent producer run never replaces the required check.
+mini fleet is **dev-build-only**. Owned minis will take pull request jobs
+through the pool picker (`scripts/ci/pr_runner_pool.py`, `POOLS`); the earlier
+persistent compile pilot is retired. Release, signing, notarization, nightly,
+TestFlight, merge-queue policy, generic agent execution, and every GUI or
+runtime test remain on their existing lanes. A successful dev build never
+replaces a required check.
 
 Before submitting, read the current [HQ AGENTS.md](https://github.com/manaflow-ai/cmuxterm-hq/blob/main/AGENTS.md)
 and [agent build contract](https://github.com/manaflow-ai/cmuxterm-hq/blob/main/build-fleet/AGENT-BUILDS.md).

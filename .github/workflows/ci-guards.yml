@@ -47,14 +47,6 @@ jobs:
         if: ${{ matrix.group == 'preflight' }}
         run: ./tests/test_ci_self_hosted_guard.sh
 
-      - name: Validate persistent Mac compile admission contract
-        if: ${{ matrix.group == 'preflight' }}
-        run: python3 tests/test_ci_persistent_mac_compile.py
-
-      - name: Validate nightly owned-Mac route
-        if: ${{ matrix.group == 'preflight' }}
-        run: python3 tests/test_nightly_mini_route.py
-
       - name: Validate Swift incremental diagnostics tooling
         if: ${{ matrix.group == 'preflight' }}
         run: python3 tests/test_swift_incremental_diagnostics.py
@@ -352,9 +344,9 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_pr_runner_pool.py
 
-      - name: Validate persistent compile fleet command
+      - name: Validate the persistent-pool rescue
         if: ${{ matrix.group == 'ci' }}
-        run: python3 tests/test_ci_persistent_compile_fleet.py
+        run: python3 tests/test_ci_owned_pool_rescue.py
 
       - name: Validate CI health report
         if: ${{ matrix.group == 'ci' }}
@@ -731,7 +723,9 @@ jobs:
 
       - name: Validate test compilation cache seeding
         if: ${{ matrix.group == 'quality-sharding' }}
-        run: bash ./tests/test_ci_test_compilation_cache_seed.sh
+        run: |
+          bash ./tests/test_ci_test_compilation_cache_seed.sh
+          bash ./tests/test_ci_swiftpm_manifest_cache.sh
 
       - name: Validate cmux-tui client installation
         if: ${{ matrix.group == 'release-tooling' }}
@@ -781,6 +775,7 @@ jobs:
           python3 tests/test_reuse_app_host_products.py
           python3 tests/test_e2e_warm_derived_data.py
           python3 tests/test_seed_derived_data.py
+          python3 tests/test_seed_decide.py
           python3 tests/test_ci_product_publication.py
           python3 tests/test_ci_cli_product_routing.py
 

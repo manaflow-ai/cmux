@@ -15,6 +15,7 @@ REUSABLE_GUARD_COMMANDS = [
     "python3 tests/test_reuse_app_host_products.py",
     "python3 tests/test_e2e_warm_derived_data.py",
     "python3 tests/test_seed_derived_data.py",
+    "python3 tests/test_seed_decide.py",
     "python3 tests/test_ci_product_publication.py",
     "python3 tests/test_ci_cli_product_routing.py",
 ]

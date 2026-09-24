@@ -329,7 +329,7 @@ def named(step_list, name):
     return matches[0], step_list[matches[0]]
 
 
-TOKEN = re.compile(r"\s*(\|\||&&|==|!=|!|\(|\)|'(?:[^']|'')*'|[A-Za-z_][A-Za-z0-9_.-]*)")
+TOKEN = re.compile(r"\s*(\|\||&&|==|!=|!|\(|\)|,|'(?:[^']|'')*'|[A-Za-z_][A-Za-z0-9_.-]*)")
 
 
 def evaluate(expression, context):
@@ -337,7 +337,7 @@ def evaluate(expression, context):
 
     `a && b` is b when a is truthy, else a; `a || b` is a when truthy,
     else b. Names resolve by dotted path in `context`; a missing one is null,
-    which compares equal to ''.
+    which compares equal to ''. startsWith() compares case-insensitively.
     """
     text = expression.strip()
     if text.startswith("${{") and text.endswith("}}"):
@@ -371,6 +371,16 @@ def evaluate(expression, context):
             return token[1:-1].replace("''", "'")
         if token in ("true", "false"):
             return token == "true"
+        if token == "startsWith" and peek() == "(":
+            take()
+            haystack = either()
+            if take() != ",":
+                raise ValueError("startsWith takes two arguments")
+            needle = either()
+            if take() != ")":
+                raise ValueError("unbalanced parentheses")
+            return ("" if haystack is None else str(haystack)).lower().startswith(
+                ("" if needle is None else str(needle)).lower())
         value = context
         for part in token.split("."):
             value = value.get(part) if isinstance(value, dict) else None
@@ -443,12 +453,18 @@ class Wiring(unittest.TestCase):
         self.assertLess(adopt_at, compile_at)
         self.assertLess(compile_at, forget_at)
         self.assertEqual(adopt["env"]["SEED_PREFIX"], written[: -len(suffix)])
-        self.assertIn("steps.seed-derived-data.outputs.hit == 'true'", forget["if"])
+        # Adopt writes the override before it can time out, so clear it
+        # whenever adopt ran, not only when it reported a hit.
+        self.assertIn("steps.seed-derived-data.outcome != 'skipped'", forget["if"])
 
         for path in (ROOT / ".github/workflows").glob("*.yml"):
             text = path.read_text()
-            if "admission-derived-data-" in text and path.name not in {"nightly.yml", "ci-macos.yml", "seed-derived-data.yml"}:
+            if "admission-derived-data-" in text and path.name not in {"nightly.yml", "ci-macos.yml", "seed-derived-data.yml", "test-e2e.yml"}:
                 self.fail(f"{path.name} names the admission DerivedData seed")
+        # E2E builds adopt the same seed but only read it.
+        e2e = (ROOT / ".github/workflows/test-e2e.yml").read_text()
+        for command in re.findall(r"seed_derived_data\.py (\w+)", e2e):
+            self.assertIn(command, {"start", "adopt"})
         self.assertNotIn("secrets.", json.dumps(adopt))
 
     def test_every_main_push_seeds_incrementally_under_the_key_admission_reads(self):
@@ -668,6 +684,31 @@ class Wiring(unittest.TestCase):
         branch_dispatch = github_context("workflow_dispatch", ref="refs/heads/topic")
         self.assertEqual(evaluate(admission["runs-on"], branch_dispatch), "blacksmith-6vcpu-macos-15")
 
+    def test_fork_pull_request_admission_stays_on_blacksmith(self):
+        # MACOS_RUNNER_PR (pool-pr here) may name an owned Mac. A fork pull
+        # request keeps the pool picker's choice only when it is Blacksmith,
+        # and never reads the pull-request lane's Xcode pin.
+        admission = load("ci-macos.yml")["jobs"]["macos-compile-admission"]
+        for head, picked, runner in (
+            ("someone/cmux", "", "blacksmith-6vcpu-macos-15"),
+            ("someone/cmux", "blacksmith-12vcpu-macos-26", "blacksmith-12vcpu-macos-26"),
+            ("someone/cmux", "owned-mac", "blacksmith-6vcpu-macos-15"),
+            # A deleted head repository reads as null and counts as a fork.
+            (None, "", "blacksmith-6vcpu-macos-15"),
+            ("manaflow-ai/cmux", "", "pool-pr"),
+        ):
+            context = github_context("pull_request", ref="refs/pull/1/merge")
+            context["github"].update(repository="manaflow-ai/cmux",
+                                     event={"pull_request": {"head": {"repo": {"full_name": head}}}})
+            context["inputs"]["pr_runner"] = picked
+            with self.subTest(head=head, picked=picked):
+                self.assertEqual(evaluate(admission["runs-on"], context), runner)
+                self.assertEqual(evaluate(admission["env"]["CMUX_PRODUCT_RUNNER"], context), runner)
+                self.assertEqual(
+                    evaluate(admission["env"]["CMUX_CI_XCODE_APP"], context),
+                    "/Applications/Xcode-pr.app" if head == "manaflow-ai/cmux" else "/Applications/Xcode-15.app",
+                )
+
     def test_the_expression_evaluator_follows_actions_semantics(self):
         context = {"vars": {"A": "a", "EMPTY": ""}}
         self.assertEqual(evaluate("${{ vars.A && 'x' || 'y' }}", context), "x")
@@ -676,6 +717,8 @@ class Wiring(unittest.TestCase):
         self.assertIs(evaluate("${{ !(vars.A == 'a') }}", context), False)
         self.assertIs(evaluate("${{ (vars.MISSING || '1') != '0' }}", context), True)
         self.assertIs(evaluate("${{ vars.A != 'b' && vars.A == 'a' }}", context), True)
+        self.assertIs(evaluate("${{ startsWith(vars.A, 'A') }}", context), True)
+        self.assertIs(evaluate("${{ startsWith(vars.MISSING, 'a') }}", context), False)
 
     def test_no_workflow_compares_a_bare_variable_with_zero(self):
         bare = re.compile(r"vars\.[A-Z0-9_]+\s*[!=]=\s*'0'")

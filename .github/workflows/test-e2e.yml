@@ -262,9 +262,17 @@ jobs:
       artifact_digest: ${{ steps.upload-product.outputs.artifact-digest }}
       sha256: ${{ steps.package.outputs.sha256 }}
       product_contract: ${{ steps.product-key.outputs.key }}
+      xcode_app: ${{ env.CMUX_CI_XCODE_APP }}
     env:
       TEST_REF: ${{ needs.resolve-ref.outputs.sha }}
       CMUX_CI_MAX_MACOS_SDK_MAJOR: "26"
+      # The DerivedData seed key hashes `xcodebuild -version`, and
+      # seed-derived-data.yml builds seeds on the macOS 26 pull-request pool
+      # with CMUX_CI_XCODE_APP_PR. On a macOS 26 runner take that pin so a seed
+      # can match; elsewhere keep select-ci-xcode.sh's pool default, which is
+      # the only Xcode the macOS 15 image carries (as pr_runner_pool.py pairs
+      # them).
+      CMUX_CI_XCODE_APP: ${{ contains(needs.runner.outputs.label, 'macos-26') && vars.CMUX_CI_XCODE_APP_PR || '' }}
       # Match the compile-admission contract so an E2E dispatch can adopt the
       # product a pull request already compiled for the same revision.
       # contract() hashes the Xcode and SDK that were selected, not the
@@ -345,9 +353,14 @@ jobs:
           set -euo pipefail
           # Cache entries include absolute compiler paths. Keep these stable
           # within a runner pool, but never reuse old assembled test products.
+          # The build runs at the canonical root under the name compile
+          # admission uses, so it can adopt the DerivedData seeds main
+          # publishes for admission (see "Adopt the DerivedData seed").
           workspace_path="$(cd "$GITHUB_WORKSPACE" && pwd -P)"
-          DERIVED_DATA_PATH="$workspace_path/DerivedData/cmux-e2e"
-          CACHE_PATH="$workspace_path/DerivedData/cmux-e2e-compilation-cache"
+          # The CAS path is a compiler argument, so it must match admission's
+          # too: any other value invalidates every compile the seed carries.
+          DERIVED_DATA_PATH="${CMUX_CI_CANONICAL_ROOT:-/private/tmp/cmux-ci}/derived-data-compile-admission"
+          CACHE_PATH="${CMUX_CI_CANONICAL_ROOT:-/private/tmp/cmux-ci}/compile-admission-cas"
           rm -rf -- "$DERIVED_DATA_PATH" "$CACHE_PATH"
           mkdir -p "$DERIVED_DATA_PATH" "$CACHE_PATH"
           echo "CMUX_DERIVED_DATA_PATH=$DERIVED_DATA_PATH" >> "$GITHUB_ENV"
@@ -377,11 +390,8 @@ jobs:
         id: product-key
         run: python3 scripts/ci/reuse_app_host_products.py key "$CMUX_DERIVED_DATA_PATH"
 
-      # e2e-derived-data-seed.yml dispatches exist to publish DerivedData,
-      # which only a compile produces, so they never adopt a product.
       - name: Reuse a compiled product instead of building one
         id: reuse
-        if: ${{ !startsWith(inputs.dispatch_id, 'e2e-derived-data-seed-') }}
         continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
@@ -411,8 +421,7 @@ jobs:
         if: ${{ steps.reuse.outputs.hit != 'true' && steps.compilation-cache-restore.outcome == 'failure' }}
         run: |
           set -euo pipefail
-          workspace_path="$(cd "$GITHUB_WORKSPACE" && pwd -P)"
-          if [ "$CMUX_E2E_COMPILATION_CACHE" != "$workspace_path/DerivedData/cmux-e2e-compilation-cache" ]; then
+          if [ "$CMUX_E2E_COMPILATION_CACHE" != "${CMUX_CI_CANONICAL_ROOT:-/private/tmp/cmux-ci}/compile-admission-cas" ]; then
             echo "::error::refusing to clear an unowned compilation cache"
             exit 1
           fi
@@ -421,6 +430,7 @@ jobs:
           echo "::warning::E2E cache restore failed; compiling with an empty cache"
 
       - name: Cache Swift packages
+        id: swift-package-cache
         if: ${{ steps.reuse.outputs.hit != 'true' }}
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
@@ -432,67 +442,66 @@ jobs:
         if: ${{ steps.reuse.outputs.hit != 'true' }}
         run: python3 scripts/ci/sanitize-xcode-source-packages-cache.py .ci-source-packages
 
-      - name: Resolve Swift packages
-        if: ${{ steps.reuse.outputs.hit != 'true' }}
+      # The key names only the Xcode version and the canonical paths, the same
+      # key compile admission computes, so it is known before the source tree
+      # is copied there.
+      - name: Compute the DerivedData seed key
+        id: seed-key
+        if: ${{ steps.reuse.outputs.hit != 'true' && (vars.CI_ADMISSION_SEED_DERIVED_DATA || '1') != '0' && (vars.CI_CACHE_BACKEND || 'r2') == 'r2' }}
         run: |
           set -euo pipefail
-          SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
-          mkdir -p "$SOURCE_PACKAGES_DIR"
-          for attempt in 1 2 3; do
-            if xcodebuild -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
-              -derivedDataPath "$CMUX_DERIVED_DATA_PATH" \
-              -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
-              -resolvePackageDependencies; then
-              # Guard against a stale/poisoned Swift-package cache: resolve can
-              # report success without binary artifacts materialized.
-              if [ -d "$SOURCE_PACKAGES_DIR/artifacts/sparkle/Sparkle/Sparkle.xcframework" ] && [ -d "$SOURCE_PACKAGES_DIR/artifacts/sentry-cocoa/Sentry/Sentry.xcframework" ]; then
-                exit 0
-              fi
-              echo "Resolve succeeded but binary artifacts are missing (stale cache); clearing and retrying" >&2
-              rm -rf "$SOURCE_PACKAGES_DIR"
-            fi
-            if [ "$attempt" -eq 3 ]; then
-              echo "Failed to resolve Swift packages after 3 attempts" >&2
-              exit 1
-            fi
-            echo "Package resolution failed on attempt $attempt, retrying..."
-            sleep $((attempt * 5))
-          done
+          fingerprint="$(scripts/ci/compile-app-host-test-product.sh canonical-fingerprint "$CMUX_DERIVED_DATA_PATH")"
+          echo "prefix=admission-derived-data-v1-${{ runner.os }}-${{ runner.arch }}-$fingerprint-" >> "$GITHUB_OUTPUT"
+
+      # Same as compile admission: the download needs only the key, so it runs
+      # while packages resolve. "Adopt the DerivedData seed" reuses this pick
+      # and waits for it; if this step fails, adopt picks and downloads itself.
+      - name: Start the DerivedData seed download
+        if: ${{ steps.seed-key.outputs.prefix != '' }}
+        continue-on-error: true
+        timeout-minutes: 3
+        env:
+          SEED_PREFIX: ${{ steps.seed-key.outputs.prefix }}
+          CI_CACHE_R2_PUBLIC_URL: ${{ vars.CI_CACHE_R2_PUBLIC_URL || 'https://ci-cache.cmux.com' }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 scripts/ci/seed_derived_data.py start \
+            "$CMUX_DERIVED_DATA_PATH" "$SEED_PREFIX" "$TEST_REF"
+
+      # Copies the checkout to the canonical root and resolves there. See
+      # scripts/ci/canonical-build-root.sh and compile-app-host-test-product.sh.
+      - name: Resolve Swift packages
+        if: ${{ steps.reuse.outputs.hit != 'true' }}
+        env:
+          CMUX_CI_SWIFTPM_CACHE_EXACT_HIT: ${{ steps.swift-package-cache.outputs.cache-hit }}
+        run: |
+          set -euo pipefail
+          scripts/ci/compile-app-host-test-product.sh canonical-resolve \
+            "$CMUX_DERIVED_DATA_PATH" "$PWD/.ci-source-packages"
 
       # A fresh checkout makes every file newer than any earlier build, so
       # without this even a one-line test change recompiles the app host.
-      - name: Adopt main's DerivedData
-        id: warm
-        if: ${{ steps.reuse.outputs.hit != 'true' }}
+      # Adopt the DerivedData seed seed-derived-data.yml built for TEST_REF,
+      # or for its nearest ancestor with one, the same seeds compile
+      # admission adopts. Main seeds every push that changes the build, so
+      # the seed is usually a few commits from the tested revision, which is
+      # the only distance where adoption pays (#14098). The swap happens only
+      # after a complete restore, and every miss or failure is a cold build.
+      # Seeds are written only by main-branch jobs in the ci-cache-writer
+      # environment and read here without credentials.
+      - name: Adopt the DerivedData seed
+        id: seed
+        if: ${{ steps.seed-key.outputs.prefix != '' }}
         continue-on-error: true
-        timeout-minutes: 15
+        timeout-minutes: 8
         env:
+          SEED_PREFIX: ${{ steps.seed-key.outputs.prefix }}
+          CI_CACHE_R2_PUBLIC_URL: ${{ vars.CI_CACHE_R2_PUBLIC_URL || 'https://ci-cache.cmux.com' }}
           GH_TOKEN: ${{ github.token }}
-          WARM_KEY: ${{ steps.compilation-cache-key.outputs.fingerprint }}
         run: |
-          set -euo pipefail
-          # A fresh checkout gives every file a new inode; without this the
-          # build system reruns every task whose inputs merely moved.
-          defaults write com.apple.dt.XCBuild IgnoreFileSystemDeviceInodeChanges -bool YES
-          python3 scripts/ci/e2e_warm_derived_data.py restore "$GITHUB_WORKSPACE" "$CMUX_DERIVED_DATA_PATH" "$WARM_KEY"
-
-      # The restore script wipes a half-extracted DerivedData when it raises,
-      # but a step timeout kills it before that cleanup runs. What remains is
-      # main's intermediates with some of this revision's files stamped old,
-      # and the build trusts them: runs 35937847074 and 35938349258 failed to
-      # compile or link against symbols their revisions define. Start cold.
-      - name: Discard a DerivedData adoption that did not finish
-        if: ${{ steps.reuse.outputs.hit != 'true' && steps.warm.outcome != 'success' }}
-        run: |
-          set -euo pipefail
-          rm -rf -- "$CMUX_DERIVED_DATA_PATH"
-          mkdir -p "$CMUX_DERIVED_DATA_PATH"
-
-      - name: Record build input times
-        id: record-inputs
-        if: ${{ steps.reuse.outputs.hit != 'true' }}
-        continue-on-error: true
-        run: python3 scripts/ci/e2e_warm_derived_data.py record "$GITHUB_WORKSPACE" "$CMUX_DERIVED_DATA_PATH/cmux-e2e-input-mtimes.json"
+          python3 scripts/ci/seed_derived_data.py adopt \
+            "$CMUX_CI_CANONICAL_SRC" "$CMUX_DERIVED_DATA_PATH" \
+            "$SEED_PREFIX" "$TEST_REF"
 
       - name: Build the app-host and UI test product
         id: compile
@@ -502,7 +511,7 @@ jobs:
           # Builds cmux, cmux-unit and cmux-numeric-locale, so one product
           # serves both cmuxTests and cmuxUITests dispatches.
           started="$(python3 -c 'import time; print(time.monotonic())')"
-          scripts/ci/compile-app-host-test-product.sh build \
+          scripts/ci/compile-app-host-test-product.sh canonical-build \
             "$CMUX_DERIVED_DATA_PATH" \
             "$PWD/.ci-source-packages" \
             "$CMUX_E2E_COMPILATION_CACHE" \
@@ -511,10 +520,25 @@ jobs:
           python3 -c 'import sys; print(f"seconds={round(float(sys.argv[2])-float(sys.argv[1]), 3)}")' \
             "$started" "$finished" >> "$GITHUB_OUTPUT"
 
+      # Adoption sets a per-user Xcode default. Only a build whose inputs were
+      # just replayed should ignore inode changes, so a reused runner does not
+      # carry it into an unrelated job.
+      - name: Forget the adopted-build inode override
+        if: ${{ always() && steps.seed.outcome != 'skipped' }}
+        continue-on-error: true
+        run: defaults delete com.apple.dt.XCBuild IgnoreFileSystemDeviceInodeChanges || true
+
       - name: Package the compiled test product
         id: package
         run: |
           set -euo pipefail
+          # A fresh build's manifests embed the canonical checkout, as in
+          # ci-macos.yml compile admission. Stamp that producer before
+          # relocating into this job's workspace for consumers.
+          if [ "${{ steps.reuse.outputs.hit }}" != true ]; then
+            (cd "${CMUX_CI_CANONICAL_ROOT:-/private/tmp/cmux-ci}/src" && python3 scripts/ci/app_host_test_products.py stamp "$CMUX_DERIVED_DATA_PATH")
+            python3 scripts/ci/app_host_test_products.py restore "$CMUX_DERIVED_DATA_PATH"
+          fi
           python3 scripts/ci/app_host_test_products.py stamp "$CMUX_DERIVED_DATA_PATH"
           python3 scripts/ci/reuse_app_host_products.py seal "$CMUX_DERIVED_DATA_PATH"
           archive="$RUNNER_TEMP/app-host-products.tar.gz"
@@ -549,10 +573,12 @@ jobs:
           REUSE_PRODUCER: ${{ steps.reuse.outputs.producer_run_id }}
           REUSE_SAVED: ${{ steps.reuse.outputs.macos_runner_minutes_saved }}
           REUSE_TRANSFER: ${{ steps.reuse.outputs.transfer_seconds }}
-          WARM_HIT: ${{ steps.warm.outputs.hit }}
-          WARM_PRODUCER: ${{ steps.warm.outputs.producer_run_id }}
-          WARM_CHANGED: ${{ steps.warm.outputs.changed_inputs }}
-          WARM_REASON: ${{ steps.warm.outputs.reason }}
+          SEED_HIT: ${{ steps.seed.outputs.hit }}
+          SEED_KEY: ${{ steps.seed.outputs.key }}
+          SEED_DISTANCE: ${{ steps.seed.outputs.seed_distance }}
+          SEED_CHANGED: ${{ steps.seed.outputs.changed_inputs }}
+          SEED_SECONDS: ${{ steps.seed.outputs.seconds }}
+          SEED_REASON: ${{ steps.seed.outputs.reason }}
         run: |
           set -euo pipefail
           {
@@ -564,10 +590,10 @@ jobs:
             else
               echo "Compiled from source in ${COMPILE_SECONDS:-unknown} s."
               echo "No product to adopt (${REUSE_MISSES:-none})."
-              if [ "$WARM_HIT" = "true" ]; then
-                echo "Started from the DerivedData run $WARM_PRODUCER built; ${WARM_CHANGED:-unknown} inputs differed."
+              if [ "$SEED_HIT" = "true" ]; then
+                echo "Started from DerivedData seed \`$SEED_KEY\` (${SEED_DISTANCE:-unknown} commits back), adopted in ${SEED_SECONDS:-unknown} s; ${SEED_CHANGED:-unknown} inputs differed."
               else
-                echo "Started from empty DerivedData (${WARM_REASON:-not attempted})."
+                echo "Started from empty DerivedData (${SEED_REASON:-not attempted})."
               fi
             fi
             echo "Archive: ${ARCHIVE_BYTES:-unknown} bytes."
@@ -584,38 +610,6 @@ jobs:
           contained="$(python3 scripts/ci/revision_on_main.py)"
           echo "contained=$contained" >> "$GITHUB_OUTPUT"
           echo "Selected revision contained in main: $contained"
-
-      # Same trust rule as the compilation cache: only code main already
-      # contains may seed builds of other revisions.
-      - name: Package DerivedData for later builds
-        id: warm-package
-        continue-on-error: true
-        if: ${{ !cancelled() && github.ref == 'refs/heads/main' && steps.compile.outcome == 'success' && steps.record-inputs.outcome == 'success' && steps.revision-on-main.outputs.contained == 'true' }}
-        run: |
-          set -euo pipefail
-          archive="$RUNNER_TEMP/derived-data.tar.gz"
-          tar -cf - -C "$CMUX_DERIVED_DATA_PATH" --exclude ./Logs --exclude ./Index.noindex . | gzip -1 > "$archive"
-          bytes="$(wc -c < "$archive" | tr -d ' ')"
-          echo "DerivedData archive: $bytes bytes"
-          # upload-artifact wraps the tarball in a ZIP; leave headroom under the
-          # transport's 8 GiB limit so a published archive stays adoptable.
-          if [ "$bytes" -gt $((7 * 1024 * 1024 * 1024 + 512 * 1024 * 1024)) ]; then
-            echo "::warning::DerivedData archive exceeds 7.5 GiB, too close to the 8 GiB transport limit; not publishing"
-            exit 0
-          fi
-          echo "bytes=$bytes" >> "$GITHUB_OUTPUT"
-          echo "publish=true" >> "$GITHUB_OUTPUT"
-
-      - name: Publish DerivedData for later builds
-        continue-on-error: true
-        if: ${{ !cancelled() && steps.warm-package.outputs.publish == 'true' }}
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: e2e-derived-data-v1-${{ steps.compilation-cache-key.outputs.fingerprint }}
-          path: ${{ runner.temp }}/derived-data.tar.gz
-          if-no-files-found: error
-          retention-days: 3
-          compression-level: 0
 
       - name: Bound E2E compilation cache
         id: compilation-cache-bound
@@ -667,15 +661,14 @@ jobs:
         if: always()
         run: |
           set -euo pipefail
-          workspace_path="$(cd "$GITHUB_WORKSPACE" && pwd -P)"
           derived_data_path="${CMUX_DERIVED_DATA_PATH:-}"
           cache_path="${CMUX_E2E_COMPILATION_CACHE:-}"
           case "$cache_path" in
-            "$workspace_path/DerivedData/cmux-e2e-compilation-cache"|"") ;;
+            "${CMUX_CI_CANONICAL_ROOT:-/private/tmp/cmux-ci}/compile-admission-cas"|"") ;;
             *) echo "::error::refusing to remove unowned compilation cache: $cache_path"; exit 1 ;;
           esac
           case "$derived_data_path" in
-            "$workspace_path/DerivedData/cmux-e2e")
+            "${CMUX_CI_CANONICAL_ROOT:-/private/tmp/cmux-ci}/derived-data-compile-admission")
               rm -rf -- "$derived_data_path"
               if [ -n "$cache_path" ]; then rm -rf -- "$cache_path"; fi
               ;;
@@ -701,6 +694,9 @@ jobs:
     timeout-minutes: ${{ fromJSON(inputs.job_timeout || '45') }}
     env:
       CMUX_CI_MAX_MACOS_SDK_MAJOR: "26"
+      # The build job's pin, so this job selects the Xcode that linked the
+      # product it runs.
+      CMUX_CI_XCODE_APP: ${{ needs.build.outputs.xcode_app }}
       # The product is compiled with CMUX_CI_APP_HOST_ISOLATION_REQUIRED, so
       # the app host demands the prepared home and refuses to start without
       # it. ci-macos.yml feeds the shard from its test matrix; this lane runs

@@ -98,8 +98,6 @@ def is_other_workflow_config(path: str) -> bool:
 
 
 CI_CONTROL_PLANE_ONLY = frozenset({
-    "scripts/ci/nightly_mini_route.py",
-    "scripts/ci/persistent_mac_route.py",
     "scripts/ci/web_validation.py",
     # Operational helpers: janitors, census and reporting, registry validation,
     # R2 canaries, build diagnostics. No workflow runs any of them on a macOS
@@ -124,11 +122,6 @@ CI_CONTROL_PLANE_ONLY = frozenset({
     "scripts/ci/triage-radar.py",
     "scripts/ci/validate_test_execution_registry.py",
     "scripts/ci/verify-r2-canary.py",
-    # The persistent compile fleet operator command and its wrapper. They call
-    # the GitHub API and launchd on a mini; no workflow runs them and no build
-    # reads them.
-    "scripts/ci/persistent_compile_fleet.py",
-    "scripts/persistent-compile",
     # ci-web.yml's subarea router. It keeps the web area below -- editing it
     # selects every web subarea through the helper's own ALL_SUBAREA_INPUTS --
     # but it never reaches a macOS build.

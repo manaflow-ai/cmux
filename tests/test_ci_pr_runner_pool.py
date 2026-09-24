@@ -11,6 +11,7 @@ import re
 import sys
 import tempfile
 import unittest
+import unittest.mock
 from pathlib import Path
 
 import yaml
@@ -54,15 +55,17 @@ def backlog(small=21, large=0, old=4, large_reserved=0, old_reserved=0, age=5, s
 
 
 def choose(snap, *, event="pull_request", head="manaflow-ai/cmux", default=SMALL,
-           overflow="", order="", max_queued="", pins=PINS, fetch=None, routed=0):
+           overflow="", order="", max_queued="", pins=PINS, fetch=None, routed=0, attempt=1, owned="",
+           owned_slots="", jobs_per_run=""):
     def count_routed(since):
         if isinstance(routed, Exception):
             raise routed
         return routed
     return pool.choose(
         event=event, repo="manaflow-ai/cmux", head_repo=head, default_runner=default,
-        overflow=overflow, order=order, max_queued=max_queued, xcode_pins=pins,
-        fetch=fetch or (lambda: snap), count_routed=count_routed, now=NOW,
+        overflow=overflow, order=order, max_queued=max_queued, xcode_pins=pins, owned=owned,
+        owned_slots=owned_slots, jobs_per_run=jobs_per_run,
+        fetch=fetch or (lambda: snap), count_routed=count_routed, now=NOW, run_attempt=attempt,
     )[0]
 
 
@@ -241,7 +244,7 @@ class FailSafe(unittest.TestCase):
                 self.assertEqual(pool.main(["--snapshot", str(snap_path)], env), 0)
             finally:
                 sys.stdout = old
-            self.assertEqual(out.read_text(), f"runner={LARGE}\nxcode_app=\n")
+            self.assertEqual(out.read_text(), f"runner={LARGE}\nxcode_app=\npersistent=false\n")
             text = summary.read_text()
             self.assertIn(f"Pool: `{LARGE}`", text)
             self.assertIn(f"{SMALL}: 21 queued, 10 running", text)
@@ -300,6 +303,22 @@ class JanitorSnapshot(unittest.TestCase):
         # 12vcpu is reserved by the queued nightly job; 6vcpu 26 has headroom.
         self.assertEqual(choose(snap).runner, SMALL)
 
+    def test_owned_jobs_are_macos_jobs_to_the_janitor(self):
+        mini = {"labels": ["glaeda-std-xcode-26.6"], "status": "queued"}
+        self.assertTrue(janitor.is_macos_job(mini))
+        self.assertEqual(janitor.runner_pool(mini), "glaeda-std-xcode-26.6")
+        self.assertFalse(janitor.is_macos_job({"labels": ["glaeda-mini"], "status": "queued"}))
+        self.assertEqual(janitor.runner_pool({"labels": [SMALL]}), SMALL)
+
+    def test_counts_jobs_on_an_owned_pool_label(self):
+        runs = [{"id": 1, "name": "CI", "path": ".github/workflows/ci.yml"}]
+        mini = "glaeda-std-xcode-26.6"
+        jobs = {1: [self.job(mini, "in_progress"), self.job(mini, "in_progress"), self.job(mini, "queued"),
+                    self.job("glaeda-mini", "queued"), self.job("blacksmith-4vcpu-ubuntu-2404", "queued")]}
+        snap = janitor.pool_load_snapshot(runs, jobs, now=NOW)
+        self.assertEqual((snap["pools"][mini]["running"], snap["pools"][mini]["queued"]), (2, 1))
+        self.assertEqual(set(snap["pools"]), {mini})
+
     def test_workflow_publishes_the_snapshot(self):
         workflow = yaml.safe_load((WORKFLOWS / "ci-queue-janitor.yml").read_text())
         steps = workflow["jobs"]["sweep"]["steps"]
@@ -321,6 +340,143 @@ class JanitorSnapshot(unittest.TestCase):
 PR_ROUTE = re.compile(r"&& \((?P<lane>[^()]*vars\.MACOS_RUNNER_PR[^()]*)\)")
 
 
+PR_XCODE = "/Applications/Xcode_26.6.app"
+MINI = "glaeda-std-xcode-26.6"
+LIGHT = "glaeda-light-xcode-26.6"
+OWNED_PINS = {**PINS, "CMUX_CI_XCODE_APP_PR": PR_XCODE}
+
+
+def fleet(busy=0, queued=0, age=2, **kwargs) -> dict:
+    snap = backlog(age=age, **kwargs)
+    snap["pools"][MINI] = {"queued": queued, "running": busy}
+    return snap
+
+
+def owned_choice(snap, *, owned="1", machines=11, **kwargs):
+    kwargs.setdefault("owned_slots", json.dumps({MINI: machines}))
+    return choose(snap, pins=OWNED_PINS, owned=owned, **kwargs)
+
+
+class OwnedPools(unittest.TestCase):
+    """Owned Macs first when switched on, Blacksmith as overflow, never a queue."""
+
+    def test_label_follows_the_lane_xcode_pin(self):
+        self.assertEqual(pool.owned_pools(PR_XCODE), (MINI, LIGHT))
+        self.assertEqual(pool.owned_pools("/Applications/Xcode_27.0.1.app"),
+                         ("glaeda-std-xcode-27.0.1", "glaeda-light-xcode-27.0.1"))
+        self.assertEqual(pool.owned_pools(""), ())
+        self.assertEqual(pool.owned_pools("/Applications/Xcode.app"), ())
+
+    def test_persistent_means_a_glaeda_pool_label(self):
+        self.assertTrue(pool.persistent(MINI))
+        self.assertTrue(pool.persistent("glaeda-light-xcode-26.6"))
+        for label in (SMALL, "ubuntu-24.04", "glaeda-mini", "glaeda-class-std", ""):
+            self.assertFalse(pool.persistent(label), label)
+
+    def test_off_by_default(self):
+        self.assertEqual(owned_choice(fleet(small=0), owned="").runner, LARGE)
+
+    def test_order_naming_an_owned_pool_is_ignored_while_off(self):
+        self.assertEqual(owned_choice(fleet(small=0), owned="", order=f"{MINI},{SMALL}").runner, SMALL)
+
+    def test_first_when_on_and_a_whole_run_fits(self):
+        choice = owned_choice(fleet(busy=8))
+        self.assertEqual((choice.runner, choice.xcode_app), (MINI, ""))
+        self.assertIn("3 of 11 owned machines free", choice.reason)
+
+    def test_light_is_the_second_owned_pool(self):
+        snap = fleet(busy=9)
+        snap["pools"][LIGHT] = {"queued": 0, "running": 0}
+        both = json.dumps({MINI: 11, LIGHT: 3})
+        self.assertEqual(owned_choice(snap, owned_slots=both).runner, LIGHT)
+        # Two light minis cannot hold a three-job run, so it overflows.
+        self.assertEqual(owned_choice(snap, owned_slots=json.dumps({MINI: 11, LIGHT: 2})).runner, LARGE)
+        self.assertEqual(owned_choice(fleet(), owned_slots=both).runner, MINI)
+
+    def test_a_run_needs_a_machine_for_each_of_its_jobs(self):
+        # 11 machines, 9 busy: one run's 3 jobs would not all start.
+        self.assertEqual(owned_choice(fleet(busy=9)).runner, LARGE)
+        self.assertEqual(owned_choice(fleet(busy=9), jobs_per_run="2").runner, MINI)
+
+    def test_queued_jobs_take_machines_without_closing_the_pool(self):
+        self.assertEqual(owned_choice(fleet(busy=5, queued=3)).runner, MINI)
+        self.assertEqual(owned_choice(fleet(busy=5, queued=4)).runner, LARGE)
+
+    def test_jobs_per_run_must_be_1_to_10(self):
+        for value in ("0", "11", "x"):
+            self.assertEqual(owned_choice(fleet(), jobs_per_run=value).runner, "", value)
+
+    def test_replayed_runs_fill_idle_runners_first(self):
+        # Two idle runners; two runs created since the snapshot took them.
+        # 11 machines, 2 busy: two newer runs took 6, leaving 3 for this one; a third takes those.
+        self.assertEqual(owned_choice(fleet(busy=2), routed=2).runner, MINI)
+        self.assertEqual(owned_choice(fleet(busy=2), routed=3).runner, LARGE)
+
+    def test_stale_snapshot_or_no_slots_skips_the_pool(self):
+        self.assertEqual(owned_choice(fleet(age=pool.OWNED_MAX_AGE_MINUTES + 1)).runner, LARGE)
+        self.assertEqual(owned_choice(fleet(), owned_slots="").runner, LARGE)
+        self.assertEqual(owned_choice(fleet(), machines=0).runner, LARGE)
+
+    def test_a_pool_the_janitor_saw_no_job_on_is_idle(self):
+        self.assertEqual(owned_choice(backlog()).runner, MINI)
+
+    def test_slots_ignore_anything_malformed(self):
+        self.assertEqual(pool.slots('{"%s": 11, "blacksmith-6vcpu-macos-26": 5, "glaeda-std-xcode-26.3": 0,'
+                                    ' "glaeda-light-xcode-26.6": true}' % MINI), {MINI: 11})
+        for raw in ("", "nope", "[1]", '{"%s": "3"}' % MINI):
+            self.assertEqual(pool.slots(raw), {}, raw)
+
+    def test_full_owned_only_order_keeps_todays_route(self):
+        choice = owned_choice(fleet(busy=9), order=MINI)
+        self.assertEqual(choice.runner, "")
+        self.assertIn("busy", choice.reason)
+
+    def test_a_stale_xcode_label_in_the_order_is_dropped_and_reported(self):
+        choice = owned_choice(fleet(small=0), order=f"glaeda-std-xcode-26.3,{SMALL}")
+        self.assertEqual(choice.runner, SMALL)
+        self.assertIn("dropped glaeda-std-xcode-26.3 (not the lane's Xcode pin)", choice.reason)
+
+    def test_fork_never_takes_an_owned_pool(self):
+        settings = dict(FORK_SETTINGS, order=f"{MINI},{SMALL}")
+        self.assertEqual(owned_choice(fleet(small=0, settings=settings), head="someone/cmux").runner, SMALL)
+
+    def test_retry_skips_the_owned_pool(self):
+        choice = owned_choice(fleet(), attempt=2)
+        self.assertEqual(choice.runner, LARGE)
+        self.assertTrue(choice.reason.startswith("retry attempt 2; "), choice.reason)
+
+    def test_retry_with_only_owned_pools_keeps_todays_route(self):
+        choice = owned_choice(fleet(), order=MINI, attempt=2)
+        self.assertEqual((choice.runner, choice.xcode_app), ("", ""))
+        self.assertIn("no ephemeral pool", choice.reason)
+
+    def test_retry_on_blacksmith_only_changes_nothing(self):
+        self.assertEqual(choose(backlog(), attempt=3).runner, choose(backlog()).runner)
+
+    def output(self, attempt, owned="1"):
+        with tempfile.TemporaryDirectory() as tmp:
+            snapshot = Path(tmp, "snap.json")
+            fresh = fleet()
+            fresh["generated_at"] = dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+            snapshot.write_text(json.dumps(fresh))
+            out = Path(tmp, "out")
+            env = {"EVENT_NAME": "pull_request", "GITHUB_REPOSITORY": "manaflow-ai/cmux",
+                   "HEAD_REPO": "manaflow-ai/cmux", "DEFAULT_RUNNER": SMALL, "POOL_OWNED": owned,
+                   "OWNED_SLOTS": json.dumps({MINI: 3}),
+                   "CMUX_CI_XCODE_APP_PR": PR_XCODE, "CMUX_CI_XCODE_APP_MACOS_15": XCODE_15,
+                   "GITHUB_RUN_ATTEMPT": str(attempt), "GITHUB_OUTPUT": str(out)}
+            with unittest.mock.patch("sys.stdout", io.StringIO()):
+                pool.main(["--snapshot", str(snapshot)], env)
+            return dict(line.split("=", 1) for line in out.read_text().splitlines())
+
+    def test_main_reports_a_persistent_choice(self):
+        first = self.output(1)
+        self.assertEqual((first["runner"], first["persistent"]), (MINI, "true"))
+        retried = self.output(2)
+        self.assertEqual((retried["runner"], retried["persistent"]), (LARGE, "false"))
+        self.assertEqual(self.output(1, owned="")["persistent"], "false")
+
+
 class Wiring(unittest.TestCase):
     """Every pull-request macOS route in one CI run reads the one chosen pool."""
 
@@ -336,6 +492,13 @@ class Wiring(unittest.TestCase):
         self.assertIs(step["continue-on-error"], True)
         self.assertEqual(step["run"], "python3 scripts/ci/pr_runner_pool.py")
         self.assertEqual(step["env"]["DEFAULT_RUNNER"], "${{ vars.MACOS_RUNNER_PR }}")
+
+    def test_a_persistent_choice_publishes_the_rescue_marker(self):
+        steps = self.workflow("ci.yml")["jobs"]["changes"]["steps"]
+        mark = next(step for step in steps if step.get("id") == "macos-pool-marker")
+        self.assertEqual(mark["if"], "${{ steps.macos-pool.outputs.persistent == 'true' }}")
+        upload = next(step for step in steps if step.get("name") == "Upload the persistent pool marker")
+        self.assertEqual(upload["with"]["name"], "macos-pool-persistent-${{ github.run_id }}-${{ github.run_attempt }}")
 
     def lanes(self, name):
         text = (WORKFLOWS / name).read_text()
@@ -367,10 +530,15 @@ class Wiring(unittest.TestCase):
             self.assertIn("changes", [needs] if isinstance(needs, str) else needs, name)
 
     def test_xcode_pins_follow_the_chosen_pool(self):
-        lane = "(inputs.pr_xcode_app || vars.CMUX_CI_XCODE_APP_PR || vars.CMUX_CI_XCODE_APP_MACOS_15)"
+        # A fork pull request never reads the lane's pin (see
+        # tests/test_ci_fork_runner_routing.py); main's dispatch still does.
+        same = "github.event.pull_request.head.repo.full_name == github.repository"
+        lane = f"(inputs.pr_xcode_app || {same} && vars.CMUX_CI_XCODE_APP_PR || vars.CMUX_CI_XCODE_APP_MACOS_15)"
+        dispatch_lane = (f"(inputs.pr_xcode_app || (github.event_name != 'pull_request' || {same}) "
+                         "&& vars.CMUX_CI_XCODE_APP_PR || vars.CMUX_CI_XCODE_APP_MACOS_15)")
         pin = f"${{{{ github.event_name == 'pull_request' && {lane} || vars.CMUX_CI_XCODE_APP_MACOS_15 }}}}"
         main_dispatch = ("${{ (github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch' "
-                         f"&& github.ref == 'refs/heads/main') && {lane} || vars.CMUX_CI_XCODE_APP_MACOS_15 }}}}")
+                         f"&& github.ref == 'refs/heads/main') && {dispatch_lane} || vars.CMUX_CI_XCODE_APP_MACOS_15 }}}}")
         macos = self.workflow("ci-macos.yml")["jobs"]
         for job in ("macos-compile-admission", "tests-build-and-lag"):
             self.assertEqual(macos[job]["env"]["CMUX_CI_XCODE_APP"], main_dispatch, job)
@@ -386,7 +554,8 @@ class Wiring(unittest.TestCase):
             self.assertLess(ids.index("macos-pool"), ids.index(step_id))
             step = steps[ids.index(step_id)]
             self.assertEqual(step["env"]["XCODE_APP"],
-                             "${{ steps.macos-pool.outputs.xcode_app || vars.CMUX_CI_XCODE_APP_PR "
+                             "${{ steps.macos-pool.outputs.xcode_app || "
+                             "github.event.pull_request.head.repo.full_name == github.repository && vars.CMUX_CI_XCODE_APP_PR "
                              "|| vars.CMUX_CI_XCODE_APP_MACOS_15 }}", step_id)
 
     def test_reusable_inputs_default_to_todays_route(self):
