@@ -20,7 +20,7 @@ import Testing
             ]
         )
 
-        let answers = AgentFeedQuestionAnswerComposer.answers(
+        let answers = AgentFeedQuestionAnswerDraft.answers(
             for: [first, second],
             drafts: [
                 "first": .init(selectedOptionIDs: ["b"], customText: ""),
@@ -42,7 +42,7 @@ import Testing
             multiSelect: true
         )
 
-        let answer = AgentFeedQuestionAnswerComposer.answer(
+        let answer = AgentFeedQuestionAnswerDraft.answer(
             for: q,
             draft: .init(selectedOptionIDs: ["c", "a"], customText: "")
         )
@@ -53,7 +53,7 @@ import Testing
     @Test func customAnswerReplacesOptionSelection() {
         let q = question(id: "q", options: [.init(id: "a", label: "Alpha")])
 
-        let answer = AgentFeedQuestionAnswerComposer.answer(
+        let answer = AgentFeedQuestionAnswerDraft.answer(
             for: q,
             draft: .init(selectedOptionIDs: ["a"], customText: "  A custom answer  ")
         )
@@ -65,7 +65,7 @@ import Testing
         let first = question(id: "first", options: [.init(id: "a", label: "Alpha")])
         let second = question(id: "second", options: [.init(id: "b", label: "Beta")])
 
-        let answers = AgentFeedQuestionAnswerComposer.answers(
+        let answers = AgentFeedQuestionAnswerDraft.answers(
             for: [first, second],
             drafts: ["first": .init(selectedOptionIDs: ["a"], customText: "")]
         )

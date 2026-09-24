@@ -11,9 +11,6 @@ struct AgentFeedQuestionAnswerDraft: Equatable, Sendable {
     var hasAnswer: Bool {
         !selectedOptionIDs.isEmpty || !customText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
-}
-
-enum AgentFeedQuestionAnswerComposer {
     /// Composes one question's answer, preserving the option order shown to
     /// the user and letting a custom answer replace preset options.
     static func answer(

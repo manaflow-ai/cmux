@@ -570,7 +570,7 @@ private struct AgentFeedQuestionControls: View {
     private var isPaged: Bool { questions.count > 1 }
 
     private var canSubmitAll: Bool {
-        AgentFeedQuestionAnswerComposer.answers(
+        AgentFeedQuestionAnswerDraft.answers(
             for: questions,
             drafts: drafts
         ) != nil
@@ -752,7 +752,7 @@ private struct AgentFeedQuestionControls: View {
 
     private func submitButton(title: String) -> some View {
         Button {
-            guard let answers = AgentFeedQuestionAnswerComposer.answers(for: questions, drafts: drafts) else { return }
+            guard let answers = AgentFeedQuestionAnswerDraft.answers(for: questions, drafts: drafts) else { return }
             actions.questionReply(item, answers)
         } label: {
             Text(title)
