@@ -61,7 +61,7 @@ on:
           - r2
           - warp
       seed_cache:
-        description: "On main only, save the iOS SwiftPM and GhosttyKit caches after a successful run."
+        description: "On main only, save the iOS SwiftPM cache after a successful run."
         required: false
         default: false
         type: boolean
@@ -480,10 +480,6 @@ jobs:
       - name: Install zig
         run: ./scripts/install-zig-ci.sh
 
-      - name: Capture Ghostty revision
-        id: ghostty-revision
-        run: echo "sha=$(git -C ghostty rev-parse HEAD)" >> "$GITHUB_OUTPUT"
-
       - name: Prepare shared iOS cache paths
         run: |
           set -euo pipefail
@@ -498,15 +494,6 @@ jobs:
           key: ios-spm-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('.xcode-version') }}-${{ hashFiles('ios/cmux.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
           restore-keys: |
             ios-spm-${{ runner.os }}-${{ runner.arch }}-
-
-      - name: Restore iOS GhosttyKit cache
-        uses: ./.github/actions/cache-restore
-        with:
-          backend: ${{ inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND || 'r2' }}
-          path: ${{ runner.temp }}/cmux-ghosttykit-cache
-          key: ios-ghosttykit-${{ runner.os }}-${{ runner.arch }}-${{ steps.ghostty-revision.outputs.sha }}-${{ hashFiles('scripts/ghosttykit-checksums.txt') }}
-          restore-keys: |
-            ios-ghosttykit-${{ runner.os }}-${{ runner.arch }}-
 
       - name: Sanitize iOS SwiftPM cache
         run: python3 scripts/ci/sanitize-xcode-source-packages-cache.py "$IOS_SPM_CACHE"
@@ -540,6 +527,8 @@ jobs:
           xcodebuild -downloadPlatform iOS
           xcrun simctl list runtimes available | grep -Eq '\biOS\b'
 
+      # Not cached: the pinned prebuilt downloads and verifies in 3-4 s, about
+      # what an R2 restore of the unpacked xcframework would take.
       - name: Provision GhosttyKit
         run: |
           # Downloads the prebuilt GhosttyKit.xcframework pinned in
@@ -701,14 +690,6 @@ jobs:
           backend: ${{ inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND || 'r2' }}
           path: .ci-ios-source-packages
           key: ios-spm-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('.xcode-version') }}-${{ hashFiles('ios/cmux.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
-
-      - name: Save iOS GhosttyKit cache
-        if: ${{ inputs.seed_cache && github.ref == 'refs/heads/main' }}
-        uses: ./.github/actions/cache-save
-        with:
-          backend: ${{ inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND || 'r2' }}
-          path: ${{ runner.temp }}/cmux-ghosttykit-cache
-          key: ios-ghosttykit-${{ runner.os }}-${{ runner.arch }}-${{ steps.ghostty-revision.outputs.sha }}-${{ hashFiles('scripts/ghosttykit-checksums.txt') }}
 
       - name: Upload producer log
         if: ${{ always() && env.IOS_DERIVED_DATA != '' }}
