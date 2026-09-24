@@ -282,6 +282,81 @@ class Confirm(unittest.TestCase):
                 self.assertEqual(fleet.confirm(argparse.Namespace(yes=False), ["x"]), expected)
 
 
+class DayTwo(unittest.TestCase):
+    """Drain, resume and re-runs, found in review of the first version."""
+
+    def test_a_drained_mini_is_not_reported_as_routing(self) -> None:
+        local = mini(enrollment={"nodeId": "cmux-mac-001", "state": "draining"}, service_loaded=False)
+        github = fleet.GitHubState(auth="someone")
+        github.group = good_group()
+        github.runners = [runner(status="offline")]
+        github.variables = {fleet.SELECTOR_VARIABLE: "pilot", fleet.COHORT_VARIABLE: "1"}
+        self.assertIn("resume", fleet.doctor_lines(github, local)[1])
+
+    def test_selector_case_is_not_normalised(self) -> None:
+        # The router compares the value exactly; "Pilot" routes nothing.
+        github = fleet.GitHubState(auth="someone")
+        github.group = good_group()
+        github.runners = [runner()]
+        github.variables = {fleet.SELECTOR_VARIABLE: "Pilot"}
+        sections, nxt = fleet.doctor_lines(github, None)
+        self.assertIn("routing: off", fleet.render_doctor(sections, nxt))
+
+    def test_runner_config_with_a_byte_order_mark_is_read(self) -> None:
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / ".runner"
+            path.write_bytes(b"\xef\xbb\xbf" + b'{"agentName": "cmux-mac-001-persistent-compile"}')
+            self.assertEqual(fleet.read_json(path)[0], {"agentName": "cmux-mac-001-persistent-compile"})
+
+    def test_stop_disables_so_a_reboot_does_not_restart_the_runner(self) -> None:
+        calls = []
+        loaded = iter([True, False])
+        with mock.patch.object(fleet, "service_label", return_value="actions.runner.x"), \
+             mock.patch.object(fleet, "service_loaded", side_effect=lambda _: next(loaded)), \
+             mock.patch.object(fleet, "launchctl", side_effect=lambda *a: calls.append(a)):
+            fleet.stop_service(Path("/r"))
+        uid = fleet.os.getuid()
+        self.assertEqual(calls, [("disable", f"gui/{uid}/actions.runner.x"), ("bootout", f"gui/{uid}/actions.runner.x")])
+
+    def test_stop_and_start_are_safe_to_repeat(self) -> None:
+        calls = []
+        with mock.patch.object(fleet, "service_plist", return_value=Path("/p/actions.runner.x.plist")), \
+             mock.patch.object(fleet, "service_loaded", return_value=False), \
+             mock.patch.object(fleet, "launchctl", side_effect=lambda *a: calls.append(a)):
+            fleet.stop_service(Path("/r"))  # already stopped: no bootout
+        self.assertEqual([c[0] for c in calls], ["disable"])
+        calls.clear()
+        with mock.patch.object(fleet, "service_plist", return_value=Path("/p/actions.runner.x.plist")), \
+             mock.patch.object(fleet, "service_loaded", return_value=True), \
+             mock.patch.object(fleet, "launchctl", side_effect=lambda *a: calls.append(a)):
+            fleet.start_service(Path("/r"))  # already loaded: no bootstrap
+        self.assertEqual([c[0] for c in calls], ["enable"])
+
+    def test_up_takes_the_token_out_of_the_environment_first(self) -> None:
+        seen = {}
+
+        def read_local(_):
+            seen["env"] = fleet.os.environ.get(fleet.TOKEN_ENV)
+            raise fleet.Failure("stop here")
+
+        with mock.patch.dict(fleet.os.environ, {fleet.TOKEN_ENV: "secret"}), \
+             mock.patch.object(fleet, "require_mac"), mock.patch.object(fleet, "read_local", side_effect=read_local), \
+             mock.patch("sys.stderr"):
+            fleet.main(["up"])
+        self.assertIsNone(seen["env"])
+
+    def test_up_refuses_an_unreadable_enrollment(self) -> None:
+        local = mini(enrollment=None, enrollment_error="enrollment.json: Expecting value")
+        with mock.patch.object(fleet, "require_mac"), mock.patch.object(fleet, "read_local", return_value=local):
+            with self.assertRaisesRegex(fleet.Failure, "cannot be read"):
+                fleet.cmd_up(fleet.parser().parse_args(["up", "--node-id", "cmux-mac-002"]))
+
+    def test_glaeda_root_is_accepted_after_the_command(self) -> None:
+        self.assertEqual(fleet.parser().parse_args(["drain", "--glaeda-root", "/g"]).glaeda_root, "/g")
+        self.assertIsNone(fleet.parser().parse_args(["drain"]).glaeda_root)
+
+
 class PilotCohort(unittest.TestCase):
     def test_cohort_strips_hashes_and_joins(self) -> None:
         calls = []

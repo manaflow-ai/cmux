@@ -425,8 +425,11 @@ scripts/persistent-compile resume         # back to eligible, service started
 
 **Draining in Glaeda does not stop GitHub from assigning jobs** - they are
 separate control planes, and this is the sharpest operational trap in the
-whole design. `drain` does both: it moves the enrollment to `draining` and
-stops the runner's launchd service once it is idle. Until glaeda #1058's drain
+whole design. `drain` does both: it moves the enrollment to `draining` and,
+once the runner is idle, stops and disables its launchd agent so it stays
+stopped across logins and reboots. A job GitHub assigns in the seconds between
+the last one ending and the stop is cancelled and falls back to the hosted
+compile. Until glaeda #1058's drain
 primitive lands, do not drain with `cmux_fleet.py transition-apply` alone; that
 leaves the machine taking work.
 
