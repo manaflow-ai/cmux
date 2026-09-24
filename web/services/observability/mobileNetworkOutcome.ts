@@ -47,7 +47,12 @@ const taskModelProviders = new Set(["claude", "codex", "opencode"]);
 const taskModelSources = new Set(["discovered", "backend", "augmented", "fallback"]);
 const irohPathOperations = new Set(["opened", "closed", "selected", "lagged", "snapshot"]);
 const irohPathKinds = new Set(["unknown", "direct", "relay", "private_network", "loopback"]);
-const irohPathEventCodes = new Set(["selectedPathChanged", "transportPathEvent"]);
+const irohPathKindsByCode = new Map<number, string>([
+  [0, "unknown"], [1, "direct"], [2, "relay"], [3, "private_network"], [4, "loopback"],
+]);
+const irohPathOperationsByCode = new Map<number, string>([
+  [1, "opened"], [2, "closed"], [3, "selected"], [4, "lagged"],
+]);
 const metadataOperations = new Set(["replay", "artifactScan", "artifactList", "model_list"]);
 const irohPathPropertyKeys = new Set(["path"]);
 const noAdditionalPropertyKeys = new Set<string>();
@@ -244,9 +249,8 @@ export function parseMobileIrohPathEvent(candidate: unknown): MobileIrohPathEven
   const diagnostics = parseDiagnosticFields(properties);
   const metadata = parseMetadata(properties, irohPathOperations);
   if (typeof operation !== "string" || typeof path !== "string" || transport !== "iroh"
-    || !diagnostics || typeof diagnostics.eventCode !== "string"
-    || !irohPathEventCodes.has(diagnostics.eventCode)
-    || typeof diagnostics.eventCodeRaw !== "number" || !metadata) return null;
+    || !diagnostics || typeof diagnostics.eventCodeRaw !== "number" || !metadata
+    || !consistentIrohPathFields(diagnostics, operation, path)) return null;
   return {
     timestamp: candidate.timestamp,
     operation: operation as MobileIrohPathEvent["operation"],
@@ -260,6 +264,21 @@ export function parseMobileIrohPathEvent(candidate: unknown): MobileIrohPathEven
     ...(typeof diagnostics.eventC === "number" ? { eventC: diagnostics.eventC } : {}),
     ...pathMetadataFields(metadata),
   };
+}
+
+function consistentIrohPathFields(
+  diagnostics: Pick<CoreObservation, "eventCode" | "eventCodeRaw" | "eventA" | "eventB">,
+  operation: string,
+  path: string,
+): boolean {
+  if (diagnostics.eventCode === "selectedPathChanged") {
+    return diagnostics.eventCodeRaw === 40 && operation === "snapshot"
+      && irohPathKindsByCode.get(diagnostics.eventA ?? -1) === path;
+  }
+  return diagnostics.eventCode === "transportPathEvent" && diagnostics.eventCodeRaw === 55
+    && irohPathOperationsByCode.get(diagnostics.eventA ?? -1) === operation
+    && irohPathKindsByCode.get(diagnostics.eventB ?? -1) === path
+    && (operation !== "lagged" || path === "unknown");
 }
 
 export function parseMobileTerminalLatencyWindow(candidate: unknown): MobileTerminalLatencyWindow | null {

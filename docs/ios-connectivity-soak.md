@@ -41,8 +41,14 @@ The active `IrxConnection` subscribes to native Iroh path events and records
 the initial selected path separately, because the event watcher does not replay
 it. It refreshes the selected snapshot after a selection or a lag marker.
 The diagnostic ring retains opened, closed, selected, and lagged edges even
-when they use the same route class. Duplicate snapshots for the same peer and
-session are collapsed. The legacy connection stack uses the same vocabulary.
+when they use the same route class. Duplicate snapshots are collapsed per peer
+and session, including interleaved connections, while their latest snapshot is
+retained. Evicting that snapshot also expires its deduplication state. The
+legacy connection stack uses the same vocabulary.
+
+These records describe transport paths, including attempts that later fail app
+admission. A path selection does not claim successful pairing or usable RPC.
+Keeping that evidence helps diagnose connection failures before admission.
 
 The mobile Axiom bridge emits one `ios_iroh_path_event` for each retained event.
 Its bounded fields are `operation` (`opened`, `closed`, `selected`, `lagged`,
