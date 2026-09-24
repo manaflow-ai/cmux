@@ -28,7 +28,9 @@ struct VMClientReadCoalescingTests {
                 }
             }
         }
-        try await eventually { await fixture.readRequests.entries.values.reduce(0) { $0 + $1.waiters.count } == 40 }
+        // VMResourceStatsStore joins the four callers for a machine onto one
+        // read, so the coordinator sees a single waiter per machine.
+        try await eventually { await fixture.readRequests.entries.values.reduce(0) { $0 + $1.waiters.count } == 10 }
         try await eventually { await CloudRefreshURLProtocol.requestCounts().count == 10 }
         await CloudRefreshURLProtocol.releaseResponses()
         await requests.value
@@ -296,9 +298,11 @@ struct VMClientReadCoalescingTests {
         defer { otherReader.cancel() }
         await CloudRefreshURLProtocol.waitUntilStarted()
         acceptFleet(["removed", "shared"])
+        // The model's "shared" read joins otherReader's read in
+        // VMResourceStatsStore, so only "removed" adds a coordinator waiter.
         try await eventually {
             let entries = await fixture.readRequests.entries
-            return entries.values.reduce(0) { $0 + $1.waiters.count } == 3
+            return entries.values.reduce(0) { $0 + $1.waiters.count } == 2
         }
         await CloudRefreshURLProtocol.waitUntilStarted(2)
         let oldID = try #require(model.statsID)
@@ -310,10 +314,12 @@ struct VMClientReadCoalescingTests {
         let replacementTask = try #require(model.statsTask)
         await oldTask.value
         #expect(model.statsID == replacementID, "Old completion must not clear the replacement owner")
+        // Cancelling the old batch does not cancel a shared read, so the
+        // removed machine's request keeps its one waiter until it answers.
         try await eventually {
             let entries = await fixture.readRequests.entries
-            return entries.first { $0.key.path == "/api/vm/removed/stats" } == nil
-                && entries.first { $0.key.path == "/api/vm/shared/stats" }?.value.waiters.count == 2
+            return entries.first { $0.key.path == "/api/vm/removed/stats" }?.value.waiters.count == 1
+                && entries.first { $0.key.path == "/api/vm/shared/stats" }?.value.waiters.count == 1
                 && entries.first { $0.key.path == "/api/vm/added/stats" }?.value.waiters.count == 1
         }
         await CloudRefreshURLProtocol.waitUntilStarted(3)
@@ -327,8 +333,7 @@ struct VMClientReadCoalescingTests {
         #expect(model.statsID == nil && model.statsTask == nil)
         try await eventually {
             let entries = await fixture.readRequests.entries
-            return entries.count == 1 && entries.first?.key.path == "/api/vm/shared/stats"
-                && entries.first?.value.waiters.count == 1
+            return entries.count == 3 && entries.values.allSatisfy { $0.waiters.count == 1 }
         }
         await CloudRefreshURLProtocol.releaseResponses()
         #expect(try await otherReader.value.state == .awake)
