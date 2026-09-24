@@ -19,4 +19,8 @@ jobs:
           AWS_SECRET_ACCESS_KEY: ${{ secrets.CI_CACHE_R2_SECRET_ACCESS_KEY }}
           R2_ENDPOINT: ${{ format('https://{0}.r2.cloudflarestorage.com', secrets.CI_CACHE_R2_ACCOUNT_ID) }}
           R2_BUCKET: ${{ vars.CI_CACHE_R2_BUCKET }}
-        run: python3 scripts/ci/r2_cache_prune.py --endpoint-url "$R2_ENDPOINT" --bucket "$R2_BUCKET"
+        run: |
+          python3 scripts/ci/r2_cache_prune.py --endpoint-url "$R2_ENDPOINT" --bucket "$R2_BUCKET" | tail -n +2
+          for days in 1 2 3 5; do
+            python3 scripts/ci/r2_cache_census.py report --endpoint-url "$R2_ENDPOINT" --bucket "$R2_BUCKET" --max-age-days "$days" | grep -E 'would reclaim|size:'
+          done
