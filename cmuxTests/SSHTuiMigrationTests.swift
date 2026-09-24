@@ -95,6 +95,26 @@ struct SSHTuiMigrationTests {
         #expect(SSHTuiConnection(configuration: original).id == SSHTuiConnection(configuration: restored).id)
     }
 
+    @MainActor
+    @Test("A legacy relay configuration keeps its relay lifecycle and startup command")
+    func legacyRelayConfigurationIsNotClaimedByCmuxTui() {
+        let native = configuration()
+        #expect(native.routesThroughSSHTui)
+        // The shape the CLI's no-TTY `cmux ssh` path sends to workspace.remote.configure.
+        let legacy = WorkspaceRemoteConfiguration(
+            destination: "alice@example.invalid", port: nil, identityFile: nil, sshOptions: [],
+            localProxyPort: nil, relayPort: 64007, relayID: String(repeating: "a", count: 16),
+            relayToken: String(repeating: "b", count: 64), localSocketPath: "/tmp/cmux-debug-test.sock",
+            terminalStartupCommand: "ssh -T alice@example.invalid", preserveAfterTerminalExit: false
+        )
+        #expect(!legacy.routesThroughSSHTui)
+        let workspace = Workspace()
+        defer { workspace.teardownAllPanels() }
+        #expect(workspace.configureRemoteConnection(legacy, autoConnect: false))
+        #expect(!workspace.usesSSHTui)
+        #expect(workspace.effectiveRemoteTerminalStartupCommand(from: workspace.remoteConfiguration) == "ssh -T alice@example.invalid")
+    }
+
     @Test("SSH projection identities survive session serialization without becoming Cloud machines")
     func projectionRoundTripRetainsSSHBackend() throws {
         let id = SSHTuiConnection(configuration: configuration()).id
