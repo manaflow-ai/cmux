@@ -287,6 +287,22 @@ class DoomedCategoryTests(unittest.TestCase):
                 pr = make_pr(files=("Sources/AppDelegate.swift", path))
                 self.assertIsNone(self.classify(pr=pr))
 
+    def test_failed_compile_admission_with_macos_jobs_still_held_is_doomed(self):
+        # 2026-09-24: main stopped compiling (36c30506) and every PR run built
+        # on it failed `macOS compile admission`, while its other macOS jobs
+        # stayed queued on Blacksmith macos-26 for over an hour. A failed
+        # admission fails the `macos` call just as a failed shard does.
+        jobs = doomed_jobs(name="macos / macOS compile admission")
+        verdict = self.classify(jobs=jobs)
+        self.assertEqual(verdict[0], "doomed")
+        self.assertIn("macOS compile admission", verdict[1])
+
+    def test_compile_admission_that_did_not_fail_is_kept(self):
+        for conclusion in ("success", "skipped", "cancelled"):
+            with self.subTest(conclusion=conclusion):
+                jobs = doomed_jobs(name="macos / macOS compile admission", conclusion=conclusion)
+                self.assertIsNone(self.classify(jobs=jobs))
+
     def test_an_unrelated_diff_is_still_doomed(self):
         # PR #13218 changed nothing the shard consumes, so its remaining macOS
         # jobs are only holding pool capacity.

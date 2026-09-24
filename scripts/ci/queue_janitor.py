@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Cancel macOS runner demand that no longer buys anything.
 
-Pull request macOS jobs share one small runner pool. When that pool is
-saturated, every queued job that nobody will read delays one that somebody
-will. This janitor looks at in-flight Actions runs, and only when the number of
+Pull request macOS jobs share a few small runner pools (Blacksmith and
+GitHub-hosted macOS 15 and 26). When they are saturated, every queued job that
+nobody will read delays one that somebody will. This janitor looks at in-flight Actions runs, and only when the number of
 queued macOS jobs exceeds a threshold does it cancel runs that are waste, in
 this priority order:
 
@@ -14,8 +14,9 @@ this priority order:
      a newer CI run for that PR is already waiting to replace them and the old
      run's compile admission is not mid-flight (ci.yml deliberately lets that
      compile finish so the queued run can reuse its product).
-  d. CI runs whose required ``ci-status`` is already decided against them: an
-     ``app-host unit tests`` shard has concluded ``failure``, so the ``macos``
+  d. CI runs whose required ``ci-status`` is already decided against them:
+     ``macOS compile admission`` or an ``app-host unit tests`` shard has
+     concluded ``failure``, so the ``macos``
      reusable-workflow call cannot report ``success`` or ``skipped`` and no
      later job can take that back, while sibling macOS jobs still hold the
      pool. Unlike (a)-(c) the run is current and its remaining output is still
@@ -77,10 +78,15 @@ COMPILE_ADMISSION_JOB = re.compile(r"(^|/ )macOS compile admission$")
 
 CATEGORY_ORDER = ("experiment", "stale-pr", "label-dropped", "doomed")
 
-# The shards whose failure decides ci-status. ci-macos.yml shards this six ways
-# and the reusable-call prefix makes the API name "macos / app-host unit tests
-# (3/6)", so match on the substring.
+# The jobs whose failure decides ci-status. ci-macos.yml shards the app-host
+# suite and the reusable-call prefix makes the API name "macos / app-host unit
+# tests (3/6)", so match on the substring. A failed compile admission fails
+# the same `macos` call before any shard starts.
 DOOMED_JOB_NAME = "app-host unit tests"
+
+
+def decides_ci_status(name: str) -> bool:
+    return DOOMED_JOB_NAME in name or bool(COMPILE_ADMISSION_JOB.search(name))
 
 # How long a shard failure must have stood before the run is a candidate, so a
 # run that just turned red keeps its siblings while someone looks at it.
@@ -198,7 +204,8 @@ class MacosUsage:
     running: int = 0
     oldest_queued_at: dt.datetime | None = None
     compile_admission_running: bool = False
-    # The app-host shard whose failure decided ci-status, and when it landed.
+    # The compile admission or app-host shard whose failure decided ci-status,
+    # and when it landed.
     # Read from the same pass over the run's jobs, at no extra API cost.
     decided_by: str | None = None
     decided_at: dt.datetime | None = None
@@ -229,7 +236,7 @@ def macos_usage(jobs: Iterable[Mapping[str, Any]]) -> MacosUsage:
             running += 1
             if COMPILE_ADMISSION_JOB.search(name):
                 compiling = True
-        elif status == "completed" and DOOMED_JOB_NAME in name:
+        elif status == "completed" and decides_ci_status(name):
             # Job conclusion, never step conclusion: a job whose only failed
             # steps carry continue-on-error concludes `success`, so reading the
             # job already excludes tolerated failures.
