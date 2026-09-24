@@ -12,9 +12,6 @@ final class WorkspaceNavigationBarController: UIViewController {
     private var trailingIDs: [WorkspaceNavigationBar.Item.ID] = []
     private var trailingGroups: [UIBarButtonItemGroup] = []
     private var trailingGroupLandscape: Bool?
-    private let trailingRepresentative = UIBarButtonItem(
-        image: UIImage(systemName: "ellipsis"), style: .plain, target: nil, action: nil
-    )
     private weak var owner: UIViewController?
     private var originalItem: OriginalItem?
 
@@ -135,6 +132,12 @@ final class WorkspaceNavigationBarController: UIViewController {
         if !item.trailingItemGroups.elementsEqual(trailingGroups, by: { $0 === $1 }) {
             item.trailingItemGroups = trailingGroups
         }
+        if #available(iOS 16.0, *) {
+            let needsOverflowButton = !isLandscape && trailingGroups.count > 1
+            item.additionalOverflowItems = needsOverflowButton
+                ? UIDeferredMenuElement.uncached { completion in completion([]) }
+                : nil
+        }
         if item.pinnedTrailingGroup != nil {
             item.pinnedTrailingGroup = nil
         }
@@ -151,23 +154,8 @@ final class WorkspaceNavigationBarController: UIViewController {
             groups.append(UIBarButtonItemGroup(barButtonItems: [warning], representativeItem: nil))
         }
         if !collapsible.isEmpty {
-            let representative: UIBarButtonItem?
+            let group = UIBarButtonItemGroup(barButtonItems: collapsible, representativeItem: nil)
             if warning != nil, !isLandscape {
-                trailingRepresentative.accessibilityIdentifier = "OverflowBarButtonItem"
-                trailingRepresentative.accessibilityLabel = "More"
-                representative = trailingRepresentative
-                if #available(iOS 26.0, *) {
-                    trailingRepresentative.sharesBackground = true
-                    warning?.sharesBackground = true
-                }
-            } else {
-                representative = nil
-            }
-            let group = UIBarButtonItemGroup(
-                barButtonItems: collapsible,
-                representativeItem: representative
-            )
-            if representative != nil {
                 group.alwaysAvailable = true
             }
             groups.append(group)
@@ -197,6 +185,7 @@ final class WorkspaceNavigationBarController: UIViewController {
         }
         if item.trailingItemGroups.elementsEqual(trailingGroups, by: { $0 === $1 }) {
             item.trailingItemGroups = originalItem.trailingGroups
+            item.additionalOverflowItems = originalItem.additionalOverflowItems
         }
         if item.pinnedTrailingGroup == nil, let trailingGroup = originalItem.trailingGroup {
             item.pinnedTrailingGroup = trailingGroup
@@ -217,6 +206,7 @@ final class WorkspaceNavigationBarController: UIViewController {
         let leadingGroups: [UIBarButtonItemGroup]
         let trailingGroups: [UIBarButtonItemGroup]
         let trailingGroup: UIBarButtonItemGroup?
+        let additionalOverflowItems: UIDeferredMenuElement?
 
         init(item: UINavigationItem) {
             titleView = item.titleView
@@ -225,6 +215,7 @@ final class WorkspaceNavigationBarController: UIViewController {
             leadingGroups = item.leadingItemGroups
             trailingGroups = item.trailingItemGroups
             trailingGroup = item.pinnedTrailingGroup
+            additionalOverflowItems = item.additionalOverflowItems
         }
     }
 }
