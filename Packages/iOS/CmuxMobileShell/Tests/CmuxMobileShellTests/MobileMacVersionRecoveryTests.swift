@@ -110,7 +110,7 @@ import Testing
                 )
             }
         )
-        let ticket = try makeTicket(clock: TestClock())
+        let ticket = try makeTicket(clock: TestClock(), macAppVersion: "0.64.22")
         let url = try attachURL(for: ticket)
         #expect(!(await shell.connectPairingURL(url)))
         #expect(shell.hasMacVersionUpdateRequired)

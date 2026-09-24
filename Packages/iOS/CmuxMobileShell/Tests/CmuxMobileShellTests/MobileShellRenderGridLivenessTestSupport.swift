@@ -972,7 +972,7 @@ final class OutputCollector {
     }
 }
 
-func makeTicket(clock: TestClock) throws -> CmxAttachTicket {
+func makeTicket(clock: TestClock, macAppVersion: String? = nil) throws -> CmxAttachTicket {
     let route = try CmxAttachRoute(
         id: "debug_loopback",
         kind: .debugLoopback,
@@ -984,6 +984,7 @@ func makeTicket(clock: TestClock) throws -> CmxAttachTicket {
         macDeviceID: "test-mac",
         macDisplayName: "Test Mac",
         macPairingCompatibilityVersion: CmxMobileDefaults.pairingCompatibilityVersion,
+        macAppVersion: macAppVersion,
         routes: [route],
         expiresAt: clock.now.addingTimeInterval(3600)
     )
