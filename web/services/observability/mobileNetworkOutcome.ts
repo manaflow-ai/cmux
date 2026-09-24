@@ -18,7 +18,7 @@ const phases = new Set([
   "endpoint_start", "pairing", "transport_dial", "host_auth",
   "rpc_ready", "recovery", "relay_policy", "discovery", "initial_connect", "terminal_trace",
 ]);
-const outcomes = new Set(["success", "failure", "timeout", "cancelled", "abandoned"]);
+const outcomes = new Set(["success", "failure", "timeout", "cancelled", "abandoned", "stalled"]);
 const failures = new Set([
   "offline", "timedOut", "connectionRefused", "hostUnreachable",
   "permissionDenied", "dnsFailed", "secureChannelFailed", "unsupportedRoute",
@@ -60,6 +60,7 @@ const allowedPropertyKeys = new Set([
   "input_failed_count", "histogram_version", "input_to_output_histogram", "input_to_visible_histogram", "render_histogram",
   "duration_ms", "threshold_ms", "stage",
   "trace_id", "operation", "terminal_phase",
+  "replay_trigger", "surface_blank", "barrier_active", "replay_attempt", "app_foreground",
   "model_count", "phase", "attempt", "retry_delay_ms", "stop_reason", "correlation_id",
   "provider", "source", "effort_count",
 ]);
@@ -67,7 +68,7 @@ const allowedPropertyKeys = new Set([
 export type MobileNetworkOutcome = {
   readonly timestamp: string;
   readonly phase: string;
-  readonly outcome: "success" | "failure" | "timeout" | "cancelled" | "abandoned";
+  readonly outcome: "success" | "failure" | "timeout" | "cancelled" | "abandoned" | "stalled";
   readonly durationMs: number;
   readonly runtimeRole: "mobileClient";
   readonly userUsable: boolean;
@@ -94,6 +95,20 @@ export type MobileNetworkOutcome = {
   readonly traceId?: string;
   readonly operation?: string;
   readonly terminalPhase?: string;
+  /** Why the replay this trace describes was requested. */
+  readonly replayTrigger?: string;
+  /** The surface had been rebuilt blank, so this stall is a blank screen. */
+  readonly surfaceBlank?: boolean;
+  /** A replay barrier was suppressing live output for the surface. */
+  readonly barrierActive?: boolean;
+  /** Zero-based retry index within the replay episode. */
+  readonly replayAttempt?: number;
+  /**
+   * Whether the app was on screen when this phase was recorded. A suspended
+   * app runs no code, so elapsed time that spans suspension was never spent
+   * waiting on screen; percentiles that mix the two are meaningless.
+   */
+  readonly appForeground?: boolean;
 };
 
 export type MobileTerminalLatencyWindow = {
@@ -408,7 +423,15 @@ function taskModelMetadataFields(metadata: Metadata): Omit<MobileTaskModelResult
 }
 
 type CoreObservation = Pick<MobileNetworkOutcome, "phase" | "outcome" | "durationMs" | "userUsable" | "failure" | "transport" | "population" | "attemptId" | "terminalReady" | "eventCode" | "eventCodeRaw" | "eventSurface" | "eventA" | "eventB" | "eventC" | "cancellationReason">;
-type Metadata = Pick<MobileNetworkOutcome, "platform" | "clientChannel" | "appVersion" | "buildNumber" | "bundleIdentifier" | "osVersion" | "deviceModel" | "traceId" | "operation" | "terminalPhase">;
+type Metadata = Pick<MobileNetworkOutcome, "platform" | "clientChannel" | "appVersion" | "buildNumber" | "bundleIdentifier" | "osVersion" | "deviceModel" | "traceId" | "operation" | "terminalPhase" | "replayTrigger" | "surfaceBlank" | "barrierActive" | "replayAttempt" | "appForeground">;
+
+/** Mirrors `MobileTerminalReplayTrigger` in CMUXMobileCore. */
+const replayTriggers = new Set([
+  "unknown", "outputReset", "renderPipelineReset", "viewportTransition",
+  "revisionChainBreak", "historyChainBreak", "coldAttach", "failureRetry",
+  "droppedFrame", "applyFenceFailure", "pendingInputDrop", "resubscribe",
+  "screenTransition", "missingBaseline", "byteGap",
+]);
 
 function validTimestamp(value: unknown): value is string {
   return typeof value === "string"
@@ -491,6 +514,27 @@ function parseInitialConnectionFields(
   };
 }
 
+/// Categorical context for a replay trace. Split out of `parseMetadata` to
+/// keep that function under the repository complexity limit.
+function parseReplayContextFields(
+  properties: Record<string, unknown>,
+): Pick<Metadata, "replayTrigger" | "surfaceBlank" | "barrierActive" | "replayAttempt" | "appForeground"> | null {
+  const replayTrigger = optionalSetValue(properties.replay_trigger, replayTriggers);
+  const surfaceBlank = optionalBoolean(properties.surface_blank);
+  const barrierActive = optionalBoolean(properties.barrier_active);
+  const appForeground = optionalBoolean(properties.app_foreground);
+  const replayAttempt = optionalDiagnosticInteger(properties.replay_attempt, 0xff);
+  if (replayTrigger === false || replayAttempt === false) return null;
+  if (surfaceBlank === null || barrierActive === null || appForeground === null) return null;
+  return {
+    ...(typeof replayTrigger === "string" ? { replayTrigger } : {}),
+    ...(typeof surfaceBlank === "boolean" ? { surfaceBlank } : {}),
+    ...(typeof barrierActive === "boolean" ? { barrierActive } : {}),
+    ...(typeof replayAttempt === "number" ? { replayAttempt } : {}),
+    ...(typeof appForeground === "boolean" ? { appForeground } : {}),
+  };
+}
+
 function parseMetadata(properties: Record<string, unknown>): Metadata | null {
   const platform = optionalExact(properties.platform, "ios");
   const clientChannel = optionalSetValue(properties.client_channel, new Set(["dev", "nightly", "production", "unknown"])) as
@@ -504,10 +548,11 @@ function parseMetadata(properties: Record<string, unknown>): Metadata | null {
   const traceId = optionalTraceID(properties.trace_id);
   const operation = optionalSetValue(properties.operation, new Set(["replay", "artifactScan", "artifactList", "model_list"]));
   const terminalPhase = optionalSetValue(properties.terminal_phase, new Set([
-    "applied", "failed", "discarded",
+    "applied", "failed", "discarded", "hostCaptureFinished", "stalled",
   ]));
+  const replayFields = parseReplayContextFields(properties);
   if ([platform, clientChannel, appVersion, buildNumber, bundleIdentifier, osVersion, deviceModel,
-    traceId, operation, terminalPhase].includes(false)) return null;
+    traceId, operation, terminalPhase].includes(false) || replayFields === null) return null;
   if (properties.phase === "terminal_trace"
     && (typeof traceId !== "string" || typeof operation !== "string" || typeof terminalPhase !== "string")) {
     return null;
@@ -522,6 +567,7 @@ function parseMetadata(properties: Record<string, unknown>): Metadata | null {
     ...(typeof deviceModel === "string" ? { deviceModel } : {}),
     ...(typeof traceId === "string" ? { traceId } : {}),
     ...(typeof operation === "string" ? { operation } : {}),
+    ...replayFields,
     ...(typeof terminalPhase === "string" ? { terminalPhase } : {}),
   };
 }
@@ -565,6 +611,11 @@ export async function emitMobileNetworkOutcomes(
       "cmux.mobile.trace_id": observation.traceId,
       "cmux.mobile.operation": observation.operation,
       "cmux.mobile.terminal_phase": observation.terminalPhase,
+      "cmux.mobile.replay_trigger": observation.replayTrigger,
+      "cmux.mobile.surface_blank": observation.surfaceBlank,
+      "cmux.mobile.barrier_active": observation.barrierActive,
+      "cmux.mobile.replay_attempt": observation.replayAttempt,
+      "cmux.mobile.app_foreground": observation.appForeground,
     },
     (span) => {
       if (observation.outcome === "failure" || observation.outcome === "timeout") {
@@ -733,6 +784,14 @@ function optionalDiagnosticInteger(value: unknown, maximum = 0xffff_ffff): numbe
   if (value === undefined) return undefined;
   const parsed = unsignedInteger(value);
   return parsed === null || parsed > maximum ? false : parsed;
+}
+
+/// `false` is a legitimate value here, so an invalid one reports `null`
+/// rather than joining the `false`-means-rejected convention used by the
+/// string and integer helpers.
+function optionalBoolean(value: unknown): boolean | undefined | null {
+  if (value === undefined) return undefined;
+  return typeof value === "boolean" ? value : null;
 }
 
 function optionalExact<T extends string>(value: unknown, expected: T): T | undefined | false {

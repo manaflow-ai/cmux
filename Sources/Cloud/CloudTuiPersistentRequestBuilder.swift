@@ -27,6 +27,12 @@ struct CloudTuiRequest: Sendable, Equatable {
         Self(operation, params.merging(fields) { _, new in new }, mutation: idempotencyKey != nil, key: idempotencyKey, raw: raw)
     }
 
+    func withIdempotencyKey(_ key: String) -> Self {
+        var request = self
+        request.idempotencyKey = key
+        return request
+    }
+
     func envelope(id: String) throws -> Data {
         var object: [String: Any]
         if raw {
