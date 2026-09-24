@@ -62,6 +62,9 @@ DIRECT_RUN_LANE = "linux-guard"
 SHARED_RECIPE = "scripts/verify-local.py"
 RECIPE_RUN_RE = re.compile(r"\bpython3?\s+scripts/verify-local\.py\b(?P<args>[^\n]*)")
 RECIPE_TEST_RE = re.compile(r"tests/test_[A-Za-z0-9_.-]+\.py")
+RECIPE_STEP_NAME_RE = re.compile(r"\s*(-\s+)?name:")
+# Options that keep the default selection or narrow it only through `--only`.
+RECIPE_VALUE_OPTIONS = {"--only", "--timeout", "--receipt"}
 
 
 def runner_lanes_from_workflow_text(text: str) -> set[str]:
@@ -100,24 +103,25 @@ def all_workflow_text(workflows: Path = WORKFLOWS) -> str:
 def recipe_tests(workflow_texts: list[str], workflows: Path = WORKFLOWS) -> list[str]:
     """Tests the recipe checks run by each executable `python3 scripts/verify-local.py`.
 
-    Only uncommented invocations count. An invocation with `--only` runs just
-    the named checks, and `--affected` may run none, so it credits nothing.
+    Only uncommented invocations outside a step `name:` count. An invocation
+    with `--only` runs just the named checks. Any other option (`--affected`,
+    `--list`, `--swift-changed`, an abbreviation argparse would accept) may run
+    fewer checks or none, so it credits nothing.
     """
     selections: list[set[str] | None] = []
     for text in workflow_texts:
         for line in text.splitlines():
-            match = RECIPE_RUN_RE.search(line.split("#", 1)[0])
-            if not match:
+            command = line.split("#", 1)[0]
+            match = RECIPE_RUN_RE.search(command)
+            if not match or RECIPE_STEP_NAME_RE.match(command):
                 continue
             try:
                 args = shlex.split(match.group("args"))
             except ValueError:
                 continue
-            if "--affected" in args:
-                continue
-            only = {args[i + 1] for i, arg in enumerate(args[:-1]) if arg == "--only"}
-            only |= {arg.split("=", 1)[1] for arg in args if arg.startswith("--only=")}
-            selections.append(only or None)
+            selection = recipe_selection(args)
+            if selection is not False:
+                selections.append(selection)
     recipe = workflows.parents[1] / SHARED_RECIPE
     if not selections or not recipe.is_file():
         return []
@@ -133,6 +137,31 @@ def recipe_tests(workflow_texts: list[str], workflows: Path = WORKFLOWS) -> list
         for test in RECIPE_TEST_RE.findall(arg)
     ]
 
+
+def recipe_selection(args: list[str]) -> set[str] | None | bool:
+    """Checks an invocation runs: None for all, a set for `--only`, False if unknown."""
+    only: set[str] = set()
+    index = 0
+    while index < len(args):
+        arg = args[index]
+        flag, has_value, value = arg.partition("=")
+        if flag == "--all" and not has_value:
+            pass
+        elif flag in RECIPE_VALUE_OPTIONS:
+            if not has_value:
+                index += 1
+                if index >= len(args):
+                    return False
+                value = args[index]
+            if flag == "--only":
+                only.add(value)
+        else:
+            # Shell plumbing after the command (`&&`, `|`, a redirect) ends it.
+            if arg in {"&&", "||", "|", ";"} or arg.startswith((">", "2>")):
+                break
+            return False
+        index += 1
+    return only or None
 
 def recipe_checks(source: str) -> list[tuple[str, list[str]]]:
     """(name, argv) for each entry of the recipe's literal CHECKS tuple."""

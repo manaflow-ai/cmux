@@ -214,6 +214,21 @@ class RegistryBlastRadiusTests(unittest.TestCase):
         errors, _, _ = validator.validate(root, added=set())
         self.assertEqual(errors, [])
 
+    def test_an_invocation_that_may_skip_checks_does_not_make_its_tests_live(self) -> None:
+        for args in ("--affected", "--affected=origin/main", "--list", "--only recipe --list",
+                     "--swift-changed", "--aff"):
+            with self.subTest(args=args):
+                root = self.recipe_root(f"- run: python3 scripts/verify-local.py {args}")
+                errors, _, _ = validator.validate(root, added=set())
+                self.assertIn("tests/test_recipe.py: linux-guard lane is not run by any workflow", errors)
+
+    def test_full_recipe_options_keep_its_tests_live(self) -> None:
+        for args in ("--all", "--timeout 120", "--receipt out.json", "--only=recipe", "&& echo done"):
+            with self.subTest(args=args):
+                root = self.recipe_root(f"- run: python3 scripts/verify-local.py {args}")
+                errors, _, _ = validator.validate(root, added=set())
+                self.assertEqual(errors, [])
+
     def test_a_commented_out_recipe_check_is_not_live(self) -> None:
         root = self.recipe_root("- run: python3 scripts/verify-local.py")
         (root / "scripts" / "verify-local.py").write_text(
