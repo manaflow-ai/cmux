@@ -1,3 +1,4 @@
+import CMUXMobileCore
 import CmuxMobileShellModel
 import Foundation
 import Testing
@@ -221,7 +222,7 @@ import Testing
             rows: 30
         )
     )
-    store.requestTerminalReplay(surfaceID: surfaceID)
+    store.requestTerminalReplay(surfaceID: surfaceID, trigger: .coldAttach)
     #expect(store.terminalReplayBarrierTokensBySurfaceID[surfaceID] == nil)
     #expect(
         await router.waitForCount(
@@ -289,7 +290,7 @@ import Testing
     store.terminalOutputDidProcess(surfaceID: surfaceID, streamToken: initialViewportChunk.streamToken)
 
     await router.failNextReplay(code: "viewport_transition")
-    store.requestTerminalReplay(surfaceID: surfaceID)
+    store.requestTerminalReplay(surfaceID: surfaceID, trigger: .coldAttach)
     let replayRequested = await router.waitForCount(of: "mobile.terminal.replay", atLeast: 3)
     #expect(replayRequested)
     let requestSettled = try await pollUntil {
@@ -388,7 +389,7 @@ import Testing
         surfaceID: surfaceID
     )
     #expect(!staleAccepted, "output must be dropped while a resize acknowledgement is in flight")
-    store.requestTerminalReplay(surfaceID: surfaceID)
+    store.requestTerminalReplay(surfaceID: surfaceID, trigger: .coldAttach)
     let replayBeforeAck = await router.waitForCount(
         of: "mobile.terminal.replay",
         atLeast: replayCountAfterBaseline + 1,
@@ -720,7 +721,7 @@ import Testing
     // A recovery path (liveness probe repair, resync, advisory) asks for an
     // authoritative replay. It must defer to the pending acknowledgement,
     // not fire a competing replay.
-    store.requestTerminalReplay(surfaceID: surfaceID)
+    store.requestTerminalReplay(surfaceID: surfaceID, trigger: .coldAttach)
     let competingReplay = await router.waitForCount(
         of: "mobile.terminal.replay",
         atLeast: replayCountAfterBaseline + 1,
@@ -1310,7 +1311,7 @@ import Testing
     let staleToken = store.beginTerminalReplayBarrier(surfaceID: surfaceID)
     let currentToken = store.beginTerminalReplayBarrier(surfaceID: surfaceID)
     let replayCountBeforeStaleRequest = await router.count(of: "mobile.terminal.replay")
-    store.requestTerminalReplay(surfaceID: surfaceID, replayBarrierToken: staleToken)
+    store.requestTerminalReplay(surfaceID: surfaceID, trigger: .coldAttach, replayBarrierToken: staleToken)
 
     let staleReplayRequested = await router.waitForCount(
         of: "mobile.terminal.replay",
@@ -1453,7 +1454,7 @@ import Testing
     #expect(clearRequest.clearsViewport)
 
     let replayCount = await router.count(of: "mobile.terminal.replay")
-    store.requestTerminalReplay(surfaceID: surfaceID)
+    store.requestTerminalReplay(surfaceID: surfaceID, trigger: .coldAttach)
     let replaySent = await router.waitForCount(
         of: "mobile.terminal.replay",
         atLeast: replayCount + 1
