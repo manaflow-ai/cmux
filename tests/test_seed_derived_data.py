@@ -120,9 +120,57 @@ class SeedDerivedData(unittest.TestCase):
         os.environ["FAKE_MODE"] = "fail"
         output = self.root / "output"
         os.environ["GITHUB_OUTPUT"] = str(output)
-        self.assertEqual(seed.main(["seed", "adopt", str(self.source), str(self.derived), "k", "p-"]), 0)
+        with mock.patch.object(seed, "lineage", return_value=["k"]), mock.patch.object(seed, "seed_exists", return_value=False):
+            self.assertEqual(seed.main(["seed", "adopt", str(self.source), str(self.derived), "p-", "k"]), 0)
         self.assertIn("hit=false", output.read_text())
         self.assertTrue((self.derived / "from-resolve").exists())
+
+    def test_adopt_prefers_the_nearest_seeded_ancestor_over_the_newest_pointer(self):
+        """The seed of REVISION, or of its nearest ancestor with one, is the exact
+        key; only when none has a seed does the newest pointer decide."""
+        published = {"p-c3", "p-c1"}
+        probed = []
+
+        def exists(key):
+            probed.append(key)
+            return key in published
+
+        self.assertEqual(seed.nearest("p-", ["c4", "c3", "c2", "c1"], exists), ("p-c3", 1))
+        self.assertEqual(sorted(probed), ["p-c1", "p-c2", "p-c3", "p-c4"])
+        self.assertEqual(seed.nearest("p-", ["c5", "c4"], exists), None)
+
+        restored = []
+        self.publish_seed()
+        os.environ["FAKE_MODE"] = "hit"
+        output = self.root / "output"
+        os.environ["GITHUB_OUTPUT"] = str(output)
+        with mock.patch.object(seed, "lineage", return_value=["c4", "c3", "c1"]), \
+                mock.patch.object(seed, "seed_exists", side_effect=lambda key: key in published), \
+                mock.patch.object(seed, "adopt", side_effect=lambda *a: restored.append(a) or {"hit": "true", "key": a[2]}):
+            self.assertEqual(seed.main(["seed", "adopt", str(self.source), str(self.derived), "p-", "c4"]), 0)
+        self.assertEqual(restored[0][2:], ("p-c3", "p-"))
+        self.assertIn("seed_distance=1", output.read_text())
+
+        # No seeded ancestor: ask for REVISION's own key, so the restore falls
+        # back to the pointer, and say the distance is unknown.
+        restored.clear()
+        output.write_text("")
+        with mock.patch.object(seed, "lineage", return_value=["c9"]), \
+                mock.patch.object(seed, "seed_exists", return_value=False), \
+                mock.patch.object(seed, "adopt", side_effect=lambda *a: restored.append(a) or {"hit": "true", "key": "p-c1"}):
+            seed.main(["seed", "adopt", str(self.source), str(self.derived), "p-", "c9"])
+        self.assertEqual(restored[0][2:], ("p-c9", "p-"))
+        self.assertIn("seed_distance=\n", output.read_text())
+
+    def test_lineage_without_a_repository_or_api_is_the_revision_alone(self):
+        os.environ.pop("GITHUB_REPOSITORY", None)
+        self.assertEqual(seed.lineage("abc"), ["abc"])
+        os.environ["GITHUB_REPOSITORY"] = "o/r"
+        with mock.patch.object(seed.subprocess, "run", side_effect=OSError("no gh")):
+            self.assertEqual(seed.lineage("abc"), ["abc"])
+        listed = mock.Mock(stdout="abc\nparent\ngrandparent\n")
+        with mock.patch.object(seed.subprocess, "run", return_value=listed):
+            self.assertEqual(seed.lineage("abc"), ["abc", "parent", "grandparent"])
 
     def test_prune_refuses_an_unrecorded_or_oversized_seed(self):
         self.derived.mkdir()
@@ -173,6 +221,11 @@ class Wiring(unittest.TestCase):
         self.assertLess(compile_at, forget_at)
         self.assertEqual(adopt["env"]["SEED_PREFIX"], written[: -len(suffix)])
         self.assertIn("steps.seed-derived-data.outputs.hit == 'true'", forget["if"])
+        # The seed of the main this merge sits on, which the event's base.sha
+        # is not always.
+        self.assertIn("git cat-file commit HEAD", adopt["run"])
+        self.assertIn('"$SEED_PREFIX" "${merged_onto:-$BASE_SHA}"', adopt["run"])
+        self.assertIn("GH_TOKEN", adopt["env"])
 
         for path in (ROOT / ".github/workflows").glob("*.yml"):
             text = path.read_text()
@@ -203,6 +256,8 @@ class Wiring(unittest.TestCase):
         self.assertLess(record_at, build_at)
         self.assertLess(build_at, save_at)
         self.assertIs(adopt.get("continue-on-error"), True)
+        self.assertIn('"$PREFIX" "$GITHUB_SHA"', adopt["run"])
+        self.assertIn("GH_TOKEN", adopt["env"])
         self.assertEqual(save["with"]["backend"], "r2")
         self.assertEqual(save["with"]["key"], "${{ steps.key.outputs.prefix }}${{ github.sha }}")
 
