@@ -1713,6 +1713,7 @@
 		C0A713010000000000000002 /* ComputerUseWatchTargetActivity.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0A713010000000000000001 /* ComputerUseWatchTargetActivity.swift */; };
 		D1F00A100000000000000002 /* ComputerUseWatchTargetController.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1F00A100000000000000001 /* ComputerUseWatchTargetController.swift */; };
 		C0A710190000000000000002 /* ComputerUseWindowDragRegion.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0A710190000000000000001 /* ComputerUseWindowDragRegion.swift */; };
+		C0F1A001C0F1A001C0F1A001 /* ConfigPackErrors.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = C0F1A002C0F1A002C0F1A002 /* ConfigPackErrors.xcstrings */; };
 		3023A1013023A1013023A101 /* ConfigSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3023B1013023B1013023B101 /* ConfigSettingsView.swift */; };
 		3023A1003023A1003023A100 /* ConfigSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3023B1003023B1003023B100 /* ConfigSource.swift */; };
 		C0DE77770000000000000001 /* ConfiguredShortcutMatcherTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE77770000000000000002 /* ConfiguredShortcutMatcherTests.swift */; };
@@ -2255,7 +2256,6 @@
 		D10799020000000000000001 /* LiveTabDragCapabilityResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = D10799010000000000000001 /* LiveTabDragCapabilityResolver.swift */; };
 		DB326399C791DD70E9D6997A /* LiveWorkspaceFixture.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7B507A66B0F521925687F2ED /* LiveWorkspaceFixture.swift */; };
 		DA7A10CA710E000000000003 /* Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = DA7A10CA710E000000000001 /* Localizable.xcstrings */; };
-		C0F1A001C0F1A001C0F1A001 /* ConfigPackErrors.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = C0F1A002C0F1A002C0F1A002 /* ConfigPackErrors.xcstrings */; };
 		8F3CFE9C065FF1BD53D150CF /* LocalSurfaceProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1EDD243C7C87A2AB78B12BAD /* LocalSurfaceProvider.swift */; };
 		540A9F26DCDFD0C16B257D6F /* LocalSurfaceProviderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 64C68B378B6071B213B4AA57 /* LocalSurfaceProviderTests.swift */; };
 		C0DE10651000000000000002 /* LocalTmuxCommandBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE10651000000000000012 /* LocalTmuxCommandBuilder.swift */; };
@@ -5949,6 +5949,7 @@
 		C0A713010000000000000001 /* ComputerUseWatchTargetActivity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/ComputerUseWatchTargetActivity.swift; sourceTree = "<group>"; };
 		D1F00A100000000000000001 /* ComputerUseWatchTargetController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/ComputerUseWatchTargetController.swift; sourceTree = "<group>"; };
 		C0A710190000000000000001 /* ComputerUseWindowDragRegion.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/ComputerUseWindowDragRegion.swift; sourceTree = "<group>"; };
+		C0F1A002C0F1A002C0F1A002 /* ConfigPackErrors.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = ConfigPackErrors.xcstrings; sourceTree = "<group>"; };
 		3023B1013023B1013023B101 /* ConfigSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Settings/ConfigSettingsView.swift; sourceTree = "<group>"; };
 		3023B1003023B1003023B100 /* ConfigSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Settings/ConfigSource.swift; sourceTree = "<group>"; };
 		C0DE77770000000000000002 /* ConfiguredShortcutMatcherTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConfiguredShortcutMatcherTests.swift; sourceTree = "<group>"; };
@@ -6488,7 +6489,6 @@
 		D10799010000000000000001 /* LiveTabDragCapabilityResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveTabDragCapabilityResolver.swift; sourceTree = "<group>"; };
 		7B507A66B0F521925687F2ED /* LiveWorkspaceFixture.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LiveWorkspaceFixture.swift; sourceTree = "<group>"; };
 		DA7A10CA710E000000000001 /* Localizable.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = Localizable.xcstrings; sourceTree = "<group>"; };
-		C0F1A002C0F1A002C0F1A002 /* ConfigPackErrors.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = ConfigPackErrors.xcstrings; sourceTree = "<group>"; };
 		1EDD243C7C87A2AB78B12BAD /* LocalSurfaceProvider.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LocalSurfaceProvider.swift; sourceTree = "<group>"; };
 		64C68B378B6071B213B4AA57 /* LocalSurfaceProviderTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LocalSurfaceProviderTests.swift; sourceTree = "<group>"; };
 		C0DE10651000000000000012 /* LocalTmuxCommandBuilder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalTmuxCommandBuilder.swift; sourceTree = "<group>"; };
@@ -13290,11 +13290,11 @@
 				C0DEC0DE0000000000000011 /* cmux-cua in Resources */,
 				A5001623 /* cmux.sdef in Resources */,
 				C0A714100000000000000002 /* ComputerUseHelperIcon.icns in Resources */,
+				C0F1A001C0F1A001C0F1A001 /* ConfigPackErrors.xcstrings in Resources */,
 				FEED0A00000000000000F007 /* feed-tui in Resources */,
 				DA7A10CA710E000000000004 /* InfoPlist.xcstrings in Resources */,
 				A11CE0060000000000000001 /* LICENSE in Resources */,
 				DA7A10CA710E000000000003 /* Localizable.xcstrings in Resources */,
-				C0F1A001C0F1A001C0F1A001 /* ConfigPackErrors.xcstrings in Resources */,
 				A9D9000000000000000F0017 /* markdown-viewer in Resources */,
 				FEED0000000000000000F007 /* opencode-plugin.js in Resources */,
 				A5002000 /* THIRD_PARTY_LICENSES.md in Resources */,
