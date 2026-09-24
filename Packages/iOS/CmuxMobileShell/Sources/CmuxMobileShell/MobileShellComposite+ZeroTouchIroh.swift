@@ -19,6 +19,10 @@ extension MobileShellComposite {
         guard generation == storedMacReconnectGeneration,
               await isScopeCurrent(scope) else { return [] }
 
+        do {
+            try await reconcileDirectoryPairedMacIdentities(discovered, scope: scope)
+        } catch { return [] }
+        guard await isScopeCurrent(scope) else { return [] }
         return await zeroTouchIrohCandidates(
             from: discovered,
             scope: scope,
@@ -39,6 +43,10 @@ extension MobileShellComposite {
         let discovered = await personalIrohDiscovery.discoverLiveMacs()
         guard await isScopeCurrent(scope) else { return [] }
 
+        do {
+            try await reconcileDirectoryPairedMacIdentities(discovered, scope: scope)
+        } catch { return [] }
+        guard await isScopeCurrent(scope) else { return [] }
         return await zeroTouchIrohCandidates(
             from: discovered,
             scope: scope,
@@ -51,6 +59,15 @@ extension MobileShellComposite {
         scope: MobileShellScopeSnapshot,
         excluding pairingIDs: Set<String>
     ) async -> [MobilePairedMac] {
+        let stored: [MobilePairedMac]
+        if personalIrohDiscovery?.usesAuthoritativeDeviceIDs == true {
+            do {
+                stored = try await pairedMacStore?.loadAll(stackUserID: scope.userID, teamID: scope.teamID) ?? []
+            } catch { return [] }
+            guard await isScopeCurrent(scope) else { return [] }
+        } else {
+            stored = []
+        }
         var seen = pairingIDs
         var candidates: [MobilePairedMac] = []
         for mac in discovered {
@@ -67,6 +84,10 @@ extension MobileShellComposite {
                       scope: scope
                   ) else { continue }
             guard seen.insert(pairingID).inserted else { continue }
+            if let saved = stored.first(where: { $0.id == pairingID && $0.teamID == scope.teamID }) {
+                candidates.append(saved)
+                continue
+            }
             candidates.append(MobilePairedMac(
                 macDeviceID: mac.deviceID,
                 displayName: mac.displayName,

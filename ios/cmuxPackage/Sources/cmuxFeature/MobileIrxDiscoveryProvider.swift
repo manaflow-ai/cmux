@@ -20,6 +20,7 @@ public final class MobileIrxDiscoveryProvider: MobileIrohMacDiscovering,
     /// Exposed so the scene injects the SAME catalog the provider fills as
     /// `personalIrohRouteCatalog` (known-Mac route lookups read it).
     public let routeCatalog = MobileIrohRouteCatalog()
+    public let usesAuthoritativeDeviceIDs = true
 
     private let preferredTag: String
     private let compatibilityPolicy: MobileMacBuildCompatibilityPolicy?

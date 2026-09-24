@@ -775,6 +775,141 @@ struct IrohZeroTouchDiscoveryTests {
         #expect(fixture.factory.attemptedRouteIDs().isEmpty)
     }
 
+    @Test
+    func v2UpgradeReconcilesSavedComputerBeforeItsFirstDial() async throws {
+        let live = try candidate(deviceID: "v2-installation", endpointByte: "a")
+        let discovery = ScriptedIrohDiscovery(snapshots: [[live]])
+        discovery.usesAuthoritativeDeviceIDs = true
+        let fixture = try await makeFixture(discovery: discovery, reportedDeviceID: live.deviceID)
+        defer { fixture.cleanup() }
+        var oldRoute = live.routes[0]
+        oldRoute = try CmxAttachRoute(id: "legacy-route", kind: oldRoute.kind,
+                                     endpoint: oldRoute.endpoint)
+        try await fixture.store.upsert(macDeviceID: "old-physical-mac", displayName: "My Mac",
+                                       routes: [oldRoute], instanceTag: live.instanceTag,
+                                       markActive: true, stackUserID: "user-1", teamID: nil,
+                                       now: Self.fixedNow)
+        try await fixture.store.seedV2MigrationCustomization(macDeviceID: "old-physical-mac", instanceTag: live.instanceTag,
+                                                 customName: "Office", customColor: "palette:2", customIcon: "house",
+                                                 stackUserID: "user-1", teamID: nil, now: Self.fixedNow)
+        #expect(try await fixture.store.loadAll().first?.customName == "Office")
+
+        #expect(await fixture.shell.reconnectActiveMacIfAvailable(stackUserID: "user-1"))
+        #expect(fixture.factory.attemptedRouteIDs() == [live.routes[0].id])
+        let rows = try await fixture.store.loadAll(stackUserID: "user-1", teamID: nil)
+        #expect(rows.count == 1)
+        #expect(rows.first?.macDeviceID == live.deviceID)
+        #expect(rows.first?.customName == "Office")
+        #expect(rows.first?.customColor == "palette:2")
+        #expect(rows.first?.isActive == true)
+    }
+
+    @Test
+    func v2UpgradeKeepsHiddenComputerDisabledAndPreservesItsOrder() async throws {
+        let live = try candidate(deviceID: "v2-installation", endpointByte: "a")
+        let discovery = ScriptedIrohDiscovery(snapshots: [[live]])
+        discovery.usesAuthoritativeDeviceIDs = true
+        let fixture = try await makeFixture(discovery: discovery, reportedDeviceID: live.deviceID)
+        defer { fixture.cleanup() }
+        try await fixture.store.upsert(macDeviceID: "old-physical-mac", displayName: "My Mac",
+                                       routes: live.routes, instanceTag: live.instanceTag,
+                                       markActive: true, stackUserID: "user-1", teamID: nil,
+                                       now: Self.fixedNow)
+        let scope = try #require(await fixture.shell.currentScopeSnapshot(userID: "user-1"))
+        let oldID = MobilePairedMac.pairingID(macDeviceID: "old-physical-mac", instanceTag: live.instanceTag)
+        let newID = MobilePairedMac.pairingID(macDeviceID: live.deviceID, instanceTag: live.instanceTag)
+        await fixture.shell.rememberHiddenMacDeviceID(oldID, scope: scope)
+        fixture.shell.setWorkspaceComputerPriority([oldID])
+
+        #expect(!(await fixture.shell.reconnectActiveMacIfAvailable(stackUserID: "user-1")))
+        #expect(fixture.factory.attemptedRouteIDs().isEmpty)
+        #expect(await fixture.shell.isHiddenMacDeviceID(live.deviceID, instanceTag: live.instanceTag, scope: scope))
+        #expect(fixture.shell.workspaceComputerPriority == [newID])
+        #expect(try await fixture.store.loadAll().map(\.macDeviceID) == [live.deviceID])
+    }
+
+    @Test
+    func v2DirectoryNeverDialsUnmatchedSavedIdentityOrCopiesItsPreferences() async throws {
+        let live = try candidate(deviceID: "v2-installation", endpointByte: "a")
+        let old = try candidate(deviceID: "old-physical-mac", endpointByte: "b")
+        let discovery = ScriptedIrohDiscovery(snapshots: [[live]])
+        discovery.usesAuthoritativeDeviceIDs = true
+        let fixture = try await makeFixture(discovery: discovery, reportedDeviceID: live.deviceID)
+        defer { fixture.cleanup() }
+        try await fixture.store.upsert(macDeviceID: old.deviceID, displayName: live.displayName,
+                                       routes: old.routes, instanceTag: old.instanceTag,
+                                       markActive: true, stackUserID: "user-1", teamID: nil,
+                                       now: Self.fixedNow)
+        try await fixture.store.seedV2MigrationCustomization(macDeviceID: old.deviceID, instanceTag: old.instanceTag,
+                                                 customName: "Unresolved preference", customColor: nil, customIcon: nil,
+                                                 stackUserID: "user-1", teamID: nil, now: Self.fixedNow)
+        #expect(await fixture.shell.reconnectActiveMacIfAvailable(stackUserID: "user-1"))
+        #expect(fixture.factory.attemptedRouteIDs() == [live.routes[0].id])
+        let rows = try await fixture.store.loadAll()
+        #expect(rows.count == 2)
+        #expect(rows.first(where: { $0.macDeviceID == old.deviceID })?.customName == "Unresolved preference")
+        #expect(rows.first(where: { $0.macDeviceID == live.deviceID })?.customName == nil)
+    }
+
+    @Test
+    func interruptedV2MigrationRestoresHiddenPreferenceBeforeOfflineListCleanup() async throws {
+        let live = try candidate(deviceID: "v2-installation", endpointByte: "a")
+        let discovery = ScriptedIrohDiscovery(snapshots: [[]])
+        discovery.usesAuthoritativeDeviceIDs = true
+        let fixture = try await makeFixture(discovery: discovery, reportedDeviceID: live.deviceID)
+        defer { fixture.cleanup() }
+        try await fixture.store.upsert(macDeviceID: "old-physical-mac", displayName: "My Mac",
+                                       routes: live.routes, instanceTag: live.instanceTag,
+                                       markActive: true, stackUserID: "user-1", teamID: nil,
+                                       now: Self.fixedNow)
+        let scope = try #require(await fixture.shell.currentScopeSnapshot(userID: "user-1"))
+        await fixture.shell.rememberHiddenMacDeviceID(
+            MobilePairedMac.pairingID(macDeviceID: "old-physical-mac", instanceTag: live.instanceTag), scope: scope
+        )
+        // Model a process stopping after SQL commits but before defaults move.
+        _ = try await fixture.store.reconcileLegacyIdentities(with: [
+            MobilePairedMacDirectoryIdentity(deviceID: live.deviceID, instanceTag: live.instanceTag, routes: live.routes)
+        ], stackUserID: "user-1", teamID: nil)
+        #expect(await fixture.shell.loadPairedMacs())
+        #expect(discovery.callCount() == 0)
+        #expect(await fixture.shell.isHiddenMacDeviceID(live.deviceID, instanceTag: live.instanceTag, scope: scope))
+        #expect(fixture.factory.attemptedRouteIDs().isEmpty)
+        #expect(fixture.shell.hasHiddenComputers)
+    }
+
+    @Test
+    func secondaryRecoverySchedulesWithoutLegacyPresence() async throws {
+        let fixture = try await makeFixture(candidates: [], reportedDeviceID: "mac")
+        defer { fixture.cleanup() }
+        fixture.shell.scheduleSecondaryAggregationRetry(macDeviceIDs: ["mac"], needsFullRefresh: true)
+        #expect(fixture.shell.secondaryAggregationRetryTask != nil)
+        fixture.shell.cancelSecondaryAggregationRetry()
+    }
+
+    @Test
+    func secondaryRecoveryConnectsAfterTransientFailureWithoutLegacyPresence() async throws {
+        let live = try candidate(deviceID: "mac-secondary", endpointByte: "a")
+        let discovery = ScriptedIrohDiscovery(snapshots: [[live]])
+        discovery.usesAuthoritativeDeviceIDs = true
+        let clock = ControlPoolManualClock()
+        let fixture = try await makeFixture(discovery: discovery, reportedDeviceID: live.deviceID,
+                                             failingRouteIDs: [live.routes[0].id], schedulingClock: clock)
+        defer { fixture.cleanup() }
+        try await fixture.store.upsert(macDeviceID: live.deviceID, displayName: live.displayName,
+                                       routes: live.routes, instanceTag: live.instanceTag,
+                                       markActive: false, stackUserID: "user-1", teamID: nil,
+                                       now: Self.fixedNow)
+        await fixture.shell.refreshSecondaryMacWorkspaces()
+        #expect(fixture.factory.attemptedRouteIDs() == [live.routes[0].id])
+        #expect(try await pollUntil { clock.sleeperCount == 1 })
+        fixture.factory.allowPreviouslyFailingRoutes()
+        clock.advance(by: .seconds(2))
+        let key = MacPairingKey(macDeviceID: live.deviceID, instanceTag: live.instanceTag)
+        #expect(try await pollUntil { fixture.shell.secondaryMacSubscriptions[key] != nil })
+        #expect(await fixture.router.waitForCount(of: "mobile.events.subscribe", atLeast: 1))
+        #expect(fixture.factory.attemptedRouteIDs() == [live.routes[0].id, live.routes[0].id])
+    }
+
     private func makeFixture(
         candidates: [MobileDiscoveredIrohMac],
         reportedDeviceID: String,
@@ -792,7 +927,8 @@ struct IrohZeroTouchDiscoveryTests {
         reportedDeviceID: String,
         failingRouteIDs: Set<String> = [],
         rateLimitedRouteIDs: Set<String> = [],
-        legacyGlobalMethod: MobileConnectionMethod? = nil
+        legacyGlobalMethod: MobileConnectionMethod? = nil,
+        schedulingClock: any Clock<Duration> = ContinuousClock()
     ) async throws -> ZeroTouchFixture {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
@@ -820,6 +956,7 @@ struct IrohZeroTouchDiscoveryTests {
             isSignedIn: true,
             pairedMacStore: store,
             personalIrohDiscovery: discovery,
+            legacyMacIdentityMigration: discovery.usesAuthoritativeDeviceIDs ? store : nil,
             identityProvider: StaticIdentityProvider(userID: "user-1"),
             reachability: AlwaysOnlineReachability(),
             pairingHintDefaults: {
@@ -833,7 +970,8 @@ struct IrohZeroTouchDiscoveryTests {
                     )
                 }
                 return defaults
-            }()
+            }(),
+            controlPlaneSchedulingClock: schedulingClock
         )
         return ZeroTouchFixture(
             shell: shell,
@@ -894,6 +1032,7 @@ private final class RoutedZeroTouchFactory: CmxByteTransportFactory, @unchecked 
 
 @MainActor
 private final class ScriptedIrohDiscovery: MobileIrohMacDiscovering {
+    var usesAuthoritativeDeviceIDs = false
     private var snapshots: [[MobileDiscoveredIrohMac]]
     private var calls = 0
 
@@ -957,7 +1096,7 @@ private final class SuspendedIrohDiscovery: MobileIrohMacDiscovering {
 
 private final class ZeroTouchRouteFactory: CmxByteTransportFactory, @unchecked Sendable {
     private let router: LivenessHostRouter
-    private let failingRouteIDs: Set<String>
+    private var failingRouteIDs: Set<String>
     private let rateLimitedRouteIDs: Set<String>
     private let lock = NSLock()
     private var attempts: [String] = []
@@ -974,7 +1113,7 @@ private final class ZeroTouchRouteFactory: CmxByteTransportFactory, @unchecked S
 
     func makeTransport(for route: CmxAttachRoute) throws -> any CmxByteTransport {
         lock.withLock { attempts.append(route.id) }
-        if failingRouteIDs.contains(route.id) {
+        if lock.withLock({ failingRouteIDs.contains(route.id) }) {
             throw ZeroTouchRouteError.unreachable
         }
         if rateLimitedRouteIDs.contains(route.id) {
@@ -985,6 +1124,10 @@ private final class ZeroTouchRouteFactory: CmxByteTransportFactory, @unchecked S
 
     func attemptedRouteIDs() -> [String] {
         lock.withLock { attempts }
+    }
+
+    func allowPreviouslyFailingRoutes() {
+        lock.withLock { failingRouteIDs.removeAll() }
     }
 }
 
@@ -1006,7 +1149,18 @@ private struct ZeroTouchFixture {
     let directory: URL
 
     func cleanup() {
+        shell.cancelSecondaryAggregationRetry()
         Task { await shell.remoteClient?.disconnect() }
         try? FileManager.default.removeItem(at: directory)
+    }
+}
+
+private extension MobilePairedMacStore {
+    func seedV2MigrationCustomization(macDeviceID: String, instanceTag: String?, customName: String?,
+                                      customColor: String?, customIcon: String?, stackUserID: String?,
+                                      teamID: String?, now: Date) throws {
+        try setCustomization(macDeviceID: macDeviceID, instanceTag: instanceTag, customName: customName,
+                             customColor: customColor, customIcon: customIcon, stackUserID: stackUserID,
+                             teamID: teamID, now: now)
     }
 }

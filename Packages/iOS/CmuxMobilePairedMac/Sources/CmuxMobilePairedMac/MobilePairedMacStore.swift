@@ -1601,7 +1601,7 @@ public actor MobilePairedMacStore: MobilePairedMacPairingStoring {
         try exec("PRAGMA user_version = \(version);")
     }
 
-    private nonisolated static func ownerKey(
+    nonisolated static func ownerKey(
         stackUserID: String?,
         teamID: String?,
         instanceTag: String?

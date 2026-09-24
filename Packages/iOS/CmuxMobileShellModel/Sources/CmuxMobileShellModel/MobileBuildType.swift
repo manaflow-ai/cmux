@@ -88,6 +88,12 @@ public enum MobileBuildType: String, Equatable, Sendable {
         }
     }
 
+    /// Only these distributions shipped the pre-v2 saved-computer store.
+    /// App Store, Demo and tagged development installs never import that state.
+    public var migratesLegacyComputerIdentities: Bool {
+        self == .beta || self == .internal
+    }
+
     /// A short, stable, lowercase token for machine-readable stamps.
     public var token: String { rawValue }
 

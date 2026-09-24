@@ -814,6 +814,11 @@ extension MobileShellComposite {
         ifStillCurrent: (() -> Bool)? = nil
     ) async -> StoredMacReconnectOutcome {
         guard ifStillCurrent?() ?? true else { return .superseded }
+        guard await directoryAllowsConnection(macDeviceID: pairedMacDeviceID,
+                                               instanceTag: instanceTagExpectation.expectedTag) else {
+            return .failed(.authorizationFailed)
+        }
+        guard ifStillCurrent?() ?? true else { return .superseded }
         // The caller's freshly loaded row is authoritative for the method:
         // during startup restore the published `pairedMacs` list backing the
         // by-ID resolver is not loaded yet and would silently fall back to
