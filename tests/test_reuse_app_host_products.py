@@ -1297,9 +1297,9 @@ class ContractParity(unittest.TestCase):
     # Setup steps that put a tool `contract()` fingerprints on PATH, matched
     # against what a step executes: its `uses` action, or a `run` command.
     TOOL_SETUP = {
-        "rust": re.compile(r"install-rust-ci\.sh"),
+        "rust": re.compile(r"^(?:(?:bash|sh)\s+)?(?:\S*/)?install-rust-ci\.sh(?:\s|;|$)"),
         "bun": re.compile(r"^oven-sh/setup-bun@"),
-        "zig": re.compile(r"install-zig-ci\.sh"),
+        "zig": re.compile(r"^(?:(?:bash|sh)\s+)?(?:\S*/)?install-zig-ci\.sh(?:\s|;|$)"),
         "node": re.compile(r"^actions/setup-node@"),
         "go": re.compile(r"^actions/setup-go@"),
     }
@@ -1313,7 +1313,9 @@ class ContractParity(unittest.TestCase):
                 "e2e": e2e["jobs"][identity.E2E_BUILD_JOB]}
 
     def job_env(self, job):
-        return {name: str(value) for name, value in job.get("env", {}).items()}
+        # As a step sees them: YAML `true` reaches it as the string "true".
+        return {name: str(value).lower() if isinstance(value, bool) else str(value)
+                for name, value in job.get("env", {}).items()}
 
     def executed(self, step):
         """What a step runs: its action, and each non-comment line of `run`."""
@@ -1336,11 +1338,14 @@ class ContractParity(unittest.TestCase):
     def test_tool_scan_counts_what_a_step_runs_not_what_it_mentions(self):
         self.assertEqual(self.tools([
             {"name": "Note", "run": "# ./scripts/install-zig-ci.sh is not needed\necho oven-sh/setup-bun"},
+            {"name": "Echo", "run": 'echo "installing via ./scripts/install-rust-ci.sh"'},
         ]), set())
         self.assertEqual(self.tools([
             {"name": "Setup Bun", "uses": "oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6"},
             {"name": "Install zig", "run": "set -e\n./scripts/install-zig-ci.sh"},
-        ]), {"bun", "zig"})
+            {"name": "Install Rust", "run": "bash scripts/install-rust-ci.sh --profile ci"},
+        ]), {"bun", "zig", "rust"})
+        self.assertEqual(self.job_env({"env": {"A": True, "B": 1}}), {"A": "true", "B": "1"})
 
     def contract_with(self, environ, xcode="Xcode 26.6\nBuild version 17F113"):
         answers = {"xcodebuild": xcode, "xcrun": "25F70", "sw_vers": "25D125"}
