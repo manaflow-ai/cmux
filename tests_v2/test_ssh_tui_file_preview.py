@@ -73,11 +73,17 @@ def main():
     environment = {k: v for k, v in os.environ.items() if not k.startswith('CMUX_')}
     environment['CMUX_SOCKET_PATH'] = socket_path
 
-    with lock_path.open('a') as lock, cmux(socket_path) as client:
+    with lock_path.open('a') as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
 
+        def call(method, params=None):
+            # Bootstrap can outlast the server's idle-connection deadline.
+            # Never retry an ambiguous mutation; use a fresh connection per request.
+            with cmux(socket_path) as request:
+                return request._call(method, params)
+
         def identify():
-            result = client._call('system.identify')
+            result = call('system.identify')
             assert result['socket_path'] == socket_path
             assert result['bundle_identifier'] == info['CFBundleIdentifier']
             assert Path(result['app_bundle_path']).resolve() == bundle
@@ -86,7 +92,7 @@ def main():
 
         def mutate(method, params):
             identify()
-            return client._call(method, params)
+            return call(method, params)
 
         def wait_for(predicate, timeout=60):
             deadline = time.monotonic() + timeout
@@ -98,7 +104,8 @@ def main():
             raise AssertionError('Timed out waiting for managed SSH preview assertion')
 
         def line(pattern):
-            text = client.read_terminal_text(surface)
+            with cmux(socket_path) as request:
+                text = request.read_terminal_text(surface)
             return next((match for value in text.splitlines()
                          if (match := re.fullmatch(pattern, value.strip()))), None)
 
@@ -121,7 +128,7 @@ def main():
                                       env=environment, capture_output=True, text=True, timeout=120)
             assert launched.returncode == 0, f'cmux ssh exited {launched.returncode}'
             workspace = json.loads(launched.stdout)['workspace_id']
-            rows = client._call('surface.list', {'workspace_id': workspace})['surfaces']
+            rows = call('surface.list', {'workspace_id': workspace})['surfaces']
             assert len(rows) == 1
             surface = rows[0]['id']
             cwd = wait_for(lambda: line('@' + token + r':cwd=(/.*)')).group(1)
@@ -129,7 +136,7 @@ def main():
             legacy = wait_for(lambda: line('@' + token + r':legacy=([01])')).group(1)
             evidence['ownership'] = {'cmux_tui': tui, 'cmuxd_remote': legacy}
             assert (tui, legacy) == ('1', '0'), evidence['ownership']
-            evidence['catalog_before_click'] = client._call('surface.catalog', {})
+            evidence['catalog_before_click'] = call('surface.catalog', {})
             mutate('window.focus', {'window_id': window})
             mutate('workspace.select', {'workspace_id': workspace})
 
@@ -147,7 +154,7 @@ def main():
             wait_for(lambda: json.loads(state_path.read_text()).get('lastCommandId') == request_id)
 
             def preview():
-                rows = client._call('surface.list', {'workspace_id': workspace})['surfaces']
+                rows = call('surface.list', {'workspace_id': workspace})['surfaces']
                 return next((row for row in rows if row['type'] == 'filepreview'), None)
 
             evidence['preview'] = wait_for(preview, timeout=30)
