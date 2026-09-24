@@ -37,9 +37,13 @@ XCODE_15 = "/Applications/Xcode_26.3.app"
 PINS = {"CMUX_CI_XCODE_APP_MACOS_15": XCODE_15}
 
 
-def backlog(small=21, large=0, old=4, large_reserved=0, old_reserved=0, age=5) -> dict:
+FORK_SETTINGS = {"lane": SMALL, "overflow": "", "order": "", "max_queued": ""}
+
+
+def backlog(small=21, large=0, old=4, large_reserved=0, old_reserved=0, age=5, settings=None) -> dict:
     return {
         "version": 1,
+        "settings": dict(FORK_SETTINGS if settings is None else settings),
         "generated_at": (NOW - dt.timedelta(minutes=age)).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "pools": {
             SMALL: {"queued": small, "running": 10},
@@ -50,11 +54,15 @@ def backlog(small=21, large=0, old=4, large_reserved=0, old_reserved=0, age=5) -
 
 
 def choose(snap, *, event="pull_request", head="manaflow-ai/cmux", default=SMALL,
-           overflow="", order="", max_queued="", pins=PINS, fetch=None):
+           overflow="", order="", max_queued="", pins=PINS, fetch=None, routed=0):
+    def count_routed(since):
+        if isinstance(routed, Exception):
+            raise routed
+        return routed
     return pool.choose(
         event=event, repo="manaflow-ai/cmux", head_repo=head, default_runner=default,
         overflow=overflow, order=order, max_queued=max_queued, xcode_pins=pins,
-        fetch=fetch or (lambda: snap), now=NOW,
+        fetch=fetch or (lambda: snap), count_routed=count_routed, now=NOW,
     )[0]
 
 
@@ -88,6 +96,19 @@ class PreferenceOrder(unittest.TestCase):
         self.assertEqual(choose(backlog(small=2, old=0), order=order, max_queued="2").runner, OLD)
         self.assertEqual(choose(backlog(small=0, large=0), order=OLD).runner, OLD)
 
+    def test_runs_since_the_snapshot_spread_a_burst(self):
+        # 12vcpu idle, 6vcpu 26 backed up, macOS 15 idle: the first three
+        # pushes after a sweep fill 12vcpu to the threshold, the next three
+        # take macOS 15, then the pools share the overflow by queue length.
+        picks = [choose(backlog(small=6, large=0, old=0), routed=n).runner for n in range(9)]
+        self.assertEqual(picks, [LARGE] * 3 + [OLD] * 3 + [LARGE, OLD, LARGE])
+        self.assertIn("replaying 4", choose(backlog(small=6), routed=4).reason)
+
+    def test_counting_errors_keep_the_default(self):
+        choice = choose(backlog(), routed=RuntimeError("GET /actions/workflows/ci.yml/runs failed (500)"))
+        self.assertEqual((choice.runner, choice.xcode_app), ("", ""))
+        self.assertIn("500", choice.reason)
+
     def test_macos_15_needs_an_xcode_pin(self):
         choice = choose(backlog(small=21, large=5, old=0), pins={})
         self.assertEqual(choice.runner, LARGE)  # fewest queued among the usable pools
@@ -106,17 +127,41 @@ class FailSafe(unittest.TestCase):
         self.assert_default(choose(backlog(), head=""))
         self.assert_default(choose(backlog(), head="someone/cmux", event="push"))
 
-    def test_fork_heads_use_built_in_defaults_and_no_pin(self):
-        # A fork run sees no repository variables: empty lane, no Xcode pins.
-        fork = dict(head="someone/cmux", default="", pins={})
-        self.assertEqual((choose(backlog(small=0, large=0), **fork).runner), LARGE)
+    def test_fork_heads_follow_the_settings_the_janitor_copied(self):
+        # A fork run sees no repository variables: empty lane, no Xcode pins,
+        # and whatever reached its env is ignored in favour of the snapshot.
+        fork = dict(head="someone/cmux", default="", pins={}, overflow="0", order=OLD)
+        self.assertEqual(choose(backlog(small=0, large=0), **fork).runner, LARGE)
         choice = choose(backlog(small=21, large=5, old=0), **fork)
         self.assertEqual((choice.runner, choice.xcode_app), (OLD, ""))
         self.assertIn("fork head", choice.reason)
-        # Even a value that somehow reached it cannot steer a fork run.
-        self.assertEqual(choose(backlog(small=0, large=0), order=OLD, overflow="0", **fork).runner, LARGE)
+        copied = dict(FORK_SETTINGS, order=f"{OLD},{SMALL}")
+        self.assertEqual(choose(backlog(small=0, old=0, settings=copied), **fork).runner, OLD)
+        # The kill switch and the lane reach fork runs through the snapshot.
+        for off in (dict(FORK_SETTINGS, overflow="0"), dict(FORK_SETTINGS, lane=""),
+                    dict(FORK_SETTINGS, lane=OLD), dict(FORK_SETTINGS, order="warp-macos-26-arm64-12x")):
+            self.assert_default(choose(backlog(settings=off), **fork))
+        no_settings = backlog()
+        no_settings.pop("settings")
+        self.assert_default(choose(no_settings, **fork))
         self.assert_default(choose(None, **fork))
+
+    def test_fork_heads_only_use_ephemeral_pools(self):
         self.assertTrue(all(label.startswith(pool.EPHEMERAL_PREFIX) for label in pool.DEFAULT_ORDER))
+        owned = "cmux-owned-mac-mini"
+        original = dict(pool.POOLS)
+        pool.POOLS[owned] = ""
+        try:
+            copied = dict(FORK_SETTINGS, order=f"{owned},{SMALL}")
+            snap = backlog(small=0, settings=copied)
+            self.assertEqual(choose(snap, head="someone/cmux", default="").runner, SMALL)
+            self.assert_default(choose(backlog(settings=dict(FORK_SETTINGS, order=owned)),
+                                       head="someone/cmux", default=""))
+            # A same-repository run may use it.
+            self.assertEqual(choose(snap, order=f"{owned},{SMALL}").runner, owned)
+        finally:
+            pool.POOLS.clear()
+            pool.POOLS.update(original)
 
     def test_only_moves_off_the_6vcpu_macos_26_lane(self):
         self.assert_default(choose(backlog(), default=""))
@@ -166,6 +211,22 @@ class FailSafe(unittest.TestCase):
             self.assertIn(f"{SMALL}: 21 queued, 10 running", text)
 
 
+class TrustedArtifact(unittest.TestCase):
+    def artifact(self, **run):
+        base = {"head_branch": "main", "repository_id": 1, "head_repository_id": 1}
+        return {"expired": False, "workflow_run": {**base, **run}}
+
+    def test_only_main_of_this_repository(self):
+        self.assertEqual(pool.SNAPSHOT_BRANCH, "main")
+        self.assertTrue(pool.trusted_snapshot_artifact(self.artifact(), "main"))
+        self.assertFalse(pool.trusted_snapshot_artifact(self.artifact(head_branch="feature"), "main"))
+        self.assertFalse(pool.trusted_snapshot_artifact(self.artifact(head_repository_id=2), "main"))
+        self.assertFalse(pool.trusted_snapshot_artifact(self.artifact(repository_id=None, head_repository_id=None),
+                                                        "main"))
+        self.assertFalse(pool.trusted_snapshot_artifact({**self.artifact(), "expired": True}, "main"))
+        self.assertFalse(pool.trusted_snapshot_artifact({"expired": False}, "main"))
+
+
 class JanitorSnapshot(unittest.TestCase):
     def job(self, label, status, created="2026-09-24T09:00:00Z"):
         return {"labels": [label], "status": status, "created_at": created, "name": "x"}
@@ -179,9 +240,10 @@ class JanitorSnapshot(unittest.TestCase):
             1: [self.job(SMALL, "queued", "2026-09-24T09:20:00Z"), self.job(SMALL, "queued"),
                 self.job(SMALL, "in_progress"), self.job(OLD, "completed"),
                 self.job("blacksmith-4vcpu-ubuntu-2404", "queued")],
-            2: [self.job(LARGE, "queued"), self.job(LARGE, "in_progress")],
+            2: [self.job(LARGE, "queued"), self.job(LARGE, "in_progress"), self.job(OLD, "waiting")],
         }
-        snap = janitor.pool_load_snapshot(runs, jobs, now=NOW)
+        snap = janitor.pool_load_snapshot(runs, jobs, now=NOW, settings=FORK_SETTINGS)
+        self.assertEqual(snap["settings"], FORK_SETTINGS)
         self.assertEqual(snap["generated_at"], "2026-09-24T10:30:00Z")
         self.assertEqual(snap["pools"][SMALL],
                          {"queued": 2, "running": 1, "reserved_queued": 0, "oldest_queued_minutes": 90})
@@ -197,6 +259,12 @@ class JanitorSnapshot(unittest.TestCase):
         steps = workflow["jobs"]["sweep"]["steps"]
         sweep = next(step for step in steps if "queue_janitor.py" in str(step.get("run")))
         self.assertIn("macos-pool-load.json", sweep["env"]["POOL_LOAD_OUT"])
+        for name, key in janitor.POOL_SETTINGS_ENV.items():
+            self.assertIn(key, FORK_SETTINGS)
+        self.assertEqual(sweep["env"]["PR_POOL_LANE"], "${{ vars.MACOS_RUNNER_PR }}")
+        self.assertEqual(sweep["env"]["PR_POOL_OVERFLOW"], "${{ vars.CI_PR_POOL_OVERFLOW }}")
+        self.assertEqual(sweep["env"]["PR_POOL_ORDER"], "${{ vars.CI_PR_POOL_ORDER }}")
+        self.assertEqual(sweep["env"]["PR_POOL_MAX_QUEUED"], "${{ vars.CI_PR_POOL_MAX_QUEUED }}")
         upload = next(step for step in steps if "upload-artifact" in str(step.get("uses")))
         self.assertEqual(upload["with"]["name"], pool.ARTIFACT_NAME)
         self.assertTrue(upload["with"]["path"].endswith(pool.SNAPSHOT_FILE))

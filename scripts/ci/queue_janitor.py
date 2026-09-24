@@ -321,7 +321,15 @@ def macos_usage(jobs: Iterable[Mapping[str, Any]]) -> MacosUsage:
 
 # Workflows whose queued macOS jobs a pull request must not take a pool from.
 RESERVED_POOL_WORKFLOW = re.compile(r"release|nightly", re.IGNORECASE)
+POOL_QUEUED_JOB_STATUSES = QUEUED_JOB_STATUSES - {"waiting"}
 POOL_LOAD_VERSION = 1
+# Environment variable -> snapshot settings key, for pr_runner_pool.py.
+POOL_SETTINGS_ENV = {
+    "PR_POOL_LANE": "lane",
+    "PR_POOL_OVERFLOW": "overflow",
+    "PR_POOL_ORDER": "order",
+    "PR_POOL_MAX_QUEUED": "max_queued",
+}
 
 
 def pool_load_snapshot(
@@ -329,13 +337,18 @@ def pool_load_snapshot(
     jobs_by_run: Mapping[int, Sequence[Mapping[str, Any]]],
     *,
     now: dt.datetime,
+    settings: Mapping[str, str] | None = None,
 ) -> dict[str, Any]:
     """Per-pool macOS demand from the jobs this sweep already listed.
 
     A pool is a job's single runner label when it asked for one, which is
     every Blacksmith job, so pr_runner_pool.py can look a label up directly.
+    Only jobs waiting for a runner count as queued; a `waiting` job is held
+    by an environment approval and asks no pool for anything yet.
     `reserved_queued` counts the queued jobs of release and nightly runs; it
     is what tells a pull request to stay off a pool those runs are waiting on.
+    `settings` carries the pool-choice repository variables, which a fork
+    pull request's run cannot read itself.
     """
     pools: dict[str, dict[str, Any]] = {}
     oldest: dict[str, dt.datetime] = {}
@@ -345,7 +358,7 @@ def pool_load_snapshot(
             if not is_macos_job(job):
                 continue
             status = job.get("status")
-            if status not in QUEUED_JOB_STATUSES and status not in RUNNING_JOB_STATUSES:
+            if status not in POOL_QUEUED_JOB_STATUSES and status not in RUNNING_JOB_STATUSES:
                 continue
             pool = runner_pool(job)
             entry = pools.setdefault(pool, {"queued": 0, "running": 0, "reserved_queued": 0,
@@ -365,6 +378,7 @@ def pool_load_snapshot(
         "version": POOL_LOAD_VERSION,
         "generated_at": now.strftime("%Y-%m-%dT%H:%M:%SZ"),
         "pools": dict(sorted(pools.items())),
+        "settings": dict(settings or {}),
     }
 
 
@@ -1218,8 +1232,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.pool_load:
         # Before any cancellation: pr_runner_pool.py wants the demand a new run
         # would queue behind, and the janitor's cancels are capped anyway.
-        args.pool_load.write_text(json.dumps(pool_load_snapshot(runs, jobs_by_run, now=now), indent=2) + "\n",
-                                  encoding="utf-8")
+        pool_settings = {key: os.environ.get(name, "") for name, key in POOL_SETTINGS_ENV.items()}
+        args.pool_load.write_text(
+            json.dumps(pool_load_snapshot(runs, jobs_by_run, now=now, settings=pool_settings), indent=2) + "\n",
+            encoding="utf-8")
 
     plan = build_plan(
         runs, jobs_by_run, prs_by_branch,

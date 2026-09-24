@@ -148,9 +148,19 @@ them; the order is speed first.
 
 The queue comes from the queue janitor: each sweep publishes the per-pool demand
 it already listed as the `macos-pool-load` artifact, and the `changes` job
-reads the newest one for two API requests. A snapshot older than 45 minutes,
-an API error, a fork head, or any other event keeps today's route. The step
-summary of `changes` names the pool, the reason, and the queue it saw.
+reads the newest copy uploaded from `main` of this repository. Pull request
+runs created since that sweep are replayed through the same rule first, so a
+burst of pushes spreads across pools. The whole choice costs three API
+requests. A snapshot older than 45 minutes, an API error, or any event other
+than `pull_request` keeps today's route. The step summary of `changes` names
+the pool, the reason, and the queue it saw.
+
+A fork pull request gets no repository variables, so the janitor copies
+`MACOS_RUNNER_PR` and the three settings above into the snapshot and fork runs
+follow those: `CI_PR_POOL_OVERFLOW=0` or a lane other than
+`blacksmith-6vcpu-macos-26` keeps them on the Blacksmith macOS 15 fallback as
+before. Fork runs never pin an Xcode (each job selects its pool's newest SDK
+26 Xcode) and only use ephemeral `blacksmith-*` pools.
 
 `MACOS_RUNNER_PR` does not move a lane on its own. A runner change and its
 Xcode pin still have to agree, because `scripts/select-ci-xcode.sh` exits

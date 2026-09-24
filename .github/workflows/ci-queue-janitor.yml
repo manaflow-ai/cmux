@@ -68,6 +68,12 @@ jobs:
           CI_PULL_REQUEST_SUITE: ${{ vars.CI_PULL_REQUEST_SUITE || 'compile-only' }}
           ORPHAN_MINUTES: ${{ vars.CI_JANITOR_ORPHAN_MINUTES }}
           POOL_LOAD_OUT: ${{ runner.temp }}/macos-pool-load.json
+          # Copied into the snapshot for fork pull requests, which get no
+          # repository variables of their own (scripts/ci/pr_runner_pool.py).
+          PR_POOL_LANE: ${{ vars.MACOS_RUNNER_PR }}
+          PR_POOL_OVERFLOW: ${{ vars.CI_PR_POOL_OVERFLOW }}
+          PR_POOL_ORDER: ${{ vars.CI_PR_POOL_ORDER }}
+          PR_POOL_MAX_QUEUED: ${{ vars.CI_PR_POOL_MAX_QUEUED }}
         run: python3 scripts/ci/queue_janitor.py
 
       # What this sweep saw on each macOS pool. ci.yml's `changes` job reads

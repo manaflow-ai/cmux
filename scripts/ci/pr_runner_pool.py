@@ -29,24 +29,28 @@ Mac minis, say) joins POOLS with its Xcode before it can appear in the order.
 
 The queue comes from the queue janitor, which lists every in-flight run's
 jobs each sweep and publishes what it saw as the `macos-pool-load` artifact.
-Reading it costs two API requests (the artifact listing and its download
-redirect); listing jobs here would cost one per in-flight run on every pull
-request push, out of the GITHUB_TOKEN's shared budget of about 1000 an hour.
-The janitor runs every 10 minutes on paper and every 10 to 30 in practice, so
-a snapshot older than MAX_SNAPSHOT_MINUTES counts as unknown.
+Only a copy uploaded by a run on main of this repository counts, so no other
+branch can steer the choice. The janitor sweeps every 10 to 30 minutes, so
+every pull request run created since the snapshot is replayed through the
+same rule first, one queued job each, and a burst of pushes spreads across
+the pools instead of all taking the one that looked idle. That costs three
+API requests (the artifact listing, its download redirect, and one page of
+CI runs); listing jobs here would cost one per in-flight run on every push,
+out of the GITHUB_TOKEN's shared budget of about 1000 an hour. A snapshot
+older than MAX_SNAPSHOT_MINUTES counts as unknown.
 
 A pull request from a fork into manaflow-ai/cmux gets no repository
-variables, so it takes the built-in order and threshold, and no Xcode pin:
-each job then selects the newest SDK 26 Xcode on the pool it lands on, and the
-product consumers restate compile admission's empty pin, so the run stays on
-one toolchain. Blacksmith runners are ephemeral, so fork code on any of these
-pools is fine; only pools in POOLS are ever chosen.
+variables. It follows the settings and lane the janitor copied into the
+snapshot (so the kill switch reaches it too), never pins an Xcode (each job
+selects the newest SDK 26 Xcode on the pool it lands on, and the product
+consumers restate compile admission's empty pin), and only lands on
+ephemeral Blacksmith pools.
 
 Anything uncertain keeps today's route: an event other than pull_request, a
-same-repository run whose MACOS_RUNNER_PR names another pool or is unset (the
-documented way back to the macOS 15 lane), an API error, a missing, stale or
-malformed snapshot, or an invalid setting. The script then prints an empty
-runner, and every job's own expression resolves exactly as before.
+lane (MACOS_RUNNER_PR) naming another pool or unset (the documented way back
+to the macOS 15 lane), an API error, a missing, stale or malformed snapshot,
+or an invalid setting. The script then prints an empty runner, and every
+job's own expression resolves exactly as before.
 """
 from __future__ import annotations
 
@@ -58,6 +62,7 @@ import json
 import os
 import sys
 import urllib.error
+import urllib.parse
 import urllib.request
 import zipfile
 from collections.abc import Callable, Mapping, Sequence
@@ -84,7 +89,10 @@ DEFAULT_MAX_QUEUED = 3
 
 ARTIFACT_NAME = "macos-pool-load"
 SNAPSHOT_FILE = "macos-pool-load.json"
+SNAPSHOT_BRANCH = "main"
+CI_WORKFLOW = "ci.yml"
 MAX_SNAPSHOT_MINUTES = 45
+PAGE_SIZE = 100
 API = "https://api.github.com"
 
 
@@ -149,18 +157,29 @@ def describe(snapshot: Mapping[str, Any], label: str) -> str:
     return text
 
 
+def pick(queued: Mapping[str, int], usable: Sequence[str], max_queued: int) -> tuple[str, bool]:
+    """The rule itself: first usable pool with headroom, else the fewest queued."""
+    for label in usable:
+        if queued[label] < max_queued:
+            return label, True
+    return min(usable, key=lambda label: queued[label]), False
+
+
 def decide(
     snapshot: Mapping[str, Any] | None,
     limits: Settings,
     *,
     now: dt.datetime,
     xcode_pins: Mapping[str, str],
+    routed_since: int = 0,
     auto_xcode: bool = False,
 ) -> Choice:
     """The preference rule over a janitor snapshot. Uncertainty keeps today's route.
 
-    `auto_xcode` (a fork run, which has no pins) lets every pool fall back to
-    each job selecting its pool's newest SDK 26 Xcode.
+    `routed_since` runs were created after the snapshot and each already took
+    a pool by this rule; they are replayed first. `auto_xcode` (a fork run,
+    which has no pins) lets every pool fall back to each job selecting its
+    pool's newest SDK 26 Xcode.
     """
     if not isinstance(snapshot, Mapping) or not isinstance(snapshot.get("pools"), Mapping):
         return Choice("", "", "no readable pool snapshot")
@@ -182,13 +201,16 @@ def decide(
     if not usable:
         return Choice("", "", "every pool in the order is reserved or has no Xcode pin")
     skipped = [label for label in limits.order if label not in usable]
-    note = f" (skipped {', '.join(skipped)}: reserved or no Xcode pin)" if skipped else ""
-    for label in usable:
-        if load[label]["queued"] < limits.max_queued:
-            return Choice(label, xcode(label) or "",
-                          f"first pool in order with headroom (< {limits.max_queued} queued){note}")
-    label = min(usable, key=lambda item: load[item]["queued"])
-    return Choice(label, xcode(label) or "", f"no pool has headroom; fewest queued{note}")
+    note = f"; skipped {', '.join(skipped)} (reserved or no Xcode pin)" if skipped else ""
+    queued = {label: load[label]["queued"] for label in usable}
+    for _ in range(max(0, routed_since)):
+        earlier, _ = pick(queued, usable, limits.max_queued)
+        queued[earlier] += 1
+    label, headroom = pick(queued, usable, limits.max_queued)
+    replay = f" after replaying {routed_since} newer run(s)" if routed_since else ""
+    why = (f"first pool in order with headroom (< {limits.max_queued} queued){replay}" if headroom
+           else f"no pool has headroom{replay}; fewest queued")
+    return Choice(label, xcode(label) or "", why + note)
 
 
 def choose(
@@ -202,6 +224,7 @@ def choose(
     max_queued: str | None,
     xcode_pins: Mapping[str, str],
     fetch: Callable[[], Mapping[str, Any] | None],
+    count_routed: Callable[[str], int] = lambda since: 0,
     now: dt.datetime,
 ) -> tuple[Choice, Mapping[str, Any] | None]:
     """The pool for this run and the snapshot it was read from (None when none was read)."""
@@ -210,29 +233,57 @@ def choose(
     if not head_repo:
         return Choice("", "", "pull request head repository unknown"), None
     fork = head_repo != repo
-    if fork:
-        # No repository variables reach a fork run: built-in defaults, no pins.
-        overflow = order = max_queued = None
-        xcode_pins = {}
-    elif (default_runner or "").strip() != DEFAULT_RUNNER:
-        return Choice("", "", f"MACOS_RUNNER_PR is {default_runner or 'unset'}, not {DEFAULT_RUNNER}"), None
-    limits = settings(overflow, order, max_queued)
-    if limits is not None and fork:
-        # Fork code runs only on ephemeral Blacksmith machines, never on a
-        # persistent pool (owned Macs) that may join POOLS later.
-        limits = dataclasses.replace(limits, order=tuple(
-            label for label in limits.order if label.startswith(EPHEMERAL_PREFIX)))
-    if limits is None:
-        return Choice("", "", f"{OVERFLOW_VARIABLE} is 0, or {ORDER_VARIABLE}/{MAX_QUEUED_VARIABLE} "
-                              "is invalid"), None
+    if not fork:
+        if (default_runner or "").strip() != DEFAULT_RUNNER:
+            return Choice("", "", f"MACOS_RUNNER_PR is {default_runner or 'unset'}, not {DEFAULT_RUNNER}"), None
+        limits = settings(overflow, order, max_queued)
+        if limits is None:
+            return Choice("", "", f"{OVERFLOW_VARIABLE} is 0, or {ORDER_VARIABLE}/{MAX_QUEUED_VARIABLE} "
+                                  "is invalid"), None
     try:
         snapshot = fetch()
     except Exception as error:  # noqa: BLE001 - every failure keeps the default
         return Choice("", "", f"could not read the pool snapshot ({error})"), None
-    choice = decide(snapshot, limits, now=now, xcode_pins=xcode_pins, auto_xcode=fork)
+    if fork:
+        # No repository variables reach a fork run; the janitor copied them.
+        copied = snapshot.get("settings") if isinstance(snapshot, Mapping) else None
+        if not isinstance(copied, Mapping):
+            return Choice("", "", "fork head; the snapshot carries no settings"), snapshot
+        if str(copied.get("lane") or "").strip() != DEFAULT_RUNNER:
+            return Choice("", "", f"fork head; the lane is {copied.get('lane') or 'unset'}, "
+                                  f"not {DEFAULT_RUNNER}"), snapshot
+        limits = settings(copied.get("overflow"), copied.get("order"), copied.get("max_queued"))
+        if limits is None:
+            return Choice("", "", f"fork head; {OVERFLOW_VARIABLE} is 0, or the copied settings "
+                                  "are invalid"), snapshot
+        # Fork code runs only on ephemeral Blacksmith machines, never on a
+        # persistent pool (owned Macs) that may join POOLS later.
+        limits = dataclasses.replace(limits, order=tuple(
+            label for label in limits.order if label.startswith(EPHEMERAL_PREFIX)))
+        if not limits.order:
+            return Choice("", "", "fork head; no ephemeral pool in the order"), snapshot
+    if not isinstance(snapshot, Mapping) or not snapshot.get("generated_at"):
+        return Choice("", "", "no readable pool snapshot"), snapshot
+    try:
+        routed = count_routed(str(snapshot["generated_at"]))
+    except Exception as error:  # noqa: BLE001 - every failure keeps the default
+        return Choice("", "", f"could not count runs since the snapshot ({error})"), snapshot
+    choice = decide(snapshot, limits, now=now, xcode_pins={} if fork else xcode_pins,
+                    routed_since=routed, auto_xcode=fork)
     if fork and choice.runner:
-        choice = dataclasses.replace(choice, reason=f"fork head, built-in defaults; {choice.reason}")
+        choice = dataclasses.replace(choice, reason=f"fork head; {choice.reason}")
     return choice, snapshot
+
+
+def trusted_snapshot_artifact(artifact: Mapping[str, Any], branch: str) -> bool:
+    """Uploaded by a run on `branch` of this repository itself, not a fork or another branch."""
+    run = artifact.get("workflow_run") or {}
+    return (
+        not artifact.get("expired")
+        and run.get("head_branch") == branch
+        and run.get("repository_id") is not None
+        and run.get("head_repository_id") == run.get("repository_id")
+    )
 
 
 class _NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -240,40 +291,52 @@ class _NoRedirect(urllib.request.HTTPRedirectHandler):
         return None
 
 
-def fetch_snapshot(token: str, repo: str, *, now: dt.datetime) -> Mapping[str, Any] | None:
-    """The newest unexpired janitor snapshot, in two API requests."""
-    headers = {
-        "Accept": "application/vnd.github+json",
-        "Authorization": f"Bearer {token}",
-        "X-GitHub-Api-Version": "2022-11-28",
-        "User-Agent": "cmux-ci-pr-runner-pool",
-    }
-    listing = urllib.request.Request(f"{API}/repos/{repo}/actions/artifacts?name={ARTIFACT_NAME}&per_page=10",
-                                     headers=headers)
-    with urllib.request.urlopen(listing, timeout=15) as response:
-        artifacts = json.loads(response.read()).get("artifacts") or []
-    live = [artifact for artifact in artifacts if not artifact.get("expired")]
-    if not live:
-        return None
-    newest = max(live, key=lambda artifact: str(artifact.get("created_at") or ""))
-    created = parse_time(newest.get("created_at"))
-    if created is None or (now - created).total_seconds() / 60 > MAX_SNAPSHOT_MINUTES:
-        return None
-    # The download answers with a redirect to signed blob storage, which must
-    # not receive the token, so follow it by hand.
-    opener = urllib.request.build_opener(_NoRedirect)
-    download = urllib.request.Request(str(newest["archive_download_url"]), headers=headers)
-    try:
-        opener.open(download, timeout=15)
-        raise RuntimeError("artifact download did not redirect")
-    except urllib.error.HTTPError as error:
-        location = error.headers.get("Location") if error.code in (301, 302, 303, 307, 308) else None
-        if not location:
-            raise RuntimeError(f"artifact download failed ({error.code})") from error
-    with urllib.request.urlopen(urllib.request.Request(location, headers={"User-Agent": headers["User-Agent"]}),
-                                timeout=30) as response:
-        archive = zipfile.ZipFile(io.BytesIO(response.read()))
-    return json.loads(archive.read(SNAPSHOT_FILE))
+class GitHub:
+    def __init__(self, token: str, repo: str) -> None:
+        self.repo = repo
+        self.headers = {
+            "Accept": "application/vnd.github+json",
+            "Authorization": f"Bearer {token}",
+            "X-GitHub-Api-Version": "2022-11-28",
+            "User-Agent": "cmux-ci-pr-runner-pool",
+        }
+
+    def get(self, path: str) -> Any:
+        request = urllib.request.Request(f"{API}/repos/{self.repo}{path}", headers=self.headers)
+        with urllib.request.urlopen(request, timeout=15) as response:
+            return json.loads(response.read())
+
+    def snapshot(self, *, now: dt.datetime, branch: str = SNAPSHOT_BRANCH) -> Mapping[str, Any] | None:
+        """The newest trusted, unexpired janitor snapshot, in two API requests."""
+        artifacts = self.get(f"/actions/artifacts?name={ARTIFACT_NAME}&per_page=20").get("artifacts") or []
+        trusted = [artifact for artifact in artifacts if trusted_snapshot_artifact(artifact, branch)]
+        if not trusted:
+            return None
+        newest = max(trusted, key=lambda artifact: str(artifact.get("created_at") or ""))
+        created = parse_time(newest.get("created_at"))
+        if created is None or (now - created).total_seconds() / 60 > MAX_SNAPSHOT_MINUTES:
+            return None
+        # The download answers with a redirect to signed blob storage, which must
+        # not receive the token, so follow it by hand.
+        opener = urllib.request.build_opener(_NoRedirect)
+        download = urllib.request.Request(str(newest["archive_download_url"]), headers=self.headers)
+        try:
+            opener.open(download, timeout=15)
+            raise RuntimeError("artifact download did not redirect")
+        except urllib.error.HTTPError as error:
+            location = error.headers.get("Location") if error.code in (301, 302, 303, 307, 308) else None
+            if not location:
+                raise RuntimeError(f"artifact download failed ({error.code})") from error
+        blob = urllib.request.Request(location, headers={"User-Agent": self.headers["User-Agent"]})
+        with urllib.request.urlopen(blob, timeout=30) as response:
+            archive = zipfile.ZipFile(io.BytesIO(response.read()))
+        return json.loads(archive.read(SNAPSHOT_FILE))
+
+    def pull_request_runs_since(self, since: str, *, exclude_run_id: int | None) -> int:
+        """CI pull request runs created at or after `since`, other than this one (one request)."""
+        query = urllib.parse.urlencode({"event": "pull_request", "created": f">={since}", "per_page": PAGE_SIZE})
+        runs = self.get(f"/actions/workflows/{CI_WORKFLOW}/runs?{query}").get("workflow_runs") or []
+        return sum(1 for run in runs if run.get("id") != exclude_run_id)
 
 
 def summary(choice: Choice, snapshot: Mapping[str, Any] | None, *, now: dt.datetime) -> str:
@@ -298,14 +361,23 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
     now = dt.datetime.now(dt.timezone.utc)
     repo = env.get("GITHUB_REPOSITORY") or ""
     token = env.get("GH_TOKEN") or env.get("GITHUB_TOKEN") or ""
+    run_id = (env.get("GITHUB_RUN_ID") or "").strip()
+
+    def client() -> GitHub:
+        if not token or not repo:
+            raise RuntimeError("GH_TOKEN and GITHUB_REPOSITORY are required")
+        return GitHub(token, repo)
 
     def fetch() -> Mapping[str, Any] | None:
         if args.snapshot:
             with open(args.snapshot, encoding="utf-8") as handle:
                 return json.load(handle)
-        if not token or not repo:
-            raise RuntimeError("GH_TOKEN and GITHUB_REPOSITORY are required")
-        return fetch_snapshot(token, repo, now=now)
+        return client().snapshot(now=now, branch=(env.get("POOL_SNAPSHOT_BRANCH") or SNAPSHOT_BRANCH))
+
+    def count_routed(since: str) -> int:
+        if args.snapshot:
+            return 0
+        return client().pull_request_runs_since(since, exclude_run_id=int(run_id) if run_id.isdigit() else None)
 
     choice, snapshot = choose(
         event=env.get("EVENT_NAME") or "",
@@ -317,6 +389,7 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
         max_queued=env.get("POOL_MAX_QUEUED"),
         xcode_pins={variable: env.get(variable) or "" for variable in POOLS.values() if variable},
         fetch=fetch,
+        count_routed=count_routed,
         now=now,
     )
     text = summary(choice, snapshot, now=now)
