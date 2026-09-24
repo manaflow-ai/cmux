@@ -1,4 +1,5 @@
 import CmuxCore
+import CmuxFoundation
 import Foundation
 import Testing
 
@@ -10,13 +11,27 @@ import Testing
 
 @Suite("SSH cmux-tui migration", .serialized)
 struct SSHTuiMigrationTests {
-    private func configuration(options: [String] = [], command: String? = nil, identityFile: String = "/tmp/key with spaces") -> WorkspaceRemoteConfiguration {
+    private func configuration(options: [String] = [], command: String? = nil, identityFile: String = "/tmp/key with spaces", profile: WorkspaceRemoteTerminalProfile = .shell) -> WorkspaceRemoteConfiguration {
         WorkspaceRemoteConfiguration(
-            destination: "alice@example.invalid", port: 2222, identityFile: identityFile,
+            terminalProfile: profile, destination: "alice@example.invalid", port: 2222, identityFile: identityFile,
             sshOptions: options, localProxyPort: nil, relayPort: nil, relayID: nil, relayToken: nil,
             localSocketPath: nil, terminalStartupCommand: nil, configuredRemoteCommand: command,
             preserveAfterTerminalExit: true
         )
+    }
+
+    @Test("Provider defaults retain the SSH command and terminal profile")
+    func providerDefaultUsesSSHLaunchConfiguration() {
+        let command = "printf configured-command"
+        let configured = SSHTuiConnection(configuration: configuration(command: command))
+        #expect(RemoteTuiMachine.ssh(configured).defaultTerminalCommand ==
+                ["/bin/sh", "-c", "exec \"${SHELL:-/bin/sh}\" -lc \"$1\"", "cmux-ssh", command])
+        let tmux = SSHTuiConnection(configuration: configuration(command: command, profile: .defaultTmux))
+        #expect(RemoteTuiMachine.ssh(tmux).defaultTerminalCommand ==
+                WorkspaceRemoteTerminalProfile.defaultTmux.remoteCommandArguments)
+        let shell = SSHTuiConnection(configuration: configuration())
+        #expect(RemoteTuiMachine.ssh(shell).defaultTerminalCommand ==
+                ["/bin/sh", "-c", "exec \"${SHELL:-/bin/sh}\" -l"])
     }
 
     @Test("OpenSSH resolves the cmux-tui carrier as a non-PTY exec channel")
