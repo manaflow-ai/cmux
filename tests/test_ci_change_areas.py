@@ -1525,6 +1525,142 @@ def test_ci_workflow_change_runs_macos_when_it_could_matter() -> None:
     assert not linux_only(CI_DIFF_BASE, CI_DIFF_BASE)
 
 
+def edit_job(workflow: str, job: str, marker: str = "# edited") -> str:
+    """Append a comment line to one top-level job's block."""
+    parts = module.split_workflow_jobs(workflow)
+    assert parts is not None
+    preamble, jobs = parts
+    assert job in jobs, job
+    edited = jobs[job].rstrip("\n") + f"\n    {marker}\n\n"
+    # The split drops each job's two-space indent.
+    return preamble + "\njobs:\n" + "".join(
+        "  " + (edited if name == job else block) for name, block in jobs.items()
+    )
+
+
+def areas(**selected: bool) -> object:
+    return module.ChangeAreas(**{
+        name: selected.get(name, False)
+        for name in ("macos", "web", "agent_session_web", "cli", "swift_packages", "release_build")
+    })
+
+
+def test_ci_workflow_job_edits_select_only_the_area_they_call() -> None:
+    real = CI_WORKFLOW.read_text(encoding="utf-8")
+    change_areas = module.ci_workflow_change_areas
+    # Plainly Linux jobs, including the gates that decide whether macOS runs
+    # without executing Mac work themselves, select nothing.
+    for job in ("macos-admission-gate", "static-preflight", "linux-preflight", "suite-coverage"):
+        assert change_areas(real, edit_job(real, job)) == areas(), job
+    # A caller job selects the area of the reusable workflow it calls: its
+    # `with:` inputs, `if:` and `needs:` all live in that block.
+    assert change_areas(real, edit_job(real, "macos")) == areas(macos=True, release_build=True)
+    assert change_areas(real, edit_job(real, "web")) == areas(web=True, agent_session_web=True)
+    assert change_areas(real, edit_job(real, "cli")) == areas(cli=True)
+    assert change_areas(
+        real, edit_job(edit_job(real, "cli"), "macos-admission-gate"),
+    ) == areas(cli=True)
+
+
+def test_ci_workflow_job_edits_fail_open_when_the_area_is_unknown() -> None:
+    real = CI_WORKFLOW.read_text(encoding="utf-8")
+    change_areas = module.ci_workflow_change_areas
+    # Routing jobs, the preamble every job inherits, callers of workflows
+    # without a product area, and non-Linux jobs outside a called workflow.
+    for head in (
+        edit_job(real, "changes"),
+        edit_job(real, "ci-status"),
+        edit_job(real, "guards"),
+        edit_job(real, "browser"),
+        edit_job(real, "claude-wrapper"),
+        real.replace("\njobs:\n", "\n# preamble edit\njobs:\n", 1),
+        "not a workflow",
+        real,
+    ):
+        assert change_areas(real, head) is None
+    # The macOS caller keeps macOS when it is renamed or removed.
+    renamed = real.replace("\n  macos:\n", "\n  macos-renamed:\n", 1)
+    assert change_areas(real, renamed) == areas(macos=True, release_build=True)
+
+
+def test_ci_workflow_areas_route_through_classify_files() -> None:
+    selected = module.classify_files(
+        [module.CI_WORKFLOW_PATH], ci_workflow_areas=areas(cli=True),
+    )
+    assert selected == areas(cli=True)
+    assert module.classify_files([module.CI_WORKFLOW_PATH]) == areas(
+        macos=True, web=True, agent_session_web=True, cli=True, release_build=True,
+    )
+
+
+def test_macos_workflow_job_edits_select_release_only_for_release_jobs() -> None:
+    real = MACOS_WORKFLOW.read_text(encoding="utf-8")
+    change_areas = module.macos_workflow_change_areas
+    mac_only = areas(macos=True)
+    with_release = areas(macos=True, release_build=True)
+    for job in ("macos-compile-admission", "app-host-unit-tests", "tests-build-and-lag"):
+        assert change_areas(real, edit_job(real, job)) == mac_only, job
+    # swift-package-tests produces the helper release-build consumes through
+    # its outputs, and macos-status reports the Release verdict.
+    for job in ("release-admission", "release-build", "swift-package-tests", "macos-status"):
+        assert change_areas(real, edit_job(real, job)) == with_release, job
+    assert change_areas(
+        real, edit_job(edit_job(real, "app-host-unit-tests"), "release-build"),
+    ) == with_release
+    for head in (
+        real.replace("\njobs:\n", "\n# preamble edit\njobs:\n", 1),
+        "not a workflow",
+        real,
+    ):
+        assert change_areas(real, head) is None
+
+
+def test_macos_workflow_release_feeders_are_derived_from_outputs() -> None:
+    base = (
+        "name: M\non: workflow_call\njobs:\n"
+        "  compile:\n    runs-on: macos-15\n    outputs:\n      key: x\n    steps:\n      - run: a\n"
+        "  helper:\n    runs-on: macos-15\n    outputs:\n      path: y\n    steps:\n      - run: b\n"
+        "  shard:\n    runs-on: macos-15\n    needs: compile\n"
+        "    steps:\n      - run: ${{ needs.compile.outputs.key }}\n"
+        "  release:\n    needs: [compile, helper]\n"
+        "    if: ${{ inputs.release_build == 'true' && needs.compile.result == 'success' }}\n"
+        "    runs-on: macos-15\n    steps:\n      - run: ${{ needs.helper.outputs.path }}\n"
+    )
+    change_areas = module.macos_workflow_change_areas
+    assert change_areas(base, base.replace("- run: a", "- run: a2")) == areas(macos=True)
+    assert change_areas(base, base.replace("- run: b", "- run: b2")) == areas(macos=True, release_build=True)
+    assert change_areas(base, base.replace("- run: ${{ needs.compile", "- run: x ${{ needs.compile")) == areas(macos=True)
+    assert change_areas(base, base.replace("- run: ${{ needs.helper", "- run: x ${{ needs.helper")) == areas(
+        macos=True, release_build=True,
+    )
+
+
+def test_macos_workflow_areas_route_through_classify_files() -> None:
+    path = ".github/workflows/ci-macos.yml"
+    assert module.classify_files([path], macos_workflow_areas=areas(macos=True)) == areas(macos=True)
+    assert module.classify_files([path]) == areas(macos=True, release_build=True)
+
+
+def test_workflow_routes_macos_shard_edit_without_release_build() -> None:
+    real = MACOS_WORKFLOW.read_text(encoding="utf-8")
+    path = ".github/workflows/ci-macos.yml"
+    shard = edit_job(real, "app-host-unit-tests")
+    release = edit_job(real, "release-build")
+    # The normal router, and the trusted base router a policy edit selects.
+    for policy_change in ([], ["scripts/ci/detect_ci_change_areas.py"]):
+        for head, release_build in ((shard, "false"), (release, "true")):
+            _, outputs = run_detect_step_for_paths(
+                [path, *policy_change],
+                head_files={
+                    path: head,
+                    **{p: HELPER.read_text(encoding="utf-8") + "\n# policy edit\n" for p in policy_change},
+                },
+            )
+            assert "macos=true" in outputs, (policy_change, outputs)
+            assert f"release_build={release_build}" in outputs, (policy_change, outputs)
+            assert "web=false" in outputs, (policy_change, outputs)
+
+
 def run_detect_step_for_ci_workflow_edit(base: str, head: str) -> tuple[subprocess.CompletedProcess[str], list[str]]:
     script = detect_step_script()
     with tempfile.TemporaryDirectory() as temp_dir:

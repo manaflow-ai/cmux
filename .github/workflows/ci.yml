@@ -192,6 +192,17 @@ jobs:
               fi
             fi
 
+            # ci-macos.yml is compared job by job with its base: an edit that
+            # leaves the Release jobs and their inputs alone runs the Mac jobs
+            # without the Release build. Without the base, every job runs.
+            macos_workflow_base_args=()
+            if grep -Fxq '.github/workflows/ci-macos.yml' /tmp/cmux-ci-changed-files.txt; then
+              macos_workflow_base="$(mktemp "${RUNNER_TEMP:-/tmp}/cmux-macos-workflow-base.XXXXXX")"
+              if git show "$BASE_SHA:.github/workflows/ci-macos.yml" > "$macos_workflow_base"; then
+                macos_workflow_base_args=(--macos-workflow-base "$macos_workflow_base")
+              fi
+            fi
+
             # A provenance-only PR gets the cheap Linux guard and avoids
             # queuing the unrelated macOS/web/Go suites. Keep this exception
             # narrow: an unrelated workflow edit or source/configuration file
@@ -353,6 +364,11 @@ jobs:
               if [ "${#xcode_project_base_args[@]}" -gt 0 ] && ! python3 "$trusted_root/scripts/ci/detect_ci_change_areas.py" --help | grep -q -- '--xcode-project-base'; then
                 xcode_project_base_args=()
               fi
+              # One that predates the job comparison keeps the Release build
+              # for every ci-macos.yml edit, which is safe.
+              if [ "${#macos_workflow_base_args[@]}" -gt 0 ] && ! python3 "$trusted_root/scripts/ci/detect_ci_change_areas.py" --help | grep -q -- '--macos-workflow-base'; then
+                macos_workflow_base_args=()
+              fi
               trusted_areas=/tmp/cmux-ci-trusted-areas.txt
               : > "$trusted_areas"
               (
@@ -363,6 +379,7 @@ jobs:
                   --files-from "$product_files" \
                   ${registry_base_args[@]+"${registry_base_args[@]}"} \
                   ${xcode_project_base_args[@]+"${xcode_project_base_args[@]}"} \
+                  ${macos_workflow_base_args[@]+"${macos_workflow_base_args[@]}"} \
                   --github-output "$trusted_areas"
               )
               if [ "$cli_call_site_changed" = true ]; then
@@ -391,6 +408,7 @@ jobs:
               --files-from /tmp/cmux-ci-changed-files.txt \
               ${registry_base_args[@]+"${registry_base_args[@]}"} \
               ${xcode_project_base_args[@]+"${xcode_project_base_args[@]}"} \
+              ${macos_workflow_base_args[@]+"${macos_workflow_base_args[@]}"} \
               ${workflow_base_args[@]+"${workflow_base_args[@]}"}
             exit 0
           fi
