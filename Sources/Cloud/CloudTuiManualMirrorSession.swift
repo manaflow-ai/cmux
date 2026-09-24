@@ -47,7 +47,7 @@ final class CloudTuiManualMirrorSession {
     private var claimInFlight = false
     private var geometryClaimed = false
     private var geometryClaimBlockedByPeer = false
-    /// Claim policy survives hiding; visibility fences the current connection's claim.
+    private var explicitGeometryClaimPending = false
     private var geometryClaimEligible: Bool
     /// Older daemons do not know `set-client-sizing`. In that case the
     /// recorded `resize-surface` report is still useful, so the scheduler can
@@ -238,6 +238,7 @@ final class CloudTuiManualMirrorSession {
                 }
             }
             (geometryClaimed, geometryClaimBlockedByPeer) = (false, false)
+            explicitGeometryClaimPending = false
             claimUnsupported = false
             claimInFlight = false
             discardPendingSizingRequests()
@@ -294,6 +295,7 @@ final class CloudTuiManualMirrorSession {
         attachResponseReceived = false
         claimInFlight = false
         (geometryClaimed, geometryClaimBlockedByPeer) = (false, false)
+        explicitGeometryClaimPending = false
         claimUnsupported = false
         remoteLease = nil
         serverCapabilities.removeAll(keepingCapacity: true)
@@ -419,10 +421,7 @@ final class CloudTuiManualMirrorSession {
     /// is also used by the composed explicit-input callback.
     func claimGeometry() {
         guard surface?.isRendererPortalVisible == true else { return }
-        (geometryClaimEligible, geometryClaimBlockedByPeer) = (true, false)
-        // Another local projection may have claimed the shared terminal since
-        // our last report. Treat an explicit focus/input edge as a fresh claim
-        // opportunity instead of trusting the stale local flag.
+        (geometryClaimEligible, geometryClaimBlockedByPeer, explicitGeometryClaimPending) = (true, false, true)
         geometryClaimed = false
         claimUnsupported = false
         sendClaimIfNeeded()
@@ -826,10 +825,7 @@ final class CloudTuiManualMirrorSession {
                 return
             }
             if outcome == "passive" {
-                // Another view owns this terminal's geometry. Keep the local
-                // sample, but make the explicit claim the next operation so a
-                // focused pane can take authority back deterministically.
-                (geometryClaimed, geometryClaimBlockedByPeer) = (false, true)
+                (geometryClaimed, geometryClaimBlockedByPeer) = (false, !explicitGeometryClaimPending)
                 claimUnsupported = false
             }
             // A report is useful even when it was passive. Hold the newest
@@ -898,6 +894,7 @@ final class CloudTuiManualMirrorSession {
                 requestID: requestID
             )
         )
+        explicitGeometryClaimPending = false
     }
 
     private func sendAttach() {
