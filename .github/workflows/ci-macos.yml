@@ -664,7 +664,7 @@ jobs:
         continue-on-error: true
         timeout-minutes: 40
         run: |
-          set -uo pipefail
+          set +e -u
           report() {
             local log="$1" name="$2" seconds="$3"
             echo "== probe $name: ${seconds}s"
