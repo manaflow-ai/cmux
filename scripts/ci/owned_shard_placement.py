@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Put a pull request run's post-admission test jobs on free owned Macs first.
 
-macos-compile-admission calls this as its last step. The jobs that run its
+macos-compile-admission calls this once its product is out, before its own
+tests. The jobs that run its
 product next (the app-host shards and cli-product-tests) each get a runner
 label: an owned pool while it has a free machine, and the caller's fallback
 (pr_retry_runner or the admission's own pool) only for the jobs that do not
@@ -18,7 +19,8 @@ placed, and only when the product's Xcode is the one the owned labels pin
 (the consumers load the product only under the Xcode that linked it). Any
 error places nothing, which keeps every consumer on its fallback: today's
 route. A consumer placed on a machine that another run takes first queues
-there, and ci-owned-pool-rescue.yml moves the run to Blacksmith.
+there, and ci-owned-pool-rescue.yml re-runs the jobs that had not passed,
+which keeps compile admission's product and takes the fallback pool.
 
 Writes `placement=<JSON {"<shard>": "<label>", "cli": "<label>"}>` to
 GITHUB_OUTPUT.
@@ -39,6 +41,10 @@ import pr_runner_pool as pool  # noqa: E402
 # the fan-out, and cli-product-tests is the shortest job.
 CLI_KEY = "cli"
 MAX_RUN_PAGES = 3
+MAX_JOB_PAGES = 3
+# Run and job statuses that hold, or are about to hold, a machine.
+RUN_STATUSES = ("in_progress", "queued", "waiting", "pending", "requested")
+BUSY_STATUSES = frozenset({"queued", "in_progress", "waiting", "pending", "requested"})
 
 
 def busy_by_label(runs_jobs: Sequence[Sequence[Mapping[str, Any]]], labels: Sequence[str], *,
@@ -47,7 +53,7 @@ def busy_by_label(runs_jobs: Sequence[Sequence[Mapping[str, Any]]], labels: Sequ
     busy = {label: 0 for label in labels}
     for jobs in runs_jobs:
         for job in jobs:
-            if not isinstance(job, Mapping) or job.get("status") not in ("queued", "in_progress", "waiting"):
+            if not isinstance(job, Mapping) or job.get("status") not in BUSY_STATUSES:
                 continue
             if own_runner and job.get("runner_name") == own_runner:
                 continue
@@ -91,7 +97,7 @@ def eligible(env: Mapping[str, str]) -> str | None:
 
 def in_flight_jobs(client: pool.GitHub) -> list[list[Mapping[str, Any]]]:
     runs: list[Mapping[str, Any]] = []
-    for status in ("in_progress", "queued"):
+    for status in RUN_STATUSES:
         for page in range(1, MAX_RUN_PAGES + 1):
             batch = client.get(f"/actions/runs?status={status}&per_page={pool.PAGE_SIZE}&page={page}"
                                ).get("workflow_runs") or []
@@ -104,9 +110,14 @@ def in_flight_jobs(client: pool.GitHub) -> list[list[Mapping[str, Any]]]:
         if run.get("id") in seen:
             continue
         seen.add(run.get("id"))
-        listed = client.get(f"/actions/runs/{run['id']}/jobs?filter=latest&per_page={pool.PAGE_SIZE}"
-                            ).get("jobs") or []
-        jobs.append([job for job in listed if isinstance(job, Mapping)])
+        found: list[Mapping[str, Any]] = []
+        for page in range(1, MAX_JOB_PAGES + 1):
+            listed = client.get(f"/actions/runs/{run['id']}/jobs?filter=latest&per_page={pool.PAGE_SIZE}"
+                                f"&page={page}").get("jobs") or []
+            found.extend(job for job in listed if isinstance(job, Mapping))
+            if len(listed) < pool.PAGE_SIZE:
+                break
+        jobs.append(found)
     return jobs
 
 

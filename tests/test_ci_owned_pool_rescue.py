@@ -250,14 +250,60 @@ class Scope(unittest.TestCase):
             self.assertIsNone(rescue.job_pool(job("x", labels=labels)), labels)
 
 
+def blacksmith_admission(*, done_at):
+    def at(seconds):
+        found = job("macos / macOS compile admission", labels=[BLACKSMITH], created=40, runner="bs-1",
+                    status="completed" if seconds >= done_at else "in_progress")
+        found["conclusion"] = "success" if seconds >= done_at else None
+        return found
+    return at
+
+
 class Watching(unittest.TestCase):
-    def test_ephemeral_run_stops_after_the_marker_check(self):
+    def test_ephemeral_run_stops_once_admission_placed_nothing_owned(self):
         clock = Clock()
-        api = FakeAPI(clock, lambda s: [changes()(s), job("macos / macOS compile admission", labels=[BLACKSMITH])])
+
+        def jobs(seconds):
+            found = [changes()(seconds), blacksmith_admission(done_at=300)(seconds)]
+            if seconds >= 300:
+                found.append(job("macos / app-host unit tests (1/7)", labels=[BLACKSMITH], created=300))
+            return found
+        api = FakeAPI(clock, jobs)
         code, summary = run_main(api, clock)
         self.assertEqual(code, 0)
-        self.assertEqual(api.calls, ["jobs", f"artifact:macos-pool-persistent-{RUN_ID}-1-"])
+        # One marker check, slow looks while admission compiles, one look after it.
+        self.assertEqual(sum(call.startswith("artifact:") for call in api.calls), 1)
+        self.assertLessEqual(api.calls.count("jobs"), 6)
         self.assertIn("the run is on an ephemeral pool", summary)
+        self.assertNotIn("cancel", api.calls)
+
+    def test_a_consumer_placed_on_a_busy_mini_after_a_blacksmith_admission_is_moved(self):
+        clock = Clock()
+
+        def jobs(seconds):
+            found = [changes()(seconds), blacksmith_admission(done_at=300)(seconds)]
+            if seconds >= 300:
+                found.append(job("macos / app-host unit tests (3/7)", labels=[MINI], created=300))
+            return found
+        api = FakeAPI(clock, jobs)
+        code, summary = run_main(api, clock)
+        self.assertEqual(code, 0)
+        self.assertEqual(api.calls[-4:], ["cancel", "run", "pull", "rerun-failed"])
+        self.assertIn("consumers:", summary)
+        self.assertIn("attempt 2 takes retry_runner", summary)
+
+    def test_a_stuck_consumer_keeps_an_owned_admissions_product(self):
+        clock = Clock()
+
+        def jobs(seconds):
+            found = persistent_run(compile_started_at=45, done_at=200)(seconds)
+            found[-1]["conclusion"] = "success" if seconds >= 200 else None
+            if seconds >= 200:
+                found.append(job("macos / cli-product-tests", labels=[MINI], created=200))
+            return found
+        api = FakeAPI(clock, jobs, marker=True)
+        run_main(api, clock)
+        self.assertEqual(api.calls[-4:], ["cancel", "run", "pull", "rerun-failed"])
 
     def test_waits_for_the_picker_before_looking_for_the_marker(self):
         clock = Clock()

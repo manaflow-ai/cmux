@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """Move a pull request CI run off a busy persistent macOS pool.
 
-pr_runner_pool.py puts every macOS job of a run on one pool. When that pool is
+pr_runner_pool.py picks the pool for a run's compile admission and side lanes,
+and owned_shard_placement.py puts its test consumers on free owned Macs
+first. When a job's pool is
 owned (a `glaeda-<class>-xcode-<version>` label, pr_runner_pool.persistent),
 GitHub never re-routes a queued job: it waits for that pool however long the
 pool stays busy. ci-owned-pool-rescue.yml starts this script when a CI run is
@@ -10,9 +12,13 @@ requested, from the default branch, with Actions write.
 The script waits for ci.yml's `changes` job, which runs the picker. When the
 picker chose a persistent pool, that job uploads a marker artifact
 (`macos-pool-persistent-<run id>-<attempt>-<jobs>-<pool>`, the jobs and pool
-for the janitor's count); no marker means the run is on an
-ephemeral pool and the watch ends. Otherwise it watches the run's jobs until the
-run finishes. If a job on the persistent pool is still queued with no runner
+for the janitor's count). Without one, compile admission is on an ephemeral
+pool, but its consumers may still be placed on owned Macs, so the watch looks
+slowly until admission completes and once more after; a run with no job on an
+owned pool by then is ephemeral and the watch ends. Otherwise it watches the
+run's jobs until the run finishes. A job stuck after compile admission passed
+is moved by cancelling and re-running the failed and cancelled jobs, which
+keeps admission's product; before that, the whole run is re-run. If a job on the persistent pool is still queued with no runner
 after the budget (CI_OWNED_POOL_RESCUE_SECONDS, 90 by default), it confirms the
 pull request head has not moved, cancels the run, waits for it to finish, and
 re-runs it. The re-run is attempt 2, and pr_runner_pool.py never gives a
@@ -80,6 +86,11 @@ from pr_runner_pool import persistent  # noqa: E402
 CI_WORKFLOW_PATH = ".github/workflows/ci.yml"
 # ci.yml's job that runs the pool picker; its jobs-API name (no `name:` override).
 PICKER_JOB = "changes"
+# ci-macos.yml's compile admission, called from ci.yml's `macos` job, so its
+# jobs-API name is "macos / macOS compile admission". Once it passes, its
+# consumers may be placed on owned pools (owned_shard_placement.py) even when
+# the picker chose Blacksmith, and a re-run of failed jobs keeps its product.
+ADMISSION_JOB = "macOS compile admission"
 DEFAULT_BUDGET_SECONDS = 90
 MIN_BUDGET_SECONDS = 30
 MAX_BUDGET_SECONDS = 600
@@ -162,13 +173,26 @@ def picker_finished(jobs: Sequence[Mapping[str, Any]]) -> bool:
     return bool(picker) and all(job.get("status") == "completed" for job in picker)
 
 
+def admission(jobs: Sequence[Mapping[str, Any]]) -> list[Mapping[str, Any]]:
+    return [job for job in jobs if str(job.get("name") or "").split(" / ")[-1] == ADMISSION_JOB]
+
+
+def admission_passed(jobs: Sequence[Mapping[str, Any]]) -> bool:
+    found = admission(jobs)
+    return bool(found) and all(job.get("status") == "completed" and job.get("conclusion") == "success"
+                               for job in found)
+
+
 def run_finished(jobs: Sequence[Mapping[str, Any]]) -> bool:
     return bool(jobs) and all(job.get("status") == "completed" for job in jobs)
 
 
 @dataclasses.dataclass(frozen=True)
 class Look:
-    action: str  # "rescue" (cancel, re-run all), "refused" (re-run failed jobs) or "watch"
+    # "rescue" (cancel, re-run all), "refused" (re-run failed jobs), "consumers"
+    # (cancel, re-run failed and cancelled jobs, keeping compile admission's
+    # product) or "watch"
+    action: str
     reason: str
     waiting: bool = False  # a persistent-pool job has no runner yet
 
@@ -181,8 +205,12 @@ def assess(jobs: Sequence[Mapping[str, Any]], *, now: dt.datetime, budget_second
     stuck = [job for job in waiting if queued_seconds(job, now, seen.get(job.get("id"))) >= budget_seconds]
     if stuck:
         names = ", ".join(sorted(str(job.get("name") or job.get("id")) for job in stuck))
-        return Look("rescue", f"{names} queued on {job_pool(stuck[0])} for at least "
-                              f"{budget_seconds}s with no runner")
+        # Compile admission already passed: re-running only what did not pass
+        # keeps its product, and the re-run consumers take retry_runner (or
+        # admission's own pool) on the same Xcode instead of compiling again.
+        action = "consumers" if admission_passed(jobs) else "rescue"
+        return Look(action, f"{names} queued on {job_pool(stuck[0])} for at least "
+                            f"{budget_seconds}s with no runner")
     turned_away = [job for job in jobs if refused(job)]
     if turned_away:
         names = ", ".join(sorted(str(job.get("name") or job.get("id")) for job in turned_away))
@@ -308,19 +336,38 @@ def watch(api: GitHub, target: Target, *, budget_seconds: int,
     sleep(FIRST_LOOK_SECONDS)
     looks = 0
     on_persistent = False
+    marker: bool | None = None
+    admission_done_looks = 0
     first_seen: dict[Any, dt.datetime] = {}
     while True:
         looks += 1
         jobs = read(lambda: api.jobs(target.run_id, target.attempt), sleep, log)
+        interval = POLL_SECONDS
         if not on_persistent:
-            if picker_finished(jobs):
-                if not read(lambda: api.has_artifact(target.run_id, marker_name(target)), sleep, log):
-                    return "stop", "the run is on an ephemeral pool"
+            if any(job_pool(job) for job in jobs):
                 on_persistent = True
-                log("the picker chose a persistent pool")
+                log("a job asked for a persistent pool")
+            elif picker_finished(jobs):
+                if marker is None:
+                    marker = bool(read(lambda: api.has_artifact(target.run_id, marker_name(target)), sleep, log))
+                if marker:
+                    on_persistent = True
+                    log("the picker chose a persistent pool")
+                elif run_finished(jobs):
+                    return "stop", "the run is on an ephemeral pool"
+                else:
+                    # The picker chose Blacksmith, but compile admission may
+                    # still place its consumers on free minis. Look once more
+                    # after it completes, when they exist, then stop.
+                    found = admission(jobs)
+                    if found and all(job.get("status") == "completed" for job in found):
+                        admission_done_looks += 1
+                        if admission_done_looks > 1:
+                            return "stop", "the run is on an ephemeral pool"
+                    else:
+                        interval = IDLE_POLL_SECONDS
             elif run_finished(jobs):
                 return "stop", "the run finished before the pool choice"
-        interval = POLL_SECONDS
         if on_persistent:
             if any(refused(job) for job in jobs):
                 look = assess(jobs, now=now(), budget_seconds=budget_seconds, first_seen=first_seen)
@@ -334,7 +381,7 @@ def watch(api: GitHub, target: Target, *, budget_seconds: int,
                     first_seen.setdefault(job.get("id"), seen_at)
             look = assess(jobs, now=seen_at, budget_seconds=budget_seconds, first_seen=first_seen)
             log(f"look {looks}: {look.reason}")
-            if look.action in ("rescue", "refused"):
+            if look.action in ("rescue", "refused", "consumers"):
                 return look.action, look.reason
             if not look.waiting:
                 interval = IDLE_POLL_SECONDS
@@ -438,10 +485,11 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
     log(f"watching run {target.run_id} of pull request #{target.pr_number} (budget {seconds}s)")
     try:
         outcome, reason = watch(client, target, budget_seconds=seconds, now=clock, sleep=sleep, log=log)
-        if outcome not in ("rescue", "refused"):
+        if outcome not in ("rescue", "refused", "consumers"):
             return finish(f"stopped: {reason}")
-        log(f"{'rescue' if outcome == 'rescue' else 'refused'}: {reason}")
-        return finish(rescue(client, target, now=clock, sleep=sleep, log=log, failed_only=outcome == "refused"))
+        log(f"{outcome}: {reason}")
+        return finish(rescue(client, target, now=clock, sleep=sleep, log=log,
+                             failed_only=outcome in ("refused", "consumers")))
     except (*READ_ERRORS, Aborted) as error:
         # A failed watch leaves the run exactly as GitHub scheduled it.
         finish(f"gave up: {error}")

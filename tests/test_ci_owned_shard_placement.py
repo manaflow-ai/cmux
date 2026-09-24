@@ -73,10 +73,10 @@ class Placement(unittest.TestCase):
         pages = {
             "/actions/runs?status=in_progress&per_page=100&page=1": {"workflow_runs": [{"id": 1}, {"id": 2}]},
             "/actions/runs?status=queued&per_page=100&page=1": {"workflow_runs": [{"id": 2}]},
-            "/actions/runs/1/jobs?filter=latest&per_page=100": {"jobs": [job(STD)]},
-            "/actions/runs/2/jobs?filter=latest&per_page=100": {"jobs": [job(LIGHT)]},
+            "/actions/runs/1/jobs?filter=latest&per_page=100&page=1": {"jobs": [job(STD)]},
+            "/actions/runs/2/jobs?filter=latest&per_page=100&page=1": {"jobs": [job(LIGHT)]},
         }
-        client.get.side_effect = lambda path: pages[path]
+        client.get.side_effect = lambda path: pages.get(path, {})
         self.assertEqual(placement.in_flight_jobs(client), [[job(STD)], [job(LIGHT)]])
 
 

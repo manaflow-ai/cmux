@@ -47,7 +47,7 @@ check_macos_runner() {
     # check covers on its own, the owned pool admission placed it on
     # (owned_shard_placement.py), or the Blacksmith pool the pull request
     # picker named for a run on an owned pool (pr_retry_runner).
-    in_job && /runs-on:[[:space:]]*\$\{\{ (github\.run_attempt > 1 && inputs\.pr_retry_runner \|\| github\.run_attempt == 1 && github\.event\.pull_request\.head\.repo\.full_name == github\.repository && fromJSON\(needs\.macos-compile-admission\.outputs\.consumer_placement \|\| .\{\}.\)\[[^]]+\] \|\| inputs\.pr_retry_runner \|\| )?needs\.macos-compile-admission\.outputs\.runner \}\}/ { saw=1 }
+    in_job && /runs-on:[[:space:]]*\$\{\{ (github\.run_attempt > 1 && inputs\.pr_retry_runner \|\| github\.run_attempt == 1 && github\.event\.pull_request\.head\.repo\.full_name == github\.repository && fromJSON\(needs\.macos-compile-admission\.outputs\.consumer_placement \|\| .\{\}.\)\[(format\(.\{0\}., matrix\.shard\)|.cli.)\] \|\| inputs\.pr_retry_runner \|\| )?needs\.macos-compile-admission\.outputs\.runner \}\}/ { saw=1 }
     in_job && /os:.*(vars\.MACOS_RUNNER|blacksmith-[0-9]+vcpu-macos-|warp-macos-[0-9]+-arm64|depot-macos-)/ { saw=1 }
     END { exit !(saw) }
   ' "$file"; then
