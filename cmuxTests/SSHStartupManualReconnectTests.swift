@@ -385,19 +385,7 @@ struct SSHStartupManualReconnectTests {
     @Test func reconnectRejectsUnendedTerminalSurfaceId() throws {
         let workspace = Workspace()
         let initialPanelId = try #require(workspace.focusedTerminalPanel?.id)
-        let configuration = WorkspaceRemoteConfiguration(
-            destination: "cmux-macmini",
-            port: nil,
-            identityFile: nil,
-            sshOptions: [],
-            localProxyPort: nil,
-            relayPort: 64007,
-            relayID: String(repeating: "a", count: 16),
-            relayToken: String(repeating: "b", count: 64),
-            localSocketPath: "/tmp/cmux-debug-test.sock",
-            terminalStartupCommand: "ssh cmux-macmini"
-        )
-        workspace.configureRemoteConnection(configuration, autoConnect: false)
+        workspace.configureRemoteConnection(Self.makeRemoteConfiguration(), autoConnect: false)
         workspace.applyRemoteConnectionStateUpdate(
             .connected,
             detail: "Connected to cmux-macmini via shared local proxy 127.0.0.1:64007",

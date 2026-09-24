@@ -28,6 +28,10 @@ extension SSHStartupManualReconnectTests {
         let terminalPathURL: URL
     }
 
+    /// These tests cover the legacy Workspace reconnect path. Since 5f0d2227241
+    /// an SSH terminal config that bootstraps the daemon is owned by cmux-tui
+    /// (`configureSSHTuiConnection`), so the fixture uses a VM-baked daemon,
+    /// which still takes the legacy path.
     static func makeRemoteConfiguration() -> WorkspaceRemoteConfiguration {
         WorkspaceRemoteConfiguration(
             destination: "cmux-macmini",
@@ -39,7 +43,8 @@ extension SSHStartupManualReconnectTests {
             relayID: String(repeating: "a", count: 16),
             relayToken: String(repeating: "b", count: 64),
             localSocketPath: "/tmp/cmux-debug-test.sock",
-            terminalStartupCommand: "ssh cmux-macmini"
+            terminalStartupCommand: "ssh cmux-macmini",
+            skipDaemonBootstrap: true
         )
     }
 
