@@ -348,6 +348,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_queue_janitor.py
 
+      - name: Validate pull request macOS pool choice
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_pr_runner_pool.py
+
       - name: Validate persistent compile fleet command
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_persistent_compile_fleet.py
@@ -714,6 +718,10 @@ jobs:
       - name: Validate universal nightly workflow
         if: ${{ matrix.group == 'release-notary' }}
         run: bash ./tests/test_nightly_universal_build.sh
+
+      - name: Validate nightly Sparkle key selection
+        if: ${{ matrix.group == 'release-notary' }}
+        run: bash ./tests/test_nightly_sparkle_key.sh
 
       - name: Validate nightly push throttle
         if: ${{ matrix.group == 'release-notary' }}

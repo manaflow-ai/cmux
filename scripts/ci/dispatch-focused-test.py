@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 from contextlib import contextmanager
+import datetime as dt
 import importlib.util
 import json
 import os
@@ -19,7 +20,7 @@ import uuid
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import e2e_runner_pool as pool  # noqa: E402
-from e2e_runner_pool import LARGE_RUNNER, SMALL_RUNNER  # noqa: E402
+from e2e_runner_pool import SMALL_RUNNER  # noqa: E402
 
 REPO = "manaflow-ai/cmux"
 WORKFLOW = "test-e2e.yml"
@@ -28,10 +29,10 @@ WORKFLOW = "test-e2e.yml"
 DEFAULT_WORKFLOW_REF = "main"
 # `vars.MACOS_RUNNER_TESTS`, as passed by a workflow job; see default_runner().
 VARIABLE_ENV = "CMUX_MACOS_RUNNER_TESTS"
-# The overflow variables, passed the same way; see repository_variable().
+# The pool-choice variables, passed the same way; see repository_variable().
 OVERFLOW_ENV = "CMUX_" + pool.OVERFLOW_VARIABLE
-MIN_QUEUED_ENV = "CMUX_" + pool.MIN_QUEUED_VARIABLE
-MAX_LARGE_RUNNING_ENV = "CMUX_" + pool.MAX_LARGE_RUNNING_VARIABLE
+ORDER_ENV = "CMUX_" + pool.ORDER_VARIABLE
+MAX_QUEUED_ENV = "CMUX_" + pool.MAX_QUEUED_VARIABLE
 ROOT = Path(__file__).resolve().parents[2]
 RUN_DISCOVERY_ATTEMPTS = 12
 RUN_DISCOVERY_TIMEOUT_SECONDS = 60.0
@@ -50,12 +51,11 @@ RUNNERS = (
     "tart-dual",
     "tart-small",
 )
-# An unpinned run overflows to the 12vcpu macOS 26 pool only when the 6vcpu
-# pool is backed up and the 12vcpu pool, reserved first for release and
-# nightly builds, has room. The rule lives in e2e_runner_pool.py, which
+# An unpinned run takes whichever macOS 26 pool pull request CI would, by
+# preference and queue depth. The rule lives in e2e_runner_pool.py, which
 # test-e2e.yml runs too. Because the choice depends on the queue at dispatch
 # time, not on the commit, the in-flight guards below look on both pools.
-OVERFLOW_POOLS = (SMALL_RUNNER, LARGE_RUNNER)
+OVERFLOW_POOLS = pool.E2E_POOLS
 # GitHub rejects a concurrency group longer than this as a workflow file
 # issue: the run is created with no jobs and no message saying why.
 MAX_CONCURRENCY_GROUP = 400
@@ -290,8 +290,8 @@ def repository_variable(name: str, env_name: str) -> str | None:
     return (listed_variables() or {}).get(name)
 
 
-class GhApi(pool.queue_janitor.GitHub):
-    """The queue janitor's GitHub client, speaking through `gh api`.
+class GhApi(pool.pr_runner_pool.GitHub):
+    """Pull request CI's pool-queue client, speaking through `gh api`.
 
     `gh` carries the caller's own credentials, locally or in a workflow job,
     so this needs no token handling of its own.
@@ -300,16 +300,27 @@ class GhApi(pool.queue_janitor.GitHub):
     def __init__(self) -> None:
         super().__init__("", REPO)
 
-    def request(self, method: str, path: str, body=None):
-        self.calls += 1
+    def get(self, path: str):
+        endpoint = f"repos/{REPO}{path}"
         try:
             payload = output(
-                "gh", "api", "--method", method, path.lstrip("/"),
+                "gh", "api", "--method", "GET", endpoint,
                 timeout=PRIOR_ATTEMPT_TIMEOUT_SECONDS,
             )
             return json.loads(payload) if payload else {}
         except (subprocess.SubprocessError, OSError, ValueError) as error:
-            raise RuntimeError(f"{method} {path.split('?')[0]} failed") from error
+            raise RuntimeError(f"GET {path.split('?')[0]} failed") from error
+
+    def download(self, artifact) -> bytes:
+        # `gh api` follows the redirect to blob storage without the token.
+        endpoint = f"repos/{REPO}/actions/artifacts/{int(artifact['id'])}/zip"
+        try:
+            return subprocess.check_output(
+                ("gh", "api", "--method", "GET", endpoint),
+                cwd=ROOT, timeout=PRIOR_ATTEMPT_TIMEOUT_SECONDS,
+            )
+        except (subprocess.SubprocessError, OSError, KeyError, TypeError, ValueError) as error:
+            raise RuntimeError("GET /actions/artifacts/{id}/zip failed") from error
 
 
 def default_runner() -> str | None:
@@ -355,16 +366,17 @@ def routed_runner(default: str | None) -> str | None:
     Only called when a dispatch is about to happen, so a run reused from the
     history spends no API calls on the queue.
     """
+    now = dt.datetime.now(dt.timezone.utc)
     return pool.auto_runner(
         default,
-        enabled=pool.overflow_enabled(
+        enabled=pool.enabled(
             repository_variable(pool.OVERFLOW_VARIABLE, OVERFLOW_ENV)),
-        limits=pool.thresholds(
-            repository_variable(pool.MIN_QUEUED_VARIABLE, MIN_QUEUED_ENV),
-            repository_variable(pool.MAX_LARGE_RUNNING_VARIABLE, MAX_LARGE_RUNNING_ENV),
+        limits=pool.settings(
+            repository_variable(pool.ORDER_VARIABLE, ORDER_ENV),
+            repository_variable(pool.MAX_QUEUED_VARIABLE, MAX_QUEUED_ENV),
         ),
-        measure=lambda limits: pool.measure_load(
-            GhApi(), REPO, limits, workflows_dir=ROOT / ".github" / "workflows"),
+        measure=lambda: pool.measure_load(GhApi(), now=now),
+        now=now,
         log=lambda message: print(f"Runner pool: {message}", file=sys.stderr, flush=True),
     )
 

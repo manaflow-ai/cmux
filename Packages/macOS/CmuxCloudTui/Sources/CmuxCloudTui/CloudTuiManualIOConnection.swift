@@ -10,7 +10,7 @@ import Foundation
 // @unchecked Sendable is safe here because every mutable descriptor/source/
 // framing field and pending demand are accessed only on `queue`. Continuations
 // hand immutable frames back to the single async consumer.
-final class CloudTuiManualIOConnection: @unchecked Sendable {
+public final class CloudTuiManualIOConnection: @unchecked Sendable {
     private static let maximumLineBytes = 16 * 1024 * 1024
     private static let readChunkBytes = 16 * 1024
 
@@ -21,7 +21,7 @@ final class CloudTuiManualIOConnection: @unchecked Sendable {
 
     /// Single-consumer stream. Each next() requests one frame, so a busy renderer
     /// applies socket backpressure instead of overflowing a decoded-frame queue.
-    var events: AsyncStream<CloudTuiManualIOFrame> {
+    public var events: AsyncStream<CloudTuiManualIOFrame> {
         AsyncStream(unfolding: { [weak self] in
             await self?.nextFrame()
         }, onCancel: { [weak self] in
@@ -48,7 +48,7 @@ final class CloudTuiManualIOConnection: @unchecked Sendable {
     private let pendingWriteByteLimit = 256 * 1024
     private var closed = false
 
-    init(
+    public init(
         socketPath: String,
         deliversJSONMessages: Bool = false,
         queue: DispatchQueue = DispatchQueue(
@@ -84,7 +84,7 @@ final class CloudTuiManualIOConnection: @unchecked Sendable {
     }
 
     /// Connects to the local link socket and starts line delivery.
-    func start() async throws {
+    public func start() async throws {
         try await withTaskCancellationHandler(operation: {
             try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
                 queue.async { [self] in
@@ -118,14 +118,14 @@ final class CloudTuiManualIOConnection: @unchecked Sendable {
     }
 
     /// Enqueues one JSON command. Commands are serialized with incoming lines.
-    func send(_ command: [String: Any]) {
+    public func send(_ command: [String: Any]) {
         guard let line = commandBuilder.line(command) else { return }
         send(line: line)
     }
 
     /// Enqueues an already framed JSON line. Used by the input router so it can
     /// preserve ordering while a connection is being rebound.
-    func send(line: Data) {
+    public func send(line: Data) {
         queue.async { [self, line] in
             guard !closed, descriptor >= 0 else { return }
             guard pendingWriteBytes + line.count <= pendingWriteByteLimit else {
@@ -144,7 +144,7 @@ final class CloudTuiManualIOConnection: @unchecked Sendable {
 
     /// Closes only this attachment connection. The remote terminal session stays
     /// owned by cmux-tui and can be attached again later.
-    func close() {
+    public func close() {
         queue.async { [self] in
             closeLocked()
         }

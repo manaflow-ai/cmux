@@ -1,3 +1,4 @@
+import CmuxCloudTui
 import Foundation
 
 /// When a native cloud pane shows its connection card.

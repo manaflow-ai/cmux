@@ -6981,7 +6981,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
            !CloudMachinesFeature.offMainIsEnabled() {
             return suspendCloudRemoteConfiguration(configuration)
         }
-        if configuration.transport == .ssh, configuration.terminalTransport == .ssh, !configuration.skipDaemonBootstrap {
+        if configuration.routesThroughSSHTui {
             return configureSSHTuiConnection(configuration, autoConnect: autoConnect)
         }
         var configuration = configuration.scopedToOwnerWorkspace(id)
@@ -7669,7 +7669,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
 
     func effectiveRemoteTerminalStartupCommand(from configuration: WorkspaceRemoteConfiguration?) -> String? {
         guard let configuration else { return nil }
-        if configuration.transport == .ssh, !configuration.skipDaemonBootstrap, configuration.preserveAfterTerminalExit { return nil }
+        if configuration.routesThroughSSHTui, configuration.preserveAfterTerminalExit { return nil }
         if let vmID = defaultFreestyleSSHDVMID(from: configuration) {
             let command = configuration.terminalStartupCommand?
                 .trimmingCharacters(in: .whitespacesAndNewlines)
