@@ -4285,13 +4285,21 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
         }
         _ = NSApplication.shared
 
+        // The app host installs an app delegate, so portal visibility is authorized
+        // per workspace: a surface whose tab id no manager has selected is never
+        // shown, and its renderer is never presented.
+        let liveWorkspace = AppDelegate.shared?.registerLivePortalWorkspaceForTesting()
+        defer { liveWorkspace?.tearDown() }
+
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 1_280, height: 800),
             styleMask: [.borderless],
             backing: .buffered,
             defer: false
         )
-        let surfaces = (0..<5).map { _ in makeTrackedTerminalSurface() }
+        let surfaces = (0..<5).map { _ in
+            makeTrackedTerminalSurface(tabId: liveWorkspace?.id ?? UUID())
+        }
         var didTeardown = false
         defer {
             for surface in surfaces {
@@ -4307,6 +4315,12 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
             XCTFail("Expected a content view for the renderer memory workload")
             return
         }
+        // Order the window in before the terminals attach. Each terminal samples its
+        // window's visibility when it moves into the window and afterwards only on an
+        // occlusion, key, or screen change. This borderless window never becomes key
+        // and the headless host never reports an occlusion `.visible` bit, so a window
+        // ordered in after the attach would stay hidden to its renderers.
+        window.orderFront(nil)
         for surface in surfaces {
             let hostedView = surface.hostedView
             hostedView.frame = contentView.bounds
@@ -4314,7 +4328,6 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
             contentView.addSubview(hostedView)
             hostedView.setVisibleInUI(true)
         }
-        window.orderFront(nil)
         window.displayIfNeeded()
         contentView.layoutSubtreeIfNeeded()
 

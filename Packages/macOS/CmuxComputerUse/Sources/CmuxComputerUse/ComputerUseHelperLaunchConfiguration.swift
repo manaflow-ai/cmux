@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import CmuxFoundation
 
@@ -5,6 +6,29 @@ import CmuxFoundation
 struct ComputerUseHelperLaunchConfiguration: Equatable, Sendable {
     let arguments: [String]
     let environment: [String: String]
+
+    @MainActor
+    func workspaceConfiguration(
+        helperURL: URL,
+        fileManager: FileManager = .default
+    ) -> NSWorkspace.OpenConfiguration? {
+        let executable = helperURL.appendingPathComponent("Contents/MacOS/cmux-cua")
+        guard
+            let attributes = try? fileManager.attributesOfItem(atPath: executable.path),
+            attributes[.type] as? FileAttributeType == .typeRegular,
+            fileManager.isExecutableFile(atPath: executable.path)
+        else { return nil }
+
+        let configuration = NSWorkspace.OpenConfiguration()
+        configuration.activates = false
+        configuration.createsNewApplicationInstance = true
+        // Health checks retry in the background. Launch failures must reach the
+        // completion handler without waiting on another Finder error dialog.
+        configuration.promptsUserIfNeeded = false
+        configuration.arguments = arguments
+        configuration.environment = environment
+        return configuration
+    }
 
     init?(
         paths: ComputerUseRuntimePaths,

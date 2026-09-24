@@ -31,8 +31,8 @@ fi
 for pair in "admission:$ADMISSION" "seeder:$SEEDER"; do
   name="${pair%%:*}"
   body="${pair#*:}"
-  if ! grep -Fq 'scripts/ci/compile-app-host-test-product.sh build' <<<"$body" \
-    || ! grep -Fq 'scripts/ci/compile-app-host-test-product.sh fingerprint' <<<"$body"; then
+  if ! grep -Fq 'scripts/ci/compile-app-host-test-product.sh canonical-build' <<<"$body" \
+    || ! grep -Fq 'scripts/ci/compile-app-host-test-product.sh canonical-fingerprint' <<<"$body"; then
     echo "FAIL: the $name job must build and fingerprint through scripts/ci/compile-app-host-test-product.sh"
     exit 1
   fi
@@ -43,33 +43,13 @@ for pair in "admission:$ADMISSION" "seeder:$SEEDER"; do
 done
 echo "PASS: admission and the seeder build the app-host test product through one script"
 
-# The fingerprint hashes the workspace path, and runner pools lay the workspace
-# out differently, so a seed built on one pool can never be restored on another.
-# The seed existed but was unreachable while the seeder ran on
-# vars.MACOS_RUNNER_15 and pull request admission ran on MACOS_RUNNER_PR: every
-# pull request missed the cache and compiled cold.
-PR_RUNNER="vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15'"
-admission_runs_on="$(grep -E '^    runs-on:' <<<"$ADMISSION" | head -1)"
-seeder_runs_on="$(grep -E '^    runs-on:' <<<"$SEEDER" | head -1)"
-if ! grep -Fq -- "$PR_RUNNER" <<<"$admission_runs_on"; then
-  echo "FAIL: macos-compile-admission must select its pull request runner as $PR_RUNNER"
-  echo "  got: $admission_runs_on"
-  exit 1
-fi
-if [ "$(tr -d '[:space:]' <<<"$seeder_runs_on")" != "$(tr -d '[:space:]' <<<"runs-on: \${{ $PR_RUNNER }}")" ]; then
-  echo "FAIL: refresh-test-compilation-cache must run on the same runner pull request admission uses,"
-  echo "      or the seed it writes can never be restored."
-  echo "  admission: $admission_runs_on"
-  echo "  seeder:    $seeder_runs_on"
-  exit 1
-fi
-echo "PASS: the seeder runs on the runner pull request admission restores from"
+# Pools may differ: the executable canonical recipe test checks absolute paths.
 
 # The build paths are part of every cache entry, so both jobs must use the
 # same ones.
 for line in \
-  'CMUX_COMPILE_ADMISSION_DERIVED_DATA=$RUNNER_TEMP/cmux-derived-data-compile-admission' \
-  'CMUX_COMPILE_ADMISSION_CAS=$RUNNER_TEMP/cmux-compile-admission-cas'; do
+  'CMUX_COMPILE_ADMISSION_DERIVED_DATA=${CMUX_CI_CANONICAL_ROOT:-/private/tmp/cmux-ci}/derived-data-compile-admission' \
+  'CMUX_COMPILE_ADMISSION_CAS=${CMUX_CI_CANONICAL_ROOT:-/private/tmp/cmux-ci}/compile-admission-cas'; do
   if ! grep -Fq "$line" <<<"$ADMISSION" || ! grep -Fq "$line" <<<"$SEEDER"; then
     echo "FAIL: admission and the seeder must both set $line"
     exit 1
@@ -78,27 +58,32 @@ done
 echo "PASS: admission and the seeder build from the same paths"
 
 KEY_PREFIX='xcode-compilation-test-${{ runner.os }}-${{ runner.arch }}-${{ steps.compilation-cache-key.outputs.fingerprint }}-'
-for file in "$CI_FILE" "$NIGHTLY_FILE"; do
-  if ! grep -Fq -- "$KEY_PREFIX" "$file" \
-    || grep -F 'xcode-compilation-test-' "$file" | grep -vqF -- "$KEY_PREFIX"; then
-    echo "FAIL: $(basename "$file") must use the shared test compilation cache key prefix"
-    exit 1
-  fi
-done
-echo "PASS: admission and the seeder share one cache key prefix"
-
-# Pull requests restore and never save: a cache written from a pull request is
-# scoped to it, so it helps nobody else and spends the budget that keeps the
-# main seed from being evicted.
-if ! awk '
-  /uses: / { uses=$0 }
-  /key: xcode-compilation-test-/ { saw=1; if (uses !~ /uses: (actions\/cache\/restore@|\.\/\.github\/actions\/cache-restore$)/) bad=1 }
-  END { exit !(saw && !bad) }
-' <<<"$ADMISSION"; then
-  echo "FAIL: macos-compile-admission must restore the test compilation cache read-only and never save it"
+if ! grep -Fq -- "$KEY_PREFIX" "$NIGHTLY_FILE" \
+  || grep -F 'xcode-compilation-test-' "$NIGHTLY_FILE" | grep -vqF -- "$KEY_PREFIX"; then
+  echo "FAIL: nightly.yml must key the test compilation cache on the canonical fingerprint"
   exit 1
 fi
-echo "PASS: pull requests restore the test compilation cache read-only"
+echo "PASS: the seeder keys the test compilation cache on the canonical fingerprint"
+
+# Pull-request compile admission does not restore the test compilation cache.
+# Swift keys every compile job on its whole module, so the one-module `cmux`
+# app target (and cmuxUITests) missed on every file: 581 of 581 and 566 of 566
+# in two sampled admission logs on 2026-09-24, although the key, path and
+# Xcode matched the seed exactly. Only modules unchanged since the six-hourly
+# seed hit, and those are what the adopted DerivedData seed already leaves
+# up to date. The restore cost 13-43 s and a 932 MB download on every run.
+# Admission still computes the fingerprint: the DerivedData seed is keyed on it.
+if grep -Fq 'xcode-compilation-test-' <<<"$ADMISSION" \
+  || grep -Eq '^      - name: Restore test compilation cache' <<<"$ADMISSION"; then
+  echo "FAIL: macos-compile-admission must not restore the test compilation cache;"
+  echo "      the app target misses on every file and the DerivedData seed covers the rest"
+  exit 1
+fi
+if ! grep -Fq 'steps.compilation-cache-key.outputs.fingerprint' <<<"$ADMISSION"; then
+  echo "FAIL: macos-compile-admission must still key the DerivedData seed on the canonical fingerprint"
+  exit 1
+fi
+echo "PASS: pull requests skip the test compilation cache and keep the fingerprint for the seed"
 
 if ! awk '
   /^      - name: Restore test compilation cache/ { step="restore" }
@@ -134,19 +119,6 @@ if awk '
   exit 1
 fi
 echo "PASS: the seeder seeds from one clean build"
-
-# Admission is the opposite case and must keep its fallback: its exact key
-# names a base revision no seeder run built, so the prefix is the only way a
-# pull request ever finds the seed.
-if ! awk '
-  /^      - name: / { step = $0 }
-  step ~ /Restore test compilation cache/ && /^[[:space:]]+restore-keys:/ { found = 1 }
-  END { exit !found }
-' <<<"$ADMISSION"; then
-  echo "FAIL: macos-compile-admission must restore the seed by prefix, or it can never find one"
-  exit 1
-fi
-echo "PASS: pull requests find the seed by prefix"
 
 if ! grep -Eq "if: github\.event_name == 'schedule'" <<<"$SEEDER"; then
   echo "FAIL: refresh-test-compilation-cache must stay on the cache-warming schedule so it does not take a macOS slot per merge"
@@ -271,7 +243,7 @@ if STUB_RESOLVE_ARTIFACTS_FROM=9 run_script resolve "$TMP_DIR/derived" "$TMP_DIR
   exit 1
 fi
 for name_and_body in "macos-compile-admission:$ADMISSION" "refresh-test-compilation-cache:$SEEDER"; do
-  if ! grep -Fq 'scripts/ci/compile-app-host-test-product.sh resolve' <<<"${name_and_body#*:}"; then
+  if ! grep -Fq 'scripts/ci/compile-app-host-test-product.sh canonical-resolve' <<<"${name_and_body#*:}"; then
     echo "FAIL: the ${name_and_body%%:*} job must resolve packages through scripts/ci/compile-app-host-test-product.sh"
     exit 1
   fi

@@ -35,7 +35,7 @@ actor CloudBrowserProxyProcess {
         process?.isRunning == true && !stopped ? endpoint : nil
     }
 
-    func start(client: URL, arguments: [String], releaseHub: @escaping @Sendable () async -> Void) async throws -> CloudBrowserProxyEndpoint {
+    func start(client: URL, arguments: [String], environment: [String: String]? = nil, releaseHub: @escaping @Sendable () async -> Void) async throws -> CloudBrowserProxyEndpoint {
         guard !stopped else {
             await releaseHub()
             throw CancellationError()
@@ -48,7 +48,7 @@ actor CloudBrowserProxyProcess {
         let ready = CloudLinkFirstValue<CloudBrowserProxyEndpoint>()
         child.executableURL = client
         child.arguments = arguments
-        child.environment = Self.sanitizedEnvironment(ProcessInfo.processInfo.environment)
+        child.environment = Self.sanitizedEnvironment(environment ?? ProcessInfo.processInfo.environment)
         child.standardInput = FileHandle.nullDevice
         child.standardOutput = output
         child.standardError = errors

@@ -79,7 +79,7 @@ permissions:
 jobs:
   contract:
     name: protocol contract
-    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 8
     outputs:
       sdk_inputs: ${{ steps.sdk-inputs.outputs.changed }}
@@ -182,7 +182,7 @@ jobs:
     name: ${{ matrix.language }} package
     needs: contract
     if: ${{ needs.contract.outputs.sdk_inputs == 'true' }}
-    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 25
     strategy:
       fail-fast: false
@@ -356,7 +356,7 @@ jobs:
     name: ${{ matrix.language }} consumer
     needs: contract
     if: ${{ needs.contract.outputs.sdk_inputs == 'true' }}
-    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 25
     strategy:
       fail-fast: false
@@ -515,7 +515,7 @@ jobs:
     name: Rust SDK MSRV (1.88)
     needs: contract
     if: ${{ needs.contract.outputs.sdk_inputs == 'true' }}
-    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -530,6 +530,9 @@ jobs:
           cargo +1.88.0 fmt --manifest-path cmux-tui/bindings/rust/Cargo.toml -- --check
           cargo +1.88.0 test --manifest-path cmux-tui/bindings/rust/Cargo.toml --locked
           cargo +1.88.0 test --manifest-path cmux-tui/bindings/rust-sidebar/Cargo.toml --locked
+          cargo +1.88.0 test \
+            --manifest-path cmux-tui/bindings/examples/rust-agent-screen-detection/Cargo.toml \
+            --locked
           cargo +1.88.0 clippy \
             --manifest-path cmux-tui/bindings/examples/rust-agent-dashboard/Cargo.toml \
             --locked \
@@ -544,7 +547,7 @@ jobs:
   conformance:
     name: seven-language live conformance
     needs: contract
-    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-8vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-8vcpu-ubuntu-2404' }}
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -597,11 +600,37 @@ jobs:
         working-directory: cmux-tui/bindings/typescript
         run: npm ci --no-audit --no-fund
 
+      # The build reads only the cmux-tui tree, the ghostty submodule, and the
+      # zig and Rust toolchains pinned here and in cmux-tui/rust-toolchain.toml.
+      # Keyed on exactly those, an unchanged tree skips a five-minute compile,
+      # which is every run started by a workflow-only edit.
+      - name: Key the headless cmux-tui build
+        id: headless-key
+        run: |
+          set -euo pipefail
+          echo "key=cmux-tui-headless-v1-${RUNNER_OS}-${RUNNER_ARCH}-zig0.16.0-$(git rev-parse HEAD:cmux-tui)-$(git rev-parse HEAD:ghostty)" >> "$GITHUB_OUTPUT"
+
+      - name: Restore the headless cmux-tui build
+        id: headless-cache
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: cmux-tui/target/debug/cmux-tui
+          key: ${{ steps.headless-key.outputs.key }}
+
       - name: Build exact headless cmux-tui
+        if: ${{ steps.headless-cache.outputs.cache-hit != 'true' }}
         working-directory: cmux-tui
         run: |
           test "$(zig version)" = "0.16.0"
           cargo build -p cmux-tui --bin cmux-tui --locked
+
+      # Pull request caches stay read-only; main publishes the build they reuse.
+      - name: Save the headless cmux-tui build
+        if: ${{ github.event_name == 'push' && steps.headless-cache.outputs.cache-hit != 'true' }}
+        uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: cmux-tui/target/debug/cmux-tui
+          key: ${{ steps.headless-key.outputs.key }}
 
       - name: Set up Zig for SDK conformance
         uses: mlugg/setup-zig@8d6198c65fb0feaa111df26e6b467fea8345e46f # v2.0.5
