@@ -335,6 +335,9 @@ def check_run(
     complete, reason = run_is_complete(log_text)
     if not complete:
         messages.append(f"incomplete app-host run: {reason}")
+        # A restart or timeout ends the run, not the verdicts recorded before
+        # it; same reasoning as the missing-result gate below.
+        messages.extend(recorded_failure_diagnostics(results, known))
         return False, messages
 
     if not results:
@@ -463,6 +466,14 @@ def command_catalog_diff(args: argparse.Namespace) -> int:
         return 1
 
     additions = sorted(set(new) - set(old))
+    if old_bootstrap is None and not old and new_bootstrap is not None:
+        # The one permitted growth: an empty, never-bootstrapped catalog takes
+        # its census from the main commit validate_catalog just pinned. From
+        # then on the SHA is immutable and the set may only shrink.
+        print(
+            f"known-failure catalog bootstrapped at {new_bootstrap}: {len(new)} tests"
+        )
+        return 0
     if additions:
         for identifier in additions:
             print(f"known-failure catalog may only shrink: added {identifier}", file=sys.stderr)

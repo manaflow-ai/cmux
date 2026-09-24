@@ -237,6 +237,35 @@ The main agent owns dogfood, approval, mergeability, and every pushed fix. Mergi
 
 Notify through `cmux notify` so the user can leave and return. Handoff: `--title "Dogfood ready: <short task>" --subtitle "<branch> · <tag>" --body "Was: <prior bad behavior>. Now: <expected behavior>. <concrete check>. PR: <pr-url>"`. Later closeout notifications use `"CI green: <branch>"` or `"CI blocked: <branch>"` with a one-line cause and the next decision. Titles carry outcome and branch, bodies carry the single next action. Skip notify if there is no cmux socket.
 
+## Reading CI cost
+
+Three measurements that are routinely read wrong, each established against
+`test-e2e.yml` on 2026-09-23 over a 98-run window.
+
+**A cancelled job's duration is usually queue, not spend.** GitHub sets a
+queued job's `started_at` to when it entered the queue, so a run that waited 45
+minutes for a runner and was then cancelled reports a 45-minute job. Check
+`runner_name` and `steps`: both empty means no runner was ever assigned and the
+job burned nothing. Of 20 cancelled runs totalling an apparent 239 macOS
+runner-minutes, 15 never got a runner and the real spend was 46. All 15 were
+waiting on `blacksmith-6vcpu-macos-15`, whose queue then ran a 26-minute median
+against 0.6 minutes for the macOS 26 pool.
+
+**Compiling fewer schemes saves almost nothing.** `build-for-testing` over
+`cmux`, `cmux-unit` and `cmux-numeric-locale` costs 691 s, 28 s and 16 s. The
+app scheme is 94% of it and is the test host every app-host test needs, so
+selecting schemes per test target is not a lever. What the schemes cost is
+worth re-measuring before any plan depends on splitting them.
+
+**The compile is close to binary, and one file decides it.** Against the same
+restored compilation cache, a revision with no changed native sources compiled
+in 280 s; a revision differing by a single file in `Sources/` took 737 s. The
+cause is not established (Debug builds are not whole-module), but "small diff"
+does not mean "short build",
+and a cache seeded from a commit that has since drifted is worth much less than
+its hit rate suggests. Prefer adopting an already-compiled product over
+reasoning about cache warmth.
+
 ## Pitfalls
 
 Each of these has full detail in the skill named in parentheses.

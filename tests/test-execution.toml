@@ -320,6 +320,10 @@ path = "tests/test_ci_app_host_failure_census.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_replay_app_host_verdict.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_app_host_guard_structure.py"
 lane = "linux-guard"
 
@@ -337,6 +341,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_change_areas.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_fork_runner_routing.py"
 lane = "linux-guard"
 
 [[test]]
@@ -368,7 +376,15 @@ path = "tests/test_ci_reusable_job_name_lookups.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_runner_capability_resolver.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_health_report.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_runner_label_policy.py"
 lane = "linux-guard"
 
 [[test]]
@@ -492,6 +508,10 @@ path = "tests/test_ios_appstore_lane_identity.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ios_appstore_upload_marker.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ios_selected_test_execution.py"
 lane = "linux-guard"
 
@@ -572,6 +592,10 @@ path = "tests/test_preflight_trust.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_e2e_warm_derived_data.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_reuse_app_host_products.py"
 lane = "linux-guard"
 
@@ -641,6 +665,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_app_host_layered_products.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_app_host_test_rerun.py"
 lane = "linux-guard"
 
 [[test]]
@@ -797,6 +825,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_cmux_settings_supported_paths.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_settings_configuration_review_paths.py"
 lane = "linux-guard"
 
 [[test]]
@@ -1078,4 +1110,8 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_ios_conventions_diff.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ios_video_recording.py"
 lane = "linux-guard"
