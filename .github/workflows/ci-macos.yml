@@ -2298,7 +2298,7 @@ jobs:
           echo "selected_packages=$selected" >> "$GITHUB_OUTPUT"
           echo "selected_count=$count" >> "$GITHUB_OUTPUT"
 
-          if grep -qxE 'CmuxTerminal|CmuxTerminalCore' "$selected"; then
+          if grep -qxE 'CmuxTerminal|CmuxTerminalCore|CmuxCloudTui' "$selected"; then
             echo "needs_ghosttykit=true" >> "$GITHUB_OUTPUT"
           else
             echo "needs_ghosttykit=false" >> "$GITHUB_OUTPUT"
@@ -2542,7 +2542,7 @@ jobs:
             CmuxAgentChat|CmuxAuthRuntime|CmuxFoundation|CmuxIrohTransport|CmuxIrxTransport)
               ./scripts/ci/run-swift-testing-suites.sh "$pkgdir"
               ;;
-            CmuxTerminal|CmuxTerminalCore)
+            CmuxTerminal|CmuxTerminalCore|CmuxCloudTui)
               test_status=0
               output="$(swift test "${swift_test_args[@]}" 2>&1)" || test_status=$?
               printf '%s\n' "$output"
