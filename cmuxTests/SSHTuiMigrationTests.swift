@@ -92,4 +92,34 @@ struct SSHTuiMigrationTests {
         #expect(decoded.remoteTabID == "tab_persistent")
         #expect(decoded.resource.machine.isSSH)
     }
+
+    @MainActor
+    @Test("Native SSH projections remain remote before and after provider restore")
+    func nativeSSHProjectionOwnsAgentAndPathClassification() throws {
+        let workspace = Workspace()
+        let panelID = try #require(workspace.focusedPanelId)
+        let catalog = SurfaceCatalog.shared
+        defer {
+            catalog.endProjections(panelID: panelID, reason: .replaced)
+            workspace.teardownAllPanels()
+        }
+        #expect(!workspace.isRemoteTerminalContext(panelID))
+        #expect(workspace.canResolveTerminalPathsAgainstLocalFilesystem(surfaceID: panelID))
+        workspace.remoteConfiguration = configuration()
+        let resource = SurfaceResourceID(
+            machine: SurfaceMachineID(rawValue: SSHTuiConnection(configuration: configuration()).id),
+            kind: .terminal, key: "term_" + UUID().uuidString
+        )
+        catalog.restore([SurfaceProjectionRecord(panelID: panelID, resource: resource)],
+                        workspaceID: workspace.id, restoringWorkspace: workspace)
+        try #require(catalog.projectionIncludingPendingRestore(forPanel: panelID)?.resource == resource)
+        #expect(workspace.activeRemoteTerminalSurfaceIds.isEmpty)
+        #expect(workspace.isRemoteTerminalContext(panelID))
+        #expect(!workspace.canResolveTerminalPathsAgainstLocalFilesystem(surfaceID: panelID))
+        #expect(!workspace.isRemoteTerminalContext(UUID()))
+        catalog.endProjections(panelID: panelID, reason: .replaced)
+        #expect(!workspace.isRemoteTerminalContext(panelID))
+        #expect(workspace.canResolveTerminalPathsAgainstLocalFilesystem(surfaceID: panelID))
+    }
+
 }
