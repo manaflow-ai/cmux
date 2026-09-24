@@ -634,7 +634,7 @@ def check_global_search_has_dedicated_consumer() -> int:
         "pr_runner: macos-15",
         "pr_runner: macos-26",
     }
-    missing_pools = sorted(required_pr_pools - set(job.splitlines()))
+    missing_pools = sorted(pool for pool in required_pr_pools if pool not in job)
     if missing_pools:
         print(f"FAIL: pull-request app-host matrix does not span all four macOS pools: {missing_pools}")
         return 1
