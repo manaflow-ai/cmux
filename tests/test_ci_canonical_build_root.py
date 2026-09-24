@@ -201,6 +201,24 @@ class CanonicalRootMaterializationTests(unittest.TestCase):
         self.assertFalse((self.root / "src" / "stale.txt").exists())
         self.assertFalse((self.root / "src" / "sub" / "keep.txt").exists())
 
+    def test_a_volume_without_clones_falls_back_to_an_exact_rsync(self):
+        # `cp -c` needs APFS clones; anything else must still get an exact copy.
+        self.assertEqual(self.run_script().returncode, 0)
+        (self.root / "src" / "stale.txt").write_text("from an earlier job")
+        packages = self.restored_packages()
+        bin_dir = self.base / "bin"
+        bin_dir.mkdir()
+        (bin_dir / "cp").write_text("#!/bin/sh\nexit 1\n")
+        (bin_dir / "cp").chmod(0o755)
+        result = self.run_script(extra_env={"PATH": f"{bin_dir}:/usr/bin:/bin", "CMUX_CI_MOVE_SOURCE_PACKAGES": "1"})
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("copying with rsync", result.stderr)
+        self.assertFalse((self.root / "src" / "stale.txt").exists())
+        self.assertEqual((self.root / "src" / "sub" / "keep.txt").read_text(), "keep")
+        moved = self.root / "src" / ".ci-source-packages" / "checkouts" / "pkg" / "Package.swift"
+        self.assertEqual(moved.read_text(), "restored")
+        self.assertFalse(packages.exists())
+
     def test_it_refuses_inputs_that_would_produce_a_wrong_build(self):
         cases = {
             "root inside the workspace": {"root": self.workspace / "inner"},
@@ -241,6 +259,7 @@ class CanonicalRecipeTests(unittest.TestCase):
             root.mkdir()
             (root / "src").symlink_to(workspace)
             env = dict(os.environ, PATH=f"{bin_dir}:" + os.environ['PATH'], CALLS=str(calls),
+                       CMUX_CI_SWIFTPM_KEEP_ENV="CALLS",
                        CMUX_CI_CANONICAL_ROOT=str(root))
             derived = str(root / "derived-data-compile-admission")
             packages = str(workspace / ".ci-source-packages")
@@ -302,6 +321,7 @@ class CanonicalRecipeTests(unittest.TestCase):
             root.mkdir()
             (root / "src").symlink_to(workspace)
             env = dict(os.environ, PATH=f"{bin_dir}:" + os.environ['PATH'], CALLS=str(calls),
+                       CMUX_CI_SWIFTPM_KEEP_ENV="CALLS",
                        CMUX_CI_CANONICAL_ROOT=str(root))
             derived = str(root / "derived-data-compile-admission")
             result = subprocess.run(
@@ -314,6 +334,64 @@ class CanonicalRecipeTests(unittest.TestCase):
             self.assertTrue(records)
             for cwd, _args in records:
                 self.assertEqual(cwd, str(root / "src"))
+
+class SeededBuildFileSystemModeTests(unittest.TestCase):
+    """A seeded build must compare inputs by content, not by stat.
+
+    Blacksmith images install Xcode at different times, so every SDK header
+    and prebuilt module carries a different mtime on each image, and Xcode
+    rewrites the generated package module maps with identical bytes on the
+    first build after adoption. Under the default device-agnostic mode each of
+    those invalidates the seed: run 36022099083 adopted a seed at distance 0
+    and still reran 94 SwiftDriver and 64 SwiftEmitModule tasks.
+    """
+
+    def run_recipe(self, base: Path) -> tuple[list[dict], str]:
+        bin_dir = base / "bin"
+        bin_dir.mkdir()
+        calls = base / "calls.jsonl"
+        (bin_dir / "xcodebuild").write_text(
+            "#!/usr/bin/env python3\n"
+            "import os,sys,json\n"
+            "with open(os.environ['CALLS'], 'a') as f:\n"
+            " f.write(json.dumps({'args': sys.argv[1:], 'mode': os.environ.get('FileSystemMode')})+'\\n')\n"
+            "if '-version' in sys.argv: print('Xcode 26.3')\n")
+        (bin_dir / "xcodebuild").chmod(0o755)
+        workspace = base / "checkout"
+        (workspace / ".git").mkdir(parents=True)
+        root = base / "canonical"
+        root.mkdir()
+        env = dict(os.environ, PATH=f"{bin_dir}:" + os.environ["PATH"], CALLS=str(calls),
+                   CMUX_CI_CANONICAL_ROOT=str(root))
+        env.pop("FileSystemMode", None)
+        derived = str(root / "derived-data-compile-admission")
+        fingerprints = []
+        for args in [("canonical-fingerprint", derived),
+                     ("canonical-build", derived, str(workspace / ".ci-source-packages"), str(root / "cas"))]:
+            result = subprocess.run([str(SCRIPT), *args], cwd=workspace, env=env, capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            fingerprints.append(result.stdout.strip())
+        return [json.loads(line) for line in calls.read_text().splitlines()], fingerprints[0]
+
+    def test_every_scheme_builds_in_checksum_only_mode(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            records, _ = self.run_recipe(Path(tmp))
+        builds = [r for r in records if "build-for-testing" in r["args"]]
+        self.assertEqual(len(builds), 4)
+        for record in builds:
+            self.assertEqual(record["mode"], "checksum-only", record["args"])
+
+    def test_the_seed_fingerprint_names_the_mode(self):
+        # A seed recorded under another mode reruns every task when adopted,
+        # so it must not share a key with a checksum-only one.
+        with tempfile.TemporaryDirectory() as tmp:
+            _, fingerprint = self.run_recipe(Path(tmp))
+        old = subprocess.run(
+            ["shasum", "-a", "256"], input="canonical-v1\nXcode 26.3\nderived-data=derived-data-compile-admission\n",
+            capture_output=True, text=True, check=True,
+        ).stdout[:32]
+        self.assertNotEqual(fingerprint, old)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
