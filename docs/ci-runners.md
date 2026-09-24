@@ -58,8 +58,31 @@ The pull-request lane also has a toolchain variable, set together with
 
 Not every job on the pool reads it. `ci.yml`'s `claude-wrapper` never selects an
 Xcode, and the two `terminal-hang-diagnostics.yml` jobs run
-`scripts/select-ci-xcode.sh` with no pin at all, so they auto-select the newest
-stable Xcode on whichever image they land on.
+`scripts/select-ci-xcode.sh` with no pin of their own, so they take the pool
+pin described next.
+
+### Which Xcode a job gets
+
+Every macOS job that uses Xcode runs `scripts/select-ci-xcode.sh`, and
+`tests/test_ci_macos_xcode_selection.py` fails when one does not. The script
+chooses, in order:
+
+1. the job's own `CMUX_CI_XCODE_APP` (the lane variables above), if set;
+2. otherwise the version `scripts/ci/xcode-pins.txt` names for the runner's
+   macOS major: Xcode 26.3 on macOS 15 and Xcode 26.6 on macOS 26 today.
+
+Either way it stops with one `::error::` when the Xcode is below the major in
+`.xcode-version` (26), or when the pinned Xcode is not installed, instead of
+building with the image's default. On GitHub's `macos-15` image that default is
+Xcode 16.4. When a job's own pin differs from the pool pin, the job still runs
+and warns, because jobs on one pool with different Xcodes cannot share
+compilation caches or products. To move a pool to a new Xcode, edit its line in
+`scripts/ci/xcode-pins.txt` and the matching `CMUX_CI_XCODE_APP_MACOS_*`
+variable together.
+
+The deliberate exceptions are listed with reasons in the guard's `EXEMPT`
+table: the Zig-only Ghostty builds, the macOS 14 compatibility lane, and
+`relay-tls.yml`'s Xcode 16.2 job.
 
 ## Lanes
 
@@ -179,9 +202,12 @@ so a fork's own CI can hit main's caches, which anyone can read from
 `https://ci-cache.cmux.com`. Only the jobs that build the SDK 15 Ghostty CLI
 helper (`swift-package-tests`, release and nightly), `plain-paste-worker.yml`'s
 `macos-15` job and `ci-macos-compat.yml`'s macOS 15 row keep a `macos-15` fork
-branch, because they need that image. Fork jobs set no Xcode pin and take the
-image's newest stable Xcode, so a newer image Xcode is a cache miss, never a
-failure. The self-hosted guard allows a literal `macos-26` only in this exact
+branch, because they need that image. Fork jobs set no Xcode pin, so they take
+the pool pin from `scripts/ci/xcode-pins.txt` (26.6 on `macos-26`, the Xcode
+main compiles with). When a hosted image no longer carries that Xcode, a fork
+falls back to the image's newest stable Xcode with a warning, so a newer image
+Xcode is a cache miss, never a failure. Runs in `manaflow-ai` fail on a missing
+pool Xcode instead. The self-hosted guard allows a literal `macos-26` only in this exact
 `github.repository_owner != 'manaflow-ai' && 'macos-26'` form, which evaluates
 solely outside `manaflow-ai`, where the fleet's `macos-26` label does not exist.
 
