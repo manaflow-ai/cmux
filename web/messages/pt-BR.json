@@ -1,5 +1,30 @@
 {
+  "agentHarness": {
+    "title": "Configuração de harness detectada",
+    "selectionNotice": "Selecionar um provedor não inicia nem habilita esses harnesses.",
+    "selectProvider": "Selecionar {provider}",
+    "foundPath": "Encontrado {path}",
+    "foundCommand": "Comando {command} encontrado",
+    "installed": "O provedor está instalado",
+    "missing": "O provedor não está instalado",
+    "install": "Instalar com: {command}",
+    "benefitPi": "Compactação, memória e roteamento de provedores",
+    "benefitOpenagent": "Especialistas paralelos e recuperação para OpenCode",
+    "benefitClaude": "Equipes e verificação para Claude Code",
+    "benefitSuperpowers": "Planejamento, TDD, subagentes e revisão"
+  },
   "vmErrors": {
+    "guestInstall": {
+      "title": "A configuração da Cloud VM não foi concluída",
+      "reason": "A configuração convidada da Cloud VM não foi concluída.",
+      "message": "O cmux não conseguiu concluir a configuração da Cloud VM.",
+      "action": "Tente novamente. Se o problema persistir, entre em contato com o suporte."
+    },
+    "createCleanupPending": {
+      "title": "Limpeza da VM Cloud pendente",
+      "message": "A configuração da VM Cloud falhou e a limpeza ainda está pendente.",
+      "action": "Entre em contato com o suporte e informe o ID de rastreamento antes de criar outra máquina."
+    },
     "unsupported": {
       "title": "Operação de Cloud VM indisponível",
       "reason": "Este tipo de máquina não oferece esta operação.",
@@ -1259,6 +1284,7 @@
         "app": {
           "confirmQuit": "Controla quando o cmux pede confirmação antes de sair. Builds DEV sempre saem imediatamente, independentemente desta configuração. O app.warnBeforeQuit legado ainda é aceito como fallback booleano.",
           "windowTitleTemplate": "Modelo opcional para o título NSWindow. Em branco preserva o comportamento de título padrão existente do cmux, incluindo o fallback para o diretório atual. Espaços reservados compatíveis: '{windowId}', '{windowToken}', '{activeWorkspace}', '{activeDirectory}', '{defaultTitle}', '{appName}'.",
+          "devWindowDisplay": "Nome da tela usado apenas em builds DEBUG ao abrir novas janelas. Um valor vazio usa o padrão do sistema.",
           "warnBeforeQuit": "Fallback booleano legado para confirmação de saída. Use app.confirmQuit em novas configurações.",
           "warnBeforeClosingTabXButton": "Mostrar uma confirmação antes de fechar uma aba com o botão de fechar aba.",
           "hideTabCloseButton": "Ocultar os botões de fechar aba na barra de abas do painel.",
@@ -1434,6 +1460,7 @@
       "restartNew": "Criar um novo workspace (padrão)"
     },
     "keyboardShortcuts": {
+      "fileEditorWordWrap": "Alternar quebra de linha no editor de arquivos (Option+Z).",
       "title": "Atalhos de Teclado",
       "description": "Todos os atalhos de teclado disponíveis no cmux, agrupados por categoria.",
       "metaDescription": "Todos os atalhos de teclado do cmux para workspaces, superfícies, painéis divididos, navegador, notificações, busca e gerenciamento de janelas no macOS.",

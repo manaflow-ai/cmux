@@ -273,7 +273,7 @@ struct WorkspaceShellView: View {
     /// sidebar it actually renders in, not the full screen.
     @State private var splitSidebarWidth: CGFloat = 0
     #endif
-    @State private var macSelection: WorkspaceMacSelection = .all
+    @AppStorage(WorkspaceMacSelection.storageKey) private var macSelection: WorkspaceMacSelection = .all
     /// Legacy fallback while the toast presenter is disabled: the old
     /// dismissible bottom banner for workspace-action failures.
     @State var workspaceActionToast: WorkspaceActionToastContent?

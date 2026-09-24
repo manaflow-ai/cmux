@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """Inspect and edit ~/.config/cmux/cmux.json.
 
-cmux watches the file and auto-reloads on save, so writes take effect
-immediately. The file is JSONC (JSON with // and /* */ comments); this
-set/unset edits retain comments and unrelated formatting, and only write when
-the parsed value actually changes.
+cmux watches the file and reloads on save. Writes report disk persistence
+only; runtime application is not observed. The file is JSONC (JSON with // and
+/* */ comments); set/unset edits retain comments and unrelated formatting, and
+only write when the parsed value actually changes.
 
 Usage:
   cmux-settings path                    print the config path
@@ -12,6 +12,12 @@ Usage:
   cmux-settings get <dotted.path>       print value at path (JSON)
   cmux-settings set <dotted.path> <v>   set value (v parsed as JSON, falls back to string)
   cmux-settings unset <dotted.path>     remove value at path
+  cmux-settings undo <receipt-file>     restore one path if it still holds the value set/unset installed
+
+set/unset options:
+  --preview                 print the single-path change and source revision; write nothing
+  --expect-revision <rev>   refuse the write if the source changed since that preview
+  --receipt <new-file>      create a private (0600) undo receipt for this change
   cmux-settings list-supported          print every settings path the schema recognizes
   cmux-settings validate                run cmux's semantic validator on the full config
   cmux-settings open                    open the file in $EDITOR (or VS Code, then TextEdit)
@@ -30,6 +36,7 @@ import argparse
 import contextlib
 import ctypes
 import fcntl
+import hashlib
 import json
 import os
 import re
@@ -49,6 +56,40 @@ DEFAULT_PATH = Path.home() / ".config" / "cmux" / "cmux.json"
 SCHEMA_URL = (
     "https://raw.githubusercontent.com/manaflow-ai/cmux/main/web/data/cmux.schema.json"
 )
+
+
+def mutation_message(key: str) -> str:
+    """Return a localized conflict message from the bundled catalog."""
+    catalog = json.loads(
+        Path(__file__).with_name("config_mutation_messages.json").read_text(encoding="utf-8")
+    )
+    locale = next(
+        (os.environ[name] for name in ("LC_ALL", "LC_MESSAGES", "LANG") if os.environ.get(name)),
+        "en",
+    )
+    locale = locale.split(".")[0].replace("_", "-")
+    locale = {"zh-CN": "zh-Hans", "zh-TW": "zh-Hant", "zh-HK": "zh-Hant"}.get(locale, locale)
+    return catalog.get(locale, catalog.get(locale.split("-")[0], catalog["en"]))[key]
+
+
+def mutation_conflict(code: str, key: str | None = None) -> SystemExit:
+    """Print a structured conflict without config values; return the exit."""
+    message_key = {
+        "writer_busy": "busy",
+        "undo_conflict": "undoConflict",
+        "unsafe_lock": "unsafeLock",
+        "invalid_config": "invalidCandidate",
+    }.get(code, "sourceChanged")
+    if code.startswith("receipt_"):
+        message_key = "receiptInvalid"
+    print(
+        json.dumps(
+            {"status": "conflict", "code": code, "key": key, "message": mutation_message(message_key)},
+            ensure_ascii=False,
+        ),
+        file=sys.stderr,
+    )
+    return SystemExit(1)
 
 
 def strip_jsonc(text: str) -> str:
@@ -153,7 +194,7 @@ def mutation_lock(configured: Path):
     try:
         info = os.fstat(fd)
         if not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid() or info.st_nlink != 1:
-            raise SystemExit("error: refusing unsafe cmux config writer lock")
+            raise mutation_conflict("unsafe_lock")
         previous_alarm_handler = signal.getsignal(signal.SIGALRM)
 
         def lock_timeout(_signum, _frame):
@@ -164,12 +205,12 @@ def mutation_lock(configured: Path):
         try:
             fcntl.flock(fd, fcntl.LOCK_EX)
         except TimeoutError:
-            raise SystemExit("error: another cmux config write is in progress; retry")
+            raise mutation_conflict("writer_busy")
         finally:
             signal.setitimer(signal.ITIMER_REAL, 0)
             signal.signal(signal.SIGALRM, previous_alarm_handler)
         if resolved_write_path(configured) != target:
-            raise SystemExit("error: cmux config target changed while preparing the edit; retry")
+            raise mutation_conflict("source_changed")
         yield target
     finally:
         fcntl.flock(fd, fcntl.LOCK_UN)
@@ -183,6 +224,33 @@ def current_revision(path: Path) -> tuple[bytes, int, int] | None:
             return (source.read(), info.st_dev, info.st_ino)
     except FileNotFoundError:
         return None
+
+
+def revision_token(target: Path, revision: tuple[bytes, int, int] | None) -> str:
+    """Digest the resolved target, inode, and bytes a preview was computed from."""
+    digest = hashlib.sha256(str(target).encode("utf-8"))
+    if revision is not None:
+        data, device, inode = revision
+        digest.update(f"\0{device}:{inode}\0".encode("ascii"))
+        digest.update(data)
+    else:
+        digest.update(b"\0absent")
+    return digest.hexdigest()
+
+
+def owned_value(data: dict[str, Any], parts: list[str]) -> dict[str, Any]:
+    """Describe one path; absence is distinct from JSON null or a default."""
+    current: Any = data
+    for part in parts:
+        if not isinstance(current, dict) or part not in current:
+            return {"present": False}
+        current = current[part]
+    return {"present": True, "value": current}
+
+
+def same_owned_value(left: dict, right: dict) -> bool:
+    # Python's True == 1 must not authorize undo of a changed JSON value.
+    return json.dumps(left, sort_keys=True) == json.dumps(right, sort_keys=True)
 
 
 def source_for_edit(path: Path, data: dict[str, Any]) -> str:
@@ -610,58 +678,159 @@ def cmd_get(args: argparse.Namespace) -> int:
     return 0
 
 
-def cmd_set(args: argparse.Namespace) -> int:
-    configured_path = Path(args.file)
+def mutate_setting(args: argparse.Namespace, restore: dict, undo: dict | None = None) -> int:
+    """Install `restore` at args.key under the writer lock.
+
+    `restore` is an owned_value() description. With `undo`, the write happens
+    only while the path on the same resolved target still holds the receipt's
+    installed value.
+    """
+    configured = Path(args.file)
     parts = split_path(args.key)
-    value = parse_value(args.value)
-    with mutation_lock(configured_path) as path:
+    with mutation_lock(configured) as path:
         original = current_revision(path)
+        revision = revision_token(path, original)
+        expected_revision = getattr(args, "expect_revision", None)
+        if expected_revision is not None and expected_revision != revision:
+            raise mutation_conflict("source_changed", args.key)
         data = load_settings(path)
         source = source_for_edit(path, data)
-        changed = set_at(data, parts, value)
-        if not changed:
-            print(f"unchanged: {args.key} = {json.dumps(value)}")
+        before = owned_value(data, parts)
+        if undo is not None and (
+            str(path) != undo["target"] or not same_owned_value(before, undo["installed"])
+        ):
+            # Values may be private: report the path and status, not the values.
+            raise mutation_conflict("undo_conflict", args.key)
+        unchanged = same_owned_value(before, restore)
+        wants_receipt = bool(getattr(args, "receipt", None))
+        preview = getattr(args, "preview", False)
+        if unchanged and not wants_receipt and not preview:
+            print(json.dumps({"status": "unchanged", "key": args.key, "runtime": "unobserved"}))
             return 0
-        if not validate_candidate(data, path, args.scope):
-            return 1
 
+        # set_at keeps the helper's refusal to replace a scalar ancestor.
+        if restore["present"]:
+            set_at(data, parts, restore["value"])
+        else:
+            unset_at(data, parts)
         try:
-            updated = set_jsonc_path(source, parts, value)
-            json.loads(strip_jsonc(updated))
+            if restore["present"]:
+                updated = set_jsonc_path(source, parts, restore["value"])
+            else:
+                updated = remove_jsonc_path(source, parts)
+            candidate = json.loads(strip_jsonc(updated))
         except (JSONCEditError, json.JSONDecodeError) as error:
             raise SystemExit(f"error: refusing unsafe JSONC edit for {args.key}: {error}")
+        if not isinstance(candidate, dict):
+            raise mutation_conflict("invalid_config", args.key)
+        if not unchanged and not validate_candidate(candidate, path, args.scope):
+            return 1
 
-        if resolved_write_path(configured_path) != path:
-            raise SystemExit("error: cmux config target changed while preparing the edit; retry")
-        atomic_write_text(path, updated, expected_revision=original)
-    print(f"set: {args.key} = {json.dumps(value)}")
-    return 0
+        receipt = {
+            "version": 1,
+            "target": str(path),
+            "key": args.key,
+            "before": before,
+            "installed": owned_value(candidate, parts),
+        }
+        if preview:
+            print(json.dumps({
+                "status": "preview",
+                "revision": revision,
+                "change": receipt,
+                "persisted": False,
+                "runtime": "unobserved",
+            }, ensure_ascii=False))
+            return 0
+
+        output = None
+        published = False
+        receipt_error: OSError | None = None
+        try:
+            if wants_receipt:
+                destination = Path(args.receipt).absolute()
+                if destination.resolve(strict=False) in (path, Path(str(path) + ".cmux-write.lock")):
+                    raise mutation_conflict("receipt_path_conflict", args.key)
+                # Exclusive creation: a receipt is never overwritten or shared.
+                fd = os.open(
+                    destination,
+                    os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
+                    0o600,
+                )
+                output = os.fdopen(fd, "w", encoding="utf-8")
+            if resolved_write_path(configured) != path:
+                raise mutation_conflict("source_changed", args.key)
+            if not unchanged:
+                atomic_write_text(path, updated, expected_revision=original)
+            published = True
+            # A publication that fails first leaves an empty receipt, which
+            # undo refuses; it never looks like a successful change.
+            if output is not None:
+                try:
+                    json.dump(receipt, output, ensure_ascii=False)
+                    output.write("\n")
+                    output.flush()
+                except OSError as error:
+                    receipt_error = error
+        except OSError as error:
+            if not published:
+                raise
+            receipt_error = error
+        finally:
+            if output is not None:
+                try:
+                    output.close()
+                except OSError as error:
+                    if not published:
+                        raise
+                    receipt_error = receipt_error or error
+        if receipt_error is not None:
+            # The config change is committed. Report it as persisted so the
+            # caller does not retry; only the undo handle is unavailable.
+            print(json.dumps({"status": "persisted", "receipt": "failed", "runtime": "unobserved"}))
+            return 0
+        print(json.dumps({
+            "status": "unchanged" if unchanged else "persisted",
+            "key": args.key,
+            "runtime": "unobserved",
+        }))
+        return 0
+
+
+def cmd_set(args: argparse.Namespace) -> int:
+    return mutate_setting(args, {"present": True, "value": parse_value(args.value)})
 
 
 def cmd_unset(args: argparse.Namespace) -> int:
-    configured_path = Path(args.file)
-    parts = split_path(args.key)
-    with mutation_lock(configured_path) as path:
-        original = current_revision(path)
-        data = load_settings(path)
-        source = source_for_edit(path, data)
-        if not unset_at(data, parts):
-            print(f"unchanged: {args.key} (not present)")
-            return 0
-        if not validate_candidate(data, path, args.scope):
-            return 1
+    return mutate_setting(args, {"present": False})
 
+
+def cmd_undo(args: argparse.Namespace) -> int:
+    fd = os.open(args.receipt_file, os.O_RDONLY | os.O_NOFOLLOW)
+    with os.fdopen(fd, "r", encoding="utf-8") as source:
+        info = os.fstat(source.fileno())
+        if not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid() or info.st_mode & 0o077:
+            raise mutation_conflict("receipt_not_private")
         try:
-            updated = remove_jsonc_path(source, parts)
-            json.loads(strip_jsonc(updated))
-        except (JSONCEditError, json.JSONDecodeError) as error:
-            raise SystemExit(f"error: refusing unsafe JSONC edit for {args.key}: {error}")
-
-        if resolved_write_path(configured_path) != path:
-            raise SystemExit("error: cmux config target changed while preparing the edit; retry")
-        atomic_write_text(path, updated, expected_revision=original)
-    print(f"unset: {args.key}")
-    return 0
+            receipt = json.load(source)
+        except (json.JSONDecodeError, UnicodeError):
+            raise mutation_conflict("receipt_invalid")
+    if not isinstance(receipt, dict):
+        raise mutation_conflict("receipt_invalid")
+    if receipt.get("version") != 1 or not isinstance(receipt.get("key"), str):
+        raise mutation_conflict("receipt_version")
+    for name in ("before", "installed"):
+        value = receipt.get(name)
+        if (
+            not isinstance(value, dict)
+            or type(value.get("present")) is not bool
+            or (value["present"] and "value" not in value)
+        ):
+            raise mutation_conflict("receipt_value")
+    if not isinstance(receipt.get("target"), str):
+        raise mutation_conflict("receipt_target")
+    args.key = receipt["key"]
+    return mutate_setting(args, receipt["before"], undo=receipt)
 
 
 def cmd_list_supported(args: argparse.Namespace) -> int:
@@ -760,6 +929,15 @@ def main() -> int:
     p_unset = sub.add_parser("unset")
     p_unset.add_argument("key")
     p_unset.set_defaults(func=cmd_unset)
+
+    for mutating in (p_set, p_unset):
+        mutating.add_argument("--receipt", metavar="PRIVATE_RECEIPT_FILE")
+        mutating.add_argument("--preview", action="store_true")
+        mutating.add_argument("--expect-revision", metavar="REVISION")
+
+    p_undo = sub.add_parser("undo")
+    p_undo.add_argument("receipt_file")
+    p_undo.set_defaults(func=cmd_undo)
 
     sub.add_parser("list-supported").set_defaults(func=cmd_list_supported)
     sub.add_parser("validate").set_defaults(func=cmd_validate)

@@ -38,7 +38,7 @@ concurrency:
 jobs:
   authorize:
     name: Authorize trusted PR
-    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 3
     permissions:
       contents: read
@@ -91,7 +91,7 @@ jobs:
     timeout-minutes: 35
     permissions: {}
     env:
-      CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_15 }}
+      CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_PR || vars.CMUX_CI_XCODE_APP_MACOS_15 }}
       CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
       CMUX_SKIP_ZIG_BUILD: "1"
       GLAEDA_REF: ffb2af668e1be3637df2e8df4ec42085ccd3b89c
@@ -224,7 +224,7 @@ jobs:
           set -euo pipefail
           archive="$RUNNER_TEMP/persistent-mac-compile.tar.gz"
           cp "$METRICS" "$DERIVED_DATA/persistent-mac-metrics.json"
-          tar -chzf "$archive" -C "$DERIVED_DATA"             Build/Products cmux-build.log persistent-mac-metrics.json
+          COPYFILE_DISABLE=1 tar -chf - -C "$DERIVED_DATA" Build/Products cmux-build.log persistent-mac-metrics.json | gzip -1 > "$archive"
           echo "archive=$archive" >> "$GITHUB_OUTPUT"
 
       - name: Upload persistent compile product

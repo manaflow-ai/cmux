@@ -577,7 +577,23 @@ extension TerminalController {
                     throw CloudMachineLinkManager.ManagerError.wireGuardHubUnsupported
                 }
                 var payload: [String: Any]
-                if let deviceFingerprint {
+                var isCreatedReceipt = false
+                if deviceFingerprint == nil,
+                   let createdRoute = await registry.takeCreatedTrustedCarrierRoute(machineID: vmId) {
+                    isCreatedReceipt = true
+                    // New Machine: the create receipt already proved the
+                    // snapshot-v2 trusted listener and named the private
+                    // address. Skip POST /attach-endpoint (~2 s measured);
+                    // it would return this same route from the same row.
+                    payload = [
+                        "transport": "cmux-remote",
+                        "route": createdRoute,
+                        "token": "",
+                        "expires_at_unix": 0,
+                        "session": "cmux",
+                        "trusted_carrier": true,
+                    ]
+                } else if let deviceFingerprint {
                     guard let knownRoute = await registry.privateRoute(machineID: vmId) else {
                         throw CloudMachineLinkManager.ManagerError.privateRouteRequired(vmId)
                     }
@@ -627,9 +643,14 @@ extension TerminalController {
                 guard let hub else { throw CloudMachineLinkManager.ManagerError.wireGuardHubMissing }
                 let ready = try await hub.pinForExternalClient()
                 payload["wireguard_hub_socket"] = ready.socketPath
-                let addresses = payload["network_addresses"] as? [String: Any] ?? [:]
-                let resolvedRoute = try await registry.resolvedPrivateRoute(machineID: vmId, through: ready, fallbackRoute: route, addresses: ["ipv4", "ipv6"].compactMap { addresses[$0] as? String })
-                payload["route"] = resolvedRoute
+                // A just-created machine keeps the route its receipt declared
+                // (IPv4 first, like the server). Racing families here would
+                // dial a machine that is still coming up and double the wait
+                // the app's own link (already started) is paying.
+                if !isCreatedReceipt {
+                    let addresses = payload["network_addresses"] as? [String: Any] ?? [:]
+                    payload["route"] = try await registry.resolvedPrivateRoute(machineID: vmId, through: ready, fallbackRoute: route, addresses: ["ipv4", "ipv6"].compactMap { addresses[$0] as? String })
+                }
                 return payload
             }
         case "vm.sessions":

@@ -1,4 +1,18 @@
 {
+  "agentHarness": {
+    "title": "Detected harness configuration",
+    "selectionNotice": "Selecting a provider does not launch or enable these harnesses.",
+    "selectProvider": "Select {provider}",
+    "foundPath": "Found {path}",
+    "foundCommand": "Found command {command}",
+    "installed": "Provider is installed",
+    "missing": "Provider is not installed",
+    "install": "Install with: {command}",
+    "benefitPi": "Compaction, memory, and provider routing",
+    "benefitOpenagent": "Parallel specialists and recovery for OpenCode",
+    "benefitClaude": "Teams and verification for Claude Code",
+    "benefitSuperpowers": "Planning, TDD, subagents, and review"
+  },
   "coderouterAuth": {
     "title": "Authorization received",
     "description": "Return to your terminal to finish setup."
@@ -136,6 +150,17 @@
     "expiredBody": "{machine} and everything on it are fine — only this link's session ended. Reopen the desktop from cmux (right-click the machine, then Open Desktop) to get a fresh one."
   },
   "vmErrors": {
+    "guestInstall": {
+      "title": "Cloud VM setup did not finish.",
+      "reason": "The Cloud VM guest setup did not complete.",
+      "message": "cmux could not finish setting up the Cloud VM.",
+      "action": "Retry the operation. If it keeps failing, contact support."
+    },
+    "createCleanupPending": {
+      "title": "Cloud VM cleanup pending",
+      "message": "Cloud VM setup failed and cleanup is still pending.",
+      "action": "Contact support with the trace ID before creating another machine."
+    },
     "artifactUnavailable": {
       "title": "Cloud VM setup unavailable",
       "message": "Cloud VM setup is temporarily unavailable.",
@@ -2527,6 +2552,7 @@
         "app": {
           "confirmQuit": "Control when cmux asks for confirmation before quitting. DEV builds always quit immediately regardless of this setting. Legacy app.warnBeforeQuit is still accepted as a boolean fallback.",
           "windowTitleTemplate": "Optional NSWindow title template. Blank preserves cmux's existing default title behavior, including the current-directory fallback. Supported placeholders: '{windowId}', '{windowToken}', '{activeWorkspace}', '{activeDirectory}', '{defaultTitle}', '{appName}'.",
+          "devWindowDisplay": "DEBUG-only display name used when opening new windows. An empty value uses the system default.",
           "warnBeforeQuit": "Legacy boolean fallback for quit confirmation. Use app.confirmQuit for new configs.",
           "warnBeforeClosingTabXButton": "Show a confirmation before closing a tab with the tab close button.",
           "hideTabCloseButton": "Hide tab close buttons in the pane tab bar.",
@@ -2738,6 +2764,7 @@
       "workspaceActionsDefaultDesc": "Use the <defaultMenu>Default for New Workspace</defaultMenu> submenu to pick which saved workspace layout plain New Workspace should run, or choose None to return to a blank terminal. The save dialog also has a <checkbox>Use as default for new workspaces</checkbox> checkbox. The setting is <action>ui.newWorkspace.action</action>; a project-local <localConfig>.cmux/cmux.json</localConfig> value wins over <globalConfig>~/.config/cmux/cmux.json</globalConfig>."
     },
     "keyboardShortcuts": {
+      "fileEditorWordWrap": "Toggle File Editor Word Wrap (Option+Z).",
       "title": "Keyboard Shortcuts",
       "description": "Default cmux keyboard shortcuts. Every cmux-owned shortcut can be changed in Settings or ~/.config/cmux/cmux.json, including two-step chords.",
       "metaTitle": "Keyboard Shortcuts",

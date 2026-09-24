@@ -79,10 +79,14 @@ extension CmuxEventBus {
         )
     }
 
+    /// - Parameter submittedLength: the prompt's length as submitted, when the
+    ///   producer reported it. `message` may already be truncated by the time it
+    ///   reaches us, so counting it would report the cap instead of the prompt.
     func publishWorkspacePromptSubmitted(
         workspaceId: UUID,
         message: String?,
         preview: String?,
+        submittedLength: Int? = nil,
         source: String = "workspace.prompt_submit"
     ) {
         publish(
@@ -94,7 +98,7 @@ extension CmuxEventBus {
                 "workspace_id": workspaceId.uuidString,
                 "message": NSNull(),
                 "message_preview": preview ?? NSNull(),
-                "message_length": message?.count ?? 0,
+                "message_length": submittedLength ?? message?.count ?? 0,
                 "redacted_fields": ["message"]
             ]
         )

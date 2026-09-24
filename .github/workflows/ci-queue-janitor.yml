@@ -1,12 +1,13 @@
 name: CI queue janitor
 
-# Pull request macOS jobs share one small runner pool. When more than
-# CI_JANITOR_QUEUE_THRESHOLD macOS jobs are queued, cancel the runs whose
-# results nobody will use: exp/* experiment pushes, runs for closed, merged or
-# superseded pull request heads, full-suite runs whose PR dropped `full-ci`
+# Pull request macOS jobs share a few small runner pools. Every sweep cancels
+# macOS runs for closed, merged or superseded pull request heads, whose results
+# nobody will use. When more than CI_JANITOR_QUEUE_THRESHOLD macOS jobs are
+# queued on one pool, it also cancels the runs holding that pool whose results
+# are waste: exp/* experiment pushes, full-suite runs whose PR dropped `full-ci`
 # once a replacement run is waiting, and last, CI runs whose required
-# ci-status is already decided against them by a failed `app-host unit tests`
-# shard, in that order. Draft pull requests are never cancelled for being
+# ci-status is already decided against them by a failed `macOS compile
+# admission` or `app-host unit tests` shard, in that order. Draft pull requests are never cancelled for being
 # drafts, and a run whose diff changes what the failing shard does is never
 # cancelled for being doomed.
 # Main pushes, merge groups, main schedules/dispatches, release/tag, nightly
@@ -15,6 +16,12 @@ name: CI queue janitor
 #
 # Scheduled sweeps cancel for real unless the repository variable
 # CI_JANITOR_DRY_RUN is "true". A manual dispatch defaults to a dry run.
+#
+# Separately, every sweep cancels (then force-cancels) a few orphaned runs: a
+# job queued with no runner for CI_JANITOR_ORPHAN_MINUTES (default 120) while
+# a newer job on the same labels got one, or a run still queued after a day.
+# These are lost runner assignments, not demand, so no queue threshold gates
+# them; release, tag and merge-queue orphans are only reported.
 on:
   schedule:
     - cron: "*/10 * * * *"
@@ -40,7 +47,7 @@ concurrency:
 jobs:
   sweep:
     name: Sweep wasted macOS demand
-    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 10
     steps:
       - name: Check out trusted janitor
@@ -55,4 +62,5 @@ jobs:
           DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run && 'true' || vars.CI_JANITOR_DRY_RUN == 'true' && 'true' || 'false' }}
           QUEUE_THRESHOLD: ${{ vars.CI_JANITOR_QUEUE_THRESHOLD }}
           CI_PULL_REQUEST_SUITE: ${{ vars.CI_PULL_REQUEST_SUITE || 'compile-only' }}
+          ORPHAN_MINUTES: ${{ vars.CI_JANITOR_ORPHAN_MINUTES }}
         run: python3 scripts/ci/queue_janitor.py

@@ -23,8 +23,8 @@ private final class RejectingRestoreTabDelegate: BonsplitDelegate {
 @MainActor
 @Suite("Terminal startup restore failure handling", .serialized)
 struct TerminalStartupRestoreFailureTests {
-    @Test("Binding-only persistent SSH resume waits for topology admission")
-    func persistentSSHBindingOnlyResumeWaitsForTopologyAdmission() throws {
+    @Test("Binding-only persistent SSH resume attaches after topology commit without local census admission")
+    func persistentSSHBindingOnlyResumeBypassesLocalCensusAdmission() throws {
         let defaults = try makeAutoResumeDefaults()
         defer { defaults.store.removePersistentDomain(forName: defaults.name) }
         TerminalController.shared.stop(cleanupDiscoveryState: true)
@@ -94,11 +94,10 @@ struct TerminalStartupRestoreFailureTests {
         restored.terminalStartupRestoreCoordinator.commitPendingRestores(
             panelIDs: [restoredPanelID]
         )
-        // Topology publication alone does not admit an ownership-sensitive
-        // resume. The deferred resolver must still accept or cancel it from
-        // the fresh shared index before the runtime can start.
-        #expect(!restoredPanel.surface.canCreateRuntimeSurface)
-        #expect(restored.deferredAgentResumeRestoresByPanelId[restoredPanelID] != nil)
+        // The remote daemon owns persistent PTY admission. A local census
+        // must not prevent attaching the existing remote session.
+        #expect(restoredPanel.surface.canCreateRuntimeSurface)
+        #expect(restored.deferredAgentResumeRestoresByPanelId[restoredPanelID] == nil)
     }
 
     @Test("Transferred persistent SSH restore adopts the destination owner")

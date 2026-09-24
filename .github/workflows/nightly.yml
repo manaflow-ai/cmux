@@ -79,7 +79,7 @@ env:
 
 jobs:
   decide:
-    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     outputs:
       should_build: ${{ steps.decide.outputs.should_build }}
       head_sha: ${{ steps.decide.outputs.head_sha }}
@@ -104,6 +104,16 @@ jobs:
       entitlements: ${{ steps.decide.outputs.entitlements }}
       icon_name: ${{ steps.decide.outputs.icon_name }}
     steps:
+      # The build-input check below classifies changed paths with the same
+      # router CI uses, which reads the Xcode project and the package graph.
+      # Only the paths are needed, so one revision of history is enough.
+      - name: Check out the revision under consideration
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+
       - name: Decide whether a nightly build is needed
         id: decide
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
@@ -220,7 +230,74 @@ jobs:
               }
             }
 
-            const shouldBuild = !seedOnly && (buildOnly || !isMainRef || forceBuild || nightlySha !== headSha);
+            let shouldBuild = !seedOnly && (buildOnly || !isMainRef || forceBuild || nightlySha !== headSha);
+            // The six-hour schedule only warms caches downstream, and keeps
+            // its eligibility outputs as they are so that routing still works.
+            // It is named here because the build-input check below leaves it
+            // alone, and it explains the final app workload further down.
+            const scheduledCacheOnly = context.eventName === 'schedule' &&
+              context.payload?.schedule === '17 */6 * * *';
+
+            // A different commit is not a different app. Web, documentation
+            // and CI-only merges land between the changes that can alter app
+            // bytes, and each one otherwise costs a full publishing build, so
+            // compare the paths changed since the published commit rather than
+            // the commit itself. Only a proven-neutral change skips: a partial
+            // comparison, an unknown path, or an API failure builds, force and
+            // manual dispatch never consult this, and the daily catch-up
+            // schedule still publishes main HEAD as a backstop.
+            let unchangedBuildInputs = false;
+            let buildInputReason = null;
+            if (
+              shouldBuild &&
+              isMainRef &&
+              nightlySha &&
+              !forceBuild &&
+              !buildOnly &&
+              // A person asking for this revision by hand gets it, and the
+              // 08:47 UTC catch-up still publishes main HEAD every day. That
+              // keeps one daily build as a backstop, so a path this check
+              // wrongly classifies costs at most a day of staleness.
+              context.eventName !== 'workflow_dispatch' &&
+              context.eventName !== 'schedule'
+            ) {
+              try {
+                const { data } = await github.rest.repos.compareCommitsWithBasehead({
+                  owner,
+                  repo,
+                  basehead: `${nightlySha}...${headSha}`,
+                });
+                // Cumulative since the last published commit, not since the
+                // previous push. A three-dot comparison only spans that whole
+                // gap when the published commit is the merge base. GitHub
+                // caps the file list at 300 entries and paginates commits, so
+                // require a list that is under the cap and a commit count that
+                // matches the total: a partial answer must not read as proof.
+                const files = data.files;
+                if (
+                  data.status === 'ahead' &&
+                  data.merge_base_commit?.sha === nightlySha &&
+                  data.total_commits === data.commits?.length &&
+                  Array.isArray(files) &&
+                  files.length > 0 &&
+                  files.length < 300
+                ) {
+                  const paths = files.flatMap((file) =>
+                    [file.filename, file.previous_filename].filter(Boolean));
+                  const classified = await exec.getExecOutput(
+                    'python3',
+                    ['scripts/ci/nightly_build_inputs.py', '--files-from', '-'],
+                    { input: Buffer.from(`${paths.join('\n')}\n`) },
+                  );
+                  const decision = JSON.parse(classified.stdout.trim());
+                  unchangedBuildInputs = decision.build_inputs_changed === false;
+                  buildInputReason = decision.reason;
+                }
+              } catch (error) {
+                core.warning(`Could not prove the Nightly build inputs unchanged; building: ${error.message}`);
+              }
+            }
+            if (unchangedBuildInputs) shouldBuild = false;
 
             // Push throttle. Main merges arrive faster than one nightly takes
             // to build, sign, and publish (about 45 minutes), so publishing
@@ -257,15 +334,15 @@ jobs:
                 core.warning(`Could not read the published ${channelIdentity.releaseTag} commit; building: ${error.message}`);
               }
             }
-            // Explain the final app workload separately from the eligibility
-            // outputs: the six-hour schedule only warms caches downstream.
-            const scheduledCacheOnly = context.eventName === 'schedule' &&
-              context.payload?.schedule === '17 */6 * * *';
             let decisionReason;
             if (seedOnly) {
               decisionReason = 'Manual cache-only run: refresh compilation caches without building or publishing an app.';
             } else if (scheduledCacheOnly) {
               decisionReason = 'Scheduled cache warmup: refresh compilation caches only. The daily 08:47 UTC schedule is the app catch-up run.';
+            } else if (unchangedBuildInputs) {
+              decisionReason =
+                `Skipping this build: nothing that reaches the app changed since ${nightlySha.slice(0, 7)} ` +
+                `(${buildInputReason}). Use force=true in Run workflow to build this commit anyway.`;
             } else if (!shouldBuild) {
               decisionReason = 'This main commit is already published. Use force=true in Run workflow to rebuild the same commit; manual runs already bypass the push throttle.';
             } else if (pushThrottled) {
@@ -302,6 +379,7 @@ jobs:
                 [{data: 'push minimum commit age (hours)', header: true}, Number.isFinite(minIntervalHours) && minIntervalHours > 0 ? String(minIntervalHours) : '(disabled)'],
                 [{data: 'published commit age (hours)', header: true}, publishedCommitAgeHours === null ? '(not checked)' : publishedCommitAgeHours.toFixed(2)],
                 [{data: 'push throttled', header: true}, String(pushThrottled)],
+                [{data: 'app build inputs changed', header: true}, buildInputReason === null ? '(not checked)' : String(!unchangedBuildInputs)],
                 [{data: 'app build selected', header: true}, String(appBuildSelected)],
                 [{data: 'publish app this run', header: true}, String(appBuildSelected && shouldPublish)],
                 [{data: 'fast dogfood build', header: true}, String(fastBuild)],
@@ -315,7 +393,8 @@ jobs:
     needs: decide
     if: github.event_name == 'schedule' && github.event.schedule == '17 */6 * * *' || github.event_name == 'workflow_dispatch' && inputs.seed_only
     # Match the PR Release-build runner and Xcode so its compilation cache is reusable.
-    runs-on: ${{ vars.MACOS_RUNNER_26_RELEASE || 'blacksmith-6vcpu-macos-26' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
+    environment: ${{ github.ref == 'refs/heads/main' && 'ci-cache-writer' || '' }}
     # This job rebuilds the cache after the store drops it, so it runs cold
     # by design; scheduled run 35134963192 was cancelled at 45 minutes.
     timeout-minutes: 90
@@ -373,7 +452,7 @@ jobs:
         with:
           backend: ${{ inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND || 'r2' }}
           path: .spm-cache
-          key: spm-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
+          key: spm-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved', 'scripts/ci/swiftpm-cache-layout') }}
           restore-keys: spm-
 
       - name: Sanitize Swift package cache
@@ -394,6 +473,7 @@ jobs:
           CMUX_SKIP_ZIG_BUILD=1 xcodebuild -scheme cmux -configuration Release -derivedDataPath build-universal \
             -destination 'generic/platform=macOS' \
             -clonedSourcePackagesDirPath .spm-cache \
+            -packageCachePath "$PWD/.spm-cache/.package-cache" \
             -showBuildTimingSummary \
             ARCHS="arm64 x86_64" \
             ONLY_ACTIVE_ARCH=NO \
@@ -466,23 +546,26 @@ jobs:
         with:
           backend: ${{ inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND || 'r2' }}
           path: .spm-cache
-          key: spm-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
+          key: spm-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved', 'scripts/ci/swiftpm-cache-layout') }}
 
   refresh-test-compilation-cache:
     needs: decide
-    # The only writer of the Debug compilation cache that ci.yml
-    # `macos-compile-admission` restores. Scheduled, not per push: the seed
-    # mostly saves the package layer, which changes slowly, and a build per
-    # merge would take macOS slots from the pull request queue.
+    # Writes the cold DerivedData seed that ci-macos.yml compile admission
+    # adopts, and the Debug compilation cache. Admission no longer restores
+    # that cache (the app target missed on every file; see
+    # tests/test_ci_test_compilation_cache_seed.sh), so it has no reader on
+    # main today. Scheduled, not per push: a build per merge would take macOS
+    # slots from the pull request queue.
     if: github.event_name == 'schedule' && github.event.schedule == '17 */6 * * *' || github.event_name == 'workflow_dispatch' && inputs.seed_only
     # Match the admission job's runner and Xcode. The cache key carries the
     # toolchain and the build paths, so a mismatch is a miss, not a wrong hit.
     # Pull requests are what restore this seed, so track the runner the
     # admission job picks for `pull_request`, not the merge-queue one.
-    runs-on: ${{ vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15' }}
+    environment: ${{ github.ref == 'refs/heads/main' && 'ci-cache-writer' || '' }}
     timeout-minutes: 75
     env:
-      CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_15 }}
+      CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_PR || vars.CMUX_CI_XCODE_APP_MACOS_15 }}
       CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
       CMUX_SKIP_ZIG_BUILD: "1"
     steps:
@@ -507,8 +590,12 @@ jobs:
           set -euo pipefail
           # The same paths as ci.yml `macos-compile-admission`: they are part of
           # every cache entry this job writes.
-          echo "CMUX_COMPILE_ADMISSION_DERIVED_DATA=$RUNNER_TEMP/cmux-derived-data-compile-admission" >> "$GITHUB_ENV"
-          echo "CMUX_COMPILE_ADMISSION_CAS=$RUNNER_TEMP/cmux-compile-admission-cas" >> "$GITHUB_ENV"
+          # Fixed paths survive across jobs on persistent runners. Clear them
+          # before any trusted product/cache restoration.
+          root="${CMUX_CI_CANONICAL_ROOT:-/private/tmp/cmux-ci}"
+          rm -rf "$root/derived-data-compile-admission" "$root/compile-admission-cas"
+          echo "CMUX_COMPILE_ADMISSION_DERIVED_DATA=${CMUX_CI_CANONICAL_ROOT:-/private/tmp/cmux-ci}/derived-data-compile-admission" >> "$GITHUB_ENV"
+          echo "CMUX_COMPILE_ADMISSION_CAS=${CMUX_CI_CANONICAL_ROOT:-/private/tmp/cmux-ci}/compile-admission-cas" >> "$GITHUB_ENV"
 
       - name: Select Xcode
         run: ./scripts/select-ci-xcode.sh
@@ -517,7 +604,7 @@ jobs:
         id: compilation-cache-key
         run: |
           set -euo pipefail
-          echo "fingerprint=$(scripts/ci/compile-app-host-test-product.sh fingerprint "$CMUX_COMPILE_ADMISSION_DERIVED_DATA")" >> "$GITHUB_OUTPUT"
+          echo "fingerprint=$(scripts/ci/compile-app-host-test-product.sh canonical-fingerprint "$CMUX_COMPILE_ADMISSION_DERIVED_DATA")" >> "$GITHUB_OUTPUT"
 
       - name: Restore test compilation cache
         id: compilation-cache-restore
@@ -546,7 +633,7 @@ jobs:
         with:
           backend: ${{ inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND || 'r2' }}
           path: .ci-source-packages
-          key: spm-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
+          key: spm-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved', 'scripts/ci/swiftpm-cache-layout') }}
           restore-keys: spm-
 
       - name: Sanitize Swift package cache
@@ -557,14 +644,23 @@ jobs:
         if: steps.compilation-cache-restore.outputs.cache-hit != 'true'
         run: |
           set -euo pipefail
-          scripts/ci/compile-app-host-test-product.sh resolve \
+          scripts/ci/compile-app-host-test-product.sh canonical-resolve \
             "$CMUX_COMPILE_ADMISSION_DERIVED_DATA" "$PWD/.ci-source-packages"
+
+      # ci-macos.yml compile admission adopts this build's DerivedData for pull
+      # requests. The recorded content and times are how it tells which inputs
+      # a later revision changed. See scripts/ci/seed_derived_data.py.
+      - name: Record DerivedData seed inputs
+        id: derived-data-record
+        if: steps.compilation-cache-restore.outputs.cache-hit != 'true'
+        continue-on-error: true
+        run: python3 scripts/ci/seed_derived_data.py record "$CMUX_CI_CANONICAL_SRC" "$CMUX_COMPILE_ADMISSION_DERIVED_DATA"
 
       - name: Refresh test compilation cache
         if: steps.compilation-cache-restore.outputs.cache-hit != 'true'
         run: |
           set -euo pipefail
-          scripts/ci/compile-app-host-test-product.sh build \
+          scripts/ci/compile-app-host-test-product.sh canonical-build \
             "$CMUX_COMPILE_ADMISSION_DERIVED_DATA" \
             "$PWD/.ci-source-packages" \
             "$CMUX_COMPILE_ADMISSION_CAS"
@@ -610,6 +706,18 @@ jobs:
           path: ${{ env.CMUX_COMPILE_ADMISSION_CAS }}
           key: xcode-compilation-test-${{ runner.os }}-${{ runner.arch }}-${{ steps.compilation-cache-key.outputs.fingerprint }}-${{ needs.decide.outputs.head_sha }}
 
+      # canonical-resolve copies the workspace to the canonical root and
+      # resolves there, so the workspace copy is still exactly what was
+      # restored. Save what the resolve wrote, or a fallback restore of an
+      # older layout is saved again under the current key.
+      - name: Collect resolved Swift packages
+        if: steps.compilation-cache-restore.outputs.cache-hit != 'true' && steps.swift-packages-restore.outputs.cache-hit != 'true'
+        run: |
+          set -euo pipefail
+          resolved="${CMUX_CI_CANONICAL_ROOT:-/private/tmp/cmux-ci}/src/.ci-source-packages"
+          test -d "$resolved/.package-cache"
+          rsync -a --delete "$resolved/" .ci-source-packages/
+
       - name: Save Swift packages
         if: steps.compilation-cache-restore.outputs.cache-hit != 'true' && steps.swift-packages-restore.outputs.cache-hit != 'true'
         uses: ./.github/actions/cache-save
@@ -622,14 +730,37 @@ jobs:
         with:
           backend: ${{ inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND || 'r2' }}
           path: .ci-source-packages
-          key: spm-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
+          key: spm-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved', 'scripts/ci/swiftpm-cache-layout') }}
+
+      # R2 only: a multi-gigabyte entry in the GitHub store evicts the seeds
+      # above (#13160). A failure here never fails the seed.
+      - name: Bound DerivedData seed size
+        id: derived-data-bound
+        if: steps.compilation-cache-restore.outputs.cache-hit != 'true' && steps.derived-data-record.outcome == 'success' && (inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND || 'r2') == 'r2'
+        continue-on-error: true
+        run: python3 scripts/ci/seed_derived_data.py prune "$CMUX_COMPILE_ADMISSION_DERIVED_DATA"
+
+      - name: Save DerivedData seed
+        if: steps.derived-data-bound.outputs.save == 'true'
+        continue-on-error: true
+        uses: ./.github/actions/cache-save
+        env:
+          # Only an R2 save sees the bucket credentials.
+          AWS_ACCESS_KEY_ID: ${{ (inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND) == 'r2' && secrets.CI_CACHE_R2_ACCESS_KEY_ID || '' }}
+          AWS_SECRET_ACCESS_KEY: ${{ (inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND) == 'r2' && secrets.CI_CACHE_R2_SECRET_ACCESS_KEY || '' }}
+          CI_CACHE_R2_ENDPOINT: ${{ (inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND) == 'r2' && format('https://{0}.r2.cloudflarestorage.com', secrets.CI_CACHE_R2_ACCOUNT_ID) || '' }}
+          CI_CACHE_R2_BUCKET: ${{ vars.CI_CACHE_R2_BUCKET }}
+        with:
+          backend: r2
+          path: ${{ env.CMUX_COMPILE_ADMISSION_DERIVED_DATA }}
+          key: admission-derived-data-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.compilation-cache-key.outputs.fingerprint }}-${{ needs.decide.outputs.head_sha }}
 
   build-nightly-ghostty-cli-helper:
     needs: decide
     if: needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') && needs.decide.outputs.build_only != 'true'
     # Zig 0.15.2 cannot link the real helper on macOS 26. Match the stable
     # release workflow by building and verifying it on macOS 15 instead.
-    runs-on: ${{ needs.decide.outputs.fast_build == 'true' && 'blacksmith-6vcpu-macos-15' || vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-15' || (needs.decide.outputs.fast_build == 'true' && 'blacksmith-6vcpu-macos-15' || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15') }}
     timeout-minutes: 20
     env:
       NIGHTLY_FAST_BUILD: ${{ needs.decide.outputs.fast_build }}
@@ -686,11 +817,14 @@ jobs:
       daemon_build: ${{ steps.remote_daemon.outputs.build }}
       daemon_version: ${{ steps.remote_daemon.outputs.version }}
     if: needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *')
-    # Full runs match the cache warmer and stable release lane. Fast branch
-    # dogfood always uses the dedicated Blacksmith image. A repository-wide
-    # runner override may point at a slower shared builder, which defeats the
-    # purpose of the one-architecture path.
-    runs-on: ${{ needs.decide.outputs.fast_build == 'true' && 'blacksmith-12vcpu-macos-26' || vars.MACOS_RUNNER_26_NIGHTLY_BUILD || 'blacksmith-6vcpu-macos-26' }}
+    # Full runs share the cache warmer's and stable release lane's image and
+    # toolchain, which is what the compilation cache is keyed on — OS, arch and
+    # toolchain, never instance size, which is deliberately larger here. Fast
+    # branch dogfood always uses the dedicated Blacksmith image. A
+    # repository-wide runner override may point at a slower shared builder,
+    # which defeats the purpose of the one-architecture path.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (needs.decide.outputs.fast_build == 'true' && 'blacksmith-12vcpu-macos-26' || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_26_LARGE || 'blacksmith-12vcpu-macos-26') }}
+    environment: ${{ github.ref == 'refs/heads/main' && 'ci-cache-writer' || '' }}
     # The Blacksmith cache is scoped per branch and also drops main's own
     # entry (runs 35179030871 and 35182663752 restored nothing and were
     # cancelled at 45 minutes mid-compile), so the budget must fit a cold
@@ -789,7 +923,7 @@ jobs:
         with:
           backend: ${{ inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND || 'r2' }}
           path: .spm-cache
-          key: spm-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
+          key: spm-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved', 'scripts/ci/swiftpm-cache-layout') }}
           restore-keys: spm-
 
       - name: Sanitize Swift package cache
@@ -818,10 +952,20 @@ jobs:
           # step went from 21 minutes to 31-40 (#12704). The diagnostics
           # wrapper does not need a serial build; PR 12704 recorded 95% free
           # memory on the 50 GiB host during the failure it was written for.
+          #
+          # The app target's Rust helper phases run after the Swift compile but
+          # do not read its output. Build them now at low priority so those
+          # phases find the local-source helpers fresh instead of building them after
+          # the compile. A failed or late prebuild only leaves that work to the
+          # phases, so its status never fails this step.
+          python3 scripts/ci/run-with-helper-prebuild.py \
+            --derived-data build-universal --configuration Release --archs "$archs" \
+            --log "$RUNNER_TEMP/helper-prebuild.log" -- \
           ./scripts/ci/run-xcodebuild-with-diagnostics.sh -- \
             env CMUX_SKIP_ZIG_BUILD=1 xcodebuild -scheme cmux -configuration Release -derivedDataPath build-universal \
             -destination 'generic/platform=macOS' \
             -clonedSourcePackagesDirPath .spm-cache \
+            -packageCachePath "$PWD/.spm-cache/.package-cache" \
             -showBuildTimingSummary \
             ARCHS="$archs" \
             ONLY_ACTIVE_ARCH="$only_active" \
@@ -893,7 +1037,7 @@ jobs:
         with:
           backend: ${{ inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND || 'r2' }}
           path: .spm-cache
-          key: spm-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
+          key: spm-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved', 'scripts/ci/swiftpm-cache-layout') }}
 
       # Bundle once here, not per sign variant, so every variant carries the same
       # cmux-tui build and the download happens a single time.
@@ -1014,7 +1158,7 @@ jobs:
     permissions:
       contents: read
       actions: read
-    runs-on: ${{ needs.decide.outputs.fast_build == 'true' && 'blacksmith-6vcpu-macos-26' || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (needs.decide.outputs.fast_build == 'true' && 'blacksmith-6vcpu-macos-26' || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26') }}
     # Start the standalone helper submission early so
     # Apple's first wait overlaps useful work; finish it before the final DMG.
     # Delta generation against two previous builds adds about 15 minutes.
@@ -1531,7 +1675,7 @@ jobs:
       cancel-in-progress: false
     needs: [decide, build-nightly-app, build-sign-notarize-nightly]
     if: needs.decide.outputs.should_build == 'true' && needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.build_only != 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *')
-    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 30
     env:
       NIGHTLY_LEGACY_VARIANT: ${{ needs.decide.outputs.legacy_variant }}
@@ -1689,38 +1833,28 @@ jobs:
       - name: Move channel release tag to built commit
         if: needs.decide.outputs.should_publish == 'true'
         env:
-          GITHUB_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git tag -f "$CHANNEL_RELEASE_TAG" "${{ needs.decide.outputs.head_sha }}"
-          # Push via a tokenized URL so we neither rely on the persisted
-          # checkout credentials (which intermittently fail with "Device not
-          # configured" on self-hosted runners) nor overlay a second
-          # Authorization header on top of them (which makes GitHub reject the
-          # push with `remote: Duplicate header: "Authorization"`).
-          # GitHub can transiently time out checking workflow permissions on
-          # a tag push. Retrying the same fixed commit is idempotent; never
-          # mark publication complete if all attempts fail.
-          for attempt in 1 2 3; do
-            if git push "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" \
-              "refs/tags/${CHANNEL_RELEASE_TAG}" --force; then
-              break
-            fi
-            if [ "$attempt" -eq 3 ]; then
-              echo "::error::Channel release tag push failed after 3 attempts"
-              exit 1
-            fi
-            sleep "$((attempt * 5))"
-          done
+          # Use the refs API rather than receive-pack. A Git push was rejected
+          # when GitHub timed out checking workflow-file changes across a large
+          # tag jump (the Actions token has no `workflows` permission).
+          # Every rc/** branch shares the rc tag and those branches diverge,
+          # so only the nightly tag requires a fast-forward.
+          # The helper retries only transient API/network failures and reads the
+          # ref back before this job can report publication complete.
+          python3 scripts/ci/update-release-tag.py \
+            --repo "$GITHUB_REPOSITORY" \
+            --tag "$CHANNEL_RELEASE_TAG" \
+            --sha "${{ needs.decide.outputs.head_sha }}" \
+            ${{ needs.decide.outputs.release_tag != 'nightly' && '--allow-non-descendant' || '' }}
 
   # A nightly that fails on main stalls every NIGHTLY install silently. Keep
   # one open issue per breakage so the failure is visible without watching Actions.
   report-nightly-failure:
     needs: [decide, build-nightly-ghostty-cli-helper, build-nightly-app, build-sign-notarize-nightly, publish-nightly]
     if: always() && needs.decide.outputs.should_publish == 'true' && contains(needs.*.result, 'failure')
-    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     permissions:
       contents: read
       issues: write
@@ -1760,7 +1894,7 @@ jobs:
   close-nightly-failure-issue:
     needs: [decide, publish-nightly]
     if: needs.decide.outputs.should_publish == 'true' && needs.publish-nightly.result == 'success'
-    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     permissions:
       contents: read
       issues: write

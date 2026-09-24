@@ -23,7 +23,8 @@ def test_app_host_groups_are_parallel_and_owned() -> None:
     expected = {
         "Validate unit-test SwiftPM retry guard": "app-host-execution",
         "Validate Swift Testing suite timeout guard": "app-host-execution",
-        "Validate xcodebuild noninteractive crash prompt guard": "app-host-execution",
+        "Validate xcodebuild noninteractive crash prompt guard": "app-host-watchdog",
+        "Validate hung test watchdog": "app-host-watchdog",
         "Validate xcodebuild failure diagnostics": "app-host-execution",
         "Validate pipe-safe CI capture": "app-host-execution",
         "Validate focused test launcher": "app-host-execution",
@@ -40,6 +41,7 @@ def test_app_host_groups_are_parallel_and_owned() -> None:
         "Validate Xcode compilation cache pruning": "app-host-cache",
         "Validate cmux scheme test configuration": "app-host-cache",
         "Validate selected iOS test execution guard": "app-host-cache",
+        "Validate iOS video recording failures": "app-host-cache",
     }
     steps = job["steps"]
     for name, group in expected.items():

@@ -3,6 +3,7 @@
 
 import ast
 import json
+import re
 import os
 import subprocess
 import sys
@@ -441,7 +442,8 @@ class LinuxGuardRoutingTests(unittest.TestCase):
             "scripts/ci/swift_incremental_diagnostics.py": ("preflight",),
             "tests/test_ci_persistent_mac_compile.py": ("preflight", "quality-determinism"),
             "tests/test_swift_incremental_diagnostics.py": ("preflight", "quality-determinism"),
-            "tests/test_ci_self_hosted_guard.sh": ("preflight", "quality-determinism"),
+            # cmux.ci.guard runs it too, so the ci leg observes it.
+            "tests/test_ci_self_hosted_guard.sh": ("preflight", "ci", "quality-determinism"),
         }
         for path, groups in expected_groups.items():
             with self.subTest(path=path):
@@ -549,6 +551,89 @@ class LinuxGuardRoutingTests(unittest.TestCase):
         for value in ("", "False", "invalid"):
             needs["changes"]["outputs"]["ghosttykit_release"] = value
             self.assertNotEqual(run_linux_preflight(needs).returncode, 0)
+
+
+class InlineGuardGroupLiteralTests(unittest.TestCase):
+    """.github/workflows/ci.yml retypes GROUPS as JSON instead of deriving it.
+
+    The inline shell fallback in ci.yml emits linux_guard_test_groups directly,
+    bypassing detect_linux_guard_changes.py. Nothing else compares those
+    literals to GROUPS, so a group added to the tuple but not to the literal
+    never reaches `fromJSON(inputs.linux_guard_test_groups)` -- the lane
+    reports green having never run.
+    """
+
+    LITERAL_RE = re.compile(r"linux_guard_test_groups=(\[[^\]]*\])")
+
+    def literals(self):
+        text = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
+        found = [json.loads(m) for m in self.LITERAL_RE.findall(text)]
+        self.assertTrue(found, "ci.yml no longer emits linux_guard_test_groups inline")
+        return found
+
+    def test_the_full_matrix_literal_matches_GROUPS_exactly(self):
+        full = max(self.literals(), key=len)
+        self.assertEqual(
+            tuple(full),
+            GROUPS,
+            "ci.yml's full guard matrix has drifted from GROUPS in "
+            "scripts/ci/workflow_guard_groups.py; a group missing here silently "
+            "never runs",
+        )
+
+    def test_every_literal_only_names_known_groups(self):
+        for literal in self.literals():
+            with self.subTest(literal=literal):
+                unknown = sorted(set(literal) - set(GROUPS))
+                self.assertEqual(
+                    unknown, [], "ci.yml names guard groups that do not exist in GROUPS"
+                )
+                self.assertEqual(
+                    len(literal), len(set(literal)), "duplicate group in ci.yml literal"
+                )
+
+
+class GuardLegBalanceTests(unittest.TestCase):
+    """The macOS admission gate waits for the slowest guard leg."""
+
+    def steps_by_name(self):
+        return {step.get("name"): step for step in guard_steps(GUARD_WORKFLOW.read_text(encoding="utf-8"))}
+
+    def profile_paths(self):
+        entrypoint = ROOT / "scripts/ci/workloads/ci-guard.sh"
+        return set(workflow_guard_groups.DIRECT_PATH.findall(entrypoint.read_text(encoding="utf-8")))
+
+    def test_paths_a_workload_profile_runs_belong_to_the_calling_group(self):
+        for path in ("scripts/ci/workloads/ci-guard.sh", *sorted(self.profile_paths())):
+            with self.subTest(path=path):
+                self.assertIn("ci", groups_for_path(path) or ())
+
+    def test_the_ci_leg_does_not_rerun_what_its_profile_runs(self):
+        profile = self.profile_paths()
+        for name, step in self.steps_by_name().items():
+            if step.get("if") != "${{ matrix.group == 'ci' }}":
+                continue
+            if "cmux_workload_profile.py run cmux.ci.guard" in step.get("run", ""):
+                continue
+            with self.subTest(step=name):
+                rerun = profile & set(workflow_guard_groups.DIRECT_PATH.findall(step.get("run", "")))
+                self.assertEqual(rerun, set())
+
+    def test_the_watchdog_guards_have_their_own_leg(self):
+        steps = self.steps_by_name()
+        for name in ("Validate hung test watchdog", "Validate xcodebuild noninteractive crash prompt guard"):
+            with self.subTest(step=name):
+                self.assertEqual(steps[name].get("if"), "${{ matrix.group == 'app-host-watchdog' }}")
+        # The crash prompt test reads this helper; no step names it in a run.
+        for path in ("scripts/ci/xcodebuild_noninteractive.py", "scripts/ci/hung_test_watchdog.py",
+                     "scripts/ci/run_with_timeout.py", "scripts/ci/ci_process_tree.py"):
+            with self.subTest(path=path):
+                self.assertIn("app-host-watchdog", groups_for_path(path) or ())
+
+    def test_ios_conventions_run_in_the_ios_leg(self):
+        step = self.steps_by_name()["Validate iOS package conventions for this change"]
+        self.assertEqual(step.get("if"), "${{ matrix.group == 'release-ios' }}")
+
 
 if __name__ == "__main__":
     unittest.main()

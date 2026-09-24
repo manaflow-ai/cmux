@@ -67,11 +67,47 @@ class TestProductHandoff(unittest.TestCase):
             self.assertEqual(target["DependentProductPaths"], [str(self.consumer / "Build/Products" / bundle)])
             self.assertTrue(Path(target["DependentProductPaths"][0]).exists())
 
+    def test_canonical_producer_relocates_through_admission_then_shard(self):
+        canonical = {**self.identity, "checkout": "/private/tmp/cmux-ci/src"}
+        products = self.producer / "Build/Products"
+        for manifest in module.manifests(products).values():
+            value = module.map_strings(plistlib.loads(manifest.read_bytes()),
+                                       [(self.identity["checkout"], canonical["checkout"])])
+            manifest.write_bytes(plistlib.dumps(value))
+        module.stamp(self.producer, canonical)
+        # Fresh admission relocates before its common packaging stamp. Exact
+        # product reuse takes the same second leg without a canonical rebuild.
+        module.restore(self.producer, self.identity)
+        self.transfer()
+        shard = {**self.identity, "checkout": "/shard/work/cmux"}
+        outputs = module.restore(self.consumer, shard)
+        for path in outputs.values():
+            target = list(module.targets(plistlib.loads(Path(path).read_bytes())))[0]
+            self.assertEqual(target["EnvironmentVariables"]["SOURCE"], "/shard/work/cmux/fixtures")
+            self.assertTrue(all(Path(path).exists() for path in target["DependentProductPaths"]))
+
     def test_rejects_mismatched_source_toolchain_or_architecture(self):
         self.transfer()
         for key in ("revision", "xcode", "architecture"):
             with self.subTest(key=key), self.assertRaisesRegex(ValueError, key):
                 module.restore(self.consumer, {**self.identity, key: "different"})
+
+    def test_accepts_another_point_release_of_the_same_xcode(self):
+        self.transfer()
+        module.restore(self.consumer, {**self.identity, "xcode": "Xcode 26.6\nBuild version 17F113"})
+
+    def test_rejects_an_xcode_older_than_the_producers(self):
+        # Xcode 26.3's Testing.framework lacks symbols a 26.6-linked bundle
+        # imports; refuse with both versions named instead of a dlopen crash.
+        self.identity["xcode"] = "Xcode 26.6\nBuild version 17F113"
+        self.transfer()
+        with self.assertRaisesRegex(ValueError, r"xcode.*26\.6.*26\.3"):
+            module.restore(self.consumer, {**self.identity, "xcode": "Xcode 26.3\nBuild version 17C529"})
+
+    def test_rejects_another_major_xcode(self):
+        self.transfer()
+        with self.assertRaisesRegex(ValueError, "xcode"):
+            module.restore(self.consumer, {**self.identity, "xcode": "Xcode 27.0\nBuild version 18A1"})
 
     def test_missing_bundle_fails_in_producer_and_consumer(self):
         self.transfer()

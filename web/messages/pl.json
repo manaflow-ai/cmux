@@ -1,5 +1,30 @@
 {
+  "agentHarness": {
+    "title": "Wykryta konfiguracja harnessa",
+    "selectionNotice": "Wybranie dostawcy nie uruchamia ani nie włącza tych harnessów.",
+    "selectProvider": "Wybierz {provider}",
+    "foundPath": "Znaleziono {path}",
+    "foundCommand": "Znaleziono polecenie {command}",
+    "installed": "Dostawca jest zainstalowany",
+    "missing": "Dostawca nie jest zainstalowany",
+    "install": "Zainstaluj za pomocą: {command}",
+    "benefitPi": "Kompaktowanie, pamięć i routing dostawców",
+    "benefitOpenagent": "Równolegli specjaliści i odzyskiwanie dla OpenCode",
+    "benefitClaude": "Zespoły i weryfikacja dla Claude Code",
+    "benefitSuperpowers": "Planowanie, TDD, subagenci i przegląd"
+  },
   "vmErrors": {
+    "guestInstall": {
+      "title": "Konfiguracja Cloud VM nie została ukończona",
+      "reason": "Konfiguracja gościa Cloud VM nie została ukończona.",
+      "message": "cmux nie może ukończyć konfiguracji Cloud VM.",
+      "action": "Spróbuj ponownie. Jeśli problem będzie się powtarzał, skontaktuj się z pomocą techniczną."
+    },
+    "createCleanupPending": {
+      "title": "Oczekiwanie na usunięcie pozostałości maszyny Cloud VM",
+      "message": "Konfiguracja maszyny Cloud VM nie powiodła się, a usuwanie pozostałości nadal oczekuje.",
+      "action": "Przed utworzeniem kolejnej maszyny skontaktuj się z pomocą techniczną, podając identyfikator śledzenia."
+    },
     "unsupported": {
       "title": "Operacja Cloud VM jest niedostępna",
       "reason": "Ten typ maszyny nie udostępnia tej operacji.",
@@ -1260,6 +1285,7 @@
         "app": {
           "confirmQuit": "Określa, kiedy cmux prosi o potwierdzenie przed zamknięciem. Buildy DEV zawsze zamykają się natychmiast niezależnie od tego ustawienia. Starsze app.warnBeforeQuit jest nadal akceptowane jako zapasowa wartość logiczna.",
           "windowTitleTemplate": "Opcjonalny szablon tytułu NSWindow. Pusta wartość zachowuje istniejące domyślne zachowanie tytułu cmux, w tym fallback do bieżącego katalogu. Obsługiwane symbole zastępcze: '{windowId}', '{windowToken}', '{activeWorkspace}', '{activeDirectory}', '{defaultTitle}', '{appName}'.",
+          "devWindowDisplay": "Nazwa ekranu używana tylko w kompilacjach DEBUG podczas otwierania nowych okien. Pusta wartość używa ustawienia domyślnego systemu.",
           "warnBeforeQuit": "Starsza zapasowa wartość logiczna dla potwierdzenia zamknięcia. W nowych konfiguracjach używaj app.confirmQuit.",
           "warnBeforeClosingTabXButton": "Pokaż potwierdzenie przed zamknięciem karty przyciskiem zamykania karty.",
           "hideTabCloseButton": "Ukryj przyciski zamykania kart na pasku kart panelu.",
@@ -1435,6 +1461,7 @@
       "restartNew": "Utwórz nowy workspace (domyślnie)"
     },
     "keyboardShortcuts": {
+      "fileEditorWordWrap": "Przełącz zawijanie wierszy w edytorze plików (Option+Z).",
       "title": "Skróty klawiszowe",
       "description": "Wszystkie skróty klawiszowe dostępne w cmux, pogrupowane według kategorii.",
       "metaDescription": "Wszystkie skróty klawiszowe cmux dla workspace'ów, surface'ów, dzielonych paneli, przeglądarki, powiadomień, wyszukiwania i zarządzania oknami na macOS.",

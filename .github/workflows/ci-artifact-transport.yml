@@ -8,6 +8,8 @@ on:
       - .github/workflows/ci-macos.yml
       - workers/ci-artifacts/**
       - scripts/ci/restore-r2-artifact.py
+      - scripts/ci/parallel_artifact_download.py
+      - tests/test_ci_parallel_artifact_transport.py
       - scripts/ci/node_product_cache.py
       - scripts/ci/peer_product_source.py
       - scripts/ci/app-host-products-archive.sh
@@ -32,6 +34,8 @@ on:
       - .github/workflows/ci-macos.yml
       - workers/ci-artifacts/**
       - scripts/ci/restore-r2-artifact.py
+      - scripts/ci/parallel_artifact_download.py
+      - tests/test_ci_parallel_artifact_transport.py
       - scripts/ci/node_product_cache.py
       - scripts/ci/peer_product_source.py
       - scripts/ci/app-host-products-archive.sh
@@ -58,7 +62,7 @@ concurrency:
 
 jobs:
   transport:
-    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -105,6 +109,7 @@ jobs:
           python3 tests/test_app_host_layered_products.py
           bash tests/test_app_host_products_archive.sh
           python3 tests/test_ci_selective_layer_wiring.py
+          python3 tests/test_ci_parallel_artifact_transport.py
       - name: Install local Worker test tools
         if: steps.worker.outputs.run == 'true'
         working-directory: workers/ci-artifacts

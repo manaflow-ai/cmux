@@ -1,5 +1,30 @@
 {
+  "agentHarness": {
+    "title": "ตรวจพบการกำหนดค่า harness",
+    "selectionNotice": "การเลือกผู้ให้บริการจะไม่เปิดใช้งานหรือเริ่มต้น harness เหล่านี้",
+    "selectProvider": "เลือก {provider}",
+    "foundPath": "พบ {path}",
+    "foundCommand": "พบคำสั่ง {command}",
+    "installed": "ติดตั้งผู้ให้บริการแล้ว",
+    "missing": "ยังไม่ได้ติดตั้งผู้ให้บริการ",
+    "install": "ติดตั้งด้วย: {command}",
+    "benefitPi": "การบีบอัด หน่วยความจำ และการกำหนดเส้นทางผู้ให้บริการ",
+    "benefitOpenagent": "ผู้เชี่ยวชาญแบบขนานและการกู้คืนสำหรับ OpenCode",
+    "benefitClaude": "ทีมและการตรวจสอบสำหรับ Claude Code",
+    "benefitSuperpowers": "การวางแผน TDD ตัวแทนย่อย และการตรวจทาน"
+  },
   "vmErrors": {
+    "guestInstall": {
+      "title": "การตั้งค่า Cloud VM ไม่เสร็จสมบูรณ์",
+      "reason": "การตั้งค่าเกสต์ของ Cloud VM ไม่เสร็จสมบูรณ์",
+      "message": "cmux ไม่สามารถตั้งค่า Cloud VM ให้เสร็จสมบูรณ์ได้",
+      "action": "ลองดำเนินการอีกครั้ง หากปัญหายังคงอยู่ โปรดติดต่อฝ่ายสนับสนุน"
+    },
+    "createCleanupPending": {
+      "title": "รอการล้างข้อมูล Cloud VM",
+      "message": "ตั้งค่า Cloud VM ไม่สำเร็จและยังล้างข้อมูลไม่เสร็จ",
+      "action": "ติดต่อฝ่ายสนับสนุนพร้อมรหัสการติดตามก่อนสร้างเครื่องอื่น"
+    },
     "unsupported": {
       "title": "ไม่สามารถใช้การดำเนินการ Cloud VM ได้",
       "reason": "ประเภทเครื่องนี้ไม่มีการดำเนินการนี้",
@@ -1260,6 +1285,7 @@
         "app": {
           "confirmQuit": "ควบคุมว่า cmux จะขอการยืนยันก่อนออกเมื่อใด บิลด์ DEV จะออกทันทีเสมอไม่ว่าค่านี้จะเป็นอย่างไร ค่า app.warnBeforeQuit แบบเดิมยังคงใช้เป็นตัวเลือกสำรองแบบบูลีนได้",
           "windowTitleTemplate": "เทมเพลตชื่อหน้าต่าง NSWindow แบบไม่บังคับ เว้นว่างไว้เพื่อคงพฤติกรรมชื่อเริ่มต้นเดิมของ cmux รวมถึงการถอยกลับไปใช้ไดเรกทอรีปัจจุบัน ตัวยึดตำแหน่งที่รองรับ: '{windowId}', '{windowToken}', '{activeWorkspace}', '{activeDirectory}', '{defaultTitle}', '{appName}'",
+          "devWindowDisplay": "ชื่อจอแสดงผลที่ใช้เฉพาะในบิลด์ DEBUG เมื่อเปิดหน้าต่างใหม่ ค่าว่างจะใช้ค่าเริ่มต้นของระบบ",
           "warnBeforeQuit": "ตัวเลือกสำรองแบบบูลีนเดิมสำหรับการยืนยันก่อนออก ใช้ app.confirmQuit สำหรับการกำหนดค่าใหม่",
           "warnBeforeClosingTabXButton": "แสดงการยืนยันก่อนปิดแท็บด้วยปุ่มปิดแท็บ",
           "hideTabCloseButton": "ซ่อนปุ่มปิดแท็บในแถบแท็บของพาเนล",
@@ -1436,6 +1462,7 @@
       "restartNew": "สร้าง workspace ใหม่ (ค่าเริ่มต้น)"
     },
     "keyboardShortcuts": {
+      "fileEditorWordWrap": "สลับการตัดบรรทัดในตัวแก้ไขไฟล์ (Option+Z).",
       "title": "คีย์ลัด",
       "description": "คีย์ลัดทั้งหมดใน cmux จัดกลุ่มตามหมวดหมู่",
       "metaDescription": "คีย์ลัด cmux ทั้งหมดสำหรับ workspace, surface, แยกหน้าจอ, เบราว์เซอร์, แจ้งเตือน, ค้นหา และจัดการหน้าต่างบน macOS",

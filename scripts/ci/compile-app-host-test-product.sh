@@ -29,6 +29,7 @@ usage() {
   echo "usage: $0 fingerprint <derived-data>" >&2
   echo "       $0 resolve <derived-data> <source-packages>" >&2
   echo "       $0 build <derived-data> <source-packages> <cas-path> [log]" >&2
+  echo "prefix fingerprint/resolve/build with canonical- for the shared CI paths" >&2
   exit 64
 }
 
@@ -65,13 +66,35 @@ fingerprint() {
 # without the Sparkle and Sentry binary artifacts would fail it. A restored
 # source-packages cache can do that, and a failed resolve can leave a partial
 # clone behind, so every retry starts from an empty package directory.
+#
+# CMUX_CI_SWIFTPM_CACHE_EXACT_HIT=true says the caller restored the exact
+# `spm-` key for this Package.resolved. That cache was saved after a resolve of
+# the same pins, so its repositories already hold every pinned revision; try
+# once without fetching each package remote. Pins are exact revisions, so
+# skipping the fetch cannot change what is checked out. If it fails for any
+# reason, fall through to the normal resolve of the same cache.
 resolve() {
   local derived_data="$1" source_packages="$2" attempt
+  if [ "${CMUX_CI_SWIFTPM_CACHE_EXACT_HIT:-}" = true ]; then
+    mkdir -p "$source_packages" "$derived_data"
+    if xcodebuild -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
+      -derivedDataPath "$derived_data" \
+      -clonedSourcePackagesDirPath "$source_packages" \
+      -packageCachePath "$source_packages/.package-cache" \
+      -skipPackageUpdates \
+      -resolvePackageDependencies \
+      && [ -d "$source_packages/artifacts/sparkle/Sparkle/Sparkle.xcframework" ] \
+      && [ -d "$source_packages/artifacts/sentry-cocoa/Sentry/Sentry.xcframework" ]; then
+      return 0
+    fi
+    echo "Offline resolve from the exact package cache failed; resolving normally" >&2
+  fi
   for attempt in 1 2 3; do
     mkdir -p "$source_packages" "$derived_data"
     if xcodebuild -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
       -derivedDataPath "$derived_data" \
       -clonedSourcePackagesDirPath "$source_packages" \
+      -packageCachePath "$source_packages/.package-cache" \
       -resolvePackageDependencies; then
       if [ -d "$source_packages/artifacts/sparkle/Sparkle/Sparkle.xcframework" ] \
         && [ -d "$source_packages/artifacts/sentry-cocoa/Sentry/Sentry.xcframework" ]; then
@@ -118,6 +141,41 @@ build() {
       build-for-testing 2>&1 | tee "$derived_data/$scheme-build.log" | tee -a "$log"
   done
 }
+
+# The workflow opts both cache writer and reader into this contract together.
+# Resolve refreshes the real source tree after dependency downloads. Fingerprint
+# needs only the stable cwd; never recopy after resolve, which would erase SPM.
+case "${1:-}" in
+  canonical-fingerprint|canonical-resolve|canonical-build)
+    operation="${1#canonical-}"
+    shift
+    case "$operation:$#" in
+      fingerprint:1|resolve:2|build:3|build:4) ;;
+      *) usage ;;
+    esac
+    [ "${1%/*}" = "$CANONICAL_BUILD_ROOT" ] || { echo "noncanonical DerivedData" >&2; exit 1; }
+    if [ "$operation" = resolve ]; then
+      "$SCRIPT_DIR/canonical-build-root.sh" "$PWD"
+    fi
+    # A previous test-only consumer may have left a runtime source alias.
+    # Never key, resolve, or compile through its pool-specific realpath: the
+    # compiler records the path it opens, so a build behind the alias writes
+    # pool-specific cache entries under the pool-independent canonical key.
+    # `resolve` re-copies the tree through canonical-build-root.sh above, which
+    # strips the alias itself; `fingerprint` and `build` have only this.
+    if [ -L "$CANONICAL_BUILD_ROOT/src" ]; then
+      rm "$CANONICAL_BUILD_ROOT/src"
+    fi
+    mkdir -p "$CANONICAL_BUILD_ROOT/src"
+    cd "$CANONICAL_BUILD_ROOT/src"
+    case "$operation" in
+      fingerprint) fingerprint "$1" ;;
+      resolve) resolve "$1" "$PWD/.ci-source-packages" ;;
+      build) build "$1" "$PWD/.ci-source-packages" "$3" "${4:-/dev/null}" ;;
+    esac
+    exit
+    ;;
+esac
 
 case "${1:-}" in
   fingerprint)

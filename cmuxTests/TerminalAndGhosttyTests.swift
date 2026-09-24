@@ -4285,13 +4285,21 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
         }
         _ = NSApplication.shared
 
+        // The app host installs an app delegate, so portal visibility is authorized
+        // per workspace: a surface whose tab id no manager has selected is never
+        // shown, and its renderer is never presented.
+        let liveWorkspace = AppDelegate.shared?.registerLivePortalWorkspaceForTesting()
+        defer { liveWorkspace?.tearDown() }
+
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 1_280, height: 800),
             styleMask: [.borderless],
             backing: .buffered,
             defer: false
         )
-        let surfaces = (0..<5).map { _ in makeTrackedTerminalSurface() }
+        let surfaces = (0..<5).map { _ in
+            makeTrackedTerminalSurface(tabId: liveWorkspace?.id ?? UUID())
+        }
         var didTeardown = false
         defer {
             for surface in surfaces {
@@ -4307,6 +4315,12 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
             XCTFail("Expected a content view for the renderer memory workload")
             return
         }
+        // Order the window in before the terminals attach. Each terminal samples its
+        // window's visibility when it moves into the window and afterwards only on an
+        // occlusion, key, or screen change. This borderless window never becomes key
+        // and the headless host never reports an occlusion `.visible` bit, so a window
+        // ordered in after the attach would stay hidden to its renderers.
+        window.orderFront(nil)
         for surface in surfaces {
             let hostedView = surface.hostedView
             hostedView.frame = contentView.bounds
@@ -4314,7 +4328,6 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
             contentView.addSubview(hostedView)
             hostedView.setVisibleInUI(true)
         }
-        window.orderFront(nil)
         window.displayIfNeeded()
         contentView.layoutSubtreeIfNeeded()
 
@@ -4369,7 +4382,18 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
             XCTAssertTrue(surface.releaseRenderer(), "Initial target-scale eviction must release each hidden renderer")
         }
         XCTAssertTrue(hiddenSurfaces.allSatisfy { !$0.isRendererRealized })
-        var oneRendererBaseline = try settledFootprint("one-renderer baseline")
+        // Fixed for every cycle. This previously advanced to each cycle's
+        // measured target, which made the reference drift upward with whatever
+        // that cycle happened to retain while the five-renderer peak drifted
+        // down (observed: 270 -> 245 -> 238 MB). The denominator shrank from
+        // both ends and each cycle inflated the next one's ratio until an
+        // unrelated cycle tripped the bound -- cycles 1 and 3 reading 0.0 with
+        // cycle 2 at 0.4819 against 0.45 is that artifact, not a regression.
+        //
+        // Holding it fixed is also the stricter test: cumulative retention
+        // across cycles now shows up as a rising ratio, where advancing the
+        // baseline measured only each cycle's increment and hid a steady leak.
+        let oneRendererBaseline = try settledFootprint("one-renderer baseline")
 
         for cycle in 1...3 {
             for surface in hiddenSurfaces {
@@ -4397,6 +4421,7 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
 
             let targetFootprint = try settledFootprint("cycle \(cycle) one-renderer target")
             let realizedDelta = fiveRendererPeak - oneRendererBaseline
+
             let retainedDelta = targetFootprint > oneRendererBaseline
                 ? targetFootprint - oneRendererBaseline
                 : 0
@@ -4407,14 +4432,15 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
             print(
                 "renderer-memory cycle=\(cycle) one=\(oneRendererBaseline) " +
                 "five=\(fiveRendererPeak) target=\(targetFootprint) " +
+                "realized_delta=\(realizedDelta) noise_allowance=\(sampleNoiseAllowance) " +
                 "retained_ratio=\(normalizedRetainedRatio)"
             )
             XCTAssertLessThanOrEqual(
                 normalizedRetainedRatio,
                 0.45,
-                "Cycle \(cycle) retained too much of the four-renderer memory delta after eviction"
+                "Cycle \(cycle) cumulative retention above the one-renderer baseline "
+                + "exceeds 45% of the five-renderer delta"
             )
-            oneRendererBaseline = targetFootprint
         }
 
         for surface in surfaces {

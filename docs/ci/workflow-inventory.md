@@ -37,7 +37,7 @@ The required checks on `main` (ruleset "main: block force-push or delete") are `
 - `web-complexity-trusted.yml` and `cla-policy-guard.yml` together ran about 27,000 times. That is roughly 3x the PR events, because `pull_request_target` also fires on `edited`. Do not drop `edited` blindly: it also carries base-branch changes.
 - `web-complexity.yml` and `web-complexity-trusted.yml` are an intentional pair: an untrusted diagnostic plus the trusted required check. Not a duplicate.
 - `ci-status-fallback.yml` has been a dispatch-only `echo` since 09-18. The 3,697 runs this week came from before that change.
-- `test-depot.yml` is named "Run macOS tests", and its own comment says Depot is retired. It is dispatched alongside `test-e2e.yml`.
+- `test-macos-suite.yml` (formerly `test-depot.yml`) is named "Run macOS test suite". It runs a whole test target cold; focused runs belong on `test-e2e.yml` through `scripts/run-e2e.sh`.
 
 **Other problems found along the way:** `release.yml` has not succeeded since 08-03 (both runs this week failed), and `iroh-release-gate.yml` not since 08-14. `tmux-corpus.yml` is `disabled_manually`. `ci-macos-compat.yml` fails actionlint on the unknown label `macos-15-intel`, and `test-ios.yml:21` fails actionlint with an empty string.
 
@@ -55,7 +55,7 @@ Sorted by estimated runner minutes. Trigger abbreviations: pr = pull_request, pr
 | `cmux-tui-sdks.yml` | push pr dispatch (paths) | blacksmith | 453 | 235 / 82 / 0 / 132 | 7,271 | 2026-09-22 | lawrencecchen #9215 | Lawrence Chen 2026-09-16 | 1 docs/tests |  |
 | `test-e2e.yml` | dispatch | blacksmith/warp/macos | 959 | 270 / 531 / 0 / 158 | 6,730 | 2026-09-22 | lawrencecchen #778 | Leo 2026-09-21 | 6 docs/tests | 55% fail |
 | `cmux-tui.yml` | dispatch | blacksmith/macos/gh-ubuntu | 114 | 37 / 47 / 0 / 30 | 5,696 | 2026-09-22 | lawrencecchen #7710 | Austin Wang 2026-09-12 | 1 wf refs; 5 docs/tests |  |
-| `test-depot.yml` | call dispatch | blacksmith/warp/macos | 348 | 93 / 213 / 0 / 42 | 5,335 | 2026-09-22 | lawrencecchen #710 | Leo 2026-09-21 | 2 docs/tests | name says Depot, which is retired; 61% fail |
+| `test-macos-suite.yml` | call dispatch | blacksmith/warp/macos | 348 | 93 / 213 / 0 / 42 | 5,335 | 2026-09-22 | lawrencecchen #710 | Leo 2026-09-21 | 2 docs/tests | renamed from test-depot.yml; 61% fail, mostly single-test dispatches that belong on run-e2e.sh |
 | `reload-build.yml` | dispatch | blacksmith/macos | 276 | 107 / 71 / 0 / 98 | 4,689 | 2026-09-22 | lawrencecchen #6354 | Leo 2026-09-21 | 1 wf refs; 3 docs/tests |  |
 | `cla-policy-guard.yml` | pr_target | gh-ubuntu | 13,584 | 12,311 / 1,272 / 0 / 1 | 2,445 | 2026-09-22 | lawrence703 #11387 | Lawrence Chen 2026-09-02 | REQUIRED: CLA policy guard; 2 docs/tests |  |
 | `remote-daemon.yml` | pr push dispatch (paths) | blacksmith/warp/macos | 189 | 116 / 7 / 0 / 65 | 2,178 | 2026-09-22 | austinywang #12720 | austinpower1258 2026-09-15 | none |  |

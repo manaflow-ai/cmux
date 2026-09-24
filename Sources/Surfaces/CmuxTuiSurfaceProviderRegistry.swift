@@ -16,7 +16,7 @@ final class CmuxTuiSurfaceProviderRegistry {
 
     private var catalog: SurfaceCatalog?
     private var providers: [String: CmuxTuiSurfaceProvider] = [:]
-    private let links: CloudMachineLinkManager
+    let links: CloudMachineLinkManager
     /// The app's one WireGuard hub for private-network machines; nil when no cmux-tui
     /// client is bundled (then no link can be made at all).
     nonisolated let wireGuardHub: CloudWireGuardHub?
@@ -29,10 +29,11 @@ final class CmuxTuiSurfaceProviderRegistry {
     private var accessObserver: NSObjectProtocol?
     private var themeObserver: NSObjectProtocol?
     private var activationObserver: NSObjectProtocol?
+    private var networkObserver: CloudReadRecoveryObserver?
     private var featureFlagObserver: NSObjectProtocol?
     private let notificationCenter: NotificationCenter
     /// Whether the periodic fleet read may run right now.
-    private let isCloudEnabled: @MainActor () -> Bool
+    let isCloudEnabled: @MainActor () -> Bool
     private let allowsBackgroundWork: @MainActor () -> Bool
     private let listPage: @MainActor () async -> VMListPage?
     private let refreshProvider: @MainActor (CmuxTuiSurfaceProvider, Bool) async -> Bool
@@ -51,16 +52,21 @@ final class CmuxTuiSurfaceProviderRegistry {
     /// carries the epoch it was registered with and a stale one is dropped:
     /// without this, a `DisableCloud` teardown that lands just after the
     /// policy lifts would clear the freshly restarted registry.
-    private var accessEpoch: UInt64 = 0
+    private(set) var accessEpoch: UInt64 = 0
     /// Create receipts also end at team changes, which preserve the registry's observer epoch.
     private var creationEpoch = UUID()
     /// Machine IDs admitted from a successful create response remain owned by
     /// this registry until a fleet page positively observes them. A stale page
     /// must not prune a receipt that is still converging into discovery.
     private var pendingMachineCreationIDs: Set<String> = []; private var hasCompletedInitialRefresh = false; private var refreshedMachineIDs: Set<SurfaceMachineID> = []
+    /// Create receipts that proved a trusted, directly dialable daemon
+    /// (snapshot-v2 contract plus a private address). Consumed by the first
+    /// `vm.cmux_remote_info` for that machine instead of an attach request.
+    private var createdTrustedCarrierIDs: Set<String> = []
     /// Whether account access has ended. Retired registries reject all new Cloud work
     /// until ``start(catalog:)`` reactivates them for the next account.
-    private var isRetired = true
+    var isRetired = true
+    /// Same cadence as the Machines panel's list refresh.
     private let pollInterval: Duration = .seconds(45)
     /// In-flight forward and link teardowns for deleted machines, keyed by
     /// machine id; sign-out waits for them before stopping the hub.
@@ -108,14 +114,57 @@ final class CmuxTuiSurfaceProviderRegistry {
     /// Publishes the create response's friendly name before the first workspace bind.
     /// The response need not contain private addresses; provider discovery still
     /// owns transport initialization and registration.
-    func recordCreatedMachine(_ summary: VMSummary, scope: UUID?) {
+    ///
+    /// A receipt that carries the machine's private address registers its
+    /// provider directly, exactly as discovery would. New Machine then links
+    /// without first re-reading the whole fleet list (`GET /api/vm`, ~0.3 s).
+    /// Receipts from older backends without an address keep the old path.
+    func recordCreatedMachine(_ summary: VMSummary, scope: UUID?) async {
         guard let scope, scope == creationScope, let catalog else { return }
         // A replay cannot overwrite names or status already accepted by discovery.
-        guard catalog.machines[.cloud(summary.id)] == nil else { return }
+        guard catalog.machines[.cloud(summary.id)] == nil, providers[summary.id] == nil else { return }
         pendingMachineCreationIDs.insert(summary.id)
         catalog.admitMachineCreationReceipt(CmuxTuiSurfaceProvider.info(
             from: summary, linkState: .connecting, linkError: nil, stats: nil
         ))
+        let addresses = [summary.addressIPv4, summary.addressIPv6].compactMap { $0 }
+        guard !addresses.isEmpty, machineTeardowns[registeredMachineID(matching: summary.id)] == nil else { return }
+        let generation = refreshGeneration
+        await links.setPrivateAddresses(addresses, for: summary.id)
+        if summary.cmuxTuiContract == Self.trustedCarrierContract {
+            await links.markTrustedCarrier(machineID: summary.id)
+        }
+        // Same fences as discovery: a delete or account change during the
+        // await must not receive a provider.
+        guard !isRetired, generation == refreshGeneration, scope == creationScope,
+              providers[summary.id] == nil else { return }
+        let provider = CmuxTuiSurfaceProvider(
+            summary: summary, links: links, catalog: catalog,
+            portForwards: portForwards, portAccessStore: portAccess
+        )
+        providers[summary.id] = provider
+        catalog.register(provider)
+        if summary.cmuxTuiContract == Self.trustedCarrierContract {
+            createdTrustedCarrierIDs.insert(summary.id)
+        }
+        // Start the first link and graph read now, while the caller is still
+        // creating its workspace. The open's `ensure_linked` catalog read joins
+        // this pass instead of starting its own after the fact.
+        Task { [weak provider] in
+            _ = await provider?.refreshCurrentGraph(force: false)
+        }
+    }
+
+    /// The image contract whose daemon serves the trusted private-network
+    /// listener with no enrollment (web: FreestyleProvider `cmuxTuiContract`).
+    static let trustedCarrierContract = "snapshot-v2"
+
+    /// The private route for a machine this registry just created from a
+    /// trusted-carrier receipt, consumed once. Nil means ask the control plane.
+    func takeCreatedTrustedCarrierRoute(machineID: String) async -> String? {
+        guard createdTrustedCarrierIDs.remove(machineID) != nil,
+              !isRetired, isCloudEnabled(), providers[machineID] != nil else { return nil }
+        return await links.privateRoute(for: machineID)
     }
 
     /// True while the periodic fleet read is scheduled.
@@ -151,6 +200,7 @@ final class CmuxTuiSurfaceProviderRegistry {
         accessEpoch &+= 1
         creationEpoch = UUID()
         pendingMachineCreationIDs.removeAll(); hasCompletedInitialRefresh = false; refreshedMachineIDs.removeAll()
+        createdTrustedCarrierIDs.removeAll()
         refreshGeneration &+= 1
         let epoch = accessEpoch
         // Replacing block observers prevents stale callbacks after a restart.
@@ -194,6 +244,10 @@ final class CmuxTuiSurfaceProviderRegistry {
             queue: .main
         ) { [weak self] _ in
             MainActor.assumeIsolated { self?.syncPollingToActivationPolicy() }
+        }
+        networkObserver = CloudReadRecoveryObserver(notificationCenter: notificationCenter) { [weak self] in
+            guard let self, !self.isRetired, self.allowsBackgroundWork() else { return }
+            _ = await self.refresh(force: false)
         }
         syncPollingToActivationPolicy()
     }
@@ -360,6 +414,7 @@ final class CmuxTuiSurfaceProviderRegistry {
         // Match the registered casing so every ownership table is removed.
         let id = registeredMachineID(matching: rawID)
         pendingMachineCreationIDs.remove(id); refreshedMachineIDs.remove(.cloud(id))
+        createdTrustedCarrierIDs.remove(id)
         let provider = providers.removeValue(forKey: id)
         provider?.suspendForFeatureFlag()
         catalog?.removeCloudMachine(.cloud(id))
@@ -386,42 +441,6 @@ final class CmuxTuiSurfaceProviderRegistry {
         if providers[rawID] != nil { return rawID }
         let candidates = Set(providers.keys).union(machineTeardowns.keys).union(pendingMachineCreationIDs)
         return candidates.first { $0.caseInsensitiveCompare(rawID) == .orderedSame } ?? rawID
-    }
-
-    /// The headless link's local mux socket for a machine, connecting if needed.
-    func linkSocketPath(machineID: String) async throws -> (socketPath: String, session: String) {
-        guard isCloudEnabled() else {
-            throw CloudMachineLinkManager.ManagerError.retryLater(String(
-                localized: "cloud.feature.disabled",
-                defaultValue: "Cloud Machines are temporarily unavailable."
-            ))
-        }
-        let connected = try await links.connected(machineID: machineID)
-        return (connected.socketPath, connected.session)
-    }
-
-    func privateRoute(machineID: String) async -> String? {
-        guard !isRetired, !ManagedDevicePolicy().isEnforced(.disableCloud), isCloudEnabled(), !Task.isCancelled else {
-            return nil
-        }
-        let epoch = accessEpoch
-        // The persisted device marker outlives this in-memory registry. An
-        // explicit open must discover its machine before using the saved-device
-        // shortcut, even when the first background fleet read has not run.
-        guard await providerRefreshingIfMissing(machineID: machineID) != nil else { return nil }
-        let route = await links.privateRoute(for: machineID)
-        guard !isRetired, epoch == accessEpoch, isCloudEnabled(), !Task.isCancelled else { return nil }
-        return route
-    }
-
-    func resolvedPrivateRoute(machineID: String, through hub: CloudWireGuardHub.Ready, fallbackRoute: String, addresses: [String]) async throws -> String {
-        guard isCloudEnabled() else {
-            throw CloudMachineLinkManager.ManagerError.retryLater(String(
-                localized: "cloud.feature.disabled",
-                defaultValue: "Cloud Machines are temporarily unavailable."
-            ))
-        }
-        return try await links.resolvedPrivateRoute(machineID: machineID, through: hub, fallbackRoute: fallbackRoute, addresses: addresses)
     }
 
     /// Cancels Cloud-only transport work when the remote gate closes while
@@ -507,10 +526,12 @@ final class CmuxTuiSurfaceProviderRegistry {
 
     /// Synchronous publication fence shared by team switching and full teardown.
     private func invalidateAccess() {
+        networkObserver = nil
         isRetired = true
         accessEpoch &+= 1
         creationEpoch = UUID()
         pendingMachineCreationIDs.removeAll(); hasCompletedInitialRefresh = false; refreshedMachineIDs.removeAll()
+        createdTrustedCarrierIDs.removeAll()
         refreshGeneration &+= 1
         pollTask?.cancel()
         pollTask = nil

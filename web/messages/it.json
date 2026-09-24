@@ -1,5 +1,30 @@
 {
+  "agentHarness": {
+    "title": "Configurazione harness rilevata",
+    "selectionNotice": "La selezione di un provider non avvia né abilita questi harness.",
+    "selectProvider": "Seleziona {provider}",
+    "foundPath": "Trovato {path}",
+    "foundCommand": "Comando {command} trovato",
+    "installed": "Il provider è installato",
+    "missing": "Il provider non è installato",
+    "install": "Installa con: {command}",
+    "benefitPi": "Compattazione, memoria e instradamento dei provider",
+    "benefitOpenagent": "Specialisti paralleli e ripristino per OpenCode",
+    "benefitClaude": "Team e verifica per Claude Code",
+    "benefitSuperpowers": "Pianificazione, TDD, subagenti e revisione"
+  },
   "vmErrors": {
+    "guestInstall": {
+      "title": "Configurazione della Cloud VM incompleta",
+      "reason": "La configurazione guest della Cloud VM non è stata completata.",
+      "message": "cmux non ha potuto completare la configurazione della Cloud VM.",
+      "action": "Riprova. Se il problema continua, contatta l'assistenza."
+    },
+    "createCleanupPending": {
+      "title": "Pulizia della VM Cloud in sospeso",
+      "message": "La configurazione della VM Cloud non è riuscita e la pulizia è ancora in sospeso.",
+      "action": "Contatta il supporto con l’ID della traccia prima di creare un’altra macchina."
+    },
     "unsupported": {
       "title": "Operazione Cloud VM non disponibile",
       "reason": "Questo tipo di macchina non offre questa operazione.",
@@ -1259,6 +1284,7 @@
         "app": {
           "confirmQuit": "Controlla quando cmux chiede conferma prima di uscire. Le build DEV escono sempre immediatamente indipendentemente da questa impostazione. Il vecchio app.warnBeforeQuit è ancora accettato come fallback booleano.",
           "windowTitleTemplate": "Template opzionale per il titolo NSWindow. Se vuoto, conserva il comportamento predefinito esistente del titolo di cmux, incluso il fallback alla directory corrente. Segnaposto supportati: '{windowId}', '{windowToken}', '{activeWorkspace}', '{activeDirectory}', '{defaultTitle}', '{appName}'.",
+          "devWindowDisplay": "Nome del display usato solo nelle build DEBUG quando si aprono nuove finestre. Un valore vuoto usa il valore predefinito del sistema.",
           "warnBeforeQuit": "Fallback booleano legacy per la conferma di uscita. Usa app.confirmQuit per le nuove configurazioni.",
           "warnBeforeClosingTabXButton": "Mostra una conferma prima di chiudere una scheda con il pulsante di chiusura scheda.",
           "hideTabCloseButton": "Nasconde i pulsanti di chiusura scheda nella barra delle schede del riquadro.",
@@ -1434,6 +1460,7 @@
       "restartNew": "Crea un nuovo workspace (predefinito)"
     },
     "keyboardShortcuts": {
+      "fileEditorWordWrap": "Attiva o disattiva il ritorno a capo nell’editor di file (Option+Z).",
       "title": "Scorciatoie da tastiera",
       "description": "Tutte le scorciatoie da tastiera disponibili in cmux, raggruppate per categoria.",
       "metaDescription": "Tutte le scorciatoie da tastiera cmux per workspace, superfici, pannelli divisi, browser, notifiche, ricerca e gestione delle finestre su macOS.",
