@@ -1457,3 +1457,17 @@ export function devboxSourceDriftProblems(
   }
   return problems;
 }
+
+/**
+ * The last guest command before every devbox memory snapshot. The bake's
+ * final steps (park, cleanup, journal reset, derive resize) leave writeback,
+ * page-cache and CPU activity in flight; a snapshot taken mid-burst captures
+ * dirty pages (larger image, slower restore) and a clone resumes into that
+ * burst. Flush, then give the guest this long to go idle. Keep it the very
+ * last step: anything run after it restarts the activity it waits out.
+ */
+export const DEVBOX_PRE_SNAPSHOT_SETTLE_SECONDS = 10;
+
+export function devboxSettleBeforeSnapshotCommand(): string {
+  return `sync && sleep ${DEVBOX_PRE_SNAPSHOT_SETTLE_SECONDS} && sync && echo "settled $(cut -d' ' -f1-3 /proc/loadavg)"`;
+}
