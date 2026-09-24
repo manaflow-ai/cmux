@@ -61,7 +61,8 @@ UNJUDGED_BY_COMPILE_PREFIXES = UNIT_JUDGED_PREFIXES + UNJUDGED_BY_ANY_PR_JOB_PRE
 # a normal shard's batch fits in; a larger diff takes all seven shards.
 CHANGED_SUITES_BUDGET_MS = 10 * 60 * 1000
 
-# Compile admission builds the app-host product and stops. Restoring it on a
+# Compile admission builds the app-host product and stops, unless it runs a
+# changed-suites run itself (runs_in_admission). Restoring the product on a
 # shard's runner and running tests against it happens only in `app-host unit
 # tests`, so a compile-only pull request that edits that path runs none of its
 # change. These are the paths that job's steps run and nothing else in a pull
@@ -85,10 +86,14 @@ APP_HOST_CONSUMER_PATHS = (
     "scripts/ci/classify-app-host-test-output.py",
     "scripts/ci/cleanup-app-host-home.sh",
     "scripts/ci/cmux_unit_test_shard.py",
+    "scripts/ci/collect-app-host-diagnostics.sh",
+    "scripts/ci/enable-xctest-automation-mode.sh",
+    "scripts/ci/enumerate-app-host-tests.sh",
     "scripts/ci/prepare-app-host-home.sh",
     "scripts/ci/require_selected_test_execution.sh",
     "scripts/ci/restore-app-host-test-product.sh",
     "scripts/ci/run-and-capture.sh",
+    "scripts/ci/run-app-host-unit-batches.sh",
     "scripts/ci/run-app-host-xcodebuild.sh",
     "scripts/ci/run-in-console-session.sh",
     "scripts/ci/xcodebuild_noninteractive.py",
@@ -281,6 +286,28 @@ def consumer_canary_selectors(
     return []
 
 
+def runs_in_admission(
+    root: Path,
+    paths: Iterable[str] | None,
+    diff: str | None,
+    selectors: Iterable[str],
+    steps: Iterable[str],
+    canary: bool,
+) -> bool:
+    """True when compile admission should run `selectors` itself.
+
+    The runner that just compiled the product can run a few suites in less
+    time than a separate worker spends queueing, checking out and downloading
+    it. It runs only the shared batch, so a suite a strict step owns keeps the
+    worker, and so does any diff the consumer canary would flag: that worker is
+    what a consumer edit has to prove.
+    """
+    selectors = list(selectors)
+    if not selectors or canary or list(steps):
+        return False
+    return not consumer_canary_selectors(root, paths, diff)
+
+
 def labels_from_event(event_path: str | Path) -> list[str] | None:
     """Read the pull request labels captured in this workflow run's event payload."""
     try:
@@ -401,6 +428,7 @@ def main(argv: list[str]) -> int:
     if selectors:
         workflow = (args.root / ".github/workflows/ci-macos.yml").read_text(encoding="utf-8")
         steps = strict_steps(workflow, selectors) or []
+    in_admission = runs_in_admission(args.root, paths, diff, selectors, steps, canary)
     lines = [
         f"full_suite={'true' if full else 'false'}",
         f"unit_suite={'true' if unit else 'false'}",
@@ -408,6 +436,7 @@ def main(argv: list[str]) -> int:
         f"unit_strict_steps={''.join(f'|{step}' for step in steps) + '|' if steps else ''}",
         f"coverage_gap={'true' if gap else 'false'}",
         f"unit_canary={'true' if canary else 'false'}",
+        f"unit_in_admission={'true' if in_admission else 'false'}",
     ]
     for line in lines:
         print(line)

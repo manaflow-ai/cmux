@@ -74,6 +74,9 @@ jobs:
       unit_suite: ${{ steps.suite.outputs.unit_canary == 'true' && (steps.unchanged_inputs.outputs.compile_admitted == 'true' || steps.admitted.outputs.compile_admitted == 'true') && 'false' || steps.suite.outputs.unit_suite }}
       unit_selectors: ${{ !(steps.suite.outputs.unit_canary == 'true' && (steps.unchanged_inputs.outputs.compile_admitted == 'true' || steps.admitted.outputs.compile_admitted == 'true')) && steps.suite.outputs.unit_selectors || '' }}
       unit_strict_steps: ${{ steps.suite.outputs.unit_strict_steps }}
+      # Only ever true for a changed-suites run the diff selected, which never
+      # takes the canary drop above.
+      unit_in_admission: ${{ steps.suite.outputs.unit_in_admission }}
       coverage_gap: ${{ steps.suite.outputs.coverage_gap }}
       compile_admitted: ${{ steps.unchanged_inputs.outputs.compile_admitted == 'true' && 'true' || steps.admitted.outputs.compile_admitted }}
       source_tree: ${{ steps.source-identity.outputs.tree }}
@@ -307,7 +310,7 @@ jobs:
               : > "$product_files"
               while IFS= read -r path; do
                 case "$path" in
-                  .github/workflows/ci.yml|.github/workflows/ci-guards.yml|scripts/ci/detect_ci_change_areas.py|scripts/ci/detect_linux_guard_changes.py|scripts/ci/workflow_guard_groups.py|tests/test_ci_change_areas.py|tests/test_ci_linux_guard_routing.py|tests/test_ci_guard_workflow_structure.py|tests/test_ci_app_host_guard_structure.py|tests/test_ci_quality_guard_structure.py|tests/test_ci_release_guard_structure.py)
+                  .github/workflows/ci.yml|.github/workflows/ci-guards.yml|scripts/ci/detect_ci_change_areas.py|scripts/ci/detect_linux_guard_changes.py|scripts/ci/workflow_guard_groups.py|tests/test_ci_change_areas.py|tests/test_ci_linux_guard_routing.py|tests/test_ci_guard_workflow_structure.py)
                     ;;
                   *)
                     printf '%s\n' "$path" >> "$product_files"
@@ -351,11 +354,17 @@ jobs:
               # The router derives macOS's local-package closure from the Xcode
               # project and every Package.swift. Without them it keeps all iOS
               # package edits macOS-relevant and compiles the app for nothing.
+              # One archive instead of a mkdir and git show per file: about 80
+              # manifests made this copy most of the trusted router's runtime.
               if [ "$trusted_ok" = true ]; then
+                trusted_inputs=()
                 while IFS= read -r trusted_path; do
-                  mkdir -p "$trusted_root/$(dirname "$trusted_path")"
-                  git show "$trusted_base:$trusted_path" > "$trusted_root/$trusted_path" || true
+                  trusted_inputs+=("$trusted_path")
                 done < <(git ls-tree -r --name-only "$trusted_base" -- cmux.xcodeproj/project.pbxproj Packages | grep -E '(^cmux\.xcodeproj/project\.pbxproj$|^Packages/[^/]+/[^/]+/Package\.swift$)')
+                if [ "${#trusted_inputs[@]}" -gt 0 ]; then
+                  git --literal-pathspecs archive "$trusted_base" -- "${trusted_inputs[@]}" \
+                    | tar -x -C "$trusted_root" || true
+                fi
               fi
               if [ "$trusted_ok" != true ]; then
                 echo "Could not load trusted base router; running all CI areas." >&2
@@ -594,7 +603,7 @@ jobs:
                   full_guard_matrix=true
                   other_full_guard_matrix=true
                   ;;
-                .github/workflows/ci.yml|scripts/ci/detect_ci_change_areas.py|scripts/ci/detect_linux_guard_changes.py|scripts/ci/workflow_guard_groups.py|tests/test_ci_change_areas.py|tests/test_ci_linux_guard_routing.py|tests/test_ci_guard_workflow_structure.py|tests/test_ci_app_host_guard_structure.py|tests/test_ci_quality_guard_structure.py|tests/test_ci_release_guard_structure.py)
+                .github/workflows/ci.yml|scripts/ci/detect_ci_change_areas.py|scripts/ci/detect_linux_guard_changes.py|scripts/ci/workflow_guard_groups.py|tests/test_ci_change_areas.py|tests/test_ci_linux_guard_routing.py|tests/test_ci_guard_workflow_structure.py)
                   routing_policy_changed=true
                   ;;
                 .github/workflows/ci-macos.yml)
@@ -670,9 +679,9 @@ jobs:
                 fi
 
                 if [ "$release_only" = true ]; then
-                  echo 'linux_guard_test_groups=["preflight","ci","release-notary","release-tooling"]'
+                  echo 'linux_guard_test_groups=["preflight","ci","release-ios","release-notary","release-tooling"]'
                 else
-                  echo 'linux_guard_test_groups=["preflight","ci","app-host-execution","app-host-process","app-host-cache","release-ios","release-notary","release-tooling","quality-sharding","quality-runtime","quality-determinism"]'
+                  echo 'linux_guard_test_groups=["preflight","ci","app-host-execution","app-host-watchdog","app-host-process","app-host-cache","release-ios","release-notary","release-tooling","quality-sharding","quality-runtime","quality-determinism"]'
                 fi
               else
                 echo 'linux_guard_test_groups=["ci"]'
@@ -817,8 +826,8 @@ jobs:
   static-preflight:
     name: Fast static checks
     # No package installs, submodules or app build: reject malformed inputs
-    # before any Mac runner starts. Linux-only jobs run beside it rather than
-    # behind it; linux-preflight and ci-status still fail on a red result.
+    # before starting macOS and the other Linux stages. Guards and web run
+    # beside it, because the macOS gate waits for them.
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     permissions:
@@ -835,6 +844,10 @@ jobs:
         run: python3 scripts/verify-local.py
 
   guards:
+    # Not after static-preflight: the guards are the last job
+    # macos-admission-gate waits for (median ~110 s after changes), and the
+    # gate still requires static-preflight, so starting them together opens the
+    # gate ~25 s sooner without admitting macOS on a rejected diff.
     needs: [changes]
     if: ${{ needs.changes.outputs.linux_guard_tests != 'false' || needs.changes.outputs.linux_guard_history != 'false' || needs.changes.outputs.linux_guard_cli != 'false' || needs.changes.outputs.linux_guard_source != 'false' }}
     uses: ./.github/workflows/ci-guards.yml
@@ -897,6 +910,7 @@ jobs:
     uses: ./.github/workflows/cli-pipe-regressions.yml
 
   web:
+    # Beside static-preflight for the same reason as guards.
     needs: [changes]
     if: ${{ needs.changes.outputs.web != 'false' || needs.changes.outputs.agent_session_web != 'false' }}
     uses: ./.github/workflows/ci-web.yml
@@ -1032,6 +1046,7 @@ jobs:
       unit_suite: ${{ needs.changes.outputs.unit_suite }}
       unit_selectors: ${{ needs.changes.outputs.unit_selectors }}
       unit_strict_steps: ${{ needs.changes.outputs.unit_strict_steps }}
+      unit_in_admission: ${{ needs.changes.outputs.unit_in_admission }}
       swift_packages: ${{ needs.changes.outputs.swift_packages }}
       compile_admitted: ${{ needs.changes.outputs.compile_admitted }}
       release_build: ${{ needs.changes.outputs.release_build }}

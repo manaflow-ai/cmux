@@ -560,8 +560,10 @@ jobs:
     # Match the admission job's runner and Xcode. The cache key carries the
     # toolchain and the build paths, so a mismatch is a miss, not a wrong hit.
     # Pull requests are what restore this seed, so track the runner the
-    # admission job picks for `pull_request`, not the merge-queue one.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15' }}
+    # admission job picks for `pull_request`, not the merge-queue one. On the
+    # 6 vCPU macOS 26 pool, use its 12 vCPU sibling: same image and Xcode,
+    # no pull-request queue (see seed-derived-data.yml).
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.MACOS_RUNNER_PR == 'blacksmith-6vcpu-macos-26' && 'blacksmith-12vcpu-macos-26' || vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15' }}
     environment: ${{ github.ref == 'refs/heads/main' && 'ci-cache-writer' || '' }}
     timeout-minutes: 75
     env:
@@ -1833,31 +1835,21 @@ jobs:
       - name: Move channel release tag to built commit
         if: needs.decide.outputs.should_publish == 'true'
         env:
-          GITHUB_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git tag -f "$CHANNEL_RELEASE_TAG" "${{ needs.decide.outputs.head_sha }}"
-          # Push via a tokenized URL so we neither rely on the persisted
-          # checkout credentials (which intermittently fail with "Device not
-          # configured" on self-hosted runners) nor overlay a second
-          # Authorization header on top of them (which makes GitHub reject the
-          # push with `remote: Duplicate header: "Authorization"`).
-          # GitHub can transiently time out checking workflow permissions on
-          # a tag push. Retrying the same fixed commit is idempotent; never
-          # mark publication complete if all attempts fail.
-          for attempt in 1 2 3; do
-            if git push "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" \
-              "refs/tags/${CHANNEL_RELEASE_TAG}" --force; then
-              break
-            fi
-            if [ "$attempt" -eq 3 ]; then
-              echo "::error::Channel release tag push failed after 3 attempts"
-              exit 1
-            fi
-            sleep "$((attempt * 5))"
-          done
+          # Use the refs API rather than receive-pack. A Git push was rejected
+          # when GitHub timed out checking workflow-file changes across a large
+          # tag jump (the Actions token has no `workflows` permission).
+          # Every rc/** branch shares the rc tag and those branches diverge,
+          # so only the nightly tag requires a fast-forward.
+          # The helper retries only transient API/network failures and reads the
+          # ref back before this job can report publication complete.
+          python3 scripts/ci/update-release-tag.py \
+            --repo "$GITHUB_REPOSITORY" \
+            --tag "$CHANNEL_RELEASE_TAG" \
+            --sha "${{ needs.decide.outputs.head_sha }}" \
+            ${{ needs.decide.outputs.release_tag != 'nightly' && '--allow-non-descendant' || '' }}
 
   # A nightly that fails on main stalls every NIGHTLY install silently. Keep
   # one open issue per breakage so the failure is visible without watching Actions.
