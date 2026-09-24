@@ -79,12 +79,12 @@ extension SurfaceCatalog {
             let directory: String?
             if machine.deviceInstance != nil {
                 directory = resource?.kind == .terminal ? resource?.detail : nil
-            } else if resource?.kind != .terminal {
-                directory = nil
-            } else if current {
-                directory = cloudStates[machine]?.lookupIndex.terminal(id: projection.resource.key)?.cwd
+            } else if let resource, resource.kind == .terminal {
+                directory = current
+                    ? cloudStates[machine]?.lookupIndex.terminal(id: projection.resource.key)?.cwd
+                    : acceptedStaleCloudDirectory(for: resource)
             } else {
-                directory = acceptedStaleCloudDirectory(for: projection.resource)
+                directory = nil
             }
             if let directory, workspace.reportedPanelDirectory(panelId: projection.panelID) == directory { continue }
             workspace.updateCloudPanelDirectory(panelId: projection.panelID, directory: directory)
