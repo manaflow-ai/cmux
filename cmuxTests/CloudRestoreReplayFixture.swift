@@ -61,16 +61,7 @@ final class CloudRestoreReplayFixture {
         }
     }
 
-    func expectGrid(columns: Int, rows: Int) async throws {
-        try await waitUntil {
-            let frame = self.surface.mobileRenderGridFrame(
-                stateSeq: 0, scrollbackLines: 0, includeTheme: false
-            )?.frame
-            return frame?.columns == columns && frame?.rows == rows
-        }
-    }
-
-    func attach(replay: Data, columns: Int = 80, rows: Int = 24) async throws {
+    func attach(replay: Data) async throws {
         session.reconnect(socketPath: socket.socketPath)
         let identify = try #require(await socket.nextCommand(timeout: .seconds(5)))
         #expect(identify.cmd == "identify")
@@ -82,7 +73,7 @@ final class CloudRestoreReplayFixture {
         #expect(attach.cmd == "attach-surface")
         #expect(!attach.hasInitialSize, "Hidden restores must not claim their temporary grid")
         socket.send(["id": attach.id, "ok": true, "data": [:]])
-        try await deliver(replay, event: "vt-state", columns: columns, rows: rows, marker: "STATUS_READY")
+        try await deliver(replay, event: "vt-state", marker: "STATUS_READY")
         try await waitUntil { self.session.phase == .attached }
     }
 
@@ -109,16 +100,9 @@ final class CloudRestoreReplayFixture {
         #expect(input.inputBytes == bytes)
     }
 
-    func deliver(
-        _ bytes: Data,
-        event: String,
-        columns: Int = 80,
-        rows: Int = 24,
-        marker: String,
-        colors: [String: Any]? = nil
-    ) async throws {
+    func deliver(_ bytes: Data, event: String, marker: String, colors: [String: Any]? = nil) async throws {
         var payload: [String: Any] = [
-            "event": event, "surface": 17, "cols": columns, "rows": rows,
+            "event": event, "surface": 17, "cols": 80, "rows": 24,
             "data": bytes.base64EncodedString()
         ]
         if let colors { payload["colors"] = colors }

@@ -16,6 +16,7 @@ private let manualMirrorLogger = Logger(subsystem: "com.cmuxterm.app", category:
 @MainActor
 final class CloudTuiManualMirrorSession {
     private static let replayReset = Data([0x1B, 0x63, 0x1B, 0x5B, 0x33, 0x4A])
+
     let machineID: String
     let terminalID: String
     private(set) var remoteSurfaceID: UInt64
@@ -29,7 +30,7 @@ final class CloudTuiManualMirrorSession {
     private var diagnosticDeadline: Task<Void, Never>?
     private(set) var diagnosticFailure: CloudDiagnosticFailure?
     private var diagnosticReference: String?
-    weak var surface: TerminalSurface?
+    private weak var surface: TerminalSurface?
     private let onNeedsReconnect: @MainActor () -> Void
     private let commandBuilder: CloudTuiManualIOCommand
     private var connection: CloudTuiManualIOConnection?
@@ -62,7 +63,6 @@ final class CloudTuiManualMirrorSession {
     private var appliedRemoteColors = CloudTuiRemoteColors()
     private var hasReceivedRemoteReplay = false
     private var lastRemoteGrid: CloudTuiManualIOGrid?
-    var pendingReplaySizingSample: TerminalSurfaceRawSizingSample?
     private(set) var phase: CloudTuiManualMirrorPhase = .idle {
         didSet {
             if phase == .disconnected, oldValue != .disconnected, diagnosticContext != nil {
@@ -327,7 +327,6 @@ final class CloudTuiManualMirrorSession {
               let sample = surface.rawSizingSample() else {
             return
         }
-        if applyPendingReplaySizingSampleIfVisible() { return }
         apply(size: sample, validatePanePixels: true)
     }
     /// Starts or rebinds the byte attachment to the current link socket.
@@ -565,8 +564,6 @@ final class CloudTuiManualMirrorSession {
                 inputRouter.updateSurfaceID(surfaceID)
             }
             guard surfaceID == remoteSurfaceID else { return }
-            rememberReplaySizingSampleIfHidden()
-            surface?.prepareForRemoteReplay(columns: columns, rows: rows)
             // A snapshot replaces the local VT state. Reset first so cells,
             // cursor state, alternate-screen mode, and SGR from a prior
             // restore cannot survive where the replacement is shorter.
@@ -585,8 +582,6 @@ final class CloudTuiManualMirrorSession {
             applyColors(colors)
         case let .resized(surfaceID, columns, rows, bytes, colors):
             guard surfaceID == remoteSurfaceID else { return }
-            rememberReplaySizingSampleIfHidden()
-            surface?.prepareForRemoteReplay(columns: columns, rows: rows)
             // `resized` carries a replacement replay, not an incremental
             // output chunk. Resetting first prevents old rows/cursor state from
             // surviving a shrink or a reconnect.
@@ -625,6 +620,7 @@ final class CloudTuiManualMirrorSession {
             break
         }
     }
+
     private func applyReplay(_ bytes: Data, colors: CloudTuiRemoteColors?) {
         // A sidecar replaces authored colors; an absent sidecar preserves them.
         // Restore the authoritative set after resetting the replacement VT state.
