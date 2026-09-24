@@ -18,6 +18,13 @@ let package = Package(
             // The files moved out of the app target unchanged; keep its language mode.
             swiftSettings: [.swiftLanguageMode(.v5)]
         ),
-        .testTarget(name: "CmuxCloudTuiTests", dependencies: ["CmuxCloudTui"])
+        .testTarget(
+            name: "CmuxCloudTuiTests",
+            dependencies: [
+                "CmuxCloudTui",
+                // CmuxTerminal binds libghostty, which SwiftPM cannot link here.
+                .product(name: "GhosttyRuntimeTestStubs", package: "CmuxTerminal"),
+            ]
+        )
     ]
 )

@@ -1466,7 +1466,9 @@
 		906901000000000000000006 /* CmuxTaskManagerMemoryGroup.swift in Sources */ = {isa = PBXBuildFile; fileRef = 906901000000000000000005 /* CmuxTaskManagerMemoryGroup.swift */; };
 		90690100000000000000000C /* CmuxTaskManagerMemoryGroupAttribution.swift in Sources */ = {isa = PBXBuildFile; fileRef = 90690100000000000000000B /* CmuxTaskManagerMemoryGroupAttribution.swift */; };
 		C750500000000000000000A3 /* CmuxTerminal in Frameworks */ = {isa = PBXBuildFile; productRef = C750500000000000000000A2 /* CmuxTerminal */; };
+		C750500000000000000000A5 /* CmuxTerminal in Frameworks */ = {isa = PBXBuildFile; productRef = C750500000000000000000A4 /* CmuxTerminal */; };
 		C750200000000000000000A3 /* CmuxTerminalCore in Frameworks */ = {isa = PBXBuildFile; productRef = C750200000000000000000A2 /* CmuxTerminalCore */; };
+		C750200000000000000000A5 /* CmuxTerminalCore in Frameworks */ = {isa = PBXBuildFile; productRef = C750200000000000000000A4 /* CmuxTerminalCore */; };
 		C85390090000000000000001 /* CmuxTerminalCore in Frameworks */ = {isa = PBXBuildFile; productRef = C750200000000000000000A2 /* CmuxTerminalCore */; };
 		CFF12E0000000000000000A3 /* CmuxTestSupport in Frameworks */ = {isa = PBXBuildFile; productRef = CFF12E0000000000000000A2 /* CmuxTestSupport */; };
 		A2977C204AD69CF268D38EE3 /* CmuxTestWindowReleaseGuard.m in Sources */ = {isa = PBXBuildFile; fileRef = EA9B442F20273D64D2BA1FC5 /* CmuxTestWindowReleaseGuard.m */; };
@@ -8480,6 +8482,8 @@
 				D96970000000000000000005 /* CmuxSudoBrokerUI in Frameworks */,
 				5CA7A1060000000000000004 /* CmuxSurfaceCatalogModel in Frameworks */,
 				C01E00AA00000000000000A4 /* CmuxSyntaxHighlighting in Frameworks */,
+				C750500000000000000000A5 /* CmuxTerminal in Frameworks */,
+				C750200000000000000000A5 /* CmuxTerminalCore in Frameworks */,
 				730600040000000000000001 /* CmuxWindowing in Frameworks */,
 				1A0B0C0D0E0F101112132214 /* IrohLib in Frameworks */,
 				5E2701040000000000000003 /* Sentry in Frameworks */,
@@ -12871,6 +12875,8 @@
 			name = cmuxTests;
 			packageProductDependencies = (
 				C1D7A0000000000000000003 /* CmuxCloudTui */,
+				C750500000000000000000A4 /* CmuxTerminal */,
+				C750200000000000000000A4 /* CmuxTerminalCore */,
 				5CA7A1060000000000000003 /* CmuxSurfaceCatalogModel */,
 				79E4513469FB44C7A3690415 /* CmuxCloudMachines */,
 				29813FE5A6CBC1019289A251 /* CMUXAuthCore */,
@@ -18389,6 +18395,16 @@
 			isa = XCSwiftPackageProductDependency;
 			package = C750500000000000000000A1 /* XCLocalSwiftPackageReference "CmuxTerminal" */;
 			productName = CmuxTerminal;
+		};
+		C750500000000000000000A4 /* CmuxTerminal */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = C750500000000000000000A1 /* XCLocalSwiftPackageReference "CmuxTerminal" */;
+			productName = CmuxTerminal;
+		};
+		C750200000000000000000A4 /* CmuxTerminalCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = C750200000000000000000A1 /* XCLocalSwiftPackageReference "CmuxTerminalCore" */;
+			productName = CmuxTerminalCore;
 		};
 		CD0CFE5200000000CD0CFE52 /* CmuxSettings */ = {
 			isa = XCSwiftPackageProductDependency;
