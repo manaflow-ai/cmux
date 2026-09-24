@@ -681,13 +681,9 @@ jobs:
         if: ${{ matrix.group == 'quality-runtime' }}
         run: ./tests/test_ci_virtual_display_lock.sh
 
-      - name: Validate nightly tag push auth
+      - name: Validate nightly API tag finalization
         if: ${{ matrix.group == 'release-notary' }}
-        run: ./tests/test_ci_nightly_tag_push_auth.sh
-
-      - name: Validate nightly tag push retries
-        if: ${{ matrix.group == 'release-notary' }}
-        run: python3 tests/test_nightly_tag_push.py
+        run: python3 tests/test_update_release_tag.py
 
       - name: Validate nightly Xcode selection
         if: ${{ matrix.group == 'release-notary' }}
