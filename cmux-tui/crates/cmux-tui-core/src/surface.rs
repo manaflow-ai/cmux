@@ -2051,7 +2051,7 @@ fn mark_hosted_runtime_exited(
         *runtime = PtyRuntime::ExitedHosted;
         pty.supports_clear_history_key_fallback.store(false, Ordering::Release);
         drop(runtime);
-        pty.finish_hosted_exit();
+        pty.finish_terminal_exit();
     }
 }
 
@@ -2064,7 +2064,7 @@ fn publish_local_exit_if_ready(surface: &Arc<Surface>) {
     {
         return;
     }
-    pty.dead.store(true, Ordering::Release);
+    pty.finish_terminal_exit();
     if let Some(mux) = pty.mux.upgrade() {
         mux.surface_exited(surface.id);
     }
@@ -6749,9 +6749,9 @@ impl PtySurface {
         let _ = self.build_frame_locked(&mut term, generation, true);
     }
 
-    /// Preserve the last hosted frame, then end every live attachment while
+    /// Preserve the final frame, then end every live attachment while
     /// retaining the exited surface as a stable, snapshot-renderable tab.
-    fn finish_hosted_exit(&self) {
+    fn finish_terminal_exit(&self) {
         let mut term = self.term.lock().unwrap();
         // Attach takes the same terminal lock. The caller that changes `dead`
         // owns finalization; a prior host-loss owner must keep its state and
@@ -8873,7 +8873,7 @@ mod tests {
             TerminalHostConnectionState::Failed
         );
 
-        pty.finish_hosted_exit();
+        pty.finish_terminal_exit();
 
         assert_eq!(
             TerminalHostConnectionState::from_u8(pty.host_connection_state.load(Ordering::Acquire)),
@@ -8904,7 +8904,7 @@ mod tests {
                 let exit_start = start.clone();
                 let exit = scope.spawn(move || {
                     exit_start.wait();
-                    exit_surface.as_pty().unwrap().finish_hosted_exit();
+                    exit_surface.as_pty().unwrap().finish_terminal_exit();
                 });
 
                 start.wait();
