@@ -47,9 +47,9 @@ jobs:
         if: ${{ matrix.group == 'preflight' }}
         run: ./tests/test_ci_self_hosted_guard.sh
 
-      - name: Validate persistent Mac compile admission contract
+      - name: Validate owned-Mac dispatch helpers
         if: ${{ matrix.group == 'preflight' }}
-        run: python3 tests/test_ci_persistent_mac_compile.py
+        run: python3 tests/test_ci_mini_dispatch.py
 
       - name: Validate Swift incremental diagnostics tooling
         if: ${{ matrix.group == 'preflight' }}
@@ -351,10 +351,6 @@ jobs:
       - name: Validate the persistent-pool rescue
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_owned_pool_rescue.py
-
-      - name: Validate persistent compile fleet command
-        if: ${{ matrix.group == 'ci' }}
-        run: python3 tests/test_ci_persistent_compile_fleet.py
 
       - name: Validate CI health report
         if: ${{ matrix.group == 'ci' }}

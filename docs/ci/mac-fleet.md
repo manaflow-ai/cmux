@@ -16,6 +16,17 @@ routing contract, which already exists:
 Read those first. This document answers "how many, which lane, and what
 happens at 3 a.m.", and it is the one that carries measurements.
 
+> **Pull request compile pilot retired (RETIRE_PR).** The persistent
+> compile-admission pilot this plan builds on (`persistent-macos-compile.yml`,
+> `persistent-macos-router.yml`, `CI_PERSISTENT_MAC_COMPILE` and
+> `scripts/persistent-compile`) was removed before it routed any pull request.
+> No workflow targets the `cmux-persistent-compile` runner group any more, so
+> an org admin can remove the group and deregister its runners. Owned minis
+> will take pull request jobs through the pool picker instead
+> (`scripts/ci/pr_runner_pool.py`, `POOLS`, #14205). The sections marked
+> "retired" below describe the removed pilot and are kept for their
+> measurements and reasoning. The [Nightly lane](#nightly-lane) is unchanged.
+
 ## TL;DR
 
 - The Blacksmith macOS-15 pull-request pool is running at **11.2 busy servers
@@ -215,6 +226,10 @@ that single fact.
 
 ### 2.1 What is already enforced
 
+> Retired with the pilot (RETIRE_PR): the `check_persistent_compile_*`
+> functions and `tests/test_ci_persistent_mac_compile.py` rows below no longer
+> exist. `check_no_self_hosted_fleet_runners` still applies.
+
 | Control | Where |
 | --- | --- |
 | Producer is `workflow_dispatch`-only | `check_persistent_compile_lane` |
@@ -329,6 +344,10 @@ Registering the GitHub Actions runner is a **separate** step that
 in Glaeda is not yet a runner.
 
 ### 3.2 Labels and runner group
+
+> Retired (RETIRE_PR): no workflow targets this group or label any more. The
+> guard still refuses both names in a required job.
+> Owned minis will join the pool picker's `POOLS` behind a dedicated label.
 
 Exactly one group and one label set, byte-for-byte, because the guard compares
 them literally:
@@ -547,6 +566,10 @@ required, the existing Tart pool provides it (fresh VM clone per job, deleted
 after) and is where that requirement belongs.
 
 ## 5. Rollout
+
+> Retired (RETIRE_PR): `scripts/persistent-compile` and the variables below
+> were removed with the pilot. Rollout of owned minis for pull requests now
+> goes through `scripts/ci/pr_runner_pool.py` (`POOLS`, `CI_PR_POOL_ORDER`).
 
 `scripts/persistent-compile` runs every step below that can be scripted. Run
 it with no arguments from anywhere to see what is set up and the one command

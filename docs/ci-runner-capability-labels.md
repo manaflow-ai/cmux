@@ -226,9 +226,10 @@ cannot name the wrong one:
 Four more shrink rather than disappear. `check_e2e_runner_fallbacks` loses its
 Tart-choice and runner-identity assertions but keeps the concurrency and
 `continue-on-error` rules, which are unrelated. The three
-`check_persistent_compile_*` functions lose their label and group-name string
-matching but keep every security assertion — empty token permissions, no
-secrets, dispatch-only, router-owned dispatch authority. `check_cla_guard_runner`
+`check_persistent_compile_*` functions were removed with the retired persistent
+compile pilot. `check_nightly_mini_lane` would lose its label and group-name
+string matching but keep every security assertion: empty token permissions, no
+secrets, dispatch-only. `check_cla_guard_runner`
 inverts: it asserts a job is *not* redirectable, which still needs saying.
 
 The remaining 21 checks — signing, DMG, Sentry, XCTest skips, web tests,
@@ -294,9 +295,9 @@ while something still reads it silently resolves to the fallback.
 
 **Runner groups are the security boundary; labels are not.** A self-hosted
 runner declares its own labels at registration, so a label is a scheduling
-hint that the machine asserts about itself. The `cmux-persistent-compile`
+hint that the machine asserts about itself. The `cmux-nightly-mini`
 group is workflow-restricted to
-`persistent-macos-compile.yml@refs/heads/main`, and that restriction is
+`nightly-mini-build.yml@refs/heads/main`, and that restriction is
 administered in organization settings where a branch-modified workflow copy
 cannot reach it. Group and labels compose correctly (both must match), so
 capability labels can be added to that job without weakening it — but the

@@ -643,10 +643,6 @@ def test_operational_ci_helpers_skip_product_areas() -> None:
         "scripts/ci/swift_incremental_diagnostics.py",
         "scripts/ci/cmux_workload_profile.py",
         "scripts/ci/r2-canary-cloudflare.py",
-        # The persistent compile fleet operator command: gh API calls and
-        # launchd on the mini, never read by a build.
-        "scripts/persistent-compile",
-        "scripts/ci/persistent_compile_fleet.py",
     ):
         assert_areas([path], macos=False, web=False)
 
@@ -1377,11 +1373,11 @@ def test_unknown_ci_helper_still_fails_open_to_every_area_the_lane_can_reach() -
     assert actual.cli is False
 
 
-def test_guard_workflow_and_persistent_router_skip_product_areas() -> None:
+def test_guard_workflow_and_mini_dispatch_skip_product_areas() -> None:
     for path in (
         ".github/workflows/ci-guards.yml",
-        "scripts/ci/persistent_mac_route.py",
-        "tests/test_ci_persistent_mac_compile.py",
+        "scripts/ci/mini_dispatch.py",
+        "tests/test_ci_mini_dispatch.py",
         "tests/test_ci_self_hosted_guard.sh",
     ):
         assert_areas([path], macos=False, web=False)
@@ -2206,8 +2202,6 @@ def run_macos_status(
         "full_suite": "true",
         "compile_admitted": "false",
         "release_build": "true",
-        "source_identity_valid": "true",
-        "source_tree": "tree",
         "source_parent1": "parent",
     } if inputs is None else dict(inputs)
     job_results = dict.fromkeys(MACOS_JOBS, "success")
@@ -2417,7 +2411,7 @@ def test_router_change_with_app_source_uses_trusted_base_product_routing() -> No
 
 
 def test_owned_control_plane_helper_reaches_detector_instead_of_fail_open_guard() -> None:
-    result, outputs = run_detect_step_for_paths(["scripts/ci/persistent_mac_route.py"])
+    result, outputs = run_detect_step_for_paths(["scripts/ci/mini_dispatch.py"])
 
     assert "CI router changed; running all CI areas." not in result.stdout
     assert outputs == [
@@ -3188,8 +3182,6 @@ def test_macos_workflow_call_starts_after_cheap_static_gate() -> None:
         "unit_suite",
         "compile_admitted",
         "release_build",
-        "source_identity_valid",
-        "source_tree",
         "source_parent1",
     ):
         assert f"      {route}: ${{{{ needs.changes.outputs.{route} }}}}" in caller
@@ -3203,8 +3195,6 @@ def test_macos_workflow_call_starts_after_cheap_static_gate() -> None:
     admission = workflow_job_block("macos-compile-admission", MACOS_WORKFLOW)
     assert "needs.changes" not in admission
     assert "needs.linux-preflight" not in admission
-    assert "inputs.source_identity_valid" in admission
-    assert "inputs.source_tree" in admission
     assert "inputs.source_parent1" in admission
 
 
@@ -3411,8 +3401,6 @@ def test_macos_status_accepts_compile_only_prior_admission_skip() -> None:
         "full_suite": "false",
         "compile_admitted": "true",
         "release_build": "false",
-        "source_identity_valid": "true",
-        "source_tree": "tree",
         "source_parent1": "parent",
     }
     skipped = dict.fromkeys(MACOS_JOBS, "skipped")
@@ -3443,7 +3431,7 @@ def test_build_input_fingerprint_tracks_product_identity_not_ci_orchestration() 
         **{
             "Sources/App.swift": "1" * 40,
             "scripts/ci/compile-app-host-test-product.sh": "2" * 40,
-            "scripts/ci/persistent_mac_route.py": "3" * 40,
+            "scripts/ci/mini_dispatch.py": "3" * 40,
             ".github/workflows/ci.yml": "4" * 40,
             "tests/test_x.py": "5" * 40,
         }
@@ -3469,7 +3457,7 @@ def test_build_input_fingerprint_tracks_product_identity_not_ci_orchestration() 
         **{
             "Sources/App.swift": "1" * 40,
             "scripts/ci/compile-app-host-test-product.sh": "2" * 40,
-            "scripts/ci/persistent_mac_route.py": "6" * 40,
+            "scripts/ci/mini_dispatch.py": "6" * 40,
             ".github/workflows/ci.yml": "7" * 40,
             "tests/test_x.py": "8" * 40,
         }
@@ -3858,9 +3846,6 @@ def test_unchanged_build_inputs_skip_mac_compile_before_runner_allocation() -> N
 
     lookup = workflow_step_block("changes", "Look for an earlier run that compiled these inputs")
     assert "steps.unchanged_inputs.outputs.compile_admitted != 'true'" in lookup
-
-    persistent = workflow_step_block("changes", "Publish persistent Mac route request")
-    assert "steps.unchanged_inputs.outputs.compile_admitted != 'true'" in persistent
 
 
 def test_published_fingerprint_artifact_is_the_one_the_lookup_reads() -> None:
@@ -4579,8 +4564,6 @@ def test_a_unit_ci_run_cannot_pass_with_the_unit_tests_skipped() -> None:
         "unit_suite": "true",
         "compile_admitted": "true",
         "release_build": "false",
-        "source_identity_valid": "true",
-        "source_tree": "tree",
         "source_parent1": "parent",
     }
     skipped = dict.fromkeys(MACOS_JOBS, "skipped")
@@ -5041,8 +5024,6 @@ def test_macos_status_allows_unrouted_skips() -> None:
             "full_suite": "false",
             "compile_admitted": "false",
             "release_build": "false",
-            "source_identity_valid": "false",
-            "source_tree": "",
             "source_parent1": "",
         },
         results=dict.fromkeys(MACOS_JOBS, "skipped"),
@@ -5143,8 +5124,6 @@ def test_macos_status_requires_the_lane_the_router_selected() -> None:
         "swift_packages": "true",
         "compile_admitted": "true",
         "release_build": "false",
-        "source_identity_valid": "true",
-        "source_tree": "tree",
         "source_parent1": "parent",
     }
     results = dict.fromkeys(MACOS_JOBS, "skipped")
@@ -5173,8 +5152,6 @@ def test_macos_status_reads_a_missing_package_route_as_unrouted() -> None:
         "full_suite": "false",
         "compile_admitted": "false",
         "release_build": "false",
-        "source_identity_valid": "false",
-        "source_tree": "",
         "source_parent1": "",
     }
     for value in ({}, {"swift_packages": ""}):
