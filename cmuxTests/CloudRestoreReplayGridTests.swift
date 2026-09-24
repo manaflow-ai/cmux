@@ -43,7 +43,7 @@ struct CloudRestoreReplayGridTests {
         #expect(report.surface == 17)
         #expect(report.columns == 99)
         #expect(report.rows == 35)
-        fixture.socket.send(["id": report.id, "ok": true, "data": ["outcome": "passive", "accepted": false]])
+        fixture.socket.send(["id": report.id, "ok": true, "data": [:]])
         let claim = try #require(
             await fixture.socket.nextCommand(timeout: .seconds(5)),
             "A visible restored pane must claim its reported grid without requiring focus"
