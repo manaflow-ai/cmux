@@ -103,8 +103,20 @@ class FailSafe(unittest.TestCase):
         self.assert_default(choose(backlog(), event="push"))
         self.assert_default(choose(backlog(), event="merge_group"))
         self.assert_default(choose(backlog(), event="workflow_dispatch"))
-        self.assert_default(choose(backlog(), head="someone/cmux"))
         self.assert_default(choose(backlog(), head=""))
+        self.assert_default(choose(backlog(), head="someone/cmux", event="push"))
+
+    def test_fork_heads_use_built_in_defaults_and_no_pin(self):
+        # A fork run sees no repository variables: empty lane, no Xcode pins.
+        fork = dict(head="someone/cmux", default="", pins={})
+        self.assertEqual((choose(backlog(small=0, large=0), **fork).runner), LARGE)
+        choice = choose(backlog(small=21, large=5, old=0), **fork)
+        self.assertEqual((choice.runner, choice.xcode_app), (OLD, ""))
+        self.assertIn("fork head", choice.reason)
+        # Even a value that somehow reached it cannot steer a fork run.
+        self.assertEqual(choose(backlog(small=0, large=0), order=OLD, overflow="0", **fork).runner, LARGE)
+        self.assert_default(choose(None, **fork))
+        self.assertTrue(all(label.startswith(pool.EPHEMERAL_PREFIX) for label in pool.DEFAULT_ORDER))
 
     def test_only_moves_off_the_6vcpu_macos_26_lane(self):
         self.assert_default(choose(backlog(), default=""))

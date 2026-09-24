@@ -84,8 +84,8 @@ jobs:
       source_identity_valid: ${{ steps.source-identity.outputs.valid }}
       # The macOS pool every pull-request macOS job in this run uses, chosen
       # once so a run is never split across pools (see pr_runner_pool.py).
-      # Empty keeps each job's own MACOS_RUNNER_PR fallback, which is every
-      # event but a same-repository pull request, and any uncertainty.
+      # Empty keeps each job's own MACOS_RUNNER_PR fallback: every event but a
+      # pull request, and any uncertainty.
       macos_pr_runner: ${{ steps.macos-pool.outputs.runner }}
       macos_pr_xcode_app: ${{ steps.macos-pool.outputs.xcode_app }}
     permissions:
@@ -801,9 +801,12 @@ jobs:
 
       # The PR workflow only publishes immutable request evidence. Dispatch and
       # cancellation authority live in persistent-macos-router.yml on main.
+      # A run pr_runner_pool.py moved to another Xcode (the macOS 15 pool) skips
+      # it: the owned-Mac producer builds with the lane's Xcode, and compile
+      # admission would refuse that product.
       - name: Publish persistent Mac route request
         id: persistent-route-request
-        if: ${{ github.event_name == 'pull_request' && steps.source-identity.outputs.valid == 'true' && steps.detect.outputs.macos == 'true' && steps.unchanged_inputs.outputs.compile_admitted != 'true' && steps.admitted.outputs.compile_admitted != 'true' && (vars.CI_PERSISTENT_MAC_COMPILE == 'pilot' || vars.CI_PERSISTENT_MAC_COMPILE == 'all' || vars.CI_PERSISTENT_MAC_COMPILE == 'on' || vars.CI_PERSISTENT_MAC_COMPILE == 'true' || vars.CI_PERSISTENT_MAC_COMPILE == '1') && github.event.pull_request.head.repo.full_name == github.repository && (github.event.pull_request.author_association == 'MEMBER' || github.event.pull_request.author_association == 'OWNER') }}
+        if: ${{ github.event_name == 'pull_request' && steps.source-identity.outputs.valid == 'true' && steps.detect.outputs.macos == 'true' && steps.unchanged_inputs.outputs.compile_admitted != 'true' && steps.admitted.outputs.compile_admitted != 'true' && steps.macos-pool.outputs.xcode_app == '' && (vars.CI_PERSISTENT_MAC_COMPILE == 'pilot' || vars.CI_PERSISTENT_MAC_COMPILE == 'all' || vars.CI_PERSISTENT_MAC_COMPILE == 'on' || vars.CI_PERSISTENT_MAC_COMPILE == 'true' || vars.CI_PERSISTENT_MAC_COMPILE == '1') && github.event.pull_request.head.repo.full_name == github.repository && (github.event.pull_request.author_association == 'MEMBER' || github.event.pull_request.author_association == 'OWNER') }}
         env:
           PR_NUMBER: ${{ github.event.pull_request.number }}
           HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name }}

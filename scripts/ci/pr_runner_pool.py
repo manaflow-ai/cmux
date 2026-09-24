@@ -35,9 +35,16 @@ request push, out of the GITHUB_TOKEN's shared budget of about 1000 an hour.
 The janitor runs every 10 minutes on paper and every 10 to 30 in practice, so
 a snapshot older than MAX_SNAPSHOT_MINUTES counts as unknown.
 
+A pull request from a fork into manaflow-ai/cmux gets no repository
+variables, so it takes the built-in order and threshold, and no Xcode pin:
+each job then selects the newest SDK 26 Xcode on the pool it lands on, and the
+product consumers restate compile admission's empty pin, so the run stays on
+one toolchain. Blacksmith runners are ephemeral, so fork code on any of these
+pools is fine; only pools in POOLS are ever chosen.
+
 Anything uncertain keeps today's route: an event other than pull_request, a
-fork head (which gets no repository variables and keeps its own fallback),
-MACOS_RUNNER_PR naming some other pool, an API error, a missing, stale or
+same-repository run whose MACOS_RUNNER_PR names another pool or is unset (the
+documented way back to the macOS 15 lane), an API error, a missing, stale or
 malformed snapshot, or an invalid setting. The script then prints an empty
 runner, and every job's own expression resolves exactly as before.
 """
@@ -67,6 +74,8 @@ POOLS = {
     MACOS_15_RUNNER: "CMUX_CI_XCODE_APP_MACOS_15",
 }
 DEFAULT_ORDER = (LARGE_RUNNER, DEFAULT_RUNNER, MACOS_15_RUNNER)
+# Pools whose machines are discarded after each job; the only ones a fork run may use.
+EPHEMERAL_PREFIX = "blacksmith-"
 
 OVERFLOW_VARIABLE = "CI_PR_POOL_OVERFLOW"
 ORDER_VARIABLE = "CI_PR_POOL_ORDER"
@@ -146,8 +155,13 @@ def decide(
     *,
     now: dt.datetime,
     xcode_pins: Mapping[str, str],
+    auto_xcode: bool = False,
 ) -> Choice:
-    """The preference rule over a janitor snapshot. Uncertainty keeps today's route."""
+    """The preference rule over a janitor snapshot. Uncertainty keeps today's route.
+
+    `auto_xcode` (a fork run, which has no pins) lets every pool fall back to
+    each job selecting its pool's newest SDK 26 Xcode.
+    """
     if not isinstance(snapshot, Mapping) or not isinstance(snapshot.get("pools"), Mapping):
         return Choice("", "", "no readable pool snapshot")
     age = snapshot_age_minutes(snapshot, now)
@@ -160,7 +174,7 @@ def decide(
 
     def xcode(label: str) -> str | None:
         variable = POOLS[label]
-        if not variable:
+        if not variable or auto_xcode:
             return ""
         return (xcode_pins.get(variable) or "").strip() or None
 
@@ -193,11 +207,21 @@ def choose(
     """The pool for this run and the snapshot it was read from (None when none was read)."""
     if event != "pull_request":
         return Choice("", "", f"{event or 'unknown'} event; not a pull request"), None
-    if not head_repo or head_repo != repo:
-        return Choice("", "", "fork head; repository variables do not apply"), None
-    if (default_runner or "").strip() != DEFAULT_RUNNER:
+    if not head_repo:
+        return Choice("", "", "pull request head repository unknown"), None
+    fork = head_repo != repo
+    if fork:
+        # No repository variables reach a fork run: built-in defaults, no pins.
+        overflow = order = max_queued = None
+        xcode_pins = {}
+    elif (default_runner or "").strip() != DEFAULT_RUNNER:
         return Choice("", "", f"MACOS_RUNNER_PR is {default_runner or 'unset'}, not {DEFAULT_RUNNER}"), None
     limits = settings(overflow, order, max_queued)
+    if limits is not None and fork:
+        # Fork code runs only on ephemeral Blacksmith machines, never on a
+        # persistent pool (owned Macs) that may join POOLS later.
+        limits = dataclasses.replace(limits, order=tuple(
+            label for label in limits.order if label.startswith(EPHEMERAL_PREFIX)))
     if limits is None:
         return Choice("", "", f"{OVERFLOW_VARIABLE} is 0, or {ORDER_VARIABLE}/{MAX_QUEUED_VARIABLE} "
                               "is invalid"), None
@@ -205,7 +229,10 @@ def choose(
         snapshot = fetch()
     except Exception as error:  # noqa: BLE001 - every failure keeps the default
         return Choice("", "", f"could not read the pool snapshot ({error})"), None
-    return decide(snapshot, limits, now=now, xcode_pins=xcode_pins), snapshot
+    choice = decide(snapshot, limits, now=now, xcode_pins=xcode_pins, auto_xcode=fork)
+    if fork and choice.runner:
+        choice = dataclasses.replace(choice, reason=f"fork head, built-in defaults; {choice.reason}")
+    return choice, snapshot
 
 
 class _NoRedirect(urllib.request.HTTPRedirectHandler):
