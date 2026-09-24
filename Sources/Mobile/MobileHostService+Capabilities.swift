@@ -1,4 +1,5 @@
 import CMUXMobileCore
+import CmuxIrxTransport
 import Foundation
 
 extension MobileHostService {
@@ -196,6 +197,9 @@ extension MobileHostService {
             MobileBrowserStreamCapability.viewportIdentifier,
             MobileBrowserStreamCapability.dialogIdentifier,
             MobileBrowserStreamCapability.createIdentifier,
+            // The phone's "On iPhone" browser tunnel (irx `tcpConnect` and
+            // `listeningPorts` lanes, served by `MobileHostBrowserTunnel`).
+            IrxTunnelCapability.identifier,
             MobileSimulatorStreamCapability.current.identifier,
             MobileSimulatorStreamCapability.current.inputIdentifier,
             MobileSimulatorStreamCapability.current.ownershipIdentifier,
@@ -294,6 +298,7 @@ extension MobileHostService {
                 MobileBrowserStreamCapability.viewportIdentifier,
                 MobileBrowserStreamCapability.dialogIdentifier,
                 MobileBrowserStreamCapability.createIdentifier,
+                IrxTunnelCapability.identifier,
             ]
             capabilities.removeAll { browserCapabilities.contains($0) }
         }
