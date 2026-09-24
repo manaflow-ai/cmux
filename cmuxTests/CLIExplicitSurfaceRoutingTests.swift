@@ -313,9 +313,13 @@ struct CLIExplicitSurfaceRoutingTests {
         #expect((result.stderr + result.stdout).contains("Surface ref not found: surface:99999"))
         #expect(state.mutationCountSnapshot() == 0)
 
+        // #13964 resolves a workspace ref client-side: the parameterless
+        // workspace.list snapshot, then the window scan. This host answers
+        // neither, so the ref passes through unresolved on the one listing.
         let requests = try state.requestObjects()
-        #expect(requests.compactMap { $0["method"] as? String } == ["surface.list"])
-        let listParams = try #require(requests.first?["params"] as? [String: Any])
+        #expect(requests.compactMap { $0["method"] as? String } == ["workspace.list", "window.list", "surface.list"])
+        let listRequest = try #require(requests.first { $0["method"] as? String == "surface.list" })
+        let listParams = try #require(listRequest["params"] as? [String: Any])
         #expect(listParams["workspace_id"] as? String == Self.reproWorkspaceRef)
     }
 
@@ -480,7 +484,9 @@ struct CLIExplicitSurfaceRoutingTests {
         #expect(state.mutationCountSnapshot() == 0)
 
         let requests = try state.requestObjects()
-        #expect(requests.compactMap { $0["method"] as? String } == ["window.list", "workspace.list", "surface.list"])
+        // #13964 resolves the workspace ref from the parameterless workspace.list
+        // snapshot first, so the window scan is no longer needed here.
+        #expect(requests.compactMap { $0["method"] as? String } == ["workspace.list", "surface.list"])
         let listParams = try #require(requests.last?["params"] as? [String: Any])
         #expect(listParams["workspace_id"] as? String == Self.reproWorkspaceId)
     }
