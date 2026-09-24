@@ -1,14 +1,12 @@
 import AppKit
 import Bonsplit
 import CmuxAppKitSupportUI
-import CmuxSettingsUI
 import Foundation
 import SwiftUI
 
 /// Renders the Dock's Bonsplit tree, reusing `PanelContentView` so Dock
 /// terminals and browsers render identically to main-area panes.
 struct DockSplitContentView: View {
-    @Environment(\.settingsRuntime) private var settingsRuntime
     let store: DockSplitStore
     let appearance: PanelAppearance
     let appearanceRevision: UInt
@@ -17,10 +15,8 @@ struct DockSplitContentView: View {
     let unreadPanelIDs: Set<UUID>
 
     var body: some View {
-        let panelSettingsRuntime = settingsRuntime
         BonsplitView(controller: store.bonsplitController) { tab, paneId in
             dockContent(tab: tab, paneId: paneId)
-                .environment(\.settingsRuntime, panelSettingsRuntime)
         } emptyPane: { paneId in
             dockEmptyPaneView(paneId: paneId)
         }

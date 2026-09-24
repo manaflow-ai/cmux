@@ -6,7 +6,6 @@ import CmuxFoundation
 import Bonsplit
 import CmuxWorkspaces
 import CmuxTerminal
-import CmuxSettingsUI
 
 private enum WorkspaceTitlebarInteractionMetrics {
     // Keep in sync with the minimal-mode titlebar strip so the monitor only
@@ -178,7 +177,6 @@ struct WorkspaceContentView: View {
     @State private var config = WorkspaceContentView.resolveGhosttyAppearanceConfig(reason: "stateInit")
     @State private var lastAppliedUsesHostLayerBackground = GhosttyApp.shared.usesHostLayerBackground
     @Environment(\.colorScheme) private var colorScheme
-    @Environment(\.settingsRuntime) private var settingsRuntime
     @EnvironmentObject var notificationStore: TerminalNotificationStore
 #if DEBUG
     @Environment(\.minimalModeInvalidationProbe) private var minimalModeInvalidationProbe
@@ -217,7 +215,6 @@ struct WorkspaceContentView: View {
             }
         }()
 
-        let panelSettingsRuntime = settingsRuntime
         let bonsplitView = BonsplitView(controller: workspace.bonsplitController) { tab, paneId in
             // Content for each tab in bonsplit
             let _ = Self.debugPanelLookup(tab: tab, workspace: workspace)
@@ -323,9 +320,6 @@ struct WorkspaceContentView: View {
                         },
                         onTriggerFlash: { workspace.triggerDebugFlash(panelId: panel.id) }
                     )
-                    // Bonsplit creates a new AppKit hosting root for each pane.
-                    // Forward the runtime across that boundary, as the canvas host does.
-                    .environment(\.settingsRuntime, panelSettingsRuntime)
                     .onTapGesture {
                         workspace.bonsplitController.focusPane(paneId)
                     }
