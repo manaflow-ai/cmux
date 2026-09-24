@@ -2084,6 +2084,9 @@ jobs:
         if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_CLI_REGRESSION_SHARD) }}
         run: |
           set -euo pipefail
+          # The app-host checkout skips submodules (#13427); this regression
+          # sources Ghostty's bash integration from ghostty/src.
+          git submodule update --init --depth 1 ghostty
           # macOS provides the legacy Bash 3.2 path; install Homebrew Bash so
           # this regression also exercises the newer PROMPT_COMMAND array path.
           if ! brew list --formula bash >/dev/null 2>&1; then
