@@ -416,18 +416,19 @@ gh run list --repo manaflow-ai/cmux --workflow ci.yml --limit 50 \
 done | sort | uniq -c | sort -rn
 ```
 
-Drain one mini:
+Drain one mini, on the mini:
 
 ```sh
-python3 scripts/cmux_fleet.py transition-apply "$ENROLLMENT" --to draining
-bash scripts/cmux-fleet status "$ENROLLMENT" --acceptance "$ACCEPTANCE"
+scripts/persistent-compile drain          # waits for a running job; --now does not
+scripts/persistent-compile resume         # back to eligible, service started
 ```
 
-Then remove the runner from the `cmux-persistent-compile` group, or stop its
-launchd job. **Draining in Glaeda does not stop GitHub from assigning jobs** -
-they are separate control planes, and this is the sharpest operational trap in
-the whole design. Until glaeda #1058's drain primitive lands, draining is two
-actions, and doing only the first one leaves the machine taking work.
+**Draining in Glaeda does not stop GitHub from assigning jobs** - they are
+separate control planes, and this is the sharpest operational trap in the
+whole design. `drain` does both: it moves the enrollment to `draining` and
+stops the runner's launchd service once it is idle. Until glaeda #1058's drain
+primitive lands, do not drain with `cmux_fleet.py transition-apply` alone; that
+leaves the machine taking work.
 
 Quarantine, with one of the eight reviewed reasons (`toolchain_mismatch`,
 `disk_pressure`, `failed_acceptance`, `dirty_canonical_checkout`,
@@ -519,6 +520,26 @@ after) and is where that requirement belongs.
 
 ## 5. Rollout
 
+`scripts/persistent-compile` runs every step below that the repository can
+own. With no arguments it reads the runner group, the runners in it, the
+routing variables and, on a Mac, the local Glaeda enrollment and runner
+service, then prints the one command to run next. Commands that change
+anything print their plan and need `--apply`.
+
+| Who | Where | Command |
+| --- | --- | --- |
+| Operator | the mini | Glaeda `scripts/glaeda-mini-setup --apply`, then `scripts/glaeda-mini-enroll --cmux-root <cmux> --node-id cmux-mac-NNN --apply` |
+| Org admin | anywhere with `gh` | `scripts/persistent-compile group --apply` |
+| Org admin's `gh` | the mini | `scripts/persistent-compile register --apply` |
+| Maintainer | anywhere | `scripts/persistent-compile pilot <PR>`, later `all` |
+| Anyone | anywhere | `scripts/persistent-compile` |
+
+`register` refuses a mini whose Glaeda enrollment is not `eligible`, installs
+the pinned `actions-runner` (sha256 checked) in
+`~/actions-runner-cmux-persistent-compile`, registers it in the group with the
+exact labels in 3.2 using a registration token that is passed through the
+runner's environment and never printed, and starts it as a launchd agent.
+
 ### Stage 0 - preconditions (maintainer only)
 
 - [ ] Organization runner group `cmux-persistent-compile` exists, allows this
@@ -535,9 +556,11 @@ after) and is where that requirement belongs.
 ### Stage 1 - canary, one mini, one lane, one PR
 
 ```sh
-gh variable set CI_PERSISTENT_MAC_COMPILE        --repo manaflow-ai/cmux -b pilot
-gh variable set CI_PERSISTENT_MAC_COMPILE_COHORT --repo manaflow-ai/cmux -b 13198
+scripts/persistent-compile pilot 13198
 ```
+
+That sets `CI_PERSISTENT_MAC_COMPILE=pilot` and
+`CI_PERSISTENT_MAC_COMPILE_COHORT=13198`.
 
 `pilot` + a cohort restricts routing to matching PR numbers or head branch
 names. Every other PR is untouched. Leave it here for at least 20 routed runs.
