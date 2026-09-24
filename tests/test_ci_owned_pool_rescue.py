@@ -326,7 +326,7 @@ class Workflow(unittest.TestCase):
     def test_runs_whenever_owned_pools_are_on(self):
         self.assertEqual(self.doc[True]["workflow_run"], {"workflows": ["CI"], "types": ["requested"]})
         condition = self.doc["jobs"]["rescue"]["if"]
-        for part in ("vars.CI_PR_POOL_OWNED == '1'", "vars.CI_OWNED_POOL_RESCUE != '0'",
+        for part in ("vars.CI_PR_POOL_OWNED == '1'", "(vars.CI_OWNED_POOL_RESCUE || '1') != '0'",
                      "github.event.workflow_run.event == 'pull_request'",
                      "github.event.workflow_run.head_repository.full_name == github.repository",
                      "github.event.workflow_run.run_attempt == 1"):
