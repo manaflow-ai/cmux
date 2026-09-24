@@ -4596,6 +4596,74 @@ final class cmuxUITests: XCTestCase {
     }
 
     @MainActor
+    func testEraseAllLocalDataResetsPersistedSettingsAfterRelaunch() throws {
+        var app = launchApp(
+            mockData: false,
+            environment: ["CMUX_UITEST_WORKSPACE_LIST_PREVIEW": "1"]
+        )
+
+        func openSettings(in app: XCUIApplication) {
+            let settings = app.buttons["MobileWorkspaceSettingsMenu"]
+            XCTAssertTrue(settings.waitForExistence(timeout: 8))
+            tap(settings, in: app)
+        }
+
+        func revealed(_ element: XCUIElement, in app: XCUIApplication) -> XCUIElement {
+            for _ in 0..<14 where !element.exists || !element.isHittable {
+                app.swipeUp(velocity: .slow)
+            }
+            XCTAssertTrue(element.waitForExistence(timeout: 4))
+            XCTAssertTrue(element.isHittable)
+            return element
+        }
+
+        func waitForValue(_ value: String, on toggle: XCUIElement) {
+            let expectation = XCTNSPredicateExpectation(
+                predicate: NSPredicate(format: "value == %@", value),
+                object: toggle
+            )
+            XCTAssertEqual(XCTWaiter.wait(for: [expectation], timeout: 2), .completed)
+        }
+
+        // Persist a non-default setting so the relaunch can prove the erase.
+        openSettings(in: app)
+        let haptics = revealed(app.switches["MobileSettingsHapticFeedbackToggle"], in: app)
+        if haptics.value as? String == "1" {
+            haptics.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)).tap()
+        }
+        waitForValue("0", on: haptics)
+
+        let reset = revealed(app.buttons["MobileSettingsResetLocalData"], in: app)
+        XCTAssertTrue(
+            app.staticTexts.containing(NSPredicate(format: "label CONTAINS %@", "are not deleted")).firstMatch.exists,
+            "The reset footer must say server-side data is not deleted."
+        )
+        reset.tap()
+
+        let alert = app.alerts.firstMatch
+        XCTAssertTrue(alert.waitForExistence(timeout: 4))
+        XCTAssertTrue(
+            alert.staticTexts.containing(NSPredicate(format: "label CONTAINS %@", "Nothing is deleted from your cmux account")).firstMatch.exists
+        )
+        alert.buttons["Erase"].tap()
+
+        XCTAssertTrue(
+            app.descendants(matching: .any)["MobileLocalDataResetFinished"].waitForExistence(timeout: 20),
+            "Erasing must end on the reset screen that asks for a relaunch."
+        )
+        XCTAssertFalse(app.buttons["MobileWorkspaceSettingsMenu"].exists)
+
+        app.terminate()
+        app = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW": "1",
+        ])
+        defer { app.terminate() }
+        openSettings(in: app)
+        let freshHaptics = revealed(app.switches["MobileSettingsHapticFeedbackToggle"], in: app)
+        XCTAssertEqual(freshHaptics.value as? String, "1", "The relaunch must start from default settings.")
+    }
+
+    @MainActor
     func testDiagnosticsExportPresentsTheShareSheet() throws {
         let app = launchApp(
             mockData: false,
