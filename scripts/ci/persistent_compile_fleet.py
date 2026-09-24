@@ -26,6 +26,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
 import os
 import platform
 import select
@@ -529,7 +530,9 @@ def candidate_expiry_line() -> Line | None:
     days = candidate_days_left()
     if days >= CANDIDATE_WARN_DAYS:
         return None
-    when = f"expires in {days:.0f} days ({CANDIDATE_EXPIRES})" if days > 0 else f"expired at {CANDIDATE_EXPIRES}"
+    left = math.ceil(days)
+    when = (f"expires in {left} day{'s' if left != 1 else ''} ({CANDIDATE_EXPIRES})" if days > 0
+            else f"expired at {CANDIDATE_EXPIRES}")
     return Line(False, f"Glaeda candidate {CANDIDATE_SOURCE[:12]} (run {CANDIDATE_RUN}) {when}: minis not yet "
                        "enrolled cannot download it. Pin a new candidate (CANDIDATE_* in "
                        "scripts/ci/persistent_compile_fleet.py)")
@@ -743,7 +746,10 @@ def check_node_id(local: LocalState, node_id: str | None) -> None:
         raise Failure("this mini is not enrolled yet: pass --node-id, an opaque id such as cmux-mac-002 "
                       "(not a hostname or serial) that no other mini uses. Nothing was changed.")
     enrolled_as = (local.enrollment or {}).get("nodeId")
-    if local.enrollment is not None and node_id and enrolled_as != node_id:
+    if (local.enrollment or {}).get("state") == "retired":
+        raise Failure(f"Glaeda node {enrolled_as} is retired. To enroll this mini again, move "
+                      f"{enrollment_path()} aside, then: scripts/persistent-compile up --node-id <a new id>")
+    if local.enrollment is not None and node_id and enrolled_as and enrolled_as != node_id:
         raise Failure(f"this mini is already enrolled as {enrolled_as}; drop --node-id {node_id}, or retire "
                       "that enrollment first. Nothing was changed.")
 
@@ -767,8 +773,6 @@ def up_plan(local: LocalState, setup_pending: bool, node_id: str | None, has_tok
     if local.enrollment is None:
         steps.append(UpStep("enroll", f"stage the candidate, enroll as {node_id} and run local acceptance "
                                       "(a cold cmux build, about 13 minutes)"))
-    elif state == "retired":
-        raise Failure(f"Glaeda node {local.enrollment.get('nodeId')} is retired; enroll this mini under a new node id")
     elif state == "quarantined":
         steps.append(UpStep("requalify", f"take {local.enrollment.get('nodeId')} out of quarantine "
                                          f"({local.enrollment.get('quarantineReason')}): only once that is fixed"))
@@ -800,14 +804,16 @@ def run_with_heartbeat(argv: list[str], cwd: Path, *, capture: bool = False, lab
     returned instead (a JSON receipt stays parseable) and the heartbeat goes to stderr.
     """
     label = label or os.path.basename(argv[1] if argv[0] == sys.executable and len(argv) > 1 else argv[0])
+    # Unbuffered: a Python child writing to a pipe would otherwise hold its stdout
+    # back behind its stderr.
     process = subprocess.Popen(argv, cwd=cwd, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
-                               stderr=subprocess.PIPE)
+                               stderr=subprocess.PIPE, env=dict(os.environ, PYTHONUNBUFFERED="1"))
     assert process.stdout is not None and process.stderr is not None
     captured = bytearray()
     beat_to = sys.stderr if capture else sys.stdout
     sinks = {process.stdout.fileno(): None if capture else sys.stdout,
              process.stderr.fileno(): sys.stderr}
-    at_line_start = {id(sys.stdout): True, id(sys.stderr): True}
+    at_line_start = True  # one terminal shows both streams
     start = last_output = time.monotonic()
     open_fds = list(sinks)
     while open_fds:
@@ -828,12 +834,12 @@ def run_with_heartbeat(argv: list[str], cwd: Path, *, capture: bool = False, lab
             else:  # a replaced stream, as under test
                 sink.write(chunk.decode(errors="replace"))
             sink.flush()
-            at_line_start[id(sink)] = chunk.endswith((b"\n", b"\r"))
+            at_line_start = chunk.endswith(b"\n")  # git progress ends in \r: not a new line
         if not ready and time.monotonic() - last_output >= interval:
-            prefix = "" if at_line_start.get(id(beat_to), True) else "\n"
+            prefix = "" if at_line_start else "\n"
             print(f"{prefix}   ... {label} still running, {elapsed_text(time.monotonic() - start)} elapsed",
                   file=beat_to, flush=True)
-            at_line_start[id(beat_to)] = True
+            at_line_start = True
             last_output = time.monotonic()
     process.stdout.close()
     process.stderr.close()
@@ -902,13 +908,17 @@ def candidate_blocker(staged: bool, archive_sha256: str | None, gh_available: bo
                 "downloaded any more. Pin a new candidate: replace CANDIDATE_* in "
                 "scripts/ci/persistent_compile_fleet.py from the new run's receipt.")
     if not gh_available:
-        return "gh is not installed here (normal on a fleet mini), so up cannot download the candidate.\n" + \
-            staging_instructions()
+        return ("gh is not installed or not signed in here (no gh is normal on a fleet mini), so up cannot "
+                "download the candidate.\n" + staging_instructions())
     return None
 
 
+def gh_signed_in() -> bool:
+    return gh_installed() and gh("auth", "status")[0]
+
+
 def up_blockers(steps: list[UpStep], has_token: bool, gh_available: bool) -> list[str]:
-    """What would stop `up` part way, found before it starts."""
+    """What would stop `up` part way, found before it starts. `gh_available`: installed and signed in."""
     keys = {step.key for step in steps}
     problems = []
     if "enroll" in keys and not candidate_staged():
@@ -918,7 +928,7 @@ def up_blockers(steps: list[UpStep], has_token: bool, gh_available: bool) -> lis
         if blocker:
             problems.append(blocker)
     if "register" in keys and not has_token and not gh_available:
-        problems.append(f"registering the runner needs a token and there is no gh here. An org admin runs "
+        problems.append(f"registering the runner needs a token and there is no signed-in gh here. An org admin runs "
                         f"scripts/persistent-compile token on their machine; then run "
                         f"{TOKEN_ENV}=<token> scripts/persistent-compile up (the token lasts an hour).")
     return problems
@@ -944,7 +954,9 @@ def cmd_up(args: argparse.Namespace) -> int:
     if not steps:
         print(f"{local.runner_name} is enrolled, registered and running. Nothing to do.")
         return 0
-    problems = up_blockers(steps, bool(token), gh_installed())
+    keys = {step.key for step in steps}
+    needs_gh = "download" in keys or ("register" in keys and not token)
+    problems = up_blockers(steps, bool(token), gh_signed_in() if needs_gh else True)
     if problems:
         raise Failure("before up starts:\n\n" + "\n\n".join(problems) + "\n\nNothing was changed.")
     print("up:")

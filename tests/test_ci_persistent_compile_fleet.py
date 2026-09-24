@@ -603,6 +603,9 @@ class CandidatePin(unittest.TestCase):
         with mock.patch.object(fleet, "candidate_days_left", return_value=10.0):
             sections, nxt = fleet.doctor_lines(fleet_state(runners=[runner()]), None)
         self.assertIn("expires in 10 days", fleet.render_doctor(sections, nxt))
+        with mock.patch.object(fleet, "candidate_days_left", return_value=0.4):
+            sections, nxt = fleet.doctor_lines(fleet_state(runners=[runner()]), None)
+        self.assertIn("expires in 1 day ", fleet.render_doctor(sections, nxt))
         with mock.patch.object(fleet, "candidate_days_left", return_value=20.0):
             sections, nxt = fleet.doctor_lines(fleet_state(runners=[runner()]), None)
         self.assertNotIn("Glaeda candidate", fleet.render_doctor(sections, nxt))
@@ -661,6 +664,7 @@ class CandidateWithoutGh(unittest.TestCase):
             with mock.patch.object(fleet, "require_mac"), mock.patch.object(fleet, "read_local", return_value=local), \
                  mock.patch.object(fleet, "ci_xcode", return_value=(fleet.XCODE_APP, "test")), \
                  mock.patch.object(fleet, "gh_installed", return_value=gh), \
+                 mock.patch.object(fleet, "gh_signed_in", return_value=gh), \
                  mock.patch.object(fleet, "candidate_staged", return_value=False), \
                  mock.patch.object(fleet, "candidate_archive", return_value=archive), \
                  mock.patch.object(fleet, "candidate_days_left", return_value=20.0), \
@@ -699,6 +703,12 @@ class NodeIdFirst(unittest.TestCase):
             with self.assertRaisesRegex(fleet.Failure, "--node-id"):
                 fleet.cmd_up(fleet.parser().parse_args(["up"]))
         setup.assert_not_called()
+
+    def test_a_retired_mini_gets_one_answer_with_or_without_a_node_id(self) -> None:
+        retired = mini(enrollment={"nodeId": "cmux-mac-001", "state": "retired"})
+        for node_id in (None, "cmux-mac-009"):
+            with self.assertRaisesRegex(fleet.Failure, "is retired.*--node-id <a new id>"):
+                fleet.up_plan(retired, False, node_id, False)
 
     def test_another_node_id_than_the_enrolled_one_is_refused(self) -> None:
         with self.assertRaisesRegex(fleet.Failure, "already enrolled as cmux-mac-001"):
@@ -757,6 +767,13 @@ class Heartbeat(unittest.TestCase):
         with mock.patch("sys.stdout", new_callable=io.StringIO) as out:
             fleet.run_with_heartbeat([sys.executable, "-c", code], ROOT, interval=0.5)
         self.assertEqual(out.getvalue(), "x\nx\nx\nx\n")
+
+    def test_a_heartbeat_after_progress_starts_its_own_line(self) -> None:
+        code = "import sys, time; sys.stderr.write('Receiving 45%\\r'); sys.stderr.flush(); time.sleep(0.35)"
+        with mock.patch("sys.stdout", new_callable=io.StringIO) as out, \
+             mock.patch("sys.stderr", new_callable=io.StringIO):
+            fleet.run_with_heartbeat([sys.executable, "-c", code], ROOT, interval=0.1)
+        self.assertTrue(out.getvalue().startswith("\n   ... "))
 
     def test_the_exit_code_is_kept(self) -> None:
         with mock.patch("sys.stdout", new_callable=io.StringIO):
