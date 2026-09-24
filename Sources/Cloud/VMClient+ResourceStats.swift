@@ -3,18 +3,22 @@ import Foundation
 extension VMClient {
     /// All callers share revisioned resource state, including CLI and sidebar reads.
     func stats(id: String) async throws -> VMStats {
-        let read = await resourceStats.beginRead(machineID: id)
-        do {
-            let stats = try await withOperation(.stats, foreground: false) {
-                let encodedID = try pathSegment(id, fieldName: "vm id")
-                let (data, http) = try await request("GET", path: "/api/vm/\(encodedID)/stats", timeoutSeconds: 30)
-                try ensureOK(http, data: data)
-                return VMStats(json: try decodeJSONObject(data))
-            }
-            return await resourceStats.finishRead(read, stats: stats)
-        } catch {
-            _ = await resourceStats.finishRead(read, stats: nil)
-            throw error
+        try Task.checkCancellation()
+        let task = await resourceStats.read(machineID: id) {
+            try await self.fetchStats(id: id)
+        }
+        // A disappearing consumer must not cancel another panel's shared read.
+        let stats = try await task.value
+        try Task.checkCancellation()
+        return stats
+    }
+
+    private func fetchStats(id: String) async throws -> VMStats {
+        try await withOperation(.stats, foreground: false) {
+            let encodedID = try pathSegment(id, fieldName: "vm id")
+            let (data, http) = try await request("GET", path: "/api/vm/\(encodedID)/stats", timeoutSeconds: 30)
+            try ensureOK(http, data: data)
+            return VMStats(json: try decodeJSONObject(data))
         }
     }
 

@@ -68,15 +68,106 @@ def products_artifact(repository: str, run_id: str, api: Callable[[str], dict]) 
     return None
 
 
-def find_products(repository: str, revisions: Iterable[str], api: Callable[[str], dict]) -> dict | None:
-    """Newest product-bearing run for the nearest eligible revision."""
+MERGE_REF = re.compile(r"refs/pull/\d+/merge")
+
+
+def commit_parents(revision: str, cwd: str | None = None) -> list[str]:
+    """A commit's parents, read from the commit object so a shallow boundary still names them."""
+    header = git("cat-file", "commit", revision, cwd=cwd).split("\n\n", 1)[0]
+    return [line.split(" ", 1)[1] for line in header.splitlines() if line.startswith("parent ")]
+
+
+def fetch_commit(revision: str, cwd: str | None = None) -> None:
+    """Fetch a commit outside the checkout's history, such as a pull request merge.
+
+    GitHub serves any commit in the fork network by SHA, so this also reaches
+    a merge that `refs/pull/N/merge` has since moved past.
+    """
+    present = subprocess.run(["git", "cat-file", "-e", f"{revision}^{{commit}}"], cwd=cwd, capture_output=True)
+    if present.returncode != 0:
+        git("fetch", "--no-tags", "--quiet", "origin", revision, cwd=cwd)
+
+
+def built_revision(run: dict, cwd: str | None = None, fetch: Callable[[str], None] | None = None) -> str:
+    """The revision a CI run checked out, and so the one its products were built from.
+
+    A pull_request run builds `refs/pull/N/merge`, GitHub's merge of the head
+    into the base, while the run's `head_sha` is the head. The receipt in its
+    products names the merge. GitHub still records that merge on the run: ci.yml
+    loads its reusable workflows from the same ref, and `referenced_workflows`
+    names the commit each came from. The merge must name `head_sha` as its
+    second parent, which ties it to this run's head rather than any commit.
+    """
+    head = run["head_sha"]
+    if run.get("event") != "pull_request":
+        return head
+    merges = {
+        item.get("sha")
+        for item in run.get("referenced_workflows") or []
+        if isinstance(item, dict) and MERGE_REF.fullmatch(str(item.get("ref", ""))) and item.get("sha")
+    }
+    if len(merges) != 1:
+        raise ValueError(
+            f"pull_request run {run.get('id')} built the merge of {head} into its base, "
+            "but GitHub recorded no single merge commit for it"
+        )
+    merge = merges.pop()
+    (fetch or (lambda revision: fetch_commit(revision, cwd=cwd)))(merge)
+    parents = commit_parents(merge, cwd=cwd)
+    if len(parents) != 2 or parents[1] != head:
+        raise ValueError(f"run {run.get('id')} recorded {merge}, which is not a merge of its head {head}")
+    return merge
+
+
+def find_products(
+    repository: str,
+    revisions: Iterable[str],
+    api: Callable[[str], dict],
+    resolve: Callable[[dict, str], str | None] = lambda run, revision: revision,
+) -> dict | None:
+    """Newest product-bearing run for the nearest eligible revision.
+
+    Runs are listed by `head_sha`, which is not what a pull_request run built.
+    `resolve` maps a run to the revision its products were built from, or to
+    None when that revision is not eligible.
+    """
     for revision in revisions:
         runs = api(f"repos/{repository}/actions/runs?head_sha={revision}&status=completed&per_page=50")
         for run in sorted(runs.get("workflow_runs", []), key=lambda item: item.get("created_at", ""), reverse=True):
             artifact = products_artifact(repository, str(run["id"]), api)
-            if artifact:
-                return {"revision": revision, "run_id": str(run["id"]), "artifact": artifact}
+            if not artifact:
+                continue
+            built = resolve(run, revision)
+            if built:
+                return {"revision": built, "run_id": str(run["id"]), "artifact": artifact}
     return None
+
+
+ADMISSION_JOB = "macOS compile admission"
+PRODUCT_RUNNERS = {"15": "blacksmith-6vcpu-macos-15", "26": "blacksmith-6vcpu-macos-26"}
+
+
+def product_runner(repository: str, run_id: str, api: Callable[[str], dict], pages: int = 5) -> str:
+    """The Blacksmith pool with the macOS, and so the Xcode, that built a run's products.
+
+    The rerun rebuilds cmuxTests with the products' own Xcode, and each macOS
+    image carries one pinned Xcode (26.3 on 15, 26.6 on 26). Compile admission
+    follows MACOS_RUNNER_PR, so read the pool it actually ran on. A run
+    without that job keeps the macOS 15 default.
+    """
+    for page in range(1, pages + 1):
+        listing = api(f"repos/{repository}/actions/runs/{run_id}/jobs?filter=latest&per_page=100&page={page}")
+        jobs = listing.get("jobs", [])
+        for job in jobs:
+            if job.get("name", "").endswith(ADMISSION_JOB):
+                for label in job.get("labels", []):
+                    match = re.search(r"macos-(\d+)", label)
+                    if match and match.group(1) in PRODUCT_RUNNERS:
+                        return PRODUCT_RUNNERS[match.group(1)]
+                return PRODUCT_RUNNERS["15"]
+        if len(jobs) < 100:
+            break
+    return PRODUCT_RUNNERS["15"]
 
 
 def parse_selectors(text: str) -> list[str]:
@@ -101,7 +192,10 @@ def plan(args: argparse.Namespace, api: Callable[[str], dict] = gh_api) -> dict:
     selectors = parse_selectors(args.only_testing)
     if args.source_run_id:
         run = api(f"repos/{args.repository}/actions/runs/{args.source_run_id}")
-        revision = run["head_sha"]
+        try:
+            revision = built_revision(run)
+        except subprocess.CalledProcessError:
+            raise SystemExit(f"run {args.source_run_id} built the merge of {run['head_sha']}, which could not be fetched")
         try:
             blocking = non_test_changes(revision, head)
         except subprocess.CalledProcessError:
@@ -117,7 +211,15 @@ def plan(args: argparse.Namespace, api: Callable[[str], dict] = gh_api) -> dict:
         found = {"revision": revision, "run_id": args.source_run_id, "artifact": artifact}
     else:
         revisions, blocker = eligible_revisions(head, args.max_commits)
-        found = find_products(args.repository, revisions, api)
+
+        def resolve(run: dict, revision: str) -> str | None:
+            try:
+                built = built_revision(run)
+                return built if built == revision or not non_test_changes(built, head) else None
+            except (KeyError, ValueError, subprocess.CalledProcessError):
+                return None
+
+        found = find_products(args.repository, revisions, api, resolve)
         if not found:
             detail = ""
             if blocker:
@@ -139,6 +241,7 @@ def plan(args: argparse.Namespace, api: Callable[[str], dict] = gh_api) -> dict:
         "artifact_id": str(found["artifact"]["id"]),
         "artifact_name": found["artifact"]["name"],
         "artifact_bytes": str(found["artifact"].get("size_in_bytes", 0)),
+        "runner": product_runner(args.repository, found["run_id"], api),
         "selectors": " ".join(selectors),
         "changed_tests": ",".join(changed),
     }

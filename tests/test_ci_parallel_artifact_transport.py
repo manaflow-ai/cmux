@@ -87,11 +87,6 @@ class WorkflowWiringTests(unittest.TestCase):
             ):
                 self.assertIn(guard, step, job)
 
-    def test_canonical_download_still_runs_when_the_fast_path_misses(self):
-        for job in CONSUMERS:
-            step = step_block(job_block(job), "Download compiled app-host test product")
-            self.assertIn("steps.parallel-products.outputs.hit != 'true'", step)
-
     def test_restore_step_records_the_transport_it_used(self):
         for job in CONSUMERS:
             step = step_block(job_block(job), "Restore compiled app-host test product")

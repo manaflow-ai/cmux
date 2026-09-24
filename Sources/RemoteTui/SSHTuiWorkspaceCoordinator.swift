@@ -1,4 +1,6 @@
+import CmuxCloudTui
 import CmuxCore
+import CmuxSurfaceCatalogModel
 import Foundation
 
 /// Composes SSH carriers with the same terminal graph and native projections as Cloud.
