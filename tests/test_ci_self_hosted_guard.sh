@@ -45,6 +45,9 @@ check_macos_runner() {
     $0 ~ "^  "job":" { in_job=1; next }
     in_job && /^  [^[:space:]#][^:]*:[[:space:]]*(#.*)?$/ { in_job=0 }
     in_job && /runs-on:.*(vars\.MACOS_RUNNER|blacksmith-[0-9]+vcpu-macos-|warp-macos-[0-9]+-arm64|depot-macos-)/ { saw=1 }
+    # A product consumer inherits the compile admission pool, which this
+    # check covers on its own.
+    in_job && /runs-on:[[:space:]]*\$\{\{ needs\.macos-compile-admission\.outputs\.runner \}\}/ { saw=1 }
     in_job && /os:.*(vars\.MACOS_RUNNER|blacksmith-[0-9]+vcpu-macos-|warp-macos-[0-9]+-arm64|depot-macos-)/ { saw=1 }
     END { exit !(saw) }
   ' "$file"; then
