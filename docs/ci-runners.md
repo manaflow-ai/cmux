@@ -102,11 +102,13 @@ restore` rejects a consumer if its revision, architecture, or exact Xcode
 version differs from the producer.
 
 For the other pull-request jobs, the pin follows `MACOS_RUNNER_PR` through
-`CMUX_CI_XCODE_APP_PR`, and the two are set together:
+`CMUX_CI_XCODE_APP_PR`, and the two are set together. The app-host shards read
+the same pin, so it has to name an Xcode every app-host pool carries. While a
+`macos-15` pool is in the matrix, that is Xcode 26.3:
 
 ```bash
 gh variable set MACOS_RUNNER_PR --repo manaflow-ai/cmux -b blacksmith-6vcpu-macos-26
-gh variable set CMUX_CI_XCODE_APP_PR --repo manaflow-ai/cmux -b /Applications/Xcode_26.5.app
+gh variable set CMUX_CI_XCODE_APP_PR --repo manaflow-ai/cmux -b /Applications/Xcode_26.3.app
 ```
 
 Unsetting both returns the lane to `blacksmith-6vcpu-macos-15` and Xcode 26.3.
