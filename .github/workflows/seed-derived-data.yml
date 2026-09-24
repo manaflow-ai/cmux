@@ -78,6 +78,7 @@ jobs:
     # Must match pull-request compile admission: the seed key carries the
     # toolchain and the build paths, so a mismatch is a miss, not a wrong hit.
     runs-on: ${{ vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15' }}
+    environment: ${{ github.ref == 'refs/heads/main' && 'ci-cache-writer' || '' }}
     timeout-minutes: 60
     env:
       CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_PR || vars.CMUX_CI_XCODE_APP_MACOS_15 }}
