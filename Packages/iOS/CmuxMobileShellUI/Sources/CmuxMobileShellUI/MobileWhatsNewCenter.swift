@@ -51,6 +51,10 @@ public final class MobileWhatsNewCenter {
     /// that gates web-content pages into the one-time sheet, so an offline
     /// launch skips them instead of presenting an unloadable webview.
     private(set) var lastRefreshSucceeded = false
+    /// A launch presentation waits for the first attempt so cached native
+    /// pages cannot overtake a new remote announcement. Failure still allows
+    /// the cached/offline pages to appear.
+    private(set) var hasCompletedInitialRefresh = false
 
     public init(
         apiBaseURL: String?,
@@ -92,6 +96,7 @@ public final class MobileWhatsNewCenter {
     /// failure (offline, server error, malformed payload) keeps the cached
     /// list: cache wins while offline.
     public func refresh() async {
+        defer { hasCompletedInitialRefresh = true }
         guard let requestURL else { return }
         do {
             let data = try await loader(requestURL)

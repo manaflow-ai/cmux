@@ -51,6 +51,15 @@ import Testing
         #expect(center.unseenPages.isEmpty)
     }
 
+    @Test func failedInitialRefreshStillAllowsOfflinePairingGuidance() async {
+        let center = makeCenter(buildType: .beta, acknowledgedEntryID: "connections.v2")
+        #expect(!center.hasCompletedInitialRefresh)
+        await center.refresh()
+        #expect(center.hasCompletedInitialRefresh)
+        #expect(!center.lastRefreshSucceeded)
+        #expect(center.unseenPages.map(\.id) == ["pairing.1.0.6"])
+    }
+
     @Test func pinpointNoticeOnlyReachesItsVersionAndChannels() async {
         let payload = #"""
         {"visibleEntryIds":["pairing.1.0.6","connections.v1"],"announcements":[{
@@ -94,7 +103,9 @@ import Testing
                     buildType: channel, payload: payload,
                     acknowledgedEntryID: marker, appVersion: "1.0.6"
                 )
+                #expect(!center.hasCompletedInitialRefresh)
                 await center.refresh()
+                #expect(center.hasCompletedInitialRefresh)
                 #expect(center.unseenPages.map(\.id) == ["ios-1.0.6-connections", "pairing.1.0.6"])
                 let pairing = try #require(center.unseenPages.last)
                 #expect(pairing.releaseLabel == "1.0.6 · September 2026")
