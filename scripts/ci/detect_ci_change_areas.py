@@ -98,6 +98,7 @@ def is_other_workflow_config(path: str) -> bool:
 
 
 CI_CONTROL_PLANE_ONLY = frozenset({
+    "scripts/ci/nightly_mini_route.py",
     "scripts/ci/persistent_mac_route.py",
     "scripts/ci/web_validation.py",
     # Operational helpers: janitors, census and reporting, registry validation,
@@ -138,6 +139,8 @@ CI_CONTROL_PLANE_ONLY = frozenset({
 # compile/test lanes. Validate publishing through its guards/release workflows.
 CI_PUBLISHING_ONLY = frozenset({
     "scripts/ci/download-run-artifact.py",
+    "scripts/ci/drop-previous-nightlies-with-other-sparkle-key.sh",
+    "scripts/ci/nightly-sparkle-key.sh",
     "scripts/prebuild_sparkle_deltas.sh",
     "scripts/sparkle_generate_appcast.sh",
 })
@@ -594,6 +597,9 @@ CLI_LANE_EXACT_INPUTS = frozenset({
     "scripts/ghosttykit-checksums.txt",
     "scripts/validate-xcframework-archive.py",
     "scripts/select-ci-xcode.sh",
+    # select-ci-xcode.sh reads the pool pins and the .xcode-version floor.
+    "scripts/ci/xcode-pins.txt",
+    ".xcode-version",
     "scripts/install-rust-ci.sh",
     # install-rust-ci.sh installs the toolchain this file names.
     "Native/DiffSidecar/rust-toolchain.toml",

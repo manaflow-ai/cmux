@@ -4,7 +4,7 @@ on:
     paths:
       - Sources/Cloud/CloudTuiPersistent*.swift
       - Sources/Cloud/CloudTuiManualIO*.swift
-      - Sources/Cloud/CloudTuiTerminalProjectionTarget.swift
+      - Packages/macOS/CmuxSurfaceCatalogModel/Sources/CmuxSurfaceCatalogModel/CloudTuiTerminalProjectionTarget.swift
       - Sources/Cloud/CloudTuiRemoteColors.swift
       - cmuxTests/CloudCommand*.swift
       - cmuxTests/CloudTuiManualIOConnectionTests.swift
@@ -45,6 +45,8 @@ jobs:
         with:
           persist-credentials: false
           ref: ${{ inputs.source_ref || github.ref }}
+      - name: Select Xcode
+        run: ./scripts/select-ci-xcode.sh
       - name: Exercise the persistent Cloud command transport in isolation
         run: tests/run_cloud_command_deadline_tests.sh "$RUNNER_TEMP/issue-11008-${{ github.run_id }}"
       - name: Prove cold identity publication before defaults notification

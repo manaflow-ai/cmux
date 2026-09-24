@@ -49,6 +49,8 @@ extension CmuxTuiSurfaceProviderTests {
         } catch {
             Issue.record("a cancelled link connect returned \(error) instead of CancellationError")
         }
-        #expect(Darwin.kill(pid, 0) == -1 && errno == ESRCH, "the link child must be reaped before connect returns")
+        let killResult = Darwin.kill(pid, 0)
+        let killErrno = errno
+        #expect(killResult == -1 && killErrno == ESRCH, "the link child must be reaped before connect returns")
     }
 }

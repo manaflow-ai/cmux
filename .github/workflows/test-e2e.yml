@@ -935,13 +935,58 @@ jobs:
         if: ${{ needs.filter.outputs.target == 'cmuxTests' }}
         run: scripts/ci/prepare-app-host-home.sh
 
+      - name: Resolve selectors against the built tests
+        id: resolve-selectors
+        if: ${{ needs.filter.outputs.target == 'cmuxTests' }}
+        env:
+          TEST_SELECTORS: ${{ needs.filter.outputs.selectors }}
+        run: |
+          set -euo pipefail
+          # A Swift Testing method selector without its call suffix, such as
+          # cmuxTests/Suite/method instead of cmuxTests/Suite/method(), matches
+          # nothing, and xcodebuild reports zero executed tests as success.
+          # Enumerate what the restored product contains, the same way the
+          # app-host shards do, and give each selector the name the inventory
+          # records before anything runs.
+          #
+          # This job runs the tested revision's scripts. A revision older than
+          # the resolver keeps its selectors as given; the executed-count
+          # guards in the next step still apply.
+          if [ ! -f scripts/ci/focused_test_selectors.py ]; then
+            echo "::notice::This revision predates selector resolution; running selectors as given."
+            exit 0
+          fi
+          enumeration_json="$RUNNER_TEMP/cmux-app-host-test-enumeration.json"
+          inventory_json="$RUNNER_TEMP/cmux-app-host-test-inventory.json"
+          enumeration_log="$RUNNER_TEMP/cmux-app-host-test-enumeration.log"
+          rm -f -- "$enumeration_json" "$inventory_json" "$enumeration_log"
+          if ! bash scripts/ci/run-and-capture.sh "$enumeration_log" \
+            scripts/ci/run-in-console-session.sh \
+            xcodebuild test-without-building \
+            -enumerate-tests \
+            -xctestrun "$CMUX_APP_HOST_XCTESTRUN" \
+            -destination "platform=macOS" \
+            -test-enumeration-style hierarchical \
+            -test-enumeration-format json \
+            -test-enumeration-output-path "$enumeration_json" \
+            || [ ! -s "$enumeration_json" ] \
+            || ! python3 scripts/ci/app_host_result_accounting.py inventory \
+              "$enumeration_json" --output "$inventory_json"; then
+            echo "::warning::Could not enumerate the built tests; running selectors as given."
+            exit 0
+          fi
+          resolved="$(python3 scripts/ci/focused_test_selectors.py resolve \
+            --inventory "$inventory_json" --selectors "$TEST_SELECTORS")"
+          echo "Resolved selectors: $resolved"
+          echo "selectors=$resolved" >> "$GITHUB_OUTPUT"
+
       - name: Run selected tests
         id: tests
         env:
           TEST_FILTER: ${{ inputs.test_filter }}
           TEST_TARGET: ${{ needs.filter.outputs.target }}
           TEST_SELECTOR: ${{ needs.filter.outputs.selector }}
-          TEST_SELECTORS: ${{ needs.filter.outputs.selectors }}
+          TEST_SELECTORS: ${{ steps.resolve-selectors.outputs.selectors || needs.filter.outputs.selectors }}
           TEST_SELECTOR_COUNT: ${{ needs.filter.outputs.count }}
           NORMALIZED_FILTER: ${{ needs.filter.outputs.filter }}
           TEST_TIMEOUT: ${{ inputs.test_timeout || '120' }}
@@ -1123,7 +1168,42 @@ jobs:
             exit 1
           fi
 
-          # That guard proves some tests ran, never which ones, so name each
+          # That guard proves some tests ran, never which ones. In a batch, a
+          # selector that matched nothing hides behind one that ran, so hold
+          # every selector to its own typed results: each must account for at
+          # least one executed Test Case.
+          if [ -f scripts/ci/focused_test_selectors.py ]; then
+            if [ "$TEST_TARGET" = "cmuxUITests" ]; then
+              ui_bundle="$RUNNER_TEMP/cmux-app-host-xcresults/cmuxUITests.xcresult"
+              if [ -d "$ui_bundle" ]; then
+                xcrun xcresulttool get test-results tests --path "$ui_bundle" --compact \
+                  > "${ui_bundle%.xcresult}.tests.json" 2>/dev/null || true
+              fi
+            fi
+            shopt -s nullglob
+            typed_results=("$RUNNER_TEMP"/cmux-app-host-xcresults/*.tests.json)
+            shopt -u nullglob
+            if [ "${#typed_results[@]}" -eq 0 ]; then
+              echo "::warning::No typed test results; only the aggregate executed-count guard applied."
+            else
+              set +e
+              python3 scripts/ci/focused_test_selectors.py check-executed \
+                --selectors "$TEST_SELECTORS" --tests-json "${typed_results[@]}"
+              selector_status=$?
+              set -e
+              if [ "$selector_status" -ne 0 ] && [ "$selector_status" -ne 3 ]; then
+                echo "test_result=failed" >> "$GITHUB_OUTPUT"
+                {
+                  echo "test_output<<EOFOUT"
+                  echo "$OUTPUT" | tail -200
+                  echo "EOFOUT"
+                } >> "$GITHUB_OUTPUT"
+                exit 1
+              fi
+            fi
+          fi
+
+          # Name each
           # requested suite in the log as well. This is advisory on purpose.
           #
           # Three output shapes reach this log and only two are matchable:

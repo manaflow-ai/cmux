@@ -58,8 +58,31 @@ The pull-request lane also has a toolchain variable, set together with
 
 Not every job on the pool reads it. `ci.yml`'s `claude-wrapper` never selects an
 Xcode, and the two `terminal-hang-diagnostics.yml` jobs run
-`scripts/select-ci-xcode.sh` with no pin at all, so they auto-select the newest
-stable Xcode on whichever image they land on.
+`scripts/select-ci-xcode.sh` with no pin of their own, so they take the pool
+pin described next.
+
+### Which Xcode a job gets
+
+Every macOS job that uses Xcode runs `scripts/select-ci-xcode.sh`, and
+`tests/test_ci_macos_xcode_selection.py` fails when one does not. The script
+chooses, in order:
+
+1. the job's own `CMUX_CI_XCODE_APP` (the lane variables above), if set;
+2. otherwise the version `scripts/ci/xcode-pins.txt` names for the runner's
+   macOS major: Xcode 26.3 on macOS 15 and Xcode 26.6 on macOS 26 today.
+
+Either way it stops with one `::error::` when the Xcode is below the major in
+`.xcode-version` (26), or when the pinned Xcode is not installed, instead of
+building with the image's default. On GitHub's `macos-15` image that default is
+Xcode 16.4. When a job's own pin differs from the pool pin, the job still runs
+and warns, because jobs on one pool with different Xcodes cannot share
+compilation caches or products. To move a pool to a new Xcode, edit its line in
+`scripts/ci/xcode-pins.txt` and the matching `CMUX_CI_XCODE_APP_MACOS_*`
+variable together.
+
+The deliberate exceptions are listed with reasons in the guard's `EXEMPT`
+table: the Zig-only Ghostty builds, the macOS 14 compatibility lane, and
+`relay-tls.yml`'s Xcode 16.2 job.
 
 ## Lanes
 
@@ -179,9 +202,12 @@ so a fork's own CI can hit main's caches, which anyone can read from
 `https://ci-cache.cmux.com`. Only the jobs that build the SDK 15 Ghostty CLI
 helper (`swift-package-tests`, release and nightly), `plain-paste-worker.yml`'s
 `macos-15` job and `ci-macos-compat.yml`'s macOS 15 row keep a `macos-15` fork
-branch, because they need that image. Fork jobs set no Xcode pin and take the
-image's newest stable Xcode, so a newer image Xcode is a cache miss, never a
-failure. The self-hosted guard allows a literal `macos-26` only in this exact
+branch, because they need that image. Fork jobs set no Xcode pin, so they take
+the pool pin from `scripts/ci/xcode-pins.txt` (26.6 on `macos-26`, the Xcode
+main compiles with). When a hosted image no longer carries that Xcode, a fork
+falls back to the image's newest stable Xcode with a warning, so a newer image
+Xcode is a cache miss, never a failure. Runs in `manaflow-ai` fail on a missing
+pool Xcode instead. The self-hosted guard allows a literal `macos-26` only in this exact
 `github.repository_owner != 'manaflow-ai' && 'macos-26'` form, which evaluates
 solely outside `manaflow-ai`, where the fleet's `macos-26` label does not exist.
 
@@ -374,8 +400,15 @@ admission or is draining, pressured, or unavailable.
 
 ## Break-glass: switch a runner type to a paid provider
 
-There is no automatic overflow. If the Tart pool is unavailable or its queue is
-too long, set the affected variable to a paid provider. Restore Tart after the
+There is no automatic overflow for the runner variables. If the Tart pool is
+unavailable or its queue is too long, set the affected variable to a paid
+provider.
+
+The two owned-Mac producer lanes are the exception, because they never own a
+result: the persistent compile route and the nightly route
+(`scripts/ci/nightly_mini_route.py`) wait a bounded time for a mini and fall
+back to the hosted build automatically on a queue timeout, an overrun, a
+producer failure or a refused product. Restore Tart after the
 fleet recovers.
 
 Four runner variables exist to name **metered WarpBuild capacity**, so they are
@@ -509,6 +542,10 @@ The sole direct-host exception is the dispatch-only
 workflow-restricted `cmux-persistent-compile` runner group and
 `cmux-persistent-macos-compile` label. It performs compile-only Debug work,
 carries no repository secrets, and grants its hot state zero result authority.
+The second is the dispatch-only nightly producer (`nightly-mini-build.yml`,
+`cmux-nightly-mini` group, `cmux-nightly-mini-build` label), which compiles the
+unsigned nightly app for a hosted job that revalidates and signs it; see
+[mac-fleet.md, Nightly lane](ci/mac-fleet.md#nightly-lane).
 Every required macOS fallback still routes to the paid hosted path.
 `check_no_self_hosted_fleet_runners` in
 `tests/test_ci_self_hosted_guard.sh` enforces that exact exception and rejects

@@ -122,7 +122,8 @@ class SeedDerivedData(unittest.TestCase):
         os.environ["FAKE_MODE"] = "fail"
         output = self.root / "output"
         os.environ["GITHUB_OUTPUT"] = str(output)
-        self.assertEqual(seed.main(["seed", "adopt", str(self.source), str(self.derived), "k", "p-"]), 0)
+        with mock.patch.object(seed, "lineage", return_value=["k"]), mock.patch.object(seed, "seed_exists", return_value=False):
+            self.assertEqual(seed.main(["seed", "adopt", str(self.source), str(self.derived), "p-", "k"]), 0)
         self.assertIn("hit=false", output.read_text())
         self.assertTrue((self.derived / "from-resolve").exists())
 
@@ -130,7 +131,10 @@ class SeedDerivedData(unittest.TestCase):
         """Download in the background, as compile admission does while it resolves."""
         os.environ["FAKE_MODE"] = mode
         os.environ["FAKE_CALLS"] = str(self.root / "calls")
-        seed.start(self.derived, *(start_args or ("admission-derived-data-v1-x-base", "admission-derived-data-v1-x-")))
+        # No repository and no bucket URL: each revision is its own exact key.
+        os.environ.pop("GITHUB_REPOSITORY", None)
+        os.environ.pop("CI_CACHE_R2_PUBLIC_URL", None)
+        seed.main(["seed", "start", str(self.derived), *(start_args or ("admission-derived-data-v1-x-", "base"))])
         # The resolve step runs meanwhile and rewrites the DerivedData.
         import shutil
         shutil.rmtree(self.derived)
@@ -141,7 +145,7 @@ class SeedDerivedData(unittest.TestCase):
         os.environ["GITHUB_OUTPUT"] = str(output)
         with mock.patch.object(seed.sys, "platform", "linux"):
             seed.main(["seed", "adopt", str(self.source), str(self.derived),
-                       "admission-derived-data-v1-x-base", "admission-derived-data-v1-x-"])
+                       "admission-derived-data-v1-x-", "base"])
         return dict(line.split("=", 1) for line in output.read_text().splitlines())
 
     def calls(self):
@@ -204,12 +208,100 @@ class SeedDerivedData(unittest.TestCase):
 
     def test_a_download_started_for_other_keys_is_not_adopted(self):
         self.publish_seed()
-        result = self.start_then_adopt("hit", ("admission-derived-data-v1-y-base", "admission-derived-data-v1-y-"))
+        result = self.start_then_adopt("hit", ("admission-derived-data-v1-y-", "base"))
         # The stray download is stopped and adopt fetches its own keys.
         self.assertEqual(result["hit"], "true")
         self.assertEqual(result["key"], "admission-derived-data-v1-x-0123abc")
         self.assertEqual(self.calls()[-1], "admission-derived-data-v1-x-base")
         self.assert_no_leftovers()
+
+    def test_adopt_prefers_the_nearest_seeded_ancestor_over_the_newest_pointer(self):
+        """The seed of REVISION, or of its nearest ancestor with one, is the exact
+        key; only when none has a seed does the newest pointer decide."""
+        published = {"p-c3", "p-c1"}
+        probed = []
+
+        def exists(key):
+            probed.append(key)
+            return key in published
+
+        self.assertEqual(seed.nearest("p-", ["c4", "c3", "c2", "c1"], exists), ("p-c3", 1))
+        self.assertEqual(sorted(probed), ["p-c1", "p-c2", "p-c3", "p-c4"])
+        self.assertEqual(seed.nearest("p-", ["c5", "c4"], exists), None)
+
+        restored = []
+        self.publish_seed()
+        os.environ["FAKE_MODE"] = "hit"
+        output = self.root / "output"
+        os.environ["GITHUB_OUTPUT"] = str(output)
+        with mock.patch.object(seed, "lineage", return_value=["c4", "c3", "c1"]), \
+                mock.patch.object(seed, "seed_exists", side_effect=lambda key: key in published), \
+                mock.patch.object(seed, "adopt", side_effect=lambda *a: restored.append(a) or {"hit": "true", "key": a[2]}):
+            self.assertEqual(seed.main(["seed", "adopt", str(self.source), str(self.derived), "p-", "c4"]), 0)
+        self.assertEqual(restored[0][2:], ("p-c3", "p-"))
+        self.assertIn("seed_distance=1", output.read_text())
+
+        # No seeded ancestor: ask for REVISION's own key, so the restore falls
+        # back to the pointer, and say the distance is unknown.
+        restored.clear()
+        output.write_text("")
+        with mock.patch.object(seed, "lineage", return_value=["c9"]), \
+                mock.patch.object(seed, "seed_exists", return_value=False), \
+                mock.patch.object(seed, "adopt", side_effect=lambda *a: restored.append(a) or {"hit": "true", "key": "p-c1"}):
+            seed.main(["seed", "adopt", str(self.source), str(self.derived), "p-", "c9"])
+        self.assertEqual(restored[0][2:], ("p-c9", "p-"))
+        self.assertIn("seed_distance=\n", output.read_text())
+
+    def test_seed_probe_names_itself_and_treats_any_error_as_a_miss(self):
+        os.environ["CI_CACHE_R2_PUBLIC_URL"] = "https://cache.example/"
+        os.environ["RUNNER_OS"], os.environ["RUNNER_ARCH"] = "macOS", "ARM64"
+        seen = []
+
+        def urlopen(request, timeout):
+            seen.append(request)
+            raise seed.urllib.error.HTTPError(request.full_url, 404, "missing", {}, None)
+
+        with mock.patch.object(seed.urllib.request, "urlopen", side_effect=urlopen):
+            self.assertFalse(seed.seed_exists("p-abc"))
+        self.assertEqual(
+            [r.full_url for r in seen],
+            ["https://cache.example/v1/macOS-ARM64/objects/p-abc.tar.zst",
+             "https://cache.example/v1/macOS-ARM64/objects/p-abc.tar.gz"],
+        )
+        # The CDN refuses urllib's default User-Agent with 403.
+        self.assertTrue(all(r.get_method() == "HEAD" for r in seen))
+        self.assertTrue(all(r.get_header("User-agent") == seed.USER_AGENT for r in seen))
+        with mock.patch.object(seed.urllib.request, "urlopen", side_effect=ValueError("bad status")):
+            self.assertFalse(seed.seed_exists("p-abc"))
+
+    def test_lineage_without_a_repository_or_api_is_the_revision_alone(self):
+        os.environ.pop("GITHUB_REPOSITORY", None)
+        self.assertEqual(seed.lineage("abc"), ["abc"])
+        os.environ["GITHUB_REPOSITORY"] = "o/r"
+        with mock.patch.object(seed.subprocess, "run", side_effect=OSError("no gh")):
+            self.assertEqual(seed.lineage("abc"), ["abc"])
+        listed = mock.Mock(stdout="abc\nparent\ngrandparent\n")
+        with mock.patch.object(seed.subprocess, "run", return_value=listed):
+            self.assertEqual(seed.lineage("abc"), ["abc", "parent", "grandparent"])
+
+    def test_adopt_reuses_the_seed_start_picked_without_probing_again(self):
+        """start picks the nearest seed once; adopt for the same PREFIX and
+        REVISION waits for that download and reports its distance."""
+        self.publish_seed()
+        os.environ["FAKE_MODE"] = "hit"
+        os.environ["FAKE_CALLS"] = str(self.root / "calls")
+        with mock.patch.object(seed, "locate", return_value=("p-c3", 1)) as located:
+            seed.main(["seed", "start", str(self.derived), "p-", "c4"])
+            output = self.root / "output"
+            os.environ["GITHUB_OUTPUT"] = str(output)
+            with mock.patch.object(seed.sys, "platform", "linux"):
+                seed.main(["seed", "adopt", str(self.source), str(self.derived), "p-", "c4"])
+        self.assertEqual(located.call_count, 1)
+        self.assertEqual((self.root / "calls").read_text().split(), ["p-c3"])
+        outputs = dict(line.split("=", 1) for line in output.read_text().splitlines())
+        self.assertEqual(outputs["hit"], "true")
+        # The fake restore reports the pointer key, not p-c3, so no distance.
+        self.assertEqual(outputs["seed_distance"], "")
 
     def test_prune_refuses_an_unrecorded_or_oversized_seed(self):
         self.derived.mkdir()
@@ -235,6 +327,98 @@ def named(step_list, name):
     matches = [index for index, step in enumerate(step_list) if step.get("name") == name]
     assert len(matches) == 1, name
     return matches[0], step_list[matches[0]]
+
+
+TOKEN = re.compile(r"\s*(\|\||&&|==|!=|!|\(|\)|'(?:[^']|'')*'|[A-Za-z_][A-Za-z0-9_.-]*)")
+
+
+def evaluate(expression, context):
+    """Evaluate the GitHub Actions expression subset these workflows use.
+
+    `a && b` is b when a is truthy, else a; `a || b` is a when truthy,
+    else b. Names resolve by dotted path in `context`; a missing one is null,
+    which compares equal to ''.
+    """
+    text = expression.strip()
+    if text.startswith("${{") and text.endswith("}}"):
+        text = text[3:-2]
+    tokens, at = [], 0
+    while text[at:].strip():
+        match = TOKEN.match(text, at)
+        if not match:
+            raise ValueError(f"cannot parse {text[at:]!r}")
+        tokens.append(match.group(1))
+        at = match.end()
+    position = [0]
+
+    def peek():
+        return tokens[position[0]] if position[0] < len(tokens) else None
+
+    def take():
+        position[0] += 1
+        return tokens[position[0] - 1]
+
+    def primary():
+        token = take()
+        if token == "(":
+            value = either()
+            if take() != ")":
+                raise ValueError("unbalanced parentheses")
+            return value
+        if token == "!":
+            return not primary()
+        if token.startswith("'"):
+            return token[1:-1].replace("''", "'")
+        if token in ("true", "false"):
+            return token == "true"
+        value = context
+        for part in token.split("."):
+            value = value.get(part) if isinstance(value, dict) else None
+        return value
+
+    def comparison():
+        left = primary()
+        while peek() in ("==", "!="):
+            operator, right = take(), primary()
+            equal = ("" if left is None else str(left)) == ("" if right is None else str(right))
+            left = equal if operator == "==" else not equal
+        return left
+
+    def both():
+        left = comparison()
+        while peek() == "&&":
+            take()
+            right = comparison()
+            left = right if left else left
+        return left
+
+    def either():
+        left = both()
+        while peek() == "||":
+            take()
+            right = both()
+            left = left if left else right
+        return left
+
+    value = either()
+    if position[0] != len(tokens):
+        raise ValueError(f"trailing tokens {tokens[position[0]:]}")
+    return value
+
+
+def github_context(event_name, ref="refs/heads/main", **variables):
+    return {
+        "github": {"event_name": event_name, "ref": ref, "repository_owner": "manaflow-ai"},
+        "vars": {
+            "MACOS_RUNNER_PR": "pool-pr",
+            "MACOS_RUNNER_15": "pool-15-paid",
+            "CMUX_CI_XCODE_APP_PR": "/Applications/Xcode-pr.app",
+            "CMUX_CI_XCODE_APP_MACOS_15": "/Applications/Xcode-15.app",
+            **variables,
+        },
+        "inputs": {"cache_backend": "default"},
+        "steps": {},
+    }
 
 
 class Wiring(unittest.TestCase):
@@ -420,7 +604,7 @@ class Wiring(unittest.TestCase):
         import product_input_identity
         self.assertIn("Start the DerivedData seed download", product_input_identity.NON_PRODUCT_RECIPE_STEPS)
 
-    def test_adoption_is_optional_and_limited_to_pull_requests(self):
+    def test_adoption_is_optional_and_limited_to_pull_requests_and_main_dispatch(self):
         admission = steps("ci-macos.yml", "macos-compile-admission")
         _, adopt = named(admission, "Adopt the nightly DerivedData seed")
         self.assertIs(adopt.get("continue-on-error"), True)
@@ -431,6 +615,67 @@ class Wiring(unittest.TestCase):
         # mean on, so the kill switch gets a non-zero default first.
         self.assertIn("(vars.CI_ADMISSION_SEED_DERIVED_DATA || '1') != '0'", adopt["if"])
         self.assertIn("timeout-minutes", adopt)
+
+    def test_main_full_suite_admission_adopts_the_seed_for_its_own_commit(self):
+        # ci-main-full-suite.yml dispatches ci.yml on main, and its admission
+        # compiled main's HEAD cold although seed-derived-data.yml had just
+        # built that commit or its parent. It must start from the seed.
+        _, adopt = named(steps("ci-macos.yml", "macos-compile-admission"), "Adopt the nightly DerivedData seed")
+        for overflow in ("", "1"):
+            main_dispatch = github_context("workflow_dispatch", CI_PAID_MACOS_OVERFLOW=overflow)
+            self.assertTrue(evaluate(adopt["if"], main_dispatch))
+        # A dispatch on another branch and a merge group still build clean.
+        self.assertFalse(evaluate(adopt["if"], github_context("workflow_dispatch", ref="refs/heads/topic")))
+        self.assertFalse(evaluate(adopt["if"], github_context("merge_group", ref="refs/heads/gh-readonly-queue/main/x")))
+        self.assertTrue(evaluate(adopt["if"], github_context("pull_request", ref="refs/pull/1/merge")))
+        self.assertFalse(evaluate(adopt["if"], github_context("workflow_dispatch", CI_ADMISSION_SEED_DERIVED_DATA="0")))
+        # The seed search starts at the main commit a pull request merges
+        # onto, or at the dispatched commit itself, never its parent: that
+        # commit's own seed may already exist.
+        self.assertIn('"$SEED_PREFIX" "$MERGED_ONTO"', adopt["run"])
+        onto = adopt["env"]["MERGED_ONTO"]
+        dispatch = github_context("workflow_dispatch")
+        dispatch["github"]["sha"] = "head"
+        dispatch["inputs"]["source_parent1"] = "parent"
+        self.assertEqual(evaluate(onto, dispatch), "head")
+        pull = github_context("pull_request", ref="refs/pull/1/merge")
+        pull["github"].update(sha="merge", event={"pull_request": {"base": {"sha": "base"}}})
+        self.assertEqual(evaluate(onto, pull), "base")
+        pull["inputs"]["source_parent1"] = "parent"
+        self.assertEqual(evaluate(onto, pull), "parent")
+
+    def test_main_full_suite_admission_compiles_on_the_seed_pool_and_xcode(self):
+        # The seed key carries the Xcode and the seed was built on its pool, so
+        # admission can only adopt it where the seeder compiled.
+        admission = load("ci-macos.yml")["jobs"]["macos-compile-admission"]
+        seeder = load("seed-derived-data.yml")["jobs"]["seed"]
+        for overflow in ("", "1"):
+            for unset in ((), ("MACOS_RUNNER_PR", "CMUX_CI_XCODE_APP_PR")):
+                context = github_context("workflow_dispatch", CI_PAID_MACOS_OVERFLOW=overflow)
+                for name in unset:
+                    context["vars"].pop(name)
+                self.assertEqual(evaluate(admission["runs-on"], context), evaluate(seeder["runs-on"], context))
+                self.assertEqual(
+                    evaluate(admission["env"]["CMUX_CI_XCODE_APP"], context),
+                    evaluate(seeder["env"]["CMUX_CI_XCODE_APP"], context),
+                )
+        # Pull requests already compile there; other events keep their lane.
+        pull_request = github_context("pull_request", ref="refs/pull/1/merge")
+        self.assertEqual(evaluate(admission["runs-on"], pull_request), "pool-pr")
+        merge_group = github_context("merge_group", ref="refs/heads/gh-readonly-queue/main/x", CI_PAID_MACOS_OVERFLOW="1")
+        self.assertEqual(evaluate(admission["runs-on"], merge_group), "pool-15-paid")
+        self.assertEqual(evaluate(admission["env"]["CMUX_CI_XCODE_APP"], merge_group), "/Applications/Xcode-15.app")
+        branch_dispatch = github_context("workflow_dispatch", ref="refs/heads/topic")
+        self.assertEqual(evaluate(admission["runs-on"], branch_dispatch), "blacksmith-6vcpu-macos-15")
+
+    def test_the_expression_evaluator_follows_actions_semantics(self):
+        context = {"vars": {"A": "a", "EMPTY": ""}}
+        self.assertEqual(evaluate("${{ vars.A && 'x' || 'y' }}", context), "x")
+        self.assertEqual(evaluate("${{ vars.EMPTY && 'x' || 'y' }}", context), "y")
+        self.assertEqual(evaluate("${{ vars.MISSING || vars.A }}", context), "a")
+        self.assertIs(evaluate("${{ !(vars.A == 'a') }}", context), False)
+        self.assertIs(evaluate("${{ (vars.MISSING || '1') != '0' }}", context), True)
+        self.assertIs(evaluate("${{ vars.A != 'b' && vars.A == 'a' }}", context), True)
 
     def test_no_workflow_compares_a_bare_variable_with_zero(self):
         bare = re.compile(r"vars\.[A-Z0-9_]+\s*[!=]=\s*'0'")

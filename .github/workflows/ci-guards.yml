@@ -51,6 +51,10 @@ jobs:
         if: ${{ matrix.group == 'preflight' }}
         run: python3 tests/test_ci_persistent_mac_compile.py
 
+      - name: Validate nightly owned-Mac route
+        if: ${{ matrix.group == 'preflight' }}
+        run: python3 tests/test_nightly_mini_route.py
+
       - name: Validate Swift incremental diagnostics tooling
         if: ${{ matrix.group == 'preflight' }}
         run: python3 tests/test_swift_incremental_diagnostics.py
@@ -66,6 +70,10 @@ jobs:
       - name: Validate repository variable defaults
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_repo_variable_defaults.py
+
+      - name: Validate macOS jobs select a pinned Xcode
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_macos_xcode_selection.py
 
       - name: Validate Xcode build metrics receipt
         if: ${{ matrix.group == 'ci' }}
@@ -296,6 +304,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_preflight_trust.py
 
+      - name: Validate hook installation leaves existing hooks alone
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_install_git_hooks.py
+
       - name: Validate required-check drift reconciliation
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_required_checks_drift.py
@@ -463,6 +475,7 @@ jobs:
         run: |
           python3 tests/test_run_e2e.py
           python3 tests/test_ci_e2e_compilation_cache.py
+          python3 tests/test_ci_focused_test_selectors.py
 
       - name: Validate manual macOS package cache recovery
         if: ${{ matrix.group == 'app-host-execution' }}
@@ -702,6 +715,10 @@ jobs:
         if: ${{ matrix.group == 'release-notary' }}
         run: bash ./tests/test_nightly_universal_build.sh
 
+      - name: Validate nightly Sparkle key selection
+        if: ${{ matrix.group == 'release-notary' }}
+        run: bash ./tests/test_nightly_sparkle_key.sh
+
       - name: Validate nightly push throttle
         if: ${{ matrix.group == 'release-notary' }}
         run: |
@@ -821,6 +838,12 @@ jobs:
       - name: Validate bash prompt bootstrap composes with user PROMPT_COMMAND (starship)
         if: ${{ matrix.group == 'quality-determinism' }}
         run: python3 tests/test_issue_5164_starship_prompt_composition.py
+
+      - name: Validate errno is captured before Swift test assertions
+        if: ${{ matrix.group == 'quality-determinism' }}
+        run: |
+          python3 tests/test_lint_errno_in_test_assertions.py
+          python3 scripts/lint-errno-in-test-assertions.py
 
       - name: Validate test determinism gate
         if: ${{ matrix.group == 'quality-determinism' }}
