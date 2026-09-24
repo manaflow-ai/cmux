@@ -65,8 +65,8 @@ extension Workspace {
 #if DEBUG
         cmuxDebugLog(
             "workspace.title.applyProcess workspace=\(id.uuidString.prefix(5)) " +
-            "from=\"\(workspaceTitleLogPreview(self.title, limit: 80))\" " +
-            "to=\"\(workspaceTitleLogPreview(title, limit: 80))\""
+            "from=\"\(debugWorkspaceDescriptionPreview(self.title, limit: 80))\" " +
+            "to=\"\(debugWorkspaceDescriptionPreview(title, limit: 80))\""
         )
 #endif
         applyAutomaticTitle(title)
@@ -183,7 +183,7 @@ extension Workspace {
                 "workspace.title.updatePanel workspace=\(id.uuidString.prefix(5)) " +
                 "panel=\(panelId.uuidString.prefix(5)) panels=\(panels.count) custom=\(customTitle == nil ? 0 : 1) " +
                 "panelChanged=\(didMutatePanelTitle ? 1 : 0) workspaceChanged=\(didMutateWorkspaceTitle ? 1 : 0) " +
-                "title=\"\(workspaceTitleLogPreview(trimmed, limit: 80))\""
+                "title=\"\(debugWorkspaceDescriptionPreview(trimmed, limit: 80))\""
             )
         }
 #endif
@@ -227,7 +227,7 @@ extension Workspace {
 #if DEBUG
         cmuxDebugLog(
             "workspace.customTitle.write workspace=\(id.uuidString.prefix(8)) " +
-            "source=\(source) title=\"\(workspaceTitleLogPreview(trimmed, limit: 40))\""
+            "source=\(source) title=\"\(debugWorkspaceDescriptionPreview(trimmed, limit: 40))\""
         )
 #endif
         return true
@@ -248,8 +248,8 @@ extension Workspace {
             "inputNewlines=\(inputNewlines) " +
             "normalizedLen=\((normalizedDescription as NSString?)?.length ?? 0) " +
             "normalizedNewlines=\(normalizedNewlines) " +
-            "input=\"\(workspaceTitleLogPreview(description))\" " +
-            "normalized=\"\(workspaceTitleLogPreview(normalizedDescription))\""
+            "input=\"\(debugWorkspaceDescriptionPreview(description))\" " +
+            "normalized=\"\(debugWorkspaceDescriptionPreview(normalizedDescription))\""
         )
 #endif
         guard customDescription != normalizedDescription else { return }
