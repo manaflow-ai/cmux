@@ -12,7 +12,10 @@ final class WorkspaceNavigationControlView: UIView {
     }
 
     private let contentView: UIView & UIContentView
+    private let contentContainer = UIView()
     private var width: NSLayoutConstraint?
+    private var contentWidth: NSLayoutConstraint!
+    private var contentCenterX: NSLayoutConstraint!
     private var placement: Placement = .leading
     private var isLandscape = false
     private var widthAdjustment: CGFloat = 0
@@ -26,12 +29,20 @@ final class WorkspaceNavigationControlView: UIView {
         // it again here enlarges the end items by 17 points in landscape.
         insetsLayoutMarginsFromSafeArea = false
         translatesAutoresizingMaskIntoConstraints = false
+        contentContainer.translatesAutoresizingMaskIntoConstraints = false
         contentView.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(contentView)
+        addSubview(contentContainer)
+        contentContainer.addSubview(contentView)
+        contentCenterX = contentView.centerXAnchor.constraint(equalTo: contentContainer.centerXAnchor)
+        contentWidth = contentView.widthAnchor.constraint(equalToConstant: contentView.systemLayoutSizeFitting(UIView.layoutFittingCompressedSize).width)
         NSLayoutConstraint.activate([
-            contentView.leadingAnchor.constraint(equalTo: layoutMarginsGuide.leadingAnchor),
-            contentView.trailingAnchor.constraint(equalTo: layoutMarginsGuide.trailingAnchor),
-            contentView.centerYAnchor.constraint(equalTo: centerYAnchor),
+            contentContainer.leadingAnchor.constraint(equalTo: layoutMarginsGuide.leadingAnchor),
+            contentContainer.trailingAnchor.constraint(equalTo: layoutMarginsGuide.trailingAnchor),
+            contentContainer.centerYAnchor.constraint(equalTo: centerYAnchor),
+            contentContainer.heightAnchor.constraint(equalToConstant: 36),
+            contentCenterX,
+            contentView.centerYAnchor.constraint(equalTo: contentContainer.centerYAnchor),
+            contentWidth,
             heightAnchor.constraint(equalToConstant: 36),
         ])
         width = widthAnchor.constraint(equalToConstant: intrinsicContentSize.width)
@@ -60,7 +71,6 @@ final class WorkspaceNavigationControlView: UIView {
 
     override func layoutSubviews() {
         super.layoutSubviews()
-        contentView.layer.setAffineTransform(CGAffineTransform(translationX: visualOffset, y: 0))
     }
 
     func update(content: AnyView) {
@@ -75,7 +85,7 @@ final class WorkspaceNavigationControlView: UIView {
         self.isLandscape = isLandscape
         self.visualOffset = effectiveOffset
         widthAdjustment = placement == .trailing && isLandscape ? -3 : 0
-        contentView.layer.setAffineTransform(.identity)
+        contentCenterX.constant = effectiveOffset
         let leading: CGFloat = placement == .trailing && isLandscape ? 4.5 : 8
         let trailing: CGFloat = placement == .leading && isLandscape ? -5 : 8
         layoutMargins = UIEdgeInsets(top: 8, left: leading, bottom: 8, right: trailing)
@@ -85,7 +95,9 @@ final class WorkspaceNavigationControlView: UIView {
     private func refreshContentSize() {
         contentView.invalidateIntrinsicContentSize()
         invalidateIntrinsicContentSize()
-        width?.constant = max(0, intrinsicContentSize.width + widthAdjustment)
+        let contentSize = contentView.systemLayoutSizeFitting(UIView.layoutFittingCompressedSize)
+        contentWidth.constant = contentSize.width
+        width?.constant = max(0, contentSize.width + layoutMargins.left + layoutMargins.right + widthAdjustment)
     }
 }
 #endif
