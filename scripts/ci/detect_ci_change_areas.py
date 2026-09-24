@@ -146,12 +146,17 @@ CI_MACOS_TEST_PRODUCT_INPUTS = frozenset({
 
 # Areas only gate ci.yml and the reusable workflows it calls. A helper no job in
 # that tree can execute cannot change what a pull request's lanes do.
-_LOCAL_WORKFLOW_CALL_RE = re.compile(r"uses:\s*\./(\.github/workflows/[A-Za-z0-9_.-]+\.ya?ml)")
+_LOCAL_WORKFLOW_CALL_RE = re.compile(r"""uses:\s*["']?\./(\.github/workflows/[A-Za-z0-9_.-]+\.ya?ml)""")
 _DOCUMENTATION_SUFFIXES = (".md", ".mdx", ".txt")
 
 
 def routed_workflows(root: Path) -> Optional[frozenset[str]]:
-    """ci.yml plus every local workflow it calls, transitively; None if unreadable."""
+    """ci.yml plus every local workflow it calls, transitively.
+
+    None when ci.yml itself is unreadable. A called workflow that is missing
+    here (the trusted router's root holds only some of them) is still routed;
+    only its own callees go unexpanded.
+    """
     seen: set[str] = set()
     frontier = [CI_WORKFLOW_PATH]
     while frontier:
@@ -162,7 +167,9 @@ def routed_workflows(root: Path) -> Optional[frozenset[str]]:
         try:
             text = (root / workflow).read_text(encoding="utf-8")
         except OSError:
-            return None
+            if workflow == CI_WORKFLOW_PATH:
+                return None
+            continue
         frontier.extend(_LOCAL_WORKFLOW_CALL_RE.findall(text))
     return frozenset(seen)
 
@@ -195,6 +202,7 @@ def ci_helper_reaches_routed_lane(
     path: str,
     root: Path,
     test_references: Optional[tuple[frozenset[str], frozenset[str]]],
+    base_root: Optional[Path] = None,
 ) -> bool:
     """Whether any job ci.yml routes could execute this scripts/ci helper.
 
@@ -208,9 +216,14 @@ def ci_helper_reaches_routed_lane(
     # A helper absent from the tree (deleted, or never added) cannot be traced.
     if not (root / path).is_file():
         return True
+    # The pull request's ci.yml can add routed workflows but never remove one:
+    # the call tree is the union with the base's, which the trusted router's
+    # working directory holds.
     routed = routed_workflows(root)
-    if routed is None:
+    base_routed = routed_workflows(base_root) if base_root is not None else frozenset()
+    if routed is None or base_routed is None:
         return True
+    routed |= base_routed
     visited_tokens: set[str] = set()
     visited_files = {path}
     tokens = [Path(path).stem]
@@ -1278,7 +1291,9 @@ def classify_files(paths: Iterable[str], *, ci_workflow_linux_only: bool = False
         # Packages/iOS package outside the desktop closure) or test-only.
         if is_swift_package_input(path):
             swift_package_candidates.append(path)
-        if is_unowned_ci_helper(path) and not ci_helper_reaches_routed_lane(path, helper_root, test_references):
+        if is_unowned_ci_helper(path) and not ci_helper_reaches_routed_lane(
+            path, helper_root, test_references, base_root=Path("."),
+        ):
             print(f"{path} runs in no workflow ci.yml routes; no product area.")
             continue
         if forces_all_areas(path):

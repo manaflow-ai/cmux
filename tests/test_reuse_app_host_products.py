@@ -315,6 +315,27 @@ class ReuseProducts(TestProductHandoff):
             identity.identity_from_tree_lines(tree, workflow, changed_step),
         )
 
+    def test_e2e_identity_binds_the_helpers_its_build_job_runs(self):
+        identity = reuse.product_inputs
+        root = Path(__file__).resolve().parents[1]
+        workflow = (root / ".github/workflows/ci-macos.yml").read_text()
+        e2e_workflow = (root / ".github/workflows/test-e2e.yml").read_text()
+        source = f"100644 blob {'1' * 40}\tSources/App.swift"
+        helper = "scripts/ci/e2e_warm_derived_data.py"
+        base = identity.identity_from_tree_lines([source, f"100644 blob {'2' * 40}\t{helper}"], workflow, e2e_workflow)
+        edited = identity.identity_from_tree_lines([source, f"100644 blob {'3' * 40}\t{helper}"], workflow, e2e_workflow)
+
+        # Only the E2E component moves: the compile-admission identity does not.
+        self.assertNotEqual(base["e2e_recipe"], edited["e2e_recipe"])
+        self.assertEqual({k: v for k, v in base.items() if k != "e2e_recipe"},
+                         {k: v for k, v in edited.items() if k != "e2e_recipe"})
+        # A scripts/ci file the build job never names changes nothing.
+        unrelated = identity.identity_from_tree_lines(
+            [source, f"100644 blob {'2' * 40}\t{helper}", f"100644 blob {'4' * 40}\tscripts/ci/queue_janitor.py"],
+            workflow, e2e_workflow,
+        )
+        self.assertEqual(base, unrelated)
+
     def test_bundled_paste_worker_source_reaches_product(self):
         """cmux.xcodeproj compiles this into the bundle, so reuse must see it."""
         identity = reuse.product_inputs

@@ -2168,6 +2168,20 @@ def test_helper_a_routed_job_can_execute_still_fails_open() -> None:
     })
 
 
+def test_a_pull_request_cannot_unroute_a_workflow_by_editing_ci_yml() -> None:
+    mac_helper = {
+        ".github/workflows/ci.yml": ROUTED_TREE[".github/workflows/ci.yml"] + "  mac:\n    uses: './.github/workflows/mac.yml'\n",
+        ".github/workflows/mac.yml": "on: workflow_call\njobs:\n  build:\n    runs-on: macos-15\n    steps:\n      - run: python3 scripts/ci/helper.py\n",
+    }
+    # A quoted call is still a call.
+    assert reaches(mac_helper)
+    # The head drops the call; the base still has it.
+    base = _helper_repo({**ROUTED_TREE, **mac_helper})
+    head = _helper_repo({**ROUTED_TREE, ".github/workflows/mac.yml": mac_helper[".github/workflows/mac.yml"]})
+    assert not module.ci_helper_reaches_routed_lane("scripts/ci/helper.py", head, GUARD_ONLY_REFERENCES)
+    assert module.ci_helper_reaches_routed_lane("scripts/ci/helper.py", head, GUARD_ONLY_REFERENCES, base_root=base)
+
+
 def test_helper_named_by_product_source_or_a_native_test_fails_open() -> None:
     assert reaches({"Sources/Build.swift": "// scripts/ci/helper.py\n"})
     native = module.ci_helper_reaches_routed_lane(
