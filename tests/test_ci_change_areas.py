@@ -235,6 +235,79 @@ def test_cli_lane_routes_stdlib_shadowing_ci_helpers() -> None:
     assert module.classify_files(["scripts/ci/queue_janitor.py"]).cli is False
 
 
+XCODE_PROJECT = "cmux.xcodeproj/project.pbxproj"
+CLI_SOURCE_REFERENCE = "B9000001A1B2C3D4E5F60719 /* cmux.swift */"
+
+
+def with_build_setting(project: str, configuration: str) -> str:
+    """Add a build setting to one XCBuildConfiguration of the real project."""
+    anchor = f"\t\t{configuration} /* Debug */ = {{\n\t\t\tisa = XCBuildConfiguration;\n\t\t\tbuildSettings = {{\n"
+    assert project.count(anchor) == 1, configuration
+    return project.replace(anchor, anchor + "\t\t\t\tCMUX_ROUTING_PROBE = 1;\n")
+
+
+def cli_neutral_project_edits(project: str) -> dict[str, str]:
+    """Real-shaped pbxproj edits the cmux-cli build cannot observe."""
+    test_reference = "path = AboutLicensesResourceTests.swift;"
+    assert project.count(test_reference) == 1
+    return {
+        # Renaming a cmuxTests source, as a test-adding PR's pbxproj edit does.
+        "test file": project.replace(test_reference, "path = AboutLicensesResourceTests2.swift;"),
+        # The app target's own Debug configuration.
+        "app setting": with_build_setting(project, "A5001082"),
+    }
+
+
+def cli_relevant_project_edits(project: str) -> dict[str, str]:
+    """pbxproj edits that change what the cmux-cli target compiles or how."""
+    cli_reference = f"{CLI_SOURCE_REFERENCE} = {{isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = cmux.swift;"
+    child = f"\t\t\t\t{CLI_SOURCE_REFERENCE},\n"
+    main_group = "\t\tA5001040 = {\n\t\t\tisa = PBXGroup;\n\t\t\tchildren = (\n"
+    assert project.count(cli_reference) == 1
+    assert project.count(child) == 1
+    assert project.count(main_group) == 1
+    return {
+        "cli source path": project.replace(cli_reference, cli_reference.replace("path = cmux.swift;", "path = cmux2.swift;")),
+        # Moving the file changes its location even though no object it
+        # references changed.
+        "cli source moved": project.replace(child, "").replace(main_group, main_group + child),
+        "cli setting": with_build_setting(project, "B9000008A1B2C3D4E5F60719"),
+        "project setting": with_build_setting(project, "A5001080"),
+    }
+
+
+def test_pbxproj_edits_outside_the_cmux_cli_build_skip_the_cli_lane() -> None:
+    # Of the 86 main commits that routed the CLI lane between 2026-09-20 and
+    # 2026-09-23, 24 did so only through a project.pbxproj edit that left the
+    # cmux-cli target alone (app and test file wiring) or an app test scheme.
+    project = (ROOT / XCODE_PROJECT).read_text(encoding="utf-8")
+    for label, head in cli_neutral_project_edits(project).items():
+        assert head != project, label
+        assert module.cli_xcode_project_change_is_neutral(project, head), label
+    for label, head in cli_relevant_project_edits(project).items():
+        assert head != project, label
+        assert not module.cli_xcode_project_change_is_neutral(project, head), label
+    # Unreadable input keeps the lane.
+    assert not module.cli_xcode_project_change_is_neutral(project, project[:-200])
+    assert not module.cli_xcode_project_change_is_neutral(
+        project, project.replace('name = "cmux-cli";', 'name = "cmux-cli-renamed";')
+    )
+
+
+def test_pbxproj_edit_without_its_base_still_routes_the_cli_lane() -> None:
+    assert module.classify_files([XCODE_PROJECT]).cli is True
+
+
+def test_only_the_schemes_the_cli_route_builds_select_it() -> None:
+    schemes = "cmux.xcodeproj/xcshareddata/xcschemes"
+    assert module.classify_files([f"{schemes}/cmux-cli.xcscheme"]).cli is True
+    for scheme in ("cmux-unit", "cmux-ci", "cmux"):
+        assert module.classify_files([f"{schemes}/{scheme}.xcscheme"]).cli is False, scheme
+    assert module.classify_files(
+        ["cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved"]
+    ).cli is True
+
+
 def test_package_changes_route_the_package_test_lane() -> None:
     # PRs #13786 and #13790 move ~150 assertions into package test targets.
     # Under the compile-only pull-request suite the only macOS signal is
@@ -2042,6 +2115,21 @@ def test_workflow_registry_diff_reaches_normal_and_trusted_router() -> None:
             )
             assert f"macos={expected}" in outputs, (result.stdout, result.stderr)
             assert f"release_build={expected}" in outputs, outputs
+
+
+def test_workflow_pbxproj_diff_reaches_normal_and_trusted_router() -> None:
+    project = (ROOT / XCODE_PROJECT).read_text(encoding="utf-8")
+    cases = [(head, "false") for head in cli_neutral_project_edits(project).values()]
+    cases.append((cli_relevant_project_edits(project)["cli setting"], "true"))
+    for policy_change in ([], ["scripts/ci/detect_ci_change_areas.py"]):
+        for head, expected in cases:
+            result, outputs = run_detect_step_for_paths(
+                [XCODE_PROJECT, *policy_change],
+                base_files={XCODE_PROJECT: project}, head_files={XCODE_PROJECT: head},
+            )
+            assert f"cli={expected}" in outputs, (policy_change, result.stdout, result.stderr)
+            # The app still builds from the project either way.
+            assert "macos=true" in outputs, outputs
 
 
 def test_workflow_self_change_guard_runs_before_detector_imports() -> None:
