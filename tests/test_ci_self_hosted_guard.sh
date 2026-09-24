@@ -1481,10 +1481,15 @@ PR_LANE = re.compile(
     r"\s*&&\s*\((?P<pr>.+?)\)\s*\|\|.+?\}\}"
 )
 
+# A pull request run that pr_runner_pool.py overflowed to the macOS 15 pool
+# carries the Xcode of that pool in inputs.pr_xcode_app. The owned-Mac producer
+# builds for the lane itself, so compare what the lane resolves to without it.
+OVERFLOW_PIN = re.compile(r"\binputs\.pr_xcode_app\s*\|\|\s*")
+
 normalize = len(sys.argv) > 1 and sys.argv[1] == "--pr-lane"
 for line in sys.stdin:
     if normalize:
-        line = PR_LANE.sub(lambda m: "${{ " + m.group("pr").strip() + " }}", line)
+        line = PR_LANE.sub(lambda m: "${{ " + OVERFLOW_PIN.sub("", m.group("pr").strip()) + " }}", line)
     sys.stdout.write(line)
 ' ${3:+--pr-lane} | sort
 }
@@ -1954,6 +1959,8 @@ EXEMPT = {
         "builds the SDK 15 Ghostty helper; stays on MACOS_RUNNER_DUAL_XCODE",
     ("ci-macos.yml", "swift-package-tests", "CMUX_CI_HELPER_XCODE_APP"):
         "same job's SDK 15 release-helper pin",
+    ("ci.yml", "changes", "CMUX_CI_XCODE_APP_MACOS_15"):
+        "a Linux job; pr_runner_pool.py hands this pin on only to a run it routes to the macOS 15 pool",
 }
 
 PINNED = ("CMUX_CI_XCODE_APP_MACOS_15", "CMUX_CI_HELPER_XCODE_APP_MACOS_15")

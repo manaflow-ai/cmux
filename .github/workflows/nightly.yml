@@ -1455,12 +1455,15 @@ jobs:
 
       - name: Derive Sparkle public key from private key
         env:
-          SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
+          # scripts/ci/nightly-sparkle-key.sh picks the key per channel and
+          # NIGHTLY_SPARKLE_KEY; unset keeps the shared key.
+          NIGHTLY_SPARKLE_KEY: ${{ vars.NIGHTLY_SPARKLE_KEY }}
+          CHANNEL: ${{ needs.decide.outputs.channel }}
+          SHARED_SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
+          NIGHTLY_SPARKLE_PRIVATE_KEY: ${{ secrets.NIGHTLY_SPARKLE_PRIVATE_KEY }}
         run: |
-          if [ -z "$SPARKLE_PRIVATE_KEY" ]; then
-            echo "Missing SPARKLE_PRIVATE_KEY secret" >&2
-            exit 1
-          fi
+          set -euo pipefail
+          SPARKLE_PRIVATE_KEY="$(./scripts/ci/nightly-sparkle-key.sh)"
           DERIVED_PUBLIC_KEY=$(swift scripts/derive_sparkle_public_key.swift "$SPARKLE_PRIVATE_KEY")
           echo "Derived Sparkle public key: $DERIVED_PUBLIC_KEY"
           echo "SPARKLE_PUBLIC_KEY=$DERIVED_PUBLIC_KEY" >> "$GITHUB_ENV"
@@ -1796,16 +1799,21 @@ jobs:
       - name: Generate Sparkle appcasts (nightly)
         if: needs.decide.outputs.fast_build != 'true'
         env:
-          SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
+          NIGHTLY_SPARKLE_KEY: ${{ vars.NIGHTLY_SPARKLE_KEY }}
+          CHANNEL: ${{ needs.decide.outputs.channel }}
+          SHARED_SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
+          NIGHTLY_SPARKLE_PRIVATE_KEY: ${{ secrets.NIGHTLY_SPARKLE_PRIVATE_KEY }}
           # Deltas from the two previous builds of this track, named
           # cmux-nightly-macos-<variant>-<new>-<old>.delta so tracks never collide.
           SPARKLE_PREVIOUS_ARCHIVES_DIR: previous-nightlies
           SPARKLE_MAXIMUM_DELTAS: "2"
         run: |
-          if [ -z "$SPARKLE_PRIVATE_KEY" ]; then
-            echo "Missing SPARKLE_PRIVATE_KEY secret" >&2
-            exit 1
-          fi
+          set -euo pipefail
+          SPARKLE_PRIVATE_KEY="$(./scripts/ci/nightly-sparkle-key.sh)"
+          export SPARKLE_PRIVATE_KEY
+          # After a key change, deltas from builds that embed the other key can
+          # never install; skip building them. SPARKLE_PUBLIC_KEY is derived above.
+          ./scripts/ci/drop-previous-nightlies-with-other-sparkle-key.sh previous-nightlies "$SPARKLE_PUBLIC_KEY"
           SPARKLE_DELTA_NAME_PREFIX="${CHANNEL_DMG_PREFIX}-${NIGHTLY_VARIANT}-" \
             ./scripts/sparkle_generate_appcast.sh "$NIGHTLY_DMG_IMMUTABLE" "$CHANNEL_RELEASE_TAG" "$NIGHTLY_APPCAST"
           ls -l "$NIGHTLY_DMG_IMMUTABLE" "$NIGHTLY_DMG_RELEASE" "$NIGHTLY_APPCAST" ./*.delta 2>/dev/null || true

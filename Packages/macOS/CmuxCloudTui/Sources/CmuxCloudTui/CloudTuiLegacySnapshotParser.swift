@@ -7,11 +7,13 @@ import Foundation
 /// the legacy `list-workspaces` compatibility snapshot carries both identities
 /// at the terminal tab boundary. Keeping this translation here prevents the
 /// native pane from depending on the TUI's renderer or public-id internals.
-struct CloudTuiLegacySnapshotParser: Sendable {
+public struct CloudTuiLegacySnapshotParser: Sendable {
+    public init() {}
+
     /// Finds a numeric surface in the result of the private
     /// `resolve-terminal` command. A null or malformed response returns nil;
     /// callers that need to distinguish those cases can use ``resolvedSurface(from:)``.
-    func resolvedSurfaceID(from data: Data) -> UInt64? {
+    public func resolvedSurfaceID(from data: Data) -> UInt64? {
         if case let .surface(surface) = resolvedSurface(from: data) {
             return surface
         }
@@ -21,7 +23,7 @@ struct CloudTuiLegacySnapshotParser: Sendable {
     /// Decodes the resolver response without conflating a valid zero-view
     /// terminal (`surface:null`) with an exited terminal, or with malformed or
     /// failed data.
-    func resolvedSurface(from data: Data) -> CloudTuiResolvedSurface {
+    public func resolvedSurface(from data: Data) -> CloudTuiResolvedSurface {
         guard let root = try? JSONSerialization.jsonObject(with: data),
               let object = (root as? [String: Any])?["data"] as? [String: Any]
                   ?? root as? [String: Any] else {
@@ -42,7 +44,7 @@ struct CloudTuiLegacySnapshotParser: Sendable {
     /// Reads the protocol integer from an `identify` response envelope. A
     /// malformed, failed, fractional, or non-boolean response returns `nil` so
     /// a caller cannot infer compatibility from an unreliable value.
-    func protocolVersion(from data: Data) -> Int? {
+    public func protocolVersion(from data: Data) -> Int? {
         guard let root = try? JSONSerialization.jsonObject(with: data),
               let object = root as? [String: Any],
               positiveInteger(from: object["id"]) == 1,
@@ -68,7 +70,7 @@ struct CloudTuiLegacySnapshotParser: Sendable {
     }
 
     /// Finds the numeric surface backing `terminalID` in a legacy tree payload.
-    func surfaceID(from data: Data, terminalID: String) -> UInt64? {
+    public func surfaceID(from data: Data, terminalID: String) -> UInt64? {
         guard let root = try? JSONSerialization.jsonObject(with: data),
               let object = (root as? [String: Any])?["data"] as? [String: Any]
                   ?? root as? [String: Any] else {
@@ -78,7 +80,7 @@ struct CloudTuiLegacySnapshotParser: Sendable {
     }
 
     /// Finds the numeric surface backing `terminalID` in an already-decoded tree.
-    func surfaceID(from object: [String: Any], terminalID: String) -> UInt64? {
+    public func surfaceID(from object: [String: Any], terminalID: String) -> UInt64? {
         surfaceIDs(from: object, terminalIDs: [terminalID])[terminalID]
     }
 
@@ -88,7 +90,7 @@ struct CloudTuiLegacySnapshotParser: Sendable {
     /// the workspace/screen/pane/tab hierarchy once keeps the legacy fallback
     /// O(number of tree records + number of requested terminals), rather than
     /// rescanning the same tree for every pane.
-    func surfaceIDs(
+    public func surfaceIDs(
         from object: [String: Any],
         terminalIDs: Set<String>
     ) -> [String: UInt64] {
@@ -123,7 +125,7 @@ struct CloudTuiLegacySnapshotParser: Sendable {
 
     /// Resolves many terminal identities from a JSON or response-envelope
     /// payload in one tree walk.
-    func surfaceIDs(from data: Data, terminalIDs: Set<String>) -> [String: UInt64] {
+    public func surfaceIDs(from data: Data, terminalIDs: Set<String>) -> [String: UInt64] {
         guard let root = try? JSONSerialization.jsonObject(with: data),
               let object = (root as? [String: Any])?["data"] as? [String: Any]
                   ?? root as? [String: Any] else {
