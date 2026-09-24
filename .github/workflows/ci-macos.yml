@@ -541,16 +541,25 @@ jobs:
 
       # The seed download (~40 s) needs only that key, so it runs while
       # packages resolve instead of after them. "Adopt the nightly DerivedData
-      # seed" below waits for it; if this step fails, adopt downloads itself.
+      # seed" below reuses the seed this step picked and waits for it; if this
+      # step fails, adopt picks and downloads itself.
       - name: Start the DerivedData seed download
         if: steps.reuse-products.outputs.hit != 'true' && steps.persistent-restore.outputs.hit != 'true' && (github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') && (vars.CI_ADMISSION_SEED_DERIVED_DATA || '1') != '0' && (inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND || 'r2') == 'r2'
         continue-on-error: true
+        # Picking the seed probes the bucket before the download detaches; a
+        # hung CDN must not hold up the resolve. adopt then picks for itself.
+        timeout-minutes: 3
         env:
           SEED_PREFIX: admission-derived-data-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.compilation-cache-key.outputs.fingerprint }}-
-          BASE_SHA: ${{ github.event.pull_request.base.sha || github.sha }}
+          # A pull request builds on the merge commit's first parent, which
+          # ci.yml reads off the checkout and verifies is GITHUB_SHA's; base.sha
+          # is only the fallback. Main's full-suite dispatch builds GITHUB_SHA
+          # itself, whose own seed may already exist, else its parent's.
+          MERGED_ONTO: ${{ github.event_name == 'pull_request' && (inputs.source_parent1 || github.event.pull_request.base.sha) || github.sha }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           python3 scripts/ci/seed_derived_data.py start \
-            "$CMUX_COMPILE_ADMISSION_DERIVED_DATA" "$SEED_PREFIX$BASE_SHA" "$SEED_PREFIX"
+            "$CMUX_COMPILE_ADMISSION_DERIVED_DATA" "$SEED_PREFIX" "$MERGED_ONTO"
 
       # Nothing here reads the workspace package cache after resolve, so it
       # moves into the canonical root instead of a second copy, and an exact
@@ -584,19 +593,24 @@ jobs:
       # its whole module, and `cmux` is one module. Xcode's incremental build
       # tracks dependencies per file, but only against an existing DerivedData,
       # and a fresh checkout makes every file look new. Adopt the DerivedData
-      # seed-derived-data.yml built for the base commit (every main push that
-      # changes the build), or the newest seed including nightly.yml's cold one,
-      # built on this runner, Xcode and path. Restore the recorded time onto
-      # every byte-identical input, and
-      # Xcode rebuilds only what differs. Pull requests adopt their base's
-      # seed. Main's full-suite dispatch adopts the seed of the commit it
+      # seed-derived-data.yml built for the main commit this build sits on
+      # (every main push that changes the build), or for its nearest ancestor
+      # with one, built on this runner, Xcode and path. Restore the recorded
+      # time onto every byte-identical input, and Xcode rebuilds only what
+      # differs. Pull requests adopt the seed of the main commit they merge
+      # onto. Main's full-suite dispatch adopts the seed of the commit it
       # tests: the seeder starts on the same push, so that seed is often still
-      # building, and the newest seed (usually the parent's) leaves only one
-      # merge's diff to compile. Seeds are written only by main-branch jobs in
-      # the ci-cache-writer environment and read here without credentials.
+      # building, and the nearest ancestor's (usually the parent's) leaves only
+      # one merge's diff to compile. Seeds are written only by main-branch jobs
+      # in the ci-cache-writer environment and read here without credentials.
       # Merge-group and other-branch dispatch builds stay clean. Any miss or
       # failure is today's cold build. CI_ADMISSION_SEED_DERIVED_DATA=0 turns
       # it off.
+      #
+      # The merge commit's first parent, not github.event.pull_request.base.sha:
+      # the event's base can be commits older than the main this job compiles
+      # (9567d6e against 2f0592d in job 107537609232), and each commit between
+      # them costs compile time.
       - name: Adopt the nightly DerivedData seed
         id: seed-derived-data
         if: steps.reuse-products.outputs.hit != 'true' && steps.persistent-restore.outputs.hit != 'true' && (github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') && (vars.CI_ADMISSION_SEED_DERIVED_DATA || '1') != '0' && (inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND || 'r2') == 'r2'
@@ -604,11 +618,16 @@ jobs:
         timeout-minutes: 8
         env:
           SEED_PREFIX: admission-derived-data-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.compilation-cache-key.outputs.fingerprint }}-
-          BASE_SHA: ${{ github.event.pull_request.base.sha || github.sha }}
+          # A pull request builds on the merge commit's first parent, which
+          # ci.yml reads off the checkout and verifies is GITHUB_SHA's; base.sha
+          # is only the fallback. Main's full-suite dispatch builds GITHUB_SHA
+          # itself, whose own seed may already exist, else its parent's.
+          MERGED_ONTO: ${{ github.event_name == 'pull_request' && (inputs.source_parent1 || github.event.pull_request.base.sha) || github.sha }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           python3 scripts/ci/seed_derived_data.py adopt \
             "$CMUX_CI_CANONICAL_SRC" "$CMUX_COMPILE_ADMISSION_DERIVED_DATA" \
-            "$SEED_PREFIX$BASE_SHA" "$SEED_PREFIX"
+            "$SEED_PREFIX" "$MERGED_ONTO"
 
       - name: Compile app-host test product
         id: hosted-compile
@@ -907,6 +926,7 @@ jobs:
           SEED_KEY: ${{ steps.seed-derived-data.outputs.key }}
           SEED_REASON: ${{ steps.seed-derived-data.outputs.reason }}
           SEED_CHANGED_INPUTS: ${{ steps.seed-derived-data.outputs.changed_inputs }}
+          SEED_DISTANCE: ${{ steps.seed-derived-data.outputs.seed_distance }}
           SEED_SECONDS: ${{ steps.seed-derived-data.outputs.seconds }}
           PRODUCT_PUBLISHED: ${{ steps.publish-products.outputs.publish }}
           PRODUCT_UPLOAD_OUTCOME: ${{ steps.upload-products.outcome }}
@@ -983,6 +1003,7 @@ jobs:
                   "key": os.environ.get("SEED_KEY", ""),
                   "reason": os.environ.get("SEED_REASON", ""),
                   "changed_inputs": number("SEED_CHANGED_INPUTS"),
+                  "commits_behind": number("SEED_DISTANCE"),
                   "adoption_seconds": number("SEED_SECONDS"),
               },
           }
@@ -1017,7 +1038,9 @@ jobs:
               print(f"- {label}: `{data.get(key)}`")
           seed = data.get("seed_derived_data") or {}
           if seed.get("hit"):
-              print(f"- seed DerivedData: `{seed.get('key')}`, {seed.get('changed_inputs')} inputs changed, adopted in {seed.get('adoption_seconds')}s")
+              behind = seed.get("commits_behind")
+              distance = "newest pointer" if behind is None else f"{int(behind)} commits behind"
+              print(f"- seed DerivedData: `{seed.get('key')}`, {distance}, {seed.get('changed_inputs')} inputs changed, adopted in {seed.get('adoption_seconds')}s")
           elif seed.get("outcome") not in (None, "", "skipped"):
               print(f"- seed DerivedData: miss (`{seed.get('reason')}`)")
           PY
@@ -2337,8 +2360,11 @@ jobs:
         if: ${{ inputs.full_suite == 'true' && inputs.release_build == 'true' }}
         run: |
           set -euo pipefail
+          # The helper is a Zig build that needs an SDK 15 Xcode, below the
+          # .xcode-version floor, so it opts out of the pool pin and the floor.
           CMUX_CI_XCODE_APP="$CMUX_CI_HELPER_XCODE_APP" \
             CMUX_CI_REQUIRED_MACOS_SDK_MAJOR=15 \
+            CMUX_CI_XCODE_ALLOW_BELOW_FLOOR=1 \
             ./scripts/select-ci-xcode.sh
 
       - name: Install zig
