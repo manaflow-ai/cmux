@@ -224,10 +224,17 @@ class UpPlan(unittest.TestCase):
     def test_a_stopped_service_is_only_started(self) -> None:
         self.assertEqual(self.keys(mini(service_loaded=False)), ["start"])
 
-    def test_quarantined_and_retired_are_refused(self) -> None:
-        for state in ("quarantined", "retired"):
-            with self.subTest(state=state), self.assertRaisesRegex(fleet.Failure, state):
-                fleet.up_plan(mini(enrollment={"nodeId": "n", "state": state}), False, None, False)
+    def test_retired_is_refused(self) -> None:
+        with self.assertRaisesRegex(fleet.Failure, "retired"):
+            fleet.up_plan(mini(enrollment={"nodeId": "n", "state": "retired"}), False, None, False)
+
+    def test_a_quarantined_mini_comes_back_through_acceptance(self) -> None:
+        # Quarantine stopped the service; `up` leaves quarantine, re-runs acceptance, starts it.
+        local = mini(enrollment={"nodeId": "n", "state": "quarantined", "quarantineReason": "disk_pressure"},
+                     service_loaded=False)
+        steps = fleet.up_plan(local, False, None, False)
+        self.assertEqual([s.key for s in steps], ["requalify", "enroll", "start"])
+        self.assertIn("disk_pressure", steps[0].text)
 
     def test_the_candidate_is_downloaded_only_when_enrollment_needs_it(self) -> None:
         fresh = mini(enrollment=None, acceptance=False, runner_configured=False, runner_name=None, service_loaded=None)
@@ -336,19 +343,20 @@ class DayTwo(unittest.TestCase):
     def test_up_takes_the_token_out_of_the_environment_first(self) -> None:
         seen = {}
 
-        def read_local(_):
+        def read_local(*_):
             seen["env"] = fleet.os.environ.get(fleet.TOKEN_ENV)
             raise fleet.Failure("stop here")
 
         with mock.patch.dict(fleet.os.environ, {fleet.TOKEN_ENV: "secret"}), \
              mock.patch.object(fleet, "require_mac"), mock.patch.object(fleet, "read_local", side_effect=read_local), \
-             mock.patch("sys.stderr"):
+             mock.patch.object(fleet, "ci_xcode", return_value=(fleet.XCODE_APP, "test")), mock.patch("sys.stderr"):
             fleet.main(["up"])
         self.assertIsNone(seen["env"])
 
     def test_up_refuses_an_unreadable_enrollment(self) -> None:
         local = mini(enrollment=None, enrollment_error="enrollment.json: Expecting value")
-        with mock.patch.object(fleet, "require_mac"), mock.patch.object(fleet, "read_local", return_value=local):
+        with mock.patch.object(fleet, "require_mac"), mock.patch.object(fleet, "read_local", return_value=local), \
+             mock.patch.object(fleet, "ci_xcode", return_value=(fleet.XCODE_APP, "test")):
             with self.assertRaisesRegex(fleet.Failure, "cannot be read"):
                 fleet.cmd_up(fleet.parser().parse_args(["up", "--node-id", "cmux-mac-002"]))
 
@@ -357,19 +365,247 @@ class DayTwo(unittest.TestCase):
         self.assertIsNone(fleet.parser().parse_args(["drain"]).glaeda_root)
 
 
-class PilotCohort(unittest.TestCase):
-    def test_cohort_strips_hashes_and_joins(self) -> None:
+def fleet_state(runners=(), variables=None) -> "fleet.GitHubState":
+    github = fleet.GitHubState(auth="someone")
+    github.group = good_group()
+    github.runners = list(runners)
+    github.variables = dict(variables or {})
+    return github
+
+
+class RoutingSwitch(unittest.TestCase):
+    """The switch is a repository variable; a wrong value routes nothing or routes into an empty fleet."""
+
+    def run_main(self, argv, github=None, stdin_tty=False):
         calls = []
-        original = fleet.set_variable
-        fleet.set_variable = lambda name, value: calls.append((name, value))
-        try:
-            fleet.main(["pilot", "#14144", "claude/persistent-compile-cli"])
-        finally:
-            fleet.set_variable = original
+        with mock.patch.object(fleet, "set_variable", side_effect=lambda n, v: calls.append((n, v))), \
+             mock.patch.object(fleet, "routing_state", return_value=github), \
+             mock.patch.object(fleet.sys.stdin, "isatty", return_value=stdin_tty), \
+             mock.patch("builtins.print") as printed, mock.patch("sys.stderr"):
+            code = fleet.main(argv)
+        return code, calls, " ".join(str(c.args[0]) for c in printed.call_args_list if c.args)
+
+    def test_cohort_strips_hashes_and_joins(self) -> None:
+        _, calls, _ = self.run_main(["pilot", "#14144", "claude/persistent-compile-cli"])
         self.assertEqual(calls, [
             (fleet.COHORT_VARIABLE, "14144,claude/persistent-compile-cli"),
             (fleet.SELECTOR_VARIABLE, "pilot"),
         ])
+
+    def test_pilot_refuses_an_empty_or_comma_cohort(self) -> None:
+        # "pilot #" used to set an empty cohort: the selector says pilot and nothing routes.
+        for argv in (["pilot", "#"], ["pilot", " "], ["pilot", "1,2"], ["pilot", "a b"]):
+            with self.subTest(argv=argv):
+                code, calls, _ = self.run_main(argv)
+                self.assertEqual((code, calls), (1, []))
+
+    def test_pilot_says_what_it_replaces_and_warns_without_a_runner(self) -> None:
+        github = fleet_state(runners=[runner(status="offline")], variables={fleet.COHORT_VARIABLE: "14000"})
+        _, calls, out = self.run_main(["pilot", "14157"], github)
+        self.assertEqual(calls[0], (fleet.COHORT_VARIABLE, "14157"))
+        self.assertIn("replacing the pilot cohort 14000", out)
+        self.assertIn("no runner is healthy", out)
+
+    def test_all_asks_first_when_no_runner_is_healthy(self) -> None:
+        empty = fleet_state(runners=[runner(status="offline")])
+        self.assertEqual(self.run_main(["all"], empty)[1], [])
+        self.assertEqual(self.run_main(["all", "-y"], empty)[1], [(fleet.SELECTOR_VARIABLE, "all")])
+        self.assertEqual(self.run_main(["all"], fleet_state(runners=[runner()]))[1],
+                         [(fleet.SELECTOR_VARIABLE, "all")])
+
+    def test_all_still_works_when_the_fleet_cannot_be_read(self) -> None:
+        # Setting a variable does not need the org admin scope that listing runners does.
+        self.assertEqual(self.run_main(["all"], None)[1], [(fleet.SELECTOR_VARIABLE, "all")])
+
+    def test_doctor_says_turn_it_off_when_routing_into_an_empty_fleet(self) -> None:
+        for selector in ("all", "pilot"):
+            with self.subTest(selector=selector):
+                github = fleet_state(runners=[runner(status="offline")],
+                                     variables={fleet.SELECTOR_VARIABLE: selector, fleet.COHORT_VARIABLE: "1"})
+                sections, nxt = fleet.doctor_lines(github, None)
+                self.assertIn("scripts/persistent-compile off", nxt)
+                self.assertIn("no runner is healthy", fleet.render_doctor(sections, nxt))
+
+    def test_doctor_flags_a_pilot_with_an_empty_cohort(self) -> None:
+        github = fleet_state(runners=[runner()], variables={fleet.SELECTOR_VARIABLE: "pilot"})
+        sections, nxt = fleet.doctor_lines(github, None)
+        self.assertIn(fleet.Line(False, "routing: pilot for (empty cohort: nothing routes)"), dict(sections)["GitHub"])
+        self.assertIn("scripts/persistent-compile pilot", nxt)
+
+
+class XcodePin(unittest.TestCase):
+    """The mini must compile with the Xcode the hosted job revalidates with, or every product is refused."""
+
+    def test_the_pin_follows_the_variables_ci_reads(self) -> None:
+        for workflow, context in ((PRODUCER, "producer"), (ROOT / ".github/workflows/ci-macos.yml", "admission")):
+            with self.subTest(context=context):
+                self.assertIn(" || ".join(f"vars.{name}" for name in fleet.XCODE_VARIABLES), workflow.read_text())
+
+    def test_first_set_variable_wins(self) -> None:
+        pr, macos15 = fleet.XCODE_VARIABLES
+        self.assertEqual(fleet.expected_xcode({pr: "/Applications/Xcode_26.4.app/", macos15: "/x"}),
+                         ("/Applications/Xcode_26.4.app", pr))
+        self.assertEqual(fleet.expected_xcode({pr: " ", macos15: "/x"}), ("/x", macos15))
+        self.assertEqual(fleet.expected_xcode({})[0], fleet.XCODE_APP)
+
+    def test_doctor_checks_the_mini_against_the_pin(self) -> None:
+        pr = fleet.XCODE_VARIABLES[0]
+        local = mini(xcode=False, xcode_app="/Applications/Xcode_26.4.app", xcode_source=pr)
+        nxt = fleet.doctor_lines(fleet_state(variables={pr: "/Applications/Xcode_26.4.app"}), local)[1]
+        self.assertIn("/Applications/Xcode_26.4.app", nxt)
+        self.assertIn(pr, nxt)
+
+    def test_org_variables_are_read_under_repository_ones(self) -> None:
+        pages = {
+            f"repos/{fleet.REPO}/actions/organization-variables?per_page=100":
+                {"variables": [{"name": "A", "value": "org"}, {"name": "B", "value": "org"}]},
+            f"repos/{fleet.REPO}/actions/variables?per_page=100": {"variables": [{"name": "A", "value": "repo"}]},
+        }
+        with mock.patch.object(fleet, "gh_api", side_effect=lambda path: pages[path]):
+            self.assertEqual(fleet.read_variables(), {"A": "repo", "B": "org"})
+
+    def test_repository_variables_survive_a_refused_org_read(self) -> None:
+        def api(path: str):
+            if "organization-variables" in path:
+                raise fleet.Failure("HTTP 403")
+            return {"variables": [{"name": "A", "value": "repo"}]}
+
+        with mock.patch.object(fleet, "gh_api", side_effect=api):
+            self.assertEqual(fleet.read_variables(), {"A": "repo"})
+
+    def test_an_operator_without_org_admin_still_gets_the_pin(self) -> None:
+        pr = fleet.XCODE_VARIABLES[0]
+        pages = {
+            f"repos/{fleet.REPO}": {"id": REPO_ID},
+            f"repos/{fleet.REPO}/actions/organization-variables?per_page=100": {"variables": []},
+            f"repos/{fleet.REPO}/actions/variables?per_page=100":
+                {"variables": [{"name": pr, "value": "/Applications/Xcode_26.4.app"}]},
+        }
+
+        def api(path: str, *args, **kwargs):
+            if path.startswith(f"orgs/{fleet.ORG}/"):
+                raise fleet.Failure("HTTP 403: Must have admin rights")
+            return pages[path]
+
+        with mock.patch.object(fleet, "gh", return_value=(True, "operator")), \
+                mock.patch.object(fleet, "gh_api", side_effect=api):
+            github = fleet.read_github()
+        self.assertIsNotNone(github.error)
+        self.assertEqual(fleet.expected_xcode(github.variables), ("/Applications/Xcode_26.4.app", pr))
+
+
+class Quarantine(unittest.TestCase):
+    def test_reasons_match_glaeda(self) -> None:
+        self.assertEqual(len(fleet.QUARANTINE_REASONS), 8)
+        self.assertEqual(fleet.parser().parse_args(["quarantine", "disk_pressure"]).reason, "disk_pressure")
+        with mock.patch("sys.stderr"), self.assertRaises(SystemExit):
+            fleet.parser().parse_args(["quarantine", "felt_like_it"])
+
+    def test_quarantine_also_stops_the_runner(self) -> None:
+        # Quarantining in Glaeda alone leaves GitHub assigning jobs to the mini.
+        transitions, stopped = [], []
+        with mock.patch.object(fleet, "require_mac"), \
+             mock.patch.object(fleet, "read_local", return_value=mini()), \
+             mock.patch.object(fleet, "glaeda_transition", side_effect=lambda l, t, r=None: transitions.append((t, r))), \
+             mock.patch.object(fleet, "worker_pids", return_value=[]), \
+             mock.patch.object(fleet, "stop_service", side_effect=stopped.append), mock.patch("builtins.print"):
+            self.assertEqual(fleet.main(["quarantine", "disk_pressure"]), 0)
+        self.assertEqual(transitions, [("quarantined", "disk_pressure")])
+        self.assertEqual(stopped, [fleet.runner_dir()])
+
+    def test_the_runner_stops_even_when_glaeda_refuses(self) -> None:
+        stopped = []
+        with mock.patch.object(fleet, "require_mac"), \
+             mock.patch.object(fleet, "read_local", return_value=mini()), \
+             mock.patch.object(fleet, "glaeda_transition", side_effect=fleet.Failure("unsupported")), \
+             mock.patch.object(fleet, "worker_pids", return_value=[]), \
+             mock.patch.object(fleet, "stop_service", side_effect=stopped.append), \
+             mock.patch("builtins.print"), mock.patch("sys.stderr"):
+            self.assertEqual(fleet.main(["quarantine", "hardware_failure"]), 1)
+        self.assertEqual(stopped, [fleet.runner_dir()])
+
+    def test_a_refused_quarantine_without_a_runner_does_not_claim_one_stopped(self) -> None:
+        with mock.patch.object(fleet, "require_mac"), \
+             mock.patch.object(fleet, "read_local", return_value=mini(runner_configured=False)), \
+             mock.patch.object(fleet, "glaeda_transition", side_effect=fleet.Failure("unsupported")), \
+             mock.patch.object(fleet, "stop_service") as stop:
+            with self.assertRaises(fleet.Failure) as caught:
+                fleet.stop_taking_jobs(fleet.parser().parse_args(["quarantine", "disk_pressure"]), "quarantined")
+        stop.assert_not_called()
+        self.assertNotIn("stopped", str(caught.exception))
+        self.assertIn("no runner is configured", str(caught.exception))
+
+    def test_drain_waits_on_the_worker_exit_not_a_timer(self) -> None:
+        # Two looks: a job is running, then the worker has exited.
+        pids = iter([[4242], []])
+        registered, waits = [], []
+
+        class Queue:
+            def control(self, changes, max_events, timeout=None):
+                if changes:
+                    registered.extend(event.ident for event in changes)
+                else:
+                    waits.append(timeout)
+                return []
+
+            def close(self):
+                pass
+
+        fake_select = mock.Mock(kqueue=Queue, KQ_FILTER_PROC=-5, KQ_EV_ADD=1, KQ_EV_ONESHOT=16, KQ_NOTE_EXIT=1,
+                                kevent=lambda ident, **_: mock.Mock(ident=ident))
+        with mock.patch.object(fleet, "select", fake_select), \
+             mock.patch.object(fleet, "worker_pids", side_effect=lambda _: next(pids)):
+            fleet.wait_for_workers(Path("/r"), fleet.time.monotonic() + 60)
+        self.assertEqual(registered, [4242])
+        self.assertEqual(len(waits), 1)
+        self.assertGreater(waits[0], 0)
+
+    def test_a_worker_gone_before_registration_is_skipped(self) -> None:
+        pids = iter([[4242], []])
+
+        class Queue:
+            def control(self, changes, max_events, timeout=None):
+                if changes:
+                    raise ProcessLookupError
+                raise AssertionError("waited on a process that was already gone")
+
+            def close(self):
+                pass
+
+        fake_select = mock.Mock(kqueue=Queue, KQ_FILTER_PROC=-5, KQ_EV_ADD=1, KQ_EV_ONESHOT=16, KQ_NOTE_EXIT=1,
+                                kevent=lambda ident, **_: ident)
+        with mock.patch.object(fleet, "select", fake_select), \
+             mock.patch.object(fleet, "worker_pids", side_effect=lambda _: next(pids)):
+            fleet.wait_for_workers(Path("/r"), fleet.time.monotonic() + 60)
+
+    def test_requarantine_says_the_old_reason_is_kept(self) -> None:
+        # Glaeda has no quarantined -> quarantined transition, so a new reason is not recorded.
+        local = mini(enrollment={"nodeId": "n", "state": "quarantined", "quarantineReason": "disk_pressure"})
+        with mock.patch("builtins.print") as printed, mock.patch.object(fleet, "run_checked") as run:
+            fleet.glaeda_transition(local, "quarantined", "hardware_failure")
+        run.assert_not_called()
+        self.assertIn("disk_pressure", " ".join(str(c.args[0]) for c in printed.call_args_list))
+
+    def test_resume_points_a_quarantined_mini_at_up(self) -> None:
+        local = mini(enrollment={"nodeId": "n", "state": "quarantined", "quarantineReason": "disk_pressure"})
+        with mock.patch.object(fleet, "require_mac"), mock.patch.object(fleet, "read_local", return_value=local), \
+             mock.patch.object(fleet, "glaeda_transition") as transition:
+            with self.assertRaisesRegex(fleet.Failure, "persistent-compile up"):
+                fleet.cmd_resume(fleet.parser().parse_args(["resume"]))
+        transition.assert_not_called()
+
+
+class CandidatePin(unittest.TestCase):
+    def test_doctor_warns_a_week_before_the_candidate_expires(self) -> None:
+        with mock.patch.object(fleet, "candidate_days_left", return_value=3.0):
+            sections, nxt = fleet.doctor_lines(fleet_state(runners=[runner()]), None)
+        self.assertIn("expires in 3 days", fleet.render_doctor(sections, nxt))
+        with mock.patch.object(fleet, "candidate_days_left", return_value=20.0):
+            sections, nxt = fleet.doctor_lines(fleet_state(runners=[runner()]), None)
+        self.assertNotIn("Glaeda candidate", fleet.render_doctor(sections, nxt))
+
+    def test_expiry_is_a_timestamp(self) -> None:
+        self.assertGreater(fleet.candidate_days_left(0), 0)
 
 
 if __name__ == "__main__":

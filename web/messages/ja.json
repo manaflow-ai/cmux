@@ -1,4 +1,18 @@
 {
+  "agentHarness": {
+    "title": "検出されたハーネス設定",
+    "selectionNotice": "プロバイダーを選択しても、これらのハーネスは起動または有効化されません。",
+    "selectProvider": "{provider}を選択",
+    "foundPath": "{path}を検出",
+    "foundCommand": "コマンド{command}を検出",
+    "installed": "プロバイダーはインストール済みです",
+    "missing": "プロバイダーはインストールされていません",
+    "install": "次でインストール: {command}",
+    "benefitPi": "圧縮、メモリ、プロバイダールーティング",
+    "benefitOpenagent": "OpenCode向けの並列スペシャリストと復旧",
+    "benefitClaude": "Claude Code向けのチームと検証",
+    "benefitSuperpowers": "計画、TDD、サブエージェント、レビュー"
+  },
   "coderouterAuth": {
     "title": "認証を受け取りました",
     "description": "ターミナルに戻ってセットアップを完了してください。"

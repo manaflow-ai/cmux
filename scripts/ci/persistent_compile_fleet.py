@@ -8,12 +8,14 @@
     scripts/persistent-compile pilot <PR>   route only these PRs (numbers or branch names)
     scripts/persistent-compile all | off    route every trusted PR, or none
     scripts/persistent-compile drain        on a mini: stop taking jobs once the current one ends
+    scripts/persistent-compile quarantine   on a mini: take it out for a reviewed reason; `up` brings it back
     scripts/persistent-compile resume       on a mini: take jobs again
     scripts/persistent-compile unregister   on a mini: remove its runner
 
-`up`, `group` and `unregister` show what they will do and ask first; -y skips
-the question. GitHub calls go through `gh` as whoever is signed in. `up` does
-not need an org admin at the mini: an admin runs `token` and the operator runs
+`up`, `group` and `unregister` show what they will do and ask first, as does
+`all` while no runner is healthy; -y skips the question. GitHub calls go
+through `gh` as whoever is signed in. `up` does not need an org admin at the
+mini: an admin runs `token` and the operator runs
 `CMUX_RUNNER_TOKEN=<token> scripts/persistent-compile up`. See
 docs/ci/mac-fleet.md for the design this operates.
 """
@@ -25,6 +27,7 @@ import hashlib
 import json
 import os
 import platform
+import select
 import shutil
 import subprocess
 import sys
@@ -45,7 +48,12 @@ LABELS = ("self-hosted", "macOS", "ARM64", CUSTOM_LABEL)
 WORKFLOW_REF = f"{REPO}/.github/workflows/persistent-macos-compile.yml@refs/heads/main"
 SELECTOR_VARIABLE = "CI_PERSISTENT_MAC_COMPILE"
 COHORT_VARIABLE = "CI_PERSISTENT_MAC_COMPILE_COHORT"
-XCODE_APP = "/Applications/Xcode_26.3.app"
+# CI selects its Xcode from these repository variables, first set wins, in both the
+# producer and the hosted job that revalidates its product. A mini with any other
+# Xcode compiles products that the hosted job refuses, so the variables are the
+# pin; XCODE_APP is only the fallback when they cannot be read.
+XCODE_VARIABLES = ("CMUX_CI_XCODE_APP_PR", "CMUX_CI_XCODE_APP_MACOS_15")
+XCODE_APP = "/Applications/Xcode_26.6.app"
 ROLE = "cmux_macos_native_build"
 GLAEDA_URL = "https://github.com/teamleaderleo/glaeda.git"
 # The reviewed Glaeda candidate a mini runs (#13491, docs/FLEET_DISTRIBUTION.md in
@@ -55,6 +63,7 @@ CANDIDATE_RUN = "35879163562"
 CANDIDATE_ARTIFACT = "glaeda-candidate-aarch64-apple-darwin"
 CANDIDATE_SOURCE = "36e07e36ea7b9bc9e04c366547a5312dd348024d"
 CANDIDATE_SHA256 = "c2ceaa2df44d82d8a972fbe2ae6c33a8ceb11247f010cd837fa403313ec8f66e"
+CANDIDATE_EXPIRES = "2026-10-23T15:08:05Z"  # the artifact's expires_at; a new mini cannot enroll after it
 TOKEN_ENV = "CMUX_RUNNER_TOKEN"
 
 RUNNER_VERSION = "2.336.0"
@@ -66,6 +75,20 @@ RUNNER_URL = (
 # The producer's timeout is 35 minutes, so a drain that waits this long has
 # outlived any job the runner could be holding.
 DRAIN_WAIT_SECONDS = 40 * 60
+# The router gives a queued producer this long before it cancels it and the PR
+# compiles hosted (CI_PERSISTENT_MAC_QUEUE_SECONDS, default 90).
+ROUTER_QUEUE_SECONDS = 90
+# Reviewed reasons, identical to QUARANTINE_REASONS in Glaeda's scripts/cmux_fleet.py.
+QUARANTINE_REASONS = (
+    "dirty_canonical_checkout",
+    "disk_pressure",
+    "failed_acceptance",
+    "hardware_failure",
+    "service_mismatch",
+    "stale_glaeda_generation",
+    "toolchain_mismatch",
+    "unexplained_process_settlement",
+)
 
 
 class Failure(Exception):
@@ -223,6 +246,12 @@ def read_github() -> GitHubState:
         state.error = "gh is not signed in (run: gh auth login)"
         return state
     state.auth = me if isinstance(me, str) else str(me)
+    # Before the runner groups: variables need only repository access, and the doctor
+    # checks a non-admin operator's mini against the Xcode pin they hold.
+    try:
+        state.variables = read_variables()
+    except Failure as error:
+        state.variables_error = str(error)
     try:
         repo_id = int(gh_api(f"repos/{REPO}")["id"])
         groups = gh_api(f"orgs/{ORG}/actions/runner-groups?per_page=100").get("runner_groups", [])
@@ -246,12 +275,48 @@ def read_github() -> GitHubState:
             state.runners = data.get("runners", [])
         except Failure as error:
             state.runners_error = str(error)
-    try:
-        data = gh_api(f"repos/{REPO}/actions/variables?per_page=100")
-        state.variables = {v["name"]: v["value"] for v in data.get("variables", [])}
-    except Failure as error:
-        state.variables_error = str(error)
     return state
+
+
+def read_variables() -> dict[str, str]:
+    """Repository variables over the organization ones visible to the repository, as Actions resolves them."""
+    values = {}
+    for path, required in ((f"repos/{REPO}/actions/organization-variables", False),
+                           (f"repos/{REPO}/actions/variables", True)):
+        # The Xcode pin is a repository variable; a login that cannot list the
+        # organization ones must still read it.
+        try:
+            data = gh_api(f"{path}?per_page=100") or {}
+        except Failure:
+            if required:
+                raise
+            continue
+        values.update({v["name"]: v["value"] for v in data.get("variables", [])})
+    return values
+
+
+def expected_xcode(variables: dict[str, str]) -> tuple[str, str]:
+    """The Xcode app CI compiles and revalidates with, and where that came from."""
+    for name in XCODE_VARIABLES:
+        value = (variables.get(name) or "").strip().rstrip("/")
+        if value:
+            return value, name
+    return XCODE_APP, "the fallback in this script"
+
+
+def healthy_runners(github: GitHubState) -> list[dict[str, Any]]:
+    return [r for r in github.runners if not runner_problems(r)]
+
+
+def routing_on(selector: str) -> bool:
+    # The router compares the value exactly, so do not normalise case here.
+    return selector.strip() in {"pilot", "1", "on", "true", "all"}
+
+
+def candidate_days_left(now: float | None = None) -> float:
+    from datetime import datetime
+    expires = datetime.fromisoformat(CANDIDATE_EXPIRES.replace("Z", "+00:00")).timestamp()
+    return (expires - (time.time() if now is None else now)) / 86400
 
 
 # ---------------------------------------------------------------- this machine
@@ -268,6 +333,8 @@ class LocalState:
     runner_name: str | None
     service_loaded: bool | None
     glaeda: Path | None
+    xcode_app: str = XCODE_APP
+    xcode_source: str = "the fallback in this script"
 
 
 def read_json(path: Path) -> tuple[dict[str, Any] | None, str | None]:
@@ -305,14 +372,14 @@ def service_loaded(directory: Path) -> bool | None:
     return launchctl("print", f"gui/{os.getuid()}/{label}").returncode == 0
 
 
-def read_local(glaeda_arg: str | None) -> LocalState:
+def read_local(glaeda_arg: str | None, xcode: tuple[str, str] = (XCODE_APP, "the fallback in this script")) -> LocalState:
     enrollment, enrollment_error = read_json(enrollment_path())
     directory = runner_dir()
     runner_config, _ = read_json(directory / ".runner")
     is_mac = platform.system() == "Darwin"
     return LocalState(
         is_mac=is_mac,
-        xcode=Path(XCODE_APP).is_dir(),
+        xcode=Path(xcode[0]).is_dir(),
         enrollment=enrollment,
         enrollment_error=enrollment_error,
         acceptance=acceptance_path().is_file(),
@@ -320,6 +387,8 @@ def read_local(glaeda_arg: str | None) -> LocalState:
         runner_name=(runner_config or {}).get("agentName"),
         service_loaded=service_loaded(directory) if is_mac and runner_config is not None else None,
         glaeda=glaeda_root(glaeda_arg),
+        xcode_app=xcode[0],
+        xcode_source=xcode[1],
     )
 
 
@@ -339,9 +408,9 @@ def doctor_lines(github: GitHubState, local: LocalState | None) -> tuple[list[tu
 
     if local is not None:
         lines = []
-        lines.append(Line(local.xcode, f"Xcode at {XCODE_APP}"))
+        lines.append(Line(local.xcode, f"Xcode at {local.xcode_app} (pinned by {local.xcode_source})"))
         if not local.xcode:
-            nxt.append(f"install Xcode 26.3 at {XCODE_APP}, then: sudo xcode-select -s {XCODE_APP}")
+            nxt.append(install_xcode(local))
         state = (local.enrollment or {}).get("state")
         if local.enrollment_error:
             lines.append(Line(False, f"Glaeda enrollment unreadable: {local.enrollment_error}"))
@@ -354,8 +423,8 @@ def doctor_lines(github: GitHubState, local: LocalState | None) -> tuple[list[tu
             if state == "enrolling":
                 nxt.append("scripts/persistent-compile up")
             elif state == "quarantined":
-                nxt.append(f"node is quarantined ({local.enrollment.get('quarantineReason')}); "
-                           "fix the cause, move it to enrolling in Glaeda, then: scripts/persistent-compile up")
+                nxt.append(f"fix the cause ({local.enrollment.get('quarantineReason')}), then: "
+                           "scripts/persistent-compile up   (re-runs acceptance)")
         lines.append(Line(local.acceptance, "acceptance receipt"))
         lines.append(Line(local.glaeda is not None, "Glaeda checkout found" if local.glaeda
                           else "Glaeda checkout (set GLAEDA_ROOT or pass --glaeda-root)"))
@@ -402,18 +471,31 @@ def doctor_lines(github: GitHubState, local: LocalState | None) -> tuple[list[tu
         lines.append(Line(False, f"variables: {github.variables_error}"))
     else:
         selector = github.variables.get(SELECTOR_VARIABLE, "")
-        cohort = github.variables.get(COHORT_VARIABLE, "")
-        # The router compares the value exactly, so do not normalise case here.
+        cohort = github.variables.get(COHORT_VARIABLE, "").strip()
         routing = selector.strip()
+        healthy = bool(healthy_runners(github))
         if routing == "pilot":
-            lines.append(Line(True, f"routing: pilot for {cohort or '(empty cohort: nothing routes)'}"))
-        elif routing in {"1", "on", "true", "all"}:
+            lines.append(Line(bool(cohort), f"routing: pilot for {cohort or '(empty cohort: nothing routes)'}"))
+            if not cohort:
+                nxt.append("scripts/persistent-compile pilot <your PR number>")
+        elif routing_on(routing):
             lines.append(Line(True, "routing: every trusted PR"))
         else:
             lines.append(Line(None, f"routing: off ({SELECTOR_VARIABLE}={selector or 'unset'})"))
-            ready = not github.group_changes and any(not runner_problems(r) for r in github.runners)
-            if ready:
+            if not github.group_changes and healthy:
                 nxt.append("scripts/persistent-compile pilot <your PR number>")
+        if routing_on(routing) and not healthy and not github.runners_error and github.group is not None:
+            lines.append(Line(False, f"routing is on but no runner is healthy: every routed PR queues a producer "
+                                     f"for {ROUTER_QUEUE_SECONDS}s that is then cancelled"))
+            nxt.append("scripts/persistent-compile off   (until a mini is up)")
+        xcode, source = expected_xcode(github.variables)
+        lines.append(Line(None, f"CI Xcode: {xcode} (from {source})"))
+    days = candidate_days_left()
+    if days < 7:
+        lines.append(Line(False, f"Glaeda candidate {CANDIDATE_SOURCE[:12]} "
+                                 + (f"expires in {days:.0f} days" if days > 0 else "has expired")
+                                 + ": minis not yet enrolled cannot download it. Pin a new candidate "
+                                 "(CANDIDATE_* in scripts/ci/persistent_compile_fleet.py)"))
     sections.append(("GitHub", lines))
     return sections, nxt[0] if nxt else None
 
@@ -431,8 +513,10 @@ def render_doctor(sections: list[tuple[str, list[Line]]], nxt: str | None) -> st
 
 
 def cmd_doctor(args: argparse.Namespace) -> int:
-    local = read_local(args.glaeda_root) if (platform.system() == "Darwin" or args.local) else None
-    sections, nxt = doctor_lines(read_github(), local)
+    github = read_github()
+    xcode = expected_xcode(github.variables)
+    local = read_local(args.glaeda_root, xcode) if (platform.system() == "Darwin" or args.local) else None
+    sections, nxt = doctor_lines(github, local)
     print(render_doctor(sections, nxt))
     return 0
 
@@ -477,6 +561,20 @@ def cmd_group(args: argparse.Namespace) -> int:
 # ---------------------------------------------------------------- runner on this mini
 
 
+def install_xcode(local: LocalState) -> str:
+    return (f"install the Xcode CI pins at {local.xcode_app} (from {local.xcode_source}); the build must match "
+            "the hosted image's, or the hosted job refuses every product this mini compiles")
+
+
+def ci_xcode() -> tuple[str, str]:
+    """The pinned Xcode, read with the operator's gh login; the fallback when that cannot read variables."""
+    try:
+        return expected_xcode(read_variables())
+    except Failure as error:
+        print(f"note: could not read the CI Xcode pin ({error}); assuming {XCODE_APP}", file=sys.stderr)
+        return XCODE_APP, "the fallback in this script"
+
+
 def require_mac() -> None:
     if platform.system() != "Darwin" or platform.machine() != "arm64":
         raise Failure("this step runs on the Apple silicon mini itself")
@@ -517,11 +615,35 @@ def default_runner_name(local: LocalState) -> str:
     return f"{node}-persistent-compile" if node else f"{platform.node().split('.')[0]}-persistent-compile"
 
 
-def worker_running(directory: Path) -> bool:
+def worker_pids(directory: Path) -> list[int]:
     """A Runner.Worker process exists only while this runner holds a job."""
     result = subprocess.run(["pgrep", "-f", os.fspath(directory / "bin" / "Runner.Worker")],
-                            capture_output=True, check=False)
-    return result.returncode == 0
+                            capture_output=True, text=True, check=False)
+    return [int(pid) for pid in result.stdout.split()] if result.returncode == 0 else []
+
+
+def wait_for_workers(directory: Path, deadline: float) -> None:
+    """Block until no job is running here or the deadline passes, woken by the worker's exit.
+
+    kqueue's NOTE_EXIT fires the moment the process ends, which keeps the window in
+    which GitHub can assign another job before the stop as short as it can be.
+    """
+    while (pids := worker_pids(directory)) and time.monotonic() < deadline:
+        queue = select.kqueue()
+        try:
+            watched = 0
+            for pid in pids:
+                try:
+                    queue.control([select.kevent(pid, filter=select.KQ_FILTER_PROC,
+                                                 flags=select.KQ_EV_ADD | select.KQ_EV_ONESHOT,
+                                                 fflags=select.KQ_NOTE_EXIT)], 0)
+                    watched += 1
+                except ProcessLookupError:
+                    pass  # already gone
+            if watched:
+                queue.control(None, 1, max(0.0, deadline - time.monotonic()))
+        finally:
+            queue.close()
 
 
 def register_runner(name: str, token: str | None) -> None:
@@ -585,7 +707,7 @@ def up_plan(local: LocalState, setup_pending: bool, node_id: str | None, has_tok
     if setup_pending:
         steps.append(UpStep("setup", "glaeda-mini-setup: build-host tools, LaunchAgents and cache directories"))
     state = (local.enrollment or {}).get("state")
-    enroll_needed = local.enrollment is None or state not in {"eligible", "quarantined", "retired"} or not local.acceptance
+    enroll_needed = local.enrollment is None or state not in {"eligible", "retired"} or not local.acceptance
     if enroll_needed and not have_candidate:
         steps.append(UpStep("download", f"download the reviewed Glaeda candidate {CANDIDATE_SOURCE[:12]} "
                                         f"(run {CANDIDATE_RUN}) with gh"))
@@ -595,9 +717,12 @@ def up_plan(local: LocalState, setup_pending: bool, node_id: str | None, has_tok
                           "(not a hostname or serial)")
         steps.append(UpStep("enroll", f"stage the candidate, enroll as {node_id} and run local acceptance "
                                       "(a cold cmux build, about 13 minutes)"))
-    elif state in {"quarantined", "retired"}:
-        raise Failure(f"Glaeda node {local.enrollment.get('nodeId')} is {state}; "
-                      "resolve that in Glaeda before bringing it up")
+    elif state == "retired":
+        raise Failure(f"Glaeda node {local.enrollment.get('nodeId')} is retired; enroll this mini under a new node id")
+    elif state == "quarantined":
+        steps.append(UpStep("requalify", f"take {local.enrollment.get('nodeId')} out of quarantine "
+                                         f"({local.enrollment.get('quarantineReason')}): only once that is fixed"))
+        steps.append(UpStep("enroll", "re-run Glaeda local acceptance (a cold cmux build, about 13 minutes)"))
     elif state != "eligible" or not local.acceptance:
         steps.append(UpStep("enroll", "finish Glaeda enrollment (resumes where it stopped)"))
     if not local.runner_configured:
@@ -641,12 +766,12 @@ def cmd_up(args: argparse.Namespace) -> int:
     # Take the token out of the environment before any child runs: setup builds
     # third-party code, and the token can register a runner into the fleet's group.
     token = os.environ.pop(TOKEN_ENV, None)
-    local = read_local(args.glaeda_root)
+    local = read_local(args.glaeda_root, ci_xcode())
     if local.enrollment_error:
         raise Failure(f"the Glaeda enrollment exists but cannot be read: {local.enrollment_error}. "
                       "Inspect it; up will not replace it.")
     if not local.xcode:
-        raise Failure(f"install Xcode 26.3 at {XCODE_APP} and run: sudo xcode-select -s {XCODE_APP}")
+        raise Failure(install_xcode(local))
     current = local.glaeda is not None and (local.glaeda / "scripts" / "glaeda-mini-enroll").is_file()
     receipt = mini_setup_receipt(local.glaeda, apply=False) if current else {}
     steps = up_plan(local, not current or setup_pending(receipt), args.node_id,
@@ -668,6 +793,9 @@ def cmd_up(args: argparse.Namespace) -> int:
             run_checked(["git", "-C", os.fspath(local.glaeda), "pull", "--ff-only"], Path.home())
         elif step.key == "download":
             download_candidate()
+        elif step.key == "requalify":
+            glaeda_transition(local, "enrolling")
+            local = read_local(os.fspath(local.glaeda), (local.xcode_app, local.xcode_source))
         elif step.key == "setup":
             receipt = mini_setup_receipt(local.glaeda, apply=True)
             if not receipt.get("ready"):
@@ -684,11 +812,11 @@ def cmd_up(args: argparse.Namespace) -> int:
             enroll += ["--node-id", args.node_id] if args.node_id else []
             if glaeda_python(local.glaeda, "glaeda-mini-enroll", *enroll).returncode:
                 raise Failure("Glaeda enrollment stopped (see above); fix it and run scripts/persistent-compile up again")
-            local = read_local(os.fspath(local.glaeda))
+            local = read_local(os.fspath(local.glaeda), (local.xcode_app, local.xcode_source))
         elif step.key == "register":
             name = args.name or default_runner_name(local)
             register_runner(name, token)
-            local = read_local(os.fspath(local.glaeda))
+            local = read_local(os.fspath(local.glaeda), (local.xcode_app, local.xcode_source))
         elif step.key == "start":
             start_service(runner_dir())
     print(f"\n{local.runner_name or 'the runner'} is up. Check from anywhere: scripts/persistent-compile")
@@ -717,11 +845,15 @@ def cmd_token(_: argparse.Namespace) -> int:
     return 0
 
 
-def glaeda_transition(local: LocalState, target: str) -> None:
+def glaeda_transition(local: LocalState, target: str, reason: str | None = None) -> None:
     if local.enrollment is None:
         print("no Glaeda enrollment on this mini; skipping the Glaeda state change")
         return
     if local.enrollment.get("state") == target:
+        kept = local.enrollment.get("quarantineReason")
+        if reason is not None and reason != kept:
+            # Glaeda has no quarantined -> quarantined transition to record a new reason.
+            print(f"Glaeda: {local.enrollment.get('nodeId')} is already {target} for {kept}; that reason stays")
         return
     if local.glaeda is None:
         raise Failure("cannot find the Glaeda checkout; set GLAEDA_ROOT or pass --glaeda-root")
@@ -732,36 +864,53 @@ def glaeda_transition(local: LocalState, target: str) -> None:
     argv = [sys.executable, "-B", os.fspath(tool), "transition-apply", os.fspath(enrollment_path()), "--to", target]
     if target == "eligible":
         argv += ["--acceptance", os.fspath(acceptance_path())]
+    if reason is not None:
+        argv += ["--reason", reason]
     run_checked(argv, local.glaeda)
     print(f"Glaeda: {local.enrollment.get('nodeId')} is {target}")
 
 
-def cmd_drain(args: argparse.Namespace) -> int:
+def stop_taking_jobs(args: argparse.Namespace, target: str, reason: str | None = None) -> str:
+    """Move the Glaeda enrollment to `target`, then stop the runner once it is idle."""
     require_mac()
     local = read_local(args.glaeda_root)
     directory = runner_dir()
-    if not local.runner_configured:
-        raise Failure(f"no runner is configured in {directory}")
     name = local.runner_name or "the runner"
     # Two control planes: Glaeda's state is what routing reads, the runner
-    # service is what GitHub assigns to. Draining one without the other leaves
+    # service is what GitHub assigns to. Moving one without the other leaves
     # the mini taking work (docs/ci/mac-fleet.md 3.5). The service is the half
     # that stops GitHub, so a Glaeda failure must not prevent it.
     glaeda_error = None
     try:
-        glaeda_transition(local, "draining")
+        glaeda_transition(local, target, reason)
     except Failure as error:
         glaeda_error = error
-    deadline = time.monotonic() + (0 if args.now else DRAIN_WAIT_SECONDS)
-    if worker_running(directory) and not args.now:
-        print(f"{name} is running a job; stopping as soon as it finishes (--now stops it immediately)")
-    # Poll tightly: between the job ending and the stop, GitHub can assign another.
-    while worker_running(directory) and time.monotonic() < deadline:
-        time.sleep(2)
-    stop_service(directory)
-    print(f"{name} is stopped and stays stopped across reboots. Undo: scripts/persistent-compile resume")
+    if local.runner_configured:
+        if not args.now and worker_pids(directory):
+            print(f"{name} is running a job; stopping as soon as it finishes (--now stops it immediately)")
+            wait_for_workers(directory, time.monotonic() + DRAIN_WAIT_SECONDS)
+        stop_service(directory)
+        print(f"{name} is stopped and stays stopped across reboots.")
+    elif glaeda_error is None:
+        print(f"no runner is configured in {directory}; only the Glaeda state changed")
     if glaeda_error is not None:
-        raise Failure(f"the runner is stopped, but Glaeda was not moved to draining: {glaeda_error}")
+        done = "the runner is stopped, but" if local.runner_configured else "no runner is configured, and"
+        raise Failure(f"{done} Glaeda was not moved to {target}: {glaeda_error}")
+    return name
+
+
+def cmd_drain(args: argparse.Namespace) -> int:
+    require_mac()
+    if not read_local(args.glaeda_root).runner_configured:
+        raise Failure(f"no runner is configured in {runner_dir()}")
+    stop_taking_jobs(args, "draining")
+    print("Undo: scripts/persistent-compile resume")
+    return 0
+
+
+def cmd_quarantine(args: argparse.Namespace) -> int:
+    stop_taking_jobs(args, "quarantined", args.reason)
+    print("Once the cause is fixed: scripts/persistent-compile up   (re-runs acceptance, then starts the runner)")
     return 0
 
 
@@ -770,6 +919,9 @@ def cmd_resume(args: argparse.Namespace) -> int:
     local = read_local(args.glaeda_root)
     if not local.runner_configured:
         raise Failure("no runner is configured here; run: scripts/persistent-compile up")
+    if (local.enrollment or {}).get("state") == "quarantined":
+        raise Failure(f"this mini is quarantined ({local.enrollment.get('quarantineReason')}), not drained. "
+                      "Once the cause is fixed: scripts/persistent-compile up   (re-runs acceptance)")
     glaeda_transition(local, "eligible")
     start_service(runner_dir())
     print(f"{local.runner_name or 'the runner'} is taking jobs again")
@@ -808,17 +960,56 @@ def set_variable(name: str, value: str) -> None:
         raise Failure(f"gh variable set {name}: {error}")
 
 
+def routing_state() -> GitHubState | None:
+    """Best effort: the switch works without an org admin login, the checks need one."""
+    github = read_github()
+    if github.error or github.runners_error:
+        print(f"note: could not check the fleet ({github.error or github.runners_error})", file=sys.stderr)
+        return None
+    return github
+
+
+def no_healthy_runner(github: GitHubState | None) -> bool:
+    return github is not None and not healthy_runners(github)
+
+
+def pilot_targets(targets: list[str]) -> list[str]:
+    values = [v.strip().lstrip("#") for v in targets]
+    values = [v for v in values if v]
+    if not values:
+        raise Failure("name at least one PR number or branch")
+    for value in values:
+        if "," in value or any(c.isspace() for c in value):
+            raise Failure(f"{value!r}: one PR number or branch per argument, no commas or spaces")
+    return values
+
+
 def cmd_pilot(args: argparse.Namespace) -> int:
-    cohort = ",".join(v.strip().lstrip("#") for v in args.targets if v.strip())
+    cohort = ",".join(pilot_targets(args.targets))
+    github = routing_state()
+    previous = (github.variables.get(COHORT_VARIABLE, "") if github else "").strip()
+    if previous and previous != cohort:
+        print(f"replacing the pilot cohort {previous}")
     set_variable(COHORT_VARIABLE, cohort)
     set_variable(SELECTOR_VARIABLE, "pilot")
     print(f"routing pilot: {cohort}. The next CI run on those PRs tries the fleet; everything else stays hosted.")
+    if no_healthy_runner(github):
+        print(f"warning: no runner is healthy, so those PRs queue a producer for {ROUTER_QUEUE_SECONDS}s "
+              "and then compile hosted. Bring a mini up: scripts/persistent-compile up")
     return 0
 
 
-def cmd_all(_: argparse.Namespace) -> int:
+def cmd_all(args: argparse.Namespace) -> int:
+    github = routing_state()
+    if no_healthy_runner(github):
+        print(f"No runner is healthy. Routing every trusted PR now makes each one queue a producer for "
+              f"{ROUTER_QUEUE_SECONDS}s before it compiles hosted.")
+        if not confirm(args, ["route every trusted PR anyway"]):
+            return 0
     set_variable(SELECTOR_VARIABLE, "all")
-    print("routing every trusted same-repository PR to the fleet, with hosted fallback")
+    count = len(healthy_runners(github)) if github else None
+    print("routing every trusted same-repository PR to the fleet, with hosted fallback"
+          + (f" ({count} healthy runner{'s' if count != 1 else ''})" if count is not None else ""))
     return 0
 
 
@@ -851,10 +1042,13 @@ def parser() -> argparse.ArgumentParser:
     sub.add_parser("token", help="org admin: print a one-hour registration token for another mini")
     pi = sub.add_parser("pilot", help="route only these PR numbers or branch names")
     pi.add_argument("targets", nargs="+")
-    sub.add_parser("all", help="route every trusted PR")
+    sub.add_parser("all", parents=[yes], help="route every trusted PR")
     sub.add_parser("off", help="route nothing")
     dr = sub.add_parser("drain", parents=[root], help="on a mini: stop taking jobs once the current one ends")
     dr.add_argument("--now", action="store_true", help="do not wait for a running job")
+    q = sub.add_parser("quarantine", parents=[root], help="on a mini: take it out for a reviewed reason")
+    q.add_argument("reason", choices=QUARANTINE_REASONS)
+    q.add_argument("--now", action="store_true", help="do not wait for a running job")
     sub.add_parser("resume", parents=[root], help="on a mini: take jobs again")
     sub.add_parser("unregister", parents=[yes, root], help="on a mini: remove its runner")
     return p
@@ -863,7 +1057,7 @@ def parser() -> argparse.ArgumentParser:
 COMMANDS = {
     None: cmd_doctor, "doctor": cmd_doctor, "up": cmd_up, "group": cmd_group, "token": cmd_token,
     "pilot": cmd_pilot, "all": cmd_all, "off": cmd_off,
-    "drain": cmd_drain, "resume": cmd_resume, "unregister": cmd_unregister,
+    "drain": cmd_drain, "quarantine": cmd_quarantine, "resume": cmd_resume, "unregister": cmd_unregister,
 }
 
 
