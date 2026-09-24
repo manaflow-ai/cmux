@@ -6347,10 +6347,22 @@ final class AppDelegateEqualizeSplitsShortcutTests {
             NotificationCenter.default.removeObserver(observer)
         }
 
+        var didCommitGhosttyAppConfig = false
         GhosttyApp.shared.reloadConfiguration(
             soft: true,
             source: "test.fontBarrier",
-            reloadSettingsFromFile: false
+            reloadSettingsFromFile: false,
+            commitCompletion: { committed in
+                didCommitGhosttyAppConfig = committed
+            }
+        )
+        // Everything up to the font barrier runs synchronously inside
+        // reloadConfiguration, and a soft reload that gets past it commits
+        // before returning. No commit here means the reload is parked at
+        // the barrier, not merely slow.
+        XCTAssertFalse(
+            didCommitGhosttyAppConfig,
+            "The reload must be blocked at the font barrier"
         )
         // The reload publishes on later main-actor turns, so a check made
         // straight after the call passes whether or not the barrier holds.
@@ -6362,6 +6374,10 @@ final class AppDelegateEqualizeSplitsShortcutTests {
             publishedBeforeFontWork,
             "The app config update itself must wait behind font work"
         )
+        XCTAssertFalse(
+            didCommitGhosttyAppConfig,
+            "The reload must stay blocked until font work releases the barrier"
+        )
         XCTAssertGreaterThan(scheduler.delays.count, 2)
         if scheduler.delays.count > 2 {
             scheduler.fire(at: 2)
@@ -6371,6 +6387,7 @@ final class AppDelegateEqualizeSplitsShortcutTests {
         // notification is published after its bounded surface fanout, which
         // runs on later main-actor turns.
         await waitWhileSuspended(for: [configUpdated], timeout: 5)
+        XCTAssertTrue(didCommitGhosttyAppConfig)
         XCTAssertTrue(didUpdateGhosttyAppConfig)
     }
 
