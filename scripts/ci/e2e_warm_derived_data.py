@@ -20,6 +20,15 @@ unpacked from an archive (GhosttyKit, SwiftPM binary artifacts) carry the
 archive's times, which may predate the producer's build. Correctness never depends on how close
 the adopted DerivedData is to this revision; distance only costs compile time.
 
+A time derived from content alone (no manifest) would be unsafe. llbuild
+compares stat info for equality, but swift-driver treats a clang header or
+module as changed only when it is newer than the last build's start, or with
+explicit modules than the module it built, and hashing does not change that.
+On Xcode 26.6 a header edited to an older time reran SwiftDriver and still
+built with the old header value, with explicit modules on and off; stamped
+now, it rebuilt. A time and size shared by two contents also
+kept the stale product. Canary: manaflow-ai/cmux actions run 36023385114.
+
 Directories are inputs too. Xcode signs a folder input such as
 `Assets.xcassets` by the times of everything in it, the directories included,
 so a checkout-time directory reruns the asset catalog, regenerates
