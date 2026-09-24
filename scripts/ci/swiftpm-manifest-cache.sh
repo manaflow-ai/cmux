@@ -3,6 +3,7 @@
 # swiftpm-manifest-cache.sh run <command> [args...]
 # swiftpm-manifest-cache.sh stage <dir>
 # swiftpm-manifest-cache.sh install <dir>
+# swiftpm-manifest-cache.sh clear
 #
 # Keeps SwiftPM's compiled-manifest cache across CI jobs. Resolving the app
 # project evaluates 91 Package.swift files, and with no cache that is most of
@@ -25,10 +26,14 @@
 set -euo pipefail
 
 SCRIPT_PATH="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/$(basename "${BASH_SOURCE[0]}")"
-MANIFEST_CACHE_DIR="$HOME/Library/Caches/org.swift.swiftpm/manifests"
+# The account's home from the user database, not $HOME: `run` drops HOME, so
+# that is where SwiftPM looks, even on a runner that points HOME elsewhere.
+# CMUX_CI_SWIFTPM_MANIFEST_CACHE_DIR overrides it for tests.
+USER_HOME="$(eval echo "~$(id -un)")"
+MANIFEST_CACHE_DIR="${CMUX_CI_SWIFTPM_MANIFEST_CACHE_DIR:-$USER_HOME/Library/Caches/org.swift.swiftpm/manifests}"
 
 usage() {
-  echo "usage: $0 key | run <command> [args...] | stage <dir> | install <dir>" >&2
+  echo "usage: $0 key | run <command> [args...] | stage <dir> | install <dir> | clear" >&2
   exit 64
 }
 
@@ -119,7 +124,13 @@ install() {
   echo "Installed $entries SwiftPM manifest cache entries"
 }
 
+# Empties SwiftPM's manifest cache, so a seed holds only what its resolves use.
+clear() {
+  rm -rf "$MANIFEST_CACHE_DIR"
+}
+
 case "${1:-}" in
+  clear) [ "$#" -eq 1 ] || usage; clear ;;
   key) [ "$#" -eq 1 ] || usage; key ;;
   run) [ "$#" -ge 2 ] || usage; shift; run "$@" ;;
   stage) [ "$#" -eq 2 ] || usage; stage "$2" ;;

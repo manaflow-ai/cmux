@@ -65,6 +65,7 @@ echo "PASS: the key follows the manifests and the prefix follows the toolchain"
 
 if command -v sqlite3 >/dev/null; then
   cache="$TMP_DIR/home/Library/Caches/org.swift.swiftpm/manifests"
+  export CMUX_CI_SWIFTPM_MANIFEST_CACHE_DIR="$cache"
   mkdir -p "$cache"
   sqlite3 "$cache/manifest.db" 'PRAGMA journal_mode=WAL; CREATE TABLE MANIFEST_CACHE (key TEXT PRIMARY KEY, value BLOB); INSERT INTO MANIFEST_CACHE VALUES ("a", "x");' >/dev/null
   HOME="$TMP_DIR/home" "$SCRIPT" stage "$TMP_DIR/staged" >/dev/null
