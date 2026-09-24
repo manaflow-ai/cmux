@@ -1273,6 +1273,10 @@
       "schemaDescriptions": {
         "root": "Configuration de cmux. Le fichier global cmux.json prend en charge les réglages de l’application, les raccourcis, les actions, les commandes personnalisées, les hooks de notification et les dispositions d’espaces de travail. Un fichier .cmux/cmux.json ou cmux.json local au projet prend en charge les actions, les commandes, les hooks de notification, le câblage des actions d’interface, les surcharges d’Agent Chat, les agents du coffre, les surcharges de groupes d’espaces de travail ainsi que la configuration du lancement et des boutons des espaces de travail.",
         "rightSidebar": "Configuration héritée et appartenant aux extensions de la barre latérale droite, conservée dans cmux.json.",
+        "packs": {
+          "description": "Fichiers ou dossiers de packs cmux locaux chargés avant cette configuration. Les dossiers sont résolus en cmux.pack.json. Utilisez une chaîne de chemin ou un objet avec un champ path.",
+          "path": "Chemin de fichier ou de dossier local, relatif à ce fichier de configuration sauf s’il est absolu."
+        },
         "paneBorderColor": "Remplace la couleur du séparateur de volets cmux dans les espaces de travail divisés. Cela affecte les limites des volets cmux, pas les divisions internes de Ghostty.",
         "activePaneBorderColor": "Couleur de bordure facultative dessinée autour du volet cmux focalisé dans les espaces de travail divisés.",
         "automation": {
@@ -1284,6 +1288,7 @@
         "app": {
           "confirmQuit": "Contrôle quand cmux demande confirmation avant de quitter. Les builds DEV quittent toujours immédiatement, quel que soit ce réglage. L'ancien app.warnBeforeQuit reste accepté comme fallback booléen.",
           "windowTitleTemplate": "Modèle facultatif pour le titre NSWindow. Vide, il conserve le comportement de titre par défaut existant de cmux, y compris le repli sur le répertoire courant. Espaces réservés pris en charge : '{windowId}', '{windowToken}', '{activeWorkspace}', '{activeDirectory}', '{defaultTitle}', '{appName}'.",
+          "devWindowDisplay": "Nom d’écran utilisé uniquement dans les builds DEBUG lors de l’ouverture de nouvelles fenêtres. Une valeur vide utilise la valeur par défaut du système.",
           "warnBeforeQuit": "Fallback booléen hérité pour la confirmation de fermeture. Utilisez app.confirmQuit pour les nouvelles configurations.",
           "warnBeforeClosingTabXButton": "Afficher une confirmation avant de fermer un onglet avec le bouton de fermeture d’onglet.",
           "hideTabCloseButton": "Masquer les boutons de fermeture d’onglet dans la barre d’onglets du volet.",
