@@ -12292,9 +12292,10 @@ final class GhosttySurfaceScrollView: NSView {
     }
 
     private func prepareTerminalSurfaceFocusReassertion(reason: String, force: Bool) -> Bool {
-        let requiresUsableGeometry = pendingSuppressedFirstResponderFocusReapply || force
-        guard requiresUsableGeometry else { return true }
-
+        // Every reassertion needs usable geometry, not only suppressed or forced ones: an
+        // automatic apply queued while the surface was usable can run after it went hidden
+        // or tiny (macOS 26 selects the first key view when the window orders in), and it
+        // must defer like any other hidden/tiny handoff.
         // `force` bypasses TerminalSurface focus coalescing, not AppKit geometry readiness.
         let portalSize = bounds.size
         let surfaceSize = surfaceView.bounds.size
