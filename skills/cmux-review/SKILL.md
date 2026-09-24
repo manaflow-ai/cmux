@@ -125,7 +125,7 @@ A vague concern is a hypothesis, not a finding.
 
 ### Preserve epistemic provenance
 
-Use the repository-evidence vocabulary already exercised by Cultist:
+Use the repository-evidence vocabulary:
 
 - `PROVEN` — exact machine fact or guarantee established by direct evidence;
 - `DERIVED` — deterministic conclusion from explicit facts;

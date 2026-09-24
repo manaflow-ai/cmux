@@ -1,4 +1,6 @@
+import CmuxCloudTui
 import CmuxFoundation
+import CmuxSurfaceCatalogModel
 import Foundation
 
 /// The app's headless cmux-tui links, one per awake cloud machine. Links are created on
@@ -108,6 +110,16 @@ actor CloudMachineLinkManager {
 
     func setPrivateAddress(_ address: String?, for machineID: String) {
         setPrivateAddresses(address.map { [$0] } ?? [], for: machineID)
+    }
+
+    /// A create receipt proved the machine's image serves the trusted
+    /// private-network listener (snapshot-v2), so its first link dials
+    /// `--carrier` like a machine linked before. Without this, New Machine's
+    /// first link paid a control-plane attach request (a Mac-to-backend round
+    /// trip plus a provider status read, ~0.3 s) before its first dial.
+    func markTrustedCarrier(machineID: String) {
+        guard paths.deviceFingerprint(for: machineID) == nil else { return }
+        paths.saveDeviceFingerprint(CloudTuiClientPaths.carrierDeviceMarker, for: machineID)
     }
 
     func setPrivateAddresses(_ addresses: [String], for machineID: String) {

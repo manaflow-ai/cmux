@@ -273,7 +273,7 @@ struct WorkspaceShellView: View {
     /// sidebar it actually renders in, not the full screen.
     @State private var splitSidebarWidth: CGFloat = 0
     #endif
-    @State private var macSelection: WorkspaceMacSelection = .all
+    @AppStorage(WorkspaceMacSelection.storageKey) private var macSelection: WorkspaceMacSelection = .all
     /// Legacy fallback while the toast presenter is disabled: the old
     /// dismissible bottom banner for workspace-action failures.
     @State var workspaceActionToast: WorkspaceActionToastContent?
@@ -612,13 +612,9 @@ struct WorkspaceShellView: View {
                 submitTaskComposer: submitTaskComposerFromShell
             )
         }
-        // One-time What's New notice. Only users who already HAVE Computers
-        // see it (fresh installs learn the same things in onboarding). The
-        // gate first answers from the cached remote list, then refreshes the
-        // list and re-checks. The shell can restore straight into cached
-        // workspaces without ever loading the paired-Mac list (it normally
-        // loads on the Computers sheet or a reconnect pass), so load it here
-        // and re-check, otherwise the has-Computers gate never answers.
+        // Wait for the first remote-list attempt before presenting, so a
+        // cached native page cannot overtake a newer remote announcement.
+        // A failed fetch still permits the cached/offline pages.
         .onAppear {
             presentWhatsNewIfNeeded()
         }
@@ -701,7 +697,8 @@ struct WorkspaceShellView: View {
     /// forever, late enough that a swallowed presentation (a state-restored
     /// sheet already occupying the presenter) never marks pages as seen.
     private func presentWhatsNewIfNeeded() {
-        guard let whatsNewCenter, !showsWhatsNewSheet else { return }
+        guard let whatsNewCenter, whatsNewCenter.hasCompletedInitialRefresh,
+              !showsWhatsNewSheet else { return }
         let pages = whatsNewCenter.unseenPages
         guard !pages.isEmpty else { return }
         whatsNewCandidatePages = pages

@@ -1,6 +1,8 @@
+import CmuxCloudTui
 import CmuxCore
 import CmuxFoundation
 import CmuxSettings
+import CmuxSurfaceCatalogModel
 import Foundation
 /// One cloud machine's resources: its cmux-tui terminals (over the headless link), its
 /// noVNC screen, and its forwarded ports. Terminals live in the machine's cmux-tui
@@ -8,9 +10,9 @@ import Foundation
 @MainActor
 final class CmuxTuiSurfaceProvider: SurfaceProvider {
     let machineID: String
-    var machine: SurfaceMachineID { .cloud(machineID) }
+    var machine: SurfaceMachineID { summary.machine }
     private(set) var info: SurfaceMachineInfo
-    var summary: VMSummary
+    var summary: RemoteTuiMachine
     /// This machine's notification sync: VM rows in, local notifications and
     /// `notification.ack` round trips out. Fed after every accepted state.
     var notificationSync: CloudNotificationSync?
@@ -21,7 +23,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
     /// change, not a daemon state; it re-runs the fold so rows that had no
     /// local target get delivered.
     var notificationPlacementObserver: NSObjectProtocol?
-    let links: CloudMachineLinkManager
+    let links: any RemoteTuiLinkManaging
     unowned let catalog: SurfaceCatalog
     /// Loopback forwards into this machine's private address over the hub; nil
     /// when the build has no hub. Owned by the registry, shared by every provider.
@@ -113,8 +115,8 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
     }
     var pendingRemoteRenames: [PendingRemoteRenameKey: PendingRemoteRename] = [:]
     init(
-        summary: VMSummary,
-        links: CloudMachineLinkManager,
+        summary: RemoteTuiMachine,
+        links: any RemoteTuiLinkManaging,
         catalog: SurfaceCatalog,
         portForwards: CloudHubPortForwarder? = nil,
         attachmentClock: any Clock<Duration> = ContinuousClock(),
@@ -130,7 +132,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         self.portForwards = portForwards
         self.portAccessStore = portAccessStore ?? CloudPortAccessStore()
         self.displayCoordinator = displayCoordinator ?? CloudDisplayCoordinator { command, timeout in
-            guard let client = VMClient.shared else { throw ProviderError.notSignedIn }
+            guard summary.cloudSummary != nil, let client = VMClient.shared else { throw ProviderError.notSignedIn }
             return try await client.exec(id: summary.id, command: command, timeoutMs: timeout)
         }
         self.browserPolicy = browserPolicy
@@ -155,7 +157,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             || self.summary.image != summary.image || self.summary.resolvedKind != summary.resolvedKind {
             displayCoordinator.invalidate()
         }
-        self.summary = summary
+        self.summary = .cloud(summary)
         if !supportsPortPreviews {
             portsCache = nil
         }
@@ -231,7 +233,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         let hasDesktop = summary.resolvedKind.hasDesktop
         let previousResources = catalog.authoritativeSnapshot.resources(on: machine)
         let preservedNonPortResources = previousResources.filter { !$0.id.isForwardedPort }
-        let vmClient = VMClient.shared
+        let vmClient = summary.cloudSummary == nil ? nil : VMClient.shared
         let privateAddress = summary.preferredPrivateAddress
         var scannedPorts: [Int]?
         if !supportsPortPreviews {
@@ -243,8 +245,8 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             scannedPorts = portsCache?.ports
         }
         guard isCurrentRefresh(lifecycle: lifecycle, refresh: generation) else { return false }
-        var currentPorts = scannedPorts ?? portsCache?.ports ?? []
-        guard isAwake, let client = vmClient else {
+        let currentPorts = scannedPorts ?? portsCache?.ports ?? []
+        guard isAwake, summary.cloudSummary == nil || vmClient != nil else {
             tabByTerminal = [:]
             let remoteWorkspaces = remoteWorkspaces(for: cloudState)
             let linkState: SurfaceLinkState = isAwake ? .unavailable : .asleep
@@ -278,7 +280,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         if hasDesktop, catalog.authoritativeSnapshot.resources(on: machine).isEmpty {
             catalog.replaceResources(displayResources, on: machine, info: info, from: self)
         }
-        async let stats = try? client.stats(id: machineID)
+        let statsRead = Task { try? await vmClient?.stats(id: machineID) }
         var linkState: SurfaceLinkState = .connected
         var linkError: String?
         // A decoded snapshot is not automatically an authorization boundary. It
@@ -286,6 +288,17 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         // Callers must use only a graph established by this refresh as mutation
         // evidence, never the retained stale graph.
         var snapshotEstablishedCurrentGraph = false
+        var portScan: Task<[Int]?, Never>?
+        // Stats and the port scan never gate this pass: joined readers (a
+        // New Machine open's `ensure_linked`) wait for the pass, not for them.
+        // They are cancelled only when the pass ends before handing them off.
+        var handedOffFollowUps = false
+        defer {
+            if !handedOffFollowUps {
+                statsRead.cancel()
+                portScan?.cancel()
+            }
+        }
         do {
             guard isCurrentRefresh(lifecycle: lifecycle, refresh: generation) else { return false }
             let connected = try await links.connected(machineID: machineID)
@@ -293,16 +306,15 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             guard let link = await links.link(machineID: machineID) else { throw ProviderError.machineAsleep(machineID) }
             guard isCurrentRefresh(lifecycle: lifecycle, refresh: generation) else { return false }
             // The port scan and graph snapshot use independent daemon requests.
-            // Start both after the link is ready, so refresh latency is the slower
-            // request rather than their sum. Each result remains guarded by the
-            // same generation fence before it publishes.
-            async let refreshedPorts = ports(link: link, socketPath: connected.socketPath, force: force, generation: generation, privateAddress: privateAddress, displayPortsOwned: hasDesktop)
-            async let snapshotData = link.run(arguments: CloudTuiRequests.snapshotArguments(socketPath: connected.socketPath))
-            if let refreshedPorts = await refreshedPorts {
-                guard isCurrentRefresh(lifecycle: lifecycle, refresh: generation) else { return false }
-                scannedPorts = refreshedPorts
-                currentPorts = refreshedPorts
+            // Start both after the link is ready. The graph publishes as soon as
+            // the snapshot lands; ports publish when their scan finishes. The
+            // scan runs a guest command and took most of a second on a machine
+            // that had just resumed, which held New Machine's first terminal
+            // back for nothing (it only feeds port-preview rows).
+            portScan = Task { [weak self] in
+                await self?.ports(link: link, socketPath: connected.socketPath, force: force, generation: generation, privateAddress: privateAddress, displayPortsOwned: hasDesktop)
             }
+            async let snapshotData = link.run(arguments: CloudTuiRequests.snapshotArguments(socketPath: connected.socketPath))
             watchChanges(link: link, generation: lifecycle)
             configureGuestURLOpen(link: link, socketPath: connected.socketPath)
             let data = try await snapshotData
@@ -359,13 +371,18 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             linkError = eventsFeedWarning
         }
         let remoteWorkspaces = cloudState.map(Self.remoteWorkspaces)
+        // Publish the graph without waiting for stats. Stats is a control-plane
+        // HTTP read (provider status plus a guest exec, ~0.8 s) that only fills
+        // the CPU/memory/disk gauges; awaiting it here held a new machine's
+        // first terminal back by that long after the link was already up.
+        // Keep the last gauges until the new read lands below.
         info = Self.info(
             from: summary,
             linkState: linkState,
             linkError: linkError,
-            stats: await stats,
+            stats: nil,
             remoteWorkspaces: remoteWorkspaces
-        )
+        ).carryingGauges(from: info)
         if let cloudState {
             // A successful read or an event install proves the retained graph is
             // current. A failed or stale read keeps the graph for diagnosis but
@@ -404,6 +421,25 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         }
         guard isCurrentRefresh(lifecycle: lifecycle, refresh: generation) else { return false }
         reprojectRestoredPanes(generation: lifecycle)
+        handedOffFollowUps = true
+        let publishedPorts = currentPorts
+        let observation: CloudVMStateObservation = snapshotEstablishedCurrentGraph
+            ? .current
+            : .stale(reason: info.linkError ?? info.linkState.rawValue)
+        Task { [weak self, portScan] in
+            if let portScan, let refreshedPorts = await portScan.value,
+               let self, self.isCurrentRefresh(lifecycle: lifecycle, refresh: generation),
+               refreshedPorts != publishedPorts, let cloudState = self.cloudState {
+                self.publish(cloudState, ports: refreshedPorts, reconcileTitles: false, observation: observation)
+            }
+        }
+        Task { [weak self] in
+            if let stats = await statsRead.value,
+               let self, self.isCurrentRefresh(lifecycle: lifecycle, refresh: generation) {
+                self.info = self.info.applyingGauges(stats)
+                self.catalog.updateMachine(self.info, from: self)
+            }
+        }
         return snapshotEstablishedCurrentGraph
     }
     @discardableResult
@@ -1207,25 +1243,6 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
 
     // MARK: - internals
 
-    static func info(from summary: VMSummary, linkState: SurfaceLinkState, linkError: String?, stats: VMStats?, remoteWorkspaces: [SurfaceRemoteWorkspace]? = nil) -> SurfaceMachineInfo {
-        SurfaceMachineInfo(
-            id: .cloud(summary.id),
-            name: summary.preferredName,
-            status: summary.status,
-            image: summary.image,
-            hasDesktop: summary.resolvedKind.hasDesktop,
-            memoryMb: stats?.memoryTotalMb,
-            diskMb: stats?.diskTotalMb,
-            linkState: linkState,
-            linkError: linkError,
-            cpuPercent: stats?.cpuPercent,
-            memoryUsedMb: stats?.memoryUsedMb,
-            diskUsedMb: stats?.diskUsedMb,
-            remoteWorkspaces: remoteWorkspaces,
-            privateAddress: summary.preferredPrivateAddress
-        )
-    }
-
     /// Appends preserved resources without repeatedly scanning the growing
     /// snapshot array. Refresh fallback paths run on the main actor, so keeping
     /// this linear is important for machines with many remote views.
@@ -1544,5 +1561,29 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
                 attachReservedTerminalPane(reservation, resource: terminal, remoteTabID: projection.remoteTabID)
             }
         }
+    }
+}
+
+extension SurfaceMachineInfo {
+    /// The same machine row with `previous`'s resource gauges, so a refresh that
+    /// publishes before its stats read lands does not blank the sidebar gauges.
+    func carryingGauges(from previous: SurfaceMachineInfo) -> SurfaceMachineInfo {
+        var info = self
+        info.memoryMb = previous.memoryMb
+        info.diskMb = previous.diskMb
+        info.cpuPercent = previous.cpuPercent
+        info.memoryUsedMb = previous.memoryUsedMb
+        info.diskUsedMb = previous.diskUsedMb
+        return info
+    }
+
+    func applyingGauges(_ stats: VMStats) -> SurfaceMachineInfo {
+        var info = self
+        info.memoryMb = stats.memoryTotalMb
+        info.diskMb = stats.diskTotalMb
+        info.cpuPercent = stats.cpuPercent
+        info.memoryUsedMb = stats.memoryUsedMb
+        info.diskUsedMb = stats.diskUsedMb
+        return info
     }
 }

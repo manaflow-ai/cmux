@@ -13,6 +13,9 @@ import time
 archive = Path(os.environ["RUNNER_TEMP"]) / "app-host-products/app-host-products.tar.gz"
 layer_hit = os.environ.get("CMUX_LAYER_RESTORED") == "true"
 elapsed = max(0.0, (time.monotonic_ns() - int(os.environ["CMUX_RESTORE_STARTED_NS"])) / 1_000_000_000)
+# Compile admission restoring the archive it just packaged, for the changed
+# suites it runs itself: no transport was involved.
+producer_hit = os.environ.get("CMUX_PRODUCT_FROM_PRODUCER") == "true"
 local_hit = os.environ.get("CMUX_NODE_PRODUCT_CACHE_HIT") == "true"
 peer_hit = os.environ.get("CMUX_PEER_PRODUCT_HIT") == "true"
 r2_hit = os.environ.get("CMUX_R2_PRODUCT_HIT") == "true"
@@ -33,6 +36,7 @@ record = {
     "layer_hit": layer_hit,
     "elapsed_seconds": round(elapsed, 6),
     "lookup_source": (
+        "producer" if producer_hit else
         "local" if local_hit else
         "peer" if peer_hit else
         "layers-github" if layer_hit else
@@ -88,3 +92,6 @@ test -n "$framework_source"
 rsync -aL "$(dirname "$framework_source")/" "$products/PackageFrameworks/"
 test -f "$products/PackageFrameworks/CmuxAgentJournal_27B6EF8727F6C277_PackageProduct.framework/Versions/A/CmuxAgentJournal_27B6EF8727F6C277_PackageProduct"
 python3 scripts/ci/app_host_test_products.py restore "$CMUX_DERIVED_DATA_PATH"
+# Tests also read fixtures via compiled #filePath; manifest relocation alone
+# cannot repair those strings when the product was built at the canonical root.
+scripts/ci/canonical-build-root.sh --runtime-source "$PWD"

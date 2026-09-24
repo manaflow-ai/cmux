@@ -2206,6 +2206,16 @@ class GhosttyApp {
         configurationReloadCoordinator.isReloadActive
     }
 
+#if DEBUG
+    /// Where the app-scoped reload transaction is, so tests can assert that a
+    /// reload is held at the font-work barrier instead of inferring it from a
+    /// notification that has not arrived yet.
+    @MainActor
+    var debugConfigurationReloadPhase: TerminalConfigurationReloadPhase {
+        configurationReloadCoordinator.phase
+    }
+#endif
+
     @MainActor
     func terminalFontConfigurationSnapshot()
         -> WorkspaceTerminalFontConfigurationSnapshot {
@@ -3719,6 +3729,17 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         #endif
     }
 
+    private lazy var remoteFilePreviewCoordinator = RemoteTerminalFilePreviewCoordinator(
+        defaults: .standard,
+        transport: ProcessSSHFileExplorerTransport.shared,
+        cacheDirectory: FileManager.default.temporaryDirectory.appendingPathComponent("cmux-remote-terminal-previews")
+    )
+
+    func openRemoteFilePreview(tokens: [String]) -> Bool {
+        guard let terminalSurface, let workspace = terminalSurface.owningWorkspace() else { return false }
+        return remoteFilePreviewCoordinator.open(workspace: workspace, sourcePanelID: terminalSurface.id, tokens: tokens)
+    }
+
     weak var terminalSurface: TerminalSurface?
     /// View-scoped ingress keeps title churn independent across terminal surfaces.
     fileprivate let titleUpdateIngress = GhosttyTitleUpdateIngress()
@@ -3953,6 +3974,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     fileprivate private(set) var keyboardCopyModeActive = false
     private var wordPathHoverActive = false
     private var keyboardCopyModeConsumedKeyUps: Set<UInt16> = []
+    private var textEditingGestureConsumedKeyUps: Set<UInt16> = []
     private var imeConsumedKeyUps: Set<UInt16> = []
     private var manualNamedKeyConsumedKeyUps: Set<UInt16> = []
     /// Deferred native input actions retain their authored order until the
@@ -5809,6 +5831,93 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         syncKeyboardCopyModeCursorOverlay(surface: surface)
     }
 
+    /// Whether opt-in terminal text-editing gestures are active.
+    ///
+    /// Reads the same defaults key as `terminal.textEditingGestures` in the
+    /// settings catalog, whose default is `false`, so an unset key leaves the
+    /// mode off.
+    private var textEditingGesturesEnabled: Bool {
+        UserDefaults.standard.bool(forKey: "terminal.textEditingGestures")
+    }
+
+    /// Maps AppKit modifier flags onto the resolver's platform-neutral set.
+    private func textEditingModifiers(
+        from flags: NSEvent.ModifierFlags
+    ) -> TerminalTextEditingModifiers {
+        var modifiers: TerminalTextEditingModifiers = []
+        if flags.contains(.command) { modifiers.insert(.command) }
+        if flags.contains(.shift) { modifiers.insert(.shift) }
+        if flags.contains(.control) { modifiers.insert(.control) }
+        if flags.contains(.option) { modifiers.insert(.option) }
+        if flags.contains(.numericPad) { modifiers.insert(.numericPad) }
+        if flags.contains(.function) { modifiers.insert(.function) }
+        if flags.contains(.capsLock) { modifiers.insert(.capsLock) }
+        return modifiers
+    }
+
+    /// Carbon virtual key codes for the letters a resolved chord can name.
+    private static let textEditingChordKeyCodes: [Character: UInt16] = [
+        "a": 0x00, "b": 0x0B, "d": 0x02, "e": 0x0E,
+        "f": 0x03, "k": 0x28, "u": 0x20, "w": 0x0D,
+    ]
+
+    /// Replays a macOS text-editing gesture as the line-editor chord it means.
+    ///
+    /// The chord is sent as a synthesized key press rather than as raw bytes so
+    /// Ghostty performs the encoding, keeping the result correct under whichever
+    /// keyboard protocol the running application negotiated.
+    ///
+    /// - Parameters:
+    ///   - event: The key-down event to consider.
+    ///   - surface: The surface that receives the replayed chord.
+    /// - Returns: `true` when the gesture was consumed and must not reach the
+    ///   terminal as the original keystroke.
+    private func handleTextEditingGestureIfNeeded(
+        _ event: NSEvent,
+        surface: ghostty_surface_t
+    ) -> Bool {
+        // Keyboard copy mode owns the keyboard while it is active. It lets
+        // Command-modified events through on purpose so menu shortcuts still
+        // fire, and every gesture that survives its filter is Command-modified,
+        // so without this guard reading scrollback with a half-typed command at
+        // the prompt would replay Ctrl+U/Ctrl+K and destroy that line.
+        guard !keyboardCopyModeActive, !hasMarkedText() else { return false }
+        guard let chord = terminalTextEditingResolve(
+            keyCode: event.keyCode,
+            modifiers: textEditingModifiers(from: event.modifierFlags)
+        ) else { return false }
+        // The defaults read is the costly half, so it runs only after the pure
+        // resolver has confirmed this keystroke is gesture-shaped at all. Every
+        // other keystroke leaves this path having done no I/O.
+        guard textEditingGesturesEnabled else { return false }
+        guard
+            let chordKeyCode = Self.textEditingChordKeyCodes[chord.letter],
+            let scalar = chord.letter.unicodeScalars.first
+        else { return false }
+
+        var keyEvent = ghostty_input_key_s()
+        keyEvent.action = event.isARepeat ? GHOSTTY_ACTION_REPEAT : GHOSTTY_ACTION_PRESS
+        keyEvent.keycode = UInt32(chordKeyCode)
+        keyEvent.mods = chord.modifier == .control ? GHOSTTY_MODS_CTRL : GHOSTTY_MODS_ALT
+        keyEvent.consumed_mods = GHOSTTY_MODS_NONE
+        keyEvent.composing = false
+        keyEvent.unshifted_codepoint = scalar.value
+        keyEvent.text = nil
+        if sendGhosttyKey(surface, keyEvent) { return true }
+        // Only an Option chord can legitimately encode nothing. libghostty
+        // prefixes ESC for Alt only when `macos-option-as-alt` resolves true,
+        // and `detectOptionAsAlt` returns true solely for the US and
+        // US-International layouts, so a synthesized Alt+b writes nothing at
+        // all on AZERTY, German, Dvorak and friends -- and on any layout when
+        // the setting is `false` or a `right` that the synthesized left bit
+        // cannot match. Under the kitty protocol the key event already
+        // succeeded, so this runs only for the legacy encoding that `esc:`
+        // matches. A false return means nothing reached the pty, so re-sending
+        // here cannot double-write.
+        guard chord.modifier == .option else { return false }
+        return performBindingAction("esc:\(chord.letter)")
+    }
+
     private func handleKeyboardCopyModeIfNeeded(_ event: NSEvent, surface: ghostty_surface_t) -> Bool {
         guard keyboardCopyModeActive else { return false }
         reconcileKeyboardCopyModeViewport(surface: surface)
@@ -6081,6 +6190,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         if result {
             imeConsumedKeyUps.removeAll()
             manualNamedKeyConsumedKeyUps.removeAll()
+            textEditingGestureConsumedKeyUps.removeAll()
             if let terminalSurface,
                AppDelegate.shared?.allowsTerminalKeyboardFocus(
                    workspaceId: terminalSurface.tabId,
@@ -6136,6 +6246,15 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                 )
             }
         }
+        // Mirror the intent before requiring a live runtime, the way
+        // resignFirstResponder already does. createSurface re-applies
+        // desiredFocusState once the runtime exists, so a focus taken while the
+        // surface is still spawning survives; gating the mirror on the runtime
+        // left nothing for that reconciliation to converge to.
+        if result, shouldApplySurfaceFocus {
+            terminalSurface?.recordExternalFocusState(true)
+            terminalSurface?.hostedView.cancelSuppressedFirstResponderFocusReapply()
+        }
         if result, shouldApplySurfaceFocus, let surface = ensureSurfaceReadyForInput(reassertInputFocus: false) {
             let now = CACurrentMediaTime()
             let deltaMs = (now - lastScrollEventTime) * 1000
@@ -6163,8 +6282,6 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                     userInfo: userInfo
                 )
             }
-            terminalSurface?.recordExternalFocusState(true)
-            terminalSurface?.hostedView.cancelSuppressedFirstResponderFocusReapply()
             ghostty_surface_set_focus(surface, true)
 
             // Ghostty only restarts its vsync display link on display-id changes while focused.
@@ -6185,6 +6302,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         if result {
             imeConsumedKeyUps.removeAll()
             manualNamedKeyConsumedKeyUps.removeAll()
+            textEditingGestureConsumedKeyUps.removeAll()
             desiredFocus = false
             deferReleaseAllGhosttyMouseButtons(
                 reason: "resignFirstResponder"
@@ -6539,6 +6657,20 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 #endif
             terminalSurface?.didAcceptExplicitInput()
             keyboardCopyModeConsumedKeyUps.insert(event.keyCode)
+            return
+        }
+        if handleTextEditingGestureIfNeeded(event, surface: surface) {
+            // sendGhosttyKey already reported the accepted input; only the
+            // originating gesture's key-up still needs suppressing, because the
+            // synthesized press has no matching release.
+            //
+            // AppKit never delivers a Command-modified key-up to the responder
+            // chain, so recording one would strand the code in this set and
+            // swallow the next *unmodified* release of the same physical key --
+            // leaving a stuck arrow in any app that reads releases.
+            if !event.modifierFlags.contains(.command) {
+                textEditingGestureConsumedKeyUps.insert(event.keyCode)
+            }
             return
         }
 #if DEBUG
@@ -7007,6 +7139,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         }
 
         if keyboardCopyModeConsumedKeyUps.remove(event.keyCode) != nil {
+            return
+        }
+        if textEditingGestureConsumedKeyUps.remove(event.keyCode) != nil {
             return
         }
         if imeConsumedKeyUps.remove(event.keyCode) != nil {
@@ -8057,20 +8192,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         )
     }
 
-    private func resolveVisibleWordPath(
-        at point: NSPoint,
-        cwd: String,
-        workspace: Workspace,
-        terminalSurface: TerminalSurface
-    ) -> WordPathResolution? {
-        guard let panel = wordPathSnapshotTerminalPanel(
-            workspace: workspace,
-            terminalSurface: terminalSurface
-        ),
-              let surface else {
-            return nil
-        }
-
+    private func visibleWordPathSnapshot(at point: NSPoint, panel: TerminalPanel) -> (line: String, column: Int)? {
+        guard let surface else { return nil }
         let size = ghostty_surface_size(surface)
         let rows = max(Int(size.rows), 1)
         let cols = max(Int(size.columns), 1)
@@ -8093,19 +8216,21 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         guard visibleRow >= 0, visibleRow < visibleLines.count else { return nil }
 
         let column = max(0, min(cols - 1, Int((point.x - xInset) / resolvedCellWidth)))
-        guard let resolution = TerminalPathResolver().resolveVisibleLinePath(
-            visibleLines[visibleRow],
-            column: column,
-            cwd: cwd
-        ) else {
-            return nil
-        }
+        return (visibleLines[visibleRow], column)
+    }
 
-        return makeWordPathResolution(
-            path: resolution.path,
-            source: .snapshot,
-            rawToken: resolution.rawToken
-        )
+    private func resolveVisibleWordPath(
+        at point: NSPoint,
+        cwd: String,
+        workspace: Workspace,
+        terminalSurface: TerminalSurface
+    ) -> WordPathResolution? {
+        guard let panel = wordPathSnapshotTerminalPanel(workspace: workspace, terminalSurface: terminalSurface),
+              let snapshot = visibleWordPathSnapshot(at: point, panel: panel),
+              let resolution = TerminalPathResolver().resolveVisibleLinePath(
+                  snapshot.line, column: snapshot.column, cwd: cwd
+              ) else { return nil }
+        return makeWordPathResolution(path: resolution.path, source: .snapshot, rawToken: resolution.rawToken)
     }
 
     @discardableResult
@@ -8151,6 +8276,18 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                 bounds.height - resolvedPoint.y,
                 mouseModsFromFlags(modifierFlags)
             )
+        }
+
+        if runtimeOutcome != .openURL,
+           let resolvedPoint, let terminalSurface,
+           let workspace = terminalSurface.owningWorkspace(),
+           workspace.remoteConfiguration?.transport == .ssh,
+           workspace.terminalLinkIsRemoteTerminal(terminalSurface.id),
+           let panel = workspace.terminalPanel(for: terminalSurface.id),
+           let snapshot = visibleWordPathSnapshot(at: resolvedPoint, panel: panel) {
+            let tokens = RemoteTerminalPathResolver().tokens(in: snapshot.line, column: snapshot.column)
+            _ = openRemoteFilePreview(tokens: tokens)
+            return nil
         }
 
         var resolvedPath: WordPathResolution?
@@ -9772,6 +9909,10 @@ final class GhosttySurfaceScrollView: NSView {
         surfaceView.debugSimulateStationaryCommandClick(at: debugPointInSurface(point))
     }
 #endif
+
+    func openRemoteFilePreview(tokens: [String]) -> Bool {
+        surfaceView.openRemoteFilePreview(tokens: tokens)
+    }
 
     func portalBindingGuardState() -> (surfaceId: UUID?, generation: UInt64?, state: String) {
         guard let terminalSurface = surfaceView.terminalSurface else {

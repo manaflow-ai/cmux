@@ -17,6 +17,8 @@ import tempfile
 import unittest
 import zipfile
 import zlib
+
+import yaml
 from unittest import mock
 from pathlib import Path
 
@@ -87,11 +89,6 @@ class WorkflowWiringTests(unittest.TestCase):
             ):
                 self.assertIn(guard, step, job)
 
-    def test_canonical_download_still_runs_when_the_fast_path_misses(self):
-        for job in CONSUMERS:
-            step = step_block(job_block(job), "Download compiled app-host test product")
-            self.assertIn("steps.parallel-products.outputs.hit != 'true'", step)
-
     def test_restore_step_records_the_transport_it_used(self):
         for job in CONSUMERS:
             step = step_block(job_block(job), "Restore compiled app-host test product")
@@ -99,6 +96,42 @@ class WorkflowWiringTests(unittest.TestCase):
         script = (ROOT / "scripts/ci/restore-app-host-test-product.sh").read_text(encoding="utf-8")
         self.assertIn('"github-parallel" if parallel_hit else', script)
         self.assertIn('echo "$EXPECTED_SHA256  $archive" | shasum -a 256 -c -', script)
+
+    def test_cli_product_lane_keeps_the_consumer_transport_chain(self):
+        # cli-product-tests restores the same compiled product without layers,
+        # so it must keep the same fast sources, route check and cache finalize.
+        block = job_block("cli-product-tests")
+        order = (
+            "Verify GitHub-hosted route",
+            "Checkout",
+            "Try node-local compiled product cache",
+            "Try trusted fleet peer artifact source",
+            "Try shared R2 artifact transport",
+            "Try parallel GitHub artifact transport",
+            "Download compiled test product",
+            "Restore compiled test product",
+            "Finalize node-local compiled product cache",
+        )
+        positions = [block.index(f"- name: {name}\n") for name in order]
+        self.assertEqual(positions, sorted(positions))
+        parallel = step_block(block, "Try parallel GitHub artifact transport")
+        self.assertIn("steps.r2-products.outputs.hit != 'true'", parallel)
+        download = step_block(block, "Download compiled test product")
+        self.assertIn("steps.parallel-products.outputs.hit != 'true'", download)
+        restore = step_block(block, "Restore compiled test product")
+        for key in ("CMUX_R2_PRODUCT_HIT", "CMUX_PARALLEL_PRODUCT_HIT", "CMUX_ARTIFACT_R2_RESULT"):
+            self.assertIn(f"{key}: ", restore)
+        finalize = step_block(block, "Finalize node-local compiled product cache")
+        self.assertIn("if: always()", finalize)
+        self.assertIn("CMUX_NODE_PRODUCT_CACHE_LEASE: ${{ steps.node-products.outputs.lease }}", finalize)
+        self.assertIn("node_product_cache.py finalize", finalize)
+        jobs = yaml.safe_load(WORKFLOW)["jobs"]
+        # Same permissions: the R2 transport needs id-token to mint its token.
+        self.assertEqual(jobs["cli-product-tests"]["permissions"], jobs["app-host-unit-tests"]["permissions"])
+        self.assertEqual(
+            step_block(block, "Verify GitHub-hosted route"),
+            step_block(job_block("app-host-unit-tests"), "Verify GitHub-hosted route"),
+        )
 
     def test_layer_transport_prefers_parallel_reads_and_keeps_the_stream_fallback(self):
         source = (ROOT / "scripts/ci/app_host_layer_transport.py").read_text(encoding="utf-8")
@@ -260,6 +293,161 @@ class RegistrationTests(unittest.TestCase):
     def test_test_is_registered_in_the_execution_registry(self):
         registry = (ROOT / "tests/test-execution.toml").read_text(encoding="utf-8")
         self.assertIn('path = "tests/test_ci_parallel_artifact_transport.py"', registry)
+
+
+class IOSProductTransportTests(unittest.TestCase):
+    """Exercise the same downloader against a real ranged HTTP response."""
+
+    def setUp(self):
+        import http.server
+        import threading
+
+        self.temp = tempfile.TemporaryDirectory(prefix="cmux-ios-transport-")
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name)
+        self.archive = os.urandom(70_000)
+        self.payload = make_zip("ios-test-product.tar.gz", self.archive)
+        self.ranges = []
+        self.active = 0
+        self.max_active = 0
+        self.lock = threading.Lock()
+        self.first_pair = threading.Barrier(2)
+        owner = self
+
+        class Handler(http.server.BaseHTTPRequestHandler):
+            def do_GET(self):
+                start, end = map(int, self.headers["Range"].removeprefix("bytes=").split("-"))
+                with owner.lock:
+                    owner.ranges.append((start, end, self.headers.get("Authorization")))
+                    index = len(owner.ranges)
+                    owner.active += 1
+                    owner.max_active = max(owner.max_active, owner.active)
+                try:
+                    if index <= 2:
+                        owner.first_pair.wait(timeout=5)
+                    body = owner.payload[start:end + 1]
+                    self.send_response(206)
+                    self.send_header("Content-Range", f"bytes {start}-{end}/{len(owner.payload)}")
+                    self.send_header("Content-Length", str(len(body)))
+                    self.end_headers()
+                    self.wfile.write(body)
+                finally:
+                    with owner.lock:
+                        owner.active -= 1
+
+            def log_message(self, *args):
+                pass
+
+        self.server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        thread = threading.Thread(target=self.server.serve_forever, daemon=True)
+        thread.start()
+        self.addCleanup(self.server.server_close)
+        self.addCleanup(self.server.shutdown)
+        self.url = f"http://127.0.0.1:{self.server.server_port}/artifact.zip"
+
+    def metadata(self, **overrides):
+        item = {"id": 77, "expired": False,
+                "digest": "sha256:" + hashlib.sha256(self.payload).hexdigest(),
+                "size_in_bytes": len(self.payload), "workflow_run": {"id": 9}}
+        item.update(overrides)
+        return lambda *args: item
+
+    def fetch(self, repository, artifact_id, target, size, token):
+        transport.download_ranges(lambda: self.url, target, size, connections=4, chunk_bytes=4096)
+
+    def restore(self, *, kind="ios", digest=None, metadata=None):
+        kwargs = {} if kind is None else {"product_kind": kind}
+        return transport.restore_aggregate(
+            "manaflow-ai/cmux", "77", "9",
+            digest or hashlib.sha256(self.payload).hexdigest(), self.root / "product",
+            token="must-not-reach-blob", metadata=metadata or self.metadata(),
+            fetch_zip=self.fetch, **kwargs,
+        )
+
+    def test_ios_archive_is_downloaded_in_parallel_and_published_exactly(self):
+        record = self.restore()
+        self.assertEqual((self.root / "product/ios-test-product.tar.gz").read_bytes(), self.archive)
+        self.assertEqual(record["zip_bytes"], len(self.payload))
+        self.assertGreaterEqual(self.max_active, 2)
+        self.assertTrue(all(auth is None for _, _, auth in self.ranges))
+
+    def test_ios_member_is_rejected_by_unchanged_macos_default(self):
+        with self.assertRaisesRegex(transport.TransportError, "unexpected artifact contents"):
+            self.restore(kind=None)
+        self.assertFalse((self.root / "product").exists())
+
+    def test_ios_selector_rejects_macos_member_and_path_aliases(self):
+        for member in ("app-host-products.tar.gz", "../ios-test-product.tar.gz",
+                       "nested/ios-test-product.tar.gz"):
+            with self.subTest(member=member):
+                self.payload = make_zip(member, self.archive)
+                with self.assertRaisesRegex(transport.TransportError, "unexpected artifact contents"):
+                    self.restore()
+                self.assertFalse((self.root / "product").exists())
+
+    def test_ios_bad_digest_or_size_never_publishes(self):
+        digest = hashlib.sha256(self.payload).hexdigest()
+        metadata = self.metadata()
+        self.payload = make_zip("ios-test-product.tar.gz", self.archive[:-1] + bytes([self.archive[-1] ^ 1]))
+        with self.assertRaisesRegex(transport.TransportError, "provider ZIP digest mismatch"):
+            self.restore(digest=digest, metadata=metadata)
+        self.assertFalse((self.root / "product").exists())
+        with self.assertRaisesRegex(transport.TransportError, "provider ZIP digest mismatch"):
+            self.restore(metadata=self.metadata(size_in_bytes=len(self.payload) - 1))
+        self.assertFalse((self.root / "product").exists())
+
+    def test_ios_foreign_run_or_unpinned_digest_does_not_download(self):
+        for override in ({"workflow_run": {"id": 10}}, {"digest": "sha256:" + "0" * 64}):
+            with self.subTest(override=override):
+                with self.assertRaises(transport.TransportError):
+                    self.restore(metadata=self.metadata(**override))
+                self.assertEqual(self.ranges, [])
+                self.assertFalse((self.root / "product").exists())
+
+    def test_ios_entrypoint_uses_fixed_destination_and_reports_hit_only_after_verification(self):
+        output = self.root / "output"
+        real_restore = transport.restore_aggregate
+
+        def restore(*args, **kwargs):
+            return real_restore(*args, **kwargs, metadata=self.metadata(), fetch_zip=self.fetch)
+
+        env = {"RUNNER_TEMP": str(self.root), "GITHUB_OUTPUT": str(output),
+               "GITHUB_REPOSITORY": "manaflow-ai/cmux", "GITHUB_RUN_ID": "9",
+               "ARTIFACT_ID": "77", "ARTIFACT_PROVIDER_DIGEST": hashlib.sha256(self.payload).hexdigest(),
+               "ARTIFACT_PRODUCT_KIND": "ios", "GH_TOKEN": "must-not-reach-blob"}
+        with mock.patch.dict(os.environ, env, clear=True), \
+                mock.patch.object(transport, "restore_aggregate", side_effect=restore):
+            self.assertEqual(transport.main(), 0)
+        self.assertEqual((self.root / "ios-test-product/ios-test-product.tar.gz").read_bytes(), self.archive)
+        self.assertFalse((self.root / "app-host-products").exists())
+        self.assertIn("hit=true", output.read_text())
+
+    def test_ios_entrypoint_integrity_miss_enables_canonical_fallback(self):
+        output = self.root / "output"
+        real_restore = transport.restore_aggregate
+
+        def restore(*args, **kwargs):
+            return real_restore(*args, **kwargs, metadata=self.metadata(), fetch_zip=self.fetch)
+
+        env = {"RUNNER_TEMP": str(self.root), "GITHUB_OUTPUT": str(output),
+               "GITHUB_REPOSITORY": "manaflow-ai/cmux", "GITHUB_RUN_ID": "10",
+               "ARTIFACT_ID": "77", "ARTIFACT_PROVIDER_DIGEST": hashlib.sha256(self.payload).hexdigest(),
+               "ARTIFACT_PRODUCT_KIND": "ios", "GH_TOKEN": "must-not-reach-blob"}
+        with mock.patch.dict(os.environ, env, clear=True), \
+                mock.patch.object(transport, "restore_aggregate", side_effect=restore):
+            self.assertEqual(transport.main(), 0)
+        self.assertEqual(output.read_text().strip(), "hit=false")
+        self.assertFalse((self.root / "ios-test-product").exists())
+        self.assertEqual(self.ranges, [])
+
+    def test_unknown_kind_cannot_choose_a_destination(self):
+        output = self.root / "output"
+        with mock.patch.dict(os.environ, {"RUNNER_TEMP": str(self.root),
+                             "GITHUB_OUTPUT": str(output),
+                             "ARTIFACT_PRODUCT_KIND": "../elsewhere"}, clear=True):
+            self.assertEqual(transport.main(), 0)
+        self.assertEqual(output.read_text().strip(), "hit=false")
+        self.assertEqual(list(self.root.iterdir()), [output])
 
 
 if __name__ == "__main__":

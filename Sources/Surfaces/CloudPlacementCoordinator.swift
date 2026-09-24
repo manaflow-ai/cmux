@@ -1,3 +1,4 @@
+import CmuxSurfaceCatalogModel
 import Foundation
 import Observation
 
@@ -36,7 +37,7 @@ final class CloudPlacementCoordinator {
     }
 
     func boundRemoteWorkspaceID(forLocalWorkspace localWorkspaceID: UUID, on machine: SurfaceMachineID) -> String? {
-        guard let vmID = machine.cloudMachineID,
+        guard let vmID = machine.tuiMachineID,
               let binding = binding(localWorkspaceID), binding.vmID == vmID,
               let remote = binding.remoteWorkspaceID?.trimmingCharacters(in: .whitespacesAndNewlines),
               !remote.isEmpty else { return nil }

@@ -45,6 +45,7 @@ extension WorkspaceDetailView {
         terminalFolderTapEnabled: terminalFolderTapEnabled,
         terminalFilesChipEnabled: isTerminalFilesChipEnabled,
         showMissingFiles: showMissingFiles,
+        useLegacyTerminalSizing: displaySettings.useLegacyTerminalSizing,
         sessionArtifactCountEnabled: store.supportsChatArtifactGallery,
         visibleArtifactCount: visibleArtifactCount,
         onArtifactFilesRequested: { anchor in

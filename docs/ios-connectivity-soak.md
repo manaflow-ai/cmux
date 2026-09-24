@@ -35,6 +35,78 @@ Both builds use the agent auth profile and the same backend. Use distinct tags
 for simultaneous workloads. Relay-only mode prevents same-host Simulator
 loopback connectivity from bypassing the managed Iroh relay.
 
+## Verify path selection
+
+The active `IrxConnection` subscribes to native Iroh path events and records
+the initial selected path separately, because the event watcher does not replay
+it. It refreshes the selected snapshot after a selection or a lag marker.
+The diagnostic ring retains opened, closed, selected, and lagged edges even
+when they use the same route class. Duplicate snapshots are collapsed per peer
+and session, including interleaved connections, while their latest snapshot is
+retained. Evicting that snapshot also expires its deduplication state. The
+legacy connection stack uses the same vocabulary.
+
+These records describe transport paths, including attempts that later fail app
+admission. A path selection does not claim successful pairing or usable RPC.
+Keeping that evidence helps diagnose connection failures before admission.
+
+The mobile Axiom bridge emits one `ios_iroh_path_event` for each retained event.
+Its bounded fields are `operation` (`opened`, `closed`, `selected`, `lagged`,
+or `snapshot`), `path` (`relay`, `direct`, `private_network`, `loopback`, or
+`unknown`), `transport` (`iroh`), `event_surface` (peer alias), and `event_c`
+(the process-local session ID). It never sends an address, relay URL, endpoint
+ID, or payload. `selected` means a native selection event; `snapshot` is an
+observation of current state and must not be counted as another migration.
+`private_network` includes LAN, private VPN, link-local, and loopback IPs; it
+does not establish which physical network carried the packet.
+
+The backend exports span `cmux.mobile.iroh.path`. Group by user, peer alias,
+and session, and order by the client occurrence timestamp. Use the preview
+dataset for a preview backend; the dataset name does not identify app channel.
+
+```apl
+['cmux-prod-otel-traces']
+| where name == 'cmux.mobile.iroh.path'
+| extend occurred = tostring(['attributes.custom']['cmux.mobile.occurred_at']),
+    user = tostring(['attributes.custom']['cmux.user_id']),
+    peer = tostring(['attributes.custom']['cmux.mobile.event_surface']),
+    session = tostring(['attributes.custom']['cmux.mobile.event_c']),
+    operation = tostring(['attributes.custom']['cmux.mobile.path_operation']),
+    path = tostring(['attributes.custom']['cmux.mobile.path']),
+    channel = tostring(['attributes.custom']['cmux.client.channel'])
+| project occurred, user, peer, session, operation, path, channel
+| sort by occurred asc
+```
+
+The opt-in native test below uses public Iroh relays, starts with relay-only
+address information, then authorizes direct candidates. It checks the native
+selection event, stable connection identity, and bidirectional data before and
+after migration. Both peers run on one host, so this proves relay-to-local-IP
+migration, not hole punching between two separate NATs or failback after an
+interface disappears.
+
+```sh
+CMUX_IROH_PUBLIC_RELAY_TEST=1 swift test --package-path Packages/Shared/CmuxIrxTransport --filter IrxPathMigrationTests
+```
+
+Run the release gate in each mode when a path-selection change needs live
+evidence:
+
+```sh
+scripts/run-iroh-release-gate.sh --mode automatic --tag <tag> --report-output /tmp/iroh-automatic.json
+scripts/run-iroh-release-gate.sh --mode relay-only --tag <tag> --report-output /tmp/iroh-relay.json
+scripts/run-iroh-release-gate.sh --mode direct-only --tag <tag> --report-output /tmp/iroh-direct.json
+scripts/run-iroh-release-gate.sh --mode private-path --tag <tag> --report-output /tmp/iroh-private.json
+```
+
+Automatic mode should show Iroh opening a relay path and may later show a
+selected direct or private-network path after admission. Relay-only should keep
+the selected class at `relay`. Direct-only disables relay dialing and should
+show a direct or private-network selected class. Private-path proves the
+broker-authorized private route with relays disabled. A selected path is Iroh's
+current choice; it is not a promise that every candidate was usable or that
+the path remains fastest after a network change.
+
 ## Keep coverage current
 
 Every PR touching mobile connectivity, authentication, lifecycle, workspace

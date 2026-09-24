@@ -1,3 +1,4 @@
+@testable import CmuxMobileHost
 import Testing
 import AppKit
 import Bonsplit

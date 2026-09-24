@@ -2,6 +2,26 @@ name: CLI pipe regressions
 
 on:
   workflow_call:
+    inputs:
+      # The pool (and, when it differs from the pull-request lane's, the
+      # Xcode) ci.yml's `changes` job chose for this pull request run with
+      # scripts/ci/pr_runner_pool.py. Empty, which is every other event and
+      # every caller that predates it, keeps the MACOS_RUNNER_PR route.
+      pr_runner:
+        required: false
+        default: ""
+        type: string
+      # Set only when pr_runner is persistent (an owned Mac pool): the
+      # Blacksmith pool on the same Xcode that a re-run of failed jobs takes,
+      # because such a re-run reuses attempt 1's pick (pr_runner_pool.py).
+      pr_retry_runner:
+        required: false
+        default: ""
+        type: string
+      pr_xcode_app:
+        required: false
+        default: ""
+        type: string
   workflow_dispatch:
 
 permissions:
@@ -13,34 +33,43 @@ concurrency:
 
 jobs:
   cli-pipe-regressions:
-    runs-on: ${{ github.event_name == 'pull_request' && (vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15') || vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (startsWith(inputs.pr_runner, 'blacksmith-') && inputs.pr_runner || 'blacksmith-6vcpu-macos-15') || github.event_name == 'pull_request' && (github.run_attempt > 1 && inputs.pr_retry_runner || inputs.pr_runner || vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15') || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15') }}
     timeout-minutes: 30
     env:
-      CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_15 }}
+      CMUX_CI_XCODE_APP: ${{ github.event_name == 'pull_request' && (inputs.pr_xcode_app || github.event.pull_request.head.repo.full_name == github.repository && vars.CMUX_CI_XCODE_APP_PR || vars.CMUX_CI_XCODE_APP_MACOS_15) || vars.CMUX_CI_XCODE_APP_MACOS_15 }}
       # Caller workflow env does not reach a reusable workflow; the R2 cache
       # restore needs this set here.
       CI_CACHE_R2_PUBLIC_URL: ${{ vars.CI_CACHE_R2_PUBLIC_URL || 'https://ci-cache.cmux.com' }}
     steps:
+      # Start from main's git objects, so checkout fetches only what changed
+      # since then instead of the whole tree and its submodules
+      # (scripts/ci/git-seed.sh). The script is read at this commit over HTTPS
+      # because nothing is checked out yet. A miss leaves the workspace empty
+      # and checkout clones as before.
+      - name: Restore git object seed
+        continue-on-error: true
+        timeout-minutes: 3
+        run: |
+          set -euo pipefail
+          script="$RUNNER_TEMP/git-seed.sh"
+          curl --fail --silent --show-error --location --connect-timeout 10 --max-time 30 \
+            -o "$script" "https://raw.githubusercontent.com/$GITHUB_REPOSITORY/$GITHUB_SHA/scripts/ci/git-seed.sh"
+          bash "$script" restore "$GITHUB_WORKSPACE"
+
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
 
       - name: Initialize local Swift package dependency
-        run: git submodule update --init --depth 1 vendor/bonsplit
+        run: scripts/ci/git-seed.sh update-submodules "$GITHUB_WORKSPACE" vendor/bonsplit
 
       - name: Select Xcode
-        run: |
-          if [ -n "${CMUX_CI_XCODE_APP:-}" ]; then
-            sudo xcode-select --switch "$CMUX_CI_XCODE_APP/Contents/Developer"
-            xcodebuild -version
-          else
-            ./scripts/select-ci-xcode.sh
-          fi
+        run: ./scripts/select-ci-xcode.sh
 
       - name: Initialize Ghostty and download its binary framework
         run: |
           set -euo pipefail
-          git submodule update --init --depth 1 ghostty
+          scripts/ci/git-seed.sh update-submodules "$GITHUB_WORKSPACE" ghostty
           ./scripts/download-prebuilt-ghosttykit.sh
 
       - name: Install Rust toolchain
@@ -48,17 +77,40 @@ jobs:
 
       # A cold resolve clones every package in the project and took about 90
       # seconds of each run. Nightly seeds this key; a miss only means a cold
-      # resolve.
+      # resolve. The seed carries SwiftPM's binary-artifact zips under
+      # .package-cache/: the sanitizer drops workspace-state.json, so without
+      # them every resolve downloads about 600 MB of Sentry, Iroh and Sparkle
+      # from GitHub again.
       - name: Restore Swift packages
         uses: ./.github/actions/cache-restore
         with:
           backend: ${{ vars.CI_CACHE_BACKEND || 'r2' }}
           path: .spm-cache
-          key: spm-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
+          key: spm-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved', 'scripts/ci/swiftpm-cache-layout') }}
           restore-keys: spm-
 
       - name: Sanitize Swift package cache
         run: python3 scripts/ci/sanitize-xcode-source-packages-cache.py .spm-cache
+
+      # Manifest evaluation is most of a warm resolve. seed-derived-data.yml
+      # saves it from main at this workspace path; see
+      # scripts/ci/swiftpm-manifest-cache.sh.
+      - name: Compute SwiftPM manifest cache key
+        id: swiftpm-manifest-key
+        run: scripts/ci/swiftpm-manifest-cache.sh key >> "$GITHUB_OUTPUT"
+
+      - name: Restore SwiftPM manifest cache
+        continue-on-error: true
+        uses: ./.github/actions/cache-restore
+        with:
+          backend: ${{ vars.CI_CACHE_BACKEND || 'r2' }}
+          path: ${{ runner.temp }}/swiftpm-manifests
+          key: ${{ steps.swiftpm-manifest-key.outputs.key }}
+          restore-keys: ${{ steps.swiftpm-manifest-key.outputs.prefix }}
+
+      - name: Install SwiftPM manifest cache
+        continue-on-error: true
+        run: scripts/ci/swiftpm-manifest-cache.sh install "$RUNNER_TEMP/swiftpm-manifests"
 
       - name: Resolve Swift package dependencies
         run: |
@@ -66,9 +118,11 @@ jobs:
           SOURCE_PACKAGES_DIR="$PWD/.spm-cache"
           mkdir -p "$SOURCE_PACKAGES_DIR"
           resolve() {
-            xcodebuild -project cmux.xcodeproj -scheme cmux-cli \
+            scripts/ci/swiftpm-manifest-cache.sh run \
+              xcodebuild -project cmux.xcodeproj -scheme cmux-cli \
               -configuration Debug -derivedDataPath "$RUNNER_TEMP/cmux-cli-resolve" \
               -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
+              -packageCachePath "$SOURCE_PACKAGES_DIR/.package-cache" \
               -resolvePackageDependencies
           }
           if ! resolve; then
