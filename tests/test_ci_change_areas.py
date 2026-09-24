@@ -1550,7 +1550,7 @@ def test_ci_workflow_job_edits_select_only_the_area_they_call() -> None:
     change_areas = module.ci_workflow_change_areas
     # Plainly Linux jobs, including the gates that decide whether macOS runs
     # without executing Mac work themselves, select nothing.
-    for job in ("macos-debounce", "static-preflight", "linux-preflight", "suite-coverage"):
+    for job in ("macos-admission-gate", "static-preflight", "linux-preflight", "suite-coverage"):
         assert change_areas(real, edit_job(real, job)) == areas(), job
     # A caller job selects the area of the reusable workflow it calls: its
     # `with:` inputs, `if:` and `needs:` all live in that block.
@@ -1558,7 +1558,7 @@ def test_ci_workflow_job_edits_select_only_the_area_they_call() -> None:
     assert change_areas(real, edit_job(real, "web")) == areas(web=True, agent_session_web=True)
     assert change_areas(real, edit_job(real, "cli")) == areas(cli=True)
     assert change_areas(
-        real, edit_job(edit_job(real, "cli"), "macos-debounce"),
+        real, edit_job(edit_job(real, "cli"), "macos-admission-gate"),
     ) == areas(cli=True)
 
 

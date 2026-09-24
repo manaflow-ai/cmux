@@ -389,7 +389,7 @@ def ci_workflow_change_areas(base: str, head: str) -> Optional[ChangeAreas]:
     """The areas a ci.yml edit selects, compared job by job, or None for all.
 
     A plainly Linux job selects nothing, including the gates that decide
-    whether macOS runs without running Mac work (`macos-debounce`). A job that
+    whether macOS runs without running Mac work (`macos-admission-gate`). A job that
     calls ci-macos.yml, ci-web.yml or the CLI lane selects that area. Routing
     jobs, the preamble, and any other job run every area.
     """
