@@ -584,7 +584,7 @@ enum BrowserScreenshotWebViewSnapshotter {
         timeout: TimeInterval,
         timingBudget: BrowserScreenshotTimingBudget = .init(),
         operation: @escaping @MainActor () async throws -> T,
-        completion: @escaping (Result<T, Error>) -> Void
+        completion: @escaping @MainActor @Sendable (Result<T, Error>) -> Void
     ) {
         let renderHost = BrowserOffscreenRenderHost(
             webView: webView,

@@ -18,7 +18,8 @@ CI_LOGICAL_SHARD_TOTAL = CI_PHYSICAL_SHARD_TOTAL * CI_LOGICAL_BATCHES_PER_WORKER
 
 def production_shard_constants() -> tuple[int, int]:
     """Read the production matrix constants so this test exercises its topology."""
-    workflow = (ROOT / ".github" / "workflows" / "ci-macos.yml").read_text(encoding="utf-8")
+    # ci-macos.yml's batch steps run this script.
+    workflow = (ROOT / "scripts" / "ci" / "run-app-host-unit-batches.sh").read_text(encoding="utf-8")
     values: dict[str, int] = {}
     for line in workflow.splitlines():
         stripped = line.strip()
@@ -599,6 +600,11 @@ def check_folded_fish_suite_keeps_prerequisite() -> int:
         print("FAIL: Run unit tests step missing")
         return 1
     body = run_step.group(0)
+    batches = "scripts/ci/run-app-host-unit-batches.sh"
+    if f"run: {batches}" not in body:
+        print(f"FAIL: Run unit tests no longer runs {batches}")
+        return 1
+    body = (ROOT / batches).read_text(encoding="utf-8")
     required = (
         "CmuxBundledBinPathIntegrationTests",
         "grep -Fq",
@@ -625,9 +631,7 @@ def check_global_search_has_dedicated_consumer() -> int:
         return 1
     job = match.group(1)
     # The matrix rows are JSON literals inside the `include` expression: the
-    # numbered consumers, and the single changed-suites worker. Read each
-    # row's exact label: a substring check would let `macos-15` match inside
-    # `blacksmith-6vcpu-macos-15`.
+    # numbered consumers, and the single changed-suites worker.
     import json
 
     include = re.search(r"(?ms)^        include: >-\n(.*?)\]'\) \}\}$", job)
@@ -640,27 +644,18 @@ def check_global_search_has_dedicated_consumer() -> int:
     ]
     numbered = next((rows for rows in row_sets if len(rows) > 1), [])
     changed = next((rows for rows in row_sets if len(rows) == 1), [])
-    rows = {int(row["shard"]): row["pr_runner"] for row in numbered}
+    rows = {int(row["shard"]) for row in numbered}
     missing_shards = [shard for shard in range(1, 8) if shard not in rows]
     if missing_shards:
         print(f"FAIL: app-host matrix is missing consumers: {missing_shards}")
         return 1
-    required_pr_pools = {
-        "blacksmith-6vcpu-macos-15",
-        "blacksmith-6vcpu-macos-26",
-        "macos-15",
-        "macos-26",
-    }
-    missing_pools = sorted(required_pr_pools - set(rows.values()))
-    if missing_pools:
-        print(f"FAIL: pull-request app-host matrix does not span all four macOS pools: {missing_pools}")
+    # A consumer runs compile admission's product, which only loads under the
+    # admission's Xcode, so no row may route a consumer to a pool of its own.
+    if any(set(row) != {"shard"} for row in numbered + changed):
+        print("FAIL: an app-host matrix row names its own pool; consumers run on compile admission's pool")
         return 1
-    if [row.get("shard") for row in changed] != [8] or any(
-        row.get("pr_runner") not in required_pr_pools
-        or row.get("hosted_runner") not in {"macos-15", "macos-26"}
-        for row in changed
-    ):
-        print("FAIL: a changed-suites run must be one shard-8 worker routed like the numbered consumers")
+    if [row.get("shard") for row in changed] != [8]:
+        print("FAIL: a changed-suites run must be one shard-8 worker")
         return 1
     if 'CMUX_APP_HOST_GLOBAL_SEARCH_SHARD: "7"' not in job:
         print("FAIL: global search must own consumer 7")
