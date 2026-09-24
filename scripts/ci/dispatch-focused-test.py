@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 from contextlib import contextmanager
 import json
+import os
 from pathlib import Path
 import re
 import signal
@@ -17,6 +18,8 @@ import uuid
 
 REPO = "manaflow-ai/cmux"
 WORKFLOW = "test-e2e.yml"
+# `vars.MACOS_RUNNER_TESTS`, as passed by a workflow job; see default_runner().
+VARIABLE_ENV = "CMUX_MACOS_RUNNER_TESTS"
 ROOT = Path(__file__).resolve().parents[2]
 RUN_DISCOVERY_ATTEMPTS = 12
 RUN_DISCOVERY_TIMEOUT_SECONDS = 60.0
@@ -194,23 +197,32 @@ def default_runner() -> str | None:
 
     Returning None means "cannot tell", and every caller treats that as a
     reason to dispatch normally rather than to act on a runner it guessed.
+
+    A workflow job's token cannot list variables, so a job that calls this
+    passes `vars.MACOS_RUNNER_TESTS` in CMUX_MACOS_RUNNER_TESTS instead. Set
+    and empty means the variable is unset, and the literal decides.
     """
-    try:
-        payload = output(
-            "gh", "variable", "list", "--repo", REPO, "--json", "name,value",
-            timeout=PRIOR_ATTEMPT_TIMEOUT_SECONDS,
-        )
-        variables = json.loads(payload)
-    except (subprocess.SubprocessError, OSError, ValueError, json.JSONDecodeError):
-        return None
-    if not isinstance(variables, list):
-        return None
-    for entry in variables:
-        if isinstance(entry, dict) and entry.get("name") == "MACOS_RUNNER_TESTS":
-            value = str(entry.get("value", "")).strip()
-            if value:
-                return value
-            break
+    if VARIABLE_ENV in os.environ:
+        value = os.environ[VARIABLE_ENV].strip()
+        if value:
+            return value
+    else:
+        try:
+            payload = output(
+                "gh", "variable", "list", "--repo", REPO, "--json", "name,value",
+                timeout=PRIOR_ATTEMPT_TIMEOUT_SECONDS,
+            )
+            variables = json.loads(payload)
+        except (subprocess.SubprocessError, OSError, ValueError, json.JSONDecodeError):
+            return None
+        if not isinstance(variables, list):
+            return None
+        for entry in variables:
+            if isinstance(entry, dict) and entry.get("name") == "MACOS_RUNNER_TESTS":
+                value = str(entry.get("value", "")).strip()
+                if value:
+                    return value
+                break
     try:
         workflow = (ROOT / ".github/workflows" / WORKFLOW).read_text()
     except OSError:

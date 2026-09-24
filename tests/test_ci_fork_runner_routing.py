@@ -13,6 +13,11 @@ WORKFLOWS = ROOT / ".github" / "workflows"
 
 FORK_LINUX_BRANCH = "github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04'"
 FORK_MACOS_BRANCH = "github.repository_owner != 'manaflow-ai' && 'macos-15'"
+# A matrix job may instead pick a hosted label per row, e.g. to spread
+# app-host shards over macos-15 and macos-26. Accepted only when every
+# `hosted_runner:` value in the workflow is a GitHub-hosted macOS label.
+FORK_MACOS_MATRIX_BRANCH = "github.repository_owner != 'manaflow-ai' && matrix.hosted_runner"
+HOSTED_MACOS_LABELS = {"macos-15", "macos-26"}
 LOCAL_WORKFLOW_CALL = re.compile(
     r"uses:\s+\./\.github/workflows/([A-Za-z0-9_.-]+\.ya?ml)"
 )
@@ -85,6 +90,8 @@ class ForkRunnerRoutingTests(unittest.TestCase):
 
         for path in fork_exercised_workflows():
             text = path.read_text(encoding="utf-8")
+            hosted_rows = re.findall(r"(?m)^\s+hosted_runner:\s*(\S+)\s*$", text)
+            matrix_hosted = bool(hosted_rows) and set(hosted_rows) <= HOSTED_MACOS_LABELS
             for number, line in enumerate(text.splitlines(), start=1):
                 if "runs-on:" not in line:
                     continue
@@ -97,7 +104,11 @@ class ForkRunnerRoutingTests(unittest.TestCase):
                 pull_request_linux = pull_request_selects(line, "ubuntu")
                 pull_request_macos = pull_request_selects(line, "macos")
                 hosted_linux = FORK_LINUX_BRANCH in line or pull_request_linux
-                hosted_macos = FORK_MACOS_BRANCH in line or pull_request_macos
+                hosted_macos = (
+                    FORK_MACOS_BRANCH in line
+                    or pull_request_macos
+                    or (matrix_hosted and FORK_MACOS_MATRIX_BRANCH in line)
+                )
 
                 with self.subTest(workflow=path.name, line=number):
                     if "vars.LINUX_RUNNER" in line:

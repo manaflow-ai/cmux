@@ -575,6 +575,7 @@ class ReuseProducts(TestProductHandoff):
         revision = self.pull_request_checkout("main")
         self.api.consumer_run["head_sha"] = self.head_revision
         self.api.product_identities[self.head_revision] = self.contract["product_inputs"]
+        self.api.product_identities[revision] = self.contract["product_inputs"]
         report = {}
         self.assertTrue(self.restore_reuse(revision=revision, report=report))
         self.assertNotIn("consumer_revision_mismatch", report["miss_reasons"])
@@ -601,6 +602,70 @@ class ReuseProducts(TestProductHandoff):
                 self.assertFalse(self.restore_reuse(revision=revision, report=report))
                 self.assertIn("consumer_revision_mismatch", report["miss_reasons"])
                 self.assertFalse(self.consumer.exists())
+
+    def test_pull_request_behind_its_base_is_bound_to_its_merge_checkout(self):
+        """A pull request whose base moved still adopts the product it compiled.
+
+        A pull request run compiles the merge of its head into the base. Once
+        the base has changed product inputs, the head alone fingerprints
+        differently from that merge, so comparing the checkout to the head
+        rejected the consumer before any producer was listed. That was 10 of
+        25 sampled compile admissions on 2026-09-23, including every re-run of
+        a pull request that was behind main.
+        """
+        revision = self.pull_request_checkout("main")
+        self.api.consumer_run["head_sha"] = self.head_revision
+        behind = {**self.contract["product_inputs"], "source": "7" * 64}
+        self.api.product_identities[self.head_revision] = behind
+        self.api.product_identities[revision] = self.contract["product_inputs"]
+        # The producer is an earlier run of the same pull request, also behind.
+        self.api.product_identities[self.api.run["head_sha"]] = behind
+        merge = "aaa111bbb222"
+        self.api.commit_parents[merge] = ["base999", self.api.run["head_sha"]]
+        self.api.product_identities[merge] = self.contract["product_inputs"]
+        self.seal_at(merge)
+        report = {}
+        self.assertTrue(self.restore_reuse(revision=revision, report=report))
+        self.assertEqual(report["reason"], "hit")
+        self.assertNotIn("consumer_product_inputs_mismatch", report["miss_reasons"])
+        self.assertNotIn("producer_product_inputs_mismatch", report["miss_reasons"])
+
+    def test_merge_checkout_must_match_githubs_copy_of_that_merge(self):
+        """The checkout is still re-fingerprinted, now against the merge itself."""
+        revision = self.pull_request_checkout("main")
+        self.api.consumer_run["head_sha"] = self.head_revision
+        self.api.product_identities[self.head_revision] = self.contract["product_inputs"]
+        self.api.product_identities[revision] = {
+            **self.contract["product_inputs"], "source": "7" * 64}
+        report = {}
+        self.assertFalse(self.restore_reuse(revision=revision, report=report))
+        self.assertIn("consumer_product_inputs_mismatch", report["miss_reasons"])
+        self.assertFalse(self.consumer.exists())
+
+    def test_pull_request_producer_behind_its_base_still_needs_an_exact_merge(self):
+        """Deferring the head check never admits a merge with other inputs."""
+        self.api.product_identities[self.api.run["head_sha"]] = {
+            **self.contract["product_inputs"], "source": "7" * 64}
+        merge = "aaa111bbb222"
+        self.api.commit_parents[merge] = ["base999", self.api.run["head_sha"]]
+        self.api.product_identities[merge] = {
+            **self.contract["product_inputs"], "source": "8" * 64}
+        self.seal_at(merge)
+        report = {}
+        self.assertFalse(self.restore_reuse(report=report))
+        self.assertIn("product_provenance_invalid", report["miss_reasons"])
+        self.assertFalse(self.consumer.exists())
+
+    def test_non_pull_request_producer_head_check_is_unchanged(self):
+        """Only a pull request producer compiles something other than its head."""
+        for run in (self.api.run, self.api.consumer_run):
+            run["event"] = "merge_group"
+            run.pop("pull_requests", None)
+        self.api.product_identities[self.api.run["head_sha"]] = {
+            **self.contract["product_inputs"], "source": "7" * 64}
+        report = {}
+        self.assertFalse(self.restore_reuse(report=report))
+        self.assertIn("producer_product_inputs_mismatch", report["miss_reasons"])
 
     def test_merge_group_checkout_still_requires_an_exact_revision(self):
         """Merge queue runs check out the attested commit, so nothing relaxes."""
@@ -849,6 +914,10 @@ class ReuseProducts(TestProductHandoff):
                 self.assertFalse(self.consumer.exists())
 
     def test_unrelated_producer_inputs_rejected_before_download(self):
+        # A merge group producer compiled its head, so its head decides.
+        for run in (self.api.run, self.api.consumer_run):
+            run["event"] = "merge_group"
+            run.pop("pull_requests", None)
         original = self.api.product_identities["abc123"]
         self.api.product_identities["abc123"] = {
             **original,
@@ -858,6 +927,18 @@ class ReuseProducts(TestProductHandoff):
             self.assertFalse(self.restore_reuse())
             download.assert_not_called()
         self.api.product_identities["abc123"] = original
+
+    def test_unrelated_pull_request_producer_inputs_are_rejected_after_download(self):
+        # A pull request producer compiled a merge its head does not name, so
+        # the sealed revision is what gets re-fingerprinted, after download.
+        self.api.product_identities["abc123"] = {
+            **self.api.product_identities["abc123"],
+            "source": "e" * 64,
+        }
+        report = {}
+        self.assertFalse(self.restore_reuse(report=report))
+        self.assertIn("product_provenance_invalid", report["miss_reasons"])
+        self.assertFalse(self.consumer.exists())
 
     def test_completed_compile_can_be_used_while_other_tests_run(self):
         self.api.run['status'] = 'in_progress'
@@ -1198,9 +1279,15 @@ class ReuseProducts(TestProductHandoff):
                 lambda: self.api.job.update({"conclusion": "failure"}),
                 "producer_compile_unsuccessful",
             ),
+            # A producer that compiled its head. A pull request producer's head
+            # does not name what it built, so its check waits for the download:
+            # test_unrelated_pull_request_producer_inputs_are_rejected_after_download.
             "product_inputs_changed": (
-                lambda: self.api.product_identities.__setitem__(
-                    "abc123", {**self.contract["product_inputs"], "source": "f" * 64}),
+                lambda: (
+                    [run.update(event="merge_group") for run in (self.api.run, self.api.consumer_run)],
+                    self.api.product_identities.__setitem__(
+                        "abc123", {**self.contract["product_inputs"], "source": "f" * 64}),
+                ),
                 "producer_product_inputs_mismatch",
             ),
             "oversize_archive": (
