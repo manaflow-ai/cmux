@@ -68,6 +68,11 @@ enum SimulatedEraseForm: CaseIterable {
 struct SimulationCase {
     var keystrokes: [SimulatedKeystroke]
     var eraseForm: SimulatedEraseForm
+    /// Readline and zle skip redisplay while more input is pending, so keys
+    /// that reach the remote together come back as one redraw of the net
+    /// change: back to where the lines diverge, the new tail, then `CSI K`
+    /// if the line got shorter. A typo and its erase can echo nothing.
+    var coalescesTypeahead = false
 }
 
 /// The remote's line: what bash readline holds after the keys it has read.
@@ -90,6 +95,23 @@ struct SimulatedLineEditor {
 
     /// The row as it looks once every key read so far is echoed.
     var row: [UInt8] { Self.prompt + line }
+
+    /// Applies keys read together and returns one redisplay of the net change.
+    mutating func readTogether(_ keys: [SimulatedKey]) -> [UInt8] {
+        let before = line
+        for key in keys {
+            switch key {
+            case .character(let byte): line.append(byte)
+            case .backspace: if !line.isEmpty { line.removeLast() }
+            }
+        }
+        var common = 0
+        while common < before.count, common < line.count, before[common] == line[common] { common += 1 }
+        var output = [UInt8](repeating: 0x08, count: before.count - common)
+        output += line[common...]
+        if line.count < before.count { output += [0x1B, 0x5B, 0x4B] }
+        return output
+    }
 }
 
 /// Just enough of a terminal to track the cursor row: printables, BS, BEL,
@@ -215,31 +237,68 @@ struct PredictionSimulation {
         var typedAt = 0
         var readAt = 0
         var repliedAt = 0
+        // Keys reaching the remote within this of the first in a group are
+        // pending when it would redisplay, when it coalesces at all.
+        let typeaheadWindow = 10_000
+        var groupStart: Int?
+        var groupKeys: [SimulatedKey] = []
+        var groupDownlink = 0
+        var groupJitter: UInt64 = 0
+        var arrivals: [(readAt: Int, index: Int)] = []
+        var readCursor = 0
         for (index, keystroke) in simulationCase.keystrokes.enumerated() {
             typedAt += keystroke.gap
             schedule(.keystroke(index), at: typedAt)
-            readAt = max(readAt, typedAt + keystroke.uplink)
+            readCursor = max(readCursor, typedAt + keystroke.uplink)
+            arrivals.append((readCursor, index))
+        }
+        func flushGroup() {
+            guard let start = groupStart, !groupKeys.isEmpty else { return }
+            let reply = remote.readTogether(groupKeys)
+            repliedAt = max(repliedAt, start + typeaheadWindow + groupDownlink)
+            scheduleReply(reply, from: &repliedAt, jitterSeed: groupJitter)
+            groupStart = nil
+            groupKeys = []
+        }
+        for (index, keystroke) in simulationCase.keystrokes.enumerated() {
+            guard simulationCase.coalescesTypeahead else { break }
+            let arrival = arrivals[index].readAt
+            if let start = groupStart, arrival > start + typeaheadWindow { flushGroup() }
+            if groupStart == nil {
+                groupStart = arrival
+                groupDownlink = keystroke.downlink
+                groupJitter = keystroke.jitterSeed
+            }
+            groupKeys.append(keystroke.key)
+        }
+        if simulationCase.coalescesTypeahead {
+            flushGroup()
+            return
+        }
+        for (index, keystroke) in simulationCase.keystrokes.enumerated() {
+            readAt = max(readAt, arrivals[index].readAt)
             let reply = remote.read(keystroke.key, eraseForm: simulationCase.eraseForm)
             repliedAt = max(repliedAt, readAt + keystroke.downlink)
+            scheduleReply(reply, from: &repliedAt, jitterSeed: keystroke.jitterSeed)
+        }
+    }
 
-            var random = SimulationRandom(seed: keystroke.jitterSeed)
-            var start = 0
-            var readTime = repliedAt
-            while start < reply.count {
-                let length = Int.random(in: 1...(reply.count - start), using: &random)
-                let bytes = Array(reply[start..<(start + length)])
-                schedule(
-                    .read(
-                        bytes,
-                        drainDelay: Int.random(in: 0...4_000, using: &random),
-                        renderDelay: Int.random(in: 0...8_000, using: &random)
-                    ),
-                    at: readTime
-                )
-                start += length
-                readTime += Int.random(in: 0...3_000, using: &random)
-            }
-            repliedAt = readTime
+    /// Splits one reply into reads at random boundaries, starting at `time`.
+    private mutating func scheduleReply(_ reply: [UInt8], from time: inout Int, jitterSeed: UInt64) {
+        var random = SimulationRandom(seed: jitterSeed)
+        var start = 0
+        while start < reply.count {
+            let length = Int.random(in: 1...(reply.count - start), using: &random)
+            schedule(
+                .read(
+                    Array(reply[start..<(start + length)]),
+                    drainDelay: Int.random(in: 0...4_000, using: &random),
+                    renderDelay: Int.random(in: 0...8_000, using: &random)
+                ),
+                at: time
+            )
+            start += length
+            time += Int.random(in: 0...3_000, using: &random)
         }
     }
 
@@ -594,6 +653,18 @@ struct TerminalPredictionSimulationTests {
         }
     }
 
+    @Test func aRemoteThatCoalescesTypeaheadKeepsEveryGlyphOnItsCell() {
+        for make in [SimulationCases.make, SimulationCases.makeBurstThenDelete] {
+            if let failure = SimulationCases.firstFailure(seeds: 1...4_000, make: {
+                var simulationCase = make($0)
+                simulationCase.coalescesTypeahead = true
+                return simulationCase
+            }) {
+                Issue.record(Comment(rawValue: failure))
+            }
+        }
+    }
+
     @Test func theSimulationActuallyPredicts() {
         var predicting = 0
         for seed in UInt64(1)...200 {
@@ -652,6 +723,23 @@ struct TerminalPredictionSimulationTests {
             SimulatedKeystroke(key: .character(UInt8(ascii: "s")), gap: 88214, uplink: 56214, downlink: 68706, jitterSeed: 2456294479701936419),
             SimulatedKeystroke(key: .character(UInt8(ascii: "a")), gap: 103111, uplink: 64083, downlink: 78325, jitterSeed: 16277613484114632174),
         ], eraseForm: .backspaceClearToEnd))
+    }
+
+    /// Backspace over the echoed "f" withdraws, and a remote that coalesces
+    /// typeahead sends nothing for "⌫f", whose net change is none. The echo
+    /// of the second "f" arrived after the untracked window and was matched
+    /// to the first, re-arming one cell behind the remote, so "d" was drawn
+    /// right of where it lands and stayed there until it expired.
+    @Test func aKeyTypedWhileEchoesAreUntrackedDoesNotArmARun() {
+        var simulationCase = SimulationCase(keystrokes: [
+            SimulatedKeystroke(key: .character(UInt8(ascii: "f")), gap: 245673, uplink: 30870, downlink: 42630, jitterSeed: 2300655970432197423),
+            SimulatedKeystroke(key: .backspace, gap: 139067, uplink: 47124, downlink: 24276, jitterSeed: 13452741299809415594),
+            SimulatedKeystroke(key: .character(UInt8(ascii: "f")), gap: 17750, uplink: 20384, downlink: 43316, jitterSeed: 14211843459011219229),
+            SimulatedKeystroke(key: .character(UInt8(ascii: "f")), gap: 116774, uplink: 52542, downlink: 44758, jitterSeed: 5850673420601723284),
+            SimulatedKeystroke(key: .character(UInt8(ascii: "d")), gap: 909700, uplink: 28980, downlink: 13020, jitterSeed: 16764482466942078549),
+        ], eraseForm: .backspaceClearToEnd)
+        simulationCase.coalescesTypeahead = true
+        expectPasses(simulationCase)
     }
 
     /// The link measures fast mid-run, so "j" is typed undrawn behind a held
