@@ -128,6 +128,10 @@ class WorkflowTests(unittest.TestCase):
         for job in ("resolve-ref", "filter", "runner"):
             self.assertIn(f"needs.{job}.result == 'success'", condition)
 
+    def test_a_failed_wait_never_skips_the_tests(self) -> None:
+        # The implicit success() on test reads every upstream job, sibling too.
+        self.assertEqual(self.jobs["test"]["if"], "${{ !cancelled() && needs.build.result == 'success' }}")
+
     def test_the_helper_comes_from_the_workflow_revision(self) -> None:
         checkout = self.jobs["sibling"]["steps"][0]
         self.assertEqual(checkout["with"]["sparse-checkout"], "scripts/ci/e2e_sibling_build.py")

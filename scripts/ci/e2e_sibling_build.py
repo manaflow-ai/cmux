@@ -38,7 +38,7 @@ RUNNING = f"actions/workflows/{WORKFLOW}/runs?status=in_progress&per_page=100"
 
 def gh_api(path: str) -> dict:
     repository = os.environ["GITHUB_REPOSITORY"]
-    return json.loads(subprocess.check_output(["gh", "api", f"repos/{repository}/{path}"], text=True))
+    return json.loads(subprocess.check_output(["gh", "api", f"repos/{repository}/{path}"], text=True, timeout=60))
 
 
 def same_macos(a: str, b: str) -> bool:

@@ -718,6 +718,9 @@ jobs:
 
   test:
     needs: [resolve-ref, filter, runner, build]
+    # Like build: a failed sibling wait must not skip tests a build succeeded
+    # for, and the implicit success() reads every upstream job.
+    if: ${{ !cancelled() && needs.build.result == 'success' }}
     # scripts/ci/parallel_artifact_download.py reads this run's artifact
     # metadata through the Actions API; the workflow-level token is
     # contents-only. Narrow and additive, mirroring ci-macos.yml's admission
