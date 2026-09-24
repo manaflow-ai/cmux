@@ -97,8 +97,6 @@ def main():
         try:
             control = client._call('workspace.list', {'window_id': window})['workspaces'][0]['id']
             command = shlex.join(['python3', '-u', '-c', WORKLOAD, token])
-            if os.environ.get('CMUX_SSH_TEST_TMUX') == '1':
-                command = shlex.join(['tmux', 'new-session', '-s', 'cmux-selection-' + token, command])
             arguments = ['ssh', host, '--window', window, '--no-focus',
                          '--name', f'ssh-tui-selection-{token}', '--command', command]
             if os.environ.get('CMUX_SSH_TEST_PORT'):
