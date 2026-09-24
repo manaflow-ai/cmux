@@ -1686,26 +1686,35 @@ final class StreamingChildProcess: @unchecked Sendable {
         return standardError.contains(text)
     }
 
-    /// Returns true once the child is alive but consuming no CPU, i.e. parked in
-    /// a blocking wait rather than on its way to exiting.
+    /// Returns true once the child's process tree is alive but consuming no
+    /// CPU, i.e. the prompt helper is parked in a blocking wait rather than on
+    /// its way to exiting.
     ///
-    /// The terminal exit prompt parks in `pause()` after a failed `tcgetattr`,
-    /// so a correct wrapper reaches a steady state with zero scheduled threads
-    /// and a frozen CPU counter. A regression that dismissed the prompt on EOF
-    /// exits instead, and `Process.isRunning` reports that without waiting.
+    /// The startup script prints the prompt text and then execs the CLI
+    /// helper. Whether the helper keeps the launched pid depends on the shell:
+    /// `/bin/sh -c <script>` may exec the script in place, or fork it and sit
+    /// in `waitpid`, where the root alone would look idle while the helper is
+    /// still starting. Sampling the whole tree covers both shapes. With stdin
+    /// at EOF the helper parks in `pause()` after a failed `tcgetattr`, so a
+    /// correct wrapper reaches a steady state: an unchanged set of pids, zero
+    /// scheduled threads, and a frozen CPU counter. A helper that is still
+    /// starting keeps accumulating CPU, and a regression that dismissed the
+    /// prompt on EOF exits instead, which `Process.isRunning` reports without
+    /// waiting.
     func waitUntilBlocked(timeout: TimeInterval) -> Bool {
         let deadline = Date.now.addingTimeInterval(timeout)
-        var previousCPU: UInt64?
+        var previous: ProcessTreeSample?
         var stableSamples = 0
         while Date.now < deadline {
-            guard process.isRunning, let sample = taskSample() else { return false }
-            if sample.running == 0, let previousCPU, previousCPU == sample.cpu {
+            guard process.isRunning else { return false }
+            let sample = processTreeSample()
+            if let sample, sample.running == 0, previous == sample {
                 stableSamples += 1
             } else {
                 stableSamples = 0
             }
-            previousCPU = sample.cpu
-            // Two consecutive idle samples separated by real time: a child still
+            previous = sample
+            // Two consecutive idle samples separated by real time: a tree still
             // starting up, or about to exit, keeps accumulating CPU.
             if stableSamples >= 2 { return process.isRunning }
             Thread.sleep(forTimeInterval: 0.025)
@@ -1715,17 +1724,72 @@ final class StreamingChildProcess: @unchecked Sendable {
 
     func terminate() {
         if process.isRunning {
+            // When the shell forks the startup script instead of exec'ing it,
+            // the parked prompt helper is a descendant that holds the output
+            // pipes, and signalling only the root would leave it in `pause()`
+            // and the drains waiting for EOF. Retire the owned tree the same
+            // way `stopAndCleanUp` in SSHStartupManualReconnectTests does.
+            let cleanupCommand = SSHForegroundAuthenticationRetryPolicy()
+                .processTreeTerminationShellFunction()
+                + "\ncmux_ssh_terminate_auth_process_tree \(process.processIdentifier) \(getpid())"
+            _ = CLINotifyProcessIntegrationRegressionTests.runProcess(
+                executablePath: "/bin/sh",
+                arguments: ["-c", cleanupCommand],
+                environment: ProcessInfo.processInfo.environment,
+                timeout: 5
+            )
+        }
+        if process.isRunning {
             process.terminate()
         }
         process.waitUntilExit()
         _ = drainGroup.wait(timeout: .now() + 2)
     }
 
-    private func taskSample() -> (cpu: UInt64, running: Int32)? {
+    private struct ProcessTreeSample: Equatable {
+        var pids: [pid_t]
+        var cpu: UInt64
+        var running: Int32
+    }
+
+    /// Sums CPU time and runnable threads over the launched root and all of
+    /// its live descendants. Returns nil when any member cannot be read (for
+    /// example one that exited between listing and sampling), which the caller
+    /// treats as not yet stable.
+    private func processTreeSample() -> ProcessTreeSample? {
+        var pids: [pid_t] = []
+        var pending = [process.processIdentifier]
+        while let pid = pending.popLast() {
+            pids.append(pid)
+            pending.append(contentsOf: Self.childProcessIdentifiers(of: pid))
+        }
+        var sample = ProcessTreeSample(pids: pids.sorted(), cpu: 0, running: 0)
+        for pid in pids {
+            guard let task = Self.taskSample(pid) else { return nil }
+            sample.cpu &+= task.cpu
+            sample.running += task.running
+        }
+        return sample
+    }
+
+    private static func childProcessIdentifiers(of parent: pid_t) -> [pid_t] {
+        var children = [pid_t](repeating: 0, count: 64)
+        let count = children.withUnsafeMutableBufferPointer { buffer in
+            proc_listchildpids(
+                parent,
+                buffer.baseAddress,
+                Int32(buffer.count * MemoryLayout<pid_t>.stride)
+            )
+        }
+        guard count > 0 else { return [] }
+        return children.prefix(min(Int(count), children.count)).filter { $0 > 0 }
+    }
+
+    private static func taskSample(_ pid: pid_t) -> (cpu: UInt64, running: Int32)? {
         var info = proc_taskinfo()
         let expectedSize = MemoryLayout<proc_taskinfo>.stride
         let size = proc_pidinfo(
-            process.processIdentifier,
+            pid,
             PROC_PIDTASKINFO,
             0,
             &info,

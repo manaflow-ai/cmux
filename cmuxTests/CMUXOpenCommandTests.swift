@@ -1310,8 +1310,11 @@ final class CMUXOpenCommandTests: XCTestCase {
         // The fixture writes config, refs and branch heads directly instead of
         // spawning one git process per setting: identical on-disk state, and
         // the git subprocesses that remain are the ones that must be real
-        // (object creation and commits).
-        try runGit(["init", "-q"], in: repoURL)
+        // (object creation and commits). Those handwritten loose refs and the
+        // in-process SHA-1 blob ids assume the classic repository layout, so
+        // pin it: a user's `init.defaultObjectFormat=sha256` or
+        // `init.defaultRefFormat=reftable` must not change what the fixture is.
+        try runGit(Self.classicLayoutGitInitArguments, in: repoURL)
         // Same unborn-branch state `git checkout -b main` leaves behind.
         try writeGitSymbolicRef("HEAD", target: "refs/heads/main", in: repoURL)
         try appendGitConfig(
@@ -1339,7 +1342,7 @@ final class CMUXOpenCommandTests: XCTestCase {
         let siblingRepoURL = rootURL.appendingPathComponent("other-repo", isDirectory: true)
         let siblingFileURL = siblingRepoURL.appendingPathComponent("other.txt")
         try FileManager.default.createDirectory(at: siblingRepoURL, withIntermediateDirectories: true)
-        try runGit(["init", "-q"], in: siblingRepoURL)
+        try runGit(Self.classicLayoutGitInitArguments, in: siblingRepoURL)
         try writeGitSymbolicRef("HEAD", target: "refs/heads/main", in: siblingRepoURL)
         try appendGitConfig(
             """
@@ -2836,6 +2839,15 @@ final class CMUXOpenCommandTests: XCTestCase {
         let attributes = try FileManager.default.attributesOfItem(atPath: url.path)
         return (try XCTUnwrap(attributes[.posixPermissions] as? NSNumber).intValue) & 0o777
     }
+
+    /// `git init` for fixtures whose refs and object ids are written by hand:
+    /// SHA-1 objects and loose-file refs. The ref format goes through `-c`
+    /// rather than `--ref-format`, which git releases before 2.45 reject; those
+    /// releases only know loose-file refs anyway.
+    private static let classicLayoutGitInitArguments = [
+        "-c", "init.defaultRefFormat=files",
+        "init", "-q", "--object-format=sha1"
+    ]
 
     /// Appends config text to a fixture repository's `.git/config`, producing
     /// the same on-disk state as the equivalent `git config` / `git remote add`

@@ -767,6 +767,19 @@ final class WorkspacePullRequestSidebarTests: XCTestCase {
         // ran while the test slept".
         let refreshCount = 10
         for index in 0..<refreshCount {
+            // A completed read is not a completed probe: the snapshot is applied
+            // and the in-flight state cleared afterwards, and a refresh skips a
+            // panel whose probe is still in flight. Wait until the panel is a
+            // poll candidate again, the same predicate the refresh filters on,
+            // so every refresh below really schedules a read.
+            XCTAssertTrue(
+                waitForCondition(timeout: 15) {
+                    manager.trackedWorkspaceGitMetadataPollCandidatePanelIdsForTesting(
+                        workspaceId: workspace.id
+                    ).contains(panelId)
+                },
+                "The panel never became eligible for sidebar git metadata refresh \(index + 1)."
+            )
             let readsBeforeRefresh = metadataReader.completedReadCount
             manager.refreshTrackedWorkspaceGitMetadataForTesting()
             XCTAssertTrue(

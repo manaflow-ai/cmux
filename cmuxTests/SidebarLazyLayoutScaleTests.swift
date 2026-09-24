@@ -258,35 +258,45 @@ final class SidebarLazyLayoutScaleTests {
         }
     }
 
-    /// Pumps the main run loop until row/header body evaluations stop for
-    /// `quietTurns` consecutive turns, or `maxIterations` turns have run.
+    /// Pumps the main run loop until row/header body evaluations stay flat for
+    /// `quietWindow`, or `maxIterations` turns have run.
     ///
     /// This replaces a fixed post-burst drain: a converged sidebar stops
-    /// evaluating bodies and the loop returns immediately, while a
+    /// evaluating bodies and the loop returns once the window passes, while a
     /// self-sustaining invalidation loop (the #6556 signature these callers
-    /// assert against) never produces a quiet run of turns and therefore
-    /// still burns the full budget — so the caller's "evaluations after the
-    /// burst" ceiling sees exactly the work it saw before. The iteration cap
-    /// bounds the failure path only.
+    /// assert against) never stays flat and therefore burns the full budget,
+    /// so the caller's "evaluations after the burst" ceiling sees at least the
+    /// work it saw before. The iteration cap bounds the failure path only.
+    ///
+    /// The window is measured in time, not turns, because the sidebar's own
+    /// invalidation stages are timed: row-affecting workspace fields coalesce
+    /// for `Workspace.sidebarImmediateObservationCoalesceInterval` (50ms) and
+    /// status/metadata fields debounce for 40ms before a row is invalidated.
+    /// A trailing emission lands within one such interval of its last input,
+    /// so bodies that stay flat for twice the longest stage have no coalesced
+    /// or debounced invalidation still pending. A run of idle turns can be
+    /// only a few milliseconds and would declare quiet inside that gap.
     @MainActor
     static func drainUntilRowWorkQuiesces(
         for window: NSWindow,
         counter: RowBodyCounter,
-        quietTurns: Int = 6,
-        maxIterations: Int = 30
+        quietWindow: Duration = Duration.nanoseconds(
+            Workspace.sidebarImmediateObservationCoalesceInterval.magnitude
+        ) * 2,
+        maxIterations: Int = 200
     ) async {
-        var consecutiveQuietTurns = 0
+        let clock = ContinuousClock()
+        var quietSince = clock.now
         var previousWork = -1
         for _ in 0..<maxIterations {
             Self.turnMainRunLoopOnce(layingOut: window)
             await Task.yield()
             let work = counter.workspaceRowBodies + counter.groupHeaderBodies
-            if work == previousWork {
-                consecutiveQuietTurns += 1
-                if consecutiveQuietTurns >= quietTurns { return }
-            } else {
+            if work != previousWork {
                 previousWork = work
-                consecutiveQuietTurns = 0
+                quietSince = clock.now
+            } else if clock.now - quietSince >= quietWindow {
+                return
             }
         }
     }

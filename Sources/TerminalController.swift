@@ -240,12 +240,6 @@ class TerminalController {
     private nonisolated static var socketMainHopSignpostingActive: Bool {
         socketMainHopSignposter.isEnabled
     }
-    /// Shared with the CLI client, which sizes its socket response timeout from
-    /// the same window.
-    private nonisolated static let v2BrowserDownloadWaitDefaultTimeoutMs =
-        BrowserDownloadWaitTimeout.standard.defaultTimeoutMilliseconds
-    private nonisolated static let v2BrowserDownloadWaitMaxTimeoutMs =
-        BrowserDownloadWaitTimeout.standard.maximumTimeoutMilliseconds
     private nonisolated static let v2ConsumedBrowserDownloadIDLimit = 128
     private struct MobileViewportReport {
         var columns: Int; var rows: Int; var updatedAt: Date; var generation: UInt64? = nil
@@ -9784,13 +9778,13 @@ class TerminalController {
     }
 
     private nonisolated func v2BrowserDownloadWaitOnSocketWorker(params: [String: Any]) -> V2CallResult {
-        let requestedTimeoutMs = max(
-            1,
-            Self.v2WorkerInt(params, "timeout_ms") ??
-                Self.v2WorkerInt(params, "timeout") ??
-                Self.v2BrowserDownloadWaitDefaultTimeoutMs
+        // Shared with the CLI client, which sizes its socket response timeout
+        // from the same window and clamp.
+        let requestedTimeoutMs = Self.v2WorkerInt(params, "timeout_ms") ??
+            Self.v2WorkerInt(params, "timeout")
+        let timeoutMs = BrowserDownloadWaitTimeout.standard.handlerTimeoutMilliseconds(
+            requestedMilliseconds: requestedTimeoutMs
         )
-        let timeoutMs = min(requestedTimeoutMs, Self.v2BrowserDownloadWaitMaxTimeoutMs)
         let timeout = Double(timeoutMs) / 1000.0
         let path = Self.v2WorkerString(params, "path")
 
