@@ -6,8 +6,10 @@
 # see docs/ci-runners.md. The one sanctioned free lane is MACOS_RUNNER_BACKGROUND,
 # whose fallback is GitHub-hosted macos-15 and whose members must stay off the
 # pull request and merge path (check_background_macos_lane).
-# Fork PRs are gated by GitHub's built-in "Require approval for outside
-# collaborators" setting, so workflow-level fork guards are not needed.
+# Fork execution has a separate portability rule: the normal CI graph routes
+# every non-manaflow-ai repository owner to GitHub-hosted runners, because a
+# Blacksmith label in a personal fork queues forever. The upstream branch of
+# each expression retains the repository-variable routing checked below.
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
@@ -84,7 +86,7 @@ check_release_build_runner_disk_capacity() {
   # paid-overflow gate appearing here, which does not belong: MACOS_RUNNER_26
   # is the free macOS 26 pool and is read ungated everywhere. See
   # docs/ci-runners.md for why the gate must not grow to cover it.
-  if ! awk -v release_runner="runs-on: \${{ vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}" '
+  if ! awk -v release_runner="runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'macos-15' || (vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26') }}" '
     /^  release-build:/ { in_job=1; next }
     in_job && /^  [^[:space:]#][^:]*:[[:space:]]*(#.*)?$/ { in_job=0 }
     in_job && index($0, release_runner) { saw_release_runner=1 }
@@ -301,11 +303,11 @@ check_release_build_disk_cleanup() {
 }
 
 check_release_helper_artifact_from_package_lane() {
-  if ! awk '
+  if ! awk -v dual_runner="runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'macos-15' || (vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_DUAL_XCODE || 'blacksmith-6vcpu-macos-15') }}" '
     /^  swift-package-tests:/ { in_job=1; next }
     in_job && /^  [^[:space:]#][^:]*:[[:space:]]*(#.*)?$/ { in_job=0 }
 
-    in_job && /runs-on:[[:space:]]*\$\{\{ vars\.CI_PAID_MACOS_OVERFLOW == '\''1'\'' && vars\.MACOS_RUNNER_DUAL_XCODE \|\| '\''blacksmith-6vcpu-macos-15'\'' \}\}/ { saw_dual_runner=1 }
+    in_job && index($0, dual_runner) { saw_dual_runner=1 }
     in_job && /vars\.MACOS_RUNNER_PR/ { saw_pr_lane=1 }
     in_job && /timeout-minutes:[[:space:]]*40/ { saw_timeout=1 }
     in_job && /CMUX_CI_HELPER_XCODE_APP:/ { saw_helper_xcode_env=1 }
@@ -1964,10 +1966,10 @@ PYTHON
 }
 
 check_no_paid_overflow_fallbacks() {
-  # Repository variables are not exposed to pull requests from forks, so the
-  # `vars.X || 'label'` fallback is where every fork pull request runs. Warp is
-  # the paid overflow provider: allowed as an explicit workflow_dispatch choice,
-  # never as a default.
+  # Forks take the explicit GitHub-hosted owner branch before any repository
+  # variable is read. The upstream fallback must still avoid Warp: it is the
+  # paid overflow provider, allowed as an explicit workflow_dispatch choice,
+  # never as an implicit default.
   local hits
   hits="$(grep -rnE "\\|\\|[[:space:]]*'warp-" "$ROOT_DIR/.github/workflows" || true)"
   if [ -n "$hits" ]; then
