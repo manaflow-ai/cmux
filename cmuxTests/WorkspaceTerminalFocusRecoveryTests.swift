@@ -302,18 +302,7 @@ struct WorkspaceTerminalFocusRecoverySwiftTests {
             panel.hostedView.setVisibleInUI(false)
             panel.hostedView.setActive(true)
 
-            // These cases model focus reconciliation in the foreground app.
-            // xcodebuild can launch the app-host process inactive, especially
-            // on the macOS 26 pool, where a synthetic key-window bit alone
-            // does not make AppKit grant real first-responder ownership.
-            NSApp.activate(ignoringOtherApps: true)
             window.makeKeyAndOrderFront(nil)
-            #expect(
-                await AppKitTestEventPump().waitUntil(timeout: .seconds(10)) {
-                    NSApp.isActive
-                },
-                "Focus-recovery fixture requires the app-host process to be active"
-            )
             appDelegate.setActiveMainWindow(window)
             window.displayIfNeeded()
             contentView.layoutSubtreeIfNeeded()
@@ -401,18 +390,7 @@ struct WorkspaceTerminalFocusRecoverySwiftTests {
             panel.hostedView.setSearchOverlay(searchState: searchState)
             panel.hostedView.preparePanelFocusIntentForActivation(.surface)
 
-            // These cases model focus reconciliation in the foreground app.
-            // xcodebuild can launch the app-host process inactive, especially
-            // on the macOS 26 pool, where a synthetic key-window bit alone
-            // does not make AppKit grant real first-responder ownership.
-            NSApp.activate(ignoringOtherApps: true)
             window.makeKeyAndOrderFront(nil)
-            #expect(
-                await AppKitTestEventPump().waitUntil(timeout: .seconds(10)) {
-                    NSApp.isActive
-                },
-                "Focus-recovery fixture requires the app-host process to be active"
-            )
             appDelegate.setActiveMainWindow(window)
             window.displayIfNeeded()
             contentView.layoutSubtreeIfNeeded()
