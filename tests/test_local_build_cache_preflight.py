@@ -31,10 +31,12 @@ class PreflightTests(unittest.TestCase):
         self.repo = self.root / "repo"
         (self.repo / preflight.LOCKFILE).parent.mkdir(parents=True)
         (self.repo / preflight.LOCKFILE).write_bytes(b"abc")
+        (self.repo / preflight.SPM_CACHE_LAYOUT).parent.mkdir(parents=True)
+        (self.repo / preflight.SPM_CACHE_LAYOUT).write_bytes(b"2\n")
         self.cache = self.root / "cache"
         self.destination = self.root / "mutable"
         self.deadline = time.monotonic() + 20
-        self.key = preflight.spm_key(self.repo / preflight.LOCKFILE)
+        self.key = preflight.spm_key(self.repo)
         self.archive = self.root / "seed.tar.gz"
         with tarfile.open(self.archive, "w:gz") as bundle:
             for name, data in (("checkouts/package/file.swift", b"source"),
@@ -59,8 +61,8 @@ class PreflightTests(unittest.TestCase):
         return preflight.seed_spm(self.repo, destination or self.destination, self.cache,
                                   "https://example.invalid", "macOS-ARM64", self.deadline, allow_network=True)
 
-    def test_actions_single_file_hash_vector(self):
-        self.assertEqual(self.key, "spm-4f8b42c22dd3729b519ba6f68d2da7cc5b2d606d05daed5ad5128cc03e6c6358")
+    def test_actions_two_file_hash_vector(self):
+        self.assertEqual(self.key, "spm-501477d966301ff37b61f4d9f3cc0240f71f7c4e9bec278bbbbddf9c8d71653f")
 
     def test_exact_seed_and_isolated_reuse(self):
         with patch.object(preflight, "fetch", side_effect=self.fetch_exact):
@@ -174,7 +176,7 @@ class PreflightTests(unittest.TestCase):
 
     def test_ghostty_reuses_only_its_verified_immutable_link(self):
         revision, checksum = "a" * 40, "b" * 64
-        (self.repo / "scripts").mkdir()
+        (self.repo / "scripts").mkdir(exist_ok=True)
         (self.repo / "scripts/ghosttykit-checksums.txt").write_text(revision + " " + checksum + "\n")
         original_run = preflight.run
         def download(command, deadline, *, env=None, cwd=None):
