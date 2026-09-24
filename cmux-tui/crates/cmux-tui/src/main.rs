@@ -2066,8 +2066,9 @@ fn run_server(
         surface_options.template_bound_file = std::env::var_os("CMUX_TUI_TEMPLATE_BOUND_FILE")
             .filter(|value| !value.is_empty())
             .map(PathBuf::from);
-        surface_options.template_workspace_name =
-            std::env::var("CMUX_TUI_TEMPLATE_WORKSPACE_NAME").ok().filter(|value| !value.is_empty());
+        surface_options.template_workspace_name = std::env::var("CMUX_TUI_TEMPLATE_WORKSPACE_NAME")
+            .ok()
+            .filter(|value| !value.is_empty());
     }
     let provider_management_pending = provider_management_listener.is_some();
     let mux =
