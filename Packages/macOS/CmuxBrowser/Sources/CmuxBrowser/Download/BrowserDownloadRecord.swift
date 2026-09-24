@@ -20,5 +20,19 @@ public struct BrowserDownloadRecord: Identifiable, Equatable {
     /// File size in bytes once known (saved downloads only).
     public var byteCount: Int?
 
+    public init(
+        id: String,
+        filename: String,
+        fileURL: URL? = nil,
+        state: State,
+        byteCount: Int? = nil
+    ) {
+        self.id = id
+        self.filename = filename
+        self.fileURL = fileURL
+        self.state = state
+        self.byteCount = byteCount
+    }
+
     public var isComplete: Bool { state != .downloading }
 }

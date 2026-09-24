@@ -9,4 +9,14 @@ public struct BrowserMediaPlaybackReport: Sendable {
     public let isPlaying: Bool
     /// Whether that frame currently has an unmuted, non-zero-volume audio source.
     public let isAudible: Bool
+
+    public init(
+        frameID: String,
+        isPlaying: Bool,
+        isAudible: Bool
+    ) {
+        self.frameID = frameID
+        self.isPlaying = isPlaying
+        self.isAudible = isAudible
+    }
 }

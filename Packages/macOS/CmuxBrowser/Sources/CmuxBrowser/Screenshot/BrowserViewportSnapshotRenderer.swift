@@ -3,6 +3,12 @@ public import AppKit
 public struct BrowserViewportSnapshotRenderer {
     public let plan: BrowserViewportSnapshotPlan
 
+    public init(
+        plan: BrowserViewportSnapshotPlan
+    ) {
+        self.plan = plan
+    }
+
     public var snapshotWidth: NSNumber {
         NSNumber(value: plan.snapshotPointWidth)
     }
