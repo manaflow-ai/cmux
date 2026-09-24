@@ -158,6 +158,7 @@ impl RecoveryHarness {
         if self.adopt_template_terminal {
             command.env("CMUX_TUI_ADOPT_TEMPLATE_TERMINAL", "1");
             command.env("CMUX_TUI_TEMPLATE_BOUND_FILE", self.dir.join("bound"));
+            command.env("CMUX_TUI_TEMPLATE_WORKSPACE_NAME", "Cloud");
         }
         command
     }
@@ -4565,6 +4566,7 @@ fn template_terminal_host_is_adopted_by_a_fresh_identity_daemon() {
     let workspaces =
         request(&harness.socket, serde_json::json!({"id": 7, "cmd": "list-workspaces"}));
     assert_eq!(workspaces["workspaces"].as_array().unwrap().len(), 1, "{workspaces}");
+    assert_eq!(workspaces["workspaces"][0]["name"], "Cloud", "{workspaces}");
     assert_ne!(workspaces["registry_id"], registry_before);
     let after = state_identity(&harness.state);
     assert_ne!(after.0, before.0, "machine id carried over from the template");
