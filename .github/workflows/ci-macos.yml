@@ -693,6 +693,24 @@ jobs:
           probe assets-dir-mtime
           touch "$src/Sources/Sidebar/GPUSpinner.swift"
           probe app-file-mtime
+          # Where does the first "Resolve Package Graph" spend ~45 s?
+          manifests="$HOME/Library/Caches/org.swift.swiftpm/manifests"
+          echo "manifest cache: $(du -sh "$manifests" 2>/dev/null | cut -f1) entries=$(sqlite3 "$manifests/manifest.db" 'select count(*) from MANIFEST_CACHE' 2>/dev/null)"
+          resolve_probe() {
+            local name="$1" started=$SECONDS
+            (cd "$src" && xcodebuild -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
+              -derivedDataPath "$CMUX_COMPILE_ADMISSION_DERIVED_DATA" \
+              -clonedSourcePackagesDirPath "$src/.ci-source-packages" \
+              -packageCachePath "$src/.ci-source-packages/.package-cache" \
+              -skipPackageUpdates -resolvePackageDependencies > "$RUNNER_TEMP/resolve-$name.txt" 2>&1)
+            echo "== resolve $name: $((SECONDS - started))s rc=$?"
+            echo "### resolve $name: $((SECONDS - started))s" >> "$GITHUB_STEP_SUMMARY"
+          }
+          resolve_probe warm-manifests
+          mv "$manifests" "$manifests.aside" 2>/dev/null
+          resolve_probe no-manifest-cache
+          echo "manifest cache rebuilt: entries=$(sqlite3 "$manifests/manifest.db" 'select count(*) from MANIFEST_CACHE' 2>/dev/null)"
+          resolve_probe rebuilt-manifests
 
       # Adoption sets a per-user Xcode default. Only a build whose inputs were
       # just replayed should ignore inode changes, so a reused runner does not
