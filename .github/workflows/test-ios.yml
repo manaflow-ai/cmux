@@ -399,6 +399,7 @@ jobs:
                   && needs.detect-ios-changes.outputs.should_lint == 'false'))
           && inputs.swift_package == '' }}
     runs-on: ${{ (!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_TESTS || vars.MACOS_RUNNER_IOS || 'blacksmith-6vcpu-macos-26') || inputs.runner }}
+    environment: ${{ github.ref == 'refs/heads/main' && 'ci-cache-writer' || '' }}
     timeout-minutes: 35
     outputs:
       artifact_id: ${{ steps.upload-product.outputs.artifact-id }}
