@@ -30,7 +30,12 @@ workflow step succeeded counts as refused: the watcher confirms the head has
 not moved, cancels the run if it is still going, and re-runs its failed jobs.
 That attempt 2 reuses attempt 1's outputs, so every macOS job in it takes
 retry_runner, the Blacksmith pool the picker named, and what already passed
-(compile admission, say) is kept.
+(compile admission, say) is kept. That splits the run across machines, which
+is sound only because both sides run the same Xcode: retry_runner is a macOS
+26 pool on the lane's pin, the pin the owned label names, and on 2026-09-24
+both the minis and Blacksmith's 6vcpu and 12vcpu macOS 26 images reported
+Xcode 26.6 build 17F113. If those builds ever differ, re-run the whole run
+here instead (rescue with failed_only=False).
 
 A job's wait is measured from the later of its `created_at` and the first
 time the watcher saw it queued, so a job record created before its `needs`

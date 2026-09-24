@@ -201,7 +201,7 @@ names no owned pool.
 | Variable | Default | Effect |
 | --- | --- | --- |
 | `CI_PR_POOL_OWNED` | unset (off) | `1` puts owned pools first and turns on the rescue below |
-| `CI_OWNED_POOL_SLOTS` | unset (no slots) | JSON, owned pool label to machine count, the `conforming_count` from `glaeda-mini-fleet pools --json`: `{"glaeda-std-xcode-26.6": 11, "glaeda-light-xcode-26.6": 2}` |
+| `CI_OWNED_POOL_SLOTS` | unset (no slots) | JSON, owned pool label to machine count, the `conforming_count` from `glaeda-mini-fleet pools --json`: `{"glaeda-std-xcode-26.6": 12, "glaeda-light-xcode-26.6": 2}` |
 
 Each entry of `CI_OWNED_POOL_SLOTS` that is not an owned label with a positive
 whole number of machines counts as none. While owned pools are on, the
@@ -227,7 +227,10 @@ The watcher treats a job on the persistent pool that failed within 120
 seconds of starting, with no workflow step succeeded, as refused. It confirms
 the head has not moved, cancels the run if it is still going, and re-runs its
 failed jobs, so nobody has to. That attempt 2 keeps what passed and sends the
-rest to `retry_runner` (below).
+rest to `retry_runner` (below). Products built on a mini are then tested on
+Blacksmith, which is sound only while both carry the same Xcode build: on
+2026-09-24 the minis and Blacksmith's 6vcpu and 12vcpu macOS 26 images all
+reported Xcode 26.6 build 17F113 (jobs 107712770707 and 107710434810).
 
 "Re-run failed jobs" is different: `changes` passed, so it is not re-run, and
 the failed jobs read attempt 1's outputs, owned pool included, with no watcher

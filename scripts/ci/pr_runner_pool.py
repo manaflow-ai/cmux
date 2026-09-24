@@ -37,7 +37,7 @@ verified the new Xcode on it. Owned pools are persistent: the machine
 outlives the job. They take part only when `vars.CI_PR_POOL_OWNED == '1'`,
 and then go first in the default order so Blacksmith is overflow. Their
 capacity is the number of machines the fleet manifest gives each label,
-published as vars.CI_OWNED_POOL_SLOTS (JSON, `{"glaeda-std-xcode-26.6": 11}`).
+published as vars.CI_OWNED_POOL_SLOTS (JSON, `{"glaeda-std-xcode-26.6": 12}`).
 The janitor's snapshot counts the jobs queued and running on each owned label
 from the job listings it already makes, and `committed`: what the runs
 holding the pool need at their peak, read from the marker each one uploads
