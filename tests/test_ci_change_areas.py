@@ -1858,8 +1858,10 @@ def run_app_host_unit_test_step(
     *,
     known_failure: bool = False,
 ) -> tuple[subprocess.CompletedProcess[str], bool]:
-    script = workflow_job_step_script("app-host-unit-tests", "Run unit tests", MACOS_WORKFLOW)
-    script = script.replace("${{ matrix.shard }}", "1")
+    steps = yaml.safe_load(MACOS_WORKFLOW.read_text(encoding="utf-8"))["jobs"]["app-host-unit-tests"]["steps"]
+    assert next(step["run"] for step in steps if step.get("name") == "Run unit tests") == \
+        "scripts/ci/run-app-host-unit-batches.sh"
+    script = (ROOT / "scripts/ci/run-app-host-unit-batches.sh").read_text(encoding="utf-8")
 
     with tempfile.TemporaryDirectory() as temp_dir:
         root = Path(temp_dir)
@@ -1984,6 +1986,7 @@ exit 9
                 "CMUX_TEST_SHARD_MODE": shard_mode,
                 "CMUX_TEST_KNOWN_FAILURE_MODE": "1" if known_failure else "0",
                 "CMUX_APP_HOST_TEST_INVENTORY": str(inventory),
+                "CMUX_APP_HOST_SHARD": "1",
             },
             text=True,
             stdout=subprocess.PIPE,
@@ -4153,6 +4156,117 @@ def test_changed_suites_run_on_one_worker_and_labels_still_run_everything() -> N
         assert selectors("full-ci\n") == "unit_selectors="
 
 
+def test_compile_admission_runs_changed_suites_that_need_no_worker() -> None:
+    """A few changed suites run on the runner that compiled them.
+
+    A separate changed-suites worker queued, checked out, selected Xcode and
+    downloaded the product, about two minutes of setup, to run about twenty
+    seconds of tests. Compile admission runs them itself unless a strict step
+    owns one of them or the diff edits the consumer path that worker proves.
+    """
+    script = ROOT / "scripts/ci/choose_ci_suite.py"
+    with tempfile.TemporaryDirectory() as directory:
+        changed = Path(directory) / "changed.txt"
+        labels = Path(directory) / "labels.txt"
+
+        def outputs(paths: list[str], label: str = "") -> dict[str, str]:
+            changed.write_text("".join(f"{path}\n" for path in paths))
+            labels.write_text(label)
+            run = subprocess.run(
+                [sys.executable, str(script), "--event-name", "pull_request",
+                 "--pull-request-policy", "compile-only", "--labels-file", str(labels),
+                 "--files-from", str(changed), "--root", str(ROOT)],
+                capture_output=True, text=True, check=True,
+            )
+            return dict(line.split("=", 1) for line in run.stdout.splitlines())
+
+        plain = ["cmuxTests/TerminalTabIconRegressionTests.swift"]
+        assert outputs(plain)["unit_in_admission"] == "true"
+        # A strict step's suite needs that step's own app host: the worker.
+        strict = outputs(["cmuxTests/FeedCoordinatorTests.swift"])
+        assert strict["unit_strict_steps"], strict
+        assert strict["unit_in_admission"] == "false", strict
+        # A consumer edit still has to be proven on the worker, canary or not.
+        consumer = "scripts/ci/app_host_test_products.py"
+        assert outputs(plain + [consumer])["unit_in_admission"] == "false"
+        assert outputs([consumer])["unit_in_admission"] == "false"
+        # Every suite, or none, stays on the numbered shards.
+        assert outputs(plain, "unit-ci\n")["unit_in_admission"] == "false"
+        assert outputs(plain, "full-ci\n")["unit_in_admission"] == "false"
+        assert outputs(["Sources/Workspace.swift"])["unit_in_admission"] == "false"
+
+    ci = yaml.safe_load(CI_WORKFLOW.read_text(encoding="utf-8"))
+    assert ci["jobs"]["changes"]["outputs"]["unit_in_admission"] == "${{ steps.suite.outputs.unit_in_admission }}"
+    assert ci["jobs"]["macos"]["with"]["unit_in_admission"] == "${{ needs.changes.outputs.unit_in_admission }}"
+
+    workflow = yaml.safe_load(MACOS_WORKFLOW.read_text(encoding="utf-8"))
+    call_inputs = workflow[True]["workflow_call"]["inputs"]
+    assert call_inputs["unit_in_admission"]["default"] == "", call_inputs["unit_in_admission"]
+    admission = workflow["jobs"]["macos-compile-admission"]
+    shards = workflow["jobs"]["app-host-unit-tests"]
+    assert shards["if"].endswith("&& inputs.unit_in_admission != 'true' }}"), shards["if"]
+    assert admission["outputs"]["changed_suites"] == "${{ steps.run-changed-suites.outcome }}"
+
+    names = [step.get("name") for step in admission["steps"]]
+    by_name = {step.get("name"): step for step in admission["steps"]}
+    shard_steps = {step.get("name"): step for step in shards["steps"]}
+    first_test = names.index("Prepare isolated DerivedData")
+    # The product is packaged, uploaded and seeded before any test can fail.
+    for producer in ("Package compiled app-host test product", "Upload compiled app-host test product",
+                     "Seed node-local compiled product cache"):
+        assert names.index(producer) < first_test, producer
+    for name in names[first_test:]:
+        condition = str(by_name[name].get("if", ""))
+        assert "inputs.unit_in_admission == 'true'" in condition or "steps.test-derived-data.outcome" in condition \
+            or "steps.run-changed-suites.outcome" in condition or name == "Report evidence collection outcomes", name
+    # Admission runs the worker's own scripts, not copies of them.
+    shared = {
+        "Enumerate built app-host tests": "Enumerate built app-host tests",
+        "Enable XCTest automation mode": "Enable XCTest automation mode",
+        "Run changed app-host suites": "Run unit tests",
+        "Collect app-host failure diagnostics": "Collect app-host failure diagnostics",
+        "Prepare isolated app-host home": "Prepare isolated app-host home",
+    }
+    for mine, theirs in shared.items():
+        assert by_name[mine]["run"] == shard_steps[theirs]["run"], mine
+        assert by_name[mine]["run"].startswith("scripts/ci/"), mine
+    assert "scripts/ci/restore-app-host-test-product.sh" in by_name["Restore compiled app-host test product"]["run"]
+    assert by_name["Upload built app-host test inventory"]["with"] == shard_steps["Upload built app-host test inventory"]["with"]
+    assert by_name["Upload app-host failure diagnostics"]["with"] == shard_steps["Upload app-host failure diagnostics"]["with"]
+    # The tests see what the worker's changed-suites run sees, as shard 8.
+    for key in ("CMUX_CI_APP_HOST_ISOLATION_REQUIRED", "CMUX_APP_HOST_UNIT_SELECTORS",
+                "CMUX_APP_HOST_CAPTURE_XCRESULTS", "CMUX_UNIT_TEST_TIMEOUT_SECONDS",
+                "CMUX_XCODEBUILD_NONINTERACTIVE_IDLE_TIMEOUT_SECONDS",
+                "CMUX_XCODEBUILD_NONINTERACTIVE_RESTART_BUDGET", "SWIFT_BACKTRACE",
+                "CMUX_XCODEBUILD_NONINTERACTIVE_POST_TEST_TIMEOUT_SECONDS"):
+        assert admission["env"][key] == shards["env"][key], key
+    assert admission["env"]["CMUX_APP_HOST_SHARD"] == "8"
+
+    # macOS status takes admission's success as the tests' and names a test
+    # failure apart from a compile failure.
+    status = workflow_job_step_script("macos-status", "Check routed macOS jobs", MACOS_WORKFLOW)
+    route = {"macos": "true", "full_suite": "false", "unit_suite": "true", "compile_admitted": "",
+             "release_build": "false", "unit_selectors": "cmuxTests/AlphaTests"}
+
+    def macos_status(in_admission: str, admission: str, shards: str, suites: str) -> subprocess.CompletedProcess[str]:
+        needs = {name: {"result": "skipped", "outputs": {}} for name in MACOS_JOBS}
+        needs["macos-compile-admission"] = {"result": admission, "outputs": {"changed_suites": suites}}
+        needs["app-host-unit-tests"]["result"] = shards
+        env = {**os.environ, "MACOS_INPUTS": json.dumps({**route, "unit_in_admission": in_admission}),
+               "MACOS_NEEDS": json.dumps(needs)}
+        return subprocess.run(["bash", "-c", status], cwd=ROOT, env=env, text=True, capture_output=True)
+
+    assert macos_status("true", "success", "skipped", "success").returncode == 0
+    failed = macos_status("true", "failure", "skipped", "failure")
+    assert failed.returncode != 0
+    assert "the changed suites failed" in failed.stderr, failed.stderr
+    compile_failed = macos_status("true", "failure", "skipped", "skipped")
+    assert "before the changed suites ran" in compile_failed.stderr, compile_failed.stderr
+    # Without admission running them, the worker is still required.
+    assert macos_status("", "success", "skipped", "").returncode != 0
+    assert macos_status("", "success", "success", "").returncode == 0
+
+
 def test_an_app_host_consumer_edit_runs_a_canary_after_the_compile() -> None:
     """Compile-only builds the product and never restores or runs it.
 
@@ -4562,6 +4676,8 @@ def test_app_host_failures_preserve_attempt_and_crash_diagnostics() -> None:
     assert "CMUX_APP_HOST_RESULT_BUNDLE_ROOT" in console_runner
     assert "- name: Collect app-host failure diagnostics" in app_host
     assert "- name: Upload app-host failure diagnostics" in app_host
+    assert "run: scripts/ci/collect-app-host-diagnostics.sh" in app_host
+    app_host += (ROOT / "scripts/ci/collect-app-host-diagnostics.sh").read_text(encoding="utf-8")
     assert "cmux-app-host-xcodebuild-*.meta" in app_host
     assert "cmux-app-host-xcresults" in app_host
     assert ".local/state/cmux/crash" in app_host
@@ -5171,11 +5287,11 @@ def test_app_host_catalogued_failure_is_tolerated_with_red_xcode_status() -> Non
 
 def test_app_host_ratchet_uses_built_inventory_and_typed_results() -> None:
     app_host = workflow_job_block("app-host-unit-tests", MACOS_WORKFLOW)
-    run_script = workflow_job_step_script(
-        "app-host-unit-tests", "Run unit tests", MACOS_WORKFLOW
-    )
-
     assert "- name: Enumerate built app-host tests" in app_host
+    assert "run: scripts/ci/run-app-host-unit-batches.sh" in app_host
+    app_host += (ROOT / "scripts/ci/enumerate-app-host-tests.sh").read_text(encoding="utf-8")
+    run_script = (ROOT / "scripts/ci/run-app-host-unit-batches.sh").read_text(encoding="utf-8")
+
     assert "-enumerate-tests" in app_host
     assert "CMUX_APP_HOST_TEST_INVENTORY" in app_host
     assert "app_host_result_accounting.py inventory" in app_host
