@@ -117,3 +117,12 @@ enum CLIHookProcessRunner {
         )
     }
 }
+
+/// Keeps a fixture server's write to a client that already hung up from
+/// raising SIGPIPE. cmuxCLITests runs without an app host, so nothing else
+/// ignores the signal and it would terminate the whole test runner. The option
+/// is set per socket so the CLI's own SIGPIPE behavior stays under test.
+func ignoreSIGPIPE(onAcceptedFixtureSocket fd: Int32) {
+    var noSignal: Int32 = 1
+    _ = setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &noSignal, socklen_t(MemoryLayout<Int32>.size))
+}

@@ -751,6 +751,7 @@ private final class RelayQueuedHookMockServer: @unchecked Sendable {
             while true {
                 let clientFD = Darwin.accept(listenerFD, nil, nil)
                 guard clientFD >= 0 else { return }
+                ignoreSIGPIPE(onAcceptedFixtureSocket: clientFD)
                 handle(clientFD: clientFD)
             }
         }

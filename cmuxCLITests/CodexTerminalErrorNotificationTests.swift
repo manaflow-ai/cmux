@@ -151,6 +151,7 @@ private final class CodexTerminalErrorSocketServer: @unchecked Sendable {
             }
             guard clientFD >= 0 else { return }
             defer { Darwin.close(clientFD) }
+            ignoreSIGPIPE(onAcceptedFixtureSocket: clientFD)
 
             var pending = Data()
             var buffer = [UInt8](repeating: 0, count: 4096)

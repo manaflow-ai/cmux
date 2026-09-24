@@ -2348,12 +2348,16 @@ jobs:
           # xcodebuild and stops there. CFFIXED_USER_HOME has to travel with
           # it: Foundation resolves NSHomeDirectory() through getpwuid unless
           # that is set, so HOME alone still leaves every fixture reading the
-          # runner's real home between reused self-hosted runs.
+          # runner's real home between reused self-hosted runs. CMUX_CLI_PATH
+          # needs the prefix too, or the tests fall back to searching the
+          # products directory and may run a different binary than the one
+          # resolved above.
           env \
             "TEST_RUNNER_HOME=$CMUX_CLI_TESTS_HOME" \
             "TEST_RUNNER_CFFIXED_USER_HOME=$CMUX_CLI_TESTS_HOME" \
             "TEST_RUNNER_XDG_CONFIG_HOME=$CMUX_CLI_TESTS_HOME/.config" \
             "TEST_RUNNER_SSH_AUTH_SOCK=" \
+            "TEST_RUNNER_CMUX_CLI_PATH=$CMUX_CLI_PATH" \
             bash scripts/ci/run-and-capture.sh "$test_log" \
             xcodebuild test-without-building \
             -xctestrun "$CMUX_CLI_TESTS_XCTESTRUN" \
@@ -2368,7 +2372,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: cli-product-tests-log
+          name: cli-product-tests-log-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/cmux-cli-product-tests.log
           if-no-files-found: ignore
           retention-days: 7

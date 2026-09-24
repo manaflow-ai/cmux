@@ -392,6 +392,7 @@ struct CLISSHPTYResizeInputTests {
                     }
                 }
                 if clientFD >= 0 {
+                    ignoreSIGPIPE(onAcceptedFixtureSocket: clientFD)
                     // Darwin inherits O_NONBLOCK; the line reader needs blocking reads.
                     let clientFlags = fcntl(clientFD, F_GETFL, 0)
                     _ = fcntl(clientFD, F_SETFL, clientFlags & ~O_NONBLOCK)
@@ -464,6 +465,7 @@ struct CLISSHPTYResizeInputTests {
             }
             guard clientFD >= 0 else { return }
             defer { Darwin.close(clientFD) }
+            ignoreSIGPIPE(onAcceptedFixtureSocket: clientFD)
 
             var pending = Data()
             var buffer = [UInt8](repeating: 0, count: 1024)
