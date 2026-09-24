@@ -624,11 +624,6 @@ extension Workspace {
                         ) ?? false
                 }
                 guard let effectiveRestorableAgent else { return nil }
-                let confirmedRuntimeProcessIdentities = confirmedRuntimeAgentProcessIdentities(
-                    for: effectiveRestorableAgent,
-                    panelId: panelId,
-                    currentProcessIdentity: currentAgentProcessIdentity
-                )
                 let matchingObservation = restorableAgentObservation?.matchingAgentSession(
                     kind: effectiveRestorableAgent.kind.rawValue,
                     sessionId: effectiveRestorableAgent.sessionId
@@ -640,6 +635,11 @@ extension Workspace {
                 ) {
                     return true
                 }
+                let confirmedRuntimeProcessIdentities = confirmedRuntimeAgentProcessIdentities(
+                    for: effectiveRestorableAgent,
+                    panelId: panelId,
+                    currentProcessIdentity: currentAgentProcessIdentity
+                )
                 return (matchingObservation?.processLiveness ?? .unknown)
                     .wasRunning(
                         fallingBackTo: panelShellActivityStates[panelId],
