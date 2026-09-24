@@ -12,7 +12,7 @@ import yaml
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def condition(expression, *, full_suite, publish="true"):
+def condition(expression, *, full_suite, publish="true", unit_suite="false"):
     """Evaluate the small boolean subset used by these actual workflow gates."""
     expression = expression.removeprefix("${{").removesuffix("}}").strip()
     expression = expression.replace("!cancelled()", "True")
@@ -22,6 +22,8 @@ def condition(expression, *, full_suite, publish="true"):
             return repr("success")
         if name.endswith(".outputs.full_suite") or name == "inputs.full_suite":
             return repr(full_suite)
+        if name.endswith(".outputs.unit_suite") or name == "inputs.unit_suite":
+            return repr(unit_suite)
         if name.endswith(".outputs.compile_admitted") or name == "inputs.compile_admitted":
             return repr("false")
         if name.endswith(".outputs.publish"):
@@ -46,12 +48,13 @@ class ProductPublicationTests(unittest.TestCase):
         cls.workflow = yaml.safe_load((ROOT / ".github/workflows/ci-macos.yml").read_text())
         cls.job = cls.workflow["jobs"]["macos-compile-admission"]
 
-    def publication(self, *, full_suite, event="pull_request", head="contributor/cmux", repo="manaflow-ai/cmux"):
+    def publication(self, *, full_suite, unit_suite="false", event="pull_request", head="contributor/cmux", repo="manaflow-ai/cmux"):
         step = next((s for s in self.job["steps"] if s.get("id") == "publish-products"), None)
         if step is None:
             return "true"  # The previous workflow always packaged and uploaded.
         self.assertEqual(step["env"], {
             "PRODUCT_FULL_SUITE": "${{ inputs.full_suite }}",
+            "PRODUCT_UNIT_SUITE": "${{ inputs.unit_suite }}",
             "PRODUCT_EVENT": "${{ github.event_name }}",
             "PRODUCT_HEAD_REPOSITORY": "${{ github.event.pull_request.head.repo.full_name }}",
             "PRODUCT_REPOSITORY": "${{ github.repository }}",
@@ -59,6 +62,7 @@ class ProductPublicationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             output = Path(directory) / "output"
             env = dict(os.environ, GITHUB_OUTPUT=str(output), PRODUCT_FULL_SUITE=full_suite,
+                       PRODUCT_UNIT_SUITE=unit_suite,
                        PRODUCT_EVENT=event, PRODUCT_HEAD_REPOSITORY=head, PRODUCT_REPOSITORY=repo)
             subprocess.run(["bash", "-e", "-c", step["run"]], env=env,
                            text=True, capture_output=True, check=True)
@@ -67,6 +71,7 @@ class ProductPublicationTests(unittest.TestCase):
     def test_only_known_compile_only_forks_skip_packaging_and_upload(self):
         cases = [
             ({"full_suite": "false"}, "false"),
+            ({"full_suite": "false", "unit_suite": "true"}, "true"),
             ({"full_suite": "true"}, "true"),
             ({"full_suite": ""}, "true"),
             ({"full_suite": "unknown"}, "true"),
@@ -94,6 +99,13 @@ class ProductPublicationTests(unittest.TestCase):
                 self.assertFalse(condition(job["if"], full_suite="false"), name)
                 self.assertTrue(condition(job["if"], full_suite="true"), name)
         self.assertEqual(set(consumers), {"app-host-unit-tests", "tests-build-and-lag"})
+        # `unit-ci` admits exactly one consumer under the compile-only policy,
+        # and the product it reads is published for it (see the unit-tier case
+        # in test_only_known_compile_only_forks_skip_packaging_and_upload).
+        unit_if = self.workflow["jobs"]["app-host-unit-tests"]["if"]
+        self.assertTrue(condition(unit_if, full_suite="false", unit_suite="true"))
+        lag_if = self.workflow["jobs"]["tests-build-and-lag"]["if"]
+        self.assertFalse(condition(lag_if, full_suite="false", unit_suite="true"))
         for name in consumers:
             self.assertNotIn("reuse-products", str(self.workflow["jobs"][name]["if"]))
 

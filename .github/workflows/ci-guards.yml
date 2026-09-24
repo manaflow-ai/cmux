@@ -159,6 +159,10 @@ jobs:
         if: ${{ matrix.group == 'preflight' }}
         run: python3 tests/test_write_sidebar_extension_point.py
 
+      - name: Validate settings rows advertise supported cmux.json paths
+        if: ${{ matrix.group == 'preflight' }}
+        run: python3 tests/test_settings_configuration_review_paths.py
+
       - name: Validate Localizable.xcstrings catalog structure
         if: ${{ matrix.group == 'preflight' }}
         run: python3 tests/test_localizable_xcstrings_structure.py
@@ -335,6 +339,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_health_report.py
 
+      - name: Validate runner label policy
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_runner_label_policy.py
+
       - name: Validate the trusted web complexity workflow
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_web_complexity_trusted_workflow.py
@@ -469,6 +477,10 @@ jobs:
         if: ${{ matrix.group == 'app-host-process' }}
         run: python3 tests/test_ci_app_host_failure_census.py
 
+      - name: Validate app-host verdict replay
+        if: ${{ matrix.group == 'app-host-process' }}
+        run: python3 tests/test_ci_replay_app_host_verdict.py
+
       - name: Validate app-host result ratchet
         if: ${{ matrix.group == 'app-host-process' }}
         env:
@@ -544,6 +556,10 @@ jobs:
       - name: Validate iOS App Store lane identity
         if: ${{ matrix.group == 'release-ios' }}
         run: python3 tests/test_ios_appstore_lane_identity.py
+
+      - name: Validate the cmux.app upload marker follows the receipt
+        if: ${{ matrix.group == 'release-ios' }}
+        run: python3 tests/test_ios_appstore_upload_marker.py
 
       - name: Validate TestFlight upload argument expansion
         if: ${{ matrix.group == 'release-ios' }}
@@ -717,6 +733,7 @@ jobs:
           python3 tests/test_ci_guard_workflow_structure.py
           python3 tests/test_app_host_test_products.py
           python3 tests/test_reuse_app_host_products.py
+          python3 tests/test_e2e_warm_derived_data.py
           python3 tests/test_ci_product_publication.py
 
       - name: Validate Python R2 appcast upload guard
