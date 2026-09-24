@@ -9,6 +9,7 @@ import Foundation
 
 final class CmuxSSHURLRequestTests: XCTestCase {
     deinit {}
+    // Verification-only edit for #14182; this PR is not meant to merge.
 
     private var supportedScheme: String {
         AuthEnvironment.callbackScheme
