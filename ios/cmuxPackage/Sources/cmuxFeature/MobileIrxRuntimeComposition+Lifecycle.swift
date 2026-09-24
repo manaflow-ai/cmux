@@ -72,7 +72,8 @@ extension MobileIrxRuntimeComposition {
         let identity = IrxIdentity(privateKeyData: key.secretKey, deviceID: deviceID, appInstanceID: key.endpointID)
         let supervisor = IrxEndpointSupervisor(configuration: IrxEndpointConfiguration(
             identity: identity, pathMode: forceRelayOnly ? .relayOnly : .automatic,
-            initialRemoteBiStreams: 0, initialRemoteUniStreams: 0), journal: journal)
+            initialRemoteBiStreams: 0, initialRemoteUniStreams: 0), journal: journal,
+            diagnosticLog: diagnosticLog)
         self.identity = identity
         endpointSupervisor = supervisor
         cache = restored ?? V2CachedState(identity: tuple)
