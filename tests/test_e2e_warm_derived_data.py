@@ -159,6 +159,14 @@ class AdoptionBudget(unittest.TestCase):
     budget has to expire inside it.
     """
 
+    def setUp(self):
+        import signal
+
+        previous = signal.getsignal(signal.SIGALRM)
+        self.addCleanup(signal.signal, signal.SIGALRM, previous)
+        self.addCleanup(signal.alarm, 0)
+        self.addCleanup(warm.CURRENT_PHASE.__setitem__, 0, warm.CURRENT_PHASE[0])
+
     def run_restore(self, slow_restore):
         from unittest import mock
 

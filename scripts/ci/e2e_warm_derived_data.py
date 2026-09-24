@@ -71,6 +71,7 @@ def phase(name: str):
     print(f"[warm] {name}...", file=sys.stderr, flush=True)
     yield
     print(f"[warm] {name}: {time.monotonic() - started:.1f}s", file=sys.stderr, flush=True)
+    CURRENT_PHASE[0] = f"after {name}"
 
 
 def digest(path: Path) -> str:
@@ -204,7 +205,12 @@ def main(argv: list[str]) -> int:
         return 0
     if len(argv) == 5 and argv[1] == "restore":
         derived = Path(argv[3])
-        budget = int(os.environ.get("CMUX_WARM_BUDGET_SECONDS") or DEFAULT_BUDGET_SECONDS)
+        try:
+            budget = int(os.environ.get("CMUX_WARM_BUDGET_SECONDS") or DEFAULT_BUDGET_SECONDS)
+        except ValueError:
+            budget = DEFAULT_BUDGET_SECONDS
+        # alarm(0) would switch the budget off rather than expire at once.
+        budget = max(budget, 1)
 
         def expire(_signum, _frame):
             raise BudgetExceeded(f"over {budget}s, in {CURRENT_PHASE[0]}")
