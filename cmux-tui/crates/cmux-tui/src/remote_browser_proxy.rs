@@ -27,6 +27,12 @@ pub(super) struct BrowserProxyArgs {
     owner: u32,
 }
 
+#[derive(Debug)]
+struct BrowserProxyPolicy {
+    allowed_hosts: Vec<String>,
+    allow_loopback: bool,
+}
+
 pub(super) fn parse_browser_proxy_args(args: &[String]) -> anyhow::Result<BrowserProxyArgs> {
     let mut connect = Vec::new();
     let mut allowed_hosts = Vec::new();
@@ -161,8 +167,10 @@ pub(super) async fn serve_browser_proxy(
     );
     io::stdout().flush()?;
     let credentials = format!("{username}:{password}");
-    let allowed_hosts = Arc::new(parsed.allowed_hosts);
-    let allow_loopback = parsed.allow_loopback;
+    let policy = Arc::new(BrowserProxyPolicy {
+        allowed_hosts: parsed.allowed_hosts,
+        allow_loopback: parsed.allow_loopback,
+    });
     let mut finished = runtime.subscribe_finished();
     let parent = parsed.owner;
     let mut tasks = tokio::task::JoinSet::new();
@@ -184,7 +192,7 @@ pub(super) async fn serve_browser_proxy(
                 }
                 let client = client.clone();
                 let proxy_port = address.port();
-                let allowed_hosts = allowed_hosts.clone();
+                let policy = policy.clone();
                 let credentials = credentials.clone();
                 let workspace = workspace.clone();
                 let websocket_token = websocket_token.clone();
@@ -193,11 +201,10 @@ pub(super) async fn serve_browser_proxy(
                         socket,
                         client,
                         workspace,
-                        allowed_hosts,
+                        policy,
                         credentials,
                         websocket_token,
                         proxy_port,
-                        allow_loopback,
                     )
                     .await;
                 });
@@ -216,11 +223,10 @@ async fn serve_browser_connection(
     socket: TcpStream,
     client: Arc<WorkspaceClient>,
     workspace: cmux_remote_protocol::WorkspaceId,
-    allowed_hosts: Arc<Vec<String>>,
+    policy: Arc<BrowserProxyPolicy>,
     credentials: String,
     websocket_token: String,
     proxy_port: u16,
-    allow_loopback: bool,
 ) -> anyhow::Result<()> {
     let mut first = [0_u8; 1];
     tokio::time::timeout(BROWSER_PROXY_HEADER_TIMEOUT, socket.peek(&mut first)).await??;
@@ -229,10 +235,9 @@ async fn serve_browser_connection(
             socket,
             client,
             workspace,
-            allowed_hosts,
+            policy,
             websocket_token,
             Vec::new(),
-            allow_loopback,
         )
         .await;
     }
@@ -240,11 +245,10 @@ async fn serve_browser_connection(
         socket,
         client,
         workspace,
-        allowed_hosts,
+        policy,
         credentials,
         websocket_token,
         proxy_port,
-        allow_loopback,
     )
     .await
 }
@@ -253,11 +257,10 @@ async fn serve_connect_connection(
     mut socket: TcpStream,
     client: Arc<WorkspaceClient>,
     workspace: cmux_remote_protocol::WorkspaceId,
-    allowed_hosts: Arc<Vec<String>>,
+    policy: Arc<BrowserProxyPolicy>,
     credentials: String,
     websocket_token: String,
     proxy_port: u16,
-    allow_loopback: bool,
 ) -> anyhow::Result<()> {
     let handshake_deadline = tokio::time::Instant::now() + BROWSER_PROXY_HEADER_TIMEOUT;
     let mut request = Vec::with_capacity(4096);
@@ -290,7 +293,7 @@ async fn serve_connect_connection(
         socket.write_all(b"HTTP/1.1 405 Method Not Allowed\r\nConnection: close\r\n\r\n").await?;
         return Ok(());
     }
-    let (host, port) = parse_connect_authority_with_loopback(target, allow_loopback)?;
+    let (host, port) = parse_connect_authority_with_loopback(target, policy.allow_loopback)?;
     let initial_payload = request[header_end..].to_vec();
     let auth = lines.find_map(|line| {
         line.split_once(':')
@@ -309,14 +312,13 @@ async fn serve_connect_connection(
             socket,
             client,
             workspace,
-            allowed_hosts,
+            policy,
             websocket_token,
             initial_payload,
-            allow_loopback,
         )
         .await;
     }
-    if !allowed_hosts.iter().any(|allowed| allowed == &host) {
+    if !policy.allowed_hosts.iter().any(|allowed| allowed == &host) {
         socket.write_all(b"HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n").await?;
         return Ok(());
     }
@@ -438,10 +440,9 @@ async fn serve_websocket_bridge(
     mut socket: TcpStream,
     client: Arc<WorkspaceClient>,
     workspace: cmux_remote_protocol::WorkspaceId,
-    allowed_hosts: Arc<Vec<String>>,
+    policy: Arc<BrowserProxyPolicy>,
     websocket_token: String,
     initial_payload: Vec<u8>,
-    allow_loopback: bool,
 ) -> anyhow::Result<()> {
     let deadline = tokio::time::Instant::now() + BROWSER_PROXY_HEADER_TIMEOUT;
     let (request, pending) = read_http_headers(&mut socket, deadline, initial_payload).await?;
@@ -457,8 +458,8 @@ async fn serve_websocket_bridge(
     let encoded =
         target.strip_prefix(prefix).ok_or_else(|| anyhow!("invalid WebSocket bridge path"))?;
     let (authority, path) = encoded.split_once('/').unwrap_or((encoded, ""));
-    let (host, port) = parse_connect_authority_with_loopback(authority, allow_loopback)?;
-    if !allowed_hosts.iter().any(|allowed| allowed == &host) || port == 0 || port == 1337 {
+    let (host, port) = parse_connect_authority_with_loopback(authority, policy.allow_loopback)?;
+    if !policy.allowed_hosts.iter().any(|allowed| allowed == &host) || port == 0 || port == 1337 {
         return Err(anyhow!("WebSocket bridge target is not allowed"));
     }
     let protocol_header = lines
@@ -642,10 +643,6 @@ fn application_protocols(header: &str, authentication: &str) -> String {
         .filter(|p| !p.is_empty() && *p != authentication)
         .collect::<Vec<_>>()
         .join(", ")
-}
-
-pub(super) fn parse_connect_authority(authority: &str) -> anyhow::Result<(String, u16)> {
-    parse_connect_authority_with_loopback(authority, false)
 }
 
 pub(super) fn parse_connect_authority_with_loopback(
