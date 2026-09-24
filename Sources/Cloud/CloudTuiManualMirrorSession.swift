@@ -20,7 +20,6 @@ final class CloudTuiManualMirrorSession {
     private(set) var remoteSurfaceID: UInt64
     let inputRouter: CloudTuiManualIOInputRouter
     let imagePaste = CloudImagePasteCoordinator()
-
     private let operations: CloudOperationRecorder?
     private var diagnosticContext: CloudOperationContext?
     private var creationAttachment: CloudCreationAttachment?
@@ -47,6 +46,7 @@ final class CloudTuiManualMirrorSession {
     private var attachResponseReceived = false
     private var claimInFlight = false
     private var geometryClaimed = false
+    private var geometryClaimBlockedByPeer = false
     /// Claim policy survives hiding; visibility fences the current connection's claim.
     private var geometryClaimEligible: Bool
     /// Older daemons do not know `set-client-sizing`. In that case the
@@ -237,7 +237,7 @@ final class CloudTuiManualMirrorSession {
                     )
                 }
             }
-            geometryClaimed = false
+            (geometryClaimed, geometryClaimBlockedByPeer) = (false, false)
             claimUnsupported = false
             claimInFlight = false
             discardPendingSizingRequests()
@@ -293,7 +293,7 @@ final class CloudTuiManualMirrorSession {
         pendingRequests.removeAll(keepingCapacity: true)
         attachResponseReceived = false
         claimInFlight = false
-        geometryClaimed = false
+        (geometryClaimed, geometryClaimBlockedByPeer) = (false, false)
         claimUnsupported = false
         remoteLease = nil
         serverCapabilities.removeAll(keepingCapacity: true)
@@ -419,7 +419,7 @@ final class CloudTuiManualMirrorSession {
     /// is also used by the composed explicit-input callback.
     func claimGeometry() {
         guard surface?.isRendererPortalVisible == true else { return }
-        geometryClaimEligible = true
+        (geometryClaimEligible, geometryClaimBlockedByPeer) = (true, false)
         // Another local projection may have claimed the shared terminal since
         // our last report. Treat an explicit focus/input edge as a fresh claim
         // opportunity instead of trusting the stale local flag.
@@ -829,7 +829,7 @@ final class CloudTuiManualMirrorSession {
                 // Another view owns this terminal's geometry. Keep the local
                 // sample, but make the explicit claim the next operation so a
                 // focused pane can take authority back deterministically.
-                geometryClaimed = false
+                (geometryClaimed, geometryClaimBlockedByPeer) = (false, true)
                 claimUnsupported = false
             }
             // A report is useful even when it was passive. Hold the newest
@@ -967,6 +967,7 @@ final class CloudTuiManualMirrorSession {
               surface?.isRendererPortalVisible == true,
               surface?.isNativeViewInRealWindow == true,
               geometryClaimEligible,
+              !geometryClaimBlockedByPeer,
               !geometryClaimed,
               !claimUnsupported,
               !claimInFlight,
