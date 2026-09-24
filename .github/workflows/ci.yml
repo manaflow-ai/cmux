@@ -67,11 +67,11 @@ jobs:
       linux_guard_history: ${{ steps.linux_guards.outputs.linux_guard_history }}
       linux_guard_cli: ${{ steps.linux_guards.outputs.linux_guard_cli }}
       linux_guard_source: ${{ steps.linux_guards.outputs.linux_guard_source }}
-      ghosttykit_release: ${{ steps.unchanged_inputs.outputs.compile_admitted == 'true' && 'false' || steps.linux_guards.outputs.ghosttykit_release }}
+      ghosttykit_release: ${{ (steps.unchanged_inputs.outputs.compile_admitted == 'true' || steps.unit_tested.outputs.unit_tested == 'true') && 'false' || steps.linux_guards.outputs.ghosttykit_release }}
       full_suite: ${{ steps.suite.outputs.full_suite }}
-      unit_suite: ${{ steps.suite.outputs.unit_suite }}
+      unit_suite: ${{ steps.unit_tested.outputs.unit_tested == 'true' && 'false' || steps.suite.outputs.unit_suite }}
       coverage_gap: ${{ steps.suite.outputs.coverage_gap }}
-      compile_admitted: ${{ steps.unchanged_inputs.outputs.compile_admitted == 'true' && 'true' || steps.admitted.outputs.compile_admitted }}
+      compile_admitted: ${{ (steps.unchanged_inputs.outputs.compile_admitted == 'true' || steps.unit_tested.outputs.unit_tested == 'true') && 'true' || steps.admitted.outputs.compile_admitted }}
       source_tree: ${{ steps.source-identity.outputs.tree }}
       source_parent1: ${{ steps.source-identity.outputs.parent1 }}
       source_identity_valid: ${{ steps.source-identity.outputs.valid }}
@@ -650,12 +650,32 @@ jobs:
           python3 scripts/ci/find_admitted_build.py --repository "$GITHUB_REPOSITORY" --branch "$BRANCH" \
             --fingerprint "$FINGERPRINT" --current-run-id "$GITHUB_RUN_ID" --github-output "$GITHUB_OUTPUT"
 
+      # A push that leaves the build fingerprint unchanged (docs, a guard test,
+      # another workflow) gives the app-host unit tests nothing new to observe.
+      # When an earlier run of this branch compiled the same inputs and passed
+      # every unit shard in that attempt, carry its verdict instead of
+      # compiling and testing the same product again. A failed or cancelled
+      # shard never qualifies, so a red verdict is never skipped past.
+      - name: Look for an earlier run that passed the unit tests on these inputs
+        id: unit_tested
+        continue-on-error: true
+        if: ${{ steps.inputs.outputs.fingerprint != '' && steps.suite.outputs.full_suite == 'false' && steps.suite.outputs.unit_suite == 'true' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BRANCH: ${{ github.head_ref }}
+          FINGERPRINT: ${{ steps.inputs.outputs.fingerprint }}
+        run: |
+          set -euo pipefail
+          python3 scripts/ci/find_admitted_build.py --repository "$GITHUB_REPOSITORY" --branch "$BRANCH" \
+            --fingerprint "$FINGERPRINT" --current-run-id "$GITHUB_RUN_ID" --require-unit-tests \
+            --github-output "$GITHUB_OUTPUT"
+
 
       # The PR workflow only publishes immutable request evidence. Dispatch and
       # cancellation authority live in persistent-macos-router.yml on main.
       - name: Publish persistent Mac route request
         id: persistent-route-request
-        if: ${{ github.event_name == 'pull_request' && steps.source-identity.outputs.valid == 'true' && steps.detect.outputs.macos == 'true' && steps.unchanged_inputs.outputs.compile_admitted != 'true' && steps.admitted.outputs.compile_admitted != 'true' && (vars.CI_PERSISTENT_MAC_COMPILE == 'pilot' || vars.CI_PERSISTENT_MAC_COMPILE == 'all' || vars.CI_PERSISTENT_MAC_COMPILE == 'on' || vars.CI_PERSISTENT_MAC_COMPILE == 'true' || vars.CI_PERSISTENT_MAC_COMPILE == '1') && github.event.pull_request.head.repo.full_name == github.repository && (github.event.pull_request.author_association == 'MEMBER' || github.event.pull_request.author_association == 'OWNER') }}
+        if: ${{ github.event_name == 'pull_request' && steps.source-identity.outputs.valid == 'true' && steps.detect.outputs.macos == 'true' && steps.unchanged_inputs.outputs.compile_admitted != 'true' && steps.admitted.outputs.compile_admitted != 'true' && steps.unit_tested.outputs.unit_tested != 'true' && (vars.CI_PERSISTENT_MAC_COMPILE == 'pilot' || vars.CI_PERSISTENT_MAC_COMPILE == 'all' || vars.CI_PERSISTENT_MAC_COMPILE == 'on' || vars.CI_PERSISTENT_MAC_COMPILE == 'true' || vars.CI_PERSISTENT_MAC_COMPILE == '1') && github.event.pull_request.head.repo.full_name == github.repository && (github.event.pull_request.author_association == 'MEMBER' || github.event.pull_request.author_association == 'OWNER') }}
         env:
           PR_NUMBER: ${{ github.event.pull_request.number }}
           HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name }}

@@ -3091,6 +3091,41 @@ def test_only_an_in_org_run_with_a_passed_admission_counts_as_admitted() -> None
     assert find(lambda _path: []) is None, "an unexpected payload means compile"
 
 
+
+def unit_shard(conclusion: str, shard: int = 1, run_attempt: int = 1) -> dict:
+    return {"name": f"macos / app-host unit tests ({shard}/7)", "conclusion": conclusion, "run_attempt": run_attempt}
+
+
+def test_unit_tests_are_skipped_only_behind_a_passing_run_of_the_same_inputs() -> None:
+    sys.path.insert(0, str(ROOT / "scripts/ci"))
+    from find_admitted_build import admitted_run, artifact_name
+
+    def find(artifacts: list[str], jobs: list[dict]) -> str | None:
+        api = admission_api([admission_run(8)], {8: artifacts}, {8: jobs})
+        return admitted_run(api, "manaflow-ai/cmux", "feature", "abc", current_run_id=9, require_unit_tests=True)
+
+    inputs = [artifact_name("abc", 1)]
+    admitted = [admission_job("success")]
+    all_passed = [unit_shard("success", shard) for shard in range(1, 8)]
+
+    # A docs push after a tested code push: same inputs, every shard passed.
+    assert find(inputs, admitted + all_passed) == "https://example/8"
+    # A red verdict is never skipped past, whatever caused it.
+    for bad in ("failure", "cancelled", "skipped", None):
+        jobs = admitted + all_passed[:-1] + [unit_shard(bad, 7)]
+        assert find(inputs, jobs) is None, bad
+    # Compiled but never unit-tested (a compile-only run) does not count.
+    assert find(inputs, admitted) is None
+    # Different inputs never count.
+    assert find([artifact_name("other", 1)], admitted + all_passed) is None
+    # The shards must have passed in the attempt that fingerprinted these
+    # inputs, not in another attempt of the same run.
+    other_attempt = [unit_shard("success", shard, run_attempt=2) for shard in range(1, 8)]
+    assert find(inputs, admitted + other_attempt) is None
+    # Without the flag, compile admission alone still counts, as before.
+    api = admission_api([admission_run(8)], {8: inputs}, {8: admitted})
+    assert admitted_run(api, "manaflow-ai/cmux", "feature", "abc", current_run_id=9) == "https://example/8"
+
 def test_admission_counts_only_for_the_inputs_fingerprinted_in_the_same_attempt() -> None:
     sys.path.insert(0, str(ROOT / "scripts/ci"))
     from find_admitted_build import admitted_run, artifact_name
@@ -3321,6 +3356,7 @@ def test_build_input_reuse_steps_never_fail_the_changes_job() -> None:
         "Skip compile when build inputs are unchanged",
         "Publish the build-input fingerprint",
         "Look for an earlier run that compiled these inputs",
+        "Look for an earlier run that passed the unit tests on these inputs",
     ):
         assert "        continue-on-error: true" in workflow_step_block("changes", step).splitlines(), step
 
@@ -3328,11 +3364,11 @@ def test_build_input_reuse_steps_never_fail_the_changes_job() -> None:
 def test_unchanged_build_inputs_skip_mac_compile_before_runner_allocation() -> None:
     changes = workflow_job_block("changes")
     assert (
-        "compile_admitted: ${{ steps.unchanged_inputs.outputs.compile_admitted == 'true' && 'true' || steps.admitted.outputs.compile_admitted }}"
+        "compile_admitted: ${{ (steps.unchanged_inputs.outputs.compile_admitted == 'true' || steps.unit_tested.outputs.unit_tested == 'true') && 'true' || steps.admitted.outputs.compile_admitted }}"
         in changes
     )
     assert (
-        "ghosttykit_release: ${{ steps.unchanged_inputs.outputs.compile_admitted == 'true' && 'false' || steps.linux_guards.outputs.ghosttykit_release }}"
+        "ghosttykit_release: ${{ (steps.unchanged_inputs.outputs.compile_admitted == 'true' || steps.unit_tested.outputs.unit_tested == 'true') && 'false' || steps.linux_guards.outputs.ghosttykit_release }}"
         in changes
     )
 
@@ -3472,7 +3508,14 @@ def test_the_unit_tier_closes_only_the_gap_its_job_can_judge() -> None:
 
 def test_the_unit_tier_is_routed_end_to_end() -> None:
     caller = CI_WORKFLOW.read_text(encoding="utf-8")
-    assert "      unit_suite: ${{ steps.suite.outputs.unit_suite }}" in caller
+    # The chooser's answer, unless an earlier run of these exact build inputs
+    # already passed every unit shard, which also admits the compile.
+    assert (
+        "      unit_suite: ${{ steps.unit_tested.outputs.unit_tested == 'true' && 'false' || steps.suite.outputs.unit_suite }}"
+        in caller
+    )
+    assert "steps.unit_tested.outputs.unit_tested == 'true') && 'true' || steps.admitted.outputs.compile_admitted" in caller
+    assert "--require-unit-tests" in caller
     assert "      unit_suite: ${{ needs.changes.outputs.unit_suite }}" in caller
 
     # The macOS workflow must be reachable for a unit-ci run whose compile was
