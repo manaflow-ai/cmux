@@ -253,6 +253,47 @@ class Refusal(unittest.TestCase):
         self.assertNotIn("rerun", api.calls)
         self.assertIn("queued on", summary)
 
+    def test_an_attempt_2_with_no_owned_job_ends_the_watch_at_its_first_look(self):
+        # Before routing sends retries to the fleet, attempt 2 runs on
+        # Blacksmith; the watch must not poll it until it finishes.
+        clock = Clock()
+        still_running = [job("macos / tests", status="in_progress", labels=[BLACKSMITH], runner="bs-1")]
+        api = FakeAPI(clock, refusing_run(), marker=True, finished=lambda seconds: seconds >= 60,
+                      rerun_jobs=lambda seconds: still_running)
+        _, summary = run_main(api, clock)
+        self.assertEqual(api.calls.count("jobs:2"), 1)
+        self.assertIn("no job of this attempt asked for a persistent pool", summary)
+
+    def test_one_deadline_covers_both_attempts(self):
+        # A refusal found near the end of the watch is left alone rather than
+        # cancelled by a job that may be killed before it can re-run.
+        late = rescue.WATCH_LIMIT_SECONDS - 150
+
+        def jobs(seconds):
+            found = [changes()(seconds)]
+            if seconds >= late:
+                # A later job of the run, refused at start near the deadline.
+                found.append(refused_job("macos / cli-product-tests"))
+            if seconds >= 40:
+                found.append(job("macos / macOS compile admission", labels=[MINI], created=40,
+                                 status="in_progress", runner="mini-1"))
+            return found
+
+        clock = Clock()
+        api = FakeAPI(clock, jobs, marker=True)
+        _, summary = run_main(api, clock)
+        self.assertNotIn("cancel", api.calls)
+        self.assertNotIn("rerun-failed", api.calls)
+        self.assertIn("too little of the watch left", summary)
+        # And attempt 2 inherits what is left, not a fresh hour.
+        clock = Clock()
+        waiting = [job("macos / macOS compile admission", labels=[MINI], created=0, status="in_progress",
+                       runner="mini-1")]
+        api = FakeAPI(clock, refusing_run(refused_at=600), marker=True, finished=lambda seconds: seconds >= 610,
+                      rerun_jobs=lambda seconds: waiting)
+        run_main(api, clock)
+        self.assertLessEqual(clock.seconds, rescue.WATCH_LIMIT_SECONDS + rescue.IDLE_POLL_SECONDS + 60)
+
     def test_a_refusal_on_a_moved_head_is_left_alone(self):
         clock = Clock()
         api = FakeAPI(clock, refusing_run(), marker=True, head="b" * 40)

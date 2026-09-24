@@ -44,8 +44,10 @@ re-run of failed jobs may take the owned pool again (the job's runs-on reads
 job can run on an owned Mac). GitHub delivers no `requested` event for a
 re-run (run 36059281883's attempt 2 started no rescue), so the watch that
 re-ran the failed jobs goes on to watch attempt 2 itself, for owned jobs
-only. A job refused, or queued past the budget, on attempt 2 gets the failed
-jobs re-run once more; attempt 3 and later always take retry_runner on
+only, and stops at the first look that lists no job on an owned label. A job
+refused, or queued past the budget, on attempt 2 gets the run cancelled if it
+is still going and its failed and cancelled jobs re-run once more, keeping the
+jobs that passed; attempt 3 and later always take retry_runner on
 Blacksmith, so a busy fleet costs at most one extra refusal and never loops.
 Attempt 2 needs no marker: `changes` is not re-run, so the watch follows any
 job on an owned label and stops when none appears.
@@ -105,6 +107,8 @@ READ_RETRY_SECONDS = 10
 MARKER_PREFIX = "macos-pool-persistent"
 CANCEL_WAIT_SECONDS = 180
 FORCE_CANCEL_AFTER_SECONDS = 90
+# Time kept back after a cancel settles, for the re-run request itself.
+RERUN_MARGIN_SECONDS = 60
 # A refused job fails in seconds; a real failure of the first step after
 # checkout takes longer than this, and one that does not is cheap to retry.
 REFUSAL_SECONDS = 120
@@ -326,9 +330,14 @@ def read(call: Callable[[], Any], sleep: Callable[[float], None], log: Callable[
 
 def watch(api: GitHub, target: Target, *, budget_seconds: int,
           now: Callable[[], dt.datetime], sleep: Callable[[float], None],
-          log: Callable[[str], None]) -> tuple[str, str]:
-    """Watch until a stop or a rescue. Returns (outcome, reason)."""
-    started = now()
+          log: Callable[[str], None], deadline: dt.datetime | None = None) -> tuple[str, str]:
+    """Watch until a stop, a rescue or `deadline`. Returns (outcome, reason).
+
+    One deadline covers every attempt a job watches (main()), so attempt 2
+    cannot stretch the job past its timeout.
+    """
+    if deadline is None:
+        deadline = now() + dt.timedelta(seconds=WATCH_LIMIT_SECONDS)
     sleep(FIRST_LOOK_SECONDS)
     looks = 0
     on_persistent = False
@@ -337,12 +346,13 @@ def watch(api: GitHub, target: Target, *, budget_seconds: int,
         looks += 1
         jobs = read(lambda: api.jobs(target.run_id, target.attempt), sleep, log)
         if not on_persistent and target.attempt > 1:
-            # A re-run of failed jobs: no `changes` job, no marker. Follow it
-            # once any job of it asks for an owned pool.
+            # A re-run of failed jobs: no `changes` job, no marker, and every
+            # job is created with the re-run. Follow it only if one asks for
+            # an owned pool; the first look that lists jobs decides.
             if any(job_pool(job) for job in jobs):
                 on_persistent = True
                 log("a re-run job asked for a persistent pool")
-            elif run_finished(jobs):
+            elif jobs:
                 return "stop", "no job of this attempt asked for a persistent pool"
         elif not on_persistent:
             if picker_finished(jobs):
@@ -374,7 +384,7 @@ def watch(api: GitHub, target: Target, *, budget_seconds: int,
                 if target.attempt > 1 and owned and all(accepted(job, seen_at) for job in owned):
                     # The fleet took the retry; later attempts never come back to it.
                     return "stop", "the fleet accepted the retry"
-        if (now() - started).total_seconds() >= WATCH_LIMIT_SECONDS:
+        if now() >= deadline:
             return "stop", "watch limit reached"
         sleep(interval)
 
@@ -400,7 +410,8 @@ def pull_moved(api: GitHub, target: Target, sleep: Callable[[float], None],
 
 
 def rescue(api: GitHub, target: Target, *, now: Callable[[], dt.datetime], sleep: Callable[[float], None],
-           log: Callable[[str], None], failed_only: bool = False) -> str:
+           log: Callable[[str], None], failed_only: bool = False,
+           deadline: dt.datetime | None = None) -> str:
     """Cancel and re-run, unless the pull request has moved on. Returns what happened.
 
     `failed_only` (a refused job) re-runs only the failed and cancelled jobs,
@@ -412,6 +423,11 @@ def rescue(api: GitHub, target: Target, *, now: Callable[[], dt.datetime], sleep
     run = read(lambda: api.run(target.run_id), sleep, log)
     if int(run.get("run_attempt") or 0) != target.attempt:
         return "not rescued: someone else already re-ran the run"
+    if run.get("status") != "completed" and deadline is not None and \
+            (deadline - now()).total_seconds() < CANCEL_WAIT_SECONDS + RERUN_MARGIN_SECONDS:
+        # A job killed between the cancel and the re-run would leave the
+        # pull request's run cancelled for good; leave it as GitHub has it.
+        return "not rescued: too little of the watch left to cancel and re-run"
     if run.get("status") == "completed":
         if not failed_only:
             return "not rescued: the run already finished"
@@ -481,21 +497,27 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
         return finish(f"not watched: {target}")
     client = api or GitHub(env.get("GH_TOKEN") or env.get("GITHUB_TOKEN") or "", repository)
     log(f"watching run {target.run_id} of pull request #{target.pr_number} (budget {seconds}s)")
+    # One deadline for every attempt this job watches, with room left under
+    # the workflow's 70-minute timeout for a cancel to settle and a re-run.
+    deadline = clock() + dt.timedelta(seconds=WATCH_LIMIT_SECONDS)
     try:
-        outcome, reason = watch(client, target, budget_seconds=seconds, now=clock, sleep=sleep, log=log)
+        outcome, reason = watch(client, target, budget_seconds=seconds, now=clock, sleep=sleep, log=log,
+                                deadline=deadline)
         if outcome not in ("rescue", "refused"):
             return finish(f"stopped: {reason}")
         log(f"{'rescue' if outcome == 'rescue' else 'refused'}: {reason}")
         while True:
             # From attempt 2 on, keep what passed: only the owned jobs are moved.
             failed_only = outcome == "refused" or target.attempt > 1
-            result = rescue(client, target, now=clock, sleep=sleep, log=log, failed_only=failed_only)
+            result = rescue(client, target, now=clock, sleep=sleep, log=log, failed_only=failed_only,
+                            deadline=deadline)
             log(result)
             if not (failed_only and result.startswith("re-ran") and target.attempt + 1 <= LAST_OWNED_ATTEMPT):
                 return finish("done")
             # The re-run may take the owned pool once more; watch it here.
             target = dataclasses.replace(target, attempt=target.attempt + 1)
-            outcome, reason = watch(client, target, budget_seconds=seconds, now=clock, sleep=sleep, log=log)
+            outcome, reason = watch(client, target, budget_seconds=seconds, now=clock, sleep=sleep, log=log,
+                                    deadline=deadline)
             if outcome not in ("rescue", "refused"):
                 return finish(f"stopped watching attempt {target.attempt}: {reason}")
             log(f"attempt {target.attempt}: {'rescue' if outcome == 'rescue' else 'refused'}: {reason}")
