@@ -128,7 +128,7 @@ def route(args: argparse.Namespace, api: GitHub, waiter) -> int:
         run = waiter.until(started + 60, observe_run)
         if run is None:
             # The listing can lag the dispatch. A run left behind would hold a
-            # mini and the lane's concurrency group for its whole timeout.
+            # mini for its whole timeout.
             run = waiter.until(shared.now() + 30, observe_run, initial_delay=2.0, max_delay=5.0)
             if run is not None:
                 shared.cancel(api, int(run["id"]))
