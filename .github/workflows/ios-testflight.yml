@@ -555,21 +555,7 @@ jobs:
         run: ./ios/scripts/fetch-testflight-notes-history.sh "$LAST_UPLOADED_SHA"
 
       - name: Select Xcode
-        run: |
-          set -euo pipefail
-          if [ -d "/Applications/Xcode.app/Contents/Developer" ]; then
-            XCODE_DIR="/Applications/Xcode.app/Contents/Developer"
-          else
-            XCODE_APP="$(find /Applications -maxdepth 1 -type d -name 'Xcode*.app' -print 2>/dev/null | sort | tail -n 1 || true)"
-            if [ -z "$XCODE_APP" ]; then
-              echo "No Xcode.app found under /Applications" >&2
-              exit 1
-            fi
-            XCODE_DIR="$XCODE_APP/Contents/Developer"
-          fi
-          echo "DEVELOPER_DIR=$XCODE_DIR" >> "$GITHUB_ENV"
-          export DEVELOPER_DIR="$XCODE_DIR"
-          xcodebuild -version
+        run: ./scripts/select-ci-xcode.sh
 
       # The verified prebuilt is the happy path (same pattern as
       # reload-build.yml). Zig and the ghostty source are fetched only when it

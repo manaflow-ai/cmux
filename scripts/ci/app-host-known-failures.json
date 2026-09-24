@@ -43,18 +43,6 @@
       "classification": "product bug",
       "issue": 13998
     },
-    "CloudPortForwardAddressReuseTests/browserConnectionsReuseWorkingFamily()": {
-      "classification": "unknown",
-      "issue": 13879
-    },
-    "CloudPrivateRouteSelectionTests/partialAddressesPreserveFallback(replacesIPv4:)": {
-      "classification": "unknown",
-      "issue": 13879
-    },
-    "CmuxTuiSurfaceProviderRegistryPollingTests/unavailableCloudDoesNotPrepare(enabled:)": {
-      "classification": "unknown",
-      "issue": 13403
-    },
     "SidebarHiddenPresentationTests/visibilityToggleKeepsAppKitTableContainerMounted()": {
       "classification": "product bug",
       "issue": 13931
