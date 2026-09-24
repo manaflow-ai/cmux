@@ -56,7 +56,7 @@ def backlog(small=21, large=0, old=4, large_reserved=0, old_reserved=0, age=5, s
 
 def choose(snap, *, event="pull_request", head="manaflow-ai/cmux", default=SMALL,
            overflow="", order="", max_queued="", pins=PINS, fetch=None, routed=0, attempt=1, owned="",
-           owned_slots=""):
+           owned_slots="", jobs_per_run=""):
     def count_routed(since):
         if isinstance(routed, Exception):
             raise routed
@@ -64,7 +64,7 @@ def choose(snap, *, event="pull_request", head="manaflow-ai/cmux", default=SMALL
     return pool.choose(
         event=event, repo="manaflow-ai/cmux", head_repo=head, default_runner=default,
         overflow=overflow, order=order, max_queued=max_queued, xcode_pins=pins, owned=owned,
-        owned_slots=owned_slots,
+        owned_slots=owned_slots, jobs_per_run=jobs_per_run,
         fetch=fetch or (lambda: snap), count_routed=count_routed, now=NOW, run_attempt=attempt,
     )[0]
 
@@ -303,6 +303,13 @@ class JanitorSnapshot(unittest.TestCase):
         # 12vcpu is reserved by the queued nightly job; 6vcpu 26 has headroom.
         self.assertEqual(choose(snap).runner, SMALL)
 
+    def test_owned_jobs_are_macos_jobs_to_the_janitor(self):
+        mini = {"labels": ["glaeda-std-xcode-26.6"], "status": "queued"}
+        self.assertTrue(janitor.is_macos_job(mini))
+        self.assertEqual(janitor.runner_pool(mini), "glaeda-std-xcode-26.6")
+        self.assertFalse(janitor.is_macos_job({"labels": ["glaeda-mini"], "status": "queued"}))
+        self.assertEqual(janitor.runner_pool({"labels": [SMALL]}), SMALL)
+
     def test_counts_jobs_on_an_owned_pool_label(self):
         runs = [{"id": 1, "name": "CI", "path": ".github/workflows/ci.yml"}]
         mini = "glaeda-std-xcode-26.6"
@@ -344,7 +351,7 @@ def fleet(busy=0, queued=0, age=2, **kwargs) -> dict:
     return snap
 
 
-def owned_choice(snap, *, owned="1", machines=3, **kwargs):
+def owned_choice(snap, *, owned="1", machines=11, **kwargs):
     kwargs.setdefault("owned_slots", json.dumps({MINI: machines}))
     return choose(snap, pins=OWNED_PINS, owned=owned, **kwargs)
 
@@ -370,18 +377,29 @@ class OwnedPools(unittest.TestCase):
     def test_order_naming_an_owned_pool_is_ignored_while_off(self):
         self.assertEqual(owned_choice(fleet(small=0), owned="", order=f"{MINI},{SMALL}").runner, SMALL)
 
-    def test_first_when_on_and_a_runner_is_idle(self):
-        choice = owned_choice(fleet(busy=1))
+    def test_first_when_on_and_a_whole_run_fits(self):
+        choice = owned_choice(fleet(busy=8))
         self.assertEqual((choice.runner, choice.xcode_app), (MINI, ""))
+        self.assertIn("3 of 11 owned machines free", choice.reason)
 
-    def test_busy_pool_overflows_to_blacksmith(self):
-        self.assertEqual(owned_choice(fleet(busy=3)).runner, LARGE)
-        self.assertEqual(owned_choice(fleet(busy=1, queued=1)).runner, LARGE)
+    def test_a_run_needs_a_machine_for_each_of_its_jobs(self):
+        # 11 machines, 9 busy: one run's 3 jobs would not all start.
+        self.assertEqual(owned_choice(fleet(busy=9)).runner, LARGE)
+        self.assertEqual(owned_choice(fleet(busy=9), jobs_per_run="2").runner, MINI)
+
+    def test_queued_jobs_take_machines_without_closing_the_pool(self):
+        self.assertEqual(owned_choice(fleet(busy=5, queued=3)).runner, MINI)
+        self.assertEqual(owned_choice(fleet(busy=5, queued=4)).runner, LARGE)
+
+    def test_jobs_per_run_must_be_1_to_10(self):
+        for value in ("0", "11", "x"):
+            self.assertEqual(owned_choice(fleet(), jobs_per_run=value).runner, "", value)
 
     def test_replayed_runs_fill_idle_runners_first(self):
         # Two idle runners; two runs created since the snapshot took them.
-        self.assertEqual(owned_choice(fleet(busy=1), routed=2).runner, LARGE)
-        self.assertEqual(owned_choice(fleet(busy=1), routed=1).runner, MINI)
+        # 11 machines, 2 busy: two newer runs took 6, leaving 3 for this one; a third takes those.
+        self.assertEqual(owned_choice(fleet(busy=2), routed=2).runner, MINI)
+        self.assertEqual(owned_choice(fleet(busy=2), routed=3).runner, LARGE)
 
     def test_stale_snapshot_or_no_slots_skips_the_pool(self):
         self.assertEqual(owned_choice(fleet(age=pool.OWNED_MAX_AGE_MINUTES + 1)).runner, LARGE)
@@ -398,13 +416,14 @@ class OwnedPools(unittest.TestCase):
             self.assertEqual(pool.slots(raw), {}, raw)
 
     def test_full_owned_only_order_keeps_todays_route(self):
-        choice = owned_choice(fleet(busy=2), machines=2, order=MINI)
+        choice = owned_choice(fleet(busy=9), order=MINI)
         self.assertEqual(choice.runner, "")
         self.assertIn("busy", choice.reason)
 
-    def test_order_with_a_stale_xcode_label_turns_the_preference_off(self):
-        choice = owned_choice(fleet(), order=f"glaeda-std-xcode-26.3,{SMALL}")
-        self.assertEqual(choice.runner, "")
+    def test_a_stale_xcode_label_in_the_order_is_dropped_and_reported(self):
+        choice = owned_choice(fleet(small=0), order=f"glaeda-std-xcode-26.3,{SMALL}")
+        self.assertEqual(choice.runner, SMALL)
+        self.assertIn("dropped glaeda-std-xcode-26.3 (not the lane's Xcode pin)", choice.reason)
 
     def test_fork_never_takes_an_owned_pool(self):
         settings = dict(FORK_SETTINGS, order=f"{MINI},{SMALL}")

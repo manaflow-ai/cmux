@@ -247,12 +247,20 @@ def needs_jobs(run: Mapping[str, Any], linux_only_paths: frozenset[str], now: dt
     return True
 
 
+def owned_label(job: Mapping[str, Any]) -> str | None:
+    """The owned Mac pool a job asked for (glaeda-<class>-xcode-<version>), which names no macOS."""
+    return next((str(label) for label in job.get("labels") or () if owned_pool(str(label))), None)
+
+
 def is_macos_job(job: Mapping[str, Any]) -> bool:
-    return any("macos" in str(label).lower() for label in job.get("labels") or ())
+    return bool(owned_label(job)) or any("macos" in str(label).lower() for label in job.get("labels") or ())
 
 
 def runner_pool(job: Mapping[str, Any]) -> str:
-    """The pool a macOS job waits on: the macOS labels it asked for."""
+    """The pool a macOS job waits on: its owned pool label, else the macOS labels it asked for."""
+    owned = owned_label(job)
+    if owned:
+        return owned
     labels = sorted({str(label).lower() for label in job.get("labels") or () if "macos" in str(label).lower()})
     return ",".join(labels)
 
@@ -353,23 +361,21 @@ def pool_load_snapshot(
     `settings` carries the pool-choice repository variables, which a fork
     pull request's run cannot read itself.
 
-    A job on an owned pool (`glaeda-<class>-xcode-<version>`) asks for that
-    one label, which names no macOS, so it is matched by the label itself.
-    Its counts are how pr_runner_pool.py knows how many of the pool's slots
-    are taken.
+    A job on an owned pool (`glaeda-<class>-xcode-<version>`) is keyed by
+    that label (runner_pool); its counts are how pr_runner_pool.py knows how
+    many of the pool's machines are taken.
     """
     pools: dict[str, dict[str, Any]] = {}
     oldest: dict[str, dt.datetime] = {}
     for run in runs:
         reserved = bool(RESERVED_POOL_WORKFLOW.search(f"{run.get('name') or ''} {run.get('path') or ''}"))
         for job in jobs_by_run.get(run.get("id"), ()):
-            owned = next((str(label) for label in job.get("labels") or () if owned_pool(str(label))), None)
-            if not owned and not is_macos_job(job):
+            if not is_macos_job(job):
                 continue
             status = job.get("status")
             if status not in POOL_QUEUED_JOB_STATUSES and status not in RUNNING_JOB_STATUSES:
                 continue
-            pool = owned or runner_pool(job)
+            pool = runner_pool(job)
             entry = pools.setdefault(pool, {"queued": 0, "running": 0, "reserved_queued": 0,
                                             "oldest_queued_minutes": 0})
             if status in RUNNING_JOB_STATUSES:
