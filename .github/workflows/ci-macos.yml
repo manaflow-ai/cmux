@@ -2232,6 +2232,22 @@ jobs:
       CMUX_SKIP_ZIG_BUILD: "1"
       SWIFT_BACKTRACE: "interactive=no,timeout=0s,symbolicate=off,color=no"
     steps:
+      - name: Verify GitHub-hosted route
+        env:
+          RUNNER_ENVIRONMENT: ${{ runner.environment }}
+          REQUESTED_RUNNER: ${{ needs.macos-compile-admission.outputs.runner }}
+          RUNNER_CONTEXT_NAME: ${{ runner.name }}
+        run: |
+          set -euo pipefail
+          case "$REQUESTED_RUNNER" in
+            macos-*)
+              if [ "$RUNNER_ENVIRONMENT" != "github-hosted" ]; then
+                echo "::error::$REQUESTED_RUNNER resolved outside GitHub-hosted capacity: $RUNNER_CONTEXT_NAME"
+                exit 1
+              fi
+              ;;
+          esac
+
       - name: Clear stale git locks (self-hosted reused workspace)
         shell: bash
         run: |
@@ -2289,8 +2305,33 @@ jobs:
           CMUX_PRODUCT_PRODUCER_RUN_ATTEMPT: ${{ needs.macos-compile-admission.outputs.producer_run_attempt }}
         run: python3 scripts/ci/peer_product_source.py fetch "$RUNNER_TEMP/app-host-products"
 
+      # R2 is an optional remote broker. With no configured endpoint, a peer
+      # miss falls straight through to the canonical GitHub artifact.
+      - name: Try shared R2 artifact transport
+        id: r2-products
+        if: steps.node-products.outputs.hit != 'true' && steps.peer-products.outputs.hit != 'true' && vars.CI_ARTIFACT_R2_URL != ''
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CI_ARTIFACT_R2_URL: ${{ vars.CI_ARTIFACT_R2_URL }}
+          ARTIFACT_ID: ${{ needs.macos-compile-admission.outputs.artifact_id }}
+          ARTIFACT_PROVIDER_DIGEST: ${{ needs.macos-compile-admission.outputs.artifact_digest }}
+        run: python3 scripts/ci/restore-r2-artifact.py
+
+      # Same exact-ID GitHub artifact over parallel range requests; the
+      # single-stream download below stays as the fallback.
+      - name: Try parallel GitHub artifact transport
+        id: parallel-products
+        if: steps.node-products.outputs.hit != 'true' && steps.peer-products.outputs.hit != 'true' && steps.r2-products.outputs.hit != 'true'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_ID: ${{ needs.macos-compile-admission.outputs.artifact_id }}
+          ARTIFACT_PROVIDER_DIGEST: ${{ needs.macos-compile-admission.outputs.artifact_digest }}
+        run: python3 scripts/ci/parallel_artifact_download.py
+
       - name: Download compiled test product
-        if: steps.node-products.outputs.hit != 'true' && steps.peer-products.outputs.hit != 'true'
+        if: steps.node-products.outputs.hit != 'true' && steps.peer-products.outputs.hit != 'true' && steps.r2-products.outputs.hit != 'true' && steps.parallel-products.outputs.hit != 'true'
         uses: ./.github/actions/download-test-product
         with:
           artifact-id: ${{ needs.macos-compile-admission.outputs.artifact_id }}
@@ -2312,7 +2353,29 @@ jobs:
           CMUX_PEER_PRODUCT_LOOKUP_SECONDS: ${{ steps.peer-products.outputs.lookup_seconds }}
           CMUX_PEER_PRODUCT_TRANSFER_SECONDS: ${{ steps.peer-products.outputs.transfer_seconds }}
           CMUX_PEER_PRODUCT_BYTES: ${{ steps.peer-products.outputs.bytes_transferred }}
+          CMUX_R2_PRODUCT_HIT: ${{ steps.r2-products.outputs.hit }}
+          CMUX_PARALLEL_PRODUCT_HIT: ${{ steps.parallel-products.outputs.hit }}
+          CMUX_PARALLEL_PRODUCT_TRANSFER_SECONDS: ${{ steps.parallel-products.outputs.transfer_seconds }}
+          CMUX_ARTIFACT_R2_RESULT: ${{ steps.r2-products.outputs.r2_result }}
         run: scripts/ci/restore-app-host-test-product.sh
+
+      - name: Finalize node-local compiled product cache
+        if: always()
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_ID: ${{ needs.macos-compile-admission.outputs.artifact_id }}
+          ARTIFACT_PROVIDER_DIGEST: ${{ needs.macos-compile-admission.outputs.artifact_digest }}
+          EXPECTED_SHA256: ${{ needs.macos-compile-admission.outputs.sha256 }}
+          CMUX_PRODUCT_CONTRACT: ${{ needs.macos-compile-admission.outputs.product_contract }}
+          CMUX_PRODUCT_SOURCE_REVISION: ${{ needs.macos-compile-admission.outputs.source_revision }}
+          CMUX_PRODUCT_PRODUCER_RUN_ID: ${{ needs.macos-compile-admission.outputs.producer_run_id }}
+          CMUX_PRODUCT_PRODUCER_RUN_ATTEMPT: ${{ needs.macos-compile-admission.outputs.producer_run_attempt }}
+          CMUX_NODE_PRODUCT_CACHE_TOKEN: ${{ steps.node-products.outputs.token }}
+          CMUX_NODE_PRODUCT_CACHE_LEASE: ${{ steps.node-products.outputs.lease }}
+          CMUX_NODE_PRODUCT_SOURCE_CLASS: ${{ steps.peer-products.outputs.hit == 'true' && 'peer' || (steps.r2-products.outputs.hit == 'true' && 'r2' || 'github') }}
+          CMUX_PRODUCT_RESTORE_SUCCEEDED: ${{ steps.restore-products.outcome == 'success' }}
+        run: python3 scripts/ci/node_product_cache.py finalize "$RUNNER_TEMP/app-host-products/app-host-products.tar.gz"
 
       - name: Resolve the CLI under test
         run: |
