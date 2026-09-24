@@ -718,6 +718,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
 
         let startupCommand = try generatedSSHStartupCommand(
             replacingSystemSSHWith: fakeSSH,
+            requestTTYOption: nil,
             additionalArguments: ["--transport", "mosh"]
         )
         var environment = ProcessInfo.processInfo.environment
@@ -1296,12 +1297,18 @@ extension CLINotifyProcessIntegrationRegressionTests {
         )
     }
 
+    /// Generates the legacy SSH startup wrapper. `cmux ssh` hands TTY
+    /// sessions to cmux-tui through `workspace.ssh.open`, so this wrapper is
+    /// only produced for sessions without a TTY and for mosh. Unless the
+    /// caller already sets `RequestTTY`, `requestTTYOption` pins the session
+    /// to that path; pass nil for mosh, which keeps its own terminal.
     private func generatedSSHStartupCommand(
         replacingSystemSSHWith fakeSSH: URL,
         sshOptions: [String] = [
             "ControlMaster no",
             "ControlPath /tmp/cmux-ssh-%C",
         ],
+        requestTTYOption: String? = "RequestTTY no",
         additionalArguments: [String] = [],
         remoteCommandArguments: [String] = []
     ) throws -> String {
@@ -1373,6 +1380,10 @@ extension CLINotifyProcessIntegrationRegressionTests {
         ]
         for option in sshOptions {
             arguments += ["--ssh-option", option]
+        }
+        if let requestTTYOption,
+           !sshOptions.contains(where: { $0.lowercased().hasPrefix("requesttty") }) {
+            arguments += ["--ssh-option", requestTTYOption]
         }
         arguments += additionalArguments
         arguments.append("cmux-macmini")
