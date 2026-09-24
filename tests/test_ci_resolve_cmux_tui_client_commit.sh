@@ -146,4 +146,55 @@ if ! grep -q 'retrying' "$TMP/flaky.err"; then
   exit 1
 fi
 
+# A missing manifest is definitive: the walk past it must not sleep through retries.
+# curl --retry-all-errors retried every 404 five times, 3 s apart, so each unpublished
+# candidate cost 15 s here and in every release and nightly fallback.
+rm "$STORE/$C3/manifest.json"
+started=$SECONDS
+got="$(cd "$TMP/full" && "$RESOLVER" --max-fallback 3 2>/dev/null)"
+elapsed=$((SECONDS - started))
+if [[ "$got" != "$C1" ]]; then
+  echo "FAIL: fallback past a missing manifest must resolve $C1, got '$got'"
+  exit 1
+fi
+if [[ $elapsed -gt 5 ]]; then
+  echo "FAIL: skipping a missing manifest took ${elapsed}s; a 404 must not be retried"
+  exit 1
+fi
+
+# A transient probe failure (here, DNS) is still retried, so it does not read as a
+# missing manifest. The shim fails its first two calls, then runs the real curl.
+REAL_CURL="$(command -v curl)"
+mkdir -p "$TMP/shim"
+cat >"$TMP/shim/curl" <<EOF
+#!/usr/bin/env bash
+left="\$(cat "$TMP/curl-failures-left")"
+if [[ "\$left" -gt 0 ]]; then
+  echo \$((left - 1)) >"$TMP/curl-failures-left"
+  echo "curl: (6) Could not resolve host: files.cmux.com" >&2
+  exit 6
+fi
+exec "$REAL_CURL" "\$@"
+EOF
+chmod +x "$TMP/shim/curl"
+printf '{"commit":"%s"}\n' "$C3" >"$STORE/$C3/manifest.json"
+echo 2 >"$TMP/curl-failures-left"
+got="$(cd "$TMP/full" && PATH="$TMP/shim:$PATH" CMUX_TUI_CLIENT_PROBE_RETRY_SECONDS=0 "$RESOLVER" 2>/dev/null)"
+if [[ "$got" != "$C3" ]]; then
+  echo "FAIL: a transient probe failure must be retried and resolve $C3, got '$got'"
+  exit 1
+fi
+if [[ "$(cat "$TMP/curl-failures-left")" != 0 ]]; then
+  echo "FAIL: the curl shim was not exercised (test setup)"
+  exit 1
+fi
+for bad in x -1; do
+  rc=0
+  (cd "$TMP/full" && CMUX_TUI_CLIENT_PROBE_RETRY_SECONDS="$bad" "$RESOLVER" >/dev/null 2>&1) || rc=$?
+  if [[ $rc != 64 ]]; then
+    echo "FAIL: CMUX_TUI_CLIENT_PROBE_RETRY_SECONDS='$bad' must exit 64 (usage error), got $rc"
+    exit 1
+  fi
+done
+
 echo "PASS: resolve-cmux-tui-client-commit picks the newest published cmux-tui commit, shallow or not"
