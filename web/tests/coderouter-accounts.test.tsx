@@ -131,23 +131,45 @@ describe("coderouter accounts section", () => {
     expect(html).toContain('name="apiKeyLabel"');
   });
 
-  test("hides management controls for members without account rights", () => {
+  test("members without account rights manage only their own private accounts", () => {
+    // Any member may add a private account and change or remove it. Sharing,
+    // shared accounts, and API keys need the `$manage_api_keys` team permission.
+    const ownClaude = {
+      ...claudeAccount,
+      id: "claude-own",
+      identifier: "sk-ant-oat01-…c3d4",
+      createdBy: "user-member",
+      visibility: "private" as const,
+    };
+    const ownNative = {
+      ...nativeCodexAccount,
+      id: "native-own",
+      providerAccountId: "acct_own",
+      createdBy: "user-member",
+      visibility: "private" as const,
+    };
     const html = renderToStaticMarkup(
       <CoderouterAccountsSection
         teamId="team-1"
+        viewerUserId="user-member"
         canManage={false}
-        claude={{ kind: "ok", accounts: [claudeAccount] }}
-        native={{ kind: "ok", accounts: [nativeCodexAccount] }}
+        claude={{ kind: "ok", accounts: [claudeAccount, ownClaude] }}
+        native={{ kind: "ok", accounts: [nativeCodexAccount, ownNative] }}
         shared={{ kind: "ok", accounts: [codexAccount] }}
       />,
     );
 
-    expect(html).not.toContain('role="tablist"');
-    expect(html).not.toContain(">Remove<");
-    expect(html).not.toContain(">Disable<");
-    // Provider account identifiers are for account managers only.
+    expect(html).toContain('role="tablist"');
+    expect(html).toContain("New accounts are private.");
+    expect(html).toContain("sk-ant-oat01-…c3d4");
+    expect(html).toContain("acct_own");
+    expect(html.match(/>Remove</g)).toHaveLength(2);
+    expect(html.match(/>Disable</g)).toHaveLength(1);
+    // Shared account identifiers and controls stay with account managers.
     expect(html).not.toContain("acct_9f3");
     expect(html).not.toContain("sk-ant-oat01-…a1b2");
+    expect(html).not.toContain("Share with team");
+    expect(html).not.toContain("Make private");
     expect(html).not.toContain('name="apiKeyLabel"');
     expect(html).toContain("Claude Code OAuth");
   });

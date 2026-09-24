@@ -1,4 +1,5 @@
 import { transferAccount } from "../../../../../../services/coderouter/accounts";
+import { teamPermissionRequired } from "../../../../../../services/coderouter/accountAdministration";
 import { resolveCodeRouterRequestContext } from "../../../../../../services/coderouter/requestContext";
 import { authorizedCoderouterTeams } from "../../../../../../services/coderouter/permissions";
 import type { AuthedUser } from "../../../../../../services/vms/auth";
@@ -28,8 +29,10 @@ export function makeCoderouterTransferHandler(
   ): Promise<Response> {
     const resolved = await dependencies.resolve(request);
     if (!resolved.ok) return resolved.response;
+    // Moving an account needs account administration on both teams
+    // (accountAdministration.ts).
     if (!resolved.value.team.manageAccounts) {
-      return Response.json({ error: "forbidden" }, { status: 403 });
+      return teamPermissionRequired(resolved.value.team, "transfer_account");
     }
     const { accountId } = await context.params;
     if (!UUID.test(accountId)) {
@@ -47,10 +50,13 @@ export function makeCoderouterTransferHandler(
       ? (body as { destinationTeamId: string }).destinationTeamId.trim()
       : "";
     const destination = (await dependencies.listTeams(resolved.value.user)).find(
-      (team) => team.teamId === destinationTeamId && team.manageAccounts,
+      (team) => team.teamId === destinationTeamId,
     );
     if (!destination || destinationTeamId === resolved.value.team.teamId) {
       return Response.json({ error: "destination_forbidden" }, { status: 403 });
+    }
+    if (!destination.manageAccounts) {
+      return teamPermissionRequired(destination, "transfer_account", { error: "destination_forbidden" });
     }
     try {
       const moved = await dependencies.transfer({

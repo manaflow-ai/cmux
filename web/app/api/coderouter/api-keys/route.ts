@@ -10,6 +10,7 @@ import {
   type CoderouterApiKeyUsage,
 } from "../../../../services/coderouter/apiKeyMetrics";
 import { resolveCodeRouterRequestContext } from "../../../../services/coderouter/requestContext";
+import { teamPermissionRequired } from "../../../../services/coderouter/accountAdministration";
 import { captureCoderouterEvent } from "../../../../services/coderouter/analytics";
 import { reportCoderouterFailure } from "../../../../services/coderouter/observability";
 import { readBoundedJsonRecord } from "../../../../services/subrouter/boundedJson";
@@ -93,7 +94,7 @@ async function handlePost(dependencies: ApiKeyRouteDependencies, request: Reques
   const resolved = await dependencies.resolve(request);
   if (!resolved.ok) return resolved.response;
   if (!resolved.value.team.manageAccounts) {
-    return Response.json({ error: "forbidden" }, { status: 403 });
+    return teamPermissionRequired(resolved.value.team, "manage_api_keys");
   }
   const body = await readBoundedJsonRecord(request, MAX_BODY_BYTES);
   if (!body.ok) return new Response(null, { status: body.status });

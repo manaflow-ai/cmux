@@ -1,6 +1,11 @@
 import { coderouterControlRoute } from "@/services/coderouter/requestTelemetry";
-import type { CoderouterAccountAccess } from "../../../../../services/coderouter/accountAccess";
+// One provider account: remove it (DELETE). A member removes their own private
+// accounts; a shared account needs account administration
+// (accountAdministration.ts).
+import { readableAccountAccess, type CoderouterAccountAccess } from "../../../../../services/coderouter/accountAccess";
+import { accountWriteAccess, teamPermissionRequired } from "../../../../../services/coderouter/accountAdministration";
 import { removeAccount } from "../../../../../services/coderouter/accounts";
+import { isAccountVisible } from "../../../../../services/coderouter/repository";
 import { resolveCoderouterControlContext } from "../../../../../services/coderouter/requestContext";
 import { captureCoderouterEvent } from "../../../../../services/coderouter/analytics";
 import {
@@ -20,6 +25,7 @@ export function createDeleteAccountHandler(dependencies: {
     readonly stackUserId?: string;
     readonly access: CoderouterAccountAccess;
   }) => ReturnType<typeof removeAccount>;
+  readonly visible: typeof isAccountVisible;
 }) {
   return async (
     request: Request,
@@ -27,19 +33,25 @@ export function createDeleteAccountHandler(dependencies: {
   ): Promise<Response> => {
     const resolved = await dependencies.resolve(request);
     if (!resolved.ok) return resolved.response;
-    if (!resolved.value.team.manageAccounts) return Response.json({ error: "forbidden" }, { status: 403 });
     const { accountId } = await context.params;
     if (!UUID.test(accountId)) {
       return Response.json({ error: "invalid_request" }, { status: 400 });
     }
+    const team = resolved.value.team;
     let result;
+    let visible = false;
     try {
       result = await dependencies.remove({
-        teamId: resolved.value.team.teamId,
+        teamId: team.teamId,
         accountId,
         stackUserId: resolved.value.user.id,
-        access: resolved.value.access,
+        access: accountWriteAccess(resolved.value),
       });
+      // A member's delete reaches only their own private accounts. Any other
+      // account they can see is refused by permission, not reported missing.
+      if (!result.removed && !team.manageAccounts) {
+        visible = await dependencies.visible({ teamId: team.teamId, accountId, access: readableAccountAccess(resolved.value.access) });
+      }
     } catch (error) {
       reportCoderouterFailure("rds", error, { operation: "remove_account" });
       return Response.json(
@@ -55,6 +67,7 @@ export function createDeleteAccountHandler(dependencies: {
         },
       );
     }
+    if (visible) return teamPermissionRequired(team, "change_shared_account");
     if (!result.removed) {
       return Response.json(
         {
@@ -90,4 +103,5 @@ export const DELETE = coderouterControlRoute("accounts", "/api/coderouter/accoun
   resolve: resolveCoderouterControlContext,
   remove: async ({ teamId, accountId, stackUserId, access }) =>
     await removeAccount(teamId, accountId, stackUserId, access),
+  visible: isAccountVisible,
 }));

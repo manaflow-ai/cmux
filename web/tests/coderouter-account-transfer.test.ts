@@ -82,6 +82,32 @@ describe("coderouter account transfer route", () => {
     const response = await POST(request(), { params: Promise.resolve({ accountId: ACCOUNT_ID }) });
 
     expect(response.status).toBe(403);
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    // The refusal names the destination team, whose permission is missing.
+    expect(await response.json()).toMatchObject({
+      error: "destination_forbidden",
+      code: "team_permission_required",
+      teamId: "team-destination",
+      teamName: "Destination",
+      permission: "$manage_api_keys",
+      action: "transfer_account",
+      retryable: false,
+    });
+    expect(transfer).not.toHaveBeenCalled();
+  });
+
+  test("a destination the caller cannot see stays a plain refusal", async () => {
+    const transfer = mock(async () => true);
+    const POST = makeCoderouterTransferHandler({
+      resolve: mock(async () => context) as never,
+      listTeams: mock(async () => teams),
+      transfer,
+    });
+
+    const response = await POST(request({ destinationTeamId: "team-unknown" }), { params: Promise.resolve({ accountId: ACCOUNT_ID }) });
+
+    expect(response.status).toBe(403);
+    expect(await response.json()).toEqual({ error: "destination_forbidden" });
     expect(transfer).not.toHaveBeenCalled();
   });
 
@@ -99,6 +125,16 @@ describe("coderouter account transfer route", () => {
     const response = await POST(request(), { params: Promise.resolve({ accountId: ACCOUNT_ID }) });
 
     expect(response.status).toBe(403);
+    const body = await response.json();
+    expect(body).toMatchObject({
+      error: "forbidden",
+      code: "team_permission_required",
+      teamId: "team-source",
+      teamName: "Source",
+      permission: "$manage_api_keys",
+      action: "transfer_account",
+    });
+    expect(body.options.map((option: { kind: string }) => option.kind)).toEqual(["switch_team", "ask_admin"]);
     expect(transfer).not.toHaveBeenCalled();
   });
 

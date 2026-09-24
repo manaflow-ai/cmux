@@ -9,6 +9,11 @@ import {
 } from "../../../../services/coderouter/requestContext";
 import { accountsWithUsage } from "../../../../services/coderouter/usage";
 import { CodexSignatureError } from "../../../../services/coderouter/codexSignature";
+import {
+  accountWriteAccess,
+  CoderouterSharedAccountError,
+  teamPermissionRequired,
+} from "../../../../services/coderouter/accountAdministration";
 import { captureCoderouterEvent } from "../../../../services/coderouter/analytics";
 import {
   addCoderouterBreadcrumb,
@@ -86,44 +91,44 @@ const defaultAccountsPostDependencies: AccountsPostDependencies = {
 
 export const POST = coderouterControlRoute("accounts", "/api/coderouter/accounts", makeCoderouterAccountsPostHandler());
 
+/**
+ * Stores a provider account. Any team member may store a private one; sharing
+ * it with the team needs account administration (accountAdministration.ts).
+ * There is no account cap.
+ */
 export function makeCoderouterAccountsPostHandler(
   dependencies: AccountsPostDependencies = defaultAccountsPostDependencies,
 ) {
   return async function POST(request: Request): Promise<Response> {
-  // Team membership is the only requirement; there is no account cap.
   const resolved = await dependencies.resolveContext(request);
   if (!resolved.ok) return resolved.response;
-  const length = Number(request.headers.get("content-length") ?? "0");
-  if (Number.isFinite(length) && length > MAX_BODY_BYTES) {
-    return Response.json({ error: "payload_too_large" }, { status: 413 });
-  }
-  const bytes = new Uint8Array(await request.arrayBuffer());
-  if (bytes.byteLength > MAX_BODY_BYTES) {
-    return Response.json({ error: "payload_too_large" }, { status: 413 });
-  }
-  let value: unknown;
-  try {
-    value = JSON.parse(new TextDecoder().decode(bytes));
-  } catch {
-    return Response.json({ error: "invalid_request" }, { status: 400 });
-  }
+  const body = await readAccountBody(request);
+  if (!body.ok) return body.response;
+  const value = body.value;
   const requestedVisibility = value && typeof value === "object" && "visibility" in value ? (value as { visibility: unknown }).visibility : "private";
   if (requestedVisibility !== "private" && requestedVisibility !== "team") return Response.json({ error: "invalid_visibility" }, { status: 400 });
   // A VM mutation is scoped to its provisioned pool. Private visibility would
   // create an account that the same machine could not subsequently read on an
   // organization team, so machine writes are always team-visible.
   const visibility = resolved.value.access?.kind === "vm" ? "team" : requestedVisibility;
-  if (!resolved.value.team.manageAccounts) return Response.json({ error: "forbidden" }, { status: 403 });
   const credential = parseCredential(value);
   if (!credential) {
     return Response.json({ error: "invalid_request" }, { status: 400 });
   }
+  const team = resolved.value.team;
+  if (visibility === "team" && !team.manageAccounts) {
+    return teamPermissionRequired(team, "share_account", credential.provider === "codex" ? { addCommand: "codex" } : {});
+  }
   try {
-    const result = await dependencies.add(resolved.value.team.teamId, credential, undefined, undefined, undefined, { createdBy: resolved.value.user.id, visibility, access: resolved.value.access });
+    const result = await dependencies.add(team.teamId, credential, undefined, undefined, undefined, {
+      createdBy: resolved.value.user.id,
+      visibility,
+      access: accountWriteAccess(resolved.value),
+    });
     captureCoderouterEvent({
       event: "coderouter_account_added",
       userId: resolved.value.user.id,
-      teamId: resolved.value.team.teamId,
+      teamId: team.teamId,
       properties: {
         provider: credential.provider,
         source: "native_api",
@@ -139,27 +144,52 @@ export function makeCoderouterAccountsPostHandler(
       headers: { "cache-control": "no-store" },
     });
   } catch (error) {
-    if (error instanceof CodexSignatureError) {
-      return Response.json({ error: "invalid_credential", message: "Sign in to Codex again before adding this account." }, { status: 400, headers: { "cache-control": "no-store" } });
-    }
-    reportCoderouterFailure("rds", error, { operation: "add_account" });
-    return Response.json(
-      {
-        error: "account_store_unavailable",
-        message:
-          "coderouter could not store this account. Your local provider sign-in was not removed; retry `cr add` shortly.",
-        retryable: true,
-      },
-      {
-        status: 503,
-        headers: {
-          "cache-control": "no-store",
-          "retry-after": "5",
-        },
-      },
-    );
+    return addFailed(error, team);
   }
   };
+}
+
+async function readAccountBody(
+  request: Request,
+): Promise<{ readonly ok: true; readonly value: unknown } | { readonly ok: false; readonly response: Response }> {
+  const length = Number(request.headers.get("content-length") ?? "0");
+  if (Number.isFinite(length) && length > MAX_BODY_BYTES) {
+    return { ok: false, response: Response.json({ error: "payload_too_large" }, { status: 413 }) };
+  }
+  const bytes = new Uint8Array(await request.arrayBuffer());
+  if (bytes.byteLength > MAX_BODY_BYTES) {
+    return { ok: false, response: Response.json({ error: "payload_too_large" }, { status: 413 }) };
+  }
+  try {
+    return { ok: true, value: JSON.parse(new TextDecoder().decode(bytes)) };
+  } catch {
+    return { ok: false, response: Response.json({ error: "invalid_request" }, { status: 400 }) };
+  }
+}
+
+function addFailed(error: unknown, team: { readonly teamId: string; readonly teamName: string }): Response {
+  if (error instanceof CodexSignatureError) {
+    return Response.json({ error: "invalid_credential", message: "Sign in to Codex again before adding this account." }, { status: 400, headers: { "cache-control": "no-store" } });
+  }
+  // The credential matches an account shared with the team, and only account
+  // administration may replace a shared account's credential.
+  if (error instanceof CoderouterSharedAccountError) return teamPermissionRequired(team, "change_shared_account");
+  reportCoderouterFailure("rds", error, { operation: "add_account" });
+  return Response.json(
+    {
+      error: "account_store_unavailable",
+      message:
+        "coderouter could not store this account. Your local provider sign-in was not removed; retry `cr add` shortly.",
+      retryable: true,
+    },
+    {
+      status: 503,
+      headers: {
+        "cache-control": "no-store",
+        "retry-after": "5",
+      },
+    },
+  );
 }
 
 function timing(name: string, duration: number): string {

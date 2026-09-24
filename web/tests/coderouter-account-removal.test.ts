@@ -31,6 +31,7 @@ describe("coderouter account removal", () => {
           legacyCleanupPending: false,
         };
       },
+      visible: async () => false,
     });
     const response = await handler(
       new Request("https://coderouter.dev/api/coderouter/accounts/" + accountId, {
@@ -71,6 +72,7 @@ describe("coderouter account removal", () => {
           legacyCleanupPending: false,
         };
       },
+      visible: async () => false,
     });
     const response = await handler(
       new Request("https://coderouter.dev", { method: "DELETE" }),
@@ -78,6 +80,78 @@ describe("coderouter account removal", () => {
     );
     expect(response.status).toBe(400);
     expect(called).toBe(false);
+  });
+});
+
+describe("coderouter account removal without account administration", () => {
+  // A team member without the Stack `$manage_api_keys` team permission.
+  const member = async () => ({
+    ok: true as const,
+    value: {
+      user: { id: "user_2" } as never,
+      access: { kind: "user" as const, userId: "user_2" },
+      team: {
+        teamId: "team-1",
+        teamName: "Benjamin Swerdlow's Team",
+        use: true,
+        manageAccounts: false,
+      },
+    },
+  });
+  const request = () => new Request("https://coderouter.dev/api/coderouter/accounts/" + accountId, { method: "DELETE" });
+  const params = { params: Promise.resolve({ accountId }) };
+  type RemoveInput = { teamId: string; accountId: string; stackUserId?: string; access: unknown };
+
+  function handler(options: { removed: boolean; visible: boolean }) {
+    const calls: { remove: RemoveInput[]; visible: unknown[] } = { remove: [], visible: [] };
+    const DELETE = createDeleteAccountHandler({
+      resolve: member,
+      remove: async (input) => {
+        calls.remove.push(input);
+        return { removed: options.removed, lastAccount: false, legacyCleanupPending: false };
+      },
+      visible: async (input: unknown) => {
+        calls.visible.push(input);
+        return options.visible;
+      },
+    } as Parameters<typeof createDeleteAccountHandler>[0]);
+    return { DELETE, calls };
+  }
+
+  test("a member removes their own private account", async () => {
+    const { DELETE, calls } = handler({ removed: true, visible: true });
+    const response = await DELETE(request(), params);
+    expect(response.status).toBe(200);
+    // The delete itself is narrowed to the member's own private rows.
+    expect(calls.remove).toEqual([
+      { teamId: "team-1", accountId, stackUserId: "user_2", access: { kind: "own-private", userId: "user_2" } },
+    ]);
+    expect(calls.visible).toEqual([]);
+  });
+
+  test("a shared account explains which permission is missing", async () => {
+    const { DELETE, calls } = handler({ removed: false, visible: true });
+    const response = await DELETE(request(), params);
+    expect(response.status).toBe(403);
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    expect(await response.json()).toMatchObject({
+      error: "forbidden",
+      code: "team_permission_required",
+      teamId: "team-1",
+      teamName: "Benjamin Swerdlow's Team",
+      permission: "$manage_api_keys",
+      action: "change_shared_account",
+      options: [expect.objectContaining({ kind: "ask_admin" })],
+      retryable: false,
+    });
+    expect(calls.visible).toEqual([{ teamId: "team-1", accountId, access: { kind: "user", userId: "user_2" } }]);
+  });
+
+  test("someone else's private account stays indistinguishable from a missing one", async () => {
+    const { DELETE } = handler({ removed: false, visible: false });
+    const response = await DELETE(request(), params);
+    expect(response.status).toBe(404);
+    expect((await response.json()).error).toBe("not_found");
   });
 });
 

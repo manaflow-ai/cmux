@@ -33,16 +33,32 @@ function fakeKeys(): CredentialKeyService {
   };
 }
 
+type TestAccess = { readonly kind: string; readonly userId?: string };
+
+// Mirrors accountAccessPredicate: a reader sees shared rows and its own private
+// ones; an "own-private" writer reaches only its own private rows.
+function visibleTo(row: ClaudeAccountRow, access?: TestAccess): boolean {
+  if (!access) return true;
+  const visibility = row.visibility ?? "team";
+  if (access.kind === "own-private") return visibility === "private" && row.createdBy === access.userId;
+  if (access.kind === "user") return visibility === "team" || row.createdBy === access.userId;
+  return visibility === "team";
+}
+
 function memoryStore(): ClaudeAccountStore & { rows: Map<string, ClaudeAccountRow>; clock: { now: Date } } {
   const rows = new Map<string, ClaudeAccountRow>();
   const clock = { now: T0 };
   let tick = 0;
+  const reachable = (teamId: string, accountId: string, access?: TestAccess) => {
+    const row = rows.get(accountId);
+    return row && row.teamId === teamId && visibleTo(row, access) ? row : null;
+  };
   return {
     rows,
     clock,
-    async list(teamId) {
+    async list(teamId, _signal, access?: TestAccess) {
       return [...rows.values()]
-        .filter((row) => row.teamId === teamId)
+        .filter((row) => row.teamId === teamId && visibleTo(row, access))
         .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime() || a.id.localeCompare(b.id));
     },
     async insert(row) {
@@ -51,9 +67,9 @@ function memoryStore(): ClaudeAccountStore & { rows: Map<string, ClaudeAccountRo
       rows.set(row.id, written);
       return written;
     },
-    async update(teamId, accountId, patch) {
-      const row = rows.get(accountId);
-      if (!row || row.teamId !== teamId) return null;
+    async update(teamId, accountId, patch, access?: TestAccess) {
+      const row = reachable(teamId, accountId, access);
+      if (!row) return null;
       const written = {
         ...row,
         ...(patch.label !== undefined ? { label: patch.label } : {}),
@@ -64,15 +80,13 @@ function memoryStore(): ClaudeAccountStore & { rows: Map<string, ClaudeAccountRo
       rows.set(accountId, written);
       return written;
     },
-    async remove(teamId, accountId) {
-      const row = rows.get(accountId);
-      if (!row || row.teamId !== teamId) return false;
-      return rows.delete(accountId);
+    async remove(teamId, accountId, access?: TestAccess) {
+      return reachable(teamId, accountId, access) ? rows.delete(accountId) : false;
     },
-    async removeAll(teamId) {
+    async removeAll(teamId, access?: TestAccess) {
       let removed = 0;
       for (const [id, row] of rows) {
-        if (row.teamId === teamId) {
+        if (row.teamId === teamId && visibleTo(row, access)) {
           rows.delete(id);
           removed += 1;
         }
@@ -317,22 +331,36 @@ describe("claude upstream accounts service", () => {
 });
 
 describe("claude upstream routes", () => {
-  const context = {
+  const TEAM = { teamId: "team_1", teamName: "Benjamin Swerdlow's Team", use: true };
+  const signedIn = (userId: string, manageAccounts: boolean) => ({
+    ok: true as const,
+    value: {
+      user: { id: userId },
+      access: { kind: "user" as const, userId },
+      team: { ...TEAM, manageAccounts },
+    },
+  });
+  const context = signedIn("user_1", true);
+  // A team member without the Stack `$manage_api_keys` team permission.
+  const member = signedIn("user_2", false);
+  const vm = {
     ok: true as const,
     value: {
       user: { id: "user_1" },
-      access: { kind: "user" as const, userId: "user_1" },
-      team: { teamId: "team_1", teamName: "Team", use: true, manageAccounts: true },
+      access: { kind: "vm" as const, vmId: "vm_1", poolId: "pool_1" },
+      team: { ...TEAM, manageAccounts: true },
     },
   };
   const forbidden = {
     ok: false as const,
     response: Response.json({ error: "forbidden" }, { status: 403 }),
   };
+  type Resolved = typeof context | typeof vm | typeof forbidden;
 
   function handlers(options: { manage?: boolean; failing?: boolean } = {}) {
-    const { service: svc } = service();
-    const resolveContext = mock(async () => (options.manage === false ? forbidden : context));
+    const { service: svc, store } = service();
+    let current: Resolved = options.manage === false ? forbidden : context;
+    const resolveContext = mock(async () => current);
     const resolveUsageTeam = mock(async () => ({ ok: true as const, teamId: "team_1", stackUserId: "user_1" }));
     const failing = options.failing ?? false;
     const fail = async () => {
@@ -347,10 +375,14 @@ describe("claude upstream routes", () => {
     });
     const single = makeClaudeAccountHandlers({
       resolveContext: resolveContext as never,
+      list: failing ? (fail as never) : svc.list,
       update: failing ? (fail as never) : svc.update,
       remove: failing ? (fail as never) : svc.remove,
-    });
-    return { collection, single, svc };
+    } as Parameters<typeof makeClaudeAccountHandlers>[0]);
+    const actAs = (next: Resolved) => {
+      current = next;
+    };
+    return { collection, single, svc, store, actAs };
   }
 
   const url = "https://cmux.com/api/coderouter/claude-upstream?teamId=team_1";
@@ -361,12 +393,122 @@ describe("claude upstream routes", () => {
       body: JSON.stringify(body),
     });
   const params = (accountId: string) => ({ params: Promise.resolve({ accountId }) });
+  const del = () => new Request(url, { method: "DELETE" });
 
-  test("requires manage permission for writes", async () => {
+  async function expectPermissionRequired(response: Response, action: string, optionKinds: readonly string[]) {
+    expect(response.status).toBe(403);
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    const body = await response.json();
+    expect(body).toMatchObject({
+      error: "forbidden",
+      code: "team_permission_required",
+      teamId: "team_1",
+      teamName: "Benjamin Swerdlow's Team",
+      permission: "$manage_api_keys",
+      action,
+      retryable: false,
+    });
+    expect(body.message).toContain("Benjamin Swerdlow's Team");
+    expect(body.message).toContain("$manage_api_keys");
+    expect(body.options.map((option: { kind: string }) => option.kind)).toEqual(optionKinds);
+    return body;
+  }
+
+  test("a caller the team context refuses cannot write", async () => {
     const { collection, single } = handlers({ manage: false });
     expect((await collection.POST(json("POST", { kind: "anthropic_api_key", apiKey: API_KEY }))).status).toBe(403);
-    expect((await collection.DELETE(new Request(url, { method: "DELETE" }))).status).toBe(403);
-    expect((await single.DELETE(new Request(url, { method: "DELETE" }), params("00000000-0000-4000-8000-000000000001"))).status).toBe(403);
+    expect((await collection.DELETE(del())).status).toBe(403);
+    expect((await single.DELETE(del(), params("00000000-0000-4000-8000-000000000001"))).status).toBe(403);
+  });
+
+  test("a member without account administration adds a private account", async () => {
+    const { collection, store, actAs } = handlers();
+    actAs(member);
+    const response = await collection.POST(json("POST", { kind: "anthropic_oauth", token: OAUTH_TOKEN, label: "hq" }));
+    expect(response.status).toBe(201);
+    const body = await response.json();
+    expect(body.account).toMatchObject({ kind: "anthropic_oauth", label: "hq", createdBy: "user_2", visibility: "private" });
+    expect(body.upstream.id).toBe(body.account.id);
+    expect(store.rows.get(body.account.id)).toMatchObject({ createdBy: "user_2", visibility: "private" });
+    // An explicit private request is the same write.
+    const explicit = await collection.POST(json("POST", { kind: "anthropic_oauth", token: OAUTH_TOKEN_2, visibility: "private" }));
+    expect(explicit.status).toBe(201);
+    expect(store.rows.size).toBe(2);
+  });
+
+  test("a member's malformed token is a validation error, not a permission error", async () => {
+    const { collection, store, actAs } = handlers();
+    actAs(member);
+    const response = await collection.POST(json("POST", { kind: "anthropic_oauth", token: "sk-ant-not-a-real-token", label: "hq-repro" }));
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({ error: "invalid_request" });
+    expect(store.rows.size).toBe(0);
+  });
+
+  test("sharing a new account with the team needs account administration", async () => {
+    const { collection, store, actAs } = handlers();
+    actAs(member);
+    const response = await collection.POST(json("POST", { kind: "anthropic_oauth", token: OAUTH_TOKEN, visibility: "team" }));
+    const body = await expectPermissionRequired(response, "share_account", ["private", "switch_team", "ask_admin"]);
+    expect(body.options[0].command).toBe("cr add claude --private");
+    expect(body.options[1].command).toBe("cr org switch <team>");
+    expect(JSON.stringify(body)).not.toContain(OAUTH_TOKEN);
+    expect(store.rows.size).toBe(0);
+
+    actAs(context);
+    const shared = await collection.POST(json("POST", { kind: "anthropic_oauth", token: OAUTH_TOKEN, visibility: "team" }));
+    expect(shared.status).toBe(201);
+    expect((await shared.json()).account.visibility).toBe("team");
+  });
+
+  test("a member changes and removes only their own private accounts", async () => {
+    const { collection, single, store, actAs } = handlers();
+    const shared = await (await collection.POST(json("POST", { kind: "anthropic_api_key", apiKey: API_KEY, visibility: "team" }))).json();
+    const adminPrivate = await (await collection.POST(json("POST", { kind: "anthropic_api_key", apiKey: API_KEY_2 }))).json();
+    actAs(member);
+    const own = await (await collection.POST(json("POST", { kind: "anthropic_oauth", token: OAUTH_TOKEN }))).json();
+
+    const patched = await single.PATCH(json("PATCH", { label: "mine", state: "disabled" }), params(own.account.id));
+    expect(patched.status).toBe(200);
+    expect((await patched.json()).account).toMatchObject({ label: "mine", state: "disabled" });
+
+    // A shared account is visible to the member, so the refusal explains itself.
+    await expectPermissionRequired(
+      await single.PATCH(json("PATCH", { label: "hijacked" }), params(shared.account.id)),
+      "change_shared_account",
+      ["ask_admin"],
+    );
+    await expectPermissionRequired(await single.DELETE(del(), params(shared.account.id)), "change_shared_account", ["ask_admin"]);
+    expect(store.rows.get(shared.account.id)).toMatchObject({ label: "", state: "active" });
+
+    // Someone else's private account does not exist for the member.
+    expect((await single.PATCH(json("PATCH", { label: "x" }), params(adminPrivate.account.id))).status).toBe(404);
+    expect((await single.DELETE(del(), params(adminPrivate.account.id))).status).toBe(404);
+    expect((await single.DELETE(del(), params("00000000-0000-4000-8000-00000000ffff"))).status).toBe(404);
+    expect(store.rows.has(adminPrivate.account.id)).toBe(true);
+
+    const removed = await single.DELETE(del(), params(own.account.id));
+    expect(removed.status).toBe(200);
+    expect(await removed.json()).toEqual({ removed: true, count: 1 });
+    expect(store.rows.has(own.account.id)).toBe(false);
+  });
+
+  test("removing every team account needs account administration", async () => {
+    const { collection, store, actAs } = handlers();
+    await collection.POST(json("POST", { kind: "anthropic_api_key", apiKey: API_KEY, visibility: "team" }));
+    actAs(member);
+    await collection.POST(json("POST", { kind: "anthropic_oauth", token: OAUTH_TOKEN }));
+    await expectPermissionRequired(await collection.DELETE(del()), "remove_all_accounts", ["ask_admin"]);
+    expect(store.rows.size).toBe(2);
+  });
+
+  test("a VM token still imports team-visible accounts", async () => {
+    const { collection, store, actAs } = handlers();
+    actAs(vm);
+    const response = await collection.POST(json("POST", { kind: "anthropic_oauth", token: OAUTH_TOKEN, visibility: "private" }));
+    expect(response.status).toBe(201);
+    const body = await response.json();
+    expect(store.rows.get(body.account.id)).toMatchObject({ createdBy: "user_1", visibility: "team" });
   });
 
   test("rejects malformed, invalid and oversized bodies", async () => {

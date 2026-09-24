@@ -479,13 +479,14 @@ export async function deleteAccount(input: {
 
     // coderouterCredentials is deleted by its account FK. If the workspace no
     // longer has an account, route tokens have no useful authority and should
-    // not remain live.
+    // not remain live. Revoking them is team-wide, so a member removing their
+    // own private account (accountAdministration.ts) leaves them for an admin.
     const [remaining] = await tx
       .select({ id: coderouterAccounts.id })
       .from(coderouterAccounts)
       .where(eq(coderouterAccounts.teamId, input.teamId))
       .limit(1);
-    if (!remaining) {
+    if (!remaining && input.access?.kind !== "own-private") {
       await tx
         .update(coderouterRouteTokens)
         .set({ revokedAt: now })
@@ -503,6 +504,24 @@ export async function deleteAccount(input: {
     }
     return { removed: true, lastAccount: !remaining };
   });
+}
+
+/** Whether `access` can see the account, for telling a refusal from a miss. */
+export async function isAccountVisible(input: {
+  readonly teamId: string;
+  readonly accountId: string;
+  readonly access: CoderouterAccountAccess;
+}): Promise<boolean> {
+  const [row] = await cloudDb()
+    .select({ id: coderouterAccounts.id })
+    .from(coderouterAccounts)
+    .where(and(
+      eq(coderouterAccounts.id, input.accountId),
+      eq(coderouterAccounts.teamId, input.teamId),
+      nativeAccess(input.access),
+    ))
+    .limit(1);
+  return Boolean(row);
 }
 
 export async function listAccounts(

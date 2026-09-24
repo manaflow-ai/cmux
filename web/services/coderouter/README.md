@@ -3,8 +3,8 @@
 Hosted model router for cmux Cloud VMs, the `cr` CLI, and direct API clients. The data plane serves the OpenAI Responses API (`/v1/responses`, `/v1/models`), the Anthropic Messages API (`/v1/messages`, `/v1/messages/count_tokens`, `/v1/models` for Anthropic clients) and the OpenCode provider proxy (`/api/coderouter/opencode/*`). Requests authenticate with a VM or CLI route token, or a long-lived `crk_` API key, then forward to one of the team's provider accounts with failover (`codexProxy.ts`, `claudeProxy.ts`, `opencodeProxy.ts`). The control plane under `/api/coderouter/*` manages accounts, sessions, API keys and usage.
 
 API keys are created through `POST /api/coderouter/api-keys` with a signed-in
-team member who has `manageAccounts` permission, and the plaintext key is
-returned once. `GET` lists only safe
+team member who has account administration (see "Who can change accounts"),
+and the plaintext key is returned once. `GET` lists only safe
 metadata. `DELETE /api/coderouter/api-keys/:id` revokes a key, while
 `DELETE /api/coderouter/api-keys/self` lets the key holder revoke its own key.
 Every model and route ledger row stores the key's opaque UUID, so usage can be
@@ -110,12 +110,62 @@ constraints; custom pool management UI is not part of this change.
 
 `PATCH /api/coderouter/accounts/:id/sharing` accepts
 `{"family":"native"|"claude","visibility":"private"|"team"}` with a Stack
-session and the selected team. Account administration requires Stack's
-`$manage_api_keys` permission, or the user's own personal scope. A private
+session and the selected team. It needs account administration, and a private
 account additionally belongs to its importer. The dashboard exposes **Share
 with team** and **Make private**. A VM token cannot administer accounts or mint
 an organization session. The organization catalog returned to a VM contains
 only its own team and `fixed: true`.
+
+### Who can change accounts
+
+Account administration is Stack's `$manage_api_keys` team permission; a
+personal scope always has it (`permissions.ts`, `accountAdministration.ts`).
+Without it, a team member may still:
+
+- add a private account (`POST /api/coderouter/claude-upstream` and
+  `POST /api/coderouter/accounts` without `"visibility":"team"`), which is what
+  `cr add claude` and `cr add codex` do by default;
+- change or remove a private account they imported.
+
+No other member or machine can use those accounts, so they need no team
+permission. Everything else needs account administration: adding a shared
+account, changing an account's sharing in either direction, changing or
+removing a shared account, removing every account, moving an account between
+teams (both teams), and creating or revoking API keys. A member's write runs
+under the `own-private` access (`accountAccess.ts`), so the SQL itself cannot
+reach another account. A member who re-imports a shared account that is active
+gets it back unchanged (`alreadyExists: true`); an inactive one needs an
+administrator. A member removing the team's last account does not revoke the
+team's route tokens or API keys.
+
+#12771 required the permission for every write, which refused private imports
+too (#14111). A VM-bound route token is unchanged: it imports into its team's
+shared pool and cannot administer accounts.
+
+A refusal is a `403` whose body names the team and the permission and lists the
+ways forward, which `cr` prints:
+
+```json
+{
+  "error": "forbidden",
+  "code": "team_permission_required",
+  "message": "You need the $manage_api_keys permission in Acme to share accounts with the team.",
+  "teamId": "…",
+  "teamName": "Acme",
+  "permission": "$manage_api_keys",
+  "action": "share_account",
+  "options": [
+    { "kind": "private", "message": "…", "command": "cr add claude --private" },
+    { "kind": "switch_team", "message": "…", "command": "cr org switch <team>" },
+    { "kind": "ask_admin", "message": "…" }
+  ],
+  "retryable": false
+}
+```
+
+`action` is one of `share_account`, `change_shared_account`,
+`remove_all_accounts`, `transfer_account` and `manage_api_keys`. A transfer
+refused by the destination team keeps `"error": "destination_forbidden"`.
 
 Inside a managed machine, `cmux coderouter accounts --json` returns native and
 Claude account metadata under one team id, and `cmux coderouter org current

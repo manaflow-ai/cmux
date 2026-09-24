@@ -114,6 +114,8 @@ export function CoderouterAccountsSection({
   const nativeAccounts = native.kind === "ok" ? native.accounts : [];
   const sharedAccounts = shared.kind === "ok" ? shared.accounts : [];
   const total = claudeAccounts.length + nativeAccounts.length + sharedAccounts.length;
+  const anyActions = canManage ||
+    [...claudeAccounts, ...nativeAccounts].some((account) => canChangeAccount(account, viewerUserId, canManage));
   // Field ids are per form, so switching the add tab never leaves two inputs
   // with one id.
   const partialFailure = claude.kind === "error" || native.kind === "error" || shared.kind === "error";
@@ -153,7 +155,7 @@ export function CoderouterAccountsSection({
             <div>{t("providerColumn")}</div>
             <div>{t("labelColumn")}</div>
             <div>{t("statusColumn")}</div>
-            <div className="text-right">{canManage ? t("actionsColumn") : ""}</div>
+            <div className="text-right">{anyActions ? t("actionsColumn") : ""}</div>
           </div>
           <ul className="divide-y divide-border">
             {claudeAccounts.map((account) => (
@@ -186,7 +188,9 @@ export function CoderouterAccountsSection({
         </div>
       )}
 
-      {canManage ? <><p className="mt-2 text-xs text-muted">{t("privateImportHint")}</p><AddAccountPanel teamId={teamId} /></> : null}
+      {/* Any member may add a private account; sharing needs account administration. */}
+      <p className="mt-2 text-xs text-muted">{t("privateImportHint")}</p>
+      <AddAccountPanel teamId={teamId} />
       <CoderouterApiKeysSection teamId={teamId} canManage={canManage} />
     </section>
   );
@@ -513,10 +517,11 @@ function ClaudeAccountRow({
   const usage = account.lastUsedAt
     ? t("lastUsed", { at: format.relativeTime(new Date(account.lastUsedAt), now) })
     : t("neverUsed");
+  const writable = canChangeAccount(account, viewerUserId, canManage);
   return (
     <AccountRowFrame
       provider={claudeKindLabel(account.kind, t)}
-      detail={canManage ? `${account.identifier}${account.region ? ` · ${account.region}` : ""}` : null}
+      detail={writable ? `${account.identifier}${account.region ? ` · ${account.region}` : ""}` : null}
       label={account.label}
       status={health}
       statusDetail={
@@ -525,7 +530,7 @@ function ClaudeAccountRow({
           : usage
       }
       dimmed={account.state === "disabled"}
-      actions={canManage ? <div className="flex flex-wrap gap-2">{(!account.createdBy || account.createdBy === viewerUserId) ? <AccountSharing teamId={teamId} accountId={account.id} family="claude" visibility={account.visibility ?? "team"} /> : null}<ClaudeAccountActions teamId={teamId} account={account} /></div> : null}
+      actions={writable ? <div className="flex flex-wrap gap-2">{canShareAccount(account, viewerUserId, canManage) ? <AccountSharing teamId={teamId} accountId={account.id} family="claude" visibility={account.visibility ?? "team"} /> : null}<ClaudeAccountActions teamId={teamId} account={account} /></div> : null}
       t={t}
     />
   );
@@ -559,10 +564,11 @@ function NativeAccountRow({
         })
         : t("stateActive");
   const sessions = t("activeSessions", { count: account.activeSessions });
+  const writable = canChangeAccount(account, viewerUserId, canManage);
   return (
     <AccountRowFrame
       provider={nativeKindLabel(account.provider, t)}
-      detail={canManage ? account.providerAccountId : null}
+      detail={writable ? account.providerAccountId : null}
       label={account.label}
       status={status}
       statusDetail={
@@ -571,10 +577,28 @@ function NativeAccountRow({
           : sessions
       }
       dimmed={account.state === "broken" || account.state === "expired"}
-      actions={canManage ? <div className="flex flex-wrap gap-2">{(!account.createdBy || account.createdBy === viewerUserId) ? <AccountSharing teamId={teamId} accountId={account.id} family="native" visibility={account.visibility ?? "team"} /> : null}<NativeAccountActions teamId={teamId} accountId={account.id} /></div> : null}
+      actions={writable ? <div className="flex flex-wrap gap-2">{canShareAccount(account, viewerUserId, canManage) ? <AccountSharing teamId={teamId} accountId={account.id} family="native" visibility={account.visibility ?? "team"} /> : null}<NativeAccountActions teamId={teamId} accountId={account.id} /></div> : null}
       t={t}
     />
   );
+}
+
+type AccountOwnership = {
+  readonly visibility?: "private" | "team";
+  readonly createdBy?: string | null;
+};
+
+/** Mirrors `canWriteAccount` (services/coderouter/accountAccess.ts): without
+ * account administration a member changes only the private accounts they
+ * imported. */
+function canChangeAccount(account: AccountOwnership, viewerUserId: string | undefined, canManage: boolean): boolean {
+  if (canManage) return true;
+  return viewerUserId !== undefined && account.visibility === "private" && account.createdBy === viewerUserId;
+}
+
+/** Sharing needs account administration, and only the importer shares. */
+function canShareAccount(account: AccountOwnership, viewerUserId: string | undefined, canManage: boolean): boolean {
+  return canManage && (!account.createdBy || account.createdBy === viewerUserId);
 }
 
 function AccountSharing({ teamId, accountId, family, visibility }: {
