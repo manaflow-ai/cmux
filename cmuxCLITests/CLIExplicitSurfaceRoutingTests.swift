@@ -483,8 +483,10 @@ struct CLIExplicitSurfaceRoutingTests {
         #expect((result.stderr + result.stdout).contains("Surface not found: \(Self.missingSurfaceUUID)"))
         #expect(state.mutationCountSnapshot() == 0)
 
+        // #13964 resolves the workspace ref from the parameterless workspace.list
+        // snapshot first, so the window scan is no longer needed here.
         let requests = try state.requestObjects()
-        #expect(requests.compactMap { $0["method"] as? String } == ["window.list", "workspace.list", "surface.list"])
+        #expect(requests.compactMap { $0["method"] as? String } == ["workspace.list", "surface.list"])
         let listParams = try #require(requests.last?["params"] as? [String: Any])
         #expect(listParams["workspace_id"] as? String == Self.reproWorkspaceId)
     }

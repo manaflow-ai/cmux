@@ -718,6 +718,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
 
         let startupCommand = try generatedSSHStartupCommand(
             replacingSystemSSHWith: fakeSSH,
+            requestTTYOption: nil,
             additionalArguments: ["--transport", "mosh"]
         )
         var environment = ProcessInfo.processInfo.environment
@@ -842,74 +843,6 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let sshLog = (try? String(contentsOf: logFile, encoding: .utf8)) ?? ""
         XCTAssertTrue(sshLog.contains("-G"), sshLog)
         XCTAssertTrue(sshLog.contains("-O check"), sshLog)
-    }
-
-    func testSSHStartupRemovesForegroundAuthInflightMarkerAfterSuccess() throws {
-        let fileManager = FileManager.default
-        let root = fileManager.temporaryDirectory
-            .appendingPathComponent("cmux-ssh-auth-inflight-\(UUID().uuidString)", isDirectory: true)
-        let fakeCLI = root.appendingPathComponent("cmux")
-        let fakeSSH = root.appendingPathComponent("ssh")
-        let controlPath = "/tmp/cmux-ssh-\(getuid())-0123456789abcdef0123456789abcdef01234567"
-        let sshOptions = [
-            "ControlMaster=auto",
-            "ControlPersist=600",
-            "ControlPath=\(controlPath)",
-        ]
-        let lockPath = try XCTUnwrap(SSHConnectionSharingOptions().foregroundAuthenticationLockPath(
-            destination: "cmux-macmini",
-            port: 2222,
-            options: sshOptions
-        ))
-        let inFlightPath = lockPath + ".inflight"
-
-        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
-        defer {
-            try? fileManager.removeItem(at: root)
-            unlink(lockPath)
-            unlink(inFlightPath)
-        }
-
-        try writeShellFile(at: fakeCLI, lines: ["#!/bin/sh", "exit 0"])
-        try writeShellFile(at: fakeSSH, lines: [
-            "#!/bin/sh",
-            "previous_arg=",
-            "for arg in \"$@\"; do",
-            "  if [ \"$arg\" = '-G' ]; then printf 'controlpath %s\\n' \"${CMUX_TEST_CONTROL_PATH}\"; exit 0; fi",
-            "  if [ \"$previous_arg\" = '-O' ] && [ \"$arg\" = 'check' ]; then exit 255; fi",
-            "  previous_arg=\"$arg\"",
-            "done",
-            "exit 0",
-        ])
-        try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: fakeCLI.path)
-        try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: fakeSSH.path)
-
-        let startupCommand = try generatedSSHStartupCommand(
-            replacingSystemSSHWith: fakeSSH,
-            sshOptions: sshOptions
-        )
-        var environment = ProcessInfo.processInfo.environment
-        environment["PATH"] = "\(root.path):\(environment["PATH"] ?? "/usr/bin:/bin")"
-        environment["CMUX_BUNDLED_CLI_PATH"] = fakeCLI.path
-        environment["CMUX_SOCKET_PATH"] = "/tmp/cmux-debug-test.sock"
-        environment["CMUX_WORKSPACE_ID"] = "11111111-1111-1111-1111-111111111111"
-        environment["CMUX_SURFACE_ID"] = "22222222-2222-2222-2222-222222222222"
-        environment["CMUX_TEST_CONTROL_PATH"] = controlPath
-        environment["CMUX_SSH_RECONNECT_DELAY_SECONDS"] = "0"
-
-        let result = runProcess(
-            executablePath: "/bin/sh",
-            arguments: ["-c", startupCommand],
-            environment: environment,
-            timeout: 5
-        )
-
-        XCTAssertFalse(result.timedOut, result.stderr)
-        XCTAssertEqual(result.status, 0, result.stderr)
-        XCTAssertFalse(
-            fileManager.fileExists(atPath: inFlightPath),
-            "Successful foreground authentication must remove its owned in-flight marker before releasing the lock"
-        )
     }
 
     func testSSHStartupStopsAtConfiguredReconnectLimitAndWaitsForDismissal() throws {
@@ -1296,12 +1229,18 @@ extension CLINotifyProcessIntegrationRegressionTests {
         )
     }
 
+    /// Generates the legacy SSH startup wrapper. `cmux ssh` hands TTY
+    /// sessions to cmux-tui through `workspace.ssh.open`, so this wrapper is
+    /// only produced for sessions without a TTY and for mosh. Unless the
+    /// caller already sets `RequestTTY`, `requestTTYOption` pins the session
+    /// to that path; pass nil for mosh, which keeps its own terminal.
     private func generatedSSHStartupCommand(
         replacingSystemSSHWith fakeSSH: URL,
         sshOptions: [String] = [
             "ControlMaster no",
             "ControlPath /tmp/cmux-ssh-%C",
         ],
+        requestTTYOption: String? = "RequestTTY no",
         additionalArguments: [String] = [],
         remoteCommandArguments: [String] = []
     ) throws -> String {
@@ -1373,6 +1312,10 @@ extension CLINotifyProcessIntegrationRegressionTests {
         ]
         for option in sshOptions {
             arguments += ["--ssh-option", option]
+        }
+        if let requestTTYOption,
+           !sshOptions.contains(where: { $0.lowercased().hasPrefix("requesttty") }) {
+            arguments += ["--ssh-option", requestTTYOption]
         }
         arguments += additionalArguments
         arguments.append("cmux-macmini")

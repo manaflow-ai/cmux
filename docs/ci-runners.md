@@ -400,8 +400,15 @@ admission or is draining, pressured, or unavailable.
 
 ## Break-glass: switch a runner type to a paid provider
 
-There is no automatic overflow. If the Tart pool is unavailable or its queue is
-too long, set the affected variable to a paid provider. Restore Tart after the
+There is no automatic overflow for the runner variables. If the Tart pool is
+unavailable or its queue is too long, set the affected variable to a paid
+provider.
+
+The two owned-Mac producer lanes are the exception, because they never own a
+result: the persistent compile route and the nightly route
+(`scripts/ci/nightly_mini_route.py`) wait a bounded time for a mini and fall
+back to the hosted build automatically on a queue timeout, an overrun, a
+producer failure or a refused product. Restore Tart after the
 fleet recovers.
 
 Four runner variables exist to name **metered WarpBuild capacity**, so they are
@@ -535,6 +542,10 @@ The sole direct-host exception is the dispatch-only
 workflow-restricted `cmux-persistent-compile` runner group and
 `cmux-persistent-macos-compile` label. It performs compile-only Debug work,
 carries no repository secrets, and grants its hot state zero result authority.
+The second is the dispatch-only nightly producer (`nightly-mini-build.yml`,
+`cmux-nightly-mini` group, `cmux-nightly-mini-build` label), which compiles the
+unsigned nightly app for a hosted job that revalidates and signs it; see
+[mac-fleet.md, Nightly lane](ci/mac-fleet.md#nightly-lane).
 Every required macOS fallback still routes to the paid hosted path.
 `check_no_self_hosted_fleet_runners` in
 `tests/test_ci_self_hosted_guard.sh` enforces that exact exception and rejects
