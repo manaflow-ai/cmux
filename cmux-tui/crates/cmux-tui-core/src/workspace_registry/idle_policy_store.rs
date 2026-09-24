@@ -56,8 +56,8 @@ impl WorkspaceRegistry {
         validate_terminal_identity("terminal id", terminal_id)?;
         validate_terminal_idle_close_seconds(idle_close_seconds)?;
         let tx = self.connection.transaction()?;
-        let terminal =
-            read_terminal(&tx, terminal_id)?.ok_or_else(|| anyhow::anyhow!("terminal_not_found"))?;
+        let terminal = read_terminal(&tx, terminal_id)?
+            .ok_or_else(|| anyhow::anyhow!("terminal_not_found"))?;
         anyhow::ensure!(terminal.lifecycle != TerminalLifecycle::Tombstoned, "terminal_not_found");
         match idle_close_seconds {
             Some(seconds) => {
