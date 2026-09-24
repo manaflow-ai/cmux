@@ -372,6 +372,10 @@ path = "tests/test_ci_reusable_job_name_lookups.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_runner_capability_resolver.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_health_report.py"
 lane = "linux-guard"
 
