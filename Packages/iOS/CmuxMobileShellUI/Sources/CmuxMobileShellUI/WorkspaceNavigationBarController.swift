@@ -56,14 +56,16 @@ final class WorkspaceNavigationBarController: UIViewController {
 
         for value in leadingItems + trailingItems {
             let content = AnyView(value.content
-                .buttonStyle(.plain)
                 .imageScale(.large)
                 .fixedSize()
                 .environment(\.self, environment))
             if let control = controls[value.id] {
                 control.view.update(content: content)
             } else {
-                let customView = WorkspaceNavigationControlView(content: content)
+                let customView = UIHostingConfiguration { content.ignoresSafeArea() }
+                    .margins(.all, 0)
+                    .minSize(width: 0, height: 0)
+                    .makeContentView()
                 controls[value.id] = HostedControl(
                     button: UIBarButtonItem(customView: customView), view: customView
                 )
@@ -105,20 +107,6 @@ final class WorkspaceNavigationBarController: UIViewController {
         if trailingGroupLandscape != isLandscape {
             trailingGroups = makeTrailingGroups(for: trailingIDs, isLandscape: isLandscape)
             trailingGroupLandscape = isLandscape
-        }
-        for value in leadingGroup.barButtonItems {
-            (value.customView as? WorkspaceNavigationControlView)?.update(
-                placement: .leading,
-                isLandscape: isLandscape,
-                visualOffset: isLandscape ? -2 : 0
-            )
-        }
-        for value in trailingGroups.flatMap(\.barButtonItems) {
-            (value.customView as? WorkspaceNavigationControlView)?.update(
-                placement: .trailing,
-                isLandscape: isLandscape,
-                visualOffset: isLandscape ? trailingVisualOffset(for: value) : 0
-            )
         }
         item.style = .browser
         item.largeTitleDisplayMode = .never
@@ -168,15 +156,6 @@ final class WorkspaceNavigationBarController: UIViewController {
         return [group]
     }
 
-    private func trailingVisualOffset(for value: UIBarButtonItem) -> CGFloat {
-        guard let id = controls.first(where: { $0.value.button === value })?.key else { return 0 }
-        switch id {
-        case .changes: return 3.7
-        case .terminals: return 8
-        default: return 0
-        }
-    }
-
     func restoreConfiguration() {
         guard let owner, let originalItem else { return }
         let item = owner.navigationItem
@@ -201,7 +180,7 @@ final class WorkspaceNavigationBarController: UIViewController {
 
     private struct HostedControl {
         let button: UIBarButtonItem
-        let view: WorkspaceNavigationControlView
+        let view: UIView & UIContentView
     }
 
     private struct OriginalItem {
