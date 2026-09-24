@@ -39,6 +39,21 @@ cache_limit_bytes=3221225472
 # Keep in sync with scripts/ci/canonical-build-root.sh.
 CANONICAL_BUILD_ROOT="${CMUX_CI_CANONICAL_ROOT:-/private/tmp/cmux-ci}"
 
+# How Swift Build's llbuild decides a file changed. The default,
+# device-agnostic, compares modification times, which cannot survive a move to
+# another runner: Blacksmith images install Xcode at different times, so every
+# SDK header and prebuilt module a task discovered has another mtime there, and
+# Xcode rewrites the generated package module maps with identical bytes on the
+# first build after a DerivedData seed is adopted. Run 36022099083 adopted a
+# seed of its own base commit and still reran 94 SwiftDriver and 64
+# SwiftEmitModule tasks, every third-party package included, for 1,616 Xcode
+# files whose only difference was the mtime. checksum-only compares contents,
+# so an input that did not change is not rebuilt wherever it came from. Swift
+# Build reads the setting from the environment of the xcodebuild that launches
+# it, so it reaches only these builds. A build database written in one mode
+# reruns every task in the other, so the mode is part of the fingerprint.
+XCBUILD_FILE_SYSTEM_MODE=checksum-only
+
 fingerprint() {
   local derived_data="$1"
   # Canonical only when both paths are fixed: the source at the canonical
@@ -52,6 +67,7 @@ fingerprint() {
       echo "canonical-v1"
       xcodebuild -version
       printf 'derived-data=%s\n' "${derived_data##*/}"
+      printf 'file-system=%s\n' "$XCBUILD_FILE_SYSTEM_MODE"
     } | shasum -a 256 | cut -c1-32
     return
   fi
@@ -59,6 +75,7 @@ fingerprint() {
     xcodebuild -version
     printf 'workspace=%s\n' "$PWD"
     printf 'derived-data=%s\n' "$derived_data"
+    printf 'file-system=%s\n' "$XCBUILD_FILE_SYSTEM_MODE"
   } | shasum -a 256 | cut -c1-32
 }
 
@@ -66,13 +83,37 @@ fingerprint() {
 # without the Sparkle and Sentry binary artifacts would fail it. A restored
 # source-packages cache can do that, and a failed resolve can leave a partial
 # clone behind, so every retry starts from an empty package directory.
+#
+# CMUX_CI_SWIFTPM_CACHE_EXACT_HIT=true says the caller restored the exact
+# `spm-` key for this Package.resolved. That cache was saved after a resolve of
+# the same pins, so its repositories already hold every pinned revision; try
+# once without fetching each package remote. Pins are exact revisions, so
+# skipping the fetch cannot change what is checked out. If it fails for any
+# reason, fall through to the normal resolve of the same cache.
 resolve() {
   local derived_data="$1" source_packages="$2" attempt
-  for attempt in 1 2 3; do
+  if [ "${CMUX_CI_SWIFTPM_CACHE_EXACT_HIT:-}" = true ]; then
     mkdir -p "$source_packages" "$derived_data"
-    if xcodebuild -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
+    if "$SCRIPT_DIR/swiftpm-manifest-cache.sh" run \
+      xcodebuild -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
       -derivedDataPath "$derived_data" \
       -clonedSourcePackagesDirPath "$source_packages" \
+      -packageCachePath "$source_packages/.package-cache" \
+      -skipPackageUpdates \
+      -resolvePackageDependencies \
+      && [ -d "$source_packages/artifacts/sparkle/Sparkle/Sparkle.xcframework" ] \
+      && [ -d "$source_packages/artifacts/sentry-cocoa/Sentry/Sentry.xcframework" ]; then
+      return 0
+    fi
+    echo "Offline resolve from the exact package cache failed; resolving normally" >&2
+  fi
+  for attempt in 1 2 3; do
+    mkdir -p "$source_packages" "$derived_data"
+    if "$SCRIPT_DIR/swiftpm-manifest-cache.sh" run \
+      xcodebuild -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
+      -derivedDataPath "$derived_data" \
+      -clonedSourcePackagesDirPath "$source_packages" \
+      -packageCachePath "$source_packages/.package-cache" \
       -resolvePackageDependencies; then
       if [ -d "$source_packages/artifacts/sparkle/Sparkle/Sparkle.xcframework" ] \
         && [ -d "$source_packages/artifacts/sentry-cocoa/Sentry/Sentry.xcframework" ]; then
@@ -103,8 +144,8 @@ build() {
   # Build the app/UI scheme first so its warning log retains the old runtime
   # job warning-budget scope; subsequent schemes reuse the same app objects.
   # shellcheck disable=SC2016 # Xcode expands $(inherited), not the shell
-  for scheme in cmux cmux-unit cmux-numeric-locale; do
-    xcodebuild -project cmux.xcodeproj -scheme "$scheme" -configuration Debug \
+  for scheme in cmux cmux-unit cmux-numeric-locale cmux-cli-tests; do
+    FileSystemMode="$XCBUILD_FILE_SYSTEM_MODE" xcodebuild -project cmux.xcodeproj -scheme "$scheme" -configuration Debug \
       -derivedDataPath "$derived_data" \
       -clonedSourcePackagesDirPath "$source_packages" \
       -disableAutomaticPackageResolution \

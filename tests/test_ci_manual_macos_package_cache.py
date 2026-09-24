@@ -10,7 +10,7 @@ import unittest
 import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
-STEPS = yaml.safe_load((ROOT / '.github/workflows/test-depot.yml').read_text())['jobs']['tests']['steps']
+STEPS = yaml.safe_load((ROOT / '.github/workflows/test-macos-suite.yml').read_text())['jobs']['tests']['steps']
 
 
 def step(name):

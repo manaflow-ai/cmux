@@ -1973,9 +1973,9 @@ if [[ -x "$CMUXD_SRC" ]]; then
   chmod +x "$BIN_DIR/cmuxd"
 fi
 # The cmux-tui client the Machines panel uses for cloud sessions ships inside the
-# bundle like the Ghostty helper. Dev builds take the rolling latest manifest (or
-# CMUX_TUI_CLIENT_MANIFEST_URL / CMUX_TUI_CLIENT_LOCAL); CMUX_SKIP_CMUX_TUI_CLIENT=1
-# leaves an existing copy alone for offline reloads.
+# bundle like the Ghostty helper. Resolve its published inputs from this source
+# history unless CMUX_TUI_CLIENT_MANIFEST_URL / CMUX_TUI_CLIENT_LOCAL overrides it.
+# CMUX_SKIP_CMUX_TUI_CLIENT=1 preserves an existing copy for offline reloads.
 if [[ "${CMUX_SKIP_CMUX_TUI_CLIENT:-}" == "1" && -x "$APP_PATH/Contents/Resources/bin/cmux-tui" ]]; then
   echo "Preserving bundled cmux-tui client (CMUX_SKIP_CMUX_TUI_CLIENT=1)"
 else
@@ -1990,6 +1990,13 @@ else
   if [[ -n "$CMUX_TUI_CLIENT_MANIFEST_URL_VALUE" ]]; then
     cmux_tui_install_args+=(
       --manifest-url "$CMUX_TUI_CLIENT_MANIFEST_URL_VALUE"
+    )
+  elif [[ -z "${CMUX_TUI_CLIENT_MANIFEST_URL:-}" && -z "${CMUX_TUI_CLIENT_LOCAL:-}" ]]; then
+    cmux_tui_commit="$("$PWD/scripts/ci/resolve-cmux-tui-client-commit.sh")"
+    cmux_tui_manifest_base="${CMUX_TUI_CLIENT_MANIFEST_BASE:-https://files.cmux.com/cmux-tui}"
+    cmux_tui_install_args+=(
+      --manifest-url "${cmux_tui_manifest_base%/}/$cmux_tui_commit/manifest.json"
+      --expected-commit "$cmux_tui_commit"
     )
   fi
   # The installer verifies the published manifest's build-provenance attestation

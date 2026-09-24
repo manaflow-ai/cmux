@@ -24,10 +24,10 @@ extension TerminalSurface {
         return remoteOutputLane.enqueueTextInput(frame, to: surface)
     }
 
-    /// Notifies the pane host that user-initiated terminal input is about to be sent.
     @MainActor
     @discardableResult
     public func didReceiveExplicitInput() -> Bool {
+        startupInputGate.cancel(generation: terminalLifecycleId)
         var cancelledDeferredAdmission = false
         if cancelsStartupRestoreAdmissionOnExplicitInput,
            startupRestoreAdmissionPhase == .awaitingAdmission {
@@ -302,11 +302,11 @@ extension TerminalSurface {
     }
 
     @MainActor
-    private func sendInputAfterExplicitInput(_ text: String) -> InputSendResult {
+    func sendInputAfterExplicitInput(_ text: String, recordsExplicitInput: Bool = true) -> InputSendResult {
         if deferInputDuringRuntimeClipboardRead(
             estimatedBytes: text.utf8.count,
             replay: { [weak self] in
-                _ = self?.sendInputAfterExplicitInput(text)
+                _ = self?.sendInputAfterExplicitInput(text, recordsExplicitInput: recordsExplicitInput)
             }
         ) {
             return .queued
@@ -316,7 +316,7 @@ extension TerminalSurface {
             let queued = enqueuePendingSocketInput(text)
             if queued {
                 requestInputDemandSurfaceStartIfNeeded()
-                didAcceptExplicitInput()
+                if recordsExplicitInput { didAcceptExplicitInput() }
             }
             return queued ? .queued : .inputQueueFull
         }
@@ -334,7 +334,7 @@ extension TerminalSurface {
                 validatedGeneration: &validatedGeneration
             ) || queuedInput
         }
-        didAcceptExplicitInput()
+        if recordsExplicitInput { didAcceptExplicitInput() }
         return queuedInput ? .queued : .sent
     }
 

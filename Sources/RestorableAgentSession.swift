@@ -767,7 +767,7 @@ struct SessionRestorableAgentSnapshot: Codable, Sendable {
     var registration: CmuxVaultAgentRegistration? = nil
     /// Last hook-observed permission mode; re-applied as `--permission-mode` on
     /// user-owned claude resume/fork when no explicit launch flag covers it.
-    var permissionMode: String? = nil
+    var permissionMode: String? = nil; var hadActivePromptTurn: Bool? = nil
 
     func preparedResumeArguments(
         launchCommand: AgentLaunchCommandSnapshot?,
@@ -1967,10 +1967,10 @@ struct RestorableAgentSessionIndex: Sendable {
                     ),
                     launchCommand: effectiveRecord.launchCommand,
                     registration: registration,
-                    permissionMode: effectiveRecord.lastPermissionMode
+                    permissionMode: effectiveRecord.lastPermissionMode,
+                    hadActivePromptTurn: max(effectiveRecord.activePromptDepth ?? 0, effectiveRecord.activePromptTurnIds?.count ?? 0) > 0
                 )
-                let key = panelKey
-                let sessionKey = SessionKey(kind: kind, sessionId: normalizedSessionId)
+                let key = panelKey; let sessionKey = SessionKey(kind: kind, sessionId: normalizedSessionId)
                 let panelKindKey = PanelKindKey(panelKey: key, kind: kind)
                 let panelIDKindKey = PanelIDKindKey(panelId: panelId, kind: kind)
                 let recordedProcessIdentity: AgentPIDProcessIdentity? = {

@@ -8,13 +8,24 @@ This document is the capacity and operations layer. It does not restate the
 routing contract, which already exists:
 
 - [`ci-runners.md`](../ci-runners.md) owns the runner-variable table, the
-  persistent compile-admission pilot contract, the Tart pool, and the
-  direct-physical-host boundary.
+  pull request pool preference (including owned pools), the Tart pool, and
+  the direct-physical-host boundary.
 - [`fleet-enrollment.md`](../fleet-enrollment.md) owns machine onboarding.
 - [`workload-profiles.md`](../workload-profiles.md) owns workload identity.
 
 Read those first. This document answers "how many, which lane, and what
 happens at 3 a.m.", and it is the one that carries measurements.
+
+> **Pull request compile pilot retired (#14232).** The persistent
+> compile-admission pilot this plan builds on (`persistent-macos-compile.yml`,
+> `persistent-macos-router.yml`, `CI_PERSISTENT_MAC_COMPILE` and
+> `scripts/persistent-compile`) was removed before it routed any pull request.
+> No workflow targets the `cmux-persistent-compile` runner group any more, so
+> an org admin can remove the group and deregister its runners. Owned minis
+> will take pull request jobs through the pool picker instead
+> (`scripts/ci/pr_runner_pool.py`, #14205, #14237). The sections marked
+> "retired" below describe the removed pilot and are kept for their
+> measurements and reasoning. The nightly mini lane was removed separately (#14243).
 
 ## TL;DR
 
@@ -29,8 +40,10 @@ happens at 3 a.m.", and it is the one that carries measurements.
   unset.
 - **Four minis** hold the compile lane's peak. **One** (issue #13491) is the
   canary and is worth roughly 1.0-1.3 servers of relief on its own.
-- The minis never become required-CI runners. They produce a compile artifact
-  that a hosted job revalidates. That is what keeps a public repo safe.
+- Owned minis take trusted pull request jobs only through the owned-pool
+  picker (`scripts/ci/pr_runner_pool.py`), when `CI_PR_POOL_OWNED` is 1:
+  same-repository heads on a first attempt, with Blacksmith as overflow
+  (#14237, #14244). Fork pull requests never reach them.
 
 ## 1. Measured demand
 
@@ -98,9 +111,11 @@ Split by pool (`labels[0]` on each job):
 | `warp-macos-26-arm64-12x` | 9 | 448 | 0.67 | 4 |
 | `blacksmith-6vcpu-macos-26` | 11 | 443 | 0.58 | 5 |
 
-`blacksmith-6vcpu-macos-15` is the pull-request lane, because `MACOS_RUNNER_PR`
-is unset and every PR macOS job falls back to it
-(`ci-macos.yml:57,878,2404,2773`). The required/`main` lanes currently point at
+`blacksmith-6vcpu-macos-15` was the pull-request lane in this window, because
+`MACOS_RUNNER_PR` was unset and every PR macOS job fell back to it
+(`ci-macos.yml:57,878,2404,2773` at the time). Since 2026-09-24 `MACOS_RUNNER_PR` is
+`blacksmith-6vcpu-macos-26`, so re-read `gh variable list` before comparing a
+new measurement against this one. The required/`main` lanes then pointed at
 Warp (`MACOS_RUNNER_15=warp-macos-15-arm64-6x`), so PR pain and release pain
 are separate problems and only the first one is in scope here.
 
@@ -200,7 +215,9 @@ them (section 5).
    XCTest, and it is a required check. Its home is the isolated Tart pool
    (18 slots, `ci-runners.md`), where each job gets a fresh VM clone and an
    Aqua login session. A shared mini cannot give it either.
-4. **`release-build`, signing, notarization, nightly, TestFlight** - never.
+4. **Nightly app compile** - nightlies run on Blacksmith until Glaeda routing
+   (glaeda#1174) sends every job std > light > Blacksmith > GitHub-hosted.
+5. **`release-build`, signing, notarization, TestFlight** - never.
    Unchanged from `ci-runners.md`.
 
 ## 2. Security
@@ -210,6 +227,10 @@ workflow YAML, including `runs-on:`. Every control below exists because of
 that single fact.
 
 ### 2.1 What is already enforced
+
+> Retired with the pilot (#14232): the `check_persistent_compile_*`
+> functions and `tests/test_ci_persistent_mac_compile.py` rows below no longer
+> exist. `check_no_self_hosted_fleet_runners` still applies.
 
 | Control | Where |
 | --- | --- |
@@ -326,6 +347,10 @@ in Glaeda is not yet a runner.
 
 ### 3.2 Labels and runner group
 
+> Retired (#14232): no workflow targets this group or label any more. The
+> guard still refuses both names in a required job.
+> Owned minis will join the pool picker's `POOLS` behind a dedicated label.
+
 Exactly one group and one label set, byte-for-byte, because the guard compares
 them literally:
 
@@ -346,9 +371,17 @@ not a relabelled dev-build machine.
 
 ### 3.3 Xcode versions
 
-The mini must carry the exact app at `vars.CMUX_CI_XCODE_APP_MACOS_15`
-(currently `/Applications/Xcode_26.3.app`) with a macOS SDK major of 26, and
-`scripts/select-ci-xcode.sh` must resolve it.
+The mini must carry the exact app at `vars.CMUX_CI_XCODE_APP_PR ||
+vars.CMUX_CI_XCODE_APP_MACOS_15` with a macOS SDK major of 26, and
+`scripts/select-ci-xcode.sh` must resolve it. `scripts/persistent-compile`
+reads those variables rather than a copy of the path, so `up` and the doctor
+check each mini against the value CI uses today and print it.
+The build number matters too: revalidation compares the full `xcodebuild
+-version`, so the mini's Xcode must be the same build as the hosted image's.
+`up` checks only that the app exists. Before routing a mini, compare its
+`xcodebuild -version` against the `Build version` line that a current hosted
+`macOS compile admission` log prints after `Selected pinned Xcode`. When the
+variable moves, every mini needs the new app at that exact path.
 
 Drift is now a guard failure rather than a silent waste:
 `check_persistent_compile_owned_mac_occupancy` compares the producer's
@@ -406,57 +439,74 @@ Symptoms, in the order they show up:
 | `Xcode identity mismatch` in revalidation | hosted job log | toolchain drift; see 3.3 |
 | Producer queued > `CI_PERSISTENT_MAC_QUEUE_SECONDS` | router summary | fleet is undersized or wedged |
 
-Sweep for the last 50 PR runs:
+Sweep for the last 50 PR runs. The admission metrics step logs its record as
+one sorted JSON line, so match that line: the route step prints its own
+`fallback_reason` JSON, and counting both would double every routed run.
+`persistent_route_unused` means the route step was skipped (selector off,
+untrusted author, or a product-reuse hit). An empty reason is a run that
+adopted the persistent product.
 
 ```sh
 gh run list --repo manaflow-ai/cmux --workflow ci.yml --limit 50 \
   --json databaseId --jq '.[].databaseId' | while read -r id; do
   gh run view "$id" --repo manaflow-ai/cmux --log 2>/dev/null |
-    grep -o 'fallback_reason=[a-z_]*' || true
+    grep -F '{"artifact_publication_seconds"' |
+    grep -oE '"fallback_reason": "[a-z_]*"' || true
 done | sort | uniq -c | sort -rn
 ```
 
-Drain one mini:
+Drain one mini, on the mini:
 
 ```sh
-python3 scripts/cmux_fleet.py transition-apply "$ENROLLMENT" --to draining
-bash scripts/cmux-fleet status "$ENROLLMENT" --acceptance "$ACCEPTANCE"
+scripts/persistent-compile drain          # waits for a running job; --now does not
+scripts/persistent-compile resume         # back to eligible, service started
 ```
 
-Then remove the runner from the `cmux-persistent-compile` group, or stop its
-launchd job. **Draining in Glaeda does not stop GitHub from assigning jobs** -
-they are separate control planes, and this is the sharpest operational trap in
-the whole design. Until glaeda #1058's drain primitive lands, draining is two
-actions, and doing only the first one leaves the machine taking work.
+**Draining in Glaeda does not stop GitHub from assigning jobs** - they are
+separate control planes, and this is the sharpest operational trap in the
+whole design. `drain` does both: it moves the enrollment to `draining` and,
+once the runner is idle, stops and disables its launchd agent so it stays
+stopped across logins and reboots. A job GitHub assigns in the seconds between
+the last one ending and the stop is cancelled and falls back to the hosted
+compile. Until glaeda #1058's drain
+primitive lands, do not drain with `cmux_fleet.py transition-apply` alone; that
+leaves the machine taking work.
 
-Quarantine, with one of the eight reviewed reasons (`toolchain_mismatch`,
-`disk_pressure`, `failed_acceptance`, `dirty_canonical_checkout`,
-`service_mismatch`, `hardware_failure`, `stale_glaeda_generation`,
-`unexplained_process_settlement`):
+Quarantine, on the mini, with one of the eight reviewed reasons
+(`toolchain_mismatch`, `disk_pressure`, `failed_acceptance`,
+`dirty_canonical_checkout`, `service_mismatch`, `hardware_failure`,
+`stale_glaeda_generation`, `unexplained_process_settlement`):
 
 ```sh
-python3 scripts/cmux_fleet.py transition-apply "$ENROLLMENT" \
-  --to quarantined --reason disk_pressure
+scripts/persistent-compile quarantine disk_pressure   # --now does not wait for a running job
+scripts/persistent-compile up                         # once fixed: re-runs acceptance, then starts the runner
 ```
+
+Like `drain`, it moves Glaeda and stops the runner. Quarantining with
+`cmux_fleet.py transition-apply` alone has the same trap as draining with it.
 
 ### 3.6 When a mini is offline
 
-Nothing happens, and that is the design. The router's artifact poll finds no
-producer and prints "No trusted persistent route request was published; hosted
-admission remains authoritative", then exits 0. The hosted job's
-`--observe-only --ready-only` probe reports `producer_not_ready` and compiles
-hosted immediately, without waiting. `route.fallback()` always returns 0: a
-hosted fallback is not an error.
+PRs still pass, but each routed one wastes a little. The PR publishes its
+route request, the router dispatches a producer, and the producer's job waits
+for a runner that never comes. After `CI_PERSISTENT_MAC_QUEUE_SECONDS` (90 by
+default) the router cancels it and records `queue_timeout`. Meanwhile the hosted
+job's `--observe-only --ready-only` probe has already reported
+`producer_not_ready` and compiled hosted without waiting. `route.fallback()`
+always returns 0: a hosted fallback is not an error.
 
-The failure mode to watch for is not "the fleet is down". It is "the fleet is
-up, slow, and every PR pays the observation without getting the artifact" -
-which costs seconds, not minutes, but shows up as a hit rate near zero in the
-metrics.
+So an offline fleet costs one Linux router job of about 90 seconds per routed
+PR, not a slower check. `scripts/persistent-compile` reports routing that is on
+with no healthy runner, and `all` asks before it turns routing on in that state.
+
+The other failure mode is "the fleet is up, slow, and every PR pays the
+observation without getting the artifact". That costs seconds, not minutes, but
+shows up as a hit rate near zero in the metrics.
 
 Full stop, one command, no deploy:
 
 ```sh
-gh variable set CI_PERSISTENT_MAC_COMPILE --repo manaflow-ai/cmux -b off
+scripts/persistent-compile off
 ```
 
 ## 4. Who owns what
@@ -519,6 +569,38 @@ after) and is where that requirement belongs.
 
 ## 5. Rollout
 
+> Retired (#14232): `scripts/persistent-compile` and the variables below
+> were removed with the pilot. Rollout of owned minis for pull requests now
+> goes through `scripts/ci/pr_runner_pool.py` (`POOLS`, `CI_PR_POOL_ORDER`).
+
+`scripts/persistent-compile` runs every step below that can be scripted. Run
+it with no arguments from anywhere to see what is set up and the one command
+to run next. Commands that change something show their plan and ask first
+(`-y` skips the question).
+
+| Who | Where | Command |
+| --- | --- | --- |
+| Org admin | anywhere with `gh` | `scripts/persistent-compile group` |
+| Operator | the mini, in a cmux checkout | `scripts/persistent-compile up --node-id cmux-mac-NNN` |
+| Maintainer | anywhere | `scripts/persistent-compile pilot <PR>`, later `all` |
+
+Before `up`, reserve the mini through its existing owner (#13491 step 1); `up`
+does not take machines from other schedulers. `up` clones Glaeda if needed and
+runs `glaeda-mini-setup`. It then downloads the reviewed Glaeda candidate
+pinned in `scripts/ci/persistent_compile_fleet.py` (`CANDIDATE_*`) and has
+`glaeda-mini-enroll` verify and stage those exact bytes, then enroll and
+accept the mini with them; no Rust is built on the node. Last, it registers
+the runner and starts it. It stops at the first
+step that needs sudo or a human, prints that step, and resumes from there when
+run again. It refuses to register a mini whose Glaeda enrollment is not
+`eligible`. The runner is the pinned `actions-runner` (sha256 checked) in
+`~/actions-runner-cmux-persistent-compile`, registered with the exact labels in
+3.2 and run as a launchd agent. The registration token comes from the
+operator's `gh` login. An operator who is not an org admin gets one from an
+admin instead: the admin runs `scripts/persistent-compile token`, and the
+operator runs `CMUX_RUNNER_TOKEN=<token> scripts/persistent-compile up`. The
+token is valid for one hour.
+
 ### Stage 0 - preconditions (maintainer only)
 
 - [ ] Organization runner group `cmux-persistent-compile` exists, allows this
@@ -528,16 +610,21 @@ after) and is where that requirement belongs.
       `glaeda-cmux-fleet-acceptance/v2` receipt and state `eligible` (#13491).
 - [ ] That mini registered as an Actions runner in that group with exactly the
       labels in 3.2.
-- [ ] `/Applications/Xcode_26.3.app` present and selected by
-      `scripts/select-ci-xcode.sh`.
+- [ ] The Xcode that `scripts/persistent-compile` names from the CI
+      variables present and selected by `scripts/select-ci-xcode.sh`.
 - [ ] Free space above one full cold build plus three cache generations.
 
 ### Stage 1 - canary, one mini, one lane, one PR
 
 ```sh
-gh variable set CI_PERSISTENT_MAC_COMPILE        --repo manaflow-ai/cmux -b pilot
-gh variable set CI_PERSISTENT_MAC_COMPILE_COHORT --repo manaflow-ai/cmux -b 13198
+scripts/persistent-compile pilot <PR number or head branch>
 ```
+
+That sets `CI_PERSISTENT_MAC_COMPILE=pilot` and
+`CI_PERSISTENT_MAC_COMPILE_COHORT` to the value given. The cohort must name an
+open same-repository pull request by an org `MEMBER` or `OWNER` whose CI
+touches macOS. #13198 is the RFC issue, not a pull request, so no run can match
+it.
 
 `pilot` + a cohort restricts routing to matching PR numbers or head branch
 names. Every other PR is untouched. Leave it here for at least 20 routed runs.
@@ -606,7 +693,8 @@ today. Nothing they merge takes effect until a maintainer sets one variable.
 
 ## 7. Open gaps
 
-- The organization runner group does not exist, so the producer has never run
+- The organization runner group exists (2026-09-24) but has no runner, so the
+  producer has never run
   (`docs/ci/workflow-inventory.md` line 21). The router has 6,887 skipped runs
   out of 6,927 and zero successes: it creates one run per CI run and exits on
   the unset variable.

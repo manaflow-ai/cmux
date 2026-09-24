@@ -1589,6 +1589,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     var terminalReplaySurfaceIDsInFlight: Set<String>
     var terminalReplayRequestIDsInFlightBySurfaceID: [String: UUID]
     var terminalReplayTasksBySurfaceID: [String: Task<Void, Never>]
+    /// Telemetry-only probes that stamp an outstanding replay as stalled.
+    var terminalReplayStallProbeTasksBySurfaceID: [String: Task<Void, Never>]
     var terminalReplayBarrierWatchdogTasksBySurfaceID: [String: Task<Void, Never>]
     var terminalReplayBarrierWatchdogIDsBySurfaceID: [String: UUID]
     var terminalReplayBarrierWatchdogTokensBySurfaceID: [String: UUID]
@@ -2013,6 +2015,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         self.terminalReplaySurfaceIDsInFlight = []
         self.terminalReplayRequestIDsInFlightBySurfaceID = [:]
         self.terminalReplayTasksBySurfaceID = [:]
+        self.terminalReplayStallProbeTasksBySurfaceID = [:]
         self.terminalReplayBarrierWatchdogTasksBySurfaceID = [:]
         self.terminalReplayBarrierWatchdogIDsBySurfaceID = [:]
         self.terminalReplayBarrierWatchdogTokensBySurfaceID = [:]
@@ -14465,7 +14468,15 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 self.resyncTerminalOutput(
                     reason: "liveness_event_lane",
                     restartEventStream: true,
-                    recoversConnectionOnSubscriptionFailure: false
+                    // The shared transport answered the liveness probe, but
+                    // the replacement event listener still needs a usable
+                    // server registration. If that start handshake fails or
+                    // its stream closes immediately, leaving the connection
+                    // alive would strand the UI with a permanently silent
+                    // terminal. Let the normal connection recovery replace
+                    // the session in that case; a successful handshake still
+                    // keeps the existing transport in place.
+                    recoversConnectionOnSubscriptionFailure: true
                 )
                 return
             }
@@ -14606,7 +14617,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             "sync.resync reason=\(reason) restart=\(restartEventStream) surfaces=\(surfaceIDs.count)"
         )
         for surfaceID in surfaceIDs {
-            requestAuthoritativeTerminalResync(surfaceID: surfaceID, reason: reason)
+            requestAuthoritativeTerminalResync(
+                surfaceID: surfaceID,
+                trigger: .resubscribe,
+                reason: reason
+            )
         }
     }
 
@@ -14760,6 +14775,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             } else {
                 self.requestAuthoritativeTerminalResync(
                     surfaceID: surfaceID,
+                    trigger: .pendingInputDrop,
                     reason: "input_seq_wait_retry"
                 )
             }
@@ -14771,6 +14787,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         for surfaceID in terminalByteContinuationsBySurfaceID.keys {
             requestAuthoritativeTerminalResync(
                 surfaceID: surfaceID,
+                trigger: .resubscribe,
                 reason: reason
             )
         }
@@ -15093,6 +15110,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// for TUIs, and a VT export is still a replay stream rather than state.
     func requestTerminalReplay(
         surfaceID: String,
+        trigger: MobileTerminalReplayTrigger,
         replayBarrierToken: UUID? = nil,
         coveredReplayBarrierDroppedOutputCount: UInt64? = nil
     ) {
@@ -15171,11 +15189,30 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         )
         let diagnosticStartedAt = appDiagnosticNow()
         let terminalTraceID = DiagnosticTerminalTraceID()
+        // Captured before the request so the stall probe and the settled
+        // phases all describe the same episode, even after retries mutate the
+        // surface's counters.
+        let replayTraceContext = terminalReplayTraceContext(
+            surfaceID: surfaceID,
+            trigger: trigger,
+            replayBarrierToken: replayBarrierTokenForRequest
+        )
         recordTerminalTrace(
             operation: .replay,
             phase: .started,
             traceID: terminalTraceID,
-            surfaceID: surfaceID
+            surfaceID: surfaceID,
+            replayContext: replayTraceContext
+        )
+        // Nothing else reports an outstanding replay: every other phase is
+        // terminal, so a request that never settles would otherwise leave no
+        // trace of a surface that stayed blank waiting for it.
+        armTerminalReplayStallProbe(
+            surfaceID: surfaceID,
+            requestID: replayRequestID,
+            traceID: terminalTraceID,
+            startedAt: diagnosticStartedAt,
+            context: replayTraceContext
         )
         recordAppEvent(
             .terminalReplayStarted,
@@ -15266,6 +15303,18 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 // suspension point, so every staleness guard below already
                 // observes post-decode state.
                 let decoded = await Self.decodeTerminalReplayResponseOffMain(data)
+                // Splits the round trip: this phase's detail is the host's own
+                // capture time, so the remainder is transport and queueing.
+                if let hostElapsed = decoded.payload?.hostElapsedMilliseconds {
+                    self.recordTerminalTrace(
+                        operation: .replay,
+                        phase: .hostCaptureFinished,
+                        traceID: terminalTraceID,
+                        surfaceID: surfaceID,
+                        startedAt: diagnosticStartedAt,
+                        detail: Int(hostElapsed)
+                    )
+                }
                 self.recordTerminalTrace(
                     operation: .replay,
                     phase: .decoded,
@@ -15300,6 +15349,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     transferredInFlightToRetry = true
                     guard self.requestTerminalReplayForCurrentBarrier(
                         surfaceID: surfaceID,
+                        trigger: .failureRetry,
                         replayBarrierToken: replayBarrierTokenForRequest,
                         coveredReplayBarrierDroppedOutputCount: nil,
                         reason: "stale_client"
@@ -15476,6 +15526,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                         transferredInFlightToRetry = true
                         self.requestTerminalReplay(
                             surfaceID: surfaceID,
+                            trigger: .failureRetry,
                             replayBarrierToken: retryToken,
                             coveredReplayBarrierDroppedOutputCount:
                                 self.terminalReplayBarrierDroppedOutputCountsBySurfaceID[surfaceID]
@@ -15604,6 +15655,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     transferredInFlightToRetry = true
                     guard self.requestTerminalReplayForCurrentBarrier(
                         surfaceID: surfaceID,
+                        trigger: .failureRetry,
                         replayBarrierToken: replayBarrierTokenForRequest,
                         coveredReplayBarrierDroppedOutputCount: nil,
                         reason: "stale_client"
@@ -15660,6 +15712,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     transferredInFlightToRetry = true
                     self.requestTerminalReplay(
                         surfaceID: surfaceID,
+                        trigger: .failureRetry,
                         replayBarrierToken: retryToken,
                         coveredReplayBarrierDroppedOutputCount: coveredReplayBarrierDroppedOutputCountForRequest
                     )
@@ -15828,7 +15881,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 // state. Keep the catch-up replay nonblocking so later live
                 // bytes continue while it verifies the missing interval.
                 refreshTerminalOutputSubscription(reason: "seq_gap", restartEventStream: false)
-                requestTerminalReplay(surfaceID: surfaceID)
+                requestTerminalReplay(surfaceID: surfaceID, trigger: .byteGap)
                 return
             }
             if endSeq <= deliveredSeq {
