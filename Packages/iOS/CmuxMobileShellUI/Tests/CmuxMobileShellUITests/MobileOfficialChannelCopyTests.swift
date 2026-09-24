@@ -12,17 +12,17 @@ import Testing
 @MainActor
 @Suite struct MobileOfficialChannelCopyTests {
     @Test func whatsNewCompatCopyIsNeutralOnOfficialBuilds() {
-        let official = MobileWhatsNewCatalog.macCompatibility(
+        let official = MobileWhatsNewCatalog().macCompatibility(
             policy: .baked,
             iosVersion: "1.0.4",
             buildType: .prod
         )
-        #expect(official.stableVersion == "0.64.23")
+        #expect(official.stableVersion == "0.64.25")
         #expect(official.nightlyVersion?.contains("nightly") == true)
     }
 
     @Test func whatsNewCompatCopyUsesTeamSpecificFloor() {
-        let team = MobileWhatsNewCatalog.macCompatibility(
+        let team = MobileWhatsNewCatalog().macCompatibility(
             policy: .baked,
             iosVersion: "1.0.4",
             buildType: .beta
@@ -32,7 +32,7 @@ import Testing
     }
 
     @Test func whatsNewMacUpdateDetailUsesTheResolvedFloor() {
-        let team = MobileWhatsNewCatalog.macUpdateDetail(
+        let team = MobileWhatsNewCatalog().macUpdateDetail(
             buildType: .beta,
             requiredVersion: "0.64.20"
         )
@@ -40,17 +40,17 @@ import Testing
         #expect(team.contains("BETA"))
         #expect(!team.contains("%@"))
 
-        let official = MobileWhatsNewCatalog.macUpdateDetail(
+        let official = MobileWhatsNewCatalog().macUpdateDetail(
             buildType: .prod,
-            requiredVersion: "0.64.23"
+            requiredVersion: "0.64.25"
         )
-        #expect(official.contains("0.64.23"))
+        #expect(official.contains("0.64.25"))
         #expect(!official.contains("BETA"))
         #expect(!official.contains("%@"))
     }
 
     @Test func whatsNewUsesTheCustomPairingPage() throws {
-        let page = try #require(MobileWhatsNewCatalog.entry(withID: "connections.v2"))
+        let page = try #require(MobileWhatsNewCatalog().entry(withID: "connections.v2"))
         #expect(page.footnote == nil)
         guard case .pairingSetup(let features) = page.body else {
             Issue.record("connections update page lost its custom body")

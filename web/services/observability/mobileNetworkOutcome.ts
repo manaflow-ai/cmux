@@ -6,6 +6,8 @@ export const MAX_MOBILE_NETWORK_OUTCOME_REQUEST_BYTES = 64 * 1_024;
 export const MAX_MOBILE_NETWORK_OUTCOME_BATCH_EVENTS = 100;
 
 const EVENT_NAME = "ios_connectivity_latency";
+const TASK_MODEL_EVENT_NAME = "ios_task_model_discovery";
+const TASK_MODEL_RESULT_EVENT_NAME = "ios_task_model_result";
 const TERMINAL_WINDOW_EVENT_NAME = "ios_terminal_latency_window";
 const TERMINAL_ANOMALY_EVENT_NAME = "ios_terminal_latency_anomaly";
 const RUNTIME_ROLE = "mobileClient";
@@ -14,9 +16,9 @@ const MAX_SAFE_UNSIGNED_INTEGER = 0xffff_ffff;
 
 const phases = new Set([
   "endpoint_start", "pairing", "transport_dial", "host_auth",
-  "rpc_ready", "recovery", "relay_policy", "discovery",
+  "rpc_ready", "recovery", "relay_policy", "discovery", "initial_connect", "terminal_trace",
 ]);
-const outcomes = new Set(["success", "failure", "timeout", "cancelled", "abandoned"]);
+const outcomes = new Set(["success", "failure", "timeout", "cancelled", "abandoned", "stalled"]);
 const failures = new Set([
   "offline", "timedOut", "connectionRefused", "hostUnreachable",
   "permissionDenied", "dnsFailed", "secureChannelFailed", "unsupportedRoute",
@@ -29,11 +31,27 @@ const failures = new Set([
   "localStateUnavailable", "unknown",
 ]);
 const transports = new Set(["unknown", "iroh", "tailscale", "websocket", "debugLoopback"]);
+const eventCodes = new Set([
+  "pairOk", "pairFail", "pairUnreachable",
+  "transportDialConnected", "transportDialFailed", "transportDialCancelled",
+  "hostAuthenticated", "hostAuthenticationFailed", "rpcReady", "rpcFailed",
+  "recoverySucceeded", "recoveryFailed", "endpointActive", "endpointFailed",
+  "relayPolicyRefreshSucceeded", "relayPolicyRefreshFailed",
+  "discoverySucceeded", "discoveryFailed",
+]);
+const cancellationReasons = new Set([
+  "unknown", "requestCancelled", "requestTimedOut", "sessionTeardown", "sessionDeinitialized",
+]);
+const taskModelProviders = new Set(["claude", "codex", "opencode"]);
+const taskModelSources = new Set(["discovered", "backend", "augmented", "fallback"]);
 
 const allowedPropertyKeys = new Set([
   "phase", "outcome", "duration_ms", "runtime_role", "user_usable",
   "failure", "transport", "platform", "client_channel", "app_version", "build_number",
   "bundle_identifier", "os_version", "device_model",
+  "population", "attempt_id", "terminal_ready",
+  "event_code", "event_code_raw", "event_surface", "event_a", "event_b", "event_c",
+  "cancellation_reason",
   "window_ms", "input_count", "output_count", "presented_count",
   "correlated_output_count", "dropped_count", "output_bytes", "max_queue_depth",
   "input_to_output_p50_ms", "input_to_output_p95_ms", "input_to_output_p99_ms",
@@ -41,17 +59,32 @@ const allowedPropertyKeys = new Set([
   "render_p50_ms", "render_p95_ms", "render_p99_ms",
   "input_failed_count", "histogram_version", "input_to_output_histogram", "input_to_visible_histogram", "render_histogram",
   "duration_ms", "threshold_ms", "stage",
+  "trace_id", "operation", "terminal_phase",
+  "replay_trigger", "surface_blank", "barrier_active", "replay_attempt", "app_foreground",
+  "model_count", "phase", "attempt", "retry_delay_ms", "stop_reason", "correlation_id",
+  "provider", "source", "effort_count",
 ]);
 
 export type MobileNetworkOutcome = {
   readonly timestamp: string;
   readonly phase: string;
-  readonly outcome: "success" | "failure" | "timeout" | "cancelled" | "abandoned";
+  readonly outcome: "success" | "failure" | "timeout" | "cancelled" | "abandoned" | "stalled";
   readonly durationMs: number;
   readonly runtimeRole: "mobileClient";
   readonly userUsable: boolean;
+  readonly population?: "cold_open" | "warm_open" | "reconnect" | "pairing_required";
+  readonly attemptId?: string;
+  readonly terminalReady?: boolean;
   readonly failure?: string;
   readonly transport?: string;
+  /** Stable diagnostic vocabulary and bounded payload slots from the client. */
+  readonly eventCode?: string;
+  readonly eventCodeRaw?: number;
+  readonly eventSurface?: number;
+  readonly eventA?: number;
+  readonly eventB?: number;
+  readonly eventC?: number;
+  readonly cancellationReason?: string;
   readonly platform?: "ios";
   readonly clientChannel?: "dev" | "nightly" | "production" | "unknown";
   readonly appVersion?: string;
@@ -59,6 +92,23 @@ export type MobileNetworkOutcome = {
   readonly bundleIdentifier?: string;
   readonly osVersion?: string;
   readonly deviceModel?: string;
+  readonly traceId?: string;
+  readonly operation?: string;
+  readonly terminalPhase?: string;
+  /** Why the replay this trace describes was requested. */
+  readonly replayTrigger?: string;
+  /** The surface had been rebuilt blank, so this stall is a blank screen. */
+  readonly surfaceBlank?: boolean;
+  /** A replay barrier was suppressing live output for the surface. */
+  readonly barrierActive?: boolean;
+  /** Zero-based retry index within the replay episode. */
+  readonly replayAttempt?: number;
+  /**
+   * Whether the app was on screen when this phase was recorded. A suspended
+   * app runs no code, so elapsed time that spans suspension was never spent
+   * waiting on screen; percentiles that mix the two are meaningless.
+   */
+  readonly appForeground?: boolean;
 };
 
 export type MobileTerminalLatencyWindow = {
@@ -105,7 +155,42 @@ export type MobileTerminalLatencyAnomaly = {
   readonly deviceModel?: string;
 };
 
-export type MobileObservabilityEvent = MobileNetworkOutcome | MobileTerminalLatencyWindow | MobileTerminalLatencyAnomaly;
+export type MobileTaskModelDiscovery = {
+  readonly timestamp: string;
+  readonly outcome: "success" | "failure";
+  readonly durationMs: number;
+  readonly modelCount: number;
+  readonly correlationId?: number;
+  readonly discoveryPhase?: "retry_scheduled" | "retry_stopped";
+  readonly attempt?: number;
+  readonly retryDelayMs?: number;
+  readonly stopReason?: "unsupported" | "disabled" | "authorizationRequired" | "accountMismatch" | "invalidRequest" | "providerUnavailable" | "cancelled";
+  readonly failure?: string;
+  readonly platform?: "ios";
+  readonly clientChannel?: "dev" | "nightly" | "production" | "unknown";
+  readonly appVersion?: string;
+  readonly buildNumber?: string;
+  readonly bundleIdentifier?: string;
+  readonly osVersion?: string;
+  readonly deviceModel?: string;
+};
+
+export type MobileTaskModelResult = {
+  readonly timestamp: string;
+  readonly provider: "claude" | "codex" | "opencode";
+  readonly source: "discovered" | "backend" | "augmented" | "fallback";
+  readonly effortCount: number;
+  readonly correlationId?: number;
+  readonly platform?: "ios";
+  readonly clientChannel?: "dev" | "nightly" | "production" | "unknown";
+  readonly appVersion?: string;
+  readonly buildNumber?: string;
+  readonly bundleIdentifier?: string;
+  readonly osVersion?: string;
+  readonly deviceModel?: string;
+};
+
+export type MobileObservabilityEvent = MobileNetworkOutcome | MobileTerminalLatencyWindow | MobileTerminalLatencyAnomaly | MobileTaskModelDiscovery | MobileTaskModelResult;
 
 export function parseMobileNetworkOutcome(candidate: unknown): MobileNetworkOutcome | null {
   if (!isRecord(candidate) || candidate.event !== EVENT_NAME || !isRecord(candidate.properties)) return null;
@@ -210,13 +295,143 @@ export function parseMobileTerminalLatencyAnomaly(candidate: unknown): MobileTer
 }
 
 export function parseMobileObservabilityEvent(candidate: unknown): MobileObservabilityEvent | null {
-  return parseMobileNetworkOutcome(candidate)
+  return parseMobileTaskModelResult(candidate)
+    ?? parseMobileTaskModelDiscovery(candidate)
+    ?? parseMobileNetworkOutcome(candidate)
     ?? parseMobileTerminalLatencyWindow(candidate)
     ?? parseMobileTerminalLatencyAnomaly(candidate);
 }
 
-type CoreObservation = Pick<MobileNetworkOutcome, "phase" | "outcome" | "durationMs" | "userUsable" | "failure" | "transport">;
-type Metadata = Pick<MobileNetworkOutcome, "platform" | "clientChannel" | "appVersion" | "buildNumber" | "bundleIdentifier" | "osVersion" | "deviceModel">;
+type MobileTaskModelDiscoveryPayload = Pick<MobileTaskModelDiscovery, "outcome" | "durationMs" | "modelCount" | "correlationId" | "failure">;
+type MobileTaskModelRetryMetadata = Pick<MobileTaskModelDiscovery, "discoveryPhase" | "attempt" | "retryDelayMs" | "stopReason">;
+
+const taskModelRetryPhases = new Set(["retry_scheduled", "retry_stopped"]);
+const taskModelStopReasons = new Set([
+  "unsupported", "disabled", "authorizationRequired", "accountMismatch",
+  "invalidRequest", "providerUnavailable", "cancelled",
+]);
+
+function parseMobileTaskModelDiscoveryPayload(
+  properties: Record<string, unknown>,
+): MobileTaskModelDiscoveryPayload | null {
+  if (properties.operation !== "model_list") return null;
+  if (properties.outcome !== "success" && properties.outcome !== "failure") return null;
+  const durationMs = unsignedInteger(properties.duration_ms);
+  const modelCount = unsignedInteger(properties.model_count);
+  const correlationId = properties.correlation_id === undefined
+    ? undefined
+    : unsignedInteger(properties.correlation_id);
+  const failure = optionalSetValue(properties.failure, failures);
+  if (durationMs === null || modelCount === null || correlationId === null || failure === false) return null;
+  if (properties.outcome === "failure" && typeof failure !== "string") return null;
+  return {
+    outcome: properties.outcome,
+    durationMs,
+    modelCount,
+    ...(typeof correlationId === "number" ? { correlationId } : {}),
+    ...(typeof failure === "string" ? { failure } : {}),
+  };
+}
+
+function parseMobileTaskModelRetryMetadata(
+  properties: Record<string, unknown>,
+): MobileTaskModelRetryMetadata | null {
+  const phase = optionalSetValue(properties.phase, taskModelRetryPhases) as
+    | MobileTaskModelDiscovery["discoveryPhase"] | false | undefined;
+  const attempt = properties.attempt === undefined ? undefined : unsignedInteger(properties.attempt);
+  const retryDelayMs = properties.retry_delay_ms === undefined ? undefined : unsignedInteger(properties.retry_delay_ms);
+  const stopReason = optionalSetValue(properties.stop_reason, taskModelStopReasons) as
+    | MobileTaskModelDiscovery["stopReason"] | false | undefined;
+  if (phase === false || stopReason === false || attempt === null || retryDelayMs === null) return null;
+  if (phase === "retry_scheduled" && (attempt === undefined || retryDelayMs === undefined)) return null;
+  if (phase === "retry_stopped" && typeof stopReason !== "string") return null;
+  if (phase === undefined && (attempt !== undefined || retryDelayMs !== undefined || stopReason !== undefined)) return null;
+  return {
+    ...(typeof phase === "string" ? { discoveryPhase: phase } : {}),
+    ...(typeof attempt === "number" ? { attempt } : {}),
+    ...(typeof retryDelayMs === "number" ? { retryDelayMs } : {}),
+    ...(typeof stopReason === "string" ? { stopReason } : {}),
+  };
+}
+
+export function parseMobileTaskModelDiscovery(candidate: unknown): MobileTaskModelDiscovery | null {
+  if (!isRecord(candidate) || candidate.event !== TASK_MODEL_EVENT_NAME || !isRecord(candidate.properties)) return null;
+  if (!validTimestamp(candidate.timestamp) || !validProperties(candidate.properties)) return null;
+  const payload = parseMobileTaskModelDiscoveryPayload(candidate.properties);
+  const metadata = parseMetadata(candidate.properties);
+  const retryMetadata = parseMobileTaskModelRetryMetadata(candidate.properties);
+  if (!payload || !metadata || !retryMetadata) return null;
+  return {
+    timestamp: candidate.timestamp,
+    ...payload,
+    ...retryMetadata,
+    ...(metadata.platform ? { platform: metadata.platform } : {}),
+    ...(metadata.clientChannel ? { clientChannel: metadata.clientChannel } : {}),
+    ...(metadata.appVersion ? { appVersion: metadata.appVersion } : {}),
+    ...(metadata.buildNumber ? { buildNumber: metadata.buildNumber } : {}),
+    ...(metadata.bundleIdentifier ? { bundleIdentifier: metadata.bundleIdentifier } : {}),
+    ...(metadata.osVersion ? { osVersion: metadata.osVersion } : {}),
+    ...(metadata.deviceModel ? { deviceModel: metadata.deviceModel } : {}),
+  };
+}
+
+export function parseMobileTaskModelResult(candidate: unknown): MobileTaskModelResult | null {
+  if (!isRecord(candidate) || candidate.event !== TASK_MODEL_RESULT_EVENT_NAME || !isRecord(candidate.properties)) return null;
+  if (!validTimestamp(candidate.timestamp) || !validProperties(candidate.properties)) return null;
+  const payload = parseMobileTaskModelResultPayload(candidate.properties);
+  if (!payload) return null;
+  return {
+    timestamp: candidate.timestamp,
+    ...payload,
+  };
+}
+
+type MobileTaskModelResultPayload = Omit<MobileTaskModelResult, "timestamp">;
+
+function parseMobileTaskModelResultPayload(
+  properties: Record<string, unknown>,
+): MobileTaskModelResultPayload | null {
+  if (properties.operation !== "model_list") return null;
+  const provider = optionalSetValue(properties.provider, taskModelProviders);
+  const source = optionalSetValue(properties.source, taskModelSources);
+  if (typeof provider !== "string" || typeof source !== "string") return null;
+  const effortCount = unsignedInteger(properties.effort_count);
+  if (effortCount === null) return null;
+  const correlationId = optionalUnsignedInteger(properties.correlation_id);
+  if (correlationId === null) return null;
+  const metadata = parseMetadata(properties);
+  if (!metadata) return null;
+  return {
+    provider: provider as MobileTaskModelResult["provider"],
+    source: source as MobileTaskModelResult["source"],
+    effortCount,
+    ...(typeof correlationId === "number" ? { correlationId } : {}),
+    ...taskModelMetadataFields(metadata),
+  };
+}
+
+function taskModelMetadataFields(metadata: Metadata): Omit<MobileTaskModelResultPayload, "provider" | "source" | "effortCount" | "correlationId"> {
+  return {
+    ...(metadata.platform ? { platform: metadata.platform } : {}),
+    ...(metadata.clientChannel ? { clientChannel: metadata.clientChannel } : {}),
+    ...(metadata.appVersion ? { appVersion: metadata.appVersion } : {}),
+    ...(metadata.buildNumber ? { buildNumber: metadata.buildNumber } : {}),
+    ...(metadata.bundleIdentifier ? { bundleIdentifier: metadata.bundleIdentifier } : {}),
+    ...(metadata.osVersion ? { osVersion: metadata.osVersion } : {}),
+    ...(metadata.deviceModel ? { deviceModel: metadata.deviceModel } : {}),
+  };
+}
+
+type CoreObservation = Pick<MobileNetworkOutcome, "phase" | "outcome" | "durationMs" | "userUsable" | "failure" | "transport" | "population" | "attemptId" | "terminalReady" | "eventCode" | "eventCodeRaw" | "eventSurface" | "eventA" | "eventB" | "eventC" | "cancellationReason">;
+type Metadata = Pick<MobileNetworkOutcome, "platform" | "clientChannel" | "appVersion" | "buildNumber" | "bundleIdentifier" | "osVersion" | "deviceModel" | "traceId" | "operation" | "terminalPhase" | "replayTrigger" | "surfaceBlank" | "barrierActive" | "replayAttempt" | "appForeground">;
+
+/** Mirrors `MobileTerminalReplayTrigger` in CMUXMobileCore. */
+const replayTriggers = new Set([
+  "unknown", "outputReset", "renderPipelineReset", "viewportTransition",
+  "revisionChainBreak", "historyChainBreak", "coldAttach", "failureRetry",
+  "droppedFrame", "applyFenceFailure", "pendingInputDrop", "resubscribe",
+  "screenTransition", "missingBaseline", "byteGap",
+]);
 
 function validTimestamp(value: unknown): value is string {
   return typeof value === "string"
@@ -228,6 +443,10 @@ function validProperties(properties: Record<string, unknown>): boolean {
   return !Object.keys(properties).some((key) => !allowedPropertyKeys.has(key));
 }
 
+function optionalUnsignedInteger(value: unknown): number | null | undefined {
+  return value === undefined ? undefined : unsignedInteger(value);
+}
+
 function parseCore(properties: Record<string, unknown>): CoreObservation | null {
   if (typeof properties.phase !== "string" || !phases.has(properties.phase)) return null;
   if (typeof properties.outcome !== "string" || !outcomes.has(properties.outcome)) return null;
@@ -236,7 +455,10 @@ function parseCore(properties: Record<string, unknown>): CoreObservation | null 
   const durationMs = unsignedInteger(properties.duration_ms);
   const failure = optionalSetValue(properties.failure, failures);
   const transport = optionalSetValue(properties.transport, transports);
-  if (durationMs === null || failure === false || transport === false) return null;
+  const initialFields = parseInitialConnectionFields(properties);
+  const diagnosticFields = parseDiagnosticFields(properties);
+  if (durationMs === null || failure === false || transport === false || initialFields === null
+    || diagnosticFields === null) return null;
   return {
     phase: properties.phase,
     outcome: properties.outcome as CoreObservation["outcome"],
@@ -244,6 +466,72 @@ function parseCore(properties: Record<string, unknown>): CoreObservation | null 
     userUsable: properties.user_usable,
     ...(typeof failure === "string" ? { failure } : {}),
     ...(typeof transport === "string" ? { transport } : {}),
+    ...initialFields,
+    ...diagnosticFields,
+  };
+}
+
+function parseDiagnosticFields(
+  properties: Record<string, unknown>,
+): Pick<CoreObservation, "eventCode" | "eventCodeRaw" | "eventSurface" | "eventA" | "eventB" | "eventC" | "cancellationReason"> | null {
+  const eventCode = optionalSetValue(properties.event_code, eventCodes);
+  const eventCodeRaw = optionalDiagnosticInteger(properties.event_code_raw, 0xffff);
+  const eventSurface = optionalDiagnosticInteger(properties.event_surface);
+  const eventA = optionalDiagnosticInteger(properties.event_a);
+  const eventB = optionalDiagnosticInteger(properties.event_b);
+  const eventC = optionalDiagnosticInteger(properties.event_c);
+  const cancellationReason = optionalSetValue(properties.cancellation_reason, cancellationReasons);
+  if ([eventCode, eventCodeRaw, eventSurface, eventA, eventB, eventC, cancellationReason].includes(false)) return null;
+  return {
+    ...(typeof eventCode === "string" ? { eventCode } : {}),
+    ...(typeof eventCodeRaw === "number" ? { eventCodeRaw } : {}),
+    ...(typeof eventSurface === "number" ? { eventSurface } : {}),
+    ...(typeof eventA === "number" ? { eventA } : {}),
+    ...(typeof eventB === "number" ? { eventB } : {}),
+    ...(typeof eventC === "number" ? { eventC } : {}),
+    ...(typeof cancellationReason === "string" ? { cancellationReason } : {}),
+  };
+}
+
+function parseInitialConnectionFields(
+  properties: Record<string, unknown>,
+): Pick<CoreObservation, "population" | "attemptId" | "terminalReady"> | null {
+  const population = optionalSetValue(
+    properties.population,
+    new Set(["cold_open", "warm_open", "reconnect", "pairing_required"]),
+  ) as CoreObservation["population"] | false;
+  const attemptId = properties.attempt_id === undefined
+    ? undefined
+    : optionalMachineString(properties.attempt_id);
+  const terminalReady = properties.terminal_ready === undefined
+    ? undefined
+    : typeof properties.terminal_ready === "boolean" ? properties.terminal_ready : false;
+  if (population === false || attemptId === false || terminalReady === false) return null;
+  return {
+    ...(typeof population === "string" ? { population } : {}),
+    ...(typeof attemptId === "string" ? { attemptId } : {}),
+    ...(typeof terminalReady === "boolean" ? { terminalReady } : {}),
+  };
+}
+
+/// Categorical context for a replay trace. Split out of `parseMetadata` to
+/// keep that function under the repository complexity limit.
+function parseReplayContextFields(
+  properties: Record<string, unknown>,
+): Pick<Metadata, "replayTrigger" | "surfaceBlank" | "barrierActive" | "replayAttempt" | "appForeground"> | null {
+  const replayTrigger = optionalSetValue(properties.replay_trigger, replayTriggers);
+  const surfaceBlank = optionalBoolean(properties.surface_blank);
+  const barrierActive = optionalBoolean(properties.barrier_active);
+  const appForeground = optionalBoolean(properties.app_foreground);
+  const replayAttempt = optionalDiagnosticInteger(properties.replay_attempt, 0xff);
+  if (replayTrigger === false || replayAttempt === false) return null;
+  if (surfaceBlank === null || barrierActive === null || appForeground === null) return null;
+  return {
+    ...(typeof replayTrigger === "string" ? { replayTrigger } : {}),
+    ...(typeof surfaceBlank === "boolean" ? { surfaceBlank } : {}),
+    ...(typeof barrierActive === "boolean" ? { barrierActive } : {}),
+    ...(typeof replayAttempt === "number" ? { replayAttempt } : {}),
+    ...(typeof appForeground === "boolean" ? { appForeground } : {}),
   };
 }
 
@@ -257,7 +545,18 @@ function parseMetadata(properties: Record<string, unknown>): Metadata | null {
   const bundleIdentifier = optionalMachineString(properties.bundle_identifier);
   const osVersion = optionalMachineString(properties.os_version);
   const deviceModel = optionalMachineString(properties.device_model, true);
-  if ([platform, clientChannel, appVersion, buildNumber, bundleIdentifier, osVersion, deviceModel].includes(false)) return null;
+  const traceId = optionalTraceID(properties.trace_id);
+  const operation = optionalSetValue(properties.operation, new Set(["replay", "artifactScan", "artifactList", "model_list"]));
+  const terminalPhase = optionalSetValue(properties.terminal_phase, new Set([
+    "applied", "failed", "discarded", "hostCaptureFinished", "stalled",
+  ]));
+  const replayFields = parseReplayContextFields(properties);
+  if ([platform, clientChannel, appVersion, buildNumber, bundleIdentifier, osVersion, deviceModel,
+    traceId, operation, terminalPhase].includes(false) || replayFields === null) return null;
+  if (properties.phase === "terminal_trace"
+    && (typeof traceId !== "string" || typeof operation !== "string" || typeof terminalPhase !== "string")) {
+    return null;
+  }
   return {
     ...(platform === "ios" ? { platform } : {}),
     ...(typeof clientChannel === "string" ? { clientChannel } : {}),
@@ -266,6 +565,10 @@ function parseMetadata(properties: Record<string, unknown>): Metadata | null {
     ...(typeof bundleIdentifier === "string" ? { bundleIdentifier } : {}),
     ...(typeof osVersion === "string" ? { osVersion } : {}),
     ...(typeof deviceModel === "string" ? { deviceModel } : {}),
+    ...(typeof traceId === "string" ? { traceId } : {}),
+    ...(typeof operation === "string" ? { operation } : {}),
+    ...replayFields,
+    ...(typeof terminalPhase === "string" ? { terminalPhase } : {}),
   };
 }
 
@@ -285,9 +588,19 @@ export async function emitMobileNetworkOutcomes(
       "cmux.mobile.outcome": observation.outcome,
       "cmux.mobile.duration_ms": observation.durationMs,
       "cmux.mobile.user_usable": observation.userUsable,
+      "cmux.mobile.population": observation.population,
+      "cmux.mobile.attempt_id": observation.attemptId,
+      "cmux.mobile.terminal_ready": observation.terminalReady,
       "cmux.mobile.occurred_at": observation.timestamp,
       "cmux.mobile.failure": observation.failure,
       "cmux.mobile.transport": observation.transport,
+      "cmux.mobile.event_code": observation.eventCode,
+      "cmux.mobile.event_code_raw": observation.eventCodeRaw,
+      "cmux.mobile.event_surface": observation.eventSurface,
+      "cmux.mobile.event_a": observation.eventA,
+      "cmux.mobile.event_b": observation.eventB,
+      "cmux.mobile.event_c": observation.eventC,
+      "cmux.mobile.cancellation_reason": observation.cancellationReason,
       "cmux.mobile.platform": observation.platform,
       "cmux.client.channel": observation.clientChannel,
       "cmux.mobile.app_version": observation.appVersion,
@@ -295,6 +608,14 @@ export async function emitMobileNetworkOutcomes(
       "cmux.mobile.bundle_identifier": observation.bundleIdentifier,
       "cmux.mobile.os_version": observation.osVersion,
       "cmux.mobile.device_model": observation.deviceModel,
+      "cmux.mobile.trace_id": observation.traceId,
+      "cmux.mobile.operation": observation.operation,
+      "cmux.mobile.terminal_phase": observation.terminalPhase,
+      "cmux.mobile.replay_trigger": observation.replayTrigger,
+      "cmux.mobile.surface_blank": observation.surfaceBlank,
+      "cmux.mobile.barrier_active": observation.barrierActive,
+      "cmux.mobile.replay_attempt": observation.replayAttempt,
+      "cmux.mobile.app_foreground": observation.appForeground,
     },
     (span) => {
       if (observation.outcome === "failure" || observation.outcome === "timeout") {
@@ -312,6 +633,69 @@ export async function emitMobileObservabilityEvents(
   batch: readonly MobileObservabilityEvent[],
 ): Promise<void> {
   await Promise.all(batch.map((observation) => {
+    if ("provider" in observation) {
+      return withSpan(
+        "cmux-mobile-network",
+        "cmux.mobile.task_model_result",
+        {
+          "cmux.subsystem": "mobile-network",
+          "cmux.runtime": "ios",
+          "cmux.user_id": userId,
+          "cmux.mobile.event": "task_model_result",
+          "cmux.mobile.operation": "model_list",
+          "cmux.mobile.provider": observation.provider,
+          "cmux.mobile.source": observation.source,
+          "cmux.mobile.effort_count": observation.effortCount,
+          "cmux.mobile.correlation_id": observation.correlationId,
+          "cmux.mobile.occurred_at": observation.timestamp,
+          "cmux.mobile.platform": observation.platform,
+          "cmux.client.channel": observation.clientChannel,
+          "cmux.mobile.app_version": observation.appVersion,
+          "cmux.mobile.build_number": observation.buildNumber,
+          "cmux.mobile.bundle_identifier": observation.bundleIdentifier,
+          "cmux.mobile.os_version": observation.osVersion,
+          "cmux.mobile.device_model": observation.deviceModel,
+        },
+        () => undefined,
+      );
+    }
+    if ("modelCount" in observation) {
+      return withSpan(
+        "cmux-mobile-network",
+        "cmux.mobile.task.model_discovery",
+        {
+          "cmux.subsystem": "mobile-network",
+          "cmux.runtime": "ios",
+          "cmux.user_id": userId,
+          "cmux.mobile.event": "task_model_discovery",
+          "cmux.mobile.outcome": observation.outcome,
+          "cmux.mobile.duration_ms": observation.durationMs,
+          "cmux.mobile.model_count": observation.modelCount,
+          "cmux.mobile.correlation_id": observation.correlationId,
+          "cmux.mobile.discovery_phase": observation.discoveryPhase,
+          "cmux.mobile.attempt": observation.attempt,
+          "cmux.mobile.retry_delay_ms": observation.retryDelayMs,
+          "cmux.mobile.stop_reason": observation.stopReason,
+          "cmux.mobile.failure": observation.failure,
+          "cmux.mobile.occurred_at": observation.timestamp,
+          "cmux.mobile.platform": observation.platform,
+          "cmux.client.channel": observation.clientChannel,
+          "cmux.mobile.app_version": observation.appVersion,
+          "cmux.mobile.build_number": observation.buildNumber,
+          "cmux.mobile.bundle_identifier": observation.bundleIdentifier,
+          "cmux.mobile.os_version": observation.osVersion,
+          "cmux.mobile.device_model": observation.deviceModel,
+        },
+        (span) => {
+          if (observation.outcome === "failure") {
+            span.setStatus({
+              code: SpanStatusCode.ERROR,
+              message: observation.failure ?? "task_model_discovery:failure",
+            });
+          }
+        },
+      );
+    }
     if ("phase" in observation) {
       return emitMobileNetworkOutcomes(userId, [observation]);
     }
@@ -396,6 +780,20 @@ function optionalSetValue(value: unknown, allowed: ReadonlySet<string>): string 
   return typeof value === "string" && allowed.has(value) ? value : false;
 }
 
+function optionalDiagnosticInteger(value: unknown, maximum = 0xffff_ffff): number | undefined | false {
+  if (value === undefined) return undefined;
+  const parsed = unsignedInteger(value);
+  return parsed === null || parsed > maximum ? false : parsed;
+}
+
+/// `false` is a legitimate value here, so an invalid one reports `null`
+/// rather than joining the `false`-means-rejected convention used by the
+/// string and integer helpers.
+function optionalBoolean(value: unknown): boolean | undefined | null {
+  if (value === undefined) return undefined;
+  return typeof value === "boolean" ? value : null;
+}
+
 function optionalExact<T extends string>(value: unknown, expected: T): T | undefined | false {
   if (value === undefined) return undefined;
   return value === expected ? expected : false;
@@ -406,4 +804,11 @@ function optionalMachineString(value: unknown, allowSpaces = false): string | un
   if (typeof value !== "string" || value.length === 0 || value.length > MAX_STRING_LENGTH) return false;
   const pattern = allowSpaces ? /^[A-Za-z0-9 .,_()+-]+$/ : /^[A-Za-z0-9._+-]+$/;
   return pattern.test(value) ? value : false;
+}
+
+function optionalTraceID(value: unknown): string | undefined | false {
+  if (value === undefined) return undefined;
+  return typeof value === "string" && /^[0-9a-f]{16}$/.test(value) && value !== "0000000000000000"
+    ? value
+    : false;
 }

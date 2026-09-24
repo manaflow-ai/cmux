@@ -15,6 +15,7 @@ final class CloudTerminalCreationCoordinator {
     typealias Failure = @MainActor (Error, CloudOperationContext?) -> Void
     typealias DiscardProjection = @MainActor (SurfaceProjection) -> Void
 
+    private let operations: CloudOperationRecorder?
     private let create: Create
     private let project: Project
     private let discardProjection: DiscardProjection
@@ -34,8 +35,10 @@ final class CloudTerminalCreationCoordinator {
         onFailure: @escaping @MainActor (Error) -> Void,
         onCancel: @escaping @MainActor () -> Void = {},
         onSuccess: @escaping @MainActor () -> Void,
-        discardProjection: @escaping DiscardProjection = { _ in }
+        discardProjection: @escaping DiscardProjection = { _ in },
+        operations: CloudOperationRecorder? = nil
     ) {
+        self.operations = operations
         self.create = create
         self.project = project
         self.onStart = onStart
@@ -55,7 +58,7 @@ final class CloudTerminalCreationCoordinator {
         _ work: @MainActor () async throws -> T
     ) async rethrows -> T {
         let context = recorder?.begin(.terminal, foreground: false, file: file, line: line)
-        return try await CloudOperationContext.$current.withValue(context) {
+        return try await CloudOperationContext.withCurrent(context) {
             do {
                 let value = try await work()
                 if let context { await context.recorder.finish(context) }
@@ -85,7 +88,7 @@ final class CloudTerminalCreationCoordinator {
                 if self.generation == operationGeneration { self.task = nil }
             }
             do {
-                try await Self.perform(recorder: AppDelegate.shared?.cloudOperations, onFailure: { error, _ in
+                try await Self.perform(recorder: self.operations ?? AppDelegate.shared?.cloudOperations, onFailure: { error, _ in
                     guard self.generation == operationGeneration, !Task.isCancelled else { return }
                     self.onFailure(error)
                 }) {

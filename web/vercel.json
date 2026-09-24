@@ -46,6 +46,10 @@
     {
       "path": "/api/cron/cloud-diagnostics",
       "schedule": "* * * * *"
+    },
+    {
+      "path": "/api/cron/push-token-revocations",
+      "schedule": "37 * * * *"
     }
   ]
 }

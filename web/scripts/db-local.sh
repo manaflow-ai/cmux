@@ -64,6 +64,10 @@ export DIRECT_DATABASE_URL="${DIRECT_DATABASE_URL:-$DATABASE_URL}"
 
 compose() {
   [[ "$db_provider" == "docker" ]] || { echo "Docker database is disabled when CMUX_DB_PROVIDER=planetscale" >&2; return 2; }
+  if [[ "$(uname -s)" == Darwin ]]; then
+    echo 'Local Docker databases are disabled on developer Macs. Use the shared GCP backend.' >&2
+    return 2
+  fi
   docker compose -f "$ROOT_DIR/docker-compose.db.yml" "$@"
 }
 

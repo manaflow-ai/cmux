@@ -31,11 +31,13 @@
 // reaches machines created from any existing snapshot. This driver-installed
 // adapter is the sole source; image bakes keep their promoted CLI until healing.
 
+import { GUEST_CMUX_ADAPTER_PATH, guestCliDistributionCommand } from "./guestCliDistribution";
 import { GUEST_CODEROUTER_SHELL } from "./guestCoderouterCli";
 import { GUEST_CMUX_MESSAGE_SHELL } from "./guestCliMessages";
 import { GUEST_CMUX_TOPOLOGY_SHELL } from "./guestTopologyCli";
+import { GUEST_BROWSER_OPENER_PATH, guestBrowserInstallCommand } from "./guestBrowser";
 
-export const GUEST_CMUX_SHIM_PATH = "/usr/local/bin/cmux";
+export const GUEST_CMUX_SHIM_PATH = GUEST_CMUX_ADAPTER_PATH;
 
 export const GUEST_CMUX_SHIM = `#!/bin/sh
 # cmux — in-VM CLI. One grammar, the same as on a Mac:
@@ -46,6 +48,11 @@ export const GUEST_CMUX_SHIM = `#!/bin/sh
 set -eu
 
 ${GUEST_CMUX_MESSAGE_SHELL}
+
+if [ "\${1:-}" = open-url ]; then
+  shift
+  exec ${GUEST_BROWSER_OPENER_PATH} "$@"
+fi
 
 # The daemon binary lives under the daemon's home, which depends on the image
 # layout (root daemon: /root; layout-aware bakes: the cmux user's home or the
@@ -2769,8 +2776,11 @@ esac
 export function guestCliInstallCommand(): string {
   const encoded = Buffer.from(GUEST_CMUX_SHIM, "utf8").toString("base64");
   return [
+    `mkdir -p /usr/local/libexec`,
     `printf '%s' '${encoded}' | base64 -d > ${GUEST_CMUX_SHIM_PATH}.tmp`,
+    guestBrowserInstallCommand(),
     `chmod 0755 ${GUEST_CMUX_SHIM_PATH}.tmp`,
     `mv ${GUEST_CMUX_SHIM_PATH}.tmp ${GUEST_CMUX_SHIM_PATH}`,
+    guestCliDistributionCommand(),
   ].join(" && ");
 }

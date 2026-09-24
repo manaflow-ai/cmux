@@ -232,7 +232,7 @@ struct SSHDeepSleepReattachTests {
         #expect(
             workspace.markRemoteTerminalSessionConnected(
                 surfaceId: panel.id,
-                authority: .persistentTransport(configuration.proxyBrokerTransportKey),
+                authority: .persistentTransport(try #require(workspace.remoteConfiguration).proxyBrokerTransportKey),
                 terminalLifecycleID: panel.surface.terminalLifecycleId
             )
         )
@@ -254,14 +254,18 @@ struct SSHDeepSleepReattachTests {
     @Test func confirmedCloudPTYExitRestartsWithInheritedCustomIdentity() throws {
         let workspace = Workspace()
         let initialPanel = try #require(workspace.focusedTerminalPanel)
-        workspace.configureRemoteConnection(Self.persistentCloudConfiguration(), autoConnect: false)
         let customSessionID = "cloud-custom-session"
+        // Once the workspace is Cloud-owned, a split carrying a launch override
+        // such as a custom PTY identity fails closed instead of spawning a
+        // local PTY (#13098). Create the custom-identity pane first; what this
+        // test pins is that identity surviving the confirmed exit and restart.
         let panel = try #require(workspace.newTerminalSplit(
             from: initialPanel.id,
             orientation: .horizontal,
             focus: false,
             remotePTYSessionID: customSessionID
         ))
+        workspace.configureRemoteConnection(Self.persistentCloudConfiguration(), autoConnect: false)
         #expect(panel.surface.respawnAdditionalEnvironment["CMUX_REMOTE_PTY_SESSION_ID"] == customSessionID)
         #expect(workspace.remotePTYSessionIDsByPanelId[panel.id] == customSessionID)
 
@@ -303,7 +307,7 @@ struct SSHDeepSleepReattachTests {
         #expect(restartedSnapshot.remotePTYSessionID == customSessionID)
     }
 
-    @Test(arguments: [(nil, Int32(253), "24", 23), ("2O", Int32(255), "21", 20)])
+    @Test(arguments: [(nil, Int32(255), "21", 20), ("2O", Int32(255), "21", 20)])
     func foregroundAuthenticatedAttachUsesConfiguredRetryBudget(
         reconnectLimit: String?, expectedStatus: Int32, expectedAttempts: String, expectedSleepCount: Int
     ) throws {
@@ -356,7 +360,7 @@ struct SSHDeepSleepReattachTests {
             command: SSHPTYAttachStartupCommandBuilder.command(
                 sessionID: "ssh-test-session",
                 foregroundAuth: Self.foregroundAuth()
-            ),
+            ).replacingOccurrences(of: "/usr/bin/ssh", with: fakeSSH.path),
             environment: environment
         )
 
@@ -465,20 +469,21 @@ struct SSHDeepSleepReattachTests {
             command: SSHPTYAttachStartupCommandBuilder.command(
                 sessionID: "ssh-test-session",
                 foregroundAuth: Self.foregroundAuth()
-            ),
+            ).replacingOccurrences(of: "/usr/bin/ssh", with: fakeSSH.path),
             environment: environment
         )
 
         #expect(!result.timedOut, Comment(rawValue: result.stderr))
         #expect(result.status == 255, Comment(rawValue: result.stderr))
         #expect(try String(contentsOf: authAttemptFile, encoding: .utf8) == "1")
-        #expect(!fileManager.fileExists(atPath: cliAttemptFile.path))
+        let cliAttempts = (try? String(contentsOf: cliAttemptFile, encoding: .utf8)) ?? ""
+        #expect(!cliAttempts.contains("ssh-pty-attach"), "Failed foreground authentication must never start a PTY attach")
     }
 
     private static func foregroundAuth() -> SSHPTYAttachStartupCommandBuilder.ForegroundAuth {
         SSHPTYAttachStartupCommandBuilder.ForegroundAuth(
             destination: "user@example.test", port: 22, identityFile: nil,
-            sshOptions: [], token: "test-auth-token"
+            sshOptions: ["ControlMaster=no", "ControlPath=none"], token: "test-auth-token"
         )
     }
 

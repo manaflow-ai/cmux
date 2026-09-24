@@ -58,6 +58,34 @@ struct SurfaceSocketCommandTests {
         #expect(!response.contains("response-body-private"))
     }
 
+    @Test func typedVmFailurePreservesSafeActionCopy() async throws {
+        let response = await Task.detached {
+            TerminalController.shared.v2VmCall(id: "typed-error", timeoutSeconds: 5) {
+                throw VMClientError.notSignedIn
+            }
+        }.value
+        let object = try #require(JSONSerialization.jsonObject(with: Data(response.utf8)) as? [String: Any])
+        let error = try Self.error(object)
+        #expect((error["message"] as? String)?.contains("cmux auth login") == true)
+    }
+
+    @Test func tunnelFailureKeepsTheSafeReasonAndDiagnosticReference() async throws {
+        let response = await Task.detached {
+            TerminalController.shared.v2VmCall(id: "tunnel-error", timeoutSeconds: 5) {
+                throw VMClientError.httpStatus(502, #"{"error":"vm_cloud_service_unavailable","ui":{"message":"Could not start the private connection. Try again shortly."},"traceId":"75b1fc0ad4068687505292b9a4a65f7d","retryable":true,"action":"Retry the machine open shortly.","details":{"private":"credential=must-not-leak","providerMessage":"must-not-leak"}}"#)
+            }
+        }.value
+        let object = try #require(JSONSerialization.jsonObject(with: Data(response.utf8)) as? [String: Any])
+        let error = try Self.error(object)
+        let message = try #require(error["message"] as? String)
+        #expect(message.contains("Could not start the private connection"))
+        #expect(message.contains("vm_cloud_service_unavailable"))
+        #expect(message.contains("Retry the machine open shortly."))
+        #expect(message.contains("75b1fc0ad4068687505292b9a4a65f7d"))
+        #expect((error["data"] as? [String: Any])?["retryable"] as? Bool == true)
+        #expect(!response.contains("must-not-leak"))
+    }
+
     /// A cloud provider whose daemon is a notebook: every verb records what it was asked.
     private final class FakeCloudProvider: SurfaceProvider {
         let machine: SurfaceMachineID
@@ -107,7 +135,10 @@ struct SurfaceSocketCommandTests {
 
         func createRemoteWorkspace(name: String?) async throws -> SurfaceRemoteWorkspace {
             mutations.append("workspace create \(name ?? "-")")
-            return SurfaceRemoteWorkspace(id: "ws_created", name: name ?? "main", index: info.remoteWorkspaces?.count ?? 0, focused: false)
+            let workspace = SurfaceRemoteWorkspace(id: "ws_created", name: name ?? "main", index: info.remoteWorkspaces?.count ?? 0, focused: false)
+            info.remoteWorkspaces = (info.remoteWorkspaces ?? []) + [workspace]
+            catalog.updateMachine(info, from: self)
+            return workspace
         }
 
         func closeRemoteWorkspace(id: String) async throws {
@@ -116,6 +147,14 @@ struct SurfaceSocketCommandTests {
 
         func renameRemoteWorkspace(id: String, name: String) async throws {
             mutations.append("workspace rename \(id) \(name)")
+        }
+
+        func renameRemoteTab(id: String, name: String) async throws {
+            mutations.append("tab rename \(id) \(name)")
+        }
+
+        func renameTerminal(_ id: SurfaceResourceID, name: String) async throws {
+            mutations.append("terminal rename \(id.key) \(name)")
         }
     }
 
@@ -127,8 +166,6 @@ struct SurfaceSocketCommandTests {
         let provider: FakeCloudProvider
         let manager: TabManager
         let workspaceID: UUID
-        let previousCloudOverride: Bool?
-        let previousCloudBeta: Any?
         static let wsA = SurfaceRemoteWorkspace(id: "ws_a", name: "alpha", index: 0, focused: true)
         static let wsB = SurfaceRemoteWorkspace(id: "ws_b", name: "beta", index: 1, focused: false)
         static let wsEmpty = SurfaceRemoteWorkspace(id: "ws_empty", name: "empty", index: 2, focused: false)
@@ -139,16 +176,11 @@ struct SurfaceSocketCommandTests {
         var browserA: SurfaceResourceID { SurfaceResourceID(machine: machine, kind: .browser, key: "browser_1") }
 
         @MainActor
-        init() {
-            let flags = CmuxFeatureFlags.shared
-            previousCloudOverride = flags.overrideValue(for: CmuxFeatureFlags.cloudMachinesFlag)
-            previousCloudBeta = UserDefaults.standard.object(forKey: RightSidebarBetaFeatureSettings.cloudMachinesEnabledKey)
-            UserDefaults.standard.set(true, forKey: RightSidebarBetaFeatureSettings.cloudMachinesEnabledKey)
-            flags.setOverride(true, for: CmuxFeatureFlags.cloudMachinesFlag)
+        init(manager: TabManager, device: Bool = false) {
             // Locals first: a nested helper must not capture `self` before every stored
             // property is initialized.
             let machineID = "sock-" + UUID().uuidString.lowercased().prefix(8)
-            let machine = SurfaceMachineID.cloud(machineID)
+            let machine = device ? SurfaceMachineID.device(SurfaceDeviceInstanceID(deviceID: UUID().uuidString, tag: "default")) : .cloud(machineID)
             let catalog = SurfaceCatalog.shared
             let provider = FakeCloudProvider(machine: machine, catalog: catalog, workspaces: [Self.wsA, Self.wsB, Self.wsEmpty])
             catalog.register(provider)
@@ -170,17 +202,16 @@ struct SurfaceSocketCommandTests {
                 on: machine,
                 info: provider.info
             )
-            let manager = TabManager()
             TerminalController.shared.setActiveTabManager(manager)
-            self.machineID = machineID
+            self.machineID = machine.rawValue
             self.machine = machine
             self.provider = provider
             self.manager = manager
             self.workspaceID = manager.selectedWorkspace!.id
         }
 
-        /// The Bonsplit pane id (UUID string) of the workspace's focused panel — a live pane
-        /// an explicit `pane_id` may name.
+        /// The pane belongs to this windowless fixture, so requests also name
+        /// its workspace instead of asking the live-window router to find it.
         @MainActor
         var livePaneID: String? {
             // Straight from the workspace: the test TabManager is the controller's active
@@ -194,12 +225,37 @@ struct SurfaceSocketCommandTests {
             TerminalController.shared.setActiveTabManager(nil)
             SurfaceCatalog.shared.unregister(machine: machine)
             manager.tabs.forEach { $0.teardownAllPanels() }
-            if let previousCloudBeta {
-                UserDefaults.standard.set(previousCloudBeta, forKey: RightSidebarBetaFeatureSettings.cloudMachinesEnabledKey)
-            } else {
-                UserDefaults.standard.removeObject(forKey: RightSidebarBetaFeatureSettings.cloudMachinesEnabledKey)
+
+        }
+    }
+
+    private static func withFixture(device: Bool = false, _ body: (Fixture) async throws -> Void) async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            let previousManager = TerminalController.shared.activeTabManagerForCallerNotification()
+            let flag = CmuxFeatureFlags.cloudMachinesFlag
+            let previousOverride = CmuxFeatureFlags.shared.overrideValue(for: flag)
+            let betaKey = RightSidebarBetaFeatureSettings.cloudMachinesEnabledKey
+            let previousBeta = UserDefaults.standard.object(forKey: betaKey)
+            let app = try VaultPaneAppFixture()
+            // `vm.workspace_new` admits its optimistic local workspace through the
+            // active main window before it asks the provider for anything; a
+            // context without a window is pruned and the call is cancelled. Bind
+            // a bare window the way the shortcut tests do.
+            let window = NSWindow(contentRect: .zero, styleMask: [.titled], backing: .buffered, defer: false)
+            window.identifier = NSUserInterfaceItemIdentifier("cmux.main.\(app.windowID.uuidString)")
+            app.appDelegate.mainWindowContexts.values.first { $0.windowId == app.windowID }?.window = window
+            defer { withExtendedLifetime(window) {} }
+            defer {
+                app.tearDown()
+                TerminalController.shared.setActiveTabManager(previousManager)
+                UserDefaults.standard.set(previousBeta, forKey: betaKey)
+                CmuxFeatureFlags.shared.setOverride(previousOverride, for: flag)
             }
-            CmuxFeatureFlags.shared.setOverride(previousCloudOverride, for: CmuxFeatureFlags.cloudMachinesFlag)
+            UserDefaults.standard.set(true, forKey: betaKey)
+            CmuxFeatureFlags.shared.setOverride(true, for: flag)
+            let fixture = Fixture(manager: app.manager, device: device)
+            defer { fixture.tearDown() }
+            try await body(fixture)
         }
     }
 
@@ -240,282 +296,284 @@ struct SurfaceSocketCommandTests {
 
     // MARK: - surface.catalog / vm.tree
 
-    @Test func catalogListsTheMachineItsResourcesAndThisMacsWorkspaces() async throws {
-        let fixture = Fixture()
-        defer { fixture.tearDown() }
+    @Test func catalogListsTheMachineAndItsResources() async throws {
+        try await Self.withFixture { fixture in
 
-        let all = try Self.ok(try await Self.call("surface.catalog", [:]))
-        let machines = try #require(all["machines"] as? [[String: Any]])
-        #expect(machines.contains { ($0["id"] as? String) == fixture.machineID })
-        let ownMachine = try #require(machines.first { ($0["id"] as? String) == fixture.machineID })
-        #expect((ownMachine["remote_workspaces"] as? [[String: Any]])?.compactMap { $0["id"] as? String } == ["ws_a", "ws_b", "ws_empty"])
-        #expect(Self.resourceIDs(all).isSuperset(of: [fixture.termA1.rawValue, fixture.termA2.rawValue, fixture.termB.rawValue, fixture.browserA.rawValue]))
-        // The catalog payload is cloud-scoped. Local workspace topology is owned by the
-        // native workspace manager and is intentionally not mixed into this response.
-        #expect(all["workspaces"] == nil)
-        #expect((all["cloud_states"] as? [[String: Any]])?.isEmpty == true)
+            let all = try Self.ok(try await Self.call("surface.catalog", [:]))
+            let machines = try #require(all["machines"] as? [[String: Any]])
+            #expect(machines.contains { ($0["id"] as? String) == fixture.machineID })
+            let ownMachine = try #require(machines.first { ($0["id"] as? String) == fixture.machineID })
+            #expect((ownMachine["remote_workspaces"] as? [[String: Any]])?.compactMap { $0["id"] as? String } == ["ws_a", "ws_b", "ws_empty"])
+            #expect(Self.resourceIDs(all).isSuperset(of: [fixture.termA1.rawValue, fixture.termA2.rawValue, fixture.termB.rawValue, fixture.browserA.rawValue]))
+            #expect(all["workspaces"] == nil)
+            #expect((all["cloud_states"] as? [[String: Any]])?.isEmpty == true)
+            // A machine filter narrows every section of the catalog.
+            let one = try Self.ok(try await Self.call("surface.catalog", ["machine": fixture.machineID]))
+            #expect((one["machines"] as? [[String: Any]])?.count == 1)
+            #expect(Self.resourceIDs(one) == [fixture.termA1.rawValue, fixture.termA2.rawValue, fixture.termB.rawValue, fixture.browserA.rawValue])
+            #expect(one["workspaces"] == nil)
 
-        // A machine filter narrows every section; cloud-only requests carry no local workspaces.
-        let one = try Self.ok(try await Self.call("surface.catalog", ["machine": fixture.machineID]))
-        #expect((one["machines"] as? [[String: Any]])?.count == 1)
-        #expect(Self.resourceIDs(one) == [fixture.termA1.rawValue, fixture.termA2.rawValue, fixture.termB.rawValue, fixture.browserA.rawValue])
-        #expect(one["workspaces"] == nil)
+            let tree = try Self.ok(try await Self.call("vm.tree", [:]))
+            #expect((tree["machines"] as? [[String: Any]])?.contains { ($0["local"] as? Bool) == true } == false, "vm.tree is cloud-only")
+            #expect(Self.resourceIDs(tree).contains(fixture.termB.rawValue))
 
-        let tree = try Self.ok(try await Self.call("vm.tree", [:]))
-        #expect((tree["machines"] as? [[String: Any]])?.contains { ($0["local"] as? Bool) == true } == false, "vm.tree is cloud-only")
-        #expect(Self.resourceIDs(tree).contains(fixture.termB.rawValue))
-
-        // `refresh` re-syncs the provider.
-        _ = try Self.ok(try await Self.call("surface.catalog", ["machine": fixture.machineID, "refresh": true]))
-        #expect(fixture.provider.refreshes == 1)
+            // `refresh` re-syncs the provider.
+            _ = try Self.ok(try await Self.call("surface.catalog", ["machine": fixture.machineID, "refresh": true]))
+            #expect(fixture.provider.refreshes == 1)
+        }
     }
 
     // MARK: - surface.project
 
     @Test func projectReusesFocusesAndHonorsPlacementFlags() async throws {
-        let fixture = Fixture()
-        defer { fixture.tearDown() }
-        let resource = fixture.termA1.rawValue
+        try await Self.withFixture { fixture in
+            let resource = fixture.termA1.rawValue
 
-        let first = try Self.ok(try await Self.call("surface.project", [
-            "resource": resource, "workspace_id": fixture.workspaceID.uuidString,
-        ]))
-        #expect(first["reused"] as? Bool == false)
-        #expect(first["workspace_id"] as? String == fixture.workspaceID.uuidString, "no target → the selected workspace")
-        #expect(fixture.provider.materialized.count == 1)
-        #expect(fixture.provider.materialized[0].destination == .workspace(id: fixture.workspaceID, placement: .split))
-        #expect(fixture.provider.materialized[0].focus == true)
+            let first = try Self.ok(try await Self.call("surface.project", ["resource": resource]))
+            #expect(first["reused"] as? Bool == false)
+            #expect(first["workspace_id"] as? String == fixture.workspaceID.uuidString, "no target → the selected workspace")
+            #expect(fixture.provider.materialized.count == 1)
+            #expect(fixture.provider.materialized[0].destination == .workspace(id: fixture.workspaceID, placement: .split))
+            #expect(fixture.provider.materialized[0].focus == true)
 
-        // The catalog reuses the pane already showing the resource…
-        let again = try Self.ok(try await Self.call("surface.project", [
-            "resource": resource, "workspace_id": fixture.workspaceID.uuidString,
-        ]))
-        #expect(again["reused"] as? Bool == true)
-        #expect(again["surface_id"] as? String == first["surface_id"] as? String)
-        #expect(fixture.provider.materialized.count == 1)
+            // The catalog reuses the pane already showing the resource…
+            let again = try Self.ok(try await Self.call("surface.project", ["resource": resource]))
+            #expect(again["reused"] as? Bool == true)
+            #expect(again["surface_id"] as? String == first["surface_id"] as? String)
+            #expect(fixture.provider.materialized.count == 1)
 
-        // …unless `reuse: false` (`--new`): a second pane, at the pane edge the caller named
-        // (a LIVE pane: the workspace's own focused pane).
-        let pane = try #require(fixture.livePaneID)
-        let split = try Self.ok(try await Self.call("surface.project", [
-            "resource": resource, "reuse": false, "workspace_id": fixture.workspaceID.uuidString,
-            "pane_id": pane, "direction": "left", "focus": false,
-        ]))
-        #expect(split["reused"] as? Bool == false)
-        #expect(fixture.provider.materialized.count == 2)
-        #expect(fixture.provider.materialized[1].destination == .split(workspaceID: fixture.workspaceID, paneID: pane, direction: .left))
-        #expect(fixture.provider.materialized[1].focus == false)
+            // …unless `reuse: false` (`--new`): a second pane, at the pane edge the caller named
+            // (a LIVE pane: the workspace's own focused pane).
+            let pane = try #require(fixture.livePaneID)
+            let split = try Self.ok(try await Self.call("surface.project", [
+                "resource": resource, "reuse": false, "workspace_id": fixture.workspaceID.uuidString,
+                "pane_id": pane, "direction": "left", "focus": false,
+            ]))
+            #expect(split["reused"] as? Bool == false)
+            #expect(fixture.provider.materialized.count == 2)
+            #expect(fixture.provider.materialized[1].destination == .split(workspaceID: fixture.workspaceID, paneID: pane, direction: .left))
+            #expect(fixture.provider.materialized[1].focus == false)
 
-        // `placement: tab` on a pane becomes a tab destination.
-        _ = try Self.ok(try await Self.call("surface.project", [
-            "resource": resource, "reuse": false, "workspace_id": fixture.workspaceID.uuidString,
-            "pane_id": pane, "placement": "tab",
-        ]))
-        #expect(fixture.provider.materialized.last?.destination == .tab(workspaceID: fixture.workspaceID, paneID: pane, index: nil))
+            // `placement: tab` on a pane becomes a tab destination.
+            _ = try Self.ok(try await Self.call("surface.project", [
+                "resource": resource, "reuse": false, "workspace_id": fixture.workspaceID.uuidString,
+                "pane_id": pane, "placement": "tab",
+            ]))
+            #expect(fixture.provider.materialized.last?.destination == .tab(workspaceID: fixture.workspaceID, paneID: pane, index: nil))
 
-        let projections = try Self.ok(try await Self.call("surface.catalog", ["machine": fixture.machineID]))["projections"] as? [[String: Any]]
-        #expect(projections?.filter { ($0["resource"] as? String) == resource }.count == 3)
+            let projections = try Self.ok(try await Self.call("surface.catalog", ["machine": fixture.machineID]))["projections"] as? [[String: Any]]
+            #expect(projections?.filter { ($0["resource"] as? String) == resource }.count == 3)
+        }
     }
 
     @Test func projectRejectsUnknownSurfacesAndUnresolvableTargets() async throws {
-        let fixture = Fixture()
-        defer { fixture.tearDown() }
+        try await Self.withFixture { fixture in
 
-        let unknown = try Self.error(try await Self.call("surface.project", ["resource": "\(fixture.machineID)/terminal/term_ghost"]))
-        #expect(unknown["code"] as? String == "vm_error")
-        #expect((unknown["message"] as? String)?.isEmpty == false)
+            let unknown = try Self.error(try await Self.call("surface.project", ["resource": "\(fixture.machineID)/terminal/term_ghost"]))
+            #expect((unknown["message"] as? String)?.contains("Unknown surface") == true)
 
-        // An explicit workspace that resolves to nothing is an error, never a silent
-        // fall-through to the selected workspace.
-        let bogus = try Self.error(try await Self.call("surface.project", ["resource": fixture.termA1.rawValue, "workspace_id": "workspace:999999"]))
-        #expect(bogus["code"] as? String == "invalid_params")
-        #expect((bogus["message"] as? String)?.isEmpty == false)
-        let bogusPane = try Self.error(try await Self.call("surface.project", [
-            "resource": fixture.termA1.rawValue, "pane_id": UUID().uuidString,
-        ]))
-        #expect(bogusPane["code"] as? String == "invalid_params")
-        // Well-formed but dead ids are just as unresolvable: a closed pane's UUID, a
-        // workspace UUID nobody has, a surface UUID that is not a panel.
-        for (key, value) in [("pane_id", UUID().uuidString), ("workspace_id", UUID().uuidString), ("surface_id", UUID().uuidString)] {
-            let dead = try Self.error(try await Self.call("surface.project", ["resource": fixture.termA1.rawValue, key: value]))
-            #expect(dead["code"] as? String == "invalid_params", "\(key) \(value) must not fall back to the selected workspace")
+            // An explicit workspace that resolves to nothing is an error, never a silent
+            // fall-through to the selected workspace.
+            let bogus = try Self.error(try await Self.call("surface.project", ["resource": fixture.termA1.rawValue, "workspace_id": "workspace:999999"]))
+            #expect(bogus["code"] as? String == "invalid_params")
+            #expect((bogus["message"] as? String)?.contains("workspace:999999") == true)
+            let bogusPane = try Self.error(try await Self.call("surface.project", ["resource": fixture.termA1.rawValue, "pane_id": "pane:999999"]))
+            #expect(bogusPane["code"] as? String == "invalid_params")
+            // Well-formed but dead ids are just as unresolvable: a closed pane's UUID, a
+            // workspace UUID nobody has, a surface UUID that is not a panel.
+            for (key, value) in [("pane_id", UUID().uuidString), ("workspace_id", UUID().uuidString), ("surface_id", UUID().uuidString)] {
+                let dead = try Self.error(try await Self.call("surface.project", ["resource": fixture.termA1.rawValue, key: value]))
+                #expect(dead["code"] as? String == "invalid_params", "\(key) \(value) must not fall back to the selected workspace")
+            }
+            #expect(fixture.provider.materialized.isEmpty, "nothing opened anywhere")
+
+            let malformed = try Self.error(try await Self.call("surface.project", ["resource": "not-a-resource"]))
+            #expect(malformed["code"] as? String == "invalid_params")
         }
-        #expect(fixture.provider.materialized.isEmpty, "nothing opened anywhere")
-
-        let malformed = try Self.error(try await Self.call("surface.project", ["resource": "not-a-resource"]))
-        #expect(malformed["code"] as? String == "invalid_params")
     }
 
     @Test func projectResolvesAnExplicitSurfaceInAnotherWindow() async throws {
-        let fixture = Fixture()
-        defer { fixture.tearDown() }
-        let app = try #require(AppDelegate.shared)
-        let windowID = app.createMainWindow(shouldActivate: false)
-        defer {
-            app.mainWindow(for: windowID)?.performClose(nil)
+        try await Self.withFixture { fixture in
+            let app = try #require(AppDelegate.shared)
+            // This test exercises ownership lookup, not window rendering.
+            // Keep the second window context deterministic and avoid leaving
+            // SwiftUI render/teardown work running into the next socket test.
+            let manager = TabManager(autoWelcomeIfNeeded: false)
+            let windowID = app.registerMainWindowContextForTesting(tabManager: manager)
+            defer {
+                app.unregisterMainWindowContextForTesting(windowId: windowID)
+                manager.tabs.forEach { $0.teardownAllPanels() }
+            }
+            let workspace = try #require(manager.selectedWorkspace)
+            let surfaceID = try #require(workspace.focusedPanelId)
+            let paneID = try #require(workspace.paneId(forPanelId: surfaceID))
+            TerminalController.shared.setActiveTabManager(fixture.manager)
+
+            let result = try Self.ok(try await Self.call("surface.project", [
+                "resource": fixture.termA1.rawValue,
+                "workspace_id": workspace.id.uuidString,
+                "surface_id": surfaceID.uuidString,
+                "direction": "left",
+                "focus": false,
+            ]))
+
+            #expect(result["workspace_id"] as? String == workspace.id.uuidString)
+            #expect(fixture.provider.materialized.count == 1)
+            #expect(fixture.provider.materialized[0].destination == .split(
+                workspaceID: workspace.id, paneID: paneID.id.uuidString, direction: .left
+            ))
+            #expect(fixture.provider.materialized[0].focus == false)
         }
-        let manager = try #require(app.tabManagerFor(windowId: windowID))
-        let workspace = try #require(manager.selectedWorkspace)
-        let surfaceID = try #require(workspace.focusedPanelId)
-        let paneID = try #require(workspace.paneId(forPanelId: surfaceID))
-        TerminalController.shared.setActiveTabManager(fixture.manager)
-
-        let result = try Self.ok(try await Self.call("surface.project", [
-            "resource": fixture.termA1.rawValue,
-            "workspace_id": workspace.id.uuidString,
-            "surface_id": surfaceID.uuidString,
-            "direction": "left",
-            "focus": false,
-        ]))
-
-        #expect(result["workspace_id"] as? String == workspace.id.uuidString)
-        #expect(fixture.provider.materialized.count == 1)
-        #expect(fixture.provider.materialized[0].destination == .split(
-            workspaceID: workspace.id, paneID: paneID.id.uuidString, direction: .left
-        ))
-        #expect(fixture.provider.materialized[0].focus == false)
     }
 
     // MARK: - surface.new_terminal / vm.terminal_new
 
     @Test func newTerminalPassesTheRecipeThroughAndOpensUnlessToldNotTo() async throws {
-        let fixture = Fixture()
-        defer { fixture.tearDown() }
+        try await Self.withFixture { fixture in
 
-        let headless = try Self.ok(try await Self.call("surface.new_terminal", [
-            "machine": fixture.machineID, "open": false, "command": ["bun", "test"], "cwd": "/root/app", "name": "tests", "remote_workspace_id": "ws_b",
-        ]))
-        #expect(fixture.provider.createdTerminals.count == 1)
-        let created = fixture.provider.createdTerminals[0]
-        #expect(created.command == ["bun", "test"])
-        #expect(created.cwd == "/root/app")
-        #expect(created.name == "tests")
-        #expect(created.remoteWorkspaceID == "ws_b")
-        #expect(headless["terminal_id"] as? String == "term_new_1")
-        #expect(headless["resource"] as? String == "\(fixture.machineID)/terminal/term_new_1")
-        #expect(headless["remote_workspace_id"] as? String == "ws_b")
-        #expect(headless["surface_id"] == nil, "headless: no pane")
-        #expect(fixture.provider.materialized.isEmpty)
+            let headless = try Self.ok(try await Self.call("surface.new_terminal", [
+                "machine": fixture.machineID, "open": false, "command": ["bun", "test"], "cwd": "/root/app", "name": "tests", "remote_workspace_id": "ws_b",
+            ]))
+            try #require(fixture.provider.createdTerminals.count == 1)
+            let created = fixture.provider.createdTerminals[0]
+            #expect(created.command == ["bun", "test"])
+            #expect(created.cwd == "/root/app")
+            #expect(created.name == "tests")
+            #expect(created.remoteWorkspaceID == "ws_b")
+            #expect(headless["terminal_id"] as? String == "term_new_1")
+            #expect(headless["resource"] as? String == "\(fixture.machineID)/terminal/term_new_1")
+            #expect(headless["remote_workspace_id"] as? String == "ws_b")
+            #expect(headless["surface_id"] == nil, "headless: no pane")
+            #expect(fixture.provider.materialized.isEmpty)
 
-        let opened = try Self.ok(try await Self.call("surface.new_terminal", ["machine": fixture.machineID]))
-        #expect(fixture.provider.createdTerminals.count == 2)
-        #expect(fixture.provider.createdTerminals[1].remoteWorkspaceID == nil, "the provider picks the workspace")
-        #expect(opened["workspace_id"] as? String == fixture.workspaceID.uuidString)
-        #expect((opened["surface_id"] as? String).flatMap(UUID.init(uuidString:)) != nil)
-        #expect(fixture.provider.materialized.count == 1)
-        #expect(fixture.provider.materialized[0].resource.key == "term_new_2")
+            let opened = try Self.ok(try await Self.call("surface.new_terminal", ["machine": fixture.machineID]))
+            #expect(fixture.provider.createdTerminals.count == 2)
+            #expect(fixture.provider.createdTerminals[1].remoteWorkspaceID == nil, "the provider picks the workspace")
+            #expect(opened["workspace_id"] as? String == fixture.workspaceID.uuidString)
+            #expect((opened["surface_id"] as? String).flatMap(UUID.init(uuidString:)) != nil)
+            #expect(fixture.provider.materialized.count == 1)
+            #expect(fixture.provider.materialized[0].resource.key == "term_new_2")
 
-        // The legacy `vm.terminal_new` shape: `workspace_id` is the REMOTE workspace in
-        // and out; the local target rides as `local_workspace_id`.
-        let legacy = try Self.ok(try await Self.call("vm.terminal_new", [
-            "id": fixture.machineID, "workspace_id": "ws_a", "local_workspace_id": fixture.workspaceID.uuidString, "focus": false,
-        ]))
-        #expect(fixture.provider.createdTerminals.last?.remoteWorkspaceID == "ws_a")
-        #expect(legacy["workspace_id"] as? String == "ws_a")
-        #expect(legacy["local_workspace_id"] as? String == fixture.workspaceID.uuidString)
-        #expect(fixture.provider.materialized.last?.focus == false)
+            // The legacy `vm.terminal_new` shape: `workspace_id` is the REMOTE workspace in
+            // and out; the local target rides as `local_workspace_id`.
+            let legacy = try Self.ok(try await Self.call("vm.terminal_new", [
+                "id": fixture.machineID, "workspace_id": "ws_a", "local_workspace_id": fixture.workspaceID.uuidString, "focus": false,
+            ]))
+            #expect(fixture.provider.createdTerminals.last?.remoteWorkspaceID == "ws_a")
+            #expect(legacy["workspace_id"] as? String == "ws_a")
+            #expect(legacy["local_workspace_id"] as? String == fixture.workspaceID.uuidString)
+            #expect(fixture.provider.materialized.last?.focus == false)
 
-        let missing = try Self.error(try await Self.call("surface.new_terminal", [:]))
-        #expect(missing["code"] as? String == "invalid_params")
-        let unresolvable = try Self.error(try await Self.call("surface.new_terminal", ["machine": fixture.machineID, "workspace_id": "workspace:999999"]))
-        #expect(unresolvable["code"] as? String == "invalid_params")
-        #expect(fixture.provider.createdTerminals.count == 3, "a bad target creates nothing")
+            let missing = try Self.error(try await Self.call("surface.new_terminal", [:]))
+            #expect(missing["code"] as? String == "invalid_params")
+            let unresolvable = try Self.error(try await Self.call("surface.new_terminal", ["machine": fixture.machineID, "workspace_id": "workspace:999999"]))
+            #expect(unresolvable["code"] as? String == "invalid_params")
+            #expect(fixture.provider.createdTerminals.count == 3, "a bad target creates nothing")
+        }
     }
 
     // MARK: - vm.workspace_*
 
     @Test func workspaceOpenHereProjectsTheWholeWorkspaceIntoOnePane() async throws {
-        let fixture = Fixture()
-        defer { fixture.tearDown() }
+        try await Self.withFixture { fixture in
 
-        let here = try Self.ok(try await Self.call("vm.workspace_open", [
-            "id": fixture.machineID, "workspace_id": "ws_a", "here": true, "target_workspace_id": fixture.workspaceID.uuidString,
-        ]))
-        #expect(here["here"] as? Bool == true)
-        #expect(here["opened"] as? Int == 3, "two terminals and the browser")
-        #expect(here["workspace_id"] as? String == fixture.workspaceID.uuidString)
-        #expect(fixture.provider.materialized.count == 3)
-        #expect(fixture.provider.materialized[0].destination == .workspace(id: fixture.workspaceID, placement: .split))
-        // The rest join the first as tabs (the fake pane is not a real Bonsplit pane, so
-        // the tab anchor falls back to the workspace's focused pane).
-        #expect(fixture.provider.materialized[1].destination == .workspace(id: fixture.workspaceID, placement: .tab))
-        #expect(fixture.provider.materialized[1].focus == false)
-        #expect(Set(fixture.provider.materialized.map(\.resource)) == [fixture.termA1, fixture.termA2, fixture.browserA])
+            let here = try Self.ok(try await Self.call("vm.workspace_open", [
+                "id": fixture.machineID, "workspace_id": "ws_a", "here": true, "target_workspace_id": fixture.workspaceID.uuidString,
+            ]))
+            #expect(here["here"] as? Bool == true)
+            #expect(here["opened"] as? Int == 3, "two terminals and the browser")
+            #expect(here["workspace_id"] as? String == fixture.workspaceID.uuidString)
+            #expect(fixture.provider.materialized.count == 3)
+            #expect(fixture.provider.materialized[0].destination == .workspace(id: fixture.workspaceID, placement: .split))
+            // The rest join the first as tabs (the fake pane is not a real Bonsplit pane, so
+            // the tab anchor falls back to the workspace's focused pane).
+            #expect(fixture.provider.materialized[1].destination == .workspace(id: fixture.workspaceID, placement: .tab))
+            #expect(fixture.provider.materialized[1].focus == false)
+            #expect(Set(fixture.provider.materialized.map(\.resource)) == [fixture.termA1, fixture.termA2, fixture.browserA])
 
-        // `--tabs`: every pane, including the first, is a tab of the named (live) pane.
-        let pane = try #require(fixture.livePaneID)
-        _ = try Self.ok(try await Self.call("vm.workspace_open", [
-            "id": fixture.machineID, "workspace_id": "ws_b", "here": true, "target_workspace_id": fixture.workspaceID.uuidString,
-            "pane_id": pane, "placement": "tab",
-        ]))
-        #expect(fixture.provider.materialized.last?.destination == .tab(workspaceID: fixture.workspaceID, paneID: pane, index: nil))
+            // `--tabs`: every pane, including the first, is a tab of the named (live) pane.
+            let pane = try #require(fixture.livePaneID)
+            _ = try Self.ok(try await Self.call("vm.workspace_open", [
+                "id": fixture.machineID, "workspace_id": "ws_b", "here": true, "target_workspace_id": fixture.workspaceID.uuidString,
+                "pane_id": pane, "placement": "tab",
+            ]))
+            #expect(fixture.provider.materialized.last?.destination == .tab(workspaceID: fixture.workspaceID, paneID: pane, index: nil))
 
-        // An EMPTY workspace opens nothing and says so (D9), instead of "not found".
-        let empty = try Self.error(try await Self.call("vm.workspace_open", ["id": fixture.machineID, "workspace_id": "ws_empty"]))
-        #expect(empty["code"] as? String == "not_ready")
-        #expect((empty["message"] as? String)?.contains("ws_empty") == true)
-        // …and a workspace resolves by name too.
-        let byName = try Self.error(try await Self.call("vm.workspace_open", ["id": fixture.machineID, "workspace_id": "empty"]))
-        #expect(byName["code"] as? String == "not_ready")
-        #expect((byName["message"] as? String)?.contains("ws_empty") == true)
+            // An EMPTY workspace opens nothing and says so (D9), instead of "not found".
+            let empty = try Self.error(try await Self.call("vm.workspace_open", ["id": fixture.machineID, "workspace_id": "ws_empty"]))
+            #expect(empty["code"] as? String == "not_ready")
+            #expect((empty["message"] as? String)?.contains("ws_empty") == true)
+            // …and a workspace resolves by name too.
+            let byName = try Self.error(try await Self.call("vm.workspace_open", ["id": fixture.machineID, "workspace_id": "empty"]))
+            #expect(byName["code"] as? String == "not_ready")
+            #expect((byName["message"] as? String)?.contains("ws_empty") == true)
 
-        let unknown = try Self.error(try await Self.call("vm.workspace_open", ["id": fixture.machineID, "workspace_id": "ws_nope", "here": true]))
-        #expect((unknown["message"] as? String)?.contains("ws_nope") == true)
-        let bogusTarget = try Self.error(try await Self.call("vm.workspace_open", [
-            "id": fixture.machineID, "workspace_id": "ws_a", "here": true, "target_workspace_id": "workspace:999999",
-        ]))
-        #expect(bogusTarget["code"] as? String == "invalid_params")
+            let unknown = try Self.error(try await Self.call("vm.workspace_open", ["id": fixture.machineID, "workspace_id": "ws_nope", "here": true]))
+            #expect((unknown["message"] as? String)?.contains("ws_nope") == true)
+            let bogusTarget = try Self.error(try await Self.call("vm.workspace_open", [
+                "id": fixture.machineID, "workspace_id": "ws_a", "here": true, "target_workspace_id": "workspace:999999",
+            ]))
+            #expect(bogusTarget["code"] as? String == "invalid_params")
+        }
+    }
+
+    @Test func deviceWorkspaceAndTerminalRenamesReachTheSameProvider() async throws {
+        try await Self.withFixture(device: true) { fixture in
+            _ = try Self.ok(try await Self.call("vm.workspace_rename", ["id": fixture.machineID, "workspace_id": "ws_b", "name": "Project"]))
+            _ = try Self.ok(try await Self.call("vm.tab_rename", ["id": fixture.machineID, "tab_id": "tab_term_b", "name": "Build"]))
+            _ = try Self.ok(try await Self.call("vm.terminal_rename", ["id": fixture.machineID, "terminal_id": "term_b", "name": "Tests"]))
+            #expect(fixture.provider.mutations == ["workspace rename ws_b Project", "tab rename tab_term_b Build", "terminal rename term_b Tests"])
+        }
     }
 
     @Test func workspaceCloseRenameAndDeleteReachTheProviderInContractOrder() async throws {
-        let fixture = Fixture()
-        defer { fixture.tearDown() }
+        try await Self.withFixture { fixture in
 
-        let closed = try Self.ok(try await Self.call("vm.workspace_close", ["id": fixture.machineID, "workspace_id": "ws_b"]))
-        #expect(closed["closed"] as? Bool == true)
-        #expect(fixture.provider.mutations == ["workspace close ws_b"], "close keeps terminals: no terminal close")
+            let closed = try Self.ok(try await Self.call("vm.workspace_close", ["id": fixture.machineID, "workspace_id": "ws_b"]))
+            #expect(closed["closed"] as? Bool == true)
+            #expect(fixture.provider.mutations == ["workspace close ws_b"], "close keeps terminals: no terminal close")
 
-        let renamed = try Self.ok(try await Self.call("vm.workspace_rename", ["id": fixture.machineID, "workspace_id": "ws_b", "name": "  gamma  "]))
-        #expect(renamed["name"] as? String == "gamma")
-        #expect(fixture.provider.mutations.last == "workspace rename ws_b gamma")
-        let blank = try Self.error(try await Self.call("vm.workspace_rename", ["id": fixture.machineID, "workspace_id": "ws_b", "name": "   "]))
-        #expect(blank["code"] as? String == "invalid_params")
+            let renamed = try Self.ok(try await Self.call("vm.workspace_rename", ["id": fixture.machineID, "workspace_id": "ws_b", "name": "  gamma  "]))
+            #expect(renamed["name"] as? String == "gamma")
+            #expect(fixture.provider.mutations.last == "workspace rename ws_b gamma")
+            let blank = try Self.error(try await Self.call("vm.workspace_rename", ["id": fixture.machineID, "workspace_id": "ws_b", "name": "   "]))
+            #expect(blank["code"] as? String == "invalid_params")
 
-        fixture.provider.mutations.removeAll()
-        // Delete: every terminal viewed in the workspace dies BEFORE the workspace closes;
-        // ws_b's terminal is untouched.
-        let deleted = try Self.ok(try await Self.call("vm.workspace_delete", ["id": fixture.machineID, "workspace_id": "ws_a"]))
-        #expect(deleted["terminals_closed"] as? Int == 2)
-        #expect(fixture.provider.mutations == ["terminal close term_a1", "terminal close term_a2", "workspace close ws_a"])
-        #expect(fixture.provider.refreshes == 1, "re-synced at operation time")
-        let remaining = Self.resourceIDs(try Self.ok(try await Self.call("surface.catalog", ["machine": fixture.machineID])))
-        #expect(remaining.contains(fixture.termB.rawValue))
-        #expect(!remaining.contains(fixture.termA1.rawValue))
+            fixture.provider.mutations.removeAll()
+            // Delete: every terminal viewed in the workspace dies BEFORE the workspace closes;
+            // ws_b's terminal is untouched.
+            let deleted = try Self.ok(try await Self.call("vm.workspace_delete", ["id": fixture.machineID, "workspace_id": "ws_a"]))
+            #expect(deleted["terminals_closed"] as? Int == 2)
+            #expect(fixture.provider.mutations == ["terminal close term_a1", "terminal close term_a2", "workspace close ws_a"])
+            #expect(fixture.provider.refreshes == 1, "re-synced at operation time")
+            let remaining = Self.resourceIDs(try Self.ok(try await Self.call("surface.catalog", ["machine": fixture.machineID])))
+            #expect(remaining.contains(fixture.termB.rawValue))
+            #expect(!remaining.contains(fixture.termA1.rawValue))
 
-        let missing = try Self.error(try await Self.call("vm.workspace_delete", ["id": fixture.machineID]))
-        #expect(missing["code"] as? String == "invalid_params")
+            let missing = try Self.error(try await Self.call("vm.workspace_delete", ["id": fixture.machineID]))
+            #expect(missing["code"] as? String == "invalid_params")
+        }
     }
 
     @Test func workspaceNewCreatesAWorkspaceThenAStarterTerminal() async throws {
-        let fixture = Fixture()
-        defer { fixture.tearDown() }
+        try await Self.withFixture { fixture in
 
-        // The shared ⌘N path: `workspace create`, re-sync, then a starter terminal in the
-        // new workspace, then a new local workspace showing it. (The local workspace needs
-        // the app's window; without one the open step reports its failure, but the
-        // machine-side order is what the row and the CLI share.)
-        let response = try await Self.call("vm.workspace_new", ["id": fixture.machineID, "name": "feature"])
-        #expect(fixture.provider.mutations.first == "workspace create feature")
-        #expect(fixture.provider.refreshes == 1)
-        #expect(fixture.provider.createdTerminals.count == 1)
-        #expect(fixture.provider.createdTerminals[0].remoteWorkspaceID == "ws_created")
-        if response["ok"] as? Bool == true {
-            let result = try #require(response["result"] as? [String: Any])
-            #expect(result["remote_workspace_id"] as? String == "ws_created")
-            #expect(result["terminal_id"] as? String == "term_new_1")
-            #expect((result["workspace_id"] as? String).flatMap(UUID.init(uuidString:)) != nil)
-            if let opened = (result["workspace_id"] as? String).flatMap(UUID.init(uuidString:)) {
-                _ = try await Self.call("workspace.close", ["workspace_id": opened.uuidString])
+            let response = try await Self.call("vm.workspace_new", ["id": fixture.machineID, "name": "feature"])
+            #expect(fixture.provider.mutations.first == "workspace create feature")
+            // This fake answers like an older daemon: its receipt carries no
+            // starter terminal, so creation takes exactly one snapshot to look
+            // for one before creating the starter (CloudWorkspaceCreationCoordinator).
+            #expect(fixture.provider.refreshes == 1, "a receipt without a starter costs one snapshot, not a re-sync per step")
+            try #require(fixture.provider.createdTerminals.count == 1)
+            #expect(fixture.provider.createdTerminals[0].remoteWorkspaceID == "ws_created")
+            if response["ok"] as? Bool == true {
+                let result = try #require(response["result"] as? [String: Any])
+                #expect(result["remote_workspace_id"] as? String == "ws_created")
+                #expect(result["terminal_id"] as? String == "term_new_1")
+                #expect((result["workspace_id"] as? String).flatMap(UUID.init(uuidString:)) != nil)
+                if let opened = (result["workspace_id"] as? String).flatMap(UUID.init(uuidString:)) {
+                    _ = try await Self.call("workspace.close", ["workspace_id": opened.uuidString])
+                }
             }
         }
     }
@@ -523,18 +581,18 @@ struct SurfaceSocketCommandTests {
     // MARK: - vm.terminal_close
 
     @Test func terminalCloseEndsTheTerminalOnItsMachine() async throws {
-        let fixture = Fixture()
-        defer { fixture.tearDown() }
+        try await Self.withFixture { fixture in
 
-        let closed = try Self.ok(try await Self.call("vm.terminal_close", ["id": fixture.machineID, "terminal_id": "term_b"]))
-        #expect(closed["closed"] as? Bool == true)
-        #expect(fixture.provider.mutations == ["terminal close term_b"])
-        let remaining = Self.resourceIDs(try Self.ok(try await Self.call("surface.catalog", ["machine": fixture.machineID])))
-        #expect(!remaining.contains(fixture.termB.rawValue))
+            let closed = try Self.ok(try await Self.call("vm.terminal_close", ["id": fixture.machineID, "terminal_id": "term_b"]))
+            #expect(closed["closed"] as? Bool == true)
+            #expect(fixture.provider.mutations == ["terminal close term_b"])
+            let remaining = Self.resourceIDs(try Self.ok(try await Self.call("surface.catalog", ["machine": fixture.machineID])))
+            #expect(!remaining.contains(fixture.termB.rawValue))
 
-        let missing = try Self.error(try await Self.call("vm.terminal_close", ["id": fixture.machineID]))
-        #expect(missing["code"] as? String == "invalid_params")
-        let noMachine = try Self.error(try await Self.call("vm.terminal_close", ["id": "no-such-machine-\(UUID().uuidString.prefix(6))", "terminal_id": "term_x"]))
-        #expect((noMachine["message"] as? String)?.contains("not connected") == true)
+            let missing = try Self.error(try await Self.call("vm.terminal_close", ["id": fixture.machineID]))
+            #expect(missing["code"] as? String == "invalid_params")
+            let noMachine = try Self.error(try await Self.call("vm.terminal_close", ["id": "no-such-machine-\(UUID().uuidString.prefix(6))", "terminal_id": "term_x"]))
+            #expect((noMachine["message"] as? String)?.contains("This machine is not connected") == true)
+        }
     }
 }

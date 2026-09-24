@@ -69,14 +69,14 @@ import Testing
     }
 
     @Test func pairingPageFocusesOnPairingRequirement() throws {
-        let page = try #require(MobileWhatsNewCatalog.entry(withID: "connections.v2"))
+        let page = try #require(MobileWhatsNewCatalog().entry(withID: "connections.v2"))
         guard case .pairingSetup(let features) = page.body else {
             Issue.record("connections.v2 should render the custom pairing page")
             return
         }
         #expect(features.isEmpty)
         #expect(page.title == "Action Required: Enable iOS pairing on your Mac")
-        #expect(MobileWhatsNewCatalog.entry(withID: "pairing-opt-in.v1") == nil)
+        #expect(MobileWhatsNewCatalog().entry(withID: "pairing-opt-in.v1") == nil)
     }
 
     @Test func archiveKeepsBothUpdatesAfterAcknowledgingPairing() async throws {
@@ -87,7 +87,7 @@ import Testing
         await center.refresh()
         #expect(center.archivePages.map(\.id) == ["connections.v2", "connections.v1"])
         #expect(center.unseenPages.map(\.id) == ["connections.v2", "connections.v1"])
-        let oldPage = try #require(MobileWhatsNewCatalog.entry(withID: "connections.v1"))
+        let oldPage = try #require(MobileWhatsNewCatalog().entry(withID: "connections.v1"))
         guard case .features(let features) = oldPage.body else {
             Issue.record("The earlier connection update must keep its feature rows")
             return
@@ -101,7 +101,7 @@ import Testing
     }
 
     @Test func compatibilityCopyUsesTheRemotePolicyShape() {
-        let beta = MobileWhatsNewCatalog.macCompatibility(
+        let beta = MobileWhatsNewCatalog().macCompatibility(
             policy: .baked,
             iosVersion: "1.0.4",
             buildType: .beta
@@ -109,13 +109,13 @@ import Testing
         #expect(beta.stableVersion == "0.64.20")
         #expect(beta.nightlyVersion == nil)
 
-        let official = MobileWhatsNewCatalog.macCompatibility(
+        let official = MobileWhatsNewCatalog().macCompatibility(
             policy: .baked,
             iosVersion: "1.0.4",
             buildType: .prod
         )
-        #expect(official.stableVersion == "0.64.23")
-        #expect(official.nightlyVersion == "0.64.22-nightly.3345650013202")
+        #expect(official.stableVersion == "0.64.25")
+        #expect(official.nightlyVersion == "0.64.25-nightly.3522337919701")
     }
 
     @Test func neverFetchedTeamBuildsKeepTheFullCatalog() {
@@ -123,7 +123,7 @@ import Testing
             let center = makeCenter(buildType: buildType)
             #expect(
                 center.visibleBinaryEntries.map(\.id)
-                    == MobileWhatsNewCatalog.entries.map(\.id)
+                    == MobileWhatsNewCatalog().entries.map(\.id)
             )
             #expect(!center.unseenPages.isEmpty)
         }

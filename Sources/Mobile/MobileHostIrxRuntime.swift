@@ -55,7 +55,27 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
     private let managedDevicePolicy: ManagedDevicePolicy
     private let pairingEnabled: @MainActor () -> Bool
     private let publishesPublicHostStatus: Bool
-    private weak var auth: AuthCoordinator?
+    private(set) weak var auth: AuthCoordinator?
+    weak var outgoingDeviceClient: DeviceIrxClient?
+    /// Native layout synchronization is instantiated only for admitted Mac peers.
+    private lazy var deviceWorkspaceLayouts = DeviceWorkspaceLayoutHost(
+        capture: { Workspace.liveWorkspace(id: $0)?.deviceWorkspaceLayoutSnapshot() },
+        apply: { id, layout in
+            guard let workspace = Workspace.liveWorkspace(id: id) else { throw DeviceLinkError.notConnected }
+            try workspace.applyDeviceWorkspaceLayout(layout)
+        },
+        createTerminal: { id, source, direction in
+            Workspace.liveWorkspace(id: id)?.createDeviceWorkspaceTerminal(near: source, direction: direction)
+        },
+        publish: { snapshot in
+            guard let data = try? JSONEncoder().encode(snapshot),
+                  let payload = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return }
+            MobileHostService.emitEvent(topic: DeviceWorkspaceLayoutHost.eventTopic, payload: payload)
+        }
+    )
+    private var activePairingEnabled: Bool?
+    private var activeDeviceCapabilities: [String] = []
+    private var deviceMetadataTask: Task<Void, Never>?
     private var authObservationTask: Task<Void, Never>?
     private var wakeTask: Task<Void, Never>?
     private var shutdownTask: Task<Void, Never>?
@@ -63,8 +83,8 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
     private var signingOutScope: AuthenticatedTeamScope?
     private var wantsHost = true
     private var requiresTransition = false
-    private var generationToken = UUID()
-    private var activationTask: Task<Void, Never>?
+    private(set) var generationToken = UUID()
+    private(set) var activationTask: Task<Void, Never>?
     private var controlTask: Task<Void, Never>?
     private var endpointTask: Task<Void, Never>?
     private var endpointRefreshPending = false
@@ -96,6 +116,8 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
         }
     }
     private(set) var settingsPhase: SettingsPhase = .idle
+    /// Safe native relay diagnosis, retained through retries until recovery.
+    private(set) var relayFailureDescription: String?
     private(set) var hadLiveDiscoveryThisRun = false
     var irxSettingsContinuations: [UUID: AsyncStream<CmxIrohSettingsSnapshot>.Continuation] = [:]
     var irxSettingsRefreshTask: Task<Void, Never>?
@@ -107,8 +129,28 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
         self.pairingEnabled = pairingEnabled
     }
 
+    private var deviceCapabilities: [String] {
+        guard DevicesFeature.isEnabled || MobileRemoteControlPolicy.allowsIncomingAccess() else { return [] }
+        var result = ["cmux.mac-devices.v1"]
+        if MobileRemoteControlPolicy.allowsIncomingAccess() { result.append("cmux.mac-host.v1") }
+        return result
+    }
+
+    /// ALPNs the single v2 endpoint serves beside irx. Shipped iOS builds dial
+    /// the legacy `cmux/mobile/1` dialect, so it rides the same endpoint
+    /// instead of a separate listener.
+    nonisolated static var endpointAdditionalALPNs: [Data] {
+        [MobileHostIrxLegacyDialectServer.legacyALPN]
+    }
+
+    /// Whether an inbound connection on `alpn` is handed to the legacy dialect
+    /// server. It follows the same pairing opt-in as the v2 runtime.
+    func acceptsLegacyDialect(alpn: Data) -> Bool {
+        pairingEnabled() && alpn == MobileHostIrxLegacyDialectServer.legacyALPN
+    }
+
     var isNetworkingAllowed: Bool {
-        pairingEnabled()
+        (pairingEnabled() || DevicesFeature.isEnabled)
             && !managedDevicePolicy.isEnforced(.disableIrohNetworking)
             && !managedDevicePolicy.isEnforced(.disableRemoteControl)
     }
@@ -216,9 +258,52 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
     private func reconcile() async {
         let scope = wantsHost && isNetworkingAllowed ? auth?.authenticatedTeamScope : nil
         let permitted = scope == signingOutScope ? nil : scope
-        guard requiresTransition || permitted != activeScope || (permitted != nil && controlService == nil && activationTask == nil)
+        // Discoverability is signed metadata on the existing endpoint. A host
+        // toggle must not retire this Mac's independent outgoing device sessions.
+        if !requiresTransition, permitted != nil, permitted == activeScope,
+           (activePairingEnabled == pairingEnabled() || activeDeviceCapabilities != deviceCapabilities),
+           controlService != nil {
+            if activeDeviceCapabilities != deviceCapabilities {
+                await enforcePeerPermissions(token: generationToken)
+                updateDeviceHostingMetadata()
+            }
+            return
+        }
+        guard requiresTransition || permitted != activeScope
+                || activePairingEnabled != pairingEnabled() || activeDeviceCapabilities != deviceCapabilities || (permitted != nil && controlService == nil && activationTask == nil)
                 || (permitted == nil && settingsPhase != .idle) else { return }
         await transition(to: permitted)
+    }
+
+    private func updateDeviceHostingMetadata() {
+        guard deviceMetadataTask == nil, let service = controlService else { return }
+        let token = generationToken
+        deviceMetadataTask = Task { @MainActor [weak self] in
+            defer {
+                if self?.generationToken == token { self?.deviceMetadataTask = nil }
+            }
+            while let self, self.isCurrent(token), !Task.isCancelled,
+                  (self.activeDeviceCapabilities != self.deviceCapabilities || self.activePairingEnabled != self.pairingEnabled()) {
+                let capabilities = self.deviceCapabilities
+                let pairing = self.pairingEnabled()
+                guard let metadata = await service.snapshot().cache.device?.descriptor.metadata else { return }
+                guard self.isCurrent(token), !Task.isCancelled else { return }
+                let next = V2DeviceMetadata(appVersion: metadata.appVersion,
+                    capabilities: metadata.capabilities.filter { !["cmux.mac-devices.v1", "cmux.mac-host.v1"].contains($0) } + capabilities,
+                    displayName: metadata.displayName, pairingEnabled: pairing,
+                    platform: metadata.platform, relayURLs: metadata.relayURLs)
+                do {
+                    try await service.updateMetadata(next)
+                    guard self.isCurrent(token), !Task.isCancelled else { return }
+                    self.activeDeviceCapabilities = capabilities
+                    self.activePairingEnabled = pairing
+                    await self.enforcePeerPermissions(token: token)
+                } catch {
+                    Self.journal.record("v2-host", "hosting-metadata-failed", ["error": String(describing: type(of: error))])
+                    return
+                }
+            }
+        }
     }
 
     private func transition(to scope: AuthenticatedTeamScope?) async {
@@ -226,12 +311,15 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
         generationToken = UUID()
         let token = generationToken
         activeScope = scope
+        activePairingEnabled = pairingEnabled()
+        activeDeviceCapabilities = deviceCapabilities
         admission?.invalidate()
         let oldControl = controlService
         let oldEndpoint = endpointSupervisor
         let oldRegistry = registry
         let oldLegacy = legacyService
         let oldRelayWatch = relayAddressWatch
+        deviceMetadataTask?.cancel(); deviceMetadataTask = nil
         activationTask?.cancel(); activationTask = nil
         controlTask?.cancel(); controlTask = nil
         endpointTask?.cancel(); endpointTask = nil
@@ -249,6 +337,14 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
         hadLiveDiscoveryThisRun = false
         setSettingsPhase(.idle)
         if publishesPublicHostStatus { MobileHostPublicStatusCache.removeAll() }
+        await outgoingDeviceClient?.enforce(nil)
+        if let oldControl, let metadata = await oldControl.snapshot().cache.device?.descriptor.metadata,
+           metadata.pairingEnabled, scope == nil || !pairingEnabled() {
+            let withdrawn = V2DeviceMetadata(appVersion: metadata.appVersion,
+                capabilities: metadata.capabilities.filter { $0 != "cmux.mac-host.v1" },
+                displayName: metadata.displayName, pairingEnabled: false, platform: .mac, relayURLs: [])
+            try? await oldControl.updateMetadata(withdrawn)
+        }
         await oldControl?.stop()
         await oldRelayWatch?.stop()
         await oldRegistry?.closeAll(code: .hostShutdown)
@@ -277,9 +373,21 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
         }
     }
 
-    func setSettingsPhase(_ phase: SettingsPhase) {
-        guard settingsPhase != phase else { return }
+    func setSettingsPhase(_ phase: SettingsPhase, error: (any Error)? = nil) {
+        let nextFailure: String?
+        if phase == .idle || phase == .active {
+            nextFailure = nil
+        } else if let error {
+            nextFailure = (error as? IrxEndpointError)?.errorDescription
+        } else {
+            // Activation retries briefly re-enter .activating and .failed
+            // without a new endpoint error. Keep the last safe diagnosis
+            // visible until the endpoint recovers or the scope is reset.
+            nextFailure = relayFailureDescription
+        }
+        guard settingsPhase != phase || nextFailure != relayFailureDescription else { return }
         settingsPhase = phase
+        relayFailureDescription = nextFailure
         switch phase {
         case .idle: listenerState = MobileHostListenerState()
         case .activating: listenerState.phase = .starting
@@ -306,15 +414,15 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
         let device = V2DeviceDescriptor(endpointID: key.endpointID, identity: tuple,
             identityGeneration: restored?.device?.descriptor.identityGeneration ?? 1,
             metadata: V2DeviceMetadata(appVersion: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0",
-                capabilities: ["irx-v2"], displayName: Host.current().localizedName ?? "Mac",
-                pairingEnabled: true, platform: .mac,
+                capabilities: ["irx-v2"] + deviceCapabilities, displayName: Host.current().localizedName ?? "Mac",
+                pairingEnabled: pairingEnabled(), platform: .mac,
                 relayURLs: restored?.device?.descriptor.metadata.relayURLs ?? []))
         let identity = IrxIdentity(privateKeyData: key.secretKey, deviceID: deviceID, appInstanceID: key.endpointID)
         let preferredPort = MobileHostService.configuredPort()
         let supervisor = IrxEndpointSupervisor(configuration: .init(identity: identity, pathMode: Self.pathMode,
             preferredBindAddress: "0.0.0.0:\(preferredPort)",
             initialRemoteBiStreams: 1, initialRemoteUniStreams: 0,
-            additionalALPNs: [MobileHostIrxLegacyDialectServer.legacyALPN]), journal: Self.journal)
+            additionalALPNs: Self.endpointAdditionalALPNs), journal: Self.journal)
         let admission = try V2InboundAdmissionAuthority(host: device)
         if let restored { _ = admission.restore(restored) }
         let http = V2URLSessionHTTPTransport(session: .shared)
@@ -333,7 +441,7 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
         listenerState.preferredPort = preferredPort
         self.identity = identity
         self.admission = admission
-        if let namespace = CmxIrohMacBundleNamespace(bundleIdentifier: Bundle.main.bundleIdentifier),
+        if pairingEnabled(), let namespace = CmxIrohMacBundleNamespace(bundleIdentifier: Bundle.main.bundleIdentifier),
            let brokerBaseURL = AuthEnvironment.irohBrokerBaseURL {
             let compatibility = try LegacyCompatibilityService(
                 configuration: .init(
@@ -405,6 +513,8 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
         let previousCredentials = cachedState?.relayCredentials
         cachedState = snapshot.cache
         _ = admission.apply(snapshot)
+        await outgoingDeviceClient?.enforce(snapshot.cache)
+        guard isCurrent(token) else { return }
         if let legacyService {
             let modernEndpoints = Set((snapshot.cache.directory?.inboundPeers ?? []).map {
                 $0.device.descriptor.endpointID
@@ -450,11 +560,12 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
             guard isCurrent(token) else { return }
         }
         requestEndpointReady(token: token)
+        if activeDeviceCapabilities != deviceCapabilities { updateDeviceHostingMetadata() }
         publishIrxSettingsUpdate()
     }
 
     private func startLegacyCompatibility(token: UUID) {
-        guard isCurrent(token), legacyStartTask == nil, legacyAcceptorPeer == nil,
+        guard isCurrent(token), pairingEnabled(), legacyStartTask == nil, legacyAcceptorPeer == nil,
               let service = legacyService, let identity,
               let configuration = try? MobileHostV2Configuration.current() else { return }
         legacyStartTask = Task { @MainActor [weak self] in
@@ -558,6 +669,7 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
                     return
                 } catch {
                     guard self.isCurrent(token), !Task.isCancelled else { return }
+                    self.setSettingsPhase(.failed, error: error)
                     self.listenerState.phase = .retrying
                     self.listenerState.boundPort = nil
                     self.listenerState.localSocketAddresses = []
@@ -582,7 +694,7 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
               metadata.relayURLs != [relay], let service = controlService else { return }
         let next = V2DeviceMetadata(
             appVersion: metadata.appVersion,
-            capabilities: metadata.capabilities,
+            capabilities: metadata.capabilities.filter { !["cmux.mac-devices.v1", "cmux.mac-host.v1"].contains($0) } + deviceCapabilities,
             displayName: metadata.displayName,
             pairingEnabled: metadata.pairingEnabled,
             platform: metadata.platform,
@@ -601,7 +713,12 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
     private func enforcePeerPermissions(token: UUID) async {
         guard isCurrent(token), let admission, let registry else { return }
         let legacyCurrent = legacyService?.listCurrent
+        let macEndpoints = Set(cachedState?.directory?.inboundPeers?.filter {
+            $0.device.descriptor.metadata.platform == .mac
+        }.map { $0.device.descriptor.endpointID } ?? [])
+        let allowsMacAccess = MobileRemoteControlPolicy.allowsIncomingAccess()
         await registry.closeAll(code: .revoked, matching: { endpoint in
+            if !allowsMacAccess, macEndpoints.contains(endpoint) { return true }
             if let list = legacyCurrent?.current, let entry = list.entries[endpoint] {
                 return !list.isFresh(now: .now) || entry.revoked
                     || entry.capabilities?.contains(LegacyCompatibilityService.v2Capability) == true
@@ -702,7 +819,7 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
                             registry: registry, token: token)
                     }
                 case .foreign(let alpn, let connection):
-                    guard alpn == MobileHostIrxLegacyDialectServer.legacyALPN,
+                    guard self.acceptsLegacyDialect(alpn: alpn),
                           let legacyService,
                           let trust = legacyService.broker.cachedTrustForAdmission(),
                           let acceptor = self.legacyAcceptor(token: token) else {
@@ -740,15 +857,24 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
         token: UUID
     ) async {
         let journal = Self.journal
+        guard pairingEnabled() else {
+            await irx.close(code: .hostShutdown, origin: .local)
+            return
+        }
         guard
-            let (peer, control, sessionID) = await IrxAdmission.performServer(
+            let (peer, control, sessionID) = await IrxAdmission().performServer(
                 connection: irx,
                 judgment: judgment,
                 journal: journal
             )
         else { return }
+        let isMac = cachedState?.directory?.inboundPeers?.first {
+            $0.device.descriptor.endpointID == peer.endpointIDHex
+        }?.device.descriptor.metadata.platform == .mac
         let stillAuthorized: @Sendable (String) -> Bool = { endpoint in
-            if let list = legacyCurrent?.current, let entry = list.entries[endpoint] {
+            guard isMac ? MobileRemoteControlPolicy.allowsIncomingAccess()
+                : MobileHostService.isListeningEnabled else { return false }
+            if !isMac, let list = legacyCurrent?.current, let entry = list.entries[endpoint] {
                 return list.isFresh(now: .now) && !entry.revoked
                     && entry.capabilities?.contains(LegacyCompatibilityService.v2Capability) != true
                     && (entry.deviceID == nil || entry.deviceID == peer.deviceID)
@@ -781,7 +907,7 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
                     bindingID: peer.bindingID,
                     deviceID: peer.deviceID,
                     tag: peer.tag,
-                    platform: .ios,
+                    platform: isMac ? .mac : .ios,
                     endpointID: try CmxIrohPeerIdentity(endpointID: peer.endpointIDHex),
                     identityGeneration: peer.identityGeneration
                 )
@@ -800,6 +926,15 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
         }
         let controlTransport = IrxControlByteTransport(
             connection: irx, control: control, closeCode: .hostShutdown)
+        let peerRequestHandler: (@Sendable (MobileHostRPCRequest) async -> MobileHostRPCResult?)?
+        if isMac {
+            let layouts = deviceWorkspaceLayouts
+            peerRequestHandler = { request in
+                await layouts.handle(request)
+            }
+        } else {
+            peerRequestHandler = nil
+        }
         let exit = await MobileHostService.acceptTransport(
             controlTransport,
             authorization: .irohAdmission(admittedPeer),
@@ -811,6 +946,9 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
             // It may wait for its first RPC while the client finishes setup;
             // native Iroh owns its connection lifetime.
             firstFrameTimeoutNanoseconds: 0,
+            irohAdmissionIsAuthorized: { stillAuthorized(peer.endpointIDHex) },
+            remoteControlDisabledByPolicy: { !stillAuthorized(peer.endpointIDHex) },
+            peerRequestHandler: peerRequestHandler,
             isCurrent: { [weak self] in
                 let runtime = self
                 return await MainActor.run { runtime?.isCurrent(token) == true }
@@ -948,56 +1086,5 @@ private actor MobileHostIrxTerminalLaneQuota {
 
     func release() {
         activeCount = max(0, activeCount - 1)
-    }
-}
-
-/// Server-events lane writer over irx: opened lazily at priority 50, reset on
-/// stall so the host service can renegotiate, mirroring the legacy contract.
-actor MobileHostIrxEventWriter: MobileHostIndependentEventWriting {
-    private let connection: IrxConnection
-    private let journal: IrxJournal
-    private var writer: IrxStreamWriter?
-
-    init(connection: IrxConnection, journal: IrxJournal) {
-        self.connection = connection
-        self.journal = journal
-    }
-
-    func probe(_ framedData: Data) async -> Bool {
-        do {
-            try await send(framedData)
-            return true
-        } catch {
-            return false
-        }
-    }
-
-    func send(_ framedData: Data) async throws {
-        let writer = try await openedWriter()
-        try await writer.write(framedData)
-    }
-
-    func reset() async {
-        if let writer {
-            await writer.finish()
-        }
-        writer = nil
-        journal.record("host-events", "writer-reset")
-    }
-
-    func close() async {
-        if let writer {
-            await writer.finish()
-        }
-        writer = nil
-    }
-
-    private func openedWriter() async throws -> IrxStreamWriter {
-        if let writer { return writer }
-        let opened = try await connection.openUniLane(IrxLaneDescriptor(lane: .events))
-        try? await opened.setPriority(50)
-        writer = opened
-        journal.record("host-events", "writer-opened")
-        return opened
     }
 }

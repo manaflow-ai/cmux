@@ -846,8 +846,8 @@ public struct AppSection: View {
 
             // Warn Before Closing Tab
             SettingsCardRow(
-                configurationReview: .json("app.warnBeforeClosingTab"),
-                String(localized: "settings.app.warnBeforeClosingTab", defaultValue: "Warn Before Closing Tab"),
+                configurationReview: .json(catalog.app.warnBeforeClosingTab.id),
+                catalog.app.warnBeforeClosingTab.userFacing!.title,
                 subtitle: warnCloseTab.current
                     ? String(localized: "settings.app.warnBeforeClosingTab.subtitleOn", defaultValue: "Show a confirmation before closing a tab.")
                     : String(localized: "settings.app.warnBeforeClosingTab.subtitleOff", defaultValue: "Tabs close immediately without confirmation.")
@@ -873,8 +873,8 @@ public struct AppSection: View {
 
             // Hide Tab Close Button
             SettingsCardRow(
-                configurationReview: .json("app.hideTabCloseButton"),
-                String(localized: "settings.app.hideTabCloseButton", defaultValue: "Hide Tab Close Button"),
+                configurationReview: .json(catalog.app.hideTabCloseButton.id),
+                catalog.app.hideTabCloseButton.userFacing!.title,
                 subtitle: hideCloseButton.current
                     ? String(localized: "settings.app.hideTabCloseButton.subtitleOn", defaultValue: "Tab close buttons are hidden.")
                     : String(localized: "settings.app.hideTabCloseButton.subtitleOff", defaultValue: "Tab close buttons appear on hover and on the active tab.")
@@ -887,8 +887,8 @@ public struct AppSection: View {
 
             // Rename Selects Existing Name
             SettingsCardRow(
-                configurationReview: .json("app.renameSelectsExistingName"),
-                String(localized: "settings.app.renameSelectsName", defaultValue: "Rename Selects Existing Name"),
+                configurationReview: .json(catalog.app.renameSelectsExistingName.id),
+                catalog.app.renameSelectsExistingName.userFacing!.title,
                 subtitle: renameSelects.current
                     ? String(localized: "settings.app.renameSelectsName.subtitleOn", defaultValue: "Command Palette rename starts with all text selected.")
                     : String(localized: "settings.app.renameSelectsName.subtitleOff", defaultValue: "Command Palette rename keeps the caret at the end.")

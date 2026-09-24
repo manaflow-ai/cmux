@@ -93,6 +93,7 @@ final class CloudOperationRecorder {
             if context.parentSpanID == nil {
                 operations[index].outcome = outcome
                 operations[index].failure = failure
+                operations[index].durationMs = milliseconds
             } else if let step = operations[index].steps.firstIndex(where: { $0.id == context.spanID }) {
                 operations[index].steps[step].outcome = outcome
                 operations[index].steps[step].failure = failure
@@ -121,7 +122,7 @@ final class CloudOperationRecorder {
         _ work: () async throws -> T
     ) async rethrows -> T {
         let root = await begin(operation, foreground: foreground, file: file, line: line)
-        return try await CloudOperationContext.$current.withValue(root) {
+        return try await CloudOperationContext.withCurrent(root) {
             do {
                 let value = try await work()
                 await finish(root)

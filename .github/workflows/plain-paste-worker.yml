@@ -1,0 +1,47 @@
+name: Plain paste worker controls
+on:
+  pull_request:
+    paths:
+      - 'workers/cmux-paste-text/**'
+      - 'scripts/build-plain-text-paste-worker.sh'
+      - 'tests/test_plain_text_paste_worker.py'
+      - 'tests/fixtures/plain_paste_provider.m'
+      - '.github/workflows/plain-paste-worker.yml'
+  workflow_dispatch:
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+permissions:
+  contents: read
+jobs:
+  macos-15:
+    runs-on: ${{ vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15' }}
+    timeout-minutes: 10
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          persist-credentials: false
+      - name: Require reporter OS family
+        run: |
+          sw_vers
+          test "$(sw_vers -productVersion | cut -d. -f1)" = 15
+      - name: Build only the isolated helper and provider fixture
+        run: |
+          mkdir -p "$RUNNER_TEMP/plain-paste"
+          scripts/build-plain-text-paste-worker.sh "$RUNNER_TEMP/plain-paste/helper" 'arm64 x86_64'
+          xcrun clang -fobjc-arc -fmodules -Wall -Wextra -Werror -framework AppKit \
+            tests/fixtures/plain_paste_provider.m -o "$RUNNER_TEMP/plain-paste/provider"
+          codesign --verify --strict "$RUNNER_TEMP/plain-paste/helper"
+      - name: Exercise actual pasteboard providers and lifecycle
+        env:
+          CMUX_PASTE_HELPER: ${{ runner.temp }}/plain-paste/helper
+          CMUX_PASTE_PROVIDER: ${{ runner.temp }}/plain-paste/provider
+        run: python3 tests/test_plain_text_paste_worker.py 2>&1 | tee "$RUNNER_TEMP/plain-paste/results.log"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        if: always()
+        with:
+          name: plain-paste-controls-macos15
+          path: ${{ runner.temp }}/plain-paste/results.log

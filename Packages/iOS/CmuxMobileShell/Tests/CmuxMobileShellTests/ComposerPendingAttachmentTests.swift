@@ -14,8 +14,10 @@ import Testing
     private static let terminalA = MobileTerminalPreview(id: "term-a", name: "a")
     private static let terminalB = MobileTerminalPreview(id: "term-b", name: "b")
 
-    /// A composite selected on `term-a`. Selection is set by `init` (no `didSet`
-    /// draft swap fires), so the store contents stay exactly what each test seeds.
+    /// A composite selected on `term-a`. `init` leaves the selection to the
+    /// workspace synchronizer, which picks `term-a` and records one
+    /// `surfaceFocused` event. The draft swap it runs loads `term-a`'s empty
+    /// draft, so the store contents stay exactly what each test seeds.
     private static func makeComposite(diagnosticLog: DiagnosticLog? = nil) -> MobileShellComposite {
         MobileShellComposite(
             workspaces: [
@@ -55,17 +57,21 @@ import Testing
 
         let clock = ContinuousClock()
         let deadline = clock.now.advanced(by: .seconds(1))
-        while await log.processedCount() < 3, clock.now < deadline {
+        while await log.processedCount() < 4, clock.now < deadline {
             await Task.yield()
         }
-        #expect(await log.processedCount() >= 3)
+        #expect(await log.processedCount() >= 4)
         let report = await log.snapshot()
+        // The first event is construction focusing `term-a` (see
+        // `makeComposite`), not an attachment mutation.
         #expect(report.events.map(\.a) == [
+            DiagnosticAppEventKind.surfaceFocused.rawValue,
             DiagnosticAppEventKind.terminalAttachmentStaged.rawValue,
             DiagnosticAppEventKind.terminalAttachmentRemoved.rawValue,
             DiagnosticAppEventKind.terminalAttachmentRejected.rawValue,
         ])
         #expect(report.events.map(\.b) == [
+            nil,
             nil,
             nil,
             DiagnosticFailureKind.protocolViolation.rawValue,

@@ -1,3 +1,4 @@
+import { grantVmImportedAccount } from "./vmAccountImport";
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { and, eq, gt, isNotNull, isNull, lt, lte, or, sql } from "drizzle-orm";
 import { cloudDb } from "../../db/client";
@@ -24,6 +25,7 @@ import {
 } from "./types";
 
 import { accountAccessPredicate, scopedSessionKey, type CoderouterAccountAccess } from "./accountAccess";
+import { signVmAuthorization, verifyVmAuthorization, type VmAuthorizationClaims } from "./vmAuthorization";
 
 const ROUTE_TOKEN_LIFETIME_MS = 30 * 24 * 60 * 60 * 1_000;
 const VAULT_LEASE_MS = 30_000;
@@ -81,6 +83,31 @@ export async function issueRouteToken(
     tokenHash: routeTokenHash(token),
     label,
     vmId: options?.vmId ?? null,
+    expiresAt,
+  });
+  return { token, expiresAt };
+}
+
+/** Issue a signed, VM-bound token. The hash is still persisted so revocation
+ * remains immediate during key rotation and VM teardown. */
+export async function issueVmAuthorizationToken(
+  teamId: string,
+  stackUserId: string,
+  vmId: string,
+): Promise<{ token: string; expiresAt: Date }> {
+  const expiresAt = new Date(Date.now() + ROUTE_TOKEN_LIFETIME_MS);
+  const token = await signVmAuthorization({
+    vmId,
+    teamId,
+    ownerId: stackUserId,
+    expiresAt,
+  });
+  await cloudDb().insert(coderouterRouteTokens).values({
+    teamId,
+    stackUserId,
+    tokenHash: routeTokenHash(token),
+    label: "vm-signed",
+    vmId,
     expiresAt,
   });
   return { token, expiresAt };
@@ -171,7 +198,10 @@ export async function authenticateRouteToken(
   token: string,
   now = new Date(),
 ): Promise<RouteTokenPrincipal | null> {
-  if (!ROUTE_TOKEN_PATTERN.test(token)) return null;
+  if (!ROUTE_TOKEN_PATTERN.test(token)) {
+    const claims = await verifyVmAuthorization(token, now);
+    return claims ? await authenticateVmAuthorization(token, claims, now) : null;
+  }
   const [row] = await cloudDb()
     .update(coderouterRouteTokens)
     .set({ lastUsedAt: now })
@@ -192,9 +222,32 @@ export async function authenticateRouteToken(
   const [vm] = await cloudDb().select({ poolId: cloudVms.coderouterPoolId })
     .from(cloudVms)
     .innerJoin(coderouterPools, and(eq(coderouterPools.id, cloudVms.coderouterPoolId), eq(coderouterPools.teamId, cloudVms.ownerTeamId)))
-    .where(and(eq(cloudVms.id, row.vmId), eq(cloudVms.ownerTeamId, row.teamId),
-      sql`${cloudVms.status} in ('provisioning', 'running', 'paused')`)).limit(1);
+    .where(and(eq(cloudVms.id, row.vmId), eq(cloudVms.ownerTeamId, row.teamId), sql`${cloudVms.status} in ('provisioning', 'running', 'paused')`)).limit(1);
   return vm ? { ...row, poolId: vm.poolId } : null;
+}
+
+/** Claims must come from verifyVmAuthorization. One read enforces immediate
+ * revocation, token/VM/owner binding, current pool and live VM ownership. */
+async function authenticateVmAuthorization(
+  token: string,
+  claims: VmAuthorizationClaims,
+  now = new Date(),
+): Promise<RouteTokenPrincipal | null> {
+  const [row] = await cloudDb().select({ poolId: cloudVms.coderouterPoolId })
+    .from(coderouterRouteTokens)
+    .innerJoin(cloudVms, eq(cloudVms.id, coderouterRouteTokens.vmId))
+    .innerJoin(coderouterPools, and(eq(coderouterPools.id, cloudVms.coderouterPoolId), eq(coderouterPools.teamId, cloudVms.ownerTeamId)))
+    .where(and(
+      eq(coderouterRouteTokens.tokenHash, routeTokenHash(token)),
+      eq(coderouterRouteTokens.teamId, claims.team_id),
+      eq(coderouterRouteTokens.stackUserId, claims.owner_id),
+      eq(coderouterRouteTokens.vmId, claims.vm_id),
+      gt(coderouterRouteTokens.expiresAt, now),
+      isNull(coderouterRouteTokens.revokedAt),
+      eq(cloudVms.ownerTeamId, claims.team_id),
+      sql`${cloudVms.status} in ('provisioning', 'running', 'paused')`,
+    )).limit(1);
+  return row ? { teamId: claims.team_id, stackUserId: claims.owner_id, vmId: claims.vm_id, poolId: row.poolId } : null;
 }
 
 export type CoderouterApiKeySummary = {
@@ -421,6 +474,7 @@ export async function revokeRouteToken(
 }
 
 export async function deleteAccount(input: {
+  readonly access?: CoderouterAccountAccess;
   readonly teamId: string;
   readonly stackUserId?: string;
   readonly accountId: string;
@@ -435,7 +489,7 @@ export async function deleteAccount(input: {
       .delete(coderouterAccounts)
       .where(and(
         eq(coderouterAccounts.id, input.accountId),
-        nativeAccess(input.stackUserId ? { kind: "user", userId: input.stackUserId } : undefined),
+        nativeAccess(input.access ?? (input.stackUserId ? { kind: "user", userId: input.stackUserId } : undefined)),
         eq(coderouterAccounts.teamId, input.teamId),
       ))
       .returning({ id: coderouterAccounts.id });
@@ -637,6 +691,7 @@ export async function encryptedCredentialForAccount(
 }
 
 export async function insertAccountWithCredential(input: {
+  readonly access?: CoderouterAccountAccess;
   readonly createdBy?: string;
   readonly visibility?: "private" | "team";
   readonly credential: CodeRouterCredential;
@@ -675,11 +730,13 @@ export async function insertAccountWithCredential(input: {
       .returning({ id: coderouterAccounts.id });
     if (!inserted) return false;
     await tx.insert(coderouterCredentials).values(encryptedValues(input.encrypted));
+    await grantVmImportedAccount(tx, input.encrypted.teamId, inserted.id, "native", input.access);
     return true;
   });
 }
 
 export async function replaceAccountCredential(input: {
+  readonly access?: CoderouterAccountAccess;
   readonly credential: CodeRouterCredential;
   readonly encrypted: EncryptedCredential;
   readonly expectedRevision: number;
@@ -714,6 +771,7 @@ export async function replaceAccountCredential(input: {
       })
       .where(and(
         eq(coderouterAccounts.id, input.encrypted.accountId),
+        nativeAccess(input.access),
         eq(coderouterAccounts.teamId, input.encrypted.teamId),
         eq(coderouterAccounts.vaultRevision, input.expectedRevision),
       ))
@@ -809,6 +867,7 @@ export async function findAccountByProviderIdentity(
   teamId: string,
   provider: CodeRouterProvider,
   providerAccountId: string,
+  access?: CoderouterAccountAccess,
 ): Promise<{ id: string; state: string; vaultRevision: number; visibility: "private" | "team"; createdBy: string | null } | null> {
   const [row] = await cloudDb()
     .select({
@@ -823,6 +882,7 @@ export async function findAccountByProviderIdentity(
       eq(coderouterAccounts.teamId, teamId),
       eq(coderouterAccounts.provider, provider),
       eq(coderouterAccounts.providerAccountId, providerAccountId),
+      nativeAccess(access),
     ))
     .limit(1);
   return row ?? null;
@@ -856,9 +916,9 @@ export async function bindCodexOwnerIdentity(input: {
   return row !== undefined;
 }
 
-export async function updateAccountLabel(teamId: string, accountId: string, credential: CodeRouterCredential): Promise<void> {
+export async function updateAccountLabel(teamId: string, accountId: string, credential: CodeRouterCredential, access?: CoderouterAccountAccess): Promise<void> {
   await cloudDb().update(coderouterAccounts).set({ label: credentialLabel(credential), updatedAt: new Date() })
-    .where(and(eq(coderouterAccounts.teamId, teamId), eq(coderouterAccounts.id, accountId)));
+    .where(and(eq(coderouterAccounts.teamId, teamId), eq(coderouterAccounts.id, accountId), nativeAccess(access)));
 }
 
 export type RoutedAccount = {
@@ -1285,13 +1345,18 @@ export async function markAccountCooldown(
   accountId: string,
   durationMs: number,
   signal?: AbortSignal,
+  failureCode = "rate_limited",
 ): Promise<void> {
   const bounded = Math.min(Math.max(durationMs, 1_000), 7 * 24 * 60 * 60 * 1_000);
+  const cooldownUntilIso = new Date(Date.now() + bounded).toISOString();
   await runWithCloudDbQuerySignal(signal, () => cloudDb()
     .update(coderouterAccounts)
     .set({
-      cooldownUntil: new Date(Date.now() + bounded),
-      lastFailureCode: "rate_limited",
+      // A late provider error must never shorten a longer cooldown already
+      // recorded by another request. Keep the database value authoritative so
+      // every web instance avoids a capacity-hit account consistently.
+      cooldownUntil: sql`GREATEST(COALESCE(${coderouterAccounts.cooldownUntil}, ${cooldownUntilIso}::timestamptz), ${cooldownUntilIso}::timestamptz)`,
+      lastFailureCode: failureCode,
       updatedAt: new Date(),
     })
     .where(eq(coderouterAccounts.id, accountId)));

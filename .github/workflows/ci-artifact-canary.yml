@@ -1,0 +1,132 @@
+name: CI artifact transport canary
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: ci-artifact-transport-canary
+  cancel-in-progress: false
+
+jobs:
+  canary:
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 20
+    env:
+      WRANGLER_SEND_METRICS: 'false'
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: '24'
+      - name: Install pinned Worker tools
+        working-directory: workers/ci-artifacts
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Test canary provisioning and measurement failure paths
+        run: python3 tests/test_ci_r2_canary.py
+      - name: Validate code and canary gate
+        working-directory: workers/ci-artifacts
+        run: npm run check
+      - name: Validate the allowlisted artifact before any deployment
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 -c 'import runpy; runpy.run_path("scripts/ci/verify-r2-canary.py")["metadata"]()'
+      - name: Check private R2 and Workers capabilities
+        id: preflight
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: python3 scripts/ci/r2-canary-cloudflare.py preflight
+      - name: Render this run's isolated Worker and bucket names
+        run: python3 scripts/ci/r2-canary-cloudflare.py config
+      - name: Prepare short-lived canary secrets
+        id: secret
+        env:
+          GITHUB_ARTIFACT_TOKEN: ${{ github.token }}
+        run: |
+          python3 - <<'PYTHON'
+          import json, os, secrets
+          from pathlib import Path
+          token = secrets.token_hex(32)
+          target = Path(os.environ["RUNNER_TEMP"]) / "cmux-r2-canary-access-token"
+          target.touch(mode=0o600)
+          target.write_text(token)
+          bundle = Path(os.environ["RUNNER_TEMP"]) / "cmux-r2-canary-secrets.json"
+          bundle.touch(mode=0o600)
+          bundle.write_text(json.dumps({"GITHUB_ARTIFACT_TOKEN": os.environ["GITHUB_ARTIFACT_TOKEN"], "CANARY_ACCESS_TOKEN": token}))
+          PYTHON
+      - name: Deploy the exact-artifact canary for twenty minutes
+        id: deploy
+        working-directory: workers/ci-artifacts
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          expiry=$(date -u -d '+20 minutes' +%Y-%m-%dT%H:%M:%SZ)
+          ./node_modules/.bin/wrangler deploy --config wrangler.canary.runtime.json --var CANARY_ENABLED:true --var "CANARY_EXPIRES_AT:$expiry" --secrets-file "$RUNNER_TEMP/cmux-r2-canary-secrets.json"
+      - name: Measure cold import then warm read on Linux
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CANARY_ORIGIN: ${{ steps.preflight.outputs.origin }}
+        run: python3 scripts/ci/verify-r2-canary.py --origin "$CANARY_ORIGIN" --receipt artifacts/r2-canary/receipt.json
+      - name: Disable the canary
+        if: always() && steps.deploy.outcome != 'skipped' && steps.preflight.outcome == 'success'
+        working-directory: workers/ci-artifacts
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: ./node_modules/.bin/wrangler deploy --config wrangler.canary.runtime.json
+      - name: Remove the short-lived server credential
+        if: always() && steps.deploy.outcome != 'skipped' && steps.preflight.outcome == 'success'
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: python3 scripts/ci/r2-canary-cloudflare.py delete-secret
+      - name: Remove this run's Worker
+        if: always() && steps.deploy.outcome != 'skipped' && steps.preflight.outcome == 'success'
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: python3 scripts/ci/r2-canary-cloudflare.py delete-worker
+      - name: Remove only the canary's artifact copy
+        if: always() && steps.deploy.outcome != 'skipped' && steps.preflight.outcome == 'success'
+        working-directory: workers/ci-artifacts
+        env:
+          CANARY_RESOURCE: ${{ steps.preflight.outputs.resource }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          key="$CANARY_RESOURCE/github/manaflow-ai/cmux/10610975375/08f56e901618eff4aacdffbd3046d9e9732b638004cba1d69ad44f447199608f.zip"
+          for attempt in 1 2 3 4; do
+            if ./node_modules/.bin/wrangler r2 object delete "$key" --remote; then
+              exit 0
+            fi
+            if [ "$attempt" -lt 4 ]; then
+              sleep "$((attempt * 5))"
+            fi
+          done
+          echo "failed to remove the canary artifact after 4 attempts" >&2
+          exit 1
+      - name: Remove an empty bucket created by this run
+        if: always() && steps.preflight.outcome != 'skipped'
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: python3 scripts/ci/r2-canary-cloudflare.py cleanup-bucket
+      - name: Remove runner-local access token
+        if: always()
+        run: rm -f "$RUNNER_TEMP/cmux-r2-canary-access-token" "$RUNNER_TEMP/cmux-r2-canary-secrets.json"
+      - name: Preserve measurement receipt
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: r2-artifact-canary-receipt
+          path: artifacts/r2-canary/
+          if-no-files-found: warn
+          retention-days: 7

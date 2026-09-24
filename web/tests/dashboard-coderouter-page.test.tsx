@@ -465,7 +465,7 @@ describe("coderouter dashboard", () => {
     expect(metricsTeamIds).toEqual(["team-2"]);
   });
 
-  test("uses the persisted CodeRouter scope before the Stack default", async () => {
+  test("uses the Stack selected team before the legacy cookie", async () => {
     authorizationAvailable = true;
     selectedTeamId = "team-1";
     scopedTeamId = "team-2";
@@ -488,7 +488,7 @@ describe("coderouter dashboard", () => {
       locale: "en",
     });
 
-    expect(metricsTeamIds).toEqual(["team-2"]);
+    expect(metricsTeamIds).toEqual(["team-1"]);
   });
 
   test("normalizes a null Stack selection to the personal organization", async () => {

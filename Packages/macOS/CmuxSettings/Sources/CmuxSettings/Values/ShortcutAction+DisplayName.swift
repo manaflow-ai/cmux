@@ -5,6 +5,8 @@ extension ShortcutAction {
     public var displayName: String {
         switch self {
         case .openSettings: return "Settings…"
+        case .openTeamPicker:
+            return String(localized: "shortcut.openTeamPicker.label", defaultValue: "Open Team Picker")
         case .reloadConfiguration: return "Reload Configuration"
         case .showHideAllWindows: return "Show/Hide All Windows"
         case .globalSearch: return "Global Search"
@@ -172,6 +174,8 @@ extension ShortcutAction {
             return String(localized: "shortcut.canvasDistributeVertically.label", defaultValue: "Canvas: Distribute Vertically")
         case .openDiffViewer: return "Open Diff Viewer"
         case .saveFilePreview: return "Save File Preview"
+        case .toggleFileEditorWordWrap:
+            return String(localized: "shortcut.toggleFileEditorWordWrap.label", defaultValue: "Toggle File Editor Word Wrap")
         case .openBrowser: return "Open Browser"
         case .focusBrowserAddressBar: return "Focus Address Bar"
         case .browserBack: return "Back"

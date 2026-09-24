@@ -351,6 +351,18 @@ struct CMUXMobileRootView: View {
         .onChange(of: store.workspaceTopologyVersion) { _, _ in
             pushCoordinator.workspacesDidChange()
         }
+        // A tap can arrive while the Mac transport is down. Retry the parked
+        // request when the connection recovers even if the workspace list did
+        // not change in that same turn.
+        .onChange(of: store.connectionState) { _, _ in
+            pushCoordinator.workspacesDidChange()
+        }
+        // The aggregate connection can stay connected while a secondary Mac
+        // reconnects. Observe exact pairing status changes for parked pushes.
+        .onChange(of: store.macConnectionStatuses) { _, _ in
+            pushCoordinator.workspacesDidChange()
+        }
+        .mobilePushAlertPresentation(coordinator: pushCoordinator)
         #if DEBUG
         // The UI-test auto-open hook observes the same workspace-arrival
         // signal; `initial: true` covers a list already loaded at mount.
@@ -591,7 +603,7 @@ struct CMUXMobileRootView: View {
                     taskComposerPresentation: childSheetPresentation(
                         for: .workspaceTaskComposer
                     ),
-                    reconnectStoredMac: reconnectStoredMacIfNeeded,
+                    reconnectStoredMac: { reconnectStoredMacIfNeeded() },
                     workspaceListDidBecomeVisible: {
                         await pushCoordinator.workspaceListDidBecomeVisible()
                     }
@@ -948,7 +960,7 @@ struct CMUXMobileRootView: View {
             isAuthenticated: isAuthenticated,
             connectionPhase: onboardingConnectionPhase,
             connectionMethod: connectionMethodStore?.method ?? .automatic,
-            keepAwakeOffer: OnboardingKeepAwakeOfferSource.offer(from: store),
+            keepAwakeOffer: OnboardingKeepAwakeOfferSource().offer(from: store),
             onSelectConnectionMethod: { connectionMethodStore?.method = $0 },
             onEnablePush: { await pushCoordinator.enable(trigger: "onboarding") },
             onReachedConnection: markOnboardingReadyToConnect,
@@ -956,7 +968,7 @@ struct CMUXMobileRootView: View {
             onRetryConnection: retryAutomaticConnection,
             onStartTailscalePairing: showOnboardingPairingScanner,
             onSetKeepAwake: { [store] enabled in
-                await OnboardingKeepAwakeOfferSource.set(enabled, on: store)
+                await OnboardingKeepAwakeOfferSource().set(enabled, on: store)
             },
             onComplete: completeOnboarding
         )
@@ -1116,9 +1128,13 @@ struct CMUXMobileRootView: View {
             guard allowRetry, !didReconnect, !Task.isCancelled else { return }
             startupReconnectRetryTask?.cancel()
             startupReconnectRetryTask = Task { @MainActor in
-                try? await ContinuousClock().sleep(for: .seconds(1))
+                // Mark the retry as reconnecting before its first await. A
+                // delayed root-level retry leaves the global status at
+                // Not Connected while the same Mac is already being retried.
                 guard !Task.isCancelled else { return }
-                reconnectStoredMacIfNeeded(allowRetry: false)
+                _ = await store.retryActiveMacReconnect(
+                    stackUserID: stackUserID
+                )
             }
         }
     }

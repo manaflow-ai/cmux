@@ -1,4 +1,5 @@
 import AppKit
+import CmuxSettings
 import CmuxSidebar
 import SwiftUI
 import Testing
@@ -673,6 +674,37 @@ struct SidebarAppKitRowCellTests {
     }
 
     @Test
+    func customWorkspaceDescriptionColorOverridesRowStateAndLinkColor() throws {
+        let url = try #require(URL(string: "https://cmux.com"))
+        let defaults = Self.makeDefaults()
+        let key = SettingCatalog().sidebar.workspaceDescriptionColorHex.userDefaultsKey
+        defaults.set("#A6E3A1", forKey: key)
+        let settings = SidebarTabItemSettingsSnapshot(defaults: defaults)
+        #expect(settings.workspaceDescriptionColorHex == "#A6E3A1")
+
+        let model = Self.makeModel(
+            isActive: true,
+            settings: settings,
+            customDescription: url.absoluteString
+        )
+        let cell = Self.configuredCell(model: model)
+        Self.layoutCell(cell, model: model)
+        let textView = try #require(Self.descriptionTextView(in: cell, showing: url.absoluteString))
+        let rendered = try #require(
+            textView.attributedStringValue.attribute(.foregroundColor, at: 0, effectiveRange: nil) as? NSColor
+        )
+        let expected = try #require(NSColor(hex: "#A6E3A1"))
+        let renderedSRGB = try #require(rendered.usingColorSpace(.sRGB))
+        let expectedSRGB = try #require(expected.usingColorSpace(.sRGB))
+
+        #expect(Self.distance(renderedSRGB, expectedSRGB) < 0.001)
+        #expect(
+            textView.attributedStringValue.attribute(.underlineStyle, at: 0, effectiveRange: nil) as? Int
+                == NSUnderlineStyle.single.rawValue
+        )
+    }
+
+    @Test
     func inactiveDarkDescriptionRastersSemanticColorsAfterLightConfiguration() throws {
         let lightAppearance = try #require(NSAppearance(named: .aqua))
         let darkAppearance = try #require(NSAppearance(named: .darkAqua))
@@ -743,6 +775,35 @@ struct SidebarAppKitRowCellTests {
         #expect(cmuxContrastRatio(foreground: proseGlyph, background: background) >= 3)
         #expect(cmuxContrastRatio(foreground: linkGlyph, background: background) >= 3)
         #expect(Self.distance(proseGlyph, linkGlyph) > 0.15)
+    }
+
+    @Test
+    func rowPaletteSemanticColorsRemainDynamicAcrossAppearances() throws {
+        let lightAppearance = try #require(NSAppearance(named: .aqua))
+        let darkAppearance = try #require(NSAppearance(named: .darkAqua))
+        let semanticColor = NSColor(name: nil) { appearance in
+            appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+                ? .white
+                : .black
+        }
+        let palette = SidebarRowPalette(model: Self.makeModel())
+        let colors = [
+            (palette.semantic(semanticColor), CGFloat(1)),
+            (palette.semantic(semanticColor, opacity: 0.6), CGFloat(0.6)),
+        ]
+
+        for (color, expectedAlpha) in colors {
+            let light = try Self.resolvedColor(color, in: lightAppearance)
+            let dark = try Self.resolvedColor(color, in: darkAppearance)
+
+            // SidebarRowPalette resolves semantic colors against the row's
+            // concrete cmux scheme before AppKit paints the detached cell.
+            // Ambient light/dark appearance must therefore not change the
+            // already-resolved color.
+            #expect(Self.distance(light, dark) < 0.001)
+            #expect(abs(light.alphaComponent - expectedAlpha) < 0.001)
+            #expect(abs(dark.alphaComponent - expectedAlpha) < 0.001)
+        }
     }
 
     @Test
@@ -2076,7 +2137,7 @@ struct SidebarPinnedIndicatorColorTests {
             isBeingDragged: false,
             topDropIndicatorVisible: false,
             bottomDropIndicatorVisible: false,
-            colorSchemeIsDark: false
+            colorSchemeIsDark: true
         ))
 
         let workspacePin = try #require(

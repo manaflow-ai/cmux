@@ -320,15 +320,19 @@ extension CLINotifyProcessIntegrationRegressionTests {
             Darwin.close(listenerFD)
             unlink(socketPath)
         }
-        let result = runProcess(
-            executablePath: cliPath,
-            arguments: ["vm", "env", "set", "brave-otter", "1BAD=value"],
-            environment: vmLayoutEnvEnvironment(socketPath: socketPath),
-            timeout: 30
-        )
+        for namespace in ["vm", "cloud"] {
+            var environment = vmLayoutEnvEnvironment(socketPath: socketPath)
+            environment["CMUX_SOCKET_PASSWORD"] = "invalid-env-fixture-password"
+            let result = runProcess(
+                executablePath: cliPath,
+                arguments: [namespace, "env", "set", "brave-otter", "1BAD=value"],
+                environment: environment,
+                timeout: 30
+            )
 
-        XCTAssertEqual(result.status, 2, "stdout=\(result.stdout) stderr=\(result.stderr)")
-        XCTAssertTrue(result.stderr.contains("invalid variable name '1BAD'"), result.stderr)
+            XCTAssertEqual(result.status, 2, "\(namespace): stdout=\(result.stdout) stderr=\(result.stderr)")
+            XCTAssertTrue(result.stderr.contains("invalid variable name '1BAD'"), result.stderr)
+        }
         var connection = pollfd(fd: listenerFD, events: Int16(POLLIN), revents: 0)
         XCTAssertEqual(Darwin.poll(&connection, 1, 0), 0, "a rejected assignment must not connect to the socket")
     }
@@ -421,6 +425,20 @@ extension CLINotifyProcessIntegrationRegressionTests {
     }
 
     func testVMLayoutApplySendsTheDocumentAndForwardsTargetFlags() throws {
+        try assertVMLayoutApplySendsDocument(
+            targetArguments: ["--workspace", "ws_1"],
+            expectedTarget: "--workspace ws_1"
+        )
+        try assertVMLayoutApplySendsDocument(
+            targetArguments: ["--name", "dev"],
+            expectedTarget: "--name dev"
+        )
+    }
+
+    private func assertVMLayoutApplySendsDocument(
+        targetArguments: [String],
+        expectedTarget: String
+    ) throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("vm-layout-apply")
         let listenerFD = try bindUnixSocket(at: socketPath)
@@ -444,19 +462,22 @@ extension CLINotifyProcessIntegrationRegressionTests {
             self.vmLayoutEnvExecResponse(id: id, stdout: applied)
         }
 
+        var environment = vmLayoutEnvEnvironment(socketPath: socketPath)
+        environment["CMUX_SOCKET_PASSWORD"] = "layout-fixture-password"
         let result = runProcess(
             executablePath: cliPath,
-            arguments: ["vm", "layout", "apply", "brave-otter", layoutFile.path, "--workspace", "ws_1", "--name", "dev"],
-            environment: vmLayoutEnvEnvironment(socketPath: socketPath),
+            arguments: ["vm", "layout", "apply", "brave-otter", layoutFile.path] + targetArguments,
+            environment: environment,
             timeout: 30
         )
 
         wait(for: [serverHandled], timeout: 30)
         XCTAssertFalse(result.timedOut, result.stderr)
         XCTAssertEqual(result.status, 0, "stdout=\(result.stdout) stderr=\(result.stderr)")
+        XCTAssertEqual(state.snapshot().first, "auth layout-fixture-password")
         XCTAssertEqual(log.methods, ["vm.exec"], "no open without --open")
         let command = try XCTUnwrap(log.commands().first)
-        XCTAssertTrue(command.hasSuffix("| base64 -d | cmux layout apply --json --workspace ws_1 --name dev -"), command)
+        XCTAssertTrue(command.hasSuffix("| base64 -d | cmux layout apply --json \(expectedTarget) -"), command)
         XCTAssertEqual(Self.base64Payload(inCommand: command), documentBytes, "the file travels byte for byte")
         XCTAssertTrue(result.stdout.contains("OK workspace=ws_1 name=dev panes=3 surfaces=3 machine=brave-otter"), result.stdout)
         XCTAssertTrue(result.stdout.contains("cmux vm workspace open brave-otter ws_1"), "hint names the manual open: \(result.stdout)")
@@ -1010,16 +1031,15 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertTrue(namelessLog.methods.isEmpty, namelessLog.methods.description)
     }
 
-    func testVMResizeIsNoLongerAVerb() throws {
+    func testVMResizeRequiresResourcesBeforeContactingTheApp() throws {
         let (result, log) = try runVMCommandAgainstMock(
-            "vm-resize-gone",
-            arguments: ["vm", "resize", "brave-otter", "--disk", "40"]
+            "vm-resize-no-resources",
+            arguments: ["vm", "resize", "brave-otter"]
         ) { _, _ in nil }
         XCTAssertNotEqual(result.status, 0, result.stdout)
-        XCTAssertTrue(result.stderr.contains("Usage: cmux vm <"), result.stderr)
-        XCTAssertFalse(result.stderr.contains("resize"), "resize must not be advertised: \(result.stderr)")
-        XCTAssertTrue(result.stderr.contains("pause|resume"), result.stderr)
-        XCTAssertTrue(log.methods.isEmpty, "an unknown verb must not reach the app: \(log.methods)")
+        XCTAssertTrue(result.stderr.contains("cmux vm resize <id>"), result.stderr)
+        XCTAssertTrue(result.stderr.contains("Specify at least one resource"), result.stderr)
+        XCTAssertTrue(log.methods.isEmpty, "invalid resize arguments must not reach the app: \(log.methods)")
     }
 
     func testVMVerbHelpPrintsThatVerbsUsageWithoutASocket() throws {
@@ -1033,8 +1053,8 @@ extension CLINotifyProcessIntegrationRegressionTests {
             (["vm", "workspace", "--help"], ["cmux vm workspace", "[--reuse]"], []),
             (["vm", "layout", "--help"], ["cmux vm layout"], ["cmux vm new"]),
             // The family text stays for the family itself and for verbs without their own usage.
-            (["vm", "--help"], ["pause|resume", "terminal wait-exit", "exec [--timeout <s>]", "workspace new <machine> [--name <name>] [--reuse]"], ["resize"]),
-            (["vm", "ls", "--help"], ["Usage: cmux vm <"], ["resize"]),
+            (["vm", "--help"], ["pause|resume", "terminal wait-exit", "exec [--timeout <s>]", "workspace new <machine> [--name <name>] [--reuse]", "resize <id>"], []),
+            (["vm", "ls", "--help"], ["Usage: cmux vm <", "resize <id>"], []),
         ]
         for testCase in cases {
             let result = runProcess(executablePath: cliPath, arguments: testCase.arguments, environment: environment, timeout: 30)

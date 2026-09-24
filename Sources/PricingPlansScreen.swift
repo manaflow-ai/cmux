@@ -609,8 +609,8 @@ private struct NativePricingPlansView: View {
                 action: snapshot.isMax ? nil : { ProUpgradePresenter.presentCheckout(source: .nativePricingPreview, plan: .max) },
                 isProminent: snapshot.isMax,
                 features: [
-                    String(localized: "pricing.native.max.feature.sizes", defaultValue: "Up to 64 GB RAM per machine"),
-                    String(localized: "pricing.native.max.feature.pro", defaultValue: "Everything in Pro: 50 Cloud VMs, unlimited workspaces, the iOS app"),
+                    String(localized: "pricing.native.max.feature.sizes", defaultValue: "Up to 50 Cloud VMs sharing 64 GB RAM and 16 vCPUs"),
+                    String(localized: "pricing.native.max.feature.pro", defaultValue: "Unlimited workspaces and the iOS app"),
                 ]
             )
             NativePricingPlanCard(
@@ -833,7 +833,7 @@ private struct NativePricingComparisonSection: View {
             label: String(localized: "pricing.native.compare.largestVm", defaultValue: "Largest Cloud VM"),
             free: .text(String(localized: "pricing.native.compare.largestVm.standard", defaultValue: "24 GB RAM")),
             pro: .text(String(localized: "pricing.native.compare.largestVm.standard", defaultValue: "24 GB RAM")),
-            max: .text(String(localized: "pricing.native.compare.largestVm.max", defaultValue: "64 GB RAM")),
+            max: .text(String(localized: "pricing.native.compare.largestVm.max", defaultValue: "64 GB RAM from the shared pool")),
             team: .text(String(localized: "pricing.native.compare.largestVm.standard", defaultValue: "24 GB RAM")),
             enterprise: .text(String(localized: "pricing.native.compare.custom", defaultValue: "Custom"))
         ),
@@ -1010,7 +1010,7 @@ private struct NativePricingSizeSection: View {
             .foregroundStyle(.secondary)
             Text(String(
                 localized: "pricing.native.sizes.max",
-                defaultValue: "32 GB and 64 GB machines need cmux Max."
+                defaultValue: "Max includes 64 GB RAM and 16 vCPUs shared across up to 50 Cloud VMs."
             ))
             .font(.system(size: 13))
             .foregroundStyle(.secondary)

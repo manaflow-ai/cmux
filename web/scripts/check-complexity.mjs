@@ -25,7 +25,11 @@ const EXCLUDED_PREFIXES = [
   "tests/",
   "tools/",
 ];
-const TRUSTED_POLICY_FILES = ["web/scripts/check-complexity.mjs", ".github/workflows/web-complexity-trusted.yml"];
+const TRUSTED_POLICY_FILES = [
+  "scripts/ci/scope-web-complexity.py",
+  "web/scripts/check-complexity.mjs",
+  ".github/workflows/web-complexity-trusted.yml",
+];
 
 function fail(message) {
   console.error(`complexity gate: ${message}`);

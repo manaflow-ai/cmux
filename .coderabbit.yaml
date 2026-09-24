@@ -72,7 +72,7 @@ reviews:
         Apply `.github/review-bot-rules/cache-substitution-correctness.md` during review. When the diff replaces a fresh authoritative read with a cached value in a persistence, history, undo, or snapshot path, require explicit handling of cold (never-loaded) and stale (older-than-source) caches, or a documented graceful-degradation rationale. Pass for transient non-persisted UI hints and documented staleness tolerance.
     - path: "**/*.{swift,ts,tsx,js,jsx,mjs,cjs}"
       instructions: |
-        Apply `.github/review-bot-rules/user-facing-errors.md` during review. For production user-facing errors, alerts, command output, API error bodies, and recovery copy, flag implementation leaks such as upstream vendor names, internal provider names, environment variables, database or migration details, raw upstream messages, internal billing ids, or unredacted payloads.
+        Apply `.github/review-bot-rules/user-facing-errors.md` during review. For production user-facing errors, alerts, command output, API error bodies, and recovery copy, flag implementation leaks such as upstream vendor names, internal provider names, environment variables, database or migration details, raw upstream messages, internal billing ids, or unredacted payloads. First establish a concrete path to a cmux end user; a deployed service or API response alone is insufficient. Pass provider/configuration names in internal CI, build/deployment tools, artifact brokers and operator diagnostics (for example, CI falling back to GitHub). Never exempt secrets, credentials, personal data, sensitive payloads, or internal errors forwarded to end users.
     - path: "**/*.{swift,ts,tsx,js,jsx,xcstrings,plist}"
       instructions: |
         Apply `.github/review-bot-rules/full-internationalization.md` during review. For production user-facing text, fail partial localization: Swift text must use localized APIs with matching translated string-catalog entries, app string catalogs and Info.plist text must include every supported locale in the touched catalog, and web UI, API response, rendered markdown, changelog, or user-facing data changes must read from `next-intl` or another locale-specific source and update every locale in `web/i18n/routing.ts` and `web/messages/`.
@@ -107,8 +107,16 @@ reviews:
       instructions: |
         Apply `.github/review-bot-rules/landing-page-registry-parity.md` during review. Flag an `agentReadablePages` entry whose path is not in `web/app/sitemap.ts` (or vice versa), since the two registries must stay in sync.
 
+    - path: "{Sources/Cloud/**/*.swift,Sources/Surfaces/**/*.swift,Packages/macOS/CmuxTerminal/Sources/CmuxTerminal/Surface/**/*.swift,Sources/AppDelegate*.swift,Sources/Ghostty*.swift,Sources/Workspace*.swift,Sources/TerminalSurfaceRuntimeWiring.swift,cmux-tui/crates/**/src/**/*.rs}"
+      instructions: |
+        Apply `.github/review-bot-rules/cloud-persistent-session-and-early-input.md` during review. Cloud terminal creation must reuse the machine-owned persistent cmux-tui session, start a focused user-created manual Ghostty runtime at reservation time, preserve ordered input ownership through attachment, and retain auth, idempotency, revision, and lease fences. Logical per-terminal streams over one carrier are allowed. Do not require a remote PTY, shell, or local command-wrapper installation before showing a manual surface's empty cursor.
+
   pre_merge_checks:
     custom_checks:
+      - name: "cmux Cloud persistent session and early input"
+        mode: error
+        instructions: |
+          For Cloud terminal creation and transport changes, fail when the diff violates `.github/review-bot-rules/cloud-persistent-session-and-early-input.md`: it gates manual renderers on local command-wrapper installation, spawns a new cmux-tui client or physical transport per request/event, waits for remote PTY or shell readiness before showing a focused user-created manual Ghostty runtime, loses ordered input ownership during attachment, or weakens auth, idempotency, revision, or lease fences. Permit independent logical streams over one authenticated carrier when they preserve cancellation, geometry, and byte routing. Permit snapshots for cold, stale, missing, or revision-conflict state and tests/latency evidence that keep stages separate.
       - name: "cmux Swift actor isolation"
         mode: error
         instructions: |
@@ -160,7 +168,7 @@ reviews:
       - name: "cmux user-facing error privacy"
         mode: error
         instructions: |
-          For production changes, fail when the diff violates `.github/review-bot-rules/user-facing-errors.md`: user-facing errors, alerts, command output, API error bodies, or recovery copy must not expose upstream vendor names, internal provider names, provider-specific flags, templates, snapshots, manifests, environment variables, database or migration details, raw upstream messages, billing item ids, billing customer ids, unrelated team ids, credentials, tokens, headers, private keys, refresh tokens, session ids, or unredacted payload dumps. Pass for tests, docs, operational runbooks, developer-only comments, safe generic terms like billing/team/Cloud VM service, and explicitly advanced help text for user-configured settings.
+          For production changes, fail when the diff violates `.github/review-bot-rules/user-facing-errors.md`: user-facing errors, alerts, command output, API error bodies, or recovery copy must not expose upstream vendor names, internal provider names, provider-specific flags, templates, snapshots, manifests, environment variables, database or migration details, raw upstream messages, billing item ids, billing customer ids, unrelated team ids, credentials, tokens, headers, private keys, refresh tokens, session ids, or unredacted payload dumps. Pass for tests, docs, operational runbooks, developer-only comments, safe generic terms like billing/team/Cloud VM service, and explicitly advanced help text for user-configured settings. First establish a concrete path to a cmux end user; a deployed service or API response alone is insufficient. Pass provider/configuration names in internal CI, build/deployment tools, artifact brokers and operator diagnostics (for example, CI falling back to GitHub). Never exempt secrets, credentials, personal data, sensitive payloads, or internal errors forwarded to end users.
       - name: "cmux full internationalization"
         mode: error
         instructions: |

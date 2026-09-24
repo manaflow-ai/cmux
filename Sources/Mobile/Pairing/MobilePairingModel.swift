@@ -196,8 +196,13 @@ final class MobilePairingModel {
             )
             return
         }
+        // Enter the bounded state before waiting for auth restoration. A host
+        // whose bootstrap never completes must not leave the pairing sheet in
+        // an indefinite loading spinner.
+        state = .preparing
         await coordinator.awaitBootstrapped()
         guard generation == refreshGeneration else { return }
+        guard state == .preparing else { return }
         guard coordinator.isAuthenticated else {
             signedInEmail = nil
             state = .signedOut
@@ -208,7 +213,6 @@ final class MobilePairingModel {
             state = .pairingDisabled
             return
         }
-        state = .preparing
         let status = await host.ensureListeningAndReady()
         guard generation == refreshGeneration else { return }
         guard status.isRunning else {

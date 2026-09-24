@@ -1,0 +1,112 @@
+name: Cloud machine lifecycle
+
+on:
+  pull_request:
+    paths:
+      - Packages/macOS/CmuxCloudMachines/**
+      - .github/workflows/cloud-machine-tests.yml
+  workflow_dispatch:
+    inputs:
+      runner:
+        description: Optional hosted macOS runner label
+        required: false
+        default: ""
+        type: string
+      ref:
+        description: Branch, tag, full SHA, or short SHA to test
+        required: false
+        default: ""
+        type: string
+
+permissions:
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: cloud-machine-tests-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  resolve-ref:
+    uses: ./.github/workflows/resolve-dispatch-ref.yml
+    with:
+      ref: ${{ inputs.ref }}
+
+  changes:
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 2
+    outputs:
+      should_run: ${{ steps.route.outputs.should_run }}
+    steps:
+      - name: Detect cloud-machine package changes
+        id: route
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          GITHUB_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT_NAME" != "pull_request" ]; then
+            echo "should_run=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          python3 - <<'PY'
+          import json
+          import os
+          import urllib.request
+
+          repository = os.environ["REPOSITORY"]
+          pr_number = os.environ["PR_NUMBER"]
+          token = os.environ["GITHUB_TOKEN"]
+          should_run = True
+          try:
+              page = 1
+              should_run = False
+              while True:
+                  request = urllib.request.Request(
+                      f"https://api.github.com/repos/{repository}/pulls/{pr_number}/files?per_page=100&page={page}",
+                      headers={
+                          "Accept": "application/vnd.github+json",
+                          "Authorization": f"Bearer {token}",
+                          "X-GitHub-Api-Version": "2022-11-28",
+                      },
+                  )
+                  with urllib.request.urlopen(request, timeout=20) as response:
+                      files = json.load(response)
+                  if any(
+                      item.get("filename", "").startswith("Packages/macOS/CmuxCloudMachines/")
+                      for item in files
+                  ):
+                      should_run = True
+                      break
+                  if len(files) < 100:
+                      break
+                  page += 1
+          except Exception as error:
+              print(
+                  f"::warning::Could not inspect cloud-machine PR files "
+                  f"({type(error).__name__}); running package tests"
+              )
+              should_run = True
+
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
+              output.write(f"should_run={'true' if should_run else 'false'}\n")
+          if not should_run:
+              print("No CmuxCloudMachines package files changed; skipping macOS lifecycle tests.")
+          PY
+
+  lifecycle:
+    needs: [changes, resolve-ref]
+    if: ${{ needs.changes.outputs.should_run == 'true' }}
+    runs-on: ${{ inputs.runner || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15' }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ needs.resolve-ref.outputs.sha }}
+          persist-credentials: false
+      - name: Select Xcode
+        run: ./scripts/select-ci-xcode.sh
+      - name: Test the package without launching the app
+        run: swift test --package-path Packages/macOS/CmuxCloudMachines -Xswiftc -warnings-as-errors
