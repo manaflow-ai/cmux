@@ -332,6 +332,56 @@ final class MobileTerminalRenderObserver {
         }
     }
 
+    /// Per-capture resolution of the telemetry attached to emitted frames:
+    /// taken once on the first frame a capture emits, then shared by every
+    /// anchor variant of that same capture.
+    private enum HostTimingResolution {
+        case unresolved
+        case resolved(MobileTerminalHostTiming?)
+    }
+
+    /// Attaches Mac stage stamps and a pacer sample to a frame for the
+    /// phone's per-hop latency telemetry. Input stamps travel only on the
+    /// first frame after a newly accepted marker and pacer samples at most
+    /// once per second, so almost every frame carries nothing extra.
+    private func attachHostTiming(
+        to frame: MobileTerminalRenderGridFrame,
+        surfaceID: UUID,
+        resolved: inout HostTimingResolution
+    ) -> MobileTerminalRenderGridFrame {
+        let timing: MobileTerminalHostTiming?
+        switch resolved {
+        case .resolved(let existing):
+            timing = existing
+        case .unresolved:
+            let captured = MobileTerminalByteTee.uptimeMicros()
+            let input = MobileTerminalByteTee.shared.takePendingInputTiming(surfaceID: surfaceID)
+            var sample: MobileTerminalPacerSample?
+            if var pacer = framePacersBySurfaceID[surfaceID] {
+                sample = pacer.takeSample(now: ContinuousClock.now)
+                framePacersBySurfaceID[surfaceID] = pacer
+            }
+            if input == nil, sample == nil {
+                timing = nil
+            } else {
+                timing = MobileTerminalHostTiming(
+                    inputReceivedMicros: input?.receivedMicros,
+                    inputAcceptedMicros: input?.acceptedMicros,
+                    frameCapturedMicros: input == nil ? nil : captured,
+                    pacer: sample
+                )
+            }
+            resolved = .resolved(timing)
+        }
+        guard var timing else { return frame }
+        if timing.frameCapturedMicros != nil {
+            timing.frameDispatchedMicros = MobileTerminalByteTee.uptimeMicros()
+        }
+        var frame = frame
+        frame.hostTiming = timing
+        return frame
+    }
+
     private func schedulePacerFlush(surfaceID: UUID, deadline: ContinuousClock.Instant) {
         pacerFlushTasksBySurfaceID[surfaceID]?.cancel()
         pacerFlushTasksBySurfaceID[surfaceID] = Task { @MainActor [weak self] in
@@ -385,11 +435,12 @@ final class MobileTerminalRenderObserver {
         var emittedByAnchor: [MobileTerminalRenderGridFrame.Anchor: MobileTerminalRenderGridFrame] = [:]
         var surfaceIDString: String?
 
+        var resolvedHostTiming: HostTimingResolution = .unresolved
         for anchor in anchors {
             #if DEBUG
             let latencyExportStart = HostLatencyTrace.captureTime()
             #endif
-            guard let emitted = emitRenderGridFrame(
+            guard let capturedFrame = emitRenderGridFrame(
                 surface: surface,
                 surfaceID: surfaceID,
                 anchor: anchor,
@@ -399,6 +450,7 @@ final class MobileTerminalRenderObserver {
                 forceIncludeTheme: forceIncludeTheme || didReplaceRuntimeSurface,
                 sharedTheme: &sharedTheme
             ) else { continue }
+            let emitted = attachHostTiming(to: capturedFrame, surfaceID: surfaceID, resolved: &resolvedHostTiming)
             guard let payloadJSON = try? JSONEncoder().encode(emitted) else { continue }
             #if DEBUG
             HostLatencyTrace.stampElapsed(
