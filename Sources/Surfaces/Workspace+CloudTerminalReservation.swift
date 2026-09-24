@@ -101,7 +101,7 @@ extension Workspace {
     ) -> (workspaceID: UUID, panelID: UUID, surface: TerminalSurface)? {
         guard !isRetiredFromOwningTabManager,
               cloudPendingCreations[reservation.panelID] === reservation,
-              attachment.machineID == reservation.machine.cloudMachineID,
+              attachment.machineID == reservation.machine.tuiMachineID,
               let panel = panels[reservation.panelID] as? TerminalPanel,
               panel.surface.ioMode == .manualMirror else { return nil }
         Self.bindCloudManualMirrorCallbacks(

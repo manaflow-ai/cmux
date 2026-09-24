@@ -26,6 +26,7 @@ import {
 
 import { accountAccessPredicate, scopedSessionKey, type CoderouterAccountAccess } from "./accountAccess";
 import { signVmAuthorization, verifyVmAuthorization, type VmAuthorizationClaims } from "./vmAuthorization";
+import { createLastUsedWriter } from "./lastUsedWriter";
 
 const ROUTE_TOKEN_LIFETIME_MS = 30 * 24 * 60 * 60 * 1_000;
 const VAULT_LEASE_MS = 30_000;
@@ -49,15 +50,47 @@ const API_KEY_LIFETIME_LABEL = "api key";
 // `last_used_at` is display metadata. Keep it fresh enough for the control
 // plane without turning every authenticated request into a Postgres write.
 // The usage ledger remains per-request and is the source of truth for billing.
-const API_KEY_USAGE_WRITE_INTERVAL_MS = 60_000;
-const API_KEY_USAGE_STATE_CLEANUP_THRESHOLD = 2_048;
+const LAST_USED_WRITE_INTERVAL_MS = 60_000;
 
-const pendingApiKeyUsageWrites = new Map<string, {
-  readonly teamId: string;
-  readonly promise: Promise<void>;
-}>();
-const lastApiKeyUsageWriteAt = new Map<string, number>();
-let lastApiKeyUsageFailureReportedAt = 0;
+const apiKeyLastUsed = createLastUsedWriter({
+  intervalMs: LAST_USED_WRITE_INTERVAL_MS,
+  write: (id, now, staleBefore) => {
+    const nowIso = now.toISOString();
+    return cloudDb()
+      .update(coderouterApiKeys)
+      .set({
+        lastUsedAt: sql`GREATEST(COALESCE(${coderouterApiKeys.lastUsedAt}, ${nowIso}::timestamptz), ${nowIso}::timestamptz)`,
+      })
+      .where(and(
+        eq(coderouterApiKeys.id, id),
+        isNull(coderouterApiKeys.revokedAt),
+        or(isNull(coderouterApiKeys.lastUsedAt), lte(coderouterApiKeys.lastUsedAt, staleBefore)),
+      ));
+  },
+  reportFailure: () => reportLastUsedWriteFailure("api_key_usage", "api_key_last_used"),
+});
+
+const routeTokenLastUsed = createLastUsedWriter({
+  intervalMs: LAST_USED_WRITE_INTERVAL_MS,
+  write: (id, now, staleBefore) => {
+    const nowIso = now.toISOString();
+    return cloudDb()
+      .update(coderouterRouteTokens)
+      .set({
+        lastUsedAt: sql`GREATEST(COALESCE(${coderouterRouteTokens.lastUsedAt}, ${nowIso}::timestamptz), ${nowIso}::timestamptz)`,
+      })
+      .where(and(
+        eq(coderouterRouteTokens.id, id),
+        or(isNull(coderouterRouteTokens.lastUsedAt), lte(coderouterRouteTokens.lastUsedAt, staleBefore)),
+      ));
+  },
+  reportFailure: () => reportLastUsedWriteFailure("route_token_usage", "route_token_last_used"),
+});
+
+/** Resolves when this process's deferred route-token `last_used_at` writes for the team have settled. */
+export function routeTokenLastUsedWritesSettled(teamId: string): Promise<void> {
+  return routeTokenLastUsed.settled(teamId);
+}
 
 export type RouteTokenPrincipal = {
   readonly teamId: string;
@@ -202,21 +235,27 @@ export async function authenticateRouteToken(
     const claims = await verifyVmAuthorization(token, now);
     return claims ? await authenticateVmAuthorization(token, claims, now) : null;
   }
-  const [row] = await cloudDb()
-    .update(coderouterRouteTokens)
-    .set({ lastUsedAt: now })
+  // Authentication is a read-only lookup. Every model request passes here,
+  // and a per-request UPDATE made concurrent requests on one token queue on
+  // its row lock. The display timestamp is written later, rate-limited.
+  const [tokenRow] = await cloudDb()
+    .select({
+      id: coderouterRouteTokens.id,
+      teamId: coderouterRouteTokens.teamId,
+      stackUserId: coderouterRouteTokens.stackUserId,
+      vmId: coderouterRouteTokens.vmId,
+    })
+    .from(coderouterRouteTokens)
     .where(and(
       eq(coderouterRouteTokens.tokenHash, routeTokenHash(token)),
       isNotNull(coderouterRouteTokens.stackUserId),
       gt(coderouterRouteTokens.expiresAt, now),
       isNull(coderouterRouteTokens.revokedAt),
     ))
-    .returning({
-      teamId: coderouterRouteTokens.teamId,
-      stackUserId: coderouterRouteTokens.stackUserId,
-      vmId: coderouterRouteTokens.vmId,
-    });
-  if (!row) return null;
+    .limit(1);
+  if (!tokenRow) return null;
+  routeTokenLastUsed.schedule(tokenRow.id, tokenRow.teamId, now);
+  const row = { teamId: tokenRow.teamId, stackUserId: tokenRow.stackUserId, vmId: tokenRow.vmId };
   if (row.vmId === null) return row;
   if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(row.vmId)) return null;
   const [vm] = await cloudDb().select({ poolId: cloudVms.coderouterPoolId })
@@ -308,11 +347,7 @@ export async function createApiKey(
 }
 
 export async function listApiKeys(teamId: string): Promise<readonly CoderouterApiKeySummary[]> {
-  await Promise.all(
-    [...pendingApiKeyUsageWrites.values()]
-      .filter((pending) => pending.teamId === teamId)
-      .map((pending) => pending.promise),
-  );
+  await apiKeyLastUsed.settled(teamId);
   const rows = await cloudDb()
     .select({
       id: coderouterApiKeys.id,
@@ -357,76 +392,23 @@ export async function authenticateApiKey(
   if (!row) return null;
   // Authentication stays a read-only lookup. A best-effort metadata write is
   // deferred so a slow Postgres update cannot add latency to model requests.
-  scheduleApiKeyUsageWrite(row.id, row.teamId, now);
+  apiKeyLastUsed.schedule(row.id, row.teamId, now);
   return { teamId: row.teamId, stackUserId: row.stackUserId, vmId: null, apiKeyId: row.id };
 }
 
-function scheduleApiKeyUsageWrite(id: string, teamId: string, now: Date): void {
-  if (pendingApiKeyUsageWrites.has(id)) return;
-  const nowMs = now.getTime();
-  const lastWriteMs = lastApiKeyUsageWriteAt.get(id);
-  if (lastWriteMs !== undefined && nowMs - lastWriteMs < API_KEY_USAGE_WRITE_INTERVAL_MS) return;
-
-  // API keys can be created and used by short-lived clients. Remove old
-  // entries opportunistically so this process does not retain every key ever
-  // seen. The insertion order is the write order, so stale entries are first.
-  if (lastApiKeyUsageWriteAt.size >= API_KEY_USAGE_STATE_CLEANUP_THRESHOLD) {
-    for (const [trackedId, trackedAt] of lastApiKeyUsageWriteAt) {
-      if (nowMs - trackedAt < API_KEY_USAGE_WRITE_INTERVAL_MS) break;
-      lastApiKeyUsageWriteAt.delete(trackedId);
-    }
-  }
-  // Refresh insertion order so cleanup treats this as the newest entry.
-  lastApiKeyUsageWriteAt.delete(id);
-  lastApiKeyUsageWriteAt.set(id, nowMs);
-  let resolve!: () => void;
-  const promise = new Promise<void>((done) => { resolve = done; });
-  pendingApiKeyUsageWrites.set(id, { teamId, promise });
-  const nowIso = now.toISOString();
-  queueMicrotask(() => {
-    void Promise.resolve()
-      .then(() => cloudDb()
-        .update(coderouterApiKeys)
-        // Multiple web instances can write this row. Never move the display
-        // timestamp backwards when their deferred jobs finish out of order.
-        .set({
-          lastUsedAt: sql`GREATEST(COALESCE(${coderouterApiKeys.lastUsedAt}, ${nowIso}::timestamptz), ${nowIso}::timestamptz)`,
-        })
-        .where(and(
-          eq(coderouterApiKeys.id, id),
-          isNull(coderouterApiKeys.revokedAt),
-          or(
-            isNull(coderouterApiKeys.lastUsedAt),
-            lte(coderouterApiKeys.lastUsedAt, new Date(nowMs - API_KEY_USAGE_WRITE_INTERVAL_MS)),
-          ),
-        )))
-      .then(() => undefined)
-      .catch(() => {
-        // A failed best-effort write must not suppress the next retry for a
-        // full interval.
-        lastApiKeyUsageWriteAt.delete(id);
-        reportApiKeyUsageWriteFailure();
-      })
-      .finally(() => {
-        resolve();
-        pendingApiKeyUsageWrites.delete(id);
-      });
-  });
-}
-
-function reportApiKeyUsageWriteFailure(): void {
-  const now = Date.now();
-  if (now - lastApiKeyUsageFailureReportedAt < API_KEY_USAGE_WRITE_INTERVAL_MS) return;
-  lastApiKeyUsageFailureReportedAt = now;
+function reportLastUsedWriteFailure(
+  failure: "api_key_usage" | "route_token_usage",
+  operation: string,
+): void {
   // Keep repository authentication independent from the telemetry module's
   // analytics dependency. Failure reporting is best-effort and never joins
   // the request's critical path.
   void import("./observability")
     .then(({ reportCoderouterFailure }) => {
       reportCoderouterFailure(
-        "api_key_usage",
-        new Error("coderouter API key usage metadata write failed"),
-        { operation: "api_key_last_used" },
+        failure,
+        new Error("coderouter last-used metadata write failed"),
+        { operation },
       );
     })
     .catch(() => undefined);

@@ -397,7 +397,8 @@ public extension DiagnosticEvent {
     /// Positive process-local session correlation ID. This value is not stable
     /// across app launches or devices.
     var diagnosticSessionID: Int? {
-        guard code == .transportSessionLifecycle
+        guard code == .selectedPathChanged
+                || code == .transportSessionLifecycle
                 || code == .sessionClosed
                 || code == .transportCloseAttribution
                 || code == .transportCloseReason
