@@ -30,13 +30,14 @@ public struct MobileMacCompatPolicy: Equatable, Sendable {
     /// transport, 0.64.20 for authenticated Iroh, and 0.64.23 for the rebuilt
     /// Iroh transport. The App Store lane requires 0.64.25 stable or the first
     /// published 0.64.25 nightly in every tier. The
-    /// BETA 1.0.4 build 20260817224846 is the last older-compatible build;
+    /// BETA 1.0.5 build 20260914204800 is the last older-compatible build;
     /// the later INTERNAL 1.0.4 cut uses the rebuilt transport.
     public static let baked: MobileMacCompatPolicy = {
         guard let minIOS = MobileMacAppVersion(parsing: "1.0.0"),
               let maxIOS = MobileMacAppVersion(parsing: "1.0.3"),
               let irohIOS = MobileMacAppVersion(parsing: "1.0.4"),
               let nextIOS = MobileMacAppVersion(parsing: "1.0.5"),
+              let v2IOS = MobileMacAppVersion(parsing: "1.0.6"),
               let legacyStableMin = MobileMacAppVersion(parsing: "0.64.17"),
               let irohStableMin = MobileMacAppVersion(parsing: "0.64.20"),
               let rebuiltStableMin = MobileMacAppVersion(parsing: "0.64.23"),
@@ -84,12 +85,25 @@ public struct MobileMacCompatPolicy: Equatable, Sendable {
             ),
             Tier(
                 minIOSVersion: nextIOS,
+                maxIOSVersion: nextIOS,
                 stableMinVersion: appStoreStableMin,
                 nightly: appStoreNightly,
                 buildKinds: [
                     MobileBuildType.dev.token: Requirement(stableMinVersion: devMin),
                     MobileBuildType.beta.token: Requirement(stableMinVersion: rebuiltStableMin, nightly: historicalNightly),
                     MobileBuildType.internal.token: Requirement(stableMinVersion: rebuiltStableMin, nightly: historicalNightly),
+                    MobileBuildType.demo.token: Requirement(stableMinVersion: rebuiltStableMin),
+                    MobileBuildType.prod.token: Requirement(stableMinVersion: appStoreStableMin, nightly: appStoreNightly),
+                ]
+            ),
+            Tier(
+                minIOSVersion: v2IOS,
+                stableMinVersion: appStoreStableMin,
+                nightly: appStoreNightly,
+                buildKinds: [
+                    MobileBuildType.dev.token: Requirement(stableMinVersion: devMin),
+                    MobileBuildType.beta.token: Requirement(stableMinVersion: appStoreStableMin, nightly: appStoreNightly),
+                    MobileBuildType.internal.token: Requirement(stableMinVersion: appStoreStableMin, nightly: appStoreNightly),
                     MobileBuildType.demo.token: Requirement(stableMinVersion: rebuiltStableMin),
                     MobileBuildType.prod.token: Requirement(stableMinVersion: appStoreStableMin, nightly: appStoreNightly),
                 ]

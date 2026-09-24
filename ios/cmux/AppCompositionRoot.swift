@@ -395,6 +395,7 @@ final class AppCompositionRoot {
         switch phase {
         case .active:
             analytics.terminalLatencyReporter.setForeground(true)
+            analytics.terminalTraceReporter.setForeground(true)
             diagnosticLog.recordAppEvent(.appForegrounded)
             connectionMethodStore.recordConfiguredMethodDiagnostic()
             let isFullForegroundReturn = !hasForegrounded || wasBackgrounded
@@ -429,12 +430,14 @@ final class AppCompositionRoot {
             hasForegrounded = true
         case .inactive:
             analytics.terminalLatencyReporter.setForeground(false)
+            analytics.terminalTraceReporter.setForeground(false)
             diagnosticLog.recordAppEvent(.appBecameInactive)
             // The switcher opened; a swipe-kill from here may skip the
             // background transition entirely, so snapshot diagnostics now.
             break
         case .background:
             analytics.terminalLatencyReporter.setForeground(false)
+            analytics.terminalTraceReporter.setForeground(false)
             diagnosticLog.recordAppEvent(.appBackgrounded)
             wasBackgrounded = true
             Task { await irx.didEnterBackground() }

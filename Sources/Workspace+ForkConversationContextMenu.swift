@@ -1,9 +1,49 @@
 import Bonsplit
 import CmuxCore
 import CmuxSettings
+import CmuxSurfaceCatalogModel
 import Foundation
 
 extension Workspace {
+    /// Native SSH forks share provider creation and retry identity with ordinary splits.
+    func forkNativeSSHAgentConversation(
+        fromPanelId panelID: UUID,
+        snapshot: SessionRestorableAgentSnapshot,
+        destination: SurfaceDestination
+    ) -> TerminalPanel? {
+        guard let source = cloudTerminalSourcePlacement(forPanel: panelID), source.machine.isSSH,
+              let configuration = remoteConfiguration,
+              SSHTuiConnection(configuration: configuration).id == source.machine.rawValue,
+              let command = snapshot.retargetingForkWorkingDirectory(
+                forkAgentWorkingDirectory(fromPanelId: panelID, snapshot: snapshot)
+              ).forkCommand else { return nil }
+        return routeCloudPaneTerminalCreate(
+            source: source, sourcePanelID: panelID, destination: destination, focus: true,
+            commandOverride: SSHTuiConnection(configuration: configuration).commandArguments(command)
+        ).panel
+    }
+
+    /// A new workspace carries only a remote command; its local scaffold never runs the agent.
+    func nativeSSHAgentForkWorkspaceLaunch(
+        fromPanelId panelID: UUID,
+        snapshot: SessionRestorableAgentSnapshot
+    ) -> AgentConversationForkWorkspaceLaunch? {
+        guard let configuration = remoteConfiguration,
+              machineOwningSurface(panelID)?.rawValue == SSHTuiConnection(configuration: configuration).id,
+              var descriptor = configuration.sessionSnapshot() else { return nil }
+        let workingDirectory = forkAgentWorkingDirectory(fromPanelId: panelID, snapshot: snapshot)
+        guard let command = snapshot.retargetingForkWorkingDirectory(workingDirectory).forkCommand else { return nil }
+        descriptor.terminalProfile = .shell
+        descriptor.configuredRemoteCommand = command
+        guard let forkConfiguration = descriptor.tuiSSHConfiguration(agentSocketPath: configuration.agentSocketPath) else { return nil }
+        return AgentConversationForkWorkspaceLaunch(
+            workingDirectory: workingDirectory, terminalWorkingDirectory: nil,
+            initialTerminalCommand: nil, initialTerminalInput: "", initialTerminalEnvironment: [:],
+            remoteConfiguration: forkConfiguration, autoConnectRemoteConfiguration: true,
+            startupRestoreAgent: nil
+        )
+    }
+
     @discardableResult
     func forkAgentConversationFromContextMenu(
         fromPanelId panelId: UUID,

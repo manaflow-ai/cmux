@@ -1,6 +1,714 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "mobile.localDataReset.failed.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn’t Erase All Data"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nicht alle Daten konnten gelöscht werden"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossible d’effacer toutes les données"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذّر مسح جميع البيانات"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudieron borrar todos los datos"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法清除所有資料"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法清除所有数据"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "모든 데이터를 지울 수 없음"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "すべてのデータを消去できませんでした"
+          }
+        }
+      }
+    },
+    "mobile.localDataReset.failed.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Some cmux data on this device could not be erased. Try again. Your cmux account and server data were not changed."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Einige cmux-Daten auf diesem Gerät konnten nicht gelöscht werden. Versuche es erneut. Dein cmux-Konto und die Serverdaten wurden nicht geändert."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Certaines données cmux de cet appareil n’ont pas pu être effacées. Réessayez. Votre compte cmux et les données des serveurs n’ont pas été modifiés."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذّر مسح بعض بيانات cmux على هذا الجهاز. حاول مرة أخرى. لم يتغير حسابك في cmux ولا بيانات الخادم."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudieron borrar algunos datos de cmux de este dispositivo. Inténtalo de nuevo. Tu cuenta de cmux y los datos del servidor no se modificaron."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此裝置上的部分 cmux 資料無法清除。請再試一次。你的 cmux 帳號與伺服器資料未被變更。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此设备上的部分 cmux 数据无法清除。请重试。你的 cmux 账户和服务器数据未被更改。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 기기의 일부 cmux 데이터를 지울 수 없습니다. 다시 시도하세요. cmux 계정과 서버 데이터는 변경되지 않았습니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このデバイスの一部の cmux データを消去できませんでした。もう一度お試しください。cmux アカウントとサーバのデータは変更されていません。"
+          }
+        }
+      }
+    },
+    "mobile.localDataReset.failed.retry": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Try Again"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Erneut versuchen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Réessayer"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إعادة المحاولة"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reintentar"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "再試一次"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重试"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "다시 시도"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "もう一度試す"
+          }
+        }
+      }
+    },
+    "mobile.settings.resetLocalData": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Erase All Data on This Device"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alle Daten auf diesem Gerät löschen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Effacer toutes les données de cet appareil"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مسح جميع البيانات على هذا الجهاز"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Borrar todos los datos de este dispositivo"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "清除此裝置上的所有資料"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "清除此设备上的所有数据"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 기기의 모든 데이터 지우기"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このデバイスのすべてのデータを消去"
+          }
+        }
+      }
+    },
+    "mobile.settings.resetLocalData.header": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reset"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zurücksetzen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Réinitialiser"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إعادة التعيين"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Restablecer"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重置"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重置"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "재설정"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リセット"
+          }
+        }
+      }
+    },
+    "mobile.settings.resetLocalData.footer": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Signs out and removes all cmux data stored on this device, including saved computers, keys, settings, and caches, so cmux starts like a new install. Your cmux account and the data stored in cmux, cmux Cloud, and on your computers are not deleted."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Meldet dich ab und entfernt alle auf diesem Gerät gespeicherten cmux-Daten, einschließlich gespeicherter Computer, Schlüssel, Einstellungen und Caches, sodass cmux wie nach einer Neuinstallation startet. Dein cmux-Konto und die in cmux, cmux Cloud und auf deinen Computern gespeicherten Daten werden nicht gelöscht."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vous déconnecte et supprime toutes les données cmux stockées sur cet appareil, y compris les ordinateurs enregistrés, les clés, les réglages et les caches, pour que cmux démarre comme une nouvelle installation. Votre compte cmux et les données stockées dans cmux, cmux Cloud et sur vos ordinateurs ne sont pas supprimés."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يسجّل خروجك ويزيل جميع بيانات cmux المخزنة على هذا الجهاز، بما في ذلك أجهزة الكمبيوتر المحفوظة والمفاتيح والإعدادات وذاكرات التخزين المؤقت، ليبدأ cmux كأنه تثبيت جديد. لا يتم حذف حسابك في cmux ولا البيانات المخزنة في cmux وcmux Cloud وعلى أجهزة الكمبيوتر الخاصة بك."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cierra la sesión y elimina todos los datos de cmux guardados en este dispositivo, incluidos los ordenadores guardados, las claves, los ajustes y las cachés, para que cmux se inicie como una instalación nueva. Tu cuenta de cmux y los datos guardados en cmux, cmux Cloud y en tus ordenadores no se eliminan."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "登出並移除此裝置上儲存的所有 cmux 資料，包括已儲存的電腦、金鑰、設定與快取，讓 cmux 如同全新安裝般啟動。你的 cmux 帳號以及儲存在 cmux、cmux Cloud 和你電腦上的資料不會被刪除。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "退出登录并移除此设备上存储的所有 cmux 数据，包括已保存的电脑、密钥、设置和缓存，让 cmux 像全新安装一样启动。你的 cmux 账户以及存储在 cmux、cmux Cloud 和你电脑上的数据不会被删除。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "로그아웃하고 저장된 컴퓨터, 키, 설정, 캐시를 포함해 이 기기에 저장된 모든 cmux 데이터를 제거하여 cmux가 새로 설치한 것처럼 시작됩니다. cmux 계정과 cmux, cmux Cloud 및 컴퓨터에 저장된 데이터는 삭제되지 않습니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サインアウトし、保存済みのコンピュータ、キー、設定、キャッシュを含む、このデバイスに保存されたすべての cmux データを削除して、cmux を新規インストール時の状態で起動します。cmux アカウントと、cmux、cmux Cloud、コンピュータに保存されたデータは削除されません。"
+          }
+        }
+      }
+    },
+    "mobile.settings.resetLocalData.confirm.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Erase all cmux data on this device?"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alle cmux-Daten auf diesem Gerät löschen?"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Effacer toutes les données cmux de cet appareil ?"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "هل تريد مسح جميع بيانات cmux على هذا الجهاز؟"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "¿Borrar todos los datos de cmux de este dispositivo?"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "要清除此裝置上的所有 cmux 資料嗎？"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "要清除此设备上的所有 cmux 数据吗？"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 기기의 모든 cmux 데이터를 지우시겠습니까?"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このデバイスのすべての cmux データを消去しますか？"
+          }
+        }
+      }
+    },
+    "mobile.settings.resetLocalData.confirm.action": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Erase"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Löschen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Effacer"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مسح"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Borrar"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "清除"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "清除"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "지우기"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "消去"
+          }
+        }
+      }
+    },
+    "mobile.settings.resetLocalData.confirm.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "You will be signed out, and saved computers, keys, settings, and caches will be removed from this device. This can’t be undone. Nothing is deleted from your cmux account or from cmux servers."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Du wirst abgemeldet, und gespeicherte Computer, Schlüssel, Einstellungen und Caches werden von diesem Gerät entfernt. Dies kann nicht rückgängig gemacht werden. Aus deinem cmux-Konto und von den cmux-Servern wird nichts gelöscht."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vous serez déconnecté, et les ordinateurs enregistrés, les clés, les réglages et les caches seront supprimés de cet appareil. Cette action est irréversible. Rien n’est supprimé de votre compte cmux ni des serveurs cmux."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "سيتم تسجيل خروجك، وستُزال أجهزة الكمبيوتر المحفوظة والمفاتيح والإعدادات وذاكرات التخزين المؤقت من هذا الجهاز. لا يمكن التراجع عن ذلك. لا يُحذف أي شيء من حسابك في cmux أو من خوادم cmux."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se cerrará tu sesión y se eliminarán de este dispositivo los ordenadores guardados, las claves, los ajustes y las cachés. Esta acción no se puede deshacer. No se elimina nada de tu cuenta de cmux ni de los servidores de cmux."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你將會登出，已儲存的電腦、金鑰、設定與快取將從此裝置移除。此操作無法復原。你的 cmux 帳號與 cmux 伺服器上的資料不會被刪除。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你将退出登录，已保存的电脑、密钥、设置和缓存将从此设备移除。此操作无法撤销。你的 cmux 账户和 cmux 服务器上的数据不会被删除。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "로그아웃되며 저장된 컴퓨터, 키, 설정, 캐시가 이 기기에서 제거됩니다. 이 작업은 되돌릴 수 없습니다. cmux 계정이나 cmux 서버에서는 아무것도 삭제되지 않습니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サインアウトされ、保存済みのコンピュータ、キー、設定、キャッシュがこのデバイスから削除されます。この操作は取り消せません。cmux アカウントや cmux サーバからは何も削除されません。"
+          }
+        }
+      }
+    },
+    "mobile.localDataReset.erasing": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Erasing cmux data on this device…"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux-Daten auf diesem Gerät werden gelöscht …"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Effacement des données cmux de cet appareil…"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "جارٍ مسح بيانات cmux على هذا الجهاز…"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Borrando los datos de cmux de este dispositivo…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在清除此裝置上的 cmux 資料…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在清除此设备上的 cmux 数据…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 기기의 cmux 데이터를 지우는 중…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このデバイスの cmux データを消去しています…"
+          }
+        }
+      }
+    },
+    "mobile.localDataReset.finished.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Was Reset"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux wurde zurückgesetzt"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux a été réinitialisé"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تمت إعادة تعيين cmux"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux se ha restablecido"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 已重置"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 已重置"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux가 재설정됨"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux をリセットしました"
+          }
+        }
+      }
+    },
+    "mobile.localDataReset.finished.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "All cmux data on this device was erased. Your cmux account and server data were not changed. Close cmux from the App Switcher, then open it again to start fresh."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alle cmux-Daten auf diesem Gerät wurden gelöscht. Dein cmux-Konto und die Serverdaten wurden nicht geändert. Schließe cmux im App-Umschalter und öffne es erneut, um neu zu beginnen."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Toutes les données cmux de cet appareil ont été effacées. Votre compte cmux et les données des serveurs n’ont pas été modifiés. Fermez cmux depuis le sélecteur d’apps, puis rouvrez-le pour repartir de zéro."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تم مسح جميع بيانات cmux على هذا الجهاز. لم يتغير حسابك في cmux ولا بيانات الخادم. أغلق cmux من مبدّل التطبيقات، ثم افتحه مرة أخرى للبدء من جديد."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se borraron todos los datos de cmux de este dispositivo. Tu cuenta de cmux y los datos del servidor no se modificaron. Cierra cmux desde el selector de apps y vuelve a abrirlo para empezar de cero."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此裝置上的所有 cmux 資料已清除。你的 cmux 帳號與伺服器資料未被變更。請從 App 切換器關閉 cmux，再重新開啟以全新開始。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此设备上的所有 cmux 数据已清除。你的 cmux 账户和服务器数据未被更改。请从 App 切换器关闭 cmux，然后重新打开以全新开始。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 기기의 모든 cmux 데이터가 지워졌습니다. cmux 계정과 서버 데이터는 변경되지 않았습니다. 앱 전환기에서 cmux를 닫은 다음 다시 열어 새로 시작하세요."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このデバイスのすべての cmux データを消去しました。cmux アカウントとサーバのデータは変更されていません。App スイッチャーで cmux を閉じてから、もう一度開くと最初から始まります。"
+          }
+        }
+      }
+    },
     "mobile.workspaces.empty.retryTimedOut": {
       "extractionState": "manual",
       "localizations": {
@@ -13819,6 +14527,20 @@
         "zh-Hant": {"stringUnit": {"state": "translated", "value": "1.0.4 · 2026 年 9 月"}},
         "zh-Hans": {"stringUnit": {"state": "translated", "value": "1.0.4 · 2026 年 9 月"}},
         "ko": {"stringUnit": {"state": "translated", "value": "1.0.4 · 2026년 9월"}}
+      }
+    },
+    "mobile.ios106PairingUpdate.releaseLabel": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "1.0.6 · September 2026"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "1.0.6 · 2026年9月"}},
+        "de": {"stringUnit": {"state": "translated", "value": "1.0.6 · September 2026"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "1.0.6 · septembre 2026"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "1.0.6 · سبتمبر 2026"}},
+        "es": {"stringUnit": {"state": "translated", "value": "1.0.6 · septiembre de 2026"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "1.0.6 · 2026 年 9 月"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "1.0.6 · 2026 年 9 月"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "1.0.6 · 2026년 9월"}}
       }
     },
     "mobile.whatsNew.pairing.pageTitle": {

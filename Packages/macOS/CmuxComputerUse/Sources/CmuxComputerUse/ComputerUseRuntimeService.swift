@@ -1146,11 +1146,9 @@ public final class ComputerUseRuntimeService {
             return false
         }
 
-        let configuration = NSWorkspace.OpenConfiguration()
-        configuration.activates = false
-        configuration.createsNewApplicationInstance = true
-        configuration.arguments = launch.arguments
-        configuration.environment = launch.environment
+        guard let configuration = launch.workspaceConfiguration(helperURL: helperURL) else {
+            return false
+        }
         let launchedProcessIdentifier: pid_t? = await withCheckedContinuation { continuation in
             NSWorkspace.shared.openApplication(
                 at: helperURL,

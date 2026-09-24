@@ -1,4 +1,5 @@
 import AppKit
+import CmuxSurfaceCatalogModel
 import Foundation
 /// Closure bundle handed to Cloud outline rows for the nodes below a machine.
 struct CloudTreeNodeActions {
@@ -166,10 +167,12 @@ struct CloudTreeNodeActions {
                 }
             },
             projectRemoteView: { resource, view, placement, reuseExisting in
+                // A daemon view must use the same captured destination as a pool resource.
+                let target = Result { try destination(placement) }
                 run(openingLabel(resource.machine)) { catalog in
                     _ = try await catalog.project(
                         resource,
-                        into: try destination(placement),
+                        into: try target.get(),
                         focus: true,
                         reuseExisting: reuseExisting,
                         remoteView: view

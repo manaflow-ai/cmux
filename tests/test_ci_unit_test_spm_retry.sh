@@ -25,8 +25,10 @@ consumer = job("app-host-unit-tests")
 packages = job("swift-package-tests")
 restore = Path("scripts/ci/restore-app-host-test-product.sh").read_text(encoding="utf-8")
 
-assert "scripts/ci/compile-app-host-test-product.sh resolve" in admission
-assert "scripts/ci/compile-app-host-test-product.sh build" in admission
+# Admission drives the canonical-root recipes; the bare subcommands remain for
+# callers that already sit at a stable source root.
+assert "scripts/ci/compile-app-host-test-product.sh canonical-resolve" in admission
+assert "scripts/ci/compile-app-host-test-product.sh canonical-build" in admission
 assert "Restore compiled app-host test product" in consumer
 assert "test-without-building" in consumer
 
