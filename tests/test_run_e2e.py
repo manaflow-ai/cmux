@@ -195,6 +195,21 @@ class FocusedLauncherTests(unittest.TestCase):
         self.assertEqual(self.dispatch()["ref"], HEAD)
         self.assertEqual(self.dispatch()["record_video"], "false")
 
+    def test_a_batch_too_long_for_the_concurrency_group_is_refused_before_dispatch(self):
+        # test-e2e.yml keys its concurrency group on runner, ref and the whole
+        # filter. GitHub rejects a group over 400 characters as a workflow file
+        # issue: the run starts with no jobs and nothing says why.
+        suite = "cmuxTests/AppDelegateEqualizeSplitsShortcutTests/"
+        selectors = [suite + f"testConfigurationReloadCase{n}RemainsActiveUntilAsyncReconciliationCompletes()" for n in range(4)]
+        result = self.launch(*selectors)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("split", result.stderr)
+        self.assertFalse((self.root / "dispatch.json").exists())
+
+        result = self.launch(*selectors[:2])
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.dispatch()["test_filter"], ",".join(selectors[:2]))
+
     def test_batched_ui_filters_keep_video_recording(self):
         result = self.launch("cmuxUITests/AlphaUITests", "BetaUITests")
         self.assertEqual(result.returncode, 0, result.stderr)
