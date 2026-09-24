@@ -1,3 +1,4 @@
+import CMUXMobileCore
 import Foundation
 
 /// Bounds how often one terminal surface's render-grid frames are emitted to
@@ -51,6 +52,14 @@ struct MobileTerminalFramePacer {
     private(set) var lastEmittedInputSequence: UInt64?
     /// An update arrived inside the period and is waiting for the flush.
     private var heldFramePending = false
+    /// Activity since the last telemetry sample (see ``takeSample(now:)``).
+    private var emittedSinceSample = 0
+    private var coalescedSinceSample = 0
+    private var shedsSinceSample = 0
+    private var lastSampleAt: ContinuousClock.Instant?
+    /// Minimum spacing between pacer samples attached to frames, so the
+    /// telemetry costs a few bytes per second per surface at most.
+    static let sampleInterval: Duration = .seconds(1)
 
     mutating func updateArrived(
         now: ContinuousClock.Instant,
@@ -69,9 +78,11 @@ struct MobileTerminalFramePacer {
             }
             // The emit captures the newest state, superseding any held frame.
             heldFramePending = false
+            emittedSinceSample += 1
             return .emit
         }
         heldFramePending = true
+        coalescedSinceSample += 1
         if flushScheduled {
             return .coalesce
         }
@@ -86,6 +97,7 @@ struct MobileTerminalFramePacer {
         guard heldFramePending else { return false }
         heldFramePending = false
         lastEmitAt = now
+        emittedSinceSample += 1
         return true
     }
 
@@ -101,13 +113,34 @@ struct MobileTerminalFramePacer {
             lastEmittedInputSequence = acceptedInputSequence
         }
         heldFramePending = false
+        emittedSinceSample += 1
     }
 
     /// The transport shed frames for this surface (bounded queue overflow):
     /// widen the period.
     mutating func transportDidShed(now: ContinuousClock.Instant) {
         lastShedAt = now
+        shedsSinceSample += 1
         period = min(Self.ceilingPeriod, Self.scaled(period, by: Self.backoffMultiplier))
+    }
+
+    /// The pacer's state since the previous sample, at most once per
+    /// ``sampleInterval``; nil before then or when nothing happened.
+    mutating func takeSample(now: ContinuousClock.Instant) -> MobileTerminalPacerSample? {
+        if let last = lastSampleAt, now - last < Self.sampleInterval { return nil }
+        guard emittedSinceSample + coalescedSinceSample + shedsSinceSample > 0 else { return nil }
+        let (seconds, attoseconds) = period.components
+        let sample = MobileTerminalPacerSample(
+            periodMillis: Int(seconds) * 1_000 + Int(attoseconds / 1_000_000_000_000_000),
+            emitted: emittedSinceSample,
+            coalesced: coalescedSinceSample,
+            sheds: shedsSinceSample
+        )
+        emittedSinceSample = 0
+        coalescedSinceSample = 0
+        shedsSinceSample = 0
+        lastSampleAt = now
+        return sample
     }
 
     /// Each quiet recovery interval since the last shed halves the period
