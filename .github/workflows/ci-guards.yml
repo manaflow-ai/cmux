@@ -609,6 +609,10 @@ jobs:
         if: ${{ matrix.group == 'release-ios' }}
         run: python3 tests/test_ios_testflight_archive_log.py
 
+      - name: Validate TestFlight migration candidate preparation
+        if: ${{ matrix.group == 'release-ios' }}
+        run: python3 ios/tests/test_testflight_prepare_only.py
+
       - name: Validate iOS upload lean checkout
         if: ${{ matrix.group == 'release-ios' }}
         run: python3 tests/test_ios_upload_lean_checkout.py
