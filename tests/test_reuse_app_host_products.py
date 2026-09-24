@@ -283,6 +283,56 @@ class ReuseProducts(TestProductHandoff):
         self.assertTrue(identity.reaches_product("scripts/ci/compile-app-host-test-product.sh"))
         self.assertTrue(identity.reaches_product("cmuxTests/WorkspaceTests.swift"))
 
+    def test_developer_tooling_outside_the_build_does_not_reach_product(self):
+        """Editing these must not force a compile: no build or macOS lane reads them."""
+        identity = reuse.product_inputs
+        tooling = (
+            ".claude/commands/review.md",
+            "agent-chat/server.ts",
+            "agent-chat/src/components/Chat.tsx",
+            "scripts/git-hooks/pre-commit",
+            "scripts/benchmark-dev-fleet-warm-slots.py",
+            "scripts/check-pbxproj.sh",
+            "scripts/check-test-determinism.py",
+            "scripts/dev-fleet-warm-slot.py",
+            "scripts/install-git-hooks.sh",
+            "scripts/merge-xcstrings.py",
+            "scripts/normalize-pbxproj.py",
+            "scripts/prune_nightly_release_assets.py",
+        )
+        for path in tooling:
+            self.assertFalse(identity.reaches_product(path), path)
+
+        # Neighbours that the build does read stay product inputs.
+        for path in (
+            "scripts/build-app-bundled-resources.sh",
+            "scripts/build-plain-text-paste-worker.sh",
+            "scripts/setup.sh",
+            "skills/cmux-cua/SKILL.md",
+            ".gitattributes",
+        ):
+            self.assertTrue(identity.reaches_product(path), path)
+
+        # Drift guard: if the Xcode project, the compile script, or either
+        # product workflow starts naming one of these, it is a build input again.
+        root = Path(__file__).resolve().parents[1]
+        readers = {
+            name: (root / name).read_text()
+            for name in (
+                "cmux.xcodeproj/project.pbxproj",
+                "scripts/ci/compile-app-host-test-product.sh",
+                "scripts/build-app-bundled-resources.sh",
+                ".github/workflows/ci-macos.yml",
+                ".github/workflows/test-e2e.yml",
+            )
+        }
+        # Check the module's own lists, not the samples above, so a reader
+        # naming any file under an excluded prefix fails here too.
+        needles = sorted(identity.NON_PRODUCT_TOOLING) + list(identity.NON_PRODUCT_TOOLING_PREFIXES)
+        for needle in needles:
+            for name, text in readers.items():
+                self.assertNotIn(needle, text, f"{name} reads {needle}")
+
     def test_product_identity_binds_the_e2e_build_recipe(self):
         identity = reuse.product_inputs
         root = Path(__file__).resolve().parents[1]
@@ -525,6 +575,7 @@ class ReuseProducts(TestProductHandoff):
         revision = self.pull_request_checkout("main")
         self.api.consumer_run["head_sha"] = self.head_revision
         self.api.product_identities[self.head_revision] = self.contract["product_inputs"]
+        self.api.product_identities[revision] = self.contract["product_inputs"]
         report = {}
         self.assertTrue(self.restore_reuse(revision=revision, report=report))
         self.assertNotIn("consumer_revision_mismatch", report["miss_reasons"])
@@ -551,6 +602,70 @@ class ReuseProducts(TestProductHandoff):
                 self.assertFalse(self.restore_reuse(revision=revision, report=report))
                 self.assertIn("consumer_revision_mismatch", report["miss_reasons"])
                 self.assertFalse(self.consumer.exists())
+
+    def test_pull_request_behind_its_base_is_bound_to_its_merge_checkout(self):
+        """A pull request whose base moved still adopts the product it compiled.
+
+        A pull request run compiles the merge of its head into the base. Once
+        the base has changed product inputs, the head alone fingerprints
+        differently from that merge, so comparing the checkout to the head
+        rejected the consumer before any producer was listed. That was 10 of
+        25 sampled compile admissions on 2026-09-23, including every re-run of
+        a pull request that was behind main.
+        """
+        revision = self.pull_request_checkout("main")
+        self.api.consumer_run["head_sha"] = self.head_revision
+        behind = {**self.contract["product_inputs"], "source": "7" * 64}
+        self.api.product_identities[self.head_revision] = behind
+        self.api.product_identities[revision] = self.contract["product_inputs"]
+        # The producer is an earlier run of the same pull request, also behind.
+        self.api.product_identities[self.api.run["head_sha"]] = behind
+        merge = "aaa111bbb222"
+        self.api.commit_parents[merge] = ["base999", self.api.run["head_sha"]]
+        self.api.product_identities[merge] = self.contract["product_inputs"]
+        self.seal_at(merge)
+        report = {}
+        self.assertTrue(self.restore_reuse(revision=revision, report=report))
+        self.assertEqual(report["reason"], "hit")
+        self.assertNotIn("consumer_product_inputs_mismatch", report["miss_reasons"])
+        self.assertNotIn("producer_product_inputs_mismatch", report["miss_reasons"])
+
+    def test_merge_checkout_must_match_githubs_copy_of_that_merge(self):
+        """The checkout is still re-fingerprinted, now against the merge itself."""
+        revision = self.pull_request_checkout("main")
+        self.api.consumer_run["head_sha"] = self.head_revision
+        self.api.product_identities[self.head_revision] = self.contract["product_inputs"]
+        self.api.product_identities[revision] = {
+            **self.contract["product_inputs"], "source": "7" * 64}
+        report = {}
+        self.assertFalse(self.restore_reuse(revision=revision, report=report))
+        self.assertIn("consumer_product_inputs_mismatch", report["miss_reasons"])
+        self.assertFalse(self.consumer.exists())
+
+    def test_pull_request_producer_behind_its_base_still_needs_an_exact_merge(self):
+        """Deferring the head check never admits a merge with other inputs."""
+        self.api.product_identities[self.api.run["head_sha"]] = {
+            **self.contract["product_inputs"], "source": "7" * 64}
+        merge = "aaa111bbb222"
+        self.api.commit_parents[merge] = ["base999", self.api.run["head_sha"]]
+        self.api.product_identities[merge] = {
+            **self.contract["product_inputs"], "source": "8" * 64}
+        self.seal_at(merge)
+        report = {}
+        self.assertFalse(self.restore_reuse(report=report))
+        self.assertIn("product_provenance_invalid", report["miss_reasons"])
+        self.assertFalse(self.consumer.exists())
+
+    def test_non_pull_request_producer_head_check_is_unchanged(self):
+        """Only a pull request producer compiles something other than its head."""
+        for run in (self.api.run, self.api.consumer_run):
+            run["event"] = "merge_group"
+            run.pop("pull_requests", None)
+        self.api.product_identities[self.api.run["head_sha"]] = {
+            **self.contract["product_inputs"], "source": "7" * 64}
+        report = {}
+        self.assertFalse(self.restore_reuse(report=report))
+        self.assertIn("producer_product_inputs_mismatch", report["miss_reasons"])
 
     def test_merge_group_checkout_still_requires_an_exact_revision(self):
         """Merge queue runs check out the attested commit, so nothing relaxes."""
@@ -799,6 +914,10 @@ class ReuseProducts(TestProductHandoff):
                 self.assertFalse(self.consumer.exists())
 
     def test_unrelated_producer_inputs_rejected_before_download(self):
+        # A merge group producer compiled its head, so its head decides.
+        for run in (self.api.run, self.api.consumer_run):
+            run["event"] = "merge_group"
+            run.pop("pull_requests", None)
         original = self.api.product_identities["abc123"]
         self.api.product_identities["abc123"] = {
             **original,
@@ -808,6 +927,18 @@ class ReuseProducts(TestProductHandoff):
             self.assertFalse(self.restore_reuse())
             download.assert_not_called()
         self.api.product_identities["abc123"] = original
+
+    def test_unrelated_pull_request_producer_inputs_are_rejected_after_download(self):
+        # A pull request producer compiled a merge its head does not name, so
+        # the sealed revision is what gets re-fingerprinted, after download.
+        self.api.product_identities["abc123"] = {
+            **self.api.product_identities["abc123"],
+            "source": "e" * 64,
+        }
+        report = {}
+        self.assertFalse(self.restore_reuse(report=report))
+        self.assertIn("product_provenance_invalid", report["miss_reasons"])
+        self.assertFalse(self.consumer.exists())
 
     def test_completed_compile_can_be_used_while_other_tests_run(self):
         self.api.run['status'] = 'in_progress'
@@ -1148,9 +1279,15 @@ class ReuseProducts(TestProductHandoff):
                 lambda: self.api.job.update({"conclusion": "failure"}),
                 "producer_compile_unsuccessful",
             ),
+            # A producer that compiled its head. A pull request producer's head
+            # does not name what it built, so its check waits for the download:
+            # test_unrelated_pull_request_producer_inputs_are_rejected_after_download.
             "product_inputs_changed": (
-                lambda: self.api.product_identities.__setitem__(
-                    "abc123", {**self.contract["product_inputs"], "source": "f" * 64}),
+                lambda: (
+                    [run.update(event="merge_group") for run in (self.api.run, self.api.consumer_run)],
+                    self.api.product_identities.__setitem__(
+                        "abc123", {**self.contract["product_inputs"], "source": "f" * 64}),
+                ),
                 "producer_product_inputs_mismatch",
             ),
             "oversize_archive": (
@@ -1297,9 +1434,9 @@ class ContractParity(unittest.TestCase):
     # Setup steps that put a tool `contract()` fingerprints on PATH, matched
     # against what a step executes: its `uses` action, or a `run` command.
     TOOL_SETUP = {
-        "rust": re.compile(r"install-rust-ci\.sh"),
+        "rust": re.compile(r"^(?:(?:bash|sh)\s+)?(?:\S*/)?install-rust-ci\.sh(?:\s|;|$)"),
         "bun": re.compile(r"^oven-sh/setup-bun@"),
-        "zig": re.compile(r"install-zig-ci\.sh"),
+        "zig": re.compile(r"^(?:(?:bash|sh)\s+)?(?:\S*/)?install-zig-ci\.sh(?:\s|;|$)"),
         "node": re.compile(r"^actions/setup-node@"),
         "go": re.compile(r"^actions/setup-go@"),
     }
@@ -1313,7 +1450,9 @@ class ContractParity(unittest.TestCase):
                 "e2e": e2e["jobs"][identity.E2E_BUILD_JOB]}
 
     def job_env(self, job):
-        return {name: str(value) for name, value in job.get("env", {}).items()}
+        # As a step sees them: YAML `true` reaches it as the string "true".
+        return {name: str(value).lower() if isinstance(value, bool) else str(value)
+                for name, value in job.get("env", {}).items()}
 
     def executed(self, step):
         """What a step runs: its action, and each non-comment line of `run`."""
@@ -1336,11 +1475,14 @@ class ContractParity(unittest.TestCase):
     def test_tool_scan_counts_what_a_step_runs_not_what_it_mentions(self):
         self.assertEqual(self.tools([
             {"name": "Note", "run": "# ./scripts/install-zig-ci.sh is not needed\necho oven-sh/setup-bun"},
+            {"name": "Echo", "run": 'echo "installing via ./scripts/install-rust-ci.sh"'},
         ]), set())
         self.assertEqual(self.tools([
             {"name": "Setup Bun", "uses": "oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6"},
             {"name": "Install zig", "run": "set -e\n./scripts/install-zig-ci.sh"},
-        ]), {"bun", "zig"})
+            {"name": "Install Rust", "run": "bash scripts/install-rust-ci.sh --profile ci"},
+        ]), {"bun", "zig", "rust"})
+        self.assertEqual(self.job_env({"env": {"A": True, "B": 1}}), {"A": "true", "B": "1"})
 
     def contract_with(self, environ, xcode="Xcode 26.6\nBuild version 17F113",
                       derived=None, os_build="25D125", os_version="26.4"):

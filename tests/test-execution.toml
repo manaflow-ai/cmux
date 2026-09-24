@@ -344,6 +344,10 @@ path = "tests/test_ci_change_areas.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_fork_runner_routing.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_checkout_network_diagnostics.py"
 lane = "linux-guard"
 
@@ -369,6 +373,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_reusable_job_name_lookups.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_runner_capability_resolver.py"
 lane = "linux-guard"
 
 [[test]]
@@ -437,6 +445,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_sanitize_xcode_source_packages_cache.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_reload_build_cache_keys.py"
 lane = "linux-guard"
 
 [[test]]
@@ -657,6 +669,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_app_host_layered_products.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_app_host_test_rerun.py"
 lane = "linux-guard"
 
 [[test]]
@@ -1098,4 +1114,8 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_ios_conventions_diff.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ios_video_recording.py"
 lane = "linux-guard"
