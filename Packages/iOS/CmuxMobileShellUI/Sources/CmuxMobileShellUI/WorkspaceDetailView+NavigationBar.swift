@@ -15,7 +15,11 @@ extension WorkspaceDetailView {
         )
         // The navigation controller manages the status bar, navigation bar,
         // and landscape margins as one native container.
-        .ignoresSafeArea(.container, edges: [.top, .leading, .trailing])
+        // The terminal owns the bottom keyboard dock and needs the controller
+        // to retain the full window height. UIKit will otherwise size the
+        // representable to the visible area above the software keyboard,
+        // moving the dock and keyboard shortcut row upward in landscape.
+        .ignoresSafeArea(.container, edges: [.top, .leading, .trailing, .bottom])
         .environment(\.colorScheme, store.activeTerminalTheme.terminalColorScheme)
     }
 
