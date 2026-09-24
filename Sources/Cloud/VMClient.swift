@@ -1,5 +1,6 @@
 import CmuxAuthRuntime
 import CMUXMobileCore
+import CmuxSurfaceCatalogModel
 import Foundation
 
 extension URLError.Code {
@@ -34,7 +35,6 @@ extension URLError.Code {
 }
 
 
-
 func formattedCloudVMHTTPError(status: Int, body: String) -> String {
     let trimmedBody = body.trimmingCharacters(in: .whitespacesAndNewlines)
     guard let data = trimmedBody.data(using: .utf8),
@@ -43,10 +43,10 @@ func formattedCloudVMHTTPError(status: Int, body: String) -> String {
             Cloud VM request failed (HTTP \(status)).
 
             What to do:
-              Retry the command. If it keeps failing, copy the response body and contact support.
+              Retry the command. If it keeps failing, copy the HTTP status and contact support.
 
             Response body:
-              \(limitedSingleLine(trimmedBody.isEmpty ? "<empty>" : trimmedBody))
+              <unreadable response omitted>
             """
     }
 
@@ -288,6 +288,10 @@ struct VMSummary {
     /// the WireGuard tunnel); nil for machines created before private networking.
     var addressIPv4: String?
     var addressIPv6: String?
+    /// The image's cmux-tui attach contract from the create receipt
+    /// (`"snapshot-v2"`: baked daemon, trusted private-network listener).
+    /// Only the create response carries it; list reads leave it nil.
+    var cmuxTuiContract: String?
 
     /// The name to show people: the label when set, else the generated slug,
     /// else the machine id.
@@ -347,81 +351,6 @@ struct VMExecResult: Sendable {
     let exitCode: Int
     let stdout: String
     let stderr: String
-}
-
-/// What a machine's provider can do; the app offers only verbs that can succeed
-/// (Checkpoint/Fork disappear from menus when false — a verb that answers 502
-/// "not implemented" is not a verb).
-struct VMCapabilities: Equatable, Sendable {
-    var snapshot: Bool
-    var restore: Bool
-    var fork: Bool
-    var exec: Bool
-    var stats: Bool
-    /// The provider can mint a browser preview URL for a machine port.
-    var ports: Bool
-    var desktop: Bool
-    var sizing: Bool
-    var persistentHome: Bool
-    var attachTransports: [String]?
-
-    var ssh: Bool { attachTransports?.contains("ssh") ?? true }
-    var cmuxRemote: Bool { attachTransports?.contains("cmux-remote") ?? true }
-
-    static let all = VMCapabilities(
-        snapshot: true, restore: true, fork: true,
-        exec: true, stats: true, ports: true, desktop: true,
-        sizing: true, persistentHome: true, attachTransports: nil)
-
-    init(
-        snapshot: Bool, restore: Bool, fork: Bool,
-        exec: Bool = true, stats: Bool = true, ports: Bool = true,
-        desktop: Bool = true, sizing: Bool = true, persistentHome: Bool = true,
-        attachTransports: [String]? = nil
-    ) {
-        self.snapshot = snapshot
-        self.restore = restore
-        self.fork = fork
-        self.exec = exec
-        self.stats = stats
-        self.ports = ports
-        self.desktop = desktop
-        self.sizing = sizing
-        self.persistentHome = persistentHome
-        self.attachTransports = attachTransports
-    }
-
-    /// Missing flags preserve legacy support; stats can use the historical kind fallback.
-    init(json: Any?, legacyStatsSupported: Bool = true) {
-        let dict = json as? [String: Any]
-        func flag(_ key: String, fallback: Bool = true) -> Bool {
-            if let value = dict?[key] as? Bool { return value }
-            if let number = dict?[key] as? NSNumber { return number.boolValue }
-            return fallback
-        }
-        let transports = (dict?["attachTransports"] as? [Any] ?? dict?["attach_transports"] as? [Any])?
-            .compactMap { $0 as? String }
-        self.init(
-            snapshot: flag("snapshot"), restore: flag("restore"), fork: flag("fork"),
-            exec: flag("exec"), stats: flag("stats", fallback: legacyStatsSupported), ports: flag("ports"),
-            desktop: flag("desktop"), sizing: flag("sizing"),
-            persistentHome: flag("persistentHome"), attachTransports: transports)
-    }
-
-    var jsonObject: [String: Any] {
-        var object: [String: Any] = [
-            "snapshot": snapshot, "restore": restore, "fork": fork,
-            "exec": exec, "stats": stats, "ports": ports, "desktop": desktop,
-            "sizing": sizing, "persistentHome": persistentHome,
-        ]
-        if let attachTransports { object["attach_transports"] = attachTransports }
-        return object
-    }
-
-    init(vmResponse: [String: Any]) {
-        let kind = VMMachineKind.resolved(kind: vmResponse["kind"], image: vmResponse["image"])
-        self.init(json: vmResponse["capabilities"], legacyStatsSupported: kind.hasDesktop)
-    }
 }
 
 struct VMOpenPortEndpoint {
@@ -550,19 +479,6 @@ struct VMPublicationDomain: Equatable, Sendable {
                 : dnsInstructions.map(\.foundationObject),
             "publications": publications.map(\.foundationObject),
         ]
-    }
-}
-
-
-/// One reflection read (`GET /api/vm/<id>/reflection[/<path>]`): the HTTP status and the
-/// JSON body as sent. A 404 with `{error: "not_found", paths: […]}` is a normal result
-/// (an unknown reflection path), so the CLI can print the paths that do exist.
-struct VMReflectionResult: Sendable {
-    let statusCode: Int
-    let body: Data
-
-    var object: [String: Any] {
-        ((try? JSONSerialization.jsonObject(with: body, options: [])) as? [String: Any]) ?? [:]
     }
 }
 
@@ -713,8 +629,17 @@ actor VMClient {
     /// Build the shared client with its injected auth dependency. Call once at
     /// the composition root.
     @MainActor
-    static func bootstrap(auth: AuthCoordinator, session: URLSession = .shared, operations: CloudOperationRecorder? = nil) {
-        shared = VMClient(session: session, auth: auth, checkpointRenames: SurfaceCatalog.shared.cloudRenameCoordinator, operations: operations, isCloudEnabled: { CloudMachinesFeature.offMainIsEnabled() })
+    @discardableResult
+    static func bootstrap(auth: AuthCoordinator, session: URLSession = .shared, operations: CloudOperationRecorder? = nil) -> CloudReadRequestCoordinator {
+        let reads = CloudReadRequestCoordinator(onNetworkChange: { online in
+            await MainActor.run {
+                NotificationCenter.default.post(name: .cmuxCloudReadNetworkChanged, object: nil, userInfo: ["isOnline": online])
+                if online { NotificationCenter.default.post(name: .cmuxCloudReadNetworkRecovered, object: nil) }
+            }
+        })
+        shared = VMClient(session: session, auth: auth, resourceStats: VMResourceStatsStore(), checkpointRenames: SurfaceCatalog.shared.cloudRenameCoordinator, operations: operations, readRequests: reads, isCloudEnabled: { CloudMachinesFeature.offMainIsEnabled() })
+        Task { await reads.observeNetwork(CloudReadNetworkMonitor()) }
+        return reads
     }
 
     /// Revoke endpoint credentials issued by the Cloud VM service during sign-out.
@@ -756,26 +681,32 @@ actor VMClient {
     private let checkpointRenames: CloudRenameCoordinator
     private let telemetry: VMClientTelemetry
     nonisolated let operations: CloudOperationRecorder?
+    nonisolated let resourceStats: VMResourceStatsStore
     private let machineCache: CloudMachineCache
+    private let readRequests: CloudReadRequestCoordinator
     private let isCloudEnabled: @Sendable () -> Bool
     private let isDisabledByManagedPolicy: (@Sendable () -> Bool)?
 
     init(
         session: URLSession = .shared,
         auth: AuthCoordinator,
+        resourceStats: VMResourceStatsStore,
         checkpointRenames: CloudRenameCoordinator,
         telemetry: VMClientTelemetry = .shared,
         operations: CloudOperationRecorder? = nil,
         machineCache: CloudMachineCache = CloudMachineCache(),
         isDisabledByManagedPolicy: (@Sendable () -> Bool)? = nil,
+        readRequests: CloudReadRequestCoordinator = CloudReadRequestCoordinator(),
         isCloudEnabled: @escaping @Sendable () -> Bool = { true }
     ) {
         self.session = session
         self.auth = auth
+        self.resourceStats = resourceStats
         self.checkpointRenames = checkpointRenames
         self.telemetry = telemetry
         self.operations = operations
         self.machineCache = machineCache
+        self.readRequests = readRequests
         self.isCloudEnabled = isCloudEnabled
         self.isDisabledByManagedPolicy = isDisabledByManagedPolicy
     }
@@ -786,9 +717,20 @@ actor VMClient {
         }
     }
 
+    /// Typed reachability changes for scoped Cloud owners such as the machines
+    /// panel. The request coordinator remains the single reachability owner;
+    /// consumers subscribe to its stream instead of observing a process-wide
+    /// notification and maintaining a second state machine.
+    func networkChanges() async -> AsyncStream<Bool> {
+        await readRequests.networkChanges()
+    }
+
     func listPage() async throws -> VMListPage {
+        let (retentionToken, listIdentity, listTeamID) = await MainActor.run { [auth, resourceStats] in
+            (resourceStats.beginRetention(), auth.authenticatedSessionIdentity, auth.resolvedTeamID)
+        }
         return try await withOperation(.list, foreground: false) {
-            let (data, http) = try await request("GET", path: "/api/vm")
+            let (data, http) = try await request("GET", path: "/api/vm", timeoutSeconds: 15)
             try ensureOK(http, data: data)
             let obj = try decodeJSONObject(data)
             guard let items = obj["vms"] as? [[String: Any]] else {
@@ -845,6 +787,17 @@ actor VMClient {
                 return summary
             }
             machineCache.record(hasAnyMachine: !vms.isEmpty)
+            // Background discovery also reads resource stats. Register its
+            // complete fleet before returning, but only when the auth account
+            // and team are still the ones that produced this response. The
+            // store token fences reset and out-of-order list responses.
+            let machineIDs = Set(vms.map(\.id))
+            await MainActor.run { [auth, resourceStats] in
+                guard !Task.isCancelled, let listIdentity,
+                      auth.authenticatedSessionIdentity == listIdentity,
+                      auth.resolvedTeamID == listTeamID else { return }
+                resourceStats.retain(machineIDs: machineIDs, token: retentionToken)
+            }
             return VMListPage(vms: vms, limits: limits)
         }
     }
@@ -1211,7 +1164,7 @@ actor VMClient {
         return result
     }
 
-    func create(image: String? = nil, kind: VMMachineKind? = nil, provider: String? = nil, persistentHome: Bool = false, perMachineHome: Bool = false, memoryMb: Int? = nil, idempotencyKey: String) async throws -> VMSummary {
+    func create(image: String? = nil, kind: VMMachineKind? = nil, provider: String? = nil, persistentHome: Bool = false, perMachineHome: Bool = false, memoryMb: Int? = nil, displayName: String? = nil, idempotencyKey: String) async throws -> VMSummary {
         return try await withOperation(.create, foreground: true) {
             var body: [String: Any] = [:]
             if let image { body["image"] = image }
@@ -1220,6 +1173,7 @@ actor VMClient {
             if persistentHome { body["persistentHome"] = true }
             if perMachineHome { body["perMachineHome"] = true }
             if let memoryMb { body["memoryMb"] = memoryMb }
+            if let displayName { body["displayName"] = displayName }
             // The CLI owns key stability across command retries. VMClient only forwards the
             // key so the backend can short-circuit duplicate paid provider creates.
             let headers = ["Idempotency-Key": idempotencyKey]
@@ -1230,6 +1184,10 @@ actor VMClient {
                 extraHeaders: headers,
                 timeoutSeconds: Self.createTimeoutSeconds
             )
+            #if DEBUG
+            // Per-stage server time for the New Machine critical path.
+            cmuxDebugLog("cloud.vm.create.serverTiming status=\(http.statusCode) \(http.value(forHTTPHeaderField: "Server-Timing") ?? "none")")
+            #endif
             try ensureOK(http, data: data)
             let obj = try decodeJSONObject(data)
             guard let id = obj["id"] as? String,
@@ -1238,11 +1196,8 @@ actor VMClient {
             else {
                 throw VMClientError.malformedResponse("Cloud VM create response was missing required fields.")
             }
-            // Prefer the server-supplied createdAt. Using the local wall clock caused two
-            // visible bugs: (1) creation time was wrong under clock skew, (2) idempotent
-            // retries that short-circuited to an existing VM on the server still stamped
-            // "now" on the mac side, so the client saw a fresh timestamp for a replayed
-            // create (Codex P2). Fall back to the local clock only if the server omits it.
+            // Preserve the server timestamp on idempotent replays and under local clock skew.
+            // Fall back to the local clock only for older servers that omit it.
             let serverCreatedAt = (obj["createdAt"] as? Int64)
                 ?? Int64((obj["createdAt"] as? Double) ?? 0)
             let createdAt = serverCreatedAt > 0 ? serverCreatedAt : Int64(Date().timeIntervalSince1970 * 1000)
@@ -1253,6 +1208,14 @@ actor VMClient {
             summary.capabilities = VMCapabilities(vmResponse: obj)
             summary.displayName = (obj["displayName"] as? String).flatMap { $0.isEmpty ? nil : $0 }
             summary.slug = (obj["slug"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+            // The create receipt names the new machine's private address and
+            // attach contract, so the app can register and dial it without a
+            // fleet re-read or an attach request (see createdMachineAttach).
+            if let address = obj["address"] as? [String: Any] {
+                summary.addressIPv4 = (address["ipv4"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+                summary.addressIPv6 = (address["ipv6"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+            }
+            summary.cmuxTuiContract = (obj["cmuxTuiContract"] as? String).flatMap { $0.isEmpty ? nil : $0 }
             machineCache.record(hasAnyMachine: true)
             return summary
         }
@@ -1665,8 +1628,7 @@ actor VMClient {
                     "POST",
                     path: "/api/vm/\(encodedID)/attach-endpoint",
                     jsonBody: body,
-                    timeoutSeconds: Self.attachTimeoutSeconds,
-                    retryTransientServiceUnavailable: true
+                    timeoutSeconds: 20
                 )
                 try ensureOK(http, data: data)
                 return try decodeJSONObject(data)
@@ -1945,37 +1907,6 @@ actor VMClient {
         }
     }
 
-    func stats(id: String) async throws -> VMStats {
-        return try await withOperation(.stats, foreground: false) {
-            let encodedID = try pathSegment(id, fieldName: "vm id")
-            let (data, http) = try await request("GET", path: "/api/vm/\(encodedID)/stats", timeoutSeconds: 30)
-            try ensureOK(http, data: data)
-            let obj = try decodeJSONObject(data)
-            return VMStats(json: obj)
-        }
-    }
-
-    /// Grow a machine's disk and return the provider-confirmed post-resize reading.
-    func resizeDisk(id: String, diskMb: Int) async throws -> VMStats {
-        try await resize(id: id, cpu: nil, memoryMb: nil, diskMb: diskMb)
-    }
-
-    /// Grow one or more machine resources and return provider-confirmed stats.
-    func resize(id: String, cpu: Int?, memoryMb: Int?, diskMb: Int?) async throws -> VMStats {
-        return try await withOperation(.resize, foreground: true) {
-            let encodedID = try pathSegment(id, fieldName: "vm id")
-            let (data, http) = try await request(
-                "POST",
-                path: "/api/vm/\(encodedID)/resize",
-                jsonBody: ["cpu": cpu as Any, "memoryMb": memoryMb as Any, "storageMb": diskMb as Any].compactMapValues { value in value is NSNull ? nil : value },
-                timeoutSeconds: 120
-            )
-            try ensureOK(http, data: data)
-            let obj = try decodeJSONObject(data)
-            return VMStats(json: obj)
-        }
-    }
-
     func openPort(id: String, port: Int) async throws -> VMOpenPortEndpoint {
         return try await withOperation(.port, foreground: true) {
             let encodedID = try pathSegment(id, fieldName: "vm id")
@@ -2055,8 +1986,7 @@ actor VMClient {
         }
     }
 
-
-    private func withOperation<T>(
+    func withOperation<T>(
         _ kind: CloudOperationKind, foreground: Bool,
         _ work: () async throws -> T
     ) async rethrows -> T {
@@ -2064,7 +1994,7 @@ actor VMClient {
         return try await operations.perform(kind, foreground: foreground, work)
     }
 
-    private func request(
+    func request(
         _ method: String,
         path: String,
         jsonBody: [String: Any]? = nil,
@@ -2074,13 +2004,58 @@ actor VMClient {
         allowedUnderManagedPolicy: Bool = false
     ) async throws -> (Data, HTTPURLResponse) {
         let work = {
-            try await self.requestMeasured(method, path: path, jsonBody: jsonBody, extraHeaders: extraHeaders,
-                timeoutSeconds: timeoutSeconds, retryTransientServiceUnavailable: retryTransientServiceUnavailable,
-                allowedUnderManagedPolicy: allowedUnderManagedPolicy)
+            let isSharedRead = method == "GET"
+                && jsonBody == nil
+                && extraHeaders.isEmpty
+                && !retryTransientServiceUnavailable
+                && !allowedUnderManagedPolicy
+                && (path == "/api/vm" || path.hasSuffix("/stats"))
+            if !isSharedRead {
+                return try await self.requestMeasured(method, path: path, jsonBody: jsonBody, extraHeaders: extraHeaders,
+                    timeoutSeconds: timeoutSeconds, retryTransientServiceUnavailable: retryTransientServiceUnavailable,
+                    allowedUnderManagedPolicy: allowedUnderManagedPolicy)
+            }
+            try Task.checkCancellation()
+            try self.checkCloudAccess(allowedUnderManagedPolicy: allowedUnderManagedPolicy)
+            let context = CloudOperationContext.current
+            let elapsed = context.map { $0.operation == .list || $0.operation == .stats ? $0.clock.duration(to: .now) : .zero } ?? .zero
+            let deadline = self.readRequests.makeDeadline(elapsed: elapsed)
+            let identity = await self.auth.authenticatedSessionIdentity
+            guard let identity else {
+                let isAuthenticated = await self.auth.isAuthenticated
+                let isRestoringSession = await self.auth.isRestoringSession
+                if isAuthenticated || isRestoringSession {
+                    throw VMClientError.sessionRefreshFailed
+                }
+                throw VMClientError.notSignedIn
+            }
+            let teamID = await self.auth.resolvedTeamID
+            let key = CloudReadRequestCoordinator.Key(path: path, accountID: identity.accountID,
+                generation: identity.generation, teamID: teamID)
+            let value = try await self.readRequests.read(key, deadline: deadline) {
+                try await CloudOperationContext.withCurrent(context) {
+                    let (data, http) = try await self.requestMeasured(method, path: path, timeoutSeconds: timeoutSeconds)
+                    return CloudReadRequestCoordinator.Response(data: data, http: http)
+                }
+            }
+            try Task.checkCancellation()
+            guard await self.auth.isAuthenticatedSessionIdentityCurrent(identity),
+                  await self.auth.resolvedTeamID == teamID else { throw CancellationError() }
+            try self.checkCloudAccess(allowedUnderManagedPolicy: allowedUnderManagedPolicy)
+            return (value.data, value.http)
         }
         if CloudOperationContext.current != nil || operations == nil { return try await work() }
         let kind: CloudOperationKind = path == "/api/vm" ? (method == "GET" ? .list : .create) : .resolve(path)
         return try await operations!.perform(kind, foreground: method != "GET", work)
+    }
+
+    private func checkCloudAccess(allowedUnderManagedPolicy: Bool) throws {
+        if !allowedUnderManagedPolicy, isDisabledByManagedPolicy?() == true {
+            throw VMClientError.disabledByManagedPolicy
+        }
+        if !allowedUnderManagedPolicy, !isCloudEnabled() {
+            throw VMClientError.cloudMachinesDisabled
+        }
     }
 
     private func requestMeasured(
@@ -2092,12 +2067,7 @@ actor VMClient {
         retryTransientServiceUnavailable: Bool = false,
         allowedUnderManagedPolicy: Bool = false
     ) async throws -> (Data, HTTPURLResponse) {
-        if !allowedUnderManagedPolicy, isDisabledByManagedPolicy?() == true {
-            throw VMClientError.disabledByManagedPolicy
-        }
-        if !allowedUnderManagedPolicy, !isCloudEnabled() {
-            throw VMClientError.cloudMachinesDisabled
-        }
+        try checkCloudAccess(allowedUnderManagedPolicy: allowedUnderManagedPolicy)
         let minted = VMRequestTraceContext.mint()
         let trace = CloudOperationContext.current.map {
             VMRequestTraceContext(traceId: $0.traceID, spanId: $0.spanID, clientRequestId: minted.clientRequestId)
@@ -2215,19 +2185,21 @@ actor VMClient {
         let sessionIdentity = await auth.authenticatedSessionIdentity
         let isAuthenticated = await auth.isAuthenticated
         let isRestoringSession = await auth.isRestoringSession
+        let requestedTeamID = await auth.resolvedTeamID
         guard isAuthenticated || isRestoringSession else {
             throw VMClientError.notSignedIn
         }
         let tokens: (accessToken: String, refreshToken: String)
         do {
             tokens = try await CloudOperationContext.phase(.authentication) { try await auth.currentTokens() }
-        } catch AuthError.networkError {
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch AuthError.networkError, AuthError.timedOut {
             throw VMClientError.sessionRefreshFailed
         } catch {
             throw VMClientError.notSignedIn
         }
-        let teamID = await auth.resolvedTeamID
-
+        let teamID = requestedTeamID
         guard var url = URLComponents(url: AuthEnvironment.vmAPIBaseURL, resolvingAgainstBaseURL: false) else {
             throw VMClientError.malformedResponse("bad vmAPIBaseURL")
         }
@@ -2235,7 +2207,6 @@ actor VMClient {
         guard let resolved = url.url else {
             throw VMClientError.malformedResponse("could not build URL for \(path)")
         }
-
         var req = URLRequest(url: resolved)
         req.httpMethod = method
         if let timeoutSeconds {
@@ -2253,7 +2224,6 @@ actor VMClient {
         for (key, value) in extraHeaders {
             req.setValue(value, forHTTPHeaderField: key)
         }
-
         // HTTP 429 from the VM API is an upstream auth throttle rejected before any work
         // happened (rate_limited in services/vms/authErrors.ts), so every verb is safe to
         // retry. Waiting out Retry-After here turns a transient throttle into a short pause
@@ -2261,6 +2231,9 @@ actor VMClient {
         var retriesLeft = 2
         while true {
             try Task.checkCancellation()
+            guard await auth.resolvedTeamID == requestedTeamID else {
+                throw VMClientError.notSignedIn
+            }
             if !allowedWhenCloudDisabled, !isCloudEnabled() { throw VMClientError.cloudMachinesDisabled }
             let data: Data
             let response: URLResponse
@@ -2295,6 +2268,12 @@ actor VMClient {
             guard let http = response as? HTTPURLResponse else {
                 throw VMClientError.malformedResponse("non-HTTP response")
             }
+            if http.statusCode == 429, let read = CloudReadRequestCoordinator.current, let owner = read.owner {
+                let seconds = Self.retryDelaySeconds(statusCode: 429, retryAfterHeader: http.value(forHTTPHeaderField: "Retry-After")) ?? 60
+                let canRetry = await owner.noteRetryAfter(read.key, seconds: seconds,
+                    response: .init(data: data, http: http))
+                if !canRetry { return (data, http) }
+            }
             if http.statusCode == 429, retriesLeft > 0 {
                 retriesLeft -= 1
                 onRetry()
@@ -2302,7 +2281,7 @@ actor VMClient {
                     statusCode: http.statusCode,
                     retryAfterHeader: http.value(forHTTPHeaderField: "Retry-After")
                 ) ?? 2
-                try await CloudOperationContext.phase(.retryWait, attempt: attempt) { try await CmxRetryAfterPolicy.sleep(seconds: delaySeconds) }
+                try await CloudOperationContext.phase(.retryWait, attempt: attempt) { try await CmxRetryAfterPolicy().sleep(seconds: delaySeconds) }
                 continue
             }
             if retryTransientServiceUnavailable,
@@ -2310,7 +2289,19 @@ actor VMClient {
                let delaySeconds = Self.transientVMRetryDelay(http: http, data: data) {
                 retriesLeft -= 1
                 onRetry()
-                try await CloudOperationContext.phase(.retryWait, attempt: attempt) { try await CmxRetryAfterPolicy.sleep(seconds: TimeInterval(delaySeconds.components.seconds)) }
+                try await CloudOperationContext.phase(.retryWait, attempt: attempt) { try await CmxRetryAfterPolicy().sleep(seconds: TimeInterval(delaySeconds.components.seconds)) }
+                continue
+            }
+            // The private gateway has not forwarded this request yet. Every
+            // verb is safe to retry while its tagged backend is starting.
+            if http.statusCode == 503, retriesLeft > 0,
+               resolved.host == "cmux-dev-backend-1.tail137216.ts.net",
+               Self.cloudVMErrorCode(http: http, data: data) == "dev_backend_starting" {
+                retriesLeft -= 1
+                onRetry()
+                try await CloudOperationContext.phase(.retryWait, attempt: attempt) {
+                    try await CmxRetryAfterPolicy().sleep(seconds: 2)
+                }
                 continue
             }
             if let sessionIdentity {
@@ -2325,10 +2316,20 @@ actor VMClient {
                     throw VMClientError.notSignedIn
                 }
             }
+            if let requestedTeamID {
+                guard await auth.resolvedTeamID == requestedTeamID else {
+                    throw VMClientError.notSignedIn
+                }
+            }
+            if method != "GET", (200...299).contains(http.statusCode) {
+                await readRequests.invalidate(CloudReadMutation(method: method, scope: .init(
+                    path: path, accountID: sessionIdentity?.accountID,
+                    generation: sessionIdentity?.generation, teamID: requestedTeamID
+                ), responseData: data))
+            }
             return (data, http)
         }
     }
-
     private func pollOperationProgress(context: CloudOperationContext, request: URLRequest) async {
         struct ProgressResponse: Decodable { let steps: [CloudRemoteOperationStep] }
         var progress = request
@@ -2373,8 +2374,8 @@ actor VMClient {
     ) -> TimeInterval? {
         guard statusCode == 429 else { return nil }
         return TimeInterval(
-            CmxRetryAfterPolicy.seconds(from: retryAfterHeader)
-                ?? CmxRetryAfterPolicy.defaultRateLimitSeconds
+            CmxRetryAfterPolicy().seconds(from: retryAfterHeader)
+                ?? CmxRetryAfterPolicy().defaultRateLimitSeconds
         )
     }
 
@@ -2432,14 +2433,14 @@ actor VMClient {
         )
     }
 
-    private func ensureOK(_ http: HTTPURLResponse, data: Data) throws {
+    func ensureOK(_ http: HTTPURLResponse, data: Data) throws {
         guard (200...299).contains(http.statusCode) else {
             let body = String(data: data, encoding: .utf8) ?? "<binary>"
             throw VMClientError.httpStatus(http.statusCode, body)
         }
     }
 
-    private func decodeJSONObject(_ data: Data) throws -> [String: Any] {
+    func decodeJSONObject(_ data: Data) throws -> [String: Any] {
         let parsed = try JSONSerialization.jsonObject(with: data, options: [])
         guard let obj = parsed as? [String: Any] else {
             throw VMClientError.malformedResponse("expected JSON object, got \(type(of: parsed))")
@@ -2484,7 +2485,7 @@ actor VMClient {
         )
     }
 
-    private func pathSegment(_ value: String, fieldName: String) throws -> String {
+    func pathSegment(_ value: String, fieldName: String) throws -> String {
         var allowed = CharacterSet.urlPathAllowed
         allowed.remove(charactersIn: "/?#")
         guard let encoded = value.addingPercentEncoding(withAllowedCharacters: allowed),
@@ -2535,63 +2536,6 @@ actor VMClient {
 
 // MARK: - Per-machine coderouter usage
 
-/// Token and spend totals for one machine over the usage window, as
-/// `GET /api/coderouter/vm-usage/team` reports them.
-struct MachineUsageTotals: Equatable, Sendable {
-    let inputTokens: Int
-    let cachedInputTokens: Int
-    let outputTokens: Int
-    let totalTokens: Int
-    /// What the same traffic would have cost at list API prices.
-    let apiEquivalentUsd: Double
-
-    /// Nothing to show for a machine that has not routed a single token.
-    var isEmpty: Bool { totalTokens <= 0 && apiEquivalentUsd <= 0 }
-}
-
-/// One machine's usage readout: the row shows `totals` labeled with
-/// `periodDays`. `vmID` is the id `GET /api/vm` returns as the machine id, so
-/// it matches ``MachineSnapshot/id`` directly.
-struct MachineUsageSnapshot: Equatable, Sendable {
-    let vmID: String
-    /// The provider machine id, the `id` that `GET /api/vm` lists. Rows key
-    /// on it when present because `vmID` is the backend's own uuid.
-    let providerVmID: String?
-    let displayName: String?
-    let periodDays: Int
-    let asOf: Date?
-    let totals: MachineUsageTotals
-}
-
-/// The team-wide usage payload. `kind == .unavailable` means the backend has no
-/// usage store for this team (no rows are rendered, no error is surfaced).
-struct TeamMachineUsage: Equatable, Sendable {
-    enum Kind: String, Sendable {
-        case ready
-        case unavailable
-    }
-
-    let teamID: String
-    let periodDays: Int
-    let kind: Kind
-    let asOf: Date?
-    let machines: [MachineUsageSnapshot]
-
-    /// The lookup the machines panel keys rows by. Empty when the backend says
-    /// usage is unavailable; blank ids are dropped; the first entry wins when
-    /// the backend repeats a machine.
-    var byMachineID: [String: MachineUsageSnapshot] {
-        guard kind == .ready else { return [:] }
-        var result: [String: MachineUsageSnapshot] = [:]
-        for machine in machines {
-            for key in [machine.providerVmID ?? "", machine.vmID] where !key.isEmpty && result[key] == nil {
-                result[key] = machine
-            }
-        }
-        return result
-    }
-}
-
 enum MachineUsageClientError: Error, CustomStringConvertible {
     case notSignedIn
     case sessionRefreshFailed
@@ -2624,18 +2568,23 @@ actor MachineUsageClient {
     @MainActor private(set) static var shared: MachineUsageClient?
 
     @MainActor
-    static func bootstrap(auth: AuthCoordinator, session: URLSession = .shared, operations: CloudOperationRecorder? = nil) {
-        shared = MachineUsageClient(session: session, auth: auth, operations: operations)
+    static func bootstrap(auth: AuthCoordinator, session: URLSession = .shared, operations: CloudOperationRecorder? = nil,
+                          readRequests: CloudReadRequestCoordinator? = nil) {
+        shared = MachineUsageClient(session: session, auth: auth, operations: operations,
+                                    readRequests: readRequests ?? CloudReadRequestCoordinator(budget: .seconds(15)))
     }
 
     private let session: URLSession
     private let auth: AuthCoordinator
+    private let readRequests: CloudReadRequestCoordinator
     nonisolated let operations: CloudOperationRecorder?
 
-    init(session: URLSession = .shared, auth: AuthCoordinator, operations: CloudOperationRecorder? = nil) {
+    init(session: URLSession = .shared, auth: AuthCoordinator, operations: CloudOperationRecorder? = nil,
+         readRequests: CloudReadRequestCoordinator = CloudReadRequestCoordinator(budget: .seconds(15))) {
         self.session = session
         self.auth = auth
         self.operations = operations
+        self.readRequests = readRequests
     }
 
     private func withOperation<T>(_ kind: CloudOperationKind, foreground: Bool, _ work: () async throws -> T) async rethrows -> T {
@@ -2645,7 +2594,33 @@ actor MachineUsageClient {
 
     func teamUsage(teamID: String? = nil) async throws -> TeamMachineUsage {
         return try await withOperation(.stats, foreground: false) {
-            let (data, http) = try await request("GET", path: "/api/coderouter/vm-usage/team", teamID: teamID)
+            let context = CloudOperationContext.current
+            let deadline = readRequests.makeDeadline(elapsed: context.map { $0.operation == .stats ? $0.clock.duration(to: .now) : .zero } ?? .zero, limit: .seconds(15))
+            let identity = await auth.authenticatedSessionIdentity
+            guard let identity else {
+                let isAuthenticated = await auth.isAuthenticated
+                let isRestoringSession = await auth.isRestoringSession
+                if isAuthenticated || isRestoringSession {
+                    throw MachineUsageClientError.sessionRefreshFailed
+                }
+                throw MachineUsageClientError.notSignedIn
+            }
+            let selectedTeam = await auth.resolvedTeamID
+            let explicitTeam = teamID?.trimmingCharacters(in: .whitespacesAndNewlines)
+            let key = CloudReadRequestCoordinator.Key(path: "/api/coderouter/vm-usage/team", accountID: identity.accountID,
+                generation: identity.generation, teamID: explicitTeam?.isEmpty == false ? explicitTeam : selectedTeam)
+            let response = try await readRequests.read(key, deadline: deadline) {
+                try await CloudOperationContext.withCurrent(context) {
+                    let (data, http) = try await self.request("GET", path: key.path, teamID: teamID)
+                    return CloudReadRequestCoordinator.Response(data: data, http: http)
+                }
+            }
+            guard await auth.isAuthenticatedSessionIdentityCurrent(identity) else { throw CancellationError() }
+            if explicitTeam?.isEmpty != false,
+               await auth.resolvedTeamID != selectedTeam {
+                throw CancellationError()
+            }
+            let (data, http) = (response.data, response.http)
             guard (200...299).contains(http.statusCode) else {
                 throw MachineUsageClientError.httpStatus(http.statusCode, String(data: data, encoding: .utf8) ?? "")
             }
@@ -2705,7 +2680,6 @@ actor MachineUsageClient {
         if let value = raw as? Double, value.isFinite { return Int(exactly: value.rounded(.towardZero)) }
         return nil
     }
-
     private nonisolated static func doubleValue(_ raw: Any?) -> Double? {
         if let value = raw as? Double, value.isFinite { return value }
         if let value = raw as? Int { return Double(value) }
@@ -2716,7 +2690,6 @@ actor MachineUsageClient {
     // Date.ISO8601FormatStyle is Sendable, so these can be nonisolated
     // constants; ISO8601DateFormatter is not and warned here.
     private nonisolated static let iso8601WithFractions = Date.ISO8601FormatStyle(includingFractionalSeconds: true)
-
     private nonisolated static let iso8601 = Date.ISO8601FormatStyle()
 
     /// `null`/absent is nil; an unparseable string is nil too, since the date
@@ -2734,11 +2707,14 @@ actor MachineUsageClient {
         let tokens: (accessToken: String, refreshToken: String)
         do {
             tokens = try await CloudOperationContext.phase(.authentication) { try await auth.currentTokens() }
-        } catch AuthError.networkError {
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch AuthError.networkError, AuthError.timedOut {
             throw MachineUsageClientError.sessionRefreshFailed
         } catch {
             throw MachineUsageClientError.notSignedIn
         }
+        try Task.checkCancellation()
         let resolvedTeamID = await auth.resolvedTeamID
 
         guard var comps = URLComponents(url: AuthEnvironment.vmAPIBaseURL, resolvingAgainstBaseURL: false) else {
@@ -2759,22 +2735,32 @@ actor MachineUsageClient {
             req.setValue(teamID, forHTTPHeaderField: "X-Cmux-Team-Id")
         }
 
-        let data: Data
-        let response: URLResponse
-        do {
-            (data, response) = try await session.data(for: req)
-        } catch let error as URLError {
-            switch error.code {
-            case .cannotConnectToHost, .cannotFindHost, .timedOut, .networkConnectionLost, .notConnectedToInternet:
-                let base = "\(AuthEnvironment.vmAPIBaseURL.scheme ?? "http")://\(AuthEnvironment.vmAPIBaseURL.host ?? "?"):\(AuthEnvironment.vmAPIBaseURL.port ?? -1)"
-                throw MachineUsageClientError.backendUnreachable(url: base, detail: error.localizedDescription)
-            default:
-                throw error
+        return try await CloudOperationContext.phase(.request) {
+            let data: Data
+            let response: URLResponse
+            do {
+                (data, response) = try await session.data(for: req)
+            } catch let error as URLError {
+                switch error.code {
+                case .cannotConnectToHost, .cannotFindHost, .timedOut, .networkConnectionLost, .notConnectedToInternet:
+                    let base = "\(AuthEnvironment.vmAPIBaseURL.scheme ?? "http")://\(AuthEnvironment.vmAPIBaseURL.host ?? "?"):\(AuthEnvironment.vmAPIBaseURL.port ?? -1)"
+                    throw MachineUsageClientError.backendUnreachable(url: base, detail: error.localizedDescription)
+                default:
+                    throw error
+                }
             }
-        }
-        guard let http = response as? HTTPURLResponse else {
-            throw MachineUsageClientError.malformedResponse("non-HTTP response")
-        }
+            guard let http = response as? HTTPURLResponse else {
+                throw MachineUsageClientError.malformedResponse("non-HTTP response")
+            }
+            if http.statusCode == 429, let read = CloudReadRequestCoordinator.current, let owner = read.owner {
+                let retryAfter = CmxRetryAfterPolicy()
+                let seconds = TimeInterval(retryAfter.seconds(from: http) ?? retryAfter.defaultRateLimitSeconds)
+                _ = await owner.noteRetryAfter(read.key, seconds: seconds, response: .init(data: data, http: http))
+            }
+            guard (200...299).contains(http.statusCode) else {
+                throw MachineUsageClientError.httpStatus(http.statusCode, String(data: data, encoding: .utf8) ?? "")
+            }
         return (data, http)
     }
+}
 }

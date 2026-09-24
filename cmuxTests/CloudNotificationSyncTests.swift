@@ -3,6 +3,8 @@
 #elseif canImport(cmux)
 @testable import cmux
 #endif
+import CmuxCloudTui
+import CmuxSurfaceCatalogModel
 import Foundation
 import Testing
 
@@ -381,9 +383,9 @@ struct CloudNotificationSyncTests {
                 newKey: { keyCounter += 1; return "k\(keyCounter)" },
                 resolveTarget: { _ in effects.hasPlacement ? CloudNotificationDeliveryTarget(workspaceID: workspace, panelID: nil) : nil },
                 deliver: { row, _ in
-                    if effects.declineDelivery { return false }
+                    if effects.declineDelivery { return .declined }
                     effects.delivered.append(row.id)
-                    return true
+                    return .delivered
                 },
                 send: { batch in
                     if effects.sendFails { throw CancellationError() }
@@ -484,4 +486,5 @@ struct CloudNotificationSyncTests {
         // No key was ever sent with two different id sets.
         #expect(effects.acked.values.allSatisfy { Set($0).count == $0.count })
     }
+
 }

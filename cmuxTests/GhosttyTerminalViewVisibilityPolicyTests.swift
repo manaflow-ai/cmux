@@ -1,33 +1,35 @@
 import AppKit
+import CmuxTerminal
 import Bonsplit
 import QuartzCore
 import SwiftUI
 import Testing
-
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
 #elseif canImport(cmux)
 @testable import cmux
 #endif
-
 private final class PortalBindLayoutCountingView: NSView {
     private(set) var layoutCount = 0
-
+    var nextLayout: (() -> Void)?
     override func layout() {
         layoutCount += 1
         super.layout()
+        let pendingLayout = nextLayout
+        nextLayout = nil
+        pendingLayout?()
     }
-
     func resetLayoutCount() {
         layoutCount = 0
     }
 }
-
 @MainActor
 @Suite(.serialized)
 struct GhosttyTerminalViewVisibilityPolicyTests {
     @Test func staleRepresentableCannotOverwriteCurrentHostAttentionColor() {
-        let panel = TerminalPanel(workspaceId: UUID())
+        let workspace = TerminalPortalTestWorkspace()
+        defer { workspace.tearDown() }
+        let panel = TerminalPanel(workspaceId: workspace.id)
         let paneId = PaneID()
         let size = NSSize(width: 480, height: 320)
         let currentColor = WorkspaceAttentionColor(configuredHex: "#FF69B4")
@@ -224,8 +226,8 @@ struct GhosttyTerminalViewVisibilityPolicyTests {
         scheduler.stage(reasons: [.bindingRequired]) { _ in
             Issue.record("The superseded reconciliation must not run")
         }
-        scheduler.stage(reasons: [.flushPendingManualSizeReport]) { reasons in
-            observedReasons = reasons
+        scheduler.stage(reasons: [.flushPendingManualSizeReport]) { request in
+            observedReasons = request.reasons
             usedLatestReconciliation = true
         }
 
@@ -233,9 +235,7 @@ struct GhosttyTerminalViewVisibilityPolicyTests {
         #expect(!usedLatestReconciliation)
 
         await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
-            RunLoop.main.perform(inModes: [.common]) {
-                continuation.resume()
-            }
+            RunLoop.main.perform(inModes: [.common]) { continuation.resume() }
         }
 
         #expect(observedReasons?.contains(.bindingRequired) == true)
@@ -257,7 +257,9 @@ struct GhosttyTerminalViewVisibilityPolicyTests {
         window.contentView = container
         container.addSubview(host)
 
-        let panel = TerminalPanel(workspaceId: UUID())
+        let workspace = TerminalPortalTestWorkspace()
+        defer { workspace.tearDown() }
+        let panel = TerminalPanel(workspaceId: workspace.id)
         let coordinator = GhosttyTerminalView.Coordinator()
         var ownsPane = true
         coordinator.attachGeneration = 1
@@ -331,12 +333,10 @@ struct GhosttyTerminalViewVisibilityPolicyTests {
         #expect(TerminalWindowPortalRegistry.isHostedView(panel.hostedView, boundTo: host))
         TerminalWindowPortalRegistry.synchronizeForAnchor(host, syncLayout: false)
 
-        #expect(
-            panel.hostedView.isHidden,
+        #expect(panel.hostedView.isHidden,
             "A detached current host must persist its hidden intent before the authoritative rebind"
         )
     }
-
     @Test func portalRegistryBindsDeferWindowLayoutUntilCoalescedPass() async {
         let size = NSSize(width: 640, height: 360)
         let window = NSWindow(
@@ -353,8 +353,10 @@ struct GhosttyTerminalViewVisibilityPolicyTests {
         container.addSubview(firstAnchor)
         container.addSubview(secondAnchor)
 
-        let firstPanel = TerminalPanel(workspaceId: UUID())
-        let secondPanel = TerminalPanel(workspaceId: UUID())
+        let workspace = TerminalPortalTestWorkspace()
+        defer { workspace.tearDown() }
+        let firstPanel = TerminalPanel(workspaceId: workspace.id)
+        let secondPanel = TerminalPanel(workspaceId: workspace.id)
         defer {
             TerminalWindowPortalRegistry.detach(hostedView: firstPanel.hostedView)
             TerminalWindowPortalRegistry.detach(hostedView: secondPanel.hostedView)
@@ -395,11 +397,7 @@ struct GhosttyTerminalViewVisibilityPolicyTests {
             "Anchor changes must wait for the queued portal convergence pass"
         )
 
-        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
-            DispatchQueue.main.async {
-                continuation.resume()
-            }
-        }
+        await flushPortalReconciliationPasses()
         #expect(container.layoutCount > 0, "The coalesced window pass must still converge layout")
         #expect(
             firstPanel.hostedView.frame.width == 240,
@@ -420,7 +418,9 @@ struct GhosttyTerminalViewVisibilityPolicyTests {
         let anchor = NSView(frame: container.bounds)
         window.contentView = container
         container.addSubview(anchor)
-        let panel = TerminalPanel(workspaceId: UUID())
+        let workspace = TerminalPortalTestWorkspace()
+        defer { workspace.tearDown() }
+        let panel = TerminalPanel(workspaceId: workspace.id)
         defer {
             TerminalWindowPortalRegistry.detach(hostedView: panel.hostedView)
             window.close()
@@ -437,6 +437,7 @@ struct GhosttyTerminalViewVisibilityPolicyTests {
             expectedGeneration: panel.surface.portalBindingGeneration()
         )
         panel.hostedView.setVisibleInUI(true)
+        await waitForLiveSurface(panel.surface)
         await flushPortalReconciliationPasses()
         window.displayIfNeeded()
         container.layoutSubtreeIfNeeded()
@@ -455,28 +456,38 @@ struct GhosttyTerminalViewVisibilityPolicyTests {
 
         panel.hostedView.setVisibleInUI(false)
         TerminalWindowPortalRegistry.hideHostedView(panel.hostedView)
-        anchor.frame.size.width = 280
-        _ = portal.updateEntryVisibility(
-            forHostedId: ObjectIdentifier(panel.hostedView),
-            visibleInUI: true
+        // Hiding retires the hosted view from the window (#12607); only a
+        // bind reinstalls it. Reveal the way workspace reconciliation does
+        // (TerminalPortalReconciliation rebinds a hosted view with no
+        // superview) instead of flipping portal visibility on a detached view.
+        #expect(panel.hostedView.superview == nil, "Hiding must retire the hosted view from the window")
+        #expect(
+            portal.hostedViewNeedsPortalReattachForVisiblePresentation(
+                withId: ObjectIdentifier(panel.hostedView)
+            ),
+            "Revealing a retired hosted view must request a portal reattach"
         )
+        TerminalWindowPortalRegistry.bind(
+            hostedView: panel.hostedView,
+            to: anchor,
+            visibleInUI: true,
+            expectedSurfaceId: panel.surface.id,
+            expectedGeneration: panel.surface.portalBindingGeneration()
+        )
+        container.nextLayout = { anchor.frame.size.width = 280 }
         panel.hostedView.setVisibleInUI(true)
         container.needsLayout = true
         container.resetLayoutCount()
 
-        // Deliver the same external geometry pass used by workspace reveal
-        // synchronously, before its queued follow-up. The override only selects
-        // notification delivery; the native surface is not in a live resize.
-        portal.isWindowLiveResizeActiveOverrideForTesting = true
-        NotificationCenter.default.post(name: NSWindow.didResizeNotification, object: window)
-        portal.isWindowLiveResizeActiveOverrideForTesting = false
+        // Change the anchor during a normal layout pass. A live-resize override
+        // would authorize an interactive geometry commit instead of settlement.
+        portal.synchronizeAllEntriesFromExternalGeometryChange()
         #expect(container.layoutCount > 0)
+        #expect(container.nextLayout == nil)
         #expect(panel.hostedView.frame.width == 280)
-        #expect(
-            try terminalSize() == initialTerminalSize,
+        #expect(try terminalSize() == initialTerminalSize,
             "The pass that changes layout must not publish an intermediate terminal size"
         )
-
         // The next layout restores the workspace's original pane geometry.
         // There is no reason to resize its native surface or notify its PTY.
         anchor.frame.size = size
@@ -489,17 +500,6 @@ struct GhosttyTerminalViewVisibilityPolicyTests {
         anchor.frame.size.width = 360
         TerminalWindowPortalRegistry.scheduleExternalGeometrySynchronize(for: window, forceImmediate: false)
         await flushPortalReconciliationPasses()
-        // Native size publication also waits for AppKit's display/layout
-        // turn. Main-queue barriers alone do not drive that turn in an async test.
-        let clock = ContinuousClock()
-        let deadline = clock.now.advanced(by: .seconds(1))
-        while (try terminalSize()).width >= initialTerminalSize.width,
-              clock.now < deadline {
-            window.displayIfNeeded()
-            panel.hostedView.layoutSubtreeIfNeeded()
-            _ = panel.hostedView.reconcileGeometryNow()
-            await flushPortalReconciliationPasses()
-        }
         #expect(panel.hostedView.frame.width == 360)
         #expect((try terminalSize()).width < initialTerminalSize.width)
         #expect(
@@ -529,21 +529,24 @@ struct GhosttyTerminalViewVisibilityPolicyTests {
         await flushPortalReconciliationTurn()
         for _ in 0..<4 {
             await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
-                DispatchQueue.main.async {
-                    continuation.resume()
-                }
+                DispatchQueue.main.async { continuation.resume() }
             }
         }
     }
-
     private func flushPortalReconciliationTurn() async {
         await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
-            RunLoop.main.perform(inModes: [.common]) {
-                continuation.resume()
-            }
+            RunLoop.main.perform(inModes: [.common]) { continuation.resume() }
         }
     }
-
+    private func waitForLiveSurface(_ surface: TerminalSurface) async {
+        guard !surface.hasLiveSurface else { return }
+        let previous = surface.onRuntimeReady
+        defer { surface.onRuntimeReady = previous }
+        await withCheckedContinuation { continuation in
+            surface.onRuntimeReady = { continuation.resume() }
+            surface.requestInputDemandSurfaceStartIfNeeded()
+        }
+    }
     private func shapeLayers(in layer: CALayer?) -> [CAShapeLayer] {
         guard let layer else { return [] }
         return ((layer as? CAShapeLayer).map { [$0] } ?? [])

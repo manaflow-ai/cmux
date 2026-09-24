@@ -69,6 +69,21 @@ fn registry_opens_and_persists_under_a_long_windows_state_root() {
 }
 
 #[test]
+fn journal_plugin_generation_reservation_is_monotonic_and_durable() {
+    let registry = WorkspaceRegistry::in_memory("plugin-generation").unwrap();
+    assert_eq!(registry.reserve_journal_plugin_generation().unwrap(), 1);
+    assert_eq!(registry.reserve_journal_plugin_generation().unwrap(), 2);
+    registry
+        .connection
+        .execute(
+            "UPDATE meta SET value = ?1 WHERE key = 'journal_plugin_generation'",
+            [u64::MAX.to_string()],
+        )
+        .unwrap();
+    assert!(registry.reserve_journal_plugin_generation().is_err());
+}
+
+#[test]
 fn interrupted_staged_workspace_keeps_reserved_public_id_without_early_publication() {
     let root = temp_root("interrupted-workspace-public-id");
     let key = "018f6e21-7b70-7e70-8000-0000000000aa";
@@ -605,6 +620,7 @@ fn terminal_host_reset_holds_structured_live_marker_lock() {
         supports_clear_history: true,
         supports_terminate_ack: false,
         supports_input_ack: false,
+        supports_terminal_metadata: false,
     };
     let record_path = record.record_path(&root);
     let live_path = terminal_host_live_marker_path(&record_path, &record);
@@ -699,6 +715,7 @@ fn terminal_host_reset_checks_legacy_live_marker_as_orphan() {
         supports_clear_history: false,
         supports_terminate_ack: false,
         supports_input_ack: false,
+        supports_terminal_metadata: false,
     };
     let record_path = record.record_path(&root);
     let live_path = terminal_host_live_marker_path(&record_path, &record);
@@ -807,6 +824,7 @@ fn reset_accepts_dead_v2_terminal_host_without_creating_live_marker() {
         supports_clear_history: true,
         supports_terminate_ack: false,
         supports_input_ack: false,
+        supports_terminal_metadata: false,
     };
     let record_path = record.record_path(&host_root);
     let live_path = terminal_host_live_marker_path(&record_path, &record);
@@ -5534,6 +5552,39 @@ fn terminal_exit_snapshot_round_trips_and_records_journal_coverage() {
             .unwrap()
     );
     assert!(registry.terminal_exit_snapshot(other.as_str()).unwrap().is_none());
+}
+
+#[test]
+fn checkpoint_content_rejects_trailing_compressed_members_and_bytes() {
+    let terminal_id = terminal_resource(TERMINAL_ONE);
+    let blob = vt_replay_blob_for_test(&terminal_id, 100, 30, b"checkpoint");
+
+    let mut second_member = blob.compressed.clone();
+    second_member.extend_from_slice(&blob.compressed);
+    assert!(
+        JournalContentBlob::verified(blob.reference.clone(), second_member).is_err(),
+        "a checkpoint blob must contain exactly one gzip member"
+    );
+
+    let mut trailing_bytes = blob.compressed.clone();
+    trailing_bytes.extend_from_slice(b"trailing");
+    assert!(
+        JournalContentBlob::verified(blob.reference, trailing_bytes).is_err(),
+        "a checkpoint blob must not contain trailing compressed bytes"
+    );
+}
+
+#[test]
+fn checkpoint_content_requires_complete_gzip_trailer() {
+    let terminal_id = terminal_resource(TERMINAL_ONE);
+    let blob = vt_replay_blob_for_test(&terminal_id, 100, 30, b"checkpoint");
+    for missing_bytes in 1..=8 {
+        let truncated = blob.compressed[..blob.compressed.len() - missing_bytes].to_vec();
+        assert!(
+            JournalContentBlob::verified(blob.reference.clone(), truncated).is_err(),
+            "a checkpoint blob must validate all eight gzip trailer bytes"
+        );
+    }
 }
 
 fn receipt_test_producer() -> JournalProducerManifest {

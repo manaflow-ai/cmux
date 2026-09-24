@@ -1,0 +1,1177 @@
+# Python regression execution registry.
+#
+# Automatic lanes describe where a test executes. `legacy` is migration
+# inventory only: existing files may remain legacy while we model their
+# current execution path, but newly added tests may not enter as legacy.
+# `manual` entries require a reason.
+version = 1
+
+[[test]]
+path = "tests/test_omp_auto_naming.py"
+lane = "macos-cli-no-socket"
+requirements = ["cmux-cli"]
+
+[[test]]
+path = "tests/test_open_wrapper.py"
+lane = "macos-shell"
+
+[[test]]
+path = "tests/test_cli_vm_transfer_progress.py"
+lane = "macos-cli-no-socket"
+requirements = ["cmux-cli"]
+
+[[test]]
+path = "tests/test_cli_vm_resize.py"
+lane = "macos-cli-no-socket"
+requirements = ["cmux-cli"]
+
+[[test]]
+path = "tests/test_cli_vm_open_device_target.py"
+lane = "macos-cli-no-socket"
+requirements = ["cmux-cli"]
+
+[[test]]
+path = "tests/test_cli_cloud_hostname.py"
+lane = "macos-cli-no-socket"
+requirements = ["cmux-cli"]
+
+[[test]]
+path = "tests/test_cli_layout_focus_contract.py"
+lane = "macos-cli-no-socket"
+requirements = ["cmux-cli"]
+
+[[test]]
+path = "tests/test_cli_right_sidebar_aliases.py"
+lane = "macos-cli-no-socket"
+requirements = ["cmux-cli"]
+
+[[test]]
+path = "tests/test_cli_socket_operation_deadline.py"
+lane = "macos-cli-no-socket"
+requirements = ["cmux-cli"]
+
+[[test]]
+path = "tests/test_cli_simulator_contract.py"
+lane = "macos-cli-no-socket"
+requirements = ["cmux-cli"]
+
+[[test]]
+path = "tests/test_browser_profile_cli.py"
+lane = "macos-cli-no-socket"
+requirements = ["cmux-cli"]
+
+[[test]]
+path = "tests/test_stress_cli_socket_api.py"
+lane = "macos-cli-no-socket"
+
+[[test]]
+path = "tests/test_cli_omo_openagent_plugin_migration.py"
+lane = "macos-cli-no-socket"
+requirements = ["cmux-cli"]
+
+[[test]]
+path = "tests/test_cli_socket_autodiscovery.py"
+lane = "macos-cli-no-socket"
+requirements = ["cmux-cli"]
+
+[[test]]
+path = "tests/test_codex_wrapper_resume_hooks.py"
+lane = "macos-cli-no-socket"
+
+[[test]]
+path = "tests/test_codex_autoresume_chain.py"
+lane = "macos-cli-no-socket"
+
+[[test]]
+path = "tests/test_claude_wrapper_hooks.py"
+lane = "macos-claude-wrapper"
+
+[[test]]
+path = "tests/test_codex_wrapper_computer_use_mcp.py"
+lane = "macos-cli-no-socket"
+
+[[test]]
+path = "tests/test_cmux_cua_mcp_smoke.py"
+lane = "macos-cli-no-socket"
+
+[[test]]
+path = "tests/test_cmux_cua_build_cache_safety.py"
+lane = "macos-cli-no-socket"
+
+[[test]]
+path = "tests/test_cmux_cua_helper_identity.py"
+lane = "macos-cli-no-socket"
+
+[[test]]
+path = "tests/test_hermes_wrapper_hooks.py"
+lane = "macos-cli-no-socket"
+
+[[test]]
+path = "tests/test_claude_wrapper_mutual_shim_loop.py"
+lane = "macos-cli-no-socket"
+
+[[test]]
+path = "tests/test_claude_wrapper_shim_root_survives_tmpdir_change.py"
+lane = "macos-cli-no-socket"
+
+[[test]]
+path = "tests/test_claude_wrapper_user_binary_resolution.py"
+lane = "macos-cli-no-socket"
+
+[[test]]
+path = "tests/test_claude_teams_test_utils.py"
+lane = "macos-cli-no-socket"
+
+[[test]]
+path = "tests/test_cli_codex_teams_informational.py"
+lane = "macos-cli-no-socket"
+requirements = ["cmux-cli"]
+
+[[test]]
+path = "tests/test_cli_claude_teams_fallback_path.py"
+lane = "macos-cli-no-socket"
+requirements = ["cmux-cli"]
+
+[[test]]
+path = "tests/test_cli_claude_teams_env.py"
+lane = "macos-cli-no-socket"
+requirements = ["cmux-cli"]
+
+[[test]]
+path = "tests/test_cli_claude_teams_existing_shim.py"
+lane = "macos-cli-no-socket"
+requirements = ["cmux-cli"]
+
+[[test]]
+path = "tests/test_cli_claude_teams_main_vertical.py"
+lane = "macos-cli-no-socket"
+requirements = ["cmux-cli"]
+
+[[test]]
+path = "tests/test_cli_claude_teams_moved_surface.py"
+lane = "macos-cli-no-socket"
+requirements = ["cmux-cli"]
+
+[[test]]
+path = "tests/test_cli_claude_teams_tmux_sequence.py"
+lane = "macos-cli-no-socket"
+requirements = ["cmux-cli"]
+
+[[test]]
+path = "tests/test_cli_tmux_compat_targeted_read_budget.py"
+lane = "macos-cli-no-socket"
+requirements = ["cmux-cli"]
+
+[[test]]
+path = "tests/test_cli_claude_teams_trust_optin.py"
+lane = "macos-cli-no-socket"
+requirements = ["cmux-cli"]
+
+[[test]]
+path = "tests/test_cli_omo_fallback_path.py"
+lane = "macos-cli-no-socket"
+requirements = ["cmux-cli"]
+
+[[test]]
+path = "tests/test_cli_omx_fallback_path.py"
+lane = "macos-cli-no-socket"
+requirements = ["cmux-cli"]
+
+[[test]]
+path = "tests/test_cli_omc_fallback_path.py"
+lane = "macos-cli-no-socket"
+requirements = ["cmux-cli"]
+
+[[test]]
+path = "tests/test_issue_8743_path_directory_shadowing.py"
+lane = "macos-cli-no-socket"
+requirements = ["cmux-cli"]
+
+[[test]]
+path = "tests/test_issue_2448_shell_claude_wrapper_dispatch.py"
+lane = "macos-cli-no-socket"
+
+[[test]]
+path = "tests/test_issue_8093_ghostty_ssh_binary_path.py"
+lane = "macos-cli-no-socket"
+
+[[test]]
+path = "tests/test_issue_6714_zsh_shim_noclobber.py"
+lane = "macos-cli-no-socket"
+
+[[test]]
+path = "tests/test_issue_9356_bash_shim_noclobber.py"
+lane = "macos-cli-no-socket"
+
+[[test]]
+path = "tests/test_issue_10926_watcher_pid_reuse_guard.py"
+lane = "macos-cli-no-socket"
+
+[[test]]
+path = "tests/test_issue_13343_claude_integration_toggle.py"
+lane = "macos-cli-no-socket"
+
+[[test]]
+path = "tests/test_issue_8953_zsh_prompt_wrap_guard.py"
+lane = "macos-cli-no-socket"
+
+[[test]]
+path = "tests/test_nushell_shim_path_refront.py"
+lane = "macos-cli-no-socket"
+
+[[test]]
+path = "tests/test_nushell_resume_command_dialect.py"
+lane = "macos-cli-no-socket"
+
+[[test]]
+path = "tests/test_nushell_integration_hooks.py"
+lane = "macos-cli-no-socket"
+
+[[test]]
+path = "tests/test_shell_git_branch_stale_cwd.py"
+lane = "macos-cli-no-socket"
+
+[[test]]
+path = "tests/test_shell_git_config_remote_url_parsing.py"
+lane = "macos-cli-no-socket"
+
+[[test]]
+path = "tests/test_claude_hook_stop_last_assistant.py"
+lane = "macos-cli-no-socket-post-fish"
+requirements = ["cmux-cli"]
+
+[[test]]
+path = "tests/test_claude_hook_clear_running_status.py"
+lane = "macos-cli-no-socket-post-fish"
+requirements = ["cmux-cli"]
+
+[[test]]
+path = "tests/test_claude_hook_push_notification.py"
+lane = "macos-cli-no-socket-post-fish"
+requirements = ["cmux-cli"]
+
+[[test]]
+path = "tests/test_pi_extension_install.py"
+lane = "macos-cli-no-socket-post-fish"
+requirements = ["cmux-cli"]
+
+[[test]]
+path = "tests/test_pi_extension_dispatch.py"
+lane = "macos-cli-no-socket-post-fish"
+requirements = ["cmux-cli"]
+
+[[test]]
+path = "tests/test_pi_compacted_feed.py"
+lane = "macos-cli-no-socket-post-fish"
+requirements = ["cmux-cli"]
+
+[[test]]
+path = "tests/test_codex_permission_prompt_notification.py"
+lane = "macos-cli-no-socket-post-fish"
+requirements = ["cmux-cli"]
+
+[[test]]
+path = "tests/test_codex_monitor_memory.py"
+lane = "macos-cli-no-socket-post-fish"
+requirements = ["cmux-cli"]
+
+[[test]]
+path = "tests/test_omp_extension_install.py"
+lane = "macos-cli-no-socket-post-fish"
+requirements = ["cmux-cli"]
+
+[[test]]
+path = "tests/test_omp_subagent_lifecycle.py"
+lane = "macos-cli-no-socket-post-fish"
+requirements = ["cmux-cli"]
+
+[[test]]
+path = "tests/test_campfire_extension_install.py"
+lane = "macos-cli-no-socket-post-fish"
+requirements = ["cmux-cli"]
+
+[[test]]
+path = "tests/test_issue_9075_shell_socket_reports.py"
+lane = "macos-shell-fish"
+requirements = ["fish"]
+
+[[test]]
+path = "tests/test_app_host_test_products.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_bash_integration_no_done_notifications.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_benchmark_dev_fleet_warm_slots.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_build_graph_health.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_build_metrics.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_check_package_resolved_policy.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_app_host_failure_census.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_replay_app_host_verdict.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_app_host_home_isolation.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_app_host_pipe_capture.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_app_host_test_output.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_change_areas.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_fork_runner_routing.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_checkout_network_diagnostics.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_console_session_env_forwarding.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_cmux_unit_test_shard.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_fetch_complexity_base.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_guard_workflow_structure.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_evidence_outcomes.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_reusable_job_name_lookups.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_runner_capability_resolver.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_health_report.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_runner_label_policy.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_linux_guard_routing.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_merge_queue_required_checks.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_nightly_push_throttle.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_notification_semantics.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_cli_product_routing.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_product_publication.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_prune_xcode_compilation_cache.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_owned_pool_rescue.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_pr_runner_pool.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_pull_request_caches_are_read_only.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_queue_janitor.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_repo_variable_defaults.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_macos_xcode_selection.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_required_checks_drift.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_reusable_workflow_permissions.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_sanitize_xcode_source_packages_cache.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_reload_build_cache_keys.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_select_package_tests.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_workflow_run_sources.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_sidebar_lazy_layout_guard.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_source_lint_guard_structure.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_test_execution_registry.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_testbox_broker_guard.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_workload_profiles.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_xcodebuild_noninteractive_helper.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_cleanup_stale_runs.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_cloud_vm_skill_coverage.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_dev_fleet_warm_slot.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_dock_shortcut_routing_guard.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_docs_deploy_auth_guard.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_github_release_publication.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ios_appstore_lane_identity.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ios_appstore_upload_marker.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ios_selected_test_execution.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ios_testflight_external_distribution.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ios_testflight_main_push_filter.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ios_testflight_notes.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ios_testflight_pro_distribution.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ios_upload_batching.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ios_upload_lean_checkout.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ios_workflow_dispatch_ref.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_issue_5164_starship_prompt_composition.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_lint_feature_flags_scope.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_lint_errno_in_test_assertions.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_lint_stored_dispatch_work_items.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_lint_xcstrings.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_local_build_cache_policy.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_local_build_cache_preflight.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_localizable_xcstrings_structure.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_localization_catalog.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_localize_changes.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_package_resolved_policy_remote_inputs.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_perf_activation_scrollback_sizing.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_preflight_trust.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_e2e_warm_derived_data.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_reuse_app_host_products.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_review_fabric.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_run_e2e.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_e2e_compilation_cache.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_manual_macos_package_cache.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_sync_test_wiring.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_swift_incremental_diagnostics.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_swift_package_execution.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_swift_test_execution.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_swift_testing_suite_timeout.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_hung_test_watchdog.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_run_with_timeout_process_tree.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_tui_npm_package_artifact.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_tui_package_contract.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_web_complexity_trusted_workflow.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_write_sidebar_extension_point.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_amp_extension_install.py"
+lane = "legacy"
+
+[[test]]
+path = "tests/test_amp_wrapper_hooks.py"
+lane = "legacy"
+
+[[test]]
+path = "tests/test_app_host_layer_transport.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_app_host_layered_products.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_app_host_test_rerun.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_check_ghostty_zig_workflows.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_actionlint_covers_every_workflow.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_app_host_result_accounting.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_focused_test_selectors.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_cache_restore_receipt.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_parallel_artifact_transport.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_r2_artifact.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_r2_cache_census.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_r2_canary.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_release_helper_archs.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_required_checks_are_bounded.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_selective_layer_wiring.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_workflow_path_filter_parity.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_workflow_guards_are_wired.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_claude_hook_missing_socket_error.py"
+lane = "legacy"
+
+[[test]]
+path = "tests/test_claude_hook_stop_ignores_teardown_unavailable.py"
+lane = "legacy"
+
+[[test]]
+path = "tests/test_claude_wrapper_computer_use_skill.py"
+lane = "legacy"
+
+[[test]]
+path = "tests/test_cli_broken_pipe_writes.py"
+lane = "legacy"
+
+[[test]]
+path = "tests/test_cli_claude_teams_help_passthrough.py"
+lane = "legacy"
+
+[[test]]
+path = "tests/test_cli_claude_teams_skips_wrapper_claude.py"
+lane = "legacy"
+
+[[test]]
+path = "tests/test_cli_config_doctor.py"
+lane = "legacy"
+
+[[test]]
+path = "tests/test_cli_contract_help.py"
+lane = "legacy"
+
+[[test]]
+path = "tests/test_cli_creation_initial_command.py"
+lane = "legacy"
+
+[[test]]
+path = "tests/test_cli_current.py"
+lane = "legacy"
+
+[[test]]
+path = "tests/test_cli_glaeda_execution.py"
+lane = "legacy"
+
+[[test]]
+path = "tests/test_cli_omo_tmux_respawn_pane.py"
+lane = "legacy"
+
+[[test]]
+path = "tests/test_cli_omx_hud_tmux_split.py"
+lane = "legacy"
+
+[[test]]
+path = "tests/test_cli_sigpipe_ignore.py"
+lane = "legacy"
+
+[[test]]
+path = "tests/test_cli_tmux_compat_split_window_surface_ref.py"
+lane = "legacy"
+
+[[test]]
+path = "tests/test_cli_tree_layout.py"
+lane = "legacy"
+
+[[test]]
+path = "tests/test_cli_version_flag.py"
+lane = "legacy"
+
+[[test]]
+path = "tests/test_cli_version_memory_guard.py"
+lane = "legacy"
+
+[[test]]
+path = "tests/test_cli_vm_create_name.py"
+lane = "legacy"
+
+[[test]]
+path = "tests/test_cloud_display_catalog.py"
+lane = "legacy"
+
+[[test]]
+path = "tests/test_cloud_task_local_lifecycle.py"
+lane = "legacy"
+
+[[test]]
+path = "tests/test_cloud_vm_attach_retry_script.py"
+lane = "legacy"
+
+[[test]]
+path = "tests/test_cmux_browser_skill.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_cmux_settings_jsonc.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_cmux_settings_supported_paths.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_cmux_settings_transactions.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_settings_configuration_review_paths.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_codex_feed_hooks.py"
+lane = "legacy"
+
+[[test]]
+path = "tests/test_codex_wrapper_hook_append.py"
+lane = "legacy"
+
+[[test]]
+path = "tests/test_current_cli_workflow.py"
+lane = "legacy"
+
+[[test]]
+path = "tests/test_current_command_fixture.py"
+lane = "legacy"
+
+[[test]]
+path = "tests/test_ghostty_cli_helper_cache_failures.py"
+lane = "legacy"
+
+[[test]]
+path = "tests/test_ghostty_zsh_job_table_saturation_guard.py"
+lane = "legacy"
+
+[[test]]
+path = "tests/test_ghostty_zsh_prompt_redraw_uses_prompt_start.py"
+lane = "legacy"
+
+[[test]]
+path = "tests/test_ghostty_zsh_pure_hidden_cr_omits_continuation_marker.py"
+lane = "legacy"
+
+[[test]]
+path = "tests/test_ghostty_zsh_pure_preprompt_redraw.py"
+lane = "legacy"
+
+[[test]]
+path = "tests/test_indexnow_notification.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ios_screenshot_capture_guard.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ios_testflight_archive_log.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ios_testflight_assignment_after_upload.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ios_upload_array_expansion.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_iroh_monitor_simulator_plan.py"
+lane = "legacy"
+
+[[test]]
+path = "tests/test_issue_11257_prompt_command_export.py"
+lane = "legacy"
+
+[[test]]
+path = "tests/test_issue_1138_sidebar_pr_polling.py"
+lane = "legacy"
+
+[[test]]
+path = "tests/test_issue_734_shell_integration_none_respected.py"
+lane = "legacy"
+
+[[test]]
+path = "tests/test_memory_resource_diagnostics.py"
+lane = "legacy"
+
+[[test]]
+path = "tests/test_merge_xcstrings.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_mobile_attach_prefers_iroh.py"
+lane = "legacy"
+
+[[test]]
+path = "tests/test_mobile_host_identity_cold_start.py"
+lane = "legacy"
+
+[[test]]
+path = "tests/test_mobile_stability_soak_attach_contract.py"
+lane = "legacy"
+
+[[test]]
+path = "tests/test_multi_workspace_focus.py"
+lane = "legacy"
+
+[[test]]
+path = "tests/test_node_product_cache.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_normalize_pbxproj.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_notarize_computer_use_helper.py"
+lane = "legacy"
+
+[[test]]
+path = "tests/test_opencode_plugin_install.py"
+lane = "legacy"
+
+[[test]]
+path = "tests/test_pairing_scheme_is_explicit_in_tests.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_pairing_scheme_lint.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_plain_text_paste_worker.py"
+lane = "legacy"
+
+[[test]]
+path = "tests/test_prune_nightly_release_assets.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_r2_upload_requests.py"
+lane = "legacy"
+
+[[test]]
+path = "tests/test_reconcile_entitlements_with_profile.py"
+lane = "legacy"
+
+[[test]]
+path = "tests/test_release_homebrew_gate.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_reload_tag_lock.py"
+lane = "legacy"
+
+[[test]]
+path = "tests/test_remote_daemon_release_assets.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_remote_daemon_release_verification.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_repair_nightly_appcast_content_types.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_shell_histfile_ghostty_zdotdir_regression.py"
+lane = "legacy"
+
+[[test]]
+path = "tests/test_shell_scrollback_restore_color_replay.py"
+lane = "legacy"
+
+[[test]]
+path = "tests/test_shell_scrollback_restore_replay_path_regression.py"
+lane = "legacy"
+
+[[test]]
+path = "tests/test_shell_zdotdir_user_override.py"
+lane = "legacy"
+
+[[test]]
+path = "tests/test_shell_zdotdir_wrapper.py"
+lane = "legacy"
+
+[[test]]
+path = "tests/test_shell_zsh_prefers_bundled_ghostty_integration.py"
+lane = "legacy"
+
+[[test]]
+path = "tests/test_sidebar_copy_ssh_error_context_menu.py"
+lane = "legacy"
+
+[[test]]
+path = "tests/test_ssh_relay_report_tty_retry.py"
+lane = "legacy"
+
+[[test]]
+path = "tests/test_swift_testing_require_not_nested.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_terminal_hang_release_gate.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_terminfo_bright_colors.py"
+lane = "legacy"
+
+[[test]]
+path = "tests/test_triage_radar.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_tui_focused_filter_guard.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_tui_installers.py"
+lane = "legacy"
+
+[[test]]
+path = "tests/test_tui_publish_dispatch_budget.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_tui_publish_workflow_security.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_vm_scp.py"
+lane = "legacy"
+
+[[test]]
+path = "tests/test_web_validation.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_workspace_churn_up_arrow_lag.py"
+lane = "legacy"
+
+[[test]]
+path = "tests/test_ci_canonical_build_root.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_cli_workflow_catalog.py"
+lane = "macos-cli-no-socket"
+requirements = ["cmux-cli"]
+
+[[test]]
+path = "tests/test_cli_workflow_catalog_translation.py"
+lane = "macos-cli-no-socket"
+
+[[test]]
+path = "tests/test_ci_release_product_reuse.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_reuse_release_product.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_main_full_suite.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_update_release_tag.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_cla_guard_metadata_routing.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_helper_prebuild_lifecycle.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_verification_receipt.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_verify_local.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ios_simulator_build_once.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_web_complexity_scope.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_ios_conventions_diff.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_seed_derived_data.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_seed_decide.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ios_video_recording.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_web_complexity_source_enumeration.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_r2_cache_prune.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_install_git_hooks.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_macos_info_plist.py"
+lane = "macos-cli-no-socket"
+
+[[test]]
+path = "tests/test_e2e_sibling_build.py"
+lane = "linux-guard"

@@ -6,6 +6,7 @@ import CmuxMobileShell
 import CmuxMobileShellModel
 import CmuxMobileSupport
 import CmuxMobileTransport
+import CmuxPhonePush
 import CmuxSentryReporting
 import Foundation
 import SwiftUI
@@ -41,8 +42,7 @@ final class AppCompositionRoot {
     /// host view lifetime.
     let keyboardFrameTracker = MobileKeyboardFrameTracker()
     private var pushReachabilityTask: Task<Void, Never>? = nil
-    /// The user's Auto-Connect vs Tailscale connection-method choice, shared by
-    /// the shell store (dial ordering) and the Settings/onboarding UI.
+    /// The legacy connection-method choice used only by onboarding and migration UI.
     let connectionMethodStore: MobileConnectionMethodStore
     /// One-time BETA migration eligibility, snapshotted before launch writes.
     let autoConnectMigrationStore: MobileAutoConnectMigrationStore
@@ -85,6 +85,7 @@ final class AppCompositionRoot {
     /// authenticated web bridge into Axiom. Held separately from product
     /// analytics so network outcomes never enter PostHog.
     private let networkOutcomeReporter: MobileNetworkOutcomeReporter
+    private let terminalTraceReporter: MobileTerminalTraceReporter
 
     init(
         runtime: CMUXMobileRuntime,
@@ -114,7 +115,8 @@ final class AppCompositionRoot {
         if Self.crashReportingEnabled {
             MobileCrashReporter().startIfEnabled(
                 consent: telemetryConsent,
-                revocationWatcher: crashRevocationWatcher
+                revocationWatcher: crashRevocationWatcher,
+                replayMaskedViewClasses: MobileSessionReplayMasking().maskedViewClasses
             )
             crashReportingEvent = telemetryConsent.isTelemetryEnabled
                 ? .crashReportingStarted
@@ -152,10 +154,15 @@ final class AppCompositionRoot {
         self.analytics = analytics
         let networkOutcomeReporter = analytics.networkOutcomeReporter
         self.networkOutcomeReporter = networkOutcomeReporter
+        let initialConnectionReporter = analytics.initialConnectionReporter
+        let terminalTraceReporter = analytics.terminalTraceReporter
+        self.terminalTraceReporter = terminalTraceReporter
         diagnosticLog.setEventTap { event in
             appLog.ingest(event)
             transportSentryReporter.ingest(event)
             networkOutcomeReporter.ingest(event)
+            initialConnectionReporter.ingest(event)
+            terminalTraceReporter.ingest(event)
         }
         self.appLifecycleDiagnostics = MobileAppLifecycleDiagnostics(
             diagnosticLog: diagnosticLog
@@ -174,7 +181,10 @@ final class AppCompositionRoot {
         }
         self.featureFlags = MobileFeatureFlags(
             loader: analytics.clientConfig,
-            request: analytics.anonymousClientConfigRequest
+            request: analytics.anonymousClientConfigRequest,
+            onTerminalLatencyChanged: { [reporter = analytics.terminalLatencyReporter] enabled in
+                reporter.setEnabled(enabled)
+            }
         )
         #if DEBUG
         let pushNotificationSettings:
@@ -214,14 +224,18 @@ final class AppCompositionRoot {
             notificationSettings: pushNotificationSettings,
             replyRelay: SystemReplyRelayClient(
                 serviceBaseURL: replyRelayBaseURL,
-                accessToken: { try? await replyRelayAccessToken() }
-            )
+                accessToken: { try? await replyRelayAccessToken() },
+                keychainAccessGroup: auth.keychainAccessGroup,
+                diagnosticLog: diagnosticLog
+            ),
+            authenticatedAccountID: { auth.coordinator.currentUser?.id }
         )
         self.pushCoordinator = pushCoordinator
         self.signOutHook = MobileSignOutHook {
             let signingOutAccountID = auth.coordinator.currentUser?.id
             let signingOutScope = auth.coordinator.authenticatedTeamScope
             return { accessToken, refreshToken in
+                PhonePushActiveAccountStore().clear()
                 await withTaskGroup(of: Void.self) { group in
                     group.addTask {
                         await pushCoordinator.unregisterFromServer(
@@ -343,7 +357,7 @@ final class AppCompositionRoot {
     /// Bundle-owned build identity used in explicit diagnostic exports.
     /// Values come only from signed app metadata, never user input.
     static var diagnosticBuildStamp: String {
-        DiagnosticBuildStamp.make(infoDictionary: Bundle.main.infoDictionary)
+        DiagnosticReport.buildStamp(infoDictionary: Bundle.main.infoDictionary)
     }
 
     private static var crashReportingEnabled: Bool {
@@ -380,6 +394,8 @@ final class AppCompositionRoot {
         let emitter = analytics.emitter
         switch phase {
         case .active:
+            analytics.terminalLatencyReporter.setForeground(true)
+            analytics.terminalTraceReporter.setForeground(true)
             diagnosticLog.recordAppEvent(.appForegrounded)
             connectionMethodStore.recordConfiguredMethodDiagnostic()
             let isFullForegroundReturn = !hasForegrounded || wasBackgrounded
@@ -413,11 +429,15 @@ final class AppCompositionRoot {
             emitter.capture("ios_app_foregrounded", foregroundProps)
             hasForegrounded = true
         case .inactive:
+            analytics.terminalLatencyReporter.setForeground(false)
+            analytics.terminalTraceReporter.setForeground(false)
             diagnosticLog.recordAppEvent(.appBecameInactive)
             // The switcher opened; a swipe-kill from here may skip the
             // background transition entirely, so snapshot diagnostics now.
             break
         case .background:
+            analytics.terminalLatencyReporter.setForeground(false)
+            analytics.terminalTraceReporter.setForeground(false)
             diagnosticLog.recordAppEvent(.appBackgrounded)
             wasBackgrounded = true
             Task { await irx.didEnterBackground() }
@@ -436,9 +456,15 @@ final class AppCompositionRoot {
             }
             // Force a flush before the OS may suspend us, so queued events survive.
             let networkOutcomeReporter = self.networkOutcomeReporter
+            let initialConnectionReporter = self.analytics.initialConnectionReporter
+            let terminalLatencyReporter = self.analytics.terminalLatencyReporter
+            let terminalTraceReporter = self.terminalTraceReporter
             Task {
                 await emitter.flush()
                 await networkOutcomeReporter.flush()
+                await initialConnectionReporter.flush()
+                await terminalLatencyReporter.flush()
+                await terminalTraceReporter.flush()
             }
         @unknown default:
             break

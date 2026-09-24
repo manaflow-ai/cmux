@@ -1,14 +1,16 @@
+import CmuxAuthRuntime
+import CmuxSurfaceCatalogModel
 import Foundation
 
 enum CloudDiagnosticFailure: String, Codable, Sendable, Error {
     case authentication, sessionRefresh = "session_refresh", permission, plan
     case rateLimit = "rate_limit", conflict, network, timeout, server, response, unsupported
-    case process, `protocol`, notFound = "not_found", resourceLimit = "resource_limit"
+    case process, `protocol`, notFound = "not_found", placement, resourceLimit = "resource_limit"
     case storage, cancelled, unknown
 
     var label: String {
         switch self {
-        case .authentication, .sessionRefresh:
+        case .authentication:
             return String(localized: "cloud.operation.failure.auth", defaultValue: "Cloud could not verify your session. Sign in again.")
         case .permission:
             return String(localized: "cloud.operation.failure.permission", defaultValue: "Cloud access was denied. Check your permissions.")
@@ -16,12 +18,14 @@ enum CloudDiagnosticFailure: String, Codable, Sendable, Error {
             return String(localized: "cloud.operation.failure.plan", defaultValue: "Your plan does not allow this Cloud operation.")
         case .rateLimit:
             return String(localized: "cloud.operation.failure.rateLimit", defaultValue: "Cloud received too many requests. Wait before you retry.")
-        case .network, .timeout:
+        case .network, .timeout, .sessionRefresh:
             return String(localized: "cloud.operation.failure.network", defaultValue: "The Cloud connection did not complete. Check your connection and try again.")
         case .conflict:
             return String(localized: "cloud.operation.failure.conflict", defaultValue: "Another operation changed this machine. Refresh its state.")
         case .notFound:
             return String(localized: "cloud.operation.failure.notFound", defaultValue: "The Cloud resource is no longer available. Refresh the machine list.")
+        case .placement:
+            return String(localized: "cloud.operation.failure.placement", defaultValue: "The Cloud terminal placement is unavailable. Refresh the machine, then retry.")
         case .unsupported:
             return String(localized: "cloud.operation.failure.unsupported", defaultValue: "This Cloud operation is not supported. Check for an update.")
         case .cancelled:
@@ -34,6 +38,14 @@ enum CloudDiagnosticFailure: String, Codable, Sendable, Error {
     static func classify(_ error: Error) -> Self {
         if let failure = error as? Self { return failure }
         if error is CancellationError { return .cancelled }
+        if let error = error as? AuthError {
+            switch error {
+            case .cancelled: return .cancelled
+            case .timedOut: return .timeout
+            case .offline, .networkError, .serverError: return .sessionRefresh
+            default: return .authentication
+            }
+        }
         if let error = error as? URLError {
             if error.code == .cancelled { return .cancelled }
             return error.code == .timedOut ? .timeout : .network
@@ -49,6 +61,15 @@ enum CloudDiagnosticFailure: String, Codable, Sendable, Error {
             case .httpStatus(let status, _): return classify(status: status)
             }
         }
+        if let error = error as? MachineUsageClientError {
+            switch error {
+            case .notSignedIn: return .authentication
+            case .sessionRefreshFailed: return .sessionRefresh
+            case .backendUnreachable: return .network
+            case .malformedResponse: return .response
+            case .httpStatus(let status, _): return classify(status: status)
+            }
+        }
         if let error = error as? CloudMachineLink.LinkError {
             switch error {
             case .timedOut: return .timeout
@@ -59,15 +80,25 @@ enum CloudDiagnosticFailure: String, Codable, Sendable, Error {
         if let error = error as? CmuxTuiSurfaceProvider.ProviderError {
             switch error {
             case .notSignedIn: return .authentication
-            case .machineAsleep, .remoteWorkspaceNotFound, .remoteTabNotFound,
-                 .noWorkspaceOnMachine, .remotePlacementUnavailable, .terminalExited: return .notFound
-            case .terminalNotCreated, .invalidSnapshot, .stateUnavailable,
-                 .invalidPreviewURL, .localForwardURLUnavailable: return .response
+            case .machineAsleep, .remoteWorkspaceNotFound, .remoteTabNotFound: return .notFound
+            case .noWorkspaceOnMachine, .remotePlacementUnavailable: return .placement
+            case .terminalNotCreated, .terminalExited: return .process
             case .terminalAttachTimedOut: return .timeout
+            case .invalidSnapshot, .stateUnavailable: return .response
             case .snapshotOnly, .hubUnavailable: return .unsupported
+            case .invalidPreviewURL, .localForwardURLUnavailable: return .response
             }
         }
         if error is CloudMachineLinkManager.ManagerError { return .connectFailure(error) }
+        if let error = error as? SurfaceCatalogError {
+            switch error {
+            case .unknownResource, .destinationNotFound, .nothingToOpen: return .notFound
+            case .noProvider, .unavailable: return .network
+            case .ambiguousRemotePlacement: return .conflict
+            case .unsupported: return .unsupported
+            case .partialOperation: return .response
+            }
+        }
         if error is DecodingError { return .response }
         return .unknown
     }

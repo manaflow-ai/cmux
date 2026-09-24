@@ -1,6 +1,27 @@
+import CmuxSurfaceCatalogModel
 import Foundation
 
 enum MachineSnapshotBuilder {
+    /// The fleet plus machines the catalog discovered before the list endpoint
+    /// returned them (or returned them under another name): the complete set of
+    /// machine rows the tree shows, in fleet order with discoveries appended.
+    static func includingCatalogMachines(_ machines: [MachineSnapshot], catalog: SurfaceCatalogSnapshot) -> [MachineSnapshot] {
+        var seen = Set(machines.map(\.id))
+        return machines + catalog.machines.compactMap { info in
+            guard let id = info.id.cloudMachineID, seen.insert(id).inserted else { return nil }
+            return MachineSnapshot(
+                id: id,
+                provider: "",
+                image: info.image ?? "",
+                isDesktop: info.hasDesktop,
+                activity: activity(fromStatus: info.status),
+                createdAt: nil,
+                label: info.name == id ? nil : info.name,
+                privateAddress: info.privateAddress
+            )
+        }
+    }
+
     static func snapshot(
         from summary: VMSummary,
         freeAccessWindowDays: Int = 0,

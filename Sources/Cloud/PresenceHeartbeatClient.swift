@@ -1,4 +1,5 @@
 import CMUXMobileCore
+import CmuxMobileHost
 import CmuxAuthRuntime
 import Foundation
 
@@ -33,6 +34,7 @@ final class PresenceHeartbeatClient {
     private var loopTask: Task<Void, Never>?
     private var routesObserveTask: Task<Void, Never>?
     private var defaultsObserver: NSObjectProtocol?
+    private var teamScopeObserver: NSObjectProtocol?
     /// Cadence between heartbeats; server-owned, seeded with the service default.
     private var intervalMs: Int = 15_000
     /// The attach routes most recently advertised by ``MobileHostService``,
@@ -57,6 +59,18 @@ final class PresenceHeartbeatClient {
             ) { _ in
                 MainActor.assumeIsolated {
                     PresenceHeartbeatClient.shared.evaluate()
+                }
+            }
+        }
+        if teamScopeObserver == nil {
+            teamScopeObserver = NotificationCenter.default.addObserver(
+                forName: .cmuxCloudTeamScopeDidChange,
+                object: nil,
+                queue: .main
+            ) { [weak self] _ in
+                MainActor.assumeIsolated {
+                    guard let self, self.loopTask != nil else { return }
+                    Task { await self.sendHeartbeat(stopping: false) }
                 }
             }
         }
@@ -227,10 +241,10 @@ final class PresenceHeartbeatClient {
             let (data, response) = try await session.data(for: req)
             guard let http = response as? HTTPURLResponse else { return }
             if http.statusCode == 429 {
-                let seconds = CmxRetryAfterPolicy.seconds(
+                let seconds = CmxRetryAfterPolicy().seconds(
                     from: http,
-                    defaultSeconds: CmxRetryAfterPolicy.defaultRateLimitSeconds
-                ) ?? CmxRetryAfterPolicy.defaultRateLimitSeconds
+                    defaultSeconds: CmxRetryAfterPolicy().defaultRateLimitSeconds
+                ) ?? CmxRetryAfterPolicy().defaultRateLimitSeconds
                 await retryAfterGate.extend(by: seconds)
                 return
             }

@@ -1,3 +1,5 @@
+import CmuxCloudTui
+import CmuxSurfaceCatalogModel
 import Foundation
 
 /// Maps a public `term_…` id to the daemon-local numeric surface a byte
@@ -111,7 +113,7 @@ struct CloudTerminalAttachmentResolver: Sendable {
     @Sendable
     #endif
     nonisolated func resolveModern(terminalID: String) async -> ModernOutcome {
-        guard let arguments = CloudTuiCommandLine.resolveTerminalArguments(
+        guard let arguments = CloudTuiRequests.resolveTerminalArguments(
             socketPath: socketPath,
             terminalID: terminalID
         ) else { return .decided(.retryable("terminal id is not a public term_ id", failure: .invalidResponse)) }
@@ -148,7 +150,7 @@ struct CloudTerminalAttachmentResolver: Sendable {
         let snapshot: [String: Any]
         do {
             let data = try await commandRunner.runTuiCommand(
-                arguments: CloudTuiCommandLine.snapshotArguments(socketPath: socketPath),
+                arguments: CloudTuiRequests.snapshotArguments(socketPath: socketPath),
                 deadline: commandDeadline
             )
             guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
@@ -181,7 +183,7 @@ struct CloudTerminalAttachmentResolver: Sendable {
         guard !placedTabs.isEmpty else { return results }
         do {
             let tree = try await commandRunner.runTuiCommand(
-                arguments: CloudTuiCommandLine.legacyListWorkspacesArguments(socketPath: socketPath),
+                arguments: CloudTuiRequests.legacyListWorkspacesArguments(socketPath: socketPath),
                 deadline: commandDeadline
             )
             let joined = CloudTuiLegacySnapshotParser().surfaceIDs(from: tree, terminalIDs: Set(placedTabs.keys))

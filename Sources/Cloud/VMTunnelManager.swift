@@ -1,3 +1,5 @@
+import CmuxCloudTui
+import CmuxMobileHost
 import CryptoKit
 import CmuxSettings
 import Darwin
@@ -106,10 +108,7 @@ struct VMTunnelManager: Sendable {
         apiBaseURL: URL
     ) -> String {
         let normalizedBundleID = normalizedBundleIdentifier(bundleIdentifier)
-        let effectiveBundleID = effectiveBundleIdentifier(
-            bundleIdentifier: normalizedBundleID,
-            environment: environment
-        )
+        let effectiveBundleID = effectiveBundleIdentifier(bundleIdentifier: normalizedBundleID, environment: environment)
 
         guard let effectiveBundleID else {
             return interfaceName(forAPIBaseURL: apiBaseURL)
@@ -124,15 +123,17 @@ struct VMTunnelManager: Sendable {
             if effectiveBundleID == SocketPathMarkerFiles.stableBundleIdentifier {
                 return "cmux"
             }
-            if effectiveBundleID == "\(SocketPathMarkerFiles.stableBundleIdentifier).rc" {
-                return "cmux-rc"
-            }
             return scopedInterfaceName(prefix: "cmux-x", identity: effectiveBundleID, hashLength: 8)
         case .nightly(let slug):
             if effectiveBundleID == SocketPathMarkerFiles.nightlyBundleIdentifier, slug == nil {
                 return "cmux-nightly"
             }
             return scopedInterfaceName(prefix: "cmux-n", identity: effectiveBundleID, hashLength: 8)
+        case .rc(let slug):
+            if effectiveBundleID == SocketPathMarkerFiles.rcBundleIdentifier, slug == nil {
+                return "cmux-rc"
+            }
+            return scopedInterfaceName(prefix: "cmux-r", identity: effectiveBundleID, hashLength: 8)
         case .staging(let slug):
             if effectiveBundleID == SocketPathMarkerFiles.stagingBundleIdentifier, slug == nil {
                 return "cmux-staging"

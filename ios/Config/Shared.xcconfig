@@ -8,13 +8,14 @@
 // ==========================================
 PRODUCT_NAME = cmux
 PRODUCT_DISPLAY_NAME = cmux
-PRODUCT_BUNDLE_IDENTIFIER = dev.cmux.ios
+CMUX_APP_BUNDLE_IDENTIFIER = dev.cmux.ios
+PRODUCT_BUNDLE_IDENTIFIER = $(CMUX_APP_BUNDLE_IDENTIFIER)
 // User-visible versions (CFBundleShortVersionString). Keep beta and production
 // independent: TestFlight can stay on the already-approved beta version while
 // the first production App Store upload starts from its own release version.
 // Semver X.Y.Z; CFBundleVersion (CURRENT_PROJECT_VERSION) is the monotonic build
 // id stamped by ios/scripts/upload-testflight.sh on upload.
-CMUX_IOS_BETA_MARKETING_VERSION = 1.0.5
+CMUX_IOS_BETA_MARKETING_VERSION = 1.0.6
 CMUX_IOS_APPSTORE_MARKETING_VERSION = 1.0.0
 MARKETING_VERSION = $(CMUX_IOS_BETA_MARKETING_VERSION)
 CURRENT_PROJECT_VERSION = 1
@@ -88,8 +89,13 @@ INFOPLIST_KEY_NSCameraUsageDescription = Scan cmux pairing QR codes from your Ma
 // ==========================================
 // Entitlements
 // ==========================================
-// AI agents can modify Config/cmux.entitlements to add capabilities
-CODE_SIGN_ENTITLEMENTS = Config/cmux.entitlements
+// AI agents can modify Config/cmux.entitlements to add capabilities.
+// Keep the app and notification-extension selectors separate so tagged Debug
+// device signing can omit an unsupported capability without changing simulator
+// or Release/TestFlight defaults.
+CMUX_APP_CODE_SIGN_ENTITLEMENTS = Config/cmux.entitlements
+CMUX_NOTIFICATION_SERVICE_CODE_SIGN_ENTITLEMENTS = Config/NotificationService.entitlements
+CODE_SIGN_ENTITLEMENTS = $(CMUX_APP_CODE_SIGN_ENTITLEMENTS)
 
 // ==========================================
 // Pairing URL scheme (exact bundle)

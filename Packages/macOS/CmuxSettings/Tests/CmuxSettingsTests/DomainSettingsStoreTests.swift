@@ -443,6 +443,17 @@ struct QuitConfirmationPolicyTests {
         ))
     }
 
+    /// The dev-build bypass short-circuits ahead of the mode switch, so it must
+    /// hold under a non-default mode too.
+    @Test func devBuildsNeverWarnUnderDirtyOnlyMode() {
+        let defaults = makeScratchDefaults()
+        defaults.set("dirty-only", forKey: "confirmQuit")
+        let store = QuitConfirmationStore(defaults: defaults)
+        #expect(!store.shouldShowConfirmation(
+            isQuitWarningConfirmed: false, hasDirtyWorkspaces: true, isDevBuild: true
+        ))
+    }
+
     @Test func alwaysModeWarnsRegardlessOfDirtyState() {
         let store = QuitConfirmationStore(defaults: makeScratchDefaults())
         #expect(store.shouldShowConfirmation(

@@ -3,11 +3,13 @@
 Tagged builds isolate app name, bundle ID, debug socket, and DerivedData path so multiple agents and the user's normal app do not collide.
 
 ```bash
-./scripts/reload.sh --tag <tag>            # build only (default)
+./scripts/reload.sh --tag <tag>            # build and replace same-tag runtime
 ./scripts/reload.sh --tag <tag> --launch   # build, then open
+./scripts/reload.sh --tag <tag> --build-only # validate without replacing the running app
 ```
 
 After a successful build `reload.sh` terminates any running app with the same tag, so opening the printed app path launches the fresh binary.
+Use `--build-only` only for an explicit compile/validation pass. It leaves the running tagged app, `cmuxd`, and tag state untouched, and stages the new bundle separately; the active app remains on its previous revision.
 
 ## App path links
 

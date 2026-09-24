@@ -691,9 +691,9 @@ cmux_attach_ensure_mac() {
 # URL on stdout (bearer credential; do not log). Args: <tag> <ttl_seconds>
 # <repo_root> <simulator_injection|physical_device>. The Mac owns route selection
 # and URL encoding for the target. Polls the mint RPC until routes are bound.
-# A physical-device ticket is usable only with an encrypted Iroh route. Plain
-# Tailscale TCP cannot carry the phone's Stack credential, so fail closed here
-# instead of launching an app that must reject the ticket as untrusted.
+# A physical-device ticket is usable with an authenticated Iroh route or with
+# the exact non-loopback Tailscale route selected by MobileAttachTarget. Both
+# paths authenticate the phone to the Mac before any mobile operation.
 cmux_attach_mint_url() {
   local tag="$1" ttl="$2" repo_root="$3" target="$4" max="${5:-20}"
   local sock slug payload cli_output url node_status cli_status _i
@@ -730,11 +730,10 @@ cmux_attach_mint_url() {
         PAYLOAD="$payload" ATTACH_TARGET="$target" node --input-type=module <<'NODE' 2>/dev/null
 const payload = JSON.parse(process.env.PAYLOAD);
 const routes = payload?.ticket?.routes;
-if (
-  process.env.ATTACH_TARGET === "physical_device" &&
-  (!Array.isArray(routes) || !routes.some((route) => route?.kind === "iroh"))
-) {
-  process.exit(2);
+if (process.env.ATTACH_TARGET === "physical_device") {
+  const hasIroh = Array.isArray(routes) && routes.some((route) => route?.kind === "iroh");
+  const hasTailscale = Array.isArray(routes) && routes.some((route) => route?.kind === "tailscale");
+  if (!hasIroh && !hasTailscale) process.exit(2);
 }
 if (typeof payload.attach_url === "string") process.stdout.write(payload.attach_url);
 NODE

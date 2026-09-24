@@ -30,6 +30,7 @@ import SwiftUI
 @Suite(.serialized)
 final class SidebarLazyLayoutScaleTests {
     static let workspaceCount = 300
+    private static let groupedWorkspaceCount = 20
     /// Generous ceiling for "how many rows may be realized for one viewport".
     /// A 640pt window shows ~20 rows; LazyVStack prefetch and a second layout
     /// pass can multiply that, but a virtualization defeat realizes all 300.
@@ -102,6 +103,13 @@ final class SidebarLazyLayoutScaleTests {
             CmuxExtensionSidebarSelection.defaultProviderId,
             forKey: CmuxExtensionSidebarSelection.defaultsKey
         )
+        // This suite measures SwiftUI lazy row bodies and pointer ownership.
+        // Keep that implementation explicit now that AppKit is the default.
+        let featureFlags = CmuxFeatureFlags(
+            defaults: defaults,
+            remoteFlagValueProvider: { _ in nil }
+        )
+        featureFlags.setOverride(false, for: CmuxFeatureFlags.appKitSidebarListFlag)
 
         let tabManager = TabManager()
         while tabManager.tabs.count < workspaceCount {
@@ -129,7 +137,7 @@ final class SidebarLazyLayoutScaleTests {
         // group-header rows — assembled by sidebarWorkspaceGroupRow(...) in
         // VerticalTabsSidebar+WorkspaceGroups.swift, a historical regression
         // site (#4385) — are exercised by the same realization bounds.
-        let groupCandidates = includeGroups ? Array(tabManager.tabs.prefix(20).map(\.id)) : []
+        let groupCandidates = includeGroups ? Array(tabManager.tabs.prefix(Self.groupedWorkspaceCount).map(\.id)) : []
         for chunkStart in stride(from: 0, to: groupCandidates.count, by: 4) {
             let children = Array(groupCandidates[chunkStart..<min(chunkStart + 4, groupCandidates.count)])
             _ = tabManager.createWorkspaceGroup(
@@ -147,6 +155,7 @@ final class SidebarLazyLayoutScaleTests {
         let root = VerticalTabsSidebar(
             updateViewModel: UpdateStateModel(),
             fileExplorerState: FileExplorerState(),
+            featureFlags: featureFlags,
             sidebarUnread: unread,
             titlebarControlsLayoutModel: TitlebarControlsLayoutModel(),
             windowId: UUID(),
@@ -206,7 +215,10 @@ final class SidebarLazyLayoutScaleTests {
         // release]: message sent to deallocated instance"). That crash killed
         // the host before the pass was recorded, and CI masked it (#5641).
         window.isReleasedWhenClosed = false
+        window.acceptsMouseMovedEvents = true
         window.contentView = NSHostingView(rootView: root)
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
 
         return Harness(
             tabManager: tabManager,
@@ -349,6 +361,11 @@ final class SidebarLazyLayoutScaleTests {
             stableInitialPasses == 4,
             "Initial workspace publishers did not quiesce before the batch measurement."
         )
+        // Group creation publishes a separate row-input pass that may trail
+        // the workspace snapshot publisher by one main-actor turn. Drain it
+        // before resetting the counter so setup churn cannot contaminate the
+        // measured burst.
+        await Self.drainMainRunLoop(for: harness.window, iterations: 4)
 
         harness.counter.reset()
         let targets = Array(harness.tabManager.tabs.suffix(80))
@@ -375,10 +392,10 @@ final class SidebarLazyLayoutScaleTests {
         let projections = harness.counter.workspaceRowInputProjections
         #expect(projections > 0, "The parent row-input projection probe did not run.")
         #expect(
-            projections <= Self.workspaceCount * 4,
+            projections <= harness.tabManager.tabs.count * 4,
             """
             \(projections) parent row-input projections ran for one \(targets.count)-workspace \
-            event batch at \(Self.workspaceCount) workspaces. The batch must cause O(N) parent \
+            event batch at \(harness.tabManager.tabs.count) workspaces. The batch must cause O(N) parent \
             projection work, not O(N²) work from one parent invalidation per emitter.
             """
         )
@@ -454,12 +471,21 @@ final class SidebarLazyLayoutScaleTests {
 
         let counter = RowBodyCounter()
         let rows = 8
-        let root = VStack(spacing: 2) {
-            ForEach(0..<rows, id: \.self) { _ in
-                DivergentGeometryFeedbackRowFixture(onBody: { counter.workspaceRowBodies += 1 })
+        // The rows sit in a ScrollView, as real sidebar rows do, so their
+        // divergent height stays inside the scroll content. Without it the
+        // growing VStack drove the hosting view's min content size, and
+        // NSHostingView.updateConstraints resized the window on every pass.
+        // On macOS 26 AppKit then threw NSGenericException ("more Update
+        // Constraints in Window passes than there are views") from the display
+        // cycle and took down the test host before the counter was read.
+        let root = ScrollView {
+            VStack(spacing: 2) {
+                ForEach(0..<rows, id: \.self) { _ in
+                    DivergentGeometryFeedbackRowFixture(onBody: { counter.workspaceRowBodies += 1 })
+                }
             }
         }
-        .frame(width: 200)
+        .frame(width: 200, height: 400)
 
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 200, height: 400),
@@ -472,7 +498,11 @@ final class SidebarLazyLayoutScaleTests {
             window.contentView = nil
             window.close()
         }
-        window.contentView = NSHostingView(rootView: root)
+        let hostingView = NSHostingView(rootView: root)
+        // Belt and braces: the loop must never reach window sizing, whatever
+        // the root's ideal size does.
+        hostingView.sizingOptions = []
+        window.contentView = hostingView
 
         await Self.drainMainRunLoop(for: window, iterations: 40)
 

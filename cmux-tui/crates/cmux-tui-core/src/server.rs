@@ -83,6 +83,7 @@ use crate::{
 pub const ATTACH_INITIAL_SIZE_CAPABILITY: &str = "attach-initial-size";
 #[path = "server/image_paste.rs"]
 mod image_paste;
+mod url_open;
 /// Maximum JSON payload accepted on the Unix JSON-lines control socket.
 const MAX_JSON_LINE_BYTES: usize = crate::REMOTE_CLIENT_MESSAGE_MAX_BYTES;
 const WORKSPACE_REGISTRY_CAPABILITY: &str = "workspace-registry-v1";
@@ -90,6 +91,7 @@ pub const GUARDED_BROWSER_POINTER_CAPABILITY: &str = "browser-pointer-frame-guar
 pub const DAEMON_HANDOFF_FORCE_CAPABILITY: &str = "daemon-handoff-force-v1";
 pub const VIEWPORT_SPLITS_CAPABILITY: &str = "viewport-splits-v1";
 pub const VIEWPORT_COLUMN_RESIZE_CAPABILITY: &str = "viewport-column-resize-v1";
+pub const TAB_WORKSPACE_MOVE_CAPABILITY: &str = "tab-workspace-move-v1";
 pub const LAYOUT_UNDO_CAPABILITY: &str = "layout-undo-v1";
 pub const CLEAR_HISTORY_CAPABILITY: &str = "clear-history-v1";
 pub const CLEAR_HISTORY_KEY_CAPABILITY: &str = "clear-history-key-v1";
@@ -197,12 +199,14 @@ fn machine_listening_tcp_json() -> anyhow::Result<Value> {
 fn advertised_capabilities(bounded_clear_history_fallback_writes: bool) -> Vec<&'static str> {
     let mut capabilities = vec![
         ATTACH_INITIAL_SIZE_CAPABILITY,
+        "attach-identity-v1",
         WORKSPACE_REGISTRY_CAPABILITY,
         DAEMON_HANDOFF_FORCE_CAPABILITY,
         GUARDED_BROWSER_POINTER_CAPABILITY,
         VIEWPORT_SPLITS_CAPABILITY,
         VIEWPORT_COLUMN_RESIZE_CAPABILITY,
         LAYOUT_UNDO_CAPABILITY,
+        TAB_WORKSPACE_MOVE_CAPABILITY,
         CLEAR_HISTORY_CAPABILITY,
         SURFACE_SUBSCRIBE_FILTER_CAPABILITY,
         SESSION_JOURNAL_CAPABILITY,
@@ -682,6 +686,21 @@ struct BrowserProviderTargetRequest {
 #[serde(tag = "cmd", rename_all = "kebab-case")]
 enum Command {
     Identify,
+    /// Private, connection-scoped guest-to-frontend OS browser opening.
+    UrlOpenSubscribe {
+        terminal_ids: Vec<String>,
+    },
+    UrlOpen {
+        terminal_id: String,
+        url: String,
+    },
+    UrlOpenClaim {
+        request_id: String,
+    },
+    UrlOpenResult {
+        request_id: String,
+        opened: bool,
+    },
     PasteImage {
         surface: SurfaceId,
         terminal_id: String,
@@ -1193,6 +1212,11 @@ enum Command {
         pane: PaneId,
         index: usize,
     },
+    MoveTabToWorkspace {
+        surface: SurfaceId,
+        #[serde(default)]
+        workspace: Option<WorkspaceId>,
+    },
     MoveWorkspace {
         #[serde(default)]
         workspace: Option<WorkspaceId>,
@@ -1358,7 +1382,12 @@ enum Command {
     },
     /// Stream a surface: vt-state event followed by live output events.
     AttachSurface {
-        surface: SurfaceId,
+        #[serde(default)]
+        surface: Option<SurfaceId>,
+        #[serde(default)]
+        expected_generation: Option<String>,
+        #[serde(default)]
+        expected_terminal_id: Option<String>,
         #[serde(default)]
         mode: Option<String>,
         /// Optional initial viewer size. Supplying this pair makes the attach
@@ -1406,6 +1435,7 @@ impl Command {
             | Self::BrowserActivate { surface }
             | Self::ProcessInfo { surface }
             | Self::MoveTab { surface, .. }
+            | Self::MoveTabToWorkspace { surface, .. }
             | Self::CloseSurface { surface }
             | Self::RenameSurface { surface, .. }
             | Self::ResizeSurface { surface, .. }
@@ -1413,9 +1443,9 @@ impl Command {
             | Self::ReleaseSurfaceSize { surface }
             | Self::ReleaseAttachedViewSize { surface, .. }
             | Self::DetachAttachedView { surface, .. }
-            | Self::AttachSurface { surface, .. }
             | Self::ScrollSurface { surface, .. } => Some(*surface),
-            Self::Notify { surface, .. }
+            Self::AttachSurface { surface, .. }
+            | Self::Notify { surface, .. }
             | Self::ListAgents { surface, .. }
             | Self::Subscribe { surface, .. } => *surface,
             _ => None,
@@ -2329,6 +2359,12 @@ struct MessageWriter {
 }
 
 impl MessageWriter {
+    fn send_url_open(&self, request_id: &str, terminal_id: &str, url: &str) -> std::io::Result<()> {
+        self.send_control(&json!({
+            "event": "url-open", "request_id": request_id, "terminal_id": terminal_id, "url": url,
+        }))
+    }
+
     #[cfg(test)]
     fn new(sink: impl MessageSink + 'static) -> Self {
         Self::new_with_render_service(sink, Arc::new(RenderService::new()))
@@ -3838,6 +3874,7 @@ struct ClientRegistryState {
 }
 
 pub(crate) struct ClientRegistry {
+    url_opens: url_open::URLRequests,
     next_id: AtomicU64,
     resource_stream_admission: Arc<ResourceWorkerAdmission>,
     resource_wait_admission: Arc<ResourceWorkerAdmission>,
@@ -3848,6 +3885,7 @@ impl ClientRegistry {
     pub(crate) fn new() -> Self {
         Self {
             next_id: AtomicU64::new(1),
+            url_opens: url_open::URLRequests::default(),
             resource_stream_admission: ResourceWorkerAdmission::new(
                 RESOURCE_STREAMS_PER_CLIENT_CAPACITY,
                 RESOURCE_STREAMS_SERVER_CAPACITY,
@@ -4758,6 +4796,7 @@ impl ClientRegistry {
     }
 
     fn remove(&self, client: u64) -> Option<ClientRecord> {
+        self.url_opens.disconnect(client);
         let mut state = self.state.lock().unwrap();
         let record = state.clients.remove(&client)?;
         if state.daemon_handoff == Some(DaemonHandoffReservation::Pending(client)) {
@@ -8361,7 +8400,7 @@ fn handle_journal_extension_request(
     let origin = LOCAL_JOURNAL_PRINCIPAL;
     match request.envelope.operation {
         ResourceOperation::SessionJournalProducerList => mux
-            .journal_producer_manifests()
+            .userland_journal_producer_manifests()
             .map(|producers| json!({"producers":producers}))
             .map_err(|error| journal_extension_error("session.journal.producer.list", error)),
         ResourceOperation::SessionJournalProducerPut => {
@@ -9157,6 +9196,9 @@ fn handle_request_with_cancellation(
     cancellation: Option<&AtomicBool>,
 ) -> bool {
     let Request { id, cmd } = request;
+    if let Command::UrlOpen { terminal_id, url } = cmd {
+        return url_open::start(mux, client, id, terminal_id, url, writer);
+    }
     if matches!(&cmd, Command::ShutdownDaemon { .. } | Command::ReloadConfig)
         && !mux.server_lifecycle_ready()
     {
@@ -10271,7 +10313,7 @@ fn parse_agent_source(source: &str) -> anyhow::Result<AgentSource> {
     match source {
         "socket" => Ok(AgentSource::Socket),
         "hook" => Ok(AgentSource::Hook),
-        other => anyhow::bail!("bad source {other}"),
+        other => anyhow::bail!("bad source {other}; raw report-agent accepts only socket or hook"),
     }
 }
 
@@ -10281,6 +10323,7 @@ fn agent_json(record: &AgentRecord) -> Value {
         "state": record.state.as_str(),
         "source": record.source.as_str(),
         "session": record.session,
+        "agent": record.agent,
         "updated_at_ms": record.updated_at_ms,
     })
 }
@@ -11255,6 +11298,19 @@ fn handle_command_with_cancellation(
     cancellation: Option<&AtomicBool>,
 ) -> anyhow::Result<Value> {
     match cmd {
+        Command::UrlOpenSubscribe { terminal_ids } => {
+            mux.control_clients.url_opens.subscribe(client, terminal_ids, writer.clone())?;
+            Ok(json!({"url_open_ready": true}))
+        }
+        Command::UrlOpenClaim { request_id } => {
+            Ok(json!({"claimed": mux.control_clients.url_opens.claim(&request_id)}))
+        }
+        Command::UrlOpenResult { request_id, opened } => {
+            Ok(json!({"accepted": mux.control_clients.url_opens.complete(&request_id, opened)}))
+        }
+        Command::UrlOpen { .. } => {
+            anyhow::bail!("URL opening requires the asynchronous request path")
+        }
         Command::PasteImage {
             surface,
             terminal_id,
@@ -12271,6 +12327,9 @@ fn handle_command_with_cancellation(
                 "command": surface.spawn_command(),
                 "cwd": surface.local_cwd(),
                 "foreground_cwd": surface.process_id().and_then(platform::foreground_cwd),
+                "foreground_executable": surface
+                    .process_id()
+                    .and_then(platform::foreground_process_name),
             }))
         }
         Command::MoveTerminal { terminal_id, workspace_key, terminal_incarnation, mutation } => {
@@ -12299,6 +12358,10 @@ fn handle_command_with_cancellation(
                 "registry_id":registry_id,
                 "generation":generation,
             }))
+        }
+        Command::MoveTabToWorkspace { surface, workspace } => {
+            mux.move_tab_to_workspace(surface, workspace)?;
+            Ok(json!({}))
         }
         Command::MoveTab { surface, pane, index } => {
             let valid = mux.with_state(|state| {
@@ -12799,13 +12862,58 @@ fn handle_command_with_cancellation(
             })?;
             Ok(json!({}))
         }
-        Command::AttachSurface { surface: surface_id, mode, cols, rows } => {
+        Command::AttachSurface {
+            surface: surface_id,
+            mode,
+            cols,
+            rows,
+            expected_generation,
+            expected_terminal_id,
+        } => {
             let initial_size = match (cols, rows) {
                 (Some(cols), Some(rows)) => Some((cols, rows)),
                 (None, None) => None,
                 _ => anyhow::bail!("attach-surface cols and rows must be supplied together"),
             };
+            let surface_id = match surface_id {
+                Some(surface) => surface,
+                None => {
+                    let generation = expected_generation.as_deref().ok_or_else(|| {
+                        anyhow::anyhow!(
+                            "attachment identity requires generation and terminal together"
+                        )
+                    })?;
+                    anyhow::ensure!(
+                        mux.registry_identity().1 == generation,
+                        "attachment_generation_mismatch"
+                    );
+                    let terminal = expected_terminal_id.as_deref().ok_or_else(|| {
+                        anyhow::anyhow!(
+                            "attachment identity requires generation and terminal together"
+                        )
+                    })?;
+                    let terminal = TerminalPublicId::parse(terminal)
+                        .map_err(|_| anyhow::anyhow!("attachment_terminal_mismatch"))?;
+                    mux.resource_surface_for_terminal(&terminal)
+                        .ok_or_else(|| anyhow::anyhow!("attachment_terminal_mismatch"))?
+                }
+            };
             let surface = get_surface(mux, surface_id)?;
+            match (expected_generation, expected_terminal_id) {
+                (Some(generation), Some(terminal)) => {
+                    anyhow::ensure!(
+                        mux.registry_identity().1 == generation,
+                        "attachment_generation_mismatch"
+                    );
+                    anyhow::ensure!(
+                        surface.terminal_public_id().map(|id| id.as_str())
+                            == Some(terminal.as_str()),
+                        "attachment_terminal_mismatch"
+                    );
+                }
+                (None, None) => {}
+                _ => anyhow::bail!("attachment identity requires generation and terminal together"),
+            }
             if surface.kind() == SurfaceKind::Browser {
                 let guarded_owner = mux
                     .control_clients
@@ -13256,12 +13364,13 @@ fn subscribed_event_json(event: &MuxEvent) -> Value {
         MuxEvent::TitleChanged { surface, title } => {
             json!({"event": "title-changed", "surface": surface, "title": title.as_ref()})
         }
-        MuxEvent::AgentChanged { surface, state, source, session, updated_at_ms } => json!({
+        MuxEvent::AgentChanged { surface, state, source, session, agent, updated_at_ms } => json!({
             "event": "agent-changed",
             "surface": surface,
             "state": state.as_ref(),
             "source": source.as_ref(),
             "session": session.as_deref(),
+            "agent": agent.as_deref(),
             "updated_at_ms": updated_at_ms,
         }),
         MuxEvent::Bell(id) => json!({"event": "bell", "surface": id}),
@@ -14355,7 +14464,7 @@ mod tests {
         );
     }
 
-    fn captured_writer() -> (MessageWriter, Arc<BoundedOutbound>) {
+    pub(super) fn captured_writer() -> (MessageWriter, Arc<BoundedOutbound>) {
         let outbound = Arc::new(BoundedOutbound::default());
         (MessageWriter::new(QueuedSink { outbound: outbound.clone(), control: None }), outbound)
     }
@@ -19326,12 +19435,38 @@ mod tests {
         assert_eq!(result["source"], "socket");
         assert_eq!(result["session"], "raw-command");
         assert_eq!(mux.with_state(|state| state.resource_revision), revision + 1);
-        assert_eq!(mux.resource_event_epoch(), epoch + 1);
+        // A fresh direct report publishes twice on the shared change epoch:
+        // its resource commit and its journal echo.
+        assert_eq!(mux.resource_event_epoch(), epoch + 2);
         assert_eq!(mux.resource_agent_projection_count_for_test().unwrap(), 1);
         let events = mux.resource_events_after(revision).unwrap();
         assert_eq!(events.batches.len(), 1);
         assert_eq!(events.batches[0].changes[0]["resource"], "agent");
         assert_eq!(events.batches[0].changes[0]["value"]["source_session"], "raw-command");
+    }
+
+    #[test]
+    fn raw_report_agent_command_rejects_internal_projection_sources() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, None).unwrap();
+
+        for source in ["plugin", "detected"] {
+            let error = handle_command(
+                &mux,
+                0,
+                Command::ReportAgent {
+                    surface: surface.id,
+                    state: "working".into(),
+                    source: source.into(),
+                    session: Some("raw-command".into()),
+                },
+                &test_writer(),
+            )
+            .unwrap_err();
+            assert!(error.to_string().contains("bad source"), "{source}: {error}");
+        }
+
+        assert_eq!(mux.resource_agent_projection_count_for_test().unwrap(), 0);
     }
 
     #[test]
@@ -19539,6 +19674,45 @@ mod tests {
     }
 
     #[test]
+    fn creation_attachment_identity_rejects_wrong_generation_and_terminal() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, None).unwrap();
+        let writer = test_writer();
+        let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+        let terminal = surface.terminal_public_id().unwrap().to_string();
+        for (generation, terminal, expected) in [
+            ("old-generation".to_string(), terminal.clone(), "attachment_generation_mismatch"),
+            (
+                mux.registry_identity().1,
+                "term_00000000000000000000000000000000".to_string(),
+                "attachment_terminal_mismatch",
+            ),
+        ] {
+            let command = Command::AttachSurface {
+                surface: Some(surface.id),
+                mode: None,
+                cols: None,
+                rows: None,
+                expected_generation: Some(generation),
+                expected_terminal_id: Some(terminal),
+            };
+            let error = handle_command(&mux, client, command, &writer).unwrap_err();
+            assert!(error.to_string().contains(expected), "{error:#}");
+        }
+        let command = Command::AttachSurface {
+            surface: None,
+            mode: None,
+            cols: None,
+            rows: None,
+            expected_generation: Some(mux.registry_identity().1),
+            expected_terminal_id: Some(terminal),
+        };
+        handle_command(&mux, client, command, &writer).unwrap();
+        disconnect_client(&mux, client, false);
+        mux.shutdown();
+    }
+
+    #[test]
     fn guarded_browser_attach_rejects_a_late_capability_upgrade() {
         let mux = test_mux();
         let writer = test_writer();
@@ -19563,7 +19737,14 @@ mod tests {
         let attach = handle_command(
             &mux,
             client,
-            Command::AttachSurface { surface: surface.id, mode: None, cols: None, rows: None },
+            Command::AttachSurface {
+                surface: Some(surface.id),
+                mode: None,
+                cols: None,
+                rows: None,
+                expected_generation: None,
+                expected_terminal_id: None,
+            },
             &writer,
         );
         mux.shutdown();
@@ -23034,6 +23215,7 @@ mod tests {
                 state: Arc::<str>::from("working"),
                 source: Arc::<str>::from("hook"),
                 session: Some(Arc::<str>::from("review")),
+                agent: Some(Arc::<str>::from("claude")),
                 updated_at_ms: 41,
             }),
             json!({
@@ -23042,6 +23224,7 @@ mod tests {
                 "state": "working",
                 "source": "hook",
                 "session": "review",
+                "agent": "claude",
                 "updated_at_ms": 41,
             })
         );

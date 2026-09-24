@@ -30,6 +30,10 @@ extension SettingsWindowRoot {
             )
         }
 
+        slot(.computers, proxy: proxy) {
+            ComputersSection(hostActions: hostActions, defaultsStore: defaultsStore, catalog: catalog)
+        }
+
         slot(.app, proxy: proxy) {
             AppSection(
                 defaultsStore: defaultsStore,
@@ -80,7 +84,8 @@ extension SettingsWindowRoot {
                 defaultsStore: defaultsStore,
                 jsonStore: jsonStore,
                 catalog: catalog,
-                errorLog: runtime.errorLog
+                errorLog: runtime.errorLog,
+                hostActions: hostActions
             )
         }
 

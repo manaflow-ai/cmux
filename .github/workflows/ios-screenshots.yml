@@ -15,7 +15,7 @@ on:
   workflow_call:
     inputs:
       ref:
-        description: Branch or SHA to capture from
+        description: Branch, tag, full SHA, or short SHA to capture from
         required: false
         type: string
         default: ""
@@ -37,7 +37,7 @@ on:
   workflow_dispatch:
     inputs:
       ref:
-        description: Branch or SHA to capture from
+        description: Branch, tag, full SHA, or short SHA to capture from
         required: false
         default: ""
       request_id:
@@ -67,11 +67,17 @@ permissions:
   contents: read
 
 jobs:
+  resolve-ref:
+    uses: ./.github/workflows/resolve-dispatch-ref.yml
+    with:
+      ref: ${{ inputs.ref }}
+
   screenshots:
+    needs: resolve-ref
     # Same lane as the iOS simulator tests: screenshots run inside the Simulator,
     # not as a foregrounded Mac app, so the Blacksmith foreground limitation does
     # not apply.
-    runs-on: ${{ vars.MACOS_RUNNER_IOS || 'blacksmith-6vcpu-macos-26' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.MACOS_RUNNER_IOS || 'blacksmith-6vcpu-macos-26' }}
     # Nine localized languages are captured serially on each required device
     # class. Keep enough budget for cold Xcode builds plus the frame lane on
     # shared macOS runners, where simulator resets can be slow.
@@ -86,23 +92,12 @@ jobs:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          ref: ${{ inputs.ref || github.ref }}
+          ref: ${{ needs.resolve-ref.outputs.sha }}
           persist-credentials: false
           submodules: recursive
 
       - name: Select Xcode
-        run: |
-          set -euo pipefail
-          if [ -d "/Applications/Xcode.app/Contents/Developer" ]; then
-            XCODE_DIR="/Applications/Xcode.app/Contents/Developer"
-          else
-            XCODE_APP="$(find /Applications -maxdepth 1 -type d -name 'Xcode*.app' -print 2>/dev/null | sort | tail -n 1 || true)"
-            [ -n "$XCODE_APP" ] || { echo "No Xcode.app found" >&2; exit 1; }
-            XCODE_DIR="$XCODE_APP/Contents/Developer"
-          fi
-          echo "DEVELOPER_DIR=$XCODE_DIR" >> "$GITHUB_ENV"
-          export DEVELOPER_DIR="$XCODE_DIR"
-          xcodebuild -version
+        run: ./scripts/select-ci-xcode.sh
 
       - name: Install zig
         run: ./scripts/install-zig-ci.sh

@@ -1,5 +1,9 @@
 import AppKit
+import SwiftUI
+import CmuxCloudMachines
+import CmuxSurfaceCatalogModel
 import Testing
+import Observation
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -77,7 +81,7 @@ struct CloudTreeMachineMenuTests {
         let menu = try #require(coordinator.contextMenu(forRow: 0))
         let titles = menu.items.filter { !$0.isSeparatorItem }.map(\.title)
         #expect(titles == [
-            Self.title("machines.menu.setDefaultMachine", "Set as Default Machine"),
+            Self.title("machines.row.pin", "Pin Machine"),
             Self.title("machines.menu.openShell", "Open Shell"),
             Self.title("cloudTree.menu.newWorkspace", "New Workspace"),
             Self.title("cloudTree.menu.openFullClient", "Open Full cmux-tui Client"),
@@ -106,6 +110,7 @@ struct CloudTreeMachineMenuTests {
         ])
 
         // The verbs that stay are still wired, not merely titled.
+        try Self.choose(Self.title("machines.row.pin", "Pin Machine"), in: menu)
         try Self.choose(Self.title("machines.menu.openShell", "Open Shell"), in: menu)
         #expect(recorder.newTerminals == [.cloud(Self.machineID)])
         try Self.choose(Self.title("machines.menu.resizeToGiB", "Increase to %d GiB", 64), in: diskMenu)
@@ -132,6 +137,9 @@ struct CloudTreeMachineMenuTests {
         #expect(recorder.commands.map { $0.verb } == [["vm", "snapshot"]])
         try Self.choose(Self.title("machines.menu.delete", "Delete\u{2026}"), in: menu)
         #expect(recorder.deletions == [Self.machineID])
+        #expect(recorder.pinChanges.count == 1)
+        #expect(recorder.pinChanges.first?.0 == Self.machineID)
+        #expect(recorder.pinChanges.first?.1 == true)
     }
 
     @Test("A nested terminal activates its owning Cloud workspace for click and Return")
@@ -214,6 +222,53 @@ struct CloudTreeMachineMenuTests {
         _ = container
     }
 
+    @Test("Double-clicking machines and remote workspaces routes to their rename actions")
+    func doubleClickRenamesCloudRows() throws {
+        let recorder = CloudTreeMenuVerbRecorder()
+        let coordinator = CloudTreeOutlineView.Coordinator(
+            machineActions: Self.machineActions(recording: recorder),
+            nodeActions: Self.nodeActions(recording: recorder),
+            expansionStore: CloudTreeExpansionStore(
+                defaults: UserDefaults(suiteName: "cloud-tree-double-click-\(UUID().uuidString)")!
+            ),
+            tabDragTransferRegistry: { nil }
+        )
+        let container = CloudTreeContainerView(coordinator: coordinator)
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 300, height: 400),
+            styleMask: [.titled], backing: .buffered, defer: false
+        )
+        window.contentView = container
+        defer { window.contentView = nil; withExtendedLifetime(window) {} }
+
+        let machineNode = Self.machineNode()
+        let workspace = SurfaceRemoteWorkspace(id: "workspace-1", name: "Build", index: 0, focused: true)
+        let workspaceNode = CloudTreeNode(
+            id: "workspace-row",
+            kind: .workspace(
+                machine: .cloud(Self.machineID), workspace,
+                terminalCount: 0, hiddenTabCount: 0, openIn: nil
+            )
+        )
+        coordinator.apply(nodes: [machineNode, workspaceNode])
+        let outline = try #require(coordinator.outlineView)
+        #expect(outline.doubleAction == #selector(CloudTreeOutlineView.Coordinator.handleDoubleClick(_:)))
+
+        outline.selectRowIndexes(IndexSet(integer: outline.row(forItem: machineNode)), byExtendingSelection: false)
+        coordinator.handleDoubleClick(nil)
+        #expect(recorder.renamedMachines.count == 1)
+        #expect(recorder.renamedMachines.first?.0 == Self.machineID)
+        #expect(recorder.renamedMachines.first?.1 == "Big Machine")
+
+        let workspaceRow = outline.row(forItem: workspaceNode)
+        outline.selectRowIndexes(IndexSet(integer: workspaceRow), byExtendingSelection: false)
+        coordinator.handleDoubleClick(nil)
+        #expect(recorder.renamedWorkspaces.count == 1)
+        #expect(recorder.renamedWorkspaces.first?.0 == .cloud(Self.machineID))
+        #expect(recorder.renamedWorkspaces.first?.1.0 == "workspace-1")
+        #expect(recorder.renamedWorkspaces.first?.1.1 == "Build")
+    }
+
     @Test("Repeated navigation activation shares one keyed Cloud operation")
     func keyedNavigationIsIdempotent() async {
         let controller = CloudWorkspaceOperationController(isAvailable: { true })
@@ -245,7 +300,209 @@ struct CloudTreeMachineMenuTests {
     /// A ready Base machine on a paid plan with every provider verb, an
     /// address to copy, and a disk reading: the reading is a stat, never an
     /// affordance.
-    private static func machineNode() -> CloudTreeNode {
+    @Test("catalog-only machine pins update the real menu, survive refresh, and append discoveries")
+    func catalogMachinePinsRoundTripThroughSidebar() throws {
+        let suite = "cloud-sidebar-pin-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let store = CloudMachinePinStore(defaults: defaults, scopeProvider: { "user:test|team:one" })
+        var catalog = Self.catalog(["older", "pin-me"])
+        let creates = MachineCreateCoordinator(notifier: { _ in })
+        let model = MachinesPanelViewModel(createCoordinator: creates, machinePinStore: store, catalogProvider: { catalog })
+        model.localWorkspacesProvider = { [] }
+        model.readCatalog()
+        let recorder = CloudTreeMenuVerbRecorder()
+        var actions = Self.machineActions(recording: recorder)
+        actions.setPinned = { id, pinned in model.setMachinePinned(pinned, id: id) }
+        let coordinator = CloudTreeOutlineView.Coordinator(
+            machineActions: actions,
+            nodeActions: Self.nodeActions(recording: recorder),
+            expansionStore: CloudTreeExpansionStore(defaults: defaults),
+            tabDragTransferRegistry: { nil }
+        )
+        let container = CloudTreeContainerView(coordinator: coordinator)
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 320, height: 480), styleMask: [.titled], backing: .buffered, defer: false)
+        window.contentView = container
+        defer { window.contentView = nil; withExtendedLifetime(window) {} }
+        func render() {
+            coordinator.apply(nodes: CloudTreeNodeBuilder.nodes(
+                machines: model.sidebarMachines, snapshot: model.catalog, localWorkspaces: [], includeLocalMachine: false
+            ))
+        }
+        render()
+        let outline = try #require(coordinator.outlineView)
+        let pinRow = outline.row(forItem: try #require(coordinator.nodes.last))
+        try Self.choose(Self.title("machines.row.pin", "Pin Machine"), in: try #require(coordinator.contextMenu(forRow: pinRow)))
+        // The native action must update the row before a catalog/SwiftUI refresh.
+        #expect(coordinator.nodes.map(\.searchableTitle) == ["pin-me", "older"])
+        #expect(coordinator.nodes.first?.isPinned == true)
+        let pinnedMenu = try #require(coordinator.contextMenu(forRow: 0))
+        #expect(pinnedMenu.items.contains { $0.title == Self.title("machines.row.unpin", "Unpin Machine") })
+        try Self.choose(Self.title("machines.row.unpin", "Unpin Machine"), in: pinnedMenu)
+        #expect(coordinator.nodes.first?.isPinned == false)
+        try Self.choose(Self.title("machines.row.pin", "Pin Machine"), in: try #require(coordinator.contextMenu(forRow: 0)))
+
+        catalog = Self.catalog(["new", "older", "pin-me"])
+        model.readCatalog()
+        render()
+        #expect(coordinator.nodes.map(\.searchableTitle) == ["pin-me", "older", "new"])
+        let secondPanel = MachinesPanelViewModel(createCoordinator: creates, machinePinStore: store, catalogProvider: { catalog })
+        secondPanel.localWorkspacesProvider = { [] }
+        secondPanel.readCatalog()
+        #expect(secondPanel.sidebarMachines.map(\.id) == ["pin-me", "older", "new"])
+        secondPanel.setMachinePinned(false, id: "pin-me")
+        render()
+        #expect(coordinator.nodes.first?.isPinned == false)
+        #expect(coordinator.nodes.map(\.searchableTitle) == ["pin-me", "older", "new"])
+        model.setMachinePinned(true, id: "new")
+        let restored = CloudMachinePinStore(defaults: defaults, scopeProvider: { "user:test|team:one" })
+        #expect(restored.isPinned("new"))
+        #expect(restored.orderedMachineIDs(["older", "new", "pin-me"]) == ["new", "pin-me", "older"])
+    }
+
+    @Test("Both sidebar projections observe the one pin store")
+    func sharedPinsInvalidateBothPanels() async throws {
+        let suite = "observed-machine-pins-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let store = CloudMachinePinStore(defaults: defaults, scopeProvider: { "scope" })
+        let catalog = Self.catalog(["one", "two"])
+        let creates = MachineCreateCoordinator(notifier: { _ in })
+        let first = MachinesPanelViewModel(createCoordinator: creates, machinePinStore: store, catalogProvider: { catalog })
+        let second = MachinesPanelViewModel(createCoordinator: creates, machinePinStore: store, catalogProvider: { catalog })
+        first.localWorkspacesProvider = { [] }; second.localWorkspacesProvider = { [] }
+        first.readCatalog(); second.readCatalog()
+        await confirmation("Both readers invalidate", expectedCount: 2) { changed in
+            withObservationTracking { _ = first.sidebarMachines } onChange: { changed() }
+            withObservationTracking { _ = second.sidebarMachines } onChange: { changed() }
+            first.setMachinePinned(true, id: "two")
+        }
+        #expect(first.sidebarMachines.map(\.id) == ["two", "one"])
+        #expect(second.sidebarMachines.first?.isPinned == true)
+    }
+
+    @Test("An account switch hides retired catalog rows until refreshed")
+    func scopeRefreshDoesNotRememberPreviousAccountsMachines() async throws {
+        let suite = "scoped-machine-pins-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        var scope = "old"
+        let store = CloudMachinePinStore(defaults: defaults, scopeProvider: { scope })
+        var catalog = Self.catalog(["old-machine"])
+        let model = MachinesPanelViewModel(createCoordinator: MachineCreateCoordinator(notifier: { _ in }),
+            machinePinStore: store, catalogProvider: { catalog })
+        model.localWorkspacesProvider = { [] }
+        model.readCatalog()
+        model.setMachinePinned(true, id: "old-machine")
+        scope = "new"
+        let refresh = model.refreshAccountScope(refreshCatalog: {
+            catalog = Self.catalog(["new-machine"])
+            return true
+        })
+        model.readCatalog()
+        #expect(model.sidebarMachines.isEmpty, "A late catalog notification must not expose the prior scope")
+        await refresh.value
+        #expect(model.sidebarMachines.map(\.id) == ["new-machine"])
+        #expect(store.pinnedMachineIDs.isEmpty)
+        scope = "old"
+        store.refreshScope()
+        #expect(store.isPinned("old-machine"))
+    }
+
+    @Test("A Cloud refresh does not hide independently discovered Macs")
+    func failedCloudScopeRefreshKeepsDeviceRows() async {
+        let machine = SurfaceMachineID.device(SurfaceDeviceInstanceID(deviceID: "other-mac", tag: "default"))
+        let info = SurfaceMachineInfo(
+            id: machine, name: "Other Mac", status: "running", image: nil, hasDesktop: false,
+            memoryMb: nil, diskMb: nil, linkState: .connected, linkError: nil,
+            cpuPercent: nil, memoryUsedMb: nil, diskUsedMb: nil
+        )
+        var snapshot = Self.catalog(["retired-cloud-machine"])
+        snapshot.machines.append(info)
+        let model = MachinesPanelViewModel(
+            createCoordinator: MachineCreateCoordinator(notifier: { _ in }),
+            catalogProvider: { snapshot }
+        )
+        model.localWorkspacesProvider = { [] }
+        await model.refreshAccountScope(refreshCatalog: { false }).value
+        #expect(model.catalog.machines.map(\.id) == [machine])
+        let nodes = CloudTreeNodeBuilder.nodes(
+            machines: [], snapshot: model.catalog, localWorkspaces: [], source: .cloudWithDevicesSection
+        )
+        #expect(nodes.last?.children.contains { $0.id == CloudTreeNodeBuilder.nodeID(machine: machine) } == true)
+    }
+
+    private static func catalog(_ ids: [String]) -> SurfaceCatalogSnapshot {
+        SurfaceCatalogSnapshot(machines: ids.map { id in
+            SurfaceMachineInfo(
+                id: .cloud(id), name: id, status: "running", image: nil, hasDesktop: false,
+                memoryMb: nil, diskMb: nil, linkState: .connecting, linkError: nil,
+                cpuPercent: nil, memoryUsedMb: nil, diskUsedMb: nil
+            )
+        }, resources: [], projections: [])
+    }
+
+    @Test("expired machines still allow local pinning")
+    func expiredMachineCanBePinned() throws {
+        let suite = "expired-pin-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let recorder = CloudTreeMenuVerbRecorder()
+        let coordinator = CloudTreeOutlineView.Coordinator(
+            machineActions: Self.machineActions(recording: recorder),
+            nodeActions: Self.nodeActions(recording: recorder),
+            expansionStore: CloudTreeExpansionStore(defaults: defaults),
+            tabDragTransferRegistry: { nil }
+        )
+        let container = CloudTreeContainerView(coordinator: coordinator)
+        defer { withExtendedLifetime(container) {} }
+        coordinator.apply(nodes: [Self.machineNode(expired: true)])
+        let menu = try #require(coordinator.contextMenu(forRow: 0))
+        try Self.choose(Self.title("machines.row.pin", "Pin Machine"), in: menu)
+        #expect(recorder.pinChanges.count == 1)
+        #expect(recorder.pinChanges.first?.0 == Self.machineID)
+        #expect(recorder.pinChanges.first?.1 == true)
+    }
+
+    /// The machine row's hover trash is SwiftUI inside an NSTableView row.
+    /// NSTableView forwards a click only to subviews it validates, so a click
+    /// on the trash used to run the row's click action (toggle) and never
+    /// reached `confirmDelete`. Synthetic events do not drive SwiftUI buttons
+    /// in an offscreen test window, so this checks AppKit's routing decision.
+    @Test("The outline hands a click on the machine row's hover trash to the button")
+    func hoverTrashClickRoutesToButton() throws {
+        let recorder = CloudTreeMenuVerbRecorder()
+        let coordinator = CloudTreeOutlineView.Coordinator(
+            machineActions: Self.machineActions(recording: recorder),
+            nodeActions: Self.nodeActions(recording: recorder),
+            expansionStore: CloudTreeExpansionStore(
+                defaults: UserDefaults(suiteName: "cloud-tree-hover-trash-\(UUID().uuidString)")!
+            ),
+            tabDragTransferRegistry: { nil }
+        )
+        let container = CloudTreeContainerView(coordinator: coordinator)
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 360, height: 400), styleMask: [.titled], backing: .buffered, defer: false)
+        window.contentView = container
+        defer { window.contentView = nil; withExtendedLifetime(window) {} }
+        coordinator.apply(nodes: [Self.machineNode()])
+        container.layoutSubtreeIfNeeded()
+
+        let outline = try #require(coordinator.outlineView)
+        let cell = try #require(outline.view(atColumn: 0, row: 0, makeIfNecessary: true) as? CloudTreeCellView)
+        cell.setHovered(true)
+        cell.layoutSubtreeIfNeeded()
+        let buttons = try #require(cell.subviews.first {
+            $0 is NSHostingView<AnyView> && !($0 is CloudTreePassthroughHostingView)
+        })
+        let center = buttons.convert(NSPoint(x: buttons.bounds.midX, y: buttons.bounds.midY), to: nil)
+
+        // AppKit's own routing question: may the table hand this click to the view under it?
+        let hit = try #require(outline.hitTest(outline.superview!.convert(center, from: nil)))
+        #expect(hit.isDescendant(of: buttons))
+        #expect(outline.validateProposedFirstResponder(hit, for: nil))
+    }
+
+    private static func machineNode(expired: Bool = false) -> CloudTreeNode {
         var machine = MachineSnapshot(
             id: machineID,
             provider: "freestyle",
@@ -255,6 +512,7 @@ struct CloudTreeMachineMenuTests {
             createdAt: nil,
             label: "Big Machine"
         )
+        if expired { machine.freeAccess = .expired }
         machine.privateAddress = "10.99.0.7"
         machine.stats = VMStats(
             state: .awake,
@@ -276,11 +534,12 @@ struct CloudTreeMachineMenuTests {
             openDesktop: { _ in },
             runCommand: { id, verb in recorder.commands.append((id: id, verb: verb)) },
             confirmDelete: { recorder.deletions.append($0) },
-            promptRename: { _, _ in },
+            promptRename: { id, label in recorder.renamedMachines.append((id, label ?? "")) },
             resizeDisk: { id, gib in recorder.resizes.append((id, gib)) },
             resizeCPU: { id, cpu in recorder.cpuResizes.append((id, cpu)) },
             resizeMemory: { id, gib in recorder.memoryResizes.append((id, gib)) },
-            promptUpgrade: {}
+            promptUpgrade: {},
+            setPinned: { id, pinned in recorder.pinChanges.append((id, pinned)); return nil }
         )
     }
 
@@ -296,7 +555,9 @@ struct CloudTreeMachineMenuTests {
             newWorkspace: { _ in },
             closeTerminal: { _ in },
             closeWorkspace: { _, _ in },
-            renameWorkspace: { _, _ in },
+            renameWorkspace: { machine, workspace in
+                recorder.renamedWorkspaces.append((machine, (workspace.id, workspace.name)))
+            },
             renameTerminal: { _, _ in },
             selectLocalWorkspace: { _ in },
             copyToPasteboard: { _ in },
@@ -321,4 +582,7 @@ private final class CloudTreeMenuVerbRecorder {
     var resizes: [(String, Int)] = []
     var cpuResizes: [(String, Int)] = []
     var memoryResizes: [(String, Int)] = []
+    var pinChanges: [(String, Bool)] = []
+    var renamedMachines: [(String, String)] = []
+    var renamedWorkspaces: [(SurfaceMachineID, (String, String))] = []
 }

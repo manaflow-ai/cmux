@@ -72,6 +72,18 @@ extension WorkstreamEvent {
             ?? Self.messageText(fromJSON: extraFieldsJSON, keys: Self.promptMessageKeys)
     }
 
+    /// The length of the prompt as submitted, when the producer reported it.
+    ///
+    /// `submittedPromptMessage` is capped at 240 characters by the CLI before
+    /// it reaches us, so counting it measures the cap rather than the prompt.
+    /// The CLI publishes `<key>_length` beside each truncated message key;
+    /// this resolves it with the same precedence the message itself uses.
+    var submittedPromptLength: Int? {
+        guard hookEventName == .userPromptSubmit else { return nil }
+        return Self.messageLength(fromJSON: toolInputJSON, keys: Self.promptMessageKeys)
+            ?? Self.messageLength(fromJSON: extraFieldsJSON, keys: Self.promptMessageKeys)
+    }
+
     var assistantFinalMessage: String? {
         guard hookEventName == .stop else { return nil }
         let contextMessage = context?.assistantPreamble.flatMap(Self.normalizedPromptText)
@@ -89,6 +101,20 @@ extension WorkstreamEvent {
         "last_agent_message",
         "lastAgentMessage",
     ]
+
+    /// Reads `<key>_length` for the first of `keys` that carries one.
+    private static func messageLength(fromJSON jsonString: String?, keys: [String]) -> Int? {
+        guard let jsonString,
+              let data = jsonString.data(using: .utf8),
+              let dict = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+        else { return nil }
+        for key in keys {
+            guard let value = dict["\(key)_length"] else { continue }
+            if let number = value as? Int { return number }
+            if let number = value as? NSNumber { return number.intValue }
+        }
+        return nil
+    }
 
     private static func messageText(fromJSON jsonString: String?, keys: [String]) -> String? {
         guard let jsonString else { return nil }
@@ -146,11 +172,13 @@ extension TabManager {
     func handlePromptSubmit(
         workspaceId: UUID,
         message: String?,
+        submittedLength: Int? = nil,
         iMessageModeEnabled: Bool = IMessageModeSettings.isEnabled()
     ) -> (messageRecorded: Bool, reordered: Bool, index: Int)? {
         handleConversationMessage(
             workspaceId: workspaceId,
             message: message,
+            submittedLength: submittedLength,
             iMessageModeEnabled: iMessageModeEnabled,
             kind: .promptSubmission,
             reorderWithoutMessage: true
@@ -175,6 +203,7 @@ extension TabManager {
     private func handleConversationMessage(
         workspaceId: UUID,
         message: String?,
+        submittedLength: Int? = nil,
         iMessageModeEnabled: Bool,
         kind: ConversationMessageKind,
         reorderWithoutMessage: Bool
@@ -193,7 +222,8 @@ extension TabManager {
                 CmuxEventBus.shared.publishWorkspacePromptSubmitted(
                     workspaceId: workspaceId,
                     message: message,
-                    preview: Workspace.conversationMessagePreview(from: message)
+                    preview: Workspace.conversationMessagePreview(from: message),
+                    submittedLength: submittedLength
                 )
             }
         case .assistantFinal:

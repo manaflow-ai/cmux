@@ -1,5 +1,6 @@
 import CMUXMobileCore
 import CmuxIrohTransport
+import CmuxSettings
 import Foundation
 import Testing
 
@@ -41,6 +42,28 @@ private actor RecordingManagedPolicyTransport: CmxByteTransport {
 /// transport-admission funnel: a policy-disabled host must close any
 /// arriving IROH transport without admitting a session.
 struct ManagedPolicyRemoteControlTests {
+    @Test func userAvailabilityOffRefusesAdmissionEvenWithDevicesEnabled() async throws {
+        let suite = "cmux.incoming-access.tests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        defaults.set(true, forKey: SettingCatalog().devices.discoveryEnabled.userDefaultsKey)
+        defaults.set(false, forKey: SettingCatalog().devices.incomingAccessEnabled.userDefaultsKey)
+        let allowed = MobileRemoteControlPolicy.allowsIncomingAccess(defaults: defaults, cloudEnabled: true)
+        #expect(!allowed)
+        let transport = RecordingManagedPolicyTransport()
+        let exit = await MobileHostService.acceptTransport(
+            transport,
+            authorization: .irohAdmission(CmxIrohAdmittedPeer(peer: CmxIrohGrantPeer(
+                bindingID: "policy-binding", deviceID: "policy-mac", tag: "policy-test", platform: .mac,
+                endpointID: try CmxIrohPeerIdentity(endpointID: String(repeating: "a", count: 64)),
+                identityGeneration: 0))),
+            remoteControlDisabledByPolicy: { !allowed }, isCurrent: { true }
+        )
+        #expect(exit.lifecycle == .explicitlyInvalidated)
+        #expect(await transport.observedCloseCount() == 1)
+        #expect(await transport.observedSentCount() == 0)
+    }
+
     @Test func admissionRefusesAndClosesTheTransportUnderThePolicy() async throws {
         let registry = MobileHostConnectionRegistry.shared
         let countBefore = registry.count

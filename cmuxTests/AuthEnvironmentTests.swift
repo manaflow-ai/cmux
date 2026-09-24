@@ -10,6 +10,34 @@ import Testing
 
 @Suite("Auth environment")
 struct AuthEnvironmentTests {
+    @Test("debug file overrides win over stale inherited routing values and never import unknown keys")
+    func debugFileOverridesWinOverStaleInheritedRoutingValues() {
+        let merged = AuthEnvironment.mergedRuntimeEnvironment(
+            environment: [
+                "CMUX_API_BASE_URL": "https://stale.example",
+                "CMUX_VM_API_BASE_URL": "https://stale.example",
+                "CMUX_AUTH_ENVIRONMENT": "development",
+                "UNSAFE_SECRET": "process-secret",
+            ],
+            fileOverrides: [
+                "CMUX_API_BASE_URL": " https://fresh.example:4626/ ",
+                "CMUX_VM_API_BASE_URL": "https://fresh.example:4626/",
+                "UNSAFE_SECRET": "file-secret",
+            ]
+        )
+
+        #expect(merged["CMUX_API_BASE_URL"] == "https://fresh.example:4626/")
+        #expect(merged["CMUX_VM_API_BASE_URL"] == "https://fresh.example:4626/")
+        #expect(merged["UNSAFE_SECRET"] == "process-secret")
+    }
+
+    @Test("debug override parser accepts quoted values and ignores comments")
+    func debugOverrideParserAcceptsQuotedValues() {
+        let contents = "# comment\nCMUX_VM_API_BASE_URL = \"https://fresh.example:4626/\"\nOTHER=ignored\n"
+        #expect(AuthEnvironment.parseDebugOverride(key: "CMUX_VM_API_BASE_URL", contents: contents) == "https://fresh.example:4626/")
+        #expect(AuthEnvironment.parseDebugOverride(key: "CMUX_API_BASE_URL", contents: contents) == nil)
+    }
+
     @Test("macOS production auth override selects the production Stack project")
     func macOSProductionAuthOverrideSelectsProductionStackProject() {
         #expect(AuthEnvironment.resolvedStackAuthEnvironment(

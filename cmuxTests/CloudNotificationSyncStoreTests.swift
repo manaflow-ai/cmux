@@ -11,6 +11,34 @@ import Testing
 @Suite("Cloud notification persistence")
 struct CloudNotificationSyncStoreTests {
     @Test
+    func equalPlacedRowsSkipASecondFold() {
+        var resolutions = 0
+        let sync = CloudNotificationSync(machineID: "vm", clientID: "mac", store: CloudNotificationSyncStore(defaults: UserDefaults(suiteName: "CloudNotificationSyncStoreTests.\(UUID().uuidString)")!), resolveTarget: { _ in
+            resolutions += 1
+            return .init(workspaceID: UUID(), panelID: nil)
+        }, deliver: { _, _ in .delivered }, send: { _ in })
+        let row = CloudVMNotificationRow(id: "n", title: "Done", subtitle: nil, body: "", level: "info", createdAtMs: 1, terminalID: "t", readBy: [])
+        #expect(sync.apply(rows: [row]))
+        #expect(!sync.apply(rows: [row]))
+        #expect(resolutions == 1)
+    }
+
+    @Test
+    func declinedDeliveryRetriesOnAnEqualSnapshot() {
+        var declined = true
+        var deliveries = 0
+        let sync = CloudNotificationSync(machineID: "vm", clientID: "mac", store: CloudNotificationSyncStore(defaults: UserDefaults(suiteName: "CloudNotificationSyncStoreTests.\(UUID().uuidString)")!), resolveTarget: { _ in .init(workspaceID: UUID(), panelID: nil) }, deliver: { _, _ in
+            deliveries += 1
+            return declined ? .declined : .delivered
+        }, send: { _ in })
+        let row = CloudVMNotificationRow(id: "n", title: "Done", subtitle: nil, body: "", level: "info", createdAtMs: 1, terminalID: "t", readBy: [])
+        #expect(sync.apply(rows: [row]))
+        declined = false
+        #expect(sync.apply(rows: [row]))
+        #expect(deliveries == 2)
+    }
+
+    @Test
     func persistedStateFromBeforeReadLedgerStillLoads() throws {
         let oldState = Data(#"{"delivered":["n1"],"pendingAcks":[{"key":"k1","ids":["n1"]}]}"#.utf8)
         let restored = try JSONDecoder().decode(CloudNotificationSyncState.self, from: oldState)
@@ -30,7 +58,7 @@ struct CloudNotificationSyncStoreTests {
             CloudNotificationSync(
                 machineID: "machine", clientID: "mac", store: store,
                 resolveTarget: { _ in .init(workspaceID: UUID(), panelID: nil) },
-                deliver: { _, _ in deliveries += 1; return true }, send: { _ in }
+                deliver: { _, _ in deliveries += 1; return .delivered }, send: { _ in }
             )
         }
         let row = CloudVMNotificationRow(
@@ -81,7 +109,7 @@ struct CloudNotificationSyncStoreTests {
         var sent = 0
         let sync = CloudNotificationSync(
             machineID: "machine", clientID: "mac", store: store,
-            newKey: { "ack-key" }, resolveTarget: { _ in nil }, deliver: { _, _ in true },
+            newKey: { "ack-key" }, resolveTarget: { _ in nil }, deliver: { _, _ in .delivered },
             send: { batch in
                 let data = try #require(defaults.data(forKey: CloudNotificationSyncStore.key(machineID: "machine")))
                 let saved = try JSONDecoder().decode(CloudNotificationSyncState.self, from: data)
@@ -107,7 +135,7 @@ struct CloudNotificationSyncStoreTests {
         let sync = CloudNotificationSync(
             machineID: "machine", clientID: "mac", store: store,
             resolveTarget: { _ in .init(workspaceID: UUID(), panelID: nil) },
-            deliver: { _, _ in true }, send: { _ in }, unreadChanged: { unreadChanges.append($0) }
+            deliver: { _, _ in .delivered }, send: { _ in }, unreadChanged: { unreadChanges.append($0) }
         )
         defer { sync.retire() }
         var row = CloudVMNotificationRow(

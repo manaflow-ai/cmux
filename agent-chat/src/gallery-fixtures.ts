@@ -157,4 +157,4 @@ export const stressConversationBlocks: Block[] = Array.from({ length: 250 }, (_,
   { kind: "footer", text: `${200 + i} in · ${20 + i} out · 0.${i % 9}s` },
 ]).flat();
 
-export const galleryActions: SessionActions = { fork: true };
+export const galleryActions: SessionActions = { fork: true, handoff: true };

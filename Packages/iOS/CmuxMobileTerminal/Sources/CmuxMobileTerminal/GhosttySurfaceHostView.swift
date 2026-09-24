@@ -68,6 +68,16 @@ public final class GhosttySurfaceHostView: UIView {
     /// dock.bottom == keyboardLayoutGuide.top; the seat authority everywhere
     /// the guide is trustworthy (pixel-locked to the keyboard's own spring).
     private var guideDockConstraint: NSLayoutConstraint?
+    /// dock.bottom <= host.bottom - resolvedBottomSafeAreaInset, active with
+    /// the guide seat. After a show→hide cycle the system guide can rest at
+    /// the RAW host bottom instead of the bottom safe area (observed on
+    /// iOS 26 when blocked input resigns the responder over a disconnected
+    /// terminal: the composer lands inside the home-indicator band, and with
+    /// input blocked no keyboard event ever re-seats it —
+    /// https://github.com/manaflow-ai/cmux/issues/13470). This required
+    /// floor clamps that rest; the guide equality is priority 999 so it
+    /// yields by exactly the clamped distance instead of breaking layout.
+    private var guideDockFloorConstraint: NSLayoutConstraint?
     /// renderWrapper.bottom <= dock.top + chrome + blank + reveal (the
     /// content cap).
     private var presentationContentCapConstraint: NSLayoutConstraint!
@@ -231,9 +241,22 @@ public final class GhosttySurfaceHostView: UIView {
             let guide = surfaceView.hostedBottomDockBottomAnchor.constraint(
                 equalTo: keyboardLayoutGuide.topAnchor
             )
+            // Just below required: the floor below may legitimately hold the
+            // dock above a guide that rests at the raw screen bottom, and the
+            // equality must yield that distance rather than break the layout.
+            guide.priority = UILayoutPriority(999)
             guideDockConstraint = guide
+            // The keyboard-down floor: the visible dock never sits below the
+            // physical bottom safe area, whatever rest frame the guide
+            // reports. Slack whenever the keyboard holds the guide higher.
+            let floor = surfaceView.hostedBottomDockBottomAnchor.constraint(
+                lessThanOrEqualTo: bottomAnchor
+            )
+            guideDockFloorConstraint = floor
             dockBottomConstraint.isActive = false
             guide.isActive = true
+            floor.isActive = true
+            syncGuideDockFloor()
         }
 
         presentationContentCapConstraint = terminalPresentationView.bottomAnchor.constraint(
@@ -377,19 +400,35 @@ public final class GhosttySurfaceHostView: UIView {
     /// swap never retargets a moving leg.
     private func syncDockSeatAuthority() {
         guard let guideDockConstraint else { return }
+        syncGuideDockFloor()
         let wantsGuide = !surfaceView.hostedChromeHidden
         guard guideDockConstraint.isActive != wantsGuide else { return }
         if wantsGuide {
             dockBottomConstraint.isActive = false
             guideDockConstraint.isActive = true
+            guideDockFloorConstraint?.isActive = true
         } else {
             guideDockConstraint.isActive = false
+            // The hidden dock parks at the raw host bottom by design; the
+            // floor must not hold it up in the chrome-hidden state.
+            guideDockFloorConstraint?.isActive = false
             dockBottomConstraint.constant = -surfaceView.hostedBottomReservation(
                 keyboardHeight: surfaceView.hostedKeyboardHeight,
                 bottomSafeAreaInset: resolvedBottomSafeAreaInset
             )
             dockBottomConstraint.isActive = true
         }
+    }
+
+    /// Keeps the guide-seat floor pinned to the live resolved bottom safe
+    /// area. The resolver's window/captured/ancestor fallbacks converge after
+    /// mount, so the constant follows every source the plain seat already
+    /// tracks (attach, safe-area change, SwiftUI-captured inset).
+    private func syncGuideDockFloor() {
+        guard let guideDockFloorConstraint else { return }
+        let constant = -resolvedBottomSafeAreaInset
+        guard abs(guideDockFloorConstraint.constant - constant) > 0.25 else { return }
+        guideDockFloorConstraint.constant = constant
     }
 
     public override func safeAreaInsetsDidChange() {
