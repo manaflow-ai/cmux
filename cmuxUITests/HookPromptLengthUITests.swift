@@ -20,37 +20,31 @@ final class HookPromptLengthUITests: XCTestCase {
         ) })
         let cli = appURL.appendingPathComponent("Contents/Resources/bin/cmux").path
         XCTAssertTrue(FileManager.default.isExecutableFile(atPath: cli))
-        // No AX interaction is required. XCUIApplication.launch waits for
-        // foreground activation and fails on otherwise usable headless hosts.
-        let app = Process()
-        app.executableURL = appURL.appendingPathComponent(
-            "Contents/MacOS/\(appURL.deletingPathExtension().lastPathComponent)"
-        )
-        app.arguments = ["-socketControlMode", "allowAll", "-NSAppSleepDisabled", "YES"]
-        var environment = ProcessInfo.processInfo.environment
-        environment["CMUX_SOCKET_PATH"] = socketPath
-        environment["CMUX_SOCKET_ENABLE"] = "1"
-        environment["CMUX_SOCKET_MODE"] = "allowAll"
-        environment["CMUX_ALLOW_SOCKET_OVERRIDE"] = "1"
-        environment["CMUX_TAG"] = "ui-tests-14024-hook-length"
-        environment["CMUX_UI_TEST_PROCESS"] = "1"
-        environment["CMUX_UI_TEST_MODE"] = "1"
-        let appLogURL = root.appendingPathComponent("app.log")
         let appDiagnosticsURL = root.appendingPathComponent("app-diagnostics.json")
-        environment["CMUX_UI_TEST_DIAGNOSTICS_PATH"] = appDiagnosticsURL.path
-        app.environment = environment
-        _ = FileManager.default.createFile(atPath: appLogURL.path, contents: nil)
-        let appLog = try FileHandle(forWritingTo: appLogURL)
-        defer { try? appLog.close() }
-        app.standardOutput = appLog
-        app.standardError = appLog
-        try app.run()
-        defer {
-            if app.isRunning { app.terminate() }
-            let stopped = XCTNSPredicateExpectation(
-                predicate: NSPredicate { _, _ in !app.isRunning }, object: nil
-            )
-            XCTAssertEqual(XCTWaiter.wait(for: [stopped], timeout: 5), .completed)
+        let app = XCUIApplication.cmuxTestApplication()
+        app.launchArguments += ["-socketControlMode", "allowAll", "-NSAppSleepDisabled", "YES"]
+        app.launchEnvironment["CMUX_SOCKET_PATH"] = socketPath
+        app.launchEnvironment["CMUX_SOCKET_ENABLE"] = "1"
+        app.launchEnvironment["CMUX_SOCKET_MODE"] = "allowAll"
+        app.launchEnvironment["CMUX_ALLOW_SOCKET_OVERRIDE"] = "1"
+        app.launchEnvironment["CMUX_TAG"] = "ui-tests-14024-hook-length"
+        app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_DIAGNOSTICS_PATH"] = appDiagnosticsURL.path
+        defer { app.terminate() }
+        // XCTest's launcher gives the app its normal process context; a Process
+        // child inherits the runner sandbox and cannot create the socket lock.
+        // Window activation is irrelevant to this socket-only regression.
+        let options = XCTExpectedFailure.Options()
+        options.isStrict = false
+        options.issueMatcher = { issue in
+            let detail = [issue.compactDescription, issue.detailedDescription,
+                          issue.associatedError?.localizedDescription].compactMap { $0 }.joined(separator: "\n")
+            return (issue.type == .system || issue.type == .assertionFailure)
+                && detail.contains("Failed to activate application")
+                && detail.contains("Running Background")
+        }
+        XCTExpectFailure("Headless activation may leave the app in the background", options: options) {
+            app.launch()
         }
         let output = root.appendingPathComponent("result.txt")
         _ = FileManager.default.createFile(atPath: output.path, contents: nil)
@@ -69,19 +63,8 @@ final class HookPromptLengthUITests: XCTestCase {
         if process.isRunning { process.terminate() }
         var diagnostics = (try? String(contentsOf: output, encoding: .utf8)) ?? "missing probe output"
         if !process.isRunning && process.terminationStatus != 0 {
-            diagnostics += "\nappRunning=\(app.isRunning)"
-            if !app.isRunning { diagnostics += " appExit=\(app.terminationStatus)" }
-            diagnostics += "\n" + ((try? String(contentsOf: appLogURL, encoding: .utf8)) ?? "missing app log")
+            diagnostics += "\nappState=\(app.state.rawValue)"
             diagnostics += "\n" + ((try? String(contentsOf: appDiagnosticsURL, encoding: .utf8)) ?? "missing app diagnostics")
-            let startupLog = FileManager.default.urls(for: .libraryDirectory, in: .userDomainMask).first?
-                .appendingPathComponent("Logs/cmux/startup-com.cmuxterm.app.debug.log")
-            if let startupLog, let startup = try? String(contentsOf: startupLog, encoding: .utf8) {
-                for line in startup.split(separator: "\n") {
-                    guard let row = try? JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any],
-                          row["pid"] as? Int == Int(app.processIdentifier) else { continue }
-                    diagnostics += "\n" + line
-                }
-            }
         }
         XCTAssertFalse(process.isRunning, diagnostics)
         if !process.isRunning { XCTAssertEqual(process.terminationStatus, 0, diagnostics) }
