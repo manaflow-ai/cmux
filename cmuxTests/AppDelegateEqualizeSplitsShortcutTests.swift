@@ -7631,7 +7631,16 @@ final class AppDelegateEqualizeSplitsShortcutTests {
     }
 
     @Test
-    func testConfiguredWorkspaceTerminalFontSizeResetRestoresEverySplit() {
+    func testConfiguredWorkspaceTerminalFontSizeResetRestoresEverySplit() async {
+        // A reload an earlier case left fanning out holds the app-wide
+        // font-size barrier, and the arbiter queues a reset issued behind it
+        // until the barrier lifts, which is after these synchronous checks.
+        // Settle it while suspended so the reset below applies immediately.
+        await settleConfigurationReload(GhosttyApp.shared)
+        XCTAssertFalse(
+            GhosttyApp.shared.isConfigurationReloadActive,
+            "A configuration reload in flight would queue the reset past these checks"
+        )
         withTemporaryShortcut(action: .resetWorkspaceTerminalFontSize) {
             guard let appDelegate = AppDelegate.shared else {
                 XCTFail("Expected AppDelegate.shared")
