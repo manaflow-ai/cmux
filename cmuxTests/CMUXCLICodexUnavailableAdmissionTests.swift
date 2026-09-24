@@ -79,13 +79,15 @@ struct CMUXCLICodexUnavailableAdmissionTests {
         )
 
         #expect(!result.timedOut, Comment(rawValue: result.diagnostics))
-        #expect(result.status == 0, Comment(rawValue: result.diagnostics))
-        #expect(try String(contentsOf: marker, encoding: .utf8) == "started\n")
         let methods = try responder.receivedRequests.compactMap { request in
             (try? #require(JSONSerialization.jsonObject(with: Data(request.utf8)) as? [String: Any]))?["method"] as? String
         }
-        #expect(methods == ["surface.resume.get", "agent.restore.admit", "surface.resume.get"])
-        #expect(!result.stderr.localizedCaseInsensitiveContains("could not read its saved session records"))
+        let markerContents = try? String(contentsOf: marker, encoding: .utf8)
+        let diagnostics = "\(result.diagnostics) methods=\(methods) marker=\(markerContents ?? "<missing>")"
+        #expect(result.status == 0, Comment(rawValue: diagnostics))
+        #expect(markerContents == "started\n", Comment(rawValue: diagnostics))
+        #expect(methods == ["surface.resume.get", "agent.restore.admit", "surface.resume.get"], Comment(rawValue: diagnostics))
+        #expect(!result.stderr.localizedCaseInsensitiveContains("could not read its saved session records"), Comment(rawValue: diagnostics))
     }
 
     private func jsonResponse(result: [String: Any]) throws -> String {
