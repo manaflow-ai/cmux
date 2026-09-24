@@ -11,6 +11,7 @@ import fcntl
 import json
 import os
 from pathlib import Path
+import plistlib
 import re
 import secrets
 import shlex
@@ -65,10 +66,11 @@ def main():
         def identify():
             identity = client._call('system.identify')
             assert identity['socket_path'] == socket_path, identity
-            assert identity['bundle_identifier'] == (
-                'com.cmuxterm.app.debug.' + tag.replace('-', '.')
-            ), identity
             bundle = Path(identity['app_bundle_path']).resolve(strict=True)
+            assert bundle.name == f'cmux DEV {tag}.app', bundle
+            with (bundle / 'Contents/Info.plist').open('rb') as file:
+                metadata = plistlib.load(file)
+            assert identity['bundle_identifier'] == metadata['CFBundleIdentifier'], identity
             assert cli == bundle / 'Contents/Resources/bin/cmux', (cli, bundle)
             return identity
 
