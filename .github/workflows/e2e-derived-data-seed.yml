@@ -3,8 +3,8 @@ name: E2E DerivedData seed
 # test-e2e.yml builds start from the DerivedData that a main-contained dispatch
 # of that workflow published (#14016), so a test-only change recompiles only
 # the tests. Focused dispatches test pull request revisions, which never
-# publish, and nothing else dispatched main: every build since #14016 reported
-# "no-main-derived-data" and compiled the whole app from empty DerivedData.
+# publish, and nothing dispatches main on a schedule: seeds so far came from
+# hand dispatches, and each artifact expires after 3 days.
 #
 # Every 6 hours this dispatches test-e2e.yml on main's HEAD with one fast suite,
 # unless that SHA already has a seed dispatch. It dispatches instead of calling
@@ -39,9 +39,11 @@ jobs:
           set -euo pipefail
           head_sha="$(gh api "repos/$GITHUB_REPOSITORY/branches/main" --jq '.commit.sha')"
           # test-e2e.yml's run name carries the tested ref and the dispatch id.
+          # A run that built but failed its test still published, so only runs
+          # that never finished count as missing.
           existing="$(gh run list --repo "$GITHUB_REPOSITORY" --workflow test-e2e.yml \
-            --branch main --event workflow_dispatch --limit 50 --json displayTitle,conclusion \
-            --jq "[.[] | select((.displayTitle | contains(\"@ $head_sha\")) and (.displayTitle | contains(\"[e2e-derived-data-seed-\")) and (.conclusion != \"failure\" and .conclusion != \"cancelled\"))] | length")"
+            --branch main --event workflow_dispatch --limit 300 --json displayTitle,conclusion \
+            --jq "[.[] | select((.displayTitle | contains(\"@ $head_sha\")) and (.displayTitle | contains(\"[e2e-derived-data-seed-\")) and (.conclusion != \"cancelled\" and .conclusion != \"timed_out\" and .conclusion != \"startup_failure\"))] | length")"
           if [ "$existing" != "0" ]; then
             echo "main's HEAD $head_sha already has a seed dispatch." >> "$GITHUB_STEP_SUMMARY"
             exit 0

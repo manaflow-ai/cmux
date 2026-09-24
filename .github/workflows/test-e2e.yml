@@ -304,8 +304,11 @@ jobs:
         id: product-key
         run: python3 scripts/ci/reuse_app_host_products.py key "$CMUX_DERIVED_DATA_PATH"
 
+      # e2e-derived-data-seed.yml dispatches exist to publish DerivedData,
+      # which only a compile produces, so they never adopt a product.
       - name: Reuse a compiled product instead of building one
         id: reuse
+        if: ${{ !startsWith(inputs.dispatch_id, 'e2e-derived-data-seed-') }}
         continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
@@ -399,6 +402,15 @@ jobs:
           # build system reruns every task whose inputs merely moved.
           defaults write com.apple.dt.XCBuild IgnoreFileSystemDeviceInodeChanges -bool YES
           python3 scripts/ci/e2e_warm_derived_data.py restore "$GITHUB_WORKSPACE" "$CMUX_DERIVED_DATA_PATH" "$WARM_KEY"
+
+      # A step timeout kills the restore before its own cleanup runs, which
+      # would leave the compile a half-extracted DerivedData to start from.
+      - name: Discard a partly adopted DerivedData
+        if: ${{ steps.warm.outcome == 'failure' }}
+        run: |
+          set -euo pipefail
+          rm -rf -- "$CMUX_DERIVED_DATA_PATH"
+          mkdir -p "$CMUX_DERIVED_DATA_PATH"
 
       - name: Record build input times
         id: record-inputs
