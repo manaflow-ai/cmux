@@ -23,6 +23,7 @@ pub(super) struct BrowserProxyArgs {
     pub(super) connect: Vec<String>,
     pub(super) allowed_hosts: Vec<String>,
     pub(super) workspace_root: String,
+    pub(super) allow_loopback: bool,
     owner: u32,
 }
 
@@ -30,6 +31,7 @@ pub(super) fn parse_browser_proxy_args(args: &[String]) -> anyhow::Result<Browse
     let mut connect = Vec::new();
     let mut allowed_hosts = Vec::new();
     let mut workspace_root = None;
+    let mut allow_loopback = false;
     let mut index = 0;
     while index < args.len() {
         let argument = &args[index];
@@ -37,8 +39,15 @@ pub(super) fn parse_browser_proxy_args(args: &[String]) -> anyhow::Result<Browse
             "--allowed-host" => {
                 let value =
                     args.get(index + 1).ok_or_else(|| anyhow!("--allowed-host needs a value"))?;
-                allowed_hosts.push(normalize_proxy_host(value)?);
+                allowed_hosts.push(normalize_proxy_host(value, allow_loopback)?);
                 index += 2;
+            }
+            "--allow-loopback" => {
+                if allow_loopback {
+                    return Err(anyhow!("duplicate flag --allow-loopback"));
+                }
+                allow_loopback = true;
+                index += 1;
             }
             "--workspace-root" => {
                 if workspace_root.is_some() {
@@ -98,18 +107,25 @@ pub(super) fn parse_browser_proxy_args(args: &[String]) -> anyhow::Result<Browse
         connect,
         allowed_hosts,
         workspace_root,
+        allow_loopback,
         owner: super::current_parent_process_id(),
     })
 }
 
-fn normalize_proxy_host(value: &str) -> anyhow::Result<String> {
+fn normalize_proxy_host(value: &str, allow_loopback: bool) -> anyhow::Result<String> {
     let value = value.trim();
+    if allow_loopback && value.eq_ignore_ascii_case("localhost") {
+        return Ok("127.0.0.1".into());
+    }
     let value = value.strip_prefix('[').and_then(|value| value.strip_suffix(']')).unwrap_or(value);
     let ip = value
         .parse::<std::net::IpAddr>()
         .map_err(|_| anyhow!("--allowed-host must be an IP address"))?;
-    if ip.is_unspecified() || ip.is_multicast() || ip.is_loopback() {
+    if ip.is_unspecified() || ip.is_multicast() || (ip.is_loopback() && !allow_loopback) {
         return Err(anyhow!("--allowed-host must be a private VM address"));
+    }
+    if ip.is_loopback() {
+        return Ok(ip.to_string());
     }
     match ip {
         std::net::IpAddr::V4(address) if address.is_private() => Ok(address.to_string()),
@@ -259,7 +275,7 @@ async fn serve_connect_connection(
         socket.write_all(b"HTTP/1.1 405 Method Not Allowed\r\nConnection: close\r\n\r\n").await?;
         return Ok(());
     }
-    let (host, port) = parse_connect_authority(target)?;
+    let (host, port) = parse_connect_authority_with_loopback(target, allow_loopback)?;
     let initial_payload = request[header_end..].to_vec();
     let auth = lines.find_map(|line| {
         line.split_once(':')
@@ -612,6 +628,13 @@ fn application_protocols(header: &str, authentication: &str) -> String {
 }
 
 pub(super) fn parse_connect_authority(authority: &str) -> anyhow::Result<(String, u16)> {
+    parse_connect_authority_with_loopback(authority, false)
+}
+
+pub(super) fn parse_connect_authority_with_loopback(
+    authority: &str,
+    allow_loopback: bool,
+) -> anyhow::Result<(String, u16)> {
     let (host, port) = if let Some(rest) = authority.strip_prefix('[') {
         let end = rest.find(']').ok_or_else(|| anyhow!("invalid CONNECT authority"))?;
         let host = &rest[..end];
@@ -621,7 +644,7 @@ pub(super) fn parse_connect_authority(authority: &str) -> anyhow::Result<(String
     } else {
         authority.rsplit_once(':').ok_or_else(|| anyhow!("CONNECT port is required"))?
     };
-    let host = normalize_proxy_host(host)?;
+    let host = normalize_proxy_host(host, allow_loopback)?;
     let port = port.parse::<u16>().map_err(|_| anyhow!("invalid CONNECT port"))?;
     Ok((host, port))
 }
