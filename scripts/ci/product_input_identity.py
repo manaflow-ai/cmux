@@ -432,8 +432,8 @@ def identity_from_tree_lines(
     *,
     profile: str | None = None,
 ) -> dict[str, str]:
-    resolved = resolve_profile(profile)
     tree_lines = list(tree_lines)
+    resolved = resolve_profile(profile)
     value = {
         "schema": IDENTITY_SCHEMA,
         "algorithm": algorithm_fingerprint(),
