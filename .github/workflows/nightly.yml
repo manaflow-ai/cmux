@@ -642,6 +642,15 @@ jobs:
           scripts/ci/compile-app-host-test-product.sh canonical-resolve \
             "$CMUX_COMPILE_ADMISSION_DERIVED_DATA" "$PWD/.ci-source-packages"
 
+      # ci-macos.yml compile admission adopts this build's DerivedData for pull
+      # requests. The recorded content and times are how it tells which inputs
+      # a later revision changed. See scripts/ci/seed_derived_data.py.
+      - name: Record DerivedData seed inputs
+        id: derived-data-record
+        if: steps.compilation-cache-restore.outputs.cache-hit != 'true'
+        continue-on-error: true
+        run: python3 scripts/ci/seed_derived_data.py record "$CMUX_CI_CANONICAL_SRC" "$CMUX_COMPILE_ADMISSION_DERIVED_DATA"
+
       - name: Refresh test compilation cache
         if: steps.compilation-cache-restore.outputs.cache-hit != 'true'
         run: |
@@ -705,6 +714,29 @@ jobs:
           backend: ${{ inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND || 'r2' }}
           path: .ci-source-packages
           key: spm-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
+
+      # R2 only: a multi-gigabyte entry in the GitHub store evicts the seeds
+      # above (#13160). A failure here never fails the seed.
+      - name: Bound DerivedData seed size
+        id: derived-data-bound
+        if: steps.compilation-cache-restore.outputs.cache-hit != 'true' && steps.derived-data-record.outcome == 'success' && (inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND || 'r2') == 'r2'
+        continue-on-error: true
+        run: python3 scripts/ci/seed_derived_data.py prune "$CMUX_COMPILE_ADMISSION_DERIVED_DATA"
+
+      - name: Save DerivedData seed
+        if: steps.derived-data-bound.outputs.save == 'true'
+        continue-on-error: true
+        uses: ./.github/actions/cache-save
+        env:
+          # Only an R2 save sees the bucket credentials.
+          AWS_ACCESS_KEY_ID: ${{ (inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND) == 'r2' && secrets.CI_CACHE_R2_ACCESS_KEY_ID || '' }}
+          AWS_SECRET_ACCESS_KEY: ${{ (inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND) == 'r2' && secrets.CI_CACHE_R2_SECRET_ACCESS_KEY || '' }}
+          CI_CACHE_R2_ENDPOINT: ${{ (inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND) == 'r2' && format('https://{0}.r2.cloudflarestorage.com', secrets.CI_CACHE_R2_ACCOUNT_ID) || '' }}
+          CI_CACHE_R2_BUCKET: ${{ vars.CI_CACHE_R2_BUCKET }}
+        with:
+          backend: r2
+          path: ${{ env.CMUX_COMPILE_ADMISSION_DERIVED_DATA }}
+          key: admission-derived-data-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.compilation-cache-key.outputs.fingerprint }}-${{ needs.decide.outputs.head_sha }}
 
   build-nightly-ghostty-cli-helper:
     needs: decide
