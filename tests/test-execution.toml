@@ -1151,3 +1151,7 @@ lane = "linux-guard"
 [[test]]
 path = "tests/test_web_complexity_source_enumeration.py"
 lane = "linux-guard"
+
+[[test]]
+path = "tests/test_r2_cache_prune.py"
+lane = "linux-guard"
