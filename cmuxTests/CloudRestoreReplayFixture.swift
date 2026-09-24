@@ -114,12 +114,15 @@ final class CloudRestoreReplayFixture {
         event: String,
         columns: Int = 80,
         rows: Int = 24,
-        marker: String
+        marker: String,
+        colors: [String: Any]? = nil
     ) async throws {
-        socket.send([
+        var payload: [String: Any] = [
             "event": event, "surface": 17, "cols": columns, "rows": rows,
             "data": bytes.base64EncodedString()
-        ])
+        ]
+        if let colors { payload["colors"] = colors }
+        socket.send(payload)
         try await waitUntil { self.surface.readText(region: .screen)?.contains(marker) == true }
     }
 

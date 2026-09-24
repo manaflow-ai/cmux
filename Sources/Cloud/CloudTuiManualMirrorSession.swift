@@ -567,8 +567,7 @@ final class CloudTuiManualMirrorSession {
             // A snapshot replaces the local VT state. Reset first so cells,
             // cursor state, alternate-screen mode, and SGR from a prior
             // restore cannot survive where the replacement is shorter.
-            applyReplay(bytes)
-            applyColors(colors)
+            applyReplay(bytes, colors: colors)
             hasReceivedRemoteReplay = true
             diagnosticReplayReceived = true
             if phase == .attached { finishDiagnostics() }
@@ -587,8 +586,7 @@ final class CloudTuiManualMirrorSession {
             // `resized` carries a replacement replay, not an incremental
             // output chunk. Resetting first prevents old rows/cursor state from
             // surviving a shrink or a reconnect.
-            applyReplay(bytes)
-            applyColors(colors)
+            applyReplay(bytes, colors: colors)
             hasReceivedRemoteReplay = true
             diagnosticReplayReceived = true
             if phase == .attached { finishDiagnostics() }
@@ -623,16 +621,14 @@ final class CloudTuiManualMirrorSession {
             break
         }
     }
-    private func applyReplay(_ bytes: Data) {
-        // A snapshot/resized frame replaces the local VT state. Drop every
-        // remote color before the reset rather than trusting RIS to do it: the
-        // replay's sidecar re-applies the authored set in full, so the pane
-        // ends in the same state either way. Without this fence, cells and
-        // cursor/SGR state from a previous restore survive wherever the new
-        // replay is shorter.
+    private func applyReplay(_ bytes: Data, colors: CloudTuiRemoteColors?) {
+        // A sidecar replaces authored colors; an absent sidecar preserves them.
+        // Restore the authoritative set after resetting the replacement VT state.
+        let replayColors = colors ?? appliedRemoteColors
         applyColors(CloudTuiRemoteColors())
         surface?.processRemoteOutput(Self.replayReset)
         surface?.processRemoteOutput(bytes)
+        applyColors(replayColors)
     }
 
     /// The replay is theme-portable: it carries no palette or default-color
