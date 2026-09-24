@@ -42,4 +42,15 @@ jobs:
                   continue
               names = sorted(item["name"] for item in payload.get("result", []) if isinstance(item, dict) and isinstance(item.get("name"), str))
               print(json.dumps({"target": label, "success": True, "secretNames": names, "missingRequiredNames": sorted(required - set(names))}))
+              settings_url = "https://api.cloudflare.com/client/v4/accounts/" + account + "/workers/scripts/cmux-iroh-v2-development/settings"
+              request = urllib.request.Request(settings_url, headers={"Authorization": "Bearer " + token})
+              try:
+                  with urllib.request.urlopen(request, timeout=20) as response:
+                      settings = json.load(response)
+              except urllib.error.HTTPError as error:
+                  print(json.dumps({"target": label, "settingsHttp": error.code}))
+                  continue
+              result = settings.get("result") or {}
+              bindings = [{"name": item.get("name"), "type": item.get("type")} for item in result.get("bindings", [])]
+              print(json.dumps({"target": label, "settingsSuccess": settings.get("success"), "bindingNamesAndTypes": bindings}))
           PY_CHECK
