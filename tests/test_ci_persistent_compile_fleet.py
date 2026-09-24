@@ -431,6 +431,10 @@ class RoutingSwitch(unittest.TestCase):
         lines = dict(fleet.doctor_lines(github, None)[0])["GitHub"]
         self.assertIn(fleet.Line(False, "routing: pilot for (empty cohort: nothing routes)"), lines)
 
+    def test_doctor_points_an_empty_pilot_at_a_pr(self) -> None:
+        github = fleet_state(runners=[runner()], variables={fleet.SELECTOR_VARIABLE: "pilot"})
+        self.assertIn("scripts/persistent-compile pilot", fleet.doctor_lines(github, None)[1])
+
 
 class XcodePin(unittest.TestCase):
     """The mini must compile with the Xcode the hosted job revalidates with, or every product is refused."""
@@ -462,6 +466,15 @@ class XcodePin(unittest.TestCase):
         }
         with mock.patch.object(fleet, "gh_api", side_effect=lambda path: pages[path]):
             self.assertEqual(fleet.read_variables(), {"A": "repo", "B": "org"})
+
+    def test_repository_variables_survive_a_refused_org_read(self) -> None:
+        def api(path: str):
+            if "organization-variables" in path:
+                raise fleet.Failure("HTTP 403")
+            return {"variables": [{"name": "A", "value": "repo"}]}
+
+        with mock.patch.object(fleet, "gh_api", side_effect=api):
+            self.assertEqual(fleet.read_variables(), {"A": "repo"})
 
     def test_an_operator_without_org_admin_still_gets_the_pin(self) -> None:
         pr = fleet.XCODE_VARIABLES[0]
@@ -513,6 +526,17 @@ class Quarantine(unittest.TestCase):
              mock.patch("builtins.print"), mock.patch("sys.stderr"):
             self.assertEqual(fleet.main(["quarantine", "hardware_failure"]), 1)
         self.assertEqual(stopped, [fleet.runner_dir()])
+
+    def test_a_refused_quarantine_without_a_runner_does_not_claim_one_stopped(self) -> None:
+        with mock.patch.object(fleet, "require_mac"), \
+             mock.patch.object(fleet, "read_local", return_value=mini(runner_configured=False)), \
+             mock.patch.object(fleet, "glaeda_transition", side_effect=fleet.Failure("unsupported")), \
+             mock.patch.object(fleet, "stop_service") as stop:
+            with self.assertRaises(fleet.Failure) as caught:
+                fleet.stop_taking_jobs(fleet.parser().parse_args(["quarantine", "disk_pressure"]), "quarantined")
+        stop.assert_not_called()
+        self.assertNotIn("stopped", str(caught.exception))
+        self.assertIn("no runner is configured", str(caught.exception))
 
     def test_resume_points_a_quarantined_mini_at_up(self) -> None:
         local = mini(enrollment={"nodeId": "n", "state": "quarantined", "quarantineReason": "disk_pressure"})
