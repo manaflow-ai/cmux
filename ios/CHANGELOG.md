@@ -55,7 +55,7 @@ for a different version), so bump the beta version with
 
 - Updated the Mac connection service and Iroh transport.
 - Requires cmux 0.64.25 or later, or NIGHTLY 0.64.25-nightly.3522337919701 or later. Enable iOS pairing in Settings > Mobile on each Mac.
-- If you cannot update your Mac, use cmux BETA 1.0.4 (20260817224846) in TestFlight > Previous Builds while available. Choose that exact build.
+- If you cannot update your Mac, use cmux BETA 1.0.5 (20260914204800) in TestFlight > Previous Builds while available. Choose that exact build.
 
 ---
 

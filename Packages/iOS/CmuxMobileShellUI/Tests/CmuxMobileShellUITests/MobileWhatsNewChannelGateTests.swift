@@ -18,7 +18,7 @@ import Testing
         buildType: MobileBuildType,
         payload: String? = nil,
         acknowledgedEntryID: String? = nil,
-        appVersion: String = "1.0.5"
+        appVersion: String = "1.0.6"
     ) -> MobileWhatsNewCenter {
         let suiteName = "MobileWhatsNewChannelGateTests-\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suiteName)!
@@ -78,6 +78,38 @@ import Testing
                 }
             }
         }
+    }
+
+    @Test func announcementIsFollowedByPairingSetupOnlyOn106() async throws {
+        let payload = #"""
+        {"visibleEntryIds":["connections.v2","connections.v1"],"announcements":[{
+          "id":"ios-1.0.6-connections","minVersion":"1.0.6","maxVersion":"1.0.6",
+          "channels":["beta","internal"],"title":"What's New in 1.0.6",
+          "features":[{"title":"Update your Mac","detail":"Requires cmux 0.64.25."}]
+        }]}
+        """#
+        let beta = makeCenter(
+            buildType: .beta,
+            payload: payload,
+            acknowledgedEntryID: "connections.v1",
+            appVersion: "1.0.6"
+        )
+        await beta.refresh()
+        #expect(beta.unseenPages.map(\.id) == ["ios-1.0.6-connections", "connections.v2"])
+        let pairing = try #require(beta.unseenPages.last)
+        #expect(pairing.releaseLabel == "1.0.6 · September 2026")
+        #expect(pairing.minVersion == "1.0.6")
+        #expect(pairing.maxVersion == "1.0.6")
+
+        let oldBeta = makeCenter(
+            buildType: .beta,
+            payload: payload,
+            acknowledgedEntryID: "connections.v1",
+            appVersion: "1.0.5"
+        )
+        await oldBeta.refresh()
+        #expect(oldBeta.unseenPages.isEmpty)
+        #expect(oldBeta.visibleBinaryEntries.map(\.id) == ["connections.v1"])
     }
 
     @Test func pairingUpdateAppearsAfterAnOlderPageWasAcknowledged() async {

@@ -111,7 +111,7 @@ export const whatsNewList: WhatsNewList = {
           symbol: "clock.arrow.circlepath",
           title: "Need to keep an older Mac build?",
           detail:
-            "Use cmux BETA 1.0.4 (20260817224846) from TestFlight > Previous Builds while it remains available. Choose that exact build, since later builds use a newer connection service.",
+            "Use cmux BETA 1.0.5 (20260914204800) from TestFlight > Previous Builds while it remains available. Choose that exact build, since later builds use a newer connection service.",
         },
       ],
     },

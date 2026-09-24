@@ -30,7 +30,7 @@ public struct MobileMacCompatPolicy: Equatable, Sendable {
     /// transport, 0.64.20 for authenticated Iroh, and 0.64.23 for the rebuilt
     /// Iroh transport. The App Store lane requires 0.64.25 stable or the first
     /// published 0.64.25 nightly in every tier. The
-    /// BETA 1.0.4 build 20260817224846 is the last older-compatible build;
+    /// BETA 1.0.5 build 20260914204800 is the last older-compatible build;
     /// the later INTERNAL 1.0.4 cut uses the rebuilt transport.
     public static let baked: MobileMacCompatPolicy = {
         guard let minIOS = MobileMacAppVersion(parsing: "1.0.0"),

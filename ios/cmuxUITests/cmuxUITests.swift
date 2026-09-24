@@ -103,7 +103,7 @@ final class cmuxUITests: XCTestCase {
     @MainActor
     func testIOS106WhatsNewReleaseNotice() throws {
         // Snapshot of web/data/whats-new.ts; the web test checks it stays in sync.
-        let payload = #"{"visibleEntryIds":["connections.v2","connections.v1"],"announcements":[{"id":"ios-1.0.6-connections","minVersion":"1.0.6","maxVersion":"1.0.6","channels":["beta","internal"],"title":"What's New in 1.0.6","releaseLabel":"1.0.6 · September 2026","features":[{"symbol":"network","title":"Updated Mac connections","detail":"This update uses the new connection service and Iroh transport. Older Mac builds need an update to connect."},{"symbol":"arrow.down.circle","title":"Update cmux on your Mac","detail":"Requires cmux 0.64.25 or later, or NIGHTLY 0.64.25-nightly.3522337919701 or later. Enable iOS pairing in Settings > Mobile on each Mac."},{"symbol":"clock.arrow.circlepath","title":"Need to keep an older Mac build?","detail":"Use cmux BETA 1.0.4 (20260817224846) from TestFlight > Previous Builds while it remains available. Choose that exact build, since later builds use a newer connection service."}]}]}"#
+        let payload = #"{"visibleEntryIds":["connections.v2","connections.v1"],"announcements":[{"id":"ios-1.0.6-connections","minVersion":"1.0.6","maxVersion":"1.0.6","channels":["beta","internal"],"title":"What's New in 1.0.6","releaseLabel":"1.0.6 · September 2026","features":[{"symbol":"network","title":"Updated Mac connections","detail":"This update uses the new connection service and Iroh transport. Older Mac builds need an update to connect."},{"symbol":"arrow.down.circle","title":"Update cmux on your Mac","detail":"Requires cmux 0.64.25 or later, or NIGHTLY 0.64.25-nightly.3522337919701 or later. Enable iOS pairing in Settings > Mobile on each Mac."},{"symbol":"clock.arrow.circlepath","title":"Need to keep an older Mac build?","detail":"Use cmux BETA 1.0.5 (20260914204800) from TestFlight > Previous Builds while it remains available. Choose that exact build, since later builds use a newer connection service."}]}]}"#
         let app = XCUIApplication()
         defer { app.terminate() }
         for (channel, version, appearance, expected) in [
@@ -122,7 +122,7 @@ final class cmuxUITests: XCTestCase {
                 "CMUX_UITEST_WHATS_NEW_CHANNEL": channel,
                 "CMUX_UITEST_WHATS_NEW_VERSION": version,
                 "CMUX_UITEST_WHATS_NEW_APPEARANCE": appearance,
-                "CMUX_UITEST_WHATS_NEW_ACKNOWLEDGED_ENTRY_ID": "connections.v2"
+                "CMUX_UITEST_WHATS_NEW_ACKNOWLEDGED_ENTRY_ID": "connections.v1"
             ]
             app.launch()
             let title = app.staticTexts["What's New in 1.0.6"].firstMatch
@@ -134,7 +134,7 @@ final class cmuxUITests: XCTestCase {
                 XCTAssertTrue(requirement.exists)
                 XCTAssertTrue(requirement.label.contains("cmux 0.64.25 or later"))
                 let rollback = app.staticTexts.matching(NSPredicate(
-                    format: "label CONTAINS %@", "20260817224846"
+                    format: "label CONTAINS %@", "20260914204800"
                 )).firstMatch
                 XCTAssertTrue(rollback.exists)
                 let screenshot = XCTAttachment(screenshot: app.screenshot())
@@ -143,6 +143,12 @@ final class cmuxUITests: XCTestCase {
                 add(screenshot)
                 let continueButton = app.buttons["MobileWhatsNewContinue"].firstMatch
                 XCTAssertTrue(continueButton.isHittable)
+                continueButton.tap()
+                let pairingSheet = app.collectionViews["MobileWhatsNewSheet"].firstMatch
+                XCTAssertTrue(pairingSheet.waitForExistence(timeout: 5))
+                XCTAssertTrue(pairingSheet.staticTexts["Action Required: Enable iOS pairing on your Mac"].waitForExistence(timeout: 5))
+                XCTAssertTrue(app.staticTexts["1.0.6 · September 2026"].waitForExistence(timeout: 5))
+                XCTAssertTrue(app.images["cmux Mac Settings, Mobile section, showing Enable iOS pairing."].waitForExistence(timeout: 5))
                 continueButton.tap()
                 XCTAssertTrue(app.staticTexts["MobileWhatsNewPreviewLoaded"].waitForExistence(timeout: 5))
             } else {

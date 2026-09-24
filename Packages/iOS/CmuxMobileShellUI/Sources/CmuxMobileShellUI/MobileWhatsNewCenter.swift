@@ -147,9 +147,16 @@ public final class MobileWhatsNewCenter {
     /// catches up. An explicit empty list remains a deliberate retraction.
     var visibleBinaryEntries: [MobileWhatsNewPage] {
         let channelAllowed = MobileWhatsNewCatalog().entries.filter { page in
-            MobileWhatsNewChannelPolicy().isVisible(
+            let channelVisible = MobileWhatsNewChannelPolicy().isVisible(
                 channelTokens: remoteList?.entryChannels?[page.id] ?? page.channels,
                 buildType: buildType
+            )
+            guard channelVisible else { return false }
+            guard let minVersion = page.minVersion else { return true }
+            return MobileAppVersionCompare().version(
+                appVersion,
+                isWithinMin: minVersion,
+                max: page.maxVersion
             )
         }
         guard let remoteList else { return channelAllowed }

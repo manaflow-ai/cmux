@@ -48,6 +48,10 @@ struct MobileWhatsNewPage: Identifiable {
     /// binary change. Only meaningful for binary catalog entries; resolved
     /// announcements are channel-filtered before page construction.
     var channels: [String]? = nil
+    /// Optional inclusive app-version bounds for binary pages. The 1.0.6
+    /// pairing setup page is deliberately version-pinned.
+    var minVersion: String? = nil
+    var maxVersion: String? = nil
     /// One quiet line under the feature rows (compatibility notes and other
     /// fine print that must not compete with the features). `nil` hides it.
     var footnote: String? = nil
@@ -118,14 +122,16 @@ struct MobileWhatsNewCatalog: Sendable {
             id: "connections.v2",
             releaseLabel: L10n.string(
                 "mobile.pairingOptInUpdate.releaseLabel",
-                defaultValue: "1.0.4 · September 2026"
+                defaultValue: "1.0.6 · September 2026"
             ),
             title: L10n.string(
                 "mobile.whatsNew.pairing.pageTitle",
                 defaultValue: "Action Required: Enable iOS pairing on your Mac"
             ),
             body: .pairingSetup([]),
-            isAnnouncement: false
+            isAnnouncement: false,
+            minVersion: "1.0.6",
+            maxVersion: "1.0.6"
         )
     }
 
@@ -232,7 +238,7 @@ struct MobileWhatsNewCatalog: Sendable {
             return String(
                 format: L10n.string(
                     "mobile.connectionsUpdate.macUpdate.detail",
-                    defaultValue: "Use cmux %@ or later. Older Macs: use BETA 1.0.4 (20260817224846)."
+                    defaultValue: "Use cmux %@ or later. Older Macs: use BETA 1.0.5 (20260914204800)."
                 ),
                 version
             )

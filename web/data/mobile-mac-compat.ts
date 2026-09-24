@@ -13,8 +13,8 @@
  * 0.64.20, and the rebuilt Iroh transport with 0.64.23. Every App Store
  * version (the `prod` build kind, starting at 1.0.0) now requires stable
  * 0.64.25 or the first published 0.64.25 nightly. Older TestFlight versions
- * retain the Mac releases they can actually use. In particular, BETA 1.0.4
- * build 20260817224846 is the last build that works with older Macs, while
+ * retain the Mac releases they can actually use. In particular, BETA 1.0.5
+ * build 20260914204800 is the last build that works with older Macs, while
  * the later INTERNAL 1.0.4 cut uses the rebuilt transport and needs 0.64.23.
  * Binaries built before the gate shipped ignore this list entirely, so
  * covering their versions is harmless.
