@@ -48,6 +48,7 @@ final class CloudTuiManualMirrorSession {
     private var geometryClaimed = false
     private var geometryClaimBlockedByPeer = false
     private var explicitGeometryClaimPending = false
+    private var geometryClaimLossPending = false
     private var geometryClaimEligible: Bool
     /// Older daemons do not know `set-client-sizing`. In that case the
     /// recorded `resize-surface` report is still useful, so the scheduler can
@@ -237,7 +238,7 @@ final class CloudTuiManualMirrorSession {
                     )
                 }
             }
-            (geometryClaimed, geometryClaimBlockedByPeer) = (false, false)
+            (geometryClaimed, geometryClaimBlockedByPeer, geometryClaimLossPending) = (false, false, false)
             explicitGeometryClaimPending = false
             claimUnsupported = false
             claimInFlight = false
@@ -294,7 +295,7 @@ final class CloudTuiManualMirrorSession {
         pendingRequests.removeAll(keepingCapacity: true)
         attachResponseReceived = false
         claimInFlight = false
-        (geometryClaimed, geometryClaimBlockedByPeer) = (false, false)
+        (geometryClaimed, geometryClaimBlockedByPeer, geometryClaimLossPending) = (false, false, false)
         explicitGeometryClaimPending = false
         claimUnsupported = false
         remoteLease = nil
@@ -421,7 +422,7 @@ final class CloudTuiManualMirrorSession {
     /// is also used by the composed explicit-input callback.
     func claimGeometry() {
         guard surface?.isRendererPortalVisible == true else { return }
-        (geometryClaimEligible, geometryClaimBlockedByPeer, explicitGeometryClaimPending) = (true, false, true)
+        (geometryClaimEligible, geometryClaimBlockedByPeer, explicitGeometryClaimPending, geometryClaimLossPending) = (true, false, true, false)
         geometryClaimed = false
         claimUnsupported = false
         sendClaimIfNeeded()
@@ -572,6 +573,7 @@ final class CloudTuiManualMirrorSession {
             updatePresentationEpisode()
             synchronizePresentation()
             lastRemoteGrid = CloudTuiManualIOGrid(columns: columns, rows: rows)
+            if geometryClaimLossPending { geometryClaimLossPending = false; geometryClaimBlockedByPeer = !explicitGeometryClaimPending && lastRemoteGrid != resizeScheduler.desired }
             reconcileRemoteGrid()
         case let .output(surfaceID, bytes, colors):
             guard surfaceID == remoteSurfaceID else { return }
@@ -590,6 +592,7 @@ final class CloudTuiManualMirrorSession {
             updatePresentationEpisode()
             synchronizePresentation()
             lastRemoteGrid = CloudTuiManualIOGrid(columns: columns, rows: rows)
+            if geometryClaimLossPending { geometryClaimLossPending = false; geometryClaimBlockedByPeer = !explicitGeometryClaimPending && lastRemoteGrid != resizeScheduler.desired }
             reconcileRemoteGrid()
         case let .colorsChanged(surfaceID, colors):
             guard surfaceID == remoteSurfaceID else { return }
@@ -824,12 +827,12 @@ final class CloudTuiManualMirrorSession {
                 transitionToDisconnected(reason: .rejected("attachment superseded"))
                 return
             }
-            if outcome == "passive" || (accepted == false && geometryClaimed && lastRemoteGrid != requestedGrid) {
-                (geometryClaimed, geometryClaimBlockedByPeer) = (false, !explicitGeometryClaimPending)
+            if outcome == "passive" || (accepted == false && geometryClaimed && lastRemoteGrid != nil && lastRemoteGrid != requestedGrid) {
+                (geometryClaimed, geometryClaimBlockedByPeer, geometryClaimLossPending) = (false, !explicitGeometryClaimPending, false)
                 claimUnsupported = false
+            } else if accepted == false && geometryClaimed && lastRemoteGrid == nil {
+                geometryClaimLossPending = true
             }
-            // A report is useful even when it was passive. Hold the newest
-            // sample while the explicit geometry claim is in flight.
             let next = resizeScheduler.acknowledge(
                 requestedGrid,
                 canSend: geometryClaimed || claimUnsupported
