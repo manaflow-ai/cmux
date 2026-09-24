@@ -19,8 +19,10 @@ extension WorkspaceDetailView {
         // to retain the full window height. UIKit will otherwise size the
         // representable to the visible area above the software keyboard,
         // moving the dock and keyboard shortcut row upward in landscape.
-        .ignoresSafeArea(.container, edges: [.top, .leading, .trailing, .bottom])
-        .ignoresSafeArea(.keyboard, edges: .bottom)
+        // This controller is the detail surface's full-screen owner. The
+        // terminal's own dock consumes keyboard/home-indicator overlap, so the
+        // representable must receive the unmodified window bounds.
+        .ignoresSafeArea()
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .environment(\.colorScheme, store.activeTerminalTheme.terminalColorScheme)
     }
