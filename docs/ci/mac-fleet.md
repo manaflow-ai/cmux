@@ -671,6 +671,10 @@ runs-on: group cmux-nightly-mini, labels [self-hosted, macOS, ARM64, cmux-nightl
 
 The group must restrict workflow access to
 `manaflow-ai/cmux/.github/workflows/nightly-mini-build.yml@refs/heads/main`.
+The producer has no concurrency group: each mini runs one build at a time in
+its own work directory, so adding a mini to the group adds a parallel nightly
+build. Pushes to `main` arrive every 10 to 20 minutes on a busy day, faster
+than one mini finishes a universal Release build.
 The label avoids the bare word `nightly`, which the HQ build-fleet controller
 reserves as a tag. It is a separate registration from the compile lane's runner.
 
@@ -707,7 +711,7 @@ is compiled on Blacksmith.
 
 ## 7. Open gaps
 
-- The organization runner group does not exist, so the producer has never run
+- The organization runner group exists (2026-09-24) but has no runner, so the producer has never run
   (`docs/ci/workflow-inventory.md` line 21). The router has 6,887 skipped runs
   out of 6,927 and zero successes: it creates one run per CI run and exits on
   the unset variable.
