@@ -12764,7 +12764,6 @@ struct CMUXCLI {
         return lines.joined(separator: "\n")
     }
 
-
     /// Open an interactive cmux-managed shell on a Cloud VM. Automatic opens use
     /// cmux-tui through the app's user-space WireGuard hub. `cmux vm ssh` is a
     /// separate explicit diagnostic command.
