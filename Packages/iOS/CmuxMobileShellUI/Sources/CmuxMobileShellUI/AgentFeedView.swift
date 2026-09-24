@@ -79,6 +79,7 @@ struct AgentFeedView: View {
             }
         }
         // The shell supplies the shared computer and settings toolbar.
+        .mobileInlineNavigationTitle()
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 AgentFeedFilterMenu(
