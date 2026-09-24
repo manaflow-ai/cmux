@@ -165,6 +165,27 @@ follow those: `CI_PR_POOL_OVERFLOW=0` or a lane other than
 before. Fork runs never pin an Xcode (each job selects its pool's newest SDK
 26 Xcode) and only use ephemeral `blacksmith-*` pools.
 
+A persistent pool (any label outside the ephemeral `blacksmith-*` pools, such
+as owned Mac minis once they join `POOLS`) needs one more rule, because GitHub
+never re-routes a queued job: one queued there waits for that pool however
+long it stays busy. When the picker chooses a persistent pool, `changes`
+uploads a `macos-pool-persistent-<run>-<attempt>` marker, and
+`ci-owned-pool-rescue.yml` (from `main`, with Actions write) watches that run.
+If one of its jobs waits for a persistent runner longer than
+`CI_OWNED_POOL_RESCUE_SECONDS` (default 90, 30 to 600), the watcher confirms the
+pull request head has not moved, cancels the run, and re-runs it. A retry
+attempt never takes a persistent pool, so the re-run lands on Blacksmith as a
+whole, and so does any manual re-run after a job failed on an owned Mac.
+
+| Variable | Default | Effect |
+| --- | --- | --- |
+| `CI_OWNED_POOL_RESCUE` | unset (off) | `1` starts the watcher for same-repository pull request runs |
+| `CI_OWNED_POOL_RESCUE_SECONDS` | `90` | how long a job may wait for a persistent runner before the run moves to Blacksmith |
+
+The watcher makes no API request while `POOLS` has no persistent pool. A run on
+an ephemeral pool costs it a few jobs listings until `changes` finishes, plus
+one artifact listing.
+
 `MACOS_RUNNER_PR` does not move a lane on its own. A runner change and its
 Xcode pin still have to agree, because `scripts/select-ci-xcode.sh` exits
 non-zero on a pinned path that is absent.
