@@ -553,7 +553,6 @@
   "RemoteInitialCommandBootstrapFailureTests": 2371,
   "RemoteInitialCommandBootstrapTests": 1678,
   "RemoteLoopbackHTTPRequestRewriterTests": 9,
-  "RemotePTYReconnectLifecycleTests": 1,
   "RemoteRelayTmuxCompatAuthorizationTests": 7812,
   "RemoteResumeBindingTests": 3303,
   "RemoteSessionCleanupLifecycleTests": 5002,

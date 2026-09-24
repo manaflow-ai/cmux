@@ -56,7 +56,6 @@ extension SessionRemoteWorkspaceSnapshot {
             return configuration
         }
 
-
         let normalizedPersistentDaemonSlot = WorkspaceRemoteConfiguration.normalizedPersistentDaemonSlot(persistentDaemonSlot)
         let normalizedLocalSocketPath = WorkspaceRemoteConfiguration.normalizedOptionalValue(localSocketPath)
         let normalizedRelayPort = relayPort.flatMap { port in
