@@ -75,6 +75,16 @@ NON_PRODUCT_JOB_ENV_KEYS = frozenset({
     "CMUX_NODE_PRODUCT_CACHE_MAX_BYTES",
     "CMUX_NODE_PRODUCT_CACHE_WAIT_SECONDS",
     "CMUX_PRODUCT_RUNNER",
+    # Read only by the changed-suites steps that test the finished product.
+    "CMUX_CI_APP_HOST_ISOLATION_REQUIRED",
+    "CMUX_APP_HOST_SHARD",
+    "CMUX_APP_HOST_UNIT_SELECTORS",
+    "CMUX_APP_HOST_CAPTURE_XCRESULTS",
+    "CMUX_UNIT_TEST_TIMEOUT_SECONDS",
+    "CMUX_XCODEBUILD_NONINTERACTIVE_IDLE_TIMEOUT_SECONDS",
+    "CMUX_XCODEBUILD_NONINTERACTIVE_RESTART_BUDGET",
+    "CMUX_XCODEBUILD_NONINTERACTIVE_POST_TEST_TIMEOUT_SECONDS",
+    "SWIFT_BACKTRACE",
 })
 
 IGNORED_JOB_LEVEL_KEYS = frozenset({
@@ -121,6 +131,20 @@ NON_PRODUCT_RECIPE_STEPS = frozenset({
     "Record compile admission metrics",
     "Upload compile admission metrics",
     "Seed node-local compiled product cache",
+    "Report evidence collection outcomes",
+    # A changed-suites run tests the product after it is packaged and
+    # uploaded; nothing here can change its bytes.
+    "Prepare isolated DerivedData",
+    "Restore compiled app-host test product",
+    "Prepare isolated app-host home",
+    "Enumerate built app-host tests",
+    "Upload built app-host test inventory",
+    "Enable XCTest automation mode",
+    "Run changed app-host suites",
+    "Report a changed-suites failure apart from the compile",
+    "Collect app-host failure diagnostics",
+    "Upload app-host failure diagnostics",
+    "Clean up isolated app-host home",
 })
 
 

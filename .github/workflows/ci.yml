@@ -74,6 +74,9 @@ jobs:
       unit_suite: ${{ steps.suite.outputs.unit_canary == 'true' && (steps.unchanged_inputs.outputs.compile_admitted == 'true' || steps.admitted.outputs.compile_admitted == 'true') && 'false' || steps.suite.outputs.unit_suite }}
       unit_selectors: ${{ !(steps.suite.outputs.unit_canary == 'true' && (steps.unchanged_inputs.outputs.compile_admitted == 'true' || steps.admitted.outputs.compile_admitted == 'true')) && steps.suite.outputs.unit_selectors || '' }}
       unit_strict_steps: ${{ steps.suite.outputs.unit_strict_steps }}
+      # Only ever true for a changed-suites run the diff selected, which never
+      # takes the canary drop above.
+      unit_in_admission: ${{ steps.suite.outputs.unit_in_admission }}
       coverage_gap: ${{ steps.suite.outputs.coverage_gap }}
       compile_admitted: ${{ steps.unchanged_inputs.outputs.compile_admitted == 'true' && 'true' || steps.admitted.outputs.compile_admitted }}
       source_tree: ${{ steps.source-identity.outputs.tree }}
@@ -1037,6 +1040,7 @@ jobs:
       unit_suite: ${{ needs.changes.outputs.unit_suite }}
       unit_selectors: ${{ needs.changes.outputs.unit_selectors }}
       unit_strict_steps: ${{ needs.changes.outputs.unit_strict_steps }}
+      unit_in_admission: ${{ needs.changes.outputs.unit_in_admission }}
       swift_packages: ${{ needs.changes.outputs.swift_packages }}
       compile_admitted: ${{ needs.changes.outputs.compile_admitted }}
       release_build: ${{ needs.changes.outputs.release_build }}
