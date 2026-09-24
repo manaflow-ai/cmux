@@ -31,6 +31,10 @@ UNFINISHED = frozenset({"queued", "in_progress", "waiting", "requested", "pendin
 # "<selectors> on <runner> @ <ref> [<dispatch id>]"; run-e2e.sh passes a full SHA.
 TITLE = re.compile(r" on (\S+) @ ([0-9a-f]{40})(?: \[[^\]]*\])?$")
 MACOS = re.compile(r"macos-(\d+)")
+# Only a running run can be compiling. Filter on status: on 2026-09-24 this
+# listing filtered on event=workflow_dispatch alone returned a page whose
+# newest run was nine hours old, so it never saw a running sibling.
+RUNNING = f"actions/workflows/{WORKFLOW}/runs?status=in_progress&per_page=100"
 
 
 def gh_api(path: str) -> dict:
@@ -76,7 +80,7 @@ def wait(
     sleep: Callable[[float], None] = time.sleep,
     clock: Callable[[], float] = time.monotonic,
 ) -> bool:
-    listing = get(f"actions/workflows/{WORKFLOW}/runs?event=workflow_dispatch&per_page=100")
+    listing = get(RUNNING)
     sibling = earlier_sibling(listing.get("workflow_runs", []), run_id, revision, runner)
     if sibling is None:
         print("No earlier run is compiling this revision.")

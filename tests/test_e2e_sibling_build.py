@@ -36,6 +36,7 @@ class Fake:
 
     def get(self, path: str) -> dict:
         if "/workflows/" in path:
+            assert path == sibling.RUNNING, path
             return {"workflow_runs": self.runs}
         if path.endswith("/jobs?filter=latest&per_page=100"):
             status, conclusion = self.states.pop(0) if len(self.states) > 1 else self.states[0]
@@ -93,6 +94,12 @@ class SiblingWaitTests(unittest.TestCase):
     def test_the_other_macos_26_pool_builds_the_same_product(self) -> None:
         found = sibling.earlier_sibling([run(95, runner=LARGE), run(90, runner=SMALL)], "100", SHA, SMALL)
         self.assertEqual(found["id"], 90)
+
+    def test_the_listing_asks_for_running_runs(self) -> None:
+        # event=workflow_dispatch alone returned a stale page (run 36020090083
+        # compiled beside running sibling 36020076746).
+        self.assertIn("status=in_progress", sibling.RUNNING)
+        self.assertNotIn("event=", sibling.RUNNING)
 
     def test_a_title_without_a_full_revision_is_ignored(self) -> None:
         loose = {"id": 90, "status": "in_progress", "display_title": "cmuxTests/Suite on blacksmith-6vcpu-macos-26 @ main"}
