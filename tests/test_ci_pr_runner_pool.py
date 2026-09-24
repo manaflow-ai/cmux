@@ -427,10 +427,15 @@ class Wiring(unittest.TestCase):
             self.assertIn("changes", [needs] if isinstance(needs, str) else needs, name)
 
     def test_xcode_pins_follow_the_chosen_pool(self):
-        lane = "(inputs.pr_xcode_app || vars.CMUX_CI_XCODE_APP_PR || vars.CMUX_CI_XCODE_APP_MACOS_15)"
+        # A fork pull request never reads the lane's pin (see
+        # tests/test_ci_fork_runner_routing.py); main's dispatch still does.
+        same = "github.event.pull_request.head.repo.full_name == github.repository"
+        lane = f"(inputs.pr_xcode_app || {same} && vars.CMUX_CI_XCODE_APP_PR || vars.CMUX_CI_XCODE_APP_MACOS_15)"
+        dispatch_lane = (f"(inputs.pr_xcode_app || (github.event_name != 'pull_request' || {same}) "
+                         "&& vars.CMUX_CI_XCODE_APP_PR || vars.CMUX_CI_XCODE_APP_MACOS_15)")
         pin = f"${{{{ github.event_name == 'pull_request' && {lane} || vars.CMUX_CI_XCODE_APP_MACOS_15 }}}}"
         main_dispatch = ("${{ (github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch' "
-                         f"&& github.ref == 'refs/heads/main') && {lane} || vars.CMUX_CI_XCODE_APP_MACOS_15 }}}}")
+                         f"&& github.ref == 'refs/heads/main') && {dispatch_lane} || vars.CMUX_CI_XCODE_APP_MACOS_15 }}}}")
         macos = self.workflow("ci-macos.yml")["jobs"]
         for job in ("macos-compile-admission", "tests-build-and-lag"):
             self.assertEqual(macos[job]["env"]["CMUX_CI_XCODE_APP"], main_dispatch, job)
@@ -446,7 +451,8 @@ class Wiring(unittest.TestCase):
             self.assertLess(ids.index("macos-pool"), ids.index(step_id))
             step = steps[ids.index(step_id)]
             self.assertEqual(step["env"]["XCODE_APP"],
-                             "${{ steps.macos-pool.outputs.xcode_app || vars.CMUX_CI_XCODE_APP_PR "
+                             "${{ steps.macos-pool.outputs.xcode_app || "
+                             "github.event.pull_request.head.repo.full_name == github.repository && vars.CMUX_CI_XCODE_APP_PR "
                              "|| vars.CMUX_CI_XCODE_APP_MACOS_15 }}", step_id)
 
     def test_reusable_inputs_default_to_todays_route(self):

@@ -767,7 +767,7 @@ jobs:
           # the pull-request macOS jobs compile under, or a lane move would reuse
           # a build admitted under the previous Xcode and skip the compile. A run
           # pr_runner_pool.py moved to the macOS 15 pool compiles under its Xcode.
-          XCODE_APP: ${{ steps.macos-pool.outputs.xcode_app || vars.CMUX_CI_XCODE_APP_PR || vars.CMUX_CI_XCODE_APP_MACOS_15 }}
+          XCODE_APP: ${{ steps.macos-pool.outputs.xcode_app || github.event.pull_request.head.repo.full_name == github.repository && vars.CMUX_CI_XCODE_APP_PR || vars.CMUX_CI_XCODE_APP_MACOS_15 }}
         run: |
           set -euo pipefail
           fingerprint="$(python3 scripts/ci/build_input_fingerprint.py --extra "xcode=$XCODE_APP")"
@@ -784,7 +784,7 @@ jobs:
           # the pull-request macOS jobs compile under, or a lane move would reuse
           # a build admitted under the previous Xcode and skip the compile. A run
           # pr_runner_pool.py moved to the macOS 15 pool compiles under its Xcode.
-          XCODE_APP: ${{ steps.macos-pool.outputs.xcode_app || vars.CMUX_CI_XCODE_APP_PR || vars.CMUX_CI_XCODE_APP_MACOS_15 }}
+          XCODE_APP: ${{ steps.macos-pool.outputs.xcode_app || github.event.pull_request.head.repo.full_name == github.repository && vars.CMUX_CI_XCODE_APP_PR || vars.CMUX_CI_XCODE_APP_MACOS_15 }}
           HEAD_FINGERPRINT: ${{ steps.inputs.outputs.fingerprint }}
         run: |
           set -euo pipefail
@@ -982,7 +982,7 @@ jobs:
     name: Claude wrapper regressions
     needs: [changes, static-preflight]
     if: ${{ !cancelled() && needs.changes.result == 'success' && needs.static-preflight.result == 'success' && (needs.changes.outputs.claude_wrapper == 'true' || (needs.changes.outputs.macos == 'true' && needs.changes.outputs.full_suite == 'true')) }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (github.event_name == 'pull_request' && (needs.changes.outputs.macos_pr_runner || vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15') || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15') }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (startsWith(needs.changes.outputs.macos_pr_runner, 'blacksmith-') && needs.changes.outputs.macos_pr_runner || 'blacksmith-6vcpu-macos-15') || github.event_name == 'pull_request' && (needs.changes.outputs.macos_pr_runner || vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15') || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15') }}
     timeout-minutes: 10
     steps:
       - name: Checkout wrapper and test inputs
