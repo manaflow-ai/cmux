@@ -234,6 +234,51 @@ extension AppDelegate {
     }
 }
 
+/// The tab id a portal-rendering fixture must build its surface with, and the
+/// teardown for the context registered to authorize it.
+///
+/// `Workspace.portalRenderingEnabled(for:)` decides whether a surface is ever
+/// really shown, and it resolves two ways that look alike at a call site but
+/// are opposites:
+///
+/// - **No app delegate.** `Workspace+PortalRenderingAuthority.swift:14`
+///   returns `true` before consulting anything, so any id is authorized and a
+///   synthetic one is sound.
+/// - **An app delegate with no selected workspace to borrow.** The authority
+///   is live, `:15-17` returns `false` for an id no manager has selected, and
+///   the surface is never made visible or active. The test then fails on
+///   whatever it was waiting for, several seconds later, with no mention of
+///   the fixture — the timeout the #12414 gate (`a81d39e61f`) taught these
+///   tests to produce.
+///
+/// Collapsing both into one optional is what let the second pass unnoticed, so
+/// this reports the fixture failure where it happens instead of leaving a
+/// symptom for someone to chase.
+///
+/// This throws rather than recording a failure and returning a synthetic id:
+/// a denied fixture cannot show its surface, so letting the caller continue
+/// would add the very timeout this exists to remove on top of the real
+/// message. Every caller is already `throws`.
+@MainActor
+func makeAuthorizedPortalTabId() throws -> (id: UUID, tearDown: @MainActor () -> Void) {
+    guard let appDelegate = AppDelegate.shared else {
+        return (UUID(), {})
+    }
+    guard let registration = appDelegate.registerLivePortalWorkspaceForTesting() else {
+        throw PortalRenderingAuthorityUnavailable()
+    }
+    return registration
+}
+
+/// A live portal-rendering authority with nothing for a fixture to borrow.
+struct PortalRenderingAuthorityUnavailable: Error, CustomStringConvertible {
+    var description: String {
+        "Portal rendering authority is live (an app delegate is installed) but this "
+        + "fixture has no selected workspace to borrow, so every tab id it can supply "
+        + "is denied and the surface under test would never be shown."
+    }
+}
+
 /// A window that reports key status the way the focused main window does in
 /// the running app. The app-host test process runs headless under
 /// `xcodebuild test` and is usually not the active app, so

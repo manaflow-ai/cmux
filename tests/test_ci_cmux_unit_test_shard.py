@@ -18,7 +18,8 @@ CI_LOGICAL_SHARD_TOTAL = CI_PHYSICAL_SHARD_TOTAL * CI_LOGICAL_BATCHES_PER_WORKER
 
 def production_shard_constants() -> tuple[int, int]:
     """Read the production matrix constants so this test exercises its topology."""
-    workflow = (ROOT / ".github" / "workflows" / "ci-macos.yml").read_text(encoding="utf-8")
+    # ci-macos.yml's batch steps run this script.
+    workflow = (ROOT / "scripts" / "ci" / "run-app-host-unit-batches.sh").read_text(encoding="utf-8")
     values: dict[str, int] = {}
     for line in workflow.splitlines():
         stripped = line.strip()
@@ -599,6 +600,11 @@ def check_folded_fish_suite_keeps_prerequisite() -> int:
         print("FAIL: Run unit tests step missing")
         return 1
     body = run_step.group(0)
+    batches = "scripts/ci/run-app-host-unit-batches.sh"
+    if f"run: {batches}" not in body:
+        print(f"FAIL: Run unit tests no longer runs {batches}")
+        return 1
+    body = (ROOT / batches).read_text(encoding="utf-8")
     required = (
         "CmuxBundledBinPathIntegrationTests",
         "grep -Fq",

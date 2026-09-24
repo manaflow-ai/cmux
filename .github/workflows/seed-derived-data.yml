@@ -40,7 +40,7 @@ env:
 # push replaces that pending run, so the published seed is never more than
 # about one build behind main. tests/test_seed_derived_data.py pins this.
 concurrency:
-  group: seed-derived-data-${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15' }}
+  group: seed-derived-data-${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.MACOS_RUNNER_PR == 'blacksmith-6vcpu-macos-26' && 'blacksmith-12vcpu-macos-26' || vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15' }}
   cancel-in-progress: false
 
 jobs:
@@ -83,7 +83,11 @@ jobs:
     if: needs.decide.outputs.build == 'true'
     # Must match pull-request compile admission: the seed key carries the
     # toolchain and the build paths, so a mismatch is a miss, not a wrong hit.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15' }}
+    # The 12 vCPU macOS 26 pool runs the same image and Xcode as the 6 vCPU
+    # one admission uses, but pull requests do not queue on it: on 2026-09-24
+    # seeds waited 19-25 minutes for a 6 vCPU runner while 12 vCPU jobs
+    # started in 15 s. Neither key names the runner size.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.MACOS_RUNNER_PR == 'blacksmith-6vcpu-macos-26' && 'blacksmith-12vcpu-macos-26' || vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15' }}
     environment: ${{ github.ref == 'refs/heads/main' && 'ci-cache-writer' || '' }}
     timeout-minutes: 60
     env:
