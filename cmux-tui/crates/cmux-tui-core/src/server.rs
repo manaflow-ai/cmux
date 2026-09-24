@@ -20875,13 +20875,16 @@ mod tests {
         let workspace = mux
             .create_empty_workspace(None, Some("018f6e21-7b70-7e70-8000-000000003101".into()), None)
             .unwrap();
-        let idle = mux.seed_running_terminal_for_test(IDLE, IDLE_INCARNATION, &workspace.key);
-        let idle = idle.unwrap();
+        // Seeded terminals project as exited placeholders (dead surfaces), so
+        // address them by stable terminal id; the surface form is covered by
+        // the live-surface handler path.
+        let idle =
+            mux.seed_running_terminal_for_test(IDLE, IDLE_INCARNATION, &workspace.key).unwrap();
         mux.seed_running_terminal_for_test(NEVER, NEVER_INCARNATION, &workspace.key).unwrap();
 
         let set = Command::SetTerminalIdlePolicy {
-            surface: Some(idle),
-            terminal_id: None,
+            surface: None,
+            terminal_id: Some(IDLE.into()),
             idle_close_seconds: Some(3_600),
         };
         let result = handle_command(&mux, 0, set, &test_writer()).unwrap();
