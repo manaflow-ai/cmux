@@ -1,12 +1,28 @@
 #!/usr/bin/env bash
 # Point this clone's git at scripts/git-hooks/ for tracked, reviewed hooks.
-# Idempotent: re-running just rewrites the same config line.
+# Installs the tracked pre-commit hook (pbxproj normalization and test
+# registration) without hiding custom hooks.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(dirname "$SCRIPT_DIR")"
 
 cd "$REPO_ROOT"
+CURRENT_HOOKS="$(git config --get core.hooksPath || true)"
+if [[ -n "$CURRENT_HOOKS" && "$CURRENT_HOOKS" != scripts/git-hooks ]]; then
+    echo "Existing core.hooksPath is $CURRENT_HOOKS; left unchanged." >&2
+    echo "Integrate the tracked pre-commit hook with your hook setup." >&2
+    exit 1
+fi
+if [[ -z "$CURRENT_HOOKS" ]]; then
+    DEFAULT_HOOKS="$(git rev-parse --git-path hooks)"
+    for hook in "$DEFAULT_HOOKS"/*; do
+        [[ -f "$hook" && -x "$hook" && "$hook" != *.sample ]] || continue
+        echo "Existing executable hook $hook would be hidden; left unchanged." >&2
+        echo "Integrate the tracked hooks with your existing hooks first." >&2
+        exit 1
+    done
+fi
 git config core.hooksPath scripts/git-hooks
 chmod +x scripts/git-hooks/*
 echo "==> Git hooks installed (core.hooksPath = scripts/git-hooks)."

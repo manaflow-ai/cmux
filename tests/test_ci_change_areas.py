@@ -4493,13 +4493,23 @@ def test_static_preflight_rejects_stale_embedded_schema_before_native_work() -> 
     scripts = [step["run"] for step in steps if "run" in step]
     with tempfile.TemporaryDirectory(prefix="cmux-schema-preflight-") as tmp:
         repo = Path(tmp)
-        # Isolate this gate's schema behavior; unrelated validators succeed.
-        for script in scripts:
-            for name in re.findall(r"(?:python3 |\./)([\w/.-]+\.(?:py|sh))", script):
-                target = repo / name
-                target.parent.mkdir(parents=True, exist_ok=True)
-                target.write_text("#!/usr/bin/env bash\nexit 0\n" if name.endswith(".sh") else "pass\n")
-                target.chmod(0o755)
+        # Run the actual CI wrapper while isolating the schema checker from
+        # unrelated validators. Read its declared recipe without importing it.
+        import ast
+        recipe_tree = ast.parse((ROOT / "scripts/verify-local.py").read_text())
+        checks = next(ast.literal_eval(node.value) for node in recipe_tree.body
+                      if isinstance(node, ast.Assign)
+                      and any(isinstance(target, ast.Name) and target.id == "CHECKS"
+                              for target in node.targets))
+        for _name, category, _description, argv in checks:
+            target = repo / argv[1]
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text("#!/usr/bin/env bash\nexit 0\n" if target.suffix == ".sh"
+                              else 'print("Ran 1 test in 0.001s\\nOK")\n' if category == "tests"
+                              else "pass\n")
+            target.chmod(0o755)
+        for name in ("verify-local.py", "verification_receipt.py"):
+            shutil.copy2(ROOT / "scripts" / name, repo / "scripts" / name)
         generator = repo / "scripts/generate-cmux-config-schema.py"
         generator.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(ROOT / "scripts/generate-cmux-config-schema.py", generator)
@@ -4509,16 +4519,23 @@ def test_static_preflight_rejects_stale_embedded_schema_before_native_work() -> 
         generated = repo / "Packages/macOS/CmuxFoundation/Sources/CmuxFoundation/ConfigValidation"
         generated.mkdir(parents=True)
         subprocess.run([sys.executable, str(generator)], cwd=repo, check=True)
+        subprocess.run(["git", "init", "-q", str(repo)], check=True)
+        subprocess.run(["git", "add", "."], cwd=repo, check=True)
+        subprocess.run(["git", "-c", "user.name=fixture", "-c",
+                        "user.email=fixture@example.invalid", "commit", "-qm", "fixture"],
+                       cwd=repo, check=True)
         def run_gate():
             return subprocess.run(["bash", "-e", "-c", "\n".join(scripts)], cwd=repo,
-                                  capture_output=True, text=True)
-        assert run_gate().returncode == 0
+                                  capture_output=True, text=True, env={**os.environ, "CI": "true"})
+        result = run_gate()
+        assert result.returncode == 0, result.stdout + result.stderr
         schema.write_text('{"type":"object","title":"changed"}\n')
         stale = run_gate()
         assert stale.returncode != 0, "stale schema reached native admission"
         assert "is stale" in stale.stdout
         subprocess.run([sys.executable, str(generator)], cwd=repo, check=True)
-        assert run_gate().returncode == 0
+        result = run_gate()
+        assert result.returncode == 0, result.stdout + result.stderr
 
 
 def test_guard_workflow_call_preserves_routes_and_static_gate() -> None:

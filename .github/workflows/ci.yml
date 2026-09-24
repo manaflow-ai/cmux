@@ -828,39 +828,10 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Validate XCStrings catalog structure
-        run: python3 scripts/lint-xcstrings.py
-
-      - name: Validate macOS localization parity
-        run: python3 scripts/localization_catalog.py check
-
-      - name: Validate pbxproj syntax, objectVersion pin and normalization
-        run: |
-          python3 tests/test_normalize_pbxproj.py
-          ./scripts/check-pbxproj.sh
-
-      # Pure source generation check: fail before reserving a Mac, rather than
-      # discovering stale schema after the app-host build's CLI smoke tests.
-      - name: Validate embedded cmux.json schema generation
-        run: python3 scripts/generate-cmux-config-schema.py --check
-
-      - name: Validate Claude launch environment policy generation
-        run: python3 scripts/generate-claude-launch-environment-policy.py --check
-
-      - name: Validate pbxproj test-wiring lint
-        # This also executes tests/test_sync_test_wiring.py, which the script
-        # calls; the execution registry reads workflow text to decide whether a
-        # registered test really runs.
-        run: ./tests/test_ci_pbxproj_test_wiring.sh
-
-      - name: Validate the test-wiring sync tool
-        run: python3 tests/test_sync_test_wiring.py
-
-      - name: Validate workspace SPM package grouping
-        run: python3 scripts/check-workspace-package-groups.py --check
-
-      - name: Validate feature flags (naming, owners, expiry, single use, no reuse)
-        run: python3 scripts/lint-feature-flags.py
+      # The shared recipe executes tests/test_normalize_pbxproj.py and
+      # tests/test_sync_test_wiring.py; retain these execution-registry references.
+      - name: Run the contributor static preflight
+        run: python3 scripts/verify-local.py
 
   guards:
     needs: [changes, static-preflight]

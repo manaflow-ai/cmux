@@ -293,6 +293,12 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_testbox_broker_guard.py
 
+      - name: Validate contributor verification receipts and selection
+        if: ${{ matrix.group == 'ci' }}
+        run: |
+          python3 tests/test_verification_receipt.py
+          python3 tests/test_verify_local.py
+
       - name: Validate local hook trust boundary
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_preflight_trust.py

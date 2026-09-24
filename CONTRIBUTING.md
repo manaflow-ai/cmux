@@ -8,6 +8,10 @@ maintainer runner access or shared backend credentials.
 
 ## Prerequisites
 
+These prerequisites are for native app development. For documentation or portable
+contributor tooling, start with [fast checks](#fast-checks-before-committing-or-building)
+and the [validation guide](skills/cmux-testing/references/local-vs-ci-validation.md).
+
 - macOS 14+
 - Xcode 26 (the pinned toolchain); Xcode 16.2 on Intel Macs running macOS 14 also builds the macOS app (best effort)
 - [Zig](https://ziglang.org/) (install via `brew install zig`)
@@ -66,6 +70,32 @@ maintainer runner access or shared backend credentials.
 | `./scripts/reloadp.sh` | Build and launch Release app |
 | `./scripts/reload2.sh` | Reload both Debug and Release |
 | `./scripts/rebuild.sh` | Clean rebuild |
+
+<a id="fast-checks-before-building-or-pushing"></a>
+
+## Fast checks before committing or building
+
+Run `python3 scripts/verify-local.py` on your reviewed checkout. It selects
+affected static checks and parses changed Swift, including committed branch edits.
+The base comes from local `upstream/HEAD`, then `origin/HEAD`; nothing is fetched.
+Use `--list` to preview, `--all` for the full CI static recipe, or `--affected BASE`
+to choose a different static comparison base.
+
+Checks cover localization, project/test wiring, package grouping, generated policy
+and feature flags. Unknown inputs or a missing base select the full static recipe.
+CI also keeps the full static recipe. Failures print a focused rerun command:
+
+```sh
+python3 scripts/verify-local.py --only project --only test-wiring
+```
+
+Parsing does not replace typechecking, app tests or a build. Add `--receipt -`
+for JSON stdout; see the [command guide](docs/verification-receipts.md) for piped
+paths, explicit Swift inputs and evidence limits.
+
+The command executes repository Python/shell code, including for help and list.
+Use a [trusted checkout](docs/contributor-verification.md#trust-boundary).
+Git push does not run it automatically.
 
 ## Team dogfood setup
 
