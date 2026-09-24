@@ -1150,7 +1150,6 @@ private struct ZeroTouchFixture {
 
     func cleanup() {
         shell.cancelSecondaryAggregationRetry()
-        for subscription in shell.secondaryMacSubscriptions.values { subscription.cancel() }
         Task { await shell.remoteClient?.disconnect() }
         try? FileManager.default.removeItem(at: directory)
     }
