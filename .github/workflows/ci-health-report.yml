@@ -98,6 +98,7 @@ jobs:
             MACOS_RUNNER_DUAL_XCODE=${{ vars.MACOS_RUNNER_DUAL_XCODE }}
             MACOS_RUNNER_IOS=${{ vars.MACOS_RUNNER_IOS }}
             MACOS_RUNNER_PR=${{ vars.MACOS_RUNNER_PR }}
+            MACOS_RUNNER_PR_SHARDS=${{ vars.MACOS_RUNNER_PR_SHARDS }}
             MACOS_RUNNER_TESTS=${{ vars.MACOS_RUNNER_TESTS }}
             WINDOWS_RUNNER=${{ vars.WINDOWS_RUNNER }}
         run: python3 scripts/ci/ci_health_report.py

@@ -975,7 +975,16 @@ jobs:
     # macOS jobs. The fallback is what fork pull requests get, because
     # repository variables are not exposed to them, so it names the same
     # Blacksmith pool main uses and never the paid overflow provider.
-    runs-on: ${{ github.event_name == 'pull_request' && (vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15') || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15' }}
+    #
+    # A same-repository pull request can spread its shards over several pools
+    # at once: MACOS_RUNNER_PR_SHARDS is a JSON object from shard number to
+    # runner label, e.g. {"1":"blacksmith-6vcpu-macos-15","2":"macos-26"}.
+    # A label array cannot mean "any of these pools", so the choice is made
+    # per shard. A shard missing from the object, a fork, and every other
+    # event keep the lane below. Every pool named there must carry the Xcode
+    # CMUX_CI_XCODE_APP_PR pins: restore refuses a product whose
+    # `xcodebuild -version` differs from the one admission compiled with.
+    runs-on: ${{ github.event_name == 'pull_request' && !github.event.pull_request.head.repo.fork && vars.MACOS_RUNNER_PR_SHARDS && fromJSON(vars.MACOS_RUNNER_PR_SHARDS)[format('{0}', matrix.shard)] || github.event_name == 'pull_request' && (vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15') || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15' }}
     timeout-minutes: 75
     strategy:
       # A pull request wants every shard's failures in one run. A merge group
@@ -1031,6 +1040,30 @@ jobs:
       SWIFT_BACKTRACE: "interactive=no,timeout=0s,symbolicate=off,color=no"
       CMUX_XCODEBUILD_NONINTERACTIVE_POST_TEST_TIMEOUT_SECONDS: "45"
     steps:
+      - name: Validate shard runner pool
+        env:
+          REQUESTED_RUNNER: ${{ github.event_name == 'pull_request' && !github.event.pull_request.head.repo.fork && vars.MACOS_RUNNER_PR_SHARDS && fromJSON(vars.MACOS_RUNNER_PR_SHARDS)[format('{0}', matrix.shard)] || github.event_name == 'pull_request' && (vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15') || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15' }}
+          RUNNER_CONTEXT_ENVIRONMENT: ${{ runner.environment }}
+          RUNNER_CONTEXT_NAME: ${{ runner.name }}
+          SHARD: ${{ matrix.shard }}
+        run: |
+          set -euo pipefail
+          echo "Shard $SHARD requested $REQUESTED_RUNNER; landed on $RUNNER_CONTEXT_NAME ($RUNNER_CONTEXT_ENVIRONMENT)"
+          if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
+            echo "app-host shard $SHARD: requested \`$REQUESTED_RUNNER\`, ran on \`$RUNNER_CONTEXT_NAME\` ($RUNNER_CONTEXT_ENVIRONMENT)" >> "$GITHUB_STEP_SUMMARY"
+          fi
+          # Bare GitHub-hosted labels such as macos-26 are also carried by
+          # self-hosted fleet runners (docs/ci-runners.md). Fail before
+          # checkout if one resolved anywhere but a GitHub-hosted machine.
+          case "$REQUESTED_RUNNER" in
+            macos-*)
+              if [ "$RUNNER_CONTEXT_ENVIRONMENT" != "github-hosted" ]; then
+                echo "::error::$REQUESTED_RUNNER resolved to $RUNNER_CONTEXT_NAME ($RUNNER_CONTEXT_ENVIRONMENT), not a GitHub-hosted runner. Remove the label from self-hosted runners or drop it from MACOS_RUNNER_PR_SHARDS."
+                exit 1
+              fi
+              ;;
+          esac
+
       - name: Clear stale git locks (self-hosted reused workspace)
         shell: bash
         run: |

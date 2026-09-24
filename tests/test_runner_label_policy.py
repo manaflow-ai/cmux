@@ -188,6 +188,47 @@ class DriftReportingOverVariables(unittest.TestCase):
         self.assertEqual(drifted_runner_variables({"MACOS_RUNNER_15": None}), [])
 
 
+class ShardMapVariables(unittest.TestCase):
+    FOUR_POOLS = (
+        '{"1":"blacksmith-6vcpu-macos-15","2":"blacksmith-6vcpu-macos-26",'
+        '"3":"macos-15","4":"macos-26","5":"blacksmith-6vcpu-macos-15",'
+        '"6":"blacksmith-6vcpu-macos-26","7":"macos-26","8":"macos-15"}'
+    )
+
+    def test_the_four_pool_map_is_clean(self) -> None:
+        # Bare macos-26 is accepted here and only here: the shard job asserts
+        # runner.environment == github-hosted before it checks anything out.
+        self.assertEqual(
+            drifted_runner_variables({"MACOS_RUNNER_PR_SHARDS": self.FOUR_POOLS}), []
+        )
+
+    def test_bare_macos_26_is_still_drift_as_a_single_label(self) -> None:
+        drifted = drifted_runner_variables({"MACOS_RUNNER_PR": "macos-26"})
+        self.assertEqual([name for name, _, _ in drifted], ["MACOS_RUNNER_PR"])
+
+    def test_a_fleet_label_in_the_map_names_its_shard(self) -> None:
+        drifted = drifted_runner_variables(
+            {"MACOS_RUNNER_PR_SHARDS": '{"1":"macos-26","3":"tart-macos-15"}'}
+        )
+        self.assertEqual([value for _, value, _ in drifted], ["3=tart-macos-15"])
+
+    def test_a_label_that_only_starts_like_a_hosted_one_is_still_checked(self) -> None:
+        drifted = drifted_runner_variables(
+            {"MACOS_RUNNER_PR_SHARDS": '{"1":"macos-26-cmux-macos"}'}
+        )
+        self.assertEqual(len(drifted), 1)
+
+    def test_unreadable_map_is_drift_not_clean(self) -> None:
+        for value in ('["macos-15"]', "macos-15", '{"1": 2}', "{"):
+            with self.subTest(value=value):
+                drifted = drifted_runner_variables({"MACOS_RUNNER_PR_SHARDS": value})
+                self.assertEqual(len(drifted), 1)
+                self.assertIn("JSON object", drifted[0][2])
+
+    def test_an_unset_map_is_not_drift(self) -> None:
+        self.assertEqual(drifted_runner_variables({"MACOS_RUNNER_PR_SHARDS": ""}), [])
+
+
 HEALTH_REPORT_WORKFLOW = ROOT / ".github" / "workflows" / "ci-health-report.yml"
 
 

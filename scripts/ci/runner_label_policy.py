@@ -21,6 +21,7 @@ two cannot drift apart.
 
 from __future__ import annotations
 
+import json
 import re
 from functools import cache
 from pathlib import Path
@@ -132,7 +133,44 @@ def drifted_runner_variables(
             continue
         if not isinstance(value, str):
             continue
+        if name in SHARD_MAP_VARIABLES:
+            drifted.extend(_drifted_shard_map(name, value.strip()))
+            continue
         reason = forbidden_reason(value.strip())
         if reason is not None:
             drifted.append((name, value.strip(), reason))
     return sorted(drifted)
+
+
+# Variables holding a JSON object from app-host shard number to runner label,
+# rather than one label. `app-host-unit-tests` in ci-macos.yml reads them.
+SHARD_MAP_VARIABLES = frozenset({"MACOS_RUNNER_PR_SHARDS"})
+
+# A bare GitHub-hosted macOS label. The guard forbids `macos-26` because
+# self-hosted fleet runners carry it too; a shard map may still name it,
+# because the job that reads the map fails before checkout unless
+# `runner.environment` is `github-hosted`.
+_IDENTITY_ASSERTED_LABEL = re.compile(r"macos-[0-9]+")
+
+
+def _drifted_shard_map(name: str, value: str) -> list[tuple[str, str, str]]:
+    """Findings for one shard-map variable, one per bad shard entry."""
+    if not value:
+        return []
+    try:
+        shards = json.loads(value)
+    except ValueError:
+        shards = None
+    if not isinstance(shards, dict) or not all(
+        isinstance(shard, str) and isinstance(label, str) for shard, label in shards.items()
+    ):
+        return [(name, value, "is not a JSON object of shard number to runner label")]
+    drifted = []
+    for shard, label in shards.items():
+        label = label.strip()
+        if _IDENTITY_ASSERTED_LABEL.fullmatch(label):
+            continue
+        reason = forbidden_reason(label)
+        if reason is not None:
+            drifted.append((name, f"{shard}={label}", reason))
+    return drifted

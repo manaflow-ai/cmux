@@ -24,6 +24,7 @@ gh variable list --repo manaflow-ai/cmux
 | `LINUX_ARM64_RUNNER` | native ARM64 package entrypoint verification | `ubuntu-24.04-arm` | `ubuntu-24.04-arm` |
 | `MACOS_RUNNER_15` | the macOS 15 default: `macos-compile-admission`, `app-host-unit-tests`, nightly helper and test-cache jobs, `iroh-release-gate.yml` streamed validation | `blacksmith-6vcpu-macos-15` | `blacksmith-6vcpu-macos-15` |
 | `MACOS_RUNNER_PR` | **pull-request** macOS jobs only, in `ci-macos.yml`, `cli-pipe-regressions.yml`, `terminal-hang-diagnostics.yml`, `ci.yml` (`claude-wrapper`) and `nightly.yml` (`refresh-test-compilation-cache`) | unset (see "Lanes" below) | `blacksmith-6vcpu-macos-15` |
+| `MACOS_RUNNER_PR_SHARDS` | **same-repository pull-request** `app-host-unit-tests` shards in `ci-macos.yml`, one pool per shard (see "Spreading app-host shards over pools" below) | unset | the `MACOS_RUNNER_PR` lane |
 | `MACOS_RUNNER_TESTS` | the manual test-debugging lanes: `test-e2e.yml` and `test-macos-suite.yml` | unset (see "Lanes" below) | `blacksmith-6vcpu-macos-26` for `test-e2e.yml`, `blacksmith-6vcpu-macos-15` for `test-macos-suite.yml` |
 | `MACOS_RUNNER_DUAL_XCODE` | `swift-package-tests` (SDK 15 release helper, then SDK 26 package tests) on **every** event, pull requests included | `blacksmith-6vcpu-macos-15` | `blacksmith-6vcpu-macos-15` |
 | `MACOS_RUNNER_26` | the macOS 26 image: compatibility jobs, `release.yml` and nightly sign/notarize, the disk-heavy `release-build` universal app, and the nightly compilation-cache warmer | `blacksmith-6vcpu-macos-26` | `blacksmith-6vcpu-macos-26` |
@@ -128,6 +129,39 @@ pull-request lane currently pins;
 pull-request branch before comparing, and separately requires the producer to
 name the lane directly: that file is `workflow_dispatch`-only, so a conditional
 on `github.event_name` there would never take the branch being compared.
+
+### Spreading app-host shards over pools
+
+`MACOS_RUNNER_PR` moves the whole pull-request lane to one pool. To run the
+app-host shards on several pools at the same time, set
+`MACOS_RUNNER_PR_SHARDS` to a JSON object from shard number to runner label.
+A `runs-on` label array must match every label, so it cannot mean "any of
+these pools"; the choice is made per shard instead:
+
+```bash
+gh variable set MACOS_RUNNER_PR_SHARDS --repo manaflow-ai/cmux -b \
+  '{"1":"blacksmith-6vcpu-macos-15","2":"blacksmith-6vcpu-macos-26","3":"macos-15","4":"macos-26","5":"blacksmith-6vcpu-macos-15","6":"blacksmith-6vcpu-macos-26","7":"macos-26","8":"macos-15"}'
+gh variable set CMUX_CI_XCODE_APP_PR --repo manaflow-ai/cmux -b /Applications/Xcode_26.3.app
+```
+
+A shard the object does not name, a fork pull request, and every other event
+keep the `MACOS_RUNNER_PR` lane. Unsetting the variable returns every shard
+there. Compile admission still runs once, on `MACOS_RUNNER_PR`, and every
+shard restores its product. `app_host_test_products.py restore` compares
+only the source revision, the exact `xcodebuild -version` output and the
+architecture, so every pool in the object must carry the Xcode that
+`CMUX_CI_XCODE_APP_PR` pins. A pool without it fails at Xcode selection in
+the shard's first minute; drop it from the object.
+
+The object may name bare GitHub-hosted labels such as `macos-26`, which the
+guard otherwise forbids because self-hosted fleet runners carry them too. The
+shard's first step, `Validate shard runner pool`, runs before checkout and
+fails unless a `macos-*` request landed with `runner.environment` set to
+`github-hosted`. It also writes the requested and actual runner to the step
+summary. `runner_label_policy.py` checks each label in the object and accepts a
+bare `macos-NN` only there; `check_app_host_shard_pool_identity` in
+`tests/test_ci_self_hosted_guard.sh` keeps the fork gate and the assertion in
+place.
 
 `MACOS_RUNNER_PR` and `MACOS_RUNNER_TESTS` are escape hatches: leaving them
 unset is the intended state, and setting one overrides just that lane without

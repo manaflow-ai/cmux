@@ -72,6 +72,29 @@ check_display_runner_identity_guard() {
   echo "PASS: $job in $(basename "$file") validates display runner identity"
 }
 
+check_app_host_shard_pool_identity() {
+  # MACOS_RUNNER_PR_SHARDS may name bare GitHub-hosted labels such as
+  # macos-26, which self-hosted fleet runners also carry. The shard job must
+  # read the same per-shard expression it runs on, keep forks off the map,
+  # and fail before checkout unless a macos-* request landed github-hosted.
+  if ! awk '
+    /^  app-host-unit-tests:/ { in_job=1; next }
+    in_job && /^  [^[:space:]#][^:]*:[[:space:]]*(#.*)?$/ { in_job=0 }
+    in_job && /runs-on:.*!github\.event\.pull_request\.head\.repo\.fork && vars\.MACOS_RUNNER_PR_SHARDS && fromJSON\(vars\.MACOS_RUNNER_PR_SHARDS\)\[format\(.\{0\}., matrix\.shard\)\]/ { saw_runs_on=1 }
+    in_job && /REQUESTED_RUNNER:.*!github\.event\.pull_request\.head\.repo\.fork && vars\.MACOS_RUNNER_PR_SHARDS && fromJSON\(vars\.MACOS_RUNNER_PR_SHARDS\)\[format\(.\{0\}., matrix\.shard\)\]/ { saw_requested=1 }
+    in_job && /RUNNER_CONTEXT_ENVIRONMENT:[[:space:]]*\$\{\{ runner\.environment \}\}/ { saw_environment=1 }
+    in_job && /macos-\*\)/ { saw_case=1 }
+    in_job && /"\$RUNNER_CONTEXT_ENVIRONMENT" != "github-hosted"/ { saw_assert=1 }
+    in_job && /- name: Validate shard runner pool/ { validate_line=NR }
+    in_job && /uses: actions\/checkout@/ && !checkout_line { checkout_line=NR }
+    END { exit !(saw_runs_on && saw_requested && saw_environment && saw_case && saw_assert && validate_line && checkout_line && validate_line < checkout_line) }
+  ' "$CI_MACOS_FILE"; then
+    echo "FAIL: app-host-unit-tests must route per shard through MACOS_RUNNER_PR_SHARDS (never for forks) and fail before checkout when a macos-* label resolves off GitHub-hosted"
+    exit 1
+  fi
+  echo "PASS: app-host-unit-tests validates the per-shard pool before checkout"
+}
+
 check_release_build_runner_disk_capacity() {
   # Pin the whole expression, not the variable name and the literal as two
   # independent substring matches. Those two can both be satisfied by a line
@@ -1641,6 +1664,7 @@ check_macos_runner "$CI_MACOS_FILE" "tests-build-and-lag"
 check_macos_runner "$CI_MACOS_FILE" "release-build"
 check_release_build_runner_disk_capacity
 check_display_runner_identity_guard "$CI_MACOS_FILE" "tests-build-and-lag"
+check_app_host_shard_pool_identity
 
 # build-ghosttykit.yml (routed through the MACOS_RUNNER_BACKGROUND repo var)
 check_macos_runner "$GHOSTTYKIT_FILE" "build-ghosttykit"
