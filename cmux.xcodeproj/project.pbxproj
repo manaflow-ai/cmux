@@ -12672,7 +12672,6 @@
 				C7E3FFB9B84F6DE45250D5D5 /* CodexSessionStartDeadTurnTests.swift */,
 				0B0073F9140EA86D5ADEE233 /* CodexStaleTurnRestoreIntentTests.swift */,
 				283DE1F547455A79CD6EC26D /* CloudRestoreReplayFixture.swift */,
-				DD277217AB02219F074EDADA /* CloudRestoreReplayGridTests.swift */
 				DD277217AB02219F074EDADA /* CloudRestoreReplayGridTests.swift */,
 			);
 			path = cmuxTests;
