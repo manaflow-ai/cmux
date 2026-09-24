@@ -738,7 +738,7 @@ def test_standalone_routes_preserve_missing_empty_and_owned_diffs() -> None:
             if contents is not None:
                 changed.write_text(contents)
             output = root / "output.txt"
-            subprocess.run(["bash", "-c", script], check=True, capture_output=True,
+            subprocess.run(["bash", "-c", isolate_ci_tmp(script, root)], check=True, capture_output=True,
                            env={**os.environ, "CHANGED_FILES": str(changed), "GITHUB_OUTPUT": str(output)})
             assert output.read_text().splitlines() == [f"claude_wrapper={wrapper}", f"browser={browser}", f"remote_daemon={daemon}", f"remote_daemon_native={daemon}"]
 
@@ -763,7 +763,7 @@ def test_publishing_changes_keep_daemon_linux_checks_without_native_rerun() -> N
             changed, output = root / "changed", root / "output"
             if contents is not None:
                 changed.write_text(contents)
-            subprocess.run(["bash", "-c", script], check=True, capture_output=True,
+            subprocess.run(["bash", "-c", isolate_ci_tmp(script, root)], check=True, capture_output=True,
                            env={**os.environ, "CHANGED_FILES": str(changed), "GITHUB_OUTPUT": str(output)})
             values = dict(line.split("=", 1) for line in output.read_text().splitlines())
             assert values["remote_daemon"] == "true", (contents, values)
@@ -805,7 +805,7 @@ def test_remote_daemon_rejects_stale_heads_before_allocating_macos() -> None:
             env = {**os.environ, "PATH": str(root) + os.pathsep + os.environ["PATH"],
                    "GITHUB_REPOSITORY": "example/repo", "PR_NUMBER": "1",
                    "RUN_HEAD_SHA": "head", "CURRENT_HEAD": current}
-            result = subprocess.run(["bash", "-c", script], env=env, capture_output=True)
+            result = subprocess.run(["bash", "-c", isolate_ci_tmp(script, root)], env=env, capture_output=True)
             assert result.returncode == expected, (current, result.stderr)
 
 
@@ -1700,7 +1700,7 @@ def run_detect_step_for_ci_workflow_edit(base: str, head: str) -> tuple[subproce
             "RUNNER_TEMP": os.environ.get("RUNNER_TEMP") or str(runner_temp),
         }
         result = subprocess.run(
-            ["bash", "-c", script], cwd=repo, env=env, text=True,
+            ["bash", "-c", isolate_ci_tmp(script, repo)], cwd=repo, env=env, text=True,
             stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True,
         )
         return result, output_path.read_text(encoding="utf-8").splitlines()
@@ -1810,6 +1810,17 @@ def workflow_job_block(job_name: str, workflow_path: Path = CI_WORKFLOW) -> str:
                 body.append(body_line)
             return "\n".join(body)
     raise AssertionError(f"{job_name} job not found")
+
+
+def isolate_ci_tmp(script: str, directory: Path) -> str:
+    """Point a ci.yml step's fixed /tmp/cmux-ci-* files into `directory`.
+
+    On a runner each job has its own /tmp. Locally, two suites on one host (a
+    parallel guard sweep, or another checkout) would share and overwrite
+    those files: one run then reads another's changed-file list, sees an empty
+    diff, and routes nothing.
+    """
+    return script.replace("/tmp/cmux-ci-", f"{directory}/cmux-ci-")
 
 
 def workflow_job_step_script(job_name: str, step_name: str, workflow_path: Path = CI_WORKFLOW) -> str:
@@ -2466,7 +2477,7 @@ def test_workflow_diff_failure_runs_all_areas() -> None:
             "RUNNER_TEMP": os.environ.get("RUNNER_TEMP") or str(runner_temp),
         }
         result = subprocess.run(
-            ["bash", "-c", script],
+            ["bash", "-c", isolate_ci_tmp(script, repo)],
             cwd=repo,
             env=env,
             text=True,
@@ -2547,7 +2558,7 @@ def run_detect_step_on_shallow_synthetic_merge(*, stale_event_base: bool) -> tup
 
         output_path = shallow / "github-output.txt"
         result = subprocess.run(
-            ["bash", "-c", script],
+            ["bash", "-c", isolate_ci_tmp(script, root)],
             cwd=shallow,
             env={
                 **os.environ,
@@ -5585,7 +5596,7 @@ def test_claude_wrapper_scope_executes_workflow_shell() -> None:
             if paths is not None:
                 changed.write_text("\n".join(paths) + "\n")
             output = root / "output.txt"
-            run = subprocess.run(["bash", "-c", script.replace("/tmp/cmux-ci-changed-files.txt", str(changed))],
+            run = subprocess.run(["bash", "-c", isolate_ci_tmp(script.replace("/tmp/cmux-ci-changed-files.txt", str(changed)), root)],
                                  env={**os.environ, "GITHUB_OUTPUT": str(output)}, capture_output=True, text=True)
             assert run.returncode == 0, run.stderr
             assert f"claude_wrapper={expected}" in output.read_text().splitlines(), (paths, output.read_text())
