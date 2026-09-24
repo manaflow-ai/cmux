@@ -127,10 +127,11 @@ OWNED_VARIABLE = "CI_PR_POOL_OWNED"
 SLOTS_VARIABLE = "CI_OWNED_POOL_SLOTS"
 # A pull request run holds several macOS machines at once, each job on its
 # own. Beside compile admission run the Claude wrapper, CLI pipe and remote
-# daemon lanes; once admission passes, a full suite adds APP_HOST_SHARDS
-# shards, tests-build-and-lag and cli-product-tests, a changed-suites run one
-# shard, and a CLI change cli-product-tests. A run takes an owned pool only
-# when its own peak (run_jobs) is free, so none of its jobs queues there. A
+# daemon lanes; once admission passes, a full suite adds tests-build-and-lag
+# there. On an owned pick the app-host shards and cli-product-tests go to the
+# Blacksmith pool pr_retry_runner names, so they are not counted. A run takes
+# an owned pool only when its own peak (run_jobs) is free, so none of its
+# jobs queues there. A
 # run whose peak is unknown is charged MAX_RUN_JOBS. A run created since the
 # snapshot is looked up first (pull_request_routes_since): its marker gives
 # the owned pool and peak it took, and a finished `changes` job without one
@@ -139,9 +140,10 @@ SLOTS_VARIABLE = "CI_OWNED_POOL_SLOTS"
 # Charging every newer run that guess shut a 5-machine pool after two runs
 # while its minis sat idle (2026-09-24). A job that still finds its mini busy
 # is refused or queued, and moved to Blacksmith by ci-owned-pool-rescue.yml.
-APP_HOST_SHARDS = 7
 SIDE_LANES = 3
-MAX_RUN_JOBS = SIDE_LANES + APP_HOST_SHARDS + 2
+# The most machines a run holds on the pool it picked: every side lane beside
+# compile admission. Its shards run on Blacksmith (run_jobs).
+MAX_RUN_JOBS = SIDE_LANES + 1
 REPLAYED_RUN_JOBS = SIDE_LANES + 1
 # A snapshot older than this is not trusted to place a run on an owned pool.
 OWNED_MAX_AGE_MINUTES = 20
@@ -237,19 +239,20 @@ def run_jobs(*, macos: str | None, full_suite: str | None, unit_suite: str | Non
              remote_daemon: str | None) -> int:
     """Most macOS machines this run holds at once, from the changes job's routing.
 
-    Counted high on purpose: compile admission is assumed to run (the reuse
-    checks come later), and a changed-suites canary that may yet be dropped
-    counts its shard. ci-macos.yml runs admission for a macOS or a CLI change,
-    and cli-product-tests after it for a CLI change or a full suite.
+    This is what an owned pool must have free, so it counts only the jobs that
+    stay on the pool the run picked: compile admission (assumed to run, since
+    the reuse checks come later) beside the side lanes, then
+    tests-build-and-lag after it for a full suite. The app-host shards and
+    cli-product-tests take pr_retry_runner, the Blacksmith pool on the same
+    Xcode, whenever the pick is an owned pool (ci-macos.yml), so a full
+    suite's fan-out never has to fit on the minis.
     """
     side = sum(flag(lane) for lane in (cli, remote_daemon))
     full = flag(macos) and flag(full_suite)
     side += flag(claude_wrapper) or full
     if not (flag(macos) or flag(cli)):
         return side
-    shards = APP_HOST_SHARDS if full else int(flag(macos) and flag(unit_suite) and not flag(unit_in_admission))
-    after = shards + full + (flag(cli) or full)
-    return side + max(1, after)
+    return side + 1
 
 
 def settings(overflow: str | None, order: str | None, max_queued: str | None,

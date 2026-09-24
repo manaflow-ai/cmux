@@ -362,8 +362,8 @@ class JanitorSnapshot(unittest.TestCase):
 
     def test_owned_marker_names_this_attempts_pool_and_peak(self):
         run = {"id": 42, "run_attempt": 1}
-        name = "macos-pool-persistent-42-1-5-glaeda-std-xcode-26.6"
-        self.assertEqual(janitor.owned_marker(run, ["other", name]), ("glaeda-std-xcode-26.6", 5))
+        name = "macos-pool-persistent-42-1-3-glaeda-std-xcode-26.6"
+        self.assertEqual(janitor.owned_marker(run, ["other", name]), ("glaeda-std-xcode-26.6", 3))
         self.assertIsNone(janitor.owned_marker({"id": 42, "run_attempt": 2}, [name]))
         self.assertIsNone(janitor.owned_marker({"id": 4, "run_attempt": 1}, [name]))
         self.assertIsNone(janitor.owned_marker(run, ["macos-pool-persistent-42-1-5-blacksmith-6vcpu-macos-26"]))
@@ -469,7 +469,7 @@ class OwnedPools(unittest.TestCase):
         # 11 machines, 9 busy: one run's 3 jobs would not all start.
         self.assertEqual(owned_choice(fleet(busy=9)).runner, LARGE)
         self.assertEqual(owned_choice(fleet(busy=9), jobs=2).runner, MINI)
-        # A full suite needs all 11 at once.
+        # A run needing all 11 at once.
         self.assertEqual(owned_choice(fleet(), jobs=11).runner, MINI)
         self.assertEqual(owned_choice(fleet(busy=1), jobs=11).runner, LARGE)
 
@@ -480,15 +480,14 @@ class OwnedPools(unittest.TestCase):
             return pool.run_jobs(**{**base, **flags})
         self.assertEqual(jobs(), 1)
         self.assertEqual(jobs(cli="true", remote_daemon="true"), 3)
+        # The changed-suites shard and cli-product-tests run on Blacksmith.
         self.assertEqual(jobs(unit_suite="true"), 1)
-        # A CLI change adds the pipe lane and cli-product-tests after admission.
-        self.assertEqual(jobs(unit_suite="true", unit_in_admission="true", cli="true"), 2)
-        self.assertEqual(jobs(unit_suite="true", cli="true"), 3)
-        # Full suite: seven shards, tests-build-and-lag and cli-product-tests after
-        # admission, beside the three side lanes.
+        self.assertEqual(jobs(unit_suite="true", cli="true"), 2)
+        # Full suite: admission (then tests-build-and-lag) beside the three side
+        # lanes; its seven shards and cli-product-tests take pr_retry_runner.
         self.assertEqual(jobs(full_suite="true", cli="true", remote_daemon="true"), pool.MAX_RUN_JOBS)
-        self.assertEqual(pool.MAX_RUN_JOBS, 12)
-        # A CLI-only run still compiles, then tests the bundled CLI.
+        self.assertEqual(pool.MAX_RUN_JOBS, 4)
+        # A CLI-only run still compiles, then tests the bundled CLI on Blacksmith.
         self.assertEqual(jobs(macos="false", cli="true"), 2)
         self.assertEqual(jobs(macos="false", claude_wrapper="true", cli="true"), 3)
         self.assertEqual(jobs(macos="false"), 0)
@@ -733,10 +732,13 @@ class Wiring(unittest.TestCase):
             self.assertTrue(lanes, name)
             self.assertEqual(set(lanes), {lane}, name)
 
-    def test_a_rerun_of_failed_shards_leaves_the_owned_pool(self):
-        shards = self.workflow("ci-macos.yml")["jobs"]["app-host-unit-tests"]
-        self.assertEqual(shards["runs-on"], "${{ github.run_attempt > 1 && inputs.pr_retry_runner "
-                                            "|| needs.macos-compile-admission.outputs.runner }}")
+    def test_shards_leave_the_owned_pool_on_every_attempt(self):
+        # pr_retry_runner is set only on an owned pick, so this is admission's
+        # pool everywhere else, and Blacksmith on the same Xcode on an owned one.
+        jobs = self.workflow("ci-macos.yml")["jobs"]
+        for name in ("app-host-unit-tests", "cli-product-tests"):
+            self.assertEqual(jobs[name]["runs-on"], "${{ inputs.pr_retry_runner "
+                                                    "|| needs.macos-compile-admission.outputs.runner }}", name)
         wrapper = self.workflow("ci.yml")["jobs"]["claude-wrapper"]["runs-on"]
         self.assertIn("github.run_attempt > 1 && needs.changes.outputs.macos_pr_retry_runner", wrapper)
 

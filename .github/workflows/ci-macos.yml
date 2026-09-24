@@ -1148,9 +1148,12 @@ jobs:
     # compile admission to macOS 26. To spread shards over providers again,
     # every pool involved must carry the admission's exact Xcode; the
     # restore step refuses an older one with both versions named.
-    # A re-run of failed shards after compile admission passed on an owned
-    # pool keeps its outputs; pr_retry_runner moves them to Blacksmith.
-    runs-on: ${{ github.run_attempt > 1 && inputs.pr_retry_runner || needs.macos-compile-admission.outputs.runner }}
+    # When compile admission runs on an owned pool (pr_retry_runner is set only
+    # then), the shards take the Blacksmith pool on the same Xcode that
+    # pr_retry_runner names, on every attempt: the minis keep the compiles,
+    # where their warm build state pays, and the 7-way fan-out overflows to
+    # Blacksmith instead of keeping a full suite off the minis altogether.
+    runs-on: ${{ inputs.pr_retry_runner || needs.macos-compile-admission.outputs.runner }}
     timeout-minutes: 75
     strategy:
       # A pull request wants every shard's failures in one run. A merge group
@@ -1232,7 +1235,7 @@ jobs:
       - name: Verify GitHub-hosted route
         env:
           RUNNER_ENVIRONMENT: ${{ runner.environment }}
-          REQUESTED_RUNNER: ${{ github.run_attempt > 1 && inputs.pr_retry_runner || needs.macos-compile-admission.outputs.runner }}
+          REQUESTED_RUNNER: ${{ inputs.pr_retry_runner || needs.macos-compile-admission.outputs.runner }}
           RUNNER_CONTEXT_NAME: ${{ runner.name }}
         run: |
           set -euo pipefail
@@ -2145,7 +2148,7 @@ jobs:
     # reuses macos-compile-admission's artifact like the app-host shards do,
     # on the pool and Xcode that built it: the test bundle only loads under
     # the Xcode that linked it.
-    runs-on: ${{ github.run_attempt > 1 && inputs.pr_retry_runner || needs.macos-compile-admission.outputs.runner }}
+    runs-on: ${{ inputs.pr_retry_runner || needs.macos-compile-admission.outputs.runner }}
     timeout-minutes: 40
     env:
       CMUX_NODE_PRODUCT_CACHE_ROOT: ${{ vars.CMUX_NODE_PRODUCT_CACHE_ROOT }}
@@ -2161,7 +2164,7 @@ jobs:
       - name: Verify GitHub-hosted route
         env:
           RUNNER_ENVIRONMENT: ${{ runner.environment }}
-          REQUESTED_RUNNER: ${{ github.run_attempt > 1 && inputs.pr_retry_runner || needs.macos-compile-admission.outputs.runner }}
+          REQUESTED_RUNNER: ${{ inputs.pr_retry_runner || needs.macos-compile-admission.outputs.runner }}
           RUNNER_CONTEXT_NAME: ${{ runner.name }}
         run: |
           set -euo pipefail
