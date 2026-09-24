@@ -1,5 +1,16 @@
 {
   "vmErrors": {
+    "guestInstall": {
+      "title": "Postavljanje Cloud VM-a nije završeno",
+      "reason": "Postavljanje gosta za Cloud VM nije završeno.",
+      "message": "cmux nije mogao završiti postavljanje Cloud VM-a.",
+      "action": "Pokušajte ponovo. Ako se problem nastavi, obratite se podršci."
+    },
+    "createCleanupPending": {
+      "title": "Čišćenje Cloud VM-a na čekanju",
+      "message": "Postavljanje Cloud VM-a nije uspjelo i čišćenje je još na čekanju.",
+      "action": "Obratite se podršci s ID-jem praćenja prije kreiranja druge mašine."
+    },
     "unsupported": {
       "title": "Operacija Cloud VM-a nije dostupna",
       "reason": "Ova vrsta mašine ne pruža ovu operaciju.",
@@ -1434,6 +1445,7 @@
       "restartNew": "Kreiraj novi radni prostor (zadano)"
     },
     "keyboardShortcuts": {
+      "fileEditorWordWrap": "Uključi ili isključi prelamanje redova u uređivaču datoteka (Option+Z).",
       "title": "Prečice na tastaturi",
       "description": "Sve prečice na tastaturi dostupne u cmux-u, grupirane po kategorijama.",
       "metaDescription": "Sve cmux prečice na tastaturi za radne prostore, površine, podijeljene panele, preglednik, notifikacije, pretragu i upravljanje prozorima na macOS-u.",

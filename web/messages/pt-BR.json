@@ -1,5 +1,16 @@
 {
   "vmErrors": {
+    "guestInstall": {
+      "title": "A configuração da Cloud VM não foi concluída",
+      "reason": "A configuração convidada da Cloud VM não foi concluída.",
+      "message": "O cmux não conseguiu concluir a configuração da Cloud VM.",
+      "action": "Tente novamente. Se o problema persistir, entre em contato com o suporte."
+    },
+    "createCleanupPending": {
+      "title": "Limpeza da VM Cloud pendente",
+      "message": "A configuração da VM Cloud falhou e a limpeza ainda está pendente.",
+      "action": "Entre em contato com o suporte e informe o ID de rastreamento antes de criar outra máquina."
+    },
     "unsupported": {
       "title": "Operação de Cloud VM indisponível",
       "reason": "Este tipo de máquina não oferece esta operação.",
@@ -1434,6 +1445,7 @@
       "restartNew": "Criar um novo workspace (padrão)"
     },
     "keyboardShortcuts": {
+      "fileEditorWordWrap": "Alternar quebra de linha no editor de arquivos (Option+Z).",
       "title": "Atalhos de Teclado",
       "description": "Todos os atalhos de teclado disponíveis no cmux, agrupados por categoria.",
       "metaDescription": "Todos os atalhos de teclado do cmux para workspaces, superfícies, painéis divididos, navegador, notificações, busca e gerenciamento de janelas no macOS.",

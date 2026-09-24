@@ -393,7 +393,8 @@ jobs:
     needs: decide
     if: github.event_name == 'schedule' && github.event.schedule == '17 */6 * * *' || github.event_name == 'workflow_dispatch' && inputs.seed_only
     # Match the PR Release-build runner and Xcode so its compilation cache is reusable.
-    runs-on: ${{ vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_26_RELEASE || 'blacksmith-6vcpu-macos-26' }}
+    runs-on: ${{ vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
+    environment: ${{ github.ref == 'refs/heads/main' && 'ci-cache-writer' || '' }}
     # This job rebuilds the cache after the store drops it, so it runs cold
     # by design; scheduled run 35134963192 was cancelled at 45 minutes.
     timeout-minutes: 90
@@ -451,7 +452,7 @@ jobs:
         with:
           backend: ${{ inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND || 'r2' }}
           path: .spm-cache
-          key: spm-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
+          key: spm-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved', 'scripts/ci/swiftpm-cache-layout') }}
           restore-keys: spm-
 
       - name: Sanitize Swift package cache
@@ -472,6 +473,7 @@ jobs:
           CMUX_SKIP_ZIG_BUILD=1 xcodebuild -scheme cmux -configuration Release -derivedDataPath build-universal \
             -destination 'generic/platform=macOS' \
             -clonedSourcePackagesDirPath .spm-cache \
+            -packageCachePath "$PWD/.spm-cache/.package-cache" \
             -showBuildTimingSummary \
             ARCHS="arm64 x86_64" \
             ONLY_ACTIVE_ARCH=NO \
@@ -544,20 +546,23 @@ jobs:
         with:
           backend: ${{ inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND || 'r2' }}
           path: .spm-cache
-          key: spm-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
+          key: spm-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved', 'scripts/ci/swiftpm-cache-layout') }}
 
   refresh-test-compilation-cache:
     needs: decide
-    # The only writer of the Debug compilation cache that ci.yml
-    # `macos-compile-admission` restores. Scheduled, not per push: the seed
-    # mostly saves the package layer, which changes slowly, and a build per
-    # merge would take macOS slots from the pull request queue.
+    # Writes the cold DerivedData seed that ci-macos.yml compile admission
+    # adopts, and the Debug compilation cache. Admission no longer restores
+    # that cache (the app target missed on every file; see
+    # tests/test_ci_test_compilation_cache_seed.sh), so it has no reader on
+    # main today. Scheduled, not per push: a build per merge would take macOS
+    # slots from the pull request queue.
     if: github.event_name == 'schedule' && github.event.schedule == '17 */6 * * *' || github.event_name == 'workflow_dispatch' && inputs.seed_only
     # Match the admission job's runner and Xcode. The cache key carries the
     # toolchain and the build paths, so a mismatch is a miss, not a wrong hit.
     # Pull requests are what restore this seed, so track the runner the
     # admission job picks for `pull_request`, not the merge-queue one.
     runs-on: ${{ vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15' }}
+    environment: ${{ github.ref == 'refs/heads/main' && 'ci-cache-writer' || '' }}
     timeout-minutes: 75
     env:
       CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_PR || vars.CMUX_CI_XCODE_APP_MACOS_15 }}
@@ -628,7 +633,7 @@ jobs:
         with:
           backend: ${{ inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND || 'r2' }}
           path: .ci-source-packages
-          key: spm-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
+          key: spm-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved', 'scripts/ci/swiftpm-cache-layout') }}
           restore-keys: spm-
 
       - name: Sanitize Swift package cache
@@ -641,6 +646,15 @@ jobs:
           set -euo pipefail
           scripts/ci/compile-app-host-test-product.sh canonical-resolve \
             "$CMUX_COMPILE_ADMISSION_DERIVED_DATA" "$PWD/.ci-source-packages"
+
+      # ci-macos.yml compile admission adopts this build's DerivedData for pull
+      # requests. The recorded content and times are how it tells which inputs
+      # a later revision changed. See scripts/ci/seed_derived_data.py.
+      - name: Record DerivedData seed inputs
+        id: derived-data-record
+        if: steps.compilation-cache-restore.outputs.cache-hit != 'true'
+        continue-on-error: true
+        run: python3 scripts/ci/seed_derived_data.py record "$CMUX_CI_CANONICAL_SRC" "$CMUX_COMPILE_ADMISSION_DERIVED_DATA"
 
       - name: Refresh test compilation cache
         if: steps.compilation-cache-restore.outputs.cache-hit != 'true'
@@ -692,6 +706,18 @@ jobs:
           path: ${{ env.CMUX_COMPILE_ADMISSION_CAS }}
           key: xcode-compilation-test-${{ runner.os }}-${{ runner.arch }}-${{ steps.compilation-cache-key.outputs.fingerprint }}-${{ needs.decide.outputs.head_sha }}
 
+      # canonical-resolve copies the workspace to the canonical root and
+      # resolves there, so the workspace copy is still exactly what was
+      # restored. Save what the resolve wrote, or a fallback restore of an
+      # older layout is saved again under the current key.
+      - name: Collect resolved Swift packages
+        if: steps.compilation-cache-restore.outputs.cache-hit != 'true' && steps.swift-packages-restore.outputs.cache-hit != 'true'
+        run: |
+          set -euo pipefail
+          resolved="${CMUX_CI_CANONICAL_ROOT:-/private/tmp/cmux-ci}/src/.ci-source-packages"
+          test -d "$resolved/.package-cache"
+          rsync -a --delete "$resolved/" .ci-source-packages/
+
       - name: Save Swift packages
         if: steps.compilation-cache-restore.outputs.cache-hit != 'true' && steps.swift-packages-restore.outputs.cache-hit != 'true'
         uses: ./.github/actions/cache-save
@@ -704,7 +730,30 @@ jobs:
         with:
           backend: ${{ inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND || 'r2' }}
           path: .ci-source-packages
-          key: spm-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
+          key: spm-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved', 'scripts/ci/swiftpm-cache-layout') }}
+
+      # R2 only: a multi-gigabyte entry in the GitHub store evicts the seeds
+      # above (#13160). A failure here never fails the seed.
+      - name: Bound DerivedData seed size
+        id: derived-data-bound
+        if: steps.compilation-cache-restore.outputs.cache-hit != 'true' && steps.derived-data-record.outcome == 'success' && (inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND || 'r2') == 'r2'
+        continue-on-error: true
+        run: python3 scripts/ci/seed_derived_data.py prune "$CMUX_COMPILE_ADMISSION_DERIVED_DATA"
+
+      - name: Save DerivedData seed
+        if: steps.derived-data-bound.outputs.save == 'true'
+        continue-on-error: true
+        uses: ./.github/actions/cache-save
+        env:
+          # Only an R2 save sees the bucket credentials.
+          AWS_ACCESS_KEY_ID: ${{ (inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND) == 'r2' && secrets.CI_CACHE_R2_ACCESS_KEY_ID || '' }}
+          AWS_SECRET_ACCESS_KEY: ${{ (inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND) == 'r2' && secrets.CI_CACHE_R2_SECRET_ACCESS_KEY || '' }}
+          CI_CACHE_R2_ENDPOINT: ${{ (inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND) == 'r2' && format('https://{0}.r2.cloudflarestorage.com', secrets.CI_CACHE_R2_ACCOUNT_ID) || '' }}
+          CI_CACHE_R2_BUCKET: ${{ vars.CI_CACHE_R2_BUCKET }}
+        with:
+          backend: r2
+          path: ${{ env.CMUX_COMPILE_ADMISSION_DERIVED_DATA }}
+          key: admission-derived-data-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.compilation-cache-key.outputs.fingerprint }}-${{ needs.decide.outputs.head_sha }}
 
   build-nightly-ghostty-cli-helper:
     needs: decide
@@ -768,11 +817,14 @@ jobs:
       daemon_build: ${{ steps.remote_daemon.outputs.build }}
       daemon_version: ${{ steps.remote_daemon.outputs.version }}
     if: needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *')
-    # Full runs match the cache warmer and stable release lane. Fast branch
-    # dogfood always uses the dedicated Blacksmith image. A repository-wide
-    # runner override may point at a slower shared builder, which defeats the
-    # purpose of the one-architecture path.
-    runs-on: ${{ needs.decide.outputs.fast_build == 'true' && 'blacksmith-12vcpu-macos-26' || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_26_NIGHTLY_BUILD || 'blacksmith-12vcpu-macos-26' }}
+    # Full runs share the cache warmer's and stable release lane's image and
+    # toolchain, which is what the compilation cache is keyed on — OS, arch and
+    # toolchain, never instance size, which is deliberately larger here. Fast
+    # branch dogfood always uses the dedicated Blacksmith image. A
+    # repository-wide runner override may point at a slower shared builder,
+    # which defeats the purpose of the one-architecture path.
+    runs-on: ${{ needs.decide.outputs.fast_build == 'true' && 'blacksmith-12vcpu-macos-26' || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_26_LARGE || 'blacksmith-12vcpu-macos-26' }}
+    environment: ${{ github.ref == 'refs/heads/main' && 'ci-cache-writer' || '' }}
     # The Blacksmith cache is scoped per branch and also drops main's own
     # entry (runs 35179030871 and 35182663752 restored nothing and were
     # cancelled at 45 minutes mid-compile), so the budget must fit a cold
@@ -871,7 +923,7 @@ jobs:
         with:
           backend: ${{ inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND || 'r2' }}
           path: .spm-cache
-          key: spm-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
+          key: spm-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved', 'scripts/ci/swiftpm-cache-layout') }}
           restore-keys: spm-
 
       - name: Sanitize Swift package cache
@@ -913,6 +965,7 @@ jobs:
             env CMUX_SKIP_ZIG_BUILD=1 xcodebuild -scheme cmux -configuration Release -derivedDataPath build-universal \
             -destination 'generic/platform=macOS' \
             -clonedSourcePackagesDirPath .spm-cache \
+            -packageCachePath "$PWD/.spm-cache/.package-cache" \
             -showBuildTimingSummary \
             ARCHS="$archs" \
             ONLY_ACTIVE_ARCH="$only_active" \
@@ -984,7 +1037,7 @@ jobs:
         with:
           backend: ${{ inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND || 'r2' }}
           path: .spm-cache
-          key: spm-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
+          key: spm-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved', 'scripts/ci/swiftpm-cache-layout') }}
 
       # Bundle once here, not per sign variant, so every variant carries the same
       # cmux-tui build and the download happens a single time.

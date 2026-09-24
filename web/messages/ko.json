@@ -1,5 +1,16 @@
 {
   "vmErrors": {
+    "guestInstall": {
+      "title": "Cloud VM 설정이 완료되지 않았습니다",
+      "reason": "Cloud VM 게스트 설정이 완료되지 않았습니다.",
+      "message": "cmux가 Cloud VM 설정을 완료하지 못했습니다.",
+      "action": "작업을 다시 시도하세요. 문제가 계속되면 지원팀에 문의하세요."
+    },
+    "createCleanupPending": {
+      "title": "Cloud VM 정리 대기 중",
+      "message": "Cloud VM 설정에 실패했으며 정리가 아직 완료되지 않았습니다.",
+      "action": "다른 머신을 만들기 전에 추적 ID와 함께 지원팀에 문의하세요."
+    },
     "unsupported": {
       "title": "Cloud VM 작업을 사용할 수 없음",
       "reason": "이 머신 종류는 이 작업을 제공하지 않습니다.",
@@ -1434,6 +1445,7 @@
       "restartNew": "새 워크스페이스 만들기 (기본값)"
     },
     "keyboardShortcuts": {
+      "fileEditorWordWrap": "파일 편집기 자동 줄 바꿈 전환 (Option+Z).",
       "title": "키보드 단축키",
       "description": "카테고리별로 정리된 cmux의 모든 키보드 단축키.",
       "metaDescription": "워크스페이스, 서피스, 분할 패널, 브라우저, 알림, 검색, 창 관리를 위한 cmux의 모든 macOS 키보드 단축키.",
