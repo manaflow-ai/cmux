@@ -5969,6 +5969,71 @@ fn schema_preflight_failures_defer_to_authoritative_open() {
     fs::remove_dir_all(root).unwrap();
 }
 
+fn reserve_terminal(registry: &mut WorkspaceRegistry, terminal_id: &str, expected_revision: u64) {
+    registry
+        .commit_terminal(
+            &WorkspaceMutation::new(format!("reserve-{terminal_id}"), "test").unwrap(),
+            &json!({"op":"reserve-terminal","terminal_id":terminal_id}),
+            None,
+            Some(expected_revision),
+            "terminal-added",
+            &terminal(terminal_id, "one"),
+            &json!({"terminal_id":terminal_id}),
+        )
+        .unwrap();
+}
+
+#[test]
+fn terminal_idle_policy_persists_across_reopen_and_null_clears_it() {
+    let root = temp_root("idle-policy");
+    {
+        let mut registry = WorkspaceRegistry::open(&root, "idle-policy").unwrap();
+        seed_workspace(&mut registry, "one");
+        reserve_terminal(&mut registry, TERMINAL_ONE, 0);
+        reserve_terminal(&mut registry, TERMINAL_TWO, 1);
+        registry.set_terminal_idle_policy(TERMINAL_ONE, Some(3_600)).unwrap();
+        registry.set_terminal_idle_policy(TERMINAL_TWO, Some(86_400)).unwrap();
+        registry.set_terminal_idle_policy(TERMINAL_TWO, Some(604_800)).unwrap();
+    }
+
+    let mut registry = WorkspaceRegistry::open(&root, "idle-policy").unwrap();
+    assert_eq!(registry.terminal_idle_policy(TERMINAL_ONE).unwrap(), Some(3_600));
+    assert_eq!(registry.terminal_idle_policy(TERMINAL_TWO).unwrap(), Some(604_800));
+    let live = registry.live_terminal_idle_policies().unwrap();
+    let live: Vec<_> =
+        live.into_iter().map(|policy| (policy.terminal_id, policy.idle_close_seconds)).collect();
+    assert_eq!(live, vec![(TERMINAL_ONE.to_string(), 3_600), (TERMINAL_TWO.to_string(), 604_800)]);
+
+    registry.set_terminal_idle_policy(TERMINAL_TWO, None).unwrap();
+    assert_eq!(registry.terminal_idle_policy(TERMINAL_TWO).unwrap(), None);
+    assert_eq!(registry.live_terminal_idle_policies().unwrap().len(), 1);
+
+    drop(registry);
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn terminal_idle_policy_rejects_invalid_and_closed_terminals() {
+    let mut registry = WorkspaceRegistry::in_memory("idle-policy-invalid").unwrap();
+    seed_workspace(&mut registry, "one");
+    reserve_terminal(&mut registry, TERMINAL_ONE, 0);
+
+    assert!(registry.set_terminal_idle_policy(TERMINAL_ONE, Some(0)).is_err());
+    let too_long = Some(idle_policy_store::MAX_TERMINAL_IDLE_CLOSE_SECONDS + 1);
+    assert!(registry.set_terminal_idle_policy(TERMINAL_ONE, too_long).is_err());
+    let unknown = registry.set_terminal_idle_policy(TERMINAL_TWO, Some(60)).unwrap_err();
+    assert!(unknown.to_string().contains("terminal_not_found"));
+
+    registry.set_terminal_idle_policy(TERMINAL_ONE, Some(60)).unwrap();
+    let close = WorkspaceMutation::new("close-idle", "test").unwrap();
+    registry.close_terminal(&close, None, Some(1), TERMINAL_ONE, None).unwrap();
+    assert!(registry.live_terminal_idle_policies().unwrap().is_empty());
+    assert_eq!(registry.prune_terminal_idle_policies().unwrap(), 1);
+    assert_eq!(registry.terminal_idle_policy(TERMINAL_ONE).unwrap(), None);
+    let closed = registry.set_terminal_idle_policy(TERMINAL_ONE, Some(60)).unwrap_err();
+    assert!(closed.to_string().contains("terminal_not_found"));
+}
+
 #[cfg(windows)]
 #[test]
 fn long_database_descendant_is_normalized_even_when_root_is_short() {

@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 133bac0154f8f94aa30e40c11ff7ed38b10dd4d82974aec87c02d404fcd12619.
+// cmux-tui mux protocol 12, IR e00f254976ca103568dcf75f545b54c96d2a6892b57b8aa30105fdb98b6abc45.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -1215,6 +1215,17 @@ pub struct SetSplitRatioRequest {
 pub type SetSplitRatioResult = T::EmptyResult;
 
 #[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct SetTerminalIdlePolicyRequest {
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub idle_close_seconds: Optional<u64>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub surface: Optional<T::Id>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub terminal_id: Optional<String>,
+}
+
+#[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SetViewportPaneWidthRequest {
     pub pane: T::Id,
@@ -1886,6 +1897,10 @@ impl CmuxClient {
             self.require_capability_field("set-split-ratio", "layout-undo-v1")?;
         }
         self.execute(&SET_SPLIT_RATIO_METADATA, &request)
+    }
+
+    pub fn set_terminal_idle_policy(&mut self, request: SetTerminalIdlePolicyRequest) -> Result<T::SetTerminalIdlePolicyResult> {
+        self.execute(&SET_TERMINAL_IDLE_POLICY_METADATA, &request)
     }
 
     pub fn set_viewport_pane_width(&mut self, request: SetViewportPaneWidthRequest) -> Result<SetViewportPaneWidthResult> {

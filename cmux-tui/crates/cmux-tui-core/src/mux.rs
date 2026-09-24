@@ -1,11 +1,13 @@
 //! The multiplexer: owns the session [`State`] and every surface runtime,
 //! and broadcasts [`MuxEvent`]s to subscribed frontends.
 
+mod idle_close;
 mod public_projections;
 mod resource_content;
 mod resource_topology;
 mod terminal_directory;
 
+pub use idle_close::{IDLE_CLOSE_REAP_INTERVAL, IdleTerminalReaper, start_idle_terminal_reaper};
 pub(crate) use resource_content::ResourceEffectProjection;
 
 use public_projections::{RestoredPublicProjections, restore_public_projections};
@@ -2472,6 +2474,7 @@ pub struct Mux {
     server_lifecycle_ready: AtomicBool,
     shutting_down: AtomicBool,
     pub(crate) control_clients: crate::server::ClientRegistry,
+    idle_close: Mutex<idle_close::IdleCloseTracker>,
     #[cfg(unix)]
     pub(crate) image_pastes: crate::image_paste::ImagePasteStore,
     pub(crate) surface_operation_admission: Arc<crate::server::ServerSurfaceOperationAdmission>,
@@ -2874,6 +2877,7 @@ impl Mux {
             server_lifecycle_ready: AtomicBool::new(false),
             shutting_down: AtomicBool::new(false),
             control_clients: crate::server::ClientRegistry::new(),
+            idle_close: Mutex::new(idle_close::IdleCloseTracker::default()),
             #[cfg(unix)]
             image_pastes: crate::image_paste::ImagePasteStore::default(),
             surface_operation_admission: Arc::new(
@@ -10533,6 +10537,7 @@ impl Mux {
         sizing.terminal_authorities.retain(|_, authority| authority.placement != surface);
         drop(sizing);
         self.placement_notifications.lock().unwrap().remove(&surface);
+        self.control_clients.forget_surface_attach_epoch(surface);
     }
 
     fn purge_terminal_side_tables(&self, terminal_id: &TerminalPublicId) {
