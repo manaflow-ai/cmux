@@ -49,6 +49,20 @@ SELECTOR = re.compile(
 )
 
 
+def watch_command(run_id: str) -> list[str]:
+    """`gh run watch`, polling at CMUX_WATCH_INTERVAL seconds when set.
+
+    gh polls every 3 seconds by default. A workflow job waiting out a
+    45-minute run on its job token would spend most of that token's hourly
+    request budget, so the workflow asks for a slower poll.
+    """
+    command = ["gh", "run", "watch", "--repo", REPO, run_id, "--exit-status"]
+    interval = os.environ.get("CMUX_WATCH_INTERVAL", "").strip()
+    if interval:
+        command += ["--interval", str(positive_integer(interval))]
+    return command
+
+
 def positive_integer(value: str) -> int:
     if not re.fullmatch(r"[1-9][0-9]*", value):
         raise argparse.ArgumentTypeError("must be a positive integer")
@@ -453,10 +467,7 @@ def main() -> int:
                 )
                 print(f"Run: {live['url']}", flush=True)
                 if args.wait:
-                    return subprocess.run([
-                        "gh", "run", "watch", "--repo", REPO, str(live["databaseId"]),
-                        "--exit-status",
-                    ], cwd=ROOT).returncode
+                    return subprocess.run(watch_command(str(live["databaseId"])), cwd=ROOT).returncode
                 return 0
 
         # Refuse per entry: one already-red selector makes the whole batch a
@@ -517,10 +528,7 @@ def main() -> int:
         )
     print(f"Run: {run['url']}", flush=True)
     if args.wait:
-        return subprocess.run([
-            "gh", "run", "watch", "--repo", REPO, str(run["databaseId"]),
-            "--exit-status",
-        ], cwd=ROOT).returncode
+        return subprocess.run(watch_command(str(run["databaseId"])), cwd=ROOT).returncode
     return 0
 
 

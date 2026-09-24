@@ -192,6 +192,13 @@ class FocusedLauncherTests(unittest.TestCase):
         watch = next(call for call in self.calls() if call[:2] == ["run", "watch"])
         self.assertIn("123", watch)
         self.assertNotIn("999", watch)
+        self.assertNotIn("--interval", watch)
+
+    def test_a_workflow_job_polls_slowly(self):
+        result = self.launch("cmuxTests/ExampleTests", "--wait", CMUX_WATCH_INTERVAL="60")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        watch = next(call for call in self.calls() if call[:2] == ["run", "watch"])
+        self.assertEqual(watch[-2:], ["--interval", "60"])
 
     def test_rejects_invalid_selectors_before_dispatch(self):
         for selector in ("", "cmuxTests/", "cmuxTests/Example/extra/method", "cmuxTests/A\ndispatch_id=bad", "cmuxTests/A;echo bad"):
@@ -584,6 +591,8 @@ class SuiteWorkflowForwardsFocusedRuns(unittest.TestCase):
         self.assertIn("./scripts/run-e2e.sh", run)
         self.assertIn("--wait", run)
         self.assertIn('"cmuxTests/$suite"', run)
+        self.assertIn("github.repository == 'manaflow-ai/cmux'", condition)
+        self.assertEqual(jobs["focused"]["steps"][-1]["env"]["CMUX_WATCH_INTERVAL"], "60")
         self.assertEqual(jobs["focused"]["permissions"], {"actions": "write", "contents": "read"})
 
 

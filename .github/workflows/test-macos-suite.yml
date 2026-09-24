@@ -71,7 +71,9 @@ jobs:
   focused:
     # Selectors with UI tests off are a focused run. Compiled here, each one
     # paid a cold build of the whole app, about 20 minutes, for one test.
-    if: ${{ github.event_name == 'workflow_dispatch' && inputs.unit_test_suites != '' && inputs.skip_ui_tests && !inputs.skip_unit_tests }}
+    # The wrapper dispatches to manaflow-ai/cmux, so a fork keeps its own
+    # `tests` job.
+    if: ${{ github.repository == 'manaflow-ai/cmux' && github.event_name == 'workflow_dispatch' && inputs.unit_test_suites != '' && inputs.skip_ui_tests && !inputs.skip_unit_tests }}
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 120
     permissions:
@@ -92,19 +94,22 @@ jobs:
           UNIT_TEST_SUITES: ${{ inputs.unit_test_suites }}
           TEST_REF: ${{ inputs.ref || github.sha }}
           TEST_TIMEOUT: ${{ inputs.test_timeout }}
+          # gh polls every 3 s by default; the job token's budget is hourly.
+          CMUX_WATCH_INTERVAL: "60"
         run: |
           set -euo pipefail
           selectors=()
           IFS=',' read -r -a suites <<< "$UNIT_TEST_SUITES"
           for suite in "${suites[@]}"; do
             suite="${suite// /}"
-            [ -n "$suite" ] && selectors+=("cmuxTests/$suite")
+            # The suite path ran a repeated entry twice; the wrapper refuses one.
+            [ -n "$suite" ] && [[ " ${selectors[*]} " != *" cmuxTests/$suite "* ]] && selectors+=("cmuxTests/$suite")
           done
           ./scripts/run-e2e.sh "${selectors[@]}" --ref "$TEST_REF" --timeout "$TEST_TIMEOUT" --wait
 
   tests:
     needs: resolve-ref
-    if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.unit_test_suites != '' && inputs.skip_ui_tests && !inputs.skip_unit_tests) }}
+    if: ${{ !(github.repository == 'manaflow-ai/cmux' && github.event_name == 'workflow_dispatch' && inputs.unit_test_suites != '' && inputs.skip_ui_tests && !inputs.skip_unit_tests) }}
     # Keep this lane on the repository's normal macOS runner and do not
     # expose a provider override.
     runs-on: ${{ vars.MACOS_RUNNER_TESTS || 'blacksmith-6vcpu-macos-15' }}
