@@ -23,3 +23,5 @@ struct GPUSpinner: NSViewRepresentable {
         view.colorScheme = colorScheme
     }
 }
+
+// Canary for #14190: one comment-only app edit (do not merge).
