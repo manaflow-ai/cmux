@@ -71,6 +71,8 @@ E2E_REQUIRED_PRODUCT_JOB_ENV_KEYS = frozenset({
 })
 
 NON_PRODUCT_JOB_ENV_KEYS = frozenset({
+    # Where an owned Mac keeps its build state between jobs (owned_build_state.py).
+    "CMUX_OWNED_STATE_ROOT",
     "CMUX_NODE_PRODUCT_CACHE_ROOT",
     "CMUX_NODE_PRODUCT_CACHE_MAX_BYTES",
     "CMUX_NODE_PRODUCT_CACHE_WAIT_SECONDS",
