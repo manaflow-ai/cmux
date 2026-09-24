@@ -3582,18 +3582,28 @@ impl Terminal {
             segment_ends.insert(range.start);
         }
         segment_ends.insert(range.end);
-        // A replay without image placement anchors can let the target terminal
-        // recreate soft wraps naturally. Placement commands depend on physical
-        // row cursor positions, so retain the legacy row-delimited form for any
-        // range that intersects an occupied placement span.
-        let preserve_soft_wrap = !insert_at_start && !has_placement_anchor;
-
         let mut bytes = Vec::new();
         let mut insertion_offsets = BTreeMap::new();
         let mut segment_start = range.start;
         let replay_rows = range.end - range.start + 1;
         let screen_rows = u64::from(self.rows().max(1));
-        let history_bearing = replay_rows > screen_rows;
+        // A replay range can contain exactly one viewport of rows while still
+        // starting in scrollback. That happens when the formatter's scrollbar
+        // coordinates include a small sparse prefix before the active screen.
+        // Treat any range that starts before the physical viewport as
+        // history-bearing so its row breaks scroll that prefix out of the
+        // target viewport instead of leaving stale history above the TUI.
+        let viewport_start = self
+            .scrollbar()
+            .map(|scrollbar| scrollbar.total.saturating_sub(screen_rows))
+            .unwrap_or(0);
+        let history_bearing = range.start < viewport_start || replay_rows > screen_rows;
+        // A replay without image placement anchors can let the target terminal
+        // recreate soft wraps naturally. Placement commands and history-bearing
+        // ranges depend on physical row cursor positions, so retain the
+        // row-delimited form for those cases.
+        let preserve_soft_wrap =
+            !history_bearing && !insert_at_start && !has_placement_anchor;
         let mut emitted_breaks = 0usize;
         for segment_end in segment_ends {
             if segment_end < segment_start {
