@@ -22,7 +22,7 @@ jobs:
     # dispatch. It wants the image the iOS simulator tests use, so it reads the
     # variable that names that pool rather than one named after this lane; the
     # selector below picks its Xcode 26 toolchain.
-    runs-on: ${{ vars.MACOS_RUNNER_IOS || 'blacksmith-6vcpu-macos-26' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.MACOS_RUNNER_IOS || 'blacksmith-6vcpu-macos-26' }}
     timeout-minutes: 120
     env:
       CMUX_PORT: "3000"
