@@ -37,6 +37,14 @@ final class WorkspaceNavigationBarController: UINavigationController {
         updateLandscapeMargins()
     }
 
+    override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        // UINavigationBar reapplies its safe-area margins during layout. Set
+        // the public margins after that pass so custom items use the same
+        // landscape leading inset as the original SwiftUI bar.
+        updateLandscapeMargins()
+    }
+
     private func updateLandscapeMargins() {
         // SwiftUI's original toolbar extends 6 points farther into the
         // landscape leading safe area. Keep UIKit's native safe-area handling
@@ -47,6 +55,12 @@ final class WorkspaceNavigationBarController: UINavigationController {
             leading: landscapeLeadingAdjustment,
             bottom: 0,
             trailing: 0
+        )
+        bar.layoutMargins = UIEdgeInsets(
+            top: 0,
+            left: landscapeLeadingAdjustment,
+            bottom: 0,
+            right: 0
         )
     }
 
