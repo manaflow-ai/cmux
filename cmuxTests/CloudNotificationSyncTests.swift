@@ -1,9 +1,9 @@
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
-import CmuxSurfaceCatalogModel
 #elseif canImport(cmux)
 @testable import cmux
 #endif
+import CmuxSurfaceCatalogModel
 import Foundation
 import Testing
 
