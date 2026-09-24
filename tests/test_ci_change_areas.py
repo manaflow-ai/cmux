@@ -1860,14 +1860,14 @@ def workflow_job_block(job_name: str, workflow_path: Path = CI_WORKFLOW) -> str:
 
 
 def isolate_ci_tmp(script: str, directory: Path) -> str:
-    """Point a ci.yml step's fixed /tmp/cmux-ci-* files into `directory`.
+    """Point a workflow step's fixed /tmp/cmux-* files into `directory`.
 
     On a runner each job has its own /tmp. Locally, two suites on one host (a
     parallel guard sweep, or another checkout) would share and overwrite
     those files: one run then reads another's changed-file list, sees an empty
     diff, and routes nothing.
     """
-    return script.replace("/tmp/cmux-ci-", f"{directory}/cmux-ci-")
+    return script.replace("/tmp/cmux-", f"{directory}/cmux-")
 
 
 def workflow_job_step_script(job_name: str, step_name: str, workflow_path: Path = CI_WORKFLOW) -> str:
@@ -2223,8 +2223,8 @@ def run_detect_step_for_paths(
         for name in ("GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE"):
             git_env.pop(name, None)
         # Parallel local checkouts must not share the workflow's fixed /tmp files.
-        script = script.replace("/tmp/cmux-ci-", str(repo / "cmux-ci-"))
-        route = route.replace("/tmp/cmux-ci-", str(repo / "cmux-ci-"))
+        script = isolate_ci_tmp(script, repo)
+        route = isolate_ci_tmp(route, repo)
         subprocess.run(["git", "init", "-q"], cwd=repo, env=git_env, check=True)
         subprocess.run(["git", "config", "user.email", "ci@example.test"], cwd=repo, env=git_env, check=True)
         subprocess.run(["git", "config", "user.name", "CI Test"], cwd=repo, env=git_env, check=True)
@@ -2818,7 +2818,7 @@ def test_standalone_route_fails_open_without_a_readable_ci_workflow_base() -> No
     for base in (None, "not a workflow\n"):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            routed = script.replace("/tmp/cmux-ci-", str(root / "cmux-ci-"))
+            routed = isolate_ci_tmp(script, root)
             (root / "cmux-ci-changed-files.txt").write_text(".github/workflows/ci.yml\n")
             if base is not None:
                 (root / "cmux-ci-base-workflow.yml").write_text(base)
@@ -5714,8 +5714,62 @@ def test_claude_wrapper_job_rejects_missing_node_before_legacy_skip() -> None:
         assert not marker.exists(), "Node preflight must fail before the legacy test could report SKIP"
 
 
+def _run_named_test(name: str) -> tuple[str, str | None]:
+    import traceback
+
+    try:
+        globals()[name]()
+    except BaseException:
+        return name, traceback.format_exc()
+    return name, None
+
+
+def _main() -> int:
+    names = sorted(name for name, value in globals().items() if name.startswith("test_") and callable(value))
+    # Most of these tests wait on git and the router in subprocesses, so they
+    # overlap well. Each runs in its own forked worker: a test that patches
+    # module state or the environment cannot leak into the next one.
+    # CMUX_TEST_WORKERS=1 runs them in order in this process, as before.
+    requested = os.environ.get("CMUX_TEST_WORKERS", "")
+    if requested and not requested.isdigit():
+        print(f"CMUX_TEST_WORKERS must be a whole number, got {requested!r}", file=sys.stderr)
+        return 2
+    workers = int(requested) if requested else len(os.sched_getaffinity(0)) if hasattr(os, "sched_getaffinity") else 1
+    if workers <= 1 or sys.platform != "linux":
+        for name in names:
+            globals()[name]()
+        return 0
+    import multiprocessing
+
+    failures = []
+    with multiprocessing.get_context("fork").Pool(workers, maxtasksperchild=1) as pool:
+        results = pool.imap_unordered(_run_named_test, names)
+        pending = set(names)
+        while pending:
+            try:
+                # A worker that dies outright (a signal, os._exit) never
+                # returns its test, and Pool would wait forever.
+                name, error = results.next(timeout=600)
+            except multiprocessing.TimeoutError:
+                failures.extend(
+                    (name, "no result within 600 s: the test hung or its worker died\n")
+                    for name in sorted(pending)
+                )
+                pool.terminate()
+                break
+            pending.discard(name)
+            if error:
+                failures.append((name, error))
+    for name, error in sorted(failures):
+        print(f"FAIL: {name}\n{error}", file=sys.stderr)
+    if failures:
+        print(f"{len(failures)} of {len(names)} tests failed", file=sys.stderr)
+        return 1
+    return 0
+
+
 if __name__ == "__main__":
-    for name, value in sorted(globals().items()):
-        if name.startswith("test_") and callable(value):
-            value()
-    print("PASS: CI change area filter")
+    if _main() == 0:
+        print("PASS: CI change area filter")
+    else:
+        sys.exit(1)
