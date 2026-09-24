@@ -88,7 +88,7 @@ jobs:
         if: steps.swiftpm-manifest-restore.outputs.cache-hit != 'true'
         run: |
           set -euo pipefail
-          rm -rf "$HOME/Library/Caches/org.swift.swiftpm/manifests"
+          scripts/ci/swiftpm-manifest-cache.sh clear
           root="${CMUX_CI_CANONICAL_ROOT:-/private/tmp/cmux-ci}"
           scripts/ci/compile-app-host-test-product.sh canonical-resolve \
             "$root/derived-data-compile-admission" "$PWD/.ci-source-packages"
