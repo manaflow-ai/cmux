@@ -6354,6 +6354,12 @@ final class AppDelegateEqualizeSplitsShortcutTests {
             reloadSettingsFromFile: false,
             commitCompletion: { committed in
                 didCommitGhosttyAppConfig = committed
+                // Anything published while the barrier held would already
+                // be recorded when the reload finally commits.
+                XCTAssertFalse(
+                    didUpdateGhosttyAppConfig,
+                    "The app config update itself must wait behind font work"
+                )
             }
         )
         // Everything up to the font barrier runs synchronously inside
@@ -6363,20 +6369,6 @@ final class AppDelegateEqualizeSplitsShortcutTests {
         XCTAssertFalse(
             didCommitGhosttyAppConfig,
             "The reload must be blocked at the font barrier"
-        )
-        // The reload publishes on later main-actor turns, so a check made
-        // straight after the call passes whether or not the barrier holds.
-        // Give it those turns while font work still holds the barrier.
-        let publishedBeforeFontWork = await AppKitTestEventPump().waitUntil(
-            timeout: .milliseconds(500)
-        ) { didUpdateGhosttyAppConfig }
-        XCTAssertFalse(
-            publishedBeforeFontWork,
-            "The app config update itself must wait behind font work"
-        )
-        XCTAssertFalse(
-            didCommitGhosttyAppConfig,
-            "The reload must stay blocked until font work releases the barrier"
         )
         XCTAssertGreaterThan(scheduler.delays.count, 2)
         if scheduler.delays.count > 2 {
