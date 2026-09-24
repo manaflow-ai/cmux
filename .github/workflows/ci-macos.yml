@@ -87,7 +87,11 @@ jobs:
     # cannot fan out across every macOS worker and a successful build is not
     # repeated six times.
     if: ${{ inputs.macos == 'true' && inputs.compile_admitted != 'true' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (github.event_name == 'pull_request' && (vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15') || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15') }}
+    # Pull requests and main's full-suite dispatch (ci-main-full-suite.yml)
+    # compile on the pool and Xcode seed-derived-data.yml builds with, so both
+    # can adopt its DerivedData seed below. Merge groups and dispatches on
+    # other branches keep the macos-15 lane.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || ((github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') && (vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15') || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15') }}
     timeout-minutes: 75
     permissions:
       contents: read
@@ -109,14 +113,14 @@ jobs:
       CMUX_NODE_PRODUCT_CACHE_WAIT_SECONDS: ${{ vars.CMUX_NODE_PRODUCT_CACHE_WAIT_SECONDS }}
       CMUX_ARTIFACT_PEER_URLS: ${{ vars.CMUX_ARTIFACT_PEER_URLS }}
       CMUX_ARTIFACT_PEER_TOKEN_FILE: ${{ vars.CMUX_ARTIFACT_PEER_TOKEN_FILE }}
-      CMUX_CI_XCODE_APP: ${{ github.event_name == 'pull_request' && (vars.CMUX_CI_XCODE_APP_PR || vars.CMUX_CI_XCODE_APP_MACOS_15) || vars.CMUX_CI_XCODE_APP_MACOS_15 }}
+      CMUX_CI_XCODE_APP: ${{ (github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') && (vars.CMUX_CI_XCODE_APP_PR || vars.CMUX_CI_XCODE_APP_MACOS_15) || vars.CMUX_CI_XCODE_APP_MACOS_15 }}
       CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
       CMUX_SKIP_ZIG_BUILD: "1"
       # Names the pool this job actually ran on. The app-host product contract
       # keys on the toolchain and the build path instead, so a product built
       # here at the canonical root matches on any pool with the same Xcode.
       # The macOS runner guard still requires it to track runs-on.
-      CMUX_PRODUCT_RUNNER: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (github.event_name == 'pull_request' && (vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15') || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15') }}
+      CMUX_PRODUCT_RUNNER: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || ((github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') && (vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15') || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15') }}
     steps:
       - name: Reject stale pull request rerun
         if: ${{ github.event_name == 'pull_request' }}
@@ -529,17 +533,23 @@ jobs:
       # changes the build), or the newest seed including nightly.yml's cold one,
       # built on this runner, Xcode and path. Restore the recorded time onto
       # every byte-identical input, and
-      # Xcode rebuilds only what differs. Pull requests only: merge-group and
-      # dispatch builds stay clean. Any miss or failure is today's cold build.
-      # CI_ADMISSION_SEED_DERIVED_DATA=0 turns it off.
+      # Xcode rebuilds only what differs. Pull requests adopt their base's
+      # seed. Main's full-suite dispatch adopts the seed of the commit it
+      # tests: the seeder starts on the same push, so that seed is often still
+      # building, and the newest seed (usually the parent's) leaves only one
+      # merge's diff to compile. Seeds are written only by main-branch jobs in
+      # the ci-cache-writer environment and read here without credentials.
+      # Merge-group and other-branch dispatch builds stay clean. Any miss or
+      # failure is today's cold build. CI_ADMISSION_SEED_DERIVED_DATA=0 turns
+      # it off.
       - name: Adopt the nightly DerivedData seed
         id: seed-derived-data
-        if: steps.reuse-products.outputs.hit != 'true' && steps.persistent-restore.outputs.hit != 'true' && github.event_name == 'pull_request' && (vars.CI_ADMISSION_SEED_DERIVED_DATA || '1') != '0' && (inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND || 'r2') == 'r2'
+        if: steps.reuse-products.outputs.hit != 'true' && steps.persistent-restore.outputs.hit != 'true' && (github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') && (vars.CI_ADMISSION_SEED_DERIVED_DATA || '1') != '0' && (inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND || 'r2') == 'r2'
         continue-on-error: true
         timeout-minutes: 8
         env:
           SEED_PREFIX: admission-derived-data-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.compilation-cache-key.outputs.fingerprint }}-
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.sha }}
         run: |
           python3 scripts/ci/seed_derived_data.py adopt \
             "$CMUX_CI_CANONICAL_SRC" "$CMUX_COMPILE_ADMISSION_DERIVED_DATA" \

@@ -323,7 +323,7 @@ class Wiring(unittest.TestCase):
             admission["env"]["CI_CACHE_R2_PUBLIC_URL"],
         )
 
-    def test_adoption_is_optional_and_limited_to_pull_requests(self):
+    def test_adoption_is_optional_and_limited_to_pull_requests_and_main_dispatch(self):
         admission = steps("ci-macos.yml", "macos-compile-admission")
         _, adopt = named(admission, "Adopt the nightly DerivedData seed")
         self.assertIs(adopt.get("continue-on-error"), True)
