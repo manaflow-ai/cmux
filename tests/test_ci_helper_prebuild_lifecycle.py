@@ -1,0 +1,104 @@
+#!/usr/bin/env python3
+"""The optional prebuild cannot delay or change the authoritative build result."""
+import importlib.util
+from pathlib import Path
+import signal
+import subprocess
+import sys
+import tempfile
+import time
+import unittest
+from unittest.mock import Mock, patch
+
+ROOT = Path(__file__).resolve().parents[1]
+SCRIPT = ROOT / "scripts/ci/run-with-helper-prebuild.py"
+
+
+class LifecycleTests(unittest.TestCase):
+    def run_case(self, helper, build, timeout=5):
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "helper.log"
+            code = (
+                "import importlib.util; "
+                f"s=importlib.util.spec_from_file_location('runner',{str(SCRIPT)!r}); "
+                "m=importlib.util.module_from_spec(s); s.loader.exec_module(m); "
+                f"raise SystemExit(m.run({[sys.executable, '-c', helper]!r}, "
+                f"{[sys.executable, '-c', build]!r}, {str(log)!r}, {timeout}))"
+            )
+            result = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, timeout=8)
+            return result
+
+    def test_optional_work_does_not_mutate_the_shared_cua_source_cache(self):
+        prebuild = (ROOT / "scripts/ci/prebuild-app-helpers.sh").read_text()
+        self.assertNotIn('run_helper cmux-cua', prebuild)
+        self.assertNotIn('"$ROOT/scripts/build-cmux-cua.sh"', prebuild)
+
+    def test_failed_build_does_not_wait_for_hung_helper(self):
+        result = self.run_case("import signal; signal.pause()", "raise SystemExit(17)")
+        self.assertEqual(result.returncode, 17, result.stderr)
+
+    def simulated(self, helper_status, ticks):
+        spec = importlib.util.spec_from_file_location("runner", SCRIPT)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        helper = Mock(returncode=helper_status)
+        helper.poll.return_value = helper_status
+        build = Mock(returncode=0)
+        build.poll.side_effect = [None, 0]
+        with tempfile.TemporaryDirectory() as tmp:
+            with patch.object(module.subprocess, "Popen", side_effect=[helper, build]), \
+                 patch.object(module.time, "monotonic", side_effect=ticks), \
+                 patch.object(module.time, "sleep"), \
+                 patch.object(module, "stop_group") as stop:
+                result = module.run(["helper"], ["build"], str(Path(tmp)/"log"), 10)
+                return result, stop.call_args_list
+
+    def test_failed_helper_does_not_fail_successful_build(self):
+        result, stopped = self.simulated(23, [0])
+        self.assertEqual(result, 0)
+        self.assertEqual(len(stopped), 3)
+
+    def test_completed_helper_is_not_reported_as_timed_out(self):
+        # Only the initial clock read is available; a completed helper must not
+        # consume the deadline check or wait for optional work.
+        result, _ = self.simulated(0, [0])
+        self.assertEqual(result, 0)
+
+    def test_helper_deadline_does_not_stop_build(self):
+        result, stopped = self.simulated(None, [0, 11])
+        self.assertEqual(result, 0)
+        self.assertEqual(len(stopped), 3)
+
+    def test_cancellation_kills_helper_descendants(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            marker = Path(tmp) / "escaped"
+            child = f"import signal,pathlib; signal.signal(signal.SIGTERM, lambda *_: (pathlib.Path({str(marker)!r}).touch(), exit(0))); print('child ready',flush=True); signal.pause()"
+            helper = f"import subprocess,sys,signal; subprocess.Popen([sys.executable,'-c',{child!r}]); signal.pause()"
+            log = Path(tmp) / "helper.log"
+            code = (
+                "import importlib.util; "
+                f"s=importlib.util.spec_from_file_location('runner',{str(SCRIPT)!r}); "
+                "m=importlib.util.module_from_spec(s); s.loader.exec_module(m); "
+                f"raise SystemExit(m.run({[sys.executable,'-c',helper]!r}, "
+                f"{[sys.executable,'-c','import signal; signal.pause()']!r}, {str(log)!r}, 10))"
+            )
+            proc = subprocess.Popen([sys.executable, "-c", code], stdout=subprocess.DEVNULL)
+            try:
+                deadline = time.monotonic() + 3
+                while time.monotonic() < deadline:
+                    if log.exists() and "child ready" in log.read_text():
+                        break
+                    time.sleep(.02)
+                else:
+                    self.fail("helper did not start")
+                proc.send_signal(signal.SIGTERM)
+                self.assertEqual(proc.wait(timeout=3), 143)
+                self.assertTrue(marker.exists(), "helper grandchild did not receive cancellation")
+            finally:
+                if proc.poll() is None:
+                    proc.kill()
+                    proc.wait()
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -1,4 +1,5 @@
 #if os(iOS)
+import CMUXMobileCore
 import CmuxMobileDiagnostics
 import CmuxMobileShellModel
 import CmuxMobileSupport
@@ -28,6 +29,7 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
         case recoveryBanner(String)
         case macStatus(String)
         case filterEmpty(MobileWorkspaceListFilter)
+        case emptyWorkspaceList(hasRetry: Bool, ownerID: String?, instanceTag: String?)
     }
 
     private struct HeightCacheKey: Hashable {
@@ -55,6 +57,9 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
     #if DEBUG
     /// The most recent configuration-update route, exposed to package tests.
     var lastPayloadApplyRoute: PayloadApplyRoute?
+    var releaseGateUIProbe: MobileReleaseGateUIProbe?
+    var releaseGateSnapshotter: MobileReleaseGateUISnapshot?
+    private var releaseGateRowTask: Task<Void, Never>?
     #endif
     /// The row whose swipe controls UIKit is currently presenting.
     private var editedItemID: String?
@@ -64,6 +69,12 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
     private var deferredNativeActionReloadIDs: Set<String> = []
     private var isDragSessionActive = false
     private var deferredConfigurationDuringDrag: WorkspaceListTable?
+    /// UIKit owns the main-thread frame budget while a user pans or the table
+    /// decelerates. Keep the newest workspace snapshot out of the cell/layout
+    /// path until that interaction settles, so agent responses cannot interrupt
+    /// gesture tracking or drop frames.
+    private var isScrollInteractionActive = false
+    private var deferredConfigurationDuringScroll: WorkspaceListTable?
     private var dropIntoTarget: (
         sessionIdentifier: ObjectIdentifier,
         headerIndexPath: IndexPath,
@@ -93,9 +104,12 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
         to tableView: WorkspaceListUITableView,
         viewController: WorkspaceListTableViewController? = nil
     ) {
+        var configuration = configuration
         tableViewController = viewController
         editedItemID = nil
         deferredNativeActionReloadIDs.removeAll(keepingCapacity: true)
+        isScrollInteractionActive = false
+        deferredConfigurationDuringScroll = nil
         tableView.delegate = self
         tableView.dragDelegate = self
         tableView.dropDelegate = self
@@ -125,15 +139,27 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
 
         previousConfiguration = nil
         appliedItems = []
+        configuration.emptyStateLayoutChanged = { [weak self, weak tableView] in
+            self?.invalidateEmptyStateLayout(in: tableView)
+        }
         apply(configuration: configuration, in: tableView)
     }
 
     func detach() {
+        #if DEBUG
+        releaseGateRowTask?.cancel()
+        releaseGateRowTask = nil
+        #endif
         pendingContextMenuWorkspaceClose = nil
+        deferredConfigurationDuringDrag = nil
+        deferredConfigurationDuringScroll = nil
+        isScrollInteractionActive = false
         tableViewController = nil
     }
 
     func update(configuration next: WorkspaceListTable, in tableView: UITableView) {
+        var next = next
+        next.emptyStateLayoutChanged = configuration.emptyStateLayoutChanged
         guard !isDragSessionActive else {
             // UIKit owns the lifted source cell until its drop animator
             // completes. Reloading or structurally updating the table during
@@ -143,7 +169,54 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
             deferredConfigurationDuringDrag = next
             return
         }
+        guard !isScrollInteractionActive,
+              !tableView.isDragging,
+              !tableView.isDecelerating else {
+            // Visible-cell reconfiguration can synchronously invalidate
+            // self-sizing layout. Defer the newest payload while UIKit is
+            // tracking or decelerating the user's scroll and apply it once,
+            // after the interaction ends.
+            deferredConfigurationDuringScroll = next
+            return
+        }
         apply(configuration: next, in: tableView)
+        #if DEBUG
+        scheduleReleaseGateRows(in: tableView)
+        #endif
+    }
+
+    func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
+        isScrollInteractionActive = true
+    }
+
+    func scrollViewDidEndDragging(
+        _ scrollView: UIScrollView,
+        willDecelerate decelerate: Bool
+    ) {
+        guard !decelerate else { return }
+        isScrollInteractionActive = false
+        applyDeferredConfigurationIfPossible(in: scrollView)
+    }
+
+    func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) {
+        isScrollInteractionActive = false
+        applyDeferredConfigurationIfPossible(in: scrollView)
+    }
+
+    func scrollViewDidEndScrollingAnimation(_ scrollView: UIScrollView) {
+        isScrollInteractionActive = false
+        applyDeferredConfigurationIfPossible(in: scrollView)
+    }
+
+    private func applyDeferredConfigurationIfPossible(in scrollView: UIScrollView) {
+        guard !isDragSessionActive,
+              !isScrollInteractionActive,
+              let tableView = scrollView as? UITableView,
+              !tableView.isDragging,
+              !tableView.isDecelerating,
+              let deferredConfigurationDuringScroll else { return }
+        self.deferredConfigurationDuringScroll = nil
+        apply(configuration: deferredConfigurationDuringScroll, in: tableView)
     }
 
     private func apply(
@@ -161,6 +234,8 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
         }
 
         let structureChanged = appliedItems != next.items
+        let emptyStateVisibilityChanged = previous?.showsWorkspaceEmptyState
+            != next.showsWorkspaceEmptyState
         var changed: [WorkspaceListTableItem] = []
         var nativeActionReloadIDs: Set<String> = []
         var changedRowHeightsStable = true
@@ -203,6 +278,10 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
             }
         }
         previousConfiguration = next
+
+        if !structureChanged, emptyStateVisibilityChanged {
+            updateEmptyStateVisibility(in: tableView)
+        }
 
         guard structureChanged || !changed.isEmpty else {
             #if DEBUG
@@ -252,7 +331,7 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
                     let indexPath = dataSource.indexPath(for: item),
                     let cell = tableView.cellForRow(at: indexPath)
                 else { continue }
-                configure(cell, for: configuredItemsByID[item.id] ?? item)
+                configure(cell, for: item)
             }
             #if DEBUG
             recordPayloadApplyRoute(.reconfiguredInPlace(changedToApply.map(\.id)))
@@ -263,15 +342,29 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
         if structureChanged {
             dataSource.replaceItems(next.items, in: tableView)
             appliedItems = next.items
+            #if DEBUG
+            recordPayloadApplyRoute(.tableReload)
+            #endif
+        } else if !changedRowHeightsStable {
+            // A description or changes chip can alter a row's self-sizing
+            // height. Reload only those rows so a live session update never
+            // forces UIKit to remeasure the entire workspace list.
+            let changedIndexPaths = changedToApply.compactMap { dataSource.indexPath(for: $0) }
+            if !changedIndexPaths.isEmpty {
+                tableView.reloadRows(at: changedIndexPaths, with: .none)
+            }
+            #if DEBUG
+            recordPayloadApplyRoute(.tableRelayout)
+            #endif
         } else {
             let changedIndexPaths = changedToApply.compactMap { dataSource.indexPath(for: $0) }
             if !changedIndexPaths.isEmpty {
                 tableView.reloadRows(at: changedIndexPaths, with: .none)
             }
+            #if DEBUG
+            recordPayloadApplyRoute(.tableReload)
+            #endif
         }
-        #if DEBUG
-        recordPayloadApplyRoute(.tableReload)
-        #endif
     }
 
     private func setDragSessionActive(_ active: Bool, in tableView: UITableView) {
@@ -334,8 +427,17 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
         setDragSessionActive(false, in: tableView)
         if let deferredConfigurationDuringDrag {
             self.deferredConfigurationDuringDrag = nil
-            apply(configuration: deferredConfigurationDuringDrag, in: tableView)
+            if isScrollInteractionActive || tableView.isDragging || tableView.isDecelerating {
+                deferredConfigurationDuringScroll = deferredConfigurationDuringDrag
+            } else {
+                // The drag payload is newer than any snapshot queued before
+                // the lift. Do not let that stale scroll snapshot overwrite
+                // the just-applied drag result below.
+                deferredConfigurationDuringScroll = nil
+                apply(configuration: deferredConfigurationDuringDrag, in: tableView)
+            }
         }
+        applyDeferredConfigurationIfPossible(in: tableView)
     }
 
     func tableView(
@@ -594,6 +696,9 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
         guard let identifier = dataSource?.itemIdentifier(for: indexPath) else { return 44 }
         let item = configuredItemsByID[identifier.id] ?? identifier
         if case .groupFooter = item { return 16 }
+        if case .emptyWorkspaceList = item, !configuration.showsWorkspaceEmptyState {
+            return 0
+        }
 
         let key = heightCacheKey(for: item, tableView: tableView)
         if let cached = heightCache.height(for: key) { return cached }
@@ -614,6 +719,51 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
         heightCache.insert(exact, for: key, rowID: item.id)
         return exact
     }
+
+    #if DEBUG
+    func tableView(_ tableView: UITableView, willDisplay cell: UITableViewCell, forRowAt indexPath: IndexPath) {
+        scheduleReleaseGateRows(in: tableView)
+    }
+
+    private func scheduleReleaseGateRows(in tableView: UITableView) {
+        guard let probe = releaseGateUIProbe, probe.awaitsVisibleRows, releaseGateRowTask == nil else { return }
+        releaseGateRowTask = Task { @MainActor [weak self, weak tableView] in
+            // Run after UIKit applies the current row update. This is an actor
+            // handoff, not a timing delay or a surrogate for data readiness.
+            await Task.yield()
+            guard let self else { return }
+            defer { self.releaseGateRowTask = nil }
+            guard !Task.isCancelled, let tableView, tableView.window != nil else { return }
+            probe.revealWorkspace = { [weak self, weak tableView] rawID in
+                guard let self, let tableView, tableView.window != nil else { return }
+                let id = MobileWorkspacePreview.ID(rawValue: rawID)
+                if let indexPath = self.dataSource?.indexPath(where: { $0.workspaceID == id }) {
+                    if tableView.indexPathsForVisibleRows?.contains(indexPath) != true {
+                        tableView.scrollToRow(at: indexPath, at: .middle, animated: false)
+                        tableView.layoutIfNeeded()
+                    }
+                } else if let groupID = self.configuration.workspacesByID[id]?.groupID,
+                          self.configuration.groupsByID[groupID]?.isCollapsed == true {
+                    self.configuration.toggleGroupCollapsed?(groupID, false)
+                }
+            }
+            for indexPath in tableView.indexPathsForVisibleRows ?? [] {
+                guard let id = self.dataSource?.itemIdentifier(for: indexPath)?.workspaceID,
+                      let workspace = self.configuration.workspacesByID[id],
+                      !(workspace.terminals.isEmpty),
+                      (workspace.macConnectionStatus ?? self.configuration.connectionStatus) == .connected else { continue }
+                probe.registerVisibleWorkspace(id.rawValue) { [weak self, weak tableView] in
+                    guard let self, let tableView, tableView.window != nil,
+                          tableView.indexPathsForVisibleRows?.contains(indexPath) == true,
+                          self.dataSource?.itemIdentifier(for: indexPath)?.workspaceID == id else { return false }
+                    self.releaseGateSnapshotter?.capture(tableView.window, name: "workspaces")
+                    self.tableView(tableView, didSelectRowAt: indexPath)
+                    return true
+                }
+            }
+        }
+    }
+    #endif
 
     func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
         tableView.deselectRow(at: indexPath, animated: false)
@@ -731,7 +881,7 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
             }
             identifier = group.id.rawValue as NSString
             actions = contextMenuActions(for: group)
-        case .chrome, .groupFooter, .filterEmpty:
+        case .chrome, .groupFooter, .filterEmpty, .emptyWorkspaceList:
             return nil
         }
         guard !actions.isEmpty else { return nil }
@@ -773,7 +923,7 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
                 || previousAnchor?.actionCapabilities.supportsCloseActions
                     != nextAnchor?.actionCapabilities.supportsCloseActions
                 || nativeActionAvailabilityChanged(previous: previous, next: next)
-        case .chrome, .groupFooter, .filterEmpty:
+        case .chrome, .groupFooter, .filterEmpty, .emptyWorkspaceList:
             return false
         }
     }
@@ -882,7 +1032,7 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
             guard let group = configuration.groupsByID[groupID] else { return nil }
             guard let anchorWorkspaceID = group.liveAnchorWorkspaceID else { return nil }
             return configuration.workspacesByID[anchorWorkspaceID]
-        case .chrome, .groupFooter, .filterEmpty:
+        case .chrome, .groupFooter, .filterEmpty, .emptyWorkspaceList:
             return nil
         }
     }
@@ -903,7 +1053,7 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
             configuration.groupsByID[groupID]
                 .map { !$0.isEmpty && groupActionCapabilities(for: $0).supportsMoveActions }
                 ?? false
-        case .chrome, .filterEmpty, .groupFooter:
+        case .chrome, .filterEmpty, .groupFooter, .emptyWorkspaceList:
             false
         }
     }
@@ -940,6 +1090,16 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
         cell.isAccessibilityElement = false
         cell.accessibilityIdentifier = nil
         cell.accessibilityCustomActions = nil
+        cell.isHidden = false
+        cell.contentView.isHidden = false
+        cell.isUserInteractionEnabled = true
+        cell.accessibilityElementsHidden = false
+        if case .emptyWorkspaceList = item, !configuration.showsWorkspaceEmptyState {
+            cell.isHidden = true
+            cell.contentView.isHidden = true
+            cell.isUserInteractionEnabled = false
+            cell.accessibilityElementsHidden = true
+        }
         let content = hostedView(for: item)
         var hosting = UIHostingConfiguration { content }
             .margins(.all, 0)
@@ -977,8 +1137,47 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
                 .margins(.trailing, 12)
         case .filterEmpty:
             break
+        case .emptyWorkspaceList:
+            hosting = hosting
+                .margins(.top, 8)
+                .margins(.bottom, 8)
+                .margins(.leading, 12)
+                .margins(.trailing, 12)
+                .minSize(width: 0, height: 0)
         }
         cell.contentConfiguration = hosting
+    }
+
+    private func updateEmptyStateVisibility(in tableView: UITableView) {
+        guard let indexPath = dataSource?.indexPath(where: {
+            if case .emptyWorkspaceList = $0 { return true }
+            return false
+        }) else { return }
+        if let cell = tableView.cellForRow(at: indexPath) {
+            let isVisible = configuration.showsWorkspaceEmptyState
+            cell.isHidden = !isVisible
+            cell.contentView.isHidden = !isVisible
+            cell.isUserInteractionEnabled = isVisible
+            cell.accessibilityElementsHidden = !isVisible
+        }
+        heightCache.removeAll(keepingCapacity: true)
+        UIView.performWithoutAnimation {
+            tableView.beginUpdates()
+            tableView.endUpdates()
+        }
+    }
+
+    private func invalidateEmptyStateLayout(in tableView: UITableView?) {
+        guard let tableView,
+              dataSource?.indexPath(where: {
+                  if case .emptyWorkspaceList = $0 { return true }
+                  return false
+              }) != nil else { return }
+        heightCache.removeAll(keepingCapacity: true)
+        UIView.performWithoutAnimation {
+            tableView.beginUpdates()
+            tableView.endUpdates()
+        }
     }
 
     private func hostedView(for item: WorkspaceListTableItem) -> AnyView {
@@ -1125,6 +1324,19 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
                     showAll: configuration.showAll
                 )
             )
+        case .emptyWorkspaceList:
+            return AnyView(
+                MobileWorkspaceListEmptyRow(
+                    retry: configuration.refresh,
+                    cancelRetry: configuration.cancelRefresh,
+                    onLayoutChange: configuration.emptyStateLayoutChanged,
+                    shouldCancelRetryOnDisappear: configuration.shouldCancelRefreshOnDisappear,
+                    isRetryOwnerCurrentOnDisappear: configuration.isRetryOwnerCurrentOnDisappear,
+                    beginRetry: configuration.beginRefresh,
+                    cancelRetryAttempt: configuration.cancelRefreshAttempt,
+                    cancelRetryOnDisappear: configuration.cancelRefreshAttemptOnDisappear
+                )
+            )
         }
     }
 
@@ -1185,6 +1397,12 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
             ].joined(separator: "|"))
         case .filterEmpty:
             kind = .filterEmpty(configuration.filter)
+        case .emptyWorkspaceList:
+            kind = .emptyWorkspaceList(
+                hasRetry: configuration.refresh != nil,
+                ownerID: configuration.workspaceOwnerID,
+                instanceTag: configuration.workspaceOwnerInstanceTag
+            )
         case .groupFooter:
             // Unreachable while heightForRowAt returns the fixed 16pt slot
             // height before consulting the cache; keyed distinctly anyway so a
@@ -1297,6 +1515,15 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
                 || (previous.reconnect != nil) != (next.reconnect != nil)
         case .filterEmpty:
             return previous.filter != next.filter
+        case .emptyWorkspaceList:
+            // Keep the row alive while its selected Mac emits an intermediate
+            // empty snapshot, so an in-flight retry survives table updates.
+            // The refresh closure is owned by the shell store, so connection
+            // status and error updates do not change the action's target. Only
+            // adding or removing the action changes the row's structure.
+            return previous.workspaceOwnerID != next.workspaceOwnerID
+                || previous.workspaceOwnerInstanceTag != next.workspaceOwnerInstanceTag
+                || (previous.refresh != nil) != (next.refresh != nil)
         }
     }
 
@@ -1390,6 +1617,10 @@ private final class WorkspaceListTableDataSource: NSObject, UITableViewDataSourc
     weak var coordinator: WorkspaceListTableCoordinator?
     private let cellProvider: CellProvider
     private(set) var items: [WorkspaceListTableItem] = []
+    /// Row lookup for the batch update path. Live workspace updates can touch
+    /// many visible rows at once, so resolving each item by scanning `items`
+    /// would turn one update into O(changedRows * totalRows) work.
+    private var rowIndexByID: [String: Int] = [:]
 
     init(tableView: UITableView, cellProvider: @escaping CellProvider) {
         self.cellProvider = cellProvider
@@ -1417,7 +1648,7 @@ private final class WorkspaceListTableDataSource: NSObject, UITableViewDataSourc
     }
 
     func indexPath(for item: WorkspaceListTableItem) -> IndexPath? {
-        indexPath(where: { $0 == item })
+        rowIndexByID[item.id].map { IndexPath(row: $0, section: 0) }
     }
 
     func indexPath(
@@ -1428,6 +1659,7 @@ private final class WorkspaceListTableDataSource: NSObject, UITableViewDataSourc
 
     func replaceItems(_ items: [WorkspaceListTableItem], in tableView: UITableView) {
         self.items = items
+        rebuildRowIndex()
         tableView.reloadData()
     }
 
@@ -1445,11 +1677,20 @@ private final class WorkspaceListTableDataSource: NSObject, UITableViewDataSourc
         let removed = items.remove(at: sourceIndexPath.row)
         let destination = min(destinationIndexPath.row, items.count)
         items.insert(replacement ?? removed, at: destination)
+        rebuildRowIndex()
         tableView.performBatchUpdates {
             tableView.moveRow(
                 at: sourceIndexPath,
                 to: IndexPath(row: destination, section: 0)
             )
+        }
+    }
+
+    private func rebuildRowIndex() {
+        rowIndexByID.removeAll(keepingCapacity: true)
+        rowIndexByID.reserveCapacity(items.count)
+        for (index, item) in items.enumerated() {
+            rowIndexByID[item.id] = index
         }
     }
 

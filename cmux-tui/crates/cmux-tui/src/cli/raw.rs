@@ -3,7 +3,6 @@
 //! This module is intentionally named `raw`: its request object may contain
 //! internal fields and receives no public compatibility guarantees.
 
-use std::ffi::OsString;
 use std::io::{self, BufRead, BufReader, Read, Write};
 use std::path::PathBuf;
 use std::time::Duration;
@@ -17,6 +16,7 @@ use super::{GlobalArgs, OutputMode};
 #[derive(Clone, Debug)]
 pub(super) struct RawCommandPlan {
     pub request: Value,
+    pub stream: bool,
 }
 
 pub(super) fn run(global: GlobalArgs, plan: RawCommandPlan) -> i32 {
@@ -46,7 +46,11 @@ pub(super) fn run(global: GlobalArgs, plan: RawCommandPlan) -> i32 {
             return 3;
         }
     };
-    let _ = stream.set_read_timeout(Some(Duration::from_secs(10)));
+    let _ = stream.set_read_timeout(if plan.stream { None } else { Some(Duration::from_secs(10)) });
+    #[cfg(unix)]
+    if plan.stream && !super::wire::arm_signal_interrupt(stream.as_ref()) {
+        return 3;
+    }
     let mut reader = BufReader::new(stream);
     if let Err(error) = reader
         .get_mut()
@@ -58,14 +62,26 @@ pub(super) fn run(global: GlobalArgs, plan: RawCommandPlan) -> i32 {
         return 3;
     }
     loop {
+        if plan.stream && crate::shutdown_requested() {
+            return 0;
+        }
         let line = match read_line_limited(&mut reader) {
             Ok(None) => {
-                eprintln!("transport closed before response");
-                return 3;
+                if plan.stream && crate::shutdown_requested() {
+                    return 0;
+                }
+                return transport_failure(
+                    "transport.closed",
+                    "transport closed before response",
+                    global.output,
+                );
             }
             Ok(Some(line)) => line,
-            Err(error) => {
-                eprintln!("{error}");
+            Err(RawReadError::TimedOut(message)) => {
+                return transport_failure("transport.timeout", &message, global.output);
+            }
+            Err(RawReadError::Other(message)) => {
+                eprintln!("{message}");
                 return 3;
             }
         };
@@ -88,6 +104,16 @@ pub(super) fn run(global: GlobalArgs, plan: RawCommandPlan) -> i32 {
             continue;
         }
         if value.get("ok").and_then(Value::as_bool) == Some(true) {
+            if plan.stream {
+                if super::wire::print_local_success(
+                    value.get("data").unwrap_or(&Value::Null),
+                    global.output,
+                ) != 0
+                {
+                    return 3;
+                }
+                continue;
+            }
             return super::wire::print_local_success(
                 value.get("data").unwrap_or(&Value::Null),
                 global.output,
@@ -109,9 +135,29 @@ pub(super) fn run(global: GlobalArgs, plan: RawCommandPlan) -> i32 {
     }
 }
 
+/// Why a raw response could not be read. A timeout is reported as a
+/// structured, retryable error so a caller can tell "the daemon is slow" from
+/// "the daemon rejected the request"; every other failure keeps its text.
+enum RawReadError {
+    TimedOut(String),
+    Other(String),
+}
+
+/// Prints a structured transport failure (`retryable: true`) in JSON modes and
+/// the plain message otherwise, returning the transport exit code.
+fn transport_failure(code: &str, message: &str, output: OutputMode) -> i32 {
+    let error = json!({
+        "code": code,
+        "message": message,
+        "details": {},
+        "retryable": true
+    });
+    super::wire::print_local_error(&error, output, 3)
+}
+
 fn read_line_limited(
     reader: &mut BufReader<Box<dyn transport::Stream>>,
-) -> Result<Option<String>, String> {
+) -> Result<Option<String>, RawReadError> {
     const RESPONSE_LIMIT: usize = 16 * 1024 * 1024;
     let mut bytes = Vec::new();
     match reader.by_ref().take((RESPONSE_LIMIT + 2) as u64).read_until(b'\n', &mut bytes) {
@@ -120,50 +166,31 @@ fn read_line_limited(
         Err(error)
             if matches!(error.kind(), io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut) =>
         {
-            return Err(format!("transport timed out before raw response: {error}"));
+            return Err(RawReadError::TimedOut(format!(
+                "transport timed out before raw response: {error}"
+            )));
         }
-        Err(error) => return Err(format!("transport error: {error}")),
+        Err(error) => return Err(RawReadError::Other(format!("transport error: {error}"))),
     }
     if bytes.len() > RESPONSE_LIMIT {
-        return Err("protocol error: raw response exceeds the 16 MiB limit".into());
+        return Err(RawReadError::Other(
+            "protocol error: raw response exceeds the 16 MiB limit".into(),
+        ));
     }
     if !bytes.ends_with(b"\n") {
-        return Err("transport closed with a partial raw JSON line".into());
+        return Err(RawReadError::Other("transport closed with a partial raw JSON line".into()));
     }
     bytes.pop();
     if bytes.last() == Some(&b'\r') {
         bytes.pop();
     }
-    String::from_utf8(bytes)
-        .map(Some)
-        .map_err(|error| format!("protocol error: raw response is not UTF-8: {error}"))
+    String::from_utf8(bytes).map(Some).map_err(|error| {
+        RawReadError::Other(format!("protocol error: raw response is not UTF-8: {error}"))
+    })
 }
 
 fn resolve_socket(global: &GlobalArgs) -> anyhow::Result<PathBuf> {
-    resolve_socket_with_env(global, |name| std::env::var_os(name))
-}
-
-fn resolve_socket_with_env(
-    global: &GlobalArgs,
-    env: impl Fn(&str) -> Option<OsString>,
-) -> anyhow::Result<PathBuf> {
-    if let Some(path) = &global.socket {
-        return Ok(path.clone());
-    }
-    // An explicit session selects that session's canonical socket. Keep this
-    // ahead of environment fallbacks so `--session` cannot route raw requests
-    // through a stale socket inherited from the shell.
-    if let Some(session) = &global.session {
-        return cmux_tui_core::server::try_default_socket_path(session);
-    }
-    for name in ["CMUX_TUI_SOCKET", "CMUX_MUX_SOCKET"] {
-        if let Some(path) = env(name)
-            && !path.is_empty()
-        {
-            return Ok(PathBuf::from(path));
-        }
-    }
-    cmux_tui_core::server::try_default_socket_path(global.session.as_deref().unwrap_or("main"))
+    Ok(super::wire::resolve_socket_with_origin(global)?.0)
 }
 
 #[cfg(test)]
@@ -173,18 +200,20 @@ mod tests {
     #[test]
     fn raw_plan_keeps_the_exact_private_object() {
         let request = json!({"id": 7, "cmd": "private-operation", "opaque": {"x": true}});
-        let plan = RawCommandPlan { request: request.clone() };
+        let plan = RawCommandPlan { request: request.clone(), stream: false };
         assert_eq!(plan.request, request);
     }
 
     #[test]
     fn explicit_session_precedes_ambient_socket_fallbacks() {
         let global = GlobalArgs { session: Some("session-alpha".into()), ..GlobalArgs::default() };
-        let socket = resolve_socket_with_env(&global, |_| Some("/tmp/stale.sock".into()))
-            .expect("session socket path should resolve");
+        let socket = super::super::wire::resolve_socket_with_env(&global, |_| {
+            Some("/tmp/stale.sock".into())
+        })
+        .expect("session socket path should resolve");
 
         assert_eq!(
-            socket,
+            socket.0,
             cmux_tui_core::server::try_default_socket_path("session-alpha")
                 .expect("session socket path should resolve")
         );

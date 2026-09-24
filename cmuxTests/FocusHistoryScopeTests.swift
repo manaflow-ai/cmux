@@ -20,11 +20,21 @@ struct FocusHistoryScopeTests {
 
         #expect(mapping.defaultsKey == SettingCatalog().app.focusHistoryIncludesPanesAndTabs.userDefaultsKey)
         #expect(CmuxSettingsFileStore.supportedSettingsJSONPaths.contains("app.focusHistoryIncludesPanesAndTabs"))
-        #expect(
-            CmuxSettingsFileStore.defaultTemplate().contains(
-                #"//     "focusHistoryIncludesPanesAndTabs" : false,"#
-            )
+        let settingName = "focusHistoryIncludesPanesAndTabs"
+        let templateLine = try #require(
+            CmuxSettingsFileStore.defaultTemplate().split(separator: "\n").first {
+                $0.contains("\"\(settingName)\"")
+            }
+        ).trimmingCharacters(in: .whitespaces)
+        #expect(templateLine.hasPrefix("//"))
+        var entryJSON = String(templateLine.dropFirst(2)).trimmingCharacters(in: .whitespaces)
+        if entryJSON.hasSuffix(",") {
+            entryJSON.removeLast()
+        }
+        let entry = try #require(
+            JSONSerialization.jsonObject(with: Data("{\(entryJSON)}".utf8)) as? [String: Any]
         )
+        #expect(entry[settingName] as? Bool == false)
     }
 
     private func withPaneHistoryManager(_ body: (TabManager) throws -> Void) throws {

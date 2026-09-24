@@ -388,6 +388,11 @@ if [[ "$TARGET" == "simulator" ]]; then
   if [[ "$DETACH" -ne 1 ]]; then
     launch_args+=(--console-pty)
   fi
+  SIMULATOR_LAUNCH_UPTIME_NS=""
+  if [[ -n "${CMUX_IROH_SOAK_PROFILE:-}" ]]; then
+    SIMULATOR_LAUNCH_UPTIME_NS="$(/usr/bin/python3 "$SCRIPT_DIR/lib/mach-clock-ns.py")"
+  fi
+  SIMCTL_CHILD_CMUX_IROH_UI_LAUNCH_UPTIME_NS="$SIMULATOR_LAUNCH_UPTIME_NS" \
   SIMCTL_CHILD_CMUX_UITEST_STACK_EMAIL="$CMUX_UITEST_STACK_EMAIL" \
   SIMCTL_CHILD_CMUX_UITEST_STACK_PASSWORD="$CMUX_UITEST_STACK_PASSWORD" \
   SIMCTL_CHILD_CMUX_DEV_AUTH_REPLACE_SESSION="1" \
@@ -397,6 +402,7 @@ if [[ "$TARGET" == "simulator" ]]; then
   SIMCTL_CHILD_CMUX_DOGFOOD_CLIENT_ID="$DOGFOOD_CLIENT_ID" \
   SIMCTL_CHILD_CMUX_IROH_RELEASE_GATE_MODE="$IROH_RELEASE_GATE_MODE" \
   SIMCTL_CHILD_CMUX_IROH_RELEASE_GATE_SCENARIO="${CMUX_IROH_RELEASE_GATE_SCENARIO:-standard}" \
+  SIMCTL_CHILD_CMUX_IROH_SOAK_PROFILE="${CMUX_IROH_SOAK_PROFILE:-}" \
   SIMCTL_CHILD_CMUX_IROH_DISABLE_RELAY_CREDENTIAL_REFRESH="${CMUX_IROH_DISABLE_RELAY_CREDENTIAL_REFRESH:-0}" \
     xcrun simctl "${launch_args[@]}" "$SIM_UDID" "$BUNDLE_ID"
 else
@@ -464,6 +470,11 @@ if [[ -n "$READINESS_CURSOR" && -z "$IROH_RELEASE_GATE_MODE" ]]; then
     RECEIPT_TARGET="simulator_injection"
     RECEIPT_TARGET_ID="$SIM_UDID"
   fi
+  INSTALLED_BUNDLE_METADATA="$(cmux_attach_installed_bundle_metadata \
+    "$RECEIPT_TARGET" "$RECEIPT_TARGET_ID" "$BUNDLE_ID")" || {
+    echo "error: authenticated session passed but installed bundle metadata could not be inspected" >&2
+    exit 1
+  }
   RECEIPT_DIR="${CMUX_READINESS_RECEIPT_DIR:-/tmp/cmux-ios-dogfood-readiness}"
   RECEIPT_PATH="$RECEIPT_DIR/${slug}-$(cmux_attach__slug "$RECEIPT_TARGET_ID").json"
   cmux_attach_write_readiness_receipt \
@@ -477,7 +488,8 @@ if [[ -n "$READINESS_CURSOR" && -z "$IROH_RELEASE_GATE_MODE" ]]; then
     "$(cmux_attach_socket_path "$TAG")" \
     "$READINESS_LATENCY_MS" \
     "${CMUX_DOGFOOD_LAUNCH_ATTEMPT_COUNT:-1}" \
-    "$READY_EVENT"
+    "$READY_EVENT" \
+    "$INSTALLED_BUNDLE_METADATA"
   echo "==> usable RPC session established between $BUNDLE_ID and tagged Mac '$TAG'"
   echo "==> readiness receipt: $RECEIPT_PATH"
   if [[ "$TARGET" == "device" ]]; then

@@ -38,12 +38,24 @@ on:
       - "ghostty"
       - ".github/workflows/cmux-tui-artifacts.yml"
       - ".github/workflows/cmux-tui-build-package.yml"
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      macos_runner:
+        # A branch dogfood publish only needs its commit-addressed objects; let
+        # it build the macOS targets on an idle self-hosted label (for example
+        # tart-macos-15) instead of waiting behind the shared hosted queue.
+        description: "Optional macOS runner label override for this publish"
+        required: false
+        default: ""
+        type: string
 
 concurrency:
-  group: cmux-tui-artifacts-${{ github.ref }}
-  # Raw immutable objects are write-once. Queue a second dispatch instead of
-  # cancelling the first half-written publication.
+  # Main remains serialized because each main run also updates latest/. Branch
+  # dogfood runs publish commit-addressed objects only, so different commits
+  # can build in parallel instead of waiting behind an obsolete branch run.
+  group: cmux-tui-artifacts-${{ github.ref == 'refs/heads/main' && 'main' || github.sha }}
+  # Raw immutable objects are write-once. Queue a rerun of the same commit
+  # instead of cancelling a half-written publication.
   cancel-in-progress: false
 
 permissions: {}
@@ -64,10 +76,17 @@ jobs:
       version: 0.0.0-r2.sha-${{ github.sha }}
       package_npm: false
       package_pypi: false
+      # This lane publishes the raw cmux-tui, cmux-relay, and chatmux-relay
+      # binaries. The Cloudflare Worker is a separate deployment artifact and
+      # its npm audit must not block these commit-addressed files.
       # The Rust machine relay has no Windows PTY backend yet. Keep Windows on
       # the Node rollback lane until a tested backend exists; do not publish a
       # misleading Rust machine package or manifest entry.
       include_windows: false
+      # Post-merge publication is off the PR critical path, so its two macOS
+      # Rust legs run on the background lane (free GitHub-hosted capacity)
+      # unless a dispatch names a runner. See docs/ci-runners.md.
+      macos_runner: ${{ inputs.macos_runner || vars.MACOS_RUNNER_BACKGROUND || 'macos-15' }}
 
   publish:
     name: publish to R2
@@ -75,7 +94,7 @@ jobs:
     # main-push or manual dispatch.
     if: github.event_name != 'pull_request'
     needs: build
-    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 15
     permissions:
       contents: read

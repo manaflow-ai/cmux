@@ -1,30 +1,41 @@
-import { readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
 import { describe, expect, test } from "bun:test";
+import {
+  CMUX_TUI_PORT,
+  cmuxTuiDaemonCommand,
+  cmuxTuiInstallCommand,
+  cmuxTuiPinCheckCommand,
+} from "../services/vms/drivers/cmuxTuiDaemon";
 
-const freestyleDriverSource = readFileSync(
-  join(dirname(fileURLToPath(import.meta.url)), "../services/vms/drivers/freestyle.ts"),
-  "utf8",
-);
+const SOURCE = {
+  url: "https://files.cmux.com/cmux-tui/test/cmux-tui-x86_64-unknown-linux-musl",
+  sha256: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+  commit: "0123456789abcdef0123456789abcdef01234567",
+  builtAt: null, hookUrl: "https://files.cmux.com/cmux-tui/test/cmux-tui-hook-x86_64-unknown-linux-musl", hookSha256: "1".repeat(64),
+} as const;
 
-describe("Freestyle Cloud VM shell repair", () => {
-  test("daemon creation and repair use the managed cloud shell", () => {
-    expect(freestyleDriverSource).toContain(
-      'const CMUX_CLOUD_SHELL_PATH = "/usr/local/bin/cmux-cloud-shell"',
-    );
-    expect(freestyleDriverSource).toContain('"--shell",\n        CMUX_CLOUD_SHELL_PATH');
-    expect(freestyleDriverSource).toContain(
-      "ExecStart=/usr/local/bin/cmuxd-remote serve --ws --listen 0.0.0.0:7777 --auth-lease-file ${CMUXD_WS_PTY_LEASE_PATH} --rpc-auth-lease-file ${CMUXD_WS_RPC_LEASE_PATH} --shell /usr/local/bin/cmux-cloud-shell",
-    );
-    expect(freestyleDriverSource).not.toContain('"--shell",\n        "/bin/bash"');
+describe("Freestyle Cloud VM daemon repair", () => {
+  test("install and start use the pinned managed daemon", () => {
+    const install = cmuxTuiInstallCommand(SOURCE);
+    // The binary follows the daemon's layout, so a work-user machine gets one
+    // its non-root sessions can execute (/root is 0700).
+    expect(install).toContain('CMUX_TUI_BIN="$CMUX_TUI_HOME/.cmux/bin/cmux-tui"');
+    expect(install).toContain(SOURCE.sha256);
+    expect(install).toContain(SOURCE.url);
+    expect(install).toContain("sha256sum -c");
+    expect(install).not.toContain("cmuxd-remote");
+
+    const daemon = cmuxTuiDaemonCommand(`[::]:${CMUX_TUI_PORT}`);
+    expect(daemon).toContain("server start --session cloud");
+    expect(daemon).toContain(`--remote-ws [::]:${CMUX_TUI_PORT}`);
+    // The cloud listener is reachable only inside the owner's private network.
+    expect(daemon).toContain("--remote-ws-trusted-carrier");
+    expect(daemon).toContain('"$CMUX_TUI_BIN" server start');
+    expect(daemon).not.toContain("cmuxd-remote");
   });
 
-  test("healthy websocket daemons are still repaired when shell integration is missing", () => {
-    expect(freestyleDriverSource).toContain("readFreestyleCloudShellState(vm)");
-    expect(freestyleDriverSource).toContain("service-shell-not-managed");
-    expect(freestyleDriverSource).toContain("cmux-user-missing");
-    expect(freestyleDriverSource).toContain("home-zshrc-missing");
-    expect(freestyleDriverSource).toContain("freestyleCloudShellSetupCommands()");
+  test("pin check verifies the managed binary digest", () => {
+    const pinCheck = cmuxTuiPinCheckCommand(SOURCE);
+    expect(pinCheck).toContain(SOURCE.sha256);
+    expect(pinCheck).toContain("sha256sum -c");
   });
 });

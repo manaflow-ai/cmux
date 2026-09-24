@@ -1,89 +1,176 @@
 import { describe, expect, test } from "bun:test";
 import {
+  CODEROUTER_EDGE_ORIGIN_ENV,
+  DEFAULT_CODEROUTER_EDGE_ORIGIN,
   VM_ROUTE_TOKEN_LABEL,
-  mintVmModelPlaneEnv,
-  mintVmModelPlaneEnvBestEffort,
+  VmModelPlaneUnavailableError,
+  coderouterEdgeOrigin,
+  provisionVmModelPlane,
+  revokeVmModelPlane,
   vmModelPlaneEnabled,
   type VmModelPlaneDependencies,
 } from "../services/coderouter/vmModelPlane";
+import {
+  VM_REFLECTION_ALIAS_HEADER,
+  VM_REFLECTION_ALIAS_VALUE,
+  vmGuestModelPlaneEnv,
+} from "../services/coderouter/vmGuestEnv";
+import {
+  VM_AUTHORIZATION_HEADER,
+  VM_PLACEHOLDER_API_KEY,
+} from "../services/coderouter/routeTokenAuth";
+import { freestyleEdgeRules } from "../services/vms/drivers/freestyle";
+import { validateTlsSpec } from "freestyle";
 
-// The Cloud VM model-plane mint: a new machine gets OPENAI_BASE_URL pointed
-// at this deployment's /v1 Responses plane plus a per-machine route token,
-// and the mint can never fail a VM create.
+// The Cloud VM model plane: a new machine gets base URLs and placeholder keys
+// in its env, and edge rules that inject a route token bound to the VM row id:
+// one for the coderouter alias, one for the reflection alias (same token, plus
+// the marker the proxy routes on). The token never appears in the env; the edge injects both a bearer
+// and the explicit route headers on the wire. Provisioning failures are
+// typed so the workflow fails the create instead of shipping an unwired box.
+// There is no plan or entitlement gate: every team gets a token.
+
+const INPUT = { teamId: "team-1", stackUserId: "user-1", cloudVmId: "11111111-2222-4333-8444-555555555555" };
 
 function deps(overrides: Partial<VmModelPlaneDependencies> = {}): VmModelPlaneDependencies {
   return {
     issueToken: async () => ({ token: "crt_test-token", expiresAt: new Date(0) }),
-    entitlement: async () => ({ allowed: true, basis: "test", accountCount: 0 }) as never,
-    hostedProRequired: () => false,
-    enabled: () => true,
+    revokeTokensForVm: async () => undefined,
+    edgeOriginEnv: () => undefined,
+    vercelEnv: () => undefined,
+    vercelBranchUrl: () => undefined,
+    vercelBypassSecret: () => undefined,
     ...overrides,
   };
 }
 
-describe("mintVmModelPlaneEnv", () => {
-  test("mints the /v1 plane env from the serving origin", async () => {
-    let labeled: string | undefined;
-    const env = await mintVmModelPlaneEnv(
-      { teamId: "team-1", stackUserId: "user-1", requestUrl: "https://cmux.example/api/vm?x=1" },
+describe("provisionVmModelPlane", () => {
+  test("mints a VM-bound token and returns the coderouter and reflection alias rules", async () => {
+    const issued: unknown[] = [];
+    const provision = await provisionVmModelPlane(
+      INPUT,
       deps({
-        issueToken: async (_team, _user, label) => {
-          labeled = label;
+        issueToken: async (...args) => {
+          issued.push(args);
           return { token: "crt_test-token", expiresAt: new Date(0) };
         },
       }),
     );
-    expect(env).toEqual({
-      OPENAI_BASE_URL: "https://cmux.example/v1",
-      OPENAI_API_KEY: "crt_test-token",
-      CMUX_CODEROUTER_URL: "https://cmux.example",
-    });
-    expect(labeled).toBe(VM_ROUTE_TOKEN_LABEL);
+    expect(issued).toEqual([["team-1", "user-1", INPUT.cloudVmId]]);
+    // The guest dials the alias; the edge forwards to this deployment's host.
+    const headers = {
+      [VM_AUTHORIZATION_HEADER]: "Bearer crt_test-token",
+    };
+    expect(provision.edgeRules).toEqual([
+      { domain: "coderouter.cmux.internal", destinationHost: "coderouter.dev", headers },
+      // Reflection: the same identity, plus the marker the proxy routes on.
+      {
+        domain: "reflection.cmux.internal",
+        destinationHost: "coderouter.dev",
+        headers: { ...headers, [VM_REFLECTION_ALIAS_HEADER]: VM_REFLECTION_ALIAS_VALUE },
+      },
+    ]);
   });
 
-  test("returns null when the kill switch disables it", async () => {
-    const env = await mintVmModelPlaneEnv(
-      { teamId: "team-1", stackUserId: "user-1", requestUrl: "https://cmux.example/api/vm" },
-      deps({ enabled: () => false }),
+  test("nothing the guest sees carries a route token", async () => {
+    const provision = await provisionVmModelPlane(INPUT, deps());
+    expect(provision.edgeRules[0]?.domain).not.toMatch(/crt_|eyJ/);
+    expect(JSON.stringify(vmGuestModelPlaneEnv())).not.toContain("crt_");
+  });
+
+  test("the provisioned rule is a valid Freestyle egress TLS spec", async () => {
+    const provision = await provisionVmModelPlane(INPUT, deps());
+    const rules = freestyleEdgeRules(provision.edgeRules);
+    expect(rules).toHaveLength(2);
+    expect(() => validateTlsSpec({ rules })).not.toThrow();
+    for (const rule of rules ?? []) {
+      expect(rule).toMatchObject({
+        source: {},
+        destination: { host: "coderouter.dev", port: 443 },
+        transform: [{ headers: { [VM_AUTHORIZATION_HEADER]: "Bearer crt_test-token" } }],
+      });
+    }
+    expect(rules?.[1]?.transform[0]?.headers).toMatchObject({ [VM_REFLECTION_ALIAS_HEADER]: VM_REFLECTION_ALIAS_VALUE });
+  });
+
+  test("the origin override points the edge rule at a preview deployment", async () => {
+    const provision = await provisionVmModelPlane(
+      INPUT,
+      deps({ edgeOriginEnv: () => "https://cmux-git-feat-manaflow.vercel.app/" }),
     );
-    expect(env).toBeNull();
+    expect(provision.edgeRules.map((rule) => rule.domain)).toEqual(["coderouter.cmux.internal", "reflection.cmux.internal"]);
+    expect(provision.edgeRules.every((rule) => rule.destinationHost === "cmux-git-feat-manaflow.vercel.app")).toBe(true);
   });
 
-  test("returns null when the hosted entitlement blocks token issuance", async () => {
-    const env = await mintVmModelPlaneEnv(
-      { teamId: "team-1", stackUserId: "user-1", requestUrl: "https://cmux.example/api/vm" },
-      deps({
-        hostedProRequired: () => true,
-        entitlement: async () => ({ allowed: false, basis: "test", accountCount: 9 }) as never,
-      }),
-    );
-    expect(env).toBeNull();
+  test("an invalid origin override is a typed unavailable failure, not a create with a bad rule", async () => {
+    let issued = 0;
+    await expect(
+      provisionVmModelPlane(
+        INPUT,
+        deps({
+          edgeOriginEnv: () => "http://coderouter.dev",
+          issueToken: async () => {
+            issued += 1;
+            return { token: "crt_x", expiresAt: new Date(0) };
+          },
+        }),
+      ),
+    ).rejects.toBeInstanceOf(VmModelPlaneUnavailableError);
+    expect(issued).toBe(0);
   });
 
-  test("skips the entitlement read when hosted gating is off", async () => {
-    let entitlementCalls = 0;
-    await mintVmModelPlaneEnv(
-      { teamId: "team-1", stackUserId: "user-1", requestUrl: "https://cmux.example/api/vm" },
-      deps({
-        entitlement: (async () => {
-          entitlementCalls += 1;
-          return { allowed: true, basis: "test", accountCount: 0 };
-        }) as never,
-      }),
-    );
-    expect(entitlementCalls).toBe(0);
+  test("a token issue infrastructure error is a typed unavailable failure", async () => {
+    await expect(
+      provisionVmModelPlane(
+        INPUT,
+        deps({
+          issueToken: async () => {
+            throw new Error("db down");
+          },
+        }),
+      ),
+    ).rejects.toBeInstanceOf(VmModelPlaneUnavailableError);
   });
+});
 
-  test("best-effort mint swallows infrastructure errors into null", async () => {
-    const env = await mintVmModelPlaneEnvBestEffort(
-      { teamId: "team-1", stackUserId: "user-1", requestUrl: "https://cmux.example/api/vm" },
+describe("revokeVmModelPlane", () => {
+  test("revokes every token bound to the VM row", async () => {
+    const revoked: string[] = [];
+    await revokeVmModelPlane(
+      INPUT.cloudVmId,
       deps({
-        issueToken: async () => {
-          throw new Error("db down");
+        revokeTokensForVm: async (vmId) => {
+          revoked.push(vmId);
         },
       }),
     );
-    expect(env).toBeNull();
+    expect(revoked).toEqual([INPUT.cloudVmId]);
+  });
+});
+
+describe("coderouterEdgeOrigin", () => {
+  test("defaults to the public host and accepts a bare https origin", () => {
+    expect(coderouterEdgeOrigin(undefined)).toBe(DEFAULT_CODEROUTER_EDGE_ORIGIN);
+    expect(coderouterEdgeOrigin("  ")).toBe(DEFAULT_CODEROUTER_EDGE_ORIGIN);
+    expect(coderouterEdgeOrigin("https://cmux-git-x-manaflow.vercel.app")).toBe(
+      "https://cmux-git-x-manaflow.vercel.app",
+    );
+    expect(coderouterEdgeOrigin("https://cmux-git-x-manaflow.vercel.app/")).toBe(
+      "https://cmux-git-x-manaflow.vercel.app",
+    );
+  });
+
+  test("rejects anything an edge rule cannot express", () => {
+    for (const bad of [
+      "http://coderouter.dev",
+      "https://coderouter.dev:8443",
+      "https://coderouter.dev/v1",
+      "https://coderouter.dev/?x=1",
+      "https://user:pw@coderouter.dev",
+      "coderouter.dev",
+    ]) {
+      expect(() => coderouterEdgeOrigin(bad)).toThrow(CODEROUTER_EDGE_ORIGIN_ENV);
+    }
   });
 });
 
@@ -95,5 +182,34 @@ describe("vmModelPlaneEnabled", () => {
     for (const flag of ["0", "false", "no", "off", "disabled", " OFF "]) {
       expect(vmModelPlaneEnabled(flag)).toBe(false);
     }
+  });
+});
+
+describe("preview deployments serve themselves as the edge origin", () => {
+  test("a Vercel preview uses its branch URL and injects the bypass header", async () => {
+    const provision = await provisionVmModelPlane(
+      { teamId: "team-1", stackUserId: "user-1", cloudVmId: "11111111-2222-4333-8444-555555555555" },
+      deps({
+        vercelEnv: () => "preview",
+        vercelBranchUrl: () => "cmux-git-feat-manaflow.vercel.app",
+        vercelBypassSecret: () => "bypass-secret",
+      }),
+    );
+    expect(provision.edgeRules[0]?.destinationHost).toBe("cmux-git-feat-manaflow.vercel.app");
+    expect(provision.edgeRules[0]?.headers["x-vercel-protection-bypass"]).toBe("bypass-secret");
+  });
+
+  test("an explicit origin wins over the preview branch URL, and production adds no bypass header", async () => {
+    const provision = await provisionVmModelPlane(
+      { teamId: "team-1", stackUserId: "user-1", cloudVmId: "11111111-2222-4333-8444-555555555555" },
+      deps({
+        edgeOriginEnv: () => "https://coderouter.dev",
+        vercelEnv: () => "production",
+        vercelBranchUrl: () => "cmux-git-main-manaflow.vercel.app",
+        vercelBypassSecret: () => "bypass-secret",
+      }),
+    );
+    expect(provision.edgeRules[0]?.destinationHost).toBe("coderouter.dev");
+    expect(provision.edgeRules[0]?.headers["x-vercel-protection-bypass"]).toBeUndefined();
   });
 });

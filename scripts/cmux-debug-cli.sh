@@ -59,7 +59,13 @@ EOF
   exit 1
 fi
 
-cli_path="${HOME}/Library/Developer/Xcode/DerivedData/cmux-${tag_slug}/Build/Products/Debug/cmux DEV ${tag_slug}.app/Contents/Resources/bin/cmux"
+# Same default as reload.sh: a checkout that exports CMUX_DERIVED_DATA builds every tag there.
+derived_data="${CMUX_DERIVED_DATA:-${HOME}/Library/Developer/Xcode/DerivedData/cmux-${tag_slug}}"
+if [[ "$derived_data" != /* ]]; then
+  echo "error: CMUX_DERIVED_DATA must be an absolute path, got '$derived_data'" >&2
+  exit 1
+fi
+cli_path="${derived_data}/Build/Products/Debug/cmux DEV ${tag_slug}.app/Contents/Resources/bin/cmux"
 if [[ ! -x "$cli_path" ]]; then
   cat >&2 <<EOF
 Tagged cmux CLI not found:

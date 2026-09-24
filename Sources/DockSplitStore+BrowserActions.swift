@@ -1,3 +1,4 @@
+import AppKit
 import Bonsplit
 import Foundation
 
@@ -14,14 +15,22 @@ extension DockSplitStore {
             return nil
         }
         let tabs = bonsplitController.tabs(inPane: paneId)
+        let catalog = SurfaceCatalog.shared
+        let keepsCloudRoute = browser.retainsCloudResourceForDuplication
+        let record = keepsCloudRoute
+            ? catalog.projectionRecord(forPanel: panelId).flatMap { $0.resource.machine.isLocal ? nil : $0 }
+            : nil
+        let resource = keepsCloudRoute ? (record?.resource ?? browser.cloudResourceForDuplication) : nil
+        let isCloud = resource?.machine.isLocal == false
+        guard surfaceOwnershipPolicy.rejection(for: machineOwningSurface(panelId)) == nil else { return nil }
         guard let anchorIndex = tabs.firstIndex(where: {
             $0.id == anchorTabId
         }),
         let duplicatedPanelId = newSurface(
             kind: .browser,
             inPane: paneId,
-            url: browser.currentURLForTabDuplication,
-            focus: focus,
+            url: isCloud ? nil : browser.currentURLForTabDuplication,
+            focus: false,
             preferredProfileID: browser.profileID,
             chromeVisibility: browser.chromeVisibility,
             bypassRemoteProxy:
@@ -32,6 +41,25 @@ extension DockSplitStore {
         let duplicatedPanel = browserPanel(for: duplicatedPanelId),
         let duplicatedTabId = surfaceId(forPanelId: duplicatedPanelId) else {
             return nil
+        }
+
+        let focusWindow = NSApp.keyWindow ?? NSApp.mainWindow
+        if let resource, isCloud {
+            duplicatedPanel.retainTransferredSurfaceMachine(resource.machine)
+            catalog.restore([SurfaceProjectionRecord(panelID: duplicatedPanel.id, resource: resource,
+                remoteWorkspaceID: record?.remoteWorkspaceID)], workspaceID: workspaceId)
+            if let model = browser.cloudAccess.model, let url = browser.cloudAccess.remoteURL {
+                duplicatedPanel.prepareCloudBrowserStore(machineID: resource.machine.rawValue)
+                let configuredURL = browser.cloudRestoreURL(on: url)
+                duplicatedPanel.cloudAccess.configure(model: model, url: configuredURL, resourceID: resource)
+                duplicatedPanel.showCloudAddress(configuredURL)
+                model.connect()
+            } else {
+                duplicatedPanel.restoreCloudResource(resource, preferredURL: browser.currentURLForTabDuplication)
+            }
+        }
+        if focus {
+            noteKeyboardFocusIntent(window: focusWindow)
         }
 
         duplicatedPanel.setMuted(browser.isMuted)
@@ -46,6 +74,12 @@ extension DockSplitStore {
             _ = bonsplitController.reorderTab(
                 duplicatedTabId,
                 toIndex: desiredIndex
+            )
+        }
+        if focus {
+            focusPanelFromDockInteraction(
+                duplicatedPanelId,
+                window: focusWindow
             )
         }
         return duplicatedPanel
