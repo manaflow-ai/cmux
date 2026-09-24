@@ -371,15 +371,20 @@ def owned_marker(run: Mapping[str, Any], names: Iterable[str]) -> tuple[str, int
 def may_hold_owned_pool(run: Mapping[str, Any], jobs: Sequence[Mapping[str, Any]]) -> bool:
     """A run whose marker is worth an artifact listing: it may hold an owned pool.
 
-    Only attempt 1 of a same-repository pull request run of CI can (a retry
-    never takes one). Its other macOS jobs say nothing: swift-package-tests
-    always runs on a Blacksmith pool beside a run on an owned one.
+    Only attempt 1 of a same-repository pull request run of CI, or of an E2E
+    dispatch (test-e2e.yml's runner job uploads the same marker), can (a
+    retry never takes one). Its other macOS jobs say nothing:
+    swift-package-tests always runs on a Blacksmith pool beside a run on an
+    owned one.
     """
-    if run.get("event") != "pull_request" or (run.get("run_attempt") or 1) != 1:
+    if (run.get("run_attempt") or 1) != 1:
         return False
     if (run.get("head_repository") or {}).get("id") != (run.get("repository") or {}).get("id"):
         return False
-    return str(run.get("path") or "").endswith("/ci.yml")
+    path = str(run.get("path") or "")
+    if run.get("event") == "workflow_dispatch":
+        return path.endswith("/test-e2e.yml")
+    return run.get("event") == "pull_request" and path.endswith("/ci.yml")
 
 
 def pool_load_snapshot(

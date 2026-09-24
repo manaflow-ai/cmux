@@ -443,6 +443,24 @@ class E2E(unittest.TestCase):
         self.assertIn("refused", summary)
 
 
+    def test_a_stuck_e2e_run_that_finished_otherwise_is_not_rerun(self):
+        # A newer dispatch of the same group cancelled it; re-running it
+        # would cancel that newer run in turn.
+        def jobs(seconds):
+            found = [e2e_runner()(seconds)]
+            if seconds >= 40:
+                found.append(job("build", labels=[MINI], created=40))
+            return found
+        clock = Clock()
+        api = FakeAPI(clock, jobs, marker=True)
+        target = rescue.target_from_event(e2e_event(), "manaflow-ai/cmux")
+        api.finished = lambda seconds: True
+        outcome = rescue.rescue(api, target, now=clock.now, sleep=clock.sleep, log=lambda text: None,
+                                failed_only=True, refused=False)
+        self.assertEqual(outcome, "not rescued: the run already finished")
+        self.assertNotIn("rerun-failed", api.calls)
+
+
 class Workflow(unittest.TestCase):
     def setUp(self):
         self.text = (ROOT / ".github/workflows/ci-owned-pool-rescue.yml").read_text(encoding="utf-8")

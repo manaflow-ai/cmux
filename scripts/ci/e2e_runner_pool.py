@@ -53,7 +53,11 @@ pr_runner_pool.OWNED_MAX_AGE_MINUTES. An E2E run holds one machine at a time
 (build, then test), so it needs one free machine. An owned pool is never the
 fewest-queued fallback: with no free machine the run takes Blacksmith. A job
 that waits on, or is refused by, an owned Mac is re-run on Blacksmith by
-ci-owned-pool-rescue.yml; every re-run attempt takes retry_runner().
+ci-owned-pool-rescue.yml; every re-run attempt takes retry_runner(). That
+holds for an explicit owned runner too: it is the one pick that is moved.
+An `auto` run started from the Actions UI is titled with the 6vcpu default,
+so the replay counts it there even when it took an owned Mac; run-e2e.sh
+names the pool it chose, so its runs are counted where they are.
 """
 from __future__ import annotations
 

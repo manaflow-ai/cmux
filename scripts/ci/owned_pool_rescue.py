@@ -385,11 +385,14 @@ def pull_moved(api: GitHub, target: Target, sleep: Callable[[float], None],
 
 
 def rescue(api: GitHub, target: Target, *, now: Callable[[], dt.datetime], sleep: Callable[[float], None],
-           log: Callable[[str], None], failed_only: bool = False) -> str:
+           log: Callable[[str], None], failed_only: bool = False, refused: bool | None = None) -> str:
     """Cancel and re-run, unless the pull request has moved on. Returns what happened.
 
     `failed_only` (a refused job) re-runs only the failed and cancelled jobs,
-    keeping what passed, and needs no cancel when the run already finished.
+    keeping what passed. Only a refusal (`refused`, which defaults to
+    `failed_only`) re-runs a run that already finished: an E2E run that
+    finished otherwise may have been cancelled by a newer dispatch of the same
+    group, which re-running it would cancel in turn.
     """
     moved = pull_moved(api, target, sleep, log)
     if moved:
@@ -398,7 +401,7 @@ def rescue(api: GitHub, target: Target, *, now: Callable[[], dt.datetime], sleep
     if int(run.get("run_attempt") or 0) != target.attempt:
         return "not rescued: someone else already re-ran the run"
     if run.get("status") == "completed":
-        if not failed_only:
+        if not (failed_only if refused is None else refused):
             return "not rescued: the run already finished"
         api.rerun_failed(target.run_id)
         return f"re-ran the failed jobs of run {target.run_id}; attempt {target.attempt + 1} takes retry_runner"
@@ -475,7 +478,8 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
         # An E2E run's jobs may split across pools (see the module docstring),
         # so it keeps a build that passed.
         failed_only = outcome == "refused" or target.e2e
-        return finish(rescue(client, target, now=clock, sleep=sleep, log=log, failed_only=failed_only))
+        return finish(rescue(client, target, now=clock, sleep=sleep, log=log, failed_only=failed_only,
+                             refused=outcome == "refused"))
     except (*READ_ERRORS, Aborted) as error:
         # A failed watch leaves the run exactly as GitHub scheduled it.
         finish(f"gave up: {error}")
