@@ -1039,28 +1039,18 @@ final class MobileHostService {
         pairingURLScheme: CmxPairingURLScheme? =
             CmxPairingURLSchemeResolver().resolved
     ) async throws -> [String: Any] {
-        let routes = MobileHostPublicStatusCache.snapshot()
-        let filteredRoutes = try Self.filteredRoutes(
-            routes,
+        let subject = try Self.attachTicketSubject(
+            publishedStatus: MobileHostPublicStatusCache.publishedStatus(),
             routeID: routeID,
-            routeKind: routeKind
+            routeKind: routeKind,
+            target: target
         )
-        let selectedRoutes = try target.selectRoutes(from: filteredRoutes)
-        let deviceID: String
-        if selectedRoutes.contains(where: { $0.kind == .iroh }) {
-            guard let publishedID = MobileHostPublicStatusCache.currentV2DeviceID() else {
-                throw MobileAttachTicketStoreError.routeUnavailable
-            }
-            deviceID = publishedID
-        } else {
-            deviceID = MobileHostIdentity.deviceID()
-        }
         let ticket = try ticketStore.createTicket(
             workspaceID: workspaceID,
             terminalID: terminalID,
-            routes: selectedRoutes,
+            routes: subject.routes,
             ttl: ttl,
-            macDeviceID: deviceID,
+            macDeviceID: subject.deviceID,
             macUserEmail: await currentAuthenticatedLocalUserEmail(),
             macUserID: await currentAuthenticatedLocalUserID(),
             macPairingCompatibilityVersion: CmxMobileDefaults.pairingCompatibilityVersion,
@@ -1073,6 +1063,35 @@ final class MobileHostService {
             target: target,
             pairingURLScheme: pairingURLScheme
         )
+    }
+
+    /// What a ticket for `target` describes: the routes the peer may dial and
+    /// the Mac identity they belong to, resolved from a single publication.
+    ///
+    /// Routes and identity must come from the *same* publication. An Iroh
+    /// route is dialed through the v2 directory, so a ticket that names one
+    /// before the installation identity has been published would send the
+    /// phone to an identity that does not exist yet; that case is refused
+    /// rather than falling back to the legacy per-install identity.
+    static func attachTicketSubject(
+        publishedStatus: MobileHostPublicStatusCache.PublishedStatus,
+        routeID: String?,
+        routeKind: String?,
+        target: MobileAttachTarget?
+    ) throws -> (routes: [CmxAttachRoute], deviceID: String) {
+        let narrowedRoutes = try Self.filteredRoutes(
+            publishedStatus.routes,
+            routeID: routeID,
+            routeKind: routeKind
+        )
+        let selectedRoutes = try target.selectRoutes(from: narrowedRoutes)
+        guard selectedRoutes.contains(where: { $0.kind == .iroh }) else {
+            return (selectedRoutes, MobileHostIdentity.deviceID())
+        }
+        guard let publishedID = publishedStatus.v2DeviceID else {
+            throw MobileAttachTicketStoreError.routeUnavailable
+        }
+        return (selectedRoutes, publishedID)
     }
 
     private static func filteredRoutes(

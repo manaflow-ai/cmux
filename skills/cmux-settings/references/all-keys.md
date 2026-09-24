@@ -1,6 +1,8 @@
 # All settings keys
 
-Auto-generated from `web/data/cmux.schema.json`. For the rendered docs, see `https://cmux.com/docs/configuration`.
+Hand-maintained from `web/data/cmux.schema.json` and known to lag it. The schema is
+authoritative; `cmux-settings list-supported` enumerates what the helper accepts. For the
+rendered docs, see `https://cmux.com/docs/configuration`.
 
 ## app
 
@@ -89,6 +91,7 @@ Sidebar content and metadata visibility from Settings > Sidebar.
 |---|---|---|---|
 | `sidebar.hideAllDetails` | boolean | `false` | Hide all per-workspace detail rows. |
 | `sidebar.showWorkspaceDescription` | boolean | `true` | Show custom workspace descriptions in the sidebar. |
+| `sidebar.workspaceDescriptionColor` | colorHexOrNull | `null` | Override the workspace description text color in the sidebar. |
 | `sidebar.branchLayout` | `"vertical"` or `"inline"` | `"vertical"` | Show git branch details stacked vertically or inline. |
 | `sidebar.showNotificationMessage` | boolean | `true` | Show the latest notification text in the sidebar. |
 | `sidebar.showBranchDirectory` | boolean | `true` | Show the workspace working directory. |

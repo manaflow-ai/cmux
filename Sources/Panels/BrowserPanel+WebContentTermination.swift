@@ -44,6 +44,12 @@ extension BrowserPanel {
         cancelPendingInteractiveBrowserPrompts(reason: "webContentProcessTerminated")
 
         webContentState = .terminated(recoveryURL: hasRecoveryTarget ? recoveryURL : nil)
+        // The terminated WebContent process can no longer deliver either the native
+        // navigation delegate commit or the isolated document-ready bridge. Revoke the
+        // generation's readiness before detaching callbacks so socket workers cannot
+        // continue treating the dead document as executable.
+        automationDocumentReadiness.invalidate()
+        hasCommittedDocumentSinceWebViewReplacement = false
         detachTerminatedWebViewCallbacks(terminatedWebView)
         if wasRenderable {
             closeBackgroundPreloadHost(reason: "webContentRecovery")

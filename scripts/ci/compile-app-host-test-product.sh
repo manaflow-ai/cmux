@@ -9,9 +9,18 @@
 # whole compiler invocation and on absolute paths, so both jobs must build
 # through this script or they stop sharing hits without anything failing.
 #
-# `fingerprint` hashes the toolchain and the build paths into the cache key.
-# Runner pools lay the workspace out differently, and a seed built under
-# another layout cannot hit, so it should be a cache miss and not a download.
+# `fingerprint` keys the cache. A cache entry bakes in the absolute source and
+# derived-data paths, so which paths the build used decides whether a seed can
+# hit at all. Runner pools disagree about those paths -- Blacksmith checks out
+# under /Users/runner/_work, WarpBuild under /Users/runner/work -- so a seed
+# built on one pool could never hit on another.
+#
+# scripts/ci/canonical-build-root.sh removes that disagreement by building from
+# a fixed location every pool can reproduce. When the build runs there the key
+# drops the paths, because they are now a constant, and one seed serves every
+# pool. A build anywhere else keeps the old path-scoped key and its own private
+# cache, so an unconverted lane degrades to a miss rather than downloading a
+# seed whose entries cannot hit.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -20,14 +29,32 @@ usage() {
   echo "usage: $0 fingerprint <derived-data>" >&2
   echo "       $0 resolve <derived-data> <source-packages>" >&2
   echo "       $0 build <derived-data> <source-packages> <cas-path> [log]" >&2
+  echo "prefix fingerprint/resolve/build with canonical- for the shared CI paths" >&2
   exit 64
 }
 
 # Same limit as the Release seed in nightly.yml.
 cache_limit_bytes=3221225472
 
+# Keep in sync with scripts/ci/canonical-build-root.sh.
+CANONICAL_BUILD_ROOT="${CMUX_CI_CANONICAL_ROOT:-/private/tmp/cmux-ci}"
+
 fingerprint() {
   local derived_data="$1"
+  # Canonical only when both paths are fixed: the source at the canonical
+  # checkout and the derived data directly beneath the canonical root. Its
+  # basename still separates purposes, since two purposes are two paths and
+  # their entries cannot hit each other.
+  if [ "$PWD" = "$CANONICAL_BUILD_ROOT/src" ] \
+    && [ "${derived_data%/*}" = "$CANONICAL_BUILD_ROOT" ] \
+    && [ "${derived_data##*/}" != "" ]; then
+    {
+      echo "canonical-v1"
+      xcodebuild -version
+      printf 'derived-data=%s\n' "${derived_data##*/}"
+    } | shasum -a 256 | cut -c1-32
+    return
+  fi
   {
     xcodebuild -version
     printf 'workspace=%s\n' "$PWD"
@@ -46,6 +73,7 @@ resolve() {
     if xcodebuild -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
       -derivedDataPath "$derived_data" \
       -clonedSourcePackagesDirPath "$source_packages" \
+      -packageCachePath "$source_packages/.package-cache" \
       -resolvePackageDependencies; then
       if [ -d "$source_packages/artifacts/sparkle/Sparkle/Sparkle.xcframework" ] \
         && [ -d "$source_packages/artifacts/sentry-cocoa/Sentry/Sentry.xcframework" ]; then
@@ -92,6 +120,41 @@ build() {
       build-for-testing 2>&1 | tee "$derived_data/$scheme-build.log" | tee -a "$log"
   done
 }
+
+# The workflow opts both cache writer and reader into this contract together.
+# Resolve refreshes the real source tree after dependency downloads. Fingerprint
+# needs only the stable cwd; never recopy after resolve, which would erase SPM.
+case "${1:-}" in
+  canonical-fingerprint|canonical-resolve|canonical-build)
+    operation="${1#canonical-}"
+    shift
+    case "$operation:$#" in
+      fingerprint:1|resolve:2|build:3|build:4) ;;
+      *) usage ;;
+    esac
+    [ "${1%/*}" = "$CANONICAL_BUILD_ROOT" ] || { echo "noncanonical DerivedData" >&2; exit 1; }
+    if [ "$operation" = resolve ]; then
+      "$SCRIPT_DIR/canonical-build-root.sh" "$PWD"
+    fi
+    # A previous test-only consumer may have left a runtime source alias.
+    # Never key, resolve, or compile through its pool-specific realpath: the
+    # compiler records the path it opens, so a build behind the alias writes
+    # pool-specific cache entries under the pool-independent canonical key.
+    # `resolve` re-copies the tree through canonical-build-root.sh above, which
+    # strips the alias itself; `fingerprint` and `build` have only this.
+    if [ -L "$CANONICAL_BUILD_ROOT/src" ]; then
+      rm "$CANONICAL_BUILD_ROOT/src"
+    fi
+    mkdir -p "$CANONICAL_BUILD_ROOT/src"
+    cd "$CANONICAL_BUILD_ROOT/src"
+    case "$operation" in
+      fingerprint) fingerprint "$1" ;;
+      resolve) resolve "$1" "$PWD/.ci-source-packages" ;;
+      build) build "$1" "$PWD/.ci-source-packages" "$3" "${4:-/dev/null}" ;;
+    esac
+    exit
+    ;;
+esac
 
 case "${1:-}" in
   fingerprint)
