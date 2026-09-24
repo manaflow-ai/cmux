@@ -3,7 +3,7 @@
 /// Resize requests retain the exact grid they carried. A response can arrive
 /// after a visibility transition has reset the scheduler, so acknowledging by
 /// request kind alone could accidentally retire a newer grid.
-enum CloudTuiManualMirrorRequestKind: Equatable, Sendable {
+public enum CloudTuiManualMirrorRequestKind: Equatable, Sendable {
     case identify
     case clientInfo
     case attach

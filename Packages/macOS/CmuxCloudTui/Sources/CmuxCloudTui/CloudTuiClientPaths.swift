@@ -8,11 +8,16 @@ import Security
 /// `cmux vm-tui-connect` must present the same device to a machine's daemon, so one
 /// enrollment covers both. The CLI helpers are compiled only into the CLI target, hence
 /// the duplicate paths here.
-struct CloudTuiClientPaths: Sendable {
+public struct CloudTuiClientPaths: Sendable {
     /// One enrolled device per machine, as the CLI stores it (`vm-tui-devices.json`).
-    struct DeviceRecord: Codable, Sendable, Equatable {
-        let deviceFingerprint: String
-        let updatedAtUnix: Int
+    public struct DeviceRecord: Codable, Sendable, Equatable {
+        public let deviceFingerprint: String
+        public let updatedAtUnix: Int
+
+        public init(deviceFingerprint: String, updatedAtUnix: Int) {
+            self.deviceFingerprint = deviceFingerprint
+            self.updatedAtUnix = updatedAtUnix
+        }
     }
 
     /// Stored in place of a device fingerprint for a machine this Mac reaches over
@@ -20,26 +25,26 @@ struct CloudTuiClientPaths: Sendable {
     /// dials `--carrier` again with no control-plane call. A real fingerprint means
     /// the Mac enrolled before the machine's daemon served the trusted listener and
     /// keeps presenting its stored key. Mirrored by the CLI's own store.
-    static let carrierDeviceMarker = "carrier"
+    public static let carrierDeviceMarker = "carrier"
 
-    let home: URL
+    public let home: URL
 
-    init(home: URL = URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true)) {
+    public init(home: URL = URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true)) {
         self.home = home
     }
 
     /// Per-Mac cmux-tui client state (device key, known daemons).
-    var stateDir: URL {
+    public var stateDir: URL {
         home.appendingPathComponent(".cmuxterm", isDirectory: true)
             .appendingPathComponent("cmux-tui-client", isDirectory: true)
     }
 
-    var devicesStoreURL: URL {
+    public var devicesStoreURL: URL {
         home.appendingPathComponent(".cmuxterm", isDirectory: true)
             .appendingPathComponent("vm-tui-devices.json", isDirectory: false)
     }
 
-    func ensureStateDir() throws {
+    public func ensureStateDir() throws {
         try FileManager.default.createDirectory(
             at: stateDir,
             withIntermediateDirectories: true,
@@ -47,7 +52,7 @@ struct CloudTuiClientPaths: Sendable {
         )
     }
 
-    func loadDevices() -> [String: DeviceRecord] {
+    public func loadDevices() -> [String: DeviceRecord] {
         guard let data = try? Data(contentsOf: devicesStoreURL),
               let store = try? JSONDecoder().decode([String: DeviceRecord].self, from: data) else {
             return [:]
@@ -59,11 +64,11 @@ struct CloudTuiClientPaths: Sendable {
     /// one per install: `mac-` plus 32 hex digits, minted on first use and kept in
     /// the client state dir beside the device key. Every machine sees the same id,
     /// so per-client read state follows the install, not the machine.
-    var notificationClientIDURL: URL {
+    public var notificationClientIDURL: URL {
         stateDir.appendingPathComponent("notification-client-id", isDirectory: false)
     }
 
-    func notificationClientID() -> String {
+    public func notificationClientID() -> String {
         if let existing = try? String(contentsOf: notificationClientIDURL, encoding: .utf8) {
             let trimmed = existing.trimmingCharacters(in: .whitespacesAndNewlines)
             if Self.isValidNotificationClientID(trimmed) { return trimmed }
@@ -78,16 +83,16 @@ struct CloudTuiClientPaths: Sendable {
     }
 
     /// The daemon's rule: 1 to 128 printable ASCII bytes, no spaces.
-    static func isValidNotificationClientID(_ value: String) -> Bool {
+    public static func isValidNotificationClientID(_ value: String) -> Bool {
         !value.isEmpty && value.utf8.count <= 128
             && value.utf8.allSatisfy { $0 > 0x20 && $0 < 0x7f }
     }
 
-    func deviceFingerprint(for machineID: String) -> String? {
+    public func deviceFingerprint(for machineID: String) -> String? {
         loadDevices()[machineID]?.deviceFingerprint
     }
 
-    func saveDeviceFingerprint(_ fingerprint: String, for machineID: String) {
+    public func saveDeviceFingerprint(_ fingerprint: String, for machineID: String) {
         var store = loadDevices()
         store[machineID] = DeviceRecord(deviceFingerprint: fingerprint, updatedAtUnix: Int(Date().timeIntervalSince1970))
         guard let data = try? JSONEncoder().encode(store) else { return }
@@ -97,14 +102,14 @@ struct CloudTuiClientPaths: Sendable {
     }
 
     /// The app and CLI share a local label that never needs hostname resolution.
-    static func deviceName(hostName: String? = nil) -> String {
+    public static func deviceName(hostName: String? = nil) -> String {
         (hostName.map { RemoteClientDeviceName(hostName: $0) } ?? RemoteClientDeviceName()).value
     }
 
     /// The cmux-tui client the app drives: the bundled one
     /// (`Contents/Resources/bin/cmux-tui`, installed by scripts/install-cmux-tui-client.sh),
     /// else `CMUX_TUI_CLIENT`. No PATH search: the app must not pick up a stray binary.
-    static func clientURL(
+    public static func clientURL(
         bundle: Bundle = .main,
         environment: [String: String] = ProcessInfo.processInfo.environment
     ) -> URL? {

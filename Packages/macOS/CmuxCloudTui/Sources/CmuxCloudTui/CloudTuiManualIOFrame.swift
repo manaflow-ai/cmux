@@ -5,7 +5,7 @@ import Foundation
 /// The native cloud pane consumes these events as terminal bytes. It deliberately
 /// does not contain a rendered-cell representation: libghostty remains the only
 /// renderer in a native pane.
-enum CloudTuiManualIOFrame: Equatable, Sendable {
+public enum CloudTuiManualIOFrame: Equatable, Sendable {
     /// `colors` is the sparse sidecar that travels with a theme-portable replay
     /// or a palette-changing output chunk; `nil` means the frame carried none.
     case snapshot(surfaceID: UInt64, columns: Int, rows: Int, bytes: Data, colors: CloudTuiRemoteColors? = nil)

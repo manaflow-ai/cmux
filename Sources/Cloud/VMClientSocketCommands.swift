@@ -1,3 +1,4 @@
+import CmuxCloudTui
 import CmuxControlSocket
 import CmuxSettings
 import CmuxSurfaceCatalogModel
