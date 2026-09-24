@@ -4025,5 +4025,15 @@
     "organization": "Kuruluş",
     "personalAccount": "kişisel hesap",
     "switchAccountButton": "Farklı bir hesap kullan"
+  },
+  "MobileRelease106": {
+    "title": "1.0.6 sürümündeki yenilikler",
+    "releaseLabel": "1.0.6 · Eylül 2026",
+    "connectionTitle": "Mac bağlantıları güncellendi",
+    "connectionDetail": "Bu güncelleme yeni bağlantı hizmetini ve Iroh aktarımını kullanır. Eski Mac derlemelerinin bağlanabilmesi için güncellenmesi gerekir.",
+    "updateTitle": "Mac’inizde cmux’u güncelleyin",
+    "updateDetail": "cmux {stableVersion} veya üstü ya da NIGHTLY {nightlyVersion} veya üstü gerekir. Her Mac’te Ayarlar > Mobil bölümünden iOS eşleştirmesini etkinleştirin.",
+    "rollbackTitle": "Eski bir Mac derlemesini kullanmanız mı gerekiyor?",
+    "rollbackDetail": "Kullanılabilir olduğu sürece TestFlight > Önceki Derlemeler’den cmux BETA 1.0.5 ({rollbackBuild}) sürümünü kullanın. Sonraki derlemeler daha yeni bir bağlantı hizmeti kullandığı için tam olarak bu derlemeyi seçin."
   }
 }

@@ -1,4 +1,4 @@
-import { ios106MacRequirement } from "./mobile-mac-compat";
+import { ios106Localizations } from "./whats-new-localizations";
 
 /**
  * The remote What's New list served by GET /api/whats-new.
@@ -52,7 +52,14 @@ export interface WhatsNewAnnouncementFeature {
   detail: string;
 }
 
+export interface WhatsNewAnnouncementContent {
+  title: string;
+  releaseLabel?: string;
+  features: WhatsNewAnnouncementFeature[];
+}
+
 export interface WhatsNewAnnouncement {
+  localizations?: Record<string, WhatsNewAnnouncementContent>;
   id: string;
   minVersion: string;
   maxVersion: string;
@@ -92,28 +99,8 @@ export const whatsNewList: WhatsNewList = {
       minVersion: "1.0.6",
       maxVersion: "1.0.6",
       channels: ["beta", "internal"],
-      title: "What's New in 1.0.6",
-      releaseLabel: "1.0.6 · September 2026",
-      features: [
-        {
-          symbol: "network",
-          title: "Updated Mac connections",
-          detail:
-            "This update uses the new connection service and Iroh transport. Older Mac builds need an update to connect.",
-        },
-        {
-          symbol: "arrow.down.circle",
-          title: "Update cmux on your Mac",
-          detail:
-            `Requires cmux ${ios106MacRequirement.stableMinVersion} or later, or NIGHTLY ${ios106MacRequirement.nightly.minBaseVersion}-nightly.${ios106MacRequirement.nightly.minBuild} or later. Enable iOS pairing in Settings > Mobile on each Mac.`,
-        },
-        {
-          symbol: "clock.arrow.circlepath",
-          title: "Need to keep an older Mac build?",
-          detail:
-            "Use cmux BETA 1.0.5 (20260914204800) from TestFlight > Previous Builds while it remains available. Choose that exact build, since later builds use a newer connection service.",
-        },
-      ],
+      ...ios106Localizations.en,
+      localizations: ios106Localizations,
     },
   ],
 };

@@ -4027,5 +4027,15 @@
     "organization": "组织",
     "personalAccount": "个人账户",
     "switchAccountButton": "使用其他账号"
+  },
+  "MobileRelease106": {
+    "title": "1.0.6 更新内容",
+    "releaseLabel": "1.0.6 · 2026年9月",
+    "connectionTitle": "Mac 连接已更新",
+    "connectionDetail": "此更新使用新的连接服务和 Iroh 传输。较旧的 Mac 构建版本需要更新才能连接。",
+    "updateTitle": "更新 Mac 上的 cmux",
+    "updateDetail": "需要 cmux {stableVersion} 或更高版本，或 NIGHTLY {nightlyVersion} 或更高版本。请在每台 Mac 的“设置”>“移动设备”中启用 iOS 配对。",
+    "rollbackTitle": "需要保留较旧的 Mac 构建版本？",
+    "rollbackDetail": "在仍可用时，从 TestFlight > 先前的构建版本中使用 cmux BETA 1.0.5 ({rollbackBuild})。请选择这个确切的构建版本，因为后续构建使用更新的连接服务。"
   }
 }

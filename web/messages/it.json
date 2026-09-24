@@ -4027,5 +4027,15 @@
     "organization": "Organizzazione",
     "personalAccount": "account personale",
     "switchAccountButton": "Usa un altro account"
+  },
+  "MobileRelease106": {
+    "title": "Novità di 1.0.6",
+    "releaseLabel": "1.0.6 · Settembre 2026",
+    "connectionTitle": "Connessioni Mac aggiornate",
+    "connectionDetail": "Questo aggiornamento usa il nuovo servizio di connessione e il trasporto Iroh. Le build Mac precedenti richiedono un aggiornamento per connettersi.",
+    "updateTitle": "Aggiorna cmux sul Mac",
+    "updateDetail": "Richiede cmux {stableVersion} o successivo, oppure NIGHTLY {nightlyVersion} o successivo. Abilita l’abbinamento iOS in Impostazioni > Mobile su ogni Mac.",
+    "rollbackTitle": "Devi mantenere una vecchia build Mac?",
+    "rollbackDetail": "Usa cmux BETA 1.0.5 ({rollbackBuild}) da TestFlight > Build precedenti finché è disponibile. Scegli esattamente questa build, perché quelle successive usano un servizio di connessione più recente."
   }
 }

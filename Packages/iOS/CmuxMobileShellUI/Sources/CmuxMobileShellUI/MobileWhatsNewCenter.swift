@@ -43,6 +43,7 @@ public final class MobileWhatsNewCenter {
     let buildType: MobileBuildType
     private let defaults: UserDefaults
     private let loader: Loader
+    private let preferredLanguages: [String]
 
     /// The last successfully fetched list (this launch or a previous one).
     /// `nil` means no list has EVER been fetched on this device.
@@ -61,6 +62,7 @@ public final class MobileWhatsNewCenter {
         appVersion: String? = nil,
         buildType: MobileBuildType = .current(),
         defaults: UserDefaults = .standard,
+        preferredLanguages: [String] = Bundle.main.preferredLocalizations,
         loader: Loader? = nil
     ) {
         if let apiBaseURL, !apiBaseURL.isEmpty {
@@ -73,6 +75,7 @@ public final class MobileWhatsNewCenter {
             ?? "0"
         self.buildType = buildType
         self.defaults = defaults
+        self.preferredLanguages = preferredLanguages
         self.loader = loader ?? mobileRemoteJSONLoader
         if let cached = defaults.data(forKey: environmentCacheKey),
            let list = try? JSONDecoder().decode(MobileWhatsNewRemoteList.self, from: cached) {
@@ -96,15 +99,23 @@ public final class MobileWhatsNewCenter {
     /// failure (offline, server error, malformed payload) keeps the cached
     /// list: cache wins while offline.
     public func refresh() async {
-        defer { hasCompletedInitialRefresh = true }
+        var cancelled = false
+        defer {
+            if !cancelled && !Task.isCancelled {
+                hasCompletedInitialRefresh = true
+            }
+        }
         guard let requestURL else { return }
         do {
             let data = try await loader(requestURL)
+            try Task.checkCancellation()
             let list = try JSONDecoder().decode(MobileWhatsNewRemoteList.self, from: data)
             remoteList = list
             lastRefreshSucceeded = true
             defaults.set(data, forKey: environmentCacheKey)
             pruneAcknowledgedAnnouncements(against: list)
+        } catch where error is CancellationError || (error as? URLError)?.code == .cancelled {
+            cancelled = true
         } catch {
             // Keep the cached list; no cache ever fetched means binary
             // entries stay visible (fail-open to binary truth).
@@ -265,6 +276,7 @@ public final class MobileWhatsNewCenter {
     /// announcement's own fallback content (webpage, then inline feature
     /// rows) renders.
     private func page(for announcement: MobileWhatsNewRemoteAnnouncement) -> MobileWhatsNewPage? {
+        let announcement = announcement.localized(for: preferredLanguages)
         guard let title = announcement.title, !title.isEmpty else { return nil }
         if let web = allowlistedWebURL(announcement.webUrl) {
             return MobileWhatsNewPage(

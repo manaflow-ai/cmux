@@ -5740,5 +5740,15 @@
     "organization": "組織",
     "personalAccount": "個人アカウント",
     "switchAccountButton": "別のアカウントを使用"
+  },
+  "MobileRelease106": {
+    "title": "1.0.6 の新機能",
+    "releaseLabel": "1.0.6 · 2026年9月",
+    "connectionTitle": "Mac 接続の更新",
+    "connectionDetail": "このアップデートでは、新しい接続サービスと Iroh 通信を使用します。古い Mac ビルドは、接続するためにアップデートが必要です。",
+    "updateTitle": "Mac の cmux をアップデート",
+    "updateDetail": "cmux {stableVersion} 以降、または NIGHTLY {nightlyVersion} 以降が必要です。各 Mac の「設定」>「モバイル」で iOS ペアリングを有効にしてください。",
+    "rollbackTitle": "古い Mac ビルドを使い続ける場合",
+    "rollbackDetail": "利用可能な間は、TestFlight の「以前のビルド」から cmux BETA 1.0.5 ({rollbackBuild}) を使用してください。それ以降のビルドは新しい接続サービスを使用するため、このビルドを選んでください。"
   }
 }

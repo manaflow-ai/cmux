@@ -4027,5 +4027,15 @@
     "organization": "Organizacija",
     "personalAccount": "lični račun",
     "switchAccountButton": "Koristi drugi račun"
+  },
+  "MobileRelease106": {
+    "title": "Novosti u verziji 1.0.6",
+    "releaseLabel": "1.0.6 · Septembar 2026",
+    "connectionTitle": "Ažurirane veze s Mac računarima",
+    "connectionDetail": "Ovo ažuriranje koristi novu uslugu povezivanja i Iroh prijenos. Starije Mac verzije treba ažurirati da bi se povezale.",
+    "updateTitle": "Ažurirajte cmux na Mac računaru",
+    "updateDetail": "Potreban je cmux {stableVersion} ili noviji, ili NIGHTLY {nightlyVersion} ili noviji. Omogućite iOS uparivanje u Postavke > Mobilni uređaji na svakom Mac računaru.",
+    "rollbackTitle": "Trebate zadržati stariju Mac verziju?",
+    "rollbackDetail": "Koristite cmux BETA 1.0.5 ({rollbackBuild}) iz TestFlight > Prethodne verzije dok je dostupna. Odaberite upravo tu verziju jer novije koriste noviju uslugu povezivanja."
   }
 }

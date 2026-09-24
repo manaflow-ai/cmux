@@ -4032,5 +4032,15 @@
     "organization": "องค์กร",
     "personalAccount": "บัญชีส่วนตัว",
     "switchAccountButton": "ใช้บัญชีอื่น"
+  },
+  "MobileRelease106": {
+    "title": "มีอะไรใหม่ใน 1.0.6",
+    "releaseLabel": "1.0.6 · กันยายน 2026",
+    "connectionTitle": "อัปเดตการเชื่อมต่อ Mac",
+    "connectionDetail": "การอัปเดตนี้ใช้บริการเชื่อมต่อใหม่และการรับส่งข้อมูล Iroh บิลด์ Mac รุ่นเก่าต้องอัปเดตจึงจะเชื่อมต่อได้",
+    "updateTitle": "อัปเดต cmux บน Mac",
+    "updateDetail": "ต้องใช้ cmux {stableVersion} ขึ้นไป หรือ NIGHTLY {nightlyVersion} ขึ้นไป เปิดใช้การจับคู่ iOS ในการตั้งค่า > มือถือบน Mac แต่ละเครื่อง",
+    "rollbackTitle": "ต้องการใช้บิลด์ Mac รุ่นเก่าต่อไปหรือไม่",
+    "rollbackDetail": "ใช้ cmux BETA 1.0.5 ({rollbackBuild}) จาก TestFlight > บิลด์ก่อนหน้าในขณะที่ยังมีให้ใช้ เลือกบิลด์นี้โดยตรง เพราะบิลด์ที่ใหม่กว่าจะใช้บริการเชื่อมต่อที่ใหม่กว่า"
   }
 }

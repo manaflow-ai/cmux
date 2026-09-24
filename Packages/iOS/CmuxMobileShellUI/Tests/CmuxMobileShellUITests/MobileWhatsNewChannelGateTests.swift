@@ -18,7 +18,8 @@ import Testing
         buildType: MobileBuildType,
         payload: String? = nil,
         acknowledgedEntryID: String? = nil,
-        appVersion: String = "1.0.6"
+        appVersion: String = "1.0.6",
+        preferredLanguages: [String] = ["en"]
     ) -> MobileWhatsNewCenter {
         let suiteName = "MobileWhatsNewChannelGateTests-\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suiteName)!
@@ -34,6 +35,7 @@ import Testing
             appVersion: appVersion,
             buildType: buildType,
             defaults: defaults,
+            preferredLanguages: preferredLanguages,
             loader: { _ in
                 guard let payload else { throw URLError(.notConnectedToInternet) }
                 return Data(payload.utf8)
@@ -92,6 +94,7 @@ import Testing
         #expect(center.unseenPages.map(\.id) == ["release", "pairing.1.0.6"])
     }
 
+    @MainActor
     private final class RefreshGate {
         private var pending: CheckedContinuation<Data, any Error>?
         private var started: CheckedContinuation<Void, Never>?
@@ -113,6 +116,43 @@ import Testing
             pending?.resume(with: result)
             pending = nil
         }
+    }
+
+    @Test(arguments: [
+        (["ja-JP"], "新機能", "更新してください"),
+        (["zh-Hant-TW"], "更新內容", "請更新"),
+        (["xx"], "Release notice", "Update your Mac")
+    ])
+    func announcementUsesAppLanguageAndRetainsEnglishFallback(
+        languages: [String], title: String, detail: String
+    ) async throws {
+        let center = makeCenter(
+            buildType: .beta,
+            payload: #"""
+            {"visibleEntryIds":["pairing.1.0.6"],"announcements":[{
+              "id":"release","minVersion":"1.0.6","maxVersion":"1.0.6",
+              "channels":["beta"],"title":"Release notice",
+              "features":[{"title":"Mac","detail":"Update your Mac"}],
+              "localizations":{
+                "en":{"title":"Release notice","features":[{"title":"Mac","detail":"Update your Mac"}]},
+                "ja":{"title":"新機能","features":[{"title":"Mac","detail":"更新してください"}]},
+                "zh-TW":{"title":"更新內容","features":[{"title":"Mac","detail":"請更新"}]}
+              }
+            }]}
+            """#,
+            preferredLanguages: languages
+        )
+        await center.refresh()
+        let page = try #require(center.announcementPages.first)
+        #expect(page.id == "release")
+        #expect(page.title == title)
+        guard case .features(let features) = page.body else {
+            Issue.record("Expected translated feature rows")
+            return
+        }
+        #expect(features.first?.detail == detail)
+        center.acknowledge([page])
+        #expect(!center.unseenPages.contains { $0.id == "release" })
     }
 
     @Test func pinpointNoticeOnlyReachesItsVersionAndChannels() async {
