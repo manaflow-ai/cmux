@@ -87,6 +87,7 @@ final class WorkspaceNavigationBarController: UINavigationController {
             } else {
                 let customView = WorkspaceNavigationControlView(content: content, minimumWidth: minimumWidth)
                 let button = UIBarButtonItem(customView: customView)
+                button.width = minimumWidth
                 controls[value.id] = HostedControl(button: button, view: customView)
             }
         }
