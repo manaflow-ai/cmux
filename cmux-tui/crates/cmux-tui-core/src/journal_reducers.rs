@@ -286,6 +286,16 @@ fn timestamp_is_current(existing: u64, incoming: u64) -> bool {
     incoming >= existing
 }
 
+/// A plugin reports `Done` only when the agent's foreground process is gone.
+/// That exit retires a hook-owned row for the same agent, because an agent
+/// killed by a signal never delivers its own session-end hook.
+fn plugin_exit_ends_hook_row(entry: &RosterEntry, state: AgentState, agent: Option<&str>) -> bool {
+    state == AgentState::Done
+        && entry.agent_source() == AgentSource::Hook
+        && agent.is_some()
+        && entry.agent.as_deref().is_none_or(|existing| Some(existing) == agent)
+}
+
 fn fresh_hook(existing: u64, incoming: u64) -> bool {
     timestamp_is_current(existing, incoming) && incoming - existing < STALE_HOOK_MS
 }
@@ -500,8 +510,13 @@ impl AgentRoster {
                         // into fresh evidence just because the journal
                         // accepted it later. The journal commit time orders
                         // transport, while `observed_at_ms` orders what the
-                        // plugin actually saw.
-                        if fresh_hook(existing.updated_at_ms, updated_at_ms) {
+                        // plugin actually saw. A hooked agent's process exit
+                        // is not a screen read: a killed agent never sends
+                        // its own end hook, so that exit ends the row even
+                        // while the hook is fresh.
+                        if !plugin_exit_ends_hook_row(existing, state, agent.as_deref())
+                            && fresh_hook(existing.updated_at_ms, updated_at_ms)
+                        {
                             return Vec::new();
                         }
                         // An older plugin observation cannot reclaim a hook
@@ -569,6 +584,11 @@ impl AgentRoster {
             // still committed to the durable projection by the host so
             // history and remote caches converge.
             let owned_by_event = self.entries.get(terminal_id).is_some_and(|entry| {
+                if source == AgentSource::Plugin
+                    && plugin_exit_ends_hook_row(entry, state, agent.as_deref())
+                {
+                    return true;
+                }
                 entry.agent_source() == source
                     && (source != AgentSource::Plugin
                         || (entry.producer.as_deref() == producer.as_deref()
@@ -1073,6 +1093,51 @@ mod tests {
         let plugin = RosterEvent { payload: &plugin_payload, committed_at_ms: 40_000, ..plugin };
         assert_eq!(roster.apply(&plugin).len(), 1);
         assert_eq!(roster.entries["term_a"].source, "plugin");
+    }
+
+    #[test]
+    fn plugin_process_exit_ends_a_fresh_hook_row_for_the_same_agent() {
+        let subjects = terminal_subject("term_a");
+        let hook_payload = json!({"adapter":{"id":"claude","version":1}});
+        let ended = |agent: &str, observed_at_ms: u64| {
+            json!({
+                "format": AGENT_PLUGIN_FORMAT,
+                "plugin": {"id":"screen_detector","version":1},
+                "adapter": {"id":agent,"version":1},
+                "event":"session.ended",
+                "normalized":{
+                    "state":"done",
+                    "source_session":"pid:42",
+                    "observed_at_ms":observed_at_ms.to_string()
+                }
+            })
+        };
+        let exit = |payload| RosterEvent {
+            producer_id: "screen_detector",
+            kind: "plugin.screen_detector.agent.session.ended",
+            subjects: &subjects,
+            payload,
+            committed_at_ms: 12_000,
+        };
+        let mut roster = AgentRoster::default();
+        roster.apply(&stamped_event(10_000, "agent.session.started", &subjects, &hook_payload));
+
+        // An exit observed before the hook row cannot end the newer session.
+        let early = ended("claude", 9_000);
+        assert!(roster.apply(&exit(&early)).is_empty());
+        // Another agent's exit is not evidence about this one.
+        let other = ended("codex", 12_000);
+        assert!(roster.apply(&exit(&other)).is_empty());
+        assert_eq!(roster.entries["term_a"].source, "hook");
+
+        // A killed claude never sends SessionEnd; its process exit ends the
+        // row although the hook is still inside STALE_HOOK_MS.
+        let killed = ended("claude", 12_000);
+        assert_eq!(
+            roster.apply(&exit(&killed)),
+            vec![RosterDelta::Remove { terminal_id: "term_a".into(), source: AgentSource::Plugin }]
+        );
+        assert!(roster.entries.is_empty());
     }
 
     #[test]
