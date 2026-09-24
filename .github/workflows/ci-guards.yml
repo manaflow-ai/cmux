@@ -715,6 +715,10 @@ jobs:
         if: ${{ matrix.group == 'release-notary' }}
         run: bash ./tests/test_nightly_universal_build.sh
 
+      - name: Validate nightly Sparkle key selection
+        if: ${{ matrix.group == 'release-notary' }}
+        run: bash ./tests/test_nightly_sparkle_key.sh
+
       - name: Validate nightly push throttle
         if: ${{ matrix.group == 'release-notary' }}
         run: |
