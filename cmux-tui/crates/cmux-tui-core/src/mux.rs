@@ -3215,6 +3215,7 @@ impl Mux {
         // At most one warm snapshot host becomes the first terminal of a
         // fresh registry (SurfaceOptions::adopt_template_terminal).
         let mut template_claimed = false;
+        let mut template_terminal: Option<String> = None;
         // Sidecars are host-owned write-ahead completion records. Reconcile
         // them before live discovery records so a daemon crash after host
         // completion cannot collapse the exact status into "host missing".
@@ -3280,6 +3281,7 @@ impl Mux {
                     // placement there with freshly generated public ids.
                     self.create_empty_workspace(None, Some(record.workspace_key.clone()), None)?;
                     template_claimed = true;
+                    template_terminal = Some(terminal_id.clone());
                 }
                 let can_import = workspace_exists || claim_template;
                 if can_import {
@@ -3468,6 +3470,53 @@ impl Mux {
                 &options,
             )?;
         }
+        if let (Some(terminal_id), Some(path)) =
+            (template_terminal, options.template_bound_file.as_deref())
+        {
+            self.publish_template_binding(&terminal_id, path)?;
+        }
+        Ok(())
+    }
+
+    /// Tell the warm template shell its new identity. The shell was spawned
+    /// by the snapshot builder's daemon, so its CMUX_TUI_SESSION_ID and
+    /// CMUX_TUI_TERMINAL_ID name the builder's session and terminal. Its
+    /// first prompt waits for this file and re-exports both before any user
+    /// command (or agent hook) runs. Written only after the adoption above
+    /// committed, and atomically, so its presence means the clone is bound.
+    #[cfg(unix)]
+    fn publish_template_binding(&self, terminal_id: &str, path: &Path) -> anyhow::Result<()> {
+        let session_id = self.session_public_id();
+        let terminal_public_id = {
+            let state = self.state.lock().unwrap();
+            state
+                .surfaces
+                .iter()
+                .find(|(_, surface)| {
+                    surface
+                        .terminal_host_identity()
+                        .is_some_and(|identity| identity.terminal_id == terminal_id)
+                })
+                .and_then(|(surface_id, _)| state.resource_indexes.content_ids.get(surface_id))
+                .and_then(|content| match content {
+                    ContentPublicId::Terminal(id) => Some(id.clone()),
+                    _ => None,
+                })
+        };
+        // Adoption may have fallen back to the asynchronous retry loop; the
+        // shell's bounded wait then clears the builder's values instead.
+        let Some(terminal_public_id) = terminal_public_id else { return Ok(()) };
+        let contents = format!(
+            "CMUX_TUI_SESSION_ID={}\nCMUX_TUI_TERMINAL_ID={}\n",
+            session_id.as_str(),
+            terminal_public_id.as_str()
+        );
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        let temporary = path.with_extension("tmp");
+        std::fs::write(&temporary, contents)?;
+        std::fs::rename(&temporary, path)?;
         Ok(())
     }
 

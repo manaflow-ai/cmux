@@ -2063,6 +2063,9 @@ fn run_server(
         // SurfaceOptions::adopt_template_terminal.
         surface_options.adopt_template_terminal =
             std::env::var("CMUX_TUI_ADOPT_TEMPLATE_TERMINAL").is_ok_and(|value| value == "1");
+        surface_options.template_bound_file = std::env::var_os("CMUX_TUI_TEMPLATE_BOUND_FILE")
+            .filter(|value| !value.is_empty())
+            .map(PathBuf::from);
     }
     let provider_management_pending = provider_management_listener.is_some();
     let mux =

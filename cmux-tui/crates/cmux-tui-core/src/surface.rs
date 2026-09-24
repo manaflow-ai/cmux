@@ -173,6 +173,9 @@ pub struct SurfaceOptions {
     /// fresh and imports the warm host as its first terminal, so no identity
     /// is shared between clones while the shell survives the snapshot.
     pub adopt_template_terminal: bool,
+    /// Where to publish the adopted template terminal's new session and
+    /// terminal ids (`KEY=value` lines) once adoption commits.
+    pub template_bound_file: Option<PathBuf>,
 }
 
 /// Default TERM for child shells.
@@ -225,6 +228,7 @@ impl Default for SurfaceOptions {
             browser_capture_scale: None,
             terminal_host_root: None,
             adopt_template_terminal: false,
+            template_bound_file: None,
         }
     }
 }

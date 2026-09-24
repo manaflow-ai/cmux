@@ -157,6 +157,7 @@ impl RecoveryHarness {
         }
         if self.adopt_template_terminal {
             command.env("CMUX_TUI_ADOPT_TEMPLATE_TERMINAL", "1");
+            command.env("CMUX_TUI_TEMPLATE_BOUND_FILE", self.dir.join("bound"));
         }
         command
     }
@@ -4569,6 +4570,16 @@ fn template_terminal_host_is_adopted_by_a_fresh_identity_daemon() {
     assert_ne!(after.0, before.0, "machine id carried over from the template");
     assert_ne!(after.1, before.1, "resource-effect pepper carried over from the template");
     assert_ne!(after.2, before.2, "session id carried over from the template");
+    // The warm shell learns its new identity from the bound file.
+    let bound = fs::read_to_string(harness.dir.join("bound")).unwrap();
+    let term = workspaces["workspaces"][0]["screens"][0]["panes"][0]["tabs"][0]["content_resource_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    assert_eq!(
+        bound,
+        format!("CMUX_TUI_SESSION_ID={}\nCMUX_TUI_TERMINAL_ID={term}\n", after.2),
+    );
 
     let typed = format!("after-template-{}", std::process::id());
     request(
