@@ -240,6 +240,9 @@ with (state / "opencode-config.lock").open("a") as lock:
                 answer = json.loads(body)
             except ValueError:
                 answer = None
+            # The server's 401 text names `cr login`, which the guest lacks.
+            if status == "401":
+                unconfigured("the coderouter rejected this machine's credential")
             if isinstance(answer, dict) and answer.get("retryable") is False:
                 unconfigured(str(answer.get("message") or answer.get("error") or "HTTP " + status))
             raise Retryable("HTTP " + status)
