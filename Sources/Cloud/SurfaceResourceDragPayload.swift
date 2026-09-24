@@ -1,4 +1,5 @@
 import Bonsplit
+import CmuxSurfaceCatalogModel
 import Foundation
 
 /// Registers a Cloud tree row as the same live capability Bonsplit tab drags

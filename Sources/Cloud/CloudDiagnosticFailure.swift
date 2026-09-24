@@ -1,4 +1,5 @@
 import CmuxAuthRuntime
+import CmuxSurfaceCatalogModel
 import Foundation
 
 enum CloudDiagnosticFailure: String, Codable, Sendable, Error {

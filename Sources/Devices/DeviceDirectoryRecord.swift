@@ -1,4 +1,5 @@
 import CMUXMobileCore
+import CmuxSurfaceCatalogModel
 import Foundation
 
 /// What the account's presence service currently says about a device.
