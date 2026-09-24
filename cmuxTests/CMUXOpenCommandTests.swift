@@ -2843,7 +2843,9 @@ final class CMUXOpenCommandTests: XCTestCase {
     /// `git init` for fixtures whose refs and object ids are written by hand:
     /// SHA-1 objects and loose-file refs. The ref format goes through `-c`
     /// rather than `--ref-format`, which git releases before 2.45 reject; those
-    /// releases only know loose-file refs anyway.
+    /// releases only know loose-file refs anyway. `GIT_DEFAULT_REF_FORMAT` and
+    /// `GIT_DEFAULT_HASH` would override both choices, so `runGitProcess` drops
+    /// them from the inherited environment.
     private static let classicLayoutGitInitArguments = [
         "-c", "init.defaultRefFormat=files",
         "init", "-q", "--object-format=sha1"
@@ -2898,7 +2900,9 @@ final class CMUXOpenCommandTests: XCTestCase {
         runProcess(
             executablePath: "/usr/bin/env",
             arguments: ["git"] + arguments,
-            environment: ProcessInfo.processInfo.environment,
+            environment: ProcessInfo.processInfo.environment.filter { key, _ in
+                key != "GIT_DEFAULT_REF_FORMAT" && key != "GIT_DEFAULT_HASH"
+            },
             timeout: 30,
             currentDirectoryURL: directory
         )
@@ -3030,22 +3034,17 @@ final class CMUXOpenCommandTests: XCTestCase {
             return ProcessRunResult(status: -1, stdout: "", stderr: String(describing: error), timedOut: false)
         }
 
-        let exitSignal = DispatchSemaphore(value: 0)
-        DispatchQueue.global(qos: .userInitiated).async {
-            process.waitUntilExit()
-            exitSignal.signal()
-        }
         if let stdinText, let stdinPipe {
             stdinPipe.fileHandleForWriting.write(Data(stdinText.utf8))
             stdinPipe.fileHandleForWriting.closeFile()
         }
 
-        let timedOut = exitSignal.wait(timeout: .now() + timeout) == .timedOut
+        let timedOut = waitForProcessExit(process, timeout: timeout) == .timedOut
         if timedOut {
             process.terminate()
-            if exitSignal.wait(timeout: .now() + 1) == .timedOut, process.isRunning {
+            if waitForProcessExit(process, timeout: 1) == .timedOut, process.isRunning {
                 kill(process.processIdentifier, SIGKILL)
-                _ = exitSignal.wait(timeout: .now() + 1)
+                _ = waitForProcessExit(process, timeout: 1)
             }
         }
 
@@ -3111,14 +3110,9 @@ final class CMUXOpenCommandTests: XCTestCase {
     private func terminateProcess(_ process: Process) {
         guard process.isRunning else { return }
         process.terminate()
-        let finished = DispatchSemaphore(value: 0)
-        DispatchQueue.global(qos: .utility).async {
-            process.waitUntilExit()
-            finished.signal()
-        }
-        if finished.wait(timeout: .now() + 1) == .timedOut, process.isRunning {
+        if waitForProcessExit(process, timeout: 1) == .timedOut, process.isRunning {
             kill(process.processIdentifier, SIGKILL)
-            _ = finished.wait(timeout: .now() + 1)
+            _ = waitForProcessExit(process, timeout: 1)
         }
     }
 
