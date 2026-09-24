@@ -16,8 +16,9 @@
 `all` while no runner is healthy; -y skips the question. GitHub calls go
 through `gh` as whoever is signed in. `up` does not need an org admin at the
 mini: an admin runs `token` and the operator runs
-`CMUX_RUNNER_TOKEN=<token> scripts/persistent-compile up`. See
-docs/ci/mac-fleet.md for the design this operates.
+`CMUX_RUNNER_TOKEN=<token> scripts/persistent-compile up`. A mini without gh
+also needs the Glaeda candidate copied in first; `up` says where before it
+starts anything. See docs/ci/mac-fleet.md for the design this operates.
 """
 
 from __future__ import annotations
@@ -64,6 +65,9 @@ CANDIDATE_ARTIFACT = "glaeda-candidate-aarch64-apple-darwin"
 CANDIDATE_SOURCE = "59ca9c9bd1bb56679aabbde994fd8f3e55fee935"
 CANDIDATE_SHA256 = "f31ab3a17feb1d8d955c5527f193478a1c871790ab2ea67058b0f9d4e2395b55"
 CANDIDATE_EXPIRES = "2026-10-24T11:18:03Z"  # the artifact's expires_at; a new mini cannot enroll after it
+CANDIDATE_REPO = "teamleaderleo/glaeda"
+# doctor starts warning this many days before CANDIDATE_EXPIRES, time enough to pin a new one.
+CANDIDATE_WARN_DAYS = 14
 TOKEN_ENV = "CMUX_RUNNER_TOKEN"
 
 RUNNER_VERSION = "2.336.0"
@@ -160,9 +164,14 @@ def glaeda_root(explicit: str | None) -> Path | None:
 # ---------------------------------------------------------------- GitHub
 
 
+def gh_installed() -> bool:
+    # The fleet minis have no gh; everything `up` needs from GitHub has a path without it.
+    return shutil.which("gh") is not None
+
+
 def gh(*args: str, stdin: str | None = None) -> tuple[bool, Any]:
     """Run `gh`; returns (ok, parsed JSON or the error text)."""
-    if not shutil.which("gh"):
+    if not gh_installed():
         return False, "gh is not installed"
     result = subprocess.run(
         ["gh", *args], input=stdin, text=True, capture_output=True, check=False
@@ -230,6 +239,7 @@ def runner_problems(runner: dict[str, Any]) -> list[str]:
 class GitHubState:
     auth: str | None = None
     error: str | None = None
+    gh_missing: bool = False
     group: dict[str, Any] | None = None
     group_changes: list[str] = field(default_factory=list)
     group_warnings: list[str] = field(default_factory=list)
@@ -241,6 +251,11 @@ class GitHubState:
 
 def read_github() -> GitHubState:
     state = GitHubState()
+    if not gh_installed():
+        state.gh_missing = True
+        state.error = ("gh is not installed here, so the GitHub checks are skipped (normal on a fleet mini). "
+                       "Check the fleet from a machine with gh: scripts/persistent-compile")
+        return state
     ok, me = gh("api", "user", "--jq", ".login")
     if not ok:
         state.error = "gh is not signed in (run: gh auth login)"
@@ -295,13 +310,18 @@ def read_variables() -> dict[str, str]:
     return values
 
 
+FALLBACK_SOURCE = "the fallback in this script"
+# Where the pin came from when gh is absent: the variables were never read, not found empty.
+NO_GH_SOURCE = f"{FALLBACK_SOURCE}; no gh here to read {XCODE_VARIABLES[0]}"
+
+
 def expected_xcode(variables: dict[str, str]) -> tuple[str, str]:
     """The Xcode app CI compiles and revalidates with, and where that came from."""
     for name in XCODE_VARIABLES:
         value = (variables.get(name) or "").strip().rstrip("/")
         if value:
             return value, name
-    return XCODE_APP, "the fallback in this script"
+    return XCODE_APP, FALLBACK_SOURCE
 
 
 def healthy_runners(github: GitHubState) -> list[dict[str, Any]]:
@@ -334,7 +354,7 @@ class LocalState:
     service_loaded: bool | None
     glaeda: Path | None
     xcode_app: str = XCODE_APP
-    xcode_source: str = "the fallback in this script"
+    xcode_source: str = FALLBACK_SOURCE
 
 
 def read_json(path: Path) -> tuple[dict[str, Any] | None, str | None]:
@@ -372,7 +392,7 @@ def service_loaded(directory: Path) -> bool | None:
     return launchctl("print", f"gui/{os.getuid()}/{label}").returncode == 0
 
 
-def read_local(glaeda_arg: str | None, xcode: tuple[str, str] = (XCODE_APP, "the fallback in this script")) -> LocalState:
+def read_local(glaeda_arg: str | None, xcode: tuple[str, str] = (XCODE_APP, FALLBACK_SOURCE)) -> LocalState:
     enrollment, enrollment_error = read_json(enrollment_path())
     directory = runner_dir()
     runner_config, _ = read_json(directory / ".runner")
@@ -440,11 +460,19 @@ def doctor_lines(github: GitHubState, local: LocalState | None) -> tuple[list[tu
             nxt.append("scripts/persistent-compile up")
         sections.append(("This mini", lines))
 
+    candidate = candidate_expiry_line()
     lines = []
     if github.error:
-        lines.append(Line(False, github.error))
-        nxt.append("gh auth login   (org admins also: gh auth refresh -s admin:org)")
+        if github.gh_missing:
+            lines.append(Line(None, github.error))
+            if local is None:
+                nxt.append("install gh and sign in (gh auth login), or run this on a machine that has it")
+        else:
+            lines.append(Line(False, github.error))
+            nxt.append("gh auth login   (org admins also: gh auth refresh -s admin:org)")
         sections.append(("GitHub", lines))
+        if candidate is not None:
+            sections.append(("Glaeda candidate", [candidate]))
         return sections, nxt[0] if nxt else None
     lines.append(Line(True, f"signed in as {github.auth}"))
     if github.group_changes:
@@ -490,14 +518,21 @@ def doctor_lines(github: GitHubState, local: LocalState | None) -> tuple[list[tu
             nxt.append("scripts/persistent-compile off   (until a mini is up)")
         xcode, source = expected_xcode(github.variables)
         lines.append(Line(None, f"CI Xcode: {xcode} (from {source})"))
-    days = candidate_days_left()
-    if days < 7:
-        lines.append(Line(False, f"Glaeda candidate {CANDIDATE_SOURCE[:12]} "
-                                 + (f"expires in {days:.0f} days" if days > 0 else "has expired")
-                                 + ": minis not yet enrolled cannot download it. Pin a new candidate "
-                                 "(CANDIDATE_* in scripts/ci/persistent_compile_fleet.py)"))
     sections.append(("GitHub", lines))
+    if candidate is not None:
+        sections.append(("Glaeda candidate", [candidate]))
     return sections, nxt[0] if nxt else None
+
+
+def candidate_expiry_line() -> Line | None:
+    """A warning once the pinned candidate's artifact is close to expiring; checked on and off the mini."""
+    days = candidate_days_left()
+    if days >= CANDIDATE_WARN_DAYS:
+        return None
+    when = f"expires in {days:.0f} days ({CANDIDATE_EXPIRES})" if days > 0 else f"expired at {CANDIDATE_EXPIRES}"
+    return Line(False, f"Glaeda candidate {CANDIDATE_SOURCE[:12]} (run {CANDIDATE_RUN}) {when}: minis not yet "
+                       "enrolled cannot download it. Pin a new candidate (CANDIDATE_* in "
+                       "scripts/ci/persistent_compile_fleet.py)")
 
 
 def render_doctor(sections: list[tuple[str, list[Line]]], nxt: str | None) -> str:
@@ -514,7 +549,7 @@ def render_doctor(sections: list[tuple[str, list[Line]]], nxt: str | None) -> st
 
 def cmd_doctor(args: argparse.Namespace) -> int:
     github = read_github()
-    xcode = expected_xcode(github.variables)
+    xcode = (XCODE_APP, NO_GH_SOURCE) if github.gh_missing else expected_xcode(github.variables)
     local = read_local(args.glaeda_root, xcode) if (platform.system() == "Darwin" or args.local) else None
     sections, nxt = doctor_lines(github, local)
     print(render_doctor(sections, nxt))
@@ -568,11 +603,17 @@ def install_xcode(local: LocalState) -> str:
 
 def ci_xcode() -> tuple[str, str]:
     """The pinned Xcode, read with the operator's gh login; the fallback when that cannot read variables."""
+    if not gh_installed():
+        # Normal on a fleet mini. One line, and it names the pin assumed.
+        print(f"note: no gh here, so up checks Xcode against {XCODE_APP} (this script's copy of the pin in "
+              f"{XCODE_VARIABLES[0]}); if CI has moved, scripts/persistent-compile on a machine with gh says so",
+              file=sys.stderr)
+        return XCODE_APP, NO_GH_SOURCE
     try:
         return expected_xcode(read_variables())
     except Failure as error:
         print(f"note: could not read the CI Xcode pin ({error}); assuming {XCODE_APP}", file=sys.stderr)
-        return XCODE_APP, "the fallback in this script"
+        return XCODE_APP, FALLBACK_SOURCE
 
 
 def require_mac() -> None:
@@ -696,6 +737,17 @@ class UpStep:
     text: str
 
 
+def check_node_id(local: LocalState, node_id: str | None) -> None:
+    """Refuse a node id problem glaeda-mini-enroll would only reach after the clone and setup."""
+    if local.enrollment is None and not node_id:
+        raise Failure("this mini is not enrolled yet: pass --node-id, an opaque id such as cmux-mac-002 "
+                      "(not a hostname or serial) that no other mini uses. Nothing was changed.")
+    enrolled_as = (local.enrollment or {}).get("nodeId")
+    if local.enrollment is not None and node_id and enrolled_as != node_id:
+        raise Failure(f"this mini is already enrolled as {enrolled_as}; drop --node-id {node_id}, or retire "
+                      "that enrollment first. Nothing was changed.")
+
+
 def up_plan(local: LocalState, setup_pending: bool, node_id: str | None, has_token: bool,
             glaeda_current: bool = True, have_candidate: bool = True) -> list[UpStep]:
     """What `up` still has to do on this mini, in order. Pure, so it is tested without a Mac."""
@@ -710,11 +762,9 @@ def up_plan(local: LocalState, setup_pending: bool, node_id: str | None, has_tok
     enroll_needed = local.enrollment is None or state not in {"eligible", "retired"} or not local.acceptance
     if enroll_needed and not have_candidate:
         steps.append(UpStep("download", f"download the reviewed Glaeda candidate {CANDIDATE_SOURCE[:12]} "
-                                        f"(run {CANDIDATE_RUN}) with gh"))
+                                        f"(run {CANDIDATE_RUN}) with gh into {candidate_dir()}"))
+    check_node_id(local, node_id)
     if local.enrollment is None:
-        if not node_id:
-            raise Failure("this mini is not enrolled yet: pass --node-id, an opaque id such as cmux-mac-002 "
-                          "(not a hostname or serial)")
         steps.append(UpStep("enroll", f"stage the candidate, enroll as {node_id} and run local acceptance "
                                       "(a cold cmux build, about 13 minutes)"))
     elif state == "retired":
@@ -734,9 +784,65 @@ def up_plan(local: LocalState, setup_pending: bool, node_id: str | None, has_tok
     return steps
 
 
+HEARTBEAT_SECONDS = 30.0
+
+
+def elapsed_text(seconds: float) -> str:
+    minutes, secs = divmod(int(seconds), 60)
+    return f"{minutes}m{secs:02d}s" if minutes else f"{secs}s"
+
+
+def run_with_heartbeat(argv: list[str], cwd: Path, *, capture: bool = False, label: str | None = None,
+                       interval: float = HEARTBEAT_SECONDS) -> subprocess.CompletedProcess[str]:
+    """Run a long step, printing an elapsed-time line whenever it has been silent for `interval`.
+
+    The child's output is relayed as it arrives. With capture, its stdout is kept and
+    returned instead (a JSON receipt stays parseable) and the heartbeat goes to stderr.
+    """
+    label = label or os.path.basename(argv[1] if argv[0] == sys.executable and len(argv) > 1 else argv[0])
+    process = subprocess.Popen(argv, cwd=cwd, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                               stderr=subprocess.PIPE)
+    assert process.stdout is not None and process.stderr is not None
+    captured = bytearray()
+    beat_to = sys.stderr if capture else sys.stdout
+    sinks = {process.stdout.fileno(): None if capture else sys.stdout,
+             process.stderr.fileno(): sys.stderr}
+    at_line_start = {id(sys.stdout): True, id(sys.stderr): True}
+    start = last_output = time.monotonic()
+    open_fds = list(sinks)
+    while open_fds:
+        ready, _, _ = select.select(open_fds, [], [], max(0.0, last_output + interval - time.monotonic()))
+        for fd in ready:
+            chunk = os.read(fd, 65536)
+            if not chunk:
+                open_fds.remove(fd)
+                continue
+            sink = sinks[fd]
+            if sink is None:
+                captured += chunk
+                continue
+            last_output = time.monotonic()
+            sink.flush()
+            if hasattr(sink, "buffer"):
+                sink.buffer.write(chunk)
+            else:  # a replaced stream, as under test
+                sink.write(chunk.decode(errors="replace"))
+            sink.flush()
+            at_line_start[id(sink)] = chunk.endswith((b"\n", b"\r"))
+        if not ready and time.monotonic() - last_output >= interval:
+            prefix = "" if at_line_start.get(id(beat_to), True) else "\n"
+            print(f"{prefix}   ... {label} still running, {elapsed_text(time.monotonic() - start)} elapsed",
+                  file=beat_to, flush=True)
+            at_line_start[id(beat_to)] = True
+            last_output = time.monotonic()
+    process.stdout.close()
+    process.stderr.close()
+    return subprocess.CompletedProcess(argv, process.wait(), captured.decode(errors="replace") if capture else None)
+
+
 def glaeda_python(glaeda: Path, script: str, *args: str, capture: bool = False) -> subprocess.CompletedProcess[str]:
-    return subprocess.run([sys.executable, os.fspath(glaeda / "scripts" / script), *args], cwd=glaeda,
-                          text=True, stdout=subprocess.PIPE if capture else None, check=False)
+    return run_with_heartbeat([sys.executable, os.fspath(glaeda / "scripts" / script), *args], glaeda,
+                              capture=capture, label=script)
 
 
 def mini_setup_receipt(glaeda: Path, apply: bool) -> dict[str, Any]:
@@ -761,6 +867,63 @@ def human_steps(receipt: dict[str, Any]) -> list[str]:
             if not any(marker in s["command"] for marker in skip)]
 
 
+def sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for block in iter(lambda: handle.read(1 << 20), b""):
+            digest.update(block)
+    return digest.hexdigest()
+
+
+def staging_instructions() -> str:
+    """How to get the candidate onto a mini that has no gh. Paths are this mini's."""
+    name = candidate_archive().name
+    return (f"Put the reviewed Glaeda candidate at\n  {candidate_archive()}\nFrom a machine with gh:\n"
+            f"  gh run download {CANDIDATE_RUN} --repo {CANDIDATE_REPO} -n {CANDIDATE_ARTIFACT} --dir glaeda-candidate\n"
+            f"  shasum -a 256 glaeda-candidate/{name}   # must print {CANDIDATE_SHA256}\n"
+            f"  ssh <mini> mkdir -p '{candidate_dir()}'\n"
+            f"  scp glaeda-candidate/{name} '<mini>:{candidate_dir()}/'\n"
+            "then run scripts/persistent-compile up again.")
+
+
+def candidate_blocker(staged: bool, archive_sha256: str | None, gh_available: bool, days_left: float) -> str | None:
+    """Why enrollment cannot get the pinned candidate, or None. Pure, and checked before any long step.
+
+    `staged` is a generation glaeda-mini-enroll already staged; `archive_sha256` the digest
+    of a file at candidate_archive(), None when there is none.
+    """
+    if staged or archive_sha256 == CANDIDATE_SHA256:
+        return None
+    if archive_sha256 is not None:
+        return (f"{candidate_archive()} has sha256 {archive_sha256}, not the pinned {CANDIDATE_SHA256}. "
+                f"Delete it; it is the wrong or a partial file.\n" + staging_instructions())
+    if days_left <= 0:
+        return (f"the pinned Glaeda candidate (run {CANDIDATE_RUN}) expired at {CANDIDATE_EXPIRES} and cannot be "
+                "downloaded any more. Pin a new candidate: replace CANDIDATE_* in "
+                "scripts/ci/persistent_compile_fleet.py from the new run's receipt.")
+    if not gh_available:
+        return "gh is not installed here (normal on a fleet mini), so up cannot download the candidate.\n" + \
+            staging_instructions()
+    return None
+
+
+def up_blockers(steps: list[UpStep], has_token: bool, gh_available: bool) -> list[str]:
+    """What would stop `up` part way, found before it starts."""
+    keys = {step.key for step in steps}
+    problems = []
+    if "enroll" in keys and not candidate_staged():
+        archive = candidate_archive()
+        blocker = candidate_blocker(False, sha256_file(archive) if archive.is_file() else None,
+                                    gh_available, candidate_days_left())
+        if blocker:
+            problems.append(blocker)
+    if "register" in keys and not has_token and not gh_available:
+        problems.append(f"registering the runner needs a token and there is no gh here. An org admin runs "
+                        f"scripts/persistent-compile token on their machine; then run "
+                        f"{TOKEN_ENV}=<token> scripts/persistent-compile up (the token lasts an hour).")
+    return problems
+
+
 def cmd_up(args: argparse.Namespace) -> int:
     require_mac()
     # Take the token out of the environment before any child runs: setup builds
@@ -770,6 +933,7 @@ def cmd_up(args: argparse.Namespace) -> int:
     if local.enrollment_error:
         raise Failure(f"the Glaeda enrollment exists but cannot be read: {local.enrollment_error}. "
                       "Inspect it; up will not replace it.")
+    check_node_id(local, args.node_id)
     if not local.xcode:
         raise Failure(install_xcode(local))
     current = local.glaeda is not None and (local.glaeda / "scripts" / "glaeda-mini-enroll").is_file()
@@ -780,6 +944,9 @@ def cmd_up(args: argparse.Namespace) -> int:
     if not steps:
         print(f"{local.runner_name} is enrolled, registered and running. Nothing to do.")
         return 0
+    problems = up_blockers(steps, bool(token), gh_installed())
+    if problems:
+        raise Failure("before up starts:\n\n" + "\n\n".join(problems) + "\n\nNothing was changed.")
     print("up:")
     if not confirm(args, [step.text for step in steps]):
         return 0
@@ -787,7 +954,10 @@ def cmd_up(args: argparse.Namespace) -> int:
         print(f"\n== {step.text}", flush=True)
         if step.key == "clone":
             target = Path.home() / "glaeda"
-            run_checked(["git", "clone", GLAEDA_URL, os.fspath(target)], Path.home())
+            # --progress: git reports only to a terminal, and the heartbeat reads through a pipe.
+            if run_with_heartbeat(["git", "clone", "--progress", GLAEDA_URL, os.fspath(target)], Path.home(),
+                                  label="git clone").returncode:
+                raise Failure("git clone of Glaeda failed (see above)")
             local.glaeda = target
         elif step.key == "update":
             run_checked(["git", "-C", os.fspath(local.glaeda), "pull", "--ff-only"], Path.home())
@@ -826,11 +996,12 @@ def cmd_up(args: argparse.Namespace) -> int:
 def download_candidate() -> None:
     directory = candidate_dir()
     directory.mkdir(parents=True, exist_ok=True, mode=0o700)
-    ok, error = gh("run", "download", CANDIDATE_RUN, "--repo", "teamleaderleo/glaeda",
+    ok, error = gh("run", "download", CANDIDATE_RUN, "--repo", CANDIDATE_REPO,
                    "--name", CANDIDATE_ARTIFACT, "--dir", os.fspath(directory))
     if not ok:
         raise Failure(f"could not download Glaeda candidate run {CANDIDATE_RUN} ({error}). Artifacts expire after "
-                      "30 days: ask for a new candidate and update CANDIDATE_* in scripts/ci/persistent_compile_fleet.py")
+                      "30 days: ask for a new candidate and update CANDIDATE_* in scripts/ci/persistent_compile_fleet.py.\n"
+                      + staging_instructions())
     if not candidate_archive().is_file():
         raise Failure(f"the downloaded artifact has no {candidate_archive().name}")
     # glaeda-mini-enroll verifies the bytes against CANDIDATE_SHA256 before staging anything.
