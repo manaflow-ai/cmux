@@ -632,6 +632,9 @@ CLI_LANE_EXACT_INPUTS = frozenset({
     "scripts/ci/restore-app-host-test-product.sh",
     "scripts/ci/run-and-capture.sh",
     "scripts/ci/require_selected_test_execution.sh",
+    # What restore-app-host-test-product.sh itself runs.
+    "scripts/ci/app_host_test_products.py",
+    "scripts/ci/canonical-build-root.sh",
 })
 
 CLI_LANE_INPUT_PREFIXES = (
@@ -642,6 +645,8 @@ CLI_LANE_INPUT_PREFIXES = (
     # cache on the project's Package.resolved.
     "cmux.xcodeproj/",
     ".github/actions/cache-restore/",
+    # cli-product-tests' canonical fallback download of the compiled product.
+    ".github/actions/download-test-product/",
     # The lane runs `swift test` in this package directly.
     "Packages/macOS/CmuxFoundation/",
 )

@@ -17,6 +17,8 @@ import tempfile
 import unittest
 import zipfile
 import zlib
+
+import yaml
 from unittest import mock
 from pathlib import Path
 
@@ -123,6 +125,9 @@ class WorkflowWiringTests(unittest.TestCase):
         self.assertIn("if: always()", finalize)
         self.assertIn("CMUX_NODE_PRODUCT_CACHE_LEASE: ${{ steps.node-products.outputs.lease }}", finalize)
         self.assertIn("node_product_cache.py finalize", finalize)
+        jobs = yaml.safe_load(WORKFLOW)["jobs"]
+        # Same permissions: the R2 transport needs id-token to mint its token.
+        self.assertEqual(jobs["cli-product-tests"]["permissions"], jobs["app-host-unit-tests"]["permissions"])
         self.assertEqual(
             step_block(block, "Verify GitHub-hosted route"),
             step_block(job_block("app-host-unit-tests"), "Verify GitHub-hosted route"),
