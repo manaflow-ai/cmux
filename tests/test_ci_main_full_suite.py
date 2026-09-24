@@ -58,8 +58,14 @@ class DispatchDecisionTests(unittest.TestCase):
         for status in ("queued", "in_progress", "waiting", "pending"):
             with self.subTest(status=status):
                 self.assertFalse(
-                    MODULE.dispatch_decision([run(status=status, conclusion=None)], HEAD)[0]
+                    MODULE.dispatch_decision([run(status=status, conclusion=None)], HEAD, now=NOW)[0]
                 )
+
+    def test_a_stale_queued_run_at_head_does_not_hold_the_schedule(self):
+        now = datetime(2026, 9, 22, 7, 0, tzinfo=timezone.utc)
+        stuck = run(status="queued", conclusion=None, created_at="2026-09-22T00:00:00Z")
+        self.assertTrue(MODULE.dispatch_decision([stuck], HEAD, now=now)[0])
+        self.assertFalse(MODULE.dispatch_decision([stuck], HEAD, now=datetime(2026, 9, 22, 5, 0, tzinfo=timezone.utc))[0])
 
     def test_only_full_suite_ci_runs_on_main_count(self):
         # PR and merge-group runs are not the full suite on main, and another
@@ -241,21 +247,30 @@ class WorkflowWiringTests(unittest.TestCase):
         script = textwrap.dedent(gate.split("        run: |\n", 1)[1])
         for lookup_exit in (1, 0):
             with self.subTest(lookup_exit=lookup_exit), tempfile.TemporaryDirectory() as directory:
-                output = pathlib.Path(directory) / "output"
-                gh = pathlib.Path(directory) / "gh"
-                gh.write_text(f"#!/bin/sh\necho {HEAD}\nexit {lookup_exit}\n")
-                gh.chmod(0o755)
-                result = subprocess.run(
-                    ["bash", "-euo", "pipefail", "-c", script],
-                    cwd=ROOT,
-                    env={**os.environ, "PATH": directory + os.pathsep + os.environ["PATH"],
-                         "GITHUB_OUTPUT": str(output), "GITHUB_REPOSITORY": "test/repo",
-                         "FORCE": "true"},
-                    capture_output=True, text=True, timeout=10,
-                )
+                output, result = self.gate_step(script, directory, lookup_exit, FORCE="true")
                 self.assertEqual(result.returncode, 0, result.stderr)
                 self.assertEqual(output.read_text().strip(), "dispatch=true")
                 self.assertIn("Could not read" if lookup_exit else "forced by", result.stdout)
+        # After a completed run, a failed lookup must not re-run that commit.
+        with tempfile.TemporaryDirectory() as directory:
+            output, result = self.gate_step(script, directory, 1, FORCE="false", COMPLETED_SHA=HEAD)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(output.read_text().strip(), "dispatch=false")
+
+    @staticmethod
+    def gate_step(script, directory, lookup_exit, **env):
+        output = pathlib.Path(directory) / "output"
+        gh = pathlib.Path(directory) / "gh"
+        gh.write_text(f"#!/bin/sh\necho {HEAD}\nexit {lookup_exit}\n")
+        gh.chmod(0o755)
+        result = subprocess.run(
+            ["bash", "-euo", "pipefail", "-c", script],
+            cwd=ROOT,
+            env={**os.environ, "PATH": directory + os.pathsep + os.environ["PATH"],
+                 "GITHUB_OUTPUT": str(output), "GITHUB_REPOSITORY": "test/repo", **env},
+            capture_output=True, text=True, timeout=10,
+        )
+        return output, result
 
     def test_never_cancels_in_progress(self):
         self.assertNotRegex(self.text, r"cancel-in-progress:\s*(true|\$\{\{)")

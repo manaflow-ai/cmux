@@ -54,27 +54,30 @@ def is_main_full_suite_run(run: Mapping[str, object], branch: str) -> bool:
     )
 
 
-def dispatch_decision(runs: Iterable[Mapping[str, object]], head_sha: str, branch: str = "main") -> tuple[bool, str]:
-    """Return (dispatch, reason) for main's HEAD given its earlier CI runs."""
-    candidates = [
-        run for run in runs
-        if is_main_full_suite_run(run, branch) and run.get("head_sha") == head_sha
-    ]
-    for run in candidates:
-        if run.get("status") != "completed":
-            return False, f"run {run.get('id')} for {head_sha} is already {run.get('status')}"
-    for run in candidates:
-        if run.get("conclusion") in TESTED_CONCLUSIONS:
-            return False, f"run {run.get('id')} already tested {head_sha} ({run.get('conclusion')})"
-    return True, f"no completed full-suite run for {head_sha}"
-
-
 def created_before(run: Mapping[str, object], cutoff: datetime) -> bool:
     try:
         created = datetime.fromisoformat(str(run.get("created_at")).replace("Z", "+00:00"))
     except ValueError:
         return False
     return created < cutoff
+
+
+def dispatch_decision(
+    runs: Iterable[Mapping[str, object]], head_sha: str, branch: str = "main", now: datetime | None = None,
+) -> tuple[bool, str]:
+    """Return (dispatch, reason) for main's HEAD given its earlier CI runs."""
+    cutoff = (now or datetime.now(timezone.utc)) - STALE_IN_FLIGHT
+    candidates = [
+        run for run in runs
+        if is_main_full_suite_run(run, branch) and run.get("head_sha") == head_sha
+    ]
+    for run in candidates:
+        if run.get("status") != "completed" and not created_before(run, cutoff):
+            return False, f"run {run.get('id')} for {head_sha} is already {run.get('status')}"
+    for run in candidates:
+        if run.get("conclusion") in TESTED_CONCLUSIONS:
+            return False, f"run {run.get('id')} already tested {head_sha} ({run.get('conclusion')})"
+    return True, f"no completed full-suite run for {head_sha}"
 
 
 def in_flight_run(
