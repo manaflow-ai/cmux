@@ -57,10 +57,7 @@ final class WorkspaceNavigationBarController: UIViewController {
             if let control = controls[value.id] {
                 control.view.update(content: content)
             } else {
-                let customView = WorkspaceNavigationControlView(
-                    content: content,
-                    accessibilityIdentifier: "MobileWorkspaceControl.\(String(describing: value.id))"
-                )
+                let customView = WorkspaceNavigationControlView(content: content)
                 controls[value.id] = HostedControl(
                     button: UIBarButtonItem(customView: customView), view: customView
                 )

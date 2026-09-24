@@ -11,6 +11,7 @@ final class WorkspaceNavigationTitleView: UIView {
     private let capsule: UIVisualEffectView
     private static let horizontalInset: CGFloat = 10
     private static let preferredContentWidth: CGFloat = 180
+    private static let maximumWidthLeadingInset: CGFloat = 11
     // Preserve the base toolbar's gap between the title island and actions.
     // This does not estimate available space; UIKit allocates the whole view.
     private static let trailingSpacing: CGFloat = 6
@@ -25,8 +26,6 @@ final class WorkspaceNavigationTitleView: UIView {
             capsule = UIVisualEffectView(effect: UIBlurEffect(style: .systemThinMaterial))
         }
         super.init(frame: .zero)
-        accessibilityIdentifier = "MobileWorkspaceTitleHost"
-        isAccessibilityElement = true
         if #available(iOS 26.0, *) {
             capsule.cornerConfiguration = .capsule()
         } else {
@@ -47,6 +46,13 @@ final class WorkspaceNavigationTitleView: UIView {
 
     func update(content: AnyView) {
         contentView.configuration = UIHostingConfiguration { content }.margins(.all, 0).minSize(width: 0, height: 0)
+        let contentWidth = contentView.systemLayoutSizeFitting(UIView.layoutFittingCompressedSize).width
+        alignmentRectInsets = UIEdgeInsets(
+            top: 0,
+            left: contentWidth > Self.preferredContentWidth ? Self.maximumWidthLeadingInset : 0,
+            bottom: 0,
+            right: 0
+        )
         invalidateIntrinsicContentSize()
     }
 
