@@ -24,12 +24,14 @@ import sys
 from pathlib import Path
 from typing import Callable, Iterable
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-from e2e_warm_derived_data import outside_the_app_build  # noqa: E402
-
 TEST_ROOT = "cmuxTests/"
 PRODUCTS_PREFIX = "app-host-products-v1-"
 TEST_TARGET = "cmuxTests"
+# Paths no target of the app host reads: cmux.xcodeproj references none of
+# them. Narrower than e2e_warm_derived_data.py's list, which may skip bundled
+# resources (skills/cmux-cua, Resources/*.md) because it rebuilds the app;
+# a rerun keeps CI's app as it is.
+OUTSIDE_THE_APP = (TEST_ROOT, "cmuxUITests/", ".github/", "docs/", "scripts/ci/", "tests/", "web/")
 SELECTOR = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*(/[A-Za-z_][A-Za-z0-9_]*(/[A-Za-z_][A-Za-z0-9_]*(\(\))?)?)?$")
 
 
@@ -38,14 +40,9 @@ def git(*args: str, cwd: str | None = None) -> str:
 
 
 def non_test_changes(base: str, head: str, cwd: str | None = None) -> list[str]:
-    """Paths that differ between two revisions and can change the app-host products.
-
-    Test sources, docs and CI files compile nothing into the app host; the
-    rule is e2e_warm_derived_data.py's, which adopts main's DerivedData on
-    the same condition.
-    """
+    """Paths that differ between two revisions and can change the app-host products."""
     changed = git("diff", "--name-only", "--no-renames", base, head, cwd=cwd).splitlines()
-    return [path for path in changed if path and not outside_the_app_build(path)]
+    return [path for path in changed if path and not path.startswith(OUTSIDE_THE_APP)]
 
 
 def eligible_revisions(head: str, limit: int, cwd: str | None = None) -> tuple[list[str], dict | None]:
@@ -505,7 +502,12 @@ def selected_suites(selectors: Iterable[str]) -> set[str]:
 
 
 def source_closure(sources: dict[str, str], suites: set[str]) -> set[str] | None:
-    """The test sources the selected suites need, or None when a suite's file is not found."""
+    """The test sources the selected suites need, or None when a suite's file is not found.
+
+    Inherited tests are never referenced by name: an extension of a base test
+    class in a third file would be dropped without a compile error. No
+    cmuxTests class inherits from another today.
+    """
     top = {name: set(TOP_DECLARATION.findall(text)) for name, text in sources.items()}
     extensions: dict[str, list[tuple[str, set[str]]]] = {}
     for name, text in sources.items():

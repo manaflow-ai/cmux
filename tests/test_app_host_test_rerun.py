@@ -70,8 +70,24 @@ class EligibilityTests(unittest.TestCase):
         base = self.repo.commit("Sources/App.swift", "1")
         self.repo.commit("docs/ci-runners.md", "x")
         self.repo.commit(".github/workflows/ci.yml", "x")
-        head = self.repo.commit("README.md", "x")
+        head = self.repo.commit("scripts/ci/tool.py", "x")
         self.assertEqual(rerun.non_test_changes(base, head, cwd=str(self.repo.path)), [])
+
+    def test_bundled_markdown_and_skills_change_the_app(self) -> None:
+        # The app copies these into its resources; the rerun keeps CI's app.
+        base = self.repo.commit("Sources/App.swift", "1")
+        self.repo.commit("Resources/en.lproj/cloud-agent-skill.md", "x")
+        head = self.repo.commit("skills/cmux-cua/SKILL.md", "x")
+        self.assertEqual(
+            rerun.non_test_changes(base, head, cwd=str(self.repo.path)),
+            ["Resources/en.lproj/cloud-agent-skill.md", "skills/cmux-cua/SKILL.md"],
+        )
+
+    def test_no_neutral_path_is_referenced_by_the_project(self) -> None:
+        paths = re.findall(r'path = "?([^";]+)"?;', (ROOT / "cmux.xcodeproj" / "project.pbxproj").read_text())
+        for path in paths:
+            if path.startswith(rerun.OUTSIDE_THE_APP) or path + "/" in rerun.OUTSIDE_THE_APP:
+                self.assertIn(path, ("cmuxTests", "cmuxUITests"), path)
 
     def test_limit_bounds_the_walk(self) -> None:
         for index in range(5):
