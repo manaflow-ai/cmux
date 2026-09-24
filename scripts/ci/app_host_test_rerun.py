@@ -69,6 +69,9 @@ def products_artifact(repository: str, run_id: str, api: Callable[[str], dict]) 
 
 
 MERGE_REF = re.compile(r"refs/pull/\d+/merge")
+E2E_WORKFLOW = ".github/workflows/test-e2e.yml"
+# test-e2e.yml's run title ends "@ <ref> [<dispatch id>]"; run-e2e.sh passes a full SHA.
+DISPATCHED_REVISION = re.compile(r" @ ([0-9a-f]{40})(?: \[[^\]]*\])?$")
 
 
 def commit_parents(revision: str, cwd: str | None = None) -> list[str]:
@@ -97,8 +100,20 @@ def built_revision(run: dict, cwd: str | None = None, fetch: Callable[[str], Non
     loads its reusable workflows from the same ref, and `referenced_workflows`
     names the commit each came from. The merge must name `head_sha` as its
     second parent, which ties it to this run's head rather than any commit.
+    A dispatched test-e2e.yml run's `head_sha` is its workflow's branch, so
+    its title says what it built instead.
     """
     head = run["head_sha"]
+    fetch = fetch or (lambda revision: fetch_commit(revision, cwd=cwd))
+    if run.get("event") == "workflow_dispatch" and run.get("path") == E2E_WORKFLOW:
+        # A dispatched test-e2e.yml run lists under the branch its workflow came
+        # from, usually main, but compiles the `ref` input its title names.
+        # Other dispatches, such as main's ci.yml, build their head.
+        match = DISPATCHED_REVISION.search(str(run.get("display_title", "")))
+        if not match:
+            raise ValueError(f"dispatched run {run.get('id')} names no full revision in its title")
+        fetch(match.group(1))
+        return match.group(1)
     if run.get("event") != "pull_request":
         return head
     merges = {
@@ -112,7 +127,7 @@ def built_revision(run: dict, cwd: str | None = None, fetch: Callable[[str], Non
             "but GitHub recorded no single merge commit for it"
         )
     merge = merges.pop()
-    (fetch or (lambda revision: fetch_commit(revision, cwd=cwd)))(merge)
+    fetch(merge)
     parents = commit_parents(merge, cwd=cwd)
     if len(parents) != 2 or parents[1] != head:
         raise ValueError(f"run {run.get('id')} recorded {merge}, which is not a merge of its head {head}")
@@ -152,14 +167,16 @@ def product_runner(repository: str, run_id: str, api: Callable[[str], dict], pag
 
     The rerun rebuilds cmuxTests with the products' own Xcode, and each macOS
     image carries one pinned Xcode (26.3 on 15, 26.6 on 26). Compile admission
-    follows MACOS_RUNNER_PR, so read the pool it actually ran on. A run
-    without that job keeps the macOS 15 default.
+    follows MACOS_RUNNER_PR, so read the pool it actually ran on; a test-e2e.yml
+    run compiles in its `build` job. A run without either keeps the macOS 15
+    default.
     """
     for page in range(1, pages + 1):
         listing = api(f"repos/{repository}/actions/runs/{run_id}/jobs?filter=latest&per_page=100&page={page}")
         jobs = listing.get("jobs", [])
         for job in jobs:
-            if job.get("name", "").endswith(ADMISSION_JOB):
+            # test-e2e.yml compiles in its `build` job.
+            if job.get("name", "").endswith(ADMISSION_JOB) or job.get("name") == "build":
                 for label in job.get("labels", []):
                     match = re.search(r"macos-(\d+)", label)
                     if match and match.group(1) in PRODUCT_RUNNERS:
@@ -194,8 +211,10 @@ def plan(args: argparse.Namespace, api: Callable[[str], dict] = gh_api) -> dict:
         run = api(f"repos/{args.repository}/actions/runs/{args.source_run_id}")
         try:
             revision = built_revision(run)
+        except ValueError as error:
+            raise SystemExit(str(error))
         except subprocess.CalledProcessError:
-            raise SystemExit(f"run {args.source_run_id} built the merge of {run['head_sha']}, which could not be fetched")
+            raise SystemExit(f"run {args.source_run_id} built a revision other than {run['head_sha']} that could not be fetched")
         try:
             blocking = non_test_changes(revision, head)
         except subprocess.CalledProcessError:
