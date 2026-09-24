@@ -410,6 +410,45 @@ class WatchdogProcessTests(unittest.TestCase):
             completed.stdout,
         )
 
+    def test_deadline_fires_on_a_chatty_command_and_samples(self) -> None:
+        completed = self.watchdog(
+            "--deadline-epoch", f"{time.time() + 1:.3f}",
+            "--sample-seconds", "0",
+            "--label", "ExampleSuite",
+            command=fake_test_command("""
+                import time
+                print("◇ Test loops() started.")
+                while True:
+                    print("still working")
+                    time.sleep(0.1)
+            """),
+        )
+        self.assertEqual(completed.returncode, 124, completed.stdout[-2000:])
+        self.assertIn(
+            "ExampleSuite timed out at the job's test deadline, ahead of its "
+            "timeout-minutes, while running loops()",
+            completed.stdout,
+        )
+
+    def test_ios_package_steps_stop_ahead_of_the_job_timeout(self) -> None:
+        import yaml
+
+        workflow = yaml.safe_load((ROOT / ".github/workflows/test-ios.yml").read_text())
+        job = workflow["jobs"]["mobile-core-package"]
+        self.assertEqual(str(job["env"]["JOB_TIMEOUT_MINUTES"]), str(job["timeout-minutes"]))
+        steps = job["steps"]
+        names = [step.get("name") for step in steps]
+        deadline_step = names.index("Set test deadline")
+        wrapped = [
+            index for index, step in enumerate(steps)
+            if "hung_test_watchdog.py" in step.get("run", "")
+        ]
+        self.assertTrue(wrapped)
+        for index in wrapped:
+            with self.subTest(step=names[index]):
+                self.assertGreater(index, deadline_step)
+                self.assertIn('--deadline-epoch "$TEST_DEADLINE_EPOCH"', steps[index]["run"])
+
     def test_missing_sampler_is_reported_not_fatal(self) -> None:
         self.env["PATH"] = os.pathsep.join(
             entry for entry in self.env["PATH"].split(os.pathsep)
@@ -481,7 +520,10 @@ class WatchdogProcessTests(unittest.TestCase):
     def test_requires_a_bound(self) -> None:
         completed = self.watchdog(command=["true"])
         self.assertEqual(completed.returncode, 2)
-        self.assertIn("set --silence-seconds, --timeout-seconds, or both", completed.stderr)
+        self.assertIn(
+            "set --silence-seconds, --timeout-seconds, --deadline-epoch, or a combination",
+            completed.stderr,
+        )
 
 
 if __name__ == "__main__":

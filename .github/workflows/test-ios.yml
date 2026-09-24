@@ -211,8 +211,10 @@ jobs:
           && (!(github.event_name == 'workflow_dispatch' && inputs.test_filter != '') || inputs.swift_package != '') }}
     runs-on: ${{ (!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_IOS || 'blacksmith-6vcpu-macos-26') || inputs.runner }}
     # Focused runs build the shell and its macros from a cold SwiftPM cache.
+    # JOB_TIMEOUT_MINUTES repeats this expression; timeout-minutes cannot read env.
     timeout-minutes: ${{ inputs.swift_package != '' && 25 || 10 }}
     env:
+      JOB_TIMEOUT_MINUTES: ${{ inputs.swift_package != '' && 25 || 10 }}
       SWIFT_TEST_FILTER: ${{ inputs.test_filter }}
       FOCUSED_SWIFT_PACKAGE: ${{ inputs.swift_package }}
       # A hung test otherwise runs to the job ceiling, which GitHub reports as
@@ -221,6 +223,15 @@ jobs:
       # took longer than 44 s; three hung runs went quiet for 353-1152 s.
       TEST_SILENCE_SECONDS: "180"
     steps:
+      - name: Set test deadline
+        run: |
+          set -euo pipefail
+          # A test that keeps printing never trips the silence window. Stop it
+          # at a deadline ahead of timeout-minutes, which cancels the job and
+          # leaves the watchdog no time to sample stacks. The margin covers job
+          # setup before this step, stack sampling, and the post-test check.
+          echo "TEST_DEADLINE_EPOCH=$(( $(date +%s) + JOB_TIMEOUT_MINUTES * 60 - 120 ))" >> "$GITHUB_ENV"
+
       - name: Validate package selection
         env:
           SELECTED_PACKAGE: ${{ inputs.swift_package }}
@@ -282,6 +293,7 @@ jobs:
           fi
           log_path="$RUNNER_TEMP/CMUXMobileCore-tests.log"
           python3 scripts/ci/hung_test_watchdog.py --silence-seconds "$TEST_SILENCE_SECONDS" \
+            --deadline-epoch "$TEST_DEADLINE_EPOCH" \
             --label CMUXMobileCore --log "$log_path" -- swift test "${args[@]}"
           ./scripts/ci/require_selected_test_execution.sh "$log_path" "${SWIFT_TEST_FILTER:-CMUXMobileCore}"
 
@@ -300,6 +312,7 @@ jobs:
           fi
           log_path="$RUNNER_TEMP/CmuxSyncStore-tests.log"
           python3 scripts/ci/hung_test_watchdog.py --silence-seconds "$TEST_SILENCE_SECONDS" \
+            --deadline-epoch "$TEST_DEADLINE_EPOCH" \
             --label CmuxSyncStore --log "$log_path" -- swift test "${args[@]}"
           ./scripts/ci/require_selected_test_execution.sh "$log_path" "${SWIFT_TEST_FILTER:-CmuxSyncStore}"
 
@@ -316,6 +329,7 @@ jobs:
           fi
           log_path="$RUNNER_TEMP/CmuxMobilePairedMac-tests.log"
           python3 scripts/ci/hung_test_watchdog.py --silence-seconds "$TEST_SILENCE_SECONDS" \
+            --deadline-epoch "$TEST_DEADLINE_EPOCH" \
             --label CmuxMobilePairedMac --log "$log_path" -- swift test "${args[@]}"
           ./scripts/ci/require_selected_test_execution.sh "$log_path" "${SWIFT_TEST_FILTER:-CmuxMobilePairedMac}"
 
@@ -332,6 +346,7 @@ jobs:
           fi
           log_path="$RUNNER_TEMP/CmuxMobileChanges-tests.log"
           python3 scripts/ci/hung_test_watchdog.py --silence-seconds "$TEST_SILENCE_SECONDS" \
+            --deadline-epoch "$TEST_DEADLINE_EPOCH" \
             --label CmuxMobileChanges --log "$log_path" -- swift test "${args[@]}"
           ./scripts/ci/require_selected_test_execution.sh "$log_path" "${SWIFT_TEST_FILTER:-CmuxMobileChanges}"
 
@@ -355,6 +370,7 @@ jobs:
           fi
           log_path="$RUNNER_TEMP/CmuxMobileShell-tests.log"
           python3 scripts/ci/hung_test_watchdog.py --silence-seconds "$TEST_SILENCE_SECONDS" \
+            --deadline-epoch "$TEST_DEADLINE_EPOCH" \
             --label CmuxMobileShell --log "$log_path" -- swift test "${args[@]}"
           ./scripts/ci/require_selected_test_execution.sh "$log_path" "${SWIFT_TEST_FILTER:-CmuxMobileShell}"
 
@@ -373,6 +389,7 @@ jobs:
           fi
           log_path="$RUNNER_TEMP/CmuxMobileShellModel-tests.log"
           python3 scripts/ci/hung_test_watchdog.py --silence-seconds "$TEST_SILENCE_SECONDS" \
+            --deadline-epoch "$TEST_DEADLINE_EPOCH" \
             --label CmuxMobileShellModel --log "$log_path" -- swift test "${args[@]}"
           ./scripts/ci/require_selected_test_execution.sh "$log_path" "${SWIFT_TEST_FILTER:-CmuxMobileShellModel}"
 

@@ -8,12 +8,15 @@ canceled." in the log. Nothing named the test that hung.
 This wrapper runs the command on a pseudo-terminal, so the test process's
 stdout is line-buffered and each test's `started` line reaches the log when the
 test starts. It streams the output unchanged and follows the Swift Testing and
-XCTest progress lines. When the output goes quiet for `--silence-seconds`, or
-the command outlives `--timeout-seconds`, it prints the tests that started but
-did not finish, samples the test processes' stacks where `sample` exists
+XCTest progress lines. When the output goes quiet for `--silence-seconds`, the
+command outlives `--timeout-seconds`, or the wall clock reaches
+`--deadline-epoch`, it prints the tests that started but did not finish, samples the test processes' stacks where `sample` exists
 (macOS), kills the process group, and exits 124 with an `::error::` annotation
 that names the tests and says "timed out". If the runner cancels the step
-first, the same in-flight report is printed before exiting.
+first, the same in-flight report is printed before exiting, but without stack
+samples: a cancelled step has seconds left, not the time `sample` needs. A
+deadline set ahead of the job's `timeout-minutes` keeps a test that never goes
+quiet on the sampled path.
 """
 
 from __future__ import annotations
@@ -342,6 +345,7 @@ def run(
     sample_seconds: int,
     log_path: Optional[Path],
     drain_seconds: float = 2.0,
+    deadline_epoch: float = 0,
 ) -> int:
     out = Output()
     progress = TestProgress()
@@ -399,6 +403,9 @@ def run(
             else:
                 if timeout_seconds and now - started >= timeout_seconds:
                     reason = f"timed out after {timeout_seconds:g}s"
+                    break
+                if deadline_epoch and time.time() >= deadline_epoch:
+                    reason = "timed out at the job's test deadline, ahead of its timeout-minutes"
                     break
                 if silence_seconds and now - last_output >= silence_seconds:
                     reason = f"timed out after {silence_seconds:g}s with no output"
@@ -467,6 +474,13 @@ def main(argv: Optional[list[str]] = None) -> int:
         help="fail when the command runs longer than this (0 disables)",
     )
     parser.add_argument(
+        "--deadline-epoch",
+        type=float,
+        default=0,
+        help="fail when the wall clock reaches this Unix time (0 disables); "
+        "set it ahead of the job timeout so stacks are still sampled",
+    )
+    parser.add_argument(
         "--sample-seconds",
         type=int,
         default=3,
@@ -479,10 +493,11 @@ def main(argv: Optional[list[str]] = None) -> int:
     command = args.command[1:] if args.command[:1] == ["--"] else args.command
     if not command:
         parser.error("a command is required after --")
-    if args.silence_seconds < 0 or args.timeout_seconds < 0 or args.sample_seconds < 0:
+    if (args.silence_seconds < 0 or args.timeout_seconds < 0 or args.sample_seconds < 0
+            or args.deadline_epoch < 0):
         parser.error("durations must not be negative")
-    if not args.silence_seconds and not args.timeout_seconds:
-        parser.error("set --silence-seconds, --timeout-seconds, or both")
+    if not args.silence_seconds and not args.timeout_seconds and not args.deadline_epoch:
+        parser.error("set --silence-seconds, --timeout-seconds, --deadline-epoch, or a combination")
     if args.log:
         args.log.parent.mkdir(parents=True, exist_ok=True)
     return run(
@@ -492,6 +507,7 @@ def main(argv: Optional[list[str]] = None) -> int:
         timeout_seconds=args.timeout_seconds,
         sample_seconds=args.sample_seconds,
         log_path=args.log,
+        deadline_epoch=args.deadline_epoch,
     )
 
 
