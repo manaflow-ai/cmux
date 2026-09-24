@@ -22,12 +22,12 @@ public final class CmxIrohConnectionPathDiagnostics: Sendable {
                 ).diagnosticPathKind
             }
         )
-        // Subscribe before the initial snapshot so a selection change between
-        // the two cannot go unrecorded; the log drops a duplicate snapshot.
+        // Subscribe first. The observer serializes its initial snapshot with
+        // callbacks, including those delivered before the lifetime task runs.
         let handle = connection.watchPathEvents(callback: observer)
-        observer.recordSelectedPath()
         lifetime = Task {
             await withTaskCancellationHandler {
+                await observer.recordInitialPath()
                 _ = await connection.closed()
                 await handle.stop()
             } onCancel: {
@@ -38,11 +38,12 @@ public final class CmxIrohConnectionPathDiagnostics: Sendable {
 
     deinit { lifetime.cancel() }
 
-    final class Observer: PathEventCallback, Sendable {
+    actor Observer: PathEventCallback {
         let log: DiagnosticLog
         let surface: UInt32?
         let sessionID: Int
         let selectedPath: @Sendable () -> DiagnosticPathKind
+        private var hasRecordedInitialPath = false
 
         init(
             log: DiagnosticLog,
@@ -57,6 +58,7 @@ public final class CmxIrohConnectionPathDiagnostics: Sendable {
         }
 
         func onEvent(event: PathEvent) async {
+            recordInitialPath()
             let redacted = CmxIrohConnectionPathEvent(event)
             log.record(DiagnosticEvent(
                 .transportPathEvent, surface: surface,
@@ -68,7 +70,15 @@ public final class CmxIrohConnectionPathDiagnostics: Sendable {
             }
         }
 
-        func recordSelectedPath() {
+        func recordInitialPath() {
+            // Whichever arrives first, startup or a callback, owns the initial
+            // snapshot. Sampling and recording never suspend on this actor.
+            guard !hasRecordedInitialPath else { return }
+            hasRecordedInitialPath = true
+            recordSelectedPath()
+        }
+
+        private func recordSelectedPath() {
             let selected = selectedPath()
             log.record(DiagnosticEvent(
                 .selectedPathChanged, surface: surface,
