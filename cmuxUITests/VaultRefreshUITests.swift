@@ -48,15 +48,17 @@ final class VaultRefreshUITests: XCTestCase {
         let modes = app.buttons["RightSidebarModeButton.sessions"]
         XCTAssertTrue(modes.waitForExistence(timeout: 30))
         modes.click()
-        let reload = app.buttons["SessionIndexReloadButton"]
+        // The sidebar container's identifier propagates through SwiftUI on macOS.
+        // Query the visible accessible name in this explicitly English fixture.
+        let reload = app.buttons["Reload Vault"]
         XCTAssertTrue(reload.waitForExistence(timeout: 10))
         XCTAssertEqual(reload.label, "Reload Vault")
         XCTAssertTrue(app.staticTexts[title("baseline")].waitForExistence(timeout: 30))
         XCTAssertTrue(waitUntil { reload.isEnabled && reload.isHittable })
         attach(app, name: "\(presentation)-before-external-change")
 
-        for grouping in ["recency", "directory", "agent"] {
-            app.buttons["SessionGroupingButton.\(grouping)"].click()
+        for (grouping, label) in [("recency", "Recent"), ("directory", "Folder"), ("agent", "Agent")] {
+            app.buttons[label].click()
             _ = try writeSession(grouping, in: project)
             XCTAssertFalse(app.staticTexts[title(grouping)].exists, "External writes should still need the explicit reload")
             XCTAssertTrue(waitUntil { reload.isEnabled && reload.isHittable })
@@ -65,7 +67,9 @@ final class VaultRefreshUITests: XCTestCase {
             XCTAssertTrue(app.staticTexts[title("baseline")].exists, "Existing sessions must survive refresh")
         }
 
-        let search = app.searchFields["VaultAllSessionsSearchField"]
+        let search = app.searchFields.matching(
+            NSPredicate(format: "placeholderValue == %@", "Search sessions…")
+        ).firstMatch
         XCTAssertTrue(search.waitForExistence(timeout: 5))
         search.click()
         search.typeText("Vault13919")
@@ -94,7 +98,7 @@ final class VaultRefreshUITests: XCTestCase {
         app.buttons["RightSidebarModeButton.files"].click()
         app.typeKey("3", modifierFlags: [.control])
         XCTAssertTrue(reload.waitForExistence(timeout: 10))
-        app.buttons["VaultSessionOptionsMenu"].click()
+        app.buttons["Session view"].click()
         let compact = app.menuItems["Compact view"]
         XCTAssertTrue(compact.waitForExistence(timeout: 5))
         compact.click()
