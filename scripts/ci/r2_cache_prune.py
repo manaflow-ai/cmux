@@ -163,9 +163,9 @@ def prune(bucket, now: dt.datetime, delete: bool) -> dict:
     candidates, families = plan(objects, protected(bucket, objects), now)
     deleted = 0
     if delete and candidates:
-        # A save of an existing key re-points `latest/` at an old archive, and
-        # can land between the first pointer read and a delete. Read every
-        # pointer again right before deleting.
+        # A save can publish a pointer between the first read and a delete
+        # (a prefix's first pointer is written regardless of generation).
+        # Read every pointer again right before deleting.
         keep = protected(bucket, objects)
         for item in candidates[:MAX_DELETES]:
             if item["key"] in keep:
