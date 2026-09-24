@@ -12,6 +12,34 @@ import protocol CmuxWorkspaces.FileOpening
 
 @Suite("Terminal link open coordinator", .serialized)
 struct TerminalLinkOpenCoordinatorTests {
+    @Test("SSH file links use the remote preview route even when the same path exists locally")
+    @MainActor
+    func remoteFileLinkNeverOpensLocalShadow() throws {
+        let defaults = makeDefaults()
+        let fileURL = try makeHTMLFixture(pathExtension: "txt")
+        defer { try? FileManager.default.removeItem(at: fileURL.deletingLastPathComponent()) }
+        let container = RemotePreviewLinkContainer()
+        let fileOpener = RecordingFileOpener()
+        let panelID = UUID()
+        let coordinator = TerminalLinkOpenCoordinator(
+            defaults: defaults,
+            containerResolver: { _, _ in container },
+            externalOpen: { _ in Issue.record("Remote file escaped to external URL opener"); return false },
+            fileOpen: fileOpener,
+            deferOperation: { operation in operation() }
+        )
+
+        #expect(coordinator.open(TerminalLinkOpenRequest(
+            rawValue: fileURL.absoluteString,
+            sourceWorkspaceId: UUID(),
+            sourcePanelId: panelID,
+            workingDirectory: "/remote/project"
+        )))
+        #expect(container.remoteLinks == [fileURL.absoluteString])
+        #expect(container.sourcePanelIDs == [panelID])
+        #expect(fileOpener.opened.isEmpty)
+    }
+
     private func makeDefaults() -> UserDefaults {
         let suiteName = "terminal-link-open-coordinator-tests-\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suiteName)!
@@ -465,6 +493,30 @@ struct TerminalLinkOpenCoordinatorTests {
         )
         return fileURL
     }
+}
+
+@MainActor
+private final class RemotePreviewLinkContainer: TerminalLinkOpenContainer {
+    var remoteLinks: [String] = []
+    var sourcePanelIDs: [UUID] = []
+    var terminalLinkContainerDebugName: String { "remote-preview-test" }
+    func terminalLinkWorkingDirectory(for sourcePanelId: UUID) -> String? { "/remote/project" }
+    func terminalLinkIsRemoteTerminal(_ sourcePanelId: UUID) -> Bool { true }
+    func cloudTerminalLinkTarget(url: URL, sourcePanelId: UUID) -> CloudTerminalLinkTarget? { nil }
+    func deferRemoteTerminalFileLinkOpen(sourcePanelId: UUID, rawValue: String) -> Bool {
+        sourcePanelIDs.append(sourcePanelId)
+        remoteLinks.append(rawValue)
+        return true
+    }
+    func deferTerminalFileLinkOpen(
+        sourcePanelId: UUID,
+        filePath: String,
+        fallback: @escaping @MainActor @Sendable () -> Void
+    ) -> Bool {
+        Issue.record("Remote file reached local file route")
+        return false
+    }
+    func openTerminalBrowserLink(url: URL, sourcePanelId: UUID, focus: Bool) -> Bool { false }
 }
 
 /// Records URLs handed to the coordinator's file-opening seam.
