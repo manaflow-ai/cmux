@@ -254,7 +254,12 @@ def _argument_end(masked: str, open_paren: int) -> int:
 
 
 def _closure_calls_before(masked: str, lo: int, index: int) -> bool:
-    return CALL.search(masked, lo + 1, index) is not None
+    # The call must finish before the read: a call whose arguments hold the
+    # errno token reads errno before that call runs.
+    return any(
+        _argument_end(masked, call.end() - 1) < index
+        for call in CALL.finditer(masked, lo + 1, index)
+    )
 
 
 def _closure_spans(masked: str, start: int, end: int) -> List[Tuple[int, int]]:
