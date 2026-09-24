@@ -1,6 +1,124 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "mobile.settings.feedBubbleQuotes": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Feed Bubble Quotes"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フィードの吹き出し引用"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Feed-Sprechblasenzitate"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Citations en bulles dans le fil"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "اقتباسات الفقاعات في الموجز"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Citas en burbujas en el feed"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "動態泡泡引用"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "动态气泡引用"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "피드 말풍선 인용"
+          }
+        }
+      }
+    },
+    "mobile.settings.feedBubbleQuotesCaption": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show quoted messages and replies in Feed as iMessage-style bubbles instead of a side bar."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フィードの引用メッセージと返信を、サイドバーではなく iMessage 風の吹き出しで表示します。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zitierte Nachrichten und Antworten im Feed als Sprechblasen im iMessage-Stil statt mit Seitenleiste anzeigen."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Afficher les messages cités et les réponses du fil sous forme de bulles façon iMessage plutôt qu’avec une barre latérale."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "اعرض الرسائل المقتبسة والردود في الموجز كفقاعات بنمط iMessage بدلاً من شريط جانبي."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Muestra los mensajes citados y las respuestas del feed como burbujas estilo iMessage en lugar de una barra lateral."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在動態中以 iMessage 風格的泡泡顯示引用訊息與回覆，而非側邊條。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在动态中以 iMessage 风格的气泡显示引用消息和回复，而不是侧边条。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "피드의 인용 메시지와 답장을 사이드 바 대신 iMessage 스타일 말풍선으로 표시합니다."
+          }
+        }
+      }
+    },
     "mobile.signIn.billingRecovery": {
       "extractionState": "manual",
       "localizations": {

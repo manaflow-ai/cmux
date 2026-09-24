@@ -90,14 +90,18 @@ struct AgentFeedRow: View, Equatable {
     let model: AgentFeedRowModel
     let isReplyPending: Bool
     let now: Date
+    /// CMUX Labs quote treatment: iMessage-style bubbles instead of the
+    /// leading-bar quote.
+    var bubbleQuotes = false
     let actions: AgentFeedActions
 
-    /// Rows re-render only when their item, pending flag, or time reference
-    /// changes; `actions` closures are excluded by design.
+    /// Rows re-render only when their item, pending flag, time reference, or
+    /// quote treatment changes; `actions` closures are excluded by design.
     nonisolated static func == (lhs: Self, rhs: Self) -> Bool {
         lhs.model == rhs.model
             && lhs.isReplyPending == rhs.isReplyPending
             && lhs.now == rhs.now
+            && lhs.bubbleQuotes == rhs.bubbleQuotes
     }
 
     var body: some View {
@@ -212,7 +216,35 @@ struct AgentFeedRow: View, Equatable {
         }
     }
 
+    @ViewBuilder
     private func quotedMessage(_ message: String) -> some View {
+        if bubbleQuotes {
+            bubbleQuote(message, lineLimit: 3)
+        } else {
+            barQuote(message)
+        }
+    }
+
+    /// An iMessage-style quoted message: secondary text inside an outlined
+    /// bubble whose tail points back at the avatar gutter.
+    private func bubbleQuote(_ message: String, lineLimit: Int) -> some View {
+        AgentFeedMarkdownText(
+            markdown: message,
+            font: .footnote,
+            color: .secondary,
+            lineLimit: lineLimit
+        )
+        .fixedSize(horizontal: false, vertical: true)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 7)
+        .overlay(
+            AgentFeedBubbleShape()
+                .stroke(Color.secondary.opacity(0.45), lineWidth: 1)
+        )
+        .padding(.leading, AgentFeedBubbleShape.tailOverhang)
+    }
+
+    private func barQuote(_ message: String) -> some View {
         HStack(alignment: .top, spacing: 8) {
             RoundedRectangle(cornerRadius: 1.5)
                 .fill(Color.secondary.opacity(0.35))
@@ -286,7 +318,45 @@ struct AgentFeedRow: View, Equatable {
     }
 
     /// The user's recorded reply, quote-referencing the message it answered.
+    @ViewBuilder
     private func userReplyMarker(reply: String, reference: String?) -> some View {
+        if bubbleQuotes {
+            bubbleReplyMarker(reply: reply, reference: reference)
+        } else {
+            barReplyMarker(reply: reply, reference: reference)
+        }
+    }
+
+    /// iMessage inline-reply layout: the answered message as an outlined
+    /// quote bubble, the sender name, then the reply in a filled bubble.
+    private func bubbleReplyMarker(reply: String, reference: String?) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            if let reference {
+                bubbleQuote(reference, lineLimit: 2)
+                    .padding(.bottom, 2)
+            }
+            Text(String(
+                localized: "mobile.agentFeed.reply.youLabel",
+                defaultValue: "You",
+                bundle: .module
+            ))
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .padding(.leading, AgentFeedBubbleShape.tailOverhang + 12)
+            AgentFeedMarkdownText(markdown: reply, font: .subheadline)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+                .background(
+                    AgentFeedBubbleShape()
+                        .fill(Color(uiColor: .systemGray5))
+                )
+                .padding(.leading, AgentFeedBubbleShape.tailOverhang)
+        }
+        .padding(.top, 2)
+    }
+
+    private func barReplyMarker(reply: String, reference: String?) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             if let reference {
                 HStack(spacing: 5) {

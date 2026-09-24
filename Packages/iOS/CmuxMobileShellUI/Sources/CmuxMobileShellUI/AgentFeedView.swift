@@ -19,6 +19,7 @@ struct AgentFeedView: View {
     let refreshesOnAppear: Bool
     let actions: AgentFeedActions
     var searchText: String = ""
+    @Environment(MobileDisplaySettings.self) private var displaySettings
     @State private var filter: AgentFeedFilter = .all
     @State private var now = Date()
     @State private var composeContext: AgentFeedComposeContext?
@@ -120,6 +121,7 @@ struct AgentFeedView: View {
                             isReplyPending: pendingTerminalReplyItemIDs.contains(item.id)
                                 || item.requestID.map { pendingReplyRequestIDs.contains($0) } ?? false,
                             now: now,
+                            bubbleQuotes: displaySettings.feedBubbleQuotes,
                             actions: rowActions
                         )
                         .listRowInsets(EdgeInsets(top: 0, leading: 16, bottom: 0, trailing: 16))

@@ -33,6 +33,7 @@ public final class MobileDisplaySettings {
     #if DEBUG
     private static let taskComposerShellIconVariantKey = "cmux.mobile.debug.taskComposerShellIconVariant.v1"
     private static let taskComposerFullLiquidGlassKey = "cmux.mobile.debug.taskComposerFullLiquidGlass.v1"
+    private static let feedBubbleQuotesKey = "cmux.mobile.debug.feedBubbleQuotes.v1"
     #endif
 
     /// The preview line counts the "Preview Lines" setting offers.
@@ -159,6 +160,15 @@ public final class MobileDisplaySettings {
         }
     }
 
+    /// Persisted CMUX Labs switch for comparing Feed quotes drawn as
+    /// iMessage-style outlined bubbles against the original leading-bar
+    /// quotes. On by default in DEBUG so dogfood sees the new treatment.
+    var feedBubbleQuotes: Bool {
+        didSet {
+            defaults.set(feedBubbleQuotes, forKey: Self.feedBubbleQuotesKey)
+        }
+    }
+
     /// DEBUG-only override forcing the rebuilt keyboard dock path on this
     /// device (iOS ≤26; legacy is the shipping default), exposed in
     /// Settings > Developer for keyboard-pinning A/B dogfood. Terminal hosts
@@ -179,6 +189,8 @@ public final class MobileDisplaySettings {
     var taskComposerShellIconVariant: TaskComposerShellIconVariant { .current }
     /// The Labs-only treatment is unavailable in production builds.
     var taskComposerFullLiquidGlass: Bool { false }
+    /// Production builds keep the shipping leading-bar quotes.
+    var feedBubbleQuotes: Bool { false }
     #endif
 
     /// Creates the display settings, seeding stored values from `defaults`.
@@ -218,6 +230,9 @@ public final class MobileDisplaySettings {
         self.taskComposerFullLiquidGlass = defaults.object(
             forKey: Self.taskComposerFullLiquidGlassKey
         ) as? Bool ?? false
+        self.feedBubbleQuotes = defaults.object(
+            forKey: Self.feedBubbleQuotesKey
+        ) as? Bool ?? true
         self.forceRebuildKeyboardDock = defaults.cmuxForceRebuildKeyboardDock
         #endif
     }

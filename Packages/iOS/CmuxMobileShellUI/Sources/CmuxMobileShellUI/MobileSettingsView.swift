@@ -373,6 +373,23 @@ struct MobileSettingsView: View {
                     }
                     .accessibilityIdentifier("MobileSettingsTaskComposerFullLiquidGlass")
 
+                    Toggle(isOn: $displaySettings.feedBubbleQuotes) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(L10n.string(
+                                "mobile.settings.feedBubbleQuotes",
+                                defaultValue: "Feed Bubble Quotes"
+                            ))
+                            Text(L10n.string(
+                                "mobile.settings.feedBubbleQuotesCaption",
+                                defaultValue:
+                                    "Show quoted messages and replies in Feed as iMessage-style bubbles instead of a side bar."
+                            ))
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                        }
+                    }
+                    .accessibilityIdentifier("MobileSettingsFeedBubbleQuotes")
+
                     NavigationLink {
                         TaskComposerShellIconLabView()
                     } label: {
