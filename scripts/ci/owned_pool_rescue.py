@@ -25,8 +25,9 @@ An owned runner can also refuse a job it was handed: glaeda's job-started
 hook exits 1 when the host is busy (its lock is held), and the job fails
 within seconds, before any step of the workflow succeeds. GitHub does not
 retry it, so the pull request would stay red until someone re-ran it. A job
-on the persistent pool that failed within REFUSAL_SECONDS of starting with no
-workflow step succeeded counts as refused: the watcher confirms the head has
+on the persistent pool that failed within REFUSAL_SECONDS of starting, with
+its runner setup step failed or no workflow step succeeded, counts as refused
+(compile admission's `always()` metrics steps still succeed after a refusal): the watcher confirms the head has
 not moved, cancels the run if it is still going, and re-runs its failed jobs.
 That attempt 2 reuses attempt 1's outputs, so every macOS job in it takes
 retry_runner, the Blacksmith pool the picker named, and what already passed
@@ -146,8 +147,13 @@ def refused(job: Mapping[str, Any]) -> bool:
     started, completed = parse_time(job.get("started_at")), parse_time(job.get("completed_at"))
     if started is None or completed is None or (completed - started).total_seconds() > REFUSAL_SECONDS:
         return False
+    steps = [step for step in job.get("steps") or [] if isinstance(step, Mapping)]
+    # The hook runs inside the runner's own setup, so a failed setup step is a
+    # refusal even when the job's `always()` steps still ran and succeeded.
+    if any(step.get("name") in SETUP_STEPS and step.get("conclusion") == "failure" for step in steps):
+        return True
     return not any(step.get("conclusion") == "success" and step.get("name") not in SETUP_STEPS
-                   for step in job.get("steps") or [] if isinstance(step, Mapping))
+                   for step in steps)
 
 
 def picker_finished(jobs: Sequence[Mapping[str, Any]]) -> bool:
