@@ -67,6 +67,11 @@ CHANGED_SUITES_BUDGET_MS = 10 * 60 * 1000
 # change. These are the paths that job's steps run and nothing else in a pull
 # request exercises the same way; the artifact transport scripts are left out
 # because ci-artifact-transport.yml runs them on their own edits.
+#
+# The canary only rides on a compile the pull request pays for anyway: ci.yml
+# drops it when the build inputs were already compiled, which covers most of
+# these paths on their own, since the fingerprint leaves them out. It never
+# adds a compile just to run the canary.
 MACOS_WORKFLOW_PATH = ".github/workflows/ci-macos.yml"
 APP_HOST_CONSUMER_JOB = "app-host-unit-tests"
 APP_HOST_CONSUMER_PATHS = (
