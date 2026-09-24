@@ -4314,10 +4314,9 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
         let sampler = TaskVMInfoMemoryPressureFootprintSampler()
         let sampleNoiseAllowance: UInt64 = 8 * 1_024 * 1_024
 
-        func settledFootprint(
-            _ description: String,
-            requireSettled: Bool = true
-        ) throws -> UInt64 {
+        func sampleFootprint(
+            _ description: String
+        ) throws -> (median: UInt64, settled: Bool) {
             // Freed malloc pages stay in the physical footprint until the
             // allocator returns them. That is allocator caching, not renderer
             // retention, so return them before every measurement.
@@ -4341,7 +4340,7 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
                    let minimum = recent.min(),
                    let maximum = recent.max(),
                    maximum - minimum <= sampleNoiseAllowance {
-                    return recent.sorted()[recent.count / 2]
+                    return (recent.sorted()[recent.count / 2], true)
                 }
             }
             guard !recent.isEmpty else {
@@ -4349,14 +4348,13 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
             }
             let minimum = recent.min() ?? 0
             let maximum = recent.max() ?? 0
-            if requireSettled {
-                XCTAssertLessThanOrEqual(
-                    maximum - minimum,
-                    sampleNoiseAllowance,
-                    "Physical footprint did not settle for \(description)"
-                )
-            }
-            return recent.sorted()[recent.count / 2]
+            return (recent.sorted()[recent.count / 2], maximum - minimum <= sampleNoiseAllowance)
+        }
+
+        func settledFootprint(_ description: String) throws -> UInt64 {
+            let sample = try sampleFootprint(description)
+            XCTAssertTrue(sample.settled, "Physical footprint did not settle for \(description)")
+            return sample.median
         }
 
         let hiddenSurfaces = Array(surfaces.dropFirst())
@@ -4416,21 +4414,27 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
             // retention: cycle 2 targets of 241-243 MB over a 206-210 MB
             // baseline, with the next cycle's target back down to 225 MB.
             //
-            // Keep sampling while the target is over the limit, for a bounded
-            // window, and judge the lowest settled footprint. Memory the
-            // renderers still hold after the window is real retention and
-            // fails exactly as before.
+            // Keep sampling while the target is unsettled or over the limit,
+            // for a bounded window, and judge the lowest settled footprint.
+            // Only settled windows count, so a transient dip cannot pass the
+            // test. Memory the renderers still hold after the window is real
+            // retention and still fails.
+            let targetDescription = "cycle \(cycle) one-renderer target"
             let reclaimStart = ProcessInfo.processInfo.systemUptime
             let reclaimDeadline = reclaimStart + 20
-            var targetFootprint = try settledFootprint("cycle \(cycle) one-renderer target")
-            while targetFootprint > allowedTarget,
+            let firstTarget = try sampleFootprint(targetDescription)
+            var targetFootprint = firstTarget.median
+            var targetSettled = firstTarget.settled
+            while !targetSettled || targetFootprint > allowedTarget,
                   ProcessInfo.processInfo.systemUptime < reclaimDeadline {
-                let sample = try settledFootprint(
-                    "cycle \(cycle) one-renderer target reclaim",
-                    requireSettled: false
-                )
-                targetFootprint = min(targetFootprint, sample)
+                let sample = try sampleFootprint(targetDescription)
+                guard sample.settled else { continue }
+                targetFootprint = targetSettled
+                    ? min(targetFootprint, sample.median)
+                    : sample.median
+                targetSettled = true
             }
+            XCTAssertTrue(targetSettled, "Physical footprint did not settle for \(targetDescription)")
             let reclaimWait = ProcessInfo.processInfo.systemUptime - reclaimStart
 
             let retainedDelta = targetFootprint > oneRendererBaseline
@@ -4451,7 +4455,7 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
                 normalizedRetainedRatio,
                 retentionLimit,
                 "Cycle \(cycle) cumulative retention above the one-renderer baseline "
-                + "exceeds 45% of the five-renderer delta"
+                + "exceeds \(Int(retentionLimit * 100))% of the five-renderer delta"
             )
         }
 
