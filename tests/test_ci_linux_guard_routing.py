@@ -442,7 +442,8 @@ class LinuxGuardRoutingTests(unittest.TestCase):
             "scripts/ci/swift_incremental_diagnostics.py": ("preflight",),
             "tests/test_ci_persistent_mac_compile.py": ("preflight", "quality-determinism"),
             "tests/test_swift_incremental_diagnostics.py": ("preflight", "quality-determinism"),
-            "tests/test_ci_self_hosted_guard.sh": ("preflight", "quality-determinism"),
+            # cmux.ci.guard runs it too, so the ci leg observes it.
+            "tests/test_ci_self_hosted_guard.sh": ("preflight", "ci", "quality-determinism"),
         }
         for path, groups in expected_groups.items():
             with self.subTest(path=path):
