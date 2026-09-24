@@ -329,27 +329,7 @@ enum ClaudeHookLiveDeliveryHarness {
                     // Hook clients may disconnect before their response arrives.
                     // Protect the host-free test runner without changing signals
                     // for any other socket or subprocess.
-                    var noSignal: Int32 = 1
-                    guard setsockopt(clientFD, SOL_SOCKET, SO_NOSIGPIPE, &noSignal,
-                                     socklen_t(MemoryLayout<Int32>.size)) == 0 else { return }
-
-                    func writeResponse(_ response: String) -> Bool {
-                        let line = response + "\n"
-                        return line.withCString { ptr in
-                            let count = strlen(ptr)
-                            var offset = 0
-                            while offset < count {
-                                let written = Darwin.write(clientFD, ptr.advanced(by: offset), count - offset)
-                                if written < 0 {
-                                    if errno == EINTR { continue }
-                                    return false
-                                }
-                                guard written > 0 else { return false }
-                                offset += written
-                            }
-                            return true
-                        }
-                    }
+                    guard ignoreSIGPIPE(onAcceptedFixtureSocket: clientFD) else { return }
 
                     var pending = Data()
                     var buffer = [UInt8](repeating: 0, count: 4096)
@@ -367,7 +347,7 @@ enum ClaudeHookLiveDeliveryHarness {
                             pending.removeSubrange(0...newlineRange.lowerBound)
                             guard let line = String(data: lineData, encoding: .utf8) else { continue }
                             state.append(line)
-                            guard writeResponse(handler(line)) else { return }
+                            guard writeAllToFixtureSocket(handler(line) + "\n", fd: clientFD) else { return }
                         }
                     }
                 }

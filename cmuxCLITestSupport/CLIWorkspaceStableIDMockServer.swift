@@ -73,9 +73,7 @@ struct CLIWorkspaceStableIDMockServer: Sendable {
             guard clientDescriptor >= 0 else { return [] }
             defer { Darwin.close(clientDescriptor) }
             // A disconnected CLI must not terminate the host-free test runner.
-            var noSignal: Int32 = 1
-            guard setsockopt(clientDescriptor, SOL_SOCKET, SO_NOSIGPIPE, &noSignal,
-                             socklen_t(MemoryLayout<Int32>.size)) == 0 else { return [] }
+            guard ignoreSIGPIPE(onAcceptedFixtureSocket: clientDescriptor) else { return [] }
 
             var requests: [String] = []
             var pending = Data()

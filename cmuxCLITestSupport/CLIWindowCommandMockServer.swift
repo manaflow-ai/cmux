@@ -155,9 +155,7 @@ final class CLIWindowCommandMockServer: @unchecked Sendable {
         }
         guard clientFD >= 0 else { return }
         // Configure before publishing the descriptor to the fixture's stop path.
-        var noSignal: Int32 = 1
-        guard setsockopt(clientFD, SOL_SOCKET, SO_NOSIGPIPE, &noSignal,
-                         socklen_t(MemoryLayout<Int32>.size)) == 0 else {
+        guard ignoreSIGPIPE(onAcceptedFixtureSocket: clientFD) else {
             Darwin.close(clientFD)
             return
         }
@@ -193,22 +191,7 @@ final class CLIWindowCommandMockServer: @unchecked Sendable {
                     record(line)
                     response = self.response(for: line)
                 }
-                let responseLine = response + "\n"
-                let sent = responseLine.withCString { pointer -> Bool in
-                    let count = strlen(pointer)
-                    var offset = 0
-                    while offset < count {
-                        let written = Darwin.write(clientFD, pointer.advanced(by: offset), count - offset)
-                        if written < 0 {
-                            if errno == EINTR { continue }
-                            return false
-                        }
-                        guard written > 0 else { return false }
-                        offset += written
-                    }
-                    return true
-                }
-                guard sent else { return }
+                guard writeAllToFixtureSocket(response + "\n", fd: clientFD) else { return }
             }
         }
     }
