@@ -1058,6 +1058,13 @@ struct BrowserPanelView: View {
         .overlay(browserFindOverlayView)
         .overlay(focusFlashOverlayView)
         .overlay(omnibarSuggestionsOverlayView, alignment: .topLeading)
+        .overlay(alignment: .topTrailing) {
+            if #available(macOS 15.4, *) {
+                BrowserExtensionStoreOffer(panel: panel)
+                    .padding(.top, chromeState.isOmnibarVisible ? addressBarHeight + 10 : 10)
+                    .padding(.trailing, 14)
+            }
+        }
         .overlay(alignment: .bottom) {
             // WebView-backed cases host the composer in the AppKit portal slot
             // (WindowBrowserSlotView.setDesignComposer) so it layers above the

@@ -421,3 +421,43 @@ struct BrowserExtensionsToolbarButton: View {
         }
     }
 }
+
+@available(macOS 15.4, *)
+struct BrowserExtensionStoreOffer: View {
+    @ObservedObject var panel: BrowserPanel
+    @ObservedObject private var extensions = BrowserExtensions.shared
+
+    private var extensionID: String? {
+        guard let url = panel.currentURL,
+              let host = url.host()?.lowercased(),
+              host == "chromewebstore.google.com" ||
+                (host == "chrome.google.com" && url.path.hasPrefix("/webstore")) else {
+            return nil
+        }
+        return BrowserExtensionArchive.id(in: url.absoluteString)
+    }
+
+    var body: some View {
+        if let extensionID,
+           !extensions.installed.contains(where: { $0.id == extensionID }) {
+            HStack(spacing: 10) {
+                Image(systemName: "puzzlepiece.extension")
+                Text(extensions.busy ? "Adding extension…" : "Add this extension to cmux")
+                    .lineLimit(1)
+                Button(extensions.busy ? "Adding…" : "Add") {
+                    extensions.installStoreExtension(from: extensionID)
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(extensions.busy)
+            }
+            .font(.system(size: 12, weight: .medium))
+            .padding(.leading, 12)
+            .padding(.trailing, 8)
+            .padding(.vertical, 8)
+            .background(.regularMaterial, in: Capsule())
+            .overlay(Capsule().strokeBorder(.primary.opacity(0.12)))
+            .shadow(color: .black.opacity(0.16), radius: 12, y: 5)
+            .accessibilityIdentifier("BrowserExtensionStoreOffer")
+        }
+    }
+}
