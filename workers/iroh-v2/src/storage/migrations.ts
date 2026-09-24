@@ -8,7 +8,7 @@ import { SOCKET_MIGRATION_STATEMENTS } from "./socket-schema";
  * the source for generation and review; this manifest is the immutable runtime
  * copy loaded by the Worker bundle.
  */
-export const STORAGE_SCHEMA_VERSION = 6;
+export const STORAGE_SCHEMA_VERSION = 7;
 
 const statements = [
   `CREATE TABLE IF NOT EXISTS "schema_history" ("version" INTEGER PRIMARY KEY NOT NULL, "hash" TEXT NOT NULL, "applied_at" INTEGER NOT NULL)`,
@@ -64,6 +64,15 @@ const metadataBytesStatements = [
   `CREATE TRIGGER "devices_usage_update_bytes" AFTER UPDATE OF "capabilities_json", "relay_urls_json" ON "devices" BEGIN UPDATE "storage_usage" SET "metadata_bytes" = "metadata_bytes" - length(CAST(OLD."capabilities_json" AS BLOB)) - length(CAST(OLD."relay_urls_json" AS BLOB)) + length(CAST(NEW."capabilities_json" AS BLOB)) + length(CAST(NEW."relay_urls_json" AS BLOB)) WHERE "id" = 1; END`,
   `UPDATE "team_meta" SET "schema_version" = 6 WHERE "id" = 1`,
 ];
+const auditUsageStatements = [
+  `CREATE TABLE "authority_audit_usage" ("id" INTEGER PRIMARY KEY NOT NULL CHECK ("id" = 1), "row_count" INTEGER NOT NULL CHECK ("row_count" BETWEEN 0 AND 65536))`,
+  `INSERT INTO "authority_audit_usage" ("id", "row_count") SELECT 1, count(*) FROM "authority_audit"`,
+  `DROP TRIGGER "authority_audit_limit_guard"`,
+  `CREATE TRIGGER "authority_audit_limit_guard" BEFORE INSERT ON "authority_audit" WHEN (SELECT "row_count" FROM "authority_audit_usage" WHERE "id" = 1) >= 65536 BEGIN SELECT RAISE(ABORT, 'audit_limit'); END`,
+  `CREATE TRIGGER "authority_audit_insert_count" AFTER INSERT ON "authority_audit" BEGIN UPDATE "authority_audit_usage" SET "row_count" = "row_count" + 1 WHERE "id" = 1; END`,
+  `CREATE TRIGGER "authority_audit_delete_count" AFTER DELETE ON "authority_audit" BEGIN UPDATE "authority_audit_usage" SET "row_count" = "row_count" - 1 WHERE "id" = 1; END`,
+  `UPDATE "team_meta" SET "schema_version" = 7 WHERE "id" = 1`,
+];
 
 function contentHash(parts: readonly string[]): string {
   let hash = 1469598103934665603n;
@@ -81,6 +90,7 @@ const PROOF_MIGRATION_HASH = contentHash(proofRingStatements);
 export const STORAGE_MIGRATION_HASH = contentHash(authorityStatements);
 export const AUTHORITY_LEASE_MIGRATION_HASH = contentHash(authorityLeaseStatements);
 const METADATA_BYTES_MIGRATION_HASH = contentHash(metadataBytesStatements);
+const AUDIT_USAGE_MIGRATION_HASH = contentHash(auditUsageStatements);
 
 export function applyStorageMigrations(storage: DurableObjectStorage, now = Date.now()): void {
   const db = drizzle(storage, { schema: storageSchema });
@@ -106,5 +116,6 @@ export function applyStorageMigrations(storage: DurableObjectStorage, now = Date
     apply(4, contentHash(SOCKET_MIGRATION_STATEMENTS), SOCKET_MIGRATION_STATEMENTS);
     apply(5, AUTHORITY_LEASE_MIGRATION_HASH, authorityLeaseStatements);
     apply(6, METADATA_BYTES_MIGRATION_HASH, metadataBytesStatements);
+    apply(7, AUDIT_USAGE_MIGRATION_HASH, auditUsageStatements);
   });
 }

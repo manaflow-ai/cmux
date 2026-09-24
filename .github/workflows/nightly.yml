@@ -742,8 +742,18 @@ jobs:
         continue-on-error: true
         run: python3 scripts/ci/seed_derived_data.py prune "$CMUX_COMPILE_ADMISSION_DERIVED_DATA"
 
-      - name: Save DerivedData seed
+      # Seeds serve only the Swift job width they were built at; see
+      # scripts/ci/seed_derived_data.py.
+      - name: Scope DerivedData seed key
+        id: derived-data-seed-key
         if: steps.derived-data-bound.outputs.save == 'true'
+        continue-on-error: true
+        env:
+          FINGERPRINT: ${{ steps.compilation-cache-key.outputs.fingerprint }}
+        run: echo "scoped=$(python3 scripts/ci/seed_derived_data.py scope "admission-derived-data-v1-${RUNNER_OS}-${RUNNER_ARCH}-${FINGERPRINT}-")" >> "$GITHUB_OUTPUT"
+
+      - name: Save DerivedData seed
+        if: steps.derived-data-bound.outputs.save == 'true' && steps.derived-data-seed-key.outputs.scoped != ''
         continue-on-error: true
         uses: ./.github/actions/cache-save
         env:
@@ -755,7 +765,7 @@ jobs:
         with:
           backend: r2
           path: ${{ env.CMUX_COMPILE_ADMISSION_DERIVED_DATA }}
-          key: admission-derived-data-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.compilation-cache-key.outputs.fingerprint }}-${{ needs.decide.outputs.head_sha }}
+          key: ${{ steps.derived-data-seed-key.outputs.scoped }}${{ needs.decide.outputs.head_sha }}
 
   build-nightly-ghostty-cli-helper:
     needs: decide
