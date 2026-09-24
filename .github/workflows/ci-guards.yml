@@ -601,6 +601,10 @@ jobs:
         if: ${{ matrix.group == 'app-host-cache' }}
         run: ./tests/test_ci_scheme_testaction_debug.sh
 
+      - name: Validate iOS video recording failures
+        if: ${{ matrix.group == 'app-host-cache' }}
+        run: python3 tests/test_ios_video_recording.py
+
       - name: Validate selected iOS test execution guard
         if: ${{ matrix.group == 'app-host-cache' }}
         run: python3 tests/test_ios_selected_test_execution.py
