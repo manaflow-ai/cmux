@@ -666,7 +666,7 @@ jobs:
       # just replayed should ignore inode changes, so a reused runner does not
       # carry it into an unrelated job.
       - name: Forget the adopted-build inode override
-        if: always() && steps.seed-derived-data.outputs.hit == 'true'
+        if: always() && steps.seed-derived-data.outcome != 'skipped'
         continue-on-error: true
         run: defaults delete com.apple.dt.XCBuild IgnoreFileSystemDeviceInodeChanges || true
 

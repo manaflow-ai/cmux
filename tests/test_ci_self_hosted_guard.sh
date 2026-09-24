@@ -209,10 +209,9 @@ allowed = {
     ("build", "compilation-cache-bound", "Bound E2E compilation cache", ""),
     ("build", "revision-on-main", "Check the selected revision against main", ""),
     ("build", "reuse", "Reuse a compiled product instead of building one", ""),
-    ("build", "warm", "Adopt main's DerivedData", ""),
-    ("build", "record-inputs", "Record build input times", ""),
-    ("build", "warm-package", "Package DerivedData for later builds", ""),
-    ("build", None, "Publish DerivedData for later builds", "actions/upload-artifact"),
+    ("build", None, "Start the DerivedData seed download", ""),
+    ("build", "seed", "Adopt the DerivedData seed", ""),
+    ("build", None, "Forget the adopted-build inode override", ""),
     ("test", "parallel-product", "Read the compiled test product over parallel range requests", ""),
 }
 for job_id, job in document["jobs"].items():
