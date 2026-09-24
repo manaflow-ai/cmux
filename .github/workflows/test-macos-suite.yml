@@ -5,7 +5,8 @@
 # already in flight at that commit, refuses a selector that already failed
 # there, and batches several selectors against one compile. This workflow does
 # none of that. A dispatch that names unit selectors and skips UI tests is
-# therefore handed to that wrapper by the `focused` job, and waits on its run.
+# therefore handed to that wrapper by the `focused` job, which links the
+# test-e2e run and fails so that nobody reads this run as the test's result.
 name: Run macOS test suite
 run-name: >-
   macOS tests @ ${{ inputs.ref || github.ref_name }} ·
@@ -75,7 +76,7 @@ jobs:
     # `tests` job.
     if: ${{ github.repository == 'manaflow-ai/cmux' && github.event_name == 'workflow_dispatch' && inputs.unit_test_suites != '' && inputs.skip_ui_tests && !inputs.skip_unit_tests }}
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
-    timeout-minutes: 120
+    timeout-minutes: 5
     permissions:
       actions: write
       contents: read
@@ -88,14 +89,9 @@ jobs:
       - name: Run the selectors through run-e2e.sh
         env:
           GH_TOKEN: ${{ github.token }}
-          # The job token cannot list repository variables, so hand the
-          # wrapper the one it reads to decide which pool it lands on.
-          CMUX_MACOS_RUNNER_TESTS: ${{ vars.MACOS_RUNNER_TESTS }}
           UNIT_TEST_SUITES: ${{ inputs.unit_test_suites }}
           TEST_REF: ${{ inputs.ref || github.sha }}
           TEST_TIMEOUT: ${{ inputs.test_timeout }}
-          # gh polls every 3 s by default; the job token's budget is hourly.
-          CMUX_WATCH_INTERVAL: "60"
         run: |
           set -euo pipefail
           selectors=()
@@ -105,7 +101,13 @@ jobs:
             # The suite path ran a repeated entry twice; the wrapper refuses one.
             [ -n "$suite" ] && [[ " ${selectors[*]} " != *" cmuxTests/$suite "* ]] && selectors+=("cmuxTests/$suite")
           done
-          ./scripts/run-e2e.sh "${selectors[@]}" --ref "$TEST_REF" --timeout "$TEST_TIMEOUT" --wait
+          ./scripts/run-e2e.sh "${selectors[@]}" --ref "$TEST_REF" --timeout "$TEST_TIMEOUT" | tee dispatch.log
+          url="$(grep -oE 'https://github.com/[^ ]+/actions/runs/[0-9]+' dispatch.log | tail -1)"
+          echo "Forwarded to $url" >> "$GITHUB_STEP_SUMMARY"
+          # Exit red: this run did not test anything, and a green one would
+          # read as a pass.
+          echo "::error title=Forwarded, not tested::The result is in $url"
+          exit 1
 
   tests:
     needs: resolve-ref

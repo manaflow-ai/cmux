@@ -5,7 +5,6 @@ from __future__ import annotations
 import argparse
 from contextlib import contextmanager
 import json
-import os
 from pathlib import Path
 import re
 import signal
@@ -47,20 +46,6 @@ SELECTOR = re.compile(
     r"(?:(?:cmuxTests|cmuxUITests)/)?"
     r"[A-Za-z_][A-Za-z0-9_]*(?:/[A-Za-z_][A-Za-z0-9_]*(?:\(\))?)?"
 )
-
-
-def watch_command(run_id: str) -> list[str]:
-    """`gh run watch`, polling at CMUX_WATCH_INTERVAL seconds when set.
-
-    gh polls every 3 seconds by default. A workflow job waiting out a
-    45-minute run on its job token would spend most of that token's hourly
-    request budget, so the workflow asks for a slower poll.
-    """
-    command = ["gh", "run", "watch", "--repo", REPO, run_id, "--exit-status"]
-    interval = os.environ.get("CMUX_WATCH_INTERVAL", "").strip()
-    if interval:
-        command += ["--interval", str(positive_integer(interval))]
-    return command
 
 
 def positive_integer(value: str) -> int:
@@ -206,11 +191,6 @@ def default_runner() -> str | None:
     Returning None means "cannot tell", and every caller treats that as a
     reason to dispatch normally rather than to act on a runner it guessed.
     """
-    if "CMUX_MACOS_RUNNER_TESTS" in os.environ:
-        # A workflow job passes `vars.MACOS_RUNNER_TESTS` in, set or empty,
-        # because its token cannot list repository variables.
-        value = os.environ["CMUX_MACOS_RUNNER_TESTS"].strip()
-        return value or workflow_default_runner()
     try:
         payload = output(
             "gh", "variable", "list", "--repo", REPO, "--json", "name,value",
@@ -227,10 +207,6 @@ def default_runner() -> str | None:
             if value:
                 return value
             break
-    return workflow_default_runner()
-
-
-def workflow_default_runner() -> str | None:
     try:
         workflow = (ROOT / ".github/workflows" / WORKFLOW).read_text()
     except OSError:
@@ -467,7 +443,10 @@ def main() -> int:
                 )
                 print(f"Run: {live['url']}", flush=True)
                 if args.wait:
-                    return subprocess.run(watch_command(str(live["databaseId"])), cwd=ROOT).returncode
+                    return subprocess.run([
+                        "gh", "run", "watch", "--repo", REPO, str(live["databaseId"]),
+                        "--exit-status",
+                    ], cwd=ROOT).returncode
                 return 0
 
         # Refuse per entry: one already-red selector makes the whole batch a
@@ -528,7 +507,10 @@ def main() -> int:
         )
     print(f"Run: {run['url']}", flush=True)
     if args.wait:
-        return subprocess.run(watch_command(str(run["databaseId"])), cwd=ROOT).returncode
+        return subprocess.run([
+            "gh", "run", "watch", "--repo", REPO, str(run["databaseId"]),
+            "--exit-status",
+        ], cwd=ROOT).returncode
     return 0
 
 
