@@ -148,6 +148,19 @@ class PullRequestProductTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "no single merge commit"):
             self.built(run)
 
+    def dispatched_run(self, built: str, run_id: int = 6) -> dict:
+        title = f"cmuxTests/ATests on blacksmith-6vcpu-macos-26 @ {built} [abc123]"
+        return {"id": run_id, "event": "workflow_dispatch", "head_sha": self.head, "display_title": title}
+
+    def test_a_dispatched_run_built_the_revision_its_title_names(self) -> None:
+        self.assertEqual(self.built(self.dispatched_run(self.base)), self.base)
+
+    def test_a_dispatched_run_without_a_full_revision_is_rejected(self) -> None:
+        run = self.dispatched_run(self.base)
+        run["display_title"] = "cmuxTests/ATests on blacksmith-6vcpu-macos-26 @ my-branch"
+        with self.assertRaisesRegex(ValueError, "no full revision"):
+            self.built(run)
+
     def plan(self, ref: str, source_run_id: str, api) -> dict:
         self.addCleanup(os.chdir, os.getcwd())
         os.chdir(self.repo.path)
@@ -193,6 +206,21 @@ class PullRequestProductTests(unittest.TestCase):
         # carries the base's app change; the older push run built the head.
         runs = [
             {**self.pull_request_run(run_id=2), "created_at": "2026-01-02"},
+            {"id": 1, "event": "push", "head_sha": self.head, "created_at": "2026-01-01"},
+        ]
+
+        def api(path: str) -> dict:
+            if "head_sha=" in path:
+                return {"workflow_runs": runs if f"head_sha={self.head}" in path else []}
+            return {"artifacts": [self.PRODUCTS]}
+
+        planned = self.plan(self.head, "", api)
+        self.assertEqual((planned["source_run_id"], planned["source_sha"]), ("1", self.head))
+
+    def test_automatic_plan_passes_over_a_dispatched_run_of_another_revision(self) -> None:
+        # test-e2e.yml runs list under main's head but compile the branch they test.
+        runs = [
+            {**self.dispatched_run(self.base, run_id=2), "created_at": "2026-01-02"},
             {"id": 1, "event": "push", "head_sha": self.head, "created_at": "2026-01-01"},
         ]
 

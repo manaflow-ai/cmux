@@ -1,6 +1,6 @@
 name: App-host test rerun
 run-name: >-
-  app-host test rerun @ ${{ inputs.ref }} · ${{ inputs.only_testing }}
+  app-host test rerun @ ${{ inputs.ref }} · ${{ inputs.only_testing }}${{ inputs.dispatch_id != '' && format(' [{0}]', inputs.dispatch_id) || '' }}
 
 # Reruns app-host tests for a change that touches only cmuxTests/. Instead of
 # compiling the app, it adopts the app-host products an upstream CI run already
@@ -34,6 +34,10 @@ on:
         description: Repository whose CI products to adopt.
         required: false
         default: manaflow-ai/cmux
+      dispatch_id:
+        description: Optional caller-generated id echoed into the run name so dispatchers can find their run
+        required: false
+        default: ""
       baseline:
         description: Also run the same selectors against the unmodified CI-built bundle, for a before/after.
         required: false
