@@ -135,6 +135,53 @@ def test_open_wrapper_changes_skip_the_release_build() -> None:
     assert actual.release_build is False, (paths, actual)
 
 
+def test_resources_bin_release_neutral_inputs_are_text_scripts() -> None:
+    # The Release lane validates compiled binaries' slices; a bundled text
+    # script cannot fail it. A binary in this list would skip that check.
+    scripts = sorted(p for p in module.RELEASE_BUILD_NEUTRAL_INPUTS if p.startswith("Resources/bin/"))
+    assert scripts
+    for path in scripts:
+        data = (ROOT / path).read_bytes()
+        assert b"\0" not in data, f"{path} is not a text script"
+        actual = module.classify_files([path])
+        assert actual.macos is True, (path, actual)
+        assert actual.release_build is False, (path, actual)
+
+
+def test_linux_guard_only_scripts_reach_no_other_runner() -> None:
+    references = module.load_macos_job_test_references(ROOT)
+    assert references is not None
+    guard_jobs = yaml.safe_load(GUARD_WORKFLOW.read_text(encoding="utf-8"))["jobs"]
+    for path in sorted(module.LINUX_GUARD_ONLY_SCRIPTS):
+        assert (ROOT / path).is_file(), path
+        # The stem, so a name built as stem + ".py" is found too.
+        name = path.rsplit("/", 1)[-1].rsplit(".", 1)[0]
+        referrers = subprocess.run(
+            ["git", "grep", "-lF", name], cwd=ROOT, capture_output=True, text=True, check=True,
+        ).stdout.split()
+        for referrer in referrers:
+            if referrer in {path, "scripts/ci/detect_ci_change_areas.py"} or referrer.endswith(".md"):
+                continue
+            if referrer == ".github/workflows/ci-guards.yml":
+                for job_name, job in guard_jobs.items():
+                    if name in yaml.safe_dump(job):
+                        assert module.is_plainly_linux_runner(str(job.get("runs-on", ""))), (path, job_name)
+                continue
+            if referrer.startswith("tests/"):
+                assert module.is_guard_only_test(referrer, references), (path, referrer)
+                continue
+            if referrer.endswith(".swift"):
+                # Comments and failure messages may point at the lint, but a
+                # Swift file that names it must not launch processes at all.
+                source = (ROOT / referrer).read_text(encoding="utf-8")
+                launches = r"\bProcess\s*[.(]|executableURL|launchPath|posix_spawn|\bNSTask\b|\bsystem\(|\bpopen\("
+                assert not re.search(launches, source), (path, referrer)
+                continue
+            raise AssertionError(f"{referrer} names {path}; it may run on a Mac")
+        actual = module.classify_files([path])
+        assert not (actual.macos or actual.release_build or actual.web or actual.cli), (path, actual)
+
+
 def test_anything_the_app_can_build_from_runs_the_release_build() -> None:
     for path in (
         "Sources/AppDelegate.swift",
