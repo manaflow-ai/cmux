@@ -1,4 +1,5 @@
 public import CmuxMobileSSH
+import CmuxMobileTunnel
 public import Foundation
 
 /// The native ("On iPhone") browser's network for an SSH computer.
@@ -16,8 +17,15 @@ public import Foundation
 ///   keeps its origin (`localhost:3000`) and its requests to other local
 ///   ports reach the server's.
 ///
-/// Both end with the SSH connection and come back when it reconnects.
+/// Both end with the SSH connection and come back when it reconnects. The
+/// phone's loopback is shared with paired Macs' browser mirrors, so every
+/// listener is recorded in `LoopbackPortRegistry`.
 extension MobileSSHComputers {
+    /// This host's owner name in `LoopbackPortRegistry`.
+    nonisolated static func loopbackOwner(_ hostID: UUID) -> String {
+        "ssh:\(hostID.uuidString)"
+    }
+
     /// Readies the browser network for a navigation: the proxy, plus the
     /// loopback forwards when the page is on `localhost`. Returns the proxy
     /// port for the browser's data store.
@@ -58,13 +66,14 @@ extension MobileSSHComputers {
         let proxy = try await task.value
         browserProxies[hostID] = proxy
         lastBrowserProxyPorts[hostID] = proxy.port
+        LoopbackPortRegistry.shared.register(port: proxy.port, owner: Self.loopbackOwner(hostID), pinned: true) {}
         return proxy.port
     }
 
     /// Forwards every loopback port the server listens on (plus `port`) from
     /// the same port on the phone. A phone port that is busy stays as is:
     /// when the server is this same machine (Simulator), the server itself
-    /// already owns it, and the page reaches it directly. Another SSH computer's forward on a port is replaced,
+    /// already owns it, and the page reaches it directly. Another computer's forward (SSH or a paired Mac) on a port is replaced,
     /// since the page being opened now wants this computer's.
     func forwardServerLoopback(hostID: UUID, ensuring port: Int) async {
         await browserNetworkTeardowns[hostID]?.value
@@ -81,23 +90,26 @@ extension MobileSSHComputers {
         // phone's own listener when both are the same machine.
         var targets = listening ?? [:]
         if listening == nil, (1...65_535).contains(port) { targets[port] = "localhost" }
-        // Never mirror onto this app's own listeners (proxies, forwards):
-        // when the server is this same machine its scan lists them too.
+        // Never mirror onto this app's own listeners (proxies of any
+        // computer, forwards): when the server is this same machine its scan
+        // lists them too.
         let ownPorts = Set(browserProxies.values.map(\.port))
             .union(forwardsByHost.values.flatMap { $0.map(\.localPort) })
+            .union(LoopbackPortRegistry.shared.pinnedPorts)
         targets = targets.filter { !ownPorts.contains($0.key) }
         // The page's own port first, then the rest, lowest first.
         let others = targets.keys.filter { $0 >= 1_024 && $0 != port }.sorted()
         let wanted = ([port].filter { targets[$0] != nil } + others).prefix(Self.maxLoopbackForwards)
+        let registry = LoopbackPortRegistry.shared
+        let owner = Self.loopbackOwner(hostID)
         for localPort in wanted {
             guard let target = targets[localPort] else { continue }
-            if let existing = loopbackForwards[localPort] {
-                if existing.hostID == hostID { continue }
-                loopbackForwards[localPort] = nil
-                await existing.forward.stop()
-            } else if loopbackBusyPorts[hostID]?.contains(localPort) == true {
+            if let existing = loopbackForwards[localPort], existing.hostID == hostID { continue }
+            if registry.entry(for: localPort) == nil, loopbackBusyPorts[hostID]?.contains(localPort) == true {
                 continue
             }
+            // Another computer's forward (SSH or Mac) gives way; a proxy never.
+            guard await registry.evict(port: localPort, for: owner) else { continue }
             // Network.framework refuses a port any socket holds (IPv4, IPv6,
             // or wildcard), so a same-machine server's port is never shadowed
             // and a forward never loops back into itself.
@@ -112,6 +124,11 @@ extension MobileSSHComputers {
                 continue
             }
             loopbackForwards[localPort] = (hostID, forward)
+            registry.register(port: localPort, owner: owner) { [weak self] in
+                guard let self, let entry = self.loopbackForwards[localPort], entry.hostID == hostID else { return }
+                self.loopbackForwards[localPort] = nil
+                await entry.forward.stop()
+            }
         }
     }
 
@@ -122,6 +139,10 @@ extension MobileSSHComputers {
         loopbackBusyPorts[hostID] = nil
         let forwards = loopbackForwards.filter { $0.value.hostID == hostID }
         for port in forwards.keys { loopbackForwards[port] = nil }
+        let owner = Self.loopbackOwner(hostID)
+        for port in LoopbackPortRegistry.shared.ports(ownedBy: owner) {
+            LoopbackPortRegistry.shared.release(port: port, owner: owner)
+        }
         let previous = browserNetworkTeardowns[hostID]
         browserNetworkTeardowns[hostID] = Task {
             await previous?.value
