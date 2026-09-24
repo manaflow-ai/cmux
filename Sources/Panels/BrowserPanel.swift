@@ -3016,6 +3016,9 @@ final class BrowserPanel: Panel, ObservableObject {
         _ configuration: WKWebViewConfiguration,
         websiteDataStore: WKWebsiteDataStore
     ) {
+        if #available(macOS 15.4, *) {
+            BrowserExtensions.attach(configuration, websiteDataStore: websiteDataStore)
+        }
         configuration.mediaTypesRequiringUserActionForPlayback = []
         // Ensure browser cookies/storage persist across navigations and launches.
         // This reduces repeated consent/bot-challenge flows on sites like Google.
@@ -3124,6 +3127,9 @@ final class BrowserPanel: Panel, ObservableObject {
     }
 
     func bindWebView(_ webView: CmuxWebView) {
+        if #available(macOS 15.4, *) {
+            BrowserExtensions.shared.register(self)
+        }
         webViewObservationGeneration &+= 1
         browserViewportHostRestorationTask?.cancel()
         browserViewportHostRestorationTask = nil
@@ -5903,6 +5909,13 @@ final class BrowserPanel: Panel, ObservableObject {
     }
 
     deinit {
+        if #available(macOS 15.4, *) {
+            let panelID = id
+            let websiteDataStore = websiteDataStore
+            Task { @MainActor in
+                BrowserExtensions.shared.unregister(panelID: panelID, websiteDataStore: websiteDataStore)
+            }
+        }
         hiddenWebViewDiscardManager.stop()
         detachedDeveloperToolsWindowCloseResolutionTimer?.cancel()
         detachedDeveloperToolsWindowCloseResolutionTimer = nil

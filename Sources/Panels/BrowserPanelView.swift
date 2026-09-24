@@ -1192,6 +1192,9 @@ struct BrowserPanelView: View {
                     browserScreenshotCopiedIndicator
                     browserProfileButton
                     browserThemeModeButton
+                    if #available(macOS 15.4, *) {
+                        BrowserExtensionsToolbarButton()
+                    }
                     browserOverflowMenu
                 } else {
                     // Keep the stable wide-row sizing and place Inspect/DevTools
@@ -1209,6 +1212,9 @@ struct BrowserPanelView: View {
                     }
                     browserProfileButton
                     browserThemeModeButton
+                    if #available(macOS 15.4, *) {
+                        BrowserExtensionsToolbarButton()
+                    }
                     developerToolsButton
                     browserOverflowMenu
                 }
