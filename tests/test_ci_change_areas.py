@@ -2288,7 +2288,9 @@ def test_helper_nothing_names_is_unknown_and_fails_open() -> None:
 def test_repository_helpers_route_by_where_they_run() -> None:
     references = module.load_macos_job_test_references(ROOT)
     # Runs only in the dispatch-only E2E lane.
-    assert not module.ci_helper_reaches_routed_lane("scripts/ci/e2e_warm_derived_data.py", ROOT, references)
+    assert not module.ci_helper_reaches_routed_lane("scripts/ci/preflight-e2e-screen-capture.py", ROOT, references)
+    # seed_derived_data.py imports it, and ci-macos.yml compile admission runs that.
+    assert module.ci_helper_reaches_routed_lane("scripts/ci/e2e_warm_derived_data.py", ROOT, references)
     # run_python_test_lane.py imports it and ci-macos.yml runs that on a Mac.
     assert module.ci_helper_reaches_routed_lane("scripts/ci/test_execution_registry.py", ROOT, references)
 
