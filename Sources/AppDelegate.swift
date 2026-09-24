@@ -566,6 +566,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     var aboutTitlebarDebugStore: AboutTitlebarDebugStore { debugWindowsCoordinator.aboutTitlebarStore }
     /// Coordinates remote tmux (`ssh … tmux -CC`) mirroring; composition-root owned.
     let remoteTmuxController = RemoteTmuxController()
+    lazy var sshTuiWorkspaceCoordinator = SSHTuiWorkspaceCoordinator(
+        catalog: SurfaceCatalog.shared, clientURL: { CloudTuiClientPaths.clientURL() }, paths: CloudTuiClientPaths()
+    )
     /// Owns every main-window registration, recovery, and close phase.
     let mainWindowLifecycleCoordinator = MainWindowLifecycleCoordinator()
     /// Owns the process-scoped idle-sleep assertion shared by every local and
@@ -609,12 +612,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private let connectivityInvalidationSubscriberCoordinator =
         ConnectivityInvalidationSubscriberCoordinator()
     private let sudoApprovalCoordinator: SudoApprovalCoordinator?
-
-    private func isRunningUnderXCTest(_ env: [String: String]) -> Bool {
-        // The CI wrapper uses xcodebuild's TEST_RUNNER_ forwarding so its marker
-        // exists before XCTest connects. Standard XCTest keys cover other paths.
-        MacSentryStartupPolicy.isRunningUnderXCTest(environment: env)
-    }
 
     @MainActor
     final class MainWindowContext {
