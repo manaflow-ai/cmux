@@ -64,6 +64,7 @@ CLI_WORKFLOW_PATH = ".github/workflows/cli-pipe-regressions.yml"
 MACOS_XCODE_PROJECT_PATH = "cmux.xcodeproj/project.pbxproj"
 MACOS_PRODUCT_TARGET = "cmux"
 CLI_PRODUCT_TARGET = "cmux-cli"
+XCODE_SHARED_SCHEMES_PREFIX = "cmux.xcodeproj/xcshareddata/xcschemes/"
 
 _LOCAL_PATH_DEPENDENCY_RE = re.compile(
     r'\.package\(\s*(?:name:\s*"[^"]*"\s*,\s*)?path:\s*"([^"]+)"'
@@ -637,6 +638,9 @@ def is_cli_change(
     cli_inputs: Optional[CliTargetInputs] = None,
     macos_ios_packages: Optional[frozenset[str]] = None,
 ) -> bool:
+    if path.startswith(XCODE_SHARED_SCHEMES_PREFIX):
+        # The lane builds one scheme; the app and test schemes are not inputs.
+        return path.rsplit("/", 1)[-1].startswith(CLI_PRODUCT_TARGET)
     if path in CLI_LANE_EXACT_INPUTS or path.startswith(CLI_LANE_INPUT_PREFIXES):
         return True
     if shadows_cli_lane_import(path):
@@ -1057,6 +1061,171 @@ def cli_target_inputs(root: Path) -> CliTargetInputs:
     )
 
 
+# Native targets that nothing the CLI route runs builds. Every other target,
+# including one added later, counts as a CLI input, so an unknown target keeps
+# the lane rather than skipping it.
+CLI_ROUTE_UNBUILT_TARGETS = frozenset({
+    MACOS_PRODUCT_TARGET,
+    "cmuxTests",
+    "cmuxUITests",
+    "CmuxDockTilePlugin",
+    "cmuxTunnelExtension",
+})
+_PBX_TARGET_ISAS = frozenset({"PBXNativeTarget", "PBXAggregateTarget", "PBXLegacyTarget"})
+_PBX_TOKEN_RE = re.compile(
+    r'\s+|//[^\n]*|/\*.*?\*/|"(?:[^"\\]|\\.)*"|[{}();=,]|[^\s{}();=,"]+', re.S
+)
+
+
+def _parse_pbx(text: str) -> dict:
+    """Parse an old-style (OpenStep) property list, as project.pbxproj is.
+
+    Strings keep their quotes; this only has to compare two revisions.
+    """
+    tokens = [
+        token
+        for token in _PBX_TOKEN_RE.findall(text)
+        if token.strip() and not token.startswith(("//", "/*"))
+    ]
+    position = 0
+
+    def take() -> str:
+        nonlocal position
+        if position >= len(tokens):
+            raise ValueError("truncated project file")
+        position += 1
+        return tokens[position - 1]
+
+    def value() -> object:
+        token = take()
+        if token == "{":
+            result: dict[str, object] = {}
+            while tokens[position:position + 1] != ["}"]:
+                key = take()
+                if take() != "=":
+                    raise ValueError(f"expected '=' after {key}")
+                result[key] = value()
+                if take() != ";":
+                    raise ValueError(f"expected ';' after {key}")
+            take()
+            return result
+        if token == "(":
+            items: list[object] = []
+            while tokens[position:position + 1] != [")"]:
+                items.append(value())
+                if tokens[position:position + 1] == [","]:
+                    take()
+            take()
+            return tuple(items)
+        if token in "{}();=,":
+            raise ValueError(f"unexpected {token!r}")
+        return token
+
+    root = value()
+    if position != len(tokens) or not isinstance(root, dict):
+        raise ValueError("trailing content after the project dictionary")
+    return root
+
+
+def cli_xcode_project_view(text: str) -> dict[str, object]:
+    """Every project object the CLI route's targets build from.
+
+    That is the project object itself (its build settings and package
+    references) and everything reachable from each target the route may build,
+    plus the groups that locate their files. Group member lists are dropped,
+    since adding an app or test file edits them; each object records its
+    parent groups instead, so moving a CLI file still counts.
+    """
+    root = _parse_pbx(text)
+    objects = root.get("objects")
+    project_id = root.get("rootObject")
+    if not isinstance(objects, dict) or project_id not in objects:
+        raise ValueError("project file has no root object")
+    targets = {
+        identifier: body.get("name", "").strip('"')
+        for identifier, body in objects.items()
+        if isinstance(body, dict) and body.get("isa") in _PBX_TARGET_ISAS
+    }
+    if list(targets.values()).count(CLI_PRODUCT_TARGET) != 1:
+        raise ValueError(f"expected one {CLI_PRODUCT_TARGET} target")
+    seeds = [
+        identifier
+        for identifier, name in targets.items()
+        if name not in CLI_ROUTE_UNBUILT_TARGETS
+    ]
+
+    project = dict(objects[project_id])
+    # The target list and the whole group tree hang off the project object.
+    project.pop("targets", None)
+    project.pop("mainGroup", None)
+    attributes = project.get("attributes")
+    if isinstance(attributes, dict) and isinstance(attributes.get("TargetAttributes"), dict):
+        project["attributes"] = {
+            **attributes,
+            "TargetAttributes": {
+                key: value
+                for key, value in attributes["TargetAttributes"].items()
+                if key in seeds
+            },
+        }
+
+    parents: dict[str, list[str]] = {}
+    for identifier, body in objects.items():
+        if isinstance(body, dict) and body.get("isa") == "PBXGroup":
+            for child in body.get("children", ()):
+                parents.setdefault(child, []).append(identifier)
+
+    def references(value: object) -> Iterable[str]:
+        if isinstance(value, dict):
+            for item in value.values():
+                yield from references(item)
+        elif isinstance(value, tuple):
+            for item in value:
+                yield from references(item)
+        elif isinstance(value, str) and value in objects:
+            yield value
+
+    view: dict[str, object] = {}
+    pending = [project_id, *seeds]
+    while pending:
+        identifier = pending.pop()
+        if identifier in view:
+            continue
+        body = project if identifier == project_id else objects[identifier]
+        if not isinstance(body, dict):
+            raise ValueError(f"unreadable project object {identifier}")
+        if body.get("isa") == "PBXGroup":
+            body = {key: value for key, value in body.items() if key != "children"}
+        owners = sorted(parents.get(identifier, ()))
+        view[identifier] = (body, tuple(owners))
+        pending.extend(references(body))
+        pending.extend(owners)
+    return view
+
+
+def cli_xcode_project_change_is_neutral(base: str, head: str) -> bool:
+    """True when a project.pbxproj edit cannot change what the CLI route builds."""
+    try:
+        return cli_xcode_project_view(base) == cli_xcode_project_view(head)
+    except (ValueError, IndexError, KeyError, TypeError, AttributeError):
+        return False
+
+
+def cli_xcode_project_unchanged(base_path: Optional[Path]) -> bool:
+    if base_path is None:
+        return False
+    root = Path(os.environ.get("CMUX_CI_HEAD_TEST_REFERENCE_ROOT") or Path.cwd())
+    try:
+        neutral = cli_xcode_project_change_is_neutral(
+            base_path.read_text(encoding="utf-8"),
+            (root / MACOS_XCODE_PROJECT_PATH).read_text(encoding="utf-8"),
+        )
+    except OSError:
+        return False
+    print(f"{MACOS_XCODE_PROJECT_PATH} changed; the CLI route's targets are unchanged: {bool_output(neutral)}")
+    return neutral
+
+
 @lru_cache(maxsize=1)
 def load_cli_target_inputs() -> Optional[CliTargetInputs]:
     root = Path(__file__).resolve().parents[2]
@@ -1250,7 +1419,8 @@ def test_registry_linux_only(base_path: Optional[Path]) -> bool:
 
 
 def classify_files(paths: Iterable[str], *, ci_workflow_linux_only: bool = False,
-                   test_registry_linux_only: bool = False) -> ChangeAreas:
+                   test_registry_linux_only: bool = False,
+                   cli_xcode_project_neutral: bool = False) -> ChangeAreas:
     macos = False
     web = False
     agent_session_web = False
@@ -1282,7 +1452,11 @@ def classify_files(paths: Iterable[str], *, ci_workflow_linux_only: bool = False
                 macos = True
                 release_build = True
             continue
-        if is_cli_change(path, cli_inputs, macos_ios_packages):
+        # A project edit compared against its base as wiring only other
+        # targets cannot change what the CLI route builds.
+        if is_cli_change(path, cli_inputs, macos_ios_packages) and not (
+            path == MACOS_XCODE_PROJECT_PATH and cli_xcode_project_neutral
+        ):
             cli = True
         if path == CI_WORKFLOW_PATH and ci_workflow_linux_only:
             continue
@@ -1405,6 +1579,11 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         help="Base test registry; Linux-only entry changes do not select native CI.",
     )
     parser.add_argument(
+        "--xcode-project-base",
+        type=Path,
+        help="Base project.pbxproj; edits outside the CLI route's targets do not select it.",
+    )
+    parser.add_argument(
         "--files-from",
         type=Path,
         help="Read changed files from this newline-delimited file instead of git.",
@@ -1435,6 +1614,7 @@ def main(argv: list[str]) -> int:
                 files,
                 ci_workflow_linux_only=ci_workflow_linux_only(args.ci_workflow_base),
                 test_registry_linux_only=test_registry_linux_only(args.test_registry_base),
+                cli_xcode_project_neutral=cli_xcode_project_unchanged(args.xcode_project_base),
             )
         else:
             areas = ChangeAreas.all()
