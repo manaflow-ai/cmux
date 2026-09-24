@@ -113,8 +113,10 @@ public enum AgentLaunchSanitizer {
         case "codex-fork-restore": return preservedCodexForkArguments(args: args, preservePromptTags: false)
         case "grok":
             return preserveOptions(args, policy: grokPolicy)
-        case "pi", "omp":
+        case "pi":
             return preserveOptions(args, policy: piPolicy)
+        case "omp":
+            return preserveOptions(args, policy: piCompatiblePolicy)
         case "campfire":
             return preserveOptions(args, policy: campfirePolicy)
         case "amp":
