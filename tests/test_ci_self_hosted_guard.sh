@@ -1401,8 +1401,11 @@ persistent_compile_toolchain_pin() {
 import re
 import sys
 
+# Compile admission also sends main'"'"'s full-suite dispatch down the PR lane.
 PR_LANE = re.compile(
-    r"\$\{\{\s*github\.event_name == .pull_request.\s*&&\s*\((?P<pr>.+?)\)\s*\|\|.+?\}\}"
+    r"\$\{\{\s*(?:github\.event_name == .pull_request."
+    r"|\(github\.event_name == .pull_request. \|\| github\.event_name == .workflow_dispatch. && github\.ref == .refs/heads/main.\))"
+    r"\s*&&\s*\((?P<pr>.+?)\)\s*\|\|.+?\}\}"
 )
 
 normalize = len(sys.argv) > 1 and sys.argv[1] == "--pr-lane"

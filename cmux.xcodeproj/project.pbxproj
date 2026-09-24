@@ -23,18 +23,11 @@
 		D0B102010000000000000001 /* AcknowledgmentsWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0B103010000000000000001 /* AcknowledgmentsWindowController.swift */; };
 		A9E020000000000000000006 /* agent-session-react in Resources */ = {isa = PBXBuildFile; fileRef = A9E010000000000000000006 /* agent-session-react */; };
 		A9E020000000000000000007 /* agent-session-solid in Resources */ = {isa = PBXBuildFile; fileRef = A9E010000000000000000007 /* agent-session-solid */; };
-		C7AF10000000000000000005 /* AgentChatArtifactGalleryBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7AF10000000000000000006 /* AgentChatArtifactGalleryBuilder.swift */; };
-		C7AF10000000000000000001 /* AgentChatArtifactIndex.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7AF10000000000000000002 /* AgentChatArtifactIndex.swift */; };
 		5FAC71D5AC71D5AC71D50001 /* AgentChatChildRunTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5FAC71D5AC71D5AC71D50002 /* AgentChatChildRunTests.swift */; };
 		C7A52E000000000000000002 /* AgentChatEndedTranscriptListabilityCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A52E000000000000000001 /* AgentChatEndedTranscriptListabilityCache.swift */; };
 		C7A53F000000000000000002 /* AgentChatFallbackTranscriptResolutionCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A53F000000000000000001 /* AgentChatFallbackTranscriptResolutionCoordinator.swift */; };
 		C7A540000000000000000002 /* AgentChatFallbackTranscriptResolutionCoordinatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A540000000000000000001 /* AgentChatFallbackTranscriptResolutionCoordinatorTests.swift */; };
-		ACA7C4A70000000000000003 /* AgentChatHookSessionStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = ACA7C4A70000000000000004 /* AgentChatHookSessionStore.swift */; };
-		C7A531000000000000000002 /* AgentChatObservationHandle.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A531000000000000000001 /* AgentChatObservationHandle.swift */; };
-		C7A532000000000000000002 /* AgentChatObservationInFlight.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A532000000000000000001 /* AgentChatObservationInFlight.swift */; };
-		C7A530000000000000000002 /* AgentChatObservationScope.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A530000000000000000001 /* AgentChatObservationScope.swift */; };
 		99230001992300019923000C /* AgentChatResumeIntentRecorder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 99230001992300019923000B /* AgentChatResumeIntentRecorder.swift */; };
-		ACA7C4A70000000000000001 /* AgentChatSessionRecord.swift in Sources */ = {isa = PBXBuildFile; fileRef = ACA7C4A70000000000000002 /* AgentChatSessionRecord.swift */; };
 		C7A52D100000000000000012 /* AgentChatSessionRegistry+ChildRuns.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A52D100000000000000011 /* AgentChatSessionRegistry+ChildRuns.swift */; };
 		C8711A000000000000000002 /* AgentChatSessionRegistry+CodexRolloutFiles.swift in Sources */ = {isa = PBXBuildFile; fileRef = C8711A000000000000000001 /* AgentChatSessionRegistry+CodexRolloutFiles.swift */; };
 		C7A52D100000000000000002 /* AgentChatSessionRegistry+Lifecycle.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A52D100000000000000001 /* AgentChatSessionRegistry+Lifecycle.swift */; };
@@ -54,7 +47,6 @@
 		A1B2C3D4E5F60718293A4B5D /* AgentChatTranscriptService+ArtifactSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F60718293A4B5C /* AgentChatTranscriptService+ArtifactSession.swift */; };
 		C7A52F000000000000000002 /* AgentChatTranscriptService+Wire.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A52F000000000000000001 /* AgentChatTranscriptService+Wire.swift */; };
 		ACA7C4A7000000000000000B /* AgentChatTranscriptService.swift in Sources */ = {isa = PBXBuildFile; fileRef = ACA7C4A7000000000000000C /* AgentChatTranscriptService.swift */; };
-		ACA7C4A70000000000000009 /* AgentChatTranscriptTailer.swift in Sources */ = {isa = PBXBuildFile; fileRef = ACA7C4A7000000000000000A /* AgentChatTranscriptTailer.swift */; };
 		79390005AA11BB22CC33DD05 /* AgentDeliveryTargetResolution.swift in Sources */ = {isa = PBXBuildFile; fileRef = 79390006AA11BB22CC33DD06 /* AgentDeliveryTargetResolution.swift */; };
 		93800001AA11BB22CC33EE01 /* AgentDeliveryTTYBindingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 93800002AA11BB22CC33EE02 /* AgentDeliveryTTYBindingTests.swift */; };
 		A9F200000000000000000001 /* AgentExecutableResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9F100000000000000000001 /* AgentExecutableResolver.swift */; };
@@ -600,7 +592,6 @@
 		A5D41220A1B2C3D4E5F60718 /* ClaudeHookSurfaceResolutionSwiftTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5D41221A1B2C3D4E5F60718 /* ClaudeHookSurfaceResolutionSwiftTests.swift */; };
 		CC7FDF58CBB0EDDE5DADE167 /* ClaudeHookSurfaceSocketState.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1136E25CD5300988F9F2162 /* ClaudeHookSurfaceSocketState.swift */; };
 		A5D41222A1B2C3D4E5F60718 /* ClaudeNotificationStatusLifecycleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5D41223A1B2C3D4E5F60718 /* ClaudeNotificationStatusLifecycleTests.swift */; };
-		C7A533000000000000000002 /* ClaudeSessionCanonicalizationContext.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A533000000000000000001 /* ClaudeSessionCanonicalizationContext.swift */; };
 		A9F200000000000000000015 /* ClaudeStreamJSONAccumulator.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9F100000000000000000015 /* ClaudeStreamJSONAccumulator.swift */; };
 		CE7000000000000000000001 /* ClaudeWrapperResumeEnvironmentTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE7000000000000000000002 /* ClaudeWrapperResumeEnvironmentTests.swift */; };
 		9758A0000000000000000004 /* CLIAmpLifecycleIntegrationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9758A0000000000000000003 /* CLIAmpLifecycleIntegrationTests.swift */; };
@@ -1385,6 +1376,8 @@
 		D36090020000000000000005 /* CmuxMainWindowFullScreenCapabilityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D36090020000000000000006 /* CmuxMainWindowFullScreenCapabilityTests.swift */; };
 		799F1BEF876006EEB8CD1035 /* CMUXMobileCore in Frameworks */ = {isa = PBXBuildFile; productRef = EFB18E3B3099DFE2ECA3C263 /* CMUXMobileCore */; };
 		EFB18E3C0000000000000001 /* CMUXMobileCore in Frameworks */ = {isa = PBXBuildFile; productRef = EFB18E3B3099DFE2ECA3C263 /* CMUXMobileCore */; };
+		C4B1E0000000000000000003 /* CmuxMobileHost in Frameworks */ = {isa = PBXBuildFile; productRef = C4B1E0000000000000000002 /* CmuxMobileHost */; };
+		C4B1E0000000000000000004 /* CmuxMobileHost in Frameworks */ = {isa = PBXBuildFile; productRef = C4B1E0000000000000000002 /* CmuxMobileHost */; };
 		C1A072000000000000000003 /* CmuxMobileRPC in Frameworks */ = {isa = PBXBuildFile; productRef = C1A072000000000000000002 /* CmuxMobileRPC */; };
 		C1A072000000000000000004 /* CmuxMobileRPC in Frameworks */ = {isa = PBXBuildFile; productRef = C1A072000000000000000002 /* CmuxMobileRPC */; };
 		1A0B0C0D0E0F101112132003 /* CmuxMobileTransport in Frameworks */ = {isa = PBXBuildFile; productRef = 1A0B0C0D0E0F101112132002 /* CmuxMobileTransport */; };
@@ -1578,8 +1571,6 @@
 		7FF4F2EA73F8883D21912965 /* CodexRestoreOwnerGenerationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49E1CED2CD67AA6493348BF7 /* CodexRestoreOwnerGenerationTests.swift */; };
 		C6209A010000000000000001 /* CodexRestoreValidationResult.swift in Sources */ = {isa = PBXBuildFile; fileRef = C6209A020000000000000001 /* CodexRestoreValidationResult.swift */; };
 		D96290010000000000000001 /* CodexResumeBindingVerificationRegressionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D96290020000000000000001 /* CodexResumeBindingVerificationRegressionTests.swift */; };
-		C8711C000000000000000002 /* CodexRolloutIdentity.swift in Sources */ = {isa = PBXBuildFile; fileRef = C8711C000000000000000001 /* CodexRolloutIdentity.swift */; };
-		C8711D000000000000000002 /* CodexRolloutIdentityResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = C8711D000000000000000001 /* CodexRolloutIdentityResolver.swift */; };
 		E6227020943E2260565D992D /* CodexSessionStartDeadTurnTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7E3FFB9B84F6DE45250D5D5 /* CodexSessionStartDeadTurnTests.swift */; };
 		35241766A401B4F40BFFF49D /* CodexStaleTurnRestoreIntentTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0B0073F9140EA86D5ADEE233 /* CodexStaleTurnRestoreIntentTests.swift */; };
 		C0DECAFE0000000000000001 /* CodexTeamsApprovalBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DECAFE0000000000000002 /* CodexTeamsApprovalBridge.swift */; };
@@ -2341,22 +2332,14 @@
 		5732A0035732A0035732A003 /* MinimalModeTitlebarEventSurfaceLayer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5732B0035732B0035732B003 /* MinimalModeTitlebarEventSurfaceLayer.swift */; };
 		A7C0F0030000000000000001 /* MobileAttachTarget.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7C0F0030000000000000002 /* MobileAttachTarget.swift */; };
 		284FD21ACF8BD1ED6AEBD7A0 /* MobileAttachTicketStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8D6D2AC715764ECC1F6B26A2 /* MobileAttachTicketStore.swift */; };
-		F21000000000000000000004 /* MobileBrowserContinuousClock.swift in Sources */ = {isa = PBXBuildFile; fileRef = F11000000000000000000004 /* MobileBrowserContinuousClock.swift */; };
-		F21000000000000000000010 /* MobileBrowserDialogBroker.swift in Sources */ = {isa = PBXBuildFile; fileRef = F11000000000000000000010 /* MobileBrowserDialogBroker.swift */; };
 		F21000000000000000000002 /* MobileBrowserDirtyMessageHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = F11000000000000000000002 /* MobileBrowserDirtyMessageHandler.swift */; };
-		F21000000000000000000005 /* MobileBrowserEncodedFrame.swift in Sources */ = {isa = PBXBuildFile; fileRef = F11000000000000000000005 /* MobileBrowserEncodedFrame.swift */; };
-		F21000000000000000000006 /* MobileBrowserFrameEncoder.swift in Sources */ = {isa = PBXBuildFile; fileRef = F11000000000000000000006 /* MobileBrowserFrameEncoder.swift */; };
-		F21000000000000000000007 /* MobileBrowserFrameEncodingError.swift in Sources */ = {isa = PBXBuildFile; fileRef = F11000000000000000000007 /* MobileBrowserFrameEncodingError.swift */; };
 		F21000000000000000000009 /* MobileBrowserInputReplayer.swift in Sources */ = {isa = PBXBuildFile; fileRef = F11000000000000000000009 /* MobileBrowserInputReplayer.swift */; };
-		F21000000000000000000008 /* MobileBrowserInputReplayError.swift in Sources */ = {isa = PBXBuildFile; fileRef = F11000000000000000000008 /* MobileBrowserInputReplayError.swift */; };
 		F21000000000000000000003 /* MobileBrowserPanelNativeSignal.swift in Sources */ = {isa = PBXBuildFile; fileRef = F11000000000000000000003 /* MobileBrowserPanelNativeSignal.swift */; };
-		F2100000000000000000000A /* MobileBrowserStreamClock.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1100000000000000000000A /* MobileBrowserStreamClock.swift */; };
 		F2100000000000000000000B /* MobileBrowserStreamCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1100000000000000000000B /* MobileBrowserStreamCoordinator.swift */; };
 		F2100000000000000000000C /* MobileBrowserStreamSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1100000000000000000000C /* MobileBrowserStreamSession.swift */; };
 		F2100000000000000000000D /* MobileBrowserWireEncoder.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1100000000000000000000D /* MobileBrowserWireEncoder.swift */; };
 		C1A070000000000000000001 /* MobileHostAuthorizationSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1A070000000000000000011 /* MobileHostAuthorizationSupport.swift */; };
 		6AA2F2E8BEB19ED6B8E125DB /* MobileHostAuthorizationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9BD519CFE74530A46DF0925D /* MobileHostAuthorizationTests.swift */; };
-		C7A50B000000000000000016 /* MobileHostBuildIdentity.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A50B000000000000000015 /* MobileHostBuildIdentity.swift */; };
 		C1A071000000000000000002 /* MobileHostConnectionEventLaneTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1A071000000000000000012 /* MobileHostConnectionEventLaneTests.swift */; };
 		3193896015BA410783C141A6 /* MobileHostConnectionEventQueue.swift in Sources */ = {isa = PBXBuildFile; fileRef = 79C1A79BC24A46F8AC504E77 /* MobileHostConnectionEventQueue.swift */; };
 		C1A071000000000000000003 /* MobileHostConnectionLifecycleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1A071000000000000000013 /* MobileHostConnectionLifecycleTests.swift */; };
@@ -2376,7 +2359,6 @@
 		BC6C909156BA44C7923C2218 /* MobileHostIrxSettingsMappingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1B1810000000000000015 /* MobileHostIrxSettingsMappingTests.swift */; };
 		C1B1810000000000000002 /* MobileHostIrxTerminalLaneServer.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1B1810000000000000012 /* MobileHostIrxTerminalLaneServer.swift */; };
 		C1B181000000000000000A /* MobileHostListenerState.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1B181000000000000001A /* MobileHostListenerState.swift */; };
-		DE71CE000000000000000008 /* MobileHostNetworkPathMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE71CE000000000000000007 /* MobileHostNetworkPathMonitor.swift */; };
 		DE71CE000000000000000006 /* MobileHostNetworkPathRefreshTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE71CE000000000000000005 /* MobileHostNetworkPathRefreshTests.swift */; };
 		A1B2C3D4E5F60718293A4C03 /* MobileHostOrderedInputTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F60718293A4C04 /* MobileHostOrderedInputTests.swift */; };
 		A1B2C3D4E5F60718293A4C01 /* MobileHostOrderedRequestQueue.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F60718293A4C02 /* MobileHostOrderedRequestQueue.swift */; };
@@ -2393,20 +2375,16 @@
 		C1A070000000000000000005 /* MobileHostTransportAuthorization.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1A070000000000000000015 /* MobileHostTransportAuthorization.swift */; };
 		C1B1810000000000000008 /* MobileHostV2Installation.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1B1810000000000000018 /* MobileHostV2Installation.swift */; };
 		C0DE73840000000000000001 /* MobileHostWorkspaceTicketAuthorizationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE73840000000000000002 /* MobileHostWorkspaceTicketAuthorizationTests.swift */; };
-		58812E32EA724C5CAB36BE98 /* MobileIOSAppTarget.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0B6499A4985B4CD4B7F3D9C0 /* MobileIOSAppTarget.swift */; };
 		86BEAF78BDAB4871996E9EF2 /* MobileIOSPairingTargetStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1148AEDC5E59435E879326ED /* MobileIOSPairingTargetStore.swift */; };
 		C0DEFEF90000000000000001 /* MobileNotificationFeedWireItem.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEFEF90000000000000002 /* MobileNotificationFeedWireItem.swift */; };
 		9B08F916D7FF7626C6820727 /* MobilePairingConnectionTransitionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4880BD05924400E5279D632 /* MobilePairingConnectionTransitionTests.swift */; };
 		0099C2865D9D468747D14593 /* MobilePairingModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 04CE82AE8B39EA0C1395F696 /* MobilePairingModel.swift */; };
-		325AF8814443BDA97AC3CC98 /* MobilePairingQRImageView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B76EC5E03C345BEAC25828A7 /* MobilePairingQRImageView.swift */; };
 		C1A070000000000000000006 /* MobilePairingView+Connected.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1A070000000000000000016 /* MobilePairingView+Connected.swift */; };
 		A2538FE83AE79539E3BF9248 /* MobilePairingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F9BC53FA4991A6EBFB930EDF /* MobilePairingView.swift */; };
 		18A8E29E9BD87E184983527C /* MobilePairingWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5AE701F43A0B49F08835191C /* MobilePairingWindowController.swift */; };
 				ABMDPARTRES0000000000001 /* MobilePanelArtifactResolutionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = ABMDPARTRES0000000000002 /* MobilePanelArtifactResolutionTests.swift */; };
 		EB30348C60CC4F7CA12C0931 /* MobileRemoteControlPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = D80AFFF3844843A789F89241 /* MobileRemoteControlPolicy.swift */; };
-		9916B44C7A9914E172D112D4 /* MobileRouteResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A956C76162B79EC74AF9965 /* MobileRouteResolver.swift */; };
 		F33100000000000000000002 /* MobileSimulatorDiagnostics.swift in Sources */ = {isa = PBXBuildFile; fileRef = F33100000000000000000001 /* MobileSimulatorDiagnostics.swift */; };
-		F33200000000000000000012 /* MobileSimulatorReaderAttachment.swift in Sources */ = {isa = PBXBuildFile; fileRef = F33200000000000000000011 /* MobileSimulatorReaderAttachment.swift */; };
 		F33200000000000000000002 /* MobileSimulatorReaderAttachmentTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F33200000000000000000001 /* MobileSimulatorReaderAttachmentTests.swift */; };
 		F33000000000000000000011 /* MobileSimulatorStreamCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = F33000000000000000000001 /* MobileSimulatorStreamCoordinator.swift */; };
 		F33000000000000000000012 /* MobileSimulatorStreamSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = F33000000000000000000002 /* MobileSimulatorStreamSession.swift */; };
@@ -2415,28 +2393,14 @@
 		F33000000000000000000013 /* MobileSimulatorWireEncoder.swift in Sources */ = {isa = PBXBuildFile; fileRef = F33000000000000000000003 /* MobileSimulatorWireEncoder.swift */; };
 		7BD32764E8A31FA15DCCF257 /* MobileStateSync.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2DBE587F52C8A3B2A2CFCB8 /* MobileStateSync.swift */; };
 		1055FA010000000000000001 /* MobileSurfaceKindMappingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1055FA010000000000000002 /* MobileSurfaceKindMappingTests.swift */; };
-		D1A70000000000000000000D /* MobileTaskDirectoryFilesystemWalker.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1A70000000000000000000E /* MobileTaskDirectoryFilesystemWalker.swift */; };
-		D1B800000000000000000001 /* MobileTaskDirectoryListItem.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1B800000000000000000011 /* MobileTaskDirectoryListItem.swift */; };
-		D1B800000000000000000002 /* MobileTaskDirectoryListPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1B800000000000000000012 /* MobileTaskDirectoryListPage.swift */; };
-		D1B800000000000000000003 /* MobileTaskDirectoryListService.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1B800000000000000000013 /* MobileTaskDirectoryListService.swift */; };
-		D1B800000000000000000004 /* MobileTaskDirectoryListServiceError.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1B800000000000000000014 /* MobileTaskDirectoryListServiceError.swift */; };
 		D1B800000000000000000005 /* MobileTaskDirectoryListServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1B800000000000000000015 /* MobileTaskDirectoryListServiceTests.swift */; };
-		D1C900000000000000000001 /* MobileTaskDirectoryMetadataQueryRunner.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1C900000000000000000011 /* MobileTaskDirectoryMetadataQueryRunner.swift */; };
-		D1C900000000000000000002 /* MobileTaskDirectorySearchResult.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1C900000000000000000012 /* MobileTaskDirectorySearchResult.swift */; };
-		C248FC7D0000000000000002 /* MobileTaskDirectorySearchService+FuzzyMatching.swift in Sources */ = {isa = PBXBuildFile; fileRef = C248FC7D0000000000000001 /* MobileTaskDirectorySearchService+FuzzyMatching.swift */; };
-		D1A700000000000000000001 /* MobileTaskDirectorySearchService.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1A700000000000000000004 /* MobileTaskDirectorySearchService.swift */; };
 		D1A700000000000000000003 /* MobileTaskDirectorySearchServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1A700000000000000000006 /* MobileTaskDirectorySearchServiceTests.swift */; };
-		F5A700000000000000000002 /* MobileTaskFilesystemJobQuota.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5A700000000000000000012 /* MobileTaskFilesystemJobQuota.swift */; };
 		F5A700000000000000000001 /* MobileTaskFilesystemJobQuotaTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5A700000000000000000011 /* MobileTaskFilesystemJobQuotaTests.swift */; };
 		AB57F0C27BECE8EDFC6B2B97 /* MobileTerminalByteTee.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4F05EBBC2FE0D5CB2F662B8A /* MobileTerminalByteTee.swift */; };
 		5FBEE7A11EE7A11EE7A10001 /* MobileTerminalByteTeeAppendCostTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5FBEE7A11EE7A11EE7A10002 /* MobileTerminalByteTeeAppendCostTests.swift */; };
 		580DAA428E6092CBBC496E6E /* MobileTerminalRenderGridAnchorRegistry.swift in Sources */ = {isa = PBXBuildFile; fileRef = E8DABF0FECE726AD90156499 /* MobileTerminalRenderGridAnchorRegistry.swift */; };
 		C9CFB398DF94D6DDEAF42D67 /* MobileTerminalRenderObserver.swift in Sources */ = {isa = PBXBuildFile; fileRef = F51B54FAD18160281FC1C2B6 /* MobileTerminalRenderObserver.swift */; };
-		F7A110000000000000000003 /* MobileTerminalThemeEmissionDecision.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7A110000000000000000004 /* MobileTerminalThemeEmissionDecision.swift */; };
-		F7A110000000000000000001 /* MobileTerminalThemeInvalidationScheduler.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7A110000000000000000002 /* MobileTerminalThemeInvalidationScheduler.swift */; };
-		5FBEE7A21EE7A21EE7A20001 /* MobileViewportApplyGovernor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5FBEE7A21EE7A21EE7A20002 /* MobileViewportApplyGovernor.swift */; };
 		5FBEE7A21EE7A21EE7A20003 /* MobileViewportApplyGovernorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5FBEE7A21EE7A21EE7A20004 /* MobileViewportApplyGovernorTests.swift */; };
-		018B51BF03D44D3381D2DA30 /* MobileWorkspaceEmissionCoalescer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 08EEC9A298B84FC5AE83BBFD /* MobileWorkspaceEmissionCoalescer.swift */; };
 		F6448F377504F33956E7E03B /* MobileWorkspaceListFidelityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 86544CEFA1CA33CA9225FB6E /* MobileWorkspaceListFidelityTests.swift */; };
 		00C3AA443F6DA8D94E28CE17 /* MobileWorkspaceListObserver.swift in Sources */ = {isa = PBXBuildFile; fileRef = C9F14137954A34DFFA05C88C /* MobileWorkspaceListObserver.swift */; };
 		D75280030000000000000001 /* MobileWorkspaceObserverSignposts.swift in Sources */ = {isa = PBXBuildFile; fileRef = D75280030000000000000002 /* MobileWorkspaceObserverSignposts.swift */; };
@@ -4115,7 +4079,6 @@
 		A13387000000000000000001 /* WorkspaceSplitProvisionalGeometryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13387000000000000000002 /* WorkspaceSplitProvisionalGeometryTests.swift */; };
 		6B524A0CB34FD46A771335AB /* WorkspaceSplitStartupCommandTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71F8ED92A4B55D34BE6A0668 /* WorkspaceSplitStartupCommandTests.swift */; };
 		4565C51082B8E2FF9EC6CBC2 /* WorkspaceSSHFishProcessDrainTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7D27B959838305B918269C2 /* WorkspaceSSHFishProcessDrainTests.swift */; };
-		F6120000A1B2C3D4E5F60718 /* WorkspaceSSHFishShellTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F6120001A1B2C3D4E5F60718 /* WorkspaceSSHFishShellTests.swift */; };
 		FA000000A1B2C3D4E5F60718 /* WorkspaceStressProfileTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA000001A1B2C3D4E5F60718 /* WorkspaceStressProfileTests.swift */; };
 		D7AB34400000000000000001 /* WorkspaceSurfaceConfig.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7AB34400000000000000002 /* WorkspaceSurfaceConfig.swift */; };
 		C0DE32470000000000000003 /* WorkspaceSurfaceIdentifierClipboardText.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE32470000000000000004 /* WorkspaceSurfaceIdentifierClipboardText.swift */; };
@@ -4313,18 +4276,11 @@
 		D0B103010000000000000001 /* AcknowledgmentsWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/About/AcknowledgmentsWindowController.swift; sourceTree = "<group>"; };
 		A9E010000000000000000006 /* agent-session-react */ = {isa = PBXFileReference; lastKnownFileType = folder; path = "agent-session-react"; sourceTree = "<group>"; };
 		A9E010000000000000000007 /* agent-session-solid */ = {isa = PBXFileReference; lastKnownFileType = folder; path = "agent-session-solid"; sourceTree = "<group>"; };
-		C7AF10000000000000000006 /* AgentChatArtifactGalleryBuilder.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "AgentChatArtifactGalleryBuilder.swift"; sourceTree = "<group>"; };
-		C7AF10000000000000000002 /* AgentChatArtifactIndex.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "AgentChatArtifactIndex.swift"; sourceTree = "<group>"; };
 		5FAC71D5AC71D5AC71D50002 /* AgentChatChildRunTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentChatChildRunTests.swift; sourceTree = "<group>"; };
 		C7A52E000000000000000001 /* AgentChatEndedTranscriptListabilityCache.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "AgentChatEndedTranscriptListabilityCache.swift"; sourceTree = "<group>"; };
 		C7A53F000000000000000001 /* AgentChatFallbackTranscriptResolutionCoordinator.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "AgentChatFallbackTranscriptResolutionCoordinator.swift"; sourceTree = "<group>"; };
 		C7A540000000000000000001 /* AgentChatFallbackTranscriptResolutionCoordinatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentChatFallbackTranscriptResolutionCoordinatorTests.swift; sourceTree = "<group>"; };
-		ACA7C4A70000000000000004 /* AgentChatHookSessionStore.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "AgentChatHookSessionStore.swift"; sourceTree = "<group>"; };
-		C7A531000000000000000001 /* AgentChatObservationHandle.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "AgentChatObservationHandle.swift"; sourceTree = "<group>"; };
-		C7A532000000000000000001 /* AgentChatObservationInFlight.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "AgentChatObservationInFlight.swift"; sourceTree = "<group>"; };
-		C7A530000000000000000001 /* AgentChatObservationScope.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "AgentChatObservationScope.swift"; sourceTree = "<group>"; };
 		99230001992300019923000B /* AgentChatResumeIntentRecorder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentChatResumeIntentRecorder.swift; sourceTree = "<group>"; };
-		ACA7C4A70000000000000002 /* AgentChatSessionRecord.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "AgentChatSessionRecord.swift"; sourceTree = "<group>"; };
 		C7A52D100000000000000011 /* AgentChatSessionRegistry+ChildRuns.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "AgentChatSessionRegistry+ChildRuns.swift"; sourceTree = "<group>"; };
 		C8711A000000000000000001 /* AgentChatSessionRegistry+CodexRolloutFiles.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "AgentChatSessionRegistry+CodexRolloutFiles.swift"; sourceTree = "<group>"; };
 		C7A52D100000000000000001 /* AgentChatSessionRegistry+Lifecycle.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "AgentChatSessionRegistry+Lifecycle.swift"; sourceTree = "<group>"; };
@@ -4344,7 +4300,6 @@
 		A1B2C3D4E5F60718293A4B5C /* AgentChatTranscriptService+ArtifactSession.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "AgentChatTranscriptService+ArtifactSession.swift"; sourceTree = "<group>"; };
 		C7A52F000000000000000001 /* AgentChatTranscriptService+Wire.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "AgentChatTranscriptService+Wire.swift"; sourceTree = "<group>"; };
 		ACA7C4A7000000000000000C /* AgentChatTranscriptService.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "AgentChatTranscriptService.swift"; sourceTree = "<group>"; };
-		ACA7C4A7000000000000000A /* AgentChatTranscriptTailer.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "AgentChatTranscriptTailer.swift"; sourceTree = "<group>"; };
 		79390006AA11BB22CC33DD06 /* AgentDeliveryTargetResolution.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentDeliveryTargetResolution.swift; sourceTree = "<group>"; };
 		93800002AA11BB22CC33EE02 /* AgentDeliveryTTYBindingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentDeliveryTTYBindingTests.swift; sourceTree = "<group>"; };
 		A9F100000000000000000001 /* AgentExecutableResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentExecutableResolver.swift; sourceTree = "<group>"; };
@@ -4878,7 +4833,6 @@
 		A5D41221A1B2C3D4E5F60718 /* ClaudeHookSurfaceResolutionSwiftTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeHookSurfaceResolutionSwiftTests.swift; sourceTree = "<group>"; };
 		D1136E25CD5300988F9F2162 /* ClaudeHookSurfaceSocketState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ClaudeHookSurfaceSocketState.swift"; sourceTree = "<group>"; };
 		A5D41223A1B2C3D4E5F60718 /* ClaudeNotificationStatusLifecycleTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeNotificationStatusLifecycleTests.swift; sourceTree = "<group>"; };
-		C7A533000000000000000001 /* ClaudeSessionCanonicalizationContext.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "ClaudeSessionCanonicalizationContext.swift"; sourceTree = "<group>"; };
 		A9F100000000000000000015 /* ClaudeStreamJSONAccumulator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/ClaudeStreamJSONAccumulator.swift; sourceTree = "<group>"; };
 		CE7000000000000000000002 /* ClaudeWrapperResumeEnvironmentTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeWrapperResumeEnvironmentTests.swift; sourceTree = "<group>"; };
 		9758A0000000000000000003 /* CLIAmpLifecycleIntegrationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLIAmpLifecycleIntegrationTests.swift; sourceTree = "<group>"; };
@@ -5740,8 +5694,6 @@
 		49E1CED2CD67AA6493348BF7 /* CodexRestoreOwnerGenerationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CodexRestoreOwnerGenerationTests.swift"; sourceTree = "<group>"; };
 		C6209A020000000000000001 /* CodexRestoreValidationResult.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexRestoreValidationResult.swift; sourceTree = "<group>"; };
 		D96290020000000000000001 /* CodexResumeBindingVerificationRegressionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexResumeBindingVerificationRegressionTests.swift; sourceTree = "<group>"; };
-		C8711C000000000000000001 /* CodexRolloutIdentity.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CodexRolloutIdentity.swift; sourceTree = "<group>"; };
-		C8711D000000000000000001 /* CodexRolloutIdentityResolver.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CodexRolloutIdentityResolver.swift; sourceTree = "<group>"; };
 		C7E3FFB9B84F6DE45250D5D5 /* CodexSessionStartDeadTurnTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CodexSessionStartDeadTurnTests.swift"; sourceTree = "<group>"; };
 		0B0073F9140EA86D5ADEE233 /* CodexStaleTurnRestoreIntentTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CodexStaleTurnRestoreIntentTests.swift"; sourceTree = "<group>"; };
 		C0DECAFE0000000000000002 /* CodexTeamsApprovalBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexTeamsApprovalBridge.swift; sourceTree = "<group>"; };
@@ -6491,22 +6443,14 @@
 		5732B0035732B0035732B003 /* MinimalModeTitlebarEventSurfaceLayer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MinimalModeTitlebarEventSurfaceLayer.swift; sourceTree = "<group>"; };
 		A7C0F0030000000000000002 /* MobileAttachTarget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileAttachTarget.swift; sourceTree = "<group>"; };
 		8D6D2AC715764ECC1F6B26A2 /* MobileAttachTicketStore.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileAttachTicketStore.swift; sourceTree = "<group>"; };
-		F11000000000000000000004 /* MobileBrowserContinuousClock.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileBrowserContinuousClock.swift; sourceTree = "<group>"; };
-		F11000000000000000000010 /* MobileBrowserDialogBroker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileBrowserDialogBroker.swift; sourceTree = "<group>"; };
 		F11000000000000000000002 /* MobileBrowserDirtyMessageHandler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/MobileBrowserDirtyMessageHandler.swift; sourceTree = "<group>"; };
-		F11000000000000000000005 /* MobileBrowserEncodedFrame.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileBrowserEncodedFrame.swift; sourceTree = "<group>"; };
-		F11000000000000000000006 /* MobileBrowserFrameEncoder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileBrowserFrameEncoder.swift; sourceTree = "<group>"; };
-		F11000000000000000000007 /* MobileBrowserFrameEncodingError.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileBrowserFrameEncodingError.swift; sourceTree = "<group>"; };
 		F11000000000000000000009 /* MobileBrowserInputReplayer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileBrowserInputReplayer.swift; sourceTree = "<group>"; };
-		F11000000000000000000008 /* MobileBrowserInputReplayError.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileBrowserInputReplayError.swift; sourceTree = "<group>"; };
 		F11000000000000000000003 /* MobileBrowserPanelNativeSignal.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/MobileBrowserPanelNativeSignal.swift; sourceTree = "<group>"; };
-		F1100000000000000000000A /* MobileBrowserStreamClock.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileBrowserStreamClock.swift; sourceTree = "<group>"; };
 		F1100000000000000000000B /* MobileBrowserStreamCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileBrowserStreamCoordinator.swift; sourceTree = "<group>"; };
 		F1100000000000000000000C /* MobileBrowserStreamSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileBrowserStreamSession.swift; sourceTree = "<group>"; };
 		F1100000000000000000000D /* MobileBrowserWireEncoder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileBrowserWireEncoder.swift; sourceTree = "<group>"; };
 		C1A070000000000000000011 /* MobileHostAuthorizationSupport.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileHostAuthorizationSupport.swift; sourceTree = "<group>"; };
 		9BD519CFE74530A46DF0925D /* MobileHostAuthorizationTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileHostAuthorizationTests.swift; sourceTree = "<group>"; };
-		C7A50B000000000000000015 /* MobileHostBuildIdentity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileHostBuildIdentity.swift; sourceTree = "<group>"; };
 		C1A071000000000000000012 /* MobileHostConnectionEventLaneTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileHostConnectionEventLaneTests.swift; sourceTree = "<group>"; };
 		79C1A79BC24A46F8AC504E77 /* MobileHostConnectionEventQueue.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileHostConnectionEventQueue.swift; sourceTree = "<group>"; };
 		C1A071000000000000000013 /* MobileHostConnectionLifecycleTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileHostConnectionLifecycleTests.swift; sourceTree = "<group>"; };
@@ -6526,7 +6470,6 @@
 		C1B1810000000000000015 /* MobileHostIrxSettingsMappingTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileHostIrxSettingsMappingTests.swift; sourceTree = "<group>"; };
 		C1B1810000000000000012 /* MobileHostIrxTerminalLaneServer.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileHostIrxTerminalLaneServer.swift; sourceTree = "<group>"; };
 		C1B181000000000000001A /* MobileHostListenerState.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileHostListenerState.swift; sourceTree = "<group>"; };
-		DE71CE000000000000000007 /* MobileHostNetworkPathMonitor.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileHostNetworkPathMonitor.swift; sourceTree = "<group>"; };
 		DE71CE000000000000000005 /* MobileHostNetworkPathRefreshTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileHostNetworkPathRefreshTests.swift; sourceTree = "<group>"; };
 		A1B2C3D4E5F60718293A4C04 /* MobileHostOrderedInputTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileHostOrderedInputTests.swift; sourceTree = "<group>"; };
 		A1B2C3D4E5F60718293A4C02 /* MobileHostOrderedRequestQueue.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileHostOrderedRequestQueue.swift; sourceTree = "<group>"; };
@@ -6543,20 +6486,16 @@
 		C1A070000000000000000015 /* MobileHostTransportAuthorization.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileHostTransportAuthorization.swift; sourceTree = "<group>"; };
 		C1B1810000000000000018 /* MobileHostV2Installation.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileHostV2Installation.swift; sourceTree = "<group>"; };
 		C0DE73840000000000000002 /* MobileHostWorkspaceTicketAuthorizationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileHostWorkspaceTicketAuthorizationTests.swift; sourceTree = "<group>"; };
-		0B6499A4985B4CD4B7F3D9C0 /* MobileIOSAppTarget.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "Pairing/MobileIOSAppTarget.swift"; sourceTree = "<group>"; };
 		1148AEDC5E59435E879326ED /* MobileIOSPairingTargetStore.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileIOSPairingTargetStore.swift; sourceTree = "<group>"; };
 		C0DEFEF90000000000000002 /* MobileNotificationFeedWireItem.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileNotificationFeedWireItem.swift; sourceTree = "<group>"; };
 		A4880BD05924400E5279D632 /* MobilePairingConnectionTransitionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobilePairingConnectionTransitionTests.swift; sourceTree = "<group>"; };
 		04CE82AE8B39EA0C1395F696 /* MobilePairingModel.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "Pairing/MobilePairingModel.swift"; sourceTree = "<group>"; };
-		B76EC5E03C345BEAC25828A7 /* MobilePairingQRImageView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "Pairing/MobilePairingQRImageView.swift"; sourceTree = "<group>"; };
 		C1A070000000000000000016 /* MobilePairingView+Connected.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "Pairing/MobilePairingView+Connected.swift"; sourceTree = "<group>"; };
 		F9BC53FA4991A6EBFB930EDF /* MobilePairingView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "Pairing/MobilePairingView.swift"; sourceTree = "<group>"; };
 		5AE701F43A0B49F08835191C /* MobilePairingWindowController.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "Pairing/MobilePairingWindowController.swift"; sourceTree = "<group>"; };
 		ABMDPARTRES0000000000002 /* MobilePanelArtifactResolutionTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobilePanelArtifactResolutionTests.swift; sourceTree = "<group>"; };
 		D80AFFF3844843A789F89241 /* MobileRemoteControlPolicy.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileRemoteControlPolicy.swift; sourceTree = "<group>"; };
-		7A956C76162B79EC74AF9965 /* MobileRouteResolver.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileRouteResolver.swift; sourceTree = "<group>"; };
 		F33100000000000000000001 /* MobileSimulatorDiagnostics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileSimulatorDiagnostics.swift; sourceTree = "<group>"; };
-		F33200000000000000000011 /* MobileSimulatorReaderAttachment.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileSimulatorReaderAttachment.swift; sourceTree = "<group>"; };
 		F33200000000000000000001 /* MobileSimulatorReaderAttachmentTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileSimulatorReaderAttachmentTests.swift; sourceTree = "<group>"; };
 		F33000000000000000000001 /* MobileSimulatorStreamCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileSimulatorStreamCoordinator.swift; sourceTree = "<group>"; };
 		F33000000000000000000002 /* MobileSimulatorStreamSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileSimulatorStreamSession.swift; sourceTree = "<group>"; };
@@ -6565,28 +6504,14 @@
 		F33000000000000000000003 /* MobileSimulatorWireEncoder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileSimulatorWireEncoder.swift; sourceTree = "<group>"; };
 		A2DBE587F52C8A3B2A2CFCB8 /* MobileStateSync.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileStateSync.swift; sourceTree = "<group>"; };
 		1055FA010000000000000002 /* MobileSurfaceKindMappingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileSurfaceKindMappingTests.swift; sourceTree = "<group>"; };
-		D1A70000000000000000000E /* MobileTaskDirectoryFilesystemWalker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileTaskDirectoryFilesystemWalker.swift; sourceTree = "<group>"; };
-		D1B800000000000000000011 /* MobileTaskDirectoryListItem.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileTaskDirectoryListItem.swift; sourceTree = "<group>"; };
-		D1B800000000000000000012 /* MobileTaskDirectoryListPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileTaskDirectoryListPage.swift; sourceTree = "<group>"; };
-		D1B800000000000000000013 /* MobileTaskDirectoryListService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileTaskDirectoryListService.swift; sourceTree = "<group>"; };
-		D1B800000000000000000014 /* MobileTaskDirectoryListServiceError.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileTaskDirectoryListServiceError.swift; sourceTree = "<group>"; };
 		D1B800000000000000000015 /* MobileTaskDirectoryListServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileTaskDirectoryListServiceTests.swift; sourceTree = "<group>"; };
-		D1C900000000000000000011 /* MobileTaskDirectoryMetadataQueryRunner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileTaskDirectoryMetadataQueryRunner.swift; sourceTree = "<group>"; };
-		D1C900000000000000000012 /* MobileTaskDirectorySearchResult.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileTaskDirectorySearchResult.swift; sourceTree = "<group>"; };
-		C248FC7D0000000000000001 /* MobileTaskDirectorySearchService+FuzzyMatching.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "MobileTaskDirectorySearchService+FuzzyMatching.swift"; sourceTree = "<group>"; };
-		D1A700000000000000000004 /* MobileTaskDirectorySearchService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileTaskDirectorySearchService.swift; sourceTree = "<group>"; };
 		D1A700000000000000000006 /* MobileTaskDirectorySearchServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileTaskDirectorySearchServiceTests.swift; sourceTree = "<group>"; };
-		F5A700000000000000000012 /* MobileTaskFilesystemJobQuota.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileTaskFilesystemJobQuota.swift; sourceTree = "<group>"; };
 		F5A700000000000000000011 /* MobileTaskFilesystemJobQuotaTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileTaskFilesystemJobQuotaTests.swift; sourceTree = "<group>"; };
 		4F05EBBC2FE0D5CB2F662B8A /* MobileTerminalByteTee.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileTerminalByteTee.swift; sourceTree = "<group>"; };
 		5FBEE7A11EE7A11EE7A10002 /* MobileTerminalByteTeeAppendCostTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileTerminalByteTeeAppendCostTests.swift; sourceTree = "<group>"; };
 		E8DABF0FECE726AD90156499 /* MobileTerminalRenderGridAnchorRegistry.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileTerminalRenderGridAnchorRegistry.swift; sourceTree = "<group>"; };
 		F51B54FAD18160281FC1C2B6 /* MobileTerminalRenderObserver.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileTerminalRenderObserver.swift; sourceTree = "<group>"; };
-		F7A110000000000000000004 /* MobileTerminalThemeEmissionDecision.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileTerminalThemeEmissionDecision.swift; sourceTree = "<group>"; };
-		F7A110000000000000000002 /* MobileTerminalThemeInvalidationScheduler.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileTerminalThemeInvalidationScheduler.swift; sourceTree = "<group>"; };
-		5FBEE7A21EE7A21EE7A20002 /* MobileViewportApplyGovernor.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileViewportApplyGovernor.swift; sourceTree = "<group>"; };
 		5FBEE7A21EE7A21EE7A20004 /* MobileViewportApplyGovernorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileViewportApplyGovernorTests.swift; sourceTree = "<group>"; };
-		08EEC9A298B84FC5AE83BBFD /* MobileWorkspaceEmissionCoalescer.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileWorkspaceEmissionCoalescer.swift; sourceTree = "<group>"; };
 		86544CEFA1CA33CA9225FB6E /* MobileWorkspaceListFidelityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileWorkspaceListFidelityTests.swift; sourceTree = "<group>"; };
 		C9F14137954A34DFFA05C88C /* MobileWorkspaceListObserver.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileWorkspaceListObserver.swift; sourceTree = "<group>"; };
 		D75280030000000000000002 /* MobileWorkspaceObserverSignposts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileWorkspaceObserverSignposts.swift; sourceTree = "<group>"; };
@@ -8248,7 +8173,6 @@
 		A13387000000000000000002 /* WorkspaceSplitProvisionalGeometryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceSplitProvisionalGeometryTests.swift; sourceTree = "<group>"; };
 		71F8ED92A4B55D34BE6A0668 /* WorkspaceSplitStartupCommandTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceSplitStartupCommandTests.swift; sourceTree = "<group>"; };
 		C7D27B959838305B918269C2 /* WorkspaceSSHFishProcessDrainTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "WorkspaceSSHFishProcessDrainTests.swift"; sourceTree = "<group>"; };
-		F6120001A1B2C3D4E5F60718 /* WorkspaceSSHFishShellTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceSSHFishShellTests.swift; sourceTree = "<group>"; };
 		FA000001A1B2C3D4E5F60718 /* WorkspaceStressProfileTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceStressProfileTests.swift; sourceTree = "<group>"; };
 		D7AB34400000000000000002 /* WorkspaceSurfaceConfig.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceSurfaceConfig.swift; sourceTree = "<group>"; };
 		C0DE32470000000000000004 /* WorkspaceSurfaceIdentifierClipboardText.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceSurfaceIdentifierClipboardText.swift; sourceTree = "<group>"; };
@@ -8367,6 +8291,7 @@
 				1A0B0C0D0E0F101112132013 /* CmuxIrohTransport in Frameworks */,
 				1A0B0C0D0E0F101112132113 /* CmuxIrxTransport in Frameworks */,
 				799F1BEF876006EEB8CD1035 /* CMUXMobileCore in Frameworks */,
+				C4B1E0000000000000000003 /* CmuxMobileHost in Frameworks */,
 				C1A072000000000000000004 /* CmuxMobileRPC in Frameworks */,
 				1A0B0C0D0E0F101112132003 /* CmuxMobileTransport in Frameworks */,
 				E3B7A30000000000000000D3 /* CmuxNotifications in Frameworks */,
@@ -8478,6 +8403,7 @@
 				1A0B0C0D0E0F101112132014 /* CmuxIrohTransport in Frameworks */,
 				1A0B0C0D0E0F101112132114 /* CmuxIrxTransport in Frameworks */,
 				EFB18E3C0000000000000001 /* CMUXMobileCore in Frameworks */,
+				C4B1E0000000000000000004 /* CmuxMobileHost in Frameworks */,
 				C1A072000000000000000003 /* CmuxMobileRPC in Frameworks */,
 				1A0B0C0D0E0F101112132004 /* CmuxMobileTransport in Frameworks */,
 				F0C0A1000000000000000004 /* CmuxPhonePush in Frameworks */,
@@ -8648,15 +8574,6 @@
 		ACA7C4A70000000000000100 /* AgentChat */ = {
 			isa = PBXGroup;
 			children = (
-				ACA7C4A70000000000000002 /* AgentChatSessionRecord.swift */,
-				C7AF10000000000000000002 /* AgentChatArtifactIndex.swift */,
-				C7AF10000000000000000006 /* AgentChatArtifactGalleryBuilder.swift */,
-				ACA7C4A70000000000000004 /* AgentChatHookSessionStore.swift */,
-				C8711C000000000000000001 /* CodexRolloutIdentity.swift */,
-				C8711D000000000000000001 /* CodexRolloutIdentityResolver.swift */,
-				C7A531000000000000000001 /* AgentChatObservationHandle.swift */,
-				C7A532000000000000000001 /* AgentChatObservationInFlight.swift */,
-				C7A530000000000000000001 /* AgentChatObservationScope.swift */,
 				ACA7C4A70000000000000006 /* AgentChatTranscriptResolver.swift */,
 					ACA7C4A70000000000000008 /* AgentChatSessionRegistry.swift */,
 					C7A52D100000000000000001 /* AgentChatSessionRegistry+Lifecycle.swift */,
@@ -8667,11 +8584,9 @@
 					C8711A000000000000000001 /* AgentChatSessionRegistry+CodexRolloutFiles.swift */,
 					C7A52E000000000000000001 /* AgentChatEndedTranscriptListabilityCache.swift */,
 					C7A53F000000000000000001 /* AgentChatFallbackTranscriptResolutionCoordinator.swift */,
-					ACA7C4A7000000000000000A /* AgentChatTranscriptTailer.swift */,
 				ACA7C4A7000000000000000C /* AgentChatTranscriptService.swift */,
 				C7A52F000000000000000001 /* AgentChatTranscriptService+Wire.swift */,
 				A1B2C3D4E5F60718293A4B5C /* AgentChatTranscriptService+ArtifactSession.swift */,
-				C7A533000000000000000001 /* ClaudeSessionCanonicalizationContext.swift */,
 			);
 			name = AgentChat;
 			path = AgentChat;
@@ -8680,19 +8595,11 @@
 		59065015952E1B5BE5E23519 /* Mobile */ = {
 			isa = PBXGroup;
 			children = (
-				F11000000000000000000004 /* MobileBrowserContinuousClock.swift */,
-				F11000000000000000000005 /* MobileBrowserEncodedFrame.swift */,
-				F11000000000000000000006 /* MobileBrowserFrameEncoder.swift */,
-				F11000000000000000000007 /* MobileBrowserFrameEncodingError.swift */,
-				F11000000000000000000008 /* MobileBrowserInputReplayError.swift */,
 				F11000000000000000000009 /* MobileBrowserInputReplayer.swift */,
-				F1100000000000000000000A /* MobileBrowserStreamClock.swift */,
 				F1100000000000000000000B /* MobileBrowserStreamCoordinator.swift */,
 				F1100000000000000000000C /* MobileBrowserStreamSession.swift */,
-				F11000000000000000000010 /* MobileBrowserDialogBroker.swift */,
 				F1100000000000000000000D /* MobileBrowserWireEncoder.swift */,
 				F33100000000000000000001 /* MobileSimulatorDiagnostics.swift */,
-				F33200000000000000000011 /* MobileSimulatorReaderAttachment.swift */,
 				F33000000000000000000001 /* MobileSimulatorStreamCoordinator.swift */,
 				F35A000000000000000000A1 /* MobileSimulatorStreamV2Session.swift */,
 				F35A000000000000000000A2 /* MobileSimulatorStreamV2Coordinator.swift */,
@@ -8723,36 +8630,17 @@
 				C1A070000000000000000018 /* MobileHostConnectionRegistry+Debug.swift */,
 				C0DE00000000000000000C8C /* MobileHostService+TicketAuthorization.swift */,
 				C7A50B000000000000000021 /* MobileHostTerminalTheme.swift */,
-				C7A50B000000000000000015 /* MobileHostBuildIdentity.swift */,
 				4C1A7E10B2D34F56A8C90012 /* MobileHostStatusVerificationLimiter.swift */,
 				C7A50B000000000000000013 /* MobileHostService+Capabilities.swift */,
-				D1B800000000000000000011 /* MobileTaskDirectoryListItem.swift */,
-				D1B800000000000000000012 /* MobileTaskDirectoryListPage.swift */,
-				D1B800000000000000000013 /* MobileTaskDirectoryListService.swift */,
-				D1B800000000000000000014 /* MobileTaskDirectoryListServiceError.swift */,
-				D1C900000000000000000011 /* MobileTaskDirectoryMetadataQueryRunner.swift */,
-				D1C900000000000000000012 /* MobileTaskDirectorySearchResult.swift */,
-				C248FC7D0000000000000001 /* MobileTaskDirectorySearchService+FuzzyMatching.swift */,
-				D1A700000000000000000004 /* MobileTaskDirectorySearchService.swift */,
-				D1A70000000000000000000E /* MobileTaskDirectoryFilesystemWalker.swift */,
-				F5A700000000000000000012 /* MobileTaskFilesystemJobQuota.swift */,
-				DE71CE000000000000000007 /* MobileHostNetworkPathMonitor.swift */,
-				7A956C76162B79EC74AF9965 /* MobileRouteResolver.swift */,
 				04CE82AE8B39EA0C1395F696 /* MobilePairingModel.swift */,
-				0B6499A4985B4CD4B7F3D9C0 /* MobileIOSAppTarget.swift */,
-				B76EC5E03C345BEAC25828A7 /* MobilePairingQRImageView.swift */,
 				F9BC53FA4991A6EBFB930EDF /* MobilePairingView.swift */,
 				C1A070000000000000000016 /* MobilePairingView+Connected.swift */,
 				5AE701F43A0B49F08835191C /* MobilePairingWindowController.swift */,
 				C9F14137954A34DFFA05C88C /* MobileWorkspaceListObserver.swift */,
-				08EEC9A298B84FC5AE83BBFD /* MobileWorkspaceEmissionCoalescer.swift */,
 				D75280030000000000000002 /* MobileWorkspaceObserverSignposts.swift */,
 				F51B54FAD18160281FC1C2B6 /* MobileTerminalRenderObserver.swift */,
 				E8DABF0FECE726AD90156499 /* MobileTerminalRenderGridAnchorRegistry.swift */,
-				F7A110000000000000000002 /* MobileTerminalThemeInvalidationScheduler.swift */,
-				F7A110000000000000000004 /* MobileTerminalThemeEmissionDecision.swift */,
 				4F05EBBC2FE0D5CB2F662B8A /* MobileTerminalByteTee.swift */,
-				5FBEE7A21EE7A21EE7A20002 /* MobileViewportApplyGovernor.swift */,
 				79C1A79BC24A46F8AC504E77 /* MobileHostConnectionEventQueue.swift */,
 				ACA7C4A70000000000000100 /* AgentChat */,
 			);
@@ -11766,7 +11654,6 @@
 				A82715B8BDE347A18031067C /* CLINotifyProcessIntegrationRegressionTests+JSON.swift */,
 				873200000000000000000001 /* SSHRemoteCommandChainingTests.swift */,
 				F6355601A1B2C3D4E5F60718 /* SSHStartupSignalLifecycleTests.swift */,
-				F6120001A1B2C3D4E5F60718 /* WorkspaceSSHFishShellTests.swift */,
 				F7000001A1B2C3D4E5F60718 /* WorkspaceContentViewVisibilityTests.swift */,
 				917300000000000000000002 /* DeferredActionReplacementStackTests.swift */,
 				F9000001A1B2C3D4E5F60718 /* GhosttyEnsureFocusWindowActivationTests.swift */,
@@ -12791,6 +12678,7 @@
 				EFB18E3B3099DFE2ECA57571 /* CmuxSimulatorStreamKit */,
 				1A0B0C0D0E0F101112132002 /* CmuxMobileTransport */,
 				D0F3A0000000000000000002 /* CmuxCloudImagePaste */,
+				C4B1E0000000000000000002 /* CmuxMobileHost */,
 			);
 			productName = cmux;
 			productReference = A5001000 /* cmux.app */;
@@ -12923,6 +12811,7 @@
 				CC0033E15A1B2C3D4E5F0011 /* CmuxDiffComments */,
 				AC4A6E7C4A700001AC4A0004 /* CmuxAgentChat */,
 				D0F3A0000000000000000002 /* CmuxCloudImagePaste */,
+				C4B1E0000000000000000002 /* CmuxMobileHost */,
 			);
 			productName = cmuxTests;
 			productReference = F1000002A1B2C3D4E5F60718 /* cmuxTests.xctest */;
@@ -13057,6 +12946,7 @@
 				C1A072000000000000000001 /* XCLocalSwiftPackageReference "CmuxMobileRPC" */,
 				1A0B0C0D0E0F101112132001 /* XCLocalSwiftPackageReference "CmuxMobileTransport" */,
 				D0F3A0000000000000000001 /* XCLocalSwiftPackageReference "CmuxCloudImagePaste" */,
+				C4B1E0000000000000000001 /* XCLocalSwiftPackageReference "CmuxMobileHost" */,
 			);
 			productRefGroup = A5001042 /* Products */;
 			projectDirPath = "";
@@ -13325,15 +13215,8 @@
 				A5C017000000000000000007 /* AccountSignInView.swift in Sources */,
 				D0B102020000000000000001 /* AcknowledgmentsView.swift in Sources */,
 				D0B102010000000000000001 /* AcknowledgmentsWindowController.swift in Sources */,
-				C7AF10000000000000000005 /* AgentChatArtifactGalleryBuilder.swift in Sources */,
-				C7AF10000000000000000001 /* AgentChatArtifactIndex.swift in Sources */,
 					C7A52E000000000000000002 /* AgentChatEndedTranscriptListabilityCache.swift in Sources */,
 				C7A53F000000000000000002 /* AgentChatFallbackTranscriptResolutionCoordinator.swift in Sources */,
-				ACA7C4A70000000000000003 /* AgentChatHookSessionStore.swift in Sources */,
-				C7A531000000000000000002 /* AgentChatObservationHandle.swift in Sources */,
-				C7A532000000000000000002 /* AgentChatObservationInFlight.swift in Sources */,
-				C7A530000000000000000002 /* AgentChatObservationScope.swift in Sources */,
-					ACA7C4A70000000000000001 /* AgentChatSessionRecord.swift in Sources */,
 					C7A52D100000000000000012 /* AgentChatSessionRegistry+ChildRuns.swift in Sources */,
 					C8711A000000000000000002 /* AgentChatSessionRegistry+CodexRolloutFiles.swift in Sources */,
 					C7A52D100000000000000002 /* AgentChatSessionRegistry+Lifecycle.swift in Sources */,
@@ -13347,7 +13230,6 @@
 				A1B2C3D4E5F60718293A4B5D /* AgentChatTranscriptService+ArtifactSession.swift in Sources */,
 				C7A52F000000000000000002 /* AgentChatTranscriptService+Wire.swift in Sources */,
 				ACA7C4A7000000000000000B /* AgentChatTranscriptService.swift in Sources */,
-				ACA7C4A70000000000000009 /* AgentChatTranscriptTailer.swift in Sources */,
 				79390005AA11BB22CC33DD05 /* AgentDeliveryTargetResolution.swift in Sources */,
 				A9F200000000000000000001 /* AgentExecutableResolver.swift in Sources */,
 				A9F200000000000000000002 /* AgentExecutableResolverError.swift in Sources */,
@@ -13712,7 +13594,6 @@
 				081696D3A66545C50AD0598E /* ChecklistInputField.swift in Sources */,
 				D78129DCAE6C4D919AE20FF9 /* ChecklistPopoverPointerTracking.swift in Sources */,
 				ED226C59A21547BB962DB2A5 /* ChecklistSummaryPopoverModifier.swift in Sources */,
-				C7A533000000000000000002 /* ClaudeSessionCanonicalizationContext.swift in Sources */,
 				A9F200000000000000000015 /* ClaudeStreamJSONAccumulator.swift in Sources */,
 				C46790000000000000000003 /* CLIForwardingLaunchRouter.swift in Sources */,
 				C51A73000000000000000101 /* ClosedItemHistory+PanelTitle.swift in Sources */,
@@ -14118,8 +13999,6 @@
 				A9F200000000000000000016 /* CodexAppServerQueuedInput.swift in Sources */,
 				A9E02000000000000000000E /* CodexAppServerSession.swift in Sources */,
 				9D04DE21C5281E376C0FE450 /* CodexRestoreHookEvidence.swift in Sources */,
-					C8711C000000000000000002 /* CodexRolloutIdentity.swift in Sources */,
-					C8711D000000000000000002 /* CodexRolloutIdentityResolver.swift in Sources */,
 				A10240030000000000000001 /* CodexTeamsAppServerProcess.swift in Sources */,
 				A10240100000000000000001 /* CodexTeamsPOSIXSupport.swift in Sources */,
 				D3AD00000000000000000005 /* CodexTurnRestoreIntentPolicy.swift in Sources */,
@@ -14632,21 +14511,13 @@
 					5732A0035732A0035732A003 /* MinimalModeTitlebarEventSurfaceLayer.swift in Sources */,
 				A7C0F0030000000000000001 /* MobileAttachTarget.swift in Sources */,
 				284FD21ACF8BD1ED6AEBD7A0 /* MobileAttachTicketStore.swift in Sources */,
-				F21000000000000000000004 /* MobileBrowserContinuousClock.swift in Sources */,
-				F21000000000000000000010 /* MobileBrowserDialogBroker.swift in Sources */,
 				F21000000000000000000002 /* MobileBrowserDirtyMessageHandler.swift in Sources */,
-				F21000000000000000000005 /* MobileBrowserEncodedFrame.swift in Sources */,
-				F21000000000000000000006 /* MobileBrowserFrameEncoder.swift in Sources */,
-				F21000000000000000000007 /* MobileBrowserFrameEncodingError.swift in Sources */,
 				F21000000000000000000009 /* MobileBrowserInputReplayer.swift in Sources */,
-				F21000000000000000000008 /* MobileBrowserInputReplayError.swift in Sources */,
 				F21000000000000000000003 /* MobileBrowserPanelNativeSignal.swift in Sources */,
-				F2100000000000000000000A /* MobileBrowserStreamClock.swift in Sources */,
 				F2100000000000000000000B /* MobileBrowserStreamCoordinator.swift in Sources */,
 				F2100000000000000000000C /* MobileBrowserStreamSession.swift in Sources */,
 				F2100000000000000000000D /* MobileBrowserWireEncoder.swift in Sources */,
 				C1A070000000000000000001 /* MobileHostAuthorizationSupport.swift in Sources */,
-				C7A50B000000000000000016 /* MobileHostBuildIdentity.swift in Sources */,
 				3193896015BA410783C141A6 /* MobileHostConnectionEventQueue.swift in Sources */,
 				C1A070000000000000000008 /* MobileHostConnectionRegistry+Debug.swift in Sources */,
 				C1B1810000000000000009 /* MobileHostDiagnostics.swift in Sources */,
@@ -14660,7 +14531,6 @@
 				C1B1810000000000000001 /* MobileHostIrxRuntime.swift in Sources */,
 				C1B1810000000000000002 /* MobileHostIrxTerminalLaneServer.swift in Sources */,
 				C1B181000000000000000A /* MobileHostListenerState.swift in Sources */,
-				DE71CE000000000000000008 /* MobileHostNetworkPathMonitor.swift in Sources */,
 				A1B2C3D4E5F60718293A4C01 /* MobileHostOrderedRequestQueue.swift in Sources */,
 				4E673EDE464BF3AB80E94C1D /* MobileHostRPC.swift in Sources */,
 				C7A50B000000000000000014 /* MobileHostService+Capabilities.swift in Sources */,
@@ -14671,41 +14541,23 @@
 				C7A50B000000000000000020 /* MobileHostTerminalTheme.swift in Sources */,
 				C1A070000000000000000005 /* MobileHostTransportAuthorization.swift in Sources */,
 				C1B1810000000000000008 /* MobileHostV2Installation.swift in Sources */,
-				58812E32EA724C5CAB36BE98 /* MobileIOSAppTarget.swift in Sources */,
 				86BEAF78BDAB4871996E9EF2 /* MobileIOSPairingTargetStore.swift in Sources */,
 				C0DEFEF90000000000000001 /* MobileNotificationFeedWireItem.swift in Sources */,
 				0099C2865D9D468747D14593 /* MobilePairingModel.swift in Sources */,
-				325AF8814443BDA97AC3CC98 /* MobilePairingQRImageView.swift in Sources */,
 				C1A070000000000000000006 /* MobilePairingView+Connected.swift in Sources */,
 				A2538FE83AE79539E3BF9248 /* MobilePairingView.swift in Sources */,
 				18A8E29E9BD87E184983527C /* MobilePairingWindowController.swift in Sources */,
 				EB30348C60CC4F7CA12C0931 /* MobileRemoteControlPolicy.swift in Sources */,
-				9916B44C7A9914E172D112D4 /* MobileRouteResolver.swift in Sources */,
 				F33100000000000000000002 /* MobileSimulatorDiagnostics.swift in Sources */,
-				F33200000000000000000012 /* MobileSimulatorReaderAttachment.swift in Sources */,
 				F33000000000000000000011 /* MobileSimulatorStreamCoordinator.swift in Sources */,
 				F33000000000000000000012 /* MobileSimulatorStreamSession.swift in Sources */,
 				F35A000000000000000000B2 /* MobileSimulatorStreamV2Coordinator.swift in Sources */,
 				F35A000000000000000000B1 /* MobileSimulatorStreamV2Session.swift in Sources */,
 				F33000000000000000000013 /* MobileSimulatorWireEncoder.swift in Sources */,
 				7BD32764E8A31FA15DCCF257 /* MobileStateSync.swift in Sources */,
-				D1A70000000000000000000D /* MobileTaskDirectoryFilesystemWalker.swift in Sources */,
-				D1B800000000000000000001 /* MobileTaskDirectoryListItem.swift in Sources */,
-				D1B800000000000000000002 /* MobileTaskDirectoryListPage.swift in Sources */,
-				D1B800000000000000000003 /* MobileTaskDirectoryListService.swift in Sources */,
-				D1B800000000000000000004 /* MobileTaskDirectoryListServiceError.swift in Sources */,
-				D1C900000000000000000001 /* MobileTaskDirectoryMetadataQueryRunner.swift in Sources */,
-				D1C900000000000000000002 /* MobileTaskDirectorySearchResult.swift in Sources */,
-				C248FC7D0000000000000002 /* MobileTaskDirectorySearchService+FuzzyMatching.swift in Sources */,
-				D1A700000000000000000001 /* MobileTaskDirectorySearchService.swift in Sources */,
-				F5A700000000000000000002 /* MobileTaskFilesystemJobQuota.swift in Sources */,
 				AB57F0C27BECE8EDFC6B2B97 /* MobileTerminalByteTee.swift in Sources */,
 				580DAA428E6092CBBC496E6E /* MobileTerminalRenderGridAnchorRegistry.swift in Sources */,
 				C9CFB398DF94D6DDEAF42D67 /* MobileTerminalRenderObserver.swift in Sources */,
-				F7A110000000000000000003 /* MobileTerminalThemeEmissionDecision.swift in Sources */,
-				F7A110000000000000000001 /* MobileTerminalThemeInvalidationScheduler.swift in Sources */,
-				5FBEE7A21EE7A21EE7A20001 /* MobileViewportApplyGovernor.swift in Sources */,
-				018B51BF03D44D3381D2DA30 /* MobileWorkspaceEmissionCoalescer.swift in Sources */,
 				00C3AA443F6DA8D94E28CE17 /* MobileWorkspaceListObserver.swift in Sources */,
 				D75280030000000000000001 /* MobileWorkspaceObserverSignposts.swift in Sources */,
 				596100000000000000000003 /* NativeNotificationDeliveryHooks.swift in Sources */,
@@ -17351,7 +17203,6 @@
 				A13387000000000000000001 /* WorkspaceSplitProvisionalGeometryTests.swift in Sources */,
 				6B524A0CB34FD46A771335AB /* WorkspaceSplitStartupCommandTests.swift in Sources */,
 				4565C51082B8E2FF9EC6CBC2 /* WorkspaceSSHFishProcessDrainTests.swift in Sources */,
-				F6120000A1B2C3D4E5F60718 /* WorkspaceSSHFishShellTests.swift in Sources */,
 				FA000000A1B2C3D4E5F60718 /* WorkspaceStressProfileTests.swift in Sources */,
 				D92310080000000000000001 /* WorkspaceSwitchBrowserTests.swift in Sources */,
 				0C42BCB86C8645B3AF6389C4 /* WorkspaceSwitchCoordinatorTests.swift in Sources */,
@@ -18125,6 +17976,10 @@
 			isa = XCLocalSwiftPackageReference;
 			relativePath = Packages/macOS/CmuxCloudImagePaste;
 		};
+		C4B1E0000000000000000001 /* XCLocalSwiftPackageReference "CmuxMobileHost" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Packages/macOS/CmuxMobileHost;
+		};
 		D0F4A0000000000000000001 /* XCLocalSwiftPackageReference "CmuxCloudTunnelCore" */ = {
 			isa = XCLocalSwiftPackageReference;
 			relativePath = Packages/macOS/CmuxCloudTunnelCore;
@@ -18488,6 +18343,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = D0F3A0000000000000000001 /* XCLocalSwiftPackageReference "CmuxCloudImagePaste" */;
 			productName = CmuxCloudImagePaste;
+		};
+		C4B1E0000000000000000002 /* CmuxMobileHost */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = C4B1E0000000000000000001 /* XCLocalSwiftPackageReference "CmuxMobileHost" */;
+			productName = CmuxMobileHost;
 		};
 		CE57E10000000000000000B2 /* CmuxSentryReporting */ = {
 			isa = XCSwiftPackageProductDependency;
