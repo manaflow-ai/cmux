@@ -134,6 +134,8 @@ struct WorkspaceDetailView: View {
     @State var terminalPickerRows: [TerminalPickerMenuRow] = []
     /// Local presenter identity remains separate from the artifact popover payload.
     @State var isTerminalArtifactFilesPresented = false
+    /// SSH workspace sheet (Files, Open Port) from the title menu.
+    @State var sshSheet: WorkspaceSSHSheet?
     @State var terminalArtifactFilesContext: TerminalArtifactContext?
     @State var selectedTerminalArtifact: TerminalArtifactSelection?
     @State var terminalArtifactThumbnailCache = ChatArtifactThumbnailCache()
@@ -333,6 +335,7 @@ struct WorkspaceDetailView: View {
                         ?? .failure()
                 }
             }
+            .sheet(item: $sshSheet) { sshSheetContent($0) }
             .mobileConnectionRecoveryOverlay(store: store, signOut: signOut)
         #else
         content
@@ -555,6 +558,7 @@ struct WorkspaceDetailView: View {
             value: value,
             usesNaturalWidth: usesNaturalWidth,
             menuContent: {
+                sshTitleMenuSection
                 WorkspaceTitleMenuContent(
                     workspaceName: value.workspaceName,
                     hasUnread: value.hasUnread,

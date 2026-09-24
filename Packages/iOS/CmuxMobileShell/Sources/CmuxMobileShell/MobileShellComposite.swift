@@ -2319,7 +2319,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // seed `PreviewMobileHost` fixtures here — those fake "cmux"/"Docs" rows
         // rendered as real disconnected workspaces on first launch and lingered
         // after sign-in until the Mac connected.
-        workspacesByMac = [:]
+        // SSH computers are device-local, not account-scoped (PRD D5): keep
+        // their rows across the account boundary.
+        workspacesByMac = workspacesByMac.filter { MobileSSHIdentifiers.owns($0.key.canonicalMacDeviceID) }
         resetStableMacColorSlotsForSignOut()
         selectedWorkspaceID = nil
         selectedTerminalID = nil
@@ -2399,6 +2401,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// click; a normal screen treats it as a harmless empty selection. The
     /// render-grid mirrors any resulting change back. Fire-and-forget.
     public func clickTerminal(surfaceID: String, col: Int, row: Int) async {
+        // SSH surfaces encode clicks in the phone's own emulator.
+        guard !sshOwnsSurface(surfaceID) else { return }
         guard let client = remoteClient,
               let workspaceID = workspaceID(forTerminalID: surfaceID) else {
             return
@@ -13457,6 +13461,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 failure: .protocolViolation
             )
             return false
+        }
+        if sshOwnsSurface(terminalID.rawValue) {
+            return await submitSSHTerminalPasteImage(data, format: format, surfaceID: terminalID.rawValue)
         }
         guard remoteClient != nil else {
             recordAppEvent(

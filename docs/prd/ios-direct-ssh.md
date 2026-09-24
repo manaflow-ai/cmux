@@ -169,6 +169,26 @@ _To be written after D1-D7._
 - **App Store**: SSH clients are allowed (Termius, Blink ship). No review risk expected.
 - Terminal rendering reuses the Ghostty surface; resize must send SSH `window-change`.
 
+## Build status (2026-09-23)
+
+Branch `feat-ios-direct-ssh`, dev tag `dssh`.
+
+| Area | Status | Evidence |
+|---|---|---|
+| SSH engine (`Packages/iOS/CmuxMobileSSH`): connect, host keys, key auth, exec, PTY + resize, jump hosts, subsystems | Built | Lab tests vs real sshd |
+| Key import (Ed25519/ECDSA, passphrase: bcrypt_pbkdf + AES-CTR/CBC), Secure Enclave keys, Keychain store | Built | Parser tests incl. OpenBSD vectors |
+| Password-once key install (D16) | Built | Lab test (append idempotent, quotes, 0600) |
+| SFTP v3 client | Built | Lab tests (1 MiB round trip) |
+| Local port forwarding (D7) | Built | Lab test (HTTP through tunnel) |
+| cmux-tui client (bytes attach, phone geometry, workspaces) | Built | Lab tests (persistence across reconnect) |
+| cmux-tui upload from npm (D10) | Built | Not yet lab-tested (would overwrite ~/.local/bin on the lab Mac) |
+| Shell runtime: SSH computers as workspace rows; plain/tmux/cmux-tui | Built | Runtime lab tests, all three modes |
+| Terminal: phone answers queries (plain/tmux), cmux-tui filter, local pixel scroll, local mouse clicks | Built | Filter unit tests; UI verification pending |
+| UI: Computers SSH section, host editor, keys, prompts, signed-out entry | In progress | |
+| UI: SFTP browser, port forward → native browser, image paste via SFTP | In progress | |
+| D13 idle close | **Not built**: needs a cmux-tui feature (no idle reaping exists) + release | |
+| D23 cmux-tui browser surfaces | Pending | |
+
 ## Backlog
 
 - ET client (v1.1), mosh client (v1.2).

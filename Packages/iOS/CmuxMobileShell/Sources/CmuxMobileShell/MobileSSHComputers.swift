@@ -212,6 +212,7 @@ public final class MobileSSHComputers {
         providers[hostID] = nil
         connectTasks[hostID]?.cancel()
         connectTasks[hostID] = nil
+        stopAllPortForwards(hostID: hostID)
         if let connection = connections.removeValue(forKey: hostID) { await connection.close() }
         statusByHost[hostID] = .idle
     }
@@ -236,6 +237,12 @@ public final class MobileSSHComputers {
         )
         forwardsByHost[hostID, default: []].append(forward)
         return forward
+    }
+
+    /// Forwards ride the host's connection, so they end with it (PRD D7).
+    private func stopAllPortForwards(hostID: UUID) {
+        guard let forwards = forwardsByHost.removeValue(forKey: hostID) else { return }
+        Task { for forward in forwards { await forward.stop() } }
     }
 
     public func stopPortForward(hostID: UUID, localPort: Int) async {
@@ -422,6 +429,7 @@ public final class MobileSSHComputers {
         connections[hostID] = nil
         providers[hostID] = nil
         attachments = attachments.filter { MobileSSHIdentifiers.hostID(of: $0.key) != hostID }
+        stopAllPortForwards(hostID: hostID)
         statusByHost[hostID] = .idle
         if let host = hosts.first(where: { $0.id == hostID }) { publish(host: host) }
     }

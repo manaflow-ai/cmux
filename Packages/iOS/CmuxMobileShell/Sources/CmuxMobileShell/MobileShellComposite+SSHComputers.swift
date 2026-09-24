@@ -133,3 +133,19 @@ extension MobileShellComposite {
         await sshComputers.reload()
     }
 }
+
+@MainActor
+extension MobileShellComposite {
+    /// For SSH surfaces, whether a server-side emulator (cmux-tui) answers
+    /// terminal queries. `nil` for surfaces a Mac or the demo serves.
+    public func sshServerAnswersTerminalQueries(surfaceID: String) -> Bool? {
+        guard let hostID = MobileSSHIdentifiers.hostID(of: surfaceID) else { return nil }
+        return sshComputers.host(id: hostID)?.persistence == .cmuxTUI
+    }
+
+    /// Whether the phone's own emulator is the terminal for this surface
+    /// (every SSH surface), so scrolling and replies stay local.
+    public func surfaceIsLocallyEmulated(_ surfaceID: String) -> Bool {
+        sshOwnsSurface(surfaceID)
+    }
+}

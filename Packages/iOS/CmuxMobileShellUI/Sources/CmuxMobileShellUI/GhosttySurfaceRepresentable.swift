@@ -6,6 +6,7 @@ import CmuxMobileShell
 import CmuxMobileShellModel
 import CmuxMobileSupport
 import CmuxMobileTerminal
+import CmuxMobileTerminalKit
 import SwiftUI
 import UIKit
 
@@ -60,6 +61,16 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
     var onVisibleArtifactCountChanged: @MainActor (_ count: Int) -> Void = { _ in }
     var onArtifactGalleryRefreshSignal: @MainActor (TerminalArtifactGalleryRefreshSignal) -> Void = { _ in }
 
+    /// Who answers terminal queries: the Mac (mirror), the server's
+    /// cmux-tui emulator (input only), or this phone (plain/tmux SSH).
+    static func localEmulation(store: CMUXMobileShellStore, surfaceID: String) -> TerminalLocalEmulation {
+        switch store.sshServerAnswersTerminalQueries(surfaceID: surfaceID) {
+        case nil: .mirror
+        case true?: .inputOnly
+        case false?: .authoritative
+        }
+    }
+
     func makeUIView(context: Context) -> UIView {
         let runtime: GhosttyRuntime
         do {
@@ -87,10 +98,15 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         // Screen-anchored sessions scroll the local mirror's own scrollback
         // immediately (the Mac never repaints for a primary-screen scroll), so
         // they keep the low-latency local authority even under verified replay.
+        // Screen-anchored and SSH (locally emulated) sessions keep the local
+        // authority; SSH output never rides a Mac's verified replay.
+        let locallyEmulated = store.surfaceIsLocallyEmulated(surfaceID)
         view.scrollPresentationAuthority = store.usesVerifiedTerminalReplay
             && !store.usesScreenAnchoredRenderGrid
+            && !locallyEmulated
             ? .verifiedRenderGrid
             : .legacyMirror
+        view.localEmulation = Self.localEmulation(store: store, surfaceID: surfaceID)
         // Hand the surface the structured diagnostic log so the composer-dock
         // probes land in the blob the "Send to agent" feedback pane exports.
         // `nil` when no log is wired; every probe is then a no-op.
@@ -161,8 +177,10 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         surfaceView.hostedAltScreenActive = store.isAlternateScreen(surfaceID: surfaceID)
         surfaceView.scrollPresentationAuthority = store.usesVerifiedTerminalReplay
             && !store.usesScreenAnchoredRenderGrid
+            && !store.surfaceIsLocallyEmulated(surfaceID)
             ? .verifiedRenderGrid
             : .legacyMirror
+        surfaceView.localEmulation = Self.localEmulation(store: store, surfaceID: surfaceID)
         if artifactCountModeChanged {
             surfaceView.resetVisibleArtifactCountTracking()
         }
