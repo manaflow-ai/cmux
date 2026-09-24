@@ -197,9 +197,9 @@ them (section 5).
    owned-Mac lane is a deliberate guard edit, not an accident.
 3. **`app-host unit tests`** - do **not** move to minis, despite being 55% of
    the minutes. It needs a foreground GUI session, it is six shards of
-   XCTest, and it is a required check. Its home is the cloud macOS pool, where each
-   job gets a fresh machine and an Aqua login session. A shared mini cannot
-   give it either.
+   XCTest, and it is a required check. Its home is the cloud macOS pool, where
+   each job gets a fresh machine and an Aqua login session. A shared mini
+   cannot give it either.
 4. **`release-build`, signing, notarization, nightly, TestFlight** - never.
    Unchanged from `ci-runners.md`.
 

@@ -4,9 +4,9 @@ Every CI/CD job picks its runner from a repository variable instead of a
 hardcoded label. Changing a runner type is a single repository-variable update
 that takes effect on the next workflow run.
 
-Linux uses Blacksmith. macOS uses Blacksmith cloud runners. WarpBuild is paid overflow and is not a steady state for any lane.
-Non-urgent macOS work runs on free GitHub-hosted runners through the
-background lane described below.
+Linux uses Blacksmith. macOS uses Blacksmith cloud runners. WarpBuild is paid
+overflow and is not a steady state for any lane. Non-urgent macOS work runs on
+free GitHub-hosted runners through the background lane described below.
 
 **The table below is the intended steady state, not a live readout.** Repository
 variables drift, and a stale table is worse than no table. For what is actually
@@ -268,9 +268,9 @@ classification.
 
 ## Shared physical-host interoperability
 
-The current required-CI policy uses hosted providers. Any future path that executes directly on shared CMUX-owned hardware
-must preserve a separate caller identity, semantic workload request, and
-machine-local physical lease.
+The current required-CI policy uses hosted providers. Any future path that
+executes directly on shared CMUX-owned hardware must preserve a separate caller
+identity, semantic workload request, and machine-local physical lease.
 
 Examples of callers that may share a host include GitHub Actions, `cmux-ci`,
 developer/build tooling, direct agents, operator commands, and reviewed fleet
@@ -382,8 +382,8 @@ The CI health report counts those two. Keep new labels in
 `.github/actionlint.yaml`.
 
 The fleet-label guard rejects `tart-*` labels everywhere; the Tart VM pool no
-longer exists. Required jobs continue to reference repository variables, so cutover and
-break-glass remain configuration changes instead of workflow edits.
+longer exists. Required jobs continue to reference repository variables, so
+cutover and break-glass remain configuration changes instead of workflow edits.
 
 ## CMUX-owned machine enrollment
 
