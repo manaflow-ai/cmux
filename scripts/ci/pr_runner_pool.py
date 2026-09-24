@@ -19,7 +19,10 @@ The run takes the first pool in preference order that has headroom:
                and no queued release or nightly job on the pool
 
 When no pool has headroom, the run takes the one with the fewest queued jobs
-(the earlier pool on a tie). A pool holding a queued release or nightly job
+(the earlier pool on a tie). The macOS 15 pool has no DerivedData seed for
+its Xcode, so it counts COLD_QUEUE_PENALTY more queued jobs than it has: it
+never has headroom, and is the fallback only when the macOS 26 pools are
+queued that much deeper. A pool holding a queued release or nightly job
 is never chosen: pull requests must not delay those. Every Blacksmith pool
 is sponsored, so cost is not a reason to prefer one.
 
@@ -147,6 +150,14 @@ OVERFLOW_VARIABLE = "CI_PR_POOL_OVERFLOW"
 ORDER_VARIABLE = "CI_PR_POOL_ORDER"
 MAX_QUEUED_VARIABLE = "CI_PR_POOL_MAX_QUEUED"
 DEFAULT_MAX_QUEUED = 3
+# A pool on another Xcode than the lane's pin (the macOS 15 pool, 26.3) has no
+# DerivedData seed: seed-derived-data.yml seeds the lane's Xcode only. Its
+# compile admission runs cold, 10 to 20 minutes longer than a seeded one
+# (1,034 s and 1,537 s against a 321 s median on 2026-09-24). A queued job on
+# a 10-machine pool of about 10-minute admissions waits about a minute, so
+# the cold pool counts this many extra queued jobs: it is taken only when
+# every seeded pool is queued that much deeper.
+COLD_QUEUE_PENALTY = 12
 # Concurrent jobs one Blacksmith macOS pool ran at most, measured 2026-09-24:
 # 10 or 11 on each 6vcpu pool while jobs queued behind them.
 POOL_CAPACITY = 10
@@ -339,6 +350,11 @@ def effective_queue(counts: Mapping[str, int], added: int) -> int:
     return counts["queued"] + max(0, added - idle)
 
 
+def cold(label: str) -> bool:
+    """A pool whose Xcode is not the lane's pin, so no DerivedData seed matches it."""
+    return bool(POOLS.get(label))
+
+
 def owned_free(counts: Mapping[str, int], added_runs: int) -> int:
     """Machines of an owned pool still free once `added_runs` more runs took theirs.
 
@@ -357,9 +373,12 @@ def pick(load: Mapping[str, Mapping[str, int]], added: Mapping[str, int], usable
 
     An owned pool has headroom only while every job of this run gets a machine
     at once (`jobs` of them, its peak): a job queued there waits for that pool
-    alone. It is never the fewest-queued fallback.
+    alone. It is never the fewest-queued fallback. A cold pool (cold()) counts
+    COLD_QUEUE_PENALTY more queued jobs than it has, for the compile it runs
+    without a seed.
     """
-    queued = {label: effective_queue(load[label], added[label]) for label in usable}
+    queued = {label: effective_queue(load[label], added[label]) + (COLD_QUEUE_PENALTY if cold(label) else 0)
+              for label in usable}
     for label in usable:
         if persistent(label):
             if owned_free(load[label], added[label]) >= max(1, jobs):
@@ -445,6 +464,8 @@ def decide(
         why = f"first pool in order with headroom (< {limits.max_queued} queued){replay}"
     else:
         why = f"no pool has headroom{replay}; fewest queued"
+        if any(cold(pool_label) for pool_label in candidates):
+            why += f", counting {COLD_QUEUE_PENALTY} more for a pool with no seed for its Xcode"
     if limits.stale:
         note += f"; dropped {', '.join(limits.stale)} (not the lane's Xcode pin)"
     retry = ""
