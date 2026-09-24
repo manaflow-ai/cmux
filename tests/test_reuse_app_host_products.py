@@ -326,8 +326,10 @@ class ReuseProducts(TestProductHandoff):
                 ".github/workflows/test-e2e.yml",
             )
         }
-        for path in tooling:
-            needle = path if not path.startswith((".claude/", "agent-chat/")) else path.split("/", 1)[0] + "/"
+        # Check the module's own lists, not the samples above, so a reader
+        # naming any file under an excluded prefix fails here too.
+        needles = sorted(identity.NON_PRODUCT_TOOLING) + list(identity.NON_PRODUCT_TOOLING_PREFIXES)
+        for needle in needles:
             for name, text in readers.items():
                 self.assertNotIn(needle, text, f"{name} reads {needle}")
 
