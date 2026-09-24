@@ -32,7 +32,10 @@ extension View {
     @ViewBuilder
     func mobilePinnedNavigationBar() -> some View {
         #if canImport(UIKit)
-        #if compiler(>=6.4)
+        // The iOS 27 SwiftUI modifier is not present in the current SDK even
+        // when the compiler version is new enough to parse this branch.
+        // Keep the UIKit scroll-link fallback until the SDK exposes it.
+        #if compiler(>=6.5)
         if #available(iOS 27.0, *) {
             background(PinnedNavigationBarApplier())
                 .toolbarMinimizeBehavior(.never, for: .navigationBar)
