@@ -1,5 +1,5 @@
 import { useCallback, useMemo, useState } from "react";
-import { composerDraftKey, type OptionValue } from "../session";
+import { composerDraftKey, visibleWorkflowHarnesses, type OptionValue } from "../session";
 import { useCtx } from "../context";
 import { readStoredProviderOptions, updateStoredProviderOption } from "../options-store";
 import { ArrowUp } from "./icons";
@@ -29,9 +29,8 @@ export function Composer() {
     ready,
     connectionEpoch,
     providers,
-    harnesses,
+    harnessSnapshot,
     harnessCatalogs,
-    harnessesCwd,
     capabilities,
     defaultCwd,
     providerOptions,
@@ -73,10 +72,7 @@ export function Composer() {
   const commandMenu = useCommandMenu(prompt, setPrompt, commandGroups, taRef, ctrlJ);
   const harnessLocale = selectHarnessLocale(harnessCatalogs, navigator.languages);
   const harnessMessages = harnessCatalogs[harnessLocale];
-  const workflowHarnesses = useMemo(
-    () => harnessesCwd === cwd ? harnesses.filter((h) => h.kind === "workflow" && h.installed).slice(0, 2) : [],
-    [cwd, harnesses, harnessesCwd],
-  );
+  const workflowHarnesses = useMemo(() => visibleWorkflowHarnesses(harnessSnapshot, cwd), [cwd, harnessSnapshot]);
 
   useDefaultCwd(defaultCwd, cwd, setCwd, committedCwd, setCommittedCwd);
   useProviderFallback(providers, provider, setProvider);

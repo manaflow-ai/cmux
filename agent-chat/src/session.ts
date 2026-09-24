@@ -121,6 +121,29 @@ export function acceptsCwdHarnessResponse(
   );
 }
 
+/** Harness recommendations and the cwd they were discovered for. */
+export interface HarnessSnapshot {
+  cwd: string;
+  harnesses: HarnessRecommendation[];
+}
+
+const EMPTY_HARNESS_SNAPSHOT: HarnessSnapshot = { cwd: "", harnesses: [] };
+
+/** The server discovers hello harnesses for the default cwd it also sends. */
+export function helloHarnessSnapshot(hello: { defaultCwd: string; harnesses?: HarnessRecommendation[] }): HarnessSnapshot {
+  return { cwd: hello.defaultCwd, harnesses: hello.harnesses ?? [] };
+}
+
+/** Keep recommendations already known for the checked cwd; drop any for another cwd. */
+export function harnessSnapshotForCwdCheck(current: HarnessSnapshot, cwd: string): HarnessSnapshot {
+  return current.cwd === cwd ? current : EMPTY_HARNESS_SNAPSHOT;
+}
+
+export function visibleWorkflowHarnesses(snapshot: HarnessSnapshot, cwd: string): HarnessRecommendation[] {
+  if (!cwd || snapshot.cwd !== cwd) return [];
+  return snapshot.harnesses.filter((h) => h.kind === "workflow" && h.installed).slice(0, 2);
+}
+
 export interface SessionSummary {
   id: string;
   provider: string;
@@ -192,9 +215,8 @@ export interface SessionState {
   ready: boolean;
   connectionEpoch: number;
   providers: Provider[];
-  harnesses: HarnessRecommendation[];
+  harnessSnapshot: HarnessSnapshot;
   harnessCatalogs: HarnessCatalogs;
-  harnessesCwd: string;
   capabilities: Record<string, ProviderCapabilities>;
   defaultCwd: string;
   ctrlJ: CtrlJMode;
@@ -284,9 +306,8 @@ export function useSession(): SessionState {
   const [ready, setReady] = useState(false);
   const [connectionEpoch, setConnectionEpoch] = useState(0);
   const [providers, setProviders] = useState<Provider[]>([]);
-  const [harnesses, setHarnesses] = useState<HarnessRecommendation[]>([]);
+  const [harnessSnapshot, setHarnessSnapshot] = useState<HarnessSnapshot>(EMPTY_HARNESS_SNAPSHOT);
   const [harnessCatalogs, setHarnessCatalogs] = useState<HarnessCatalogs>({});
-  const [harnessesCwd, setHarnessesCwd] = useState("");
   const [capabilities, setCapabilities] = useState<Record<string, ProviderCapabilities>>({});
   const [defaultCwd, setDefaultCwd] = useState("");
   const [ctrlJ, setCtrlJ] = useState<CtrlJMode>("newline");
@@ -399,9 +420,7 @@ export function useSession(): SessionState {
             setProviders(h.providers);
             setHarnessCatalogs(h.harnessCatalogs ?? {});
             latestCwdRequestRef.current = null;
-            setHarnesses([]);
-            setHarnessesCwd("");
-            setHarnesses(h.harnesses ?? []);
+            setHarnessSnapshot(helloHarnessSnapshot(h));
             setCapabilities(h.capabilities ?? {});
             setDefaultCwd(h.defaultCwd);
             setCtrlJ(h.keys?.ctrlJ === "menu" ? "menu" : "newline");
@@ -545,8 +564,7 @@ export function useSession(): SessionState {
           case "cwd-check":
             setCwdChecks((m) => ({ ...m, [msg.cwd]: { ok: Boolean(msg.ok), message: msg.message } }));
             if (Array.isArray(msg.harnesses) && acceptsCwdHarnessResponse(latestCwdRequestRef.current, msg)) {
-              setHarnesses(msg.harnesses as HarnessRecommendation[]);
-              setHarnessesCwd(String(msg.cwd));
+              setHarnessSnapshot({ cwd: String(msg.cwd), harnesses: msg.harnesses as HarnessRecommendation[] });
             }
             break;
           case "theme":
@@ -710,8 +728,7 @@ export function useSession(): SessionState {
     const requestId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
     const request: CwdHarnessRequest = { requestId, cwd, connectionEpoch };
     latestCwdRequestRef.current = request;
-    setHarnesses([]);
-    setHarnessesCwd("");
+    setHarnessSnapshot((current) => harnessSnapshotForCwdCheck(current, cwd));
     sendRaw({ op: "check-cwd", ...request });
   }, [connectionEpoch, sendRaw]);
   const clearError = useCallback(() => setLastError(""), []);
@@ -720,9 +737,8 @@ export function useSession(): SessionState {
     ready,
     connectionEpoch,
     providers,
-    harnesses,
+    harnessSnapshot,
     harnessCatalogs,
-    harnessesCwd,
     capabilities,
     defaultCwd,
     ctrlJ,
