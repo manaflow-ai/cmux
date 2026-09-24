@@ -138,6 +138,18 @@ GITHUB_RUN_NUMBER=40 output_of save "$WORK/src" order-old >/dev/null
 [[ "$(cat "$NS/latest/order-")" == "order-new" ]] || fail "an old archive was promoted by a later retry"
 echo "PASS: out-of-order saves cannot regress pointers"
 
+# Two workflows write the same prefix (nightly.yml and seed-derived-data.yml).
+# Their run numbers are separate counters, so a newer seed from the younger
+# workflow must still replace a pointer the older, higher-numbered one wrote.
+GITHUB_RUN_NUMBER=5872 GITHUB_RUN_ID=35950000000 output_of save "$WORK/src" cross-nightly >/dev/null
+GITHUB_RUN_NUMBER=38 GITHUB_RUN_ID=35960000000 output_of save "$WORK/src" cross-seeder >/dev/null
+[[ "$(cat "$NS/latest/cross-")" == "cross-seeder" ]] || fail "a newer run of another workflow was ignored"
+grep -q "pointer cross- names a newer save" "$WORK/log" && fail "the newer save reported itself as older"
+GITHUB_RUN_NUMBER=5873 GITHUB_RUN_ID=35955000000 output_of save "$WORK/src" cross-late >/dev/null
+[[ "$(cat "$NS/latest/cross-")" == "cross-seeder" ]] || fail "an older run of another workflow regressed the pointer"
+grep -q "pointer cross- names a newer save" "$WORK/log" || fail "a pointer left in place must say so"
+echo "PASS: pointers order saves across workflows"
+
 touch "$WORK/store/race-pointer"
 output_of save "$WORK/src" race-one >/dev/null
 [[ "$(cat "$NS/latest/race-")" == "race-one" ]] || fail "a conditional write conflict must retry"
