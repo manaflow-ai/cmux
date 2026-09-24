@@ -230,7 +230,7 @@ if [ "$ALLOW_BELOW_FLOOR" != "1" ]; then
   fi
   POOL_SDK_VER="$(DEVELOPER_DIR="$POOL_DEVELOPER_DIR" xcrun --sdk macosx --show-sdk-version 2>/dev/null || true)"
   if [ -z "$POOL_SDK_VER" ]; then
-    echo "Pool Xcode developer dir has no usable macOS SDK: $POOL_DEVELOPER_DIR" >&2
+    echo "::error::Pool Xcode developer dir has no usable macOS SDK: $POOL_DEVELOPER_DIR" >&2
     exit 1
   fi
   select_developer_dir "$POOL_DEVELOPER_DIR" "$POOL_SDK_VER" "Selected Xcode $POOL_VERSION pinned for macOS $POOL_MAJOR runners"
