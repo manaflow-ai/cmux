@@ -41,7 +41,6 @@ struct IrxNatBarrierTests {
             seed: IrxLiveTestSupport.identitySeed(), remoteBiCredit: 1)
         let client = try await IrxLiveTestSupport.bindLoopback(
             seed: IrxLiveTestSupport.identitySeed(), remoteBiCredit: 0)
-        let admitted = IrxAsyncLatch()
         let serverTask = Task { () -> IrxAdmittedPeerInfo? in
             guard let incoming = await server.acceptNext() else { return nil }
             let accepting = try await incoming.accept()
@@ -53,7 +52,6 @@ struct IrxNatBarrierTests {
                 judgment: IrxLiveTestSupport.fixedJudgment(accepting: "good-grant"),
                 journal: journal
             )
-            await admitted.signal()
             return result?.0
         }
 
@@ -68,13 +66,26 @@ struct IrxNatBarrierTests {
         let admit = try await control.reader.readControlFrame(BarrierAdmit.self)
         #expect(admit?.natBarrier == true)
 
-        // Admission must stay open until the client signals ready.
-        try await Task.sleep(for: .milliseconds(300))
-        #expect(await admitted.isSignaled() == false)
-
         try await control.writer.writeControlFrame(BarrierReady(v: IrxProtocol().version))
         let peer = try await serverTask.value
         #expect(peer?.deviceID == "d-test")
+
+        // Deterministic wait proof: the server read the ready frame this test
+        // sent only after the admit, and recorded it before completing
+        // admission. A server that admitted without waiting either never
+        // records ready-received or records it after admitted.
+        let events = journal.tail()
+        let readyReceived = events.firstIndex {
+            $0.event == "nat-barrier" && $0.attributes["state"] == "client-ready-received"
+        }
+        let serverAdmitted = events.firstIndex {
+            $0.event == "admitted" && $0.attributes["device"] != nil
+        }
+        #expect(readyReceived != nil)
+        #expect(serverAdmitted != nil)
+        if let readyReceived, let serverAdmitted {
+            #expect(readyReceived < serverAdmitted)
+        }
         await irx.close(code: .userRequested, origin: .local)
     }
 
