@@ -564,6 +564,17 @@ jobs:
             xcrun simctl erase "$SIMULATOR_ID"
             xcrun simctl boot "$SIMULATOR_ID" >/dev/null 2>&1 || true
             xcrun simctl bootstatus "$SIMULATOR_ID" -b
+            if [[ "${{ matrix.family }}" == "iphone" && "$attempt" == "1" && "${TEST_FILTER:-}" == "cmuxUITests/testTaskComposerSubmitsToSelectedWorkspaceGroup" ]]; then
+              VIDEO_PATH="$IOS_DERIVED_DATA/task-composer-destination-proof.mov"
+              echo "Recording destination picker proof to $VIDEO_PATH"
+              xcrun simctl io "$SIMULATOR_ID" recordVideo --force "$VIDEO_PATH" > "$IOS_DERIVED_DATA/logs/video.log" 2>&1 &
+              VIDEO_PID=$!
+              stop_video() {
+                kill -INT "$VIDEO_PID" >/dev/null 2>&1 || true
+                wait "$VIDEO_PID" >/dev/null 2>&1 || true
+              }
+              trap stop_video EXIT
+            fi
             if xcodebuild "${XCODEBUILD_ARGS[@]}" 2>&1 | tee "$LOG_PATH"; then
               ./scripts/ci/require_selected_test_execution.sh \
                 "$LOG_PATH" \
@@ -590,6 +601,7 @@ jobs:
           path: |
             ${{ env.IOS_DERIVED_DATA }}/Logs/Test/*.xcresult
             ${{ env.IOS_DERIVED_DATA }}/logs/*.log
+            ${{ env.IOS_DERIVED_DATA }}/task-composer-destination-proof.mov
           retention-days: 7
 
       - name: Remove compatibility simulator
