@@ -204,8 +204,12 @@ def github_product_identity(api, revision):
     if cache is None:
         cache = {}
         setattr(api, "_product_identity_cache", cache)
-    if revision in cache:
-        return cache[revision]
+    # One revision has one identity per product profile. The consumer's own
+    # profile is what we recompute under, so an app-host consumer comparing
+    # against a cli producer's receipt sees a mismatch and declines it.
+    cache_key = (revision, product_inputs.resolve_profile())
+    if cache_key in cache:
+        return cache[cache_key]
 
     commit = api.get(f"git/commits/{revision}")
     tree_sha = commit["tree"]["sha"]
@@ -240,7 +244,7 @@ def github_product_identity(api, revision):
         workflow,
         e2e_workflow,
     )
-    cache[revision] = value
+    cache[cache_key] = value
     return value
 
 
