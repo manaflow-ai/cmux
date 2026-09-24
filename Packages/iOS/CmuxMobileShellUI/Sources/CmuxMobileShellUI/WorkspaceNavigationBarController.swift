@@ -157,7 +157,7 @@ final class WorkspaceNavigationBarController: UIViewController {
             let group = UIBarButtonItemGroup(barButtonItems: collapsible, representativeItem: nil)
             if warning != nil, !isLandscape {
                 group.alwaysAvailable = true
-                group.hidden = true
+                group.isHidden = true
             }
             groups.append(group)
         }
