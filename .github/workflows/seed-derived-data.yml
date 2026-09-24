@@ -193,7 +193,7 @@ jobs:
       # canonical-resolve left the workspace package cache as restored.
       - name: Evaluate manifests at the cli-pipe-regressions path
         id: swiftpm-manifest-workspace
-        if: steps.swiftpm-manifest-restore.outputs.cache-hit != 'true' && github.event_name == 'push' && github.ref == 'refs/heads/main'
+        if: steps.swiftpm-manifest-restore.outputs.cache-hit != 'true' && github.ref == 'refs/heads/main'
         continue-on-error: true
         run: |
           set -euo pipefail
