@@ -66,7 +66,7 @@ PY
 SERVER_PID=$!
 PORT="$(cat "$WORK/ready")"
 
-export RUNNER_OS=TestOS RUNNER_ARCH=TestArch GITHUB_RUN_NUMBER=10
+export RUNNER_OS=TestOS RUNNER_ARCH=TestArch GITHUB_RUN_ID=10
 export CI_CACHE_R2_PUBLIC_URL="http://127.0.0.1:$PORT/bucket"
 export CI_CACHE_R2_ENDPOINT="http://127.0.0.1:$PORT"
 export CI_CACHE_R2_BUCKET="bucket"
@@ -130,11 +130,11 @@ output_of save "$WORK/src" repair-one >/dev/null
 echo "PASS: an existing archive repairs failed pointer publication"
 
 # A later-finishing older run must not replace a newer run's pointer.
-GITHUB_RUN_NUMBER=30 output_of save "$WORK/src" order-new >/dev/null
-GITHUB_RUN_NUMBER=20 output_of save "$WORK/src" order-old >/dev/null
+GITHUB_RUN_ID=30 output_of save "$WORK/src" order-new >/dev/null
+GITHUB_RUN_ID=20 output_of save "$WORK/src" order-old >/dev/null
 [[ "$(cat "$NS/latest/order-")" == "order-new" ]] || fail "an older run regressed a newer pointer"
 # An existing object retains its original generation on a later retry.
-GITHUB_RUN_NUMBER=40 output_of save "$WORK/src" order-old >/dev/null
+GITHUB_RUN_ID=40 output_of save "$WORK/src" order-old >/dev/null
 [[ "$(cat "$NS/latest/order-")" == "order-new" ]] || fail "an old archive was promoted by a later retry"
 echo "PASS: out-of-order saves cannot regress pointers"
 
