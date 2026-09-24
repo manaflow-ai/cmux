@@ -104,7 +104,7 @@ final class WorkspaceNavigationBarController: UIViewController {
         }
         let item = target.navigationItem
         navigation.navigationBar.accessibilityIdentifier = "MobileWorkspaceNavigationBar"
-        let isLandscape = navigation.navigationBar.bounds.width > navigation.navigationBar.bounds.height
+        let isLandscape = target.view.bounds.width > target.view.bounds.height
         for value in leadingGroup.barButtonItems {
             (value.customView as? WorkspaceNavigationControlView)?.update(
                 placement: .leading,
