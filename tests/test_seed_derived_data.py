@@ -313,6 +313,66 @@ class Wiring(unittest.TestCase):
         _, admission_spm = named(steps("ci-macos.yml", "macos-compile-admission"), "Cache Swift packages")
         self.assertEqual(seed_spm["with"]["key"], admission_spm["with"]["key"])
 
+    def test_main_push_publishes_the_product_admission_would_compile(self):
+        """Pull requests adopt this product in place of compiling, so it has to
+        be the admission product: same key, same staging, same packaging, same
+        artifact name, published only by a main push, after the seed is saved."""
+        workflow = load("seed-derived-data.yml")
+        job = workflow["jobs"]["seed"]
+        seeder = job["steps"]
+        admission = steps("ci-macos.yml", "macos-compile-admission")
+
+        # The consumer names the job and step that must have compiled it.
+        self.assertNotIn("name", job)
+        build_at, build = named(seeder, "Build")
+        self.assertIn("canonical-build", build["run"])
+        _, admission_compile = named(admission, "Compile app-host test product")
+        self.assertIn("canonical-build", admission_compile["run"])
+
+        save_at, _ = named(seeder, "Save seed")
+        key_at, key = named(seeder, "Identify reusable compiled products")
+        _, admission_key = named(admission, "Identify reusable compiled products")
+        self.assertEqual(key["id"], "product-key")
+        self.assertEqual(key["run"], admission_key["run"])
+        # The contract fingerprints rustc and cargo, so the key waits for them.
+        install_at, _ = named(seeder, "Install compilation dependencies")
+        self.assertLess(install_at, key_at)
+        self.assertLess(key_at, build_at)
+
+        stage_at, stage = named(seeder, "Stage compiled package frameworks")
+        _, admission_stage = named(admission, "Stage compiled package frameworks")
+        self.assertEqual(stage["run"], admission_stage["run"])
+
+        package_at, package = named(seeder, "Package compiled app-host test product")
+        _, admission_package = named(admission, "Package compiled app-host test product")
+        for line in admission_package["run"].splitlines():
+            line = line.strip()
+            if line.startswith(("(cd ", "python3 ", "COPYFILE_DISABLE=1 ", "echo \"sha256=")):
+                self.assertIn(line, package["run"])
+
+        upload_at, upload = named(seeder, "Upload compiled app-host test product")
+        _, admission_upload = named(admission, "Upload compiled app-host test product")
+        self.assertEqual(upload["uses"], admission_upload["uses"])
+        for field in ("name", "path", "compression-level"):
+            self.assertEqual(upload["with"][field], admission_upload["with"][field], field)
+        self.assertIn("retention-days", upload["with"])
+
+        # Staging and relocation rewrite Build/Products, so they run only once
+        # the seed incremental builds read is already saved.
+        self.assertLess(build_at, save_at)
+        self.assertLess(save_at, stage_at)
+        self.assertLess(stage_at, package_at)
+        self.assertLess(package_at, upload_at)
+
+        # Only a main push is a trusted producer; a dispatch would upload a
+        # product nothing adopts.
+        for step in (stage, package, upload):
+            self.assertIn("github.event_name == 'push'", step["if"])
+            self.assertIn("github.ref == 'refs/heads/main'", step["if"])
+            self.assertIs(step.get("continue-on-error"), True)
+        self.assertIn("steps.package-products.outcome == 'success'", upload["if"])
+        self.assertNotIn("secrets.", json.dumps([stage, package, upload]))
+
     def test_the_seeder_reads_and_writes_through_the_public_url_admission_reads(self):
         # r2-cache.sh restores through CI_CACHE_R2_PUBLIC_URL and refuses to
         # save without it, so a seeder without it never reads or writes a seed.

@@ -250,11 +250,11 @@ check_ios_tart_canary() {
     echo "FAIL: all macOS iOS test jobs must fail closed on Tart identity mismatch"
     exit 1
   fi
-  if [[ "$(grep -Fc "runs-on: \${{ (!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_TESTS || vars.MACOS_RUNNER_IOS || 'blacksmith-6vcpu-macos-26') || inputs.runner }}" "$IOS_FILE")" -ne 3 ]]; then
+  if [[ "$(grep -Fc "runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || ((!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_TESTS || vars.MACOS_RUNNER_IOS || 'blacksmith-6vcpu-macos-26') || inputs.runner) }}" "$IOS_FILE")" -ne 3 ]]; then
     echo "FAIL: all macOS iOS test jobs must honor the dispatch runner override"
     exit 1
   fi
-  if [[ "$(grep -Fc "startsWith((!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_TESTS || vars.MACOS_RUNNER_IOS || 'blacksmith-6vcpu-macos-26') || inputs.runner, 'tart-')" "$IOS_FILE")" -ne 3 ]]; then
+  if [[ "$(grep -Fc "startsWith(github.repository_owner != 'manaflow-ai' && 'macos-26' || ((!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_TESTS || vars.MACOS_RUNNER_IOS || 'blacksmith-6vcpu-macos-26') || inputs.runner), 'tart-')" "$IOS_FILE")" -ne 3 ]]; then
     echo "FAIL: all macOS iOS test jobs must validate Tart identity for explicit and repo-variable routing"
     exit 1
   fi
