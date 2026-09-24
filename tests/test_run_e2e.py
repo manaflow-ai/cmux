@@ -1243,6 +1243,8 @@ class WorkflowRunnerPoolTests(unittest.TestCase):
             "${{ vars.CI_PR_POOL_OWNED }}": "1",
             "${{ vars.CI_OWNED_POOL_SLOTS }}": json.dumps({MINI: 8}),
             "${{ vars.CMUX_CI_XCODE_APP_PR }}": "/Applications/Xcode_26.6.app",
+            "${{ inputs.test_filter }}": "cmuxTests/ExampleTests",
+            "${{ vars.CI_E2E_OWNED_UI }}": "",
         }
         for name, expression in step["env"].items():
             self.assertIn(expression, values, f"unexpected input {name}: {expression}")
@@ -1324,13 +1326,15 @@ class WorkflowRunnerPoolTests(unittest.TestCase):
     # Owned Macs -----------------------------------------------------------
 
     def owned(self, *, running=0, queued=0, committed=0, age=5, owned="1", slots=None,
-              pin="/Applications/Xcode_26.6.app", requested="auto"):
+              pin="/Applications/Xcode_26.6.app", requested="auto",
+              test_filter="cmuxTests/ExampleTests", owned_ui=""):
         state = queue(age=age)
         state["pools"][MINI] = {"queued": queued, "running": running, "committed": committed}
         client = FakeActions(state)
         return self.pool.resolve(
             requested, "", overflow="", order="", max_queued="",
             owned=owned, owned_slots=json.dumps({MINI: 8} if slots is None else slots), pr_xcode_app=pin,
+            test_filter=test_filter, owned_ui=owned_ui,
             measure=lambda: self.pool.measure_load(client, now=NOW), now=NOW,
         )
 
@@ -1351,10 +1355,17 @@ class WorkflowRunnerPoolTests(unittest.TestCase):
             "another Xcode pin": dict(pin="/Applications/Xcode_26.5.app"),
             "no Xcode pin": dict(pin=""),
             "snapshot too old for an owned pool": dict(age=30),
+            "a UI run": dict(test_filter="ExampleUITests"),
+            "a mixed filter": dict(test_filter="cmuxTests/A, cmuxUITests/B"),
         }
         for why, kwargs in cases.items():
             with self.subTest(why=why):
                 self.assertIn(self.owned(**kwargs), self.pool.E2E_POOLS)
+
+    def test_ui_runs_take_an_owned_mac_only_once_enabled(self):
+        self.assertEqual(self.owned(test_filter="ExampleUITests", owned_ui="1"), MINI)
+        self.assertEqual(self.owned(test_filter="cmuxTests/A, cmuxTests/B"), MINI)
+        self.assertEqual(self.owned(requested=MINI, test_filter="ExampleUITests"), MINI)
 
     def test_a_re_run_never_takes_an_owned_mac(self):
         self.assertEqual(self.pool.retry_runner(MINI), SMALL)

@@ -43,6 +43,7 @@ MAX_QUEUED_ENV = "CMUX_" + pool.MAX_QUEUED_VARIABLE
 OWNED_ENV = "CMUX_" + pool.OWNED_VARIABLE
 SLOTS_ENV = "CMUX_" + pool.SLOTS_VARIABLE
 PR_XCODE_ENV = "CMUX_" + pool.PR_XCODE_VARIABLE
+OWNED_UI_ENV = "CMUX_" + pool.OWNED_UI_VARIABLE
 ROOT = Path(__file__).resolve().parents[2]
 RUN_DISCOVERY_ATTEMPTS = 12
 RUN_DISCOVERY_TIMEOUT_SECONDS = 60.0
@@ -372,7 +373,7 @@ def default_runner() -> str | None:
     return literal.group(1) if literal else None
 
 
-def routed_runner(default: str | None) -> str | None:
+def routed_runner(default: str | None, test_target: str | None = None) -> str | None:
     """The pool an unpinned dispatch runs on now; see e2e_runner_pool.
 
     Only called when a dispatch is about to happen, so a run reused from the
@@ -386,7 +387,9 @@ def routed_runner(default: str | None) -> str | None:
         limits=pool.settings(
             repository_variable(pool.ORDER_VARIABLE, ORDER_ENV),
             repository_variable(pool.MAX_QUEUED_VARIABLE, MAX_QUEUED_ENV),
-            repository_variable(pool.OWNED_VARIABLE, OWNED_ENV),
+            repository_variable(pool.OWNED_VARIABLE, OWNED_ENV)
+            if test_target in (None, "cmuxTests")
+            or (repository_variable(pool.OWNED_UI_VARIABLE, OWNED_UI_ENV) or "").strip() == "1" else "",
             repository_variable(pool.PR_XCODE_VARIABLE, PR_XCODE_ENV),
         ),
         measure=lambda: pool.measure_load(GhApi(), now=now),
@@ -875,7 +878,7 @@ def main() -> int:
         if status is not None:
             return status
 
-    runner = args.runner if pinned else routed_runner(default)
+    runner = args.runner if pinned else routed_runner(default, test_target)
     dispatch_id = uuid.uuid4().hex
     video = not args.no_video and test_target != "cmuxTests"
     fields = {

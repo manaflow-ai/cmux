@@ -58,6 +58,12 @@ holds for an explicit owned runner too: it is the one pick that is moved.
 An `auto` run started from the Actions UI is titled with the 6vcpu default,
 so the replay counts it there even when it took an owned Mac; run-e2e.sh
 names the pool it chose, so its runs are counted where they are.
+
+Only cmuxTests runs go to an owned Mac on `auto` for now: UI tests need
+Automation Mode enabled without authentication, which takes an admin on
+each Mac (`sudo automationmodetool enable-automationmode-without-authentication`)
+and the job's runner user cannot do it. Once the fleet has it,
+`vars.CI_E2E_OWNED_UI == '1'` lets UI runs take owned Macs too.
 """
 from __future__ import annotations
 
@@ -91,6 +97,7 @@ MAX_QUEUED_VARIABLE = pr_runner_pool.MAX_QUEUED_VARIABLE
 OWNED_VARIABLE = pr_runner_pool.OWNED_VARIABLE
 SLOTS_VARIABLE = pr_runner_pool.SLOTS_VARIABLE
 PR_XCODE_VARIABLE = pr_runner_pool.PR_XCODE_VARIABLE
+OWNED_UI_VARIABLE = "CI_E2E_OWNED_UI"
 
 # The whole API budget of one decision; see the module docstring.
 MAX_API_CALLS = 4
@@ -134,6 +141,18 @@ def settings(order: str | None, max_queued: str | None, owned: str | None = None
 def e2e_pool(label: str) -> bool:
     """A pool an E2E run may take: a macOS 26 Blacksmith pool or an owned one."""
     return label in E2E_POOLS or pr_runner_pool.persistent(label)
+
+
+def owned_target(test_filter: str | None, owned_ui: str | None) -> bool:
+    """Whether a run of this filter may take an owned Mac (see the module docstring).
+
+    A filter is a UI run unless every entry names cmuxTests/, as test-e2e.yml's
+    filter job reads it. No filter (an older caller) is allowed.
+    """
+    if test_filter is None or (owned_ui or "").strip() == "1":
+        return True
+    entries = [entry.strip() for entry in test_filter.split(",")]
+    return bool(entries) and all(entry.startswith("cmuxTests/") for entry in entries)
 
 
 def retry_runner(label: str) -> str:
@@ -268,11 +287,16 @@ def resolve(
     owned: str | None = None,
     owned_slots: str | None = None,
     pr_xcode_app: str | None = None,
+    test_filter: str | None = None,
+    owned_ui: str | None = None,
 ) -> str:
     """The runner label for a workflow run, from its inputs and variables."""
     requested = (requested or "").strip()
     if requested and requested != "auto":
         return requested
+    if (owned or "").strip() == "1" and not owned_target(test_filter, owned_ui):
+        log(f"a UI run and {OWNED_UI_VARIABLE} is not 1; no owned Mac")
+        owned = ""
     default = (variable or "").strip() or SMALL_RUNNER
     return auto_runner(
         default,
@@ -296,6 +320,8 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
     parser.add_argument("--owned", default="", help=f"vars.{OWNED_VARIABLE}")
     parser.add_argument("--owned-slots", default="", help=f"vars.{SLOTS_VARIABLE}")
     parser.add_argument("--pr-xcode-app", default="", help=f"vars.{PR_XCODE_VARIABLE}")
+    parser.add_argument("--test-filter", default=None, help="the workflow's test_filter input")
+    parser.add_argument("--owned-ui", default="", help=f"vars.{OWNED_UI_VARIABLE}")
     parser.add_argument("--retry-of", help="print the pool a re-run of this label takes, and nothing else")
     args = parser.parse_args(argv)
     if args.retry_of is not None:
@@ -317,6 +343,7 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
         args.requested, args.variable,
         overflow=args.overflow, order=args.order, max_queued=args.max_queued,
         owned=args.owned, owned_slots=args.owned_slots, pr_xcode_app=args.pr_xcode_app,
+        test_filter=args.test_filter, owned_ui=args.owned_ui,
         measure=measure, now=now,
         log=lambda message: print(message, file=sys.stderr),
     ))

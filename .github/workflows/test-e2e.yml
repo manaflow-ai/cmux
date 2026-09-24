@@ -119,6 +119,8 @@ jobs:
           POOL_OWNED: ${{ vars.CI_PR_POOL_OWNED }}
           OWNED_SLOTS: ${{ vars.CI_OWNED_POOL_SLOTS }}
           PR_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_PR }}
+          TEST_FILTER: ${{ inputs.test_filter }}
+          OWNED_UI: ${{ vars.CI_E2E_OWNED_UI }}
         run: |
           set -euo pipefail
           label="$(python3 scripts/ci/e2e_runner_pool.py \
@@ -129,7 +131,9 @@ jobs:
             --max-queued "$POOL_MAX_QUEUED" \
             --owned "$POOL_OWNED" \
             --owned-slots "$OWNED_SLOTS" \
-            --pr-xcode-app "$PR_XCODE_APP")"
+            --pr-xcode-app "$PR_XCODE_APP" \
+            --test-filter "$TEST_FILTER" \
+            --owned-ui "$OWNED_UI")"
           retry_label="$(python3 scripts/ci/e2e_runner_pool.py --retry-of "$label")"
           {
             echo "label=$label"
