@@ -1,13 +1,20 @@
 import { coderouterControlRoute } from "@/services/coderouter/requestTelemetry";
 // One Claude upstream account: rename or enable/disable (PATCH), remove
-// (DELETE). Both need `manageAccounts` on the team.
+// (DELETE). A member changes their own private accounts; a shared account
+// needs account administration (accountAdministration.ts).
 import {
   isClaudeAccountId,
+  listClaudeAccounts,
   parseClaudeAccountPatch,
   removeClaudeAccount,
   updateClaudeAccount,
 } from "../../../../../services/coderouter/claudeUpstream";
-import { resolveCoderouterControlContext } from "../../../../../services/coderouter/requestContext";
+import { readableAccountAccess } from "../../../../../services/coderouter/accountAccess";
+import { accountWriteAccess, teamPermissionRequired } from "../../../../../services/coderouter/accountAdministration";
+import {
+  resolveCoderouterControlContext,
+  type CodeRouterControlContext,
+} from "../../../../../services/coderouter/requestContext";
 import { captureCoderouterEvent } from "../../../../../services/coderouter/analytics";
 import {
   addCoderouterBreadcrumb,
@@ -17,12 +24,14 @@ import { claudeUpstreamUnavailable, readJsonBody } from "../route";
 
 export type ClaudeAccountRouteDependencies = {
   readonly resolveContext: typeof resolveCoderouterControlContext;
+  readonly list: typeof listClaudeAccounts;
   readonly update: typeof updateClaudeAccount;
   readonly remove: typeof removeClaudeAccount;
 };
 
 const defaultDependencies: ClaudeAccountRouteDependencies = {
   resolveContext: resolveCoderouterControlContext,
+  list: listClaudeAccounts,
   update: updateClaudeAccount,
   remove: removeClaudeAccount,
 };
@@ -32,11 +41,19 @@ type Context = { params: Promise<{ accountId: string }> };
 export function makeClaudeAccountHandlers(
   dependencies: ClaudeAccountRouteDependencies = defaultDependencies,
 ) {
+  // A write that reached no row is a 404, unless the caller can see the
+  // account and was only kept from it by account administration.
+  async function unwritable(context: CodeRouterControlContext, accountId: string): Promise<Response> {
+    if (context.team.manageAccounts) return notFound();
+    const visible = await dependencies.list(context.team.teamId, readableAccountAccess(context.access));
+    if (!visible.some(account => account.id === accountId)) return notFound();
+    return teamPermissionRequired(context.team, "change_shared_account");
+  }
+
   async function PATCH(request: Request, context: Context): Promise<Response> {
     const resolved = await dependencies.resolveContext(request);
     if (!resolved.ok) return resolved.response;
-    const access = resolved.value.access;
-    if (!resolved.value.team.manageAccounts) return Response.json({ error: "forbidden" }, { status: 403 });
+    const access = accountWriteAccess(resolved.value);
     const { accountId } = await context.params;
     if (!isClaudeAccountId(accountId)) {
       return Response.json({ error: "invalid_request" }, { status: 400 });
@@ -50,7 +67,7 @@ export function makeClaudeAccountHandlers(
     const teamId = resolved.value.team.teamId;
     try {
       const account = await dependencies.update(teamId, accountId, patch, access);
-      if (!account) return notFound();
+      if (!account) return await unwritable(resolved.value, accountId);
       addCoderouterBreadcrumb("account", "Claude upstream account updated", {
         ...(patch.state ? { state: patch.state } : {}),
         relabeled: patch.label !== undefined,
@@ -65,21 +82,21 @@ export function makeClaudeAccountHandlers(
   async function DELETE(request: Request, context: Context): Promise<Response> {
     const resolved = await dependencies.resolveContext(request);
     if (!resolved.ok) return resolved.response;
-    const access = resolved.value.access;
-    if (!resolved.value.team.manageAccounts) return Response.json({ error: "forbidden" }, { status: 403 });
+    const access = accountWriteAccess(resolved.value);
     const { accountId } = await context.params;
     if (!isClaudeAccountId(accountId)) {
       return Response.json({ error: "invalid_request" }, { status: 400 });
     }
     const teamId = resolved.value.team.teamId;
-    let result: Awaited<ReturnType<ClaudeAccountRouteDependencies["remove"]>>;
+    let refused: Response | null = null;
     try {
-      result = await dependencies.remove(teamId, accountId, access);
+      const result = await dependencies.remove(teamId, accountId, access);
+      if (!result.removed) refused = await unwritable(resolved.value, accountId);
     } catch (error) {
       reportCoderouterFailure("rds", error, { operation: "remove_claude_account" });
       return claudeUpstreamUnavailable("coderouter could not remove the Claude upstream account. Nothing was changed; retry shortly.");
     }
-    if (!result.removed) return notFound();
+    if (refused) return refused;
     captureCoderouterEvent({
       event: "coderouter_claude_upstream_removed",
       userId: resolved.value.user.id,

@@ -1,4 +1,5 @@
-import type { CoderouterAccountAccess } from "./accountAccess";
+import { canWriteAccount, readableAccountAccess, type CoderouterAccountAccess } from "./accountAccess";
+import { CoderouterSharedAccountError } from "./accountAdministration";
 import { createHash, randomUUID } from "node:crypto";
 import {
   findAccountByProviderIdentity,
@@ -45,15 +46,15 @@ export async function addAccount(
     credential = withCodexOwner(credential);
     await upgradeLegacyForImport(teamId, credential.accountId, keys, verifyStored, access);
   }
+  const lookup = readableAccountAccess(access);
   const existing = await findAccountByProviderIdentity(
     teamId,
     credential.provider,
     providerIdentityKey(credential),
-    access,
+    lookup,
   );
-  if (existing?.visibility === "private" && ownership && existing.createdBy !== ownership.createdBy) {
-    throw new Error("account is not available to this user");
-  }
+  const unwritable = unwritableImportMatch(existing, ownership, access);
+  if (unwritable) return unwritable;
   if (existing?.state === "active" || existing?.state === "refreshing") {
     await updateAccountLabel(teamId, existing.id, credential, access);
     return { accountId: existing.id, alreadyExists: true };
@@ -80,7 +81,7 @@ export async function addAccount(
         teamId,
         credential.provider,
         providerIdentityKey(credential),
-        access,
+        lookup,
       );
       if (raced) return { accountId: raced.id, alreadyExists: true };
       throw new Error("coderouter account insert lost a uniqueness race");
@@ -94,6 +95,28 @@ export async function addAccount(
     });
   }
   return { accountId, alreadyExists: false };
+}
+
+/**
+ * An import that matches an account the importer may not write. Another
+ * user's private account is never available. A member without account
+ * administration finds shared accounts too, so a re-import of one is
+ * recognised instead of stored twice, but the member may not change it: an
+ * active match comes back unchanged, and an inactive one needs an
+ * administrator to replace its credential. Null means the import may write.
+ */
+function unwritableImportMatch(
+  existing: { readonly id: string; readonly state: string; readonly visibility: "private" | "team"; readonly createdBy: string | null } | null,
+  ownership: { readonly createdBy: string } | undefined,
+  access?: CoderouterAccountAccess,
+): { accountId: string; alreadyExists: true } | null {
+  if (!existing) return null;
+  if (existing.visibility === "private" && ownership && existing.createdBy !== ownership.createdBy) {
+    throw new Error("account is not available to this user");
+  }
+  if (canWriteAccount(existing, access)) return null;
+  if (existing.state === "active" || existing.state === "refreshing") return { accountId: existing.id, alreadyExists: true };
+  throw new CoderouterSharedAccountError();
 }
 
 async function upgradeLegacyForImport(

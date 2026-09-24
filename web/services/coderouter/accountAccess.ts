@@ -3,9 +3,12 @@ import { sql, type SQL } from "drizzle-orm";
 /** A human can use shared accounts and their own private imports. A machine
  * gets only its assigned pool, never its creator's personal account access.
  * A chatmux machine (chatmuxVmToken.ts) has no pool: it gets exactly the
- * accounts its team shares. */
+ * accounts its team shares. `own-private` is the write scope of a member
+ * without account administration (accountAdministration.ts): only the private
+ * accounts that member imported. */
 export type CoderouterAccountAccess =
   | { readonly kind: "user"; readonly userId: string }
+  | { readonly kind: "own-private"; readonly userId: string }
   | { readonly kind: "vm"; readonly vmId: string; readonly poolId: string | null }
   | { readonly kind: "team-machine"; readonly teamId: string; readonly machineId: string };
 
@@ -36,6 +39,9 @@ export function accountAccessPredicate(
   if (!access) return sql`true`;
   if (access.kind === "user") {
     return sql`(${account.visibility} = 'team' or ${account.createdBy} = ${access.userId})`;
+  }
+  if (access.kind === "own-private") {
+    return sql`(${account.visibility} = 'private' and ${account.createdBy} = ${access.userId})`;
   }
   if (access.kind === "team-machine") {
     // Only what the machine's own team shares; an empty team id matches nothing.
@@ -69,4 +75,21 @@ export function scopedSessionKey(key: string | null, access?: CoderouterAccountA
   return JSON.stringify(access.kind === "vm"
     ? ["vm", access.vmId, access.poolId, key]
     : ["user", access.userId, key]);
+}
+
+/** What a writer may see. A member without account administration still reads
+ * every account a member reads; `own-private` narrows only the write. */
+export function readableAccountAccess(access: CoderouterAccountAccess): CoderouterAccountAccess;
+export function readableAccountAccess(access?: CoderouterAccountAccess): CoderouterAccountAccess | undefined;
+export function readableAccountAccess(access?: CoderouterAccountAccess): CoderouterAccountAccess | undefined {
+  return access?.kind === "own-private" ? { kind: "user", userId: access.userId } : access;
+}
+
+/** The in-memory form of the `own-private` predicate, for rows already read. */
+export function canWriteAccount(
+  account: { readonly visibility: "private" | "team"; readonly createdBy: string | null },
+  access?: CoderouterAccountAccess,
+): boolean {
+  return access?.kind !== "own-private" ||
+    (account.visibility === "private" && account.createdBy === access.userId);
 }

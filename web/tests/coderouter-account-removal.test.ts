@@ -31,6 +31,7 @@ describe("coderouter account removal", () => {
           legacyCleanupPending: false,
         };
       },
+      visible: async () => false,
     });
     const response = await handler(
       new Request("https://coderouter.dev/api/coderouter/accounts/" + accountId, {
@@ -71,6 +72,7 @@ describe("coderouter account removal", () => {
           legacyCleanupPending: false,
         };
       },
+      visible: async () => false,
     });
     const response = await handler(
       new Request("https://coderouter.dev", { method: "DELETE" }),

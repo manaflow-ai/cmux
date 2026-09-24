@@ -1,8 +1,9 @@
 import { coderouterControlRoute, spanned } from "@/services/coderouter/requestTelemetry";
 // Team Claude upstream accounts: list, add, remove all. One account is
-// addressed under ./[accountId]. Any team member may read; `manageAccounts`
-// (every member today) may write. Secrets never leave the server: responses
-// carry masked identifiers only.
+// addressed under ./[accountId]. Any team member may read and add a private
+// account; sharing one and removing every account need account administration
+// (accountAdministration.ts). Secrets never leave the server: responses carry
+// masked identifiers only.
 import {
   addClaudeAccount,
   listClaudeAccounts,
@@ -13,6 +14,7 @@ import {
   resolveCoderouterUsageTeam,
   resolveCoderouterControlContext,
 } from "../../../../services/coderouter/requestContext";
+import { accountWriteAccess, teamPermissionRequired } from "../../../../services/coderouter/accountAdministration";
 import { captureCoderouterEvent } from "../../../../services/coderouter/analytics";
 import {
   addCoderouterBreadcrumb,
@@ -67,7 +69,9 @@ export function makeClaudeUpstreamHandlers(
     const requestedVisibility = body.value && typeof body.value === "object" && "visibility" in body.value ? (body.value as { visibility: unknown }).visibility : "private";
     if (requestedVisibility !== "private" && requestedVisibility !== "team") return Response.json({ error: "invalid_visibility" }, { status: 400 });
     const visibility = access.kind === "vm" ? "team" : requestedVisibility;
-    if (!resolved.value.team.manageAccounts) return Response.json({ error: "forbidden" }, { status: 403 });
+    if (visibility === "team" && !resolved.value.team.manageAccounts) {
+      return teamPermissionRequired(resolved.value.team, "share_account", { addCommand: "claude" });
+    }
     const input = parseClaudeUpstreamInput(body.value);
     if (!input) {
       return Response.json({ error: "invalid_request" }, { status: 400 });
@@ -76,7 +80,7 @@ export function makeClaudeUpstreamHandlers(
     const stackUserId = resolved.value.user.id;
     try {
       const before = await dependencies.list(teamId, access);
-      const account = await dependencies.add(teamId, stackUserId, input, visibility, access);
+      const account = await dependencies.add(teamId, stackUserId, input, visibility, accountWriteAccess(resolved.value));
       captureCoderouterEvent({
         event: "coderouter_claude_upstream_set",
         userId: stackUserId,
@@ -102,7 +106,7 @@ export function makeClaudeUpstreamHandlers(
     const resolved = await dependencies.resolveContext(request);
     if (!resolved.ok) return resolved.response;
     const access = resolved.value.access;
-    if (!resolved.value.team.manageAccounts) return Response.json({ error: "forbidden" }, { status: 403 });
+    if (!resolved.value.team.manageAccounts) return teamPermissionRequired(resolved.value.team, "remove_all_accounts");
     const teamId = resolved.value.team.teamId;
     let result: Awaited<ReturnType<ClaudeUpstreamRouteDependencies["removeAll"]>>;
     try {

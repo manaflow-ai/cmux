@@ -24,7 +24,9 @@ const testKeys: CredentialKeyService = {
 const noVerify = async () => {};
 
 beforeAll(() => {
-  if (enabled) db = postgres(process.env.DIRECT_DATABASE_URL ?? process.env.DATABASE_URL!, { max: 3 });
+  if (!enabled) return;
+  db = postgres(process.env.DIRECT_DATABASE_URL ?? process.env.DATABASE_URL!, { max: 3 });
+  process.env.CODEROUTER_KMS_KEY_ID = "member-accounts-test-key";
 });
 afterAll(async () => { await closeCloudDbForTests(); if (db) await db.end(); });
 beforeEach(async () => {

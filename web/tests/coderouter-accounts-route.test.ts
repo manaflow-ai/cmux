@@ -136,7 +136,8 @@ describe("coderouter account addition", () => {
       add,
     });
     expect((await POST(addRequest("private"))).status).toBe(201);
-    expect(add).toHaveBeenCalledWith("team_1", expect.anything(), undefined, undefined, undefined, {
+    expect(add).toHaveBeenCalledTimes(1);
+    expect((add.mock.calls[0] as unknown[])[5]).toEqual({
       createdBy: "user_1",
       visibility: "team",
       access: vmAccess,
