@@ -373,9 +373,10 @@ def pick(load: Mapping[str, Mapping[str, int]], added: Mapping[str, int], usable
 
     An owned pool has headroom only while every job of this run gets a machine
     at once (`jobs` of them, its peak): a job queued there waits for that pool
-    alone. It is never the fewest-queued fallback. A cold pool (cold()) counts
-    COLD_QUEUE_PENALTY more queued jobs than it has, for the compile it runs
-    without a seed.
+    alone. It is never the fewest-queued fallback. A cold pool (cold()) never
+    has headroom, whatever max_queued is, and counts COLD_QUEUE_PENALTY more
+    queued jobs than it has in the fallback, for the compile it runs without a
+    seed.
     """
     queued = {label: effective_queue(load[label], added[label]) + (COLD_QUEUE_PENALTY if cold(label) else 0)
               for label in usable}
@@ -383,7 +384,7 @@ def pick(load: Mapping[str, Mapping[str, int]], added: Mapping[str, int], usable
         if persistent(label):
             if owned_free(load[label], added[label]) >= max(1, jobs):
                 return label, True
-        elif queued[label] < max_queued:
+        elif not cold(label) and queued[label] < max_queued:
             return label, True
     fallback = [label for label in usable if not persistent(label)] or list(usable)
     return min(fallback, key=lambda label: queued[label]), False
@@ -462,9 +463,14 @@ def decide(
                f"this run needs {max(1, jobs)}){replay}")
     elif headroom:
         why = f"first pool in order with headroom (< {limits.max_queued} queued){replay}"
+    elif len(candidates) == 1:
+        why = f"the only pool this run may take{replay}"
     else:
         why = f"no pool has headroom{replay}; fewest queued"
-        if any(cold(pool_label) for pool_label in candidates):
+        raw = {pool_label: effective_queue(load[pool_label], added[pool_label]) for pool_label in candidates}
+        # Name the penalty only where it counted: the winner is cold, or a cold
+        # pool had fewer queued than the winner and lost for its missing seed.
+        if cold(label) or any(cold(pool_label) and raw[pool_label] < raw[label] for pool_label in candidates):
             why += f", counting {COLD_QUEUE_PENALTY} more for a pool with no seed for its Xcode"
     if limits.stale:
         note += f"; dropped {', '.join(limits.stale)} (not the lane's Xcode pin)"

@@ -97,6 +97,12 @@ class PreferenceOrder(unittest.TestCase):
         self.assertEqual(choose(backlog(small=21, large=6, old=4)).runner, LARGE)
         self.assertEqual(choose(backlog(small=21, large=20, old=4)).runner, OLD)
         self.assertIn("counting 12 more", choose(backlog(small=21, large=20, old=4)).reason)
+        self.assertIn("counting 12 more", choose(backlog(small=21, large=6, old=4)).reason)
+        self.assertNotIn("counting", choose(backlog(small=21, large=6, old=9)).reason)
+        # A threshold above the penalty still gives the cold pool no headroom.
+        self.assertEqual(choose(backlog(small=20, large=20, old=0), max_queued="30").runner, LARGE)
+        self.assertEqual(choose(backlog(small=0, large=0), order=OLD).reason.split(" (")[0],
+                         "the only pool this run may take")
         self.assertEqual(choose(backlog(small=5, large=6, old=9)).runner, SMALL)
         # A tie goes to the earlier pool in the order.
         self.assertEqual(choose(backlog(small=7, large=7, old=7)).runner, LARGE)
