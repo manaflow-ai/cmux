@@ -34,6 +34,38 @@ import UIKit
         )
     }
 
+    @Test func hostedContentCannotInvalidateExactRowHeights() {
+        #expect(makeTableView().selfSizingInvalidation == .disabled)
+    }
+
+    @Test func retainedCellReadsCurrentStateBeforeDisplay() throws {
+        let group = MobileWorkspaceGroupPreview(
+            id: "group-1", name: "Release", anchorWorkspaceID: "workspace-1"
+        )
+        let workspaces = viewportWorkspaces()
+        let items = workspaces.map { WorkspaceListTableItem.workspace($0.id, indented: false) }
+            + [.groupFooter(group.id)]
+        let initial = configuration(
+            workspaces: workspaces,
+            groups: [group],
+            items: items
+        )
+        let table = makeTableView()
+        let coordinator = WorkspaceListTableCoordinator(configuration: initial)
+        coordinator.attach(to: table)
+        let path = IndexPath(row: workspaces.count, section: 0)
+        // A prefetched cell exists without being visible, so a visible-only
+        // update cannot reach it. UIKit can display this same instance later.
+        let retained = try #require(table.dataSource?.tableView(table, cellForRowAt: path))
+        #expect(retained.accessibilityIdentifier == "MobileWorkspaceGroupFooterBoundary-group-1-inactive")
+        #expect(table.indexPathsForVisibleRows?.contains(path) != true)
+        coordinator.tableView(table, dragSessionWillBegin: ScrollDragSession(dragItems: []))
+
+        coordinator.tableView(table, willDisplay: retained, forRowAt: path)
+
+        #expect(retained.accessibilityIdentifier == "MobileWorkspaceGroupFooterBoundary-group-1-active")
+    }
+
     @Test func coordinatorLeavesPanLifecycleToUIKit() {
         let initial = configuration(workspaceIDs: ["workspace-1"])
         let coordinator = WorkspaceListTableCoordinator(configuration: initial)
@@ -136,6 +168,249 @@ import UIKit
         )
     }
 
+    @Test func recentActivityPayloadKeepsTheNativeOrderStable() throws {
+        let first = preview(
+            id: "workspace-1",
+            activityAt: Date(timeIntervalSinceReferenceDate: 790_000_020)
+        )
+        let second = preview(
+            id: "workspace-2",
+            activityAt: Date(timeIntervalSinceReferenceDate: 790_000_019)
+        )
+        var initial = configuration(workspaces: [first, second])
+        initial.preservesItemOrderDuringLiveUpdates = true
+        initial.presentationOrderIdentity = ["workspace-1", "workspace-2"]
+        let replacementTable = makeTableView()
+        replacementTable.contentInsetAdjustmentBehavior = .never
+        replacementTable.estimatedRowHeight = 0
+        replacementTable.rowHeight = 44
+        let replacementHost = UIViewController()
+        replacementHost.view = replacementTable
+        let replacementWindow = UIWindow(frame: replacementTable.frame)
+        replacementWindow.rootViewController = replacementHost
+        replacementWindow.isHidden = false
+        let replacementCoordinator = WorkspaceListTableCoordinator(configuration: initial)
+        replacementCoordinator.attach(to: replacementTable)
+        replacementWindow.layoutIfNeeded()
+        replacementTable.layoutIfNeeded()
+
+        let firstCell = try #require(replacementTable.cellForRow(at: IndexPath(row: 0, section: 0)))
+        let secondCell = try #require(replacementTable.cellForRow(at: IndexPath(row: 1, section: 0)))
+        var updatedSecond = second
+        updatedSecond.lastActivityAt = first.lastActivityAt?.addingTimeInterval(60)
+        var next = configuration(workspaces: [first, updatedSecond])
+        next.items = [
+            .workspace(updatedSecond.id, indented: false),
+            .workspace(first.id, indented: false),
+        ]
+        next.preservesItemOrderDuringLiveUpdates = true
+        next.presentationOrderIdentity = initial.presentationOrderIdentity
+        replacementCoordinator.update(configuration: next, in: replacementTable)
+        replacementTable.layoutIfNeeded()
+
+        #expect(
+            replacementCoordinator.lastPayloadApplyRoute
+                == .reconfiguredInPlace(["workspace.workspace-2"])
+        )
+        #expect(replacementCoordinator.configuration.items == initial.items)
+        #expect(replacementTable.cellForRow(at: IndexPath(row: 0, section: 0)) === firstCell)
+        #expect(replacementTable.cellForRow(at: IndexPath(row: 1, section: 0)) === secondCell)
+
+        // An explicit presentation choice still reaches the native table.
+        next.presentationOrderIdentity.append("sort:computerPriority")
+        replacementCoordinator.update(configuration: next, in: replacementTable)
+        #expect(replacementCoordinator.lastPayloadApplyRoute == .tableBatchUpdate)
+        #expect(replacementCoordinator.configuration.items == next.items)
+        replacementWindow.isHidden = true
+        replacementWindow.rootViewController = nil
+    }
+
+    @Test(arguments: [0, 5, 39])
+    func insertionKeepsVisibleRowAtSameScreenPosition(insertionIndex: Int) throws {
+        let workspaces = viewportWorkspaces()
+        let (table, coordinator, window) = viewportTable(workspaces)
+        defer {
+            window.isHidden = true
+            window.rootViewController = nil
+        }
+        let anchorID = workspaces[12].id
+        let initialY = table.rectForRow(at: IndexPath(row: 12, section: 0)).minY
+        table.setContentOffset(CGPoint(x: 0, y: initialY + 13), animated: false)
+        table.layoutIfNeeded()
+        let cell = try #require(table.cellForRow(at: IndexPath(row: 12, section: 0)))
+        var next = workspaces
+        next.insert(preview(id: "inserted", activityAt: .distantPast), at: insertionIndex)
+
+        coordinator.update(configuration: configuration(workspaces: next), in: table)
+        table.layoutIfNeeded()
+
+        let newIndex = try #require(next.firstIndex { $0.id == anchorID })
+        let indexPath = IndexPath(row: newIndex, section: 0)
+        #expect(abs(table.rectForRow(at: indexPath).minY - table.contentOffset.y + 13) < 0.5)
+        #expect(table.cellForRow(at: indexPath) === cell)
+        #expect(table.numberOfRows(inSection: 0) == next.count)
+    }
+
+    @Test func deletingFirstVisibleRowKeepsNextVisibleRowStationary() throws {
+        let workspaces = viewportWorkspaces()
+        let (table, coordinator, window) = viewportTable(workspaces)
+        defer {
+            window.isHidden = true
+            window.rootViewController = nil
+        }
+        let firstY = table.rectForRow(at: IndexPath(row: 12, section: 0)).minY
+        table.setContentOffset(CGPoint(x: 0, y: firstY + 13), animated: false)
+        table.layoutIfNeeded()
+        let nextVisibleY = table.rectForRow(at: IndexPath(row: 13, section: 0)).minY
+            - table.contentOffset.y
+        var next = workspaces
+        next.remove(at: 12)
+
+        coordinator.update(configuration: configuration(workspaces: next), in: table)
+        table.layoutIfNeeded()
+
+        #expect(abs(table.rectForRow(at: IndexPath(row: 12, section: 0)).minY
+            - table.contentOffset.y - nextVisibleY) < 0.5)
+    }
+
+    @Test(arguments: [false, true])
+    func offscreenHeightChangesKeepVisibleRowStationary(alsoInsert: Bool) throws {
+        let workspaces = viewportWorkspaces()
+        let (table, coordinator, window) = viewportTable(workspaces)
+        defer {
+            window.isHidden = true
+            window.rootViewController = nil
+        }
+        let initialY = table.rectForRow(at: IndexPath(row: 12, section: 0)).minY
+        let initialHeight = table.rectForRow(at: IndexPath(row: 0, section: 0)).height
+        table.setContentOffset(CGPoint(x: 0, y: initialY + 13), animated: false)
+        table.layoutIfNeeded()
+        var next = workspaces
+        next[0].customDescription = "Additional context for the first workspace"
+        next[4].customDescription = "Additional context for another workspace"
+        if alsoInsert { next.insert(preview(id: "inserted", activityAt: .distantPast), at: 0) }
+
+        coordinator.update(configuration: configuration(workspaces: next), in: table)
+        table.layoutIfNeeded()
+
+        let anchorRow = alsoInsert ? 13 : 12
+        #expect(abs(table.rectForRow(at: IndexPath(row: anchorRow, section: 0)).minY
+            - table.contentOffset.y + 13) < 0.5)
+        for row in [0, 4] {
+            let indexPath = IndexPath(row: row + (alsoInsert ? 1 : 0), section: 0)
+            #expect(table.rectForRow(at: indexPath).height > initialHeight)
+        }
+    }
+
+    @Test func timestampRefreshPreservesCellHeightAndScrollOffset() throws {
+        let workspaces = viewportWorkspaces()
+        let (table, coordinator, window) = viewportTable(workspaces)
+        defer {
+            window.isHidden = true
+            window.rootViewController = nil
+        }
+        let indexPath = IndexPath(row: 12, section: 0)
+        let initialRect = table.rectForRow(at: indexPath)
+        table.setContentOffset(CGPoint(x: 0, y: initialRect.minY + 13), animated: false)
+        table.layoutIfNeeded()
+        let cell = try #require(table.cellForRow(at: indexPath))
+        let offset = table.contentOffset
+        var next = workspaces
+        next[12].lastActivityAt = next[12].lastActivityAt?.addingTimeInterval(60)
+
+        coordinator.update(configuration: configuration(workspaces: next), in: table)
+        table.layoutIfNeeded()
+
+        #expect(table.cellForRow(at: indexPath) === cell)
+        #expect(table.rectForRow(at: indexPath) == initialRect)
+        #expect(table.contentOffset == offset)
+        #expect(coordinator.lastPayloadApplyRoute == .reconfiguredInPlace(["workspace.viewport-12"]))
+    }
+
+    @Test func shrinkingListClampsViewportToRemainingContent() {
+        let workspaces = viewportWorkspaces()
+        let (table, coordinator, window) = viewportTable(workspaces)
+        defer {
+            window.isHidden = true
+            window.rootViewController = nil
+        }
+        let initialY = table.rectForRow(at: IndexPath(row: 30, section: 0)).minY
+        table.setContentOffset(CGPoint(x: 0, y: initialY), animated: false)
+        table.layoutIfNeeded()
+
+        coordinator.update(configuration: configuration(workspaces: Array(workspaces[30...32])), in: table)
+        table.layoutIfNeeded()
+
+        #expect(table.contentOffset.y >= -table.adjustedContentInset.top)
+        let maxOffset = max(-table.adjustedContentInset.top,
+            table.contentSize.height - table.bounds.height + table.adjustedContentInset.bottom)
+        #expect(table.contentOffset.y <= maxOffset)
+    }
+
+    private func viewportWorkspaces() -> [MobileWorkspacePreview] {
+        (0..<40).map { preview(id: "viewport-\($0)", activityAt: Date(timeIntervalSinceReferenceDate: 790_000_020)) }
+    }
+
+    private func viewportTable(
+        _ workspaces: [MobileWorkspacePreview]
+    ) -> (WorkspaceListUITableView, WorkspaceListTableCoordinator, UIWindow) {
+        let table = makeTableView()
+        table.contentInsetAdjustmentBehavior = .never
+        table.estimatedRowHeight = 0
+        table.estimatedSectionHeaderHeight = 0
+        table.estimatedSectionFooterHeight = 0
+        table.rowHeight = 44
+        let coordinator = WorkspaceListTableCoordinator(configuration: configuration(workspaces: workspaces))
+        let host = UIViewController()
+        host.view = table
+        let window = UIWindow(frame: table.frame)
+        window.rootViewController = host
+        window.isHidden = false
+        coordinator.attach(to: table)
+        window.layoutIfNeeded()
+        table.layoutIfNeeded()
+        return (table, coordinator, window)
+    }
+
+    @Test func relayOnlyTerminalDetailsDoNotReconfigureTheWorkspaceRow() {
+        var workspace = preview(
+            id: "workspace-1",
+            activityAt: Date(timeIntervalSinceReferenceDate: 790_000_020)
+        )
+        workspace.terminals = [
+            MobileTerminalPreview(
+                id: "terminal-1",
+                name: "zsh",
+                currentDirectory: "/Users/aziz"
+            )
+        ]
+        var relayUpdate = workspace
+        relayUpdate.currentDirectory = "/Users/aziz/project"
+        relayUpdate.terminals[0].currentDirectory = "/Users/aziz/project"
+        relayUpdate.terminals[0].isReady = false
+        relayUpdate.terminals[0].viewportFit = MobileTerminalViewportFit(
+            effective: MobileTerminalViewportSize(columns: 120, rows: 36),
+            client: nil,
+            isCurrentClientLimiting: false
+        )
+
+        let coordinator = WorkspaceListTableCoordinator(
+            configuration: configuration(workspaces: [workspace])
+        )
+        let tableView = makeTableView()
+        coordinator.attach(to: tableView)
+
+        coordinator.update(
+            configuration: configuration(workspaces: [relayUpdate]),
+            in: tableView
+        )
+
+        #expect(
+            coordinator.lastPayloadApplyRoute == .noChange,
+            "Detail-only relay fields must not replace a visible workspace row."
+        )
+    }
+
     @Test func concurrentAgentUpdatesWaitForScrollToFinishAndApplyTheLatestSnapshot() {
         let initialWorkspace = preview(
             id: "workspace-1",
@@ -231,7 +506,7 @@ import UIKit
         #expect(tableView.numberOfRows(inSection: 0) == 2)
 
         coordinator.scrollViewDidEndDecelerating(tableView)
-        #expect(coordinator.lastPayloadApplyRoute == .tableReload)
+        #expect(coordinator.lastPayloadApplyRoute == .tableBatchUpdate)
         #expect(tableView.numberOfRows(inSection: 0) == 3)
         #expect(
             coordinator.configuration.workspacesByID[firstWorkspace.id]?.previewText
@@ -332,7 +607,7 @@ import UIKit
         next.lastActivityAt = nil
         #expect(!WorkspaceListTableCoordinator.workspaceRenderEquivalent(previous, next))
 
-        // Any non-timestamp field still decides by full equality.
+        // A displayed row field still decides by render-state equality.
         next = previous
         next.hasUnread = true
         #expect(!WorkspaceListTableCoordinator.workspaceRenderEquivalent(previous, next))

@@ -5,6 +5,7 @@ import CmuxMobileShellModel
 import Foundation
 import SwiftUI
 import Testing
+import UIKit
 @testable import CmuxMobileShellUI
 
 /// Behavior tests for the All Computers sort: group-aware recency ordering,
@@ -12,6 +13,38 @@ import Testing
 /// editor's effective order.
 @MainActor
 @Suite struct WorkspaceListSortTests {
+    @Test(arguments: MobileWorkspaceSortMode.allCases)
+    func notificationReorderingOnTheMacKeepsTheDisplayedOrder(mode: MobileWorkspaceSortMode) async {
+        let store = await shellStore(pairedMacs: [
+            pairedMac(id: "mac-a", name: "Mac A", lastSeenAt: 20),
+        ])
+        let first = workspace(id: "first", macDeviceID: "mac-a", activityAt: 200)
+        var second = workspace(id: "second", macDeviceID: "mac-a", activityAt: 100)
+        func configuration(_ workspaces: [MobileWorkspacePreview]) -> WorkspaceListTable {
+            let view = workspaceListView(workspaces: workspaces, store: store, workspaceSortMode: mode)
+            return view.workspaceTable(
+                groupedItems: view.groupedListItems,
+                workspacesByID: Dictionary(uniqueKeysWithValues: workspaces.map { ($0.id, $0) })
+            )
+        }
+        let initial = configuration([first, second])
+        let table = WorkspaceListUITableView(frame: CGRect(x: 0, y: 0, width: 320, height: 600), style: .plain)
+        let coordinator = WorkspaceListTableCoordinator(configuration: initial)
+        coordinator.attach(to: table)
+
+        // The Mac's Reorder on Notification changes its source array as well
+        // as the row's activity. Reversing only the iOS projection misses it.
+        second.lastActivityAt = Date(timeIntervalSince1970: 300)
+        second.hasUnread = true
+        second.previewText = "Agent progress"
+        let next = configuration([second, first])
+        coordinator.update(configuration: next, in: table)
+
+        #expect(coordinator.configuration.items == initial.items)
+        #expect(coordinator.configuration.workspacesByID[second.id]?.previewText == "Agent progress")
+        #expect(coordinator.lastPayloadApplyRoute != .tableBatchUpdate)
+    }
+
     @Test func recencySortOrdersFlatRowsAcrossComputersByLastActivity() async throws {
         let store = await shellStore(pairedMacs: [
             pairedMac(id: "mac-a", name: "Mac A", lastSeenAt: 20),
@@ -209,6 +242,18 @@ import Testing
             groups: [expandedGroup],
             appliesRecencySort: true
         ) == initial)
+
+        let buildCountBeforeRelayChange = cache.projectionBuildCount
+        workspaces[2].currentDirectory = "/tmp/agent-output"
+        _ = cache.items(
+            workspaces: workspaces,
+            groups: [expandedGroup],
+            appliesRecencySort: true
+        )
+        #expect(
+            cache.projectionBuildCount == buildCountBeforeRelayChange,
+            "Terminal and directory relay fields must not rebuild the list projection."
+        )
 
         workspaces[2].name = "Renamed member"
         let renamed = cache.items(

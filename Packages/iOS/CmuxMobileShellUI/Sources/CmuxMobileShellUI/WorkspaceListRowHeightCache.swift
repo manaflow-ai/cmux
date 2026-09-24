@@ -49,10 +49,14 @@ struct WorkspaceListRowHeightCache<Key: Hashable> {
     mutating func retainRowIDs(_ retainedRowIDs: Set<String>) {
         let removedRowIDs = keyByRowID.keys.filter { !retainedRowIDs.contains($0) }
         for rowID in removedRowIDs {
-            guard let key = keyByRowID.removeValue(forKey: rowID) else { continue }
-            rowIDsByKey[key]?.remove(rowID)
-            removeUnownedEntry(for: key)
+            remove(rowID: rowID)
         }
+    }
+
+    mutating func remove(rowID: String) {
+        guard let key = keyByRowID.removeValue(forKey: rowID) else { return }
+        rowIDsByKey[key]?.remove(rowID)
+        removeUnownedEntry(for: key)
     }
 
     private mutating func touch(_ key: Key) {

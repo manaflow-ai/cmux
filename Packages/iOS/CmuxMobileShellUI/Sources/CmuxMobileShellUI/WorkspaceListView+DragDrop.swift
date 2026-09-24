@@ -63,9 +63,13 @@ extension WorkspaceListView {
         }
     }
 
-    func moveFlatRows(from sourceOffsets: IndexSet, to destination: Int) {
+    func moveFlatRows(
+        from sourceOffsets: IndexSet,
+        to destination: Int,
+        presentedWorkspaces: [MobileWorkspacePreview]? = nil
+    ) {
         guard enablesWorkspaceReorder else { return }
-        let sourceWorkspaces = displayedFlatWorkspaces
+        let sourceWorkspaces = presentedWorkspaces ?? displayedFlatWorkspaces
         let items = sourceWorkspaces.map { MobileWorkspaceListItem.workspace($0, indented: false) }
         guard let intent = items.moveIntent(
             workspaces: sourceWorkspaces,
@@ -144,12 +148,16 @@ extension WorkspaceListView {
         }
     }
 
-    func moveGroupedRows(from sourceOffsets: IndexSet, to destination: Int) {
+    func moveGroupedRows(
+        from sourceOffsets: IndexSet,
+        to destination: Int,
+        presentedItems: [MobileWorkspaceListItem]? = nil
+    ) {
         guard enablesWorkspaceReorder else {
             MobileDebugLog.anchormux("move.drop grouped BLOCKED enablesWorkspaceReorder=false")
             return
         }
-        let sourceItems = displayedGroupedListItems
+        let sourceItems = presentedItems ?? displayedGroupedListItems
         let sourceWorkspaces = displayedGroupedWorkspaces
         guard let intent = sourceItems.moveIntent(
             workspaces: sourceWorkspaces,

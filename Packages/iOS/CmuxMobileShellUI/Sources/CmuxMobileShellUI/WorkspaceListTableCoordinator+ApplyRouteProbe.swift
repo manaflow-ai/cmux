@@ -17,8 +17,10 @@ extension WorkspaceListTableCoordinator {
         /// Native swipe actions changed on the row UIKit is still editing.
         /// The listed cells stay untouched until the swipe closes.
         case deferredNativeActionReload([String])
-        /// Structure or a row height changed; a snapshot was applied.
+        /// Native swipe actions changed; affected cells were reloaded.
         case tableReload
+        /// Row identities changed; insertions/deletions were applied together.
+        case tableBatchUpdate
     }
 
     func recordPayloadApplyRoute(_ route: PayloadApplyRoute) {

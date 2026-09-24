@@ -11,7 +11,16 @@ struct WorkspaceListTable: UIViewControllerRepresentable {
     @Environment(\.releaseGateUIProbe) var releaseGateUIProbe
     @Environment(\.releaseGateSnapshotter) var releaseGateSnapshotter
     #endif
-    let items: [WorkspaceListTableItem]
+    var items: [WorkspaceListTableItem]
+    /// Recent Activity is derived from live timestamps. Keep those timestamp
+    /// updates from changing the native row order while the table is alive.
+    /// The source order identity below still permits explicit pin, group, or
+    /// computer-order changes to reconcile immediately.
+    var preservesItemOrderDuringLiveUpdates: Bool = false
+    /// Presentation-order inputs that do not include activity timestamps.
+    /// Changes here represent an intentional order change and must reach
+    /// UITableView even when the list is in Recent Activity mode.
+    var presentationOrderIdentity: [String] = []
     let workspacesByID: [MobileWorkspacePreview.ID: MobileWorkspacePreview]
     let groupsByID: [MobileWorkspaceGroupPreview.ID: MobileWorkspaceGroupPreview]
     let groupUnreadByID: [MobileWorkspaceGroupPreview.ID: MobileWorkspaceUnreadState]
@@ -40,7 +49,7 @@ struct WorkspaceListTable: UIViewControllerRepresentable {
     let initialConnectionTitle: String?
     let initialConnectionDescription: String?
     let enablesReorder: Bool
-    let moveRows: ((IndexSet, Int) -> Void)?
+    let moveRows: (([WorkspaceListTableItem], IndexSet, Int) -> Void)?
     let canDropIntoGroup: ((MobileWorkspacePreview.ID, MobileWorkspaceGroupPreview.ID) -> Bool)?
     let dropIntoGroup: ((MobileWorkspacePreview.ID, MobileWorkspaceGroupPreview.ID) -> Void)?
     /// Builds the row's "Move to Group" picker on demand (context-menu open),
@@ -100,7 +109,11 @@ struct WorkspaceListTable: UIViewControllerRepresentable {
         tableView.estimatedSectionFooterHeight = 0
         tableView.sectionHeaderHeight = 0
         tableView.sectionFooterHeight = 0
-        tableView.rowHeight = UITableView.automaticDimension
+        // The coordinator supplies exact heights through heightForRowAt. An
+        // automaticDimension table would make UIKit run its self-sizing pass
+        // again when a hosted SwiftUI payload changes, even when the row's
+        // measured height is unchanged.
+        tableView.rowHeight = 44
         tableView.accessibilityIdentifier = "MobileWorkspaceList"
         context.coordinator.attach(
             to: tableView,
