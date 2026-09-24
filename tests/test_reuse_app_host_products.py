@@ -1484,13 +1484,85 @@ class ContractParity(unittest.TestCase):
         ]), {"bun", "zig", "rust"})
         self.assertEqual(self.job_env({"env": {"A": True, "B": 1}}), {"A": "true", "B": "1"})
 
-    def contract_with(self, environ, xcode="Xcode 26.6\nBuild version 17F113"):
-        answers = {"xcodebuild": xcode, "xcrun": "25F70", "sw_vers": "25D125"}
+    def contract_with(self, environ, xcode="Xcode 26.6\nBuild version 17F113",
+                      derived=None, os_build="25D125", os_version="26.4"):
+        answers = {"xcodebuild": xcode, "xcrun": "25F70",
+                   ("sw_vers", "-buildVersion"): os_build,
+                   ("sw_vers", "-productVersion"): os_version}
         with mock.patch.dict(os.environ, environ, clear=True), \
-                mock.patch.object(reuse, "read", side_effect=lambda *args: answers[args[0]]), \
+                mock.patch.object(reuse, "read",
+                                  side_effect=lambda *args: answers.get(args, answers.get(args[0]))), \
                 mock.patch.object(reuse.shutil, "which", return_value=None), \
                 mock.patch.object(reuse.product_inputs, "local_identity", return_value={"source": "s"}):
-            return reuse.contract()
+            return reuse.contract(derived)
+
+    def test_app_host_contract_names_no_runner_pool(self):
+        """One toolchain at one build path is one product on every pool."""
+        canonical = reuse.CANONICAL_DERIVED_DATA
+        blacksmith = self.contract_with({
+            "CMUX_SKIP_ZIG_BUILD": "1",
+            "CMUX_PRODUCT_RUNNER": "blacksmith-6vcpu-macos-26",
+            "ImageOS": "macos26", "ImageVersion": "133416",
+        }, derived=canonical, os_build="25D125", os_version="26.4")
+        for name, environ, os_build, os_version in (
+            ("12 vCPU", {"CMUX_PRODUCT_RUNNER": "blacksmith-12vcpu-macos-26"}, "25D125", "26.4"),
+            ("GitHub-hosted", {"CMUX_PRODUCT_RUNNER": "macos-26",
+                               "ImageOS": "macos26", "ImageVersion": "20260915.1"},
+             "25E5207", "26.5"),
+        ):
+            with self.subTest(pool=name):
+                other = self.contract_with({"CMUX_SKIP_ZIG_BUILD": "1", **environ},
+                                           derived=canonical, os_build=os_build,
+                                           os_version=os_version)
+                self.assertEqual(reuse.key(blacksmith), reuse.key(other))
+        # Still separate: another host major, and another build path.
+        other_major = self.contract_with({"CMUX_SKIP_ZIG_BUILD": "1"},
+                                         derived=canonical, os_version="27.0")
+        self.assertNotEqual(reuse.key(blacksmith), reuse.key(other_major))
+        workspace = self.contract_with({"CMUX_SKIP_ZIG_BUILD": "1"},
+                                       derived=Path("/Users/runner/_work/cmux/cmux/DerivedData/cmux-e2e"))
+        self.assertNotEqual(reuse.key(blacksmith), reuse.key(workspace))
+        self.assertEqual(reuse.portable_contract(workspace), blacksmith)
+
+    def test_release_contract_still_names_the_runner_pool(self):
+        # reuse_release_product.py calls contract() without a DerivedData path.
+        small = self.contract_with({"CMUX_PRODUCT_RUNNER": "blacksmith-6vcpu-macos-26"})
+        large = self.contract_with({"CMUX_PRODUCT_RUNNER": "blacksmith-12vcpu-macos-26"})
+        self.assertNotEqual(reuse.key(small), reuse.key(large))
+        self.assertNotEqual(reuse.key(small), reuse.key(self.contract_with(
+            {"CMUX_PRODUCT_RUNNER": "blacksmith-6vcpu-macos-26"}, os_build="25E5207")))
+
+    def test_restore_also_looks_up_the_product_compiled_at_the_canonical_root(self):
+        """A workspace-built lane can run a canonical product, so it asks for one."""
+        workspace = Path("/Users/runner/_work/cmux/cmux/DerivedData/cmux-e2e")
+        own = self.contract_with({"CMUX_SKIP_ZIG_BUILD": "1"}, derived=workspace)
+        asked = []
+
+        def fake_restore(api, value, derived, run, identity, attempt, report):
+            asked.append(value)
+            hit = value == reuse.portable_contract(own)
+            report.update(reason="hit" if hit else "miss",
+                          miss_reasons="" if hit else "no_matching_contract_artifact")
+            return hit
+
+        for derived, expected in ((workspace, [own, reuse.portable_contract(own)]),
+                                  (reuse.CANONICAL_DERIVED_DATA, [reuse.portable_contract(own)])):
+            with self.subTest(derived=str(derived)):
+                asked.clear()
+                output = Path(self.enterContext(__import__("tempfile").TemporaryDirectory())) / "out"
+                env = {"GITHUB_OUTPUT": str(output), "GITHUB_EVENT_NAME": "workflow_dispatch",
+                       "GITHUB_REPOSITORY": "manaflow-ai/cmux", "GITHUB_RUN_ID": "13",
+                       "GITHUB_RUN_ATTEMPT": "1"}
+                value = own if derived == workspace else reuse.portable_contract(own)
+                with mock.patch.dict(os.environ, env), \
+                        mock.patch.object(sys, "argv", ["reuse", "restore", str(derived)]), \
+                        mock.patch.object(reuse, "contract", return_value=value), \
+                        mock.patch.object(reuse.products, "identity", return_value={}), \
+                        mock.patch.object(reuse, "restore", side_effect=fake_restore):
+                    reuse.main()
+                self.assertEqual(asked, expected)
+                outputs = dict(line.split("=", 1) for line in output.read_text().splitlines())
+                self.assertEqual(outputs["hit"], "true")
 
     def test_contract_names_the_selected_xcode_not_its_selector(self):
         # Admission pins Xcode by path; an E2E dispatch picks the same Xcode by

@@ -98,7 +98,16 @@ CONTRACT_ENVIRONMENT = (
     "CMUX_SKIP_ZIG_BUILD",
     "SDKROOT", "MACOSX_DEPLOYMENT_TARGET", "SWIFT_ACTIVE_COMPILATION_CONDITIONS",
     "OTHER_SWIFT_FLAGS", "OTHER_CFLAGS", "OTHER_CPLUSPLUSFLAGS", "OTHER_LDFLAGS",
-    "RUSTFLAGS", "CFLAGS", "CXXFLAGS", "LDFLAGS", "ImageOS", "ImageVersion",
+    "RUSTFLAGS", "CFLAGS", "CXXFLAGS", "LDFLAGS",
+)
+
+# Where compile admission and the nightly seeder compile. Every runner pool can
+# reproduce this path, and every app-host consumer aliases its `src` checkout at
+# run time (restore-app-host-test-product.sh), so a product compiled here runs
+# on any pool.
+CANONICAL_DERIVED_DATA = (
+    Path(os.environ.get("CMUX_CI_CANONICAL_ROOT", "/private/tmp/cmux-ci"))
+    / "derived-data-compile-admission"
 )
 
 
@@ -106,21 +115,58 @@ def read(*args):
     return subprocess.check_output(args, text=True, timeout=30).strip()
 
 
-def contract():
+def contract(derived=None):
+    """Fingerprint everything that decides a compiled product's bytes.
+
+    With `derived`, the app-host product compiled into that DerivedData, the
+    contract names no runner pool. The pool used to be hashed as a stand-in
+    for three things, and each is now keyed directly:
+
+    - the toolchain: `xcode` and `sdk` are the exact Xcode and SDK builds, and
+      `tools` the exact version of every other compiler a build phase can
+      reach. Two pools with the same toolchain produce the same product.
+    - the host: `macos` is the host's major version. The compilers come from
+      Xcode, not from the host, so a point release of the host cannot change
+      what they emit; the major version stays in so that a product never
+      crosses to a host the lane has not been validated on.
+    - the paths baked into the product: `build_location` is the DerivedData
+      directory it was compiled into. A product compiled under a checkout
+      carries that checkout's absolute path, which differs by pool, so it only
+      matches another job at the same path. A product compiled at the
+      canonical root carries a path every pool reproduces.
+
+    Nothing about the runner's size, provider or image version is left, so a
+    6 and a 12 vCPU runner, or a Blacksmith and a GitHub-hosted runner with the
+    same toolchain, name one product.
+
+    Without `derived` (the Release product contract) the pool is still hashed.
+    """
     versions = {}
     for command in ("rustc", "cargo", "go", "zig", "node", "bun"):
         executable = shutil.which(command)
         versions[command] = read(executable, "version" if command in {"go", "zig"} else "--version") if executable else "absent"
-    return {
+    value = {
         "product_inputs": product_inputs.local_identity(),
         "xcode": read("xcodebuild", "-version"),
         "sdk": read("xcrun", "--sdk", "macosx", "--show-sdk-build-version"),
-        "os": read("sw_vers", "-buildVersion"),
         "architecture": platform.machine(),
         "tools": versions,
         "environment": {k: os.environ.get(k, "") for k in CONTRACT_ENVIRONMENT},
-        "runner": os.environ.get("CMUX_PRODUCT_RUNNER", ""),
     }
+    if derived is None:
+        value["os"] = read("sw_vers", "-buildVersion")
+        value["environment"].update(
+            {k: os.environ.get(k, "") for k in ("ImageOS", "ImageVersion")})
+        value["runner"] = os.environ.get("CMUX_PRODUCT_RUNNER", "")
+        return value
+    value["macos"] = read("sw_vers", "-productVersion").split(".", 1)[0]
+    value["build_location"] = str(Path(derived).resolve())
+    return value
+
+
+def portable_contract(value):
+    """The same product compiled at the canonical root, which runs on any pool."""
+    return {**value, "build_location": str(CANONICAL_DERIVED_DATA.resolve())}
 
 
 def key(value):
@@ -893,7 +939,7 @@ def main():
     mode, derived_raw = sys.argv[1:]
     derived = Path(derived_raw)
     try:
-        value = contract()
+        value = contract(derived)
     except (OSError, subprocess.SubprocessError):
         value = None
         print("Build environment cannot be fingerprinted; compiling normally.")
@@ -927,15 +973,28 @@ def main():
             if value is None:
                 report["miss_reasons"] = "fingerprint_unavailable"
             elif os.environ.get("GITHUB_EVENT_NAME") in PERMITTED_PRODUCERS:
-                hit = restore(
-                    GitHub(os.environ["GITHUB_REPOSITORY"]),
-                    value,
-                    derived,
-                    os.environ["GITHUB_RUN_ID"],
-                    products.identity(),
-                    os.environ.get("GITHUB_RUN_ATTEMPT", "1"),
-                    report,
-                )
+                api = GitHub(os.environ["GITHUB_REPOSITORY"])
+                # A product this job would compile, then the same product
+                # compiled at the canonical root, which this job can also run.
+                wanted = [value]
+                if portable_contract(value) != value:
+                    wanted.append(portable_contract(value))
+                reasons = []
+                for candidate in wanted:
+                    hit = restore(
+                        api,
+                        candidate,
+                        derived,
+                        os.environ["GITHUB_RUN_ID"],
+                        products.identity(),
+                        os.environ.get("GITHUB_RUN_ATTEMPT", "1"),
+                        report,
+                    )
+                    reasons.extend(r for r in report["miss_reasons"].split(",")
+                                   if r and r not in reasons)
+                    if hit:
+                        break
+                report["miss_reasons"] = ",".join(reasons)
             else:
                 report["miss_reasons"] = "consumer_event_disallowed"
         except (TypeError, AttributeError, ValueError, KeyError, OSError,
