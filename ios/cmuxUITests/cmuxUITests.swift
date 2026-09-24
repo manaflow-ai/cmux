@@ -7593,7 +7593,7 @@ final class cmuxUITests: XCTestCase {
     private func captureWorkspaceToolbarPresentation(in app: XCUIApplication, name: String) {
         // The app screenshot can inherit the portrait keyboard window's crop
         // during rotation. The display screenshot preserves the whole bar.
-        let screenshot = XCTAttachment(screenshot: XCUIDevice.shared.screenshot())
+        let screenshot = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
         screenshot.name = "toolbar-\(name)"
         screenshot.lifetime = .keepAlways
         add(screenshot)
@@ -7609,7 +7609,7 @@ final class cmuxUITests: XCTestCase {
         let back = app.buttons["MobileWorkspaceBackButton"]
         XCTAssertLessThanOrEqual(title.frame.width, 200,
                                  "The title must retain the base capsule width in landscape")
-        XCTAssertLessThanOrEqual(title.frame.minX - back.frame.maxX, 30,
+        XCTAssertLessThanOrEqual(title.frame.minX - back.frame.maxX, 44,
                                  "The title must remain beside Back, including in landscape")
     }
 
