@@ -141,6 +141,19 @@ class FocusedLauncherTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertNotIn("runner", self.dispatch())
 
+    def test_a_workflow_job_passes_the_runner_variable_in(self):
+        # The job token cannot list variables; the environment answers instead.
+        result = self.launch(
+            "cmuxTests/ExampleTests", "--ref", "topic/fix",
+            CMUX_MACOS_RUNNER_TESTS="blacksmith-6vcpu-macos-15",
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn("runner", self.dispatch())
+        self.assertNotIn(["variable", "list"], [call[:2] for call in self.calls()])
+        result = self.launch("cmuxTests/ExampleTests", "--ref", "topic/fix", CMUX_MACOS_RUNNER_TESTS="")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.dispatch()["runner"], "blacksmith-12vcpu-macos-26")
+
     def test_a_routed_commit_reuses_its_in_flight_run_on_the_large_sku(self):
         result = self.launch(
             "cmuxTests/ExampleTests", "--ref", "topic/fix",
@@ -557,6 +570,21 @@ class RunDiscoveryTests(unittest.TestCase):
         with mock.patch.object(self.dispatch, "output", return_value=json.dumps([run, run])):
             with self.assertRaisesRegex(ValueError, "refusing to guess"):
                 self.dispatch.find_run(HEAD, "cmuxTests/Example", "mine")
+
+
+class SuiteWorkflowForwardsFocusedRuns(unittest.TestCase):
+    def test_focused_selectors_never_compile_in_the_suite_workflow(self):
+        jobs = yaml.safe_load((ROOT / ".github/workflows/test-macos-suite.yml").read_text())["jobs"]
+        focused, tests = jobs["focused"]["if"], jobs["tests"]["if"]
+        condition = focused.removeprefix("${{ ").removesuffix(" }}")
+        self.assertEqual(tests, "${{ !(" + condition + ") }}")
+        for clause in ("inputs.unit_test_suites != ''", "inputs.skip_ui_tests", "!inputs.skip_unit_tests"):
+            self.assertIn(clause, condition)
+        run = jobs["focused"]["steps"][-1]["run"]
+        self.assertIn("./scripts/run-e2e.sh", run)
+        self.assertIn("--wait", run)
+        self.assertIn('"cmuxTests/$suite"', run)
+        self.assertEqual(jobs["focused"]["permissions"], {"actions": "write", "contents": "read"})
 
 
 if __name__ == "__main__":

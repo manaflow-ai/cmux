@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 from contextlib import contextmanager
 import json
+import os
 from pathlib import Path
 import re
 import signal
@@ -191,6 +192,11 @@ def default_runner() -> str | None:
     Returning None means "cannot tell", and every caller treats that as a
     reason to dispatch normally rather than to act on a runner it guessed.
     """
+    if "CMUX_MACOS_RUNNER_TESTS" in os.environ:
+        # A workflow job passes `vars.MACOS_RUNNER_TESTS` in, set or empty,
+        # because its token cannot list repository variables.
+        value = os.environ["CMUX_MACOS_RUNNER_TESTS"].strip()
+        return value or workflow_default_runner()
     try:
         payload = output(
             "gh", "variable", "list", "--repo", REPO, "--json", "name,value",
@@ -207,6 +213,10 @@ def default_runner() -> str | None:
             if value:
                 return value
             break
+    return workflow_default_runner()
+
+
+def workflow_default_runner() -> str | None:
     try:
         workflow = (ROOT / ".github/workflows" / WORKFLOW).read_text()
     except OSError:
