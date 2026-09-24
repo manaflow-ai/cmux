@@ -513,6 +513,49 @@ class OwnedPools(unittest.TestCase):
         self.assertEqual(owned_choice(fleet(), routed=2, jobs=4).runner, LARGE)
         self.assertEqual(owned_choice(fleet(busy=10), routed=1).runner, LARGE)
 
+    def test_newer_runs_with_known_routes_are_charged_what_they_took(self):
+        # 5 machines, 5 newer runs. Guessed, the first two replays would close
+        # the pool (4 each); known, only the one on the minis counts, at its peak.
+        guessed = owned_choice(fleet(), machines=5, jobs=1, routed=5)
+        self.assertEqual(guessed.runner, LARGE)
+        known = pool.Routed(owned={MINI: 3}, ephemeral=4)
+        choice = owned_choice(fleet(), machines=5, jobs=1, routed=known)
+        self.assertEqual(choice.runner, MINI)
+        self.assertIn("2 of 5 owned machines free", choice.reason)
+        self.assertIn(f"3 machine(s) newer runs took on {MINI}", choice.reason)
+        self.assertEqual(owned_choice(fleet(), machines=5, jobs=3, routed=known).runner, LARGE)
+        # A run still picking is replayed as before, on top of what is known.
+        self.assertEqual(owned_choice(fleet(), machines=5, jobs=1,
+                                      routed=pool.Routed(unknown=1, owned={MINI: 1})).runner, LARGE)
+
+    def test_runs_off_the_owned_pools_still_queue_on_blacksmith(self):
+        snap = backlog(small=0, large=2)
+        self.assertEqual(choose(snap).runner, LARGE)
+        self.assertEqual(choose(snap, routed=pool.Routed(ephemeral=1)).runner, SMALL)
+
+    def test_route_lookup_reads_markers_then_the_changes_job(self):
+        runs = [{"id": 1, "run_attempt": 1, "status": "in_progress"},
+                {"id": 2, "run_attempt": 1, "status": "in_progress"},
+                {"id": 3, "run_attempt": 1, "status": "queued"},
+                {"id": 4, "run_attempt": 1, "status": "completed"},
+                {"id": 9, "run_attempt": 1, "status": "in_progress"}]
+        responses = {
+            "/actions/runs/1/artifacts?per_page=100": {"artifacts": [
+                {"name": f"macos-pool-persistent-1-1-3-{MINI}", "expired": False}]},
+            "/actions/runs/2/artifacts?per_page=100": {"artifacts": [
+                {"name": f"macos-pool-persistent-7-1-9-{MINI}", "expired": False}]},
+            "/actions/runs/2/jobs?filter=latest&per_page=100": {"jobs": [
+                {"name": "changes", "status": "completed"}]},
+            "/actions/runs/3/artifacts?per_page=100": {"artifacts": []},
+            "/actions/runs/3/jobs?filter=latest&per_page=100": {"jobs": [
+                {"name": "changes", "status": "in_progress"}]},
+        }
+        client = pool.GitHub("token", "manaflow-ai/cmux")
+        with unittest.mock.patch.object(client, "runs_since", return_value=runs), \
+                unittest.mock.patch.object(client, "get", side_effect=lambda path: responses[path]):
+            routed = client.pull_request_routes_since("2026-09-24T00:00:00Z", exclude_run_id=9)
+        self.assertEqual(routed, pool.Routed(unknown=1, owned={MINI: 3}, ephemeral=1))
+
     def test_stale_snapshot_or_no_slots_skips_the_pool(self):
         self.assertEqual(owned_choice(fleet(age=pool.OWNED_MAX_AGE_MINUTES + 1)).runner, LARGE)
         self.assertEqual(owned_choice(fleet(), owned_slots="").runner, LARGE)
