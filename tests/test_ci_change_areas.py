@@ -538,7 +538,7 @@ def test_release_build_waits_for_linux_preflight_admission() -> None:
     release = workflow_job_block("release-build", MACOS_WORKFLOW)
     status = workflow_job_block("macos-status", MACOS_WORKFLOW)
 
-    assert "runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}" in admission
+    assert "runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}" in admission
     assert 'TARGET_JOB: "linux-preflight"' in admission
     assert "actions/runs/{run_id}/jobs?filter=latest&per_page=100" in admission
     assert "- release-admission" in release
@@ -3779,8 +3779,18 @@ def test_a_diff_that_edits_a_few_suites_runs_only_those_suites() -> None:
 def test_changed_suites_run_on_one_worker_and_labels_still_run_everything() -> None:
     workflow = yaml.safe_load(MACOS_WORKFLOW.read_text(encoding="utf-8"))
     job = workflow["jobs"]["app-host-unit-tests"]
-    matrix = job["strategy"]["matrix"]["shard"]
-    assert "'[8]'" in matrix and "'[1, 2, 3, 4, 5, 6, 7]'" in matrix, matrix
+    # The include expression picks one JSON row set: shard 8 alone for a
+    # changed-suites run, the seven numbered consumers otherwise.
+    include = job["strategy"]["matrix"]["include"]
+    assert include.startswith("${{ fromJSON(inputs.unit_selectors != '' && '["), include
+    changed_rows, numbered_rows = (
+        json.loads(literal) for literal in re.findall(r"'(\[.*?\])'", include)
+    )
+    assert [row["shard"] for row in changed_rows] == [8], changed_rows
+    assert [row["shard"] for row in numbered_rows] == [1, 2, 3, 4, 5, 6, 7], numbered_rows
+    # Shard 8 routes like the others: a same-repository PR pool and a
+    # GitHub-hosted label for a fork's own repository.
+    assert {"pr_runner", "hosted_runner"} <= set(changed_rows[0]), changed_rows
     assert job["env"]["CMUX_APP_HOST_UNIT_SELECTORS"] == "${{ inputs.unit_selectors }}"
     # Shard 8 must own none of the strict steps the numbered shards run.
     owners = {key: value for key, value in job["env"].items() if key.endswith("_SHARD")}
@@ -4553,12 +4563,24 @@ def test_macos_jobs_use_lane_specific_xcode_pin_vars() -> None:
     # escape hatch exactly as runs-on does, with the macos-15 pin as the default
     # on both branches so an unset variable keeps today's behavior.
     for job_name in [
-        "app-host-unit-tests",
         "macos-compile-admission",
         "tests-build-and-lag",
     ]:
         block = workflow_job_block(job_name, MACOS_WORKFLOW)
         assert f"CMUX_CI_XCODE_APP: {PR_LANE_XCODE_PIN}" in block, job_name
+        assert "vars.CMUX_CI_XCODE_APP_MACOS_26" not in block, job_name
+        assert 'CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"' in block
+
+    # Same-repository pull-request app-host shards span pools with different
+    # Xcodes, so they pin none and take the machine's newest macOS 26 SDK
+    # Xcode; forks and other events keep the lane pin.
+    for job_name in ["app-host-unit-tests"]:
+        block = workflow_job_block(job_name, MACOS_WORKFLOW)
+        unpinned = PR_LANE_XCODE_PIN.replace(
+            "${{ ",
+            "${{ !(github.event_name == 'pull_request' && !github.event.pull_request.head.repo.fork) && (",
+        ).replace(" }}", ") || '' }}")
+        assert f"CMUX_CI_XCODE_APP: {unpinned}" in block, job_name
         assert "vars.CMUX_CI_XCODE_APP_MACOS_26" not in block, job_name
         assert 'CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"' in block
 
