@@ -38,6 +38,10 @@ final class WorkspaceNavigationControlView: UIView {
         return CGSize(width: max(minimumWidth, contentSize.width + layoutMargins.left + layoutMargins.right), height: 36)
     }
 
+    override func sizeThatFits(_ size: CGSize) -> CGSize {
+        intrinsicContentSize
+    }
+
     override func layoutMarginsDidChange() {
         super.layoutMarginsDidChange()
         refreshContentSize()
