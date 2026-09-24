@@ -23,10 +23,10 @@ final class WorkspaceNavigationBarController: UINavigationController {
 
         titleHost.sizingOptions = .intrinsicContentSize
         titleHost.safeAreaRegions = []
-        contentHost.addChild(titleHost)
+        addChild(titleHost)
         item.style = .browser
         item.largeTitleDisplayMode = .never
-        titleHost.didMove(toParent: contentHost)
+        titleHost.didMove(toParent: self)
     }
 
     func update(
@@ -82,7 +82,7 @@ final class WorkspaceNavigationBarController: UINavigationController {
                 let host = UIHostingController(rootView: content)
                 host.sizingOptions = .intrinsicContentSize
                 host.safeAreaRegions = []
-                contentHost.addChild(host)
+                addChild(host)
                 addedHosts.append(host)
                 host.view.backgroundColor = .clear
                 host.view.setContentHuggingPriority(.required, for: .horizontal)
@@ -125,7 +125,7 @@ final class WorkspaceNavigationBarController: UINavigationController {
             control.host.removeFromParent()
         }
         for host in addedHosts {
-            host.didMove(toParent: contentHost)
+            host.didMove(toParent: self)
         }
         bar.setNeedsLayout()
     }
