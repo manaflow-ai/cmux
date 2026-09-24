@@ -173,6 +173,7 @@ struct cmuxApp: App {
         .environment(\.irohSettingsController, Self.root.irohSettingsController)
         .environment(\.mobileLocalDataEraser, Self.localDataEraser)
         .environment(\.mobileKeyboardFrameTracker, Self.root.keyboardFrameTracker)
+        .environment(\.scrollInteractionReporter, Self.root.scrollInteractionReporter)
         .environment(
             \.dogfoodAttachPreparation,
             DogfoodAttachPreparation {
