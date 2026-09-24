@@ -340,12 +340,12 @@ jobs:
       # IOS_UPLOAD_COMPILATION_CACHE=0 turns the compilation cache off.
       - name: Compute iOS compilation cache key
         id: ios-compilation-cache-key
-        if: ${{ vars.IOS_UPLOAD_COMPILATION_CACHE != '0' }}
+        if: ${{ (vars.IOS_UPLOAD_COMPILATION_CACHE || '1') != '0' }}
         run: echo "toolchain=$(xcodebuild -version | shasum -a 256 | awk '{print $1}')" >> "$GITHUB_OUTPUT"
 
       - name: Restore iOS compilation cache
         id: ios-compilation-cache-restore
-        if: ${{ vars.IOS_UPLOAD_COMPILATION_CACHE != '0' }}
+        if: ${{ (vars.IOS_UPLOAD_COMPILATION_CACHE || '1') != '0' }}
         continue-on-error: true
         uses: ./.github/actions/cache-restore
         with:
@@ -377,7 +377,7 @@ jobs:
           INPUT_BUILD_NUMBER: ${{ github.event.inputs.build_number }}
           CMUX_IOS_UPLOAD_DIR: ${{ runner.temp }}/cmux-ios-upload
           CMUX_IOS_SPM_CACHE_DIR: ${{ runner.temp }}/cmux-ios-spm
-          CMUX_IOS_COMPILATION_CACHE: ${{ vars.IOS_UPLOAD_COMPILATION_CACHE != '0' && '1' || '0' }}
+          CMUX_IOS_COMPILATION_CACHE: ${{ (vars.IOS_UPLOAD_COMPILATION_CACHE || '1') != '0' && '1' || '0' }}
           CMUX_BUILD_NUMBER_OUT_FILE: ${{ runner.temp }}/cmux-final-build-number.txt
         run: |
           set -euo pipefail
@@ -398,7 +398,7 @@ jobs:
 
       - name: Bound iOS compilation cache size
         id: ios-compilation-cache-bound
-        if: ${{ !cancelled() && steps.upload.outcome == 'success' && vars.IOS_UPLOAD_COMPILATION_CACHE != '0' && steps.ios-compilation-cache-restore.outputs.cache-hit != 'true' }}
+        if: ${{ !cancelled() && steps.upload.outcome == 'success' && (vars.IOS_UPLOAD_COMPILATION_CACHE || '1') != '0' && steps.ios-compilation-cache-restore.outputs.cache-hit != 'true' }}
         continue-on-error: true
         run: |
           set -euo pipefail
