@@ -840,6 +840,10 @@ jobs:
         if: ${{ matrix.group == 'quality-determinism' }}
         run: python3 tests/test_bash_integration_no_done_notifications.py
 
+      - name: Validate shell surface-scoped environment keys
+        if: ${{ matrix.group == 'quality-determinism' }}
+        run: python3 tests/test_shell_surface_scoped_keys.py
+
       - name: Validate focused Dock shortcut routing guard
         if: ${{ matrix.group == 'quality-determinism' }}
         run: python3 tests/test_dock_shortcut_routing_guard.py
