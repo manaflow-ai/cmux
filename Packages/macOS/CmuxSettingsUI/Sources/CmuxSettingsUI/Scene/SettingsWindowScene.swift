@@ -246,6 +246,7 @@ public struct SettingsWindowRoot: View {
         }
     }
 
+    /// Shows grouped browse categories until search is active, then preserves the flat ranked result list.
     @ViewBuilder
     private var sidebar: some View {
         List(selection: sidebarSelectionBinding) {
@@ -253,14 +254,26 @@ public struct SettingsWindowRoot: View {
             if matches.isEmpty {
                 Text(String(localized: "settings.search.noResults", defaultValue: "No Results"))
                     .foregroundStyle(.secondary)
-            } else {
+            } else if isSearching {
+                // Search stays flat and relevance-ranked. Taxonomy only
+                // reorganizes the default browse view, so existing setting
+                // hit IDs, row anchors, and deep-link selection semantics
+                // remain unchanged while a query is active.
                 ForEach(matches) { entry in
-                    SettingsSidebarEntryRow(
-                        title: entry.title,
-                        symbolName: entry.symbolName,
-                        subtitle: subtitle(for: entry)
-                    )
-                    .tag(entry.id)
+                    sidebarEntryRow(entry)
+                }
+            } else {
+                ForEach(SettingsTaxonomyGroup.allCases) { group in
+                    let groupEntries = taxonomyEntries(for: group, from: matches)
+                    if !groupEntries.isEmpty {
+                        Section {
+                            ForEach(groupEntries) { entry in
+                                sidebarEntryRow(entry)
+                            }
+                        } header: {
+                            Text(group.title)
+                        }
+                    }
                 }
             }
         }
@@ -268,6 +281,30 @@ public struct SettingsWindowRoot: View {
         .navigationTitle(String(localized: "settings.title", defaultValue: "Settings"))
         .searchable(text: $searchText, placement: .sidebar, prompt: Text(String(localized: "settings.search.prompt", defaultValue: "Search")))
         .navigationSplitViewColumnWidth(210)
+    }
+
+    /// Renders one existing search-index entry as a selectable sidebar leaf.
+    @ViewBuilder
+    private func sidebarEntryRow(_ entry: SettingsSearchIndex.Entry) -> some View {
+        SettingsSidebarEntryRow(
+            title: entry.title,
+            symbolName: entry.symbolName,
+            subtitle: subtitle(for: entry)
+        )
+        .tag(entry.id)
+    }
+
+    /// Returns the existing section entries in taxonomy order without
+    /// changing their ids or targets. Runtime visibility filtering happens
+    /// before this step, so unavailable leaves simply disappear from their
+    /// group while the remaining destinations keep their stable identities.
+    private func taxonomyEntries(
+        for group: SettingsTaxonomyGroup,
+        from entries: [SettingsSearchIndex.Entry]
+    ) -> [SettingsSearchIndex.Entry] {
+        group.sections.compactMap { section in
+            entries.first { $0.id == sectionEntryID(for: section) }
+        }
     }
 
     func sidebarEntries(matching query: String) -> [SettingsSearchIndex.Entry] { searchIndex.match(query) }

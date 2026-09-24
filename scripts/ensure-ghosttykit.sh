@@ -223,6 +223,9 @@ else
     echo "==> Seeding cache from prebuilt GhosttyKit.xcframework"
   else
     echo "==> Building GhosttyKit.xcframework (this may take a few minutes)..."
+    if [[ -x "$SCRIPT_DIR/ensure-metal-toolchain.sh" ]]; then
+      "$SCRIPT_DIR/ensure-metal-toolchain.sh"
+    fi
     (
       cd ghostty
       # -Di18n=false: compiling Ghostty's .po catalogs needs gettext's

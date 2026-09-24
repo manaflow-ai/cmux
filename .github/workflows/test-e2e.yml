@@ -1,5 +1,5 @@
 name: E2E test with video recording
-run-name: ${{ inputs.test_filter }} on ${{ (!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_TESTS || 'blacksmith-6vcpu-macos-26') || inputs.runner }} @ ${{ inputs.ref || github.ref_name }}${{ inputs.dispatch_id != '' && format(' [{0}]', inputs.dispatch_id) || '' }}
+run-name: ${{ inputs.test_filter }} on ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || ((!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_TESTS || 'blacksmith-6vcpu-macos-26') || inputs.runner) }} @ ${{ inputs.ref || github.ref_name }}${{ inputs.dispatch_id != '' && format(' [{0}]', inputs.dispatch_id) || '' }}
 
 on:
   workflow_dispatch:
@@ -49,7 +49,7 @@ on:
 # group, so a newer one still cancels the older wherever it landed. run-e2e.sh
 # names the pool it chose explicitly, so its titles are exact.
 concurrency:
-  group: e2e-${{ (!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_TESTS || 'blacksmith-6vcpu-macos-26') || inputs.runner }}-${{ inputs.ref || github.ref_name }}-${{ inputs.test_filter }}
+  group: e2e-${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || ((!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_TESTS || 'blacksmith-6vcpu-macos-26') || inputs.runner) }}-${{ inputs.ref || github.ref_name }}-${{ inputs.test_filter }}
   cancel-in-progress: true
 
 # This lane checks out and compiles a dispatcher-chosen ref, so it should hold
@@ -75,7 +75,7 @@ jobs:
     # CI_E2E_OVERFLOW_MAX_LARGE_RUNNING E2E runs on it, default 2). Any error
     # reading the queue stays on 6vcpu, and CI_E2E_LARGE_POOL_OVERFLOW=0 turns
     # overflow off. run-e2e.sh applies the same rule from the same script.
-    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     # Reads one page each of in-progress and queued runs (two API calls at
     # most; see e2e_runner_pool.py for the budget) to estimate pool demand.
@@ -83,7 +83,9 @@ jobs:
       contents: read
       actions: read
     outputs:
-      label: ${{ steps.pool.outputs.label }}
+      # e2e_runner_pool.py only knows the manaflow-ai pools, so a fork takes
+      # the GitHub-hosted image here, as in run-name and the concurrency group.
+      label: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || steps.pool.outputs.label }}
     steps:
       # The helper comes from this workflow's revision, not the tested one,
       # which may predate it. The workflow files tell it which release and
@@ -123,7 +125,7 @@ jobs:
     # Seconds on Linux, and it rejects a malformed selector before either
     # macOS job is scheduled. After the build/test split a bad filter would
     # otherwise surface only once a full compile had already been paid for.
-    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     outputs:
       target: ${{ steps.filter.outputs.target }}
       filter: ${{ steps.filter.outputs.filter }}
@@ -275,6 +277,23 @@ jobs:
       CMUX_SKIP_ZIG_BUILD: "1"
       CMUX_PRODUCT_RUNNER: ${{ needs.runner.outputs.label }}
     steps:
+      - name: Verify GitHub-hosted route
+        env:
+          RUNNER_ENVIRONMENT: ${{ runner.environment }}
+          REQUESTED_RUNNER: ${{ needs.runner.outputs.label }}
+          RUNNER_CONTEXT_NAME: ${{ runner.name }}
+        run: |
+          # The self-hosted fleet also carries a macos-26 label, so a macos-*
+          # request must prove it landed on GitHub-hosted capacity before any
+          # checkout.
+          case "$REQUESTED_RUNNER" in
+            macos-*)
+              if [ "$RUNNER_ENVIRONMENT" != "github-hosted" ]; then
+                echo "::error::$REQUESTED_RUNNER resolved outside GitHub-hosted capacity: $RUNNER_CONTEXT_NAME"
+                exit 1
+              fi
+              ;;
+          esac
 
       - name: Validate Tart canary identity
         if: ${{ startsWith(needs.runner.outputs.label, 'tart-') }}
@@ -696,6 +715,23 @@ jobs:
       # instead, which is where the upload step reads from.
       CMUX_APP_HOST_CAPTURE_XCRESULTS: "1"
     steps:
+      - name: Verify GitHub-hosted route
+        env:
+          RUNNER_ENVIRONMENT: ${{ runner.environment }}
+          REQUESTED_RUNNER: ${{ needs.runner.outputs.label }}
+          RUNNER_CONTEXT_NAME: ${{ runner.name }}
+        run: |
+          # The self-hosted fleet also carries a macos-26 label, so a macos-*
+          # request must prove it landed on GitHub-hosted capacity before any
+          # checkout.
+          case "$REQUESTED_RUNNER" in
+            macos-*)
+              if [ "$RUNNER_ENVIRONMENT" != "github-hosted" ]; then
+                echo "::error::$REQUESTED_RUNNER resolved outside GitHub-hosted capacity: $RUNNER_CONTEXT_NAME"
+                exit 1
+              fi
+              ;;
+          esac
 
       - name: Validate Tart canary identity
         if: ${{ startsWith(needs.runner.outputs.label, 'tart-') }}

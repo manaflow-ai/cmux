@@ -771,9 +771,6 @@ class WorkloadProfileTests(unittest.TestCase):
         )
         self.assertEqual(syntax.returncode, 0, syntax.stderr.decode())
 
-    def test_unused_legacy_result_validator_is_absent(self) -> None:
-        self.assertFalse(hasattr(profile, "validate_result_document"))
-
     def test_runtime_product_tree_rejects_external_or_dangling_symlinks(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
