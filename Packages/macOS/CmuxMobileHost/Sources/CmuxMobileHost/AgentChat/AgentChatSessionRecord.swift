@@ -56,6 +56,40 @@ public struct AgentChatSessionRecord: Sendable {
     /// the registry; mutators do not set it directly.
     public var version: Int = 0
 
+    public init(
+        sessionID: String,
+        agentKind: ChatAgentKind,
+        workspaceID: String? = nil,
+        surfaceID: String? = nil,
+        workingDirectory: String? = nil,
+        transcriptPath: String? = nil,
+        state: ChatAgentState,
+        hasHookLifecycleState: Bool = false,
+        endedAt: Date? = nil,
+        lastActivityAt: Date,
+        children: [AgentChatChildRun] = [],
+        title: String? = nil,
+        pid: Int? = nil,
+        hookStoreSessionID: String? = nil,
+        version: Int = 0
+    ) {
+        self.sessionID = sessionID
+        self.agentKind = agentKind
+        self.workspaceID = workspaceID
+        self.surfaceID = surfaceID
+        self.workingDirectory = workingDirectory
+        self.transcriptPath = transcriptPath
+        self.state = state
+        self.hasHookLifecycleState = hasHookLifecycleState
+        self.endedAt = endedAt
+        self.lastActivityAt = lastActivityAt
+        self.children = children
+        self.title = title
+        self.pid = pid
+        self.hookStoreSessionID = hookStoreSessionID
+        self.version = version
+    }
+
     public var hookStoreLookupSessionID: String { hookStoreSessionID ?? sessionID }
 
     public mutating func rememberHookStoreSessionID(_ id: String) {
@@ -143,6 +177,13 @@ public struct AgentChatChildRun: Sendable, Equatable {
     public var label: String?
     public let startedAt: Date
     public var endedAt: Date?
+
+    public init(id: String, label: String? = nil, startedAt: Date, endedAt: Date? = nil) {
+        self.id = id
+        self.label = label
+        self.startedAt = startedAt
+        self.endedAt = endedAt
+    }
 
     public var isRunning: Bool { endedAt == nil }
 

@@ -13,6 +13,18 @@ public final class MobileTaskDirectoryMetadataQueryRunner {
         public let gatheringComplete: Bool
         public let totalMatchCount: Int
         public let truncated: Bool
+
+        public init(
+            paths: [String],
+            gatheringComplete: Bool,
+            totalMatchCount: Int,
+            truncated: Bool
+        ) {
+            self.paths = paths
+            self.gatheringComplete = gatheringComplete
+            self.totalMatchCount = totalMatchCount
+            self.truncated = truncated
+        }
     }
 
     public typealias DeadlineSleep = @MainActor @Sendable (Duration) async -> Void

@@ -4,6 +4,14 @@ public struct MobileHostBuildIdentity {
     public let appVersion: String?
     public let appBuild: String?
 
+    public init(
+        appVersion: String?,
+        appBuild: String?
+    ) {
+        self.appVersion = appVersion
+        self.appBuild = appBuild
+    }
+
     public static func current(bundle: Bundle = .main) -> MobileHostBuildIdentity {
         let bundleAppVersion = normalized(bundle.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String)
 #if DEBUG

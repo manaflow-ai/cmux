@@ -9,6 +9,16 @@ public actor AgentChatArtifactIndex {
         public let referencedPaths: Set<String>
         public let artifacts: [ChatArtifactIndexedReference]
         public let generation: String
+
+        public init(
+            referencedPaths: Set<String>,
+            artifacts: [ChatArtifactIndexedReference],
+            generation: String
+        ) {
+            self.referencedPaths = referencedPaths
+            self.artifacts = artifacts
+            self.generation = generation
+        }
     }
 
     public enum Operation: Sendable {

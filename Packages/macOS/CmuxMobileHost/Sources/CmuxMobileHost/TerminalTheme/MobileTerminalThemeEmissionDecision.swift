@@ -4,6 +4,14 @@ public struct MobileTerminalThemeEmissionDecision: Equatable {
     public let theme: TerminalTheme
     public let shouldScheduleCandidate: Bool
 
+    public init(
+        theme: TerminalTheme,
+        shouldScheduleCandidate: Bool
+    ) {
+        self.theme = theme
+        self.shouldScheduleCandidate = shouldScheduleCandidate
+    }
+
     public static func resolve(
         candidate: TerminalTheme,
         cached: TerminalTheme?,

@@ -52,6 +52,8 @@ public struct MobileViewportApplyGovernor {
     public private(set) var staged: Target?
     public private(set) var flushScheduled = false
 
+    public init() {}
+
     public mutating func request(_ target: Target) -> Decision {
         if target == applied {
             // The flap cancelled out (the remount clear+re-apply shape lands

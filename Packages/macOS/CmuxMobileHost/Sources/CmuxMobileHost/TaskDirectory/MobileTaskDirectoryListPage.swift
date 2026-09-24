@@ -9,4 +9,22 @@ public struct MobileTaskDirectoryListPage: Equatable, Sendable {
     public let limit: Int
     public let totalCount: Int
     public let nextOffset: Int?
+
+    public init(
+        currentPath: String,
+        parentPath: String?,
+        entries: [MobileTaskDirectoryListItem],
+        offset: Int,
+        limit: Int,
+        totalCount: Int,
+        nextOffset: Int?
+    ) {
+        self.currentPath = currentPath
+        self.parentPath = parentPath
+        self.entries = entries
+        self.offset = offset
+        self.limit = limit
+        self.totalCount = totalCount
+        self.nextOffset = nextOffset
+    }
 }

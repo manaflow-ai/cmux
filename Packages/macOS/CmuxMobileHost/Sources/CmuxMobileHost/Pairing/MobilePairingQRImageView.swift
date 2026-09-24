@@ -17,6 +17,12 @@ public struct MobilePairingQRImageView: View {
     /// The string encoded into the QR (the `cmux-ios://attach?...` URL).
     public let payload: String
 
+    public init(
+        payload: String
+    ) {
+        self.payload = payload
+    }
+
     public var body: some View {
         Group {
             if let image = qrImage {

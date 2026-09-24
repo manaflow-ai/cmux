@@ -12,6 +12,16 @@ public struct MobileTaskDirectoryFilesystemWalker: Sendable {
         public var maximumMatches = 256
         /// Wall-clock cap for one scan.
         public var timeLimit: Duration = .milliseconds(1_500)
+
+        public init(
+            maximumVisitedDirectories: Int = 150_000,
+            maximumMatches: Int = 256,
+            timeLimit: Duration = .milliseconds(1_500)
+        ) {
+            self.maximumVisitedDirectories = maximumVisitedDirectories
+            self.maximumMatches = maximumMatches
+            self.timeLimit = timeLimit
+        }
     }
 
     public struct Outcome: Equatable, Sendable {
@@ -20,6 +30,16 @@ public struct MobileTaskDirectoryFilesystemWalker: Sendable {
         /// Whether every readable directory under the roots was scanned
         /// before a budget expired.
         public var complete: Bool
+
+        public init(
+            matches: [String],
+            visitedDirectoryCount: Int,
+            complete: Bool
+        ) {
+            self.matches = matches
+            self.visitedDirectoryCount = visitedDirectoryCount
+            self.complete = complete
+        }
     }
 
     /// Directory names the walk never descends into: dependency caches, build
@@ -33,6 +53,10 @@ public struct MobileTaskDirectoryFilesystemWalker: Sendable {
     ]
 
     public var budget = Budget()
+
+    public init(budget: Budget = Budget()) {
+        self.budget = budget
+    }
 
     /// Walks `roots` breadth-first and returns every directory whose name
     /// contains the final path component of `query`, case-, diacritic-, and

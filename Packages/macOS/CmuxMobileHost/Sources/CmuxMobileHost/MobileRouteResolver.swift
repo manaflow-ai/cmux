@@ -5,6 +5,12 @@ public import Foundation
 public struct MobileHostRouteSnapshot: Sendable {
     public let routes: [CmxAttachRoute]
 
+    public init(
+        routes: [CmxAttachRoute]
+    ) {
+        self.routes = routes
+    }
+
     public var payload: [[String: Any]] {
         routes.mobileHostJSONObjects(for: .authenticated)
     }

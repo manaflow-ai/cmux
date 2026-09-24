@@ -18,6 +18,20 @@ public actor MobileTaskDirectorySearchService {
         public let foldedPath: String
         public let components: [String]
         public let basename: String
+
+        public init(
+            path: String,
+            pathBytes: [UInt8],
+            foldedPath: String,
+            components: [String],
+            basename: String
+        ) {
+            self.path = path
+            self.pathBytes = pathBytes
+            self.foldedPath = foldedPath
+            self.components = components
+            self.basename = basename
+        }
     }
 
     private struct RankedPath {

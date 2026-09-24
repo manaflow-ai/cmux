@@ -16,4 +16,20 @@ public struct MobileTaskDirectorySearchResult: Equatable, Sendable {
     public let filesystemComplete: Bool
     public let truncated: Bool
     public let indexedMatchCount: Int
+
+    public init(
+        directories: [String],
+        scope: Scope,
+        gatheringComplete: Bool,
+        filesystemComplete: Bool,
+        truncated: Bool,
+        indexedMatchCount: Int
+    ) {
+        self.directories = directories
+        self.scope = scope
+        self.gatheringComplete = gatheringComplete
+        self.filesystemComplete = filesystemComplete
+        self.truncated = truncated
+        self.indexedMatchCount = indexedMatchCount
+    }
 }

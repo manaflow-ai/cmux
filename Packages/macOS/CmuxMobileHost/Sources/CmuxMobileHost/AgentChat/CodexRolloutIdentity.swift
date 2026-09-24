@@ -4,4 +4,12 @@ import Foundation
 public struct CodexRolloutIdentity: Equatable, Sendable {
     public let sessionID: String
     public let transcriptPath: String
+
+    public init(
+        sessionID: String,
+        transcriptPath: String
+    ) {
+        self.sessionID = sessionID
+        self.transcriptPath = transcriptPath
+    }
 }

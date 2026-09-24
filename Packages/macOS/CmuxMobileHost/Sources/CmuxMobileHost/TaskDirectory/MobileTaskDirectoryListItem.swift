@@ -9,6 +9,22 @@ public struct MobileTaskDirectoryListItem: Equatable, Sendable {
     public let isSymbolicLink: Bool
     public let isReadable: Bool
 
+    public init(
+        name: String,
+        path: String,
+        isHidden: Bool,
+        isPackage: Bool,
+        isSymbolicLink: Bool,
+        isReadable: Bool
+    ) {
+        self.name = name
+        self.path = path
+        self.isHidden = isHidden
+        self.isPackage = isPackage
+        self.isSymbolicLink = isSymbolicLink
+        self.isReadable = isReadable
+    }
+
     public static func precedes(_ lhs: Self, _ rhs: Self) -> Bool {
         if lhs.name.utf8.lexicographicallyPrecedes(rhs.name.utf8) {
             return true

@@ -25,6 +25,24 @@ public struct AgentChatHookSessionStore: Sendable {
         public let pid: Int?
         /// When the hook store last updated the record.
         public let updatedAt: Date?
+
+        public init(
+            sessionID: String,
+            workspaceID: String?,
+            surfaceID: String?,
+            workingDirectory: String?,
+            transcriptPath: String?,
+            pid: Int?,
+            updatedAt: Date?
+        ) {
+            self.sessionID = sessionID
+            self.workspaceID = workspaceID
+            self.surfaceID = surfaceID
+            self.workingDirectory = workingDirectory
+            self.transcriptPath = transcriptPath
+            self.pid = pid
+            self.updatedAt = updatedAt
+        }
     }
 
     private let homeDirectory: URL
