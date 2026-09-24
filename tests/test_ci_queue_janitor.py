@@ -42,10 +42,10 @@ def make_run(*, event="pull_request", branch="feature", path=".github/workflows/
     }
 
 
-def mac_jobs(queued=0, running=0, age=20, running_name="macos / app-host shard"):
-    jobs = [{"status": "queued", "name": "macos / shard", "labels": [MAC], "created_at": iso(age)}
+def mac_jobs(queued=0, running=0, age=20, running_name="macos / app-host shard", label=MAC):
+    jobs = [{"status": "queued", "name": "macos / shard", "labels": [label], "created_at": iso(age)}
             for _ in range(queued)]
-    jobs += [{"status": "in_progress", "name": running_name, "labels": [MAC], "created_at": iso(age)}
+    jobs += [{"status": "in_progress", "name": running_name, "labels": [label], "created_at": iso(age)}
              for _ in range(running)]
     jobs.append({"status": "completed", "name": "changes", "labels": [LINUX], "created_at": iso(age)})
     return jobs
@@ -287,6 +287,22 @@ class DoomedCategoryTests(unittest.TestCase):
                 pr = make_pr(files=("Sources/AppDelegate.swift", path))
                 self.assertIsNone(self.classify(pr=pr))
 
+    def test_failed_compile_admission_with_macos_jobs_still_held_is_doomed(self):
+        # 2026-09-24: main stopped compiling (36c30506) and every PR run built
+        # on it failed `macOS compile admission`, while its other macOS jobs
+        # stayed queued on Blacksmith macos-26 for over an hour. A failed
+        # admission fails the `macos` call just as a failed shard does.
+        jobs = doomed_jobs(name="macos / macOS compile admission")
+        verdict = self.classify(jobs=jobs)
+        self.assertEqual(verdict[0], "doomed")
+        self.assertIn("macOS compile admission", verdict[1])
+
+    def test_compile_admission_that_did_not_fail_is_kept(self):
+        for conclusion in ("success", "skipped", "cancelled"):
+            with self.subTest(conclusion=conclusion):
+                jobs = doomed_jobs(name="macos / macOS compile admission", conclusion=conclusion)
+                self.assertIsNone(self.classify(jobs=jobs))
+
     def test_an_unrelated_diff_is_still_doomed(self):
         # PR #13218 changed nothing the shard consumes, so its remaining macOS
         # jobs are only holding pool capacity.
@@ -416,6 +432,35 @@ class PlanTests(unittest.TestCase):
         jobs = {main_run["id"]: main_jobs, **{r["id"]: mac_jobs(queued=1) for r in exps}}
         result = plan([main_run, *exps], jobs, max_cancels=2)
         self.assertEqual([d.action for d in result.decisions], ["cancel", "cancel", "skip", "skip"])
+
+    def test_threshold_is_per_pool(self):
+        # Four pools of five queued jobs each: 20 queued in total, but no pool
+        # is backed up, so cancelling anything frees nothing anyone waits for.
+        pools = ["blacksmith-6vcpu-macos-15", "blacksmith-6vcpu-macos-26", "macos-15", "macos-26"]
+        main_runs = [make_run(event="push", branch="main") for _ in pools]
+        exp = make_run(event="push", branch="exp/idle-pools")
+        jobs = {run["id"]: mac_jobs(queued=5, label=pool) for run, pool in zip(main_runs, pools)}
+        jobs[exp["id"]] = mac_jobs(queued=1, label="macos-15")
+        result = plan([*main_runs, exp], jobs, threshold=6)
+        self.assertEqual(result.queued_macos_jobs, 21)
+        self.assertFalse(result.over_threshold)
+        self.assertEqual(result.to_cancel(), [])
+
+    def test_only_runs_holding_a_backed_up_pool_are_cancelled(self):
+        # Blacksmith macOS 26 is backed up; the hosted macOS 15 pool is not.
+        main_run = make_run(event="push", branch="main")
+        idle_exp = make_run(event="push", branch="exp/hosted-15", age=30)
+        stuck_exp = make_run(event="push", branch="exp/blacksmith-26", age=5)
+        jobs = {
+            main_run["id"]: mac_jobs(queued=8, label="blacksmith-6vcpu-macos-26"),
+            idle_exp["id"]: mac_jobs(queued=2, label="macos-15"),
+            stuck_exp["id"]: mac_jobs(queued=1, label="blacksmith-6vcpu-macos-26"),
+        }
+        result = plan([main_run, idle_exp, stuck_exp], jobs, threshold=6)
+        self.assertTrue(result.over_threshold)
+        self.assertEqual([(d.candidate.run["id"], d.action) for d in result.decisions],
+                         [(idle_exp["id"], "skip"), (stuck_exp["id"], "cancel")])
+        self.assertIn("not backed up", result.decisions[0].note)
 
     def test_label_dropped_uses_waiting_replacement_in_inventory(self):
         main_run, main_jobs = busy_main_push(queued=10)
