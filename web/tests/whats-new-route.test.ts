@@ -31,7 +31,7 @@ describe("whats-new route channel targeting", () => {
     expect(response.status).toBe(200);
     const payload = (await response.json()) as WhatsNewList;
     expect(payload).toEqual(whatsNewList);
-    expect(payload.visibleEntryIds).toEqual(["connections.v2", "connections.v1"]);
+    expect(payload.visibleEntryIds).toEqual(["pairing.1.0.6", "connections.v2", "connections.v1"]);
     // The rejection-driven contract: no checked-in entry or announcement may
     // silently target the official app; reaching "prod" must be a reviewed,
     // explicit channel list. If this assertion fails, someone opted content

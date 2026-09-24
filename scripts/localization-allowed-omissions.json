@@ -1,4 +1,10 @@
 {
+  "mobile.ios106PairingUpdate.releaseLabel": {
+    "source": "1.0.6 · September 2026",
+    "identityLocales": {
+      "de": "September has the same spelling in German; the version and date are invariant."
+    }
+  },
   "cloudTree.resources.provisionedCPU": {
     "source": "%@ vCPU · %@",
     "identityLocales": {

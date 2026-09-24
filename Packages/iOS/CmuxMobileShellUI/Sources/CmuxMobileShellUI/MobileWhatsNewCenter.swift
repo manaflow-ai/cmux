@@ -32,15 +32,15 @@ public final class MobileWhatsNewCenter {
     static let requestPath = "/api/whats-new"
     /// The pairing requirement is part of the client contract, so an older
     /// cached visibility list must not hide it from team builds.
-    private static let requiredBinaryEntryIDs: Set<String> = ["connections.v2"]
+    private static let requiredBinaryEntryIDs: Set<String> = ["pairing.1.0.6", "connections.v2"]
 
     private let requestURL: URL?
-    private let appVersion: String
+    let appVersion: String
     /// The running distribution channel, gating every page through
     /// ``MobileWhatsNewChannelPolicy``: official (`.prod`) and demo builds
     /// see a page only when it explicitly lists their channel token, so the
     /// App Store app shows no What's New surface by default (Guideline 2.2).
-    private let buildType: MobileBuildType
+    let buildType: MobileBuildType
     private let defaults: UserDefaults
     private let loader: Loader
 
@@ -151,18 +151,12 @@ public final class MobileWhatsNewCenter {
                 channelTokens: remoteList?.entryChannels?[page.id] ?? page.channels,
                 buildType: buildType
             )
-            guard channelVisible else { return false }
-            guard let minVersion = page.minVersion else { return true }
-            return MobileAppVersionCompare().version(
-                appVersion,
-                isWithinMin: minVersion,
-                max: page.maxVersion
-            )
+            return channelVisible && page.supports(appVersion: appVersion)
         }
         guard let remoteList else { return channelAllowed }
         let visible = Set(remoteList.visibleEntryIds)
         guard !visible.isEmpty else { return [] }
-        let recognized = visible.intersection(Set(channelAllowed.map(\.id)))
+        let recognized = visible.intersection(Set(MobileWhatsNewCatalog().entries.map(\.id)))
         guard !recognized.isEmpty else {
             return channelAllowed
         }

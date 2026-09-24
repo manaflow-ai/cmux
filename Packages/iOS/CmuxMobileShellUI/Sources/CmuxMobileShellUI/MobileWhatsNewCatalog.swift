@@ -63,6 +63,10 @@ struct MobileWhatsNewPage: Identifiable {
     var listID: String {
         (isAnnouncement ? "announcement:" : "entry:") + id
     }
+
+    func supports(appVersion: String) -> Bool {
+        MobileAppVersionCompare().version(appVersion, isWithinMin: minVersion ?? "0", max: maxVersion)
+    }
 }
 
 /// Version-keyed release notes compiled into this binary, newest first.
@@ -77,7 +81,7 @@ struct MobileWhatsNewCatalog: Sendable {
     /// Newest first. The one-time sheet shows every visible entry newer than
     /// the acknowledgement marker.
     var entries: [MobileWhatsNewPage] {
-        [pairingOptInUpdate, connectionsUpdate]
+        [ios106PairingUpdate, pairingOptInUpdate, connectionsUpdate]
     }
 
     func entry(withID id: String) -> MobileWhatsNewPage? {
@@ -90,10 +94,11 @@ struct MobileWhatsNewCatalog: Sendable {
     /// use it, so an official App Store build renders NO What's New surface
     /// before its first fetch, while team builds keep the full catalog.
     func channelVisibleEntries(
-        buildType: MobileBuildType = .current()
+        buildType: MobileBuildType = .current(),
+        appVersion: String = AppVersionInfo.current().marketingVersion
     ) -> [MobileWhatsNewPage] {
         entries.filter { page in
-            MobileWhatsNewChannelPolicy().isVisible(
+            page.supports(appVersion: appVersion) && MobileWhatsNewChannelPolicy().isVisible(
                 channelTokens: page.channels,
                 buildType: buildType
             )
@@ -111,17 +116,17 @@ struct MobileWhatsNewCatalog: Sendable {
         // sits between the current pairing page and the older connection page.
         switch id {
         case "pairing-opt-in.v1":
-            return 1
+            return entries.firstIndex(where: { $0.id == "connections.v1" })
         default:
             return nil
         }
     }
 
-    var pairingOptInUpdate: MobileWhatsNewPage {
+    var ios106PairingUpdate: MobileWhatsNewPage {
         MobileWhatsNewPage(
-            id: "connections.v2",
+            id: "pairing.1.0.6",
             releaseLabel: L10n.string(
-                "mobile.pairingOptInUpdate.releaseLabel",
+                "mobile.ios106PairingUpdate.releaseLabel",
                 defaultValue: "1.0.6 · September 2026"
             ),
             title: L10n.string(
@@ -130,8 +135,26 @@ struct MobileWhatsNewCatalog: Sendable {
             ),
             body: .pairingSetup([]),
             isAnnouncement: false,
+            channels: ["beta", "internal"],
             minVersion: "1.0.6",
             maxVersion: "1.0.6"
+        )
+    }
+
+    var pairingOptInUpdate: MobileWhatsNewPage {
+        MobileWhatsNewPage(
+            id: "connections.v2",
+            releaseLabel: L10n.string(
+                "mobile.pairingOptInUpdate.releaseLabel",
+                defaultValue: "1.0.4 · September 2026"
+            ),
+            title: L10n.string(
+                "mobile.whatsNew.pairing.pageTitle",
+                defaultValue: "Action Required: Enable iOS pairing on your Mac"
+            ),
+            body: .pairingSetup([]),
+            isAnnouncement: false,
+            maxVersion: "1.0.5"
         )
     }
 

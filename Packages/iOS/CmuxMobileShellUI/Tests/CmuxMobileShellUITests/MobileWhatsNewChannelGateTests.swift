@@ -53,7 +53,7 @@ import Testing
 
     @Test func pinpointNoticeOnlyReachesItsVersionAndChannels() async {
         let payload = #"""
-        {"visibleEntryIds":["connections.v2","connections.v1"],"announcements":[{
+        {"visibleEntryIds":["pairing.1.0.6","connections.v1"],"announcements":[{
           "id":"ios-1.0.6-connections","minVersion":"1.0.6","maxVersion":"1.0.6",
           "channels":["beta","internal"],"title":"What's New in 1.0.6",
           "features":[{"title":"Update your Mac","detail":"Requires cmux 0.64.25."}]
@@ -64,7 +64,7 @@ import Testing
                 let center = makeCenter(
                     buildType: channel,
                     payload: payload,
-                    acknowledgedEntryID: "connections.v2",
+                    acknowledgedEntryID: "pairing.1.0.6",
                     appVersion: appVersion
                 )
                 await center.refresh()
@@ -82,58 +82,66 @@ import Testing
 
     @Test func announcementIsFollowedByPairingSetupOnlyOn106() async throws {
         let payload = #"""
-        {"visibleEntryIds":["connections.v2","connections.v1"],"announcements":[{
+        {"visibleEntryIds":["pairing.1.0.6","connections.v1"],"announcements":[{
           "id":"ios-1.0.6-connections","minVersion":"1.0.6","maxVersion":"1.0.6",
           "channels":["beta","internal"],"title":"What's New in 1.0.6",
           "features":[{"title":"Update your Mac","detail":"Requires cmux 0.64.25."}]
         }]}
         """#
-        let beta = makeCenter(
-            buildType: .beta,
-            payload: payload,
-            acknowledgedEntryID: "connections.v1",
-            appVersion: "1.0.6"
-        )
-        await beta.refresh()
-        #expect(beta.unseenPages.map(\.id) == ["ios-1.0.6-connections", "connections.v2"])
-        let pairing = try #require(beta.unseenPages.last)
-        #expect(pairing.releaseLabel == "1.0.6 · September 2026")
-        #expect(pairing.minVersion == "1.0.6")
-        #expect(pairing.maxVersion == "1.0.6")
-
-        let oldBeta = makeCenter(
-            buildType: .beta,
-            payload: payload,
-            acknowledgedEntryID: "connections.v1",
-            appVersion: "1.0.5"
-        )
-        await oldBeta.refresh()
-        #expect(oldBeta.unseenPages.isEmpty)
-        #expect(oldBeta.visibleBinaryEntries.map(\.id) == ["connections.v1"])
+        for channel in [MobileBuildType.beta, .internal] {
+            for marker in ["connections.v1", "connections.v2", "pairing-opt-in.v1"] {
+                let center = makeCenter(
+                    buildType: channel, payload: payload,
+                    acknowledgedEntryID: marker, appVersion: "1.0.6"
+                )
+                await center.refresh()
+                #expect(center.unseenPages.map(\.id) == ["ios-1.0.6-connections", "pairing.1.0.6"])
+                let pairing = try #require(center.unseenPages.last)
+                #expect(pairing.releaseLabel == "1.0.6 · September 2026")
+                center.acknowledge(center.unseenPages)
+                await center.refresh()
+                #expect(center.unseenPages.isEmpty)
+            }
+            for version in ["1.0.5", "1.0.7"] {
+                let center = makeCenter(
+                    buildType: channel, payload: payload,
+                    acknowledgedEntryID: "connections.v2", appVersion: version
+                )
+                await center.refresh()
+                #expect(center.unseenPages.isEmpty)
+                #expect(!center.archivePages.contains { $0.id == "pairing.1.0.6" })
+            }
+        }
+        for version in ["1.0.5", "1.0.7"] {
+            let center = makeCenter(buildType: .beta, appVersion: version)
+            #expect(!center.visibleBinaryEntries.contains { $0.id == "pairing.1.0.6" })
+            #expect(!MobileWhatsNewCatalog().channelVisibleEntries(buildType: .beta, appVersion: version)
+                .contains { $0.id == "pairing.1.0.6" })
+        }
     }
 
     @Test func pairingUpdateAppearsAfterAnOlderPageWasAcknowledged() async {
         let payload = #"""
         {
-          "visibleEntryIds": ["connections.v2", "connections.v1"],
+          "visibleEntryIds": ["pairing.1.0.6", "connections.v1"],
           "announcements": []
         }
         """#
-        for oldMarker in ["pairing-opt-in.v1", "connections.v1"] {
+        for oldMarker in ["pairing-opt-in.v1", "connections.v1", "connections.v2"] {
             let center = makeCenter(
                 buildType: .beta,
                 payload: payload,
                 acknowledgedEntryID: oldMarker
             )
             await center.refresh()
-            #expect(center.unseenPages.map(\.id) == ["connections.v2"])
+            #expect(center.unseenPages.map(\.id) == ["pairing.1.0.6"])
         }
     }
 
     @Test func pairingPageFocusesOnPairingRequirement() throws {
-        let page = try #require(MobileWhatsNewCatalog().entry(withID: "connections.v2"))
+        let page = try #require(MobileWhatsNewCatalog().entry(withID: "pairing.1.0.6"))
         guard case .pairingSetup(let features) = page.body else {
-            Issue.record("connections.v2 should render the custom pairing page")
+            Issue.record("pairing.1.0.6 should render the custom pairing page")
             return
         }
         #expect(features.isEmpty)
@@ -144,11 +152,11 @@ import Testing
     @Test func archiveKeepsBothUpdatesAfterAcknowledgingPairing() async throws {
         let center = makeCenter(
             buildType: .beta,
-            payload: #"{"visibleEntryIds":["connections.v2","connections.v1"],"announcements":[]}"#
+            payload: #"{"visibleEntryIds":["pairing.1.0.6","connections.v1"],"announcements":[]}"#
         )
         await center.refresh()
-        #expect(center.archivePages.map(\.id) == ["connections.v2", "connections.v1"])
-        #expect(center.unseenPages.map(\.id) == ["connections.v2", "connections.v1"])
+        #expect(center.archivePages.map(\.id) == ["pairing.1.0.6", "connections.v1"])
+        #expect(center.unseenPages.map(\.id) == ["pairing.1.0.6", "connections.v1"])
         let oldPage = try #require(MobileWhatsNewCatalog().entry(withID: "connections.v1"))
         guard case .features(let features) = oldPage.body else {
             Issue.record("The earlier connection update must keep its feature rows")
@@ -169,7 +177,7 @@ import Testing
             buildType: .beta
         )
         #expect(beta.stableVersion == "0.64.20")
-        #expect(beta.nightlyVersion == nil)
+        #expect(beta.nightlyVersion == "0.64.22-nightly.3345650013202")
 
         let official = MobileWhatsNewCatalog().macCompatibility(
             policy: .baked,
@@ -185,7 +193,7 @@ import Testing
             let center = makeCenter(buildType: buildType)
             #expect(
                 center.visibleBinaryEntries.map(\.id)
-                    == MobileWhatsNewCatalog().entries.map(\.id)
+                    == MobileWhatsNewCatalog().channelVisibleEntries(buildType: buildType, appVersion: "1.0.6").map(\.id)
             )
             #expect(!center.unseenPages.isEmpty)
         }
@@ -194,10 +202,10 @@ import Testing
     @Test func legacyPayloadWithoutChannelFieldsKeepsTeamBehavior() async {
         // The pre-channel server payload shape must keep decoding and must
         // keep meaning "team lanes only" (not "everyone").
-        let payload = #"{"visibleEntryIds":["connections.v2"],"announcements":[]}"#
+        let payload = #"{"visibleEntryIds":["pairing.1.0.6"],"announcements":[]}"#
         let team = makeCenter(buildType: .beta, payload: payload)
         await team.refresh()
-        #expect(team.visibleBinaryEntries.map(\.id) == ["connections.v2"])
+        #expect(team.visibleBinaryEntries.map(\.id) == ["pairing.1.0.6"])
 
         let official = makeCenter(buildType: .prod, payload: payload)
         await official.refresh()
@@ -209,16 +217,16 @@ import Testing
         let payload = #"{"visibleEntryIds":["retired.v1"],"announcements":[]}"#
         let center = makeCenter(buildType: .beta, payload: payload)
         await center.refresh()
-        #expect(center.visibleBinaryEntries.map(\.id) == ["connections.v2", "connections.v1"])
-        #expect(center.archivePages.map(\.id) == ["connections.v2", "connections.v1"])
+        #expect(center.visibleBinaryEntries.map(\.id) == ["pairing.1.0.6", "connections.v1"])
+        #expect(center.archivePages.map(\.id) == ["pairing.1.0.6", "connections.v1"])
     }
 
     @Test func oldServerCatalogCannotHidePairingRequirement() async {
         let payload = #"{"visibleEntryIds":["connections.v1"],"announcements":[]}"#
         let center = makeCenter(buildType: .beta, payload: payload)
         await center.refresh()
-        #expect(center.visibleBinaryEntries.map(\.id) == ["connections.v2", "connections.v1"])
-        #expect(center.unseenPages.map(\.id) == ["connections.v2", "connections.v1"])
+        #expect(center.visibleBinaryEntries.map(\.id) == ["pairing.1.0.6", "connections.v1"])
+        #expect(center.unseenPages.map(\.id) == ["pairing.1.0.6", "connections.v1"])
     }
 
     @Test func explicitEmptyServerCatalogStillHidesNativePages() async {
@@ -232,15 +240,15 @@ import Testing
     @Test func remoteEntryChannelsOptABinaryEntryIntoOfficial() async {
         let payload = #"""
         {
-          "visibleEntryIds": ["connections.v2"],
-          "entryChannels": { "connections.v2": ["dev", "beta", "internal", "prod"] },
+          "visibleEntryIds": ["pairing.1.0.6"],
+          "entryChannels": { "pairing.1.0.6": ["dev", "beta", "internal", "prod"] },
           "announcements": []
         }
         """#
         let center = makeCenter(buildType: .prod, payload: payload)
         await center.refresh()
-        #expect(center.visibleBinaryEntries.map(\.id) == ["connections.v2"])
-        #expect(center.unseenPages.map(\.id) == ["connections.v2"])
+        #expect(center.visibleBinaryEntries.map(\.id) == ["pairing.1.0.6"])
+        #expect(center.unseenPages.map(\.id) == ["pairing.1.0.6"])
     }
 
     @Test func remoteEntryChannelsCanAlsoNarrowTeamBuilds() async {
@@ -248,8 +256,8 @@ import Testing
         // operator can retract an entry from a single lane remotely.
         let payload = #"""
         {
-          "visibleEntryIds": ["connections.v2"],
-          "entryChannels": { "connections.v2": ["prod"] },
+          "visibleEntryIds": ["pairing.1.0.6"],
+          "entryChannels": { "pairing.1.0.6": ["prod"] },
           "announcements": []
         }
         """#

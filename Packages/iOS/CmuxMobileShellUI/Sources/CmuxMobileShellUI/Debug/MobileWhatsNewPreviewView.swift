@@ -22,8 +22,8 @@ public struct MobileWhatsNewPreviewView: View {
         _showsSheet = State(initialValue: payload == nil)
         _center = State(initialValue: MobileWhatsNewCenter(
             apiBaseURL: "https://cmux.test",
-            appVersion: environment["CMUX_UITEST_WHATS_NEW_VERSION"],
-            buildType: MobileBuildType(rawValue: environment["CMUX_UITEST_WHATS_NEW_CHANNEL"] ?? "beta") ?? .beta,
+            appVersion: environment["CMUX_UITEST_WHATS_NEW_VERSION"] ?? "1.0.5",
+            buildType: MobileBuildType(rawValue: environment["CMUX_UITEST_WHATS_NEW_CHANNEL"] ?? "dev") ?? .dev,
             defaults: defaults,
             loader: { _ in
                 guard let payload else { throw URLError(.notConnectedToInternet) }
