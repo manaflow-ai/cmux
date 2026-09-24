@@ -1,5 +1,13 @@
 import Foundation
 
+#if canImport(cmux_DEV)
+@testable import cmux_DEV
+#elseif canImport(cmux)
+@testable import cmux
+#else
+@testable import CloudReadFixture
+#endif
+
 actor CloudReadResponseGate {
     private(set) var requests = 0
     private var released = false
