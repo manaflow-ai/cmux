@@ -7,13 +7,13 @@ import UIKit
 /// There is deliberately no minimum title width or screen/size-class estimate.
 @MainActor
 final class WorkspaceNavigationTitleView: UIView {
-    private let host: UIHostingController<AnyView>
+    private let contentView: UIView & UIContentView
     private let capsule: UIVisualEffectView
     private static let horizontalInset: CGFloat = 10
     private static let preferredContentWidth: CGFloat = 180
 
-    init(host: UIHostingController<AnyView>) {
-        self.host = host
+    init() {
+        contentView = UIHostingConfiguration { AnyView(EmptyView()) }.margins(.all, 0).minSize(width: 0, height: 0).makeContentView()
         if #available(iOS 26.0, *) {
             let glass = UIGlassEffect(style: .regular)
             glass.isInteractive = true
@@ -30,9 +30,9 @@ final class WorkspaceNavigationTitleView: UIView {
         setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         setContentHuggingPriority(.defaultLow, for: .horizontal)
         addSubview(capsule)
-        host.view.backgroundColor = .clear
-        host.view.clipsToBounds = true
-        capsule.contentView.addSubview(host.view)
+        contentView.backgroundColor = .clear
+        contentView.clipsToBounds = true
+        capsule.contentView.addSubview(contentView)
     }
 
     @available(*, unavailable)
@@ -40,8 +40,13 @@ final class WorkspaceNavigationTitleView: UIView {
         fatalError("init(coder:) is unavailable")
     }
 
+    func update(content: AnyView) {
+        contentView.configuration = UIHostingConfiguration { content }.margins(.all, 0).minSize(width: 0, height: 0)
+        invalidateIntrinsicContentSize()
+    }
+
     override var intrinsicContentSize: CGSize {
-        let content = host.view.intrinsicContentSize
+        let content = contentView.systemLayoutSizeFitting(UIView.layoutFittingCompressedSize)
         // Preserve the base title's preferred maximum. This is a presentation
         // preference, not an estimate of available space: the navigation bar
         // can reduce it further to fit its actual button groups.
@@ -62,7 +67,7 @@ final class WorkspaceNavigationTitleView: UIView {
             capsule.layer.cornerRadius = bounds.height / 2
         }
         let inset = min(Self.horizontalInset, bounds.width / 2)
-        host.view.frame = bounds.insetBy(dx: inset, dy: 0)
+        contentView.frame = bounds.insetBy(dx: inset, dy: 0)
     }
 }
 #endif

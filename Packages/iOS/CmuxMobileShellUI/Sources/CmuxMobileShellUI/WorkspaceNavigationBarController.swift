@@ -7,8 +7,7 @@ final class WorkspaceNavigationBarController: UINavigationController {
     private let contentHost = UIHostingController(rootView: AnyView(EmptyView()))
     private var bar: UINavigationBar { navigationBar }
     private var item: UINavigationItem { contentHost.navigationItem }
-    private let titleHost = UIHostingController(rootView: AnyView(EmptyView()))
-    private lazy var titleCapsule = WorkspaceNavigationTitleView(host: titleHost)
+    private let titleCapsule = WorkspaceNavigationTitleView()
     private var controls: [WorkspaceNavigationBar.Item.ID: HostedControl] = [:]
     private var leadingIDs: [WorkspaceNavigationBar.Item.ID] = []
     private var trailingIDs: [WorkspaceNavigationBar.Item.ID] = []
@@ -21,12 +20,8 @@ final class WorkspaceNavigationBarController: UINavigationController {
         contentHost.view.backgroundColor = .clear
         setViewControllers([contentHost], animated: false)
 
-        titleHost.sizingOptions = .intrinsicContentSize
-        titleHost.safeAreaRegions = []
-        addChild(titleHost)
         item.style = .browser
         item.largeTitleDisplayMode = .never
-        titleHost.didMove(toParent: self)
     }
 
     func update(
@@ -56,7 +51,7 @@ final class WorkspaceNavigationBarController: UINavigationController {
         item.scrollEdgeAppearance = appearance
         item.compactAppearance = appearance
         item.compactScrollEdgeAppearance = appearance
-        titleHost.rootView = AnyView(title.environment(\.self, environment).buttonStyle(.plain))
+        titleCapsule.update(content: AnyView(title.environment(\.self, environment).buttonStyle(.plain)))
         titleCapsule.invalidateIntrinsicContentSize()
         // A custom title must have a natural size before the bar resizes it.
         // The bar owns the final frame between the leading and trailing items.
@@ -66,7 +61,6 @@ final class WorkspaceNavigationBarController: UINavigationController {
         }
         titleCapsule.setNeedsLayout()
 
-        var addedHosts: [UIHostingController<AnyView>] = []
         for value in leadingItems + trailingItems {
             let content = AnyView(value.content
                 .environment(\.self, environment)
@@ -74,19 +68,11 @@ final class WorkspaceNavigationBarController: UINavigationController {
                 .imageScale(.large)
                 .fixedSize())
             if let control = controls[value.id] {
-                control.host.rootView = content
-                control.view.refreshContentSize()
+                control.view.update(content: content)
             } else {
-                let host = UIHostingController(rootView: content)
-                host.sizingOptions = .intrinsicContentSize
-                host.safeAreaRegions = []
-                addChild(host)
-                addedHosts.append(host)
-                host.view.backgroundColor = .clear
-                let customView = WorkspaceNavigationControlView(host: host)
+                let customView = WorkspaceNavigationControlView(content: content)
                 let button = UIBarButtonItem(customView: customView)
-                controls[value.id] = HostedControl(host: host, button: button, view: customView)
-                // The bar installs the custom view when its item array updates.
+                controls[value.id] = HostedControl(button: button, view: customView)
             }
         }
 
@@ -112,18 +98,12 @@ final class WorkspaceNavigationBarController: UINavigationController {
         let visibleIDs = Set(leadingIDs + trailingIDs)
         for id in Array(controls.keys) where !visibleIDs.contains(id) {
             guard let control = controls.removeValue(forKey: id) else { continue }
-            control.host.willMove(toParent: nil)
             control.view.removeFromSuperview()
-            control.host.removeFromParent()
-        }
-        for host in addedHosts {
-            host.didMove(toParent: self)
         }
         bar.setNeedsLayout()
     }
 
     private struct HostedControl {
-        let host: UIHostingController<AnyView>
         let button: UIBarButtonItem
         let view: WorkspaceNavigationControlView
     }

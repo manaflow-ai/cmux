@@ -6,19 +6,19 @@ import UIKit
 /// Its natural width changes with the label instead of a per-control estimate.
 @MainActor
 final class WorkspaceNavigationControlView: UIView {
-    private let host: UIHostingController<AnyView>
+    private let contentView: UIView & UIContentView
     private var width: NSLayoutConstraint?
 
-    init(host: UIHostingController<AnyView>) {
-        self.host = host
+    init(content: AnyView) {
+        contentView = UIHostingConfiguration { content }.margins(.all, 0).minSize(width: 0, height: 0).makeContentView()
         super.init(frame: .zero)
         translatesAutoresizingMaskIntoConstraints = false
-        host.view.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(host.view)
+        contentView.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(contentView)
         NSLayoutConstraint.activate([
-            host.view.leadingAnchor.constraint(equalTo: layoutMarginsGuide.leadingAnchor),
-            host.view.trailingAnchor.constraint(equalTo: layoutMarginsGuide.trailingAnchor),
-            host.view.centerYAnchor.constraint(equalTo: centerYAnchor),
+            contentView.leadingAnchor.constraint(equalTo: layoutMarginsGuide.leadingAnchor),
+            contentView.trailingAnchor.constraint(equalTo: layoutMarginsGuide.trailingAnchor),
+            contentView.centerYAnchor.constraint(equalTo: centerYAnchor),
             heightAnchor.constraint(equalToConstant: 36),
         ])
         width = widthAnchor.constraint(equalToConstant: intrinsicContentSize.width)
@@ -32,7 +32,7 @@ final class WorkspaceNavigationControlView: UIView {
     }
 
     override var intrinsicContentSize: CGSize {
-        let contentSize = host.sizeThatFits(in: UIView.layoutFittingExpandedSize)
+        let contentSize = contentView.systemLayoutSizeFitting(UIView.layoutFittingCompressedSize)
         return CGSize(width: contentSize.width + layoutMargins.left + layoutMargins.right, height: 36)
     }
 
@@ -41,8 +41,13 @@ final class WorkspaceNavigationControlView: UIView {
         refreshContentSize()
     }
 
-    func refreshContentSize() {
-        host.view.invalidateIntrinsicContentSize()
+    func update(content: AnyView) {
+        contentView.configuration = UIHostingConfiguration { content }.margins(.all, 0).minSize(width: 0, height: 0)
+        refreshContentSize()
+    }
+
+    private func refreshContentSize() {
+        contentView.invalidateIntrinsicContentSize()
         invalidateIntrinsicContentSize()
         width?.constant = intrinsicContentSize.width
     }
