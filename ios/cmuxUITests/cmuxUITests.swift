@@ -12,6 +12,27 @@ final class cmuxUITests: XCTestCase {
     }
 
     @MainActor
+    func testFeedStartsBelowToolbar() {
+        let app = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_FEED_FULL_TEXT_PREVIEW": "1",
+        ])
+        defer { app.terminate() }
+        let firstAuthor = app.staticTexts.matching(
+            NSPredicate(format: "label BEGINSWITH %@", "Codex")
+        ).firstMatch
+        XCTAssertTrue(firstAuthor.waitForExistence(timeout: 10))
+        let settings = app.buttons["MobileWorkspaceSettingsMenu"]
+        XCTAssertTrue(settings.exists)
+        let gap = firstAuthor.frame.minY - settings.frame.maxY
+        let screenshot = XCTAttachment(screenshot: app.screenshot())
+        screenshot.name = "feed-first-row-spacing"
+        screenshot.lifetime = .keepAlways
+        add(screenshot)
+        XCTAssertGreaterThanOrEqual(gap, 0, "The first row must remain below the toolbar")
+        XCTAssertLessThanOrEqual(gap, 32, "Feed must not reserve an empty large-title area")
+    }
+
+    @MainActor
     func testFeedFullTextReadingAndRetry() {
         let app = launchApp(mockData: false, environment: [
             "CMUX_UITEST_FEED_FULL_TEXT_PREVIEW": "1",
