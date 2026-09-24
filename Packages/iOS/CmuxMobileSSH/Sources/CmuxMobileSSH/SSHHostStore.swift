@@ -49,6 +49,13 @@ public struct SSHHostRecord: Codable, Hashable, Identifiable, Sendable {
     public var persistence: SSHPersistenceMode?
     public var idleClose: SSHIdleClosePolicy
     public var createdAt: Date
+    /// `true` after the user declined this host's identity question: the
+    /// app stops connecting on its own (also after relaunch) until the user
+    /// connects explicitly. Optional so hosts saved before it existed decode.
+    public var autoConnectPaused: Bool?
+
+    /// Whether automatic reconnects are paused for this host.
+    public var isAutoConnectPaused: Bool { autoConnectPaused ?? false }
 
     public init(
         id: UUID = UUID(),
@@ -58,7 +65,8 @@ public struct SSHHostRecord: Codable, Hashable, Identifiable, Sendable {
         jumpHostID: UUID? = nil,
         persistence: SSHPersistenceMode? = nil,
         idleClose: SSHIdleClosePolicy = .oneDay,
-        createdAt: Date = Date()
+        createdAt: Date = Date(),
+        autoConnectPaused: Bool? = nil
     ) {
         self.id = id
         self.name = name
@@ -68,6 +76,7 @@ public struct SSHHostRecord: Codable, Hashable, Identifiable, Sendable {
         self.persistence = persistence
         self.idleClose = idleClose
         self.createdAt = createdAt
+        self.autoConnectPaused = autoConnectPaused
     }
 }
 

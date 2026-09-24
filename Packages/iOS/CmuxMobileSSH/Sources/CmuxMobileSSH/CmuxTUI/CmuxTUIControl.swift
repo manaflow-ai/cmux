@@ -655,3 +655,34 @@ extension CmuxTUIControl {
         return true
     }
 }
+
+// MARK: - Resync
+
+extension CmuxTUIControl {
+    /// Server capability for targeted `detach-attached-view`.
+    public static let viewDetachCapability = "view-attachment-detach-v1"
+
+    /// Whether this connection has a live byte-mode stream for `surface`.
+    public func isAttached(surface: Int) -> Bool {
+        attachments[surface] != nil
+    }
+
+    /// Whether `attachment` can be replaced in place by `reattach`.
+    public func canReattach(_ attachment: CmuxTUIAttachment) -> Bool {
+        attachment.lease != nil && server.capabilities.contains(Self.viewDetachCapability)
+    }
+
+    /// Replaces `attachment` with a fresh stream on this same connection. The
+    /// detach response fences the old stream, and the new stream starts with
+    /// a `vt-state` captured after it, so no output is lost between them.
+    /// The new attachment claims geometry at `cols` x `rows` like `attach`.
+    ///
+    /// Returns `nil` without detaching when the server lacks targeted detach
+    /// (`view-attachment-detach-v1`), because the only other cleanup fence
+    /// closes the whole connection.
+    public func reattach(_ attachment: CmuxTUIAttachment, cols: Int, rows: Int) async throws -> CmuxTUIAttachment? {
+        guard canReattach(attachment) else { return nil }
+        try await detach(attachment)
+        return try await attach(surface: attachment.surface, cols: cols, rows: rows)
+    }
+}

@@ -89,13 +89,17 @@ extension WorkspaceListView {
             names[mac.macDeviceID] = mac.resolvedName
             names[mac.id] = mac.resolvedName
         }
+        if let buildScope = MobileIOSBuildScope.current() {
+            names = names.mapValues(buildScope.computerDisplayName)
+        }
+        // After the build-scope mapping: the dev tag suffix identifies which
+        // cmux Mac build a row belongs to, and an SSH host is not a cmux build.
         if let store {
             for host in store.sshComputers.hosts {
                 names[store.sshComputerDeviceID(hostID: host.id)] = host.name
             }
         }
-        guard let buildScope = MobileIOSBuildScope.current() else { return names }
-        return names.mapValues(buildScope.computerDisplayName)
+        return names
     }
 
     func macBuildLabelsByID() -> [String: String] {

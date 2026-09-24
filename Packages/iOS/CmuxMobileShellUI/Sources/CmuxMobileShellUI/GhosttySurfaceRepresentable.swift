@@ -56,6 +56,9 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
     var showMissingFiles: Bool = false
     var sessionArtifactCountEnabled: Bool = false
     var visibleArtifactCount: Int = 0
+    /// SSH terminals: show the Files chip regardless of paths on screen; it
+    /// opens the server's file browser (via ``onArtifactFilesRequested``).
+    var sshFilesChipEnabled: Bool = false
     var onArtifactFilesRequested: @MainActor (_ anchor: UnitPoint) -> Void = { _ in }
     var onArtifactPathTapped: @MainActor (_ path: String) -> Void = { _ in }
     var onVisibleArtifactCountChanged: @MainActor (_ count: Int) -> Void = { _ in }
@@ -184,6 +187,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         if artifactCountModeChanged {
             surfaceView.resetVisibleArtifactCountTracking()
         }
+        context.coordinator.setPersistentFilesChip(sshFilesChipEnabled)
         let projectedArtifactCount = context.coordinator.artifactCountNeedsRefresh
             ? 0
             : visibleArtifactCount
@@ -309,6 +313,9 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         private var composerController: UIHostingController<TerminalComposerView>?
         var artifactChipController: UIHostingController<TerminalArtifactChipView>?
         var artifactChipVisibility = TerminalArtifactChipVisibilityState()
+        /// The SSH Files chip: mounted for the surface's lifetime, no count.
+        var persistentFilesChip = false
+        var persistentFilesChipMounted = false
         /// Pending debounced chip unmount; cancelled whenever a positive count
         /// arrives so transient zero counts cannot flicker the chip.
         var artifactChipHideTask: Task<Void, Never>?

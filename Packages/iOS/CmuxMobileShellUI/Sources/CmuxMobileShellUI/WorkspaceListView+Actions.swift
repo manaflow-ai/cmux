@@ -8,11 +8,13 @@ extension WorkspaceListView {
         WorkspaceListNewWorkspaceMenu(
             value: WorkspaceListNewWorkspaceMenuValue(
                 canCreate: canCreateWorkspaceForMacSelection,
-                canCreateGroup: createWorkspaceGroup != nil
+                canCreateGroup: createWorkspaceGroup != nil,
+                computerTargets: createWorkspaceOnComputer == nil ? [] : newWorkspaceComputerTargets
             ),
             actions: WorkspaceListNewWorkspaceMenuActions(
                 createWorkspace: createWorkspace,
-                createWorkspaceGroup: createWorkspaceGroup
+                createWorkspaceGroup: createWorkspaceGroup,
+                createWorkspaceOnComputer: createWorkspaceOnComputer
             )
         )
     }

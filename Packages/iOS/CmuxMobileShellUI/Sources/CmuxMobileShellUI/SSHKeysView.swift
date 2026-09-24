@@ -99,33 +99,19 @@ struct SSHKeysView: View {
     }
 }
 
-/// One key: label, algorithm, fingerprint, Secure Enclave / Face ID badges,
-/// and copy / delete actions. Value-only.
+/// One key: its name, a metadata line (algorithm and origin, plus Face ID
+/// when required), and its fingerprint, with copy / delete actions. Every
+/// key states its origin so rows read the same. Value-only.
 struct SSHKeyRow: View {
     let key: SSHKeyRecord
     let requestDelete: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            HStack(spacing: 6) {
-                Text(key.label)
-                    .font(.body.weight(.semibold))
-                if key.kind == .secureEnclave {
-                    SSHKeyBadge(
-                        text: L10n.string("mobile.ssh.keys.secureEnclave", defaultValue: "Secure Enclave"),
-                        systemImage: "lock.shield"
-                    )
-                }
-                if key.requiresBiometry {
-                    SSHKeyBadge(
-                        text: L10n.string("mobile.ssh.keys.faceID", defaultValue: "Face ID"),
-                        systemImage: "faceid"
-                    )
-                }
-            }
-            Text(key.algorithm)
-                .font(.footnote)
-                .foregroundStyle(.secondary)
+        VStack(alignment: .leading, spacing: 3) {
+            Text(key.label)
+                .font(.body.weight(.semibold))
+                .fixedSize(horizontal: false, vertical: true)
+            SSHKeyMetadataLine(key: key)
             Text(key.fingerprint)
                 .font(.caption.monospaced())
                 .foregroundStyle(.secondary)
@@ -171,18 +157,35 @@ struct SSHKeyRow: View {
     }
 }
 
-struct SSHKeyBadge: View {
-    let text: String
-    let systemImage: String
+/// "ecdsa-sha2-nistp256 · [lock.shield] Secure Enclave": algorithm, then
+/// where the key came from with a small inline symbol, all secondary. Built
+/// as one `Text` so it wraps as a sentence instead of a row of badges.
+struct SSHKeyMetadataLine: View {
+    let key: SSHKeyRecord
 
     var body: some View {
-        Label(text, systemImage: systemImage)
-            .labelStyle(.titleAndIcon)
-            .font(.caption2.weight(.semibold))
-            .padding(.horizontal, 6)
-            .padding(.vertical, 2)
-            .foregroundStyle(Color.accentColor)
-            .background(Color.accentColor.opacity(0.12), in: Capsule())
+        var line = Text(key.algorithm)
+        for part in parts {
+            line = line + Text(" · ") + Text(Image(systemName: part.symbol)) + Text(" ") + Text(part.text)
+        }
+        return line
+            .font(.footnote)
+            .foregroundStyle(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
+    }
+
+    private var parts: [(symbol: String, text: String)] {
+        var parts: [(symbol: String, text: String)] = []
+        switch key.kind {
+        case .secureEnclave:
+            parts.append(("lock.shield", L10n.string("mobile.ssh.keys.secureEnclave", defaultValue: "Secure Enclave")))
+        case .imported:
+            parts.append(("square.and.arrow.down", L10n.string("mobile.ssh.keys.imported", defaultValue: "Imported")))
+        }
+        if key.requiresBiometry {
+            parts.append(("faceid", L10n.string("mobile.ssh.keys.faceID", defaultValue: "Face ID")))
+        }
+        return parts
     }
 }
 
@@ -192,7 +195,9 @@ struct SSHGenerateKeyView: View {
     let computers: MobileSSHComputers
     let onCreated: (SSHKeyRecord) -> Void
     @Environment(\.dismiss) private var dismiss
-    @State private var label = UIDevice.current.name
+    /// Empty with a placeholder: pre-filling made typing append to the
+    /// device name. An empty name falls back to ``defaultLabel``.
+    @State private var label = ""
     @State private var requiresBiometry = false
     @State private var isWorking = false
     @State private var errorMessage: String?
@@ -200,12 +205,9 @@ struct SSHGenerateKeyView: View {
     var body: some View {
         Form {
             Section {
-                TextField(
-                    L10n.string("mobile.ssh.keys.label.placeholder", defaultValue: "Key name"),
-                    text: $label
-                )
-                .sshLiteralTextEntry()
-                .accessibilityIdentifier("ssh.keys.generate.label")
+                TextField(Self.defaultLabel, text: $label)
+                    .sshLiteralTextEntry()
+                    .accessibilityIdentifier("ssh.keys.generate.label")
             } header: {
                 Text(L10n.string("mobile.ssh.keys.label", defaultValue: "Name"))
             }
@@ -239,15 +241,19 @@ struct SSHGenerateKeyView: View {
                     Button(L10n.string("mobile.ssh.keys.generate.create", defaultValue: "Create")) {
                         create()
                     }
-                    .disabled(trimmedLabel.isEmpty)
                     .accessibilityIdentifier("ssh.keys.generate.create")
                 }
             }
         }
     }
 
-    private var trimmedLabel: String {
-        label.trimmingCharacters(in: .whitespacesAndNewlines)
+    static var defaultLabel: String {
+        L10n.string("mobile.ssh.keys.generate.defaultLabel", defaultValue: "iPhone Key")
+    }
+
+    private var resolvedLabel: String {
+        let trimmed = label.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? Self.defaultLabel : trimmed
     }
 
     private func create() {
@@ -256,7 +262,7 @@ struct SSHGenerateKeyView: View {
         Task {
             defer { isWorking = false }
             do {
-                let record = try await computers.generateKey(label: trimmedLabel, requiresBiometry: requiresBiometry)
+                let record = try await computers.generateKey(label: resolvedLabel, requiresBiometry: requiresBiometry)
                 onCreated(record)
                 dismiss()
             } catch {
@@ -414,6 +420,9 @@ enum SSHKeyErrorCopy {
     }
 
     static func message(for error: any Error) -> String {
+        if let faceID = MobileSSHBiometryErrorCopy.message(for: error) {
+            return faceID
+        }
         switch error {
         case SSHPrivateKeyParseError.notOpenSSHFormat:
             return notAKey

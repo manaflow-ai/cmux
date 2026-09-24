@@ -7,6 +7,8 @@ struct TerminalPickerMenuValue: Equatable {
     let selectedMacSurfaceID: MobileSurfacePreview.ID?
     let selectedName: String?
     let canCreateWorkspace: Bool
+    /// False for workspaces without terminal tabs (plain SSH shells).
+    let canCreateTerminal: Bool
     let hasActiveBrowser: Bool
     let browserStreamRows: [BrowserStreamPickerRow]
     let supportsBrowserStream: Bool
@@ -22,6 +24,7 @@ struct TerminalPickerMenuValue: Equatable {
         selectedID: MobileTerminalPreview.ID?,
         selectedMacSurfaceID: MobileSurfacePreview.ID? = nil,
         canCreateWorkspace: Bool,
+        canCreateTerminal: Bool = true,
         hasActiveBrowser: Bool,
         browserStreamRows: [BrowserStreamPickerRow] = [],
         supportsBrowserStream: Bool = false,
@@ -42,6 +45,7 @@ struct TerminalPickerMenuValue: Equatable {
             resolvedRows.first(where: { $0.id == .macSurface(id) })?.name
         } ?? selection?.name
         self.canCreateWorkspace = canCreateWorkspace
+        self.canCreateTerminal = canCreateTerminal
         self.hasActiveBrowser = hasActiveBrowser
         self.browserStreamRows = browserStreamRows
         self.supportsBrowserStream = supportsBrowserStream

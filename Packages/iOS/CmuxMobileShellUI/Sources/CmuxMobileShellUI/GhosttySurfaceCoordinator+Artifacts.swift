@@ -162,10 +162,28 @@ extension GhosttySurfaceRepresentable.Coordinator {
         /// so the transient zeros produced by streaming output and reconnect
         /// resets do not flicker the chip. Disabling the chip and dismantling
         /// the surface still unmount immediately.
+        /// Switches the chip to the SSH Files chip (always mounted, opens the
+        /// server's file browser) or back to the visible-artifact chip.
+        @MainActor
+        func setPersistentFilesChip(_ enabled: Bool) {
+            guard persistentFilesChip != enabled else { return }
+            persistentFilesChip = enabled
+            persistentFilesChipMounted = false
+            cancelArtifactChipHide()
+            artifactChipVisibility.reset()
+            surfaceView?.mountArtifactChipView(nil, animated: false)
+        }
+
         @MainActor
         func updateArtifactChip(count: Int) {
             visibleArtifactCount = count
             guard let surfaceView else { return }
+            if persistentFilesChip {
+                guard !persistentFilesChipMounted else { return }
+                persistentFilesChipMounted = true
+                mountArtifactChip(count: nil, on: surfaceView)
+                return
+            }
             switch artifactChipVisibility.update(
                 count: count,
                 enabled: artifactChipGate.isEnabled
@@ -184,7 +202,7 @@ extension GhosttySurfaceRepresentable.Coordinator {
         }
 
         @MainActor
-        private func mountArtifactChip(count: Int, on surfaceView: GhosttySurfaceView) {
+        private func mountArtifactChip(count: Int?, on surfaceView: GhosttySurfaceView) {
             let chip = TerminalArtifactChipView(count: count) { [weak self] in
                 self?.requestArtifactFilesFromChip()
             }
@@ -236,7 +254,7 @@ extension GhosttySurfaceRepresentable.Coordinator {
 
         @MainActor
         private func requestArtifactFilesFromChip() {
-            guard artifactChipGate.isEnabled else { return }
+            guard artifactChipGate.isEnabled || persistentFilesChip else { return }
             guard let surfaceView, let chipView = artifactChipController?.view else { return }
             // Normalize against the view backing the SwiftUI representable
             // (the adopting host). The surface itself slides under the
@@ -256,6 +274,7 @@ extension GhosttySurfaceRepresentable.Coordinator {
         func tearDownArtifactChip() {
             cancelArtifactChipHide()
             artifactChipVisibility.reset()
+            persistentFilesChipMounted = false
             surfaceView?.mountArtifactChipView(nil, animated: false)
             artifactChipController = nil
         }

@@ -1,3 +1,5 @@
+import CMUXMobileCore
+import CmuxMobilePairedMac
 import CmuxMobileShell
 import CmuxMobileShellModel
 import CmuxMobileSupport
@@ -529,6 +531,84 @@ extension WorkspaceShellView {
             }
         }
     }
+
+    #if os(iOS)
+    /// Computers `+` offers while "All Computers" is shown: connected Macs
+    /// and every saved SSH computer (creating on one connects it). Empty
+    /// when the list is scoped to one computer.
+    var newWorkspaceComputerTargets: [WorkspaceCreateComputerTarget] {
+        switch macSelectionScope.visibleSelection {
+        case .machine:
+            return []
+        case .all, .automatic:
+            break
+        }
+        let buildScope = MobileIOSBuildScope.current()
+        var targets: [WorkspaceCreateComputerTarget] = []
+        for mac in store.displayPairedMacs where macAcceptsNewWorkspace(mac) {
+            let name = buildScope.map { $0.computerDisplayName(mac.resolvedName) } ?? mac.resolvedName
+            targets.append(WorkspaceCreateComputerTarget(
+                id: mac.id,
+                kind: .mac(macDeviceID: mac.macDeviceID, instanceTag: mac.instanceTag),
+                name: name,
+                statusText: nil,
+                statusColor: MobileSSHHostStatus.connected.sshStatusColor
+            ))
+        }
+        for host in store.sshComputers.hosts {
+            let status = store.sshComputers.statusByHost[host.id] ?? .idle
+            targets.append(WorkspaceCreateComputerTarget(
+                id: store.sshComputerDeviceID(hostID: host.id),
+                kind: .ssh(host.id),
+                // No dev build tag suffix: an SSH host is not a cmux build.
+                name: host.name,
+                statusText: status == .connected ? nil : status.sshStatusText,
+                statusColor: status.sshStatusColor
+            ))
+        }
+        return targets
+    }
+
+    /// A paired Mac is offered when it is the live foreground connection or
+    /// its own connection reports healthy.
+    private func macAcceptsNewWorkspace(_ mac: MobilePairedMac) -> Bool {
+        isForegroundMac(macDeviceID: mac.macDeviceID, instanceTag: mac.instanceTag)
+            || store.macConnectionStatuses[mac.id] == .connected
+    }
+
+    private func isForegroundMac(macDeviceID: String, instanceTag: String?) -> Bool {
+        store.connectionState == .connected
+            && store.connectedMacDeviceID == macDeviceID
+            && Self.sameInstanceTag(store.connectedMacInstanceTag, instanceTag)
+    }
+
+    private static func sameInstanceTag(_ lhs: String?, _ rhs: String?) -> Bool {
+        func normalized(_ tag: String?) -> String? {
+            guard let trimmed = tag?.trimmingCharacters(in: .whitespacesAndNewlines), !trimmed.isEmpty else { return nil }
+            return trimmed
+        }
+        return normalized(lhs) == normalized(rhs)
+    }
+
+    /// Creates a workspace on the computer chosen from `+`'s menu. A Mac that
+    /// is not the foreground connection becomes it first (the same switch the
+    /// computers picker performs), then `create` runs the usual create path.
+    func createWorkspace(on target: WorkspaceCreateComputerTarget, create: @escaping () -> Void) {
+        switch target.kind {
+        case .ssh(let hostID):
+            createSSHWorkspace(hostID: hostID)
+        case .mac(let macDeviceID, let instanceTag):
+            if isForegroundMac(macDeviceID: macDeviceID, instanceTag: instanceTag) {
+                create()
+                return
+            }
+            Task { @MainActor in
+                guard await switchMacFromWorkspacePicker(macDeviceID: macDeviceID, instanceTag: instanceTag) else { return }
+                create()
+            }
+        }
+    }
+    #endif
 
     func settlePendingCompactCreateNavigation(
         result: Result<Void, MobileWorkspaceMutationFailure>,

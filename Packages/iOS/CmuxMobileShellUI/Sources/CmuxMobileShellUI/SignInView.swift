@@ -157,17 +157,23 @@ struct SignInView: View {
 
                 #if os(iOS)
                 if let sshOnlyEntry {
+                    // Deliberately quieter than every sign-in option (same
+                    // caption treatment as the "or continue with email"
+                    // divider, no icon): cmux prefers people sign in, and SSH
+                    // works without an account (HIG Managing accounts).
                     Button {
                         sshOnlyEntry()
                     } label: {
-                        Label(
-                            L10n.string("mobile.ssh.signIn.connectWithSSH", defaultValue: "Connect to a Computer with SSH"),
-                            systemImage: "terminal"
-                        )
-                        .font(.subheadline.weight(.medium))
-                        .frame(maxWidth: .infinity)
+                        Text(L10n.string("mobile.ssh.signIn.useSSHOnly", defaultValue: "Use with SSH only"))
+                            .font(.caption2)
+                            .foregroundStyle(Color.primary.opacity(0.45))
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.6)
+                            .allowsTightening(true)
+                            .frame(maxWidth: .infinity, minHeight: 44)
+                            .contentShape(.rect)
                     }
-                    .buttonStyle(.borderless)
+                    .buttonStyle(.plain)
                     .disabled(isAuthInProgress)
                     .accessibilityHint(L10n.string(
                         "mobile.ssh.signIn.connectWithSSH.hint",

@@ -29,7 +29,7 @@ extension MobileShellComposite: MobileSSHComputersSink {
             TerminalOutputDelivery(
                 bytes: bytes,
                 replaceable: false,
-                viewportPolicy: .natural,
+                viewportPolicy: sshViewportPolicy(surfaceID: surfaceID),
                 requiresVerifiedReplay: false
             ),
             surfaceID: surfaceID,
@@ -142,11 +142,14 @@ extension MobileShellComposite {
 
 @MainActor
 extension MobileShellComposite {
-    /// For SSH surfaces, whether a server-side emulator (cmux-tui) answers
-    /// terminal queries. `nil` for surfaces a Mac or the demo serves.
+    /// For SSH surfaces, whether a server-side emulator answers terminal
+    /// queries: cmux-tui's, or tmux's (control mode streams pane output, and
+    /// tmux answers its panes' queries itself). `nil` for surfaces a Mac or
+    /// the demo serves.
     public func sshServerAnswersTerminalQueries(surfaceID: String) -> Bool? {
         guard let hostID = MobileSSHIdentifiers.hostID(of: surfaceID) else { return nil }
-        return sshComputers.host(id: hostID)?.persistence == .cmuxTUI
+        let persistence = sshComputers.host(id: hostID)?.persistence
+        return persistence == .cmuxTUI || persistence == .tmux
     }
 
     /// Whether the phone's own emulator is the terminal for this surface

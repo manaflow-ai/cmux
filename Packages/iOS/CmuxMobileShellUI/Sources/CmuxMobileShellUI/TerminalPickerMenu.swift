@@ -125,10 +125,12 @@ struct TerminalPickerMenu: View, Equatable {
             .disabled(!value.canCreateWorkspace)
             .accessibilityIdentifier("MobileNewWorkspaceMenuItem")
 
-            Button(action: actions.createTerminal) {
-                Label(L10n.string("mobile.terminal.new", defaultValue: "New Terminal"), systemImage: "plus")
+            if value.canCreateTerminal {
+                Button(action: actions.createTerminal) {
+                    Label(L10n.string("mobile.terminal.new", defaultValue: "New Terminal"), systemImage: "plus")
+                }
+                .accessibilityIdentifier("MobileNewTerminalMenuItem")
             }
-            .accessibilityIdentifier("MobileNewTerminalMenuItem")
 
             Button(action: actions.openBrowser) {
                 Label(

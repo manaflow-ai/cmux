@@ -192,6 +192,9 @@ extension MobileShellComposite {
                 // is the grid the server's PTY gets.
                 sshComputers.viewportChanged(surfaceID: surfaceID, columns: columns, rows: rows)
             }
+            // A tmux pane keeps its layout size: grant that grid so a pinned
+            // (letterboxed) surface is not resized to the phone's.
+            let granted = sshComputers.remoteGrid(surfaceID: surfaceID) ?? (columns: columns, rows: rows)
             reportedTerminalViewportSizesBySurfaceID[surfaceID] = reportedGrid
             effectiveViewportSizesBySurfaceID[surfaceID] = reportedGrid
             recordAppEvent(
@@ -201,8 +204,8 @@ extension MobileShellComposite {
             )
             finishPreparation()
             return (
-                columns: columns,
-                rows: rows,
+                columns: granted.columns,
+                rows: granted.rows,
                 renderEpoch: nil,
                 renderRevisionFloor: nil
             )

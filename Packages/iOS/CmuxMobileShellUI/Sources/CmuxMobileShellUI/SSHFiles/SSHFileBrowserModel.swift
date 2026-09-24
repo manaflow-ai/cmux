@@ -39,8 +39,13 @@ final class SSHFileBrowserModel {
     @ObservationIgnored private var opening: Task<SFTPClient, any Error>?
     @ObservationIgnored let downloadsDirectory: URL
 
+    /// The browser's root folder: the remote home, or `/` when the start
+    /// folder lies outside it.
     private(set) var homePath: String?
     private(set) var homeError: String?
+    /// Folders between the root and the start folder, outermost first; the
+    /// sheet pushes them so the start folder shows with Back walking up.
+    private(set) var startTrail: [String] = []
     private(set) var listings: [String: Listing] = [:]
     private(set) var listingErrors: [String: String] = [:]
     private(set) var loadingPaths: Set<String> = []
@@ -62,15 +67,47 @@ final class SSHFileBrowserModel {
 
     // MARK: Session
 
-    /// Resolves the remote home folder, the browser's root.
-    func start() async {
+    /// Resolves the root and, when `startDirectory` names a folder that
+    /// exists (the terminal's current directory), the trail down to it.
+    func start(startDirectory: (@MainActor () async -> String?)? = nil) async {
         guard homePath == nil else { return }
         homeError = nil
         do {
-            homePath = try await withClient { try await $0.realpath(".") }
+            let home = try await withClient { try await $0.realpath(".") }
+            var start: String?
+            if let requested = await startDirectory?(), requested.hasPrefix("/") {
+                start = try? await withClient { try await $0.realpath(requested) }
+            }
+            if let start, await resolvesToDirectory(start) {
+                let (root, trail) = Self.trail(from: home, to: start)
+                startTrail = trail
+                homePath = root
+            } else {
+                homePath = home
+            }
         } catch {
             homeError = Self.describe(error)
         }
+    }
+
+    /// The root to show and the folders to push to reach `target`: under
+    /// `home` the root is `home`, anywhere else it is `/`.
+    nonisolated static func trail(from home: String, to target: String) -> (root: String, trail: [String]) {
+        let root: String
+        if target == home || target.hasPrefix(home == "/" ? "/" : home + "/") {
+            root = home
+        } else {
+            root = "/"
+        }
+        guard target != root else { return (root, []) }
+        let relative = target.dropFirst(root == "/" ? 1 : root.count + 1)
+        var trail: [String] = []
+        var current = root
+        for component in relative.split(separator: "/") {
+            current = join(current, String(component))
+            trail.append(current)
+        }
+        return (root, trail)
     }
 
     func close() {

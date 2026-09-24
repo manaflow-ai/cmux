@@ -300,11 +300,20 @@ private struct SSHHostKeyChangedContent: View {
             }
             // HIG Alerts: no default button here, so people read before
             // choosing; the trust action is destructive because trusting a
-            // changed identity is not what the user set out to do.
+            // changed identity is not what the user set out to do. Each
+            // centered action gets its own section: a shared section draws a
+            // separator inset to the text's leading edge, which reads as
+            // misaligned under centered titles.
             Section {
-                Button(SSHCopy.cancel) { answer(.cancel) }
-                    .frame(maxWidth: .infinity)
-                    .accessibilityIdentifier("ssh.prompt.changed.cancel")
+                Button {
+                    answer(.cancel)
+                } label: {
+                    Text(SSHCopy.cancel)
+                        .frame(maxWidth: .infinity)
+                }
+                .accessibilityIdentifier("ssh.prompt.changed.cancel")
+            }
+            Section {
                 Button(role: .destructive) {
                     answer(.trust)
                 } label: {

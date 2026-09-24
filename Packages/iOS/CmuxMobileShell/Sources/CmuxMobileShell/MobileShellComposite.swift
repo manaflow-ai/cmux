@@ -8672,6 +8672,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     public func createTerminal(in workspaceID: MobileWorkspacePreview.ID? = nil) {
         let targetWorkspaceID = workspaceID ?? selectedWorkspace?.id
         clearTerminalCreationError()
+        if let targetWorkspaceID, sshOwnsWorkspaceRow(targetWorkspaceID) {
+            createSSHTerminal(in: targetWorkspaceID)
+            return
+        }
         guard remoteClient == nil else {
             // Bail BEFORE pinning selection when a create is already in flight,
             // so a second "+" on another workspace can't strand the UI on that

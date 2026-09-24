@@ -174,9 +174,6 @@ enum SSHCopy {
     static var cancel: String {
         L10n.string("mobile.ssh.action.cancel", defaultValue: "Cancel")
     }
-    static var retry: String {
-        L10n.string("mobile.ssh.action.retry", defaultValue: "Retry")
-    }
     static var copy: String {
         L10n.string("mobile.ssh.action.copy", defaultValue: "Copy")
     }

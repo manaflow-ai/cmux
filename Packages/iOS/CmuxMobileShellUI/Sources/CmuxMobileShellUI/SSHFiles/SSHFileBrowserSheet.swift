@@ -10,19 +10,28 @@ enum SSHFilesRoute: Hashable {
     case file(path: String, name: String)
 }
 
-/// SFTP file browser for an SSH computer (PRD D7), presented from the SSH
-/// workspace's title menu. Starts in the remote home folder; folders push,
-/// files open a Quick Look preview with Share and Save to Files.
+/// SFTP file browser for an SSH computer (PRD D7), presented from an SSH
+/// terminal's Files chip. Opens at the terminal's current directory (Back
+/// walks up toward home), or the remote home folder when that is unknown;
+/// folders push, files open a Quick Look preview with Share and Save to Files.
 struct SSHFileBrowserSheet: View {
     @State private var model: SSHFileBrowserModel
     @State private var path: [SSHFilesRoute] = []
-    /// Types a shell-quoted remote path into the workspace's SSH terminal,
-    /// or `nil` when no SSH terminal is selected.
+    /// Resolves the folder to open at (the shell's current directory).
+    let startDirectory: (@MainActor () async -> String?)?
+    /// Types a shell-quoted remote path into the SSH terminal the browser
+    /// was opened from, or `nil` when there is none.
     let insertPath: ((String) -> Void)?
     @Environment(\.dismiss) private var dismiss
 
-    init(hostID: UUID, computers: MobileSSHComputers, insertPath: ((String) -> Void)?) {
+    init(
+        hostID: UUID,
+        computers: MobileSSHComputers,
+        startDirectory: (@MainActor () async -> String?)? = nil,
+        insertPath: ((String) -> Void)?
+    ) {
         _model = State(initialValue: SSHFileBrowserModel(hostID: hostID, computers: computers))
+        self.startDirectory = startDirectory
         self.insertPath = insertPath
     }
 
@@ -38,7 +47,12 @@ struct SSHFileBrowserSheet: View {
                     }
                 }
         }
-        .task { await model.start() }
+        .task {
+            await model.start(startDirectory: startDirectory)
+            if path.isEmpty {
+                path = model.startTrail.map { .directory($0) }
+            }
+        }
         .onDisappear { model.close() }
         .accessibilityIdentifier("ssh.files.sheet")
     }
@@ -57,7 +71,7 @@ struct SSHFileBrowserSheet: View {
                 Text(error)
             } actions: {
                 Button(L10n.string("mobile.ssh.files.retry", defaultValue: "Try Again")) {
-                    Task { await model.start() }
+                    Task { await model.start(startDirectory: startDirectory) }
                 }
             }
             .toolbar { doneToolbarItem }

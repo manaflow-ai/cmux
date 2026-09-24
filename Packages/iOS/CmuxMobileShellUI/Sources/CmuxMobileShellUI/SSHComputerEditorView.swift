@@ -388,10 +388,16 @@ struct SSHComputerEditorView: View {
         } header: {
             Text(L10n.string("mobile.ssh.install.header", defaultValue: "Set Up This Key on the Server"))
         } footer: {
+            // One footer: the password path only works where the server
+            // allows password login, so the manual path is the fallback.
             Text(L10n.string(
                 "mobile.ssh.install.footer",
                 defaultValue: "Add this public key to ~/.ssh/authorized_keys on the computer, or let cmux do it with your password once. The password is never saved."
+            ) + " " + L10n.string(
+                "mobile.ssh.install.passwordNote",
+                defaultValue: "Some servers turn off password login. If this fails, add the key above to ~/.ssh/authorized_keys."
             ))
+            .accessibilityIdentifier("ssh.install.footer")
         }
     }
 

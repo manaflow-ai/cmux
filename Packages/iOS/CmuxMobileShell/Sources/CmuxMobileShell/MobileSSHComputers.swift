@@ -1,5 +1,8 @@
 import CMUXMobileCore
 internal import CmuxMobileTerminalKit
+internal import CryptoKit
+internal import LocalAuthentication
+internal import CmuxMobileSupport
 public import CmuxMobileSSH
 public import CmuxMobileShellModel
 public import Foundation
@@ -14,6 +17,15 @@ public enum MobileSSHPrompt: Identifiable, Sendable {
     case hostKeyChanged(host: SSHHostRecord, pinned: SSHHostKey, presented: SSHHostKey)
     /// First connect: how should sessions persist? (PRD D9)
     case choosePersistence(host: SSHHostRecord, tmuxAvailable: Bool)
+
+    /// The host an identity question (new or changed server key) is about;
+    /// `nil` for other questions.
+    public var identityHostID: UUID? {
+        switch self {
+        case .trustNewHostKey(let host, _), .hostKeyChanged(let host, _, _): host.id
+        case .choosePersistence: nil
+        }
+    }
 
     public var id: String {
         switch self {
@@ -39,6 +51,8 @@ protocol MobileSSHComputersSink: AnyObject {
     func sshRemoveWorkspaceState(computerID: String)
     /// Replaces the surface contents (clear + bytes) or appends bytes.
     func sshDeliver(_ bytes: Data, surfaceID: String)
+    /// The surface's fixed remote grid changed (``MobileSSHComputers/remoteGrid(surfaceID:)``).
+    func sshApplyViewport(surfaceID: String)
     /// Replaces the streamable browser tabs of one SSH workspace row.
     func sshReplaceBrowserPanels(workspaceID: String, with descriptors: [MobileBrowserPanelDescriptor])
     func sshDeliverBrowserFrame(_ event: MobileBrowserFrameEvent)
@@ -77,6 +91,10 @@ public final class MobileSSHComputers {
     @ObservationIgnored private var attachments: [String: any MobileSSHAttachedTerminal] = [:]
     @ObservationIgnored private var attachTasks: [String: Task<Void, Never>] = [:]
     @ObservationIgnored private var gridBySurface: [String: (columns: Int, rows: Int)] = [:]
+    /// Input typed while a surface's attach is in flight.
+    @ObservationIgnored private var pendingInputBySurface: [String: Data] = [:]
+    /// Fixed grids of surfaces that do not own their PTY size (tmux panes).
+    @ObservationIgnored private var remoteGridBySurface: [String: (columns: Int, rows: Int)] = [:]
     /// Recent output per surface so a remounted view repaints without asking
     /// the server. Capped; cmux-tui re-sends a snapshot on reattach anyway.
     @ObservationIgnored private var replayBySurface: [String: Data] = [:]
@@ -160,8 +178,16 @@ public final class MobileSSHComputers {
     // MARK: Prompts
 
     /// Resolves the oldest matching prompt.
+    ///
+    /// Declining an identity question (a new or a changed server key) pauses
+    /// automatic connects for that host, persistently, so reopening the app
+    /// or its list does not ask again. Only an explicit connect
+    /// (``open(hostID:)``) resumes them.
     public func answer(_ prompt: MobileSSHPrompt, with answer: MobileSSHPromptAnswer) {
         prompts.removeAll { $0.id == prompt.id }
+        if answer != .trust, let hostID = prompt.identityHostID {
+            setAutoConnectPaused(true, hostID: hostID)
+        }
         promptContinuations.removeValue(forKey: prompt.id)?.resume(returning: answer)
     }
 
@@ -181,6 +207,12 @@ public final class MobileSSHComputers {
     /// reconnects for the host.
     public func open(hostID: UUID) async {
         autoConnectSuppressed.remove(hostID)
+        // The user asked for this connection, so identity questions may be
+        // asked again: for the host and for the jump host it tunnels through.
+        setAutoConnectPaused(false, hostID: hostID)
+        if let jumpID = host(id: hostID)?.jumpHostID {
+            setAutoConnectPaused(false, hostID: jumpID)
+        }
         // Join an automatic connect already in flight rather than racing it
         // through the same first-connect questions.
         if let pending = autoConnectTasks[hostID] { await pending.value }
@@ -189,10 +221,13 @@ public final class MobileSSHComputers {
 
     /// Whether ``autoConnect(hostID:)`` would start a connection: the host
     /// exists, nothing is live or in flight, it did not fail (failures keep
-    /// Retry), and the user did not disconnect it or decline a question.
+    /// Retry), and the user did not disconnect it or decline a question
+    /// (identity declines persist across launches, including a declined
+    /// jump host).
     public func canAutoConnect(hostID: UUID) -> Bool {
-        hosts.contains { $0.id == hostID }
-            && (statusByHost[hostID] ?? .idle) == .idle
+        guard let host = host(id: hostID), !host.isAutoConnectPaused else { return false }
+        if let jumpID = host.jumpHostID, self.host(id: jumpID)?.isAutoConnectPaused == true { return false }
+        return (statusByHost[hostID] ?? .idle) == .idle
             && connections[hostID] == nil
             && connectTasks[hostID] == nil
             && autoConnectTasks[hostID] == nil
@@ -306,8 +341,37 @@ public final class MobileSSHComputers {
         return forward
     }
 
+    /// Whether `connection` is still the host's current connection.
+    func isCurrentConnection(_ connection: SSHConnection, hostID: UUID) -> Bool {
+        connections[hostID] === connection
+    }
+
+    /// The host's live connection, connecting if needed (for extensions).
+    func liveConnection(hostID: UUID) async throws -> SSHConnection {
+        try await connection(for: hostID)
+    }
+
+    /// The SOCKS proxy per host for the native browser (see
+    /// `MobileSSHComputers+Browser.swift`).
+    @ObservationIgnored var browserProxies: [UUID: SSHSocksProxy] = [:]
+    @ObservationIgnored var pendingBrowserProxies: [UUID: Task<SSHSocksProxy, any Error>] = [:]
+    /// The proxy port a host used last, rebound after a reconnect so the
+    /// browser's data store keeps pointing at it.
+    @ObservationIgnored var lastBrowserProxyPorts: [UUID: Int] = [:]
+    /// Same-port loopback forwards on the phone, by port (one host each).
+    @ObservationIgnored var loopbackForwards: [Int: (hostID: UUID, forward: SSHLocalPortForward)] = [:]
+    /// Phone ports that could not be bound for a host's loopback mirror
+    /// (busy), not retried until its connection changes.
+    @ObservationIgnored var loopbackBusyPorts: [UUID: Set<Int>] = [:]
+    /// Closing listeners of a host's previous connection; a restart awaits
+    /// them so it can rebind the same ports.
+    @ObservationIgnored var browserNetworkTeardowns: [UUID: Task<Void, Never>] = [:]
+    /// Hosts whose native browser was used, so a reconnect restores the proxy.
+    @ObservationIgnored var browserHosts: Set<UUID> = []
+
     /// Forwards ride the host's connection, so they end with it (PRD D7).
     private func stopAllPortForwards(hostID: UUID) {
+        stopBrowserNetwork(hostID: hostID)
         guard let forwards = forwardsByHost.removeValue(forKey: hostID) else { return }
         Task { for forward in forwards { await forward.stop() } }
     }
@@ -316,6 +380,18 @@ public final class MobileSSHComputers {
         guard let forward = forwardsByHost[hostID]?.first(where: { $0.localPort == localPort }) else { return }
         forwardsByHost[hostID]?.removeAll { $0.localPort == localPort }
         await forward.stop()
+    }
+
+    /// The current directory of an SSH terminal's shell, for the Files chip:
+    /// asks the host's provider (cmux-tui `process-info`, tmux
+    /// `#{pane_current_path}`). `nil` when the provider cannot tell (plain
+    /// shells) or the host is not connected; the file browser then starts in
+    /// the remote home folder, where a plain shell starts.
+    public func currentDirectory(surfaceID: String) async -> String? {
+        guard let hostID = MobileSSHIdentifiers.hostID(of: surfaceID),
+              let terminalID = MobileSSHIdentifiers.localID(of: surfaceID),
+              let provider = providers[hostID] else { return nil }
+        return await provider.reportedCurrentDirectory(terminalID: terminalID)
     }
 
     /// Runs a one-off command on the host (used by upload flows to learn `$HOME`).
@@ -367,8 +443,20 @@ public final class MobileSSHComputers {
         return bytes
     }
 
+    /// The grid a surface must render at when the server fixes it (a tmux
+    /// pane in a split window); `nil` when the phone's grid is the PTY's.
+    func remoteGrid(surfaceID: String) -> (columns: Int, rows: Int)? {
+        remoteGridBySurface[surfaceID]
+    }
+
     func input(_ data: Data, surfaceID: String) {
         guard let attachment = attachments[surfaceID] else {
+            // Keystrokes typed while the attach is in flight are sent once
+            // it lands, in order.
+            if attachTasks[surfaceID] != nil {
+                pendingInputBySurface[surfaceID, default: Data()].append(data)
+                return
+            }
             // Typing into an ended session reattaches (plain opens a new shell).
             attach(surfaceID: surfaceID)
             return
@@ -396,10 +484,14 @@ public final class MobileSSHComputers {
                     self?.handle(event, surfaceID: surfaceID)
                 }
                 attachments[surfaceID] = attachment
+                if let pending = pendingInputBySurface.removeValue(forKey: surfaceID) {
+                    await attachment.write(pending)
+                }
                 if let latest = gridBySurface[surfaceID], latest != grid {
                     await attachment.resize(columns: latest.columns, rows: latest.rows)
                 }
             } catch {
+                pendingInputBySurface[surfaceID] = nil
                 fail(hostID: hostID, error)
                 let message = "\r\n\u{1B}[31m" + Self.describe(error) + "\u{1B}[0m\r\n"
                 sink?.sshDeliver(Data(message.utf8), surfaceID: surfaceID)
@@ -428,6 +520,9 @@ public final class MobileSSHComputers {
             }
             replayBySurface[surfaceID] = retained
             sink?.sshDeliver(bytes, surfaceID: surfaceID)
+        case .remoteGrid(let columns, let rows):
+            remoteGridBySurface[surfaceID] = (columns, rows)
+            sink?.sshApplyViewport(surfaceID: surfaceID)
         case .ended:
             attachments[surfaceID] = nil
             let notice = L10nSSH.sessionEnded
@@ -440,7 +535,7 @@ public final class MobileSSHComputers {
 
     // MARK: Internals
 
-    private func provider(for hostID: UUID) async throws -> any MobileSSHWorkspaceProvider {
+    func provider(for hostID: UUID) async throws -> any MobileSSHWorkspaceProvider {
         if let provider = providers[hostID] { return provider }
         let connection = try await connection(for: hostID)
         guard var host = hosts.first(where: { $0.id == hostID }) else { throw SSHConnectionError.closed }
@@ -464,6 +559,9 @@ public final class MobileSSHComputers {
             provider = try await MobileSSHCmuxTUIProvider.make(connection: connection, host: host)
         default:
             provider = MobileSSHPlainProvider(connection: connection)
+        }
+        (provider as? any MobileSSHTopologyReporting)?.onTopologyChange = { [weak self] in
+            Task { await self?.refreshWorkspaces(hostID: hostID) }
         }
         providers[hostID] = provider
         return provider
@@ -504,6 +602,7 @@ public final class MobileSSHComputers {
         connection.closeFuture.whenComplete { [weak self] _ in
             Task { @MainActor in self?.connectionClosed(hostID: hostID, connection: connection) }
         }
+        restoreBrowserProxy(hostID: hostID)
         return connection
     }
 
@@ -521,6 +620,29 @@ public final class MobileSSHComputers {
         stopAllPortForwards(hostID: hostID)
         statusByHost[hostID] = .idle
         if let host = hosts.first(where: { $0.id == hostID }) { publish(host: host) }
+    }
+
+    /// Whether automatic connects are paused for the host (persisted).
+    public func isAutoConnectPaused(hostID: UUID) -> Bool {
+        host(id: hostID)?.isAutoConnectPaused ?? false
+    }
+
+    /// Updates the persisted pause flag. The in-memory record changes at
+    /// once so ``canAutoConnect(hostID:)`` sees it before the write lands.
+    private func setAutoConnectPaused(_ paused: Bool, hostID: UUID) {
+        guard let index = hosts.firstIndex(where: { $0.id == hostID }),
+              hosts[index].isAutoConnectPaused != paused else { return }
+        hosts[index].autoConnectPaused = paused ? true : nil
+        let store = hostStore
+        Task {
+            guard var stored = await store.host(id: hostID) else { return }
+            stored.autoConnectPaused = paused ? true : nil
+            try? await store.upsert(stored)
+            // A reload that ran before this write landed read the old flag.
+            if let index = hosts.firstIndex(where: { $0.id == hostID }) {
+                hosts[index].autoConnectPaused = stored.autoConnectPaused
+            }
+        }
     }
 
     func verifier(for host: SSHHostRecord) -> MobileSSHHostKeyVerifier {
@@ -541,7 +663,8 @@ public final class MobileSSHComputers {
     }
 
     static func describe(_ error: any Error) -> String {
-        switch error {
+        if let faceID = MobileSSHBiometryErrorCopy.message(for: error) { return faceID }
+        return switch error {
         case SSHConnectionError.authenticationFailed: L10nSSH.authFailed
         case SSHConnectionError.hostKeyRejected: L10nSSH.hostKeyRejected
         case MobileSSHRuntimeError.noKey: L10nSSH.noKey
@@ -576,7 +699,8 @@ public final class MobileSSHComputers {
         let status: MobileMacConnectionStatus = switch statusByHost[host.id] ?? .idle {
         case .connected: .connected
         case .connecting: .reconnecting
-        case .idle, .failed: rows.isEmpty ? .unavailable : .connected
+        case .failed: .unavailable
+        case .idle: rows.isEmpty ? .unavailable : .connected
         }
         publishBrowserPanels(host: host)
         sink?.sshPublishWorkspaceState(
@@ -765,5 +889,57 @@ struct MobileSSHHostKeyVerifier: SSHHostKeyVerifier {
         }
         await store.pin(key, for: identity)
         return true
+    }
+}
+
+/// Plain-language copy for a Secure Enclave key that needs Face ID and
+/// could not get it (CryptoKit reports this as "Authentication failure.").
+public enum MobileSSHBiometryErrorCopy {
+    /// A friendly message when `error` is a Face ID / key-authentication
+    /// failure; `nil` for any other error.
+    public static func message(for error: any Error) -> String? {
+        if let laError = error as? LAError {
+            return message(for: laError.code)
+        }
+        let nsError = error as NSError
+        if nsError.domain == LAErrorDomain, let code = LAError.Code(rawValue: nsError.code) {
+            return message(for: code)
+        }
+        if case CryptoKitError.authenticationFailure = error {
+            return biometryIsSetUp ? couldNotUse : notSetUp
+        }
+        return nil
+    }
+
+    private static func message(for code: LAError.Code) -> String {
+        switch code {
+        case .biometryNotEnrolled, .biometryNotAvailable, .passcodeNotSet:
+            notSetUp
+        case .biometryLockout:
+            L10n.string(
+                "mobile.ssh.faceID.lockedOut",
+                defaultValue: "Face ID is locked after too many attempts. Unlock your iPhone with its passcode, then try again."
+            )
+        default:
+            couldNotUse
+        }
+    }
+
+    private static var biometryIsSetUp: Bool {
+        LAContext().canEvaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, error: nil)
+    }
+
+    static var notSetUp: String {
+        L10n.string(
+            "mobile.ssh.faceID.notSetUp",
+            defaultValue: "Face ID isn't set up on this device. Set it up in Settings, or turn off Require Face ID for this key."
+        )
+    }
+
+    static var couldNotUse: String {
+        L10n.string(
+            "mobile.ssh.faceID.failed",
+            defaultValue: "Couldn't use Face ID. Try again."
+        )
     }
 }

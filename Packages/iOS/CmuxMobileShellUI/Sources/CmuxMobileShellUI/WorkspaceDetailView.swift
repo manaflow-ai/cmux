@@ -134,8 +134,8 @@ struct WorkspaceDetailView: View {
     @State var terminalPickerRows: [TerminalPickerMenuRow] = []
     /// Local presenter identity remains separate from the artifact popover payload.
     @State var isTerminalArtifactFilesPresented = false
-    /// SSH workspace sheet (Files, Open Port) from the title menu.
-    @State var sshSheet: WorkspaceSSHSheet?
+    /// The SFTP browser an SSH terminal's Files chip opened.
+    @State var sshFilesContext: SSHFilesContext?
     @State var terminalArtifactFilesContext: TerminalArtifactContext?
     @State var selectedTerminalArtifact: TerminalArtifactSelection?
     @State var terminalArtifactThumbnailCache = ChatArtifactThumbnailCache()
@@ -335,7 +335,7 @@ struct WorkspaceDetailView: View {
                         ?? .failure()
                 }
             }
-            .sheet(item: $sshSheet) { sshSheetContent($0) }
+            .sheet(item: $sshFilesContext) { sshFilesSheet($0) }
             .mobileConnectionRecoveryOverlay(store: store, signOut: signOut)
         #else
         content
@@ -558,7 +558,6 @@ struct WorkspaceDetailView: View {
             value: value,
             usesNaturalWidth: usesNaturalWidth,
             menuContent: {
-                sshTitleMenuSection
                 WorkspaceTitleMenuContent(
                     workspaceName: value.workspaceName,
                     hasUnread: value.hasUnread,
@@ -915,6 +914,7 @@ struct WorkspaceDetailView: View {
                 // carries the picker checkmark like any picked surface.
                 selectedMacSurfaceID: workspace.selectedMacSurface(id: store.selectedMacSurfaceID)?.id,
                 canCreateWorkspace: canCreateWorkspace,
+                canCreateTerminal: store.sshSupportsTerminalTabs(workspaceID: workspace.id),
                 hasActiveBrowser: activeBrowser != nil,
                 browserStreamRows: browserStreamStore.panels(in: workspace.rpcWorkspaceID.rawValue).map(BrowserStreamPickerRow.init),
                 supportsBrowserStream: store.supportsBrowserStream(inWorkspace: workspace.id),
@@ -1188,7 +1188,9 @@ struct WorkspaceDetailView: View {
         // shows the same surface as the Mac Browsers rows. The phone-local
         // WKWebView pane remains only as a fallback for Macs that cannot
         // create panels (older builds, disconnected, or creation rejected).
-        guard store.supportsBrowserStreamCreate else {
+        // SSH workspaces always use the native pane: it reaches the server's
+        // `localhost` ports through SSH forwards.
+        guard sshHostID == nil, store.supportsBrowserStreamCreate else {
             openLocalBrowserFallback()
             return
         }
@@ -1210,7 +1212,7 @@ struct WorkspaceDetailView: View {
     /// Opens (or reveals) the phone-local browser pane for this workspace. The
     /// detail view flips to the browser because `activeBrowser` becomes
     /// non-nil; the picker shows a check next to "New Browser" while it is up.
-    private func openLocalBrowserFallback() {
+    func openLocalBrowserFallback() {
         let workspaceID = workspace.id.rawValue
         store.recordAppEvent(.browserCreateStarted, correlationID: workspaceID)
         _ = browserStore.openBrowser(for: workspaceID)
@@ -1221,10 +1223,12 @@ struct WorkspaceDetailView: View {
         store.selectedMacSurfaceID = nil
     }
 
-    private func selectBrowserStreamFromToolbar(_ panelID: String, dismissKeyboard: Bool = true) {
+    func selectBrowserStreamFromToolbar(_ panelID: String, dismissKeyboard: Bool = true) {
         if dismissKeyboard {
             dismissTerminalKeyboardForChrome()
         }
+        // A streamed tab last switched to "On iPhone" reopens there.
+        if openStreamPanelOnDeviceIfPreferred(panelID) { return }
         browserCreateRequest = nil
         browserStore.closeBrowser(for: workspace.id.rawValue)
         stopActiveSimulatorStream()
@@ -1280,7 +1284,7 @@ struct WorkspaceDetailView: View {
         _ = browserStore.openBrowser(for: workspace.id.rawValue)
     }
 
-    private func stopActiveBrowserStream() {
+    func stopActiveBrowserStream() {
         guard let stream = activeBrowserStream else { return }
         browserStreamStore.deactivate(in: workspace.rpcWorkspaceID.rawValue)
         Task { await store.stopMobileBrowserStream(panelID: stream.id) }

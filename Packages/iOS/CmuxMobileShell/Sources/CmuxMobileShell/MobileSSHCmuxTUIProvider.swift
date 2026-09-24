@@ -10,7 +10,7 @@ import Foundation
 /// Terminal ids are cmux-tui resource ids (`term_...`), which survive owner
 /// restarts; numeric surface ids do not, so attach re-lists to resolve them.
 @MainActor
-final class MobileSSHCmuxTUIProvider: MobileSSHWorkspaceProvider, MobileSSHBrowserProviding {
+final class MobileSSHCmuxTUIProvider: MobileSSHWorkspaceProvider, MobileSSHBrowserProviding, MobileSSHCurrentDirectoryProviding {
     /// Session name owned by the phone, so a desktop `cmux` session on the
     /// same machine is never taken over.
     static let sessionName = "cmux-ios"
@@ -121,7 +121,7 @@ final class MobileSSHCmuxTUIProvider: MobileSSHWorkspaceProvider, MobileSSHBrows
             }
             let attachment = try await control.attach(surface: terminal.surface, cols: columns, rows: rows)
             await applyIdlePolicy(surface: terminal.surface, on: control)
-            return MobileSSHCmuxTUITerminal(attachment: attachment, events: events)
+            return MobileSSHCmuxTUITerminal(attachment: attachment, columns: columns, rows: rows, events: events)
         }
     }
 
@@ -130,6 +130,38 @@ final class MobileSSHCmuxTUIProvider: MobileSSHWorkspaceProvider, MobileSSHBrows
     /// blocks the session: the terminal then simply keeps running.
     private func applyIdlePolicy(surface: Int, on control: CmuxTUIControl) async {
         _ = try? await control.setIdlePolicy(surface: surface, seconds: idleCloseSeconds)
+    }
+
+    /// The terminal's live working directory from cmux-tui `process-info`
+    /// (follows `cd` in the foreground shell), for the Files chip.
+    func currentDirectory(terminalID: String) async -> String? {
+        try? await withControl { control in
+            let terminals = try await control.listWorkspaces().flatMap(\.terminals)
+            guard let terminal = terminals.first(where: { ($0.resourceID ?? "s\($0.surface)") == terminalID }) else {
+                return nil
+            }
+            return try await control.workingDirectory(surface: terminal.surface)
+        }
+    }
+}
+
+extension MobileSSHCmuxTUIProvider: MobileSSHTerminalCreating {
+    /// "New Terminal": a terminal in the cmux-tui workspace with stable
+    /// `workspaceID` (its key), appearing as a new tab.
+    func createTerminal(inWorkspace workspaceID: String) async throws -> MobileSSHTerminal {
+        let before = Set(try await listWorkspaces().first { $0.id == workspaceID }?.terminals.map(\.id) ?? [])
+        let created = try await withControl { control in
+            let created = try await control.createTerminal(inWorkspace: workspaceID, cols: 80, rows: 24)
+            if let surface = created.surface {
+                await applyIdlePolicy(surface: surface, on: control)
+            }
+            return created
+        }
+        // The listing keys terminals by resource id, which `create-terminal`
+        // does not return; the new tab is the one that was not there before.
+        let terminals = try await listWorkspaces().first { $0.id == workspaceID }?.terminals ?? []
+        return terminals.first { !before.contains($0.id) }
+            ?? MobileSSHTerminal(id: created.terminalID, name: created.terminalID)
     }
 }
 
@@ -295,18 +327,61 @@ final class MobileSSHCmuxTUIBrowser: MobileSSHAttachedBrowser {
 
 @MainActor
 final class MobileSSHCmuxTUITerminal: MobileSSHAttachedTerminal {
-    private let attachment: CmuxTUIAttachment
+    /// The live stream; replaced when a resync reattaches.
+    private var attachment: CmuxTUIAttachment
+    /// The phone's latest grid, reclaimed by a resync.
+    private var grid: (columns: Int, rows: Int)
+    private var detached = false
     private var pump: Task<Void, Never>?
 
-    init(attachment: CmuxTUIAttachment, events: @escaping @MainActor (MobileSSHAttachEvent) -> Void) {
+    private enum Resync {
+        case replaced(CmuxTUIAttachment)
+        /// The old stream is intact (or the terminal was detached).
+        case unchanged
+        /// The old stream was detached but no new stream attached.
+        case lost
+    }
+
+    init(
+        attachment: CmuxTUIAttachment,
+        columns: Int,
+        rows: Int,
+        events: @escaping @MainActor (MobileSSHAttachEvent) -> Void
+    ) {
         self.attachment = attachment
-        pump = Task { @MainActor in
-            for await event in attachment.events {
+        self.grid = (columns, rows)
+        pump = Task { @MainActor [weak self] in
+            var current = attachment
+            var stream = attachment.events.makeAsyncIterator()
+            let canResync = await attachment.control.canReattach(attachment)
+            var screen = CmuxTUIAlternateScreenTracker()
+            // A `vt-state`/`resized` replay of an alternate-screen program
+            // (vim, less, a coding agent) carries only that screen, so the
+            // local primary screen and history stay blank after it exits.
+            var snapshotWasAlternate = false
+            while let event = await stream.next() {
                 switch event {
                 case .vtState(let replay, _, _), .resized(_, _, let replay):
+                    screen = CmuxTUIAlternateScreenTracker()
+                    screen.feed(replay)
+                    snapshotWasAlternate = screen.isAlternate
                     events(.snapshot(replay))
                 case .output(let bytes):
                     events(.output(bytes))
+                    guard screen.feed(bytes), snapshotWasAlternate, canResync else { continue }
+                    // The program left the alternate screen: fetch the
+                    // server's primary screen, which has the full history.
+                    switch await self?.resync(from: current) ?? .unchanged {
+                    case .replaced(let fresh):
+                        current = fresh
+                        stream = fresh.events.makeAsyncIterator()
+                        snapshotWasAlternate = false
+                    case .unchanged:
+                        snapshotWasAlternate = false
+                    case .lost:
+                        events(.ended)
+                        return
+                    }
                 case .exited, .disconnected:
                     events(.ended)
                 case .colors:
@@ -316,15 +391,38 @@ final class MobileSSHCmuxTUITerminal: MobileSSHAttachedTerminal {
         }
     }
 
+    /// Reattaches on the same connection. The old stream's remaining frames
+    /// are superseded: the new stream starts with a fresh `vt-state` that
+    /// replaces the local screen through the normal snapshot path.
+    private func resync(from current: CmuxTUIAttachment) async -> Resync {
+        guard !detached else { return .unchanged }
+        do {
+            guard let fresh = try await current.control.reattach(current, cols: grid.columns, rows: grid.rows) else {
+                return .unchanged
+            }
+            if detached {
+                try? await fresh.detach()
+                return .unchanged
+            }
+            attachment = fresh
+            return .replaced(fresh)
+        } catch {
+            // A failed attach after a successful detach leaves no stream.
+            return await current.control.isAttached(surface: current.surface) ? .unchanged : .lost
+        }
+    }
+
     func write(_ data: Data) async {
         try? await attachment.write(data)
     }
 
     func resize(columns: Int, rows: Int) async {
+        grid = (columns, rows)
         _ = try? await attachment.resize(cols: columns, rows: rows)
     }
 
     func detach() async {
+        detached = true
         try? await attachment.detach()
         pump?.cancel()
     }

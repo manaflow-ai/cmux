@@ -53,6 +53,10 @@ struct WorkspaceListView: View {
     let createWorkspace: () -> Void
     var createWorkspaceInGroup: ((MobileWorkspaceGroupPreview.ID) -> Void)? = nil
     var createWorkspaceGroup: (() -> Void)? = nil
+    /// Computers `+` offers while "All Computers" is shown; with more than
+    /// one it asks which (see ``WorkspaceListNewWorkspaceMenuValue``).
+    var newWorkspaceComputerTargets: [WorkspaceCreateComputerTarget] = []
+    var createWorkspaceOnComputer: ((WorkspaceCreateComputerTarget) -> Void)? = nil
     var canCreateWorkspace = true
     /// Which Mac's workspaces the list is focused on. Owned by the shell so
     /// every create-workspace entrypoint shares the same selected-Mac gate.
