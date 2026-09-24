@@ -63,7 +63,10 @@ struct NewWorkspaceMenuModelTests {
             cmuxConfigStore: store
         ))
         let titles = menu.items.filter { !$0.isSeparatorItem }.map(\.title)
-        #expect(titles == [String(localized: "menu.newWorkspace.saveWorkspaceAsLayout", defaultValue: "Save Workspace as Layout…")])
+        #expect(titles == [
+            String(localized: "menu.newWorkspace.saveWorkspaceAsLayout", defaultValue: "Save Workspace as Layout…"),
+            AppDelegate.actionsAndLaunchersMenuTitle,
+        ])
     }
 
     @MainActor

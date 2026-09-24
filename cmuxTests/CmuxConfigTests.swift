@@ -377,6 +377,7 @@ final class CmuxConfigDecodingTests: XCTestCase {
         XCTAssertEqual(store.surfaceTabBarButtonSourcePath, localConfigURL.path)
         XCTAssertEqual(store.surfaceTabBarButtons.first?.terminalCommand, "codex --yolo")
         XCTAssertEqual(store.surfaceTabBarCommandSourcePaths["start-codex"], globalConfigURL.path)
+        XCTAssertEqual(store.surfaceTabBarActionReferenceIDs["start-codex"], "start-codex")
     }
 
     func testDecodeActionIconObjectsSupportAllFormats() throws {
@@ -1299,13 +1300,17 @@ final class CmuxConfigDecodingTests: XCTestCase {
         let configURL = root.appendingPathComponent("cmux.json")
         let json = """
         {
+          "actions": {
+            "hidden-ref": { "type": "workspaceCommand", "commandName": "Missing Environment" }
+          },
           "ui": {
             "surfaceTabBar": {
               "buttons": [
                 { "action": "newTerminal" },
                 { "id": "dev", "type": "workspaceCommand", "commandName": "Dev Environment" },
                 { "id": "typo", "type": "workspaceCommand", "commandName": "Typo" },
-                { "id": "simple", "type": "workspaceCommand", "commandName": "Run Tests" }
+                { "id": "simple", "type": "workspaceCommand", "commandName": "Run Tests" },
+                { "id": "hidden-ref-button", "action": "hidden-ref" }
               ]
             }
           },
@@ -1332,6 +1337,7 @@ final class CmuxConfigDecodingTests: XCTestCase {
 
         XCTAssertEqual(store.surfaceTabBarButtons.map(\.id), ["newTerminal", "dev"])
         XCTAssertEqual(store.surfaceTabBarButtons.last?.workspaceCommandName, "Dev Environment")
+        XCTAssertNil(store.surfaceTabBarActionReferenceIDs["hidden-ref-button"])
     }
 
     func testDecodeEmptySurfaceTabBarButtons() throws {
