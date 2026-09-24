@@ -466,7 +466,7 @@ jobs:
         with:
           backend: ${{ inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND || 'r2' }}
           path: .ci-source-packages
-          key: spm-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
+          key: spm-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved', 'scripts/ci/swiftpm-cache-layout') }}
           restore-keys: spm-
 
       - name: Sanitize Swift package cache
@@ -646,7 +646,10 @@ jobs:
           python3 scripts/ci/app_host_test_products.py stamp "$CMUX_COMPILE_ADMISSION_DERIVED_DATA"
           python3 scripts/ci/reuse_app_host_products.py seal "$CMUX_COMPILE_ADMISSION_DERIVED_DATA"
           archive="$RUNNER_TEMP/app-host-products.tar.gz"
-          tar -chzf "$archive" -C "$CMUX_COMPILE_ADMISSION_DERIVED_DATA" Build/Products
+          # COPYFILE_DISABLE: see the matching note in test-e2e.yml. gzip -1
+          # takes about a third of the default level's time on this product
+          # for an archive about 11% larger.
+          COPYFILE_DISABLE=1 tar -chf - -C "$CMUX_COMPILE_ADMISSION_DERIVED_DATA" Build/Products | gzip -1 > "$archive"
           echo "sha256=$(shasum -a 256 "$archive" | awk '{print $1}')" >> "$GITHUB_OUTPUT"
 
       - name: Upload compiled app-host test product
@@ -3126,9 +3129,9 @@ jobs:
     # Keep the app build on macOS 26 so SDK-gated SwiftUI Liquid Glass code
     # compiles into the same artifact shape as nightly and stable releases.
     # Release builds need enough disk for a universal Release build plus the
-    # restored SwiftPM cache. Default to a clean paid macOS 26 runner instead
-    # of the generic persistent macOS 26 pool.
-    runs-on: ${{ vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_26_RELEASE || 'blacksmith-6vcpu-macos-26' }}
+    # restored SwiftPM cache, which the macOS 26 image already carries. The
+    # variable names that image, not this lane.
+    runs-on: ${{ vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
     timeout-minutes: 60
     permissions:
       actions: read
@@ -3138,7 +3141,7 @@ jobs:
       CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_26 }}
       CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
       CMUX_SKIP_ZIG_BUILD: "1"
-      CMUX_PRODUCT_RUNNER: ${{ vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_26_RELEASE || 'blacksmith-6vcpu-macos-26' }}
+      CMUX_PRODUCT_RUNNER: ${{ vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
       CMUX_RELEASE_SOURCE_REVISION: ${{ github.event.pull_request.head.sha || github.sha }}
     steps:
       - name: Clear stale git locks (self-hosted reused workspace)
@@ -3292,7 +3295,7 @@ jobs:
         with:
           backend: ${{ inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND || 'r2' }}
           path: .spm-cache
-          key: spm-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
+          key: spm-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved', 'scripts/ci/swiftpm-cache-layout') }}
           restore-keys: spm-
 
       - name: Sanitize Swift package cache
@@ -3314,6 +3317,7 @@ jobs:
           CMUX_SKIP_ZIG_BUILD=1 xcodebuild -project cmux.xcodeproj -scheme cmux -configuration Release -derivedDataPath build-universal \
             -destination 'generic/platform=macOS' \
             -clonedSourcePackagesDirPath .spm-cache \
+            -packageCachePath "$PWD/.spm-cache/.package-cache" \
             ARCHS="$RELEASE_ARCHS" \
             ONLY_ACTIVE_ARCH=NO \
             COMPILATION_CACHE_ENABLE_CACHING=YES \
@@ -3533,7 +3537,7 @@ jobs:
           inputs = json.loads(os.environ["MACOS_INPUTS"])
           needs = json.loads(os.environ["MACOS_NEEDS"])
           # The caller leaves compile_admitted unset when its build-input reuse
-          # steps are skipped (full suite) or fail; unset means "compile", the
+          # steps are skipped (full suite or unit-ci) or fail; unset means "compile", the
           # same reading the macos-compile-admission job condition uses.
           if inputs.get("compile_admitted") == "":
               inputs["compile_admitted"] = "false"
@@ -3551,9 +3555,14 @@ jobs:
           # The package lane is routed from changed paths, so it is required
           # whenever the router selected it even under the compile-only suite.
           swift_packages = inputs["swift_packages"] == "true"
+          # `unit-ci` asks for app-host unit tests without the full suite, and
+          # clears suite-coverage on the strength of them, so a skip here must
+          # fail rather than read as a job nobody routed. Empty or missing
+          # means a caller that predates the input.
+          unit_suite = inputs.get("unit_suite", "") == "true"
           required = {
               "macos-compile-admission": macos and inputs["compile_admitted"] != "true",
-              "app-host-unit-tests": macos and full_suite,
+              "app-host-unit-tests": macos and (full_suite or unit_suite),
               "swift-package-tests": (macos and full_suite) or swift_packages,
               "tests-build-and-lag": macos and full_suite,
               "release-admission": macos and full_suite and inputs["release_build"] == "true",

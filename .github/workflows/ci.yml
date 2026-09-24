@@ -174,6 +174,17 @@ jobs:
               fi
             fi
 
+            # Most project.pbxproj edits wire app or test files. The detector
+            # compares the CLI route's targets with the base revision; without
+            # it, any project edit keeps the CLI lane.
+            xcode_project_base_args=()
+            if grep -Fxq 'cmux.xcodeproj/project.pbxproj' /tmp/cmux-ci-changed-files.txt; then
+              xcode_project_base="$(mktemp "${RUNNER_TEMP:-/tmp}/cmux-xcode-project-base.XXXXXX")"
+              if git show "$BASE_SHA:cmux.xcodeproj/project.pbxproj" > "$xcode_project_base"; then
+                xcode_project_base_args=(--xcode-project-base "$xcode_project_base")
+              fi
+            fi
+
             # A provenance-only PR gets the cheap Linux guard and avoids
             # queuing the unrelated macOS/web/Go suites. Keep this exception
             # narrow: an unrelated workflow edit or source/configuration file
@@ -330,6 +341,11 @@ jobs:
                 emit_all_areas
                 exit 0
               fi
+              # A trusted router that predates the project comparison keeps
+              # the CLI lane for every project edit, which is safe.
+              if [ "${#xcode_project_base_args[@]}" -gt 0 ] && ! python3 "$trusted_root/scripts/ci/detect_ci_change_areas.py" --help | grep -q -- '--xcode-project-base'; then
+                xcode_project_base_args=()
+              fi
               trusted_areas=/tmp/cmux-ci-trusted-areas.txt
               : > "$trusted_areas"
               (
@@ -339,6 +355,7 @@ jobs:
                   --event-name "$EVENT_NAME" \
                   --files-from "$product_files" \
                   ${registry_base_args[@]+"${registry_base_args[@]}"} \
+                  ${xcode_project_base_args[@]+"${xcode_project_base_args[@]}"} \
                   --github-output "$trusted_areas"
               )
               if [ "$cli_call_site_changed" = true ]; then
@@ -366,6 +383,7 @@ jobs:
               --event-name "$EVENT_NAME" \
               --files-from /tmp/cmux-ci-changed-files.txt \
               ${registry_base_args[@]+"${registry_base_args[@]}"} \
+              ${xcode_project_base_args[@]+"${xcode_project_base_args[@]}"} \
               ${workflow_base_args[@]+"${workflow_base_args[@]}"}
             exit 0
           fi
@@ -393,7 +411,9 @@ jobs:
                   remote_daemon=true
                   remote_daemon_native=true
                   ;;
-                Resources/bin/cmux-claude-wrapper|tests/test_claude_wrapper_hooks.py|tests/node_runtime.py|scripts/ci/run_python_test_lane.py|scripts/ci/test_execution_registry.py|tests/test-execution.toml)
+                Resources/bin/cmux-claude-wrapper|tests/test_claude_wrapper_hooks.py|tests/node_runtime.py|scripts/ci/run_python_test_lane.py|scripts/ci/test_execution_registry.py)
+                  # Not tests/test-execution.toml: every new test registers
+                  # there, and the wrapper entry is pinned by a Linux guard.
                   claude_wrapper=true
                   ;;
                 cmux-browser/*|.github/workflows/cmux-browser.yml)
@@ -573,7 +593,9 @@ jobs:
       # compile. Each pull request run publishes its build-input fingerprint as
       # an artifact name, and a compile-only run whose fingerprint an earlier run
       # of the same in-org branch already compiled skips compile admission. Runs
-      # with the full suite always compile, because the shards need the product.
+      # with the full suite or unit-ci always compile, because the app-host
+      # shards need the product and only run behind a compile admission that
+      # succeeded in this run.
       # The artifact name carries the run attempt, so a pass only vouches for the
       # fingerprint published in its own attempt. These steps are an optimization:
       # any of them failing leaves compile_admitted unset, which compiles.
@@ -596,7 +618,7 @@ jobs:
       - name: Skip compile when build inputs are unchanged
         id: unchanged_inputs
         continue-on-error: true
-        if: ${{ steps.inputs.outputs.fingerprint != '' && steps.suite.outputs.full_suite == 'false' }}
+        if: ${{ steps.inputs.outputs.fingerprint != '' && steps.suite.outputs.full_suite == 'false' && steps.suite.outputs.unit_suite != 'true' }}
         env:
           # Both steps are pull-request-only, and the xcode= extra exists so the
           # fingerprint moves when the pinned toolchain does. Read the same lane
@@ -635,7 +657,7 @@ jobs:
       - name: Look for an earlier run that compiled these inputs
         id: admitted
         continue-on-error: true
-        if: ${{ steps.inputs.outputs.fingerprint != '' && steps.suite.outputs.full_suite == 'false' && steps.unchanged_inputs.outputs.compile_admitted != 'true' }}
+        if: ${{ steps.inputs.outputs.fingerprint != '' && steps.suite.outputs.full_suite == 'false' && steps.suite.outputs.unit_suite != 'true' && steps.unchanged_inputs.outputs.compile_admitted != 'true' }}
         env:
           GH_TOKEN: ${{ github.token }}
           BRANCH: ${{ github.head_ref }}
@@ -1149,11 +1171,11 @@ jobs:
     # that edits cmuxTests/ and skips the full suite runs none of the code it
     # changed. The policy that allows the skip is written for a merge queue
     # that no longer gates main, so refuse the run here instead of reporting
-    # green on a diff nothing observed. A cmuxTests/ diff is judged by
-    # `app-host unit tests` alone, so "unit-ci" clears it without waking the
-    # package, lag and Release lanes; "full-ci" runs everything, and
-    # "no-full-ci" records that skipping it is deliberate. cmuxUITests/ has no
-    # pull request job at all, so only the latter two clear that.
+    # green on a diff nothing observed. A cmuxTests/ diff selects
+    # `app-host unit tests` by itself (choose_ci_suite.py), so it never lands
+    # here. What does is cmuxUITests/, which no pull request job executes, and
+    # a diff that could not be read: "full-ci" runs everything, and
+    # "no-full-ci" records that skipping it is deliberate.
     needs:
       - changes
     if: ${{ !cancelled() && needs.changes.result == 'success' && needs.changes.outputs.coverage_gap == 'true' }}
@@ -1161,17 +1183,13 @@ jobs:
     steps:
       - name: Require the suite that judges this diff
         run: |
-          echo "This pull request changes cmuxTests/ or cmuxUITests/, and this run" >&2
-          echo "skipped the macOS suite, so none of the changed tests executed." >&2
+          echo "This pull request changes cmuxUITests/, or its diff could not be" >&2
+          echo "read, and this run skipped the macOS suite, so nothing observed it." >&2
+          echo "(A cmuxTests/ change runs 'app-host unit tests' automatically.)" >&2
           echo >&2
-          echo "For a cmuxTests/ change, add the 'unit-ci' label to run compile" >&2
-          echo "admission plus 'app-host unit tests' on a fresh run. That job" >&2
-          echo "reads the product admission already built, so it does not wake" >&2
-          echo "the package, lag, release-admission or Release-build lanes." >&2
-          echo >&2
-          echo "cmuxUITests/ has no pull request job that executes it, so those" >&2
-          echo "need the 'full-ci' label to run the suite on a fresh run, or" >&2
-          echo "'no-full-ci' to record that skipping it is deliberate." >&2
+          echo "No pull request job executes cmuxUITests/. Add the 'full-ci' label" >&2
+          echo "to run the suite on a fresh run, or 'no-full-ci' to record that" >&2
+          echo "skipping it is deliberate." >&2
           exit 1
 
   ci-status:

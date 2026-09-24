@@ -37,6 +37,7 @@ on:
           - auto
           - blacksmith-6vcpu-macos-15
           - blacksmith-6vcpu-macos-26
+          - blacksmith-12vcpu-macos-26
           - blacksmith-6vcpu-macos-latest
           - tart-canary
           - tart-dual
@@ -205,12 +206,12 @@ jobs:
     env:
       TEST_REF: ${{ needs.resolve-ref.outputs.sha }}
       CMUX_CI_MAX_MACOS_SDK_MAJOR: "26"
-      # Move toward the compile-admission contract so the published artifact
-      # name is comparable. It is not yet identical: contract() also hashes
-      # CMUX_CI_XCODE_APP and CMUX_CI_REQUIRED_MACOS_SDK_MAJOR, which ci.yml
-      # sets for the macOS 15 pool and this lane deliberately does not, since
-      # pinning that pool's Xcode here would be wrong. Cross-run adoption has
-      # to close that gap; the intra-run handoff uses the artifact id, not the
+      # Match the compile-admission contract so an E2E dispatch can adopt the
+      # product a pull request already compiled for the same revision.
+      # contract() hashes the Xcode and SDK that were selected, not the
+      # CMUX_CI_XCODE_APP selector, so this lane need not pin Xcode the way
+      # ci.yml does. It still has to land on the same runner label and the
+      # same Xcode build. The intra-run handoff uses the artifact id, not the
       # name, so nothing here depends on it.
       CMUX_SKIP_ZIG_BUILD: "1"
       CMUX_PRODUCT_RUNNER: ${{ (!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_TESTS || 'blacksmith-6vcpu-macos-26') || inputs.runner }}
@@ -286,15 +287,12 @@ jobs:
         run: |
           ./scripts/install-rust-ci.sh
 
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
-        with:
-          bun-version: "1.3.14"
-
-      - name: Install zig
-        run: |
-          ./scripts/install-zig-ci.sh
-
+      # No Bun or zig here. The build never runs either: CMUX_SKIP_ZIG_BUILD
+      # stubs the zig helper and no Xcode build phase calls Bun. But
+      # `contract()` fingerprints both, and compile admission installs
+      # neither, so installing them gave every product this job built a name
+      # no pull request product could match. The test job still installs Bun.
+      #
       # Every tool `contract()` fingerprints is installed by now. Computing the
       # key earlier recorded some of them as absent, which made the published
       # artifact's name disagree with the receipt sealed inside it, so nothing
@@ -303,8 +301,11 @@ jobs:
         id: product-key
         run: python3 scripts/ci/reuse_app_host_products.py key "$CMUX_DERIVED_DATA_PATH"
 
+      # e2e-derived-data-seed.yml dispatches exist to publish DerivedData,
+      # which only a compile produces, so they never adopt a product.
       - name: Reuse a compiled product instead of building one
         id: reuse
+        if: ${{ !startsWith(inputs.dispatch_id, 'e2e-derived-data-seed-') }}
         continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
@@ -348,7 +349,7 @@ jobs:
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: .ci-source-packages
-          key: spm-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
+          key: spm-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved', 'scripts/ci/swiftpm-cache-layout') }}
           restore-keys: spm-
 
       - name: Sanitize Swift package cache
@@ -382,6 +383,41 @@ jobs:
             sleep $((attempt * 5))
           done
 
+      # A fresh checkout makes every file newer than any earlier build, so
+      # without this even a one-line test change recompiles the app host.
+      - name: Adopt main's DerivedData
+        id: warm
+        if: ${{ steps.reuse.outputs.hit != 'true' }}
+        continue-on-error: true
+        timeout-minutes: 15
+        env:
+          GH_TOKEN: ${{ github.token }}
+          WARM_KEY: ${{ steps.compilation-cache-key.outputs.fingerprint }}
+        run: |
+          set -euo pipefail
+          # A fresh checkout gives every file a new inode; without this the
+          # build system reruns every task whose inputs merely moved.
+          defaults write com.apple.dt.XCBuild IgnoreFileSystemDeviceInodeChanges -bool YES
+          python3 scripts/ci/e2e_warm_derived_data.py restore "$GITHUB_WORKSPACE" "$CMUX_DERIVED_DATA_PATH" "$WARM_KEY"
+
+      # The restore script wipes a half-extracted DerivedData when it raises,
+      # but a step timeout kills it before that cleanup runs. What remains is
+      # main's intermediates with some of this revision's files stamped old,
+      # and the build trusts them: runs 35937847074 and 35938349258 failed to
+      # compile or link against symbols their revisions define. Start cold.
+      - name: Discard a DerivedData adoption that did not finish
+        if: ${{ steps.reuse.outputs.hit != 'true' && steps.warm.outcome != 'success' }}
+        run: |
+          set -euo pipefail
+          rm -rf -- "$CMUX_DERIVED_DATA_PATH"
+          mkdir -p "$CMUX_DERIVED_DATA_PATH"
+
+      - name: Record build input times
+        id: record-inputs
+        if: ${{ steps.reuse.outputs.hit != 'true' }}
+        continue-on-error: true
+        run: python3 scripts/ci/e2e_warm_derived_data.py record "$GITHUB_WORKSPACE" "$CMUX_DERIVED_DATA_PATH/cmux-e2e-input-mtimes.json"
+
       - name: Build the app-host and UI test product
         id: compile
         if: ${{ steps.reuse.outputs.hit != 'true' }}
@@ -409,7 +445,11 @@ jobs:
           # Still a gzip stream, so every consumer reads it unchanged. The
           # default level spends about a minute squeezing Mach-O binaries that
           # travel between two jobs on the same fleet and are deleted after.
-          tar -chf - -C "$CMUX_DERIVED_DATA_PATH" Build/Products | gzip -1 > "$archive"
+          # COPYFILE_DISABLE stops macOS tar adding AppleDouble entries
+          # (Build/._Products) for Xcode's xattrs. macOS tar folds them back
+          # in on extract, so the test job never noticed, but cross-run reuse
+          # extracts with Python and rejects them as unscoped paths.
+          COPYFILE_DISABLE=1 tar -chf - -C "$CMUX_DERIVED_DATA_PATH" Build/Products | gzip -1 > "$archive"
           echo "sha256=$(shasum -a 256 "$archive" | awk '{print $1}')" >> "$GITHUB_OUTPUT"
           echo "bytes=$(wc -c < "$archive" | tr -d ' ')" >> "$GITHUB_OUTPUT"
 
@@ -433,6 +473,10 @@ jobs:
           REUSE_PRODUCER: ${{ steps.reuse.outputs.producer_run_id }}
           REUSE_SAVED: ${{ steps.reuse.outputs.macos_runner_minutes_saved }}
           REUSE_TRANSFER: ${{ steps.reuse.outputs.transfer_seconds }}
+          WARM_HIT: ${{ steps.warm.outputs.hit }}
+          WARM_PRODUCER: ${{ steps.warm.outputs.producer_run_id }}
+          WARM_CHANGED: ${{ steps.warm.outputs.changed_inputs }}
+          WARM_REASON: ${{ steps.warm.outputs.reason }}
         run: |
           set -euo pipefail
           {
@@ -444,6 +488,11 @@ jobs:
             else
               echo "Compiled from source in ${COMPILE_SECONDS:-unknown} s."
               echo "No product to adopt (${REUSE_MISSES:-none})."
+              if [ "$WARM_HIT" = "true" ]; then
+                echo "Started from the DerivedData run $WARM_PRODUCER built; ${WARM_CHANGED:-unknown} inputs differed."
+              else
+                echo "Started from empty DerivedData (${WARM_REASON:-not attempted})."
+              fi
             fi
             echo "Archive: ${ARCHIVE_BYTES:-unknown} bytes."
           } >> "$GITHUB_STEP_SUMMARY"
@@ -459,6 +508,38 @@ jobs:
           contained="$(python3 scripts/ci/revision_on_main.py)"
           echo "contained=$contained" >> "$GITHUB_OUTPUT"
           echo "Selected revision contained in main: $contained"
+
+      # Same trust rule as the compilation cache: only code main already
+      # contains may seed builds of other revisions.
+      - name: Package DerivedData for later builds
+        id: warm-package
+        continue-on-error: true
+        if: ${{ !cancelled() && github.ref == 'refs/heads/main' && steps.compile.outcome == 'success' && steps.record-inputs.outcome == 'success' && steps.revision-on-main.outputs.contained == 'true' }}
+        run: |
+          set -euo pipefail
+          archive="$RUNNER_TEMP/derived-data.tar.gz"
+          tar -cf - -C "$CMUX_DERIVED_DATA_PATH" --exclude ./Logs --exclude ./Index.noindex . | gzip -1 > "$archive"
+          bytes="$(wc -c < "$archive" | tr -d ' ')"
+          echo "DerivedData archive: $bytes bytes"
+          # upload-artifact wraps the tarball in a ZIP; leave headroom under the
+          # transport's 8 GiB limit so a published archive stays adoptable.
+          if [ "$bytes" -gt $((7 * 1024 * 1024 * 1024 + 512 * 1024 * 1024)) ]; then
+            echo "::warning::DerivedData archive exceeds 7.5 GiB, too close to the 8 GiB transport limit; not publishing"
+            exit 0
+          fi
+          echo "bytes=$bytes" >> "$GITHUB_OUTPUT"
+          echo "publish=true" >> "$GITHUB_OUTPUT"
+
+      - name: Publish DerivedData for later builds
+        continue-on-error: true
+        if: ${{ !cancelled() && steps.warm-package.outputs.publish == 'true' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: e2e-derived-data-v1-${{ steps.compilation-cache-key.outputs.fingerprint }}
+          path: ${{ runner.temp }}/derived-data.tar.gz
+          if-no-files-found: error
+          retention-days: 3
+          compression-level: 0
 
       - name: Bound E2E compilation cache
         id: compilation-cache-bound

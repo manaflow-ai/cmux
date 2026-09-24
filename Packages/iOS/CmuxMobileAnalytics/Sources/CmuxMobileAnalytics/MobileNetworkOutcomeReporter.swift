@@ -12,6 +12,8 @@ public final class MobileNetworkOutcomeReporter: Sendable {
     public static let eventName = "ios_connectivity_latency"
     /// The Axiom event name for task model discovery diagnostics.
     public static let taskModelEventName = "ios_task_model_discovery"
+    /// The Axiom event name for visible task model result metadata.
+    public static let taskModelResultEventName = "ios_task_model_result"
 
     private enum Phase: String, Hashable, Sendable {
         case endpointStart = "endpoint_start"
@@ -101,7 +103,10 @@ public final class MobileNetworkOutcomeReporter: Sendable {
         if event.code == .appFeatureAction,
            let kind = event.a.flatMap(DiagnosticAppEventKind.init(rawValue:)),
            let properties = Self.taskModelProperties(for: kind, event: event) {
-            emitter.capture(Self.taskModelEventName, properties)
+            let eventName = kind == .taskModelListResultObserved
+                ? Self.taskModelResultEventName
+                : Self.taskModelEventName
+            emitter.capture(eventName, properties)
             return
         }
         guard Self.mayObserve(event.code) else { return }
@@ -116,12 +121,47 @@ public final class MobileNetworkOutcomeReporter: Sendable {
         await emitter.flush()
     }
 
+    private static func taskModelProviderName(_ provider: DiagnosticTaskModelProvider) -> String {
+        switch provider {
+        case .claude: "claude"
+        case .codex: "codex"
+        case .openCode: "opencode"
+        }
+    }
+
+    private static func taskModelSourceName(_ source: DiagnosticTaskModelSource) -> String {
+        switch source {
+        case .discovered: "discovered"
+        case .backend: "backend"
+        case .augmented: "augmented"
+        case .fallback: "fallback"
+        }
+    }
+
     /// Builds the task model discovery payload for one discovery event kind,
     /// or nil when the kind is not part of that group.
     private static func taskModelProperties(
         for kind: DiagnosticAppEventKind,
         event: DiagnosticEvent
     ) -> [String: AnalyticsValue]? {
+        if kind == .taskModelListResultObserved {
+            guard let provider = event.b.flatMap(DiagnosticTaskModelProvider.init(rawValue:)),
+                  let source = event.c.flatMap(DiagnosticTaskModelSource.init(rawValue:)) else {
+                return nil
+            }
+            var properties: [String: AnalyticsValue] = [
+                "operation": .string("model_list"),
+                "outcome": .string("observed"),
+                "duration_ms": .int(0),
+                "provider": .string(taskModelProviderName(provider)),
+                "source": .string(taskModelSourceName(source)),
+                "effort_count": .int(Int(event.ms ?? 0)),
+            ]
+            if let surface = event.surface {
+                properties["correlation_id"] = .int(Int(surface))
+            }
+            return properties
+        }
         let outcome: String
         let phase: String?
         switch kind {

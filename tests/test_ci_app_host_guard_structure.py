@@ -40,6 +40,7 @@ def test_app_host_groups_are_parallel_and_owned() -> None:
         "Validate Xcode compilation cache pruning": "app-host-cache",
         "Validate cmux scheme test configuration": "app-host-cache",
         "Validate selected iOS test execution guard": "app-host-cache",
+        "Validate iOS video recording failures": "app-host-cache",
     }
     steps = job["steps"]
     for name, group in expected.items():

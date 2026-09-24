@@ -5,6 +5,7 @@ import hashlib
 import io
 import json
 import os
+import re
 from unittest import mock
 import shutil
 import sys
@@ -282,6 +283,56 @@ class ReuseProducts(TestProductHandoff):
         self.assertTrue(identity.reaches_product("scripts/ci/compile-app-host-test-product.sh"))
         self.assertTrue(identity.reaches_product("cmuxTests/WorkspaceTests.swift"))
 
+    def test_developer_tooling_outside_the_build_does_not_reach_product(self):
+        """Editing these must not force a compile: no build or macOS lane reads them."""
+        identity = reuse.product_inputs
+        tooling = (
+            ".claude/commands/review.md",
+            "agent-chat/server.ts",
+            "agent-chat/src/components/Chat.tsx",
+            "scripts/git-hooks/pre-commit",
+            "scripts/benchmark-dev-fleet-warm-slots.py",
+            "scripts/check-pbxproj.sh",
+            "scripts/check-test-determinism.py",
+            "scripts/dev-fleet-warm-slot.py",
+            "scripts/install-git-hooks.sh",
+            "scripts/merge-xcstrings.py",
+            "scripts/normalize-pbxproj.py",
+            "scripts/prune_nightly_release_assets.py",
+        )
+        for path in tooling:
+            self.assertFalse(identity.reaches_product(path), path)
+
+        # Neighbours that the build does read stay product inputs.
+        for path in (
+            "scripts/build-app-bundled-resources.sh",
+            "scripts/build-plain-text-paste-worker.sh",
+            "scripts/setup.sh",
+            "skills/cmux-cua/SKILL.md",
+            ".gitattributes",
+        ):
+            self.assertTrue(identity.reaches_product(path), path)
+
+        # Drift guard: if the Xcode project, the compile script, or either
+        # product workflow starts naming one of these, it is a build input again.
+        root = Path(__file__).resolve().parents[1]
+        readers = {
+            name: (root / name).read_text()
+            for name in (
+                "cmux.xcodeproj/project.pbxproj",
+                "scripts/ci/compile-app-host-test-product.sh",
+                "scripts/build-app-bundled-resources.sh",
+                ".github/workflows/ci-macos.yml",
+                ".github/workflows/test-e2e.yml",
+            )
+        }
+        # Check the module's own lists, not the samples above, so a reader
+        # naming any file under an excluded prefix fails here too.
+        needles = sorted(identity.NON_PRODUCT_TOOLING) + list(identity.NON_PRODUCT_TOOLING_PREFIXES)
+        for needle in needles:
+            for name, text in readers.items():
+                self.assertNotIn(needle, text, f"{name} reads {needle}")
+
     def test_product_identity_binds_the_e2e_build_recipe(self):
         identity = reuse.product_inputs
         root = Path(__file__).resolve().parents[1]
@@ -313,6 +364,27 @@ class ReuseProducts(TestProductHandoff):
             base,
             identity.identity_from_tree_lines(tree, workflow, changed_step),
         )
+
+    def test_e2e_identity_binds_the_helpers_its_build_job_runs(self):
+        identity = reuse.product_inputs
+        root = Path(__file__).resolve().parents[1]
+        workflow = (root / ".github/workflows/ci-macos.yml").read_text()
+        e2e_workflow = (root / ".github/workflows/test-e2e.yml").read_text()
+        source = f"100644 blob {'1' * 40}\tSources/App.swift"
+        helper = "scripts/ci/e2e_warm_derived_data.py"
+        base = identity.identity_from_tree_lines([source, f"100644 blob {'2' * 40}\t{helper}"], workflow, e2e_workflow)
+        edited = identity.identity_from_tree_lines([source, f"100644 blob {'3' * 40}\t{helper}"], workflow, e2e_workflow)
+
+        # Only the E2E component moves: the compile-admission identity does not.
+        self.assertNotEqual(base["e2e_recipe"], edited["e2e_recipe"])
+        self.assertEqual({k: v for k, v in base.items() if k != "e2e_recipe"},
+                         {k: v for k, v in edited.items() if k != "e2e_recipe"})
+        # A scripts/ci file the build job never names changes nothing.
+        unrelated = identity.identity_from_tree_lines(
+            [source, f"100644 blob {'2' * 40}\t{helper}", f"100644 blob {'4' * 40}\tscripts/ci/queue_janitor.py"],
+            workflow, e2e_workflow,
+        )
+        self.assertEqual(base, unrelated)
 
     def test_bundled_paste_worker_source_reaches_product(self):
         """cmux.xcodeproj compiles this into the bundle, so reuse must see it."""
@@ -703,13 +775,13 @@ class ReuseProducts(TestProductHandoff):
                 if failure == 'archive':
                     bad['digest'] = 'sha256:' + hashlib.sha256(b'corrupt').hexdigest()
                 bad_run = {**self.api.run, 'id': 99} if failure == 'receipt' else self.api.run
-                def download(artifact_id, target):
+                def download(artifact_id, target, size):
                     if artifact_id == 41 and failure == 'download':
                         raise OSError('candidate unavailable')
                     if artifact_id == 41 and failure == 'archive':
                         target.write_bytes(b'corrupt')
                     else:
-                        original_download(42, target)
+                        original_download(42, target, size)
                 with mock.patch.object(reuse, 'select', return_value=[
                         (bad, bad_run), (self.api.artifact, self.api.run)]), \
                         mock.patch.object(self.api, 'download', side_effect=download) as calls:
@@ -912,36 +984,50 @@ class ReuseProducts(TestProductHandoff):
         self.assertFalse(self.restore_reuse())
         self.assertFalse(self.consumer.exists())
 
-    def test_the_download_budget_is_derived_from_the_archive_ceiling(self):
-        # A flat 120 s budget against a 2 GiB ceiling meant any product past
-        # roughly 700 MB timed out, recorded a miss, and compiled instead --
-        # invisibly, because a miss looks exactly like a normal build. The
-        # budget has to come from the ceiling, not from a literal that ages
-        # out the next time the product grows.
-        seen = {}
-
-        def capture(args, **kwargs):
-            seen.update(kwargs)
-            return subprocess.CompletedProcess(args, 0)
-
+    def test_products_are_read_over_parallel_range_requests(self):
+        # A single `gh api .../zip` stream sustained about 2 MB/s, so every
+        # ~900 MB candidate hit its budget and the job compiled instead --
+        # invisibly, because a miss looks exactly like a normal build.
         target = self.producer.parent / "probe.zip"
-        with mock.patch.object(reuse.subprocess, "run", side_effect=capture):
-            reuse.GitHub("manaflow-ai/cmux").download(42, target)
-        self.assertEqual(seen.get("timeout"), reuse.DOWNLOAD_TIMEOUT)
-        self.assertGreaterEqual(
-            reuse.DOWNLOAD_TIMEOUT * reuse.MIN_TRANSFER_BYTES_PER_SECOND,
-            reuse.MAX_ARCHIVE_BYTES,
-        )
+        with mock.patch.object(reuse.parallel, "download_zip") as download_zip, \
+                mock.patch.object(reuse.subprocess, "run") as run:
+            reuse.GitHub("manaflow-ai/cmux").download(42, target, 979844748)
+        download_zip.assert_called_once_with("manaflow-ai/cmux", 42, target, 979844748)
+        run.assert_not_called()
 
-    def test_a_download_that_runs_out_of_time_is_a_miss_not_a_crash(self):
-        with mock.patch.object(
-            type(self.api), "download",
-            side_effect=subprocess.TimeoutExpired("gh", reuse.DOWNLOAD_TIMEOUT),
-        ):
-            report = {}
-            self.assertFalse(self.restore_reuse(report=report))
-        self.assertIn("artifact_download_error", report["miss_reasons"])
-        self.assertFalse(self.consumer.exists())
+    def test_restore_passes_the_listed_artifact_size_to_the_transport(self):
+        with mock.patch.object(self.api, "download", wraps=self.api.download) as download:
+            self.assertTrue(self.restore_reuse())
+        self.assertEqual(download.call_args.args[2], self.api.artifact["size_in_bytes"])
+
+    def test_a_failed_transfer_is_a_miss_not_a_crash(self):
+        for error in (reuse.parallel.TransportError("parallel download deadline exceeded"),
+                      OSError("connection reset"),
+                      reuse.http.client.IncompleteRead(b"partial"),
+                      EOFError("stream ended"),
+                      ValueError("size must be positive")):
+            with self.subTest(error=type(error).__name__):
+                with mock.patch.object(type(self.api), "download", side_effect=error):
+                    report = {}
+                    self.assertFalse(self.restore_reuse(report=report))
+                self.assertIn("artifact_download_error", report["miss_reasons"])
+                self.assertFalse(self.consumer.exists())
+
+    def test_product_archives_carry_no_appledouble_entries(self):
+        # macOS tar adds Build/._Products for Xcode's xattrs unless
+        # COPYFILE_DISABLE is set; unpack() rejects that as an unscoped path,
+        # so every product packed without it was a silent miss.
+        root = Path(__file__).resolve().parents[1] / ".github/workflows"
+        packers = [
+            (path.name, line.strip())
+            for path in sorted(root.glob("*.yml"))
+            for line in path.read_text().splitlines()
+            if re.search(r"\btar -c\w*\b.*\bBuild/Products\b", line)
+        ]
+        self.assertTrue(packers)
+        for name, line in packers:
+            with self.subTest(workflow=name):
+                self.assertTrue(line.startswith("COPYFILE_DISABLE=1 tar "), line)
 
     def test_each_event_is_trusted_only_from_its_own_workflow(self):
         for event, path, trusted in (
@@ -1249,6 +1335,106 @@ class ReuseProducts(TestProductHandoff):
         self.assertFalse((self.producer.parent / 'escape').exists())
 
 
+class ContractParity(unittest.TestCase):
+    """PR compile admission and E2E dispatches must name one product alike.
+
+    The artifact name is the hash of `contract()`, so any control one lane
+    hashes differently from the other gives the same compiled revision two
+    names, and the E2E lane can never find what a pull request compiled.
+    """
+
+    ROOT = Path(__file__).resolve().parents[1]
+    # Setup steps that put a tool `contract()` fingerprints on PATH, matched
+    # against what a step executes: its `uses` action, or a `run` command.
+    TOOL_SETUP = {
+        "rust": re.compile(r"^(?:(?:bash|sh)\s+)?(?:\S*/)?install-rust-ci\.sh(?:\s|;|$)"),
+        "bun": re.compile(r"^oven-sh/setup-bun@"),
+        "zig": re.compile(r"^(?:(?:bash|sh)\s+)?(?:\S*/)?install-zig-ci\.sh(?:\s|;|$)"),
+        "node": re.compile(r"^actions/setup-node@"),
+        "go": re.compile(r"^actions/setup-go@"),
+    }
+
+    def jobs(self):
+        import yaml
+        identity = reuse.product_inputs
+        admission = yaml.safe_load((self.ROOT / identity.CI_WORKFLOW).read_text())
+        e2e = yaml.safe_load((self.ROOT / identity.E2E_WORKFLOW).read_text())
+        return {"admission": admission["jobs"][identity.MACOS_ADMISSION_JOB],
+                "e2e": e2e["jobs"][identity.E2E_BUILD_JOB]}
+
+    def job_env(self, job):
+        # As a step sees them: YAML `true` reaches it as the string "true".
+        return {name: str(value).lower() if isinstance(value, bool) else str(value)
+                for name, value in job.get("env", {}).items()}
+
+    def executed(self, step):
+        """What a step runs: its action, and each non-comment line of `run`."""
+        lines = [step["uses"]] if "uses" in step else []
+        lines += [line.strip() for line in str(step.get("run", "")).splitlines()
+                  if line.strip() and not line.strip().startswith("#")]
+        return lines
+
+    def tools(self, steps):
+        return {tool for step in steps for line in self.executed(step)
+                for tool, pattern in self.TOOL_SETUP.items() if pattern.search(line)}
+
+    def tools_before_key(self, job):
+        steps = job["steps"]
+        key_step = next(index for index, step in enumerate(steps)
+                        if any("reuse_app_host_products.py key" in line
+                               for line in self.executed(step)))
+        return self.tools(steps[:key_step])
+
+    def test_tool_scan_counts_what_a_step_runs_not_what_it_mentions(self):
+        self.assertEqual(self.tools([
+            {"name": "Note", "run": "# ./scripts/install-zig-ci.sh is not needed\necho oven-sh/setup-bun"},
+            {"name": "Echo", "run": 'echo "installing via ./scripts/install-rust-ci.sh"'},
+        ]), set())
+        self.assertEqual(self.tools([
+            {"name": "Setup Bun", "uses": "oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6"},
+            {"name": "Install zig", "run": "set -e\n./scripts/install-zig-ci.sh"},
+            {"name": "Install Rust", "run": "bash scripts/install-rust-ci.sh --profile ci"},
+        ]), {"bun", "zig", "rust"})
+        self.assertEqual(self.job_env({"env": {"A": True, "B": 1}}), {"A": "true", "B": "1"})
+
+    def contract_with(self, environ, xcode="Xcode 26.6\nBuild version 17F113"):
+        answers = {"xcodebuild": xcode, "xcrun": "25F70", "sw_vers": "25D125"}
+        with mock.patch.dict(os.environ, environ, clear=True), \
+                mock.patch.object(reuse, "read", side_effect=lambda *args: answers[args[0]]), \
+                mock.patch.object(reuse.shutil, "which", return_value=None), \
+                mock.patch.object(reuse.product_inputs, "local_identity", return_value={"source": "s"}):
+            return reuse.contract()
+
+    def test_contract_names_the_selected_xcode_not_its_selector(self):
+        # Admission pins Xcode by path; an E2E dispatch picks the same Xcode by
+        # its SDK. Both select Xcode 26.6, so both must name one product.
+        pinned = self.contract_with({
+            "CMUX_CI_XCODE_APP": "/Applications/Xcode_26.6.app",
+            "CMUX_CI_REQUIRED_MACOS_SDK_MAJOR": "26",
+            "CMUX_SKIP_ZIG_BUILD": "1",
+        })
+        selected = self.contract_with({"CMUX_SKIP_ZIG_BUILD": "1"})
+        self.assertEqual(reuse.key(pinned), reuse.key(selected))
+        # What was selected still separates products.
+        other_xcode = self.contract_with(
+            {"CMUX_SKIP_ZIG_BUILD": "1"}, xcode="Xcode 26.7\nBuild version 17G1")
+        self.assertNotEqual(reuse.key(selected), reuse.key(other_xcode))
+        # A real build control still does too.
+        zig_built = self.contract_with({"CMUX_SKIP_ZIG_BUILD": ""})
+        self.assertNotEqual(reuse.key(selected), reuse.key(zig_built))
+
+    def test_both_lanes_set_every_hashed_build_control_alike(self):
+        envs = {name: self.job_env(job) for name, job in self.jobs().items()}
+        for control in reuse.CONTRACT_ENVIRONMENT:
+            with self.subTest(control=control):
+                self.assertEqual(envs["admission"].get(control), envs["e2e"].get(control))
+
+    def test_both_lanes_install_the_same_fingerprinted_tools_before_keying(self):
+        tools = {name: self.tools_before_key(job) for name, job in self.jobs().items()}
+        self.assertIn("rust", tools["admission"])
+        self.assertEqual(tools["admission"], tools["e2e"])
+
+
 class FakeGitHub:
     repository = "manaflow-ai/cmux"
 
@@ -1336,8 +1522,9 @@ class FakeGitHub:
             }
         raise AssertionError(path)
 
-    def download(self, artifact_id, target):
+    def download(self, artifact_id, target, size):
         assert artifact_id == self.artifact["id"]
+        assert size == self.artifact["size_in_bytes"]
         shutil.copyfile(self.archive, target)
 
 
