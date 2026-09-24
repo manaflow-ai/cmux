@@ -455,6 +455,14 @@
       "created_at": "2026-09-24T12:27:24Z",
       "repoId": 1144115288,
       "pullRequestNo": 14218
+    },
+    {
+      "name": "sergeykaplich",
+      "id": 86144865,
+      "comment_id": 5817192829,
+      "created_at": "2026-09-24T15:34:22Z",
+      "repoId": 1144115288,
+      "pullRequestNo": 14242
     }
   ]
 }
