@@ -80,6 +80,7 @@ final class WorkspaceNavigationBarController: UINavigationController {
             let content = AnyView(value.content
                 .buttonStyle(.plain)
                 .imageScale(.large)
+                .frame(minWidth: minimumWidth, minHeight: 36)
                 .fixedSize()
                 .environment(\.self, environment))
             if let control = controls[value.id] {
