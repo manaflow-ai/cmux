@@ -2877,10 +2877,14 @@ def test_macos_workflow_call_starts_after_cheap_static_gate() -> None:
 
 def test_macos_admission_waits_for_pull_request_debounce() -> None:
     debounce = workflow_job_block("macos-debounce")
-    assert "    needs: changes" in debounce
+    workflow = yaml.safe_load(CI_WORKFLOW.read_text(encoding="utf-8"))
+    assert workflow["jobs"]["macos-debounce"]["needs"] == ["changes", "static-preflight"]
     assert "github.event_name == 'pull_request'" in debounce
     assert "needs.changes.outputs.macos != 'false'" in debounce
-    assert "vars.CI_MACOS_ADMISSION_DEBOUNCE_SECONDS || '180'" in debounce
+    # A red static check already skips `macos`; waiting first only added a
+    # second red job to the run.
+    assert "needs.static-preflight.result == 'success'" in debounce
+    assert "vars.CI_MACOS_ADMISSION_DEBOUNCE_SECONDS || '120'" in debounce
     assert "macos" not in debounce.split("runs-on:", 1)[1].split("\n", 1)[0]
     assert '[ "$current" != "$HEAD_SHA" ]' in debounce
 
@@ -2890,43 +2894,79 @@ def test_macos_admission_waits_for_pull_request_debounce() -> None:
         "(needs.macos-debounce.result == 'success' || needs.macos-debounce.result == 'skipped')"
         in caller
     )
+    # A skipped debounce admits, so `macos` must keep its own static gate: a
+    # failed static check skips the debounce and must still skip macOS.
+    assert "needs.static-preflight.result == 'success'" in caller
     assert "      - macos-debounce" in workflow_job_block("ci-status")
 
 
-JOBS_ONE_FAILURE = """{"jobs":[{"name":"changes","conclusion":"success"},
-{"name":"linux-preflight","conclusion":"failure"},
-{"name":"guards","conclusion":null}]}"""
-JOBS_CLEAN = """{"jobs":[{"name":"changes","conclusion":"success"},
-{"name":"guards","conclusion":null}]}"""
-JOBS_CANCELLED_ONLY = """{"jobs":[{"name":"web","conclusion":"cancelled"}]}"""
+def _job(
+    name: str,
+    status: str = "completed",
+    conclusion: str | None = "success",
+    labels: tuple[str, ...] = ("blacksmith-4vcpu-ubuntu-2404",),
+) -> dict:
+    return {"name": name, "status": status, "conclusion": conclusion, "labels": list(labels)}
+
+
+def _jobs(*jobs: dict) -> str:
+    return json.dumps({"jobs": list(jobs)})
+
+
+DEBOUNCE_SELF = _job("macOS admission debounce", "in_progress", None)
+JOBS_ONE_FAILURE = _jobs(
+    _job("changes"),
+    _job("linux-preflight", conclusion="failure"),
+    _job("guards / workflow-guard-tests / a", "in_progress", None),
+    DEBOUNCE_SELF,
+)
+JOBS_CLEAN = _jobs(
+    _job("changes"),
+    _job("guards / workflow-guard-tests / a", "in_progress", None),
+    DEBOUNCE_SELF,
+)
+JOBS_GATES_DONE = _jobs(
+    _job("changes"),
+    _job("Fast static checks"),
+    _job("guards / workflow-guard-tests / a"),
+    _job("web / web-typecheck", conclusion="skipped"),
+    DEBOUNCE_SELF,
+)
+JOBS_CANCELLED_ONLY = _jobs(_job("web", conclusion="cancelled"))
 JOBS_EMPTY = """{"jobs":[]}"""
 JOBS_ERROR_BODY = """{"message":"Not Found"}"""
 
 
 def run_macos_debounce(
     *,
-    jobs_payload: str = JOBS_CLEAN,
+    jobs_payload: str | list[str] = JOBS_CLEAN,
     pulls_sha: str = "abc",
     gh_broken: bool = False,
     attempt: str = "1",
     debounce_seconds: str = "1",
-) -> subprocess.CompletedProcess:
+) -> tuple[subprocess.CompletedProcess, list[int]]:
     """Run the real debounce step against a fake `gh` and a real `jq`.
 
     The fake serves the payload and then runs the step's own `--jq` program
     over it, so a wrong accessor in the workflow shows up here as the
     fail-open it would be in CI rather than passing on a pre-digested answer.
+    A list of payloads is served one per jobs read, repeating the last one.
+    Returns the result and the seconds passed to each `sleep`.
     """
     script = workflow_job_step_script("macos-debounce", "Wait for follow-up pushes")
+    payloads = [jobs_payload] if isinstance(jobs_payload, str) else list(jobs_payload)
     with tempfile.TemporaryDirectory() as raw:
         root = Path(raw)
         fake_bin = root / "bin"
         fake_bin.mkdir()
-        # The step sleeps for the debounce window before it reads anything.
-        (fake_bin / "sleep").write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+        sleeps = root / "sleeps"
+        sleeps.write_text("", encoding="utf-8")
+        (fake_bin / "sleep").write_text(f'#!/bin/sh\necho "$1" >> "{sleeps}"\n', encoding="utf-8")
         (fake_bin / "sleep").chmod(0o755)
-        payload = root / "jobs.json"
-        payload.write_text(jobs_payload, encoding="utf-8")
+        for index, payload in enumerate(payloads):
+            (root / f"jobs{index}.json").write_text(payload, encoding="utf-8")
+        counter = root / "reads"
+        last = len(payloads) - 1
         gh = fake_bin / "gh"
         if gh_broken:
             gh.write_text("#!/bin/sh\nexit 1\n", encoding="utf-8")
@@ -2941,13 +2981,17 @@ def run_macos_debounce(
                 "done\n"
                 'case "$*" in\n'
                 f"  *pulls*) printf %s '{pulls_sha}' ;;\n"
-                f'  *jobs*) jq -r "$prog" < "{payload}" ;;\n'
+                "  *jobs*)\n"
+                f'    n=$(cat "{counter}" 2>/dev/null || echo 0)\n'
+                f'    echo $((n + 1)) > "{counter}"\n'
+                f'    [ "$n" -ge {last} ] && n={last}\n'
+                f'    jq -r "$prog" < "{root}/jobs$n.json" ;;\n'
                 "  *) exit 1 ;;\n"
                 "esac\n",
                 encoding="utf-8",
             )
         gh.chmod(0o755)
-        return subprocess.run(
+        result = subprocess.run(
             ["bash", "-c", script],
             env={
                 "PATH": f"{fake_bin}:{os.environ['PATH']}",
@@ -2962,11 +3006,13 @@ def run_macos_debounce(
             capture_output=True,
             text=True,
             check=False,
+            timeout=60,
         )
+        return result, [int(line) for line in sleeps.read_text(encoding="utf-8").split()]
 
 
 def test_macos_admission_declines_a_run_that_already_failed() -> None:
-    declined = run_macos_debounce(jobs_payload=JOBS_ONE_FAILURE)
+    declined, _ = run_macos_debounce(jobs_payload=JOBS_ONE_FAILURE)
     assert declined.returncode == 1
     assert "already failed" in declined.stdout + declined.stderr
     # Declining by failing is load-bearing: `macos` is skipped either way, and
@@ -2974,11 +3020,61 @@ def test_macos_admission_declines_a_run_that_already_failed() -> None:
     debounce = workflow_job_block("macos-debounce")
     assert "      actions: read" in debounce
     assert "$GITHUB_RUN_ID/jobs" in debounce
-    # The check must sit after the wait, so a re-run attempt and a zero-second
-    # window bypass it along with the debounce itself.
-    assert "$GITHUB_RUN_ID/jobs" in debounce.split('sleep "$DEBOUNCE_SECONDS"', 1)[1]
     # macOS admission stays uncoupled from the Linux suites as a dependency.
     assert "needs.linux-preflight" not in workflow_job_block("macos")
+
+
+def test_macos_admission_polls_fast_gates_instead_of_sleeping_the_window() -> None:
+    step = workflow_job_step_script("macos-debounce", "Wait for follow-up pushes")
+    assert 'sleep "$DEBOUNCE_SECONDS"' not in step
+
+    # Gates still running: poll every 10 s up to the window, then admit.
+    waited, sleeps = run_macos_debounce(jobs_payload=JOBS_CLEAN, debounce_seconds="25")
+    assert waited.returncode == 0, waited.stdout + waited.stderr
+    assert sleeps == [10, 10, 5]
+
+    # Gates finish on the second read: admit then, not at the end of the window.
+    early, sleeps = run_macos_debounce(jobs_payload=[JOBS_CLEAN, JOBS_GATES_DONE], debounce_seconds="120")
+    assert early.returncode == 0, early.stdout + early.stderr
+    assert sleeps == [10]
+
+    # A job fails mid-wait: decline at that read.
+    failed, sleeps = run_macos_debounce(
+        jobs_payload=[JOBS_CLEAN, JOBS_CLEAN, JOBS_ONE_FAILURE], debounce_seconds="120"
+    )
+    assert failed.returncode == 1
+    assert "already failed" in failed.stdout + failed.stderr
+    assert sleeps == [10, 10]
+
+
+def test_macos_admission_waits_only_on_jobs_that_can_finish_before_macos() -> None:
+    workflow = yaml.safe_load(CI_WORKFLOW.read_text(encoding="utf-8"))
+    jobs = workflow["jobs"]
+
+    def needs_of(key: str) -> list[str]:
+        needs = jobs[key].get("needs", [])
+        return [needs] if isinstance(needs, str) else list(needs)
+
+    def depends_on_macos(key: str) -> bool:
+        return any(need == "macos" or depends_on_macos(need) for need in needs_of(key))
+
+    # Jobs that wait for `macos` can never finish during its admission wait.
+    downstream = [jobs[key].get("name", key) for key in jobs if depends_on_macos(key)]
+    assert downstream, "expected aggregate jobs downstream of macos"
+    running = [_job(name, "queued", None) for name in downstream]
+    running += [
+        DEBOUNCE_SELF,
+        # Jobs inside the macOS workflow are what this job admits.
+        _job("macos / macOS compile admission", "queued", None, ("blacksmith-6vcpu-macos-15",)),
+        _job("macos / macOS status", "queued", None),
+        # Mac jobs are already billed; waiting on them buys nothing.
+        _job("Claude wrapper regressions", "in_progress", None, ("blacksmith-6vcpu-macos-15",)),
+        _job("cli / cli-pipe-regressions", "in_progress", None, ("macOS", "self-hosted")),
+        _job("changes"),
+    ]
+    result, sleeps = run_macos_debounce(jobs_payload=_jobs(*running), debounce_seconds="120")
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert sleeps == []
 
 
 def test_macos_admission_admits_whenever_it_cannot_prove_a_failure() -> None:
@@ -2994,13 +3090,17 @@ def test_macos_admission_admits_whenever_it_cannot_prove_a_failure() -> None:
         ("re-run attempt", {"attempt": "2", "jobs_payload": JOBS_ONE_FAILURE}),
         ("wait disabled", {"debounce_seconds": "0", "jobs_payload": JOBS_ONE_FAILURE}),
     ):
-        result = run_macos_debounce(**kwargs)
+        result, _ = run_macos_debounce(**kwargs)
         assert result.returncode == 0, f"{label}: {result.stdout}{result.stderr}"
         assert "already failed" not in result.stdout + result.stderr, label
+    # An unreadable jobs list waits out the window like a pending one: the
+    # error may be transient, and admitting at once would drop the check.
+    _, sleeps = run_macos_debounce(gh_broken=True, debounce_seconds="20")
+    assert sleeps == [10, 10]
 
 
-def test_macos_admission_still_declines_a_moved_head_first() -> None:
-    moved = run_macos_debounce(pulls_sha="def", jobs_payload=JOBS_CLEAN)
+def test_macos_admission_still_declines_a_moved_head() -> None:
+    moved, _ = run_macos_debounce(pulls_sha="def", jobs_payload=JOBS_GATES_DONE)
     assert moved.returncode == 1
     assert "head moved" in (moved.stdout + moved.stderr).lower()
 
