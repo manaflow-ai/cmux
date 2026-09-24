@@ -213,6 +213,18 @@ The watcher makes no API request while owned pools are off. A run on an
 ephemeral pool costs it a few jobs listings until `changes` finishes, plus one
 artifact listing.
 
+The guard keeps the picker the only way onto an owned pool.
+`check_no_self_hosted_fleet_runners` refuses any `glaeda-*` label in workflow
+text, and `runner_label_policy.py` refuses one in any `*RUNNER*` variable, so
+neither a workflow edit nor `MACOS_RUNNER_PR` can send a job there.
+`check_owned_pools_route_through_picker` requires the picked label to reach
+jobs only as `pr_runner` or on a `pull_request` `runs-on` branch.
+`CI_PR_POOL_ORDER` is the one variable that may name owned labels (the guard's
+`owned` pattern, which must match `pr_runner_pool.OWNED_LABEL`), and the CI
+health report checks every other entry in it against the workflow policy.
+Owned pools stay off until `CI_PR_POOL_OWNED`, `CI_OWNED_POOL_SLOTS` and
+`CI_PR_POOL_ORDER` are all set.
+
 `MACOS_RUNNER_PR` does not move a lane on its own. A runner change and its
 Xcode pin still have to agree, because `scripts/select-ci-xcode.sh` exits
 non-zero on a pinned path that is absent.
