@@ -3256,7 +3256,7 @@ def test_only_mac_work_waits_for_static_preflight() -> None:
         assert "static-preflight" in _job_needs(jobs, key), key
 
 
-def test_macos_admission_gate_uses_job_dependencies_not_polling() -> None:
+def test_macos_admission_gate_uses_job_results_not_polling() -> None:
     gate = workflow_job_block("macos-admission-gate")
     assert "!cancelled()" in gate
     assert "github.event_name == 'pull_request'" in gate
@@ -3276,17 +3276,127 @@ def test_macos_admission_gate_uses_job_dependencies_not_polling() -> None:
     assert "macos-debounce" not in workflow_text
 
     caller = workflow_job_block("macos")
-    assert "      - macos-admission-gate" in caller
-    assert (
-        "(needs.macos-admission-gate.result == 'success' || needs.macos-admission-gate.result == 'skipped')"
-        in caller
-    )
-    # A skipped gate admits, so `macos` keeps its own static gate: a failed
-    # static check skips the gate and must still skip macOS.
+    # Compile admission is the run's longest path, so it starts beside the
+    # fast Linux jobs; the gate holds back the product's consumers instead.
+    assert "      - macos-admission-gate" not in caller
+    assert "needs.macos-admission-gate" not in caller
+    # `macos` keeps its own static gate: a failed static check skips the gate
+    # and must still skip macOS.
     assert "needs.static-preflight.result == 'success'" in caller
-    # macOS waits for the fast jobs, not the Linux aggregate verdict.
+    # macOS waits for no Linux verdict beyond the static stage.
     assert "needs.linux-preflight" not in caller
     assert "      - macos-admission-gate" in workflow_job_block("ci-status")
+
+
+CONSUMER_GATE_STEP = "Hold consumers behind the fast Linux gate"
+
+
+def test_compile_admission_holds_every_product_consumer_behind_the_gate() -> None:
+    admission = workflow_job_block("macos-compile-admission", MACOS_WORKFLOW)
+    step = workflow_step_block_in(MACOS_WORKFLOW, "macos-compile-admission", CONSUMER_GATE_STEP)
+    # It reads the job the caller names, once: no loop and no sleep.
+    assert 'GATE_JOB: "macOS admission gate"' in step
+    assert "name: macOS admission gate" in workflow_job_block("macos-admission-gate")
+    script = workflow_job_step_script("macos-compile-admission", CONSUMER_GATE_STEP, MACOS_WORKFLOW)
+    for polling in ("sleep", "while ", "for attempt", "range("):
+        assert polling not in script
+    # The gate only judges a pull request's first attempt; a re-run is asking
+    # for the Mac results.
+    assert "github.event_name == 'pull_request' && github.run_attempt == 1" in step
+    # The product is published before the decision, so a rerun can reuse it,
+    # and a changed-suites run tests only once admitted.
+    order = [line.removeprefix("      - name: ") for line in admission.splitlines() if line.startswith("      - name: ")]
+    gate_at = order.index(CONSUMER_GATE_STEP)
+    assert order.index("Seed node-local compiled product cache") < gate_at
+    assert gate_at < order.index("Run changed app-host suites")
+    # Every Mac job that runs the product needs admission, so a decline
+    # skips it.
+    jobs = yaml.safe_load(MACOS_WORKFLOW.read_text(encoding="utf-8"))["jobs"]
+    for key in ("app-host-unit-tests", "cli-product-tests", "tests-build-and-lag", "release-admission", "release-build"):
+        assert "macos-compile-admission" in _job_needs(jobs, key), key
+        assert "needs.macos-compile-admission.result == 'success'" in jobs[key]["if"], key
+
+
+def workflow_step_block_in(workflow_path: Path, job_name: str, step_name: str) -> str:
+    lines = workflow_job_block(job_name, workflow_path).splitlines()
+    start = lines.index(f"      - name: {step_name}")
+    body = [lines[start]]
+    for line in lines[start + 1 :]:
+        if line.startswith("      - ") or (line.strip() and not line.startswith("        ")):
+            break
+        body.append(line)
+    return "\n".join(body)
+
+
+def run_consumer_gate(jobs: object, *, status: int = 200) -> subprocess.CompletedProcess:
+    import http.server
+    import threading
+
+    body = json.dumps(jobs).encode()
+    requests: list[str] = []
+
+    class Handler(http.server.BaseHTTPRequestHandler):
+        def do_GET(self) -> None:  # noqa: N802
+            requests.append(self.path)
+            self.send_response(status)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, *args: object) -> None:
+            pass
+
+    server = http.server.HTTPServer(("127.0.0.1", 0), Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        script = workflow_job_step_script("macos-compile-admission", CONSUMER_GATE_STEP, MACOS_WORKFLOW)
+        result = subprocess.run(
+            ["bash", "-c", script],
+            env={
+                **os.environ,
+                "API_URL": f"http://127.0.0.1:{server.server_port}",
+                "GH_TOKEN": "token",
+                "REPOSITORY": "manaflow-ai/cmux",
+                "RUN_ID": "42",
+                "GATE_JOB": "macOS admission gate",
+            },
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    finally:
+        server.shutdown()
+        server.server_close()
+    assert requests == ["/repos/manaflow-ai/cmux/actions/runs/42/jobs?filter=latest&per_page=100"]
+    return result
+
+
+def _gate_job(status: str, conclusion: object) -> dict:
+    return {"jobs": [
+        {"name": "changes", "status": "completed", "conclusion": "success"},
+        {"name": "macOS admission gate", "status": status, "conclusion": conclusion},
+    ]}
+
+
+def test_consumer_gate_fails_admission_when_the_gate_declined() -> None:
+    result = run_consumer_gate(_gate_job("completed", "failure"))
+    assert result.returncode == 1
+    assert "Not admitting macOS consumers" in result.stdout
+
+
+def test_consumer_gate_admits_whenever_it_cannot_prove_a_decline() -> None:
+    for label, jobs, status in (
+        ("passed", _gate_job("completed", "success"), 200),
+        ("skipped", _gate_job("completed", "skipped"), 200),
+        # Still deciding: ci-status fails the run on a failed Linux job anyway.
+        ("in progress", _gate_job("in_progress", None), 200),
+        ("absent", {"jobs": [{"name": "changes", "status": "completed", "conclusion": "success"}]}, 200),
+        ("unreadable", {"message": "Server Error"}, 500),
+    ):
+        result = run_consumer_gate(jobs, status=status)
+        assert result.returncode == 0, f"{label}: {result.stdout}{result.stderr}"
+        assert "Not admitting" not in result.stdout, label
 
 
 def run_macos_admission_gate(needs: dict, *, attempt: str = "1") -> subprocess.CompletedProcess:
@@ -3317,7 +3427,7 @@ def _gate_needs(**overrides: str) -> dict:
 def test_macos_admission_gate_declines_a_failed_linux_job() -> None:
     declined = run_macos_admission_gate(_gate_needs(guards="failure"))
     # Declining by failing is load-bearing: "Re-run failed jobs" then re-runs
-    # the gate, and a re-run attempt admits macOS.
+    # the gate and compile admission, and a re-run attempt admits macOS.
     assert declined.returncode == 1
     assert "guards already failed" in declined.stdout + declined.stderr
 
@@ -4746,9 +4856,9 @@ def test_guard_workflow_call_preserves_routes_and_starts_beside_static_checks() 
     block = workflow_job_block("guards")
 
     # Guards are the last job macos-admission-gate waits for. Starting them
-    # beside Fast static checks, not after, opens the gate ~25 s sooner; the
-    # gate itself still requires static-preflight, so macOS never starts on a
-    # diff those checks reject.
+    # beside Fast static checks, not after, lets it decide ~25 s sooner; the
+    # gate and `macos` both still require static-preflight, so macOS never
+    # starts on a diff those checks reject.
     assert "    needs: [changes]" in block
     assert "static-preflight" in workflow_job_block("macos-admission-gate")
     assert "    uses: ./.github/workflows/ci-guards.yml" in block
