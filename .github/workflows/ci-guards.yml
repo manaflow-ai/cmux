@@ -296,6 +296,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_preflight_trust.py
 
+      - name: Validate hook installation leaves existing hooks alone
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_install_git_hooks.py
+
       - name: Validate required-check drift reconciliation
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_required_checks_drift.py

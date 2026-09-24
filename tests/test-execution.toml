@@ -1149,5 +1149,9 @@ path = "tests/test_r2_cache_prune.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_install_git_hooks.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_macos_info_plist.py"
 lane = "macos-cli-no-socket"
