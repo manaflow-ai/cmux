@@ -836,9 +836,11 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDataSource,
         let link = CADisplayLink(target: self, selector: #selector(smoothnessFrame(_:)))
         link.add(to: .main, forMode: .common)
         smoothnessLink = link
+        WorkspaceListMainThreadStallSampler.start()
     }
 
     @objc private func smoothnessFrame(_ link: CADisplayLink) {
+        WorkspaceListMainThreadStallSampler.beat()
         smoothness.recordFrame(
             timestamp: link.timestamp,
             targetTimestamp: link.targetTimestamp,
@@ -861,6 +863,7 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDataSource,
         guard let link = smoothnessLink else { return }
         link.invalidate()
         smoothnessLink = nil
+        WorkspaceListMainThreadStallSampler.stop()
         let tally = smoothness
         guard tally.frames > 5 else { return }
         MobileDebugLog.anchormux(
