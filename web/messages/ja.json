@@ -136,6 +136,17 @@
     "expiredBody": "{machine} とその中身は無事です。このリンクのセッションだけが終了しました。cmux でマシンを右クリックし、「デスクトップを開く」から新しく開き直してください。"
   },
   "vmErrors": {
+    "guestInstall": {
+      "title": "Cloud VM のセットアップを完了できませんでした",
+      "reason": "Cloud VM のゲストセットアップが完了しませんでした。",
+      "message": "cmux は Cloud VM のセットアップを完了できませんでした。",
+      "action": "操作を再試行してください。問題が続く場合はサポートにお問い合わせください。"
+    },
+    "createCleanupPending": {
+      "title": "Cloud VM のクリーンアップが保留中です",
+      "message": "Cloud VM のセットアップに失敗し、クリーンアップがまだ完了していません。",
+      "action": "別のマシンを作成する前に、トレース ID を添えてサポートにお問い合わせください。"
+    },
     "artifactUnavailable": {
       "title": "Cloud VM のセットアップを利用できません",
       "message": "Cloud VM のセットアップを一時的に利用できません。",

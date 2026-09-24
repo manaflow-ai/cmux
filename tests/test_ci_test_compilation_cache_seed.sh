@@ -58,27 +58,32 @@ done
 echo "PASS: admission and the seeder build from the same paths"
 
 KEY_PREFIX='xcode-compilation-test-${{ runner.os }}-${{ runner.arch }}-${{ steps.compilation-cache-key.outputs.fingerprint }}-'
-for file in "$CI_FILE" "$NIGHTLY_FILE"; do
-  if ! grep -Fq -- "$KEY_PREFIX" "$file" \
-    || grep -F 'xcode-compilation-test-' "$file" | grep -vqF -- "$KEY_PREFIX"; then
-    echo "FAIL: $(basename "$file") must use the shared test compilation cache key prefix"
-    exit 1
-  fi
-done
-echo "PASS: admission and the seeder share one cache key prefix"
-
-# Pull requests restore and never save: a cache written from a pull request is
-# scoped to it, so it helps nobody else and spends the budget that keeps the
-# main seed from being evicted.
-if ! awk '
-  /uses: / { uses=$0 }
-  /key: xcode-compilation-test-/ { saw=1; if (uses !~ /uses: (actions\/cache\/restore@|\.\/\.github\/actions\/cache-restore$)/) bad=1 }
-  END { exit !(saw && !bad) }
-' <<<"$ADMISSION"; then
-  echo "FAIL: macos-compile-admission must restore the test compilation cache read-only and never save it"
+if ! grep -Fq -- "$KEY_PREFIX" "$NIGHTLY_FILE" \
+  || grep -F 'xcode-compilation-test-' "$NIGHTLY_FILE" | grep -vqF -- "$KEY_PREFIX"; then
+  echo "FAIL: nightly.yml must key the test compilation cache on the canonical fingerprint"
   exit 1
 fi
-echo "PASS: pull requests restore the test compilation cache read-only"
+echo "PASS: the seeder keys the test compilation cache on the canonical fingerprint"
+
+# Pull-request compile admission does not restore the test compilation cache.
+# Swift keys every compile job on its whole module, so the one-module `cmux`
+# app target (and cmuxUITests) missed on every file: 581 of 581 and 566 of 566
+# in two sampled admission logs on 2026-09-24, although the key, path and
+# Xcode matched the seed exactly. Only modules unchanged since the six-hourly
+# seed hit, and those are what the adopted DerivedData seed already leaves
+# up to date. The restore cost 13-43 s and a 932 MB download on every run.
+# Admission still computes the fingerprint: the DerivedData seed is keyed on it.
+if grep -Fq 'xcode-compilation-test-' <<<"$ADMISSION" \
+  || grep -Eq '^      - name: Restore test compilation cache' <<<"$ADMISSION"; then
+  echo "FAIL: macos-compile-admission must not restore the test compilation cache;"
+  echo "      the app target misses on every file and the DerivedData seed covers the rest"
+  exit 1
+fi
+if ! grep -Fq 'steps.compilation-cache-key.outputs.fingerprint' <<<"$ADMISSION"; then
+  echo "FAIL: macos-compile-admission must still key the DerivedData seed on the canonical fingerprint"
+  exit 1
+fi
+echo "PASS: pull requests skip the test compilation cache and keep the fingerprint for the seed"
 
 if ! awk '
   /^      - name: Restore test compilation cache/ { step="restore" }
@@ -114,19 +119,6 @@ if awk '
   exit 1
 fi
 echo "PASS: the seeder seeds from one clean build"
-
-# Admission is the opposite case and must keep its fallback: its exact key
-# names a base revision no seeder run built, so the prefix is the only way a
-# pull request ever finds the seed.
-if ! awk '
-  /^      - name: / { step = $0 }
-  step ~ /Restore test compilation cache/ && /^[[:space:]]+restore-keys:/ { found = 1 }
-  END { exit !found }
-' <<<"$ADMISSION"; then
-  echo "FAIL: macos-compile-admission must restore the seed by prefix, or it can never find one"
-  exit 1
-fi
-echo "PASS: pull requests find the seed by prefix"
 
 if ! grep -Eq "if: github\.event_name == 'schedule'" <<<"$SEEDER"; then
   echo "FAIL: refresh-test-compilation-cache must stay on the cache-warming schedule so it does not take a macOS slot per merge"
