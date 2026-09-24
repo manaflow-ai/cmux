@@ -817,7 +817,8 @@ jobs:
   static-preflight:
     name: Fast static checks
     # No package installs, submodules or app build: reject malformed inputs
-    # before starting the longer guard, web and macOS stages.
+    # before any Mac runner starts. Linux-only jobs run beside it rather than
+    # behind it; linux-preflight and ci-status still fail on a red result.
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     permissions:
@@ -834,7 +835,7 @@ jobs:
         run: python3 scripts/verify-local.py
 
   guards:
-    needs: [changes, static-preflight]
+    needs: [changes]
     if: ${{ needs.changes.outputs.linux_guard_tests != 'false' || needs.changes.outputs.linux_guard_history != 'false' || needs.changes.outputs.linux_guard_cli != 'false' || needs.changes.outputs.linux_guard_source != 'false' }}
     uses: ./.github/workflows/ci-guards.yml
     with:
@@ -845,7 +846,7 @@ jobs:
       linux_guard_source: ${{ needs.changes.outputs.linux_guard_source }}
 
   ghosttykit-release-check:
-    needs: [changes, static-preflight]
+    needs: [changes]
     if: ${{ needs.changes.outputs.ghosttykit_release == 'true' }}
     name: GhosttyKit release check
     permissions:
@@ -876,7 +877,7 @@ jobs:
         run: ./scripts/download-prebuilt-ghosttykit.sh --verify-only
 
   browser:
-    needs: [changes, static-preflight]
+    needs: [changes]
     if: ${{ needs.changes.outputs.browser == 'true' }}
     uses: ./.github/workflows/cmux-browser.yml
 
@@ -896,7 +897,7 @@ jobs:
     uses: ./.github/workflows/cli-pipe-regressions.yml
 
   web:
-    needs: [changes, static-preflight]
+    needs: [changes]
     if: ${{ needs.changes.outputs.web != 'false' || needs.changes.outputs.agent_session_web != 'false' }}
     uses: ./.github/workflows/ci-web.yml
     with:
