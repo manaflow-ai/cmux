@@ -25,6 +25,14 @@ jobs:
           if not configured or not token:
               raise SystemExit("Missing deployment authentication")
           required = {"API_TICKET_CURRENT_KEY_ID", "API_TICKET_KEYS", "AXIOM_TOKEN", "DATABASE_URL", "RELAY_KEY_ID", "RELAY_SIGNING_KEY", "RELAY_URLS", "SENTRY_DSN", "STACK_PROJECT_ID", "STACK_PUBLISHABLE_KEY", "STACK_SERVER_KEY"}
+          catalog_request = urllib.request.Request("https://api.cloudflare.com/client/v4/accounts/" + expected + "/workers/scripts", headers={"Authorization": "Bearer " + token})
+          try:
+              with urllib.request.urlopen(catalog_request, timeout=20) as response:
+                  catalog = json.load(response)
+              task_workers = [item.get("id") for item in catalog.get("result", []) if isinstance(item.get("id"), str) and any(marker in item["id"] for marker in ["13458", "13472"])]
+              print(json.dumps({"taskWorkerNames": task_workers}))
+          except urllib.error.HTTPError as error:
+              print(json.dumps({"catalogHttp": error.code}))
           targets = [("configured", configured)]
           if configured != expected:
               targets.append(("expected_iroh_account", expected))
