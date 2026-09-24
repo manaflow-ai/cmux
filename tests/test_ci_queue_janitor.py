@@ -422,8 +422,17 @@ class PlanTests(unittest.TestCase):
                          [exp_run["id"], merged_run["id"], closed_run["id"]])
         self.assertEqual([d.action for d in result.decisions], ["cancel", "cancel", "cancel"])
 
-        # 13 queued: experiment frees 2 -> 11, merged frees 1 -> 10; stop at 10.
+        # 13 queued: experiment frees 2 -> 11, merged frees 1 -> 10. The pool
+        # is no longer over 10, but a stale PR run is cancelled regardless.
         result = plan(runs, jobs, prs, threshold=10)
+        self.assertEqual([d.action for d in result.decisions], ["cancel", "cancel", "cancel"])
+
+        # Other categories stop once the projected queue is back under.
+        main_run, main_jobs = busy_main_push(queued=10)
+        exps = [make_run(event="push", branch=f"exp/stop-{i}", age=10 - i) for i in range(3)]
+        jobs = {main_run["id"]: main_jobs, **{r["id"]: mac_jobs(queued=1) for r in exps}}
+        # 13 queued: two experiments bring it to 11, which is not over 11.
+        result = plan([main_run, *exps], jobs, threshold=11)
         self.assertEqual([d.action for d in result.decisions], ["cancel", "cancel", "skip"])
 
     def test_stale_pr_runs_are_cancelled_below_the_threshold(self):

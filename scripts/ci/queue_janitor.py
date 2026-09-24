@@ -4,9 +4,10 @@
 Pull request macOS jobs share a few small runner pools (Blacksmith and
 GitHub-hosted macOS 15 and 26). When one is saturated, every queued job on it
 that nobody will read delays one that somebody will. This janitor looks at
-in-flight Actions runs, and only when the number of macOS jobs queued on one
-pool exceeds a threshold does it cancel runs that are waste and hold that
-pool, in this priority order:
+in-flight Actions runs and cancels runs that are waste, in this priority
+order. Stale pull request runs (b) are cancelled on every sweep; the other
+categories only when the number of macOS jobs queued on a pool they hold
+exceeds a threshold:
 
   a. push-triggered experiment workflows on ``exp/*`` branches;
   b. pull request runs whose PR is closed or merged, or whose head SHA is no
@@ -28,10 +29,12 @@ Draft pull requests are deliberately not a category: a draft can be an active
 integration branch other work depends on, and ci.yml has no ready_for_review
 trigger to replace a cancelled ci-status.
 
-A pool is the set of macOS labels a job asked for, so a run that only waits on
-a pool that is not backed up is never cancelled: that frees nothing anyone is
-waiting for. It stops as soon as every pool's projected queue is back under
-the threshold, or when it reaches the per-sweep cancel cap. Main pushes, merge groups, scheduled and
+A pool is the set of macOS labels a job asked for. Outside (b), a run that only
+waits on a pool that is not backed up is never cancelled: its output may still
+be read, and cancelling it frees nothing anyone is waiting for. A stale pull
+request run's output is never read, so it goes whatever the queue. Past (b) the
+sweep stops as soon as every pool's projected queue is back under the
+threshold. Every category shares the per-sweep cancel cap. Main pushes, merge groups, scheduled and
 dispatched runs on main, release/tag runs, nightly, and TestFlight/App Store
 workflows are never candidates, whatever their state.
 
@@ -517,14 +520,17 @@ def build_plan(
     cancels = 0
     for candidate in candidates:
         backed_up = {pool for pool, count in projected.items() if count > threshold}
-        if not backed_up:
-            busiest = max(projected.values(), default=0)
-            decisions.append(Decision(
-                candidate, "skip", f"busiest pool projected at {busiest} queued, not over {threshold}"))
-            continue
-        if not backed_up.intersection(candidate.usage.held_by_pool):
-            decisions.append(Decision(candidate, "skip", "its macOS jobs are on pools that are not backed up"))
-            continue
+        # Nobody reads a merged, closed or superseded PR's results, so that run
+        # is waste on any pool; every other category waits for a backed-up one.
+        if candidate.category != "stale-pr":
+            if not backed_up:
+                busiest = max(projected.values(), default=0)
+                decisions.append(Decision(
+                    candidate, "skip", f"busiest pool projected at {busiest} queued, not over {threshold}"))
+                continue
+            if not backed_up.intersection(candidate.usage.held_by_pool):
+                decisions.append(Decision(candidate, "skip", "its macOS jobs are on pools that are not backed up"))
+                continue
         if cancels >= max_cancels:
             decisions.append(Decision(candidate, "skip", f"per-sweep cap of {max_cancels} reached"))
             continue
@@ -614,7 +620,11 @@ def render_summary(plan: Plan, *, dry_run: bool, now: dt.datetime, results: Mapp
         lines.append("No wasteful macOS demand found.")
         return "\n".join(lines) + "\n"
     if not plan.over_threshold:
-        lines.append("No pool is over the threshold, so nothing is cancelled. Candidates seen:")
+        if plan.to_cancel():
+            lines.append("No pool is over the threshold, so only runs for merged, closed or superseded "
+                         "pull requests are cancelled. Candidates seen:")
+        else:
+            lines.append("No pool is over the threshold, so nothing is cancelled. Candidates seen:")
         lines.append("")
     lines.append("| Decision | Run | Workflow | Reason | Queued age | macOS jobs (queued/running) |")
     lines.append("| --- | --- | --- | --- | --- | --- |")
