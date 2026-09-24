@@ -480,11 +480,6 @@
       nodeHandlers.dragActive = state !== null;
       nodeHandlers.dragChange(state);
     }
-    if (event === "dragChange" && nodeHandlers.dragChange) {
-      const state = payload && payload.id !== undefined ? payload : null;
-      nodeHandlers.dragActive = state !== null;
-      nodeHandlers.dragChange(state);
-    }
     if (event === "doubletap" && nodeHandlers.doubletap) nodeHandlers.doubletap(payload);
     if (event === "submit" && nodeHandlers.submit) nodeHandlers.submit(payload ? payload.text : "");
     if (event === "cancel" && nodeHandlers.cancel) nodeHandlers.cancel(payload);
