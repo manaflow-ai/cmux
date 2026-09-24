@@ -573,7 +573,7 @@ final class CloudTuiManualMirrorSession {
             updatePresentationEpisode()
             synchronizePresentation()
             lastRemoteGrid = CloudTuiManualIOGrid(columns: columns, rows: rows)
-            if geometryClaimLossPending { geometryClaimLossPending = false; geometryClaimBlockedByPeer = !explicitGeometryClaimPending && lastRemoteGrid != resizeScheduler.desired }
+            if geometryClaimLossPending { geometryClaimLossPending = false; geometryClaimBlockedByPeer = !explicitGeometryClaimPending && lastRemoteGrid != resizeScheduler.desired; geometryClaimed = geometryClaimed && !geometryClaimBlockedByPeer }
             reconcileRemoteGrid()
         case let .output(surfaceID, bytes, colors):
             guard surfaceID == remoteSurfaceID else { return }
@@ -592,7 +592,7 @@ final class CloudTuiManualMirrorSession {
             updatePresentationEpisode()
             synchronizePresentation()
             lastRemoteGrid = CloudTuiManualIOGrid(columns: columns, rows: rows)
-            if geometryClaimLossPending { geometryClaimLossPending = false; geometryClaimBlockedByPeer = !explicitGeometryClaimPending && lastRemoteGrid != resizeScheduler.desired }
+            if geometryClaimLossPending { geometryClaimLossPending = false; geometryClaimBlockedByPeer = !explicitGeometryClaimPending && lastRemoteGrid != resizeScheduler.desired; geometryClaimed = geometryClaimed && !geometryClaimBlockedByPeer }
             reconcileRemoteGrid()
         case let .colorsChanged(surfaceID, colors):
             guard surfaceID == remoteSurfaceID else { return }
