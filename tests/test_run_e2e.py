@@ -1152,11 +1152,13 @@ class WorkflowRunnerPoolTests(unittest.TestCase):
         state["e2e_runs"][0]["status"] = "completed"
         load = self.pool.measure_load(FakeActions(state), now=NOW, exclude_run_id=501)
         self.assertEqual(dict(load.e2e_since), {})
-        # Replayed pull request runs spill to an idle macOS 15 pool, as they
-        # would for real. Replayed over macOS 26 alone they would push 12vcpu
-        # to 5 queued against 6vcpu's 4 and send E2E to 6vcpu.
+        # Replayed pull request runs stay on macOS 26 even beside an idle
+        # macOS 15 pool, whose missing seed costs more than a short queue
+        # (pr_runner_pool.COLD_QUEUE_PENALTY), as they would for real: they
+        # push 12vcpu to 5 queued against 6vcpu's 4, which sends E2E to 6vcpu.
         crowded = queue(large=3, small=4, old=0, old_running=0, pr_since=2)
-        self.assertEqual(self.decide(crowded)[0], LARGE)
+        self.assertEqual(self.decide(crowded)[0], SMALL)
+        self.assertEqual(self.decide(queue(large=3, small=4, old=0, old_running=0))[0], LARGE)
 
     def test_pull_request_runs_stay_on_their_lane_when_routing_is_off(self):
         pr = self.pool.pr_runner_pool

@@ -11,6 +11,13 @@ on:
         required: false
         default: ""
         type: string
+      # Set only when pr_runner is persistent (an owned Mac pool): the
+      # Blacksmith pool on the same Xcode that a re-run of failed jobs takes,
+      # because such a re-run reuses attempt 1's pick (pr_runner_pool.py).
+      pr_retry_runner:
+        required: false
+        default: ""
+        type: string
       pr_xcode_app:
         required: false
         default: ""
@@ -26,7 +33,7 @@ concurrency:
 
 jobs:
   cli-pipe-regressions:
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (startsWith(inputs.pr_runner, 'blacksmith-') && inputs.pr_runner || 'blacksmith-6vcpu-macos-15') || github.event_name == 'pull_request' && (inputs.pr_runner || vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15') || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15') }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (startsWith(inputs.pr_runner, 'blacksmith-') && inputs.pr_runner || 'blacksmith-6vcpu-macos-15') || github.event_name == 'pull_request' && (github.run_attempt > 1 && inputs.pr_retry_runner || inputs.pr_runner || vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15') || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15') }}
     timeout-minutes: 30
     env:
       CMUX_CI_XCODE_APP: ${{ github.event_name == 'pull_request' && (inputs.pr_xcode_app || github.event.pull_request.head.repo.full_name == github.repository && vars.CMUX_CI_XCODE_APP_PR || vars.CMUX_CI_XCODE_APP_MACOS_15) || vars.CMUX_CI_XCODE_APP_MACOS_15 }}
@@ -34,12 +41,27 @@ jobs:
       # restore needs this set here.
       CI_CACHE_R2_PUBLIC_URL: ${{ vars.CI_CACHE_R2_PUBLIC_URL || 'https://ci-cache.cmux.com' }}
     steps:
+      # Start from main's git objects, so checkout fetches only what changed
+      # since then instead of the whole tree and its submodules
+      # (scripts/ci/git-seed.sh). The script is read at this commit over HTTPS
+      # because nothing is checked out yet. A miss leaves the workspace empty
+      # and checkout clones as before.
+      - name: Restore git object seed
+        continue-on-error: true
+        timeout-minutes: 3
+        run: |
+          set -euo pipefail
+          script="$RUNNER_TEMP/git-seed.sh"
+          curl --fail --silent --show-error --location --connect-timeout 10 --max-time 30 \
+            -o "$script" "https://raw.githubusercontent.com/$GITHUB_REPOSITORY/$GITHUB_SHA/scripts/ci/git-seed.sh"
+          bash "$script" restore "$GITHUB_WORKSPACE"
+
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
 
       - name: Initialize local Swift package dependency
-        run: git submodule update --init --depth 1 vendor/bonsplit
+        run: scripts/ci/git-seed.sh update-submodules "$GITHUB_WORKSPACE" vendor/bonsplit
 
       - name: Select Xcode
         run: ./scripts/select-ci-xcode.sh
@@ -47,7 +69,7 @@ jobs:
       - name: Initialize Ghostty and download its binary framework
         run: |
           set -euo pipefail
-          git submodule update --init --depth 1 ghostty
+          scripts/ci/git-seed.sh update-submodules "$GITHUB_WORKSPACE" ghostty
           ./scripts/download-prebuilt-ghosttykit.sh
 
       - name: Install Rust toolchain
