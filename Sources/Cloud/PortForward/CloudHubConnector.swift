@@ -66,12 +66,15 @@ struct CloudHubConnector: Sendable {
     ///
     /// Redials serve addresses that have not answered. A candidate whose last
     /// attempt failed outright (a SOCKS refusal) is not redialed while another
-    /// candidate is still waiting for its head start or has an attempt in
-    /// flight: the refusal already answered, and redialing it would dial the
-    /// failed family on every connection of a burst. Once every candidate has
-    /// failed, all of them are redialed, which covers a new machine whose
-    /// listener is not open yet. Each candidate keeps its own redial timer, so a
-    /// redial never starts a fallback before its `fallbackDelay` ends.
+    /// candidate is still waiting for its head start, or has had an attempt in
+    /// flight for less than `fallbackDelay`: the refusal already answered, and
+    /// redialing it would dial the failed family on every connection of a
+    /// burst. A family silent for longer than that may be blackholed, so the
+    /// refused one is redialed again, which covers a new machine whose listener
+    /// is not open yet while its other family never answers. Once every
+    /// candidate has failed, all of them are redialed. Each candidate keeps its
+    /// own redial timer, so a redial never starts a fallback before its
+    /// `fallbackDelay` ends.
     static func hedged<Value: Sendable>(
         candidates: Int,
         fallbackDelay: Duration,
@@ -113,7 +116,13 @@ struct CloudHubConnector: Sendable {
                 }
             }
             func anotherCandidateIsPending(besides index: Int) -> Bool {
-                (0..<candidates).contains { $0 != index && (!started[$0] || inFlight[$0] > 0) }
+                (0..<candidates).contains { other in
+                    guard other != index else { return false }
+                    guard started[other] else { return true }
+                    // Redial ticks measure how long the other family has gone
+                    // unanswered; past its head start it may be blackholed.
+                    return inFlight[other] > 0 && !failed[other] && redialInterval * redials[other] < fallbackDelay
+                }
             }
 
             for index in 0..<candidates {
