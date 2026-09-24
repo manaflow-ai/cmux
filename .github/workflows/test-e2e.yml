@@ -86,6 +86,11 @@ jobs:
       # e2e_runner_pool.py only knows the manaflow-ai pools, so a fork takes
       # the GitHub-hosted image here, as in run-name and the concurrency group.
       label: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || steps.pool.outputs.label }}
+      # job_timeout plus the time the build job may spend waiting for an
+      # earlier dispatch's compile of the same revision (e2e_sibling_build.py),
+      # so waiting never shortens the time left to compile. Expressions cannot
+      # add, so a step does it.
+      build_timeout: ${{ steps.budget.outputs.build_timeout }}
     steps:
       # The helper comes from this workflow's revision, not the tested one,
       # which may predate it.
@@ -117,6 +122,16 @@ jobs:
             --order "$POOL_ORDER" \
             --max-queued "$POOL_MAX_QUEUED")"
           echo "label=$label" >> "$GITHUB_OUTPUT"
+
+      - name: Budget the build job
+        id: budget
+        env:
+          JOB_TIMEOUT: ${{ inputs.job_timeout || '45' }}
+          SIBLING_WAIT_MINUTES: "30"
+        run: |
+          set -euo pipefail
+          case "$JOB_TIMEOUT" in ''|*[!0-9]*) echo "job_timeout must be whole minutes" >&2; exit 1 ;; esac
+          echo "build_timeout=$((JOB_TIMEOUT + SIBLING_WAIT_MINUTES))" >> "$GITHUB_OUTPUT"
           echo "Runner: $label (requested ${REQUESTED_RUNNER:-auto})"
 
   filter:
@@ -256,7 +271,7 @@ jobs:
     permissions:
       contents: read
       actions: read
-    timeout-minutes: ${{ fromJSON(inputs.job_timeout || '45') }}
+    timeout-minutes: ${{ fromJSON(needs.runner.outputs.build_timeout || '75') }}
     outputs:
       artifact_id: ${{ steps.upload-product.outputs.artifact-id }}
       artifact_digest: ${{ steps.upload-product.outputs.artifact-digest }}
@@ -395,19 +410,20 @@ jobs:
         continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
-          JOB_TIMEOUT_MINUTES: ${{ inputs.job_timeout || '45' }}
+          # Matches SIBLING_WAIT_MINUTES in the runner job, which adds it to
+          # this job's timeout.
+          CMUX_E2E_SIBLING_WAIT_SECONDS: "1800"
         run: |
           set -euo pipefail
           # Dispatches of one commit with other selectors run in other
-          # concurrency groups. When an earlier one is still compiling this
-          # revision, wait for its product (e2e_sibling_build.py) and restore
-          # that, leaving 25 minutes of the job for a compile if it fails.
+          # concurrency groups. When an earlier one is compiling this revision
+          # on a runner now, wait for its product (e2e_sibling_build.py) and
+          # restore that; the wait has its own 30 minutes of this job's timeout.
           first="$RUNNER_TEMP/reuse-first-attempt.out"
           GITHUB_OUTPUT="$first" python3 scripts/ci/reuse_app_host_products.py restore "$CMUX_DERIVED_DATA_PATH"
           if ! grep -qx 'hit=true' "$first" \
             && [ -f scripts/ci/e2e_sibling_build.py ] \
-            && CMUX_E2E_SIBLING_WAIT_SECONDS=$(( (JOB_TIMEOUT_MINUTES - 25) * 60 )) \
-              python3 scripts/ci/e2e_sibling_build.py wait; then
+            && python3 scripts/ci/e2e_sibling_build.py wait; then
             python3 scripts/ci/reuse_app_host_products.py restore "$CMUX_DERIVED_DATA_PATH"
           else
             cat "$first" >> "$GITHUB_OUTPUT"

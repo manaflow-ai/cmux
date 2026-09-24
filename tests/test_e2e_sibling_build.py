@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib.util
+import re
 from pathlib import Path
 import unittest
 
@@ -52,7 +53,7 @@ class Fake:
 
 class SiblingWaitTests(unittest.TestCase):
     def test_waits_for_an_earlier_compile_of_the_same_revision(self) -> None:
-        fake = Fake([run(90)], [("in_progress", None), ("in_progress", None), ("completed", "success")])
+        fake = Fake([run(90)], [("in_progress", None)] * 3 + [("completed", "success")])
         self.assertTrue(fake.wait())
         self.assertEqual(fake.sleeps, 2)
 
@@ -61,7 +62,13 @@ class SiblingWaitTests(unittest.TestCase):
         self.assertFalse(fake.wait())
 
     def test_a_cancelled_run_before_its_build_finishes_ends_the_wait(self) -> None:
-        fake = Fake([run(90)], [("queued", None)], run_status="completed")
+        fake = Fake([run(90)], [("in_progress", None)], run_status="completed")
+        self.assertFalse(fake.wait())
+        self.assertEqual(fake.sleeps, 0)
+
+    def test_a_compile_still_queued_for_a_runner_is_not_waited_for(self) -> None:
+        # Waiting would hold this runner idle while the other waits for one.
+        fake = Fake([run(90)], [("queued", None)])
         self.assertFalse(fake.wait())
         self.assertEqual(fake.sleeps, 0)
 
@@ -105,6 +112,14 @@ class WorkflowTests(unittest.TestCase):
         # A tested revision older than the helper compiles as before.
         self.assertIn("[ -f scripts/ci/e2e_sibling_build.py ]", step)
         self.assertIn('cat "$first" >> "$GITHUB_OUTPUT"', step)
+
+    def test_the_wait_has_its_own_share_of_the_build_timeout(self) -> None:
+        text = (ROOT / ".github/workflows/test-e2e.yml").read_text()
+        added = int(re.search(r'SIBLING_WAIT_MINUTES: "(\d+)"', text).group(1))
+        waited = int(re.search(r'CMUX_E2E_SIBLING_WAIT_SECONDS: "(\d+)"', text).group(1))
+        self.assertEqual(added * 60, waited)
+        build = text[text.index("\n  build:\n"):text.index("\n  test:\n")]
+        self.assertIn("timeout-minutes: ${{ fromJSON(needs.runner.outputs.build_timeout", build)
 
 
 if __name__ == "__main__":
