@@ -76,12 +76,13 @@ struct CmxConnectivityPeerSessionTests {
 
         _ = try await peer.connectedSession(for: request)
         try await Self.waitUntil { await session.hasSelectedPathObserver() }
+        // The selected-path stream buffers only the newest value, so publish
+        // each change only after the observer recorded the previous one.
+        #expect(await Self.waitForSelectedPathEvents(log, atLeast: 1))
         await session.publishSelectedPath(.relay(url: "https://relay.example"))
+        #expect(await Self.waitForSelectedPathEvents(log, atLeast: 2))
         await session.publishSelectedPath(.privateNetwork)
-        try await Self.waitUntil {
-            let events = await log.snapshot().events
-            return events.filter { $0.code == .selectedPathChanged }.count >= 3
-        }
+        #expect(await Self.waitForSelectedPathEvents(log, atLeast: 3))
 
         let report = await log.snapshot()
         let pathEvents = report.events.filter { $0.code == .selectedPathChanged }
@@ -765,6 +766,25 @@ struct CmxConnectivityPeerSessionTests {
             expectedPeerDeviceID: deviceID,
             authorizationMode: .transportAdmission
         )
+    }
+
+    /// Deadline-bounded poll of the retained selected-path events. The log
+    /// drains on its own task, so a fixed yield budget can expire before it runs.
+    private static func waitForSelectedPathEvents(
+        _ log: DiagnosticLog,
+        atLeast expectedCount: Int,
+        timeout: Duration = .seconds(2)
+    ) async -> Bool {
+        func count() async -> Int {
+            await log.snapshot().events.filter { $0.code == .selectedPathChanged }.count
+        }
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: timeout)
+        while clock.now < deadline {
+            if await count() >= expectedCount { return true }
+            await Task.yield()
+        }
+        return await count() >= expectedCount
     }
 
     private static func waitUntil(

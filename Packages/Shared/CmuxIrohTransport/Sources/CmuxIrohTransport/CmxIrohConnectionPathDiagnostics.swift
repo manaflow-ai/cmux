@@ -10,8 +10,10 @@ public final class CmxIrohConnectionPathDiagnostics: Sendable {
 
     public init(connection: Connection, diagnosticLog: DiagnosticLog) {
         let observer = Observer(connection: connection, log: diagnosticLog)
-        observer.recordSelectedPath()
+        // Subscribe before the initial snapshot so a selection change between
+        // the two cannot go unrecorded; the log drops a duplicate snapshot.
         let handle = connection.watchPathEvents(callback: observer)
+        observer.recordSelectedPath()
         lifetime = Task {
             await withTaskCancellationHandler {
                 _ = await connection.closed()
