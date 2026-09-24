@@ -436,6 +436,15 @@ describe("claude upstream routes", () => {
     expect(store.rows.size).toBe(2);
   });
 
+  test("a member's malformed token is a validation error, not a permission error", async () => {
+    const { collection, store, actAs } = handlers();
+    actAs(member);
+    const response = await collection.POST(json("POST", { kind: "anthropic_oauth", token: "sk-ant-not-a-real-token", label: "hq-repro" }));
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({ error: "invalid_request" });
+    expect(store.rows.size).toBe(0);
+  });
+
   test("sharing a new account with the team needs account administration", async () => {
     const { collection, store, actAs } = handlers();
     actAs(member);
