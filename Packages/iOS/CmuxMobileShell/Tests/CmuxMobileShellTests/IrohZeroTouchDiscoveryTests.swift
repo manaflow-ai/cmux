@@ -775,6 +775,43 @@ struct IrohZeroTouchDiscoveryTests {
         #expect(fixture.factory.attemptedRouteIDs().isEmpty)
     }
 
+    @Test
+    func v2UpgradeReconcilesSavedComputerBeforeItsFirstDial() async throws {
+        let live = try candidate(deviceID: "v2-installation", endpointByte: "a")
+        let discovery = ScriptedIrohDiscovery(snapshots: [[live]])
+        discovery.usesAuthoritativeDeviceIDs = true
+        let fixture = try await makeFixture(discovery: discovery, reportedDeviceID: live.deviceID)
+        defer { fixture.cleanup() }
+        var oldRoute = live.routes[0]
+        oldRoute = try CmxAttachRoute(id: "legacy-route", kind: oldRoute.kind,
+                                     endpoint: oldRoute.endpoint)
+        try await fixture.store.upsert(macDeviceID: "old-physical-mac", displayName: "My Mac",
+                                       routes: [oldRoute], instanceTag: live.instanceTag,
+                                       markActive: true, stackUserID: "user-1", teamID: nil,
+                                       now: Self.fixedNow)
+        try await fixture.store.setCustomization(macDeviceID: "old-physical-mac", instanceTag: live.instanceTag,
+                                                 customName: "Office", customColor: "palette:2", customIcon: "house",
+                                                 stackUserID: "user-1", teamID: nil, now: Self.fixedNow)
+
+        #expect(await fixture.shell.reconnectActiveMacIfAvailable(stackUserID: "user-1"))
+        #expect(fixture.factory.attemptedRouteIDs() == [live.routes[0].id])
+        let rows = try await fixture.store.loadAll(stackUserID: "user-1", teamID: nil)
+        #expect(rows.count == 1)
+        #expect(rows.first?.macDeviceID == live.deviceID)
+        #expect(rows.first?.customName == "Office")
+        #expect(rows.first?.customColor == "palette:2")
+        #expect(rows.first?.isActive == true)
+    }
+
+    @Test
+    func secondaryRecoverySchedulesWithoutLegacyPresence() async throws {
+        let fixture = try await makeFixture(candidates: [], reportedDeviceID: "mac")
+        defer { fixture.cleanup() }
+        fixture.shell.scheduleSecondaryAggregationRetry(macDeviceIDs: ["mac"], needsFullRefresh: true)
+        #expect(fixture.shell.secondaryAggregationRetryTask != nil)
+        fixture.shell.cancelSecondaryAggregationRetry()
+    }
+
     private func makeFixture(
         candidates: [MobileDiscoveredIrohMac],
         reportedDeviceID: String,
@@ -894,6 +931,7 @@ private final class RoutedZeroTouchFactory: CmxByteTransportFactory, @unchecked 
 
 @MainActor
 private final class ScriptedIrohDiscovery: MobileIrohMacDiscovering {
+    var usesAuthoritativeDeviceIDs = false
     private var snapshots: [[MobileDiscoveredIrohMac]]
     private var calls = 0
 
