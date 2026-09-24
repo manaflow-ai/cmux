@@ -65,8 +65,8 @@ final class WorkspaceNavigationControlView: UIView {
         guard self.placement != placement || self.isLandscape != isLandscape else { return }
         self.placement = placement
         self.isLandscape = isLandscape
-        let leading = placement == .trailing && isLandscape ? 3 : 8
-        let trailing = placement == .leading && isLandscape ? -3 : 8
+        let leading: CGFloat = placement == .trailing && isLandscape ? 3 : 8
+        let trailing: CGFloat = placement == .leading && isLandscape ? -3 : 8
         layoutMargins = UIEdgeInsets(top: 8, left: leading, bottom: 8, right: trailing)
         refreshContentSize()
     }
