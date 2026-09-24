@@ -346,9 +346,13 @@ not a relabelled dev-build machine.
 
 ### 3.3 Xcode versions
 
-The mini must carry the exact app at `vars.CMUX_CI_XCODE_APP_MACOS_15`
-(currently `/Applications/Xcode_26.3.app`) with a macOS SDK major of 26, and
-`scripts/select-ci-xcode.sh` must resolve it.
+The mini must carry the exact app at `vars.CMUX_CI_XCODE_APP_PR ||
+vars.CMUX_CI_XCODE_APP_MACOS_15` with a macOS SDK major of 26, and
+`scripts/select-ci-xcode.sh` must resolve it. `scripts/persistent-compile`
+reads those variables rather than a copy of the path, so `up` and the doctor
+check each mini against the value CI uses today and print it.
+The build number matters too: revalidation compares the full `xcodebuild
+-version`, so the mini's Xcode must be the same build as the hosted image's.
 
 Drift is now a guard failure rather than a silent waste:
 `check_persistent_compile_owned_mac_occupancy` compares the producer's
@@ -433,34 +437,41 @@ compile. Until glaeda #1058's drain
 primitive lands, do not drain with `cmux_fleet.py transition-apply` alone; that
 leaves the machine taking work.
 
-Quarantine, with one of the eight reviewed reasons (`toolchain_mismatch`,
-`disk_pressure`, `failed_acceptance`, `dirty_canonical_checkout`,
-`service_mismatch`, `hardware_failure`, `stale_glaeda_generation`,
-`unexplained_process_settlement`):
+Quarantine, on the mini, with one of the eight reviewed reasons
+(`toolchain_mismatch`, `disk_pressure`, `failed_acceptance`,
+`dirty_canonical_checkout`, `service_mismatch`, `hardware_failure`,
+`stale_glaeda_generation`, `unexplained_process_settlement`):
 
 ```sh
-python3 scripts/cmux_fleet.py transition-apply "$ENROLLMENT" \
-  --to quarantined --reason disk_pressure
+scripts/persistent-compile quarantine disk_pressure   # --now does not wait for a running job
+scripts/persistent-compile up                         # once fixed: re-runs acceptance, then starts the runner
 ```
+
+Like `drain`, it moves Glaeda and stops the runner. Quarantining with
+`cmux_fleet.py transition-apply` alone has the same trap as draining with it.
 
 ### 3.6 When a mini is offline
 
-Nothing happens, and that is the design. The router's artifact poll finds no
-producer and prints "No trusted persistent route request was published; hosted
-admission remains authoritative", then exits 0. The hosted job's
-`--observe-only --ready-only` probe reports `producer_not_ready` and compiles
-hosted immediately, without waiting. `route.fallback()` always returns 0: a
-hosted fallback is not an error.
+PRs still pass, but each routed one wastes a little. The PR publishes its
+route request, the router dispatches a producer, and the producer's job waits
+for a runner that never comes. After `CI_PERSISTENT_MAC_QUEUE_SECONDS` (90 by
+default) the router cancels it and records `queue_timeout`. Meanwhile the hosted
+job's `--observe-only --ready-only` probe has already reported
+`producer_not_ready` and compiled hosted without waiting. `route.fallback()`
+always returns 0: a hosted fallback is not an error.
 
-The failure mode to watch for is not "the fleet is down". It is "the fleet is
-up, slow, and every PR pays the observation without getting the artifact" -
-which costs seconds, not minutes, but shows up as a hit rate near zero in the
-metrics.
+So an offline fleet costs one Linux router job of about 90 seconds per routed
+PR, not a slower check. `scripts/persistent-compile` reports routing that is on
+with no healthy runner, and `all` asks before it turns routing on in that state.
+
+The other failure mode is "the fleet is up, slow, and every PR pays the
+observation without getting the artifact". That costs seconds, not minutes, but
+shows up as a hit rate near zero in the metrics.
 
 Full stop, one command, no deploy:
 
 ```sh
-gh variable set CI_PERSISTENT_MAC_COMPILE --repo manaflow-ai/cmux -b off
+scripts/persistent-compile off
 ```
 
 ## 4. Who owns what
@@ -560,8 +571,8 @@ token is valid for one hour.
       `glaeda-cmux-fleet-acceptance/v2` receipt and state `eligible` (#13491).
 - [ ] That mini registered as an Actions runner in that group with exactly the
       labels in 3.2.
-- [ ] `/Applications/Xcode_26.3.app` present and selected by
-      `scripts/select-ci-xcode.sh`.
+- [ ] The Xcode that `scripts/persistent-compile` names from the CI
+      variables present and selected by `scripts/select-ci-xcode.sh`.
 - [ ] Free space above one full cold build plus three cache generations.
 
 ### Stage 1 - canary, one mini, one lane, one PR

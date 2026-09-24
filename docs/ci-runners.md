@@ -4,10 +4,8 @@ Every CI/CD job picks its runner from a repository variable instead of a
 hardcoded label. Changing a runner type is a single repository-variable update
 that takes effect on the next workflow run.
 
-Linux uses Blacksmith. macOS uses Blacksmith cloud runners, with same-repository
-pull-request app-host shards deliberately striped across Blacksmith and
-GitHub-hosted macOS 15/26 capacity. The self-hosted Tart fleet described below
-carries specific lanes as they are qualified. WarpBuild is paid overflow and is
+Linux uses Blacksmith. macOS uses Blacksmith cloud runners. The self-hosted
+Tart fleet described below carries specific lanes as they are qualified. WarpBuild is paid overflow and is
 not a steady state for any lane. Non-urgent macOS work also uses free
 GitHub-hosted runners through the background lane described below.
 
@@ -24,7 +22,7 @@ gh variable list --repo manaflow-ai/cmux
 | `LINUX_RUNNER` | every Linux job (`ci.yml` web/typecheck/db, presence, cloud-vm, nightly/ios decide jobs, claude, homebrew, tmux fuzz) | `blacksmith-4vcpu-ubuntu-2404` | `blacksmith-4vcpu-ubuntu-2404` |
 | `LINUX_ARM64_RUNNER` | native ARM64 package entrypoint verification | `ubuntu-24.04-arm` | `ubuntu-24.04-arm` |
 | `MACOS_RUNNER_15` | the macOS 15 default: `macos-compile-admission`, non-PR `app-host-unit-tests`, nightly helper and test-cache jobs, `iroh-release-gate.yml` streamed validation | `blacksmith-6vcpu-macos-15` | `blacksmith-6vcpu-macos-15` |
-| `MACOS_RUNNER_PR` | **pull-request** macOS jobs except the striped `app-host-unit-tests` matrix, in `ci-macos.yml`, `cli-pipe-regressions.yml`, `terminal-hang-diagnostics.yml`, `ci.yml` (`claude-wrapper`) and `nightly.yml` (`refresh-test-compilation-cache`) | unset (see "Lanes" below) | `blacksmith-6vcpu-macos-15` |
+| `MACOS_RUNNER_PR` | **pull-request** macOS jobs in `ci-macos.yml` (the app-host shards and `tests-build-and-lag` follow `macos-compile-admission`), `cli-pipe-regressions.yml`, `terminal-hang-diagnostics.yml`, `ci.yml` (`claude-wrapper`) and `nightly.yml` (`refresh-test-compilation-cache`) | unset (see "Lanes" below) | `blacksmith-6vcpu-macos-15` |
 | `MACOS_RUNNER_TESTS` | test-only lanes that pick their Xcode by SDK and sign nothing: `test-e2e.yml`, `test-macos-suite.yml`, `test-ios.yml` (`auto`) and the `iroh-v2.yml` client | unset (see "Lanes" below) | each lane's own variable or Blacksmith label: `blacksmith-6vcpu-macos-26` for `test-e2e.yml`, `blacksmith-6vcpu-macos-15` for `test-macos-suite.yml`, `MACOS_RUNNER_IOS` for `test-ios.yml` and `iroh-v2.yml` |
 | `MACOS_RUNNER_DUAL_XCODE` | `swift-package-tests` (SDK 15 release helper, then SDK 26 package tests) on **every** event, pull requests included | `blacksmith-6vcpu-macos-15` | `blacksmith-6vcpu-macos-15` |
 | `MACOS_RUNNER_26` | the macOS 26 image: compatibility jobs, `release.yml` and nightly sign/notarize, the disk-heavy `release-build` universal app, and the nightly compilation-cache warmer | `blacksmith-6vcpu-macos-26` | `blacksmith-6vcpu-macos-26` |
@@ -105,12 +103,19 @@ the same cost profile or the same urgency.
 Xcode pin still have to agree, because `scripts/select-ci-xcode.sh` exits
 non-zero on a pinned path that is absent.
 
-Same-repository pull-request app-host shards are the exception: they span
-pools whose images carry different Xcodes (26.3 on `macos-15`, 26.6 on
-`macos-26`), so they pin none. Each takes the newest stable Xcode with the
-macOS 26 SDK on its machine, and `app_host_test_products.py restore` accepts
-the compile-admission product under any Xcode of the same major version. It
-still rejects another revision, architecture or major Xcode.
+Every job that consumes the compile-admission product runs on
+`macos-compile-admission`'s pool and pins its Xcode. `app-host-unit-tests`
+reads both from the admission's `runner` and `xcode_app` outputs, so it follows
+any routing change there. `tests-build-and-lag` restates the admission's
+expressions (paid overflow may move its non-PR runs to `MACOS_RUNNER_DISPLAY`
+under the same macOS 15 pin), and `tests/test_ci_change_areas.py` fails when
+the two drift apart. The cmuxTests bundle only
+loads under the Xcode that linked it: a bundle linked by 26.6 (`macos-26`)
+imports Testing.framework symbols 26.3 (`macos-15`) lacks and fails to dlopen
+before running a test. `app_host_test_products.py restore` refuses a product
+built by a newer Xcode than the job's, naming both, as well as another
+revision, architecture or major Xcode. `app-host-test-rerun.yml` runs on the
+Blacksmith pool whose macOS matches the source run's compile admission.
 
 For the other pull-request jobs, the pin follows `MACOS_RUNNER_PR` through
 `CMUX_CI_XCODE_APP_PR`, and the two are set together:
