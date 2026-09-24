@@ -71,9 +71,10 @@ the same cost profile or the same urgency.
   `MACOS_RUNNER_*` variables above. This is the lane where a slow or queued
   runner blocks a merge or a ship, so it is the lane worth paying for if paid
   capacity is ever warranted.
-- **Pull requests** resolve through `MACOS_RUNNER_PR` first. Unset means
-  Blacksmith. PR runs are cancelled on supersession by design, so they are the
-  wrong place to spend elastic paid capacity.
+- **Pull requests on `manaflow-ai/cmux`** resolve through `MACOS_RUNNER_PR`
+  first. Unset means the Blacksmith fallback. PR runs are cancelled on
+  supersession by design, so they are the wrong place to spend elastic paid
+  capacity. A fork uses the GitHub-hosted branch described below instead.
 - **Manual test debugging** (`test-e2e.yml`, `test-macos-suite.yml`) resolves through
   `MACOS_RUNNER_TESTS`, and deliberately does **not** follow `MACOS_RUNNER_15`.
   Re-running one test to chase a flake should never reach for paid capacity.
@@ -143,18 +144,25 @@ request both resolve through `MACOS_RUNNER_PR`, so a job reading only
 not on. `check_macos_runner_identity_env_tracks_routing` in
 `tests/test_ci_self_hosted_guard.sh` enforces that.
 
-Workflows reference them as `runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}`.
-If a variable is unset the job uses the fallback, so CI is never broken by a
-missing variable. Pull requests from forks never see repository variables, so
-the fallback is where they always run: it must be a Blacksmith label, never the
-paid Warp overflow. `tests/test_ci_self_hosted_guard.sh` enforces that, and
-also asserts that no workflow names a Warp label as a literal anywhere.
+Every workflow exercised by a `pull_request` — including local reusable
+workflows reached through `workflow_call` — has an explicit repository-owner
+branch before runner variables are consulted. On `manaflow-ai/cmux`, existing
+repository variables and their Blacksmith fallbacks behave exactly as above. On
+every other owner, Linux jobs use `ubuntu-24.04` and macOS jobs use
+`macos-15` from GitHub Actions.
 
-Because forks cannot see repository variables, a fork pull request resolves
-`MACOS_RUNNER_PR` and `MACOS_RUNNER_TESTS` to empty and lands on the Blacksmith
-fallback, never on paid capacity. `test-e2e.yml` is `workflow_dispatch`-only,
-so a fork never reaches its fallback at all; for the lanes a fork does reach,
-the fallback is still the runner they used before these variables existed.
+That is the fork contract: **a fork needs zero runner variables and zero runner
+provider setup to run its pull-request workflows.** Blacksmith is an
+organization-level GitHub App; naming a `blacksmith-*` label in a personal
+fork does not produce a useful error, it leaves the job queued indefinitely.
+The fork branch therefore short-circuits before any `MACOS_RUNNER_*` or
+`LINUX_RUNNER` value can select organization-only capacity.
+
+`tests/test_ci_fork_runner_routing.py` discovers every `pull_request`
+workflow, recursively follows its local reusable-workflow calls, and requires
+every variable-routed `runs-on` in that closure to contain a hosted fork
+branch. The upstream branch still keeps literal Blacksmith fallbacks so deleting
+a repository variable cannot silently change `manaflow-ai/cmux` capacity.
 
 ## Background lane
 
