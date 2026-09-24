@@ -7,7 +7,7 @@ the global EndpointID ownership map and the corresponding owner counts. Device
 registrations, challenges, permissions, directory state and rate limits remain
 in Durable Object SQLite. Credentials do not create a row per issuance.
 
-The shared development Worker is `cmux-iroh-v2-development`. For isolated
+The shared development Worker is `cmux-v2-development`. For isolated
 branch work, deploy a suffixed Worker:
 
 ```sh
@@ -46,3 +46,13 @@ checks repeated writes and rejects a conflicting identity without adding rows:
 `IROH_V2_OWNERSHIP_SMOKE_DATABASE_URL` selects the database for
 `bun test ./live/ownership-database.test.ts`. Supply the URL through a private
 environment file. Keep this live check separate from the local workerd suite.
+
+The canonical Worker names are `cmux-v2`, `cmux-v2-staging`, and
+`cmux-v2-development`. The former `cmux-iroh-v2*` names remain compatibility
+aliases. They contain only a Cloudflare service binding to the matching
+canonical Worker, so old app builds use the same Durable Object namespaces and
+PlanetScale records. Deploy aliases with
+`./scripts/deploy-compatibility-aliases.sh` after a canonical rename or when
+refreshing their forwarding code. Do not deploy an old-name alias with the
+main Worker configuration, because that would try to provision a second set of
+Durable Object namespaces.

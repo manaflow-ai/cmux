@@ -1,6 +1,6 @@
 {
   "$schema": "../node_modules/wrangler/config-schema.json",
-  "name": "cmux-iroh-v2-control-test",
+  "name": "cmux-v2-control-test",
   "main": "control-worker.ts",
   "compatibility_date": "2026-09-10",
   "compatibility_flags": ["nodejs_compat"],

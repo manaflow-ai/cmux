@@ -150,7 +150,7 @@ test("the web controller loads the directory over a real dashboard socket", asyn
   let sessionRequests = 0;
   globalThis.fetch = (async (input, init) => {
     const request = new Request(input, init);
-    expect(request.url).toBe("https://cmux-iroh-v2.debussy.workers.dev/v2/dashboard/session");
+    expect(request.url).toBe("https://cmux-v2.debussy.workers.dev/v2/dashboard/session");
     expect(request.headers.get("authorization")).toBe("Bearer fixture-access");
     const setup = await request.json() as any;
     const ticket = await issueDashboardTicket({
@@ -162,7 +162,7 @@ test("the web controller loads the directory over a real dashboard socket", asyn
   }) as typeof fetch;
   globalThis.WebSocket = class extends NodeWebSocket {
     constructor(url: string, protocols: string[]) {
-      expect(url).toBe("wss://cmux-iroh-v2.debussy.workers.dev/v2/dashboard/socket");
+      expect(url).toBe("wss://cmux-v2.debussy.workers.dev/v2/dashboard/socket");
       super(fixtureURL.href, protocols, { headers: { origin: "https://cmux.com" } });
     }
   } as unknown as typeof WebSocket;
@@ -170,7 +170,7 @@ test("the web controller loads the directory over a real dashboard socket", asyn
   let rejectDirectory!: (reason: Error) => void;
   const result = new Promise<any>((resolve, reject) => { resolveDirectory = resolve; rejectDirectory = reject; });
   const controller = new V2DashboardController({
-    origin: "https://cmux-iroh-v2.debussy.workers.dev", environment, projectId, teamId, userId,
+    origin: "https://cmux-v2.debussy.workers.dev", environment, projectId, teamId, userId,
     getStackToken: async () => "fixture-access", onDirectory: resolveDirectory,
     onError: message => rejectDirectory(new Error(message)),
   });

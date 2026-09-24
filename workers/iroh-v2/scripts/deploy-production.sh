@@ -6,8 +6,8 @@ set -euo pipefail
 readonly account_id="${CLOUDFLARE_ACCOUNT_ID:-}"
 readonly expected_account="0c1675e0def6de1ab3a50a4e17dc5656"
 readonly expected_project="9790718f-14cd-4f7e-824d-eaf527a82b82"
-readonly worker_name="cmux-iroh-v2"
-readonly worker_url="https://cmux-iroh-v2.debussy.workers.dev"
+readonly worker_name="cmux-v2"
+readonly worker_url="https://cmux-v2.debussy.workers.dev"
 
 if [[ "$account_id" != "$expected_account" ]]; then
   echo "refusing production deploy: invalid production account configuration" >&2

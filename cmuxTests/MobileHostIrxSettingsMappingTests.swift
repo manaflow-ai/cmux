@@ -248,10 +248,10 @@ struct MobileHostV2ConfigurationTests {
             )
             #if DEBUG
             #expect(configuration.environment == "development")
-            #expect(configuration.baseURL.absoluteString == "https://cmux-iroh-v2-development.debussy.workers.dev")
+            #expect(configuration.baseURL.absoluteString == "https://cmux-v2-development.debussy.workers.dev")
             #else
             #expect(configuration.environment == "production")
-            #expect(configuration.baseURL.absoluteString == "https://cmux-iroh-v2.debussy.workers.dev")
+            #expect(configuration.baseURL.absoluteString == "https://cmux-v2.debussy.workers.dev")
             #endif
         }
     }
@@ -265,7 +265,7 @@ struct MobileHostV2ConfigurationTests {
                 bundle: bundle
             )
             #expect(configuration.environment == "production")
-            #expect(configuration.baseURL.absoluteString == "https://cmux-iroh-v2.debussy.workers.dev")
+            #expect(configuration.baseURL.absoluteString == "https://cmux-v2.debussy.workers.dev")
         }
     }
 
