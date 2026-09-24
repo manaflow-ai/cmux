@@ -29,7 +29,7 @@ final class CloudTuiManualMirrorSession {
     private var diagnosticDeadline: Task<Void, Never>?
     private(set) var diagnosticFailure: CloudDiagnosticFailure?
     private var diagnosticReference: String?
-    private weak var surface: TerminalSurface?
+    weak var surface: TerminalSurface?
     private let onNeedsReconnect: @MainActor () -> Void
     private let commandBuilder: CloudTuiManualIOCommand
     private var connection: CloudTuiManualIOConnection?
@@ -62,6 +62,7 @@ final class CloudTuiManualMirrorSession {
     private var appliedRemoteColors = CloudTuiRemoteColors()
     private var hasReceivedRemoteReplay = false
     private var lastRemoteGrid: CloudTuiManualIOGrid?
+    var pendingReplaySizingSample: TerminalSurfaceRawSizingSample?
     private(set) var phase: CloudTuiManualMirrorPhase = .idle {
         didSet {
             if phase == .disconnected, oldValue != .disconnected, diagnosticContext != nil {
@@ -326,6 +327,7 @@ final class CloudTuiManualMirrorSession {
               let sample = surface.rawSizingSample() else {
             return
         }
+        if applyPendingReplaySizingSampleIfVisible() { return }
         apply(size: sample, validatePanePixels: true)
     }
     /// Starts or rebinds the byte attachment to the current link socket.
@@ -563,6 +565,7 @@ final class CloudTuiManualMirrorSession {
                 inputRouter.updateSurfaceID(surfaceID)
             }
             guard surfaceID == remoteSurfaceID else { return }
+            rememberReplaySizingSampleIfHidden()
             surface?.prepareForRemoteReplay(columns: columns, rows: rows)
             // A snapshot replaces the local VT state. Reset first so cells,
             // cursor state, alternate-screen mode, and SGR from a prior
@@ -582,6 +585,7 @@ final class CloudTuiManualMirrorSession {
             applyColors(colors)
         case let .resized(surfaceID, columns, rows, bytes, colors):
             guard surfaceID == remoteSurfaceID else { return }
+            rememberReplaySizingSampleIfHidden()
             surface?.prepareForRemoteReplay(columns: columns, rows: rows)
             // `resized` carries a replacement replay, not an incremental
             // output chunk. Resetting first prevents old rows/cursor state from
