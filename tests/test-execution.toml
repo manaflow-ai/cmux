@@ -287,6 +287,11 @@ lane = "macos-cli-no-socket-post-fish"
 requirements = ["cmux-cli"]
 
 [[test]]
+path = "tests/test_amp_install_state.py"
+lane = "macos-cli-no-socket-post-fish"
+requirements = ["cmux-cli"]
+
+[[test]]
 path = "tests/test_issue_9075_shell_socket_reports.py"
 lane = "macos-shell-fish"
 requirements = ["fish"]

@@ -1,4 +1,5 @@
 @testable import CmuxComputerUse
+import CmuxFoundation
 import Foundation
 import Testing
 
@@ -28,6 +29,31 @@ struct HostSettingsShortcutNotificationTests {
             updatedContents: contents,
             expectedNotificationCount: 1
         )
+    }
+
+    @Test
+    func agentIntegrationActionDoesNotExposeCommandDiagnostics() async {
+        let diagnostics = "token=private-hook-secret"
+        let controller = AgentIntegrationSettingsController(
+            commands: AgentIntegrationStubCommandRunner(result: CommandResult(
+                stdout: nil,
+                stderr: diagnostics,
+                exitStatus: 1,
+                timedOut: false,
+                executionError: nil
+            )),
+            executablePath: "/tmp/cmux",
+            environment: ["HOME": "/tmp"]
+        )
+
+        let result = await controller.perform(.install, for: .amp)
+
+        #expect(!result.succeeded)
+        #expect(result.message == String(
+            localized: "settings.automation.integration.install.failed",
+            defaultValue: "The hook installer could not complete the requested action."
+        ))
+        #expect(result.message?.contains("private-hook-secret") == false)
     }
 
     /// Verifies Settings receives the enabled/disabled split from the authoritative config store.
@@ -190,5 +216,19 @@ private final class ShortcutChangeNotificationCounter: @unchecked Sendable {
         lock.lock()
         count += 1
         lock.unlock()
+    }
+}
+
+
+private struct AgentIntegrationStubCommandRunner: CommandRunning {
+    let result: CommandResult
+
+    func run(
+        directory: String,
+        executable: String,
+        arguments: [String],
+        timeout: TimeInterval?
+    ) async -> CommandResult {
+        result
     }
 }

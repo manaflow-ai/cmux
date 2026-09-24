@@ -25,6 +25,7 @@ final class HostSettingsActions: SettingsHostActions {
     private let openAutomationRulesFile: @MainActor (URL) -> Void
     private let reportAutomationRulesError: @MainActor (Error) -> Void
     private let computerUseRuntimeService: ComputerUseRuntimeService
+    private let agentIntegrationSettingsController: AgentIntegrationSettingsController
     private let runComputerUseOnboardingAction:
         @MainActor (ComputerUseOnboardingWindowController.StartingPoint) -> Void
 
@@ -60,6 +61,7 @@ final class HostSettingsActions: SettingsHostActions {
     init(
         configFileURL: URL,
         computerUseRuntimeService: ComputerUseRuntimeService,
+        agentIntegrationSettingsController: AgentIntegrationSettingsController = AgentIntegrationSettingsController(),
         automationConfigStore: AutomationConfigStore = AutomationConfigStore(),
         openAutomationRulesFile: @escaping @MainActor (URL) -> Void = {
             PreferredEditorService(defaults: .standard).open($0)
@@ -86,6 +88,7 @@ final class HostSettingsActions: SettingsHostActions {
         self.openAutomationRulesFile = openAutomationRulesFile
         self.reportAutomationRulesError = reportAutomationRulesError
         self.computerUseRuntimeService = computerUseRuntimeService
+        self.agentIntegrationSettingsController = agentIntegrationSettingsController
         self.runComputerUseOnboardingAction = runComputerUseOnboardingAction
         startObservingAppIconMode()
     }
@@ -138,6 +141,41 @@ final class HostSettingsActions: SettingsHostActions {
 
     func terminalAdaptiveDefaultThemeDidChange() {
         TerminalAdaptiveDefaultThemeSettings.notifyDidChange()
+    }
+
+    func agentIntegrationInstallState(
+        _ integration: AgentIntegrationInstallTarget
+    ) async -> AgentIntegrationInstallState {
+        await agentIntegrationSettingsController.installState(integration)
+    }
+
+    func performAgentIntegrationAction(
+        _ action: AgentIntegrationInstallAction,
+        for integration: AgentIntegrationInstallTarget
+    ) async -> AgentIntegrationActionResult {
+        if action == .openInstructions {
+            guard let url = URL(string: "https://github.com/manaflow-ai/cmux/blob/main/docs/agent-hooks.md") else {
+                return AgentIntegrationActionResult(
+                    succeeded: false,
+                    message: String(
+                        localized: "settings.automation.integration.instructions.invalidURL",
+                        defaultValue: "The integration instructions URL is unavailable."
+                    )
+                )
+            }
+            let opened = NSWorkspace.shared.open(url)
+            return AgentIntegrationActionResult(
+                succeeded: opened,
+                message: opened
+                    ? nil
+                    : String(
+                        localized: "settings.automation.integration.instructions.openFailed",
+                        defaultValue: "The integration instructions could not be opened."
+                    )
+            )
+        }
+
+        return await agentIntegrationSettingsController.perform(action, for: integration)
     }
 
     func openTerminalThemePicker() {

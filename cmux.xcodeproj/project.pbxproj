@@ -130,6 +130,8 @@
 		A76110010000000000000003 /* AgentHookNotificationPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = A76110010000000000000002 /* AgentHookNotificationPolicy.swift */; };
 		A76110020000000000000001 /* AgentHookNotificationPolicyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A76110020000000000000002 /* AgentHookNotificationPolicyTests.swift */; };
 		751AA9D65BBB1979C7957BAE /* AgentHookTestNotificationPipeline.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2A0C49412A8AEDDDFA20067B /* AgentHookTestNotificationPipeline.swift */; };
+		B75E18304206470CAA975404 /* AgentIntegrationSettingsController.swift in Sources */ = {isa = PBXBuildFile; fileRef = B75E18304206470CAA975405 /* AgentIntegrationSettingsController.swift */; };
+		L79A00000000000000000001 /* AgentIntegrationSettingsControllerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = L79A00000000000000000002 /* AgentIntegrationSettingsControllerTests.swift */; };
 		A77A0010A1B2C3D4E5F60001 /* AgentJournalLazyStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A77A000FA1B2C3D4E5F60001 /* AgentJournalLazyStore.swift */; };
 		110438021104380211043802 /* AgentJournalLifecycleCenter+Database.swift in Sources */ = {isa = PBXBuildFile; fileRef = 110438011104380111043801 /* AgentJournalLifecycleCenter+Database.swift */; };
 		C3C8079F2C1B6648739BA1A6 /* AgentJournalLifecycleCenter+Notifications.swift in Sources */ = {isa = PBXBuildFile; fileRef = F49FD681C026A6B0C83211C6 /* AgentJournalLifecycleCenter+Notifications.swift */; };
@@ -4481,6 +4483,8 @@
 		A76110010000000000000002 /* AgentHookNotificationPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentHookNotificationPolicy.swift; sourceTree = "<group>"; };
 		A76110020000000000000002 /* AgentHookNotificationPolicyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentHookNotificationPolicyTests.swift; sourceTree = "<group>"; };
 		2A0C49412A8AEDDDFA20067B /* AgentHookTestNotificationPipeline.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AgentHookTestNotificationPipeline.swift"; sourceTree = "<group>"; };
+		B75E18304206470CAA975405 /* AgentIntegrationSettingsController.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AgentIntegrationSettingsController.swift; sourceTree = "<group>"; };
+		L79A00000000000000000002 /* AgentIntegrationSettingsControllerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentIntegrationSettingsControllerTests.swift; sourceTree = "<group>"; };
 		A77A000FA1B2C3D4E5F60001 /* AgentJournalLazyStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentJournalLazyStore.swift; sourceTree = "<group>"; };
 		110438011104380111043801 /* AgentJournalLifecycleCenter+Database.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AgentJournalLifecycleCenter+Database.swift"; sourceTree = "<group>"; };
 		F49FD681C026A6B0C83211C6 /* AgentJournalLifecycleCenter+Notifications.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AgentJournalLifecycleCenter+Notifications.swift"; sourceTree = "<group>"; };
@@ -11042,6 +11046,7 @@
 				A5001241 /* WindowDecorationsController.swift */,
 				A5001222 /* WindowAccessor.swift */,
 				B7F100010000000000000002 /* HostSettingsActions+NotificationSounds.swift */,
+				B75E18304206470CAA975405 /* AgentIntegrationSettingsController.swift */,
 				CD0CFE6300000000CD0CFE63 /* HostSettingsActions.swift */,
 				B7F101010000000000000002 /* NotificationSoundAgentRegistryLoader.swift */,
 				F6572001A1B2C3D4E5F60718 /* SurfaceResumeCommandCanonicalizer+PortableAgentExecutable.swift */,
@@ -12169,6 +12174,7 @@
 				1F567ED5887A4EA9AB100002 /* PaneResizeShortcutTests.swift */,
 				A17110000000000000000002 /* KeyboardShortcutSpaceKeyTests.swift */,
 				809100000000000000000002 /* HostSettingsShortcutNotificationTests.swift */,
+				L79A00000000000000000002 /* AgentIntegrationSettingsControllerTests.swift */,
 				1A1B2C3D4E5F607180000004 /* WorkspacePromptSubmitTests.swift */,
 				C46790000000000000000002 /* CLIForwardingLaunchArgumentTests.swift */,
 				C46790000000000000000008 /* RosettaNativeRelaunchTests.swift */,
@@ -13582,6 +13588,7 @@
 				A61E00010000000000000001 /* AgentHookDeliveryEvent.swift in Sources */,
 				A61E00010000000000000005 /* AgentHookDeliveryProcess.swift in Sources */,
 				A61E00010000000000000002 /* AgentHookDeliveryQueue.swift in Sources */,
+				B75E18304206470CAA975404 /* AgentIntegrationSettingsController.swift in Sources */,
 				A77A0010A1B2C3D4E5F60001 /* AgentJournalLazyStore.swift in Sources */,
 				110438021104380211043802 /* AgentJournalLifecycleCenter+Database.swift in Sources */,
 				C3C8079F2C1B6648739BA1A6 /* AgentJournalLifecycleCenter+Notifications.swift in Sources */,
@@ -16564,6 +16571,7 @@
 				A76110010000000000000003 /* AgentHookNotificationPolicy.swift in Sources */,
 				A76110020000000000000001 /* AgentHookNotificationPolicyTests.swift in Sources */,
 				751AA9D65BBB1979C7957BAE /* AgentHookTestNotificationPipeline.swift in Sources */,
+				L79A00000000000000000001 /* AgentIntegrationSettingsControllerTests.swift in Sources */,
 				A77A000EA1B2C3D4E5F60001 /* AgentJournalLifecycleCenterTests.swift in Sources */,
 				A77A000CA1B2C3D4E5F60001 /* AgentJournalTestSupport.swift in Sources */,
 				A5D41230A1B2C3D4E5F60718 /* AgentNotificationGateTests.swift in Sources */,
