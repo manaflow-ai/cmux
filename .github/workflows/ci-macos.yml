@@ -970,19 +970,38 @@ jobs:
     # linux-preflight itself succeeds. Require the direct needs explicitly.
     if: ${{ !cancelled() && needs.macos-compile-admission.result == 'success' && inputs.macos == 'true' && (inputs.full_suite == 'true' || inputs.unit_suite == 'true') }}
     name: app-host unit tests (${{ matrix.shard }}/7)
-    # App-host XCTest needs a runner that can broker testmanagerd control
-    # sessions, so route through the shared MACOS_RUNNER_15 var like the other
-    # macOS jobs. The fallback is what fork pull requests get, because
-    # repository variables are not exposed to them, so it names the same
-    # Blacksmith pool main uses and never the paid overflow provider.
-    runs-on: ${{ github.event_name == 'pull_request' && (vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15') || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15' }}
+    # Same-repository pull requests stripe the seven app-host consumers across
+    # Blacksmith 15/26 and GitHub-hosted 15/26 so one saturated provider cannot
+    # serialize the whole suite. Fork pull requests stay on Blacksmith: their
+    # workflow YAML is contributor-controlled and must never select an owned
+    # self-hosted label that may overlap a hosted macOS label.
+    #
+    # Non-PR events keep the ordinary MACOS_RUNNER_15 routing below. All four
+    # PR pools select CMUX_CI_XCODE_APP_PR, and app_host_test_products.py then
+    # rejects any consumer whose exact xcodebuild -version differs from the
+    # compile-admission producer.
+    runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork && 'blacksmith-6vcpu-macos-15' || github.event_name == 'pull_request' && matrix.pr_runner || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15' }}
     timeout-minutes: 75
     strategy:
       # A pull request wants every shard's failures in one run. A merge group
       # only needs a verdict, and the first failure already is one.
       fail-fast: ${{ github.event_name == 'merge_group' }}
       matrix:
-        shard: [1, 2, 3, 4, 5, 6, 7]
+        include:
+          - shard: 1
+            pr_runner: blacksmith-6vcpu-macos-15
+          - shard: 2
+            pr_runner: blacksmith-6vcpu-macos-26
+          - shard: 3
+            pr_runner: macos-15
+          - shard: 4
+            pr_runner: macos-26
+          - shard: 5
+            pr_runner: blacksmith-6vcpu-macos-15
+          - shard: 6
+            pr_runner: blacksmith-6vcpu-macos-26
+          - shard: 7
+            pr_runner: macos-26
     env:
       CMUX_NODE_PRODUCT_CACHE_ROOT: ${{ vars.CMUX_NODE_PRODUCT_CACHE_ROOT }}
       CMUX_NODE_PRODUCT_CACHE_MAX_BYTES: ${{ vars.CMUX_NODE_PRODUCT_CACHE_MAX_BYTES }}
@@ -1092,6 +1111,19 @@ jobs:
         run: |
           set -euo pipefail
           ./scripts/select-ci-xcode.sh
+
+      - name: Verify GitHub-hosted PR route
+        if: ${{ github.event_name == 'pull_request' && !github.event.pull_request.head.repo.fork && startsWith(matrix.pr_runner, 'macos-') }}
+        env:
+          RUNNER_ENVIRONMENT: ${{ runner.environment }}
+          REQUESTED_RUNNER: ${{ matrix.pr_runner }}
+          RUNNER_CONTEXT_NAME: ${{ runner.name }}
+        run: |
+          set -euo pipefail
+          if [ "$RUNNER_ENVIRONMENT" != "github-hosted" ]; then
+            echo "::error::$REQUESTED_RUNNER resolved outside GitHub-hosted capacity: $RUNNER_CONTEXT_NAME"
+            exit 1
+          fi
 
       - name: Prepare isolated DerivedData
         run: |
