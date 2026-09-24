@@ -21,6 +21,7 @@ import Bonsplit
 import UserNotifications
 import Network
 import CmuxBrowser
+import CmuxAppKitSupportUI
 import CmuxSettings
 import CmuxSidebar
 
@@ -1177,11 +1178,10 @@ final class CmuxWebViewKeyEquivalentTests: XCTestCase {
     }
 
     @MainActor
-    func testWindowArrowForwardingRestoresFocusedOmnibarBeforeBrowserFirstResponder() {
+    func testWindowArrowForwardingRestoresFocusedOmnibarBeforeBrowserFirstResponder() throws {
         _ = NSApplication.shared
         AppDelegate.installWindowResponderSwizzlesForTesting()
 
-        let panelId = UUID()
         let window = FieldEditorProbeWindow(
             contentRect: NSRect(x: 0, y: 0, width: 640, height: 420),
             styleMask: [.titled, .closable],
@@ -1191,17 +1191,48 @@ final class CmuxWebViewKeyEquivalentTests: XCTestCase {
         let container = NSView(frame: window.contentRect(forFrameRect: window.frame))
         window.contentView = container
 
+        let appDelegate = try XCTUnwrap(AppDelegate.shared)
+        let previousManager = appDelegate.tabManager
+        let previousActiveManager = TerminalController.shared.activeTabManagerForCallerNotification()
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let paneId = try XCTUnwrap(workspace.bonsplitController.focusedPaneId)
+        let panel = try XCTUnwrap(workspace.newBrowserSurface(
+            inPane: paneId,
+            focus: true,
+            creationPolicy: .restoration
+        ))
+        let panelId = panel.id
+        let windowId = UUID()
+        appDelegate.registerMainWindow(
+            window,
+            windowId: windowId,
+            tabManager: manager,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState(),
+            fileExplorerState: FileExplorerState()
+        )
+        defer {
+            appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
+            appDelegate.forgetRecoverableMainWindowRoute(windowId: windowId)
+            manager.finalizeAllWorkspacesForWindowClose()
+            appDelegate.tabManager = previousManager
+            TerminalController.shared.setActiveTabManager(previousActiveManager)
+        }
+
         let field = OmnibarNativeTextField(frame: NSRect(x: 12, y: 380, width: 360, height: 24))
         field.panelId = panelId
         field.stringValue = "abcdef"
         container.addSubview(field)
 
-        let webView = CmuxWebView(frame: NSRect(x: 0, y: 0, width: 640, height: 360), configuration: WKWebViewConfiguration())
+        let webView = try XCTUnwrap(panel.webView as? CmuxWebView)
+        webView.frame = NSRect(x: 0, y: 0, width: 640, height: 360)
         webView.allowsFirstResponderAcquisition = true
         container.addSubview(webView)
 
         window.makeKeyAndOrderFront(nil)
         defer {
+            appDelegate.clearBrowserAddressBarFocus(panelId: panelId, reason: "test.cleanup")
             NotificationCenter.default.post(name: .browserDidBlurAddressBar, object: panelId)
             AppDelegate.clearWindowFirstResponderGuardTesting()
             field.removeFromSuperview()
@@ -1216,7 +1247,7 @@ final class CmuxWebViewKeyEquivalentTests: XCTestCase {
             return
         }
 
-        NotificationCenter.default.post(name: .browserDidFocusAddressBar, object: panelId)
+        XCTAssertTrue(appDelegate.focusBrowserAddressBar(in: panel))
         window.testFieldEditor.resetKeyDownKeyCodes()
 
         XCTAssertTrue(window.makeFirstResponder(webView))
@@ -1241,11 +1272,10 @@ final class CmuxWebViewKeyEquivalentTests: XCTestCase {
     }
 
     @MainActor
-    func testWindowArrowForwardingConsumesMarkedTextOmnibarRestore() {
+    func testWindowArrowForwardingConsumesMarkedTextOmnibarRestore() throws {
         _ = NSApplication.shared
         AppDelegate.installWindowResponderSwizzlesForTesting()
 
-        let panelId = UUID()
         let window = FieldEditorProbeWindow(
             contentRect: NSRect(x: 0, y: 0, width: 640, height: 420),
             styleMask: [.titled, .closable],
@@ -1255,17 +1285,48 @@ final class CmuxWebViewKeyEquivalentTests: XCTestCase {
         let container = NSView(frame: window.contentRect(forFrameRect: window.frame))
         window.contentView = container
 
+        let appDelegate = try XCTUnwrap(AppDelegate.shared)
+        let previousManager = appDelegate.tabManager
+        let previousActiveManager = TerminalController.shared.activeTabManagerForCallerNotification()
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let paneId = try XCTUnwrap(workspace.bonsplitController.focusedPaneId)
+        let panel = try XCTUnwrap(workspace.newBrowserSurface(
+            inPane: paneId,
+            focus: true,
+            creationPolicy: .restoration
+        ))
+        let panelId = panel.id
+        let windowId = UUID()
+        appDelegate.registerMainWindow(
+            window,
+            windowId: windowId,
+            tabManager: manager,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState(),
+            fileExplorerState: FileExplorerState()
+        )
+        defer {
+            appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
+            appDelegate.forgetRecoverableMainWindowRoute(windowId: windowId)
+            manager.finalizeAllWorkspacesForWindowClose()
+            appDelegate.tabManager = previousManager
+            TerminalController.shared.setActiveTabManager(previousActiveManager)
+        }
+
         let field = OmnibarNativeTextField(frame: NSRect(x: 12, y: 380, width: 360, height: 24))
         field.panelId = panelId
         field.stringValue = "abcdef"
         container.addSubview(field)
 
-        let webView = CmuxWebView(frame: NSRect(x: 0, y: 0, width: 640, height: 360), configuration: WKWebViewConfiguration())
+        let webView = try XCTUnwrap(panel.webView as? CmuxWebView)
+        webView.frame = NSRect(x: 0, y: 0, width: 640, height: 360)
         webView.allowsFirstResponderAcquisition = true
         container.addSubview(webView)
 
         window.makeKeyAndOrderFront(nil)
         defer {
+            appDelegate.clearBrowserAddressBarFocus(panelId: panelId, reason: "test.cleanup")
             NotificationCenter.default.post(name: .browserDidBlurAddressBar, object: panelId)
             AppDelegate.clearWindowFirstResponderGuardTesting()
             field.removeFromSuperview()
@@ -1280,7 +1341,7 @@ final class CmuxWebViewKeyEquivalentTests: XCTestCase {
             return
         }
 
-        NotificationCenter.default.post(name: .browserDidFocusAddressBar, object: panelId)
+        XCTAssertTrue(appDelegate.focusBrowserAddressBar(in: panel))
         window.testFieldEditor.resetKeyDownKeyCodes()
         window.testFieldEditor.reportsMarkedText = true
 
@@ -1457,6 +1518,9 @@ final class CmuxWebViewKeyEquivalentTests: XCTestCase {
     @MainActor
     func testCmdFDoesNotPreflightIntoPageWhenWebInspectorResponderIsFocused() {
         _ = NSApplication.shared
+        let previousAppDelegate = AppDelegate.shared
+        AppDelegate.shared = nil
+        defer { AppDelegate.shared = previousAppDelegate }
         installCmuxUnitTestWKWebViewPerformKeyEquivalentOverride()
 
         let spy = ActionSpy()
@@ -1882,8 +1946,8 @@ final class BrowserDeveloperToolsShortcutDefaultsTests: XCTestCase {
 @MainActor
 final class BrowserDeveloperToolsConfigurationTests: XCTestCase {
     /// The terminal background the browser paints under a page is opaque: the
-    /// terminal color is composited over the window background at the Ghostty
-    /// opacity so blank/loading regions never show window gray through the page.
+    /// terminal color is composited over Ghostty's resolved dark chrome base at
+    /// the configured opacity so blank/loading regions stay readable.
     /// Blend it here rather than asking the product for the answer, so a panel
     /// that ignores the notification (or drops the opacity) still fails.
     private func expectedUnderPageBackgroundColor(
@@ -1891,7 +1955,19 @@ final class BrowserDeveloperToolsConfigurationTests: XCTestCase {
         opacity: CGFloat
     ) throws -> NSColor {
         let terminal = try XCTUnwrap(terminalColor.usingColorSpace(.sRGB))
-        let base = try XCTUnwrap(NSColor.windowBackgroundColor.usingColorSpace(.sRGB))
+        // Match `GhosttyBackgroundTheme.resolvedColor`, which resolves semantic
+        // window colors against Ghostty's effective terminal color scheme rather
+        // than the ambient AppKit appearance. That scheme is itself host-dependent
+        // (light on a fresh CI host), so read the same preference the product
+        // consults instead of assuming dark.
+        let base = try XCTUnwrap(
+            WindowAppearanceSnapshot
+                .resolvedColor(
+                    .windowBackgroundColor,
+                    for: GhosttyApp.shared.effectiveTerminalColorSchemePreference == .dark ? .dark : .light
+                )
+                .usingColorSpace(.sRGB)
+        )
         return NSColor(
             srgbRed: terminal.redComponent * opacity + base.redComponent * (1 - opacity),
             green: terminal.greenComponent * opacity + base.greenComponent * (1 - opacity),
@@ -2073,9 +2149,12 @@ final class BrowserInsecureHTTPAlertPresentationTests: XCTestCase {
         XCTAssertEqual(alertSpy.runModalCallCount, 0)
     }
 
-    func testInsecureHTTPPromptFallsBackToRunModalWithoutWindow() {
+    func testInsecureHTTPPromptWaitsForAnInteractiveWindow() {
         let panel = BrowserPanel(workspaceId: UUID())
-        defer { panel.resetInsecureHTTPAlertHooksForTesting() }
+        defer {
+            panel.resetInsecureHTTPAlertHooksForTesting()
+            panel.close()
+        }
 
         let alertSpy = BrowserInsecureHTTPAlertSpy()
         panel.configureInsecureHTTPAlertHooksForTesting(
@@ -2085,7 +2164,24 @@ final class BrowserInsecureHTTPAlertPresentationTests: XCTestCase {
         panel.presentInsecureHTTPAlertForTesting(url: URL(string: "http://example.com")!)
 
         XCTAssertEqual(alertSpy.beginSheetModalCallCount, 0)
-        XCTAssertEqual(alertSpy.runModalCallCount, 1)
+        XCTAssertEqual(alertSpy.runModalCallCount, 0)
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 480, height: 320),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        defer {
+            window.contentView = nil
+            window.orderOut(nil)
+        }
+        window.contentView = panel.webView
+        window.orderFront(nil)
+        panel.noteWebViewVisibility(true, reason: "test.interactiveHost")
+
+        XCTAssertEqual(alertSpy.beginSheetModalCallCount, 1)
+        XCTAssertEqual(alertSpy.runModalCallCount, 0)
     }
 
     func testInsecureHTTPPromptDefersWhileBackgroundPreloadHasNoInteractiveHost() {
@@ -2940,29 +3036,16 @@ final class BrowserSessionHistoryRestoreTests: XCTestCase {
         )
     }
 
-    func testWebViewReplacementAfterProcessTerminationUpdatesInstanceIdentity() {
-        let panel = BrowserPanel(
-            workspaceId: UUID(),
-            initialURL: URL(string: "https://example.com")
-        )
-        defer { panel.close() }
-        let oldWebView = panel.webView
-        let oldInstanceID = panel.webViewInstanceID
-
-        panel.debugSimulateWebContentProcessTermination()
-
-        XCTAssertFalse(panel.webView === oldWebView)
-        XCTAssertNotEqual(panel.webViewInstanceID, oldInstanceID)
-        XCTAssertNotNil(panel.webView.navigationDelegate)
-        XCTAssertNotNil(panel.webView.uiDelegate)
-    }
-
     func testWebViewReplacementPreservesEmptyNewTabRenderState() {
         let panel = BrowserPanel(workspaceId: UUID())
         defer { panel.close() }
         XCTAssertFalse(panel.shouldRenderWebView)
 
-        panel.debugSimulateWebContentProcessTermination()
+        guard let navigationDelegate = panel.webView.navigationDelegate as? BrowserNavigationDelegate else {
+            XCTFail("BrowserPanel must install its navigation delegate before simulating termination")
+            return
+        }
+        navigationDelegate.webViewWebContentProcessDidTerminate(panel.webView)
 
         XCTAssertFalse(panel.shouldRenderWebView)
     }
@@ -5415,6 +5498,7 @@ final class BrowserHistoryStoreTests: XCTestCase {
     }
 }
 
+@MainActor
 final class BrowserLinkOpenSettingsTests: XCTestCase {
     private var suiteName: String!
     private var defaults: UserDefaults!
@@ -5488,15 +5572,14 @@ final class BrowserLinkOpenSettingsTests: XCTestCase {
     }
 
     func testExternalOpenPatternsDefaultToEmpty() {
-        XCTAssertTrue(BrowserLinkOpenSettings.externalOpenPatterns(defaults: defaults).isEmpty)
+        XCTAssertTrue(BrowserExternalURLPolicy(defaults: defaults).patterns.isEmpty)
     }
 
     func testExternalOpenLiteralPatternMatchesCaseInsensitively() {
         defaults.set("openai.com/account/usage", forKey: BrowserLinkOpenSettings.browserExternalOpenPatternsKey)
         XCTAssertTrue(
-            BrowserLinkOpenSettings.shouldOpenExternally(
-                "https://platform.OPENAI.com/account/usage",
-                defaults: defaults
+            BrowserExternalNavigationHandler(defaults: defaults).shouldOpenExternally(
+                "https://platform.OPENAI.com/account/usage"
             )
         )
     }
@@ -5507,9 +5590,8 @@ final class BrowserLinkOpenSettingsTests: XCTestCase {
             forKey: BrowserLinkOpenSettings.browserExternalOpenPatternsKey
         )
         XCTAssertTrue(
-            BrowserLinkOpenSettings.shouldOpenExternally(
-                "https://FOO.example.com/BILLING",
-                defaults: defaults
+            BrowserExternalNavigationHandler(defaults: defaults).shouldOpenExternally(
+                "https://FOO.example.com/BILLING"
             )
         )
     }
@@ -5520,9 +5602,8 @@ final class BrowserLinkOpenSettingsTests: XCTestCase {
             forKey: BrowserLinkOpenSettings.browserExternalOpenPatternsKey
         )
         XCTAssertTrue(
-            BrowserLinkOpenSettings.shouldOpenExternally(
-                "https://example.com/usage/42",
-                defaults: defaults
+            BrowserExternalNavigationHandler(defaults: defaults).shouldOpenExternally(
+                "https://example.com/usage/42"
             )
         )
     }
@@ -5530,11 +5611,225 @@ final class BrowserLinkOpenSettingsTests: XCTestCase {
     func testExternalOpenPatternsIgnoreInvalidRegexEntries() {
         defaults.set("re:(\nexample.com", forKey: BrowserLinkOpenSettings.browserExternalOpenPatternsKey)
         XCTAssertTrue(
-            BrowserLinkOpenSettings.shouldOpenExternally(
-                "https://example.com/path",
-                defaults: defaults
+            BrowserExternalNavigationHandler(defaults: defaults).shouldOpenExternally(
+                "https://example.com/path"
             )
         )
+    }
+
+    func testExternalOpenIssueRegexPatternMatchesWithoutPrefix() {
+        defaults.set(
+            ".*example\\.com.*",
+            forKey: BrowserLinkOpenSettings.browserExternalOpenPatternsKey
+        )
+
+        XCTAssertTrue(
+            BrowserExternalNavigationHandler(defaults: defaults).shouldOpenExternally(
+                "https://example.com/"
+            )
+        )
+    }
+
+    func testExternalOpenIssueArrayValueMatches() {
+        defaults.set(
+            ["example.com"],
+            forKey: BrowserLinkOpenSettings.browserExternalOpenPatternsKey
+        )
+
+        XCTAssertTrue(
+            BrowserExternalNavigationHandler(defaults: defaults).shouldOpenExternally(
+                "https://example.com/"
+            )
+        )
+    }
+
+    func testExternalOpenCanonicalizesRemoteLoopbackAliasForMatchingAndOpening() throws {
+        defaults.set(
+            ["localhost"],
+            forKey: BrowserLinkOpenSettings.browserExternalOpenPatternsKey
+        )
+        let aliasedURL = try XCTUnwrap(
+            URL(string: "http://cmux-loopback.localtest.me:3000/dashboard")
+        )
+        let expectedURL = try XCTUnwrap(URL(string: "http://localhost:3000/dashboard"))
+        var openedURL: URL?
+        let handler = BrowserExternalNavigationHandler(
+            defaults: defaults,
+            openURL: {
+                openedURL = $0
+                return true
+            }
+        )
+
+        XCTAssertTrue(
+            handler.shouldOpenExternally(
+                aliasedURL,
+                navigationType: .linkActivated,
+                targetFrameIsMain: true
+            )
+        )
+        XCTAssertEqual(handler.openConfiguredExternallyResult(aliasedURL), .opened)
+        XCTAssertEqual(openedURL, expectedURL)
+    }
+
+    func testExternalOpenPolicyCacheRefreshesAfterRulesChange() throws {
+        defaults.set("first.example", forKey: BrowserLinkOpenSettings.browserExternalOpenPatternsKey)
+        let firstURL = try XCTUnwrap(URL(string: "https://first.example/"))
+        let secondURL = try XCTUnwrap(URL(string: "https://second.example/"))
+        let handler = BrowserExternalNavigationHandler(defaults: defaults)
+
+        XCTAssertTrue(handler.shouldOpenExternally(firstURL))
+        XCTAssertFalse(handler.shouldOpenExternally(secondURL))
+
+        defaults.set("second.example", forKey: BrowserLinkOpenSettings.browserExternalOpenPatternsKey)
+        XCTAssertFalse(handler.shouldOpenExternally(firstURL))
+        XCTAssertTrue(handler.shouldOpenExternally(secondURL))
+    }
+
+    func testExternalOpenPolicyCacheClearsAfterRulesAreRemoved() throws {
+        defaults.set("example.com", forKey: BrowserLinkOpenSettings.browserExternalOpenPatternsKey)
+        let url = try XCTUnwrap(URL(string: "https://example.com/"))
+        let handler = BrowserExternalNavigationHandler(defaults: defaults)
+
+        XCTAssertTrue(handler.shouldOpenExternally(url))
+        defaults.removeObject(forKey: BrowserLinkOpenSettings.browserExternalOpenPatternsKey)
+        XCTAssertFalse(handler.shouldOpenExternally(url))
+    }
+
+    func testExternalOpenPolicyCacheTracksEffectiveLegacyArrayTailRules() throws {
+        let firstURL = try XCTUnwrap(URL(string: "https://first.example/"))
+        let secondURL = try XCTUnwrap(URL(string: "https://second.example/"))
+        let comments = Array(repeating: "# ignored", count: 256)
+        let handler = BrowserExternalNavigationHandler(defaults: defaults)
+
+        defaults.set(comments + ["first.example"], forKey: BrowserLinkOpenSettings.browserExternalOpenPatternsKey)
+        XCTAssertTrue(handler.shouldOpenExternally(firstURL))
+
+        defaults.set(comments + ["second.example"], forKey: BrowserLinkOpenSettings.browserExternalOpenPatternsKey)
+        XCTAssertFalse(handler.shouldOpenExternally(firstURL))
+        XCTAssertTrue(handler.shouldOpenExternally(secondURL))
+    }
+
+    func testExternalOpenNavigationRuleOnlyAppliesToMainFrameLinkActivation() throws {
+        defaults.set(
+            ["example.com"],
+            forKey: BrowserLinkOpenSettings.browserExternalOpenPatternsKey
+        )
+        let url = try XCTUnwrap(URL(string: "https://example.com/"))
+
+        XCTAssertTrue(
+            BrowserExternalNavigationHandler(defaults: defaults).shouldOpenExternally(
+                url,
+                navigationType: .linkActivated,
+                targetFrameIsMain: true
+            )
+        )
+        XCTAssertFalse(
+            BrowserExternalNavigationHandler(defaults: defaults).shouldOpenExternally(
+                url,
+                navigationType: .other,
+                targetFrameIsMain: true
+            )
+        )
+        XCTAssertFalse(
+            BrowserExternalNavigationHandler(defaults: defaults).shouldOpenExternally(
+                url,
+                navigationType: .linkActivated,
+                targetFrameIsMain: false
+            )
+        )
+        let callbackURL = try XCTUnwrap(
+            URL(string: "\(AuthEnvironment.callbackScheme)://auth-callback?stack_refresh=refresh&stack_access=access")
+        )
+        defaults.set([".*"], forKey: BrowserLinkOpenSettings.browserExternalOpenPatternsKey)
+        XCTAssertFalse(
+            BrowserExternalNavigationHandler(defaults: defaults).shouldOpenExternally(
+                callbackURL,
+                navigationType: .linkActivated,
+                targetFrameIsMain: true
+            )
+        )
+        let siblingCallbackURL = try XCTUnwrap(
+            URL(string: "cmux-dev-other://auth-callback?stack_refresh=refresh&stack_access=access")
+        )
+        XCTAssertFalse(
+            BrowserExternalNavigationHandler(defaults: defaults).shouldOpenExternally(
+                siblingCallbackURL,
+                navigationType: .linkActivated,
+                targetFrameIsMain: true
+            )
+        )
+        XCTAssertFalse(
+            BrowserExternalNavigationHandler(defaults: defaults).shouldOpenExternally(siblingCallbackURL)
+        )
+        let diffViewerURL = try XCTUnwrap(
+            URL(string: "cmux-diff-viewer://session-token/document")
+        )
+        XCTAssertFalse(
+            BrowserExternalNavigationHandler(defaults: defaults).shouldOpenExternally(diffViewerURL)
+        )
+        XCTAssertFalse(
+            BrowserExternalNavigationHandler(defaults: defaults).shouldOpenExternally(diffViewerURL.absoluteString)
+        )
+        XCTAssertFalse(
+            BrowserExternalNavigationHandler(defaults: defaults).shouldOpenExternally(
+                diffViewerURL,
+                navigationType: .linkActivated,
+                targetFrameIsMain: true
+            )
+        )
+        let customAppURL = try XCTUnwrap(URL(string: "slack://open?token=secret"))
+        XCTAssertFalse(
+            BrowserExternalNavigationHandler(defaults: defaults).shouldOpenExternally(
+                customAppURL,
+                navigationType: .linkActivated,
+                targetFrameIsMain: true
+            ),
+            "Configured browser rules must not bypass the existing custom-scheme confirmation prompt."
+        )
+    }
+
+    func testConfiguredExternalOpenUsesOneInjectedActionPath() throws {
+        defaults.set(
+            ["example.com"],
+            forKey: BrowserLinkOpenSettings.browserExternalOpenPatternsKey
+        )
+        let url = try XCTUnwrap(URL(string: "https://example.com/"))
+        var openedURL: URL?
+        var didRunAfterOpen = false
+
+        let opened = BrowserExternalNavigationHandler(
+            defaults: defaults,
+            openURL: {
+                openedURL = $0
+                return true
+            }
+        ).openConfiguredExternallyIfNeeded(
+            url,
+            navigationType: .linkActivated,
+            targetFrameIsMain: true,
+            onOpened: {
+                didRunAfterOpen = true
+            }
+        )
+
+        XCTAssertTrue(opened)
+        XCTAssertEqual(openedURL, url)
+        XCTAssertTrue(didRunAfterOpen)
+    }
+
+    func testConfiguredExternalOpenReportsOpenerFailureWithoutTreatingItAsNoMatch() throws {
+        defaults.set(
+            ["example.com"],
+            forKey: BrowserLinkOpenSettings.browserExternalOpenPatternsKey
+        )
+        let url = try XCTUnwrap(URL(string: "https://example.com/"))
+        let result = BrowserExternalNavigationHandler(
+            defaults: defaults,
+            openURL: { _ in false }
+        ).openConfiguredExternallyResult(url)
+
+        XCTAssertEqual(result, .failed)
     }
 }
 

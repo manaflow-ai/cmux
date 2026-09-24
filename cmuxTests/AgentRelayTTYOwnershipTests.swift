@@ -8,7 +8,6 @@ import Testing
 #elseif canImport(cmux)
 @testable import cmux
 #endif
-
 extension AgentNotificationRegressionTests {
     @Test("Relay provenance does not cross remote hosts sharing a port")
     func relayTTYProvenanceDoesNotCrossRemoteHostsSharingPort() throws {
@@ -24,9 +23,7 @@ extension AgentNotificationRegressionTests {
         )
         fixture.source.trackRemoteTerminalSurface(fixture.panelId)
         fixture.source.registerReportedSurfaceTTYName("pts/20", panelId: fixture.panelId)
-
         try movePanel(fixture)
-
         assertRelayTTYTarget(
             authenticatedWorkspaceID: fixture.source.id,
             ttyName: "pts/20",
@@ -38,7 +35,6 @@ extension AgentNotificationRegressionTests {
             ttyName: "pts/20"
         )
     }
-
     @Test("A fresh TTY report follows a remote surface into an ordinary workspace")
     func freshRelayTTYReportFollowsSurfaceIntoOrdinaryWorkspace() throws {
         let fixture = try makeFixture()
@@ -58,9 +54,7 @@ extension AgentNotificationRegressionTests {
         fixture.source.registerReportedSurfaceTTYName("pts/21", panelId: fixture.panelId)
         let paneID = try #require(fixture.source.bonsplitController.allPaneIds.first)
         _ = try #require(fixture.source.newTerminalSurface(inPane: paneID, focus: false))
-
         try movePanel(fixture)
-
         #expect(
             TerminalController.shared.controlSurfaceReportTTY(
                 workspaceID: fixture.source.id,
@@ -82,7 +76,6 @@ extension AgentNotificationRegressionTests {
             ttyName: "pts/21"
         )
     }
-
     @Test("A disconnected remote terminal cannot resolve or register another TTY")
     func disconnectedRemoteTerminalCannotResolveOrRegisterTTY() throws {
         let fixture = try makeFixture()
@@ -100,9 +93,7 @@ extension AgentNotificationRegressionTests {
             attemptID: attemptID
         ))
         fixture.source.registerReportedSurfaceTTYName("pts/23", panelId: fixture.panelId)
-
         fixture.source.disconnectRemoteConnection()
-
         assertNoRelayTTYTarget(
             authenticatedWorkspaceID: fixture.source.id,
             ttyName: "pts/23"
@@ -122,7 +113,6 @@ extension AgentNotificationRegressionTests {
             ttyName: "pts/24"
         )
     }
-
     @Test("A delayed TTY report cannot revive an ended remote terminal")
     func delayedTTYReportCannotReviveEndedRemoteTerminal() throws {
         let fixture = try makeFixture()
@@ -146,7 +136,6 @@ extension AgentNotificationRegressionTests {
                 relayPort: 64_007
             )
         )
-
         #expect(
             TerminalController.shared.controlSurfaceReportTTY(
                 workspaceID: fixture.source.id,
@@ -162,7 +151,6 @@ extension AgentNotificationRegressionTests {
             ttyName: "pts/26"
         )
     }
-
     @Test("Relay provenance survives repeated ordinary workspace moves")
     func relayTTYProvenanceSurvivesRepeatedOrdinaryWorkspaceMoves() throws {
         let fixture = try makeFixture()
@@ -173,7 +161,6 @@ extension AgentNotificationRegressionTests {
         )
         fixture.source.trackRemoteTerminalSurface(fixture.panelId)
         fixture.source.registerReportedSurfaceTTYName("pts/27", panelId: fixture.panelId)
-
         try movePanel(fixture)
         let secondDestination = fixture.manager.addWorkspace(select: false)
         defer {
@@ -194,7 +181,6 @@ extension AgentNotificationRegressionTests {
                 focus: false
             ) == fixture.panelId
         )
-
         assertRelayTTYTarget(
             authenticatedWorkspaceID: fixture.source.id,
             ttyName: "pts/27",
@@ -202,7 +188,6 @@ extension AgentNotificationRegressionTests {
             expectedSurfaceID: fixture.panelId
         )
     }
-
     @Test("A persistent retry after an ordinary workspace move preserves TTY proof")
     func persistentRetryAfterOrdinaryWorkspaceMovePreservesTTYProof() throws {
         let fixture = try makeFixture()
@@ -224,7 +209,6 @@ extension AgentNotificationRegressionTests {
             )
         )
         fixture.source.registerReportedSurfaceTTYName("pts/28", panelId: fixture.panelId)
-
         try movePanel(fixture)
         #expect(
             fixture.destination.markRemoteTerminalSessionLaunching(
@@ -233,7 +217,6 @@ extension AgentNotificationRegressionTests {
                 attemptID: UUID()
             )
         )
-
         assertRelayTTYTarget(
             authenticatedWorkspaceID: fixture.source.id,
             ttyName: "pts/28",
@@ -241,12 +224,10 @@ extension AgentNotificationRegressionTests {
             expectedSurfaceID: fixture.panelId
         )
     }
-
     @Test("The relay stamps its owner onto TTY reports")
     func relayTTYReportProvenanceOverridesSpoofedWorkspace() throws {
         let authenticatedWorkspaceID = UUID()
-        let spoofedWorkspaceID = UUID()
-        let request: [String: Any] = [
+        let spoofedWorkspaceID = UUID(); let request: [String: Any] = [
             "id": "relay-tty-report",
             "method": "surface.report_tty",
             "params": [
@@ -257,7 +238,6 @@ extension AgentNotificationRegressionTests {
             ],
         ]
         let commandLine = try JSONSerialization.data(withJSONObject: request)
-
         let rewritten = WorkspaceRemoteRelayCommandRewriter(
             remoteWorkspaceID: authenticatedWorkspaceID,
             remoteRelayTokenHex: String(repeating: "a", count: 64)
@@ -270,13 +250,11 @@ extension AgentNotificationRegressionTests {
             JSONSerialization.jsonObject(with: rewritten) as? [String: Any]
         )
         let params = try #require(rewrittenRequest["params"] as? [String: Any])
-
         #expect(
             params["_cmux_remote_workspace_id"] as? String
                 == authenticatedWorkspaceID.uuidString
         )
     }
-
     @Test("Relay TTY reports require the authenticated owner and current attempt")
     func relayTTYReportsRejectSpoofedOwnerAndStaleAttempt() throws {
         let fixture = try makeFixture()
@@ -284,11 +262,13 @@ extension AgentNotificationRegressionTests {
         fixture.source.remoteConfiguration = relayConfiguration(
             destination: "source.example.invalid",
             relayPort: 64_007
-        )
+        ).scopedToOwnerWorkspace(fixture.source.id)
         fixture.destination.remoteConfiguration = relayConfiguration(
             destination: "destination.example.invalid",
             relayPort: 64_008
-        )
+        ).scopedToOwnerWorkspace(fixture.destination.id)
+        let connectionID = UUID()
+        fixture.source.activeRemoteSessionControllerID = connectionID
         let sourceTerminal = try #require(
             fixture.source.panels[fixture.panelId] as? TerminalPanel
         )
@@ -315,26 +295,44 @@ extension AgentNotificationRegressionTests {
             )
         )
         let coordinator = ControlCommandCoordinator(context: TerminalController.shared)
-
         assertTTYReportRejected(coordinator.handle(ControlRequest(
             id: .string("spoofed-owner"),
             method: "surface.report_tty",
             params: [
                 "workspace_id": .string(fixture.destination.id.uuidString),
+                "surface_id": .string(fixture.panelId.uuidString),
+                "tty_name": .string("pts/30"),
+                "_cmux_remote_workspace_id": .string(fixture.source.id.uuidString),
+                "_cmux_remote_connection_id": .string(connectionID.uuidString),
+                "terminal_lifecycle_id": .string(
+                    sourceTerminal.surface.terminalLifecycleId.uuidString
+                ),
+                "attempt_id": .string(sourceAttemptID.uuidString),
+            ]
+        )), expectedCode: "remote_relay_workspace_denied")
+        #expect(
+            !fixture.source.surfaceRegistry.runtimeReportedTTYSurfaceIDs
+                .contains(fixture.panelId)
+        )
+        assertTTYReportRejected(coordinator.handle(ControlRequest(
+            id: .string("spoofed-surface"),
+            method: "surface.report_tty",
+            params: [
+                "workspace_id": .string(fixture.source.id.uuidString),
                 "surface_id": .string(destinationPanelID.uuidString),
                 "tty_name": .string("pts/30"),
                 "_cmux_remote_workspace_id": .string(fixture.source.id.uuidString),
+                "_cmux_remote_connection_id": .string(connectionID.uuidString),
                 "terminal_lifecycle_id": .string(
                     destinationTerminal.surface.terminalLifecycleId.uuidString
                 ),
                 "attempt_id": .string(destinationAttemptID.uuidString),
             ]
-        )))
+        )), expectedCode: "remote_relay_surface_denied")
         #expect(
             !fixture.destination.surfaceRegistry.runtimeReportedTTYSurfaceIDs
                 .contains(destinationPanelID)
         )
-
         assertTTYReportRejected(coordinator.handle(ControlRequest(
             id: .string("stale-attempt"),
             method: "surface.report_tty",
@@ -343,6 +341,7 @@ extension AgentNotificationRegressionTests {
                 "surface_id": .string(fixture.panelId.uuidString),
                 "tty_name": .string("pts/31"),
                 "_cmux_remote_workspace_id": .string(fixture.source.id.uuidString),
+                "_cmux_remote_connection_id": .string(connectionID.uuidString),
                 "terminal_lifecycle_id": .string(
                     sourceTerminal.surface.terminalLifecycleId.uuidString
                 ),
@@ -354,7 +353,6 @@ extension AgentNotificationRegressionTests {
                 .contains(fixture.panelId)
         )
     }
-
     @Test("A local TTY report expires when its runtime generation changes")
     func localTTYReportExpiresAfterRuntimeGenerationChanges() async throws {
         let fixture = try makeFixture()
@@ -379,20 +377,20 @@ extension AgentNotificationRegressionTests {
             hostedView.removeFromSuperview()
             window.orderOut(nil)
         }
-        let ttyName = try #require(await waitForControllingTTYName(for: terminal))
+        let ttyName = try await TerminalControllingTTYWaiter().wait(
+            for: terminal,
+            timeout: .seconds(15)
+        )
         fixture.source.registerReportedSurfaceTTYName(
             ttyName,
             panelId: fixture.panelId
         )
         #expect(!fixture.source.localAgentDeliveryTTYDevices.isEmpty)
         let reportedGeneration = terminal.surface.runtimeSurfaceGeneration
-
         terminal.surface.releaseSurfaceForTesting()
-
         #expect(terminal.surface.runtimeSurfaceGeneration != reportedGeneration)
         #expect(fixture.source.localAgentDeliveryTTYDevices.isEmpty)
     }
-
     private func relayConfiguration(
         destination: String,
         relayPort: Int,
@@ -406,66 +404,77 @@ extension AgentNotificationRegressionTests {
             localProxyPort: nil,
             relayPort: relayPort,
             relayID: nil,
-            relayToken: nil,
+            relayToken: String(repeating: "b", count: 64),
             localSocketPath: nil,
             terminalStartupCommand: nil,
             preserveAfterTerminalExit: preserveAfterTerminalExit,
             persistentDaemonSlot: preserveAfterTerminalExit ? "relay-tty-test" : nil
         )
     }
-
     private func assertRelayTTYTarget(
         authenticatedWorkspaceID: UUID,
         ttyName: String,
         expectedWorkspaceID: UUID,
         expectedSurfaceID: UUID
     ) {
-        let result = TerminalController.shared.v2AgentResolveDeliveryTarget(params: [
+        var params: [String: Any] = [
             "tty_name": ttyName,
             "tty_resolution": "reported_tty",
             "_cmux_remote_workspace_id": authenticatedWorkspaceID.uuidString,
-        ])
+        ]
+        let result: TerminalController.V2CallResult
+        if let workspace = AppDelegate.shared?.workspaceFor(tabId: authenticatedWorkspaceID) {
+            let previousConnectionID = workspace.activeRemoteSessionControllerID
+            let connectionID = previousConnectionID ?? UUID()
+            workspace.activeRemoteSessionControllerID = connectionID
+            params[WorkspaceRemoteRelayCommandRewriter.connectionIDKey] = connectionID.uuidString
+            result = TerminalController.shared.v2AgentResolveDeliveryTarget(params: params)
+            workspace.activeRemoteSessionControllerID = previousConnectionID
+        } else {
+            result = TerminalController.shared.v2AgentResolveDeliveryTarget(params: params)
+        }
         guard case .ok(let payload) = result,
               let target = payload as? [String: Any] else {
             Issue.record("Expected authenticated relay TTY resolution, got \(result)")
             return
         }
-        #expect(target["workspace_id"] as? String == expectedWorkspaceID.uuidString)
-        #expect(target["surface_id"] as? String == expectedSurfaceID.uuidString)
+        #expect(target["workspace_id"] as? String == expectedWorkspaceID.uuidString); #expect(target["surface_id"] as? String == expectedSurfaceID.uuidString)
     }
-
     private func assertNoRelayTTYTarget(
         authenticatedWorkspaceID: UUID,
         ttyName: String
     ) {
-        let result = TerminalController.shared.v2AgentResolveDeliveryTarget(params: [
+        var params: [String: Any] = [
             "tty_name": ttyName,
             "tty_resolution": "reported_tty",
             "_cmux_remote_workspace_id": authenticatedWorkspaceID.uuidString,
-        ])
+        ]
+        if let workspace = AppDelegate.shared?.workspaceFor(tabId: authenticatedWorkspaceID) {
+            let previousConnectionID = workspace.activeRemoteSessionControllerID
+            let connectionID = previousConnectionID ?? UUID()
+            workspace.activeRemoteSessionControllerID = connectionID
+            params[WorkspaceRemoteRelayCommandRewriter.connectionIDKey] = connectionID.uuidString
+            let result = TerminalController.shared.v2AgentResolveDeliveryTarget(params: params)
+            workspace.activeRemoteSessionControllerID = previousConnectionID
+            guard case .err(let code, _, _) = result else {
+                Issue.record("Expected relay TTY resolution to fail, got \(result)")
+                return
+            }
+            #expect(code == "not_found")
+            return
+        }
+        let result = TerminalController.shared.v2AgentResolveDeliveryTarget(params: params)
         guard case .err(let code, _, _) = result else {
             Issue.record("Expected relay TTY resolution to fail, got \(result)")
             return
         }
         #expect(code == "not_found")
     }
-
-    private func assertTTYReportRejected(_ result: ControlCallResult?) {
+    private func assertTTYReportRejected(_ result: ControlCallResult?, expectedCode: String = "not_found") {
         guard case .err(let code, _, _) = result else {
             Issue.record("Expected relay TTY report rejection, got \(String(describing: result))")
             return
         }
-        #expect(code == "not_found")
-    }
-
-    private func waitForControllingTTYName(for terminal: TerminalPanel) async -> String? {
-        let deadline = ContinuousClock.now + .seconds(15)
-        while ContinuousClock.now < deadline {
-            if let ttyName = terminal.surface.controllingTTYName() {
-                return ttyName
-            }
-            try? await Task.sleep(for: .milliseconds(10))
-        }
-        return terminal.surface.controllingTTYName()
+        #expect(code == expectedCode)
     }
 }

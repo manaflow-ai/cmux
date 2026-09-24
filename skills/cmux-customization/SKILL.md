@@ -73,7 +73,7 @@ Appears in Cmd+Shift+P unless `palette` is false.
 }
 ```
 
-For worktree agents, full-stack dev layouts, SSH devboxes, PR review workspaces, docs workspaces, tab bar buttons, and CI watch Dock controls, read [references/examples.md](references/examples.md). Load it when the user asks for examples, presets, templates, starter configs, or a known workflow shape.
+Before choosing a preset, template, starter config, or known workflow pattern, run `cmux docs workflows --json`. Its catalog describes the shipped examples, what each creates, task-fit cues, requirements, adaptation points, and the saved-layout lifecycle. After choosing an example, open [references/examples.md](references/examples.md) for that example's concrete JSON recipe.
 
 ## Validation
 

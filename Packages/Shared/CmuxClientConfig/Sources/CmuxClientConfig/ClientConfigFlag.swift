@@ -28,6 +28,8 @@ public extension ClientConfigFlag where Value == Bool {
         }
     }
 
+    /// Stops terminal timing collection remotely while preserving connectivity diagnostics.
+    static let iosTerminalLatencyEnabled = Self(booleanKey: "ios-terminal-latency-enabled", defaultValue: true)
     /// Enables Windows download/sign-up surfaces.
     static let cmuxForWindows = Self(booleanKey: "cmux-for-windows")
     /// Enables Linux download/sign-up surfaces.

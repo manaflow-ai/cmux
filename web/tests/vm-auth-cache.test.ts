@@ -19,6 +19,7 @@ mock.module("../app/lib/stack", () => ({
 const {
   verifyRequest,
   clearNativeAuthCacheForTests,
+  clearStackThrottleCircuitForTests,
   invalidateNativeAuthCacheForTokens,
 } = await import("../services/vms/auth");
 
@@ -44,6 +45,7 @@ const originalTtl = process.env.CMUX_VM_AUTH_CACHE_TTL_MS;
 
 beforeEach(() => {
   clearNativeAuthCacheForTests();
+  clearStackThrottleCircuitForTests();
   getUser.mockClear();
   getUser.mockResolvedValue(fakeStackUser);
   delete process.env.CMUX_VM_AUTH_CACHE_TTL_MS;
@@ -128,6 +130,92 @@ describe("native auth verification cache", () => {
     await verifyRequest(cookieRequest);
     await verifyRequest(cookieRequest);
 
+    expect(getUser).toHaveBeenCalledTimes(2);
+  });
+});
+
+
+// bun's MockFunction typing in this tree lacks the *Once variants; the
+// devices-route test uses the same cast.
+function failStackOnce(error: unknown): void {
+  (getUser as unknown as {
+    mockImplementationOnce(implementation: () => Promise<never>): void;
+  }).mockImplementationOnce(async () => {
+    throw error;
+  });
+}
+
+describe("Stack Auth throttle circuit", () => {
+  // Fake clocks far in the future so an opened circuit can never leak into
+  // the cache tests above, which run at epoch 0.
+  const BASE = 4_000_000_000_000;
+
+  test("a Stack throttle opens a short circuit so native retries stop hitting Stack", async () => {
+    setSystemTime(BASE);
+    failStackOnce(new AggregateError([
+        new Error("Rate limited, no retry-after header received"),
+      ]));
+
+    await expect(verifyRequest(nativeRequest("throttled-1"))).rejects.toThrow(/rate limited/i);
+    await expect(verifyRequest(nativeRequest("throttled-2"))).rejects.toThrow(/rate limited/i);
+    expect(getUser).toHaveBeenCalledTimes(1);
+
+    setSystemTime(BASE + 10_001);
+    const user = await verifyRequest(nativeRequest("throttled-2"));
+    expect(user?.id).toBe("user-1");
+    expect(getUser).toHaveBeenCalledTimes(2);
+  });
+
+  test("requests rejected by the open circuit do not extend it", async () => {
+    setSystemTime(BASE + 30_000);
+    failStackOnce(new AggregateError([
+      new Error("Rate limited, no retry-after header received"),
+    ]));
+    await expect(verifyRequest(nativeRequest("extend-1"))).rejects.toThrow(/rate limited/i);
+
+    setSystemTime(BASE + 30_000 + 9_000);
+    await expect(verifyRequest(nativeRequest("extend-2"))).rejects.toThrow(/rate limited/i);
+
+    setSystemTime(BASE + 30_000 + 10_001);
+    const user = await verifyRequest(nativeRequest("extend-3"));
+    expect(user?.id).toBe("user-1");
+    expect(getUser).toHaveBeenCalledTimes(2);
+  });
+
+  test("a non-throttle Stack failure does not open the circuit", async () => {
+    setSystemTime(BASE + 60_000);
+    failStackOnce(new Error("Stack Auth unreachable"));
+
+    await expect(verifyRequest(nativeRequest("plain-1"))).rejects.toThrow("Stack Auth unreachable");
+    const user = await verifyRequest(nativeRequest("plain-2"));
+    expect(user?.id).toBe("user-1");
+    expect(getUser).toHaveBeenCalledTimes(2);
+  });
+
+  test("a subrouter-path throttle does not open the native circuit", async () => {
+    setSystemTime(BASE + 180_000);
+    failStackOnce(new Error("Rate limited, no retry-after header received"));
+
+    await expect(verifyRequest(nativeRequest("subrouter-1"), {
+      subrouterAuthorizationSignal: new AbortController().signal,
+    })).rejects.toThrow(/rate limited/i);
+    const user = await verifyRequest(nativeRequest("native-after-subrouter"));
+    expect(user?.id).toBe("user-1");
+    expect(getUser).toHaveBeenCalledTimes(2);
+  });
+
+  test("cookie verification is never short-circuited by a native throttle", async () => {
+    setSystemTime(BASE + 120_000);
+    failStackOnce(new AggregateError([
+        new Error("Rate limited, no retry-after header received"),
+      ]));
+    await expect(verifyRequest(nativeRequest("throttled-3"))).rejects.toThrow(/rate limited/i);
+
+    const cookieRequest = new Request("https://cmux.test/api/vm", {
+      headers: { cookie: "stack-session=abc" },
+    });
+    const user = await verifyRequest(cookieRequest);
+    expect(user?.id).toBe("user-1");
     expect(getUser).toHaveBeenCalledTimes(2);
   });
 });

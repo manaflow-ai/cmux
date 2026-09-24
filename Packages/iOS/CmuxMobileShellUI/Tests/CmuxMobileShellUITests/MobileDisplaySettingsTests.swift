@@ -162,6 +162,27 @@ import Testing
     }
 
     #if DEBUG
+    @Test func taskComposerLiquidGlassDefaultsToOffWithoutAWrite() throws {
+        let defaults = try makeDefaults("taskComposerLiquidGlassDefaults")
+        let settings = MobileDisplaySettings(defaults: defaults)
+
+        #expect(!settings.taskComposerFullLiquidGlass)
+        #expect(
+            defaults.object(forKey: "cmux.mobile.debug.taskComposerFullLiquidGlass.v1") == nil
+        )
+    }
+
+    @Test func taskComposerLiquidGlassPersistsAcrossInstances() throws {
+        let defaults = try makeDefaults("taskComposerLiquidGlassPersists")
+        let settings = MobileDisplaySettings(defaults: defaults)
+
+        settings.taskComposerFullLiquidGlass = true
+        #expect(MobileDisplaySettings(defaults: defaults).taskComposerFullLiquidGlass)
+
+        settings.taskComposerFullLiquidGlass = false
+        #expect(!MobileDisplaySettings(defaults: defaults).taskComposerFullLiquidGlass)
+    }
+
     @Test func shellIconVariantPersistsAndRejectsUnknownValues() throws {
         let defaults = try makeDefaults("shellIconVariant")
         let settings = MobileDisplaySettings(defaults: defaults)

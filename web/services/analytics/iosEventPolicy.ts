@@ -51,6 +51,8 @@ const ALLOWED_EVENTS: ReadonlySet<string> = new Set([
   "ios_sign_in_completed",
   "ios_sign_in_failed",
   "ios_sign_in_cancelled",
+  "ios_billing_recovery_attempted",
+  "ios_billing_recovery_failed",
   // Pairing
   "ios_pairing_screen_viewed",
   "ios_pairing_started",
@@ -60,6 +62,7 @@ const ALLOWED_EVENTS: ReadonlySet<string> = new Set([
   "ios_connection_lost",
   "ios_connection_recovered",
   "ios_connection_recovery_failed",
+  "ios_initial_connection",
   // Workspace + terminal
   "ios_workspace_opened",
   "ios_first_frame_latency",

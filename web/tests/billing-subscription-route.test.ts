@@ -45,6 +45,7 @@ const captureBillingError = mock(() => undefined);
 mock.module("../app/lib/stack", () => ({
   getStackServerApp: () => ({ getUser }),
   isStackConfigured: () => stackConfigured,
+  promoteStackUserFromAnonymousViaApi: async () => undefined,
   stackServerApp: stackConfigured ? { getUser } : null,
 }));
 

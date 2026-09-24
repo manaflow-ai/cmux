@@ -94,6 +94,26 @@ struct SessionRemoteWorkspaceMoshRestoreTests {
         #expect(command.contains("exec /bin/sh -c"), "\(command)")
     }
 
+    @Test("keeps a durable TTY request on the SSH fallback, not the Mosh bootstrap")
+    func keepsTTYRequestOnlyOnSSHRestoreFallback() throws {
+        let snapshot = SessionRemoteWorkspaceSnapshot(
+            transport: .ssh,
+            terminalTransport: .mosh,
+            destination: "dev@example.com",
+            sshOptions: ["RequestTTY=force"]
+        )
+
+        let configuration = try #require(snapshot.workspaceConfiguration(preserveSSHOptions: true))
+        let command = try #require(configuration.terminalStartupCommand)
+
+        #expect(configuration.sshOptions == ["RequestTTY=force"])
+        #expect(command.contains("RequestTTY=no"), "Mosh management SSH must force no PTY: \(command)")
+        #expect(
+            command.components(separatedBy: "RequestTTY=force").count - 1 == 1,
+            "Only the embedded direct-SSH fallback should receive RequestTTY: \(command)"
+        )
+    }
+
     @Test("restores a named Mosh tmux terminal profile")
     func restoresNamedMoshTmuxProfile() throws {
         let terminalProfile = try #require(WorkspaceRemoteTerminalProfile(

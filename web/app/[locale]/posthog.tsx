@@ -2,7 +2,7 @@
 
 import { PostHogProvider as PHProvider } from "posthog-js/react";
 import type { CaptureResult } from "posthog-js";
-import { useUser } from "@stackframe/stack";
+import { useUser } from "@hexclave/next";
 import { usePathname, useSearchParams } from "next/navigation";
 import { useLayoutEffect, useRef, Suspense } from "react";
 import { posthog } from "../lib/posthog-client";

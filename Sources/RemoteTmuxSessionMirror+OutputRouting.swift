@@ -238,7 +238,8 @@ extension RemoteTmuxSessionMirror {
             // so a local project-hook lookup would resolve the wrong config.
             hookDirectory: nil,
             title: title,
-            body: body
+            body: body,
+            origin: .sshRelay(ownerWorkspaceID: workspaceId)
         ))
     }
 

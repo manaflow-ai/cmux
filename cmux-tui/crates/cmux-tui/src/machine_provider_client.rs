@@ -1,12 +1,11 @@
 //! Synchronous client for the versioned machine-provider protocol.
 //!
-//! This module intentionally has no `App` or CLI integration yet. It owns the
-//! security and framing boundary between a provider daemon and cmux's existing
-//! `RemoteTransport` abstraction, so later runtime wiring does not need to know
-//! how provider requests, events, authentication, or one-use stream tickets are
-//! represented on the wire.
-
-#![allow(dead_code)]
+//! `machine_provider_runtime` uses this client to back the machine controller,
+//! while startup's provider CLI and configuration paths select the transport
+//! connector. This module owns the security and framing boundary between a
+//! provider daemon and cmux's existing `RemoteTransport` abstraction, keeping
+//! provider requests, events, authentication, and one-use stream tickets out
+//! of the runtime and UI layers.
 
 #[cfg(unix)]
 use std::collections::{BTreeMap, HashMap, VecDeque};
@@ -15,11 +14,9 @@ use std::fmt;
 #[cfg(unix)]
 use std::io::{self, BufRead, BufReader, Write};
 #[cfg(unix)]
-use std::path::Path;
-#[cfg(unix)]
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 #[cfg(unix)]
-use std::sync::mpsc::{self, Receiver, RecvTimeoutError, SyncSender, TrySendError};
+use std::sync::mpsc::{self, RecvTimeoutError, SyncSender, TrySendError};
 #[cfg(unix)]
 use std::sync::{Arc, Condvar, Mutex, Weak};
 #[cfg(unix)]
@@ -62,7 +59,6 @@ use crate::session::{
 #[path = "machine_provider_transport.rs"]
 mod machine_provider_transport;
 #[cfg(unix)]
-#[allow(unused_imports)] // Consumed by the upcoming runtime/CLI migration.
 pub(crate) use machine_provider_transport::{
     CommandProviderConnector, MachineProviderConnector, SshProviderConnector, UnixProviderConnector,
 };
@@ -607,7 +603,10 @@ pub(crate) struct ProviderClient {
 
 #[cfg(unix)]
 impl ProviderClient {
-    pub(crate) fn connect(socket_path: impl AsRef<Path>) -> ProviderResult<Self> {
+    /// Test-only unauthenticated connection. Runtime callers go through
+    /// `connect_authenticated_with` so every generation performs `hello`.
+    #[cfg(test)]
+    pub(crate) fn connect(socket_path: impl AsRef<std::path::Path>) -> ProviderResult<Self> {
         let (control, streams) =
             UnixProviderConnector::open_unauthenticated(socket_path.as_ref().to_path_buf())?;
         Self::from_transport(control, streams)
@@ -640,8 +639,10 @@ impl ProviderClient {
         Ok(Self { inner })
     }
 
+    /// Test-only Unix-socket convenience over `connect_authenticated_with`.
+    #[cfg(test)]
     pub(crate) fn connect_authenticated(
-        socket_path: impl AsRef<Path>,
+        socket_path: impl AsRef<std::path::Path>,
         token: BearerToken,
         client: ClientDescriptor,
     ) -> ProviderResult<(Self, HelloResult)> {
@@ -926,7 +927,9 @@ impl ProviderClient {
     }
 
     /// Subscribe to revision invalidations. Receivers are removed after drop.
-    pub(crate) fn subscribe_snapshot_changes(&self) -> ProviderResult<Receiver<u64>> {
+    /// The runtime fetches snapshots on demand and does not subscribe yet.
+    #[cfg(test)]
+    pub(crate) fn subscribe_snapshot_changes(&self) -> ProviderResult<mpsc::Receiver<u64>> {
         self.ensure_live()?;
         let (sender, receiver) = mpsc::sync_channel(1);
         self.inner
@@ -1022,7 +1025,7 @@ impl ProviderClient {
 
         drop(deadline);
         Ok(RemoteTransport::new(
-            Box::new(BoundedRemoteReader { inner: reader, guard: guard.clone() }),
+            Box::new(BoundedRemoteReader { inner: reader, _guard: guard.clone() }),
             Box::new(BoundedRemoteWriter { inner: writer, guard: guard.clone() }),
             Arc::new(ProviderRemoteAbort { guard }),
         ))
@@ -1429,7 +1432,8 @@ fn write_json_frame<W: Write, T: Serialize>(
 #[cfg(unix)]
 struct BoundedRemoteReader {
     inner: BufReader<Box<dyn io::Read + Send>>,
-    guard: ProviderIoGuard,
+    /// Keeps the endpoint cleanup alive for as long as the reader exists.
+    _guard: ProviderIoGuard,
 }
 
 #[cfg(unix)]

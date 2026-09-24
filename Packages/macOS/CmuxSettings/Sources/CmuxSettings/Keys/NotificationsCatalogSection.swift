@@ -46,6 +46,15 @@ public struct NotificationsCatalogSection: SettingCatalogSection {
         userDefaultsKey: "notificationSoundCustomFilePath"
     )
 
+    /// Canonical JSON for the sparse agent × alert-type sound matrix. The
+    /// string backing keeps cmux.json's nested object declarative while using
+    /// the existing managed UserDefaults import/backup machinery.
+    public let soundOverrides = DefaultsKey<String>(
+        id: "notifications.soundOverrides",
+        defaultValue: "{}",
+        userDefaultsKey: "notificationSoundOverrides"
+    )
+
     public let command = DefaultsKey<String>(
         id: "notifications.command",
         defaultValue: "",

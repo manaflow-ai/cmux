@@ -50,6 +50,13 @@ cat > "$FAKE_BIN/hdiutil" <<'EOF'
 set -euo pipefail
 printf 'hdiutil %s\n' "$*" >> "$CMUX_TEST_CALL_LOG"
 case "${1:-}" in
+  convert)
+    # hdiutil convert <in> -quiet -format ULMO -ov -o <out>
+    printf 'dmg-fixture-ulmo\n' > "${@: -1}"
+    ;;
+  imageinfo)
+    printf 'Format: %s\n' "${CMUX_TEST_DMG_FORMAT:-ULMO}"
+    ;;
   attach)
     mount_dir="${@: -1}"
     cp -R "$CMUX_TEST_SOURCE_APP" "$mount_dir/cmux NIGHTLY.app"
@@ -126,6 +133,16 @@ line_of() {
 submit_line="$(line_of "xcrun notarytool submit $DMG")"
 helper_notary_line="$(line_of "notarize-helper --finish $HELPER_STATE $APP")"
 create_dmg_line="$(line_of "create-dmg --no-code-sign $APP")"
+convert_line="$(line_of "hdiutil convert ")"
+dmg_sign_line="$(line_of "codesign --force --timestamp --keychain build.keychain --sign Developer ID Application: Fixture $DMG")"
+if [ -z "$convert_line" ] || [ -z "$dmg_sign_line" ] || ! [ "$create_dmg_line" -lt "$convert_line" ] || ! [ "$convert_line" -lt "$dmg_sign_line" ]; then
+  echo "FAIL: DMG must be re-encoded to LZMA between create-dmg and DMG signing" >&2
+  exit 1
+fi
+if ! grep -Fq "hdiutil convert" "$LOG" || ! grep -Eq "hdiutil convert .* -format ULMO .* -o $DMG\$" "$LOG"; then
+  echo "FAIL: DMG was not converted to ULMO at $DMG" >&2
+  exit 1
+fi
 app_staple_line="$(line_of "xcrun stapler staple $APP")"
 dmg_staple_line="$(line_of "xcrun stapler staple $DMG")"
 attach_line="$(line_of "hdiutil attach $DMG")"
@@ -174,3 +191,43 @@ if grep -Fq 'xcrun stapler staple' "$LOG"; then
 fi
 
 echo "PASS: single DMG submission validates app ticket and delivered artifact"
+
+# The RC channel reuses the same packaging path and only switches the
+# entitlements default and the bundle-metadata channel argument.
+: > "$LOG"
+RC_APP="$TMP_DIR/input/cmux RC.app"
+mkdir -p "$RC_APP/Contents/MacOS"
+printf 'signed-rc-fixture\n' > "$RC_APP/Contents/MacOS/cmux"
+CMUX_TEST_CALL_LOG="$LOG" \
+CMUX_TEST_SOURCE_APP="$RC_APP" \
+CMUX_TEST_DETACH_STATE="$TMP_DIR/detach-retried-rc" \
+CMUX_CHANNEL=rc \
+CMUX_NIGHTLY_MOUNT_DIR="$TMP_DIR/cmux-rc-mount" \
+CMUX_CREATE_DMG_TOOL="$FAKE_BIN/create-dmg" \
+CMUX_CODESIGN_TOOL="$FAKE_BIN/codesign" \
+CMUX_XCRUN_TOOL="$FAKE_BIN/xcrun" \
+CMUX_HDIUTIL_TOOL="$FAKE_BIN/hdiutil" \
+CMUX_SPCTL_TOOL="$FAKE_BIN/spctl" \
+CMUX_SMOKE_TOOL="$FAKE_BIN/smoke" \
+CMUX_VERIFY_METADATA_TOOL="$FAKE_BIN/metadata" \
+CMUX_VERIFY_LICENSES_TOOL="$FAKE_BIN/licenses" \
+CMUX_NOTARIZE_COMPUTER_USE_HELPER_TOOL="$FAKE_BIN/notarize-computer-use-helper" \
+APPLE_ID=fixture@example.com \
+APPLE_APP_SPECIFIC_PASSWORD=fixture-password \
+APPLE_TEAM_ID=FIXTURETEAM \
+APPLE_SIGNING_IDENTITY='Developer ID Application: Fixture' \
+"$SCRIPT" "$RC_APP" "$TMP_DIR/cmux-rc-macos.dmg" "$TMP_DIR/cmux-rc-immutable.dmg"
+for expected in \
+  "notarize-helper $RC_APP $ROOT_DIR/cmux.rc.entitlements Developer ID Application: Fixture" \
+  "metadata $RC_APP rc" \
+  "metadata $TMP_DIR/cmux-rc-mount/cmux NIGHTLY.app rc"; do
+  if ! grep -Fxq "$expected" "$LOG"; then
+    echo "FAIL: rc channel packaging missed: $expected" >&2
+    exit 1
+  fi
+done
+if CMUX_CHANNEL=beta run_helper 2>/dev/null; then
+  echo "FAIL: unknown channel must be rejected" >&2
+  exit 1
+fi
+echo "PASS: rc channel packaging selects rc entitlements and metadata checks"

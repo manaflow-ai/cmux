@@ -25,6 +25,9 @@ extension GhosttySurfaceView {
     /// - Parameters:
     ///   - data: VT or PTY bytes to feed into the surface.
     ///   - terminalConfigTheme: Raw Ghostty defaults captured with these bytes.
+    ///   - renderGridContract: Grid dimensions these bytes address when they
+    ///     replay a render-grid frame; the apply fails instead of painting when
+    ///     the local grid does not satisfy it.
     ///   - pushesLocalScrollbackRows: Rows this chunk's scroll prologue pushes
     ///     into local scrollback (a screen-anchored delta's `scrolledRows`),
     ///     accounted into the view's cumulative push counter as the bytes apply.
@@ -34,6 +37,7 @@ extension GhosttySurfaceView {
     public func processOutputAndWait(
         _ data: Data,
         terminalConfigTheme: TerminalTheme?,
+        renderGridContract: RenderGridApplyContract? = nil,
         pushesLocalScrollbackRows: Int = 0
     ) async -> Bool {
         await withCheckedContinuation { continuation in
@@ -44,6 +48,7 @@ extension GhosttySurfaceView {
             processOutput(
                 data,
                 terminalConfigTheme: terminalConfigTheme,
+                renderGridContract: renderGridContract,
                 pushesLocalScrollbackRows: pushesLocalScrollbackRows
             ) { [weak self] applied in
                 self?.completePendingOutputApply(id: operationID, returning: applied)

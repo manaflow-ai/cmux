@@ -199,13 +199,15 @@ are the exceptions to the mutation replay guarantee above.
 `agent.report` requires a live terminal and has no session-global or default
 agent record. The registry stores one current projection row per live
 terminal. Public `agent.report` and raw `report-agent` use the same durable
-commit path, advance the public resource revision, and publish one agent
-change to `session.events`. A hook report replaces socket state. A later
-socket report retains the hook value but still commits the observed durable
-order and publishes that retained value. Restart restores agents from the
-current projection table rather than scanning report history. Tombstoning a
-terminal deletes its projection in the same transaction, so historical
-reports cannot resurrect it.
+commit path. A report that changes the effective projection advances the
+public resource revision and publishes one agent change to `session.events`.
+A semantically identical socket report is recorded as a replay-equivalent
+receipt at the current revision, without changing the projection or emitting
+another event. A hook report replaces socket state; a socket report that is
+retained by an unchanged hook therefore also takes this no-op path. Restart
+restores agents from the current projection table rather than scanning report
+history. Tombstoning a terminal deletes its projection in the same transaction,
+so historical reports cannot resurrect it.
 
 `terminal.viewport.scroll` changes the session's compatibility inspection
 viewport. Interactive frontends keep scroll in their own terminal mirror and
@@ -348,6 +350,13 @@ Terminal and browser attachments have independent decimal-string sequences.
 Their initial snapshot is delivered after the open response. Overflow
 requires a fresh attachment snapshot.
 
+`terminal.screen.read` may include two optional terminal metadata fields. They
+may be absent or null when the server cannot provide them. `revision` is a
+coalesced PTY output counter, and `osc_progress` is bounded OSC 9 progress text.
+These fields are generic protocol data. The daemon does not identify agents or
+apply vendor rules. A userland plugin can combine the metadata with process
+information and screen text before appending its own journal event.
+
 Every `browser.attach` frame also carries a required nullable
 `pointer_frame_seq`. A null token permits rendering but forbids pointer input.
 `browser.input.mouse` and `browser.input.wheel` require the exact non-null
@@ -394,12 +403,25 @@ defines the catalog format. Unknown parameter and result fields are rejected.
 | `mutation` | Durable mutation. A non-empty idempotency key is required. |
 | `stream_open` | Opens a stream. The client supplies stream_id. No idempotency key. |
 | `connection_control` | Connection-local control. No idempotency key. |
-| `local` | Filesystem-only sidebar plugin action. It never uses a protocol request envelope. |
+| `local` | Filesystem-only plugin manager action. It never uses a protocol request envelope. The agent plugin manager is a CLI entrypoint; it is not a transported resource operation. |
+
+Userland agent plugins use the normal journal operations. They register a
+`JournalProducerManifest` with `session.journal.producer.put`, then append
+`JournalIngress` events with `session.journal.append`. The manifest namespace is
+`plugin.<producer_id>`, and the append permission is
+`journal.append.<namespace>`. Core validates the manifest and event schema but
+does not know the plugin's agent catalog or screen grammar. The Rust SDK names
+these types generically. `Session::journal_producers` reads the installed
+manifests for diagnostics. Bindings that exposed the preview `AgentPlugin*`
+names retain source-compatible aliases.
+There are deliberately no `agent_plugin.*` transport operation names. The
+commands are local CLI plans, and the selected process uses the generic journal
+operations after the server socket is bound.
 
 | Class | Operations |
 | --- | --- |
 | read | `agent.list`, `browser.get`, `browser.list`, `client.get`, `client.list`, `frontend_projection.get`, `machine.get`, `machine.list`, `notification.list`, `pairing_request.list`, `pane.get`, `pane.list`, `pane.neighbor.get`, `screen.get`, `screen.layout.export`, `screen.list`, `session.creation.resolve`, `session.get`, `session.journal.checkpoint.list`, `session.journal.hook.list`, `session.journal.producer.list`, `session.journal.restore.preview`, `session.journal.segment.list`, `session.list`, `session.ping`, `session.snapshot`, `sidebar_view.get`, `tab.get`, `tab.list`, `terminal.copy`, `terminal.get`, `terminal.history.read`, `terminal.list`, `terminal.output_read`, `terminal.process.get`, `terminal.screen.read`, `terminal.state.read`, `terminal.wait`, `terminal.wait_exit`, `workspace.get`, `workspace.list` |
-| mutation | `agent.report`, `browser.activate`, `browser.back`, `browser.close`, `browser.forward`, `browser.input.key`, `browser.input.mouse`, `browser.input.text`, `browser.input.wheel`, `browser.navigate`, `browser.reload`, `frontend_projection.put`, `notification.create`, `pairing_request.resolve`, `pane.close`, `pane.create`, `pane.focus`, `pane.focus_direction`, `pane.rename`, `pane.run`, `pane.split`, `pane.split_ratio.set`, `pane.swap`, `pane.viewport_width.set`, `pane.zoom`, `screen.close`, `screen.create`, `screen.focus`, `screen.layout.undo`, `screen.rename`, `session.journal.append`, `session.journal.checkpoint.create`, `session.journal.hook.put`, `session.journal.producer.put`, `session.journal.segment.seal`, `session.open`, `session.reload_config`, `session.shutdown`, `session.terminal_defaults.update`, `session.window.title.clear`, `session.window.title.set`, `sidebar_view.ensure`, `sidebar_view.input`, `sidebar_view.reload`, `sidebar_view.resize`, `tab.close`, `tab.create_browser`, `tab.create_terminal`, `tab.focus`, `tab.move`, `tab.rename`, `terminal.close`, `terminal.history.clear`, `terminal.input.focus`, `terminal.input.keys`, `terminal.input.mouse`, `terminal.input.write`, `terminal.move`, `terminal.project`, `terminal.viewport.scroll`, `workspace.close`, `workspace.create`, `workspace.focus`, `workspace.layout.apply`, `workspace.move`, `workspace.rename`, `workspace.run` |
+| mutation | `agent.report`, `browser.activate`, `browser.back`, `browser.close`, `browser.forward`, `browser.input.key`, `browser.input.mouse`, `browser.input.text`, `browser.input.wheel`, `browser.navigate`, `browser.reload`, `frontend_projection.put`, `notification.ack`, `notification.clear`, `notification.create`, `pairing_request.resolve`, `pane.close`, `pane.create`, `pane.focus`, `pane.focus_direction`, `pane.rename`, `pane.run`, `pane.split`, `pane.split_ratio.set`, `pane.swap`, `pane.viewport_width.set`, `pane.zoom`, `screen.close`, `screen.create`, `screen.focus`, `screen.layout.undo`, `screen.rename`, `session.journal.append`, `session.journal.checkpoint.create`, `session.journal.hook.put`, `session.journal.producer.put`, `session.journal.segment.seal`, `session.open`, `session.reload_config`, `session.shutdown`, `session.terminal_defaults.update`, `session.window.title.clear`, `session.window.title.set`, `sidebar_view.ensure`, `sidebar_view.input`, `sidebar_view.reload`, `sidebar_view.resize`, `tab.close`, `tab.create_browser`, `tab.create_terminal`, `tab.focus`, `tab.move`, `tab.rename`, `terminal.close`, `terminal.history.clear`, `terminal.input.focus`, `terminal.input.keys`, `terminal.input.mouse`, `terminal.input.write`, `terminal.move`, `terminal.project`, `terminal.viewport.scroll`, `workspace.close`, `workspace.create`, `workspace.focus`, `workspace.layout.apply`, `workspace.move`, `workspace.rename`, `workspace.run` |
 | stream_open | `browser.attach`, `session.events`, `session.journal.subscribe`, `sidebar_view.attach`, `terminal.attach` |
 | connection_control | `browser.viewer.release`, `browser.viewer.resize`, `client.cell_pixels.set`, `client.detach`, `client.metadata.update`, `client.sizing.release`, `client.sizing.set`, `request.cancel`, `stream.cancel`, `terminal.renderer_grant.create`, `terminal.viewer.release`, `terminal.viewer.resize` |
 | local | `sidebar_plugin.install`, `sidebar_plugin.list`, `sidebar_plugin.remove`, `sidebar_plugin.update`, `sidebar_plugin.use`, `sidebar_plugin.use_builtin` |
@@ -499,6 +521,10 @@ machine. Its origin is always `local`. `session.list`, `session.get`, and
 Sidebar plugin installation and selection are local filesystem operations.
 Transported sidebar view operations never send a `sidebar_plugin_` ID.
 Optional install names are filesystem slugs matching `[a-z0-9-_]+`.
+Agent plugin installation and selection are also local filesystem operations.
+They write `agents.plugin` and never send an `agent_plugin_` ID as a resource
+selector. The selected background process uses the journal operations above
+after the server socket is bound.
 
 `screen.layout.undo` accepts `confirm_close`, default false, and an optional
 opaque `confirmation_token` of 1 through 128 UTF-8 bytes. If the undo would
@@ -543,6 +569,7 @@ cmux workspace ws_… screen current pane current split --right
 cmux terminal term_… screen read
 cmux terminal term_… keys ctrl-c
 cmux sidebar plugin list
+cmux agent plugin list
 ```
 
 Root control scopes are `machine`, `session`, `client`, `workspace`, `screen`,
@@ -560,9 +587,11 @@ event. `--quiet` suppresses success output. Results use stdout. Diagnostics
 use stderr. Exit codes are 0 success, 1 operation failure, 2 usage, and 3
 transport.
 
-Local filesystem actions are `sidebar plugin install|update|remove|use` and
-configuration discovery. Their results use the same output modes but they do
-not cross the session protocol.
+Local filesystem actions are `sidebar plugin install|update|remove|use`,
+`agent plugin install|list|update|remove|use`, and configuration discovery.
+Their results use the same output modes but they do not cross the session
+protocol. Agent plugin actions select the userland background detector and
+write `agents.plugin`; they do not add agent implementation to core.
 
 ## SDK boundary
 

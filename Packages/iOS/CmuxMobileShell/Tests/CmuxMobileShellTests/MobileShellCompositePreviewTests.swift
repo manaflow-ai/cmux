@@ -412,6 +412,32 @@ import Testing
         #expect(store.registryDevices.map(\.deviceId) == ["device-b"])
     }
 
+    @Test func staleSameScopeRegistryLoadCannotReplaceNewerSnapshot() async throws {
+        let registry = SequencedDeviceRegistry(
+            outcomes: [
+                .ok([Self.registryDevice(id: "old-device")]),
+                .ok([Self.registryDevice(id: "new-device")]),
+            ]
+        )
+        let store = MobileShellComposite(
+            isSignedIn: true,
+            deviceRegistry: registry,
+            identityProvider: StaticIdentityProvider(userID: "user-1"),
+            teamIDProvider: { "team-a" }
+        )
+
+        let oldLoad = Task { await store.loadRegistryDevices() }
+        await registry.waitUntilCall(1)
+        let newLoad = Task { await store.loadRegistryDevices() }
+        await registry.waitUntilCall(2)
+
+        await registry.releaseFirstCall()
+        await oldLoad.value
+        await newLoad.value
+
+        #expect(store.registryDevices.map(\.deviceId) == ["new-device"])
+    }
+
     @Test func teamChangeDoesNotStartACompetingStoredMacReconnect() async throws {
         let team = MutableTeamID("team-a")
         let pairedStore = DelayedTeamPairedMacStore(
@@ -503,7 +529,11 @@ import Testing
             platform: "mac",
             displayName: id,
             lastSeenAt: Date(timeIntervalSince1970: 2),
-            instances: []
+            instances: [RegistryAppInstance(
+                tag: "default",
+                routes: [],
+                lastSeenAt: Date(timeIntervalSince1970: 2)
+            )]
         )
     }
 
@@ -518,6 +548,48 @@ import Testing
         #expect(store.selectedWorkspace?.id.rawValue == "workspace-main")
         #expect(store.selectedWorkspace?.terminals.count == 4)
         #expect(store.selectedTerminalID?.rawValue == "workspace-main-terminal-4")
+    }
+
+    @Test func createTerminalRemainsSelectedWhileItStarts() throws {
+        let store = MobileShellComposite.preview()
+        store.signIn()
+        store.pairingCode = "debug"
+        store.connectPreviewHost()
+
+        store.createTerminal()
+        let created = try #require(store.selectedTerminalID)
+        let refreshedWorkspace = MobileWorkspacePreview(
+            id: "workspace-main",
+            name: "cmux",
+            terminals: [
+                MobileTerminalPreview(id: "terminal-build", name: "Build", isReady: true),
+                MobileTerminalPreview(id: created, name: "Terminal 4", isReady: false),
+            ]
+        )
+
+        store.replaceForegroundWorkspaceState([refreshedWorkspace])
+
+        #expect(store.selectedTerminalID == created)
+    }
+
+    @Test func createTerminalFallsBackWhenCreatedTerminalDisappears() throws {
+        let store = MobileShellComposite.preview()
+        store.signIn()
+        store.pairingCode = "debug"
+        store.connectPreviewHost()
+
+        store.createTerminal()
+        let created = try #require(store.selectedTerminalID)
+        store.replaceForegroundWorkspaceState([
+            MobileWorkspacePreview(
+                id: "workspace-main",
+                name: "cmux",
+                terminals: [MobileTerminalPreview(id: "terminal-build", name: "Build", isReady: true)]
+            )
+        ])
+
+        #expect(store.selectedTerminalID == "terminal-build")
+        #expect(store.selectedTerminalID != created)
     }
 
     @Test func createTerminalUsesExplicitWorkspaceContextOverStaleSelection() {
@@ -1244,6 +1316,7 @@ import Testing
         #expect(route?.0 == "100.71.210.41")
         #expect(route?.1 == CmxMobileDefaults.defaultHostPort)
     }
+
 }
 
 private func hostPortRoute(

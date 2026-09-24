@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+from agent_notification_test_utils import notification_view
+
 import glob
 import json
 import os
@@ -246,24 +248,19 @@ def main() -> int:
             print(f"commands={server.commands!r}")
             return 1
 
-        notify_commands = [line for line in server.commands if line.startswith("notify_target_async ")]
-        if not notify_commands:
-            print("FAIL: expected notify_target_async command")
-            print(f"commands={server.commands!r}")
+        notifications = [view for line in server.commands if (view := notification_view(line)) is not None]
+        if len(notifications) != 1:
+            print(f"FAIL: expected one semantic completion candidate, got {notifications!r}")
             return 1
-
-        notify = notify_commands[-1]
-        # Stop notifications carry the agent-notification gating meta as a 4th
-        # pipe segment; no background_tasks/session_crons in the payload => p=0.
-        expected_payload = (
-            f"notify_target_async {workspace_id} {surface_id} "
-            "Claude Code|Completed in fun|2|c=turn-complete;p=0;a=claude;n=0"
-        )
-        if notify != expected_payload:
-            print("FAIL: expected stop notification to use final assistant text")
-            print(f"expected={expected_payload!r}")
-            print(f"actual={notify!r}")
-            print(f"commands={server.commands!r}")
+        expected = {
+            "kind": "agent.turn.completed", "source": "claude",
+            "workspace_id": workspace_id, "surface_id": surface_id,
+            "title": "Claude Code", "subtitle": "Completed in fun", "body": "2",
+            "category": "turn-complete", "pending_work": False,
+            "request_identity": None,
+        }
+        if notifications[0] != expected:
+            print(f"FAIL: incorrect semantic completion: {notifications[0]!r}")
             return 1
 
     print("PASS: Claude cron guard denies durable jobs and Stop notification uses final assistant text")

@@ -174,19 +174,33 @@ extension AppDelegate {
             NSSound.beep()
             return
         }
-        presentSaveWorkspaceActionDialog(
-            workspace: workspace,
-            cmuxConfigStore: cmuxConfigStore,
-            window: window
-        )
+        guard saveWorkspaceActionTasks[context.windowId] == nil else { return }
+        let task = Task { @MainActor [weak self, weak context] in
+            guard let self, let context else { return }
+            defer { self.saveWorkspaceActionTasks[context.windowId] = nil }
+            await self.presentSaveWorkspaceActionDialog(
+                workspace: workspace,
+                cmuxConfigStore: cmuxConfigStore,
+                window: window
+            )
+        }
+        saveWorkspaceActionTasks[context.windowId] = task
     }
 
     private func presentSaveWorkspaceActionDialog(
         workspace: Workspace,
         cmuxConfigStore: CmuxConfigStore,
         window: NSWindow
-    ) {
-        let snapshot = workspace.captureConfigActionSnapshot()
+    ) async {
+        let snapshot: WorkspaceConfigActionSnapshot
+        do {
+            snapshot = try await workspace.captureConfigActionSnapshot()
+        } catch {
+            guard window.isVisible, !Task.isCancelled else { return }
+            presentSaveWorkspaceActionCaptureError(for: window)
+            return
+        }
+        guard window.isVisible, !Task.isCancelled else { return }
         let globalConfigPath = cmuxConfigStore.globalConfigPath
         if !snapshot.oversizedCommands.isEmpty {
             presentWorkspaceCommandTooLongAlert(for: window)
@@ -305,6 +319,24 @@ extension AppDelegate {
         alert.informativeText = String(
             format: messageFormat,
             Int64(TerminalForegroundCommandCapture.maxReplayableCommandUTF8Length)
+        )
+        alert.addButton(withTitle: String(
+            localized: "dialog.saveWorkspaceLayout.ok",
+            defaultValue: "OK"
+        ))
+        alert.beginSheetModal(for: window)
+    }
+
+    private func presentSaveWorkspaceActionCaptureError(for window: NSWindow) {
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = String(
+            localized: "dialog.saveWorkspaceLayout.failedTitle",
+            defaultValue: "Couldn't Save Workspace Layout"
+        )
+        alert.informativeText = String(
+            localized: "dialog.saveWorkspaceLayout.failedMessage",
+            defaultValue: "Couldn't capture the workspace layout. Try again."
         )
         alert.addButton(withTitle: String(
             localized: "dialog.saveWorkspaceLayout.ok",

@@ -591,6 +591,23 @@ extension AppDelegate {
         let target = request.originalURL.host ?? request.originalURL.path
         cmuxDebugLog("sshURL.prompt target=\(target) destinationLength=\(request.destination.count) hasPort=\(request.port != nil)")
 #endif
+        // `DisableRemoteConnections` (MDM): refuse before the trust dialog and
+        // the window bootstrap. The CLI would fail closed downstream, but only
+        // with a generic exit-status alert.
+        guard ManagedRemoteConnectionsPolicy.isEnabled else {
+#if DEBUG
+            cmuxDebugLog("sshURL.blocked_managed_policy")
+#endif
+            let alert = NSAlert()
+            alert.messageText = ManagedRemoteConnectionsPolicy.disabledMessage
+            alert.informativeText = String(
+                localized: "managedPolicy.remoteConnections.sshURLRefused",
+                defaultValue: "cmux cannot open SSH links while remote connections are disabled by your organization's device policy."
+            )
+            alert.alertStyle = .informational
+            alert.runModal()
+            return
+        }
 
         deferInitialMainWindowBootstrapForExternalConfirmation()
         guard confirmCmuxSSHURLRequest(request) else {

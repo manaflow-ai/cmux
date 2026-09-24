@@ -1,4 +1,5 @@
 import CmuxFoundation
+import CmuxSettings
 import CmuxRemoteSession
 import Foundation
 import Darwin
@@ -82,10 +83,17 @@ struct DetectedSSHSession: Equatable {
     }
 #endif
 
-    private func uploadDroppedFilesSync(
+    func uploadDroppedFilesSync(
         _ fileURLs: [URL],
-        operation: TerminalImageTransferOperation
+        operation: TerminalImageTransferOperation,
+        managedDevicePolicy: ManagedDevicePolicy = ManagedDevicePolicy()
     ) throws -> [String] {
+        // `DisableFileTransfer` (MDM): the detected-SSH transfer is cmux
+        // mediating an upload, so it fails closed. A user's own `scp` typed
+        // into the same terminal is deliberately out of scope.
+        guard !managedDevicePolicy.isEnforced(.disableFileTransfer) else {
+            throw ManagedFileTransferPolicy.refusalError()
+        }
         guard !fileURLs.isEmpty else { return [] }
 
         var uploadedRemotePaths: [String] = []
@@ -169,7 +177,10 @@ struct DetectedSSHSession: Equatable {
         if !Self.hasSSHOptionKey(sshOptions, key: "StrictHostKeyChecking") {
             args += ["-o", "StrictHostKeyChecking=accept-new"]
         }
-        for option in sshOptions {
+        let nonInteractiveSSHOptions = SSHAgentSocketResolver().nonInteractiveOptions(
+            from: sshOptions
+        )
+        for option in nonInteractiveSSHOptions {
             args += ["-o", option]
         }
 
@@ -431,8 +442,13 @@ enum TerminalSSHSessionDetector {
 
         for candidate in candidates {
             guard let transport = RemoteShellTransport(executableName: candidate.executableName),
-                  let arguments = argumentsByPID[candidate.pid],
-                  let session = parseCommandLine(arguments, for: transport) else {
+                  let arguments = argumentsByPID[candidate.pid] else {
+                continue
+            }
+            if case .ssh = transport, !isInteractiveSSHArguments(arguments) {
+                continue
+            }
+            guard let session = parseCommandLine(arguments, for: transport) else {
                 continue
             }
             return session

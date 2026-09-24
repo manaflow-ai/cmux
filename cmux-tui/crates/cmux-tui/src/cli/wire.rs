@@ -9,6 +9,7 @@ use cmux_tui_core::resource::{
     EnvelopeType, MAX_MESSAGE_BYTES, OperationClass, PROTOCOL, ResponseEnvelope, StreamEndEnvelope,
     StreamEndReason, StreamItemEnvelope,
 };
+use ratatui::buffer::CellWidth;
 use serde_json::{Value, json};
 
 use super::command::{RequestPlan, WireOperation, random_prefixed};
@@ -104,7 +105,7 @@ pub(super) fn run(global: GlobalArgs, mut plan: RequestPlan) -> i32 {
 }
 
 #[cfg(unix)]
-fn arm_signal_interrupt(stream: &dyn transport::Stream) -> bool {
+pub(super) fn arm_signal_interrupt(stream: &dyn transport::Stream) -> bool {
     let Ok(stream) = stream.try_clone_box() else { return false };
     std::thread::Builder::new()
         .name("cmux-cli-signal-interrupt".into())
@@ -464,6 +465,38 @@ fn print_operation_error(error: &Value, output: OutputMode) -> i32 {
 }
 
 fn localize_operation_error(plan: &RequestPlan, error: &mut Value) {
+    localize_operation_error_with_catalog(plan, error, crate::localization::catalog());
+}
+
+fn localize_operation_error_with_catalog(
+    plan: &RequestPlan,
+    error: &mut Value,
+    catalog: &crate::localization::Catalog,
+) {
+    if matches!(
+        &plan.operation,
+        WireOperation::Typed(
+            cmux_tui_core::resource::ResourceOperation::TerminalInputWrite
+                | cmux_tui_core::resource::ResourceOperation::TerminalInputKeys
+                | cmux_tui_core::resource::ResourceOperation::TerminalInputMouse
+                | cmux_tui_core::resource::ResourceOperation::TerminalInputFocus
+        )
+    ) && error["code"] == "operation.failed"
+    {
+        let message = match error["details"]["reason"].as_str() {
+            Some("terminal_input_too_large") => Some(catalog.terminal_input.too_large),
+            Some("terminal_input_unavailable") => Some(catalog.terminal_input.unavailable),
+            Some("terminal_input_confirmation_unsupported") => {
+                Some(catalog.terminal_input.confirmation_unsupported)
+            }
+            Some("terminal_input_delivery_failed") => Some(catalog.terminal_input.delivery_failed),
+            _ => None,
+        };
+        if let Some(message) = message {
+            error["message"] = Value::String(message.into());
+        }
+    }
+
     let is_lifecycle_operation = matches!(
         &plan.operation,
         WireOperation::Typed(
@@ -473,12 +506,8 @@ fn localize_operation_error(plan: &RequestPlan, error: &mut Value) {
     );
     if is_lifecycle_operation && error["code"] == "operation.failed" {
         let message = match error["details"]["reason"].as_str() {
-            Some("lifecycle_not_ready") => {
-                Some(crate::localization::catalog().local_server.starting)
-            }
-            Some("owner_stopped") => {
-                Some(crate::localization::catalog().local_server.reload_owner_stopped)
-            }
+            Some("lifecycle_not_ready") => Some(catalog.local_server.starting),
+            Some("owner_stopped") => Some(catalog.local_server.reload_owner_stopped),
             _ => None,
         };
         if let Some(message) = message {
@@ -591,10 +620,11 @@ fn append_human(value: &Value, output: &mut String) {
             }
             let mut rows = Vec::new();
             flatten_human_object(None, object, &mut rows);
-            let width = rows.iter().map(|(key, _)| key.chars().count()).max().unwrap_or(0);
+            let width =
+                rows.iter().map(|(key, _)| usize::from(key.cell_width())).max().unwrap_or(0);
             for (key, value) in rows {
                 output.push_str(&key);
-                output.push_str(&" ".repeat(width.saturating_sub(key.chars().count())));
+                output.push_str(&" ".repeat(width.saturating_sub(usize::from(key.cell_width()))));
                 output.push_str("  ");
                 output.push_str(&value);
                 output.push('\n');
@@ -636,10 +666,10 @@ fn append_record_table(values: &[Value], output: &mut String) {
         .enumerate()
         .map(|(index, column)| {
             rows.iter()
-                .map(|row| row[index].chars().count())
+                .map(|row| usize::from(row[index].cell_width()))
                 .max()
                 .unwrap_or(0)
-                .max(human_header(column).chars().count())
+                .max(usize::from(human_header(column).cell_width()))
         })
         .collect::<Vec<_>>();
 
@@ -660,7 +690,9 @@ fn append_table_row(cells: &[String], widths: &[usize], output: &mut String) {
         }
         output.push_str(cell);
         if index + 1 != cells.len() {
-            output.push_str(&" ".repeat(widths[index].saturating_sub(cell.chars().count())));
+            output.push_str(
+                &" ".repeat(widths[index].saturating_sub(usize::from(cell.cell_width()))),
+            );
         }
     }
     output.push('\n');
@@ -721,6 +753,13 @@ pub(super) fn resolve_socket(global: &GlobalArgs) -> anyhow::Result<PathBuf> {
 /// Resolve a socket and report whether it belongs to cmux's private runtime
 /// directory. Environment-selected and explicit paths remain caller-managed.
 pub(super) fn resolve_socket_with_origin(global: &GlobalArgs) -> anyhow::Result<(PathBuf, bool)> {
+    resolve_socket_with_env(global, |name| std::env::var_os(name))
+}
+
+pub(super) fn resolve_socket_with_env(
+    global: &GlobalArgs,
+    env: impl Fn(&str) -> Option<std::ffi::OsString>,
+) -> anyhow::Result<(PathBuf, bool)> {
     if let Some(path) = &global.socket {
         return Ok((path.clone(), false));
     }
@@ -728,7 +767,7 @@ pub(super) fn resolve_socket_with_origin(global: &GlobalArgs) -> anyhow::Result<
         return Ok((cmux_tui_core::server::try_default_socket_path(session)?, true));
     }
     for name in ["CMUX_TUI_SOCKET", "CMUX_MUX_SOCKET"] {
-        if let Some(path) = std::env::var_os(name)
+        if let Some(path) = env(name)
             && !path.is_empty()
         {
             return Ok((PathBuf::from(path), false));
@@ -820,6 +859,25 @@ mod tests {
     }
 
     #[test]
+    fn human_tables_pad_wide_cells_by_terminal_width() {
+        let output = human_text(&json!([
+            {"name":"界","value":"a"},
+            {"name":"x","value":"界"}
+        ]));
+        assert_eq!(output, "NAME  VALUE\n界    a\nx     界\n");
+    }
+
+    #[test]
+    #[allow(clippy::unicode_not_nfc)]
+    fn human_tables_pad_halfwidth_dakuten_by_terminal_width() {
+        let output = human_text(&json!([
+            {"name":"ｶﾞ","value":"a"},
+            {"name":"x","value":"ｶﾞ"}
+        ]));
+        assert_eq!(output, "NAME  VALUE\nｶﾞ    a\nx     ｶﾞ\n");
+    }
+
+    #[test]
     fn human_single_array_wrappers_use_the_same_table() {
         let output = human_text(&json!({
             "workspaces": [
@@ -881,6 +939,49 @@ mod tests {
         };
         assert_eq!(response_read_timeout(&stream, false), Some(Duration::from_millis(250)));
         assert_eq!(response_read_timeout(&stream, true), None);
+    }
+
+    #[test]
+    fn terminal_input_errors_use_localized_copy_and_keep_wire_reasons() {
+        for operation in [
+            ResourceOperation::TerminalInputWrite,
+            ResourceOperation::TerminalInputKeys,
+            ResourceOperation::TerminalInputMouse,
+            ResourceOperation::TerminalInputFocus,
+        ] {
+            for locale in ["en", "ja"] {
+                let catalog = crate::localization::catalog_for_locale(locale);
+                let plan = RequestPlan {
+                    operation: WireOperation::Typed(operation),
+                    params: json!({}),
+                    idempotency_key: Some("input-error".into()),
+                    stream: false,
+                };
+                for (reason, expected) in [
+                    ("terminal_input_too_large", catalog.terminal_input.too_large),
+                    ("terminal_input_unavailable", catalog.terminal_input.unavailable),
+                    (
+                        "terminal_input_confirmation_unsupported",
+                        catalog.terminal_input.confirmation_unsupported,
+                    ),
+                    ("terminal_input_delivery_failed", catalog.terminal_input.delivery_failed),
+                ] {
+                    let wire = json!({"code":"operation.failed", "message":reason,
+                        "details":{"reason":reason}, "retryable":false});
+                    let mut human = wire.clone();
+                    localize_operation_error_with_catalog(&plan, &mut human, catalog);
+                    assert_eq!(human["message"], expected);
+                    assert_ne!(human["message"], reason);
+                    assert_eq!(human["details"], wire["details"]);
+                    assert_eq!(wire["message"], reason);
+                    assert_eq!(human["retryable"], false);
+                }
+            }
+        }
+        assert_ne!(
+            crate::localization::catalog_for_locale("en").terminal_input,
+            crate::localization::catalog_for_locale("ja").terminal_input
+        );
     }
 
     #[test]

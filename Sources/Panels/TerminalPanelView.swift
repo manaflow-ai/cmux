@@ -94,6 +94,9 @@ struct TerminalPanelView: View {
         @Bindable var textBoxState = panel.textBoxState
 
         return VStack(spacing: 0) {
+            if let recovery = panel.restoreRecovery.state {
+                AgentRestoreRecoveryView(state: recovery)
+            }
             // Layering contract: terminal find UI is mounted in GhosttySurfaceScrollView (AppKit portal layer)
             // via `searchState`. Rendering `SurfaceSearchOverlay` in this SwiftUI container can hide it.
             GhosttyTerminalView(
@@ -180,7 +183,7 @@ struct TerminalPanelView: View {
             }
         }
         .background(Color(nsColor: appearance.contentBackgroundColor))
-        .onReceive(NotificationCenter.default.publisher(for: .ghosttyConfigDidReload)) { _ in
+        .onReceive(NotificationCenter.default.publisher(for: .ghosttyTerminalFontSizeDidChange)) { _ in
             terminalFontSize = GhosttyConfig.loadForCmux(globalFontMagnificationPercent: GlobalFontMagnification.storedPercent).fontSize
         }
     }
@@ -304,15 +307,14 @@ private struct AgentHibernationPlaceholderView: View {
                     .controlSize(.small)
                     .accessibilityIdentifier("AgentHibernationTerminationRecoveryProgress")
             case .hibernated:
-                CmuxSystemSymbolImage(magnified: "pause.circle", pointSize: 34, weight: .regular)
-                    .foregroundStyle(.secondary)
+                CmuxSystemSymbolImage(magnified: "pause.circle", pointSize: 34, weight: .regular, tint: .secondary)
             case .failed:
                 CmuxSystemSymbolImage(
                     magnified: "exclamationmark.triangle",
                     pointSize: 34,
-                    weight: .regular
+                    weight: .regular,
+                    tint: .secondary
                 )
-                .foregroundStyle(.secondary)
             }
             VStack(spacing: 4) {
                 Text(title)

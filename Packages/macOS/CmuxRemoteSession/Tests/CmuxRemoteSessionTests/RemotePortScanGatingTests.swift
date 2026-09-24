@@ -359,7 +359,10 @@ struct RemotePortScanGatingTests {
             buildInfo: StubBuildInfo(),
             daemonStrings: RemoteDaemonStrings(
                 missingPersistentPTYCapability: "",
-                missingRequiredFunctionality: ""
+                missingRequiredFunctionality: "",
+                cloudNotificationClearWorkspaceInvalid: "",
+                cloudNotificationClearWorkspaceDenied: "",
+                cloudNotificationClearSurfaceInvalid: ""
             ),
             strings: RemoteSessionStrings(
                 connectedVMNoProxyFormat: "%@",

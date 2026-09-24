@@ -55,8 +55,14 @@ public final class NotificationDismissalModel: NotificationDismissing {
         let shouldSuppressFlash = suppressFocusFlash
         suppressFocusFlash = false
         guard !shouldSuppressFlash else { return }
-        guard let surfaceId = host?.focusedSurfaceId(in: workspaceId) else { return }
-        dismissPanelNotificationOnFocus(workspaceId: workspaceId, panelId: surfaceId, context: context)
+        if let surfaceId = host?.focusedSurfaceId(in: workspaceId) {
+            dismissPanelNotificationOnFocus(workspaceId: workspaceId, panelId: surfaceId, context: context)
+        }
+        // Workspace-level notifications (no surface) have no pane to focus:
+        // the workspace becoming the visible, active one is how they are seen
+        // (manaflow-ai/cmux#12387). Same context, so the restored/manual
+        // indicator policy is unchanged.
+        _ = dismissNotification(workspaceId: workspaceId, surfaceId: nil, context: context)
     }
 
     public func dismissPanelNotificationOnFocus(

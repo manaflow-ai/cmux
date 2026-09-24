@@ -1,4 +1,9 @@
 //! Shared visual primitives for the machine and workspace rails.
+//!
+//! The agent-row geometry used by the agents rail follows herdr's panel
+//! layout in `src/app/agent_view.rs` at commit
+//! `7b675f42af35508eab66ac42fe1598628597a893` (Apache-2.0), modified by
+//! manaflow for cmux's shared rail metrics and narrow terminals.
 
 use cmux_tui_core::Rect;
 use ratatui::Frame;
@@ -188,6 +193,22 @@ pub fn prepare(frame: &mut Frame, area: Rect, palette: RailPalette) {
         }
         buf[(border_x, y)].set_symbol(palette.border_symbol).set_style(palette.border);
     }
+}
+
+/// Draw a compact informational readout on the rail's top pad row, right
+/// aligned and dimmed so it reads as chrome rather than as a selectable
+/// entry. Skipped entirely when the rail is too narrow to show it whole.
+pub fn header_readout(frame: &mut Frame, area: Rect, text: &str, palette: RailPalette) {
+    if area.width < 3 || area.height == 0 {
+        return;
+    }
+    let content_width = usize::from(area.width.saturating_sub(1));
+    let width = unicode_width::UnicodeWidthStr::width(text);
+    if width == 0 || width + 2 > content_width {
+        return;
+    }
+    let x = area.x + (content_width - width - 1) as u16;
+    frame.buffer_mut().set_stringn(x, area.y, text, width, palette.dim);
 }
 
 pub struct Entry<'a> {

@@ -3,6 +3,7 @@
 #if defined(__APPLE__)
 #include <dlfcn.h>
 #endif
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <strings.h>
@@ -91,7 +92,64 @@ GHOSTTY_RUNTIME_TEST_STUB_WEAK void ghostty_config_load_string(
         return;
     }
 
+    if (strcasecmp(value, "white") == 0) {
+        config->foreground = (GhosttyRuntimeTestColor){255, 255, 255};
+        config->has_foreground = true;
+        return;
+    }
+
     config->diagnostics_count = 1;
+}
+
+GHOSTTY_RUNTIME_TEST_STUB_WEAK void ghostty_config_finalize(void *config) {
+    (void)config;
+}
+
+GHOSTTY_RUNTIME_TEST_STUB_WEAK GhosttyRuntimeTestString
+ghostty_config_serialize(const void *raw_config) {
+    const GhosttyRuntimeTestConfig *config = raw_config;
+    if (config == 0) {
+        return (GhosttyRuntimeTestString){0, 0, false};
+    }
+
+    const int length = snprintf(
+        0,
+        0,
+        "foreground=%u,%u,%u;has=%u;diagnostics=%u",
+        config->foreground.r,
+        config->foreground.g,
+        config->foreground.b,
+        config->has_foreground,
+        config->diagnostics_count
+    );
+    if (length < 0) {
+        return (GhosttyRuntimeTestString){0, 0, false};
+    }
+    char *serialized = malloc((size_t)length + 1);
+    if (serialized == 0) {
+        return (GhosttyRuntimeTestString){0, 0, false};
+    }
+    snprintf(
+        serialized,
+        (size_t)length + 1,
+        "foreground=%u,%u,%u;has=%u;diagnostics=%u",
+        config->foreground.r,
+        config->foreground.g,
+        config->foreground.b,
+        config->has_foreground,
+        config->diagnostics_count
+    );
+    return (GhosttyRuntimeTestString){
+        serialized,
+        (uintptr_t)length,
+        true,
+    };
+}
+
+GHOSTTY_RUNTIME_TEST_STUB_WEAK void ghostty_string_free(
+    GhosttyRuntimeTestString string
+) {
+    free((void *)string.ptr);
 }
 
 GHOSTTY_RUNTIME_TEST_STUB_WEAK bool ghostty_config_get(

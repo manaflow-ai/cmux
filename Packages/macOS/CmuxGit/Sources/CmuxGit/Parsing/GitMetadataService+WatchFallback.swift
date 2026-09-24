@@ -29,10 +29,12 @@ extension GitMetadataService {
                 ? safetyConfiguration.unfilteredWorkTreeEventThrottle
                 : descriptor.eventCoalescingInterval,
             eventFilterIdentity: rootIsForced ? nil : descriptor.eventFilterIdentity,
-            // Keep a specific degradation, such as the rate-limited fallback
-            // for an oversized index, when an independent safety valve adds a
-            // forced root.
-            degradation: descriptor.degradation ?? (anyForcedRoot ? .unreadableIndex : nil)
+            // Preserve a more specific index degradation (for example the
+            // unfiltered-work-tree mode used when the declared entry count is
+            // over budget). A conservative forced root only supplies the
+            // unreadable-index marker when the descriptor has no diagnosis.
+            degradation: descriptor.degradation
+                ?? (anyForcedRoot ? .unreadableIndex : nil)
         )
     }
 

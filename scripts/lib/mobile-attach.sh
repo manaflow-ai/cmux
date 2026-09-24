@@ -280,9 +280,24 @@ cmux_attach_wait_for_usable_session() {
   started_ms="$(cmux_attach_monotonic_milliseconds)"
   deadline_ms="$((started_ms + timeout * 1000))"
   cursor="$baseline"
+  # The app settles its first dial as timed out at ~30s and keeps dialing
+  # with 2-60s backoff, adopting an abandoned dial that completes late, so
+  # readiness routinely lands moments after a fixed cliff. One bounded grace
+  # extension re-checks the retained event stream instead of failing a
+  # session that is about to become usable.
+  local grace_seconds="${CMUX_ATTACH_READY_GRACE_SECONDS:-45}"
+  local grace_remaining="$grace_seconds"
   while true; do
     remaining_ms="$((deadline_ms - $(cmux_attach_monotonic_milliseconds)))"
-    (( remaining_ms > 0 )) || break
+    if (( remaining_ms <= 0 )); then
+      if (( grace_remaining > 0 )); then
+        deadline_ms="$(($(cmux_attach_monotonic_milliseconds) + grace_remaining * 1000))"
+        grace_remaining=0
+        echo "warn: readiness deadline reached; re-checking ${grace_seconds}s for a late usable session (the app keeps dialing past its first attempt)" >&2
+        continue
+      fi
+      break
+    fi
     remaining_seconds="$(((remaining_ms + 999) / 1000))"
     if ! event="$(cmux_attach_events \
       "$tag" \
@@ -293,7 +308,10 @@ cmux_attach_wait_for_usable_session() {
       --timeout "$remaining_seconds" \
       --no-ack \
       --no-heartbeat)"; then
-      break
+      # A transient events-CLI failure must not abandon the remaining wait
+      # window; the cursor mechanics replay anything that raced the gap.
+      sleep 2
+      continue
     fi
     event_client_id="$(printf '%s' "$event" | /usr/bin/python3 -c '
 import json
@@ -322,6 +340,70 @@ if isinstance(value, int) and not isinstance(value, bool) and value >= 0:
   return 1
 }
 
+# Resolve metadata from the bundle that is actually installed on the target.
+# The checkout SHA remains useful for diagnosing the launcher, but it is not
+# evidence that the app on the simulator/device came from that checkout. Keep
+# this probe best-effort for physical devices where iOS does not expose the
+# app executable, while requiring the simulator container to be readable.
+cmux_attach_installed_bundle_metadata() {
+  local target="$1" target_id="$2" bundle_id="$3" app_path="${CMUX_INSTALLED_APP_PATH:-}"
+  if [[ -z "$app_path" && "$target" == "simulator_injection" ]]; then
+    app_path="$(xcrun simctl get_app_container "$target_id" "$bundle_id" app 2>/dev/null || true)"
+  fi
+  CMUX_INSTALLED_TARGET="$target" \
+  CMUX_INSTALLED_TARGET_ID="$target_id" \
+  CMUX_INSTALLED_BUNDLE_ID="$bundle_id" \
+  CMUX_INSTALLED_APP_PATH="$app_path" \
+    /usr/bin/python3 - <<'PY'
+import hashlib
+import json
+import os
+import plistlib
+from pathlib import Path
+
+target = os.environ["CMUX_INSTALLED_TARGET"]
+target_id = os.environ["CMUX_INSTALLED_TARGET_ID"]
+bundle_id = os.environ["CMUX_INSTALLED_BUNDLE_ID"]
+app_path = os.environ.get("CMUX_INSTALLED_APP_PATH", "")
+metadata = {
+    "bundle_id": bundle_id,
+    "target": target,
+    "target_id": target_id,
+    "source": "installed_bundle",
+}
+if not app_path:
+    metadata["metadata_source"] = "device_install_query_unavailable"
+    metadata["executable_sha256"] = None
+    print(json.dumps(metadata, sort_keys=True))
+    raise SystemExit(0)
+
+app = Path(app_path)
+plist_path = app / "Info.plist"
+if not app.is_dir() or not plist_path.is_file():
+    raise SystemExit(f"installed app container is missing Info.plist: {app}")
+with plist_path.open("rb") as stream:
+    plist = plistlib.load(stream)
+if plist.get("CFBundleIdentifier") != bundle_id:
+    raise SystemExit("installed bundle identifier does not match the launched bundle")
+executable_name = plist.get("CFBundleExecutable")
+if not isinstance(executable_name, str) or not executable_name:
+    raise SystemExit("installed bundle has no executable name")
+executable = app / executable_name
+if not executable.is_file():
+    raise SystemExit(f"installed bundle executable is missing: {executable}")
+metadata.update({
+    "metadata_source": "simulator_container" if target == "simulator_injection" else "signed_app_bundle",
+    "short_version": plist.get("CFBundleShortVersionString"),
+    "build_version": plist.get("CFBundleVersion"),
+    "source_git_sha": plist.get("CMUXGitSHA"),
+    "dev_tag": plist.get("CMUXDevTag"),
+    "executable_name": executable_name,
+    "executable_sha256": hashlib.sha256(executable.read_bytes()).hexdigest(),
+})
+print(json.dumps(metadata, sort_keys=True))
+PY
+}
+
 # Writes the durable, secret-free proof consumed by dogfood automation. The
 # event arrives on stdin to Python so even an unexpectedly sensitive field
 # never appears in argv or the process environment; only the explicit
@@ -330,6 +412,14 @@ cmux_attach_write_readiness_receipt() {
   local path="$1" git_sha="$2" tag="$3" bundle_id="$4"
   local target="$5" target_id="$6" mac_tag="$7" socket_path="$8"
   local readiness_latency_ms="$9" attempt_count="${10}" event_json="${11}"
+  local installed_bundle_metadata_json="{}"
+  if [[ $# -ge 12 ]]; then
+    installed_bundle_metadata_json="${12}"
+  else
+    # Keep direct callers from older tooling valid while making the missing
+    # installed-bundle proof explicit in the receipt.
+    installed_bundle_metadata_json="{\"bundle_id\":\"$bundle_id\",\"target\":\"$target\",\"target_id\":\"$target_id\",\"source\":\"legacy_receipt_writer\",\"executable_sha256\":null}"
+  fi
   if [[ ! "$readiness_latency_ms" =~ ^[0-9]+$ ]] \
       || [[ ! "$attempt_count" =~ ^[1-9][0-9]*$ ]]; then
     echo "error: readiness receipt timing and attempt count must be integers" >&2
@@ -353,8 +443,17 @@ import tempfile
     socket_path,
     readiness_latency_ms,
     attempt_count,
+    installed_bundle_metadata_json,
 ) = sys.argv[1:]
 event = json.load(sys.stdin)
+try:
+    installed_bundle = json.loads(installed_bundle_metadata_json)
+except json.JSONDecodeError as error:
+    raise SystemExit(f"invalid installed bundle metadata: {error}")
+if not isinstance(installed_bundle, dict):
+    raise SystemExit("installed bundle metadata must be an object")
+if installed_bundle.get("bundle_id") != bundle_id:
+    raise SystemExit("installed bundle metadata has the wrong bundle identifier")
 payload = event.get("payload")
 if event.get("name") != "mobile.rpc.ready" or not isinstance(payload, dict):
     raise SystemExit("invalid mobile.rpc.ready event")
@@ -369,7 +468,10 @@ if isinstance(workspace_count, bool) or not isinstance(workspace_count, int) or 
 
 receipt = {
     "schema": "cmux-ios-dogfood-readiness-v1",
-    "git_sha": git_sha,
+    # git_sha now identifies the source embedded in the installed app. Keep
+    # the launcher checkout separately so stale bundles cannot look current.
+    "git_sha": installed_bundle.get("source_git_sha") or git_sha,
+    "tooling_checkout_sha": git_sha,
     "tag": tag,
     "bundle_id": bundle_id,
     "target": target,
@@ -383,6 +485,7 @@ receipt = {
     "workspace_count": workspace_count,
     "stream_id": payload["stream_id"],
     "transport": payload["transport"],
+    "installed_bundle": installed_bundle,
 }
 auth_profile = os.environ.get("CMUX_DEV_AUTH_PROFILE", "")
 auth_account = os.environ.get("CMUX_DEV_AUTH_ACCOUNT", "")
@@ -415,7 +518,8 @@ except BaseException:
         pass
     raise
 ' "$path" "$git_sha" "$tag" "$bundle_id" "$target" "$target_id" \
-    "$mac_tag" "$socket_path" "$readiness_latency_ms" "$attempt_count"
+    "$mac_tag" "$socket_path" "$readiness_latency_ms" "$attempt_count" \
+    "$installed_bundle_metadata_json"
 }
 
 cmux_attach_monotonic_milliseconds() {
@@ -587,9 +691,9 @@ cmux_attach_ensure_mac() {
 # URL on stdout (bearer credential; do not log). Args: <tag> <ttl_seconds>
 # <repo_root> <simulator_injection|physical_device>. The Mac owns route selection
 # and URL encoding for the target. Polls the mint RPC until routes are bound.
-# A physical-device ticket is usable only with an encrypted Iroh route. Plain
-# Tailscale TCP cannot carry the phone's Stack credential, so fail closed here
-# instead of launching an app that must reject the ticket as untrusted.
+# A physical-device ticket is usable with an authenticated Iroh route or with
+# the exact non-loopback Tailscale route selected by MobileAttachTarget. Both
+# paths authenticate the phone to the Mac before any mobile operation.
 cmux_attach_mint_url() {
   local tag="$1" ttl="$2" repo_root="$3" target="$4" max="${5:-20}"
   local sock slug payload cli_output url node_status cli_status _i
@@ -626,11 +730,10 @@ cmux_attach_mint_url() {
         PAYLOAD="$payload" ATTACH_TARGET="$target" node --input-type=module <<'NODE' 2>/dev/null
 const payload = JSON.parse(process.env.PAYLOAD);
 const routes = payload?.ticket?.routes;
-if (
-  process.env.ATTACH_TARGET === "physical_device" &&
-  (!Array.isArray(routes) || !routes.some((route) => route?.kind === "iroh"))
-) {
-  process.exit(2);
+if (process.env.ATTACH_TARGET === "physical_device") {
+  const hasIroh = Array.isArray(routes) && routes.some((route) => route?.kind === "iroh");
+  const hasTailscale = Array.isArray(routes) && routes.some((route) => route?.kind === "tailscale");
+  if (!hasIroh && !hasTailscale) process.exit(2);
 }
 if (typeof payload.attach_url === "string") process.stdout.write(payload.attach_url);
 NODE
