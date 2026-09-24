@@ -53,12 +53,13 @@ class Prune(unittest.TestCase):
 
     def test_each_family_ages_out_on_its_own_retention(self):
         bucket = FakeBucket([
-            archive("admission-derived-data-v1-macOS-ARM64-fp-a", 4),
-            archive("admission-derived-data-v1-macOS-ARM64-fp-b", 2),
-            archive("xcode-compilation-test-macOS-ARM64-fp-a", 4),
-            archive("xcode-compilation-test-macOS-ARM64-fp-b", 2),
+            archive("admission-derived-data-v1-macOS-ARM64-fp-a", 2),
+            archive("admission-derived-data-v1-macOS-ARM64-fp-b", 0.5),
+            archive("xcode-compilation-test-macOS-ARM64-fp-a", 2),
+            archive("xcode-compilation-test-macOS-ARM64-fp-b", 0.5),
             archive("spm-a", 31),
             archive("spm-b", 29),
+            archive("spm-c", 2),
         ], {})
         prune.prune(bucket, NOW, delete=True)
         self.assertEqual(sorted(bucket.deleted), sorted([

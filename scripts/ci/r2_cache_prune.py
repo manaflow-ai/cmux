@@ -15,10 +15,12 @@ candidates. Pointers, and anything outside `v1/*/objects/`, are never touched.
 
 Retention, by the first matching key prefix:
 
-  admission-derived-data-  3 days. One snapshot per main commit, and every
+  admission-derived-data-  1 day. One snapshot per main commit, and every
                            consumer adopts the newest by prefix; an exact key
-                           only matters for a pull request on a base that old.
-  xcode-compilation-       3 days. Restored newest by prefix, and a cache from
+                           only matters for a pull request on a base that old
+                           (2026-09-24: 92 of the 100 most recently updated
+                           open pull requests had a base under a day old).
+  xcode-compilation-       1 day. Restored newest by prefix, and a cache from
                            an older main misses for every changed module
                            (#14015: 3 of 2,665 app jobs hit). On 2026-09-24
                            these were 141 GiB of a 143 GiB bucket after five
@@ -47,8 +49,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import r2_cache_census as census  # noqa: E402
 
 RETENTION_DAYS = (
-    ("admission-derived-data-", 3),
-    ("xcode-compilation-", 3),
+    ("admission-derived-data-", 1),
+    ("xcode-compilation-", 1),
     ("", 30),
 )
 ARCHIVE = re.compile(r"^(v1/[^/]+)/objects/(?P<name>[A-Za-z0-9._-]+)\.(?:tar\.zst|tar\.gz)$")
