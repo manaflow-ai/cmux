@@ -32,6 +32,10 @@ const assetPath = (relativePath: string) =>
   fileURLToPath(new URL(relativePath, import.meta.url).toString());
 const bashrc = readFileSync(assetPath("./images/devbox/cmux-bashrc"), "utf8");
 const prompt = readFileSync(assetPath("./images/devbox/cmux-prompt.bash"), "utf8");
+export const guestPromptInstallFiles = {
+  "prompt.bash": prompt,
+  bashrc,
+} as const;
 
 // Runs on lifecycle operations, never during shell startup or prompt drawing.
 // A lock serializes competing attaches/renames. Atomic replacement gives every
