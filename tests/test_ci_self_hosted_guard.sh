@@ -1206,8 +1206,9 @@ check_no_self_hosted_fleet_runners() {
                'runs-on: [self-hosted, macOS, ARM64]' \
                '      labels: [self-hosted, macOS, ARM64, cmux-persistent-macos-compile]' \
                '      group: cmux-persistent-compile' \
-               '- glaeda-std-xcode-26.6' "runs-on: \${{ vars.X || 'glaeda-light-xcode-26.6' }}" 'runs-on: glaeda-xl-xcode-26'; do
-    if ! printf '%s\n' "$probe" | grep -Eq "($forbidden)"; then
+               '- glaeda-std-xcode-26.6' "runs-on: \${{ vars.X || 'glaeda-light-xcode-26.6' }}" 'runs-on: glaeda-xl-xcode-26' \
+               '- GLAEDA-std-xcode-26.6' '- Tart-canary'; do
+    if ! printf '%s\n' "$probe" | grep -Eiq "($fleet)" && ! printf '%s\n' "$probe" | grep -Eq "($selfhosted)"; then
       echo "FAIL: fleet-runner guard self-test missed a known fleet/self-hosted label: $probe"
       exit 1
     fi
@@ -1299,7 +1300,11 @@ check_no_self_hosted_fleet_runners() {
          [[ "$content" == '      labels: [self-hosted, macOS, ARM64, cmux-persistent-macos-compile]' ]]; }; then
       continue
     fi
-    printf '%s\n' "$content_without_allowed" | grep -Eq "($forbidden)" || continue
+    # GitHub matches runner labels without regard to case, so a fleet label
+    # is refused in any case; the bare self-hosted labels stay case-sensitive
+    # (see selfhosted above).
+    { printf '%s\n' "$content_without_allowed" | grep -Eiq "($fleet)" ||
+      printf '%s\n' "$content_without_allowed" | grep -Eq "($selfhosted)"; } || continue
     if [[ -n "$e2e_tart_option_line" ]] && [[ "$line" == "$E2E_FILE:$e2e_tart_option_line:"* ]]; then
       continue
     fi
@@ -1329,31 +1334,75 @@ check_owned_pools_route_through_picker() {
   # refuses it), so the only way one reaches runs-on is the value
   # pr_runner_pool.py writes for a pull request run: it hands owned labels
   # only to same-repository heads on a first attempt, and only once
-  # CI_PR_POOL_OWNED is 1. This check keeps that the only way: the picker's
-  # output feeds macos_pr_runner, which reaches jobs as pr_runner or on the
-  # pull_request branch of a runs-on, nowhere else.
-  local output line hits=""
-  output="$(grep -E '^      macos_pr_runner:' "$CI_FILE" || true)"
-  if [ "$output" != '      macos_pr_runner: ${{ steps.macos-pool.outputs.runner }}' ]; then
-    echo "FAIL: macos_pr_runner must be exactly the pool picker's output"
-    printf 'found=%s\n' "$output"
-    exit 1
-  fi
-  while IFS= read -r line; do
-    case "${line#*:}" in
-      '      pr_runner: ${{ needs.changes.outputs.macos_pr_runner }}') ;;
-      *"github.event_name == 'pull_request' && (needs.changes.outputs.macos_pr_runner || "*) ;;
-      *) hits+="$line"$'\n' ;;
-    esac
-  done < <(grep -nF 'needs.changes.outputs.macos_pr_runner' "$CI_FILE")
-  if [ -n "$hits" ]; then
-    echo "FAIL: the picked pull request pool may reach a job only as pr_runner or on a pull_request runs-on branch"
-    echo "$hits"
-    exit 1
-  fi
-  if grep -rnE '(^|[^_a-z])pr_runner:[[:space:]]*\$\{\{' "$ROOT_DIR/.github/workflows" | grep -vF 'needs.changes.outputs.macos_pr_runner' | grep -q .; then
-    echo "FAIL: a workflow passes pr_runner something other than the picker's output"
-    grep -rnE '(^|[^_a-z])pr_runner:[[:space:]]*\$\{\{' "$ROOT_DIR/.github/workflows" | grep -vF 'needs.changes.outputs.macos_pr_runner'
+  # CI_PR_POOL_OWNED is 1. This check keeps that the only way. The picker's
+  # runner output feeds exactly the macos_pr_runner output and the rescue
+  # marker; macos_pr_runner reaches a job only as a `pr_runner` input written
+  # exactly one way, or inside a runs-on branch that a pull_request condition
+  # guards. Parsed as YAML, so a block scalar or a second output is seen too.
+  local violations
+  violations="$(python3 - "$ROOT_DIR/.github/workflows" <<'PYTHON'
+import re
+import sys
+from pathlib import Path
+
+import yaml
+
+PICKED = "steps.macos-pool.outputs.runner"
+OUTPUT = "needs.changes.outputs.macos_pr_runner"
+PASSED = "${{ needs.changes.outputs.macos_pr_runner }}"
+# The runs-on branches that may read the picked pool, each behind its
+# pull_request condition; a fork head keeps only a Blacksmith pick.
+GUARDED = (
+    "github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository"
+    " && (startsWith(needs.changes.outputs.macos_pr_runner, 'blacksmith-') && needs.changes.outputs.macos_pr_runner"
+    " || 'blacksmith-6vcpu-macos-15')",
+    "github.event_name == 'pull_request' && (needs.changes.outputs.macos_pr_runner || vars.MACOS_RUNNER_PR"
+    " || 'blacksmith-6vcpu-macos-15')",
+)
+
+
+def strings(node, path):
+    if isinstance(node, dict):
+        for key, value in node.items():
+            yield from strings(value, path + (str(key),))
+    elif isinstance(node, list):
+        for index, value in enumerate(node):
+            yield from strings(value, path + (str(index),))
+    elif isinstance(node, str):
+        yield path, node
+
+
+violations = []
+for file in sorted(Path(sys.argv[1]).glob("*.y*ml")):
+    workflow = yaml.safe_load(file.read_text(encoding="utf-8")) or {}
+    for path, value in strings(workflow, ()):
+        where = f"{file.name}:{'.'.join(path)}"
+        if PICKED in value:
+            allowed = (file.name == "ci.yml" and (
+                path == ("jobs", "changes", "outputs", "macos_pr_runner") and value == "${{ " + PICKED + " }}"
+                or path[:3] == ("jobs", "changes", "steps") and path[-2:] == ("env", "POOL")
+                and value == "${{ " + PICKED + " }}"))
+            if not allowed:
+                violations.append(f"{where}: reads the picker's runner outside macos_pr_runner and the rescue marker")
+        if path[-1:] == ("pr_runner",) and len(path) >= 3 and path[-2] == "with":
+            if value != PASSED or file.name != "ci.yml":
+                violations.append(f"{where}: pr_runner must be exactly {PASSED}")
+            continue
+        if OUTPUT not in value:
+            continue
+        if path[-1:] == ("runs-on",):
+            rest = value
+            for branch in GUARDED:
+                rest = rest.replace(branch, "")
+            if OUTPUT not in rest:
+                continue
+        violations.append(f"{where}: reads macos_pr_runner outside pr_runner or a pull_request runs-on branch")
+print("\n".join(violations))
+PYTHON
+)"
+  if [ -n "$violations" ]; then
+    echo "FAIL: the picked pull request pool must reach jobs only through pr_runner_pool.py's checked route"
+    echo "$violations"
     exit 1
   fi
   echo "PASS: owned pool labels reach jobs only through the pull request pool picker"

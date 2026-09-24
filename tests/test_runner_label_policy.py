@@ -239,6 +239,14 @@ class OwnedPoolLabels(unittest.TestCase):
                 self.assertIsNotNone(reason)
                 self.assertIn(bad, reason)
 
+    def test_case_does_not_hide_a_fleet_label(self) -> None:
+        # GitHub matches runner labels without regard to case.
+        for label in ("GLAEDA-std-xcode-26.6", "Glaeda-Light-Xcode-26.6", "Tart-Canary", "WARP-macos-26-arm64-12x"):
+            with self.subTest(label=label):
+                self.assertIsNotNone(forbidden_reason(label))
+        self.assertIn("lowercase", pool_order_reason("GLAEDA-std-xcode-26.6,blacksmith-6vcpu-macos-26"))
+        self.assertIsNone(forbidden_reason("blacksmith-6vcpu-macos-26"))
+
     def test_the_guard_and_the_picker_agree_on_the_owned_shape(self) -> None:
         import pr_runner_pool
         import runner_label_policy

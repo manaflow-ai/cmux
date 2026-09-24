@@ -125,6 +125,10 @@ def pool_order_reason(order: str) -> str | None:
     for label in (entry.strip() for entry in order.split(",")):
         if not label or _owned_pattern().fullmatch(label):
             continue
+        if _owned_pattern().fullmatch(label.lower()):
+            # pr_runner_pool.py matches owned labels exactly, so this entry
+            # would turn the whole preference off instead of naming the pool.
+            return f"`{label}` is an owned pool label in the wrong case; write it in lowercase"
         reason = forbidden_reason(label)
         if reason is not None:
             return f"`{label}` {reason}"
@@ -143,7 +147,10 @@ def forbidden_reason(label: str) -> str | None:
         return None
     fleet, allowed, selfhosted = _patterns()
     remainder = allowed.sub("", label)
-    if fleet.search(remainder):
+    # GitHub matches runner labels without regard to case, so the fleet and
+    # cloud patterns do too; the bare self-hosted labels are case-sensitive
+    # on purpose (`macOS`, not the `macos` inside cloud labels).
+    if fleet.search(allowed.sub("", label.lower())):
         return (
             "names the self-hosted fleet or a macOS image outside the approved "
             "cloud labels"
