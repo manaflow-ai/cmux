@@ -211,12 +211,14 @@ def managed_teammate_flow(cli, directory, limiter):
     wrapper.write_text(
         '#!/bin/sh\nset -eu\n'
         '[ "${CMUX_CLAUDE_TEAMS_WRAPPER_LAUNCH:-}" = 1 ]\n'
+        'export CMUX_TEST_MANAGED_WRAPPER_RAN=1\n'
         'exec "$CMUX_TEST_REAL_CLAUDE" "$@"\n'
     )
     wrapper.chmod(0o700)
     agent = real_bin / "claude"
     agent.write_text(r'''#!/bin/sh
 set -eu
+[ "${CMUX_TEST_MANAGED_WRAPPER_RAN:-}" = 1 ]
 [ "$1" = --teammate-mode ] && [ "$2" = auto ]
 [ "$CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS" = 1 ]
 [ "$TMUX_PANE" = "$CMUX_TEST_PANE" ]
