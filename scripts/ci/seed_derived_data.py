@@ -51,8 +51,9 @@ UNREAD = ("Logs", "Index.noindex")
 # costs more than the compile it saves.
 MAX_RAW_BYTES = 12 * 1024**3
 R2_CACHE = Path(__file__).resolve().parent / "r2-cache.sh"
-# Longer than the adopt step's timeout, which therefore fails first.
-FETCH_WAIT_SECONDS = 600
+# Shorter than the adopt step's 8-minute timeout, so adopt stops the detached
+# download itself rather than leaving it pulling a seed through the compile.
+FETCH_WAIT_SECONDS = 420
 DETACHED: list[subprocess.Popen] = []
 
 

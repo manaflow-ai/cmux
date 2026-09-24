@@ -111,6 +111,7 @@ NON_PRODUCT_RECIPE_STEPS = frozenset({
     # Like the compilation cache, a seed DerivedData decides how much is
     # rebuilt, never what the product is: Xcode rebuilds every input that
     # differs from the seed, and replay only ages byte-identical files.
+    "Start the DerivedData seed download",
     "Adopt the nightly DerivedData seed",
     "Forget the adopted-build inode override",
     "Validate Swift warning budget",
