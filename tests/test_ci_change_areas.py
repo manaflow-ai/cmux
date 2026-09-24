@@ -5393,7 +5393,7 @@ def test_perf_activation_workflow_keeps_required_status_while_gating_benchmark()
 def test_guard_bun_setup_runs_only_for_owned_groups() -> None:
     block = workflow_job_block("workflow-guard-tests", GUARD_WORKFLOW)
     setup = block.index("      - name: Set up Bun for guard tests")
-    next_step = block.index("      - name: Validate Claude launch environment policy behavior", setup)
+    next_step = block.index("      - name: Run agent-chat unit tests", setup)
     setup_block = block[setup:next_step]
     assert "if: ${{ matrix.group == 'preflight' || matrix.group == 'release-ios' }}" in setup_block
     assert block.count("setup-bun@") == 1
