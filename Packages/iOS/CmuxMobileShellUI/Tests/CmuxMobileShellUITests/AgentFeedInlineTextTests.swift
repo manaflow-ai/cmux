@@ -43,6 +43,19 @@ import UIKit
         #expect(bold.fontDescriptor.symbolicTraits.contains(.traitBold))
     }
 
+    @Test(arguments: [
+        ("## Heading", "Heading"),
+        ("- First\n- Second", "• First\n• Second"),
+        ("1. First\n2. Second", "1. First\n2. Second"),
+        ("```swift\nlet x = 1\n```", "let x = 1\n"),
+    ])
+    func blockSyntaxIsRendered(source: String, expected: String) throws {
+        let view = makeView(source)
+        _ = view.measure(width: 600)
+        let text = try #require(view.subviews.compactMap { $0 as? UITextView }.first)
+        #expect(text.attributedText.string == expected)
+    }
+
     private func makeView(_ source: String, hasMore: Bool = false) -> AgentFeedInlineTextView {
         let view = AgentFeedInlineTextView()
         view.configure(text: source, hasMoreText: hasMore, lineLimit: 2,

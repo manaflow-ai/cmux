@@ -26,6 +26,8 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(preview.exists)
         XCTAssertFalse(preview.label.contains("**"))
         XCTAssertFalse(preview.label.contains("https://example.com"))
+        XCTAssertFalse(preview.label.contains("##"))
+        XCTAssertTrue(preview.label.contains("• First item"))
         for identifier in ["MobileWorkspaceSettingsMenu", "MobileWorkspaceMacPicker", "MobileWorkspaceDevicesButton"] {
             XCTAssertTrue(app.buttons[identifier].exists, identifier)
         }
