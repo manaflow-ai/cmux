@@ -131,7 +131,7 @@ final class WorkspaceNavigationBarController: UIViewController {
 
     private struct OriginalItem {
         let titleView: UIView?
-        let style: UINavigationItem.Style
+        let style: UINavigationItem.ItemStyle
         let largeTitleDisplayMode: UINavigationItem.LargeTitleDisplayMode
         let leadingButtons: [UIBarButtonItem]?
         let trailingGroup: UIBarButtonItemGroup?
