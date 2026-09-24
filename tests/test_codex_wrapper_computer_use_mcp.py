@@ -347,6 +347,7 @@ def expect_scrubbed_mcp_env(
     context: str,
     *,
     helper_owned: bool,
+    state_scope: str = "default",
 ) -> None:
     embedded = arg_value(args, "mcp_servers.cmux-cua.env.CMUX_CUA_EMBEDDED=")
     daemon_app = arg_value(args, "mcp_servers.cmux-cua.env.CMUX_CUA_DAEMON_APP=")
@@ -415,7 +416,9 @@ def expect_scrubbed_mcp_env(
         expect(json.loads(cursor_label) == "cmux", f"{context}: unexpected cursor label {cursor_label}", failures)
     if state_dir is not None:
         expect(
-            json.loads(state_dir).endswith("/Library/Application Support/cmux/cmux-cua/runtime/default/state"),
+            json.loads(state_dir).endswith(
+                f"/Library/Application Support/cmux/cmux-cua/runtime/{state_scope}/state"
+            ),
             f"{context}: unexpected state dir {state_dir}",
             failures,
         )
@@ -455,6 +458,7 @@ def run_wrapper(
     mcp_handshake: bool = False,
     diagnostics: bool = False,
     non_cmux: bool = False,
+    dev_tag: str | None = None,
 ) -> tuple[int, list[str], str, dict[str, object]]:
     with tempfile.TemporaryDirectory(prefix="cmux-codex-wrapper-test-") as td:
         tmp = Path(td)
@@ -566,6 +570,9 @@ exit 1
             env["CMUX_CUA_SOCKET_PATH"] = str(tmp / "cmux-cua.sock")
             env["CMUX_CUA_CODEX_SOCKET_PATH"] = str(tmp / "cmux-cua-codex.sock")
             env["CMUX_BUNDLED_CLI_PATH"] = str(wrapper_dir / "cmux")
+            if dev_tag is not None:
+                env["CMUX_TAG"] = dev_tag
+                env["CMUX_BUNDLE_ID"] = f"com.cmuxterm.app.debug.{dev_tag}"
             env["FAKE_CODEX_ARGS_LOG"] = str(args_log)
             env["FAKE_MCP_TRACE_LOG"] = str(mcp_trace_log)
             env["FAKE_MCP_HANDSHAKE"] = "1" if mcp_handshake else "0"
@@ -1023,6 +1030,11 @@ def test_codex_gets_cmux_cua(failures: list[str]) -> None:
                 failures,
             )
     expect_scrubbed_mcp_env(args, failures, "bundled cmux-cua", helper_owned=True)
+    expect(
+        arg_value(args, "mcp_servers.cmux-cua.env.CMUX_CUA_CODEX_ALLOW_UNVERIFIED_CLIENT=") is None,
+        f"stable launches must retain the signed Codex parent gate, got {args}",
+        failures,
+    )
 
     computer_use_command_index = args.index("-c") if "-c" in args else -1
     prompt_index = args.index("hello") if "hello" in args else -1
@@ -1030,6 +1042,23 @@ def test_codex_gets_cmux_cua(failures: list[str]) -> None:
         0 <= computer_use_command_index < prompt_index,
         f"expected computer-use config before user argv, got {args}",
         failures,
+    )
+
+
+def test_codex_tagged_dev_build_allows_unverified_parent(failures: list[str]) -> None:
+    code, args, stderr, _ = run_wrapper(["hello"], dev_tag="fixture")
+    expect(code == 0, f"tagged dev wrapper exited {code}: {stderr}", failures)
+    expect(
+        arg_value(args, "mcp_servers.cmux-cua.env.CMUX_CUA_CODEX_ALLOW_UNVERIFIED_CLIENT=") == '"1"',
+        f"tagged dev launches must allow the local ad-hoc Codex parent, got {args}",
+        failures,
+    )
+    expect_scrubbed_mcp_env(
+        args,
+        failures,
+        "tagged dev cmux-cua",
+        helper_owned=True,
+        state_scope="fixture",
     )
 
 
@@ -1590,6 +1619,7 @@ def main() -> int:
     test_codex_disabled_hooks_reports_inert_attachment(failures)
     test_codex_outside_cmux_reports_fail_closed_attachment(failures)
     test_codex_gets_cmux_cua(failures)
+    test_codex_tagged_dev_build_allows_unverified_parent(failures)
     test_codex_default_does_not_mutate_global_or_fake_session_discovery(failures)
     test_codex_default_skill_path_is_picker_safe(failures)
     test_codex_preserves_unverified_dangling_link_by_default(failures)
