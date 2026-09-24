@@ -27640,6 +27640,7 @@ struct CMUXCLI {
                     surfaceId: surfaceId,
                     isSubagent: suppressVisibleMutations,
                     nativeEvent: reportedHookEventName(from: parsedInput) ?? "SessionStart",
+                    declaredPhase: sessionStartSource?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "resume" ? .idle : nil,
                     detail: isClearSessionStart ? "clear-session-start" : nil,
                     attention: Self.semanticAttentionContext(parsedInput.rawObject),
                     occurredAtMs: Self.semanticOccurredAtMs(parsedInput.rawObject),
