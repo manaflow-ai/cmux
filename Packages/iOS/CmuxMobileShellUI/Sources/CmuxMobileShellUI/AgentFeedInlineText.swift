@@ -156,7 +156,7 @@ final class AgentFeedInlineTextView: UIView {
 
     private func attributed(_ value: String) -> NSMutableAttributedString {
         var options = AttributedString.MarkdownParsingOptions()
-        options.interpretedSyntax = .inlineOnlyPreservingWhitespace
+        options.interpretedSyntax = .full
         options.failurePolicy = .returnPartiallyParsedIfPossible
 
         guard let markdown = try? AttributedString(markdown: value, options: options) else {
@@ -166,22 +166,54 @@ final class AgentFeedInlineTextView: UIView {
             )
         }
 
-        let rendered = NSMutableAttributedString(markdown)
-        let fullRange = NSRange(location: 0, length: rendered.length)
-        rendered.addAttributes([.font: font, .foregroundColor: textColor], range: fullRange)
+        let rendered = NSMutableAttributedString(string: "")
+        var previousBlockID: Int?
+        var previousListItemID: Int?
+        for run in markdown.runs {
+            let components = run.presentationIntent?.components ?? []
+            let blockID = components.first?.identity
+            if !rendered.string.isEmpty, blockID != previousBlockID,
+               !rendered.string.hasSuffix("\n") {
+                rendered.append(NSAttributedString(string: "\n",
+                    attributes: [.font: font, .foregroundColor: textColor]))
+            }
+            previousBlockID = blockID
 
-        // Foundation carries Markdown's inline intents through the bridge, but
-        // TextKit needs concrete UIKit attributes to draw them. Keep this
-        // conversion here so measurement and preview drawing agree.
-        rendered.enumerateAttribute(
-            .inlinePresentationIntent,
-            in: fullRange,
-            options: []
-        ) { value, range, _ in
-            guard let rawValue = (value as? NSNumber)?.intValue else { return }
-            let intent = InlinePresentationIntent(rawValue: UInt(rawValue))
             var runFont = font
-            if intent.contains(.code) {
+            var marker: String?
+            var listItemID: Int?
+            var ordinal: Int?
+            var isCodeBlock = false
+            var isQuote = false
+            for component in components {
+                switch component.kind {
+                case .header:
+                    runFont = Self.font(runFont, adding: .traitBold)
+                case .codeBlock:
+                    isCodeBlock = true
+                case .listItem(let number) where listItemID == nil:
+                    listItemID = component.identity
+                    ordinal = number
+                case .orderedList where marker == nil:
+                    if let ordinal { marker = "\(ordinal). " }
+                case .unorderedList where marker == nil:
+                    marker = "• "
+                case .blockQuote:
+                    isQuote = true
+                default:
+                    break
+                }
+            }
+            if listItemID != previousListItemID, let marker {
+                rendered.append(NSAttributedString(string: marker,
+                    attributes: [.font: font, .foregroundColor: textColor]))
+            }
+            previousListItemID = listItemID
+
+            // Foundation supplies semantic block and inline intents. TextKit
+            // needs concrete fonts and paragraph attributes to draw them.
+            let intent = run.inlinePresentationIntent ?? []
+            if isCodeBlock || intent.contains(.code) {
                 runFont = UIFont.monospacedSystemFont(ofSize: font.pointSize, weight: .regular)
             }
             if intent.contains(.stronglyEmphasized) {
@@ -190,11 +222,22 @@ final class AgentFeedInlineTextView: UIView {
             if intent.contains(.emphasized) {
                 runFont = Self.font(runFont, adding: .traitItalic)
             }
-            rendered.addAttribute(.font, value: runFont, range: range)
+            let part = NSMutableAttributedString(AttributedString(markdown[run.range]))
+            let range = NSRange(location: 0, length: part.length)
+            part.addAttributes([.font: runFont, .foregroundColor: textColor], range: range)
             if intent.contains(.strikethrough) {
-                rendered.addAttribute(.strikethroughStyle, value: NSUnderlineStyle.single.rawValue,
-                                      range: range)
+                part.addAttribute(.strikethroughStyle, value: NSUnderlineStyle.single.rawValue, range: range)
             }
+            if isCodeBlock || intent.contains(.code) {
+                part.addAttribute(.backgroundColor, value: UIColor.secondarySystemBackground, range: range)
+            }
+            if isQuote || listItemID != nil {
+                let paragraph = NSMutableParagraphStyle()
+                paragraph.headIndent = font.pointSize
+                if isQuote { paragraph.firstLineHeadIndent = font.pointSize }
+                part.addAttribute(.paragraphStyle, value: paragraph, range: range)
+            }
+            rendered.append(part)
         }
         return rendered
     }
