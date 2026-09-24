@@ -23,9 +23,9 @@ happens at 3 a.m.", and it is the one that carries measurements.
 > No workflow targets the `cmux-persistent-compile` runner group any more, so
 > an org admin can remove the group and deregister its runners. Owned minis
 > will take pull request jobs through the pool picker instead
-> (`scripts/ci/pr_runner_pool.py`, `POOLS`, #14205). The sections marked
+> (`scripts/ci/pr_runner_pool.py`, #14205, #14237). The sections marked
 > "retired" below describe the removed pilot and are kept for their
-> measurements and reasoning. The [Nightly lane](#nightly-lane) is unchanged.
+> measurements and reasoning. The nightly mini lane was removed separately (#14243).
 
 ## TL;DR
 

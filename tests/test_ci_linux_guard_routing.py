@@ -443,13 +443,9 @@ class LinuxGuardRoutingTests(unittest.TestCase):
             name: "true" if name == "linux_guard_tests" else "false" for name in JOBS
         }
         expected_groups = {
-            "scripts/ci/mini_dispatch.py": ("preflight",),
-            "scripts/ci/nightly_mini_route.py": ("preflight",),
             "scripts/ci/build_graph_health.py": ("preflight",),
             "tests/test_build_graph_health.py": ("preflight", "quality-determinism"),
             "scripts/ci/swift_incremental_diagnostics.py": ("preflight",),
-            "tests/test_ci_mini_dispatch.py": ("preflight", "quality-determinism"),
-            "tests/test_nightly_mini_route.py": ("preflight", "quality-determinism"),
             "tests/test_swift_incremental_diagnostics.py": ("preflight", "quality-determinism"),
             # cmux.ci.guard runs it too, so the ci leg observes it.
             "tests/test_ci_self_hosted_guard.sh": ("preflight", "ci", "quality-determinism"),

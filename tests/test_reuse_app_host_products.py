@@ -147,13 +147,13 @@ class ReuseProducts(TestProductHandoff):
         base = [
             f"100644 blob {'1' * 40}\tSources/App.swift",
             f"100644 blob {'2' * 40}\tscripts/ci/compile-app-host-test-product.sh",
-            f"100644 blob {'3' * 40}\tscripts/ci/mini_dispatch.py",
+            f"100644 blob {'3' * 40}\tscripts/ci/pr_runner_pool.py",
             f"100644 blob {'4' * 40}\t.github/workflows/ci-macos.yml",
         ]
         admission_only = [
             f"100644 blob {'1' * 40}\tSources/App.swift",
             f"100644 blob {'2' * 40}\tscripts/ci/compile-app-host-test-product.sh",
-            f"100644 blob {'5' * 40}\tscripts/ci/mini_dispatch.py",
+            f"100644 blob {'5' * 40}\tscripts/ci/pr_runner_pool.py",
             f"100644 blob {'6' * 40}\t.github/workflows/ci-macos.yml",
         ]
         base_identity = identity.identity_from_tree_lines(base, workflow)
@@ -269,7 +269,7 @@ class ReuseProducts(TestProductHandoff):
         )
 
         self.assertFalse(identity.reaches_product(".github/workflows/ci-macos.yml"))
-        self.assertFalse(identity.reaches_product("scripts/ci/mini_dispatch.py"))
+        self.assertFalse(identity.reaches_product("scripts/ci/pr_runner_pool.py"))
         for path in (
             "workers/presence/src/index.ts",
             "config/iroh/managed-relay-catalog.json",

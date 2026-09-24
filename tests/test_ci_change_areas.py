@@ -1373,11 +1373,9 @@ def test_unknown_ci_helper_still_fails_open_to_every_area_the_lane_can_reach() -
     assert actual.cli is False
 
 
-def test_guard_workflow_and_mini_dispatch_skip_product_areas() -> None:
+def test_guard_workflow_and_self_hosted_guard_skip_product_areas() -> None:
     for path in (
         ".github/workflows/ci-guards.yml",
-        "scripts/ci/mini_dispatch.py",
-        "tests/test_ci_mini_dispatch.py",
         "tests/test_ci_self_hosted_guard.sh",
     ):
         assert_areas([path], macos=False, web=False)
@@ -2411,7 +2409,7 @@ def test_router_change_with_app_source_uses_trusted_base_product_routing() -> No
 
 
 def test_owned_control_plane_helper_reaches_detector_instead_of_fail_open_guard() -> None:
-    result, outputs = run_detect_step_for_paths(["scripts/ci/mini_dispatch.py"])
+    result, outputs = run_detect_step_for_paths(["scripts/ci/download-run-artifact.py"])
 
     assert "CI router changed; running all CI areas." not in result.stdout
     assert outputs == [
@@ -3431,7 +3429,7 @@ def test_build_input_fingerprint_tracks_product_identity_not_ci_orchestration() 
         **{
             "Sources/App.swift": "1" * 40,
             "scripts/ci/compile-app-host-test-product.sh": "2" * 40,
-            "scripts/ci/mini_dispatch.py": "3" * 40,
+            "scripts/ci/pr_runner_pool.py": "3" * 40,
             ".github/workflows/ci.yml": "4" * 40,
             "tests/test_x.py": "5" * 40,
         }
@@ -3457,7 +3455,7 @@ def test_build_input_fingerprint_tracks_product_identity_not_ci_orchestration() 
         **{
             "Sources/App.swift": "1" * 40,
             "scripts/ci/compile-app-host-test-product.sh": "2" * 40,
-            "scripts/ci/mini_dispatch.py": "6" * 40,
+            "scripts/ci/pr_runner_pool.py": "6" * 40,
             ".github/workflows/ci.yml": "7" * 40,
             "tests/test_x.py": "8" * 40,
         }

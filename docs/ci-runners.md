@@ -372,9 +372,8 @@ Leaving it unset is the intended state.
 The persistent compile-admission pilot (`persistent-macos-compile.yml`, its
 router, and `CI_PERSISTENT_MAC_COMPILE`) was retired before it routed any
 pull request.
-Owned minis will instead serve pull request jobs by joining `POOLS` in the pull
-request pool picker (`scripts/ci/pr_runner_pool.py`) behind a dedicated label,
-with its queue-depth fallback to Blacksmith.
+Owned minis serve pull request runs through the pool picker instead; see
+"Pull request pool preference" above.
 
 ## Tart isolation and capacity
 
@@ -561,7 +560,7 @@ tests.
 
 There is no direct-host exception: no workflow names a mini's label or runner
 group. Owned pools are reached only through `pr_runner_pool.py`, behind
-`CI_PR_POOL_OWNED` (see the owned pools section above).
+`CI_PR_POOL_OWNED` (see "Pull request pool preference").
 Every required macOS fallback still routes to the paid hosted path.
 `check_no_self_hosted_fleet_runners` in
 `tests/test_ci_self_hosted_guard.sh` rejects any required-job or generic fleet
