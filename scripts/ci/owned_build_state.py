@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """Keep compile admission's build state on an owned Mac between jobs.
 
-    owned_build_state.py check STORE FINGERPRINT RESOLVED GHOSTTY WORKSPACE
+    owned_build_state.py check STORE FINGERPRINT WORKSPACE
     owned_build_state.py adopt STORE DERIVED_DATA
     owned_build_state.py keep STORE DERIVED_DATA FINGERPRINT
-    owned_build_state.py save STORE SOURCE_PACKAGES RESOLVED GHOSTTY WORKSPACE
+    owned_build_state.py save STORE SOURCE_PACKAGES WORKSPACE
 
 An owned Mac (a `glaeda-<class>-xcode-<version>` runner, pr_runner_pool.py)
 outlives the job, but ci-macos.yml compile admission was written for
@@ -13,7 +13,7 @@ nightly DerivedData seed, and compiles into a DerivedData it deleted first.
 On cmux11s that was 25 minutes (run 36048804178): 3.7 of cache restore, about
 3 of seed, 14 of compile.
 
-This keeps three things under STORE (CMUX_OWNED_STATE_ROOT,
+This keeps two things under STORE (CMUX_OWNED_STATE_ROOT,
 /Users/Shared/cmux-build-fleet/ci by default) instead:
 
 - `derived-data`: the admission DerivedData, stamped with the canonical
@@ -21,13 +21,14 @@ This keeps three things under STORE (CMUX_OWNED_STATE_ROOT,
   with FileSystemMode=checksum-only (compile-app-host-test-product.sh), so
   Xcode compares input contents, not times: a fresh copy of the source into
   the canonical tree rebuilds only what changed since the last job here.
-- `source-packages`: the resolved `.ci-source-packages`, stamped with the
-  Package.resolved hash, so an unchanged pin set resolves offline.
-- `ghosttykit/<revision>`: the GhosttyKit.xcframework for a ghostty revision.
+- `source-packages`: the resolved `.ci-source-packages`, so the resolve
+  fetches what changed instead of restoring the whole cache. It is not
+  handed to the resolve as an exact hit: that would change the Resolve step,
+  which is part of the product key (product_input_identity.py).
 
 `check` runs before the caches: it drops a DerivedData whose stamp does not
-match or that grew past MAX_DERIVED_BYTES, and moves the packages and
-GhosttyKit into the workspace, where the existing steps pick them up. Its
+match or that grew past MAX_DERIVED_BYTES, and moves the packages into the
+workspace, where the resolve step picks them up. Its
 `warm` output tells the workflow to skip the SwiftPM cache restore and the
 seed. `adopt` runs where the seed would: the resolve step has just recreated
 the DerivedData, so it swaps the kept one in. `keep` runs right after a
@@ -35,8 +36,7 @@ successful compile and clones the DerivedData as Xcode left it: the steps
 after it stage package frameworks into Build/Products and rewrite the
 xctestruns, which a later build must not start from (seed-derived-data.yml
 saves its seed before them for the same reason). A failed or cancelled
-compile keeps nothing. `save` runs last, always, and keeps the packages
-whenever they resolved and GhosttyKit.
+compile keeps nothing. `save` runs last, always, and keeps the packages.
 
 Moves are renames and clones are APFS clones: the canonical root
 (/private/tmp/cmux-ci) and STORE sit on the same volume, so nothing is
@@ -60,13 +60,11 @@ import sys
 STAMP = "stamp.json"
 DERIVED = "derived-data"
 PACKAGES = "source-packages"
-GHOSTTYKIT = "ghosttykit"
 # A full DerivedData of every admission scheme is about 12 GB after UNREAD is
 # dropped. Past this it is carrying stale products; start over from the seed.
 MAX_DERIVED_BYTES = 40 * 1024**3
 # Written by every build and read by none (seed_derived_data.UNREAD).
 UNREAD = ("Logs", "Index.noindex")
-KEEP_GHOSTTYKIT_REVISIONS = 2
 
 
 def write_outputs(result: dict[str, str]) -> None:
@@ -135,10 +133,10 @@ def clone(source: Path, destination: Path) -> None:
         shutil.copytree(source, destination, symlinks=True)
 
 
-def check(store: Path, fingerprint: str, resolved: str, ghostty: str, workspace: Path) -> dict[str, str]:
+def check(store: Path, fingerprint: str, workspace: Path) -> dict[str, str]:
     store.mkdir(parents=True, exist_ok=True)
     stamp = read_stamp(store)
-    result = {"warm": "false", "packages": "false", "packages_exact": "false", "ghosttykit": "false"}
+    result = {"warm": "false", "packages": "false"}
     derived = store / DERIVED
     if not derived.is_dir():
         result["reason"] = "no kept DerivedData"
@@ -158,11 +156,6 @@ def check(store: Path, fingerprint: str, resolved: str, ghostty: str, workspace:
     if packages.is_dir():
         move(packages, workspace / ".ci-source-packages")
         result["packages"] = "true"
-        result["packages_exact"] = "true" if resolved and stamp.get("resolved") == resolved else "false"
-    kit = store / GHOSTTYKIT / ghostty / "GhosttyKit.xcframework"
-    if ghostty and kit.is_dir():
-        clone(kit, workspace / "GhosttyKit.xcframework")
-        result["ghosttykit"] = "true"
     return result
 
 
@@ -201,37 +194,20 @@ def keep(store: Path, derived: Path, fingerprint: str) -> dict[str, str]:
     return {"kept": "true"}
 
 
-def save(store: Path, source_packages: Path, resolved: str, ghostty: str, workspace: Path) -> dict[str, str]:
+def save(store: Path, source_packages: Path, workspace: Path) -> dict[str, str]:
     store.mkdir(parents=True, exist_ok=True)
-    result = {"packages": "false", "ghosttykit": "false"}
     # The resolve moved the packages into the canonical tree; a job that
     # stopped before it left them where check put them.
     for packages in (source_packages, workspace / ".ci-source-packages"):
         if packages.is_dir():
-            stamp = read_stamp(store)
-            stamp.pop("resolved", None)
-            write_stamp(store, stamp)
             move(packages, store / PACKAGES)
-            stamp["resolved"] = resolved
-            write_stamp(store, stamp)
-            result["packages"] = "true"
-            break
-    kit = workspace / "GhosttyKit.xcframework"
-    kits = store / GHOSTTYKIT
-    if ghostty and kit.is_dir() and not (kits / ghostty / "GhosttyKit.xcframework").is_dir():
-        clone(kit, kits / ghostty / "GhosttyKit.xcframework")
-        result["ghosttykit"] = "true"
-    if kits.is_dir():
-        revisions = sorted((path for path in kits.iterdir() if path.is_dir()),
-                           key=lambda path: path.stat().st_mtime, reverse=True)
-        for old in revisions[KEEP_GHOSTTYKIT_REVISIONS:]:
-            remove(old)
-    return result
+            return {"packages": "true"}
+    return {"packages": "false"}
 
 
 def main(argv: list[str]) -> int:
-    if len(argv) == 7 and argv[1] == "check":
-        write_outputs(check(Path(argv[2]), argv[3], argv[4], argv[5], Path(argv[6])))
+    if len(argv) == 5 and argv[1] == "check":
+        write_outputs(check(Path(argv[2]), argv[3], Path(argv[4])))
         return 0
     if len(argv) == 4 and argv[1] == "adopt":
         write_outputs(adopt(Path(argv[2]), Path(argv[3])))
@@ -239,8 +215,8 @@ def main(argv: list[str]) -> int:
     if len(argv) == 5 and argv[1] == "keep":
         write_outputs(keep(Path(argv[2]), Path(argv[3]), argv[4]))
         return 0
-    if len(argv) == 7 and argv[1] == "save":
-        write_outputs(save(Path(argv[2]), Path(argv[3]), argv[4], argv[5], Path(argv[6])))
+    if len(argv) == 4 and argv[1] == "save":
+        write_outputs(save(Path(argv[2]), Path(argv[3]), Path(argv[4])))
         return 0
     print(__doc__, file=sys.stderr)
     return 2

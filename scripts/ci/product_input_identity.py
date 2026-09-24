@@ -123,6 +123,12 @@ NON_PRODUCT_RECIPE_STEPS = frozenset({
     "Start the DerivedData seed download",
     "Adopt the nightly DerivedData seed",
     "Forget the adopted-build inode override",
+    # An owned Mac's kept DerivedData and packages decide how much is rebuilt
+    # and fetched, like the seed above, never what the product is.
+    "Reuse this owned Mac's build state",
+    "Adopt this owned Mac's DerivedData",
+    "Keep this owned Mac's DerivedData",
+    "Keep this owned Mac's build state",
     "Validate Swift warning budget",
     "Run early CLI binary smoke checks",
     "Start product publication timer",
