@@ -21,6 +21,7 @@ extension WorkspaceDetailView {
         // moving the dock and keyboard shortcut row upward in landscape.
         .ignoresSafeArea(.container, edges: [.top, .leading, .trailing, .bottom])
         .ignoresSafeArea(.keyboard, edges: .bottom)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .environment(\.colorScheme, store.activeTerminalTheme.terminalColorScheme)
     }
 
