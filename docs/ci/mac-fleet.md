@@ -691,6 +691,15 @@ its own work directory. `nightly.yml` already runs one full nightly per branch
 at a time and throttles pushes, so a second mini does not double publishing
 nightlies. It takes a `build_only` measurement run while the first mini builds
 a full nightly, and it covers for a mini that is offline or busy.
+
+On a Manaflow mini the producer builds under
+`/Users/Shared/cmux-build-fleet/bin/with-host-lock`, the same lock the
+build-fleet controller holds for dev builds, so the two take turns. Time spent
+waiting for the lock counts against `NIGHTLY_MAC_MINI_EXECUTION_SECONDS`, so a
+long wait plus the build can overrun it and fall back to Blacksmith. A lock that
+refuses admission (exit 75, below its free-disk floor) fails the producer, which
+also falls back.
+
 The label avoids the bare word `nightly`, which the HQ build-fleet controller
 reserves as a tag. It is a separate registration from the compile lane's runner.
 
